@@ -6862,14 +6862,13 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     pilot pattern_end = decl_end
     if colon_token >= 0 {
         pattern_end = colon_token
-
-        pilot type_start = v4_mir_skip_trivia(stream_id, colon_token + 1)
-        if type_start < decl_end {
-            declared_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_type_text(stream_id, type_start, decl_end))
-            if declared_ty == "" {
-                declared_ty = v4_ty_unknown
-            }
-        }
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    pilot pilot_offset = v4_span_start(v4_lex_token_span(stream_id, pilot_token))
+    pilot annotation_id = v4_ty_signature_local_annotation_at_offset(ty_id, sig_id, pilot_offset)
+    if annotation_id >= 0 {
+        declared_ty = v4_ty_signature_local_annotation_type(ty_id, sig_id, annotation_id)
     }
 
     pilot pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, pattern_start, pattern_end))

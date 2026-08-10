@@ -9038,6 +9038,42 @@ EXECUTABLE_SMOKES = [
             "bad-else-if-help=got int",
         ],
     },
+    {
+        "name": "MIR local annotation semantic lowering",
+        "fixture": "mir_local_annotation_semantic_smoke.fk",
+        "expect": [
+            "local-annotation-hir-count=4",
+            "local-annotation-ty-count=4",
+            "local-annotation-fixed-id=0",
+            "local-annotation-fixed-surface=char",
+            "local-annotation-fixed-type=char",
+            "local-annotation-fixed-type-source=char",
+            "local-annotation-fixed-stmt-span-stable=true",
+            "local-annotation-tuple-surface=(int,word)",
+            "local-annotation-tuple-type=(int,word)",
+            "local-annotation-board-surface=[int;2]",
+            "local-annotation-list-surface=[int;2]",
+            "local-annotation-mir-mark=char",
+            "local-annotation-mir-left=int",
+            "local-annotation-mir-label=word",
+            "local-annotation-mir-board=[int;2]",
+            "local-annotation-mir-front=int",
+            "local-annotation-mir-diagnostics=0",
+            "local-annotation-borrow-status=clean",
+            "local-annotation-borrow-diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v4 files=2 items=2 alias-targets=0 local-annotations=5 diagnostics=0",
+            "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 diagnostics=0 skipped-other=0 live-files=2",
+            "local-annotation-restored-count=4",
+            "local-annotation-restored-fixed=char",
+            "local-annotation-bad-hir-count=1",
+            "local-annotation-bad-surface=maybe<int,word>",
+            "local-annotation-bad-type-source=maybe<int,word>",
+            "local-annotation-bad-diagnostics=1",
+            "local-annotation-bad-message=invalid local annotation type",
+            "local-annotation-bad-help=Meiya lifetime debt: maybe expects 1 generic arguments in local declaration hold but received 2",
+            "local-annotation-bad-stmt-span-stable=true",
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:
@@ -9372,7 +9408,7 @@ def check_alias_hir_boundary() -> None:
             violations.append(f"alias expansion accessor missing: {task_name}")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v3"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v4"',
         "pilot v4_hir_alias_target_types = 0",
         "pilot v4_hir_alias_target_spans = 0",
         "v4_hir_lower_alias_target_type",

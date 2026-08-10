@@ -1,0 +1,104 @@
+-- V4 task-local annotation ownership smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_local_annotation_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_local_annotation_source() -> word {
+    pilot src = "task main() -> char {\n"
+    src = src + "    fixed pilot mark: char = 'A'\n"
+    src = src + "    pilot pair = (7, \"ace\")\n"
+    src = src + "    pilot (left, label): (int,word) = pair\n"
+    src = src + "    pilot board: [int;2] = [7, 9]\n"
+    src = src + "    pilot [front, flank]: [int;2] = board\n"
+    src = src + "    give back mark\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_local_annotation_bad_source() -> word {
+    pilot src = "task bad() -> int {\n"
+    src = src + "    pilot hold: maybe<int,word> = 7\n"
+    src = src + "    give back hold\n"
+    src = src + "}\n"
+    give back src
+}
+
+pilot v4_local_annotation_src = v4_local_annotation_source()
+pilot v4_local_annotation_stream = v4_lex_text(0, v4_local_annotation_src)
+pilot v4_local_annotation_tree = v4_parse_stream(0, v4_local_annotation_stream)
+pilot v4_local_annotation_hir = v4_hir_lower_tree(0, v4_local_annotation_tree)
+pilot v4_local_annotation_resolve = v4_resolve_lower_hir(0, v4_local_annotation_hir)
+pilot v4_local_annotation_ty = v4_ty_lower_resolve(0, v4_local_annotation_resolve)
+pilot v4_local_annotation_mir = v4_mir_lower_ty(0, v4_local_annotation_ty)
+pilot v4_local_annotation_borrow = v4_borrowck_check_mir(0, v4_local_annotation_mir)
+
+pilot v4_local_annotation_def = v4_resolve_def_for_name(v4_local_annotation_resolve, "main")
+pilot v4_local_annotation_sig = v4_ty_lookup_signature(v4_local_annotation_ty, v4_local_annotation_def)
+pilot v4_local_annotation_item = v4_ty_signature_hir_item(v4_local_annotation_ty, v4_local_annotation_sig)
+pilot v4_local_annotation_body = v4_mir_lookup_body(v4_local_annotation_mir, v4_local_annotation_def)
+pilot v4_local_annotation_borrow_result = v4_borrowck_lookup_result(v4_local_annotation_borrow, v4_local_annotation_def)
+
+pilot v4_local_annotation_mark = v4_mir_find_local(v4_local_annotation_mir, v4_local_annotation_body, "mark")
+pilot v4_local_annotation_left = v4_mir_find_local(v4_local_annotation_mir, v4_local_annotation_body, "left")
+pilot v4_local_annotation_label = v4_mir_find_local(v4_local_annotation_mir, v4_local_annotation_body, "label")
+pilot v4_local_annotation_board = v4_mir_find_local(v4_local_annotation_mir, v4_local_annotation_body, "board")
+pilot v4_local_annotation_front = v4_mir_find_local(v4_local_annotation_mir, v4_local_annotation_body, "front")
+
+pilot v4_local_annotation_mark_id = v4_ty_signature_local_annotation_at_offset(v4_local_annotation_ty, v4_local_annotation_sig, v4_span_start(v4_mir_local_span(v4_local_annotation_mir, v4_local_annotation_body, v4_local_annotation_mark)))
+pilot v4_local_annotation_tuple_id = v4_ty_signature_local_annotation_at_offset(v4_local_annotation_ty, v4_local_annotation_sig, v4_span_start(v4_mir_local_span(v4_local_annotation_mir, v4_local_annotation_body, v4_local_annotation_left)))
+pilot v4_local_annotation_board_id = v4_ty_signature_local_annotation_at_offset(v4_local_annotation_ty, v4_local_annotation_sig, v4_span_start(v4_mir_local_span(v4_local_annotation_mir, v4_local_annotation_body, v4_local_annotation_board)))
+pilot v4_local_annotation_list_id = v4_ty_signature_local_annotation_at_offset(v4_local_annotation_ty, v4_local_annotation_sig, v4_span_start(v4_mir_local_span(v4_local_annotation_mir, v4_local_annotation_body, v4_local_annotation_front)))
+
+say "local-annotation-hir-count=" + word_from_int(v4_hir_local_annotation_count(v4_local_annotation_hir, v4_local_annotation_item))
+say "local-annotation-ty-count=" + word_from_int(v4_ty_signature_local_annotation_count(v4_local_annotation_ty, v4_local_annotation_sig))
+say "local-annotation-fixed-id=" + word_from_int(v4_local_annotation_mark_id)
+say "local-annotation-fixed-surface=" + v4_ty_signature_local_annotation_surface_type(v4_local_annotation_ty, v4_local_annotation_sig, v4_local_annotation_mark_id)
+say "local-annotation-fixed-type=" + v4_ty_signature_local_annotation_type(v4_local_annotation_ty, v4_local_annotation_sig, v4_local_annotation_mark_id)
+pilot v4_local_annotation_mark_type_span = v4_ty_signature_local_annotation_type_span(v4_local_annotation_ty, v4_local_annotation_sig, v4_local_annotation_mark_id)
+say "local-annotation-fixed-type-source=" + v4_slice(v4_local_annotation_src, v4_span_start(v4_local_annotation_mark_type_span), v4_span_end(v4_local_annotation_mark_type_span))
+say "local-annotation-fixed-stmt-span-stable=" + v4_local_annotation_bool(v4_ty_signature_local_annotation_stmt_span(v4_local_annotation_ty, v4_local_annotation_sig, v4_local_annotation_mark_id) == v4_mir_local_span(v4_local_annotation_mir, v4_local_annotation_body, v4_local_annotation_mark))
+say "local-annotation-tuple-surface=" + v4_ty_signature_local_annotation_surface_type(v4_local_annotation_ty, v4_local_annotation_sig, v4_local_annotation_tuple_id)
+say "local-annotation-tuple-type=" + v4_ty_signature_local_annotation_type(v4_local_annotation_ty, v4_local_annotation_sig, v4_local_annotation_tuple_id)
+say "local-annotation-board-surface=" + v4_ty_signature_local_annotation_surface_type(v4_local_annotation_ty, v4_local_annotation_sig, v4_local_annotation_board_id)
+say "local-annotation-list-surface=" + v4_ty_signature_local_annotation_surface_type(v4_local_annotation_ty, v4_local_annotation_sig, v4_local_annotation_list_id)
+say "local-annotation-mir-mark=" + v4_mir_local_ty(v4_local_annotation_mir, v4_local_annotation_body, v4_local_annotation_mark)
+say "local-annotation-mir-left=" + v4_mir_local_ty(v4_local_annotation_mir, v4_local_annotation_body, v4_local_annotation_left)
+say "local-annotation-mir-label=" + v4_mir_local_ty(v4_local_annotation_mir, v4_local_annotation_body, v4_local_annotation_label)
+say "local-annotation-mir-board=" + v4_mir_local_ty(v4_local_annotation_mir, v4_local_annotation_body, v4_local_annotation_board)
+say "local-annotation-mir-front=" + v4_mir_local_ty(v4_local_annotation_mir, v4_local_annotation_body, v4_local_annotation_front)
+say "local-annotation-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_local_annotation_mir))
+say "local-annotation-borrow-status=" + v4_borrowck_result_status(v4_local_annotation_borrow, v4_local_annotation_borrow_result)
+say "local-annotation-borrow-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_local_annotation_borrow))
+
+pilot v4_local_annotation_snapshot = v4_hir_snapshot()
+say v4_hir_snapshot_summary()
+say v4_hir_snapshot_restore(v4_local_annotation_snapshot)
+say "local-annotation-restored-count=" + word_from_int(v4_hir_local_annotation_count(v4_local_annotation_hir, v4_local_annotation_item))
+say "local-annotation-restored-fixed=" + v4_hir_local_annotation_type(v4_local_annotation_hir, v4_local_annotation_item, v4_local_annotation_mark_id)
+
+pilot v4_local_annotation_bad_src = v4_local_annotation_bad_source()
+pilot v4_local_annotation_bad_stream = v4_lex_text(1, v4_local_annotation_bad_src)
+pilot v4_local_annotation_bad_tree = v4_parse_stream(1, v4_local_annotation_bad_stream)
+pilot v4_local_annotation_bad_hir = v4_hir_lower_tree(1, v4_local_annotation_bad_tree)
+pilot v4_local_annotation_bad_resolve = v4_resolve_lower_hir(1, v4_local_annotation_bad_hir)
+pilot v4_local_annotation_bad_ty = v4_ty_lower_resolve(1, v4_local_annotation_bad_resolve)
+pilot v4_local_annotation_bad_mir = v4_mir_lower_ty(1, v4_local_annotation_bad_ty)
+pilot v4_local_annotation_bad_def = v4_resolve_def_for_name(v4_local_annotation_bad_resolve, "bad")
+pilot v4_local_annotation_bad_sig = v4_ty_lookup_signature(v4_local_annotation_bad_ty, v4_local_annotation_bad_def)
+pilot v4_local_annotation_bad_item = v4_ty_signature_hir_item(v4_local_annotation_bad_ty, v4_local_annotation_bad_sig)
+pilot v4_local_annotation_bad_body = v4_mir_lookup_body(v4_local_annotation_bad_mir, v4_local_annotation_bad_def)
+pilot v4_local_annotation_bad_hold = v4_mir_find_local(v4_local_annotation_bad_mir, v4_local_annotation_bad_body, "hold")
+pilot v4_local_annotation_bad_id = v4_ty_signature_local_annotation_at_offset(v4_local_annotation_bad_ty, v4_local_annotation_bad_sig, v4_span_start(v4_mir_local_span(v4_local_annotation_bad_mir, v4_local_annotation_bad_body, v4_local_annotation_bad_hold)))
+pilot v4_local_annotation_bad_type_span = v4_ty_signature_local_annotation_type_span(v4_local_annotation_bad_ty, v4_local_annotation_bad_sig, v4_local_annotation_bad_id)
+pilot v4_local_annotation_bad_diag = v4_mir_diag(v4_local_annotation_bad_mir, 0)
+
+say "local-annotation-bad-hir-count=" + word_from_int(v4_hir_local_annotation_count(v4_local_annotation_bad_hir, v4_local_annotation_bad_item))
+say "local-annotation-bad-surface=" + v4_ty_signature_local_annotation_surface_type(v4_local_annotation_bad_ty, v4_local_annotation_bad_sig, v4_local_annotation_bad_id)
+say "local-annotation-bad-type-source=" + v4_slice(v4_local_annotation_bad_src, v4_span_start(v4_local_annotation_bad_type_span), v4_span_end(v4_local_annotation_bad_type_span))
+say "local-annotation-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_local_annotation_bad_mir))
+say "local-annotation-bad-message=" + v4_diag_message(v4_local_annotation_bad_diag)
+say "local-annotation-bad-help=" + v4_diag_help(v4_local_annotation_bad_diag)
+say "local-annotation-bad-stmt-span-stable=" + v4_local_annotation_bool(v4_diag_span(v4_local_annotation_bad_diag) == v4_mir_local_span(v4_local_annotation_bad_mir, v4_local_annotation_bad_body, v4_local_annotation_bad_hold))

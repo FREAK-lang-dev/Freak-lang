@@ -294,6 +294,73 @@ task v4_ty_signature_hir_item(ty_id: int, sig_id: int) -> int {
     give back word_to_int(array_get(v4_ty_hir_items_handle(ty_id), sig_id))
 }
 
+task v4_ty_signature_local_annotation_hir_id(ty_id: int, sig_id: int) -> int {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
+        give back 0 - 1
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 {
+        give back 0 - 1
+    }
+    give back hir_id
+}
+
+-- Impl and doctrine method signatures share one owner HIR item. Count and
+-- indexed access expose that owner record; offset lookup disambiguates the
+-- exact method-local annotation consumed by MIR.
+task v4_ty_signature_local_annotation_count(ty_id: int, sig_id: int) -> int {
+    pilot hir_id = v4_ty_signature_local_annotation_hir_id(ty_id, sig_id)
+    if hir_id < 0 {
+        give back 0
+    }
+    give back v4_hir_local_annotation_count(hir_id, v4_ty_signature_hir_item(ty_id, sig_id))
+}
+
+task v4_ty_signature_local_annotation_at_offset(ty_id: int, sig_id: int, offset: int) -> int {
+    pilot hir_id = v4_ty_signature_local_annotation_hir_id(ty_id, sig_id)
+    if hir_id < 0 {
+        give back 0 - 1
+    }
+    give back v4_hir_local_annotation_at_offset(hir_id, v4_ty_signature_hir_item(ty_id, sig_id), offset)
+}
+
+task v4_ty_signature_local_annotation_stmt_span(ty_id: int, sig_id: int, annotation_id: int) -> word {
+    pilot hir_id = v4_ty_signature_local_annotation_hir_id(ty_id, sig_id)
+    if hir_id < 0 {
+        give back V4_NO_SPAN
+    }
+    give back v4_hir_local_annotation_stmt_span(hir_id, v4_ty_signature_hir_item(ty_id, sig_id), annotation_id)
+}
+
+task v4_ty_signature_local_annotation_surface_type(ty_id: int, sig_id: int, annotation_id: int) -> word {
+    pilot hir_id = v4_ty_signature_local_annotation_hir_id(ty_id, sig_id)
+    if hir_id < 0 {
+        give back ""
+    }
+    give back v4_hir_local_annotation_type(hir_id, v4_ty_signature_hir_item(ty_id, sig_id), annotation_id)
+}
+
+task v4_ty_signature_local_annotation_type(ty_id: int, sig_id: int, annotation_id: int) -> word {
+    pilot surface_type = v4_ty_signature_local_annotation_surface_type(ty_id, sig_id, annotation_id)
+    if surface_type == "" {
+        give back v4_ty_unknown
+    }
+    pilot declared_type = v4_ty_canonical_type(ty_id, surface_type)
+    if declared_type == "" {
+        give back v4_ty_unknown
+    }
+    give back declared_type
+}
+
+task v4_ty_signature_local_annotation_type_span(ty_id: int, sig_id: int, annotation_id: int) -> word {
+    pilot hir_id = v4_ty_signature_local_annotation_hir_id(ty_id, sig_id)
+    if hir_id < 0 {
+        give back V4_NO_SPAN
+    }
+    give back v4_hir_local_annotation_type_span(hir_id, v4_ty_signature_hir_item(ty_id, sig_id), annotation_id)
+}
+
 task v4_ty_diag(ty_id: int, diag_id: int) -> word {
     if diag_id < 0 or diag_id >= v4_ty_diag_count(ty_id) {
         give back ""

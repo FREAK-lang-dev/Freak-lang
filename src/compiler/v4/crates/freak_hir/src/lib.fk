@@ -17,7 +17,7 @@ pilot v4_hir_import = "Import"
 pilot v4_hir_extern = "Extern"
 pilot v4_hir_attribute = "Attribute"
 pilot v4_hir_error = "Error"
-pilot v4_hir_snapshot_format = "freak-hir-snapshot-v3"
+pilot v4_hir_snapshot_format = "freak-hir-snapshot-v4"
 
 pilot v4_hir_files = 0
 pilot v4_hir_expansions = 0
@@ -29,6 +29,13 @@ pilot v4_hir_item_parse_nodes = 0
 -- The first No Syntax Past HIR family: normalized alias target type facts.
 pilot v4_hir_alias_target_types = 0
 pilot v4_hir_alias_target_spans = 0
+-- Task-local declaration annotations are normalized once at the HIR boundary.
+-- MIR may still use body tokens for CFG and pattern boundaries, but declared
+-- types and their semantic spans come from these stored facts.
+pilot v4_hir_local_annotation_items = 0
+pilot v4_hir_local_annotation_stmt_spans = 0
+pilot v4_hir_local_annotation_types = 0
+pilot v4_hir_local_annotation_type_spans = 0
 pilot v4_hir_diags = 0
 pilot v4_hir_file_len = 0
 pilot v4_hir_ready = 0
@@ -44,6 +51,10 @@ task v4_hir_init() -> void {
         v4_hir_item_parse_nodes = array_new()
         v4_hir_alias_target_types = array_new()
         v4_hir_alias_target_spans = array_new()
+        v4_hir_local_annotation_items = array_new()
+        v4_hir_local_annotation_stmt_spans = array_new()
+        v4_hir_local_annotation_types = array_new()
+        v4_hir_local_annotation_type_spans = array_new()
         v4_hir_diags = array_new()
         v4_hir_file_len = 0
         v4_hir_ready = 1
@@ -63,6 +74,10 @@ task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
         array_push(v4_hir_item_parse_nodes, word_from_int(array_new()))
         array_push(v4_hir_alias_target_types, word_from_int(array_new()))
         array_push(v4_hir_alias_target_spans, word_from_int(array_new()))
+        array_push(v4_hir_local_annotation_items, word_from_int(array_new()))
+        array_push(v4_hir_local_annotation_stmt_spans, word_from_int(array_new()))
+        array_push(v4_hir_local_annotation_types, word_from_int(array_new()))
+        array_push(v4_hir_local_annotation_type_spans, word_from_int(array_new()))
         array_push(v4_hir_diags, word_from_int(array_new()))
     }
     array_set(v4_hir_files, hir_id, word_from_int(file_id))
@@ -74,6 +89,10 @@ task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
     array_set(v4_hir_item_parse_nodes, hir_id, word_from_int(array_new()))
     array_set(v4_hir_alias_target_types, hir_id, word_from_int(array_new()))
     array_set(v4_hir_alias_target_spans, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_local_annotation_items, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_local_annotation_stmt_spans, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_local_annotation_types, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_local_annotation_type_spans, hir_id, word_from_int(array_new()))
     array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
     v4_hir_file_len = hir_id + 1
     give back hir_id
@@ -105,6 +124,22 @@ task v4_hir_alias_target_types_handle(hir_id: int) -> int {
 
 task v4_hir_alias_target_spans_handle(hir_id: int) -> int {
     give back word_to_int(array_get(v4_hir_alias_target_spans, hir_id))
+}
+
+task v4_hir_local_annotation_items_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_local_annotation_items, hir_id))
+}
+
+task v4_hir_local_annotation_stmt_spans_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_local_annotation_stmt_spans, hir_id))
+}
+
+task v4_hir_local_annotation_types_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_local_annotation_types, hir_id))
+}
+
+task v4_hir_local_annotation_type_spans_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_local_annotation_type_spans, hir_id))
 }
 
 task v4_hir_diags_handle(hir_id: int) -> int {
@@ -415,6 +450,299 @@ task v4_hir_lower_alias_target_type(hir_id: int, item_id: int, expansion_id: int
     array_set(v4_hir_alias_target_spans_handle(hir_id), item_id, v4_expand_alias_target_span(expansion_id, expanded_node))
 }
 
+task v4_hir_local_annotation_record_count(hir_id: int) -> int {
+    give back array_len(v4_hir_local_annotation_items_handle(hir_id))
+}
+
+task v4_hir_local_annotation_record_id(hir_id: int, item_id: int, annotation_id: int) -> int {
+    if item_id < 0 or annotation_id < 0 {
+        give back 0 - 1
+    }
+    pilot record_id = 0
+    pilot local_id = 0
+    pilot record_count = v4_hir_local_annotation_record_count(hir_id)
+    repeat until record_id >= record_count {
+        if word_to_int(array_get(v4_hir_local_annotation_items_handle(hir_id), record_id)) == item_id {
+            if local_id == annotation_id {
+                give back record_id
+            }
+            local_id += 1
+        }
+        record_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_local_annotation_count(hir_id: int, item_id: int) -> int {
+    pilot count = 0
+    pilot record_id = 0
+    pilot record_count = v4_hir_local_annotation_record_count(hir_id)
+    repeat until record_id >= record_count {
+        if word_to_int(array_get(v4_hir_local_annotation_items_handle(hir_id), record_id)) == item_id {
+            count += 1
+        }
+        record_id += 1
+    }
+    give back count
+}
+
+task v4_hir_local_annotation_stmt_span(hir_id: int, item_id: int, annotation_id: int) -> word {
+    pilot record_id = v4_hir_local_annotation_record_id(hir_id, item_id, annotation_id)
+    if record_id < 0 {
+        give back V4_NO_SPAN
+    }
+    give back array_get(v4_hir_local_annotation_stmt_spans_handle(hir_id), record_id)
+}
+
+task v4_hir_local_annotation_type(hir_id: int, item_id: int, annotation_id: int) -> word {
+    pilot record_id = v4_hir_local_annotation_record_id(hir_id, item_id, annotation_id)
+    if record_id < 0 {
+        give back ""
+    }
+    give back array_get(v4_hir_local_annotation_types_handle(hir_id), record_id)
+}
+
+task v4_hir_local_annotation_type_span(hir_id: int, item_id: int, annotation_id: int) -> word {
+    pilot record_id = v4_hir_local_annotation_record_id(hir_id, item_id, annotation_id)
+    if record_id < 0 {
+        give back V4_NO_SPAN
+    }
+    give back array_get(v4_hir_local_annotation_type_spans_handle(hir_id), record_id)
+}
+
+task v4_hir_local_annotation_at_offset(hir_id: int, item_id: int, offset: int) -> int {
+    pilot annotation_id = 0
+    pilot annotation_count = v4_hir_local_annotation_count(hir_id, item_id)
+    repeat until annotation_id >= annotation_count {
+        pilot stmt_span = v4_hir_local_annotation_stmt_span(hir_id, item_id, annotation_id)
+        if offset >= v4_span_start(stmt_span) and offset < v4_span_end(stmt_span) {
+            give back annotation_id
+        }
+        annotation_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_add_local_annotation(hir_id: int, item_id: int, stmt_span: word, type_text: word, type_span: word) -> int {
+    pilot record_id = v4_hir_local_annotation_record_count(hir_id)
+    array_push(v4_hir_local_annotation_items_handle(hir_id), word_from_int(item_id))
+    array_push(v4_hir_local_annotation_stmt_spans_handle(hir_id), stmt_span)
+    array_push(v4_hir_local_annotation_types_handle(hir_id), type_text)
+    array_push(v4_hir_local_annotation_type_spans_handle(hir_id), type_span)
+    give back record_id
+}
+
+task v4_hir_first_token_at_or_after(stream_id: int, offset: int) -> int {
+    pilot token_id = 0
+    pilot token_count = v4_lex_token_count(stream_id)
+    repeat until token_id >= token_count {
+        if v4_span_start(v4_lex_token_span(stream_id, token_id)) >= offset {
+            give back token_id
+        }
+        token_id += 1
+    }
+    give back token_count
+}
+
+task v4_hir_skip_trivia(stream_id: int, token_id: int, end_token: int) -> int {
+    pilot idx = token_id
+    repeat until idx >= end_token or v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+        idx += 1
+    }
+    give back idx
+}
+
+task v4_hir_previous_nontrivia(stream_id: int, token_id: int, start_token: int) -> int {
+    pilot idx = token_id
+    repeat until idx < start_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            give back idx
+        }
+        idx -= 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_has_newline_between(stream_id: int, earlier_token: int, later_token: int) -> bool {
+    pilot idx = earlier_token + 1
+    repeat until idx >= later_token {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_trivia and v4_lex_token_value(stream_id, idx) == "\n" {
+            give back true
+        }
+        idx += 1
+    }
+    give back false
+}
+
+task v4_hir_token_starts_statement(stream_id: int, token_id: int, item_start: int) -> bool {
+    pilot previous = v4_hir_previous_nontrivia(stream_id, token_id - 1, item_start)
+    if previous < item_start {
+        give back true
+    }
+    pilot previous_value = v4_lex_token_value(stream_id, previous)
+    if previous_value == "{" or previous_value == "}" or previous_value == ";" {
+        give back true
+    }
+    give back v4_hir_has_newline_between(stream_id, previous, token_id)
+}
+
+task v4_hir_pilot_starts_local_decl(stream_id: int, pilot_token: int, item_start: int) -> bool {
+    if v4_hir_token_starts_statement(stream_id, pilot_token, item_start) {
+        give back true
+    }
+    pilot previous = v4_hir_previous_nontrivia(stream_id, pilot_token - 1, item_start)
+    if previous < item_start or v4_lex_token_value(stream_id, previous) != "fixed" {
+        give back false
+    }
+    give back v4_hir_token_starts_statement(stream_id, previous, item_start)
+}
+
+task v4_hir_depth_after_token(depth: int, value: word) -> int {
+    if value == "(" or value == "[" or value == "{" {
+        give back depth + 1
+    }
+    if value == ")" or value == "]" or value == "}" {
+        if depth > 0 {
+            give back depth - 1
+        }
+    }
+    give back depth
+}
+
+task v4_hir_statement_end(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot idx = start_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        pilot token_type = v4_lex_token_type(stream_id, idx)
+        pilot value = v4_lex_token_value(stream_id, idx)
+        if token_type != v4_tok_trivia {
+            if value == "}" and depth == 0 {
+                give back idx
+            }
+            if value == ";" and depth == 0 {
+                give back idx
+            }
+            depth = v4_hir_depth_after_token(depth, value)
+        } else if value == "\n" and depth == 0 {
+            give back idx
+        }
+        idx += 1
+    }
+    give back end_token
+}
+
+task v4_hir_find_local_assignment(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot idx = start_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot value = v4_lex_token_value(stream_id, idx)
+            if value == "=" and depth == 0 {
+                give back idx
+            }
+            depth = v4_hir_depth_after_token(depth, value)
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_find_local_annotation_colon(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot idx = start_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot value = v4_lex_token_value(stream_id, idx)
+            if value == ":" and depth == 0 {
+                give back idx
+            }
+            depth = v4_hir_depth_after_token(depth, value)
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot first = v4_hir_skip_trivia(stream_id, start_token, end_token)
+    pilot last = v4_hir_previous_nontrivia(stream_id, end_token - 1, first)
+    if first >= end_token or last < first {
+        give back V4_NO_SPAN
+    }
+    pilot first_span = v4_lex_token_span(stream_id, first)
+    pilot last_span = v4_lex_token_span(stream_id, last)
+    give back v4_span_new(v4_span_file(first_span), v4_span_start(first_span), v4_span_end(last_span))
+}
+
+task v4_hir_local_annotation_type_text(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot out = ""
+    pilot previous_value = ""
+    pilot previous_previous_value = ""
+    pilot previous_type = ""
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        pilot token_type = v4_lex_token_type(stream_id, idx)
+        if token_type != v4_tok_trivia {
+            pilot value = v4_lex_token_value(stream_id, idx)
+            pilot needs_separator: bool = previous_value == "lend" or previous_value == "dyn"
+            if previous_value == "mut" and previous_previous_value == "lend" {
+                needs_separator = true
+            }
+            if previous_type == v4_tok_lifetime and value != ":" and value != "+" and value != "," and value != ">" and value != ")" and value != "]" and value != ";" {
+                needs_separator = true
+            }
+            if out != "" and needs_separator {
+                out = out + " "
+            }
+            out = out + value
+            previous_previous_value = previous_value
+            previous_value = value
+            previous_type = token_type
+        }
+        idx += 1
+    }
+    give back out
+}
+
+task v4_hir_lower_local_annotations(hir_id: int, item_id: int) -> void {
+    pilot item_kind = v4_hir_item_kind(hir_id, item_id)
+    if item_kind != v4_hir_task and item_kind != v4_hir_impl and item_kind != v4_hir_doctrine {
+        give back
+    }
+    pilot stream_id = v4_hir_item_stream_id(hir_id)
+    if stream_id < 0 {
+        give back
+    }
+    pilot item_span = v4_hir_item_span(hir_id, item_id)
+    pilot item_start = v4_hir_first_token_at_or_after(stream_id, v4_span_start(item_span))
+    pilot item_end = v4_hir_first_token_at_or_after(stream_id, v4_span_end(item_span))
+    pilot idx = item_start
+    repeat until idx >= item_end {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_value(stream_id, idx) == "pilot" and v4_hir_pilot_starts_local_decl(stream_id, idx, item_start) {
+            pilot stmt_end = v4_hir_statement_end(stream_id, idx, item_end)
+            pilot pattern_start = v4_hir_skip_trivia(stream_id, idx + 1, stmt_end)
+            pilot assignment = v4_hir_find_local_assignment(stream_id, pattern_start, stmt_end)
+            pilot decl_end = stmt_end
+            if assignment >= 0 {
+                decl_end = assignment
+            }
+            pilot colon = v4_hir_find_local_annotation_colon(stream_id, pattern_start, decl_end)
+            if colon >= 0 {
+                pilot type_start = v4_hir_skip_trivia(stream_id, colon + 1, decl_end)
+                if type_start < decl_end {
+                    pilot type_text = v4_hir_local_annotation_type_text(stream_id, type_start, decl_end)
+                    pilot type_span = v4_hir_span_from_tokens(stream_id, type_start, decl_end)
+                    pilot stmt_span = v4_hir_span_from_tokens(stream_id, idx, stmt_end)
+                    if type_text != "" {
+                        v4_hir_add_local_annotation(hir_id, item_id, stmt_span, type_text, type_span)
+                    }
+                }
+            }
+        }
+        idx += 1
+    }
+}
+
 task v4_hir_const_type(hir_id: int, item_id: int) -> word {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_const {
         give back ""
@@ -627,6 +955,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
             pilot item_span = v4_expand_node_span(expansion_id, node_idx)
             pilot item_id = v4_hir_add_item(hir_id, hir_kind, item_name, item_span, node_idx)
             v4_hir_lower_alias_target_type(hir_id, item_id, expansion_id, node_idx)
+            v4_hir_lower_local_annotations(hir_id, item_id)
         }
         node_idx += 1
     }
@@ -710,6 +1039,17 @@ task v4_hir_snapshot_alias_target_total() -> int {
     give back total
 }
 
+task v4_hir_snapshot_local_annotation_total() -> int {
+    v4_hir_init()
+    pilot total = 0
+    pilot hir_id = 0
+    repeat until hir_id >= v4_hir_file_count() {
+        total += v4_hir_local_annotation_record_count(hir_id)
+        hir_id += 1
+    }
+    give back total
+}
+
 task v4_hir_snapshot_diag_total() -> int {
     v4_hir_init()
     pilot total = 0
@@ -727,6 +1067,7 @@ task v4_hir_snapshot_summary() -> word {
     summary = summary + " files=" + word_from_int(v4_hir_file_count())
     summary = summary + " items=" + word_from_int(v4_hir_snapshot_item_total())
     summary = summary + " alias-targets=" + word_from_int(v4_hir_snapshot_alias_target_total())
+    summary = summary + " local-annotations=" + word_from_int(v4_hir_snapshot_local_annotation_total())
     summary = summary + " diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
     give back summary
 }
@@ -737,6 +1078,7 @@ task v4_hir_snapshot_header() -> word {
     out = out + "|files=" + word_from_int(v4_hir_file_count())
     out = out + "|items=" + word_from_int(v4_hir_snapshot_item_total())
     out = out + "|alias-targets=" + word_from_int(v4_hir_snapshot_alias_target_total())
+    out = out + "|local-annotations=" + word_from_int(v4_hir_snapshot_local_annotation_total())
     out = out + "|diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
     give back out
 }
@@ -765,6 +1107,18 @@ task v4_hir_snapshot_item_line(hir_id: int, item_id: int) -> word {
     give back out
 }
 
+task v4_hir_snapshot_local_annotation_line(hir_id: int, record_id: int) -> word {
+    pilot out = "hir-local-annotation"
+    pilot item_id: word = array_get(v4_hir_local_annotation_items_handle(hir_id), record_id)
+    out = out + "|" + word_from_int(hir_id)
+    out = out + "|" + word_from_int(record_id)
+    out = out + "|" + item_id
+    out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_local_annotation_stmt_spans_handle(hir_id), record_id))
+    out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_local_annotation_types_handle(hir_id), record_id))
+    out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_local_annotation_type_spans_handle(hir_id), record_id))
+    give back out
+}
+
 task v4_hir_snapshot_diag_line(hir_id: int, diag_id: int) -> word {
     pilot out = "hir-diag"
     out = out + "|" + word_from_int(hir_id)
@@ -790,6 +1144,14 @@ task v4_hir_snapshot() -> word {
             item_id += 1
         }
 
+        pilot local_annotation_id = 0
+        pilot local_annotation_count = v4_hir_local_annotation_record_count(hir_id)
+        repeat until local_annotation_id >= local_annotation_count {
+            array_push(parts, "\n")
+            array_push(parts, v4_hir_snapshot_local_annotation_line(hir_id, local_annotation_id))
+            local_annotation_id += 1
+        }
+
         pilot diag_id = 0
         pilot diag_count = v4_hir_diag_count(hir_id)
         repeat until diag_id >= diag_count {
@@ -806,13 +1168,16 @@ task v4_hir_snapshot() -> word {
 
 task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "hir-snapshot" {
-        give back 6
+        give back 7
     }
     if kind == "hir" {
         give back 6
     }
     if kind == "hir-item" {
         give back 10
+    }
+    if kind == "hir-local-annotation" {
+        give back 7
     }
     if kind == "hir-diag" {
         give back 4
@@ -992,6 +1357,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     pilot files = 0
     pilot items = 0
     pilot alias_targets = 0
+    pilot local_annotations = 0
     pilot diagnostics = 0
     pilot malformed = 0
     pilot saw_header = 0
@@ -1036,6 +1402,8 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                         malformed += 1
                     }
                 }
+            } else if kind == "hir-local-annotation" {
+                local_annotations += 1
             } else if kind == "hir-diag" {
                 diagnostics += 1
                 if v4_hir_snapshot_file_for_hir(payload, v4_hir_snapshot_field_raw(line, 1)) == no_file {
@@ -1079,6 +1447,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     out = out + " items=" + word_from_int(items)
     out = out + " alias-targets=" + word_from_int(alias_targets)
     out = out + " declared-alias-targets=" + declared_alias_targets
+    out = out + " local-annotations=" + word_from_int(local_annotations)
     out = out + " diagnostics=" + word_from_int(diagnostics)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " headers=" + word_from_int(saw_header)
@@ -1098,6 +1467,10 @@ task v4_hir_restore_file_slot(hir_id: int, file_id: int, expansion_id: int) -> i
         array_push(v4_hir_item_parse_nodes, word_from_int(array_new()))
         array_push(v4_hir_alias_target_types, word_from_int(array_new()))
         array_push(v4_hir_alias_target_spans, word_from_int(array_new()))
+        array_push(v4_hir_local_annotation_items, word_from_int(array_new()))
+        array_push(v4_hir_local_annotation_stmt_spans, word_from_int(array_new()))
+        array_push(v4_hir_local_annotation_types, word_from_int(array_new()))
+        array_push(v4_hir_local_annotation_type_spans, word_from_int(array_new()))
         array_push(v4_hir_diags, word_from_int(array_new()))
     }
 
@@ -1110,6 +1483,10 @@ task v4_hir_restore_file_slot(hir_id: int, file_id: int, expansion_id: int) -> i
     array_set(v4_hir_item_parse_nodes, hir_id, word_from_int(array_new()))
     array_set(v4_hir_alias_target_types, hir_id, word_from_int(array_new()))
     array_set(v4_hir_alias_target_spans, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_local_annotation_items, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_local_annotation_stmt_spans, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_local_annotation_types, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_local_annotation_type_spans, hir_id, word_from_int(array_new()))
     array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
     if hir_id >= v4_hir_file_len {
         v4_hir_file_len = hir_id + 1
@@ -1184,6 +1561,39 @@ task v4_hir_snapshot_restore_item_line(line: word) -> int {
     give back v4_hir_restore_item_slot(hir_id, item_id, item_kind, item_name, def_id, span, parse_node, alias_target, alias_target_span)
 }
 
+task v4_hir_restore_local_annotation_slot(hir_id: int, record_id: int, item_id: int, stmt_span: word, type_text: word, type_span: word) -> int {
+    if v4_hir_file_exists(hir_id) == false {
+        give back 0
+    }
+    repeat until v4_hir_local_annotation_record_count(hir_id) > record_id {
+        array_push(v4_hir_local_annotation_items_handle(hir_id), word_from_int(0 - 1))
+        array_push(v4_hir_local_annotation_stmt_spans_handle(hir_id), V4_NO_SPAN)
+        array_push(v4_hir_local_annotation_types_handle(hir_id), "")
+        array_push(v4_hir_local_annotation_type_spans_handle(hir_id), V4_NO_SPAN)
+    }
+    array_set(v4_hir_local_annotation_items_handle(hir_id), record_id, word_from_int(item_id))
+    array_set(v4_hir_local_annotation_stmt_spans_handle(hir_id), record_id, stmt_span)
+    array_set(v4_hir_local_annotation_types_handle(hir_id), record_id, type_text)
+    array_set(v4_hir_local_annotation_type_spans_handle(hir_id), record_id, type_span)
+    give back 1
+}
+
+task v4_hir_snapshot_restore_local_annotation_line(line: word) -> int {
+    if v4_hir_snapshot_record_is_valid(line) == false {
+        give back 0
+    }
+    if v4_hir_snapshot_field_raw(line, 0) != "hir-local-annotation" {
+        give back 0
+    }
+    pilot hir_id = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+    pilot record_id = word_to_int(v4_hir_snapshot_field_raw(line, 2))
+    pilot item_id = word_to_int(v4_hir_snapshot_field_raw(line, 3))
+    pilot stmt_span = v4_hir_snapshot_field(line, 4)
+    pilot type_text = v4_hir_snapshot_field(line, 5)
+    pilot type_span = v4_hir_snapshot_field(line, 6)
+    give back v4_hir_restore_local_annotation_slot(hir_id, record_id, item_id, stmt_span, type_text, type_span)
+}
+
 task v4_hir_snapshot_restore_diag_line(line: word) -> int {
     if v4_hir_snapshot_record_is_valid(line) == false {
         give back 0
@@ -1210,6 +1620,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
 
     pilot restored_files = 0
     pilot restored_items = 0
+    pilot restored_local_annotations = 0
     pilot restored_diagnostics = 0
     pilot skipped_other = 0
     v4_hir_begin_snapshot_restore()
@@ -1236,6 +1647,8 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             pilot kind = v4_hir_snapshot_field_raw(line, 0)
             if kind == "hir-item" {
                 restored_items += v4_hir_snapshot_restore_item_line(line)
+            } else if kind == "hir-local-annotation" {
+                restored_local_annotations += v4_hir_snapshot_restore_local_annotation_line(line)
             } else if kind == "hir-diag" {
                 restored_diagnostics += v4_hir_snapshot_restore_diag_line(line)
             }
@@ -1246,6 +1659,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     pilot out = "hir-snapshot-restore ok=1"
     out = out + " files=" + word_from_int(restored_files)
     out = out + " items=" + word_from_int(restored_items)
+    out = out + " local-annotations=" + word_from_int(restored_local_annotations)
     out = out + " diagnostics=" + word_from_int(restored_diagnostics)
     out = out + " skipped-other=" + word_from_int(skipped_other)
     out = out + " live-files=" + word_from_int(v4_hir_file_count())
