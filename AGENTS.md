@@ -38,9 +38,14 @@ Current facts:
   fixed points have landed; general lexical region inference, general
   outlives relations, `'static`, and non-ordinary aggregate task boundaries
   remain constrained.
-- Compiler display versions must agree in `src/cli/version.fk` and
-  `src/compiler/v3/globals.fk`; release workflows and packaging manifests are
-  the authority for platform assets and must be audited before tagging.
+- `VERSION` is the release-version authority. Change it only through
+  `python -u tools/release_version.py set <major.minor.patch>`; that one command
+  synchronizes the compiled `FREAK_VERSION`, CLI/compiler display aliases,
+  package metadata, WinGet release directory, and this public-release fact.
+  Never hand-edit those mirrors for a release bump. Run
+  `python -u tools/release_version.py check` before committing; tagged release
+  workflows additionally require the exact `v<major.minor.patch>` tag before
+  any platform asset is built.
 
 If implementation semantics and the bible disagree, the bible wins unless the
 task explicitly amends or clarifies the language. If an implementation-status

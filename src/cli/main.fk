@@ -127,6 +127,19 @@ task cli_init(project_name: word) -> void {
 task hangar_standalone_main() -> void {
     pilot args_cnt = process::args_count()
 
+    if args_cnt >= 2 {
+        pilot standalone_flag: word = process::arg(1)
+        if standalone_flag == "--version" or standalone_flag == "-V" or standalone_flag == "version" {
+            cli_show_version()
+            give back
+        }
+        if standalone_flag == "--help" or standalone_flag == "-h" or standalone_flag == "help" {
+            -- Force Hangar's own command list, not the compiler help screen.
+            hangar_dispatch(0)
+            give back
+        }
+    }
+
     -- Set the global offset so hangar_arg(N) reads process::arg(N-1)
     hangar_arg_offset = 1
 

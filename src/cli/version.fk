@@ -4,7 +4,7 @@
 -- The visual identity of FREAK. Make it beautiful.
 -- ===================================================================
 
-pilot CLI_VERSION = "0.14.0"
+pilot CLI_VERSION = FREAK_VERSION
 pilot CLI_CODENAME = "Maverick"
 
 -- ── ANSI Reset & Styles ──────────────────────────────

@@ -1928,6 +1928,25 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freak_ui_win32.obj dist/freak/runtime/",
             ),
         ),
+        "release-shaped regression": (
+            repo / "tests" / "v3_release_install_smoke.py",
+            (
+                "distribution-files.manifest",
+                "compile, link, and execution work",
+                "Linking packaged Windows runtime objects",
+                'installed_hangar), "--version"',
+            ),
+        ),
+        "release version invariant": (
+            repo / "tools" / "release_version.py",
+            (
+                "FREAK_VERSION",
+                "CLI_VERSION = FREAK_VERSION",
+                "FREAKC_VERSION = FREAK_VERSION",
+                "Git tag",
+                "WinGet",
+            ),
+        ),
     }
     for label, (source_path, needles) in distribution_sources.items():
         if not source_path.exists():
