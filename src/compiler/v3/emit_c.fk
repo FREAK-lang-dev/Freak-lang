@@ -284,6 +284,12 @@ task emit_c_call(val: word, left: word) -> void {
 
     -- Known builtin mapping
     pilot mapped = c_map_call(val)
+    -- Classified builtins historically use the packaged `freak_*` ABI even
+    -- when their spelling does not need a special mapping. Keep that boundary
+    -- separate from the generated namespace used by ordinary source tasks.
+    if mapped == "" and tc_builtin_call_type(val) != "" {
+        mapped = "freak_" + c_safe_ident(val)
+    }
     if mapped != "" {
         emit(mapped + "(")
         pilot aggregate_call = val == "array_push" or val == "array_set"

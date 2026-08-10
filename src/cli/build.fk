@@ -802,6 +802,7 @@ task cli_load_std(source: word, target: word) -> word {
     pilot std_src = ""
     if target == "llvm" {
         pilot rt_path = std_dir + "/runtime.fk"
+        if fs::exists(rt_path) { trusted_internal_runtime_source_file = rt_path }
         std_src = cli_append_mapped_source(std_src, rt_path)
     }
     pilot math_path = std_dir + "/math.fk"

@@ -26,12 +26,13 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     c_source = (repo / "src/compiler/v3/emit_c.fk").read_text(encoding="utf-8")
     llvm_source = (repo / "src/compiler/v3/emit_llvm.fk").read_text(encoding="utf-8")
     checker_source = (repo / "src/compiler/v3/checker.fk").read_text(encoding="utf-8")
-    mapped = set(re.findall(r'val == "([^"]+)"', task_body(c_source, "c_map_call")))
-    mapped.update(
-        re.findall(
-            r'val == "([^"]+)"', task_body(llvm_source, "llvm_map_call_name")
-        )
+    c_mapped = set(
+        re.findall(r'val == "([^"]+)"', task_body(c_source, "c_map_call"))
     )
+    llvm_mapped = set(
+        re.findall(r'val == "([^"]+)"', task_body(llvm_source, "llvm_map_call_name"))
+    )
+    mapped = c_mapped | llvm_mapped
     classified = set(
         re.findall(
             r'name == "([^"]+)"', task_body(checker_source, "tc_builtin_call_type")
@@ -39,8 +40,40 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     )
     missing = sorted(mapped - classified)
     assert not missing, f"builtin return-type inventory missing: {missing}"
-    unlowered = sorted(classified - mapped)
-    assert not unlowered, f"classified builtin has no backend lowering: {unlowered}"
+    # Backends may use a direct ABI spelling for classified calls which do not
+    # need a special mapping. The fallback must remain builtin-only so an
+    # ordinary source task can never drift back into the runtime namespace.
+    c_call_body = task_body(c_source, "emit_c_call")
+    llvm_call_body = task_body(llvm_source, "llvm_emit_call")
+    assert 'tc_builtin_call_type(val) != ""' in c_call_body
+    assert 'mapped = "freak_" + c_safe_ident(val)' in c_call_body
+    assert 'tc_builtin_call_type(val) != ""' in llvm_call_body
+    assert 'mapped_name = "@freak_" + llvm_c_safe_ident(val)' in llvm_call_body
+    allowed_c_fallbacks = {
+        "char_to_word",
+        "panic",
+        "shape::alloc",
+        "shape::get",
+        "shape::set",
+        "tcp_close",
+        "tcp_connect",
+        "tcp_recv",
+        "tcp_recv_all",
+        "tcp_send",
+        "time::now_ms",
+        "ui::event_gained",
+        "ui::event_height",
+        "ui::event_repeat",
+        "ui::event_scroll_dy",
+        "ui::event_width",
+        "ui::get_height",
+        "ui::get_width",
+    }
+    allowed_llvm_fallbacks = {"fs::list_dir", "process::args", "process::env"}
+    unexpected_c = sorted((classified - c_mapped) - allowed_c_fallbacks)
+    unexpected_llvm = sorted((classified - llvm_mapped) - allowed_llvm_fallbacks)
+    assert not unexpected_c, f"unexpected C builtin fallback: {unexpected_c}"
+    assert not unexpected_llvm, f"unexpected LLVM builtin fallback: {unexpected_llvm}"
 
 
 def run(
@@ -302,6 +335,35 @@ def main() -> int:
                 builtin_task_result.stdout + builtin_task_result.stderr
             )
 
+        spoofed_runtime = tmp_path / "spoof-project" / "std" / "runtime.fk"
+        spoofed_runtime.parent.mkdir(parents=True)
+        spoofed_runtime.write_text(
+            "task llvm_fs_read(path: word) -> word { give back path }\n"
+            "task main() { say \"spoof\" }\n",
+            encoding="utf-8",
+        )
+        for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+            spoof_result = run(freak, repo, spoofed_runtime, "transpile", flag)
+            assert_rejected(spoof_result, f"{backend} spoofed std runtime source")
+            assert "conflicts with a compiler builtin" in (
+                spoof_result.stdout + spoof_result.stderr
+            )
+
+        impl_collision = tmp_path / "impl_task_collision.fk"
+        impl_collision.write_text(
+            "shape Box { value: int }\n"
+            "task Box_ping(value: int) -> int { give back value }\n"
+            "impl Box { task ping(self) -> int { give back self.value } }\n"
+            "task main() { pilot box = Box { value: 7 } say box.ping() }\n",
+            encoding="utf-8",
+        )
+        for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+            collision_result = run(freak, repo, impl_collision, "transpile", flag)
+            assert_rejected(collision_result, f"{backend} impl task lowering collision")
+            assert "conflicts with another task after V3 impl lowering" in (
+                collision_result.stdout + collision_result.stderr
+            )
+
         primitive_ok = tmp_path / "primitive_methods_ok.fk"
         primitive_ok.write_text(
             "pilot inferred_global = 1.5 + 2.25\n"
@@ -339,6 +401,8 @@ def main() -> int:
             "    say (\"a\".checksum() == \"a\".checksum()).to_word()\n"
             "    say \"abc\".replace(\"a\", \"z\")\n"
             "    say word_concat(\"a\", \"b\")\n"
+            "    say (time::now_ms() >= 0).to_word()\n"
+            "    if false { panic(\"not reached\") }\n"
             "}\n",
             encoding="utf-8",
         )
@@ -377,6 +441,7 @@ def main() -> int:
                 "true",
                 "zbc",
                 "ab",
+                "true",
             ]
             actual_output = executed.stdout.strip().splitlines()
             assert actual_output == expected_output, (
@@ -384,6 +449,14 @@ def main() -> int:
                 f"expected: {expected_output!r}\nactual: {actual_output!r}\n"
                 f"stderr: {executed.stderr}"
             )
+            if backend == "C":
+                generated_c = primitive_ok.with_suffix(".fk.c").read_text(
+                    encoding="utf-8"
+                )
+                assert "freak_time_now_ms()" in generated_c
+                assert "freak_panic(" in generated_c
+                assert "__freak_user_time_now_ms" not in generated_c
+                assert "__freak_user_panic" not in generated_c
 
         nominal_methods = tmp_path / "nominal_primitive_names.fk"
         nominal_methods.write_text(

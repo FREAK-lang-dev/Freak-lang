@@ -548,7 +548,9 @@ freak_word freak_word_trim(freak_word w) {
 }
 
 freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s) {
-    if (old_s.length == 0) return w;
+    /* Method results are owned values. Even an identity replacement must not
+       alias a parameter which the generated callee epilogue will release. */
+    if (old_s.length == 0) return freak_word_clone(w);
     if (w.length < old_s.length) {
         char* buf = (char*)malloc(w.length + 1);
         if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
@@ -571,7 +573,22 @@ freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s) 
         buf[w.length] = '\0';
         return freak_word_own(buf, w.length);
     }
-    size_t new_len = w.length + count * (new_s.length - old_s.length);
+    size_t new_len = w.length;
+    if (new_s.length >= old_s.length) {
+        size_t growth = new_s.length - old_s.length;
+        if (growth > 0 && count > (SIZE_MAX - w.length) / growth) {
+            fprintf(stderr, "FREAK: word replacement size overflow\n");
+            exit(1);
+        }
+        new_len = w.length + count * growth;
+    } else {
+        size_t shrink = old_s.length - new_s.length;
+        new_len = w.length - count * shrink;
+    }
+    if (new_len == SIZE_MAX) {
+        fprintf(stderr, "FREAK: word replacement size overflow\n");
+        exit(1);
+    }
     char* buf = (char*)malloc(new_len + 1);
     if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
     size_t j = 0;
@@ -1427,8 +1444,17 @@ int64_t freak_llvm_word_to_lower(int64_t a) {
 
 int64_t freak_llvm_word_trim(int64_t a) {
     const char* sa = (const char*)a;
-    if (!sa) return (int64_t)"";
-    return (int64_t)sa; // Stub implementation
+    if (!sa) sa = "";
+    const char* start = sa;
+    while (*start && isspace((unsigned char)*start)) start++;
+    const char* end = sa + strlen(sa);
+    while (end > start && isspace((unsigned char)end[-1])) end--;
+    size_t length = (size_t)(end - start);
+    char* output = (char*)malloc(length + 1);
+    if (!output) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    memcpy(output, start, length);
+    output[length] = '\0';
+    return freak_llvm_word_adopt((int64_t)output);
 }
 
 int64_t freak_llvm_word_replace(int64_t a, int64_t b, int64_t c) {
@@ -1453,8 +1479,20 @@ int64_t freak_llvm_word_replace(int64_t a, int64_t b, int64_t c) {
         }
     }
     size_t output_len = source_len;
-    if (count > 0) {
-        output_len = source_len - count * old_len + count * replacement_len;
+    if (replacement_len >= old_len) {
+        size_t growth = replacement_len - old_len;
+        if (growth > 0 && count > (SIZE_MAX - source_len) / growth) {
+            fprintf(stderr, "FREAK: word replacement size overflow\n");
+            exit(1);
+        }
+        output_len = source_len + count * growth;
+    } else {
+        size_t shrink = old_len - replacement_len;
+        output_len = source_len - count * shrink;
+    }
+    if (output_len == SIZE_MAX) {
+        fprintf(stderr, "FREAK: word replacement size overflow\n");
+        exit(1);
     }
     char* output = (char*)malloc(output_len + 1);
     if (!output) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }

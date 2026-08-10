@@ -764,6 +764,12 @@ task llvm_emit_call(val: word, left: word) -> word {
 
     pilot arg_str = ""
     pilot mapped_name = llvm_map_call_name(val)
+    -- Some packaged runtime entry points use the direct `freak_*` spelling.
+    -- Only classified builtins may take this fallback; ordinary tasks remain
+    -- isolated in the generated user-task namespace.
+    if mapped_name == "" and tc_builtin_call_type(val) != "" {
+        mapped_name = "@freak_" + llvm_c_safe_ident(val)
+    }
     pilot aggregate_call = val == "array_push" or val == "array_set"
     pilot user_call = mapped_name == "" and not emt_is_extern(val)
     if left.length() > 0 { arg_str = llvm_emit_args(left, aggregate_call or user_call) }

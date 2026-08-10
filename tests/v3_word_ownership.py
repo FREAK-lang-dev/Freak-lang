@@ -218,6 +218,28 @@ task main() {
 }
 """
 
+METHOD_RETURN_PROGRAM = """task replace_identity(value: word) -> word {
+    give back value.replace("", "z")
+}
+
+task trim_identity(value: word) -> word {
+    give back value.trim()
+}
+
+task main() {
+    pilot mut replace_source: word = "a" + "b"
+    pilot mut replaced: word = replace_identity(replace_source)
+    replace_source = "released"
+    say replaced
+    replaced = "released"
+    pilot mut trim_source: word = "  t" + "rim  "
+    pilot mut trimmed: word = trim_identity(trim_source)
+    trim_source = "released"
+    say trimmed
+    trimmed = "released"
+}
+"""
+
 METHOD_SHAPE_PROGRAM = """shape Counter {
     value: int
 }
@@ -304,6 +326,11 @@ def main() -> int:
     repo = Path(__file__).resolve().parents[1]
     freak = args.freak.resolve()
     assert freak.is_file(), freak
+    runtime_source = (repo / "freakc" / "runtime" / "freak_runtime.c").read_text(
+        encoding="utf-8"
+    )
+    assert runtime_source.count("word replacement size overflow") >= 4
+    assert runtime_source.count("(SIZE_MAX -") >= 2
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-word-ownership-") as tmp:
         root = Path(tmp)
@@ -313,6 +340,7 @@ def main() -> int:
             ("global_call", GLOBAL_CALL_PROGRAM, [], ["local", "global"], ("c", "llvm")),
             ("return_shadow", RETURN_SHADOW_PROGRAM, [], ["local", "inner", "global"], ("c", "llvm")),
             ("shadow_copy", SHADOW_COPY_PROGRAM, [], ["global", "param", "42"], ("c", "llvm")),
+            ("method_return", METHOD_RETURN_PROGRAM, [], ["ab", "trim"], ("c", "llvm")),
             ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join", "literal"], ("c", "llvm")),
             ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field", "self", "self"], ("llvm",)),
         )

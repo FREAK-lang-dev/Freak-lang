@@ -203,6 +203,10 @@ pilot source_map_ends = 0
 pilot source_map_count = 0
 pilot source_map_next_line = 1
 pilot source_map_initialized = false
+-- Exact source-map path of the installed std/runtime.fk module for the active
+-- compilation. Reserved native bridge task names are trusted only from this
+-- registered module, never from a user-controlled path suffix.
+pilot trusted_internal_runtime_source_file = ""
 pilot opt_level = "2"
 pilot cross_target = ""
 pilot source_line_offset = 0

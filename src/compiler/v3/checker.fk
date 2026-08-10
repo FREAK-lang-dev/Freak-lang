@@ -538,8 +538,7 @@ task tc_internal_runtime_task_name(name: word) -> bool {
 }
 
 task tc_internal_runtime_source(source_file: word) -> bool {
-    pilot normalized = source_file.replace("\\", "/")
-    give back normalized.ends_with("/std/runtime.fk") or normalized == "std/runtime.fk"
+    give back trusted_internal_runtime_source_file != "" and source_file == trusted_internal_runtime_source_file
 }
 
 task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
@@ -719,6 +718,26 @@ task tc_diag_builtin_task(name: word, line: int, source_file: word) -> void {
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
     say word_from_int(line) + " | " + get_file_source_line(source_file, line)
     say "  | ^"
+}
+
+task tc_diag_duplicate_task(name: word, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: task '" + name + "' conflicts with another task after V3 impl lowering"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_has_prior_task_name(name: word, top_index: int) -> bool {
+    pilot i = 0
+    repeat until i >= top_index {
+        pilot prior_id = word_to_int(array_get(ast_top_stmts, i))
+        if array_get(ast_stmt_kinds, prior_id) == STMT_TASK and array_get(ast_stmt_names, prior_id) == name {
+            give back true
+        }
+        i += 1
+    }
+    give back false
 }
 
 task tc_validate_args(args: word, line: int) -> void {
@@ -923,6 +942,9 @@ task tc_run_program() -> void {
         }
         if top_kind == STMT_TASK and tc_internal_runtime_task_name(array_get(ast_stmt_names, sid)) and not tc_internal_runtime_source(array_get(ast_stmt_files, sid)) {
             tc_diag_builtin_task(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+        }
+        if top_kind == STMT_TASK and tc_has_prior_task_name(array_get(ast_stmt_names, sid), i) {
+            tc_diag_duplicate_task(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
         }
         if top_kind == STMT_PILOT {
             pilot expr = word_to_int(array_get(ast_stmt_exprs, sid))
