@@ -76,10 +76,6 @@ int64_t freak_llvm_process_env(int64_t name) {
     );
 }
 
-int64_t freak_llvm_process_args(void) {
-    return (int64_t)freak_process_args();
-}
-
 int64_t freak_fopen(int64_t path, int64_t mode) {
     return (int64_t)fopen((const char*)path, (const char*)mode);
 }

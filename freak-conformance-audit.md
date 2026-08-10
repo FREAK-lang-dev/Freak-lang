@@ -7,6 +7,11 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**V3 process ABI boundary (2026-08-10):** the shipping compiler rejects
+`process::args()` until it can return the bible-required `List<word>` through a
+real list ABI. V3 callers use `process::args_count()` and
+`process::arg(index)`; raw `argv` is no longer exposed as an integer handle.
+
 **V4 expansion and macro-contract bootstrap checkpoint (2026-08-09):** Maverick now routes every bootstrap frontend query through `parse -> expand -> HIR`. The identity-only `freak_expand` stage forwards syntax unchanged while recording stable ExpandedFile identity and deterministic provenance; its query, invalidation, component snapshot, 00-Unit v3 restore/manifest/diff/health, LSP wrappers, and architecture guards are executable. `freak_macro_api` now separately owns versioned, capability-limited `MacroContext`, read-only view, structured diagnostic, public `ExpansionId`, generated-node provenance, and deterministic non-executing builder contracts. This is an architecture-only checkpoint with no language-semantic change: user-defined syntax rewriting, hygiene, gensyms, third-party execution, and macro hosts remain absent, and the Alternative-4 annotation/macro boundary is unchanged.
 
 **V4 closure checkpoint (2026-07-18):** Maverick now carries resilient default/`copy`/`move`/`mut` closure syntax through HIR, TY, MIR, Meiya, editor/LSP facts, snapshot restore, and deterministic all-family invalidation. Capture discovery is lexical-scope and member-position aware, Callable environments can be copied, and resolved mutable receiver calls require `mut` capture. This is a frontend/query and ownership checkpoint; native closure-environment codegen, nested/generic closure inference, borrowed-return closure contracts, and `Send`/`Sync` proof remain open.
@@ -819,7 +824,7 @@ E. **§4 Borrow Checker** — split into:
 
 F. **§5 Anime Layer** — per-feature status; `foreshadow-audit`/`audit-miracles`/`audit-trust`/`audit-science` are ✅; everything else 📖 V4.
 
-G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`, `std::test`) as Planned. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::process`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`, `std::ui` partial).
+G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`, `std::test`) as Planned. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`; `std::process` and `std::ui` partial).
 
 H. **§13 CLI** — remove or V4-tag `freak vibe`, `--voice`, `--clearance`, `--build-mode`, `-o`. Add `audit-conformance` once Phase C lands.
 

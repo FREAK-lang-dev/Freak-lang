@@ -331,9 +331,26 @@ def main() -> int:
     )
     assert runtime_source.count("word replacement size overflow") >= 4
     assert runtime_source.count("(SIZE_MAX -") >= 2
+    assert runtime_source.count("freak_word_replace_owned(&result") >= 4
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-word-ownership-") as tmp:
         root = Path(tmp)
+        listing_dir = root / "listing"
+        listing_dir.mkdir()
+        for entry_index in range(128):
+            (listing_dir / f"entry-{entry_index:03d}.txt").write_text(
+                "ownership probe\n", encoding="utf-8"
+            )
+        fs_list_program = (
+            "task main() {\n"
+            f'    pilot mut listing: word = fs::list_dir("{listing_dir.as_posix()}")\n'
+            "    repeat 64 times {\n"
+            f'        listing = fs::list_dir("{listing_dir.as_posix()}")\n'
+            "    }\n"
+            '    say listing.contains("entry-127.txt").to_word()\n'
+            '    listing = "released"\n'
+            "}\n"
+        )
         cases = (
             ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "arg", "shadow", "global", "inner", "outer", "outer!"], ("c", "llvm")),
             ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"], ("c", "llvm")),
@@ -342,6 +359,7 @@ def main() -> int:
             ("shadow_copy", SHADOW_COPY_PROGRAM, [], ["global", "param", "42"], ("c", "llvm")),
             ("method_return", METHOD_RETURN_PROGRAM, [], ["ab", "trim"], ("c", "llvm")),
             ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join", "literal"], ("c", "llvm")),
+            ("fs_list", fs_list_program, [], ["true"], ("c", "llvm")),
             ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field", "self", "self"], ("llvm",)),
         )
         for case_name, program, extra_flags, expected_output, backends in cases:

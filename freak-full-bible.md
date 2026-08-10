@@ -1707,7 +1707,8 @@ freak hangar clean         -- clear cache
 | `std::math`, `std::math3d` | ✅ Implemented (pure FREAK) |
 | `std::string`, `std::convert`, `std::algorithm`, `std::version`, `std::zip` | ✅ Implemented (pure FREAK) |
 | `std::json`, `std::http` | ✅ Implemented (pure FREAK + TCP runtime) |
-| `std::fs`, `std::process`, `std::time`, `std::bytes` | ✅ Implemented (C runtime) |
+| `std::fs`, `std::time`, `std::bytes` | ✅ Implemented (C runtime) |
+| `std::process` | ⚠️ Partial in shipping V3; the normative `args() -> List<word>` surface requires the V4 list ABI |
 | `std::ui` | ⚠️ Partial — Phase MA-MF complete (window, layout, widgets, themes, animation); MG (polish + Hangar publish) pending |
 | `std::thread` (`spawn`, atomics, channels) | 🔜 V4 |
 | `std::anime` (mood arithmetic, power checks) | 🔜 V4 (depends on §2 types) |
@@ -1925,6 +1926,11 @@ process::args()                 -- List<word>
 -- Output shape: .stdout .stderr .exit_code .success
 -- Process shape: .pid .wait() .kill()
 ```
+
+> **Shipping V3 boundary:** `process::args()` is rejected rather than exposing
+> the runtime's raw `argv` pointer as a fake list handle. Use
+> `process::args_count()` with `process::arg(index)` in V3. The `List<word>`
+> signature above remains the normative V4 API.
 
 ### 7.13 std::thread
 

@@ -380,7 +380,7 @@ impl Displayable for Point {
 | `std::string` / `std::convert` | String and conversion utilities |
 | `std::algorithm` | Sort, search, aggregate |
 | `std::time` | Timestamps, durations, sleep |
-| `std::process` | Spawn processes, read env, exec_capture |
+| `std::process` | Process arguments, environment access, and command execution (partial in V3) |
 | `std::bytes` | `ByteBuffer` for binary I/O |
 | `std::ui` | Native window, events, canvas (COCKPIT runs on top of this) |
 | `std::version` | Semver parsing, comparison, bumping, constraints |
@@ -480,7 +480,8 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 | CI/CD with 4-platform releases | ✅ Complete |
 | Phase-1 borrow checker (`--strict-borrow`) | ✅ Complete |
 | Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | ✅ Complete |
-| `std::fs`, `std::process`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
+| `std::fs`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
+| `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` waits for a real list ABI |
 | COCKPIT UI framework | 🚧 In progress (MA–MF done, MG pending) |
 | LLVM JIT mode + DWARF debug info | 🚧 In progress |
 | V4 self-hosting compiler (variants, full BC, mood/prob/power, squadron concurrency, FFI surface, error voices) | 🔜 Roadmapped |

@@ -515,7 +515,7 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "fs::read" or name == "fs::list_dir" or name == "process::arg" or name == "process::exec_capture" { give back "word" }
     if name == "tcp::recv" or name == "tcp_recv" or name == "tcp::recv_all" or name == "tcp_recv_all" { give back "word" }
     if name == "fs::exists" { give back "bool" }
-    if name == "array_new" or name == "array_len" or name == "process::args" or name == "process::args_count" or name == "process::exec" { give back "int" }
+    if name == "array_new" or name == "array_len" or name == "process::args_count" or name == "process::exec" { give back "int" }
     if name == "word_to_int" or name == "time::now_ms" or name == "tcp::connect" or name == "tcp_connect" or name == "tcp::send" or name == "tcp_send" { give back "int" }
     if name == "shape::alloc" or name == "shape::get" { give back "int" }
     if name == "ui::create_window" or name == "ui::poll_events" or name == "ui::draw_text" or name == "ui::measure_text" { give back "int" }
@@ -535,6 +535,10 @@ task tc_builtin_call_type(name: word) -> word {
 
 task tc_internal_runtime_task_name(name: word) -> bool {
     give back name == "llvm_fs_read" or name == "llvm_fs_write" or name == "llvm_fs_append" or name == "llvm_fs_exists" or name == "llvm_fs_delete"
+}
+
+task tc_reserved_builtin_call(name: word) -> bool {
+    give back tc_builtin_call_type(name) != "" or name == "process::args"
 }
 
 task tc_internal_runtime_source(source_file: word) -> bool {
@@ -712,9 +716,17 @@ task tc_diag_reserved_extern(name: word, line: int, source_file: word) -> void {
     say "  | ^"
 }
 
-task tc_diag_builtin_task(name: word, line: int, source_file: word) -> void {
+task tc_diag_builtin_callable(name: word, line: int, source_file: word) -> void {
     error_count += 1
-    say "\x1b[1;31mtype error\x1b[0m: task '" + name + "' conflicts with a compiler builtin"
+    say "\x1b[1;31mtype error\x1b[0m: callable '" + name + "' conflicts with a compiler builtin"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_process_args_v3(line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: process::args() has no List<word> ABI in V3; use process::args_count() and process::arg(index)"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
     say word_from_int(line) + " | " + get_file_source_line(source_file, line)
     say "  | ^"
@@ -798,6 +810,7 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
     }
     if kind == EXPR_CALL {
         tc_validate_args(left, line)
+        if val == "process::args" { tc_diag_process_args_v3(line, source_file) }
         give back
     }
     if kind == EXPR_ARRAY_LIT { tc_validate_args(left, line) give back }
@@ -942,11 +955,11 @@ task tc_run_program() -> void {
         if top_kind == STMT_EXTERN and array_get(ast_stmt_names, sid).starts_with("__freak_") {
             tc_diag_reserved_extern(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
         }
-        if top_kind == STMT_TASK and tc_builtin_call_type(array_get(ast_stmt_names, sid)) != "" {
-            tc_diag_builtin_task(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+        if (top_kind == STMT_TASK or top_kind == STMT_EXTERN) and tc_reserved_builtin_call(array_get(ast_stmt_names, sid)) {
+            tc_diag_builtin_callable(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
         }
         if top_kind == STMT_TASK and tc_internal_runtime_task_name(array_get(ast_stmt_names, sid)) and not tc_internal_runtime_source(array_get(ast_stmt_files, sid)) {
-            tc_diag_builtin_task(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+            tc_diag_builtin_callable(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
         }
         if (top_kind == STMT_TASK or top_kind == STMT_EXTERN) and tc_has_prior_callable_name(array_get(ast_stmt_names, sid), i) {
             tc_diag_duplicate_callable(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))

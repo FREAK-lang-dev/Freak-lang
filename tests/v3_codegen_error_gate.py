@@ -359,6 +359,42 @@ def main() -> int:
                     callable_result.stdout + callable_result.stderr
                 )
 
+        extern_builtin = tmp_path / "extern_builtin_collision.fk"
+        extern_builtin.write_text(
+            "extern task word_concat(value: int) -> int\n"
+            "task main() { say word_concat(7).to_word() }\n",
+            encoding="utf-8",
+        )
+        for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+            extern_builtin_result = run(
+                freak, repo, extern_builtin, "transpile", flag
+            )
+            assert_rejected(
+                extern_builtin_result, f"{backend} extern/builtin collision"
+            )
+            assert "conflicts with a compiler builtin" in (
+                extern_builtin_result.stdout + extern_builtin_result.stderr
+            )
+
+        process_args_bad = tmp_path / "process_args_v3_bad.fk"
+        process_args_bad.write_text(
+            "task main() { pilot values = process::args() say values }\n",
+            encoding="utf-8",
+        )
+        for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+            process_args_result = run(
+                freak, repo, process_args_bad, "transpile", flag
+            )
+            assert_rejected(
+                process_args_result, f"{backend} process::args V3 ABI gate"
+            )
+            process_args_output = (
+                process_args_result.stdout + process_args_result.stderr
+            )
+            assert "process::args() has no List<word> ABI in V3" in process_args_output
+            assert "process::args_count()" in process_args_output
+            assert "process::arg(index)" in process_args_output
+
         c_intrinsic = tmp_path / "c_shape_intrinsic_bad.fk"
         c_intrinsic.write_text(
             "task main() { pilot raw = shape::alloc(1) say raw.to_word() }\n",
@@ -472,7 +508,6 @@ def main() -> int:
             f"    pilot mut listing: word = fs::list_dir(\"{tmp_path.as_posix()}\")\n"
             "    say listing.contains(\"builtin-wrapper-marker.txt\").to_word()\n"
             "    listing = \"released\"\n"
-            "    say (process::args() != 0).to_word()\n"
             "    pilot mut letter: word = char_to_word(65)\n"
             "    say letter\n"
             "    letter = \"released\"\n"
@@ -503,7 +538,7 @@ def main() -> int:
                 check=False,
             )
             assert wrapper_run.returncode == 0, wrapper_run.stdout + wrapper_run.stderr
-            assert wrapper_run.stdout.strip().splitlines() == ["ok", "true", "true", "A"]
+            assert wrapper_run.stdout.strip().splitlines() == ["ok", "true", "A"]
 
         nominal_methods = tmp_path / "nominal_primitive_names.fk"
         nominal_methods.write_text(

@@ -400,8 +400,8 @@ freak_word freak_fs_list_dir(freak_word path) {
     if (hFind != INVALID_HANDLE_VALUE) {
         do {
             if (strcmp(fd.cFileName, ".") != 0 && strcmp(fd.cFileName, "..") != 0) {
-                if (result.length > 0) result = freak_word_concat(result, freak_word_lit("|"));
-                result = freak_word_concat(result, freak_word_lit(fd.cFileName));
+                if (result.length > 0) freak_word_replace_owned(&result, freak_word_concat(result, freak_word_lit("|")));
+                freak_word_replace_owned(&result, freak_word_concat(result, freak_word_lit(fd.cFileName)));
             }
         } while (FindNextFileA(hFind, &fd));
         FindClose(hFind);
@@ -412,8 +412,8 @@ freak_word freak_fs_list_dir(freak_word path) {
         struct dirent* ent;
         while ((ent = readdir(dir)) != NULL) {
             if (strcmp(ent->d_name, ".") != 0 && strcmp(ent->d_name, "..") != 0) {
-                if (result.length > 0) result = freak_word_concat(result, freak_word_lit("|"));
-                result = freak_word_concat(result, freak_word_lit(ent->d_name));
+                if (result.length > 0) freak_word_replace_owned(&result, freak_word_concat(result, freak_word_lit("|")));
+                freak_word_replace_owned(&result, freak_word_concat(result, freak_word_lit(ent->d_name)));
             }
         }
         closedir(dir);
