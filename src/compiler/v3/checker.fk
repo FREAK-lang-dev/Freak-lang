@@ -515,12 +515,21 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "fs::read" or name == "fs::list_dir" or name == "process::arg" or name == "process::exec_capture" { give back "word" }
     if name == "tcp::recv" or name == "tcp_recv" or name == "tcp::recv_all" or name == "tcp_recv_all" { give back "word" }
     if name == "fs::exists" { give back "bool" }
-    if name == "array_new" or name == "array_len" or name == "process::args_count" or name == "process::exec" { give back "int" }
-    if name == "word_to_int" or name == "time::now_ms" or name == "tcp::connect" or name == "tcp_connect" { give back "int" }
+    if name == "array_new" or name == "array_len" or name == "process::args" or name == "process::args_count" or name == "process::exec" { give back "int" }
+    if name == "word_to_int" or name == "time::now_ms" or name == "tcp::connect" or name == "tcp_connect" or name == "tcp::send" or name == "tcp_send" { give back "int" }
+    if name == "shape::alloc" or name == "shape::get" { give back "int" }
+    if name == "ui::create_window" or name == "ui::poll_events" or name == "ui::draw_text" or name == "ui::measure_text" { give back "int" }
+    if name == "ui::event_kind" or name == "ui::event_key" or name == "ui::event_pressed" or name == "ui::event_character" { give back "int" }
+    if name == "ui::event_mouse_x" or name == "ui::event_mouse_y" or name == "ui::event_button" or name == "ui::event_repeat" { give back "int" }
+    if name == "ui::event_scroll_dy" or name == "ui::event_width" or name == "ui::event_height" or name == "ui::event_gained" { give back "int" }
+    if name == "ui::get_width" or name == "ui::get_height" { give back "int" }
     if name == "math::sqrt" or name == "math::pow" or name == "math::sin" or name == "math::cos" { give back "num" }
     if name == "math::tan" or name == "math::floor" or name == "math::ceil" or name == "parse_num" { give back "num" }
-    if name == "fs::write" or name == "fs::append" or name == "fs::delete" { give back "void" }
-    if name == "array_push" or name == "array_set" or name == "array_release" or name == "process::exit" { give back "void" }
+    if name == "say" or name == "panic" or name == "fs::write" or name == "fs::append" or name == "fs::delete" { give back "void" }
+    if name == "array_push" or name == "array_set" or name == "array_release" or name == "process::exit" or name == "shape::set" { give back "void" }
+    if name == "tcp::close" or name == "tcp_close" { give back "void" }
+    if name == "ui::destroy_window" or name == "ui::begin_frame" or name == "ui::end_frame" or name == "ui::clear" { give back "void" }
+    if name == "ui::fill_rect" or name == "ui::stroke_rect" or name == "ui::fill_circle" or name == "ui::draw_line" { give back "void" }
     give back ""
 }
 
@@ -682,6 +691,14 @@ task tc_diag_non_shape_method(method_name: word, line: int, source_file: word) -
 task tc_diag_method_arity(method_name: word, expected: int, actual: int, line: int, source_file: word) -> void {
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: method '" + method_name + "' expects " + word_from_int(expected) + " argument(s), got " + word_from_int(actual) + " (line " + word_from_int(line) + ")"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_reserved_extern(name: word, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: extern symbol '" + name + "' uses the compiler-reserved '__freak_' prefix"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
     say word_from_int(line) + " | " + get_file_source_line(source_file, line)
     say "  | ^"
@@ -880,7 +897,11 @@ task tc_run_program() -> void {
     pilot i = 0
     repeat array_len(ast_top_stmts) times {
         pilot sid = word_to_int(array_get(ast_top_stmts, i))
-        if array_get(ast_stmt_kinds, sid) == STMT_PILOT {
+        pilot top_kind: word = array_get(ast_stmt_kinds, sid)
+        if top_kind == STMT_EXTERN and array_get(ast_stmt_names, sid).starts_with("__freak_") {
+            tc_diag_reserved_extern(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+        }
+        if top_kind == STMT_PILOT {
             pilot expr = word_to_int(array_get(ast_stmt_exprs, sid))
             pilot type_ann: word = array_get(ast_stmt_extras, sid)
             pilot binding_type = type_ann

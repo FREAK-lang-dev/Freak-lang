@@ -47,6 +47,7 @@ task init_arrays() -> void {
     emt_var_c_names = array_new()
     emt_global_var_names = array_new()
     emt_global_var_types = array_new()
+    emt_global_var_c_names = array_new()
     emt_word_tasks = array_new()
     emt_extern_names = array_new()
     emt_extern_rets = array_new()
@@ -263,20 +264,27 @@ task emt_get_var_c_name(name: word) -> word {
         if array_get(emt_var_names, i) == name { give back array_get(emt_var_c_names, i) }
         i -= 1
     }
+    i = 0
+    repeat emt_global_var_count times {
+        if array_get(emt_global_var_names, i) == name { give back array_get(emt_global_var_c_names, i) }
+        i += 1
+    }
     give back name
 }
 
-task emt_set_global_var_type(name: word, vtype: word) -> void {
+task emt_set_global_var_type(name: word, vtype: word, c_name: word) -> void {
     pilot i = 0
     repeat emt_global_var_count times {
         if array_get(emt_global_var_names, i) == name {
             array_set(emt_global_var_types, i, vtype)
+            array_set(emt_global_var_c_names, i, c_name)
             give back
         }
         i += 1
     }
     array_push(emt_global_var_names, name)
     array_push(emt_global_var_types, vtype)
+    array_push(emt_global_var_c_names, c_name)
     emt_global_var_count += 1
 }
 
@@ -538,12 +546,28 @@ task friendly_tok(ttype: word, tval: word) -> word {
 
 -- Emit a Rust-style diagnostic and increment error counters.
 -- Reads the current token position from parse_idx + tok_lines/tok_cols.
-task diag_error(msg: word, hint: word) -> void {
+task diag_error_at(msg: word, hint: word, source_file: word, line_n: int, col_n: int) -> void {
     error_count += 1
     parse_error_count += 1
+    pilot src_line = get_file_source_line(source_file, line_n)
+    pilot line_str = word_from_int(line_n)
+    pilot col_str = word_from_int(col_n)
+    say "\x1b[1;31merror\x1b[0m: " + msg
+    say " --> " + source_file + ":" + line_str + ":" + col_str
+    say "  |"
+    say line_str + " | " + src_line
+    pilot caret = "  | " + diag_make_caret(col_n)
+    if hint != "" { caret = caret + " " + hint }
+    say "\x1b[1;31m" + caret + "\x1b[0m"
+    say ""
+}
+
+task diag_error(msg: word, hint: word) -> void {
     -- Clamp index to valid range
     pilot tidx = parse_idx
     if tokens_count == 0 {
+        error_count += 1
+        parse_error_count += 1
         say "\x1b[1;31merror\x1b[0m: " + msg
         say " --> " + input_file
         say ""
@@ -554,15 +578,5 @@ task diag_error(msg: word, hint: word) -> void {
     pilot source_file: word = array_get(tok_origin_files, tidx)
     pilot line_n = word_to_int(array_get(tok_origin_lines, tidx))
     pilot col_n  = word_to_int(array_get(tok_cols,  tidx))
-    pilot src_line = get_file_source_line(source_file, line_n)
-    pilot line_str = word_from_int(line_n)
-    pilot col_str  = word_from_int(col_n)
-    say "\x1b[1;31merror\x1b[0m: " + msg
-    say " --> " + source_file + ":" + line_str + ":" + col_str
-    say "  |"
-    say line_str + " | " + src_line
-    pilot caret = "  | " + diag_make_caret(col_n)
-    if hint != "" { caret = caret + " " + hint }
-    say "\x1b[1;31m" + caret + "\x1b[0m"
-    say ""
+    diag_error_at(msg, hint, source_file, line_n, col_n)
 }

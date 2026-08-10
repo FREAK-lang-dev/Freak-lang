@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,31 @@ from pathlib import Path
 
 
 SENTINEL = "old artifact must survive a rejected transpile\n"
+
+
+def task_body(source: str, task_name: str) -> str:
+    start = source.index(f"task {task_name}")
+    next_task = source.find("\ntask ", start + 1)
+    return source[start:] if next_task < 0 else source[start:next_task]
+
+
+def assert_builtin_signature_parity(repo: Path) -> None:
+    c_source = (repo / "src/compiler/v3/emit_c.fk").read_text(encoding="utf-8")
+    llvm_source = (repo / "src/compiler/v3/emit_llvm.fk").read_text(encoding="utf-8")
+    checker_source = (repo / "src/compiler/v3/checker.fk").read_text(encoding="utf-8")
+    mapped = set(re.findall(r'val == "([^"]+)"', task_body(c_source, "c_map_call")))
+    mapped.update(
+        re.findall(
+            r'val == "([^"]+)"', task_body(llvm_source, "llvm_map_call_name")
+        )
+    )
+    classified = set(
+        re.findall(
+            r'name == "([^"]+)"', task_body(checker_source, "tc_builtin_call_type")
+        )
+    )
+    missing = sorted(mapped - classified)
+    assert not missing, f"builtin return-type inventory missing: {missing}"
 
 
 def run(
@@ -54,6 +80,7 @@ def main() -> int:
     repo = Path(__file__).resolve().parents[1]
     freak = args.freak.resolve()
     assert freak.is_file(), f"FREAK CLI not found: {freak}"
+    assert_builtin_signature_parity(repo)
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-codegen-gate-") as tmp:
         tmp_path = Path(tmp)
@@ -215,6 +242,21 @@ def main() -> int:
         assert "malformed-stdlib-home/std/math.fk:2:" in std_output, std_output
         assert "2 |     say )" in std_output, std_output
 
+        broken_math.write_text(
+            (repo / "std" / "math.fk").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        broken_version = install_home / "std" / "version.fk"
+        broken_version.write_text("task broken_std() {\n", encoding="utf-8")
+        std_user.write_text('say "user"\n', encoding="utf-8")
+        unclosed_result = run(freak, repo, std_user, "build", "--c", env=std_env)
+        assert_rejected(unclosed_result, "unclosed installed std block origin")
+        unclosed_output = (unclosed_result.stdout + unclosed_result.stderr).replace(
+            "\\", "/"
+        )
+        assert "malformed-stdlib-home/std/version.fk:1:" in unclosed_output
+        assert "1 | task broken_std() {" in unclosed_output
+
         nominal_shadow_ok = tmp_path / "nominal_shadow_ok.fk"
         nominal_shadow_ok.write_text(
             "shape Known { value: int }\n"
@@ -232,8 +274,26 @@ def main() -> int:
         shadow_check = run(freak, repo, nominal_shadow_ok, "check")
         assert shadow_check.returncode == 0, shadow_check.stdout + shadow_check.stderr
 
+        reserved_extern = tmp_path / "reserved_extern_bad.fk"
+        reserved_extern.write_text(
+            "extern task __freak_param_0(value: int) -> int\n"
+            "task main() { say __freak_param_0(7) }\n",
+            encoding="utf-8",
+        )
+        for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+            reserved_result = run(freak, repo, reserved_extern, "transpile", flag)
+            assert_rejected(reserved_result, f"{backend} reserved extern namespace")
+            assert "compiler-reserved '__freak_' prefix" in (
+                reserved_result.stdout + reserved_result.stderr
+            )
+
         primitive_ok = tmp_path / "primitive_methods_ok.fk"
         primitive_ok.write_text(
+            "pilot inferred_global = 1.5 + 2.25\n"
+            "pilot __freak_param_0: int = 42\n"
+            "task truth() -> bool { give back true }\n"
+            "task decimal() -> num { give back 6.75 }\n"
+            "task read_collision(other: int) -> int { give back __freak_param_0 }\n"
             "task main() {\n"
             "    pilot integer: int = 7\n"
             "    say integer.to_word()\n"
@@ -245,6 +305,21 @@ def main() -> int:
             "    pilot text: word = \"9\"\n"
             "    pilot text_int: int = text.to_int()\n"
             "    say text_int.to_word()\n"
+            "    pilot source_integer = 7\n"
+            "    pilot inferred_num = source_integer.to_num()\n"
+            "    say inferred_num.to_word()\n"
+            "    pilot inferred_sum = 1.5 + 2.25\n"
+            "    say inferred_sum.to_word()\n"
+            "    pilot inferred_checksum = \"a\".checksum()\n"
+            "    say (inferred_checksum > 0).to_word()\n"
+            "    say (1 < 2).to_word()\n"
+            "    say \"x\".contains(\"x\").to_word()\n"
+            "    say truth().to_word()\n"
+            "    say decimal().to_int().to_word()\n"
+            "    say fs::exists(\"definitely-missing-v3-type-probe\").to_word()\n"
+            "    say math::sqrt(9.0).to_int().to_word()\n"
+            "    say inferred_global.to_word()\n"
+            "    say read_collision(7).to_word()\n"
             "}\n",
             encoding="utf-8",
         )
@@ -263,7 +338,23 @@ def main() -> int:
                 check=False,
             )
             assert executed.returncode == 0, executed.stdout + executed.stderr
-            assert executed.stdout.strip().splitlines() == ["7", "8", "true", "9"]
+            assert executed.stdout.strip().splitlines() == [
+                "7",
+                "8",
+                "true",
+                "9",
+                "7",
+                "3.75",
+                "true",
+                "true",
+                "true",
+                "true",
+                "6",
+                "false",
+                "3",
+                "3.75",
+                "42",
+            ]
 
         check_result = run(freak, repo, parse_bad, "check")
         check_output = check_result.stdout + check_result.stderr

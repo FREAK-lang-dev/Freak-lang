@@ -1715,7 +1715,9 @@ def audit_conformance(paths: List[Path]) -> int:
         "codegen gate regression": (
             repo / "tests" / "v3_codegen_error_gate.py",
             (
+                "assert_builtin_signature_parity",
                 "malformed-stdlib-home/std/math.fk:2:",
+                "unclosed installed std block origin",
                 "primitive_methods_ok.fk",
                 "missing_multiline",
             ),

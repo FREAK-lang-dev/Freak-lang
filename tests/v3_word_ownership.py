@@ -188,6 +188,7 @@ task main() {
 """
 
 SHADOW_COPY_PROGRAM = """pilot mut copied: word = "g" + "lobal"
+pilot __freak_param_0: int = 42
 
 task copy_global_shadow() -> word {
     pilot copied: word = copied
@@ -197,6 +198,10 @@ task copy_global_shadow() -> word {
 task copy_param_shadow(copied: word, __freak_param_0: int) -> word {
     pilot copied: word = copied
     give back copied
+}
+
+task read_generated_name_collision(other: int) -> int {
+    give back __freak_param_0
 }
 
 task main() {
@@ -209,6 +214,7 @@ task main() {
     argument = "released"
     say param_copy
     param_copy = "released"
+    say read_generated_name_collision(7).to_word()
 }
 """
 
@@ -306,7 +312,7 @@ def main() -> int:
             ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"], ("c", "llvm")),
             ("global_call", GLOBAL_CALL_PROGRAM, [], ["local", "global"], ("c", "llvm")),
             ("return_shadow", RETURN_SHADOW_PROGRAM, [], ["local", "inner", "global"], ("c", "llvm")),
-            ("shadow_copy", SHADOW_COPY_PROGRAM, [], ["global", "param"], ("c", "llvm")),
+            ("shadow_copy", SHADOW_COPY_PROGRAM, [], ["global", "param", "42"], ("c", "llvm")),
             ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join", "literal"], ("c", "llvm")),
             ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field", "self", "self"], ("llvm",)),
         )
@@ -329,23 +335,25 @@ def main() -> int:
                         assert re.search(r"freak_observe\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
                         assert "freak_observe(freak_word_concat(" in generated_text
                         assert re.search(r"freak_observe_shadow\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
-                        assert "global_alias = freak_word_clone(global_owner)" in generated_text
+                        assert re.search(r"__freak_global_\d+ = freak_word_clone\(__freak_global_\d+\)", generated_text)
                         assert "freak_word_release_owned(&__freak_param_0)" in generated_text
                     elif case_name == "aggregate":
                         assert re.search(r"freak_array_push_owned\(__freak_local_\d+, freak_word_clone\(__freak_local_\d+\)\)", generated_text)
                         assert re.search(r"freak_array_set_owned\(__freak_local_\d+, 0, freak_word_concat\(", generated_text)
                         assert re.search(r"freak_array_release_owned\(__freak_local_\d+\)", generated_text)
                         assert re.search(r"freak_word_join_owned\(__freak_local_\d+\)", generated_text)
-                        assert "({ int64_t __arr = freak_array_new();" in generated_text
-                        assert "freak_array_push_owned(__arr, freak_word_concat(" in generated_text
+                        assert re.search(r"\(\{ int64_t __freak_array_\d+ = freak_array_new\(\);", generated_text)
+                        assert re.search(r"freak_array_push_owned\(__freak_array_\d+, freak_word_concat\(", generated_text)
                         assert "freak_array_get" in generated_text
                     elif case_name == "global_call":
-                        assert "freak_observe(freak_word_clone(global_owner))" in generated_text
+                        assert re.search(r"freak_observe\(freak_word_clone\(__freak_global_\d+\)\)", generated_text)
                     elif case_name == "global_return":
-                        assert "__freak_return_value = freak_word_clone(global_owner)" in generated_text
+                        assert re.search(r"__freak_return_value = freak_word_clone\(__freak_global_\d+\)", generated_text)
                     elif case_name == "return_shadow":
                         assert "freak_return_local_shadow" in generated_text
                         assert "freak_return_param_shadow" in generated_text
+                    elif case_name == "shadow_copy":
+                        assert re.search(r"__freak_return_value = __freak_global_\d+;", generated_text)
                 else:
                     assert "@freak_llvm_word_release_replaced" in generated_text
                     assert "@freak_llvm_word_clone" in generated_text

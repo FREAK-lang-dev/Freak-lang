@@ -374,6 +374,10 @@ task parse_expr() -> int {
 -- ===================== BLOCK + STATEMENT PARSING =====================
 
 task parse_block() -> word {
+    pilot opener_file = current_source_file()
+    pilot opener_line = word_to_int(current_source_line())
+    pilot opener_col = 1
+    if parse_idx >= 0 and parse_idx < tokens_count { opener_col = word_to_int(array_get(tok_cols, parse_idx)) }
     expect_tok(TOK_PUNCT, "{")
     pilot block = ""
     pilot fin = false
@@ -381,7 +385,7 @@ task parse_block() -> word {
     if match_tok(TOK_PUNCT, "}") { fin = true }
     repeat until fin {
         if cur_tok_type() == TOK_EOF or cur_tok_type() == "" {
-            diag_error("unexpected end of file — missing '}'", "block opened here")
+            diag_error_at("unexpected end of file — missing '}'", "block opened here", opener_file, opener_line, opener_col)
             fin = true
         } else {
             pilot stmt_id = parse_stmt()

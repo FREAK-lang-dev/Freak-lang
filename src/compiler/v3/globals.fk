@@ -149,6 +149,7 @@ pilot emt_var_c_names = 0
 pilot emt_var_count = 0
 pilot emt_global_var_names = 0
 pilot emt_global_var_types = 0
+pilot emt_global_var_c_names = 0
 pilot emt_global_var_count = 0
 pilot emt_word_tasks = 0
 pilot emt_word_task_count = 0

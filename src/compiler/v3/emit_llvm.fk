@@ -385,12 +385,15 @@ task llvm_infer_expr_type(expr_id: word) -> word {
     if kind == EXPR_IDENT { give back llvm_get_var_type(val) }
 
     if kind == EXPR_METHOD {
-        if val == "trim" or val == "to_upper" or val == "to_lower" or val == "replace" or val == "char_at" or val == "substring" or val == "snapshot_escape" or val == "snapshot_unescape" or val == "snapshot_line" or val == "snapshot_field_raw" { give back "w" }
-        if val == "to_word" { give back "w" }
-        if val == "to_num" { give back "n" }
-        if val == "length" or val == "checksum" or val == "to_int" or val == "contains" or val == "starts_with" or val == "ends_with" or val == "snapshot_line_count" or val == "snapshot_field_count" { give back "i" }
         pilot recv_expr: word = array_get(ast_expr_lefts, i)
-        pilot recv_shape = llvm_shape_name_from_type(llvm_infer_expr_type(recv_expr))
+        pilot recv_type = llvm_infer_expr_type(recv_expr)
+        pilot recv_builtin_type = "int"
+        if recv_type.starts_with("w") { recv_builtin_type = "word" }
+        else if recv_type.starts_with("n") { recv_builtin_type = "num" }
+        else if recv_type.starts_with("b") { recv_builtin_type = "bool" }
+        pilot builtin_ret = tc_builtin_method_return_type(recv_builtin_type, val)
+        if builtin_ret != "" { give back llvm_type_code(builtin_ret) }
+        pilot recv_shape = llvm_shape_name_from_type(recv_type)
         if recv_shape != "" {
             pilot exact_ret = llvm_get_task_ret_type(recv_shape + "_" + val)
             if exact_ret.length() > 0 { give back exact_ret }
@@ -411,6 +414,7 @@ task llvm_infer_expr_type(expr_id: word) -> word {
     }
 
     if kind == EXPR_BINOP {
+        if val == "==" or val == "!=" or val == "<" or val == ">" or val == "<=" or val == ">=" or val == "and" or val == "or" { give back "b" }
         pilot left: word = array_get(ast_expr_lefts, i)
         pilot right: word = array_get(ast_expr_rights, i)
         pilot lt: word = llvm_infer_expr_type(left)
@@ -421,6 +425,11 @@ task llvm_infer_expr_type(expr_id: word) -> word {
         if lt.starts_with("n") or rt.starts_with("n") {
             if val == "+" or val == "-" or val == "*" or val == "/" or val == "%" { give back "n" }
         }
+    }
+
+    if kind == EXPR_UNARYOP {
+        if val == "not" { give back "b" }
+        give back llvm_infer_expr_type(array_get(ast_expr_lefts, i))
     }
 
     if kind == EXPR_CALL {
@@ -475,11 +484,8 @@ task llvm_infer_field_index(receiver_expr: word, field_name: word) -> int {
 }
 
 task llvm_infer_call_type(val: word) -> word {
-    if val == "fs::read" or val == "fs::list_dir" or val == "process::arg" { give back "w" }
-    if val == "process::exec_capture" or val == "ask" { give back "w" }
-    if val == "word_from_int" or val == "word_from_bool" or val == "word_concat" or val == "word_join" or val == "format_num" { give back "w" }
-    if val == "array_get" { give back "w" }
-    if val == "array_new" or val == "array_len" { give back "i" }
+    pilot builtin_type = tc_builtin_call_type(val)
+    if builtin_type != "" { give back llvm_type_code(builtin_type) }
     if val.starts_with("shape::ctor::") {
         give back "s:" + val.replace("shape::ctor::", "")
     }

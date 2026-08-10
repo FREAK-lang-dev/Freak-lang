@@ -15,3 +15,6 @@ build/freakc_cli.fk linguist-generated=true
 
 # Shell consumers parse this field-by-field; keep the canonical payload map LF.
 packaging/distribution-files.manifest text eol=lf
+
+# Windows CI and installed POSIX entrypoints must remain executable by Bash.
+*.sh text eol=lf

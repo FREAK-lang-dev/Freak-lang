@@ -194,7 +194,8 @@ task emit_expr(id: word) -> void {
         --      freak_array_push_owned(arr, b);
         --      arr; })
         -- Element ids live in `left`, comma-separated.
-        emit("({ int64_t __arr = freak_array_new(); ")
+        pilot array_tmp = "__freak_array_" + id
+        emit("({ int64_t " + array_tmp + " = freak_array_new(); ")
         pilot ali = 0
         pilot alen2 = left.length()
         pilot cur_eid_c = ""
@@ -202,7 +203,7 @@ task emit_expr(id: word) -> void {
             pilot acc = left.char_at(ali)
             if acc == "," {
                 if cur_eid_c.length() > 0 {
-                    emit("freak_array_push_owned(__arr, ")
+                    emit("freak_array_push_owned(" + array_tmp + ", ")
                     pilot clone_element = emt_word_expr_needs_clone(cur_eid_c)
                     if clone_element { emit("freak_word_clone(") }
                     emit_expr(cur_eid_c)
@@ -216,14 +217,14 @@ task emit_expr(id: word) -> void {
             ali += 1
         }
         if cur_eid_c.length() > 0 {
-            emit("freak_array_push_owned(__arr, ")
+            emit("freak_array_push_owned(" + array_tmp + ", ")
             pilot clone_element = emt_word_expr_needs_clone(cur_eid_c)
             if clone_element { emit("freak_word_clone(") }
             emit_expr(cur_eid_c)
             if clone_element { emit(")") }
             emit("); ")
         }
-        emit("__arr; })")
+        emit(array_tmp + "; })")
         give back
     }
 
@@ -304,37 +305,18 @@ task emit_c_call(val: word, left: word) -> void {
     emit(")")
 }
 
+task emt_raw_type_code(type_name: word) -> word {
+    if type_name == "word" { give back "w" }
+    if type_name == "num" or type_name == "float" { give back "d" }
+    if type_name == "bool" { give back "b" }
+    if type_name == "void" { give back "v" }
+    give back "i"
+}
+
 task emt_expr_type_code(id: word) -> word {
-    pilot i = word_to_int(id)
-    pilot kind: word = array_get(ast_expr_kinds, i)
-    pilot val: word = array_get(ast_expr_vals, i)
-    if kind == EXPR_STR { give back "w" }
-    if kind == EXPR_INT { give back "i" }
-    if kind == EXPR_FLOAT { give back "d" }
-    if kind == EXPR_BOOL { give back "b" }
-    if kind == EXPR_IDENT { give back emt_get_var_type(val) }
-    if kind == EXPR_CALL {
-        if is_ast_word(id) { give back "w" }
-        if val == "parse_num" { give back "d" }
-        give back "i"
-    }
-    if kind == EXPR_METHOD {
-        if val == "to_num" { give back "d" }
-        if val == "to_int" or val == "length" or val == "checksum" or val == "contains" or val == "starts_with" or val == "ends_with" { give back "i" }
-        give back "w"
-    }
-    if kind == EXPR_BINOP {
-        if is_ast_word(id) { give back "w" }
-        pilot left_type = emt_expr_type_code(array_get(ast_expr_lefts, i))
-        pilot right_type = emt_expr_type_code(array_get(ast_expr_rights, i))
-        if left_type == "d" or right_type == "d" { give back "d" }
-        give back "i"
-    }
-    if kind == EXPR_UNARYOP { give back emt_expr_type_code(array_get(ast_expr_lefts, i)) }
-    if kind == EXPR_FIELD {
-        if is_ast_word(id) { give back "w" }
-        give back "i"
-    }
+    pilot inferred_type = tc_expr_type(word_to_int(id))
+    if inferred_type != "" { give back emt_raw_type_code(inferred_type) }
+    if is_ast_word(id) { give back "w" }
     give back "i"
 }
 
@@ -481,6 +463,7 @@ task emit_c_unaryop(val: word, left: word) -> void {
 
 task emit_block(block: word) -> void {
     pilot saved_var_count = emt_var_count
+    pilot saved_tc_local_count = tc_local_count
     pilot i = 0
     pilot slen = block.length()
     pilot cur_id = ""
@@ -496,6 +479,7 @@ task emit_block(block: word) -> void {
     }
     if cur_id != "" { emit_stmt(cur_id) }
     emt_var_count = saved_var_count
+    tc_local_count = saved_tc_local_count
 }
 
 -- ===================== STATEMENT EMIT ================================
@@ -643,9 +627,9 @@ task emit_stmt(eid: word) -> void {
             emit_block(array_get(ast_stmt_bodies, i))
             emit_line("}")
         } else {
-            emit("for (int64_t __rep = 0; __rep < ")
+            emit("for (int64_t __freak_repeat_index = 0; __freak_repeat_index < ")
             emit_expr(expr_id_w)
-            emit_line("; __rep++) {")
+            emit_line("; __freak_repeat_index++) {")
             emit_block(array_get(ast_stmt_bodies, i))
             emit_line("}")
         }
@@ -653,9 +637,9 @@ task emit_stmt(eid: word) -> void {
     }
     if kind == STMT_TRAINING_ARC {
         pilot max_id_w: word = array_get(ast_stmt_extras, i)
-        emit("for (int64_t __arc = 0; __arc < ")
+        emit("for (int64_t __freak_arc_index = 0; __freak_arc_index < ")
         emit_expr(max_id_w)
-        emit_line("; __arc++) {")
+        emit_line("; __freak_arc_index++) {")
         emit("    if (")
         emit_expr(expr_id_w)
         emit_line(") { break; }")
@@ -774,10 +758,20 @@ task emit_stmt_pilot(eid: word) -> void {
     if type_ann_w == "bool" { ctype = "bool " vtype = "b" }
     if type_ann_w == "num" { ctype = "double " vtype = "d" }
     if type_ann_w == "int" { ctype = "int64_t " vtype = "i" }
+    pilot binding_type = type_ann_w
     if type_ann_w == "" {
-        if is_ast_word(expr_id_w) { ctype = "freak_word " vtype = "w" }
-        if e_kind == EXPR_BOOL { ctype = "bool " vtype = "b" }
-        if e_kind == EXPR_FLOAT { ctype = "double " vtype = "d" }
+        binding_type = tc_expr_type(e_idx)
+        vtype = emt_expr_type_code(expr_id_w)
+        if vtype == "w" { ctype = "freak_word " }
+        else if vtype == "b" { ctype = "bool " }
+        else if vtype == "d" { ctype = "double " }
+        else { ctype = "int64_t " vtype = "i" }
+        if binding_type == "" {
+            if vtype == "w" { binding_type = "word" }
+            else if vtype == "b" { binding_type = "bool" }
+            else if vtype == "d" { binding_type = "num" }
+            else { binding_type = "int" }
+        }
     }
     pilot c_name = "__freak_local_" + eid
     emit(ctype + c_name + " = ")
@@ -790,6 +784,7 @@ task emit_stmt_pilot(eid: word) -> void {
     -- after lowering the RHS so `pilot value: word = value` reads the
     -- parameter/global being shadowed, not the new C local.
     emt_set_var_type_named(name_w, vtype, c_name)
+    tc_set_local(name_w, binding_type)
 }
 
 task emit_stmt_when(eid: word) -> void {
@@ -797,7 +792,8 @@ task emit_stmt_when(eid: word) -> void {
     pilot target_id_w: word = array_get(ast_stmt_exprs, i)
     pilot cases_str: word = array_get(ast_stmt_bodies, i)
 
-    emit("{ int64_t __target = ")
+    pilot target_tmp = "__freak_when_target_" + eid
+    emit("{ int64_t " + target_tmp + " = ")
     emit_expr(target_id_w)
     emit_line(";")
 
@@ -829,17 +825,21 @@ task emit_stmt_when(eid: word) -> void {
                     if not is_first { emit("else ") }
                     emit_line("{")
                     pilot saved_case_vars = emt_var_count
+                    pilot saved_case_tc_locals = tc_local_count
                     emit_stmt(c_stmt)
                     emt_var_count = saved_case_vars
+                    tc_local_count = saved_case_tc_locals
                     emit_line("}")
                 } else {
                     if not is_first { emit("else ") }
-                    emit("if (__target == ")
+                    emit("if (" + target_tmp + " == ")
                     emit_expr(c_expr)
                     emit_line(") {")
                     pilot saved_case_vars = emt_var_count
+                    pilot saved_case_tc_locals = tc_local_count
                     emit_stmt(c_stmt)
                     emt_var_count = saved_case_vars
+                    tc_local_count = saved_case_tc_locals
                     emit_line("}")
                 }
                 is_first = false
@@ -906,6 +906,7 @@ task c_ret_type(returns_w: word) -> word {
 
 task emit_task(eid: word) -> void {
     emt_reset_local_types()
+    tc_reset_locals()
     pilot i = word_to_int(eid)
     pilot name_w: word = array_get(ast_stmt_names, i)
     pilot body_id_w: word = array_get(ast_stmt_bodies, i)
@@ -919,6 +920,7 @@ task emit_task(eid: word) -> void {
     if params_w != "" {
         c_params = translate_params(params_w)
         register_param_types(params_w)
+        tc_register_params(params_w)
     }
 
     emit(c_ret + " freak_" + name_w + "(" + c_params)
@@ -983,12 +985,15 @@ task emit_global_decl(eid: word) -> void {
     if type_ann_w == "bool" { ctype = "bool " defval = " = false" vtype = "b" }
     if type_ann_w == "num" { ctype = "double " defval = " = 0.0" vtype = "d" }
     if type_ann_w == "" {
-        if is_ast_word(expr_id_w) { ctype = "freak_word " defval = " = FREAK_WORD_EMPTY" vtype = "w" }
-        if e_kind == EXPR_BOOL { ctype = "bool " defval = " = false" vtype = "b" }
-        if e_kind == EXPR_FLOAT { ctype = "double " defval = " = 0.0" vtype = "d" }
+        vtype = emt_expr_type_code(expr_id_w)
+        if vtype == "w" { ctype = "freak_word " defval = " = FREAK_WORD_EMPTY" }
+        else if vtype == "b" { ctype = "bool " defval = " = false" }
+        else if vtype == "d" { ctype = "double " defval = " = 0.0" }
+        else { ctype = "int64_t " defval = " = 0" vtype = "i" }
     }
-    emt_set_global_var_type(name_w, vtype)
-    emit(ctype + name_w + defval)
+    pilot c_name = "__freak_global_" + eid
+    emt_set_global_var_type(name_w, vtype, c_name)
+    emit(ctype + c_name + defval)
     emit_line(";")
 }
 
@@ -998,7 +1003,7 @@ task emit_global_init(eid: word) -> void {
     pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
     pilot expr_idx = word_to_int(expr_id_w)
     pilot expr_kind: word = array_get(ast_expr_kinds, expr_idx)
-    emit(name_w + " = ")
+    emit(emt_get_var_c_name(name_w) + " = ")
     pilot clone_initial = emt_get_var_type(name_w) == "w" and emt_word_expr_needs_clone(expr_id_w)
     if clone_initial { emit("freak_word_clone(") }
     emit_expr(expr_id_w)
@@ -1039,6 +1044,7 @@ task emit_c_program() -> void {
 
     pilot top_count = array_len(ast_top_stmts)
     pilot i = 0
+    tc_reset_locals()
 
     -- Pass 0: Forward declarations + extern declarations
     i = 0
@@ -1089,6 +1095,7 @@ task emit_c_program() -> void {
         emit_line("void freak_main(void) {")
     }
     emt_reset_local_types()
+    tc_reset_locals()
 
     -- Initialize globals
     i = 0
