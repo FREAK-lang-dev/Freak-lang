@@ -66,6 +66,7 @@ task main() {
     observe_shadow(shadow_arg)
     shadow_arg = "released"
     say shadow_owner
+    shadow_owner = "released"
     global_owner = "reinitialized"
     say global_alias
     global_alias = "released"
@@ -86,11 +87,23 @@ task main() {
     say extracted
     extracted = "released"
     say array_get(items, 0)
+    repeat 128 times {
+        array_set(items, 0, "x" + "y")
+    }
+    say array_get(items, 0)
+    array_release(items)
     pilot stored_items = array_new()
     pilot mut stored_value: word = "s" + "tored"
     store(stored_items, stored_value)
     stored_value = "new"
     say array_get(stored_items, 0)
+    array_release(stored_items)
+    pilot joined_items = array_new()
+    array_push(joined_items, "j" + "o")
+    array_push(joined_items, "i" + "n")
+    pilot mut joined: word = word_join(joined_items)
+    say joined
+    joined = "released"
 }
 """
 
@@ -105,6 +118,36 @@ task main() {
     global_owner = "reinitialized"
     say returned_global
     returned_global = "released"
+}
+"""
+
+METHOD_SHAPE_PROGRAM = """shape Counter {
+    value: int
+}
+
+shape Message {
+    value: word
+}
+
+impl Message {
+    task observe(self, value: word) {
+        pilot length = value.length()
+    }
+}
+
+pilot message = Message { value: "initial" }
+
+task main() {
+    pilot mut replacement: word = "x" + "y"
+    message.value = replacement
+    replacement = "released"
+    say message.value
+    message.value = "released"
+    pilot mut method_value: word = "m" + "ethod"
+    message.observe(method_value)
+    method_value = "new"
+    say method_value
+    message.observe("r" + "value")
 }
 """
 
@@ -134,14 +177,17 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="freak-v3-word-ownership-") as tmp:
         root = Path(tmp)
         cases = (
-            ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "shadow", "global"]),
-            ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"]),
-            ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "stored"]),
+            ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "shadow", "global"], ("c", "llvm")),
+            ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"], ("c", "llvm")),
+            ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join"], ("c", "llvm")),
+            ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "new"], ("llvm",)),
         )
-        for case_name, program, extra_flags, expected_output in cases:
+        for case_name, program, extra_flags, expected_output, backends in cases:
             source = root / f"replace_owned_{case_name}.fk"
             source.write_text(program, encoding="utf-8")
             for backend, flag, suffix in (("c", "--c", ".c"), ("llvm", "--llvm", ".ll")):
+                if backend not in backends:
+                    continue
                 transpiled = run([str(freak), "transpile", str(source), flag, *extra_flags], repo)
                 assert transpiled.returncode == 0, transpiled.stdout + transpiled.stderr
                 generated = Path(str(source) + suffix)
@@ -158,7 +204,10 @@ def main() -> int:
                         assert "global_alias = freak_word_clone(global_owner)" in generated_text
                         assert "freak_word_release_owned(&value)" in generated_text
                     elif case_name == "aggregate":
-                        assert "freak_array_push(items, freak_word_clone(item))" in generated_text
+                        assert "freak_array_push_owned(items, freak_word_clone(item))" in generated_text
+                        assert "freak_array_set_owned(items, 0, freak_word_concat(" in generated_text
+                        assert "freak_array_release_owned(items)" in generated_text
+                        assert "freak_word_join_owned(joined_items)" in generated_text
                         assert "freak_array_get" in generated_text
                     else:
                         assert "__freak_return_value = freak_word_clone(global_owner)" in generated_text
@@ -186,6 +235,7 @@ def main() -> int:
                         str(generated),
                     ]
                     if backend == "llvm":
+                        command.append("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1")
                         command.extend(
                             [
                                 str(repo / "freakc" / "runtime" / "freak_llvm_runtime.c"),
@@ -207,6 +257,7 @@ def main() -> int:
                 assert executed.returncode == 0, executed.stdout + executed.stderr
                 assert executed.stdout.strip().splitlines() == expected_output, executed.stdout
                 assert "LeakSanitizer" not in executed.stderr
+                assert "ownership audit found" not in executed.stderr
 
     print("V3 word replacement ownership: PASS")
     return 0

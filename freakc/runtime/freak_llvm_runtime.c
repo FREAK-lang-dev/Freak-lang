@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <string.h>
 extern int64_t freak_llvm_word_adopt(int64_t pointer);
+extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifdef _WIN32
 __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
@@ -185,6 +186,13 @@ void freak_llvm_array_push(int64_t handle, int64_t item) {
     }
     a->data[a->length++] = item;
 }
+void freak_llvm_array_push_owned(int64_t handle, int64_t item) {
+    if (freak_llvm_array_slot_for_handle(handle) < 0) {
+        freak_llvm_word_release_replaced(item, 0);
+        return;
+    }
+    freak_llvm_array_push(handle, item);
+}
 int64_t freak_llvm_array_get(int64_t handle, int64_t index) {
     int64_t slot = freak_llvm_array_slot_for_handle(handle);
     if (slot < 0) return 0;
@@ -209,6 +217,22 @@ void freak_llvm_array_set(int64_t handle, int64_t index, int64_t item) {
     a->data[index] = item;
 }
 
+void freak_llvm_array_set_owned(int64_t handle, int64_t index, int64_t item) {
+    int64_t slot = freak_llvm_array_slot_for_handle(handle);
+    if (slot < 0) {
+        freak_llvm_word_release_replaced(item, 0);
+        return;
+    }
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
+    if (index < 0 || index >= a->length) {
+        fprintf(stderr, "FREAK: array_set index %lld out of bounds (len %lld)\n",
+                (long long)index, (long long)a->length);
+        exit(1);
+    }
+    freak_llvm_word_release_replaced(a->data[index], item);
+    a->data[index] = item;
+}
+
 void freak_llvm_array_release(int64_t handle) {
     int64_t slot = freak_llvm_array_slot_for_handle(handle);
     if (slot < 0) return;
@@ -226,7 +250,17 @@ void freak_llvm_array_release(int64_t handle) {
     freak_llvm_array_free_head = slot;
 }
 
-int64_t freak_llvm_word_join(int64_t handle) {
+void freak_llvm_array_release_owned(int64_t handle) {
+    int64_t slot = freak_llvm_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
+    for (int64_t i = 0; i < a->length; ++i) {
+        freak_llvm_word_release_replaced(a->data[i], 0);
+    }
+    freak_llvm_array_release(handle);
+}
+
+static int64_t freak_llvm_word_join_impl(int64_t handle, bool release_elements) {
     int64_t slot = freak_llvm_array_slot_for_handle(handle);
     if (slot < 0) return (int64_t)"";
     freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
@@ -256,8 +290,20 @@ int64_t freak_llvm_word_join(int64_t handle) {
         }
     }
     joined[total] = '\0';
-    freak_llvm_array_release(handle);
+    if (release_elements) {
+        freak_llvm_array_release_owned(handle);
+    } else {
+        freak_llvm_array_release(handle);
+    }
     return freak_llvm_word_adopt((int64_t)joined);
+}
+
+int64_t freak_llvm_word_join(int64_t handle) {
+    return freak_llvm_word_join_impl(handle, false);
+}
+
+int64_t freak_llvm_word_join_owned(int64_t handle) {
+    return freak_llvm_word_join_impl(handle, true);
 }
 
 /* ── Shape (struct) helpers ─────────────────────────── */

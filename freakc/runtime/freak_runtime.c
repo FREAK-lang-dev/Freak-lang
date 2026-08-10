@@ -1208,8 +1208,36 @@ typedef struct freak_llvm_owned_word {
 
 static freak_llvm_owned_word* freak_llvm_owned_words = NULL;
 
+#ifdef FREAK_RUNTIME_OWNERSHIP_AUDIT
+static bool freak_llvm_ownership_audit_registered = false;
+
+static void freak_llvm_ownership_audit_at_exit(void) {
+    int64_t remaining = 0;
+    freak_llvm_owned_word* current = freak_llvm_owned_words;
+    while (current) {
+        remaining += 1;
+        current = current->next;
+    }
+    if (remaining != 0) {
+        fprintf(stderr,
+                "FREAK: LLVM ownership audit found %lld unreleased word allocation(s)\n",
+                (long long)remaining);
+        _Exit(86);
+    }
+}
+#endif
+
 int64_t freak_llvm_word_adopt(int64_t pointer) {
     if (!pointer) return pointer;
+#ifdef FREAK_RUNTIME_OWNERSHIP_AUDIT
+    if (!freak_llvm_ownership_audit_registered) {
+        if (atexit(freak_llvm_ownership_audit_at_exit) != 0) {
+            fprintf(stderr, "FREAK: could not register LLVM ownership audit\n");
+            exit(1);
+        }
+        freak_llvm_ownership_audit_registered = true;
+    }
+#endif
     freak_llvm_owned_word* current = freak_llvm_owned_words;
     while (current) {
         if (current->pointer == (void*)pointer) return pointer;
@@ -1643,6 +1671,14 @@ void freak_array_push(int64_t handle, freak_word item) {
     a->data[a->length++] = item;
 }
 
+void freak_array_push_owned(int64_t handle, freak_word item) {
+    if (freak_array_slot_for_handle(handle) < 0) {
+        freak_word_release_owned(&item);
+        return;
+    }
+    freak_array_push(handle, item);
+}
+
 freak_word freak_array_get(int64_t handle, int64_t index) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) return freak_word_lit("");
@@ -1669,6 +1705,21 @@ void freak_array_set(int64_t handle, int64_t index, freak_word item) {
     a->data[index] = item;
 }
 
+void freak_array_set_owned(int64_t handle, int64_t index, freak_word item) {
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) {
+        freak_word_release_owned(&item);
+        return;
+    }
+    freak_dyn_array* a = &freak_arrays[slot];
+    if (index < 0 || index >= a->length) {
+        fprintf(stderr, "FREAK: array_set index %lld out of bounds (len %lld)\n",
+                (long long)index, (long long)a->length);
+        exit(1);
+    }
+    freak_word_replace_owned(&a->data[index], item);
+}
+
 void freak_array_release(int64_t handle) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) return;
@@ -1687,7 +1738,17 @@ void freak_array_release(int64_t handle) {
     freak_array_free_head = slot;
 }
 
-freak_word freak_word_join(int64_t handle) {
+void freak_array_release_owned(int64_t handle) {
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    freak_dyn_array* a = &freak_arrays[slot];
+    for (int64_t i = 0; i < a->length; ++i) {
+        freak_word_release_owned(&a->data[i]);
+    }
+    freak_array_release(handle);
+}
+
+static freak_word freak_word_join_impl(int64_t handle, bool release_elements) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) {
         return freak_word_lit("");
@@ -1720,8 +1781,20 @@ freak_word freak_word_join(int64_t handle) {
     }
     joined[total] = '\0';
     freak_word result = freak_word_own(joined, total);
-    freak_array_release(handle);
+    if (release_elements) {
+        freak_array_release_owned(handle);
+    } else {
+        freak_array_release(handle);
+    }
     return result;
+}
+
+freak_word freak_word_join(int64_t handle) {
+    return freak_word_join_impl(handle, false);
+}
+
+freak_word freak_word_join_owned(int64_t handle) {
+    return freak_word_join_impl(handle, true);
 }
 
 /* ── TCP Socket primitives ─────────────────────────── */

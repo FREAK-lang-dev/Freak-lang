@@ -134,7 +134,7 @@ def check_static_contracts(repo: Path) -> None:
     ):
         assert needle in ps_text, f"install.ps1 missing {needle}"
     assert "choco.exe install llvm" not in ps_text
-    retired_cleanup = ps_text.index(
+    retired_cleanup = ps_text.rindex(
         "Remove-Item -LiteralPath `$retiredRoot -Recurse -Force"
     )
     failed_cleanup = ps_text.index(

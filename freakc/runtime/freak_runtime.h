@@ -351,6 +351,7 @@ int64_t freak_array_new(void);
 
 /* Push a word onto the array. */
 void freak_array_push(int64_t handle, freak_word item);
+void freak_array_push_owned(int64_t handle, freak_word item);
 
 /* Get item at index (0-based). Returns empty word if out of bounds. */
 freak_word freak_array_get(int64_t handle, int64_t index);
@@ -360,13 +361,16 @@ int64_t freak_array_len(int64_t handle);
 
 /* Set item at index. Panics if out of bounds. */
 void freak_array_set(int64_t handle, int64_t index, freak_word item);
+void freak_array_set_owned(int64_t handle, int64_t index, freak_word item);
 
 /* Release an array slot so a later array_new call can reuse it with a new
    generation-tagged handle. Stale handles remain invalid. */
 void freak_array_release(int64_t handle);
+void freak_array_release_owned(int64_t handle);
 
 /* Join every word in an array with one allocation and release the handle. */
 freak_word freak_word_join(int64_t handle);
+freak_word freak_word_join_owned(int64_t handle);
 
 /* ------------------------------------------------------------------ */
 /*  TCP Socket primitives                                             */

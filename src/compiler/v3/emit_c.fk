@@ -75,10 +75,12 @@ task c_map_call(val: word) -> word {
     if val == "word_from_bool" { give back "freak_word_from_bool" }
     if val == "word_to_int" { give back "freak_word_to_int" }
     if val == "array_new" { give back "freak_array_new" }
-    if val == "array_push" { give back "freak_array_push" }
+    if val == "array_push" { give back "freak_array_push_owned" }
     if val == "array_get" { give back "freak_array_get" }
-    if val == "array_set" { give back "freak_array_set" }
+    if val == "array_set" { give back "freak_array_set_owned" }
     if val == "array_len" { give back "freak_array_len" }
+    if val == "array_release" { give back "freak_array_release_owned" }
+    if val == "word_join" { give back "freak_word_join_owned" }
     if val == "process::args" { give back "freak_process_args" }
     if val == "process::exit" { give back "freak_process_exit" }
     if val == "process::exec" { give back "freak_process_exec" }
