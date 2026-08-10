@@ -48,30 +48,36 @@ def check_installer_contracts(repo: Path) -> None:
     release_text = (repo / ".github" / "workflows" / "release.yml").read_text(
         encoding="utf-8"
     )
+    manifest_text = (repo / "packaging" / "distribution-files.manifest").read_text(
+        encoding="utf-8"
+    )
 
     for needle in (
         'STAGE_DIR="$TMPDIR_INSTALL/stage"',
         'rm -rf -- "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"',
-        "runtime.fk",
-        "zip.fk",
-        "RUNTIME_UI_FILES=(win32_backend.c freak_ui_platform.h)",
+        "distribution-files.manifest",
+        "validate_manifest_entry",
     ):
         assert needle in shell_text, f"install.sh missing {needle}"
     for needle in (
         '$StageDir = Join-Path $TmpDir "stage"',
         "Remove-Item -LiteralPath $target -Recurse -Force",
-        "runtime.fk",
-        "zip.fk",
-        "freak_ui_platform.h",
+        "distribution-files.manifest",
+        "Get-ManifestEntries",
     ):
         assert needle in ps_text, f"install.ps1 missing {needle}"
     for needle in (
-        "dist/freak/runtime/ui",
-        "std/runtime.fk",
-        "std/zip.fk",
-        "runtime/ui/freak_ui_platform.h",
+        "packaging/distribution-files.manifest",
+        "dist/freak/distribution-files.manifest",
     ):
         assert needle in release_text, f"release.yml missing {needle}"
+    for needle in (
+        "freakc/runtime/ui/freak_ui_platform.h|runtime/ui/freak_ui_platform.h",
+        "std/runtime.fk|std/runtime.fk",
+        "std/zip.fk|std/zip.fk",
+        "std/ui/window.fk|std/ui/window.fk",
+    ):
+        assert needle in manifest_text, f"distribution manifest missing {needle}"
 
     bash = shutil.which("bash")
     if bash:

@@ -1689,15 +1689,15 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "POSIX installer": (
             repo / "install.sh",
-            ('STAGE_DIR="$TMPDIR_INSTALL/stage"', 'rm -rf -- "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"', "runtime.fk", "zip.fk"),
+            ('STAGE_DIR="$TMPDIR_INSTALL/stage"', 'rm -rf -- "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"', "distribution-files.manifest"),
         ),
         "Windows installer": (
             repo / "install.ps1",
-            ('$StageDir = Join-Path $TmpDir "stage"', "Remove-Item -LiteralPath $target -Recurse -Force", "runtime.fk", "zip.fk"),
+            ('$StageDir = Join-Path $TmpDir "stage"', "Remove-Item -LiteralPath $target -Recurse -Force", "distribution-files.manifest"),
         ),
         "release payload": (
             repo / ".github" / "workflows" / "release.yml",
-            ("dist/freak/runtime/ui", "std/runtime.fk", "std/zip.fk"),
+            ("packaging/distribution-files.manifest", "dist/freak/distribution-files.manifest"),
         ),
     }
     for label, (source_path, needles) in freshness_sources.items():
@@ -1724,6 +1724,112 @@ def audit_conformance(paths: List[Path]) -> int:
         failures.append(
             "V3 run freshness/install cleanup regressed: "
             + "; ".join(run_freshness_missing)
+        )
+
+    # Check 6c: one complete distribution manifest drives release/install,
+    # doctor proves the usable toolchain, and legacy `freak upgrade` stays live.
+    distribution_missing: List[str] = []
+    dist_manifest = repo / "packaging" / "distribution-files.manifest"
+    manifest_sources: set[str] = set()
+    manifest_destinations: set[str] = set()
+    if not dist_manifest.exists():
+        distribution_missing.append("distribution manifest missing")
+    else:
+        for raw_line in dist_manifest.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            source, separator, destination = line.partition("|")
+            if not separator or not source or not destination:
+                distribution_missing.append(f"malformed manifest entry: {line}")
+                continue
+            if source in manifest_sources:
+                distribution_missing.append(f"duplicate manifest source: {source}")
+            if destination in manifest_destinations:
+                distribution_missing.append(
+                    f"duplicate manifest destination: {destination}"
+                )
+            if ".." in Path(source).parts or ".." in Path(destination).parts:
+                distribution_missing.append(f"unsafe manifest entry: {line}")
+            manifest_sources.add(source)
+            manifest_destinations.add(destination)
+            if not (repo / source).is_file():
+                distribution_missing.append(f"manifest source missing: {source}")
+
+        expected_sources = {
+            path.relative_to(repo).as_posix()
+            for path in (repo / "std").rglob("*.fk")
+        }
+        expected_sources.update(
+            {
+                "freakc/runtime/freak_runtime.c",
+                "freakc/runtime/freak_runtime.h",
+                "freakc/runtime/freak_llvm_runtime.c",
+                "freakc/runtime/ui/win32_backend.c",
+                "freakc/runtime/ui/freak_ui_platform.h",
+            }
+        )
+        for optional_marker in ("freakc/runtime/freak_abi", "std/freak_abi"):
+            if (repo / optional_marker).is_file():
+                expected_sources.add(optional_marker)
+        for missing_source in sorted(expected_sources - manifest_sources):
+            distribution_missing.append(
+                f"required file absent from manifest: {missing_source}"
+            )
+        for extra_source in sorted(manifest_sources - expected_sources):
+            distribution_missing.append(
+                f"unexpected manifest source: {extra_source}"
+            )
+
+    distribution_sources = {
+        "POSIX dependency installer": (
+            repo / "install.sh",
+            ("--with-deps", "FREAK_INSTALL_ARCHIVE", "distribution-files.manifest"),
+        ),
+        "Windows dependency installer": (
+            repo / "install.ps1",
+            ("Test-ClangToolchain", "MartinStorsjo.LLVM-MinGW.UCRT", "Start-DeferredBinaryReplacement"),
+        ),
+        "doctor": (
+            repo / "src" / "cli" / "doctor.fk",
+            ("modules_expected\\\": 11", "ui/window.fk", "compile, link, and execution work", "-> int"),
+        ),
+        "upgrade": (
+            repo / "src" / "cli" / "hangar.fk",
+            ("FREAK_UPGRADE_SCRIPT", "tagged installer", "hangar_install_freak_v014_legacy_protocol"),
+        ),
+        "CLI exit propagation": (
+            cli_main,
+            ("process::exit(upgrade_res)", "process::exit(doctor_exit)"),
+        ),
+        "regression": (
+            repo / "tests" / "v3_install_doctor_upgrade.py",
+            ("check_offline_installer", "check_doctor", "check_upgrade"),
+        ),
+        "CI": (
+            repo / ".github" / "workflows" / "ci.yml",
+            ("tests/v3_install_doctor_upgrade.py",),
+        ),
+    }
+    for label, (source_path, needles) in distribution_sources.items():
+        if not source_path.exists():
+            distribution_missing.append(f"{label}: {source_path.name} missing")
+            continue
+        source_text = source_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in source_text:
+                distribution_missing.append(f"{label}: {needle}")
+    add(
+        "V3 distribution/doctor/upgrade",
+        not distribution_missing,
+        "complete manifest + dependency bootstrap + legacy upgrade bridge"
+        if not distribution_missing
+        else f"{len(distribution_missing)} gap(s)",
+    )
+    if distribution_missing:
+        failures.append(
+            "V3 distribution/doctor/upgrade regressed: "
+            + "; ".join(distribution_missing)
         )
 
     # ── Check 7: deus_ex_machina 20-word rule still enforced ──

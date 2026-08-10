@@ -1,200 +1,319 @@
 #!/usr/bin/env bash
-# FREAK Language Installer — Linux / macOS
+# FREAK Language Installer - Linux / macOS
 # Usage: curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.sh | bash
+# With compiler dependencies: curl -fsSL .../install.sh | bash -s -- --with-deps
 set -euo pipefail
 
 REPO="FREAK-lang-dev/Freak-lang"
 INSTALL_DIR="${FREAK_HOME:-$HOME/.freak}"
+INSTALL_DEPS="${FREAK_INSTALL_DEPS:-0}"
+SKIP_PATH_UPDATE="${FREAK_SKIP_PATH_UPDATE:-0}"
+LOCAL_ARCHIVE="${FREAK_INSTALL_ARCHIVE:-}"
+LATEST="${FREAK_RELEASE_TAG:-}"
+RELEASE_BASE="${FREAK_RELEASE_BASE:-https://github.com/$REPO/releases/download}"
+RAW_BASE_OVERRIDE="${FREAK_RAW_BASE:-}"
+EXTRA_PATH_DIR=""
+DEPENDENCY_PENDING=false
+
+info()  { printf "\033[1;34m>\033[0m %s\n" "$*"; }
+ok()    { printf "\033[1;32m>\033[0m %s\n" "$*"; }
+warn()  { printf "\033[1;33m>\033[0m %s\n" "$*" >&2; }
+err()   { printf "\033[1;31m>\033[0m %s\n" "$*" >&2; exit 1; }
+
+truthy() {
+    case "${1:-}" in
+        1|true|TRUE|yes|YES|on|ON) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --with-deps) INSTALL_DEPS=1 ;;
+        --without-deps|--skip-deps) INSTALL_DEPS=0 ;;
+        --upgrade) ;;
+        *) err "Unknown installer option: $arg" ;;
+    esac
+done
 
 if [ -z "$INSTALL_DIR" ]; then
-    printf "Refusing unsafe FREAK install directory: %s\n" "$INSTALL_DIR" >&2
-    exit 1
+    err "Refusing an empty FREAK install directory"
 fi
 mkdir -p -- "$INSTALL_DIR"
 INSTALL_DIR=$(cd "$INSTALL_DIR" && pwd -P)
 if [ "$INSTALL_DIR" = "/" ]; then
-    printf "Refusing unsafe FREAK install directory: %s\n" "$INSTALL_DIR" >&2
-    exit 1
+    err "Refusing unsafe FREAK install directory: $INSTALL_DIR"
 fi
 BIN_DIR="$INSTALL_DIR/bin"
 
-info()  { printf "\033[1;34m>\033[0m %s\n" "$*"; }
-ok()    { printf "\033[1;32m>\033[0m %s\n" "$*"; }
-err()   { printf "\033[1;31m>\033[0m %s\n" "$*" >&2; exit 1; }
-
-# Detect platform
+# Detect platform.
 OS="$(uname -s)"
 ARCH="$(uname -m)"
-
 case "$OS" in
     Linux)  PLATFORM="linux" ;;
     Darwin) PLATFORM="macos" ;;
     *)      err "Unsupported OS: $OS" ;;
 esac
-
 case "$ARCH" in
     x86_64|amd64)  ARCH_TAG="x64" ;;
     aarch64|arm64) ARCH_TAG="arm64" ;;
     *)             err "Unsupported architecture: $ARCH" ;;
 esac
-
 TARGET="freak-${PLATFORM}-${ARCH_TAG}"
 info "Detected platform: ${PLATFORM}-${ARCH_TAG}"
 
-# Get latest release tag
-info "Fetching latest release..."
-if command -v curl &>/dev/null; then
-    LATEST=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-elif command -v wget &>/dev/null; then
-    LATEST=$(wget -qO- "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-else
-    err "Neither curl nor wget found. Install one and retry."
+have_clang() {
+    if [ -n "${FREAK_CLANG:-}" ]; then
+        "$FREAK_CLANG" --version >/dev/null 2>&1
+    else
+        command -v clang >/dev/null 2>&1
+    fi
+}
+
+run_privileged() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        warn "Administrator privileges are required to install compiler dependencies."
+        return 1
+    fi
+}
+
+dependency_hint() {
+    if [ "$PLATFORM" = "macos" ]; then
+        warn "Install Apple Command Line Tools with: xcode-select --install"
+        warn "Or install Homebrew LLVM with: brew install llvm"
+    elif command -v apt-get >/dev/null 2>&1; then
+        warn "Install dependencies with: sudo apt-get install clang lld build-essential"
+    elif command -v dnf >/dev/null 2>&1; then
+        warn "Install dependencies with: sudo dnf install clang lld gcc glibc-devel"
+    elif command -v pacman >/dev/null 2>&1; then
+        warn "Install dependencies with: sudo pacman -S clang lld base-devel"
+    else
+        warn "Install Clang and a native C development toolchain, then run freak doctor."
+    fi
+}
+
+install_compiler_dependencies() {
+    if have_clang; then
+        ok "Clang is available"
+        return 0
+    fi
+    if ! truthy "$INSTALL_DEPS"; then
+        warn "Clang is not available; FREAK will install, but native builds need it."
+        dependency_hint
+        warn "Re-run this installer with --with-deps to install supported toolchain packages."
+        return 0
+    fi
+
+    info "Installing Clang, LLD, and native build prerequisites..."
+    if [ "$PLATFORM" = "macos" ]; then
+        if command -v brew >/dev/null 2>&1; then
+            brew install llvm
+            EXTRA_PATH_DIR="$(brew --prefix llvm)/bin"
+            export PATH="$EXTRA_PATH_DIR:$PATH"
+        else
+            xcode-select --install >/dev/null 2>&1 || true
+            DEPENDENCY_PENDING=true
+            warn "Complete the Apple Command Line Tools prompt, then run freak doctor."
+            return 0
+        fi
+    elif command -v apt-get >/dev/null 2>&1; then
+        run_privileged apt-get update
+        run_privileged apt-get install -y clang lld build-essential
+    elif command -v dnf >/dev/null 2>&1; then
+        run_privileged dnf install -y clang lld gcc glibc-devel
+    elif command -v yum >/dev/null 2>&1; then
+        run_privileged yum install -y clang lld gcc glibc-devel
+    elif command -v pacman >/dev/null 2>&1; then
+        run_privileged pacman -S --needed --noconfirm clang lld base-devel
+    elif command -v zypper >/dev/null 2>&1; then
+        run_privileged zypper --non-interactive install clang lld gcc
+    elif command -v apk >/dev/null 2>&1; then
+        run_privileged apk add clang lld build-base musl-dev
+    else
+        dependency_hint
+        err "No supported package manager was found for automatic dependency installation"
+    fi
+
+    if ! have_clang; then
+        dependency_hint
+        err "The dependency installer finished, but clang is still unavailable"
+    fi
+    ok "Compiler dependencies are ready"
+}
+
+install_compiler_dependencies
+
+# Resolve the release unless a local archive is supplied for offline install/tests.
+if [ -n "$LOCAL_ARCHIVE" ]; then
+    [ -f "$LOCAL_ARCHIVE" ] || err "Local distribution archive not found: $LOCAL_ARCHIVE"
+    if [ -z "$LATEST" ]; then LATEST="local"; fi
+elif [ -z "$LATEST" ]; then
+    info "Fetching latest release..."
+    if command -v curl >/dev/null 2>&1; then
+        LATEST=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    elif command -v wget >/dev/null 2>&1; then
+        LATEST=$(wget -qO- "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    else
+        err "Neither curl nor wget was found. Install one and retry."
+    fi
 fi
+[ -n "$LATEST" ] || err "Could not determine the latest release. Check https://github.com/$REPO/releases"
+info "Release: $LATEST"
 
-if [ -z "$LATEST" ]; then
-    err "Could not determine latest release. Check https://github.com/$REPO/releases"
-fi
-
-info "Latest version: $LATEST"
-
-# Try downloading the full distribution tarball first (includes runtime .o + std)
-TARBALL_URL="https://github.com/$REPO/releases/download/$LATEST/${TARGET}.tar.gz"
-TARBALL_OK=false
-
+RAW_BASE="${RAW_BASE_OVERRIDE:-https://raw.githubusercontent.com/$REPO/$LATEST}"
+TARBALL_URL="$RELEASE_BASE/$LATEST/${TARGET}.tar.gz"
 TMPDIR_INSTALL=$(mktemp -d)
-trap "rm -rf '$TMPDIR_INSTALL'" EXIT
+trap 'rm -rf -- "$TMPDIR_INSTALL"' EXIT
 STAGE_DIR="$TMPDIR_INSTALL/stage"
 STAGE_BIN="$STAGE_DIR/bin"
 STAGE_RUNTIME="$STAGE_DIR/runtime"
 STAGE_STD="$STAGE_DIR/std"
-mkdir -p "$STAGE_BIN" "$STAGE_RUNTIME/ui" "$STAGE_STD"
-
-RUNTIME_FILES=(freak_runtime.c freak_runtime.h freak_llvm_runtime.c)
-RUNTIME_UI_FILES=(win32_backend.c freak_ui_platform.h)
-STD_FILES=(math.fk math3d.fk zip.fk string.fk convert.fk algorithm.fk json.fk http.fk version.fk runtime.fk)
+STAGE_MANIFEST="$STAGE_DIR/distribution-files.manifest"
+mkdir -p "$STAGE_BIN" "$STAGE_RUNTIME" "$STAGE_STD"
 
 fetch_file() {
     local url="$1"
     local destination="$2"
-    if command -v curl &>/dev/null; then
+    if command -v curl >/dev/null 2>&1; then
         curl -fsSL "$url" -o "$destination"
-    else
+    elif command -v wget >/dev/null 2>&1; then
         wget -q "$url" -O "$destination"
+    else
+        err "Neither curl nor wget was found"
     fi
+}
+
+validate_manifest_entry() {
+    local source="$1"
+    local destination="$2"
+    case "$source" in
+        freakc/runtime/*|std/*) ;;
+        *) err "Unsafe distribution source in manifest: $source" ;;
+    esac
+    case "$destination" in
+        runtime/*|std/*) ;;
+        *) err "Unsafe distribution destination in manifest: $destination" ;;
+    esac
+    case "$source|$destination" in
+        *../*|*/..|/*) err "Unsafe traversal in distribution manifest" ;;
+    esac
 }
 
 validate_stage() {
-    [ -f "$STAGE_BIN/freak" ] || err "Staged compiler is missing"
-    [ -f "$STAGE_BIN/hangar" ] || err "Staged Hangar is missing"
-    local file
-    for file in "${RUNTIME_FILES[@]}"; do
-        [ -f "$STAGE_RUNTIME/$file" ] || err "Staged runtime is missing $file"
-    done
-    for file in "${RUNTIME_UI_FILES[@]}"; do
-        [ -f "$STAGE_RUNTIME/ui/$file" ] || err "Staged runtime is missing ui/$file"
-    done
-    for file in "${STD_FILES[@]}"; do
-        [ -f "$STAGE_STD/$file" ] || err "Staged stdlib is missing $file"
-    done
+    [ -s "$STAGE_BIN/freak" ] || err "Staged compiler is missing"
+    [ -s "$STAGE_BIN/hangar" ] || err "Staged Hangar is missing"
+    [ -s "$STAGE_MANIFEST" ] || err "Staged distribution manifest is missing"
+    local source destination
+    while IFS='|' read -r source destination; do
+        if [ -z "$source" ] || [[ "$source" == \#* ]]; then continue; fi
+        [ -n "$destination" ] || err "Malformed distribution manifest entry: $source"
+        validate_manifest_entry "$source" "$destination"
+        [ -s "$STAGE_DIR/$destination" ] || err "Staged payload is missing $destination"
+    done < "$STAGE_MANIFEST"
 }
 
-install_stage() {
-    validate_stage
-    mkdir -p "$BIN_DIR"
-    install -m 755 "$STAGE_BIN/freak" "$BIN_DIR/freak"
-    install -m 755 "$STAGE_BIN/hangar" "$BIN_DIR/hangar"
-
-    # runtime/ and std/ are installer-managed trees. Replacing those exact
-    # directories removes files retired by a newer distribution.
-    rm -rf -- "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"
-    mkdir -p "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"
-    cp -R "$STAGE_RUNTIME/." "$INSTALL_DIR/runtime/"
-    cp -R "$STAGE_STD/." "$INSTALL_DIR/std/"
+stage_fallback_payload() {
+    info "Distribution archive unavailable; staging standalone compatibility assets..."
+    fetch_file "$RELEASE_BASE/$LATEST/$TARGET" "$STAGE_BIN/freak"
+    if ! fetch_file "$RELEASE_BASE/$LATEST/hangar-${PLATFORM}-${ARCH_TAG}" "$STAGE_BIN/hangar"; then
+        cp "$STAGE_BIN/freak" "$STAGE_BIN/hangar"
+    fi
+    fetch_file "$RAW_BASE/packaging/distribution-files.manifest" "$STAGE_MANIFEST"
+    local source destination
+    while IFS='|' read -r source destination; do
+        if [ -z "$source" ] || [[ "$source" == \#* ]]; then continue; fi
+        [ -n "$destination" ] || err "Malformed distribution manifest entry: $source"
+        validate_manifest_entry "$source" "$destination"
+        mkdir -p "$(dirname "$STAGE_DIR/$destination")"
+        fetch_file "$RAW_BASE/$source" "$STAGE_DIR/$destination"
+    done < "$STAGE_MANIFEST"
 }
 
-info "Downloading ${TARGET}.tar.gz..."
-if command -v curl &>/dev/null; then
-    if curl -fsSL "$TARBALL_URL" -o "$TMPDIR_INSTALL/freak.tar.gz" 2>/dev/null; then
-        TARBALL_OK=true
-    fi
-else
-    if wget -q "$TARBALL_URL" -O "$TMPDIR_INSTALL/freak.tar.gz" 2>/dev/null; then
-        TARBALL_OK=true
-    fi
+ARCHIVE_PATH="$TMPDIR_INSTALL/freak.tar.gz"
+ARCHIVE_OK=false
+if [ -n "$LOCAL_ARCHIVE" ]; then
+    cp "$LOCAL_ARCHIVE" "$ARCHIVE_PATH"
+    ARCHIVE_OK=true
+elif command -v tar >/dev/null 2>&1; then
+    info "Downloading ${TARGET}.tar.gz..."
+    if fetch_file "$TARBALL_URL" "$ARCHIVE_PATH" 2>/dev/null; then ARCHIVE_OK=true; fi
 fi
 
-if [ "$TARBALL_OK" = true ]; then
+if [ "$ARCHIVE_OK" = true ]; then
     info "Extracting distribution..."
-    tar xzf "$TMPDIR_INSTALL/freak.tar.gz" -C "$TMPDIR_INSTALL"
-
-    cp "$TMPDIR_INSTALL/freak/bin/freak" "$STAGE_BIN/freak"
-    cp "$TMPDIR_INSTALL/freak/bin/hangar" "$STAGE_BIN/hangar" 2>/dev/null || cp "$STAGE_BIN/freak" "$STAGE_BIN/hangar"
-    cp -R "$TMPDIR_INSTALL/freak/runtime/." "$STAGE_RUNTIME/"
-    cp -R "$TMPDIR_INSTALL/freak/std/." "$STAGE_STD/"
+    if ! tar xzf "$ARCHIVE_PATH" -C "$TMPDIR_INSTALL"; then
+        [ -z "$LOCAL_ARCHIVE" ] || err "Could not extract local distribution archive"
+        stage_fallback_payload
+    else
+        [ -d "$TMPDIR_INSTALL/freak" ] || err "Distribution archive has no freak/ root"
+        cp "$TMPDIR_INSTALL/freak/bin/freak" "$STAGE_BIN/freak"
+        if [ -f "$TMPDIR_INSTALL/freak/bin/hangar" ]; then
+            cp "$TMPDIR_INSTALL/freak/bin/hangar" "$STAGE_BIN/hangar"
+        else
+            cp "$STAGE_BIN/freak" "$STAGE_BIN/hangar"
+        fi
+        cp -R "$TMPDIR_INSTALL/freak/runtime/." "$STAGE_RUNTIME/"
+        cp -R "$TMPDIR_INSTALL/freak/std/." "$STAGE_STD/"
+        cp "$TMPDIR_INSTALL/freak/distribution-files.manifest" "$STAGE_MANIFEST"
+    fi
 else
-    # Fallback: download standalone binary + individual files from source
-    info "Tarball not available, falling back to standalone binary..."
-    DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST/$TARGET"
-
-    fetch_file "$DOWNLOAD_URL" "$STAGE_BIN/freak"
-    cp "$STAGE_BIN/freak" "$STAGE_BIN/hangar"
-
-    # Download runtime files from source tree
-    RUNTIME_URL="https://raw.githubusercontent.com/$REPO/$LATEST/freakc/runtime"
-    for file in "${RUNTIME_FILES[@]}"; do
-        fetch_file "$RUNTIME_URL/$file" "$STAGE_RUNTIME/$file"
-    done
-    for file in "${RUNTIME_UI_FILES[@]}"; do
-        fetch_file "$RUNTIME_URL/ui/$file" "$STAGE_RUNTIME/ui/$file"
-    done
-
-    # Download standard library
-    STD_URL="https://raw.githubusercontent.com/$REPO/$LATEST/std"
-    for file in "${STD_FILES[@]}"; do
-        fetch_file "$STD_URL/$file" "$STAGE_STD/$file"
-    done
+    [ -z "$LOCAL_ARCHIVE" ] || err "tar is required to extract the local distribution archive"
+    stage_fallback_payload
 fi
 
-install_stage
+validate_stage
+mkdir -p "$BIN_DIR"
+install -m 755 "$STAGE_BIN/freak" "$BIN_DIR/freak"
+install -m 755 "$STAGE_BIN/hangar" "$BIN_DIR/hangar"
 
-# Add to PATH
+# runtime/ and std/ are installer-managed trees. Replacing those exact
+# directories removes files retired by a newer distribution.
+rm -rf -- "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"
+mkdir -p "$INSTALL_DIR/runtime" "$INSTALL_DIR/std"
+cp -R "$STAGE_RUNTIME/." "$INSTALL_DIR/runtime/"
+cp -R "$STAGE_STD/." "$INSTALL_DIR/std/"
+cp "$STAGE_MANIFEST" "$INSTALL_DIR/distribution-files.manifest"
+
 add_to_path() {
     local rc_file="$1"
-    local line="export PATH=\"$BIN_DIR:\$PATH\""
-    if [ -f "$rc_file" ] && grep -qF "$BIN_DIR" "$rc_file" 2>/dev/null; then
-        return
-    fi
-    echo "" >> "$rc_file"
-    echo "# FREAK language" >> "$rc_file"
-    echo "$line" >> "$rc_file"
-    info "Added $BIN_DIR to PATH in $rc_file"
+    local path_dir="$2"
+    local line="export PATH=\"$path_dir:\$PATH\""
+    if [ -f "$rc_file" ] && grep -qF "$path_dir" "$rc_file" 2>/dev/null; then return; fi
+    printf "\n# FREAK language\n%s\n" "$line" >> "$rc_file"
+    info "Added $path_dir to PATH in $rc_file"
 }
 
-if [ -n "${ZSH_VERSION:-}" ] || [ -f "$HOME/.zshrc" ]; then
-    add_to_path "$HOME/.zshrc"
-fi
-if [ -f "$HOME/.bashrc" ]; then
-    add_to_path "$HOME/.bashrc"
-fi
-if [ -f "$HOME/.bash_profile" ] && ! [ -f "$HOME/.bashrc" ]; then
-    add_to_path "$HOME/.bash_profile"
+if ! truthy "$SKIP_PATH_UPDATE"; then
+    if [ -n "${ZSH_VERSION:-}" ] || [ -f "$HOME/.zshrc" ]; then
+        add_to_path "$HOME/.zshrc" "$BIN_DIR"
+        if [ -n "$EXTRA_PATH_DIR" ]; then add_to_path "$HOME/.zshrc" "$EXTRA_PATH_DIR"; fi
+    fi
+    if [ -f "$HOME/.bashrc" ]; then
+        add_to_path "$HOME/.bashrc" "$BIN_DIR"
+        if [ -n "$EXTRA_PATH_DIR" ]; then add_to_path "$HOME/.bashrc" "$EXTRA_PATH_DIR"; fi
+    fi
+    if [ -f "$HOME/.bash_profile" ] && ! [ -f "$HOME/.bashrc" ]; then
+        add_to_path "$HOME/.bash_profile" "$BIN_DIR"
+        if [ -n "$EXTRA_PATH_DIR" ]; then add_to_path "$HOME/.bash_profile" "$EXTRA_PATH_DIR"; fi
+    fi
 fi
 
 ok ""
 ok "FREAK $LATEST installed successfully!"
-ok ""
 ok "  Compiler: $BIN_DIR/freak"
 ok "  Hangar:   $BIN_DIR/hangar"
 ok "  Runtime:  $INSTALL_DIR/runtime/"
 ok "  Std lib:  $INSTALL_DIR/std/"
-ok ""
+if [ "$DEPENDENCY_PENDING" = true ]; then
+    warn "Compiler dependency installation is waiting for the macOS system prompt."
+elif ! have_clang; then
+    warn "Clang is still missing. Install it before building FREAK programs."
+fi
 ok "Restart your shell or run:"
 ok "  export PATH=\"$BIN_DIR:\$PATH\""
-ok ""
-ok "Then try:"
-ok "  freak version"
-ok "  freak build hello.fk"
-ok "  freak run hello.fk"
-ok "  hangar init my-project"
-ok ""
+ok "Then verify the complete toolchain with: freak doctor"
 ok "\"It was always going to end this way.\""

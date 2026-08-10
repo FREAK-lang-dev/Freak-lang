@@ -647,6 +647,8 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | `freak build file.fk` | ✅ | ✅ | |
 | `freak check file.fk` | ✅ | ✅ | |
 | `freak transpile file.fk` | ✅ | ✅ | |
+| `freak doctor [--fix|--json]` | ✅ | ✅ | Complete runtime/UI and 11-module stdlib inventory, usable-Clang discovery, optional dependency bootstrap, compile-link-execute probe, exact passive JSON missing-file report, and nonzero required-failure status. |
+| `freak upgrade` | ✅ | ✅ | Tagged staged installer path preserves the public command and standalone asset compatibility for already-shipped v0.14.0 clients; Windows replacement is deferred until process exit. |
 | `freak test` | ✅ | ✅ shim wraps `python tests/suite/run_tests.py` |
 | `freak vibe file.fk` | ❌ | 📖 V4 (or remove) |
 | `freak audit-science` | ⚠️ | 🛠 wire native CLI | Python-only; native dispatch missing |

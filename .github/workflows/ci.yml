@@ -166,6 +166,10 @@ jobs:
         shell: bash
         run: python -u tests/v3_run_freshness.py ./build/freak$EXT
 
+      - name: Test - V3 install, doctor, and upgrade
+        shell: bash
+        run: python -u tests/v3_install_doctor_upgrade.py ./build/freak$EXT
+
       - name: Test suite (regression tests)
         shell: bash
         run: |

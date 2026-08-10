@@ -131,13 +131,152 @@ task cli_has_runtime(dir: word) -> bool {
     give back false
 }
 
+task cli_path_parent(path: word) -> word {
+    pilot last_sep = -1
+    pilot pi = 0
+    repeat until pi >= path.length() {
+        pilot ch: word = path.char_at(pi)
+        if ch == "/" or ch == "\\" { last_sep = pi }
+        pi += 1
+    }
+    if last_sep <= 0 { give back "" }
+    give back path.substring(0, last_sep)
+}
+
+task cli_executable_home() -> word {
+    pilot argv0: word = process::arg(0)
+    pilot bin_dir = cli_path_parent(argv0)
+    if bin_dir == "" { give back "" }
+    pilot install_dir = cli_path_parent(bin_dir)
+    if install_dir == "" { give back "" }
+    give back install_dir
+}
+
+task cli_find_winget_home_in(root: word) -> word {
+    if root == "" or not fs::exists(root) { give back "" }
+    pilot entries: word = fs::list_dir(root)
+    pilot entry = ""
+    pilot ei = 0
+    repeat until ei > entries.length() {
+        pilot at_end = ei == entries.length()
+        pilot ch = "|"
+        if not at_end { ch = entries.char_at(ei) }
+        if ch == "|" {
+            if entry.starts_with("FREAK.freak_") {
+                pilot candidate = root + "/" + entry + "/freak"
+                if cli_has_runtime(candidate + "/runtime") { give back candidate }
+            }
+            entry = ""
+        } else {
+            entry = entry + ch
+        }
+        ei += 1
+    }
+    give back ""
+}
+
+task cli_find_winget_home() -> word {
+    if not cli_is_windows() { give back "" }
+    pilot local_appdata: word = process::env("LOCALAPPDATA")
+    if local_appdata != "" {
+        pilot local_home = cli_find_winget_home_in(local_appdata + "/Microsoft/WinGet/Packages")
+        if local_home != "" { give back local_home }
+    }
+    pilot program_files: word = process::env("ProgramFiles")
+    if program_files != "" {
+        pilot machine_home = cli_find_winget_home_in(program_files + "/WinGet/Packages")
+        if machine_home != "" { give back machine_home }
+    }
+    pilot program_files_x86: word = process::env("ProgramFiles(x86)")
+    if program_files_x86 != "" {
+        pilot x86_home = cli_find_winget_home_in(program_files_x86 + "/WinGet/Packages")
+        if x86_home != "" { give back x86_home }
+    }
+    give back ""
+}
+
+task cli_find_llvm_mingw_in(root: word) -> word {
+    if root == "" or not fs::exists(root) { give back "" }
+    pilot packages: word = fs::list_dir(root)
+    pilot package = ""
+    pilot pi = 0
+    repeat until pi > packages.length() {
+        pilot package_end = pi == packages.length()
+        pilot package_ch = "|"
+        if not package_end { package_ch = packages.char_at(pi) }
+        if package_ch == "|" {
+            if package.starts_with("MartinStorsjo.LLVM-MinGW.UCRT_") {
+                pilot package_dir = root + "/" + package
+                pilot children: word = fs::list_dir(package_dir)
+                pilot child = ""
+                pilot ci = 0
+                repeat until ci > children.length() {
+                    pilot child_end = ci == children.length()
+                    pilot child_ch = "|"
+                    if not child_end { child_ch = children.char_at(ci) }
+                    if child_ch == "|" {
+                        if child.starts_with("llvm-mingw-") {
+                            pilot candidate = package_dir + "/" + child + "/bin/clang.exe"
+                            if fs::exists(candidate) { give back cli_quote_cmd_path(candidate) }
+                        }
+                        child = ""
+                    } else {
+                        child = child + child_ch
+                    }
+                    ci += 1
+                }
+            }
+            package = ""
+        } else {
+            package = package + package_ch
+        }
+        pi += 1
+    }
+    give back ""
+}
+
+task cli_find_windows_llvm_mingw() -> word {
+    pilot user_profile: word = process::env("USERPROFILE")
+    if user_profile != "" {
+        pilot scoop_clang = user_profile + "/scoop/apps/llvm-mingw/current/bin/clang.exe"
+        if fs::exists(scoop_clang) { give back cli_quote_cmd_path(scoop_clang) }
+    }
+    pilot program_data: word = process::env("ProgramData")
+    if program_data != "" {
+        pilot global_scoop = program_data + "/scoop/apps/llvm-mingw/current/bin/clang.exe"
+        if fs::exists(global_scoop) { give back cli_quote_cmd_path(global_scoop) }
+    }
+    pilot local_appdata: word = process::env("LOCALAPPDATA")
+    if local_appdata != "" {
+        pilot local_clang = cli_find_llvm_mingw_in(local_appdata + "/Microsoft/WinGet/Packages")
+        if local_clang != "" { give back local_clang }
+    }
+    pilot program_files: word = process::env("ProgramFiles")
+    if program_files != "" {
+        pilot machine_clang = cli_find_llvm_mingw_in(program_files + "/WinGet/Packages")
+        if machine_clang != "" { give back machine_clang }
+    }
+    give back ""
+}
+
 task cli_find_runtime_dir() -> word {
     -- Try to find the runtime directory.
     -- 1. Check relative to CWD (dev / repo layout)
     if cli_has_runtime("freakc/runtime") {
         give back "freakc/runtime"
     }
-    -- 2. Check ~/.freak/runtime/ (install.sh layout)
+    -- 2. Check beside an archive/package-manager binary.
+    pilot executable_home = cli_executable_home()
+    if executable_home != "" and cli_has_runtime(executable_home + "/runtime") {
+        give back executable_home + "/runtime"
+    }
+    -- 3. An explicit FREAK_HOME is authoritative.
+    pilot freak_home: word = process::env("FREAK_HOME")
+    if freak_home != "" {
+        pilot fh_rt = freak_home + "/runtime"
+        if cli_has_runtime(fh_rt) { give back fh_rt }
+    }
+    -- 4. Check ~/.freak/runtime/ (install.sh layout)
     pilot home_dir: word = process::env("HOME")
     if home_dir != "" {
         pilot home_rt = home_dir + "/.freak/runtime"
@@ -145,7 +284,7 @@ task cli_find_runtime_dir() -> word {
             give back home_rt
         }
     }
-    -- 3. Check %APPDATA%\freak\runtime\ (install.ps1 layout on Windows)
+    -- 5. Check %APPDATA%\freak\runtime\ (install.ps1 layout on Windows)
     pilot appdata_dir: word = process::env("APPDATA")
     if appdata_dir != "" {
         pilot appdata_rt = appdata_dir + "/freak/runtime"
@@ -153,15 +292,13 @@ task cli_find_runtime_dir() -> word {
             give back appdata_rt
         }
     }
-    -- 4. Check $FREAK_HOME/runtime/ (custom install location)
-    pilot freak_home: word = process::env("FREAK_HOME")
-    if freak_home != "" {
-        pilot fh_rt = freak_home + "/runtime"
-        if cli_has_runtime(fh_rt) {
-            give back fh_rt
-        }
+    -- 6. WinGet portable archives keep runtime/std beside the binaries but
+    -- expose command aliases from a separate Links directory.
+    pilot winget_home = cli_find_winget_home()
+    if winget_home != "" {
+        give back winget_home + "/runtime"
     }
-    -- 5. Fallback: check if runtime is in current dir
+    -- 7. Fallback: check if runtime is in current dir
     if fs::exists("freak_runtime.c") {
         give back "."
     }
@@ -232,6 +369,11 @@ task cli_find_clang_command() -> word {
     }
 
     if cli_is_windows() {
+        -- Prefer a self-contained LLVM-MinGW toolchain. A bare upstream LLVM
+        -- install needs a separately configured MSVC SDK and may pass
+        -- `clang --version` while failing to compile even stdio.h.
+        pilot mingw_clang = cli_find_windows_llvm_mingw()
+        if mingw_clang != "" { give back mingw_clang }
         if process::exec("where clang >nul 2>nul") == 0 { give back "clang" }
         if process::exec("where clang.exe >nul 2>nul") == 0 { give back "clang" }
 
@@ -266,6 +408,13 @@ task cli_find_clang_command() -> word {
         }
     } else {
         if process::exec("clang --version >/dev/null 2>/dev/null") == 0 { give back "clang" }
+        pilot brew_arm_clang = "/opt/homebrew/opt/llvm/bin/clang"
+        if fs::exists(brew_arm_clang) { give back cli_quote_cmd_path(brew_arm_clang) }
+        pilot brew_x64_clang = "/usr/local/opt/llvm/bin/clang"
+        if fs::exists(brew_x64_clang) { give back cli_quote_cmd_path(brew_x64_clang) }
+        if process::exec("clang-21 --version >/dev/null 2>/dev/null") == 0 { give back "clang-21" }
+        if process::exec("clang-20 --version >/dev/null 2>/dev/null") == 0 { give back "clang-20" }
+        if process::exec("clang-19 --version >/dev/null 2>/dev/null") == 0 { give back "clang-19" }
         if process::exec("clang-18 --version >/dev/null 2>/dev/null") == 0 { give back "clang-18" }
         if process::exec("clang-17 --version >/dev/null 2>/dev/null") == 0 { give back "clang-17" }
         if process::exec("clang-16 --version >/dev/null 2>/dev/null") == 0 { give back "clang-16" }
@@ -448,7 +597,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- clang compilation error" + C_RESET
         say ""
         say C_DIM + "  Make sure clang is installed and in your PATH:" + C_RESET
-        say "    Windows: " + C_CYAN + "choco install llvm" + C_RESET + "  or  " + C_CYAN + "winget install LLVM.LLVM" + C_RESET
+        say "    Windows: " + C_CYAN + "winget install --id MartinStorsjo.LLVM-MinGW.UCRT -e" + C_RESET
         say "    macOS:   " + C_CYAN + "xcode-select --install" + C_RESET + "  or  " + C_CYAN + "brew install llvm" + C_RESET
         say "    Linux:   " + C_CYAN + "sudo apt install clang" + C_RESET + "  or  " + C_CYAN + "sudo dnf install clang" + C_RESET
         say ""
@@ -462,6 +611,15 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
 task cli_find_std_dir() -> word {
     -- Try to find the std/ directory.
     if fs::exists("std/math.fk") { give back "std" }
+    pilot executable_home = cli_executable_home()
+    if executable_home != "" and fs::exists(executable_home + "/std/math.fk") {
+        give back executable_home + "/std"
+    }
+    pilot freak_home: word = process::env("FREAK_HOME")
+    if freak_home != "" {
+        pilot fh_std = freak_home + "/std"
+        if fs::exists(fh_std + "/math.fk") { give back fh_std }
+    }
     pilot home_dir: word = process::env("HOME")
     if home_dir != "" {
         pilot home_std = home_dir + "/.freak/std"
@@ -472,10 +630,9 @@ task cli_find_std_dir() -> word {
         pilot app_std = appdata_dir + "/freak/std"
         if fs::exists(app_std + "/math.fk") { give back app_std }
     }
-    pilot freak_home: word = process::env("FREAK_HOME")
-    if freak_home != "" {
-        pilot fh_std = freak_home + "/std"
-        if fs::exists(fh_std + "/math.fk") { give back fh_std }
+    pilot winget_home = cli_find_winget_home()
+    if winget_home != "" and fs::exists(winget_home + "/std/math.fk") {
+        give back winget_home + "/std"
     }
     give back ""
 }

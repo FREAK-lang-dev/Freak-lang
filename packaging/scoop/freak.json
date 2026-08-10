@@ -3,6 +3,7 @@
   "description": "FREAK programming language compiler and package manager",
   "homepage": "https://github.com/FREAK-lang-dev/Freak-lang",
   "license": "MIT",
+  "depends": "llvm-mingw",
   "url": "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v0.14.0/freak-windows-x64.zip",
   "hash": "SCOOP_HASH_PLACEHOLDER",
   "extract_dir": "freak",

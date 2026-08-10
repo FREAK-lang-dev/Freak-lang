@@ -269,6 +269,8 @@ task freakc_cli_main() -> void {
             say ""
             say "  " + C_DIM + C_ITALIC + cli_random_quote(time::now_ms()) + C_RESET
             say ""
+        } else {
+            process::exit(upgrade_res)
         }
         give back
     }
@@ -285,10 +287,12 @@ task freakc_cli_main() -> void {
             doctor_arg_i += 1
         }
         if json_mode {
-            cli_doctor_json()
+            pilot json_exit = cli_doctor_json()
+            if json_exit != 0 { process::exit(json_exit) }
             give back
         }
-        cli_doctor(fix_mode)
+        pilot doctor_exit = cli_doctor(fix_mode)
+        if doctor_exit != 0 { process::exit(doctor_exit) }
         give back
     }
 

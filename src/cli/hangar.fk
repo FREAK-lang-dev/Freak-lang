@@ -918,7 +918,110 @@ task hangar_mkdir(path: word, is_win: bool) -> void {
     }
 }
 
+task hangar_shell_quote(value: word) -> word {
+    give back "'" + value.replace("'", "'\"'\"'") + "'"
+}
+
+task hangar_powershell_quote(value: word) -> word {
+    give back "'" + value.replace("'", "''") + "'"
+}
+
 task hangar_install_freak() -> int {
+    -- Keep `freak upgrade` as the public compatibility entry point, but let
+    -- the tagged installer own payload manifests, staging, dependency policy,
+    -- and Windows deferred binary replacement. v0.14.0 clients still use the
+    -- standalone assets kept by release.yml; upgraded clients use this path.
+    pilot is_win = process::env("WINDIR") != ""
+    pilot freak_home: word = process::env("FREAK_HOME")
+    if freak_home == "" {
+        if is_win {
+            pilot appdata: word = process::env("APPDATA")
+            if appdata == "" {
+                appdata = process::env("USERPROFILE") + "/AppData/Roaming"
+            }
+            freak_home = appdata + "/freak"
+        } else {
+            freak_home = process::env("HOME") + "/.freak"
+        }
+    }
+
+    pilot local_script: word = process::env("FREAK_UPGRADE_SCRIPT")
+    pilot version = "local"
+    pilot script_path = local_script
+    pilot downloaded_script = false
+
+    if script_path == "" {
+        say "  Checking latest version..."
+        version = hangar_fetch_latest_release_tag(is_win)
+        if version == "" {
+            pilot platform = "linux-x64"
+            pilot ext = ""
+            if is_win {
+                platform = "windows-x64"
+                ext = ".exe"
+            } else {
+                pilot uname_out: word = process::exec_capture("uname -s 2>/dev/null")
+                pilot arch_out: word = process::exec_capture("uname -m 2>/dev/null")
+                if uname_out.contains("Darwin") { platform = "macos-arm64" }
+                if arch_out.contains("aarch64") or arch_out.contains("arm64") {
+                    if uname_out.contains("Linux") { platform = "linux-arm64" }
+                }
+            }
+            version = hangar_fetch_latest_download_release_tag("freak-" + platform + ext, is_win)
+        }
+        if version == "" {
+            say "  " + C_BRED + SYM_CROSS + C_RESET + " Could not resolve latest release tag."
+            say "  Manual download: https://github.com/FREAK-lang-dev/Freak-lang/releases"
+            give back 1
+        }
+
+        hangar_mkdir(freak_home, is_win)
+        if is_win {
+            script_path = freak_home + "/.freak-upgrade-install.ps1"
+            pilot ps_url = "https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/" + version + "/install.ps1"
+            if hangar_download_file(ps_url, script_path, true) != 0 {
+                say "  " + C_BRED + SYM_CROSS + C_RESET + " Could not download the tagged Windows installer."
+                give back 1
+            }
+        } else {
+            script_path = freak_home + "/.freak-upgrade-install.sh"
+            pilot sh_url = "https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/" + version + "/install.sh"
+            if hangar_download_file(sh_url, script_path, false) != 0 {
+                say "  " + C_BRED + SYM_CROSS + C_RESET + " Could not download the tagged installer."
+                give back 1
+            }
+        }
+        downloaded_script = true
+    }
+
+    say "  Installing " + C_BWHITE + version + C_RESET + " through the staged distribution installer..."
+    pilot install_res = 1
+    if is_win {
+        pilot ps_cmd = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"$env:FREAK_HOME=" + hangar_powershell_quote(freak_home) + "; $env:FREAK_RELEASE_TAG=" + hangar_powershell_quote(version) + "; $env:FREAK_INSTALL_UPGRADE='1'; & " + hangar_powershell_quote(script_path) + " -Upgrade -SkipDeps\""
+        install_res = process::exec(ps_cmd)
+    } else {
+        pilot sh_cmd = "FREAK_HOME=" + hangar_shell_quote(freak_home) + " FREAK_RELEASE_TAG=" + hangar_shell_quote(version) + " FREAK_INSTALL_DEPS=0 bash " + hangar_shell_quote(script_path) + " --upgrade --without-deps"
+        install_res = process::exec(sh_cmd)
+    }
+
+    if downloaded_script and fs::exists(script_path) { fs::delete(script_path) }
+    if install_res != 0 {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " Upgrade failed; the previous installed payload was preserved."
+        give back install_res
+    }
+
+    say "  " + C_BGREEN + SYM_CHECK + C_RESET + " Upgrade payload staged successfully."
+    if is_win {
+        say "  " + C_DIM + "The compiler binary will finish replacing itself after this command exits." + C_RESET
+    }
+    say "  " + C_DIM + "Open a new terminal and run: freak doctor" + C_RESET
+    give back 0
+}
+
+-- Retained only as the documented v0.14.0 direct-download protocol. New
+-- clients do not call it; release.yml keeps its standalone asset names alive
+-- so already-shipped v0.14.0 binaries can complete their last legacy upgrade.
+task hangar_install_freak_v014_legacy_protocol() -> int {
     say "  Detecting platform..."
 
     -- Detect OS via environment variables (reliable, no shell expansion needed)

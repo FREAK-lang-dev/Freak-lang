@@ -14,6 +14,9 @@ NestedInstallerFiles:
     PortableCommandAlias: freak
   - RelativeFilePath: freak\bin\hangar.exe
     PortableCommandAlias: hangar
+Dependencies:
+  PackageDependencies:
+    - PackageIdentifier: MartinStorsjo.LLVM-MinGW.UCRT
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v0.14.0/freak-windows-x64.zip

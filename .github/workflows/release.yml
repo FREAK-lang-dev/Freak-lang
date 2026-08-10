@@ -102,28 +102,21 @@ jobs:
       - name: Package release artifact
         shell: bash
         run: |
-          mkdir -p dist/freak/bin dist/freak/runtime/ui dist/freak/std
+          mkdir -p dist/freak/bin dist/freak/runtime
           cp build/freak${{ matrix.ext }} dist/freak/bin/freak${{ matrix.ext }}
           cp build/hangar${{ matrix.ext }} dist/freak/bin/hangar${{ matrix.ext }}
-          # Ship pre-compiled .o files (preferred) + .c/.h source (fallback)
+          # Ship pre-compiled objects when available. Source fallbacks and the
+          # complete recursive stdlib come from the canonical manifest below.
           cp freakc/runtime/freak_runtime.o dist/freak/runtime/
           cp freakc/runtime/freak_llvm_runtime.o dist/freak/runtime/
-          cp freakc/runtime/freak_runtime.c dist/freak/runtime/
-          cp freakc/runtime/freak_runtime.h dist/freak/runtime/
-          cp freakc/runtime/freak_llvm_runtime.c dist/freak/runtime/
-          cp freakc/runtime/ui/win32_backend.c dist/freak/runtime/ui/
-          cp freakc/runtime/ui/freak_ui_platform.h dist/freak/runtime/ui/
-          # Ship standard library
-          cp std/math.fk dist/freak/std/
-          cp std/math3d.fk dist/freak/std/
-          cp std/string.fk dist/freak/std/
-          cp std/convert.fk dist/freak/std/
-          cp std/algorithm.fk dist/freak/std/
-          cp std/json.fk dist/freak/std/
-          cp std/http.fk dist/freak/std/
-          cp std/version.fk dist/freak/std/
-          cp std/runtime.fk dist/freak/std/
-          cp std/zip.fk dist/freak/std/
+          while IFS='|' read -r source destination; do
+            if [[ -z "$source" || "$source" == \#* ]]; then
+              continue
+            fi
+            mkdir -p "dist/freak/$(dirname "$destination")"
+            cp "$source" "dist/freak/$destination"
+          done < packaging/distribution-files.manifest
+          cp packaging/distribution-files.manifest dist/freak/distribution-files.manifest
           # Standalone binaries for direct download
           cp build/freak${{ matrix.ext }} dist/freak-${{ matrix.target }}${{ matrix.ext }}
           cp build/hangar${{ matrix.ext }} dist/hangar-${{ matrix.target }}${{ matrix.ext }}

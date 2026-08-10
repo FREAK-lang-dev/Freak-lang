@@ -133,23 +133,35 @@ with characteristic polynomial $\chi_{\hat{\mathbf{L}}}(\lambda) = \prod_{i\in\m
 **Linux / macOS:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.sh | bash
+
+# Also install a supported Clang/LLD/native build toolchain when missing:
+curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.sh | bash -s -- --with-deps
 ```
 
 **Windows (PowerShell):**
 ```powershell
 irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
+
+# Also install a self-contained LLVM-MinGW toolchain when missing:
+$env:FREAK_INSTALL_DEPS = "1"
+irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
 ```
 
-This downloads the latest `freak` binary and runtime to `~/.freak` (or `%APPDATA%\freak` on Windows) and adds it to your PATH. Installer-managed `runtime/` and `std/` trees are staged and replaced as complete units during upgrades, so files retired by a release do not linger. Open a new terminal and you're ready.
+This downloads the latest `freak` and `hangar` binaries to `~/.freak` (or `%APPDATA%\freak` on Windows). A canonical distribution manifest stages and validates every runtime source, platform UI file, and recursive stdlib module—including `std/ui/window.fk`—before installer-managed `runtime/` and `std/` trees are replaced. A failed download therefore leaves the previous installed payload in place.
 
-> **Requires:** [Clang](https://releases.llvm.org/) for native compilation. Most systems have it already — run `clang --version` to check.
+The default installer reports a missing compiler without changing system packages. Opt into dependency installation with `--with-deps` or `FREAK_INSTALL_DEPS=1`. Linux package-manager support covers apt, dnf/yum, pacman, zypper, and apk; macOS uses Homebrew LLVM or Apple Command Line Tools; Windows prefers self-contained LLVM-MinGW so headers and link libraries are present as well as `clang.exe`.
 
 Verify the install:
 
 ```bash
 freak doctor
 freak doctor --json   # passive machine-readable report for editors and scripts
+freak doctor --fix    # install/repair dependencies and the distribution payload
 ```
+
+`freak doctor` verifies the usable Clang command, optional LLD, all required runtime/UI files, all 11 shipped stdlib modules, and a compile-link-execute probe. It exits nonzero when required checks fail and removes its probe artifacts. `--json` keeps the additive `freak.doctor.v1` schema and reports exact missing files without mutating the machine.
+
+Existing v0.14.0 installations can continue using `freak upgrade`. Release artifacts retain the standalone names consumed by that client; newer clients route the same command through the staged tagged installer and defer Windows binary replacement until the running process exits.
 
 ### Your First Program
 
