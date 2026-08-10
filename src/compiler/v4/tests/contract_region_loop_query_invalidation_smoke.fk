@@ -60,6 +60,7 @@ task v4_contract_region_loop_query_report_positive(report: word) -> bool {
     if word_to_int(v4_unit_snapshot_key_value(report, "syntax-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "lex-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "parse-invalidations-added")) <= 0 { give back false }
+    if word_to_int(v4_unit_snapshot_key_value(report, "expand-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "hir-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "resolve-invalidations-added")) <= 0 { give back false }
     if word_to_int(v4_unit_snapshot_key_value(report, "ty-invalidations-added")) <= 0 { give back false }
@@ -81,6 +82,7 @@ task v4_contract_region_loop_query_reports_match(report: word, diff_line: word) 
     array_push(keys, "syntax-invalidations-added")
     array_push(keys, "lex-invalidations-added")
     array_push(keys, "parse-invalidations-added")
+    array_push(keys, "expand-invalidations-added")
     array_push(keys, "hir-invalidations-added")
     array_push(keys, "resolve-invalidations-added")
     array_push(keys, "ty-invalidations-added")
@@ -111,6 +113,7 @@ task v4_contract_region_loop_query_families() -> int {
     array_push(families, "syntax")
     array_push(families, "lex")
     array_push(families, "parse")
+    array_push(families, "expand")
     array_push(families, "hir")
     array_push(families, "resolve")
     array_push(families, "ty")
@@ -247,7 +250,7 @@ v4_contract_region_loop_query_diff = v4_unit_snapshot_diff(v4_contract_region_lo
 v4_contract_region_loop_query_diff_line = v4_unit_snapshot_health_diff_line(v4_contract_region_loop_query_diff)
 v4_contract_region_loop_query_health = v4_unit_snapshot_health_append_diff(v4_unit_snapshot_health(v4_contract_region_loop_query_invalidated_unit), v4_contract_region_loop_query_diff)
 
-say "contract-region-loop-query-all-17-invalidations-positive=" + v4_contract_region_loop_query_bool(v4_contract_region_loop_query_report_positive(v4_contract_region_loop_query_report))
+say "contract-region-loop-query-all-18-invalidations-positive=" + v4_contract_region_loop_query_bool(v4_contract_region_loop_query_report_positive(v4_contract_region_loop_query_report))
 say "contract-region-loop-query-invalidation-matches-diff=" + v4_contract_region_loop_query_bool(v4_contract_region_loop_query_reports_match(v4_contract_region_loop_query_report, v4_contract_region_loop_query_diff_line))
 say "contract-region-loop-query-health-ok=" + v4_contract_region_loop_query_bool(v4_contract_region_loop_query_health.starts_with("00-unit-health|format=" + v4_unit_snapshot_health_format + "|ok=1") and v4_contract_region_loop_query_health.contains("health-diff|ok=1"))
 
@@ -277,7 +280,7 @@ say "contract-region-loop-query-after-converged=" + v4_contract_region_loop_quer
 say "contract-region-loop-query-signature-stable=" + v4_contract_region_loop_query_bool(v4_ty_signature_display(v4_contract_region_loop_query_before_ty, v4_contract_region_loop_query_before_sig) == v4_ty_signature_display(v4_contract_region_loop_query_after_ty, v4_contract_region_loop_query_after_sig) and v4_ty_signature_borrowed_return_source_param_count(v4_contract_region_loop_query_after_ty, v4_contract_region_loop_query_after_sig) == 2)
 say "contract-region-loop-query-after-diagnostics=" + word_from_int(v4_diagnostics_count(v4_contract_region_loop_query_after_diagnostics))
 say "contract-region-loop-query-after-editor-coherent=" + v4_contract_region_loop_query_bool(v4_semantic_at_type(v4_contract_region_loop_query_after_semantic) == v4_hover_type(v4_contract_region_loop_query_after_hover) and v4_definition_at_found(v4_contract_region_loop_query_after_definition) == 1 and v4_span_start(v4_definition_at_span(v4_contract_region_loop_query_after_definition)) == v4_contract_region_loop_query_after_decl and v4_document_symbol_count(v4_contract_region_loop_query_after_symbols) > 0 and v4_completion_count(v4_contract_region_loop_query_after_completion) > 0)
-say "contract-region-loop-query-all-17-recomputations-positive=" + v4_contract_region_loop_query_bool(v4_contract_region_loop_query_all_recomputed(v4_contract_region_loop_query_path, v4_contract_region_loop_query_families_value, v4_contract_region_loop_query_misses_before))
+say "contract-region-loop-query-all-18-recomputations-positive=" + v4_contract_region_loop_query_bool(v4_contract_region_loop_query_all_recomputed(v4_contract_region_loop_query_path, v4_contract_region_loop_query_families_value, v4_contract_region_loop_query_misses_before))
 
 v4_contract_region_loop_query_recomputed_unit = v4_unit_snapshot()
 v4_contract_region_loop_query_restore = v4_unit_snapshot_restore(v4_contract_region_loop_query_recomputed_unit)

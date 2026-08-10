@@ -26,7 +26,7 @@ bible chapter order or by isolated crate ownership:
 
 1. Semantic Core: stabilize value shapes, variants/routes, aliases, tuple/array
    type forms, and generic propagation as vertical slices across
-   `lex -> parse -> HIR -> TY -> MIR -> editor/snapshot/LSP -> smokes`.
+   `lex -> parse -> expand -> HIR -> TY -> MIR -> editor/snapshot/LSP -> smokes`.
 2. Borrow Checker: finish Meiya only after the semantic surface is stable enough
    that new value forms are no longer reopening ownership analysis every week.
 3. FFI And Systems Boundary: extend ABI, layout, raw-pointer, and LLVM carriage
@@ -200,8 +200,8 @@ Semantic, hover, and definition queries resolve repeated and forward
 outlives-bound references to the declared binder; distinct definition records
 and spans survive editor snapshot restore. Document-symbol and completion
 requests participate in the same editor query lifecycle. Source edits invalidate
-and explicit requests prove recomputation across all 17 report fields: 14
-concrete query families (syntax, lex, parse, HIR, resolve, TY, MIR, borrowck,
+and explicit requests prove recomputation across all 18 report fields: 15
+concrete query families (syntax, lex, parse, expand, HIR, resolve, TY, MIR, borrowck,
 diagnostics, semantic-at, hover, definition-at, document symbols, and
 completion) plus three refreshed aggregate totals (`all`/`query`, `core`, and
 `editor`). This includes an elided result changing from multiple candidate
@@ -357,6 +357,7 @@ crates/
   freak_session/   source database and revision tracking
   freak_lex/       lossless token streams with trivia and diagnostics
   freak_parse/     resilient top-level syntax tree and recovery nodes
+  freak_expand/    identity ExpandedFile/provenance forwarding into HIR
   freak_hir/       top-level item lowering and stable def ids
   freak_resolve/   file-local semantic index and duplicate diagnostics
   freak_ty/        item-level signatures and primitive type helpers
@@ -373,10 +374,41 @@ crates/
 Current FREAK compilation still works best with concatenated source files, so these crates use globally unique `v4_` names and a dependency order that can be flattened by a later bootstrap script:
 
 ```text
-freak_span -> freak_diag -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
+freak_span -> freak_diag -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
 ```
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
+
+`freak_expand` is currently an identity-only architecture stage. Its internal
+ExpandedFile arena records an expansion id, source file, forwarded parse tree,
+and deterministic `identity:fileN:treeN` provenance. HIR always lowers that
+carrier, including through its compatibility tree entrypoint. This bootstrap
+does not define user macros, attribute rewriting, hygiene, gensyms, execution
+hooks, or a public macro API; it preserves all existing frontend semantics.
+### Keyword Casing Contract
+
+`freak_lex` owns keyword classification for the currently implemented V4
+vocabulary. Ordinary keyword words use their exact lowercase spelling and are
+emitted as `keyword` tokens with that canonical value. Noncanonical forms such
+as `Task`, `TASK`, and `ShApE` remain identifiers; when used where a declaration
+keyword is required, `freak_parse` produces its normal targeted recovery
+diagnostic. This preserves valid identifier spellings such as `Pilot`, `Some`,
+and `SOME` instead of silently rewriting them.
+
+This contract is V4-only: it neither changes shipping V3 behavior nor
+pre-reserves bible destination vocabulary whose parser and semantic slices have
+not landed. Concurrency and caller-prefix words therefore stay with their
+future vertical slices instead of becoming lexer-only promises in this slice.
+
+The single-word anime operators `NAKAMA` and `TSUNDERE` are intentionally
+uppercase-only and retain those uppercase token values; mixed- or lowercase
+spellings remain identifiers. The bible-level `PLUS ULTRA` and `FINAL FORM`
+operators use canonical uppercase token values after case-insensitive phrase
+matching, but combined-token support for those multi-word forms remains
+outside the current V4 lexer slice. The
+`keyword casing matrix` smoke fixes the canonical and identifier spellings,
+adjacent identifier boundaries, parser dispatch, snapshot token values, and
+noncanonical-keyword recovery diagnostic in one table-driven contract.
 
 ## Public Tooling Protocols
 
@@ -416,17 +448,17 @@ The bootstrap `word` runtime still uses process-lifetime storage for completed w
 Produces the current 00-Unit workspace snapshot. The method does not require a text payload.
 
 ```text
-00-unit-snapshot|format=freak-00-unit-snapshot-v2|sources=<count>|sections=14|identity=<escaped-checkpoint-identity>
+00-unit-snapshot|format=freak-00-unit-snapshot-v3|sources=<count>|sections=15|identity=<escaped-checkpoint-identity>
 unit-source|<file-id>|<escaped-path>|<revision>|<escaped-fingerprint>|<escaped-text>
 unit-section|<section-name>|<escaped-checkpoint-identity>|<escaped-section-payload>
-end|freak-00-unit-snapshot-v2
+end|freak-00-unit-snapshot-v3
 ```
 
-The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 14 sections in canonical order, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together.
+The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
 
 ### `workspace/unitSnapshotManifest`
 
-Validates and summarizes a 00-Unit snapshot. With no text payload, it summarizes the current workspace snapshot. With a text payload, the payload must be a `freak-00-unit-snapshot-v2` document.
+Validates and summarizes a 00-Unit snapshot. With no text payload, it summarizes the current workspace snapshot. With a text payload, the payload must be a `freak-00-unit-snapshot-v3` document.
 
 ```text
 00-unit-manifest|format=freak-00-unit-manifest-v1|ok=<0-or-1>|payload-format=<format>|payload-bytes=<bytes>|payload-lines=<lines>|sources=<count>|declared-sources=<count>|sections=<count>|declared-sections=<count>|malformed=<count>|validation=<escaped-message>
@@ -435,7 +467,7 @@ section|<section-name>|bytes=<bytes>|lines=<lines>|records=<records>|ok=<0-or-1>
 end|freak-00-unit-manifest-v1
 ```
 
-Use this endpoint for import validation when a caller does not want to mutate compiler state. Validation can run in a fresh process: TY records receive detached structural validation, then `freak_snapshot` installs only the serialized source/lex/parse/HIR/resolve context, runs strict TY linkage checks, and rolls the parent arenas back before returning. There is no public `workspace/unitSnapshotImport` endpoint yet; validation-only imports are modeled as manifest or health requests.
+Use this endpoint for import validation when a caller does not want to mutate compiler state. Validation can run in a fresh process: TY records receive detached structural validation, then `freak_snapshot` installs only the serialized source/lex/parse/expand/HIR/resolve context, runs strict TY linkage checks, and rolls the parent arenas back before returning. There is no public `workspace/unitSnapshotImport` endpoint yet; validation-only imports are modeled as manifest or health requests.
 
 ### `workspace/unitSnapshotDiff`
 
@@ -460,7 +492,7 @@ end|freak-00-unit-snapshot-diff-input-v1
 The response starts with a summary record, then optional detail records, then the terminator:
 
 ```text
-00-unit-diff|format=freak-00-unit-snapshot-diff-v1|ok=<0-or-1>|before-ok=<0-or-1>|after-ok=<0-or-1>|before-manifest-bytes=<bytes>|after-manifest-bytes=<bytes>|before-manifest-lines=<lines>|after-manifest-lines=<lines>|sources-added=<count>|sources-changed=<count>|sources-removed=<count>|sources-unchanged=<count>|sections-added=<count>|sections-changed=<count>|sections-removed=<count>|sections-unchanged=<count>|query-invalidations-added=<count>|core-invalidations-added=<count>|syntax-invalidations-added=<count>|lex-invalidations-added=<count>|parse-invalidations-added=<count>|hir-invalidations-added=<count>|resolve-invalidations-added=<count>|ty-invalidations-added=<count>|mir-invalidations-added=<count>|borrowck-invalidations-added=<count>|diagnostics-invalidations-added=<count>|editor-invalidations-added=<count>|semantic-at-invalidations-added=<count>|hover-invalidations-added=<count>|definition-at-invalidations-added=<count>|document-symbols-invalidations-added=<count>|completion-invalidations-added=<count>|query-entries-added=<count>|query-entries-changed=<count>|query-entries-removed=<count>|before-validation=<escaped-message>|after-validation=<escaped-message>
+00-unit-diff|format=freak-00-unit-snapshot-diff-v1|ok=<0-or-1>|before-ok=<0-or-1>|after-ok=<0-or-1>|before-manifest-bytes=<bytes>|after-manifest-bytes=<bytes>|before-manifest-lines=<lines>|after-manifest-lines=<lines>|sources-added=<count>|sources-changed=<count>|sources-removed=<count>|sources-unchanged=<count>|sections-added=<count>|sections-changed=<count>|sections-removed=<count>|sections-unchanged=<count>|query-invalidations-added=<count>|core-invalidations-added=<count>|syntax-invalidations-added=<count>|lex-invalidations-added=<count>|parse-invalidations-added=<count>|expand-invalidations-added=<count>|hir-invalidations-added=<count>|resolve-invalidations-added=<count>|ty-invalidations-added=<count>|mir-invalidations-added=<count>|borrowck-invalidations-added=<count>|diagnostics-invalidations-added=<count>|editor-invalidations-added=<count>|semantic-at-invalidations-added=<count>|hover-invalidations-added=<count>|definition-at-invalidations-added=<count>|document-symbols-invalidations-added=<count>|completion-invalidations-added=<count>|query-entries-added=<count>|query-entries-changed=<count>|query-entries-removed=<count>|before-validation=<escaped-message>|after-validation=<escaped-message>
 source-diff|...
 section-diff|...
 query-invalidation-diff|...
@@ -468,7 +500,7 @@ query-entry-diff|...
 end|freak-00-unit-snapshot-diff-v1
 ```
 
-The invalidation counters are the public contract for source-change reporting. `textDocument/didChange` summaries and 00-Unit diff health must agree on all 17 report-field names and their classification into 14 concrete query families plus the three aggregate totals (`all`/`query`, `core`, and `editor`).
+The invalidation counters are the public contract for source-change reporting. `textDocument/didChange` summaries and 00-Unit diff health must agree on all 18 report-field names and their classification into 15 concrete query families plus the three aggregate totals (`all`/`query`, `core`, and `editor`).
 
 ### `workspace/unitSnapshotHealth`
 
@@ -480,7 +512,7 @@ The diff-input form accepted here is the same `00-unit-diff-input` envelope docu
 00-unit-health|format=freak-00-unit-health-v1|ok=<0-or-1>|snapshot-ok=<0-or-1>|snapshot-bytes=<bytes>|manifest-bytes=<bytes>|manifest-lines=<lines>|sources=<count>|sections-ok=<count>|sections-bad=<count>|query-entries=<count>|query-dirty=<count>|query-invalidations=<count>|query-hits=<count>|query-misses=<count>|query-stores=<count>|validation=<escaped-message>
 health-query|ok=<0-or-1>|generation=<id>|generations=<count>|entries=<count>|dirty=<count>|edges=<count>|invalidations=<count>|telemetry=<count>|hits=<count>|misses=<count>|stores=<count>|validation=<escaped-message>
 health-section|name=<section-name>|ok=<0-or-1>|bytes=<bytes>|records=<records>|validation=<escaped-message>
-health-diff|ok=<0-or-1>|sources-added=<count>|sources-changed=<count>|sources-removed=<count>|sections-added=<count>|sections-changed=<count>|sections-removed=<count>|query-invalidations-added=<count>|core-invalidations-added=<count>|syntax-invalidations-added=<count>|lex-invalidations-added=<count>|parse-invalidations-added=<count>|hir-invalidations-added=<count>|resolve-invalidations-added=<count>|ty-invalidations-added=<count>|mir-invalidations-added=<count>|borrowck-invalidations-added=<count>|diagnostics-invalidations-added=<count>|editor-invalidations-added=<count>|semantic-at-invalidations-added=<count>|hover-invalidations-added=<count>|definition-at-invalidations-added=<count>|document-symbols-invalidations-added=<count>|completion-invalidations-added=<count>|query-entries-added=<count>|query-entries-changed=<count>|query-entries-removed=<count>
+health-diff|ok=<0-or-1>|sources-added=<count>|sources-changed=<count>|sources-removed=<count>|sections-added=<count>|sections-changed=<count>|sections-removed=<count>|query-invalidations-added=<count>|core-invalidations-added=<count>|syntax-invalidations-added=<count>|lex-invalidations-added=<count>|parse-invalidations-added=<count>|expand-invalidations-added=<count>|hir-invalidations-added=<count>|resolve-invalidations-added=<count>|ty-invalidations-added=<count>|mir-invalidations-added=<count>|borrowck-invalidations-added=<count>|diagnostics-invalidations-added=<count>|editor-invalidations-added=<count>|semantic-at-invalidations-added=<count>|hover-invalidations-added=<count>|definition-at-invalidations-added=<count>|document-symbols-invalidations-added=<count>|completion-invalidations-added=<count>|query-entries-added=<count>|query-entries-changed=<count>|query-entries-removed=<count>
 end|freak-00-unit-health-v1
 ```
 
@@ -500,6 +532,7 @@ Per-section restore endpoints accept a section snapshot payload and return the s
 ```text
 workspace/lexSnapshotRestore
 workspace/parseSnapshotRestore
+workspace/expandSnapshotRestore
 workspace/hirSnapshotRestore
 workspace/resolveSnapshotRestore
 workspace/tySnapshotRestore

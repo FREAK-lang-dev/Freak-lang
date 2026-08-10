@@ -385,6 +385,14 @@ task v4_lsp_parse_snapshot_restore_text(payload: word) -> word {
     give back v4_lsp_response_ok("workspace/parseSnapshotRestore", v4_parse_snapshot_restore(payload))
 }
 
+task v4_lsp_expand_snapshot_text() -> word {
+    give back v4_lsp_response_ok("workspace/expandSnapshot", v4_expand_snapshot())
+}
+
+task v4_lsp_expand_snapshot_restore_text(payload: word) -> word {
+    give back v4_lsp_response_ok("workspace/expandSnapshotRestore", v4_expand_snapshot_restore(payload))
+}
+
 task v4_lsp_hir_snapshot_text() -> word {
     give back v4_lsp_response_ok("workspace/hirSnapshot", v4_hir_snapshot())
 }
@@ -561,6 +569,8 @@ task v4_lsp_initialize_payload() -> word {
     out = out + "|workspace/lexSnapshotRestore"
     out = out + "|workspace/parseSnapshot"
     out = out + "|workspace/parseSnapshotRestore"
+    out = out + "|workspace/expandSnapshot"
+    out = out + "|workspace/expandSnapshotRestore"
     out = out + "|workspace/hirSnapshot"
     out = out + "|workspace/hirSnapshotRestore"
     out = out + "|workspace/resolveSnapshot"
@@ -655,6 +665,12 @@ task v4_lsp_handle_text_request(method: word, path: word, text: word, offset: in
     }
     if method == "workspace/parseSnapshotRestore" {
         give back v4_lsp_parse_snapshot_restore_text(text)
+    }
+    if method == "workspace/expandSnapshot" {
+        give back v4_lsp_expand_snapshot_text()
+    }
+    if method == "workspace/expandSnapshotRestore" {
+        give back v4_lsp_expand_snapshot_restore_text(text)
     }
     if method == "workspace/hirSnapshot" {
         give back v4_lsp_hir_snapshot_text()
@@ -812,6 +828,12 @@ task v4_lsp_handle_request(method: word, path: word, offset: int) -> word {
         give back v4_lsp_parse_snapshot_text()
     }
     if method == "workspace/parseSnapshotRestore" {
+        give back v4_lsp_response_error(method, 0 - 32602, "method requires snapshot text")
+    }
+    if method == "workspace/expandSnapshot" {
+        give back v4_lsp_expand_snapshot_text()
+    }
+    if method == "workspace/expandSnapshotRestore" {
         give back v4_lsp_response_error(method, 0 - 32602, "method requires snapshot text")
     }
     if method == "workspace/hirSnapshot" {
