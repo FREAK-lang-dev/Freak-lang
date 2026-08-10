@@ -19,6 +19,8 @@ task cli_run_fingerprint(src_file: word, target: word, opt: word, cross: word) -
 
     pilot std_source: word = cli_load_std(source, target)
     pilot runtime_dir: word = cli_find_runtime_dir()
+    pilot std_dir: word = cli_find_std_dir()
+    pilot pending_marker: word = cli_pending_upgrade_marker()
     pilot strict_label = "0"
     if strict_borrow { strict_label = "1" }
 
@@ -44,6 +46,9 @@ task cli_run_fingerprint(src_file: word, target: word, opt: word, cross: word) -
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/ui/win32_backend.c")
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/ui/freak_ui_platform.h")
     }
+    material = material + "|runtime-abi=" + cli_run_file_fingerprint(runtime_dir + "/freak_abi")
+    material = material + "|std-abi=" + cli_run_file_fingerprint(std_dir + "/freak_abi")
+    material = material + "|pending-upgrade=" + cli_run_file_fingerprint(pending_marker)
 
     give back word_from_int(material.checksum())
 }
@@ -53,6 +58,11 @@ task cli_run_cache_record(fingerprint: word, binary: word) -> word {
 }
 
 task cli_run(src_file: word, target: word, opt: word, cross: word) -> int {
+    -- Cache hits are still build operations from the distribution contract's
+    -- perspective: never launch an artifact with a mismatched payload or while
+    -- a Windows executable replacement is pending.
+    if not cli_build_environment_ready() { give back 1 }
+
     pilot binary: word = cli_binary_path(src_file)
     pilot cache_file = binary + ".freak-run-cache"
     pilot fingerprint = cli_run_fingerprint(src_file, target, opt, cross)
@@ -93,6 +103,10 @@ task cli_run(src_file: word, target: word, opt: word, cross: word) -> int {
         say ""
         say "  " + C_BRED + SYM_CROSS + " RUN ABORTED" + C_RESET + " Build inputs or output changed before launch."
         say "  " + C_DIM + "Run the command again after competing writers stop." + C_RESET
+        give back 1
+    }
+    if not cli_build_environment_ready() {
+        if fs::exists(cache_file) { fs::delete(cache_file) }
         give back 1
     }
 

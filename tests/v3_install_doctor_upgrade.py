@@ -9,6 +9,7 @@ import hashlib
 import http.server
 import json
 import os
+import platform
 import shutil
 import signal
 import subprocess
@@ -70,9 +71,10 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
         if destination.startswith("runtime/"):
             relative = destination.removeprefix("runtime/")
             runtime_destinations.append(relative)
-        elif destination != "std/freak_abi":
+        else:
             relative = destination.removeprefix("std/")
-            std_destinations.append(relative)
+            if destination != "std/freak_abi":
+                std_destinations.append(relative)
         assert f'"{relative}"' in doctor_text, (
             f"doctor inventory does not cover manifest destination {destination}"
         )
@@ -242,7 +244,13 @@ class QuietHttpHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> None:
-    target = "freak-windows-x64.zip" if sys.platform == "win32" else "freak-linux-x64.tar.gz"
+    if sys.platform == "win32":
+        target = "freak-windows-x64.zip"
+    else:
+        platform_tag = "macos" if sys.platform == "darwin" else "linux"
+        machine = platform.machine().lower()
+        arch_tag = "arm64" if machine in {"aarch64", "arm64"} else "x64"
+        target = f"freak-{platform_tag}-{arch_tag}.tar.gz"
     release_root = root / "release-server"
     release = release_root / "vchecksum"
     release.mkdir(parents=True)
@@ -295,6 +303,33 @@ def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> 
         )
         assert verified.returncode == 0, verified.stdout + verified.stderr
         assert "Verified SHA-256" in verified.stdout
+
+        # Conflicting duplicate entries are ambiguous and must fail closed on
+        # both installers before touching an existing payload.
+        (release / "SHA256SUMS").write_text(
+            f"{expected}  ./{target}\n{'0' * 64}  {target}\n", encoding="utf-8"
+        )
+        duplicate_root = root / "checksum-duplicate"
+        duplicate_sentinel = duplicate_root / "std" / "preserve.fk"
+        duplicate_sentinel.parent.mkdir(parents=True)
+        duplicate_sentinel.write_bytes(b"old payload\n")
+        duplicate_env = base_env.copy()
+        duplicate_env["FREAK_HOME"] = str(duplicate_root)
+        duplicate = subprocess.run(
+            command,
+            cwd=repo,
+            env=duplicate_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=120,
+        )
+        assert duplicate.returncode != 0, duplicate.stdout + duplicate.stderr
+        assert "duplicate entries" in (duplicate.stdout + duplicate.stderr).lower()
+        assert duplicate_sentinel.read_bytes() == b"old payload\n"
+        (release / "SHA256SUMS").write_text(
+            f"{expected}  ./{target}\n", encoding="utf-8"
+        )
 
         # Keep SHA256SUMS fixed while replacing the served archive. Integrity
         # failure must happen before extraction or any live-tree mutation.
@@ -576,7 +611,7 @@ def check_offline_installer(
 
 
 def run_cli(
-    compiler: Path, cwd: Path, env: dict[str, str], *args: str
+    compiler: Path | str, cwd: Path, env: dict[str, str], *args: str
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(compiler), *args],
@@ -704,6 +739,30 @@ def check_doctor(
         checkout / "std"
     ).resolve()
 
+    # Direct archive use (`cd <home>/bin && ./freak`) supplies a relative
+    # argv[0]. It must still resolve the executable-adjacent payload before
+    # looking at CWD or another user installation.
+    direct_name = f".\\{compiler.name}" if sys.platform == "win32" else f"./{compiler.name}"
+    direct = subprocess.run(
+        [direct_name, "doctor", "--json"],
+        executable=str(compiler),
+        cwd=checkout_bin,
+        env=shadow_env,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=180,
+        check=False,
+    )
+    assert direct.returncode == 0, direct.stdout + direct.stderr
+    direct_report = json.loads(direct.stdout)
+    assert Path(direct_report["checks"]["runtime"]["path"]).resolve() == (
+        checkout / "runtime"
+    ).resolve()
+    assert Path(direct_report["checks"]["stdlib"]["path"]).resolve() == (
+        checkout / "std"
+    ).resolve()
+
     if sys.platform != "win32":
         read_only_cwd = root / "doctor-read-only-cwd"
         read_only_cwd.mkdir()
@@ -821,9 +880,10 @@ def check_doctor(
 
 def check_upgrade(root: Path, compiler: Path) -> None:
     env = os.environ.copy()
-    upgrade_root = root / "upgrade-home"
+    upgrade_root = root / "upgrade $(printf injected) `%FREAK_UPGRADE_PATH% ' home"
     upgrade_root.mkdir()
     env["FREAK_HOME"] = str(upgrade_root)
+    env["FREAK_UPGRADE_PATH"] = "EXPANDED"
     sentinel = upgrade_root / "upgrade-sentinel.txt"
     if sys.platform == "win32":
         fixture = root / "upgrade-fixture.ps1"
@@ -861,7 +921,7 @@ def check_upgrade(root: Path, compiler: Path) -> None:
 
     env["FREAK_UPGRADE_SCRIPT"] = str(failing)
     failed = run_cli(compiler, root, env, "upgrade")
-    expected_failure = 1 if sys.platform == "win32" else 7
+    expected_failure = 7
     assert failed.returncode == expected_failure, (
         f"upgrade failure returned {failed.returncode}, expected {expected_failure}\n"
         + failed.stdout

@@ -208,7 +208,7 @@ task freakc_cli_main() -> void {
             say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " " + subcmd + " requires a file argument."
             say "  " + C_DIM + "Usage: " + C_RESET + "freak " + subcmd + " <file.fk> [options]"
             say ""
-            give back
+            process::exit(1)
         }
 
         pilot src_file: word = process::arg(2)

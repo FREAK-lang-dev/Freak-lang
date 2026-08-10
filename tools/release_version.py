@@ -69,6 +69,11 @@ def set_version(version: str) -> None:
         r"Public release: \*\*v[0-9]+\.[0-9]+\.[0-9]+",
         f"Public release: **v{version}",
     )
+    replace_exact(
+        ROOT / "README.md",
+        r"(\[!\[Version\]\(https://img\.shields\.io/badge/)v[0-9]+\.[0-9]+\.[0-9]+",
+        rf"\g<1>v{version}",
+    )
     check_version(version)
     print(f"FREAK release version synchronized: {version}")
 
@@ -103,6 +108,12 @@ def check_version(version: str, tag: str | None = None) -> None:
 
     agents_text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     require(f"Public release: **v{version}" in agents_text, "AGENTS.md public release differs from VERSION", errors)
+    readme_text = (ROOT / "README.md").read_text(encoding="utf-8")
+    require(
+        f"[![Version](https://img.shields.io/badge/v{version}-" in readme_text,
+        "README.md version badge differs from VERSION",
+        errors,
+    )
     if tag is not None:
         require(tag == f"v{version}", f"Git tag {tag!r} must equal v{version}", errors)
     if errors:

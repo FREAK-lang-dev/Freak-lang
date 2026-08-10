@@ -59,26 +59,56 @@ def main() -> int:
                 f"{backend} parse gate overwrote the previous artifact"
             )
 
-        borrow_bad = tmp_path / "borrow_bad.fk"
-        borrow_bad.write_text(
-            "task main() {\n"
-            '    pilot name: word = "Maverick"\n'
-            '    name = "Meiya"\n'
-            "}\n",
-            encoding="utf-8",
-        )
-        borrow_artifact = Path(str(borrow_bad) + ".ll")
-        borrow_artifact.write_text(SENTINEL, encoding="utf-8")
-        borrow_result = run(
-            freak, repo, borrow_bad, "transpile", "--llvm", "--strict-borrow"
-        )
-        assert_rejected(borrow_result, "borrow/type gate")
-        assert borrow_artifact.read_text(encoding="utf-8") == SENTINEL
+        for backend, flag, suffix in (("LLVM", "--llvm", ".ll"), ("C", "--c", ".c")):
+            borrow_bad = tmp_path / f"borrow_bad_{backend.lower()}.fk"
+            borrow_bad.write_text(
+                "-- checker error must gate both emitters and linkers\n"
+                "-- keep the user statement beyond the prepended-stdlib line clamp\n"
+                "\n"
+                "task main() -> int {\n"
+                '    pilot name: word = "Maverick"\n'
+                '    name = "Meiya"\n'
+                "    give back 0\n"
+                "}\n"
+                "\n"
+                "main()\n",
+                encoding="utf-8",
+            )
+            borrow_artifact = Path(str(borrow_bad) + suffix)
+            borrow_artifact.write_text(SENTINEL, encoding="utf-8")
+            borrow_result = run(
+                freak, repo, borrow_bad, "transpile", flag, "--strict-borrow"
+            )
+            assert_rejected(borrow_result, f"{backend} borrow/type gate")
+            assert borrow_artifact.read_text(encoding="utf-8") == SENTINEL
+
+            borrow_artifact.unlink()
+            borrow_build = run(
+                freak, repo, borrow_bad, "build", flag, "--strict-borrow"
+            )
+            assert_rejected(borrow_build, f"{backend} borrow/type build gate")
+            assert not borrow_artifact.exists()
+            assert not borrow_bad.with_suffix("").exists()
+            assert not borrow_bad.with_suffix(".exe").exists()
 
         check_result = run(freak, repo, parse_bad, "check")
         check_output = check_result.stdout + check_result.stderr
         assert check_result.returncode != 0, f"check accepted invalid syntax\n{check_output}"
         assert "passed" not in check_output.lower(), f"check printed PASSED\n{check_output}"
+
+        missing_input = subprocess.run(
+            [str(freak), "check"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert missing_input.returncode != 0, (
+            "check without a file argument exited successfully\n"
+            + missing_input.stdout
+            + missing_input.stderr
+        )
 
         for backend, flag, suffix in (("LLVM", "--llvm", ".ll"), ("C", "--c", ".c")):
             build_bad = tmp_path / f"build_bad_{backend.lower()}.fk"

@@ -550,7 +550,11 @@ task emit_stmt(eid: word) -> void {
             pilot lhs_name: word = array_get(ast_expr_vals, lhs_idx)
             if emt_get_var_type(lhs_name) == "w" {
                 emit("{ freak_word __freak_word_replacement = ")
+                pilot rhs_idx = word_to_int(rhs_w)
+                pilot rhs_kind: word = array_get(ast_expr_kinds, rhs_idx)
+                if rhs_kind == EXPR_IDENT { emit("freak_word_clone(") }
                 emit_expr(rhs_w)
+                if rhs_kind == EXPR_IDENT { emit(")") }
                 emit("; freak_word_replace_owned(&")
                 emit_expr(expr_id_w)
                 emit_line(", __freak_word_replacement); }")
@@ -598,7 +602,9 @@ task emit_stmt_pilot(eid: word) -> void {
     }
     emt_set_var_type(name_w, vtype)
     emit(ctype + name_w + " = ")
+    if vtype == "w" and e_kind == EXPR_IDENT { emit("freak_word_clone(") }
     emit_expr(expr_id_w)
+    if vtype == "w" and e_kind == EXPR_IDENT { emit(")") }
     emit_line(";")
 }
 

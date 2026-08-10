@@ -152,10 +152,33 @@ task cli_path_parent(path: word) -> word {
     give back path.substring(0, last_sep)
 }
 
+task cli_path_is_absolute(path: word) -> bool {
+    if path == "" { give back false }
+    pilot first = path.char_at(0)
+    if first == "/" or first == "\\" { give back true }
+    if path.length() > 1 and path.char_at(1) == ":" { give back true }
+    give back false
+}
+
+task cli_current_dir() -> word {
+    pilot command = "pwd -P"
+    if cli_is_windows() { command = "cd" }
+    give back cli_first_line(process::exec_capture(command)).trim()
+}
+
 task cli_executable_path() -> word {
     pilot argv0: word = process::arg(0)
     if argv0 == "" { give back "" }
-    if fs::exists(argv0) { give back argv0 }
+    if fs::exists(argv0) {
+        if cli_path_is_absolute(argv0) { give back argv0 }
+        pilot relative = argv0
+        if relative.starts_with("./") or relative.starts_with(".\\") {
+            relative = relative.substring(2, relative.length() - 2)
+        }
+        pilot cwd = cli_current_dir()
+        if cwd != "" { give back cwd + "/" + relative }
+        give back argv0
+    }
     pilot lookup_cmd = "command -v " + cli_quote_cmd_path(argv0) + " 2>/dev/null"
     if cli_is_windows() { lookup_cmd = "where " + cli_quote_cmd_path(argv0) + " 2>nul" }
     pilot resolved: word = cli_first_line(process::exec_capture(lookup_cmd)).trim()

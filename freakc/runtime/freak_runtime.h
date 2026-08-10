@@ -49,6 +49,10 @@ freak_word freak_word_own(char* s, size_t len);
 /* Concatenate two words — allocates. */
 freak_word freak_word_concat(freak_word a, freak_word b);
 
+/* Copy an existing word binding. Heap words receive independent ownership;
+   literals remain shared immutable storage. */
+freak_word freak_word_clone(freak_word source);
+
 /* Evaluate the replacement first, then release the previous owned buffer.
    Pointer equality keeps direct self-assignment safe. */
 void freak_word_replace_owned(freak_word* slot, freak_word replacement);

@@ -248,9 +248,12 @@ verify_downloaded_archive() {
     local asset="$2"
     local checksums="$TMPDIR_INSTALL/SHA256SUMS"
     fetch_file "$RELEASE_BASE/$LATEST/SHA256SUMS" "$checksums" || err "Could not download SHA256SUMS for $LATEST"
-    local expected
-    expected=$(awk -v asset="$asset" '$2 == asset || $2 == "./" asset || $2 == "*" asset || $2 == "*./" asset { print $1; exit }' "$checksums")
-    [ -n "$expected" ] || err "SHA256SUMS has no exact entry for $asset"
+    local matches match_count expected
+    matches=$(awk -v asset="$asset" '$2 == asset || $2 == "./" asset || $2 == "*" asset || $2 == "*./" asset { print $1 }' "$checksums")
+    match_count=$(printf '%s\n' "$matches" | awk 'NF { count += 1 } END { print count + 0 }')
+    [ "$match_count" -ne 0 ] || err "SHA256SUMS has no exact entry for $asset"
+    [ "$match_count" -eq 1 ] || err "SHA256SUMS has duplicate entries for $asset"
+    expected=$(printf '%s\n' "$matches" | awk 'NF { print; exit }')
     [ "${#expected}" -eq 64 ] || err "SHA256SUMS has an invalid hash for $asset"
     case "$expected" in
         *[!0-9a-fA-F]*) err "SHA256SUMS has an invalid hash for $asset" ;;

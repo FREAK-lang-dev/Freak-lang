@@ -13,13 +13,18 @@ from pathlib import Path
 
 
 PROGRAM = """task main() {
-    pilot text: word = "a"
+    pilot mut text: word = "a"
     repeat 512 times {
         text = text + "x"
     }
     text = text
     text = "done"
     say text
+    pilot mut moved: word = "x" + "y"
+    pilot mut alias: word = moved
+    moved = "z"
+    say alias
+    alias = "released"
 }
 """
 
@@ -52,19 +57,21 @@ def main() -> int:
         source.write_text(PROGRAM, encoding="utf-8")
 
         for backend, flag, suffix in (("c", "--c", ".c"), ("llvm", "--llvm", ".ll")):
-            transpiled = run([str(freak), "transpile", str(source), flag], repo)
+            transpiled = run([str(freak), "transpile", str(source), flag, "--strict-borrow"], repo)
             assert transpiled.returncode == 0, transpiled.stdout + transpiled.stderr
             generated = Path(str(source) + suffix)
             assert generated.is_file(), generated
             generated_text = generated.read_text(encoding="utf-8")
             if backend == "c":
                 assert "freak_word_replace_owned" in generated_text
+                assert "freak_word_clone(moved)" in generated_text
             else:
                 assert "@freak_llvm_word_release_replaced" in generated_text
+                assert "@freak_llvm_word_clone" in generated_text
 
             binary = root / (f"replace_owned_{backend}.exe" if sys.platform == "win32" else f"replace_owned_{backend}")
             if sys.platform == "win32":
-                built = run([str(freak), "build", str(source), flag], repo)
+                built = run([str(freak), "build", str(source), flag, "--strict-borrow"], repo)
                 assert built.returncode == 0, built.stdout + built.stderr
                 produced = source.with_suffix(".exe")
                 shutil.copy2(produced, binary)
@@ -101,7 +108,7 @@ def main() -> int:
                 sanitizer_env["LSAN_OPTIONS"] = "exitcode=23"
             executed = run([str(binary)], root, sanitizer_env)
             assert executed.returncode == 0, executed.stdout + executed.stderr
-            assert executed.stdout.strip() == "done", executed.stdout
+            assert executed.stdout.strip().splitlines() == ["done", "xy"], executed.stdout
             assert "LeakSanitizer" not in executed.stderr
 
     print("V3 word replacement ownership: PASS")

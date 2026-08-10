@@ -1094,14 +1094,22 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
     if vtype == "" { vtype = llvm_infer_expr_type(expr_id_w) }
     llvm_set_var_type(name_w, vtype)
     pilot reg = llvm_emit_expr(expr_id_w)
+    pilot stored_reg = reg
+    pilot expr_idx = word_to_int(expr_id_w)
+    pilot expr_kind: word = array_get(ast_expr_kinds, expr_idx)
+    if vtype.starts_with("w") and expr_kind == EXPR_IDENT {
+        pilot clone_reg = next_reg()
+        llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
+        stored_reg = clone_reg
+    }
     if llvm_is_global(name_w) {
-        llvm_emit_line("    store i64 " + reg + ", i64* @g_" + name_w)
+        llvm_emit_line("    store i64 " + stored_reg + ", i64* @g_" + name_w)
     } else {
         pilot uniq = name_w + "_v" + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
         llvm_reg_var(name_w, uniq)
         llvm_emit_line("    %" + uniq + " = alloca i64")
-        llvm_emit_line("    store i64 " + reg + ", i64* %" + uniq)
+        llvm_emit_line("    store i64 " + stored_reg + ", i64* %" + uniq)
     }
 }
 
@@ -1303,14 +1311,22 @@ task llvm_emit_stmt_assign(eid: word) -> void {
     -- Plain variable / global assignment
     pilot var_name_expr: word = array_get(ast_expr_vals, lhs_idx)
     pilot reg = llvm_emit_expr(rhs_w)
+    pilot stored_reg = reg
     pilot var_ptr = llvm_var_ptr(var_name_expr)
     if name_w == "=" {
         if llvm_get_var_type(var_name_expr).starts_with("w") {
+            pilot rhs_idx = word_to_int(rhs_w)
+            pilot rhs_kind: word = array_get(ast_expr_kinds, rhs_idx)
+            if rhs_kind == EXPR_IDENT {
+                pilot clone_reg = next_reg()
+                llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
+                stored_reg = clone_reg
+            }
             pilot previous_reg = next_reg()
             llvm_emit_line("    " + previous_reg + " = load i64, i64* " + var_ptr)
-            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous_reg + ", i64 " + reg + ")")
+            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous_reg + ", i64 " + stored_reg + ")")
         }
-        llvm_emit_line("    store i64 " + reg + ", i64* " + var_ptr)
+        llvm_emit_line("    store i64 " + stored_reg + ", i64* " + var_ptr)
         give back
     }
     pilot load_reg = next_reg()
@@ -1563,6 +1579,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_llvm_word_from_bool(i64)")
     llvm_emit_line("declare i64 @freak_llvm_char_to_word(i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_concat(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_clone(i64)")
     llvm_emit_line("declare void @freak_llvm_word_release_replaced(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_eq(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_neq(i64, i64)")

@@ -146,7 +146,8 @@ def main() -> int:
         std.mkdir(parents=True)
         for name in ("freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c"):
             shutil.copy2(repo / "freakc" / "runtime" / name, runtime / name)
-        shutil.copy2(repo / "freakc" / "runtime" / "freak_abi", runtime / "freak_abi")
+        runtime_abi = runtime / "freak_abi"
+        shutil.copy2(repo / "freakc" / "runtime" / "freak_abi", runtime_abi)
         if sys.platform == "win32":
             runtime_ui = runtime / "ui"
             runtime_ui.mkdir()
@@ -187,6 +188,25 @@ def main() -> int:
         code, output = invoke(freak, source_dir, source_arg, "--c", env)
         assert_run(code, output, "CACHE_A", cache_hit=True)
         assert binary.stat().st_mtime_ns == first_mtime
+
+        # A warm cache never bypasses distribution integrity. Changing only
+        # the ABI marker must reject the run before the cached program starts.
+        runtime_abi.write_text("freak-v3-abi-999\n", encoding="utf-8")
+        code, output = invoke(freak, source_dir, source_arg, "--c", env)
+        assert code != 0, output
+        assert "abi mismatch" in output.lower(), output
+        assert "CACHE_A" not in output, output
+        shutil.copy2(repo / "freakc" / "runtime" / "freak_abi", runtime_abi)
+
+        if sys.platform == "win32":
+            pending = install / "bin" / ".freak-upgrade-pending"
+            pending.parent.mkdir(parents=True, exist_ok=True)
+            pending.write_text("vfixture|wait-pid=fixture\n", encoding="utf-8")
+            code, output = invoke(freak, source_dir, source_arg, "--c", env)
+            assert code != 0, output
+            assert "upgrade pending" in output.lower(), output
+            assert "CACHE_A" not in output, output
+            pending.unlink()
 
         binary.write_bytes(b"externally replaced artifact\n")
         code, output = invoke(freak, source_dir, source_arg, "--c", env)

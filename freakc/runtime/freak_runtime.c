@@ -88,6 +88,15 @@ freak_word freak_word_concat(freak_word a, freak_word b) {
     return freak_word_own(buf, total);
 }
 
+freak_word freak_word_clone(freak_word source) {
+    if (!source.heap || !source.data) return source;
+    char* buf = (char*)malloc(source.length + 1);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    memcpy(buf, source.data, source.length);
+    buf[source.length] = '\0';
+    return freak_word_own(buf, source.length);
+}
+
 void freak_word_replace_owned(freak_word* slot, freak_word replacement) {
     if (!slot) return;
     if (slot->heap && slot->data && slot->data != replacement.data) {
@@ -1209,6 +1218,19 @@ int64_t freak_llvm_word_adopt(int64_t pointer) {
     owned->next = freak_llvm_owned_words;
     freak_llvm_owned_words = owned;
     return pointer;
+}
+
+int64_t freak_llvm_word_clone(int64_t source) {
+    const char* text = (const char*)source;
+    if (!text) return 0;
+    size_t length = strlen(text);
+    char* clone = (char*)malloc(length + 1);
+    if (!clone) {
+        fprintf(stderr, "FREAK: out of memory cloning a word\n");
+        exit(1);
+    }
+    memcpy(clone, text, length + 1);
+    return freak_llvm_word_adopt((int64_t)clone);
 }
 
 void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement) {
