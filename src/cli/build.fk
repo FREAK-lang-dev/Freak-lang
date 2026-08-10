@@ -272,20 +272,21 @@ task cli_find_windows_llvm_mingw() -> word {
 
 task cli_find_runtime_dir() -> word {
     -- Try to find the runtime directory.
-    -- 1. Check relative to CWD (dev / repo layout)
-    if cli_has_runtime("freakc/runtime") {
-        give back "freakc/runtime"
-    }
-    -- 2. Check beside an archive/package-manager binary.
-    pilot executable_home = cli_executable_home()
-    if executable_home != "" and cli_has_runtime(executable_home + "/runtime") {
-        give back executable_home + "/runtime"
-    }
-    -- 3. An explicit FREAK_HOME is authoritative.
+    -- 1. An explicit FREAK_HOME is authoritative, including when a developer
+    -- binary happens to live beside another complete checkout payload.
     pilot freak_home: word = process::env("FREAK_HOME")
     if freak_home != "" {
         pilot fh_rt = freak_home + "/runtime"
         if cli_has_runtime(fh_rt) { give back fh_rt }
+    }
+    -- 2. Check relative to CWD (dev / repo layout)
+    if cli_has_runtime("freakc/runtime") {
+        give back "freakc/runtime"
+    }
+    -- 3. Check beside an archive/package-manager binary.
+    pilot executable_home = cli_executable_home()
+    if executable_home != "" and cli_has_runtime(executable_home + "/runtime") {
+        give back executable_home + "/runtime"
     }
     -- 4. Check ~/.freak/runtime/ (install.sh layout)
     pilot home_dir: word = process::env("HOME")
@@ -664,15 +665,16 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
 
 task cli_find_std_dir() -> word {
     -- Try to find the std/ directory.
-    if fs::exists("std/math.fk") { give back "std" }
-    pilot executable_home = cli_executable_home()
-    if executable_home != "" and fs::exists(executable_home + "/std/math.fk") {
-        give back executable_home + "/std"
-    }
+    -- An explicit FREAK_HOME is authoritative over checkout-relative payloads.
     pilot freak_home: word = process::env("FREAK_HOME")
     if freak_home != "" {
         pilot fh_std = freak_home + "/std"
         if fs::exists(fh_std + "/math.fk") { give back fh_std }
+    }
+    if fs::exists("std/math.fk") { give back "std" }
+    pilot executable_home = cli_executable_home()
+    if executable_home != "" and fs::exists(executable_home + "/std/math.fk") {
+        give back executable_home + "/std"
     }
     pilot home_dir: word = process::env("HOME")
     if home_dir != "" {

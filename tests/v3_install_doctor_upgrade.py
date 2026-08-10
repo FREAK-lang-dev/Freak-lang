@@ -279,8 +279,7 @@ def check_offline_installer(
         # Hold the old compiler without delete sharing. The installer must
         # return a staged status, retain durable pending state, then replace
         # both binaries transactionally after the lock is released.
-        import ctypes
-        from ctypes import wintypes
+        import ctypes.wintypes
 
         deferred_root = root / "deferred-upgrade"
         deferred_bin = deferred_root / "bin"
@@ -292,17 +291,19 @@ def check_offline_installer(
 
         create_file = ctypes.windll.kernel32.CreateFileW
         create_file.argtypes = [
-            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
-            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+            ctypes.wintypes.LPCWSTR, ctypes.wintypes.DWORD,
+            ctypes.wintypes.DWORD, ctypes.wintypes.LPVOID,
+            ctypes.wintypes.DWORD, ctypes.wintypes.DWORD,
+            ctypes.wintypes.HANDLE,
         ]
-        create_file.restype = wintypes.HANDLE
+        create_file.restype = ctypes.wintypes.HANDLE
         close_handle = ctypes.windll.kernel32.CloseHandle
-        close_handle.argtypes = [wintypes.HANDLE]
-        close_handle.restype = wintypes.BOOL
+        close_handle.argtypes = [ctypes.wintypes.HANDLE]
+        close_handle.restype = ctypes.wintypes.BOOL
         lock_handle = create_file(
             str(old_freak), 0x80000000, 0x00000001, None, 3, 0x00000080, None
         )
-        assert lock_handle != wintypes.HANDLE(-1).value
+        assert lock_handle != ctypes.wintypes.HANDLE(-1).value
         deferred_env = env.copy()
         deferred_env["FREAK_HOME"] = str(deferred_root)
         try:
@@ -509,6 +510,16 @@ def check_doctor(
 ) -> None:
     payload = root / "doctor-home"
     populate_payload(repo, payload, entries)
+    # Model CI's build/freak layout with a second complete payload beside the
+    # compiler. Explicit FREAK_HOME must still select the isolated test payload.
+    checkout = root / "doctor-checkout"
+    checkout_bin = checkout / "build"
+    checkout_bin.mkdir(parents=True)
+    checkout_compiler = checkout_bin / compiler.name
+    shutil.copy2(compiler, checkout_compiler)
+    shutil.copytree(repo / "freakc" / "runtime", checkout / "runtime")
+    shutil.copytree(repo / "std", checkout / "std")
+    compiler = checkout_compiler
     cwd = root / "doctor-cwd"
     cwd.mkdir()
     probe_temp = root / "doctor-probes"
@@ -524,6 +535,12 @@ def check_doctor(
     assert healthy.stderr == "", healthy.stderr
     report = json.loads(healthy.stdout)
     assert report["status"] == "ok"
+    assert Path(report["checks"]["runtime"]["path"]).resolve() == (
+        payload / "runtime"
+    ).resolve()
+    assert Path(report["checks"]["stdlib"]["path"]).resolve() == (
+        payload / "std"
+    ).resolve()
     assert report["checks"]["runtime"]["files_expected"] == 5
     assert report["checks"]["stdlib"]["modules_found"] == 11
     assert report["checks"]["stdlib"]["modules_expected"] == 11
