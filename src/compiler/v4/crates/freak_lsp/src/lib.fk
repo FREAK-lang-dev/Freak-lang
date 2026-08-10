@@ -398,7 +398,7 @@ task v4_lsp_hir_snapshot_text() -> word {
 }
 
 task v4_lsp_hir_snapshot_restore_text(payload: word) -> word {
-    give back v4_lsp_response_ok("workspace/hirSnapshotRestore", v4_hir_snapshot_restore(payload))
+    give back v4_lsp_response_ok("workspace/hirSnapshotRestore", v4_hir_snapshot_restore_with_queries(payload))
 }
 
 task v4_lsp_resolve_snapshot_text() -> word {

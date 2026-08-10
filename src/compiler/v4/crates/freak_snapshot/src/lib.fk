@@ -4282,6 +4282,30 @@ task v4_expand_snapshot_restore_with_queries(payload: word) -> word {
     give back restore_result + " query-invalidations=" + word_from_int(invalidated)
 }
 
+-- A standalone HIR restore can shorten the logical arena and later reuse its
+-- trailing slots. Dirty every cached HIR and transitive dependent before any
+-- clean query can interpret a reused numeric slot as its former source.
+task v4_hir_snapshot_restore_with_queries(payload: word) -> word {
+    pilot restore_result = v4_hir_snapshot_restore(payload)
+    if restore_result.starts_with("hir-snapshot-restore ok=1") == false {
+        give back restore_result
+    }
+
+    pilot generation = v4_query_bump_generation("restore:hir-component")
+    pilot invalidated = 0
+    pilot entry_id = 0
+    pilot entry_count = v4_query_cache_size()
+    repeat until entry_id >= entry_count {
+        pilot key = v4_query_entry_key(entry_id)
+        if key.starts_with("hir:") {
+            invalidated += v4_query_mark_dirty_key_at_generation(key, generation, "restore:hir-component")
+            invalidated += v4_query_invalidate_dependents_at_generation(key, generation, "restore:hir-component")
+        }
+        entry_id += 1
+    }
+    give back restore_result + " query-invalidations=" + word_from_int(invalidated)
+}
+
 task v4_unit_snapshot_restore_section_payload(section_name: word, section_payload: word) -> word {
     if section_payload == "" {
         give back section_name + "-snapshot-restore ok=0 reason=missing-section"
@@ -4292,9 +4316,9 @@ task v4_unit_snapshot_restore_section_payload(section_name: word, section_payloa
     } else if section_name == "parse" {
         give back v4_parse_snapshot_restore(section_payload)
     } else if section_name == "expand" {
-        give back v4_expand_snapshot_restore(section_payload)
+        give back v4_expand_snapshot_restore_with_queries(section_payload)
     } else if section_name == "hir" {
-        give back v4_hir_snapshot_restore(section_payload)
+        give back v4_hir_snapshot_restore_with_queries(section_payload)
     } else if section_name == "resolve" {
         give back v4_resolve_snapshot_restore(section_payload)
     } else if section_name == "ty" {
@@ -4435,7 +4459,19 @@ task v4_unit_snapshot_restore_prevalidated(payload: word) -> word {
         if section_name == "document-symbols" { section_payload = document_symbols_payload }
         if section_name == "completion" { section_payload = completion_payload }
         if section_name == "query" { section_payload = query_payload }
-        pilot restore_result = v4_unit_snapshot_restore_section_payload(section_name, section_payload)
+        pilot restore_result = ""
+        if section_name == "expand" or section_name == "hir" {
+            -- A full prevalidated restore installs the saved query section later.
+            -- Keep arena-component paths raw so the snapshot's own query state
+            -- is restored instead of being replaced by component invalidations.
+            if section_name == "hir" {
+                restore_result = v4_hir_snapshot_restore(section_payload)
+            } else {
+                restore_result = v4_expand_snapshot_restore(section_payload)
+            }
+        } else {
+            restore_result = v4_unit_snapshot_restore_section_payload(section_name, section_payload)
+        }
         if v4_unit_snapshot_section_restore_ok(section_name, restore_result) == 0 {
             pilot out = "00-unit-snapshot-restore ok=0 reason=section-restore-failed"
             out = out + " section=" + section_name

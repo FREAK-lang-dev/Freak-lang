@@ -30,6 +30,7 @@ pilot v4_hir_item_parse_nodes = 0
 pilot v4_hir_alias_target_types = 0
 pilot v4_hir_alias_target_spans = 0
 pilot v4_hir_diags = 0
+pilot v4_hir_file_len = 0
 pilot v4_hir_ready = 0
 
 task v4_hir_init() -> void {
@@ -44,23 +45,37 @@ task v4_hir_init() -> void {
         v4_hir_alias_target_types = array_new()
         v4_hir_alias_target_spans = array_new()
         v4_hir_diags = array_new()
+        v4_hir_file_len = 0
         v4_hir_ready = 1
     }
 }
 
 task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
-    pilot hir_id = array_len(v4_hir_files)
-    array_push(v4_hir_files, word_from_int(file_id))
-    array_push(v4_hir_expansions, word_from_int(expansion_id))
-    array_push(v4_hir_item_kinds, word_from_int(array_new()))
-    array_push(v4_hir_item_names, word_from_int(array_new()))
-    array_push(v4_hir_item_defs, word_from_int(array_new()))
-    array_push(v4_hir_item_spans, word_from_int(array_new()))
-    array_push(v4_hir_item_parse_nodes, word_from_int(array_new()))
-    array_push(v4_hir_alias_target_types, word_from_int(array_new()))
-    array_push(v4_hir_alias_target_spans, word_from_int(array_new()))
-    array_push(v4_hir_diags, word_from_int(array_new()))
+    pilot hir_id = v4_hir_file_len
+    repeat until array_len(v4_hir_files) > hir_id {
+        array_push(v4_hir_files, "0")
+        array_push(v4_hir_expansions, "0")
+        array_push(v4_hir_item_kinds, word_from_int(array_new()))
+        array_push(v4_hir_item_names, word_from_int(array_new()))
+        array_push(v4_hir_item_defs, word_from_int(array_new()))
+        array_push(v4_hir_item_spans, word_from_int(array_new()))
+        array_push(v4_hir_item_parse_nodes, word_from_int(array_new()))
+        array_push(v4_hir_alias_target_types, word_from_int(array_new()))
+        array_push(v4_hir_alias_target_spans, word_from_int(array_new()))
+        array_push(v4_hir_diags, word_from_int(array_new()))
+    }
+    array_set(v4_hir_files, hir_id, word_from_int(file_id))
+    array_set(v4_hir_expansions, hir_id, word_from_int(expansion_id))
+    array_set(v4_hir_item_kinds, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_item_names, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_item_defs, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_item_spans, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_item_parse_nodes, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_alias_target_types, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_alias_target_spans, hir_id, word_from_int(array_new()))
+    array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
+    v4_hir_file_len = hir_id + 1
     give back hir_id
 }
 
@@ -112,7 +127,7 @@ task v4_hir_tree_id(hir_id: int) -> int {
 
 task v4_hir_file_count() -> int {
     v4_hir_init()
-    give back array_len(v4_hir_files)
+    give back v4_hir_file_len
 }
 
 task v4_hir_file_exists(hir_id: int) -> bool {
@@ -120,7 +135,7 @@ task v4_hir_file_exists(hir_id: int) -> bool {
     if hir_id < 0 {
         give back false
     }
-    if hir_id >= array_len(v4_hir_files) {
+    if hir_id >= v4_hir_file_len {
         give back false
     }
     give back true
@@ -822,13 +837,139 @@ task v4_hir_snapshot_alias_target_is_valid(line: word) -> bool {
     if alias_target_span == no_span {
         give back false
     }
+    pilot item_span = v4_hir_snapshot_field(line, 6)
+    pilot item_file = v4_span_file(item_span)
+    pilot item_start = v4_span_start(item_span)
+    pilot item_end = v4_span_end(item_span)
     pilot span_file = v4_span_file(alias_target_span)
     pilot span_start = v4_span_start(alias_target_span)
     pilot span_end = v4_span_end(alias_target_span)
-    if span_file == no_file or span_end < span_start {
+    if item_span == no_span or item_file == no_file or item_end < item_start or v4_span_new(item_file, item_start, item_end) != item_span {
+        give back false
+    }
+    if span_file == no_file or span_end <= span_start or span_file != item_file or span_start < item_start or span_end > item_end {
         give back false
     }
     give back v4_span_new(span_file, span_start, span_end) == alias_target_span
+}
+
+task v4_hir_snapshot_file_for_hir(payload: word, wanted_hir_id: word) -> word {
+    pilot found_file = V4_NO_FILE
+    pilot matches = 0
+    pilot line_id = 0
+    pilot line_count = v4_hir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        if v4_hir_snapshot_field_raw(line, 0) == "hir" and v4_hir_snapshot_field_raw(line, 1) == wanted_hir_id {
+            found_file = v4_hir_snapshot_field_raw(line, 2)
+            matches += 1
+        }
+        line_id += 1
+    }
+    if matches != 1 {
+        give back V4_NO_FILE
+    }
+    give back found_file
+}
+
+task v4_hir_snapshot_alias_target_owner_is_valid(payload: word, line: word) -> bool {
+    if v4_hir_snapshot_field(line, 8) == "" {
+        give back true
+    }
+    pilot no_file = V4_NO_FILE
+    pilot snapshot_file = v4_hir_snapshot_file_for_hir(payload, v4_hir_snapshot_field_raw(line, 1))
+    if snapshot_file == no_file {
+        give back false
+    }
+    give back v4_span_file(v4_hir_snapshot_field(line, 6)) == snapshot_file and v4_span_file(v4_hir_snapshot_field(line, 9)) == snapshot_file
+}
+
+task v4_hir_snapshot_child_slots_are_valid(payload: word, hir_line: word) -> bool {
+    pilot wanted_hir_id = v4_hir_snapshot_field_raw(hir_line, 1)
+    pilot declared_items_word = v4_hir_snapshot_field_raw(hir_line, 4)
+    pilot declared_diags_word = v4_hir_snapshot_field_raw(hir_line, 5)
+    pilot declared_items = word_to_int(declared_items_word)
+    pilot declared_diags = word_to_int(declared_diags_word)
+    if declared_items < 0 or declared_diags < 0 or word_from_int(declared_items) != declared_items_word or word_from_int(declared_diags) != declared_diags_word {
+        give back false
+    }
+
+    pilot hir_records = 0
+    pilot item_records = 0
+    pilot diag_records = 0
+    pilot line_id = 0
+    pilot line_count = v4_hir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if kind == "hir" and v4_hir_snapshot_field_raw(line, 1) == wanted_hir_id {
+            hir_records += 1
+        } else if kind == "hir-item" and v4_hir_snapshot_field_raw(line, 1) == wanted_hir_id {
+            item_records += 1
+        } else if kind == "hir-diag" and v4_hir_snapshot_field_raw(line, 1) == wanted_hir_id {
+            diag_records += 1
+        }
+        line_id += 1
+    }
+    if hir_records != 1 or item_records != declared_items or diag_records != declared_diags {
+        give back false
+    }
+
+    pilot expected_item = 0
+    repeat until expected_item >= declared_items {
+        pilot occurrences = 0
+        line_id = 0
+        repeat until line_id >= line_count {
+            pilot line = v4_hir_snapshot_line(payload, line_id)
+            if v4_hir_snapshot_field_raw(line, 0) == "hir-item" and v4_hir_snapshot_field_raw(line, 1) == wanted_hir_id and v4_hir_snapshot_field_raw(line, 2) == word_from_int(expected_item) {
+                occurrences += 1
+            }
+            line_id += 1
+        }
+        if occurrences != 1 {
+            give back false
+        }
+        expected_item += 1
+    }
+
+    pilot expected_diag = 0
+    repeat until expected_diag >= declared_diags {
+        pilot occurrences = 0
+        line_id = 0
+        repeat until line_id >= line_count {
+            pilot line = v4_hir_snapshot_line(payload, line_id)
+            if v4_hir_snapshot_field_raw(line, 0) == "hir-diag" and v4_hir_snapshot_field_raw(line, 1) == wanted_hir_id and v4_hir_snapshot_field_raw(line, 2) == word_from_int(expected_diag) {
+                occurrences += 1
+            }
+            line_id += 1
+        }
+        if occurrences != 1 {
+            give back false
+        }
+        expected_diag += 1
+    }
+    give back true
+}
+
+task v4_hir_snapshot_hir_slots_are_valid(payload: word, file_count: int) -> bool {
+    pilot expected_hir = 0
+    pilot line_count = v4_hir_snapshot_line_count(payload)
+    repeat until expected_hir >= file_count {
+        pilot occurrences = 0
+        pilot line_id = 0
+        repeat until line_id >= line_count {
+            pilot line = v4_hir_snapshot_line(payload, line_id)
+            if v4_hir_snapshot_field_raw(line, 0) == "hir" and v4_hir_snapshot_field_raw(line, 1) == word_from_int(expected_hir) {
+                occurrences += 1
+            }
+            line_id += 1
+        }
+        if occurrences != 1 {
+            give back false
+        }
+        expected_hir += 1
+    }
+    give back true
 }
 
 task v4_hir_snapshot_record_is_valid(line: word) -> bool {
@@ -856,7 +997,11 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_files = ""
+    pilot declared_items = ""
     pilot declared_alias_targets = ""
+    pilot declared_diagnostics = ""
+    pilot no_file = V4_NO_FILE
 
     pilot line_id = 0
     repeat until line_id >= lines {
@@ -868,19 +1013,34 @@ task v4_hir_snapshot_validate(payload: word) -> word {
             } else if kind == "hir-snapshot" {
                 saw_header += 1
                 format = v4_hir_snapshot_key_value(line, "format")
+                declared_files = v4_hir_snapshot_key_value(line, "files")
+                declared_items = v4_hir_snapshot_key_value(line, "items")
                 declared_alias_targets = v4_hir_snapshot_key_value(line, "alias-targets")
+                declared_diagnostics = v4_hir_snapshot_key_value(line, "diagnostics")
                 if format != v4_hir_snapshot_format {
                     malformed += 1
                 }
             } else if kind == "hir" {
                 files += 1
+                if v4_hir_snapshot_child_slots_are_valid(payload, line) == false {
+                    malformed += 1
+                }
             } else if kind == "hir-item" {
                 items += 1
+                if v4_hir_snapshot_file_for_hir(payload, v4_hir_snapshot_field_raw(line, 1)) == no_file {
+                    malformed += 1
+                }
                 if v4_hir_snapshot_field(line, 8) != "" {
                     alias_targets += 1
+                    if v4_hir_snapshot_alias_target_owner_is_valid(payload, line) == false {
+                        malformed += 1
+                    }
                 }
             } else if kind == "hir-diag" {
                 diagnostics += 1
+                if v4_hir_snapshot_file_for_hir(payload, v4_hir_snapshot_field_raw(line, 1)) == no_file {
+                    malformed += 1
+                }
             } else if kind == "end" {
                 saw_end += 1
                 if v4_hir_snapshot_field(line, 1) != v4_hir_snapshot_format {
@@ -901,7 +1061,13 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     if malformed > 0 {
         import_ok = 0
     }
+    if declared_files != word_from_int(files) or declared_items != word_from_int(items) or declared_diagnostics != word_from_int(diagnostics) {
+        import_ok = 0
+    }
     if declared_alias_targets != word_from_int(alias_targets) {
+        import_ok = 0
+    }
+    if v4_hir_snapshot_hir_slots_are_valid(payload, files) == false {
         import_ok = 0
     }
 
@@ -945,6 +1111,9 @@ task v4_hir_restore_file_slot(hir_id: int, file_id: int, expansion_id: int) -> i
     array_set(v4_hir_alias_target_types, hir_id, word_from_int(array_new()))
     array_set(v4_hir_alias_target_spans, hir_id, word_from_int(array_new()))
     array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
+    if hir_id >= v4_hir_file_len {
+        v4_hir_file_len = hir_id + 1
+    }
     give back hir_id
 }
 
@@ -1028,6 +1197,11 @@ task v4_hir_snapshot_restore_diag_line(line: word) -> int {
     give back v4_hir_restore_diag_slot(hir_id, diag_id, diag)
 }
 
+task v4_hir_begin_snapshot_restore() -> void {
+    v4_hir_init()
+    v4_hir_file_len = 0
+}
+
 task v4_hir_snapshot_restore(payload: word) -> word {
     pilot validation = v4_hir_snapshot_validate(payload)
     if validation.starts_with("hir-snapshot-import ok=1") == false {
@@ -1038,6 +1212,8 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     pilot restored_items = 0
     pilot restored_diagnostics = 0
     pilot skipped_other = 0
+    v4_hir_begin_snapshot_restore()
+
     pilot line_id = 0
     pilot line_count = v4_hir_snapshot_line_count(payload)
     repeat until line_id >= line_count {
@@ -1046,12 +1222,22 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             pilot kind = v4_hir_snapshot_field_raw(line, 0)
             if kind == "hir" {
                 restored_files += v4_hir_snapshot_restore_file_line(line)
-            } else if kind == "hir-item" {
+            } else if kind != "hir-item" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
+                skipped_other += 1
+            }
+        }
+        line_id += 1
+    }
+
+    line_id = 0
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        if line != "" {
+            pilot kind = v4_hir_snapshot_field_raw(line, 0)
+            if kind == "hir-item" {
                 restored_items += v4_hir_snapshot_restore_item_line(line)
             } else if kind == "hir-diag" {
                 restored_diagnostics += v4_hir_snapshot_restore_diag_line(line)
-            } else if kind != "hir-snapshot" and kind != "end" {
-                skipped_other += 1
             }
         }
         line_id += 1
