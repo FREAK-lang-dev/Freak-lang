@@ -115,6 +115,8 @@ def main() -> int:
             assert "has no method 'not_a_method'" in nominal_output
             assert "nominal_bad.fk:6:1" in nominal_output
             assert "nominal_bad.fk:7:1" in nominal_output
+            assert "6 |     pilot missing = known.not_a_field" in nominal_output
+            assert "7 |     known.not_a_method()" in nominal_output
             assert nominal_artifact.read_text(encoding="utf-8") == SENTINEL
 
             nominal_artifact.unlink()
@@ -163,6 +165,10 @@ def main() -> int:
                 assert member in output, f"{backend}: did not validate {member}\n{output}"
             assert "has no method 'spoof'" in output
             assert "non-shape value has no fields" in output
+            assert "nested_nominal_bad.fk:9:1" in output
+            assert "nested_nominal_bad.fk:10:1" in output
+            assert "10 |         known.missing_when_case -> say known.missing_when_body" in output
+            assert "nested_nominal_bad.fk:13:1" in output
             assert artifact.read_text(encoding="utf-8") == SENTINEL
 
         nominal_shadow_ok = tmp_path / "nominal_shadow_ok.fk"

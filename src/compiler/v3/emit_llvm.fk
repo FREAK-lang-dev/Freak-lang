@@ -1217,7 +1217,6 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
     pilot vtype = ""
     if type_ann != "" { vtype = llvm_type_code(type_ann) }
     if vtype == "" { vtype = llvm_infer_expr_type(expr_id_w) }
-    llvm_set_var_type(name_w, vtype)
     pilot reg = llvm_emit_expr(expr_id_w)
     pilot stored_reg = reg
     pilot expr_idx = word_to_int(expr_id_w)
@@ -1227,6 +1226,9 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
         llvm_emit_line("    " + clone_reg + " = call i64 @freak_llvm_word_clone(i64 " + reg + ")")
         stored_reg = clone_reg
     }
+    -- Initializers see the outer binding. Delay the new type entry until the
+    -- RHS and its ownership decision have been lowered.
+    llvm_set_var_type(name_w, vtype)
     if llvm_emitting_global_init {
         llvm_emit_line("    store i64 " + stored_reg + ", i64* @g_" + name_w)
     } else {

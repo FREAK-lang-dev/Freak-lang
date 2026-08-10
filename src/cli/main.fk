@@ -238,6 +238,7 @@ task freakc_cli_main() -> void {
             say "  " + C_G3 + SYM_GEAR + " CHECKING" + C_RESET + " " + C_BWHITE + src_file + C_RESET
             say ""
             input_file = src_file
+            diagnostic_source = source
             error_count = 0
             parse_error_count = 0
             init_arrays()

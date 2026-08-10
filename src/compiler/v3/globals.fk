@@ -138,6 +138,7 @@ pilot emit_target = "llvm"
 -- C emitter variable tracking
 pilot emt_var_names = 0
 pilot emt_var_types = 0
+pilot emt_var_c_names = 0
 pilot emt_var_count = 0
 pilot emt_global_var_names = 0
 pilot emt_global_var_types = 0
@@ -184,6 +185,10 @@ pilot llvm_dbg_current_file = ""
 
 -- ===================== CLI STATE ===================================
 pilot input_file = ""
+-- User-authored source used by diagnostics. `lex_source` may also contain a
+-- prepended standard library payload and therefore is not source-coordinate
+-- compatible after token line adjustment.
+pilot diagnostic_source = ""
 pilot opt_level = "2"
 pilot cross_target = ""
 pilot source_line_offset = 0

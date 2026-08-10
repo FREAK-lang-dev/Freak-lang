@@ -682,8 +682,10 @@ task tc_validate_when_cases(cases: word, line: int) -> void {
             current = ""
             in_stmt = true
         } else if c == "," {
-            if case_expr != "" and case_expr != "-1" { tc_validate_expr(word_to_int(case_expr), line) }
             pilot saved_local_count = tc_local_count
+            pilot case_line = line
+            if current != "" { case_line = word_to_int(array_get(ast_stmt_lines, word_to_int(current))) }
+            if case_expr != "" and case_expr != "-1" { tc_validate_expr(word_to_int(case_expr), case_line) }
             if current != "" { tc_validate_stmt(word_to_int(current)) }
             tc_local_count = saved_local_count
             case_expr = ""
@@ -693,8 +695,10 @@ task tc_validate_when_cases(cases: word, line: int) -> void {
         i += 1
     }
     if in_stmt {
-        if case_expr != "" and case_expr != "-1" { tc_validate_expr(word_to_int(case_expr), line) }
         pilot saved_local_count = tc_local_count
+        pilot case_line = line
+        if current != "" { case_line = word_to_int(array_get(ast_stmt_lines, word_to_int(current))) }
+        if case_expr != "" and case_expr != "-1" { tc_validate_expr(word_to_int(case_expr), case_line) }
         if current != "" { tc_validate_stmt(word_to_int(current)) }
         tc_local_count = saved_local_count
     }

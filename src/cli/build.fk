@@ -79,6 +79,7 @@ task cli_strip_resolved_use_lines(source: word) -> word {
 task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
     input_file = src_file
+    if source_line_offset <= 0 { diagnostic_source = source }
     -- Compiler state is process-global because the CLI can perform more than
     -- one compilation in a process. Never inherit a prior diagnostic into a
     -- new build, and never let a new diagnostic reach either emitter.
@@ -922,11 +923,13 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
 
     -- Auto-include standard library if available
     pilot std_source: word = cli_load_std(source, target)
+    diagnostic_source = source
     source_line_offset = 0
     if std_source != "" {
         std_source = cli_strip_resolved_use_lines(std_source)
         source_line_offset = cli_count_lines(std_source)
         source = cli_strip_resolved_use_lines(source)
+        diagnostic_source = source
         source = std_source + source
     }
 

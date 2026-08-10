@@ -147,8 +147,7 @@ task emit_expr(id: word) -> void {
         give back
     }
     if kind == EXPR_IDENT {
-        if emt_active_binding_is_word_param(val) { emit("__freak_param_" + val) }
-        else { emit(val) }
+        emit(emt_get_var_c_name(val))
         give back
     }
 
@@ -464,21 +463,11 @@ task emt_is_current_word_param(name: word) -> bool {
 
 task emt_active_binding_is_word_param(name: word) -> bool {
     if not emt_is_current_word_param(name) { give back false }
-    pilot matches = 0
-    pilot i = 0
-    repeat emt_var_count times {
-        if array_get(emt_var_names, i) == name { matches += 1 }
-        i += 1
-    }
-    give back matches == 1
+    give back emt_get_var_c_name(name) == "__freak_param_" + name
 }
 
 task emt_active_binding_is_global(name: word) -> bool {
-    pilot i = 0
-    repeat emt_var_count times {
-        if array_get(emt_var_names, i) == name { give back false }
-        i += 1
-    }
+    if emt_has_local_var(name) { give back false }
     give back emt_is_global_binding(name)
 }
 
@@ -709,13 +698,20 @@ task emit_stmt_pilot(eid: word) -> void {
         if e_kind == EXPR_BOOL { ctype = "bool " vtype = "b" }
         if e_kind == EXPR_FLOAT { ctype = "double " vtype = "d" }
     }
-    emt_set_var_type(name_w, vtype)
-    emit(ctype + name_w + " = ")
+    pilot c_name = name_w
+    if emt_has_local_var(name_w) or emt_is_global_binding(name_w) {
+        c_name = "__freak_local_" + name_w + "_" + eid
+    }
+    emit(ctype + c_name + " = ")
     pilot clone_initial = vtype == "w" and emt_word_expr_needs_clone(expr_id_w)
     if clone_initial { emit("freak_word_clone(") }
     emit_expr(expr_id_w)
     if clone_initial { emit(")") }
     emit_line(";")
+    -- The initializer resolves in the outer scope. Register this binding only
+    -- after lowering the RHS so `pilot value: word = value` reads the
+    -- parameter/global being shadowed, not the new C local.
+    emt_set_var_type_named(name_w, vtype, c_name)
 }
 
 task emit_stmt_when(eid: word) -> void {
@@ -865,7 +861,7 @@ task register_param_types(params_w: word) -> void {
         if pc == ":" { in_ptype = true }
         else if pc == "," {
             if ptype == "word" {
-                emt_set_var_type(pname, "w")
+                emt_set_var_type_named(pname, "w", "__freak_param_" + pname)
                 emt_current_word_params = emt_current_word_params + "|" + pname + "|"
             }
             else if ptype == "bool" { emt_set_var_type(pname, "b") }
@@ -882,7 +878,7 @@ task register_param_types(params_w: word) -> void {
     }
     if pname != "" {
         if ptype == "word" {
-            emt_set_var_type(pname, "w")
+            emt_set_var_type_named(pname, "w", "__freak_param_" + pname)
             emt_current_word_params = emt_current_word_params + "|" + pname + "|"
         }
         else if ptype == "bool" { emt_set_var_type(pname, "b") }

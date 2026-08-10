@@ -186,6 +186,31 @@ task main() {
 }
 """
 
+SHADOW_COPY_PROGRAM = """pilot mut copied: word = "g" + "lobal"
+
+task copy_global_shadow() -> word {
+    pilot copied: word = copied
+    give back copied
+}
+
+task copy_param_shadow(copied: word) -> word {
+    pilot copied: word = copied
+    give back copied
+}
+
+task main() {
+    pilot mut global_copy: word = copy_global_shadow()
+    copied = "released"
+    say global_copy
+    global_copy = "released"
+    pilot mut argument: word = "p" + "aram"
+    pilot mut param_copy: word = copy_param_shadow(argument)
+    argument = "released"
+    say param_copy
+    param_copy = "released"
+}
+"""
+
 METHOD_SHAPE_PROGRAM = """shape Counter {
     value: int
 }
@@ -280,6 +305,7 @@ def main() -> int:
             ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"], ("c", "llvm")),
             ("global_call", GLOBAL_CALL_PROGRAM, [], ["local", "global"], ("c", "llvm")),
             ("return_shadow", RETURN_SHADOW_PROGRAM, [], ["local", "inner", "global"], ("c", "llvm")),
+            ("shadow_copy", SHADOW_COPY_PROGRAM, [], ["global", "param"], ("c", "llvm")),
             ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join", "literal"], ("c", "llvm")),
             ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field", "self", "self"], ("llvm",)),
         )
