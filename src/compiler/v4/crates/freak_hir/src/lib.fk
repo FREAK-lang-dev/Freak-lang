@@ -808,6 +808,29 @@ task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     give back 0
 }
 
+task v4_hir_snapshot_alias_target_is_valid(line: word) -> bool {
+    pilot alias_target = v4_hir_snapshot_field(line, 8)
+    pilot alias_target_span = v4_hir_snapshot_field(line, 9)
+    pilot no_span = V4_NO_SPAN
+    pilot no_file = V4_NO_FILE
+    if alias_target == "" {
+        give back alias_target_span == no_span
+    }
+    if v4_hir_snapshot_field(line, 3) != v4_hir_alias {
+        give back false
+    }
+    if alias_target_span == no_span {
+        give back false
+    }
+    pilot span_file = v4_span_file(alias_target_span)
+    pilot span_start = v4_span_start(alias_target_span)
+    pilot span_end = v4_span_end(alias_target_span)
+    if span_file == no_file or span_end < span_start {
+        give back false
+    }
+    give back v4_span_new(span_file, span_start, span_end) == alias_target_span
+}
+
 task v4_hir_snapshot_record_is_valid(line: word) -> bool {
     pilot kind = v4_hir_snapshot_field_raw(line, 0)
     pilot expected = v4_hir_snapshot_record_expected_fields(kind)
@@ -817,6 +840,9 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
     if v4_hir_snapshot_field_count(line) < expected {
         give back false
     }
+    if kind == "hir-item" and v4_hir_snapshot_alias_target_is_valid(line) == false {
+        give back false
+    }
     give back true
 }
 
@@ -824,11 +850,13 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     pilot lines = v4_hir_snapshot_line_count(payload)
     pilot files = 0
     pilot items = 0
+    pilot alias_targets = 0
     pilot diagnostics = 0
     pilot malformed = 0
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_alias_targets = ""
 
     pilot line_id = 0
     repeat until line_id >= lines {
@@ -840,6 +868,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
             } else if kind == "hir-snapshot" {
                 saw_header += 1
                 format = v4_hir_snapshot_key_value(line, "format")
+                declared_alias_targets = v4_hir_snapshot_key_value(line, "alias-targets")
                 if format != v4_hir_snapshot_format {
                     malformed += 1
                 }
@@ -847,6 +876,9 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 files += 1
             } else if kind == "hir-item" {
                 items += 1
+                if v4_hir_snapshot_field(line, 8) != "" {
+                    alias_targets += 1
+                }
             } else if kind == "hir-diag" {
                 diagnostics += 1
             } else if kind == "end" {
@@ -869,6 +901,9 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     if malformed > 0 {
         import_ok = 0
     }
+    if declared_alias_targets != word_from_int(alias_targets) {
+        import_ok = 0
+    }
 
     pilot out = "hir-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
@@ -876,6 +911,8 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     out = out + " lines=" + word_from_int(lines)
     out = out + " files=" + word_from_int(files)
     out = out + " items=" + word_from_int(items)
+    out = out + " alias-targets=" + word_from_int(alias_targets)
+    out = out + " declared-alias-targets=" + declared_alias_targets
     out = out + " diagnostics=" + word_from_int(diagnostics)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " headers=" + word_from_int(saw_header)

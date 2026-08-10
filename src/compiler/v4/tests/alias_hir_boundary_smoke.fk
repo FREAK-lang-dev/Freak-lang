@@ -8,6 +8,39 @@ task v4_alias_hir_boundary_bool(value: bool) -> word {
     give back "false"
 }
 
+task v4_alias_hir_boundary_snapshot_variant(payload: word, corrupt_alias_span: bool, declared_alias_targets: int) -> word {
+    pilot out = ""
+    pilot corrupted = 0
+    pilot line_id = 0
+    pilot line_count = v4_hir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if kind == "hir-snapshot" {
+            line = "hir-snapshot|format=" + v4_hir_snapshot_key_value(line, "format")
+            line = line + "|files=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "files")
+            line = line + "|items=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "items")
+            line = line + "|alias-targets=" + word_from_int(declared_alias_targets)
+            line = line + "|diagnostics=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "diagnostics")
+        } else if kind == "hir-item" and corrupt_alias_span and corrupted == 0 and v4_hir_snapshot_field(line, 8) != "" {
+            pilot rebuilt = "hir-item"
+            pilot field_id = 1
+            repeat until field_id >= 9 {
+                rebuilt = rebuilt + "|" + v4_hir_snapshot_field_raw(line, field_id)
+                field_id += 1
+            }
+            line = rebuilt + "|" + v4_hir_snapshot_escape(V4_NO_SPAN)
+            corrupted = 1
+        }
+        if line_id > 0 {
+            out = out + "\n"
+        }
+        out = out + line
+        line_id += 1
+    }
+    give back out
+}
+
 task v4_alias_hir_boundary_source() -> word {
     pilot src = "alias Score = int\n"
     src = src + "alias Matrix = [[num; 4]; 4]\n"
@@ -67,6 +100,17 @@ say "alias-hir-boundary-diag=" + v4_diag_message(v4_alias_hir_boundary_diag)
 say "alias-hir-boundary-diag-span=" + v4_diag_span(v4_alias_hir_boundary_diag)
 
 pilot v4_alias_hir_boundary_snapshot = v4_hir_snapshot()
+pilot v4_alias_hir_boundary_alias_count = v4_hir_snapshot_alias_target_total()
+pilot v4_alias_hir_boundary_bad_span_snapshot = v4_alias_hir_boundary_snapshot_variant(v4_alias_hir_boundary_snapshot, true, v4_alias_hir_boundary_alias_count)
+pilot v4_alias_hir_boundary_bad_span_validation = v4_hir_snapshot_validate(v4_alias_hir_boundary_bad_span_snapshot)
+pilot v4_alias_hir_boundary_bad_span_restore = v4_hir_snapshot_restore(v4_alias_hir_boundary_bad_span_snapshot)
+pilot v4_alias_hir_boundary_bad_span_atomic: bool = v4_hir_snapshot() == v4_alias_hir_boundary_snapshot
+pilot v4_alias_hir_boundary_bad_count_snapshot = v4_alias_hir_boundary_snapshot_variant(v4_alias_hir_boundary_snapshot, false, v4_alias_hir_boundary_alias_count - 1)
+pilot v4_alias_hir_boundary_bad_count_validation = v4_hir_snapshot_validate(v4_alias_hir_boundary_bad_count_snapshot)
+pilot v4_alias_hir_boundary_bad_count_restore = v4_hir_snapshot_restore(v4_alias_hir_boundary_bad_count_snapshot)
+pilot v4_alias_hir_boundary_bad_count_atomic: bool = v4_hir_snapshot() == v4_alias_hir_boundary_snapshot
+say "alias-hir-boundary-malformed-snapshot-rejected=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_bad_span_validation.starts_with("hir-snapshot-import ok=0 ") and v4_alias_hir_boundary_bad_span_restore.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_alias_hir_boundary_bad_span_atomic)
+say "alias-hir-boundary-declared-alias-count-rejected=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_bad_count_validation.starts_with("hir-snapshot-import ok=0 ") and v4_alias_hir_boundary_bad_count_restore.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_alias_hir_boundary_bad_count_atomic)
 say v4_hir_snapshot_restore(v4_alias_hir_boundary_snapshot)
 say "alias-hir-boundary-restored-matrix-target=" + v4_hir_alias_target(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_matrix_item)
 say "alias-hir-boundary-restored-matrix-span=" + v4_hir_alias_target_span(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_matrix_item)

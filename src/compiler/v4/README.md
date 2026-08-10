@@ -461,7 +461,7 @@ unit-section|<section-name>|<escaped-checkpoint-identity>|<escaped-section-paylo
 end|freak-00-unit-snapshot-v3
 ```
 
-The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
+The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion-component restore dirties cached expansion queries and their transitive dependents before reuse, while HIR v3 validation requires canonical alias target spans and an exact declared alias-target count. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
 
 ### `workspace/unitSnapshotManifest`
 
@@ -574,7 +574,8 @@ environment, clock, randomness, and process access are not capabilities.
 Span views are canonical and bounded by their source metadata. Structured
 diagnostics preserve their own length-prefixed fields; conversion to the
 bootstrap pipe-delimited compiler diagnostic fails closed when a field cannot
-be represented without corruption.
+be represented without corruption. A diagnostic span must name the same source
+as its expansion identity in both construction and validation.
 Node views require their AST and span handles to name the exact same immutable
 source view, including revision. Expansion identities use canonical numeric
 fields and carry the owning ExpandedFile slot's semantic restore generation so

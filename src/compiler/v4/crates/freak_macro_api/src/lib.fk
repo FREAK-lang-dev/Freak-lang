@@ -391,6 +391,9 @@ task v4_macro_diagnostic_new(expansion_id: word, severity: int, span_view: word,
     if not v4_expansion_id_valid(expansion_id) or severity < v4_diag_note or severity > v4_diag_fatal or not v4_macro_span_view_valid(span_view) or code == "" or message == "" {
         give back ""
     }
+    if v4_macro_source_view_id(v4_macro_span_view_source(span_view)) != v4_expansion_id_source(expansion_id) {
+        give back ""
+    }
     pilot out = v4_macro_api_pack_field(v4_macro_tag_diagnostic)
     out = out + v4_macro_api_pack_field(expansion_id)
     out = out + v4_macro_api_pack_field(word_from_int(severity))
@@ -404,8 +407,13 @@ task v4_macro_diagnostic_valid(diagnostic: word) -> bool {
     if not v4_macro_api_record_valid(diagnostic, v4_macro_tag_diagnostic, 7) {
         give back false
     }
+    pilot expansion_id = v4_macro_api_field(diagnostic, 1)
     pilot severity = v4_macro_api_int_field(diagnostic, 2)
-    give back v4_expansion_id_valid(v4_macro_api_field(diagnostic, 1)) and severity >= v4_diag_note and severity <= v4_diag_fatal and v4_macro_span_view_valid(v4_macro_api_field(diagnostic, 3)) and v4_macro_api_field(diagnostic, 4) != "" and v4_macro_api_field(diagnostic, 5) != ""
+    pilot span_view = v4_macro_api_field(diagnostic, 3)
+    if not v4_expansion_id_valid(expansion_id) or severity < v4_diag_note or severity > v4_diag_fatal or not v4_macro_span_view_valid(span_view) or v4_macro_api_field(diagnostic, 4) == "" or v4_macro_api_field(diagnostic, 5) == "" {
+        give back false
+    }
+    give back v4_macro_source_view_id(v4_macro_span_view_source(span_view)) == v4_expansion_id_source(expansion_id)
 }
 
 task v4_macro_diagnostic_expansion(diagnostic: word) -> word {
