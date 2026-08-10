@@ -12,7 +12,14 @@ import tempfile
 from pathlib import Path
 
 
-PROGRAM = """task main() {
+PROGRAM = """task identity(value: word) -> word {
+    give back value
+}
+
+pilot mut global_owner: word = "g" + "lobal"
+pilot mut global_alias: word = global_owner
+
+task main() {
     pilot mut text: word = "a"
     repeat 512 times {
         text = text + "x"
@@ -25,6 +32,14 @@ PROGRAM = """task main() {
     moved = "z"
     say alias
     alias = "released"
+    pilot mut called: word = "c" + "all"
+    pilot mut returned: word = identity(called)
+    called = "reinitialized"
+    say returned
+    returned = "released"
+    global_owner = "reinitialized"
+    say global_alias
+    global_alias = "released"
 }
 """
 
@@ -65,6 +80,8 @@ def main() -> int:
             if backend == "c":
                 assert "freak_word_replace_owned" in generated_text
                 assert "freak_word_clone(moved)" in generated_text
+                assert "freak_identity(freak_word_clone(called))" in generated_text
+                assert "global_alias = freak_word_clone(global_owner)" in generated_text
             else:
                 assert "@freak_llvm_word_release_replaced" in generated_text
                 assert "@freak_llvm_word_clone" in generated_text
@@ -108,7 +125,7 @@ def main() -> int:
                 sanitizer_env["LSAN_OPTIONS"] = "exitcode=23"
             executed = run([str(binary)], root, sanitizer_env)
             assert executed.returncode == 0, executed.stdout + executed.stderr
-            assert executed.stdout.strip().splitlines() == ["done", "xy"], executed.stdout
+            assert executed.stdout.strip().splitlines() == ["done", "xy", "call", "global"], executed.stdout
             assert "LeakSanitizer" not in executed.stderr
 
     print("V3 word replacement ownership: PASS")
