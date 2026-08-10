@@ -79,6 +79,11 @@ task cli_strip_resolved_use_lines(source: word) -> word {
 task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
     input_file = src_file
+    -- Compiler state is process-global because the CLI can perform more than
+    -- one compilation in a process. Never inherit a prior diagnostic into a
+    -- new build, and never let a new diagnostic reach either emitter.
+    error_count = 0
+    parse_error_count = 0
     init_arrays()
 
     cli_step_start()
@@ -89,17 +94,21 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
     cli_step_start()
     parse_program()
     cli_step_done("Parsing")
+    if error_count > 0 {
+        say "  " + C_BRED + SYM_CROSS + " " + word_from_int(error_count) + " syntax error(s) -- code generation skipped" + C_RESET
+        give back ""
+    }
 
     cli_step_start()
     check_program()
     if strict_borrow {
         cli_step_done("Borrow checking")
-        if error_count > 0 {
-            say "  " + C_BRED + SYM_CROSS + " " + word_from_int(error_count) + " borrow-check error(s)" + C_RESET
-            give back ""
-        }
     } else {
         cli_step_done("Type checking")
+    }
+    if error_count > 0 {
+        say "  " + C_BRED + SYM_CROSS + " " + word_from_int(error_count) + " type/borrow error(s) -- code generation skipped" + C_RESET
+        give back ""
     }
 
     cli_step_start()
@@ -279,14 +288,15 @@ task cli_find_runtime_dir() -> word {
         pilot fh_rt = freak_home + "/runtime"
         if cli_has_runtime(fh_rt) { give back fh_rt }
     }
-    -- 2. Check relative to CWD (dev / repo layout)
-    if cli_has_runtime("freakc/runtime") {
-        give back "freakc/runtime"
-    }
-    -- 3. Check beside an archive/package-manager binary.
+    -- 2. Installed/archive payloads beside the compiler beat the CWD. A
+    -- project must never shadow the compiler runtime with freakc/runtime.
     pilot executable_home = cli_executable_home()
     if executable_home != "" and cli_has_runtime(executable_home + "/runtime") {
         give back executable_home + "/runtime"
+    }
+    -- 3. Development fallback relative to CWD (repo layout).
+    if cli_has_runtime("freakc/runtime") {
+        give back "freakc/runtime"
     }
     -- 4. Check ~/.freak/runtime/ (install.sh layout)
     pilot home_dir: word = process::env("HOME")
@@ -671,11 +681,11 @@ task cli_find_std_dir() -> word {
         pilot fh_std = freak_home + "/std"
         if fs::exists(fh_std + "/math.fk") { give back fh_std }
     }
-    if fs::exists("std/math.fk") { give back "std" }
     pilot executable_home = cli_executable_home()
     if executable_home != "" and fs::exists(executable_home + "/std/math.fk") {
         give back executable_home + "/std"
     }
+    if fs::exists("std/math.fk") { give back "std" }
     pilot home_dir: word = process::env("HOME")
     if home_dir != "" {
         pilot home_std = home_dir + "/.freak/std"

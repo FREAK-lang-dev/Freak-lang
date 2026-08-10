@@ -545,6 +545,23 @@ def check_doctor(
     assert report["checks"]["stdlib"]["modules_found"] == 11
     assert report["checks"]["stdlib"]["modules_expected"] == 11
 
+    # Without FREAK_HOME, an installed/executable-relative payload must beat a
+    # hostile project CWD that tries to shadow runtime or stdlib inputs.
+    shadow_cwd = root / "doctor-shadow-cwd"
+    shutil.copytree(repo / "freakc" / "runtime", shadow_cwd / "freakc" / "runtime")
+    shutil.copytree(repo / "std", shadow_cwd / "std")
+    shadow_env = env.copy()
+    shadow_env.pop("FREAK_HOME")
+    shadowed = run_cli(compiler, shadow_cwd, shadow_env, "doctor", "--json")
+    assert shadowed.returncode == 0, shadowed.stdout + shadowed.stderr
+    shadow_report = json.loads(shadowed.stdout)
+    assert Path(shadow_report["checks"]["runtime"]["path"]).resolve() == (
+        checkout / "runtime"
+    ).resolve()
+    assert Path(shadow_report["checks"]["stdlib"]["path"]).resolve() == (
+        checkout / "std"
+    ).resolve()
+
     if sys.platform != "win32":
         read_only_cwd = root / "doctor-read-only-cwd"
         read_only_cwd.mkdir()

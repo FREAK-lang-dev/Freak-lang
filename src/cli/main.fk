@@ -224,6 +224,9 @@ task freakc_cli_main() -> void {
             say ""
             say "  " + C_G3 + SYM_GEAR + " CHECKING" + C_RESET + " " + C_BWHITE + src_file + C_RESET
             say ""
+            input_file = src_file
+            error_count = 0
+            parse_error_count = 0
             init_arrays()
             cli_step_start()
             tokenize(source)
@@ -231,9 +234,21 @@ task freakc_cli_main() -> void {
             cli_step_start()
             parse_program()
             cli_step_done("Parsing")
+            if error_count > 0 {
+                say ""
+                say "  " + C_BRED + SYM_CROSS + " FAILED" + C_RESET + C_DIM + " -- syntax errors found" + C_RESET
+                say ""
+                process::exit(1)
+            }
             cli_step_start()
             check_program()
             cli_step_done("Type checking")
+            if error_count > 0 {
+                say ""
+                say "  " + C_BRED + SYM_CROSS + " FAILED" + C_RESET + C_DIM + " -- type/borrow errors found" + C_RESET
+                say ""
+                process::exit(1)
+            }
             say ""
             say "  " + C_BGREEN + SYM_SPARK + " PASSED" + C_RESET + C_DIM + " -- no type errors found" + C_RESET
             say ""
