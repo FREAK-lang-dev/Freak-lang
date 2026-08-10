@@ -31,7 +31,7 @@ task c_safe_ident(s: word) -> word {
 task emt_word_expr_needs_clone(expr_id: word) -> bool {
     pilot idx = word_to_int(expr_id)
     pilot kind: word = array_get(ast_expr_kinds, idx)
-    if kind == EXPR_IDENT or kind == EXPR_FIELD { give back is_ast_word(expr_id) }
+    if kind == EXPR_IDENT or kind == EXPR_FIELD { give back emt_expr_type_code(expr_id) == "w" }
     if kind == EXPR_CALL and array_get(ast_expr_vals, idx) == "array_get" { give back true }
     give back false
 }
@@ -74,6 +74,7 @@ task c_map_call(val: word) -> word {
     if val == "word_from_int" { give back "freak_word_from_int" }
     if val == "word_from_bool" { give back "freak_word_from_bool" }
     if val == "word_to_int" { give back "freak_word_to_int" }
+    if val == "word_concat" { give back "freak_word_concat" }
     if val == "array_new" { give back "freak_array_new" }
     if val == "array_push" { give back "freak_array_push_owned" }
     if val == "array_get" { give back "freak_array_get" }
@@ -172,7 +173,7 @@ task emit_expr(id: word) -> void {
     }
 
     if kind == EXPR_INDEX {
-        if is_ast_word(left) {
+        if emt_expr_type_code(left) == "w" {
             emit("freak_word_char_at(")
             emit_expr(left)
             emit(", ")
@@ -300,7 +301,7 @@ task emit_c_call(val: word, left: word) -> void {
     }
 
     -- User-defined function
-    emit("freak_" + c_safe_ident(val) + "(")
+    emit(c_user_task_symbol(val) + "(")
     if left != "" { emit_args(left, true) }
     emit(")")
 }
@@ -321,6 +322,17 @@ task emt_expr_type_code(id: word) -> word {
 }
 
 task emit_c_method(val: word, left: word, right: word) -> void {
+    pilot receiver_semantic_type = tc_expr_type(word_to_int(left))
+    if is_shape_name(receiver_semantic_type) and tc_has_impl_method(receiver_semantic_type, val) {
+        emit(c_user_task_symbol(receiver_semantic_type + "_" + val) + "(")
+        emit_expr(left)
+        if right != "" {
+            emit(", ")
+            emit_args(right, true)
+        }
+        emit(")")
+        give back
+    }
     pilot receiver_type = emt_expr_type_code(left)
     if val == "length" {
         emit("freak_word_length(")
@@ -368,11 +380,16 @@ task emit_c_method(val: word, left: word, right: word) -> void {
 
 task emit_c_field(val: word, left: word) -> void {
     pilot fidx = 0 - 1
-    pilot si = 0
-    repeat shape_registry_count times {
-        pilot tmpidx = get_shape_field_index(array_get(shape_registry_names, si), val)
-        if tmpidx >= 0 { fidx = tmpidx }
-        si += 1
+    pilot receiver_shape = tc_expr_type(word_to_int(left))
+    if is_shape_name(receiver_shape) {
+        fidx = get_shape_field_index(receiver_shape, val)
+    } else {
+        pilot si = 0
+        repeat shape_registry_count times {
+            pilot tmpidx = get_shape_field_index(array_get(shape_registry_names, si), val)
+            if tmpidx >= 0 { fidx = tmpidx }
+            si += 1
+        }
     }
     if fidx < 0 { fidx = 0 }
     emit("freak_llvm_shape_get(")
@@ -382,7 +399,7 @@ task emit_c_field(val: word, left: word) -> void {
 
 task emit_c_binop(val: word, left: word, right: word) -> void {
     if val == "+" {
-        if is_ast_word(left) or is_ast_word(right) {
+        if emt_expr_type_code(left) == "w" or emt_expr_type_code(right) == "w" {
             emit("freak_word_concat(")
             emit_expr(left)
             emit(", ")
@@ -398,7 +415,7 @@ task emit_c_binop(val: word, left: word, right: word) -> void {
         give back
     }
     if val == "==" or val == "!=" {
-        if is_ast_word(left) or is_ast_word(right) {
+        if emt_expr_type_code(left) == "w" or emt_expr_type_code(right) == "w" {
             if val == "!=" { emit("(!") }
             emit("freak_word_eq(")
             emit_expr(left)
@@ -520,6 +537,11 @@ task emt_word_param_c_name(name: word) -> word {
         i += 1
     }
     give back ""
+}
+
+task c_user_task_symbol(name: word) -> word {
+    if tc_internal_runtime_task_name(name) { give back "freak_" + c_safe_ident(name) }
+    give back "__freak_user_" + c_safe_ident(name)
 }
 
 task emt_active_binding_is_word_param(name: word) -> bool {
@@ -671,11 +693,16 @@ task emit_stmt(eid: word) -> void {
             pilot field_name: word = array_get(ast_expr_vals, lhs_idx)
             pilot recv_id: word = array_get(ast_expr_lefts, lhs_idx)
             pilot fidx = 0 - 1
-            pilot si = 0
-            repeat shape_registry_count times {
-                pilot tmpidx = get_shape_field_index(array_get(shape_registry_names, si), field_name)
-                if tmpidx >= 0 { fidx = tmpidx }
-                si += 1
+            pilot receiver_shape = tc_expr_type(word_to_int(recv_id))
+            if is_shape_name(receiver_shape) {
+                fidx = get_shape_field_index(receiver_shape, field_name)
+            } else {
+                pilot si = 0
+                repeat shape_registry_count times {
+                    pilot tmpidx = get_shape_field_index(array_get(shape_registry_names, si), field_name)
+                    if tmpidx >= 0 { fidx = tmpidx }
+                    si += 1
+                }
             }
             if fidx < 0 { fidx = 0 }
             pilot fidx_w = word_from_int(fidx)
@@ -923,7 +950,7 @@ task emit_task(eid: word) -> void {
         tc_register_params(params_w)
     }
 
-    emit(c_ret + " freak_" + name_w + "(" + c_params)
+    emit(c_ret + " " + c_user_task_symbol(name_w) + "(" + c_params)
     emit_line(") {")
     emit_block(body_id_w)
     emit_current_word_param_cleanup("")
@@ -1020,7 +1047,7 @@ task emit_fwd_decl(eid: word) -> void {
     pilot c_ret = c_ret_type(returns_w)
     pilot c_params = "void"
     if params_w != "" { c_params = translate_params(params_w) }
-    emit(c_ret + " freak_" + name_w + "(" + c_params)
+    emit(c_ret + " " + c_user_task_symbol(name_w) + "(" + c_params)
     emit_line(");")
 }
 
@@ -1125,7 +1152,7 @@ task emit_c_program() -> void {
     emit_line("    freak_enable_ansi();")
     if has_user_main {
         emit_line("    freak_init_globals();")
-        emit_line("    freak_main();")
+        emit_line("    " + c_user_task_symbol("main") + "();")
     }
     if not has_user_main {
         emit_line("    freak_main();")

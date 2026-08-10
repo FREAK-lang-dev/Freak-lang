@@ -39,6 +39,8 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     )
     missing = sorted(mapped - classified)
     assert not missing, f"builtin return-type inventory missing: {missing}"
+    unlowered = sorted(classified - mapped)
+    assert not unlowered, f"classified builtin has no backend lowering: {unlowered}"
 
 
 def run(
@@ -287,6 +289,19 @@ def main() -> int:
                 reserved_result.stdout + reserved_result.stderr
             )
 
+        builtin_task = tmp_path / "builtin_task_bad.fk"
+        builtin_task.write_text(
+            "task word_concat(a: word, b: word) -> word { give back a }\n"
+            "task main() { say word_concat(\"a\", \"b\") }\n",
+            encoding="utf-8",
+        )
+        for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+            builtin_task_result = run(freak, repo, builtin_task, "transpile", flag)
+            assert_rejected(builtin_task_result, f"{backend} builtin task collision")
+            assert "conflicts with a compiler builtin" in (
+                builtin_task_result.stdout + builtin_task_result.stderr
+            )
+
         primitive_ok = tmp_path / "primitive_methods_ok.fk"
         primitive_ok.write_text(
             "pilot inferred_global = 1.5 + 2.25\n"
@@ -320,6 +335,10 @@ def main() -> int:
             "    say math::sqrt(9.0).to_int().to_word()\n"
             "    say inferred_global.to_word()\n"
             "    say read_collision(7).to_word()\n"
+            "    say (source_integer.to_num() + 1.5).to_word()\n"
+            "    say (\"a\".checksum() == \"a\".checksum()).to_word()\n"
+            "    say \"abc\".replace(\"a\", \"z\")\n"
+            "    say word_concat(\"a\", \"b\")\n"
             "}\n",
             encoding="utf-8",
         )
@@ -338,7 +357,7 @@ def main() -> int:
                 check=False,
             )
             assert executed.returncode == 0, executed.stdout + executed.stderr
-            assert executed.stdout.strip().splitlines() == [
+            expected_output = [
                 "7",
                 "8",
                 "true",
@@ -354,7 +373,72 @@ def main() -> int:
                 "3",
                 "3.75",
                 "42",
+                "8.5",
+                "true",
+                "zbc",
+                "ab",
             ]
+            actual_output = executed.stdout.strip().splitlines()
+            assert actual_output == expected_output, (
+                f"{backend} primitive execution mismatch\n"
+                f"expected: {expected_output!r}\nactual: {actual_output!r}\n"
+                f"stderr: {executed.stderr}"
+            )
+
+        nominal_methods = tmp_path / "nominal_primitive_names.fk"
+        nominal_methods.write_text(
+            "shape PrimitiveNamed { value: int }\n"
+            "shape NumberBox { pad: int value: int }\n"
+            "shape WordBox { value: word pad: int }\n"
+            "impl PrimitiveNamed {\n"
+            "    task to_word(self) -> word { give back \"shape\" }\n"
+            "    task length(self) -> int { give back 77 }\n"
+            "    task trim(self) -> word { give back \"nominal\" }\n"
+            "}\n"
+            "task consume_number(value: int) -> int { give back value }\n"
+            "task main() {\n"
+            "    pilot named = PrimitiveNamed { value: 1 }\n"
+            "    say named.to_word()\n"
+            "    say named.length().to_word()\n"
+            "    say named.trim()\n"
+            "    pilot number = NumberBox { pad: 9, value: 7 }\n"
+            "    say consume_number(number.value).to_word()\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        nominal_llvm = run(freak, repo, nominal_methods, "build", "--llvm")
+        assert nominal_llvm.returncode == 0, nominal_llvm.stdout + nominal_llvm.stderr
+        nominal_binary = nominal_methods.with_suffix(".exe" if sys.platform == "win32" else "")
+        nominal_executed = subprocess.run(
+            [str(nominal_binary)],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+            check=False,
+        )
+        assert nominal_executed.returncode == 0, nominal_executed.stdout + nominal_executed.stderr
+        assert nominal_executed.stdout.strip().splitlines() == [
+            "shape",
+            "77",
+            "nominal",
+            "7",
+        ]
+
+        nominal_c = run(freak, repo, nominal_methods, "transpile", "--c")
+        assert nominal_c.returncode == 0, nominal_c.stdout + nominal_c.stderr
+        nominal_c_text = nominal_methods.with_suffix(".fk.c").read_text(encoding="utf-8")
+        assert "__freak_user_PrimitiveNamed_to_word(" in nominal_c_text
+        assert re.search(
+            r"__freak_user_consume_number\(freak_llvm_shape_get\(__freak_local_\d+, 1\)\)",
+            nominal_c_text,
+        )
+        assert not re.search(
+            r"__freak_user_consume_number\(freak_word_clone\(freak_llvm_shape_get",
+            nominal_c_text,
+        )
 
         check_result = run(freak, repo, parse_bad, "check")
         check_output = check_result.stdout + check_result.stderr

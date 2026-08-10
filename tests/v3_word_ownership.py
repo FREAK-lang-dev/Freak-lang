@@ -331,10 +331,10 @@ def main() -> int:
                     assert "freak_word_replace_owned" in generated_text
                     if case_name == "strict":
                         assert re.search(r"freak_word_clone\(__freak_local_\d+\)", generated_text)
-                        assert re.search(r"freak_identity\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
-                        assert re.search(r"freak_observe\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
-                        assert "freak_observe(freak_word_concat(" in generated_text
-                        assert re.search(r"freak_observe_shadow\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
+                        assert re.search(r"__freak_user_identity\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
+                        assert re.search(r"__freak_user_observe\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
+                        assert "__freak_user_observe(freak_word_concat(" in generated_text
+                        assert re.search(r"__freak_user_observe_shadow\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
                         assert re.search(r"__freak_global_\d+ = freak_word_clone\(__freak_global_\d+\)", generated_text)
                         assert "freak_word_release_owned(&__freak_param_0)" in generated_text
                     elif case_name == "aggregate":
@@ -346,12 +346,12 @@ def main() -> int:
                         assert re.search(r"freak_array_push_owned\(__freak_array_\d+, freak_word_concat\(", generated_text)
                         assert "freak_array_get" in generated_text
                     elif case_name == "global_call":
-                        assert re.search(r"freak_observe\(freak_word_clone\(__freak_global_\d+\)\)", generated_text)
+                        assert re.search(r"__freak_user_observe\(freak_word_clone\(__freak_global_\d+\)\)", generated_text)
                     elif case_name == "global_return":
                         assert re.search(r"__freak_return_value = freak_word_clone\(__freak_global_\d+\)", generated_text)
                     elif case_name == "return_shadow":
-                        assert "freak_return_local_shadow" in generated_text
-                        assert "freak_return_param_shadow" in generated_text
+                        assert "__freak_user_return_local_shadow" in generated_text
+                        assert "__freak_user_return_param_shadow" in generated_text
                     elif case_name == "shadow_copy":
                         assert re.search(r"__freak_return_value = __freak_global_\d+;", generated_text)
                 else:

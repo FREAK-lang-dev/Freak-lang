@@ -146,6 +146,11 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Method calls `instance.method()` | ✅ | ✅ | |
 | `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | V4 lowers concrete impl UFCS calls like `Pilot::boost(ship, bonus: 3)`, generic-owner `Box<int>::take(box)`, and doctrine-bound calls like `T::score(value, bonus: 2)` into MIR with receiver/value arguments plus arity and receiver-type diagnostics. Doctrine-bound static calls such as `T::baseline()` carry instantiated doctrine arguments through editor facts; body generics outrank same-named global aliases, and overlapping bound methods produce an ambiguity diagnostic instead of declaration-order dispatch. Production backend parity still expands |
 
+The shipping V3 LLVM path owns the executable shape/impl status in this table.
+The C portability emitter now keeps receiver-qualified field indexes, ownership,
+and nominal method symbols, but packaged C shape storage remains incomplete and
+is covered as a transpilation contract rather than claimed runtime parity.
+
 #### §1.6 Doctrines (Traits)
 
 | Contract | Status | Verdict | Notes |
@@ -572,6 +577,7 @@ completion remain open.
 | `@identifier` annotation | ✅ | ✅ |
 | `'identifier` lifetime | ⚠️ | 📖 V4 — tokenized and preserved through ordinary-task binders, outlives-bound references, and TY/editor/query contracts; broader region grammar and solving remain |
 | `prob[lo..hi]` lex form | ❌ | 📖 V4 |
+| V3 generated/native symbol hygiene | ✅ | ✅ — user tasks are mangled away from runtime exports; `__freak_` extern names and task declarations that conflict with compiler builtins fail before C/LLVM emission |
 | Number suffixes `42u`, `3.14f`, `42t`, `999b` | ⚠️ | 📖 V4 — lexer/TY/value normalization smokes exist; production backend semantics still expand |
 
 ---

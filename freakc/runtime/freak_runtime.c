@@ -1433,8 +1433,44 @@ int64_t freak_llvm_word_trim(int64_t a) {
 
 int64_t freak_llvm_word_replace(int64_t a, int64_t b, int64_t c) {
     const char* sa = (const char*)a;
-    if (!sa) return (int64_t)"";
-    return (int64_t)sa; // Stub implementation
+    const char* old_s = (const char*)b;
+    const char* new_s = (const char*)c;
+    if (!sa) sa = "";
+    if (!old_s) old_s = "";
+    if (!new_s) new_s = "";
+    size_t source_len = strlen(sa);
+    size_t old_len = strlen(old_s);
+    size_t replacement_len = strlen(new_s);
+    size_t count = 0;
+    if (old_len > 0 && source_len >= old_len) {
+        for (size_t i = 0; i <= source_len - old_len; ) {
+            if (memcmp(sa + i, old_s, old_len) == 0) {
+                count++;
+                i += old_len;
+            } else {
+                i++;
+            }
+        }
+    }
+    size_t output_len = source_len;
+    if (count > 0) {
+        output_len = source_len - count * old_len + count * replacement_len;
+    }
+    char* output = (char*)malloc(output_len + 1);
+    if (!output) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    size_t src = 0;
+    size_t dst = 0;
+    while (src < source_len) {
+        if (old_len > 0 && src + old_len <= source_len && memcmp(sa + src, old_s, old_len) == 0) {
+            memcpy(output + dst, new_s, replacement_len);
+            dst += replacement_len;
+            src += old_len;
+        } else {
+            output[dst++] = sa[src++];
+        }
+    }
+    output[dst] = '\0';
+    return freak_llvm_word_adopt((int64_t)output);
 }
 
 int64_t freak_llvm_word_to_int(int64_t a) {

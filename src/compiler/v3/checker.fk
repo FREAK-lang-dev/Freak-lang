@@ -533,6 +533,15 @@ task tc_builtin_call_type(name: word) -> word {
     give back ""
 }
 
+task tc_internal_runtime_task_name(name: word) -> bool {
+    give back name == "llvm_fs_read" or name == "llvm_fs_write" or name == "llvm_fs_append" or name == "llvm_fs_exists" or name == "llvm_fs_delete"
+}
+
+task tc_internal_runtime_source(source_file: word) -> bool {
+    pilot normalized = source_file.replace("\\", "/")
+    give back normalized.ends_with("/std/runtime.fk") or normalized == "std/runtime.fk"
+}
+
 task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
     if receiver_type == "word" {
         if name == "length" or name == "checksum" or name == "trim" { give back true }
@@ -699,6 +708,14 @@ task tc_diag_method_arity(method_name: word, expected: int, actual: int, line: i
 task tc_diag_reserved_extern(name: word, line: int, source_file: word) -> void {
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: extern symbol '" + name + "' uses the compiler-reserved '__freak_' prefix"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_builtin_task(name: word, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: task '" + name + "' conflicts with a compiler builtin"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
     say word_from_int(line) + " | " + get_file_source_line(source_file, line)
     say "  | ^"
@@ -900,6 +917,12 @@ task tc_run_program() -> void {
         pilot top_kind: word = array_get(ast_stmt_kinds, sid)
         if top_kind == STMT_EXTERN and array_get(ast_stmt_names, sid).starts_with("__freak_") {
             tc_diag_reserved_extern(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+        }
+        if top_kind == STMT_TASK and tc_builtin_call_type(array_get(ast_stmt_names, sid)) != "" {
+            tc_diag_builtin_task(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+        }
+        if top_kind == STMT_TASK and tc_internal_runtime_task_name(array_get(ast_stmt_names, sid)) and not tc_internal_runtime_source(array_get(ast_stmt_files, sid)) {
+            tc_diag_builtin_task(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
         }
         if top_kind == STMT_PILOT {
             pilot expr = word_to_int(array_get(ast_stmt_exprs, sid))

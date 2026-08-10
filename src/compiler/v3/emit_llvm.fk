@@ -387,17 +387,18 @@ task llvm_infer_expr_type(expr_id: word) -> word {
     if kind == EXPR_METHOD {
         pilot recv_expr: word = array_get(ast_expr_lefts, i)
         pilot recv_type = llvm_infer_expr_type(recv_expr)
+        pilot recv_shape = llvm_shape_name_from_type(recv_type)
+        if recv_shape != "" {
+            pilot exact_ret = llvm_get_task_ret_type(recv_shape + "_" + val)
+            if exact_ret.length() > 0 { give back exact_ret }
+        }
         pilot recv_builtin_type = "int"
         if recv_type.starts_with("w") { recv_builtin_type = "word" }
         else if recv_type.starts_with("n") { recv_builtin_type = "num" }
         else if recv_type.starts_with("b") { recv_builtin_type = "bool" }
         pilot builtin_ret = tc_builtin_method_return_type(recv_builtin_type, val)
         if builtin_ret != "" { give back llvm_type_code(builtin_ret) }
-        pilot recv_shape = llvm_shape_name_from_type(recv_type)
-        if recv_shape != "" {
-            pilot exact_ret = llvm_get_task_ret_type(recv_shape + "_" + val)
-            if exact_ret.length() > 0 { give back exact_ret }
-        } else {
+        if recv_shape == "" {
             pilot mi = 0
             repeat shape_registry_count times {
                 pilot msname: word = "" + array_get(shape_registry_names, mi)
@@ -523,6 +524,7 @@ task llvm_map_call_name(val: word) -> word {
     if val == "word_from_int" { give back "@freak_llvm_word_from_int" }
     if val == "word_from_bool" { give back "@freak_llvm_word_from_bool" }
     if val == "word_to_int" { give back "@freak_llvm_word_to_int" }
+    if val == "word_concat" { give back "@freak_llvm_word_concat" }
     if val == "char_to_word" { give back "@freak_llvm_char_to_word" }
     if val == "fs::read" { give back "@freak_llvm_fs_read" }
     if val == "fs::write" { give back "@freak_llvm_fs_write" }
@@ -587,6 +589,11 @@ task llvm_map_call_name(val: word) -> word {
     if val == "tcp::recv_all" or val == "tcp_recv_all" { give back "@freak_llvm_tcp_recv_all" }
     if val == "tcp::close" or val == "tcp_close" { give back "@freak_llvm_tcp_close" }
     give back ""
+}
+
+task llvm_user_task_symbol(name: word) -> word {
+    if tc_internal_runtime_task_name(name) { give back "@freak_" + llvm_c_safe_ident(name) }
+    give back "@__freak_user_" + llvm_c_safe_ident(name)
 }
 
 task llvm_is_void_call(val: word) -> bool {
@@ -767,7 +774,7 @@ task llvm_emit_call(val: word, left: word) -> word {
         if emt_is_extern(val) {
             func_name = "@" + llvm_c_safe_ident(val)
         } else {
-            func_name = "@freak_" + llvm_c_safe_ident(val)
+            func_name = llvm_user_task_symbol(val)
         }
     }
 
@@ -978,6 +985,22 @@ task llvm_emit_unaryop(val: word, left: word) -> word {
 task llvm_emit_method(val: word, left: word, right: word) -> word {
     pilot obj_reg = llvm_emit_expr(left)
     pilot res_reg = next_reg()
+    pilot recv_ty = llvm_infer_expr_type(left)
+    pilot best_sname = llvm_shape_name_from_type(recv_ty)
+    pilot best_ret = ""
+    if best_sname != "" { best_ret = llvm_get_task_ret_type(best_sname + "_" + val) }
+    if best_sname != "" and best_ret != "" {
+        pilot exact_args = ""
+        if right.length() > 0 { exact_args = ", " + llvm_emit_args(right, true) }
+        pilot exact_fname = llvm_user_task_symbol(best_sname + "_" + val)
+        if best_ret == "v" {
+            llvm_emit_line("    call void " + exact_fname + "(i64 " + obj_reg + exact_args + ")")
+            llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+        } else {
+            llvm_emit_line("    " + res_reg + " = call i64 " + exact_fname + "(i64 " + obj_reg + exact_args + ")")
+        }
+        give back res_reg
+    }
     if val == "length" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_length(i64 " + obj_reg + ")") give back res_reg }
     if val == "checksum" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_checksum(i64 " + obj_reg + ")") give back res_reg }
     if val == "snapshot_escape" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_snapshot_escape(i64 " + obj_reg + ")") give back res_reg }
@@ -994,13 +1017,12 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
     if val == "to_upper" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_upper(i64 " + obj_reg + ")") give back res_reg }
     if val == "to_lower" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_to_lower(i64 " + obj_reg + ")") give back res_reg }
     if val == "trim" { llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_trim(i64 " + obj_reg + ")") give back res_reg }
-    if val == "replace" { pilot a = llvm_emit_expr(right) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_replace(i64 " + obj_reg + ", i64 " + a + ", i64 0)") give back res_reg }
+    if val == "replace" { pilot args = llvm_emit_args(right, false) llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_replace(i64 " + obj_reg + ", " + args + ")") give back res_reg }
     -- to_int / to_num / to_word — receiver-type-dispatched primitive
     -- conversions.  The receiver's inferred type picks which runtime
     -- helper to call.  Without these, calls like `font_size.to_num()`
     -- in cockpit landed on the unsupported-method branch and returned
     -- 0, which collapsed every layout rect to zero size.
-    pilot recv_ty = llvm_infer_expr_type(left)
     if val == "to_int" {
         if recv_ty.starts_with("n") {
             llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_num_to_int(i64 " + obj_reg + ")")
@@ -1039,9 +1061,6 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
     }
     -- Nominal receiver types select the exact impl. Keep the historical
     -- last-match fallback only for legacy untyped handles.
-    pilot best_sname = llvm_shape_name_from_type(llvm_infer_expr_type(left))
-    pilot best_ret = ""
-    if best_sname != "" { best_ret = llvm_get_task_ret_type(best_sname + "_" + val) }
     if best_sname == "" {
         pilot si = 0
         repeat shape_registry_count times {
@@ -1055,12 +1074,12 @@ task llvm_emit_method(val: word, left: word, right: word) -> word {
         }
     }
     if best_sname.length() > 0 and best_ret.length() > 0 {
-        pilot impl_fname = "freak_" + best_sname + "_" + val
+        pilot impl_fname = llvm_user_task_symbol(best_sname + "_" + val)
         if best_ret == "v" {
-            llvm_emit_line("    call void @" + impl_fname + "(i64 " + obj_reg + extra_args + ")")
+            llvm_emit_line("    call void " + impl_fname + "(i64 " + obj_reg + extra_args + ")")
             llvm_emit_line("    " + res_reg + " = add i64 0, 0")
         } else {
-            llvm_emit_line("    " + res_reg + " = call i64 @" + impl_fname + "(i64 " + obj_reg + extra_args + ")")
+            llvm_emit_line("    " + res_reg + " = call i64 " + impl_fname + "(i64 " + obj_reg + extra_args + ")")
         }
         give back res_reg
     }
@@ -1706,7 +1725,7 @@ task llvm_emit_task(eid: word) -> void {
     pilot p_str = ""
     if params_w.length() > 0 { p_str = llvm_translate_params(params_w) }
     pilot dbg_attr = llvm_dbg_begin_func(name_w, line_no)
-    llvm_emit_line("define " + ret_type + " @freak_" + name_w + "(" + p_str + ")" + dbg_attr + " {")
+    llvm_emit_line("define " + ret_type + " " + llvm_user_task_symbol(name_w) + "(" + p_str + ")" + dbg_attr + " {")
     llvm_emit_line("entry:")
     if params_w.length() > 0 { llvm_allocate_params(params_w) }
     llvm_emit_block(body_id_w)
@@ -2015,7 +2034,7 @@ task emit_llvm_program() -> void {
     llvm_emit_line("    call void @freak_llvm_setup_args(i64 %argc_ext, i64 %argv_ptr)")
     if has_main_task {
         llvm_emit_line("    call void @freak_init_globals()")
-        llvm_emit_line("    call void @freak_main()")
+        llvm_emit_line("    call void " + llvm_user_task_symbol("main") + "()")
     }
     if not has_main_task {
         llvm_emit_line("    call void @freak_main()")

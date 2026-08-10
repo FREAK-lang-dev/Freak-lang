@@ -2177,6 +2177,18 @@ keyword classification instead of accidentally lowercasing them.
 
 ---
 
+### 8.5 Shipping V3 Native Symbol Boundary
+
+The shipping V3 compiler reserves the `__freak_` prefix for generated native
+symbols. An `extern task` whose native name begins with that prefix is a hard
+type error; this prevents a raw ABI symbol from being shadowed by generated
+locals, parameters, globals, or task symbols. Ordinary source task symbols are
+mangled into the reserved namespace and therefore cannot collide with runtime
+exports. A source task also cannot redeclare a compiler builtin call name;
+such a declaration is rejected before either backend emits code.
+
+---
+
 ## SECTION 9: FULL PARSER — AST NODES
 
 **Status (v0.14.0): ⚠️ Partial.** Core AST nodes (variables, tasks,
@@ -2451,9 +2463,11 @@ on §1.14), and root-`fixed pilot` cycle detection. The
 
 ## SECTION 11: CODE GENERATION NOTES (Full Compiler)
 
-**Status (v0.14.0): ⚠️ Partial.** LLVM IR and C backends both ship and
-handle core control flow, shapes/impl, arrays (LLVM-compatible pool),
-strings, fs/process/math/UI/TCP/JSON/HTTP. The LLVM backend emits
+**Status (v0.14.0): ⚠️ Partial.** LLVM IR and C backends both ship. LLVM
+handles core control flow, shapes/impl, arrays, strings, and the
+fs/process/math/UI/TCP/JSON/HTTP surface. The C portability backend covers
+the scalar, control-flow, word, array, and native-call paths, but packaged
+shape/impl runtime storage is not yet a claimed executable path. The LLVM backend emits
 LineTablesOnly DWARF — `DISubprogram` per function plus per-instruction
 `!dbg` annotations — so gdb/lldb get source-line backtraces today.
 **🔜 V4 — the special codegen rules listed below:** mood as uint8_t,

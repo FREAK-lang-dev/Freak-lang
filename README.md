@@ -51,6 +51,11 @@ That's it. That's the whole vibe.
 - **`eventually`** — block that runs at the end of the current scope.
 - **`isekai`** — nested scope with explicit `bringing back { ... }` exports.
 
+Native `extern task` names beginning with `__freak_` are reserved for compiler
+output, and source tasks cannot redeclare compiler builtin call names. V3
+rejects both cases before C or LLVM emission so user symbols cannot collide
+with the packaged runtime ABI.
+
 ### The Type System
 
 | Type | What it is |
