@@ -151,6 +151,17 @@ task try_consume_word(target: word) -> bool {
     give back false
 }
 
+task lex_ident_token_type(value: word) -> word {
+    pilot lower = value.to_lower()
+    if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "impl" or lower == "doctrine" or lower == "launch" or lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "break" or lower == "continue" or lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" or lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "sadly" or lower == "deus_ex_machina" or lower == "isekai" or lower == "eventually" or lower == "and" or lower == "or" or lower == "not" or lower == "nakama" or lower == "tsundere" or lower == "extern" {
+        give back TOK_KW
+    }
+    if lower == "true" or lower == "false" or lower == "yes" or lower == "no" or lower == "hai" or lower == "iie" {
+        give back TOK_BOOL
+    }
+    give back TOK_IDENT
+}
+
 task lex_ident() -> void {
     pilot res = ""
     pilot fin = false
@@ -193,14 +204,7 @@ task lex_ident() -> void {
     if lower == "final" {
         if try_consume_word("form") { push_token(TOK_KW, "FINAL FORM") give back }
     }
-    -- Single-word keywords
-    if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "impl" or lower == "doctrine" or lower == "launch" or lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "break" or lower == "continue" or lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" or lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "sadly" or lower == "deus_ex_machina" or lower == "isekai" or lower == "eventually" or lower == "and" or lower == "or" or lower == "not" or lower == "nakama" or lower == "tsundere" or lower == "extern" {
-        push_token(TOK_KW, res)
-    } else if lower == "true" or lower == "false" or lower == "yes" or lower == "no" or lower == "hai" or lower == "iie" {
-        push_token(TOK_BOOL, res)
-    } else {
-        push_token(TOK_IDENT, res)
-    }
+    push_token(lex_ident_token_type(res), res)
 }
 
 task lex_string() -> void {

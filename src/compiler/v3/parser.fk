@@ -105,20 +105,27 @@ task parser_interp_path_valid(path: word) -> bool {
     if path.length() == 0 { give back false }
     pilot i = 0
     pilot at_segment_start = true
+    pilot segment = ""
     repeat path.length() times {
         pilot c = path.char_at(i)
         if c == "." {
             if at_segment_start { give back false }
+            if lex_ident_token_type(segment) != TOK_IDENT { give back false }
             at_segment_start = true
+            segment = ""
         } else if at_segment_start {
             if not is_alphabetic(c) { give back false }
             at_segment_start = false
+            segment = segment + c
         } else if not is_alnum_ext(c) {
             give back false
+        } else {
+            segment = segment + c
         }
         i += 1
     }
-    give back not at_segment_start
+    if at_segment_start { give back false }
+    give back lex_ident_token_type(segment) == TOK_IDENT
 }
 
 task parser_interp_append(segments: word, expr_id: int) -> word {

@@ -69,6 +69,10 @@ LITERAL_PROGRAM = '''task main() {
     say "code { if (x) { y } }"
     say "{score + 1}"
     say "{ name }"
+    say "{true}"
+    say "{TRUE}"
+    say "{if}"
+    say "{Task}"
     say "unmatched {name"
     say "<<PIPE>>"
     say "\\x41{code}\\x42"
@@ -84,6 +88,10 @@ LITERAL_OUTPUT = [
     "code { if (x) { y } }",
     "{score + 1}",
     "{ name }",
+    "{true}",
+    "{TRUE}",
+    "{if}",
+    "{Task}",
     "unmatched {name",
     "<<PIPE>>",
     "A7B",
@@ -154,6 +162,13 @@ NEGATIVE_DIAGNOSTICS = {
     ),
 }
 
+NEGATIVE_LINES = {
+    "unknown": 2,
+    "non_shape": 3,
+    "missing_field": 4,
+    "unsupported_terminal": 4,
+}
+
 
 def run(
     command: list[str],
@@ -208,9 +223,6 @@ def compile_generated(
         "-o",
         str(output),
         str(generated),
-        str(repo / "freakc" / "runtime" / "freak_runtime.c"),
-        "-I",
-        str(repo / "freakc" / "runtime"),
         (
             "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1"
             if backend == "c"
@@ -218,6 +230,15 @@ def compile_generated(
         ),
         "-DFREAK_WORD_CONCAT_FORCE_MOVE=1",
     ]
+    if backend == "llvm":
+        command.append(str(repo / "freakc" / "runtime" / "freak_llvm_runtime.c"))
+    command.extend(
+        [
+            str(repo / "freakc" / "runtime" / "freak_runtime.c"),
+            "-I",
+            str(repo / "freakc" / "runtime"),
+        ]
+    )
     if sys.platform == "win32":
         command.append("-lws2_32")
     else:
@@ -246,6 +267,7 @@ def assert_negative(
     label: str,
     diagnostic: str,
     source: Path,
+    line: int,
 ) -> None:
     output = result.stdout + result.stderr
     normalized = output.replace("\\", "/")
@@ -254,8 +276,8 @@ def assert_negative(
     assert normalized.count("type error") == 1, (
         f"{label} emitted duplicate type diagnostics\n{output}"
     )
-    assert f"/{source.name}:" in normalized, (
-        f"{label} lost string-token source provenance\n{output}"
+    assert f"/{source.name}:{line}:" in normalized, (
+        f"{label} lost string-token line provenance\n{output}"
     )
 
 
@@ -286,8 +308,13 @@ def main() -> int:
     env = os.environ.copy()
     env["NO_COLOR"] = "1"
     env.pop("FREAK_HOME", None)
+    env.pop("ASAN_OPTIONS", None)
+    env.pop("LSAN_OPTIONS", None)
     if sys.platform != "win32":
-        env["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1"
+        env["ASAN_OPTIONS"] = "halt_on_error=1"
+        if sys.platform.startswith("linux"):
+            env["ASAN_OPTIONS"] += ":detect_leaks=1"
+            env["LSAN_OPTIONS"] = "exitcode=23"
 
     emitter = (repo / "src" / "compiler" / "v3" / "emit_llvm.fk").read_text(
         encoding="utf-8"
@@ -315,13 +342,34 @@ def main() -> int:
                 expected=CORE_OUTPUT,
                 env=env,
             )
-            generated = Path(str(core) + suffix).read_text(encoding="utf-8")
-            helper = (
-                "freak_word_append_owned"
-                if backend == "c"
-                else "@freak_llvm_word_append_owned"
+            transpiled = run(
+                [str(freak), "transpile", str(core), flag], repo, env
             )
-            assert helper in generated, f"{backend} skipped the linear append helper"
+            assert_ok(transpiled, f"{backend} audit transpile {core.name}")
+            generated_path = Path(str(core) + suffix)
+            generated = generated_path.read_text(encoding="utf-8")
+            helper_call = (
+                "freak_word_append_owned("
+                if backend == "c"
+                else "call i64 @freak_llvm_word_append_owned("
+            )
+            assert helper_call in generated, (
+                f"{backend} skipped the linear append helper call"
+            )
+            audited_core = root / (
+                f"core_audit_{backend}.exe"
+                if sys.platform == "win32"
+                else f"core_audit_{backend}"
+            )
+            compile_generated(
+                clang=clang,
+                repo=repo,
+                generated=generated_path,
+                backend=backend,
+                output=audited_core,
+                env=env,
+            )
+            assert execute(audited_core, root, env) == CORE_OUTPUT
             build_and_run(
                 freak=freak,
                 repo=repo,
@@ -379,6 +427,7 @@ def main() -> int:
             source = root / f"negative_{name}.fk"
             source.write_text(program, encoding="utf-8")
             diagnostic = NEGATIVE_DIAGNOSTICS[name]
+            line = NEGATIVE_LINES[name]
             artifacts = [
                 Path(str(source) + ".c"),
                 Path(str(source) + ".ll"),
@@ -392,6 +441,7 @@ def main() -> int:
                 label=f"check {name}",
                 diagnostic=diagnostic,
                 source=source,
+                line=line,
             )
             assert_absent(artifacts, f"check {name}")
             for backend, flag in (("c", "--c"), ("llvm", "--llvm")):
@@ -406,6 +456,7 @@ def main() -> int:
                         label=f"{backend} {command} {name}",
                         diagnostic=diagnostic,
                         source=source,
+                        line=line,
                     )
                     assert_absent(artifacts, f"{backend} {command} {name}")
 
@@ -421,6 +472,7 @@ def main() -> int:
                     label=f"direct {backend} {name}",
                     diagnostic=diagnostic,
                     source=source,
+                    line=line,
                 )
                 assert_absent([direct_artifact], f"direct {backend} {name}")
 
