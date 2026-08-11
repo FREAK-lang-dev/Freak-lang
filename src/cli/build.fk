@@ -187,8 +187,10 @@ task cli_current_dir() -> word {
 task cli_executable_path() -> word {
     pilot argv0: word = process::arg(0)
     if argv0 == "" { give back "" }
-    if fs::exists(argv0) {
-        if cli_path_is_absolute(argv0) { give back argv0 }
+
+    if cli_path_is_absolute(argv0) { give back argv0 }
+    pilot has_separator = argv0.contains("/") or argv0.contains("\\")
+    if has_separator and fs::exists(argv0) {
         pilot relative = argv0
         if relative.starts_with("./") or relative.starts_with(".\\") {
             relative = relative.substring(2, relative.length() - 2)
@@ -197,10 +199,18 @@ task cli_executable_path() -> word {
         if cwd != "" { give back cwd + "/" + relative }
         give back argv0
     }
+
+    -- A separator-free argv[0] is a PATH command, not a CWD-relative path on
+    -- POSIX. Resolve it before consulting the CWD so a project file named
+    -- `freak` cannot spoof the running compiler's installation root.
     pilot lookup_cmd = "command -v " + cli_quote_cmd_path(argv0) + " 2>/dev/null"
     if cli_is_windows() { lookup_cmd = "where " + cli_quote_cmd_path(argv0) + " 2>nul" }
     pilot resolved: word = cli_first_line(process::exec_capture(lookup_cmd)).trim()
     if resolved != "" and fs::exists(resolved) { give back resolved }
+    if fs::exists(argv0) {
+        pilot cwd = cli_current_dir()
+        if cwd != "" { give back cwd + "/" + argv0 }
+    }
     give back argv0
 }
 
@@ -217,7 +227,8 @@ task cli_find_winget_home_in(root: word) -> word {
     if root == "" or not fs::exists(root) { give back "" }
     pilot entries: word = fs::list_dir(root)
     pilot entry = ""
-    pilot incomplete_candidate = ""
+    pilot candidate = ""
+    pilot candidate_count = 0
     pilot ei = 0
     repeat until ei > entries.length() {
         pilot at_end = ei == entries.length()
@@ -225,13 +236,8 @@ task cli_find_winget_home_in(root: word) -> word {
         if not at_end { ch = entries.char_at(ei) }
         if ch == "|" {
             if entry.starts_with("FREAK.freak_") {
-                pilot candidate = root + "/" + entry + "/freak"
-                -- A registered WinGet package is authoritative even when its
-                -- payload is incomplete. Returning the expected home lets the
-                -- ABI/completeness checks diagnose the damaged installation
-                -- instead of silently trusting files from the project CWD.
-                if fs::exists(candidate) { give back candidate }
-                if incomplete_candidate == "" { incomplete_candidate = candidate }
+                candidate_count += 1
+                if candidate == "" { candidate = root + "/" + entry + "/freak" }
             }
             entry = ""
         } else {
@@ -239,7 +245,14 @@ task cli_find_winget_home_in(root: word) -> word {
         }
         ei += 1
     }
-    give back incomplete_candidate
+    if candidate_count == 1 { give back candidate }
+    if candidate_count > 1 {
+        -- Package enumeration order is not an ownership signal. Refuse an
+        -- ambiguous root rather than silently mixing a stale package with the
+        -- compiler alias that happened to launch this process.
+        give back root + "/.freak-ambiguous-installation"
+    }
+    give back ""
 }
 
 task cli_find_winget_home() -> word {
@@ -326,6 +339,26 @@ task cli_find_windows_llvm_mingw() -> word {
     give back ""
 }
 
+task cli_executable_uses_winget_alias() -> bool {
+    pilot executable = cli_executable_path().replace("\\", "/").to_lower()
+    give back executable.contains("/winget/links/")
+}
+
+task cli_find_winget_alias_home() -> word {
+    if not cli_executable_uses_winget_alias() { give back "" }
+    pilot alias_dir = cli_path_parent(cli_executable_path())
+    pilot winget_root = cli_path_parent(alias_dir)
+    if winget_root == "" { give back "" }
+    pilot packages_root = winget_root + "/Packages"
+    pilot package_home = cli_find_winget_home_in(packages_root)
+    if package_home != "" { give back package_home }
+
+    -- The alias itself proves this scope owns a WinGet installation. A missing
+    -- package is an incomplete installation, not permission to fall through
+    -- to AppData, HOME, or the project directory.
+    give back packages_root + "/.freak-missing-alias-package"
+}
+
 task cli_is_repo_payload_root(root: word) -> bool {
     if root == "" { give back false }
     if not cli_has_runtime(root + "/freakc/runtime") { give back false }
@@ -360,13 +393,7 @@ task cli_executable_payload_home() -> word {
     -- Doctor can report the actual broken payload instead of falling through.
     pilot normalized_bin = bin_dir.replace("\\", "/").to_lower()
     if normalized_bin.ends_with("/bin") { give back root }
-    if cli_payload_home_present(root) { give back root }
     give back ""
-}
-
-task cli_executable_uses_winget_alias() -> bool {
-    pilot executable = cli_executable_path().replace("\\", "/").to_lower()
-    give back executable.contains("/microsoft/winget/links/")
 }
 
 task cli_default_payload_home() -> word {
@@ -375,8 +402,7 @@ task cli_default_payload_home() -> word {
         -- A WinGet command alias is not adjacent to its packaged payload.
         -- Resolve the registered package before unrelated user installations.
         if cli_executable_uses_winget_alias() {
-            pilot alias_home = cli_find_winget_home()
-            if alias_home != "" { give back alias_home }
+            give back cli_find_winget_alias_home()
         }
 
         pilot appdata_dir: word = process::env("APPDATA")

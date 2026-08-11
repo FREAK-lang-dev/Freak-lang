@@ -1366,10 +1366,10 @@ def check_doctor(
 ) -> None:
     payload = root / "doctor-home"
     populate_payload(repo, payload, entries)
-    # Model CI's build/freak layout with a second complete payload beside the
+    # Model an archive/install layout with a second complete payload beside the
     # compiler. Explicit FREAK_HOME must still select the isolated test payload.
     checkout = root / "doctor-checkout"
-    checkout_bin = checkout / "build"
+    checkout_bin = checkout / "bin"
     checkout_bin.mkdir(parents=True)
     checkout_compiler = checkout_bin / compiler.name
     shutil.copy2(compiler, checkout_compiler)
@@ -1467,6 +1467,37 @@ def check_doctor(
         checkout / "std"
     ).resolve()
 
+    if sys.platform != "win32":
+        # A slashless PATH invocation normally leaves argv[0] as `freak`. A
+        # same-named non-executable project file must not replace the actual
+        # executable path during payload discovery.
+        decoy = shadow_cwd / compiler.name
+        decoy.write_text("not the running compiler\n", encoding="utf-8")
+        decoy.chmod(0o644)
+        path_env = shadow_env.copy()
+        path_env["PATH"] = str(compiler.parent) + os.pathsep + path_env.get("PATH", "")
+        path_invocation = subprocess.run(
+            [compiler.name, "doctor", "--json"],
+            cwd=shadow_cwd,
+            env=path_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=180,
+            check=False,
+        )
+        assert path_invocation.returncode == 0, (
+            path_invocation.stdout + path_invocation.stderr
+        )
+        path_report = json.loads(path_invocation.stdout)
+        assert Path(path_report["checks"]["runtime"]["path"]).resolve() == (
+            checkout / "runtime"
+        ).resolve()
+        assert Path(path_report["checks"]["stdlib"]["path"]).resolve() == (
+            checkout / "std"
+        ).resolve()
+        decoy.unlink()
+
     # An executable in an archive-style <home>/bin directory owns that payload
     # even when it is incomplete. Falling through to the hostile CWD would hide
     # a damaged installation and compile attacker-controlled runtime sources.
@@ -1552,6 +1583,91 @@ def check_doctor(
             winget_home / "std"
         ).resolve()
 
+        # An alias scope containing more than one matching package is
+        # ambiguous. Neither an incomplete stale package nor two complete
+        # packages may be selected by filesystem enumeration order.
+        stale_package = (
+            winget_local
+            / "Microsoft"
+            / "WinGet"
+            / "Packages"
+            / "FREAK.freak_stale"
+        )
+        stale_package.mkdir(parents=True)
+        stale_ambiguous = run_cli(
+            winget_compiler, shadow_cwd, winget_env, "doctor", "--json"
+        )
+        assert stale_ambiguous.returncode != 0
+        stale_report = json.loads(stale_ambiguous.stdout)
+        assert ".freak-ambiguous-installation" in stale_report["checks"][
+            "runtime"
+        ]["path"]
+        populate_payload(repo, stale_package / "freak", entries)
+        complete_ambiguous = run_cli(
+            winget_compiler, shadow_cwd, winget_env, "doctor", "--json"
+        )
+        assert complete_ambiguous.returncode != 0
+        complete_report = json.loads(complete_ambiguous.stdout)
+        assert ".freak-ambiguous-installation" in complete_report["checks"][
+            "stdlib"
+        ]["path"]
+        shutil.rmtree(stale_package)
+
+        # Machine-scope aliases live under Program Files/WinGet/Links and must
+        # bind to the sibling machine Packages root, not AppData or a user
+        # WinGet package with the same public ABI marker.
+        machine_program_files = root / "doctor-machine-program-files"
+        machine_home = (
+            machine_program_files
+            / "WinGet"
+            / "Packages"
+            / "FREAK.freak_machine"
+            / "freak"
+        )
+        populate_payload(repo, machine_home, entries)
+        machine_alias_dir = machine_program_files / "WinGet" / "Links"
+        machine_alias_dir.mkdir(parents=True)
+        machine_compiler = machine_alias_dir / compiler.name
+        shutil.copy2(compiler, machine_compiler)
+        machine_env = winget_env.copy()
+        machine_env["ProgramFiles"] = str(machine_program_files)
+        machine = run_cli(
+            machine_compiler, shadow_cwd, machine_env, "doctor", "--json"
+        )
+        assert machine.returncode == 0, machine.stdout + machine.stderr
+        machine_report = json.loads(machine.stdout)
+        assert Path(machine_report["checks"]["runtime"]["path"]).resolve() == (
+            machine_home / "runtime"
+        ).resolve()
+        assert Path(machine_report["checks"]["stdlib"]["path"]).resolve() == (
+            machine_home / "std"
+        ).resolve()
+
+        machine_pending = machine_home / "bin" / ".freak-upgrade-pending"
+        machine_pending.parent.mkdir(parents=True, exist_ok=True)
+        machine_pending.write_text(
+            "v0.14.1|wait-pid=machine-fixture\n", encoding="utf-8"
+        )
+        machine_pending_doctor = run_cli(
+            machine_compiler, shadow_cwd, machine_env, "doctor", "--json"
+        )
+        assert machine_pending_doctor.returncode != 0
+        assert json.loads(machine_pending_doctor.stdout)["checks"]["upgrade"][
+            "pending"
+        ] is True
+        for command in ("build", "run"):
+            rejected = run_cli(
+                machine_compiler,
+                shadow_cwd,
+                machine_env,
+                command,
+                str(abi_source),
+                "--c",
+            )
+            assert rejected.returncode != 0
+            assert "upgrade pending" in rejected.stdout.lower()
+        machine_pending.unlink()
+
         # A non-adjacent compiler using the default AppData payload must see
         # durable deferred-upgrade state even without FREAK_HOME.
         default_appdata = root / "doctor-default-appdata"
@@ -1562,6 +1678,7 @@ def check_doctor(
         default_pending.write_text("v0.14.1|wait-pid=fixture\n", encoding="utf-8")
         detached_bin = root / "doctor-detached" / "tools"
         detached_bin.mkdir(parents=True)
+        (detached_bin.parent / "bin").mkdir()
         detached_compiler = detached_bin / compiler.name
         shutil.copy2(compiler, detached_compiler)
         default_env = shadow_env.copy()
