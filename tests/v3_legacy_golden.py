@@ -96,6 +96,17 @@ def load_cases(corpus: Path) -> list[dict[str, str]]:
         f"golden output inventory mismatch: missing={sorted(discovered_outputs - outputs)} "
         f"extra={sorted(outputs - discovered_outputs)}"
     )
+    allowed_members = {"README.md", "cases.json"} | sources | outputs
+    discovered_members = {path.name for path in corpus.iterdir()}
+    assert discovered_members == allowed_members, (
+        f"golden corpus contains untracked members: "
+        f"missing={sorted(allowed_members - discovered_members)} "
+        f"extra={sorted(discovered_members - allowed_members)}"
+    )
+    for member in corpus.iterdir():
+        assert member.is_file() and not member.is_symlink(), (
+            f"golden corpus member must be a regular file: {member}"
+        )
     return cases
 
 
@@ -128,6 +139,10 @@ def main() -> int:
     cases = load_cases(corpus)
 
     env = os.environ.copy()
+    # The explicit compiler under test owns its adjacent payload. An ambient
+    # override must never redirect this preservation oracle to another install.
+    env.pop("FREAK_HOME", None)
+    assert "FREAK_HOME" not in env
     env["NO_COLOR"] = "1"
     executable_suffix = ".exe" if sys.platform == "win32" else ""
 
