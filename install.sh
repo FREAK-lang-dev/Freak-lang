@@ -376,7 +376,21 @@ acquire_install_lock() {
     mkdir -p "$INSTALL_DIR"
     local candidate="$INSTALL_DIR/.freak-install.lock"
     if ! mkdir -- "$candidate" 2>/dev/null; then
-        err "Another FREAK installer is already updating $INSTALL_DIR"
+        local owner=""
+        if [ -f "$candidate/owner" ]; then owner=$(cat "$candidate/owner" 2>/dev/null || true); fi
+        case "$owner" in
+            ''|*[!0-9]*) err "Another FREAK installer is already updating $INSTALL_DIR" ;;
+        esac
+        if kill -0 "$owner" 2>/dev/null; then
+            err "Another FREAK installer is already updating $INSTALL_DIR"
+        fi
+        # The recorded process no longer exists, so this lock survived an
+        # untrappable crash. Remove only this exact installer-owned directory,
+        # then reacquire before touching any orphaned backup state.
+        rm -f -- "$candidate/owner"
+        rmdir -- "$candidate" 2>/dev/null || err "Could not recover stale installer lock: $candidate"
+        mkdir -- "$candidate" 2>/dev/null || err "Another FREAK installer is already updating $INSTALL_DIR"
+        info "Recovered stale installer lock from process $owner"
     fi
     INSTALL_LOCK="$candidate"
     printf '%s\n' "$$" > "$INSTALL_LOCK/owner"

@@ -143,6 +143,8 @@ def check_static_contracts(repo: Path) -> None:
         ".freak-install.lock",
         "FileShare]::None",
         "wait-start=",
+        ".freak-upgrade-helper.lock",
+        "Recover-OrphanedDeferredUpgrade",
     ):
         assert needle in ps_text, f"install.ps1 missing {needle}"
     assert "choco.exe install llvm" not in ps_text
@@ -170,13 +172,15 @@ def check_static_contracts(repo: Path) -> None:
         "LLVM_MINGW_SHA256",
         "freakc_v3_stage2",
         "raw/packaging/distribution-files.manifest",
+        "Finalize and smoke exact release archive",
+        "v3_release_install_smoke.py --archive",
     ):
         assert needle in release_text, f"release workflow missing {needle}"
     assert "destination=${destination%$'\\r'}" in release_text
     assert 'read -r source destination || [[ -n "$source$destination" ]]' in release_text
     assert "freakc_v3_stage2" in ci_text
     assert "freakc_v3_stage3" in ci_text
-    assert release_text.index("Package distributions as tarballs/zips") < release_text.index(
+    assert release_text.index("Collect finalized release archives") < release_text.index(
         "Generate checksums"
     )
     assert "artifacts/package-manager/freak.rb" in release_text
@@ -622,10 +626,77 @@ def check_offline_installer(
         assert not (deferred_bin / ".freak-upgrade-failed").exists()
         assert not (deferred_bin / ".freak-binary-backup").exists()
         assert not (deferred_bin / ".freak-binary-retired").exists()
+        assert not (deferred_bin / ".freak-upgrade-helper.lock").exists()
         assert not (deferred_bin / "freak.exe.next").exists()
         assert not (deferred_bin / "hangar.exe.next").exists()
         assert old_freak.read_bytes() == b"mock-freak\n"
         assert old_hangar.read_bytes() == b"mock-hangar\n"
+
+        # A killed deferred helper must not strand the installation forever.
+        # A live helper still excludes contenders; once killed, the next
+        # installer restores any binary backup, keeps the pending guard, and
+        # commits a fresh hash-bound deferred transaction.
+        orphan_root = root / "orphaned-deferred-upgrade"
+        orphan_bin = orphan_root / "bin"
+        orphan_bin.mkdir(parents=True)
+        orphan_freak = orphan_bin / "freak.exe"
+        orphan_hangar = orphan_bin / "hangar.exe"
+        orphan_freak.write_bytes(b"orphan old freak\n")
+        orphan_hangar.write_bytes(b"orphan old hangar\n")
+        orphan_lock = create_file(
+            str(orphan_freak), 0x80000000, 0x00000001, None, 3, 0x00000080, None
+        )
+        assert orphan_lock != ctypes.wintypes.HANDLE(-1).value
+        helper_pid_path = root / "orphan-helper-pid.txt"
+        orphan_env = env.copy()
+        orphan_env["FREAK_HOME"] = str(orphan_root)
+        orphan_env["FREAK_INSTALL_TEST_HELPER_PID"] = str(helper_pid_path)
+        try:
+            orphan_staged = subprocess.run(
+                [*command, "-Upgrade"], cwd=repo, env=orphan_env,
+                capture_output=True, text=True, errors="replace", timeout=120,
+            )
+            assert orphan_staged.returncode == 0, (
+                orphan_staged.stdout + orphan_staged.stderr
+            )
+            assert helper_pid_path.is_file()
+            helper_pid = int(helper_pid_path.read_text(encoding="utf-8-sig").strip())
+            assert (orphan_bin / ".freak-upgrade-pending").is_file()
+            live_contender = subprocess.run(
+                [*command, "-Upgrade"], cwd=repo, env=orphan_env,
+                capture_output=True, text=True, errors="replace", timeout=30,
+            )
+            assert live_contender.returncode != 0, (
+                live_contender.stdout + live_contender.stderr
+            )
+            assert "replacement helper is still active" in (
+                live_contender.stdout + live_contender.stderr
+            ).lower()
+            terminated = subprocess.run(
+                ["taskkill.exe", "/PID", str(helper_pid), "/F"],
+                capture_output=True, text=True, errors="replace", timeout=30,
+            )
+            assert terminated.returncode == 0, terminated.stdout + terminated.stderr
+        finally:
+            assert close_handle(orphan_lock)
+
+        orphan_env.pop("FREAK_INSTALL_TEST_HELPER_PID")
+        resumed = subprocess.run(
+            [*command, "-Upgrade"], cwd=repo, env=orphan_env,
+            capture_output=True, text=True, errors="replace", timeout=120,
+        )
+        assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+        assert "Recovered an orphaned deferred upgrade" in resumed.stdout
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if not (orphan_bin / ".freak-upgrade-pending").exists():
+                break
+            time.sleep(0.25)
+        assert not (orphan_bin / ".freak-upgrade-pending").exists()
+        assert not (orphan_bin / ".freak-upgrade-failed").exists()
+        assert not (orphan_bin / ".freak-upgrade-helper.lock").exists()
+        assert orphan_freak.read_bytes() == b"mock-freak\n"
+        assert orphan_hangar.read_bytes() == b"mock-hangar\n"
 
     # Invalid downloads and failures after the first live-tree swap must both
     # leave the exact previous installation recoverable.
@@ -737,6 +808,44 @@ def check_offline_installer(
         assert interrupted.returncode != 0, interrupted_stdout + interrupted_stderr
         for relative, contents in preserved_files.items():
             assert (preserved_root / relative).read_bytes() == contents
+        assert not list(preserved_root.glob(".freak-apply-*"))
+        assert not list(preserved_root.glob(".freak-backup-*"))
+
+        # SIGKILL bypasses every shell trap. The next installer must prove the
+        # recorded owner is dead, recover the stale lock, and reconcile the
+        # only old payload backup before starting a new transaction.
+        crash_ready = root / "installer-crash-ready.txt"
+        crash_env = signal_env.copy()
+        crash_env["FREAK_INSTALL_TEST_TRANSACTION_READY"] = str(crash_ready)
+        crashed = subprocess.Popen(
+            command, cwd=repo, env=crash_env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, errors="replace",
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not crash_ready.exists():
+            if crashed.poll() is not None:
+                break
+            time.sleep(0.1)
+        assert crash_ready.is_file(), crashed.communicate(timeout=5)
+        os.killpg(crashed.pid, signal.SIGKILL)
+        crashed_stdout, crashed_stderr = crashed.communicate(timeout=30)
+        assert crashed.returncode != 0, crashed_stdout + crashed_stderr
+        assert (preserved_root / ".freak-install.lock" / "owner").is_file()
+        assert len(list(preserved_root.glob(".freak-backup-*"))) == 1
+        crash_recovery_env = failure_env.copy()
+        crash_recovery_env["FREAK_INSTALL_ARCHIVE"] = str(archive)
+        recovered_crash = subprocess.run(
+            command, cwd=repo, env=crash_recovery_env, capture_output=True,
+            text=True, errors="replace", timeout=120,
+        )
+        crash_output = recovered_crash.stdout + recovered_crash.stderr
+        assert recovered_crash.returncode != 0, crash_output
+        assert "Recovered stale installer lock" in crash_output
+        assert "Recovered the previous payload" in crash_output
+        for relative, contents in preserved_files.items():
+            assert (preserved_root / relative).read_bytes() == contents
+        assert not (preserved_root / ".freak-install.lock").exists()
         assert not list(preserved_root.glob(".freak-apply-*"))
         assert not list(preserved_root.glob(".freak-backup-*"))
 

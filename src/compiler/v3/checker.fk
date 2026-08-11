@@ -735,6 +735,14 @@ task tc_diag_unknown_field_receiver(field_name: word, line: int, source_file: wo
     say "  | ^"
 }
 
+task tc_diag_unknown_method_receiver(method_name: word, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: cannot resolve the receiver type for method '" + method_name + "' (line " + word_from_int(line) + ")"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
 task tc_diag_non_shape_method(method_name: word, line: int, source_file: word) -> void {
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: non-shape value has no method '" + method_name + "' (line " + word_from_int(line) + ")"
@@ -840,6 +848,11 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
             pilot expected = tc_builtin_method_arity(val)
             pilot actual = tc_arg_count(right)
             if actual != expected { tc_diag_method_arity(val, expected, actual, line, source_file) }
+        } else {
+            -- Unknown receivers are never safe to dispatch by method name:
+            -- multiple shapes may implement the same method with different
+            -- layouts and the legacy emitters cannot choose nominally.
+            tc_diag_unknown_method_receiver(val, line, source_file)
         }
         give back
     }

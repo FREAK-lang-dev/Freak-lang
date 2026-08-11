@@ -602,7 +602,7 @@ task llvm_user_task_symbol(name: word) -> word {
 
 task llvm_is_void_call(val: word) -> bool {
     if val == "say" or val == "panic" { give back true }
-    if val == "fs::write" or val == "fs::append" or val == "fs::delete" { give back true }
+    if val == "fs::write" or val == "fs::append" or val == "fs::delete" or val == "fs::make_dir" { give back true }
     if val == "process::exit" { give back true }
     if val == "array_push" or val == "array_set" or val == "array_release" { give back true }
     if val == "shape::set" { give back true }

@@ -34,13 +34,10 @@ $InstallDir = $InstallDir.TrimEnd([char[]]@('\', '/'))
 $BinDir = Join-Path $InstallDir "bin"
 $InstallLockPath = Join-Path $InstallDir ".freak-install.lock"
 $InstallLockStream = $null
+$RecoveredPendingUpgrade = $false
 
 function Acquire-InstallLock {
     [System.IO.Directory]::CreateDirectory($InstallDir) | Out-Null
-    $pending = Join-Path $BinDir ".freak-upgrade-pending"
-    if (Test-Path -LiteralPath $pending -PathType Leaf) {
-        Err "A FREAK binary replacement is still pending: $pending"
-    }
     try {
         $script:InstallLockStream = [System.IO.File]::Open(
             $InstallLockPath,
@@ -51,6 +48,7 @@ function Acquire-InstallLock {
     } catch {
         Err "Another FREAK installer is already updating $InstallDir"
     }
+    Recover-OrphanedDeferredUpgrade
 }
 
 function Release-InstallLock {
@@ -59,6 +57,62 @@ function Release-InstallLock {
         $script:InstallLockStream = $null
         Remove-Item -LiteralPath $InstallLockPath -Force -ErrorAction SilentlyContinue
     }
+}
+
+function Test-DeferredUpgradeHelperActive {
+    $helperLockPath = Join-Path $BinDir ".freak-upgrade-helper.lock"
+    if (-not (Test-Path -LiteralPath $helperLockPath -PathType Leaf)) { return $false }
+    try {
+        $probe = [System.IO.File]::Open(
+            $helperLockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+        $probe.Dispose()
+        return $false
+    } catch {
+        return $true
+    }
+}
+
+function Restore-OrphanedBinaryBackup {
+    $backupRoot = Join-Path $BinDir ".freak-binary-backup"
+    if (-not (Test-Path -LiteralPath $backupRoot -PathType Container)) { return $true }
+    $restoreFailed = $false
+    foreach ($name in @("freak.exe", "hangar.exe")) {
+        $live = Join-Path $BinDir $name
+        $backup = Join-Path $backupRoot $name
+        $missing = Join-Path $backupRoot ($name + ".missing")
+        try {
+            if (Test-Path -LiteralPath $backup -PathType Leaf) {
+                Remove-Item -LiteralPath $live -Force -ErrorAction SilentlyContinue
+                Move-Item -LiteralPath $backup -Destination $live
+            } elseif (Test-Path -LiteralPath $missing -PathType Leaf) {
+                Remove-Item -LiteralPath $live -Force -ErrorAction SilentlyContinue
+            }
+        } catch {
+            $restoreFailed = $true
+        }
+    }
+    if (-not $restoreFailed) {
+        try { Remove-Item -LiteralPath $backupRoot -Recurse -Force } catch { $restoreFailed = $true }
+    }
+    return -not $restoreFailed
+}
+
+function Recover-OrphanedDeferredUpgrade {
+    $pending = Join-Path $BinDir ".freak-upgrade-pending"
+    if (-not (Test-Path -LiteralPath $pending -PathType Leaf)) { return }
+    if (Test-DeferredUpgradeHelperActive) {
+        Err "A FREAK binary replacement helper is still active: $pending"
+    }
+    if (-not (Restore-OrphanedBinaryBackup)) {
+        Err "Could not restore the orphaned FREAK binary transaction: $pending"
+    }
+    Remove-Item -LiteralPath (Join-Path $BinDir ".freak-binary-retired") -Recurse -Force -ErrorAction SilentlyContinue
+    $script:RecoveredPendingUpgrade = $true
+    Warn "Recovered an orphaned deferred upgrade; the pending guard remains until this install commits."
 }
 
 function Test-ClangToolchain($candidate) {
@@ -278,6 +332,8 @@ function Start-DeferredBinaryReplacement {
     $failedPath = Join-Path $BinDir ".freak-upgrade-failed"
     $expectedFreakHash = (Get-FileHash -LiteralPath (Join-Path $BinDir "freak.exe.next") -Algorithm SHA256).Hash
     $expectedHangarHash = (Get-FileHash -LiteralPath (Join-Path $BinDir "hangar.exe.next") -Algorithm SHA256).Hash
+    $helperLockPath = Join-Path $BinDir ".freak-upgrade-helper.lock"
+    Remove-Item -LiteralPath $helperLockPath -Force -ErrorAction SilentlyContinue
     Set-Content -LiteralPath $pendingPath -Value "$Latest|wait-pid=$replacementWaitPid|wait-start=$replacementWaitStart|freak-sha256=$expectedFreakHash|hangar-sha256=$expectedHangarHash" -Encoding UTF8
     Remove-Item -LiteralPath $failedPath -Force -ErrorAction SilentlyContinue
     $apply = @"
@@ -285,6 +341,13 @@ function Start-DeferredBinaryReplacement {
 `$bin = '$quotedBin'
 `$pending = Join-Path `$bin '.freak-upgrade-pending'
 `$failed = Join-Path `$bin '.freak-upgrade-failed'
+`$helperLockPath = Join-Path `$bin '.freak-upgrade-helper.lock'
+`$helperLock = [System.IO.File]::Open(
+    `$helperLockPath,
+    [System.IO.FileMode]::OpenOrCreate,
+    [System.IO.FileAccess]::ReadWrite,
+    [System.IO.FileShare]::None
+)
 `$backupRoot = Join-Path `$bin '.freak-binary-backup'
 `$retiredRoot = Join-Path `$bin '.freak-binary-retired'
 `$names = @('freak.exe', 'hangar.exe')
@@ -375,6 +438,8 @@ while ([DateTime]::UtcNow -lt `$deadline) {
         # after all transaction state and retired binaries are gone.
         Remove-Item -LiteralPath `$failed -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath `$pending -Force -ErrorAction SilentlyContinue
+        `$helperLock.Dispose()
+        Remove-Item -LiteralPath `$helperLockPath -Force -ErrorAction SilentlyContinue
         exit 0
     } catch {
         `$detail = `$_.Exception.Message
@@ -386,7 +451,30 @@ while ([DateTime]::UtcNow -lt `$deadline) {
 exit 1
 "@
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($apply))
-    Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encoded" -WindowStyle Hidden | Out-Null
+    $helper = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encoded" -WindowStyle Hidden -PassThru
+    $helperReady = $false
+    for ($attempt = 0; $attempt -lt 100; $attempt++) {
+        if ($helper.HasExited) { break }
+        try {
+            $probe = [System.IO.File]::Open(
+                $helperLockPath,
+                [System.IO.FileMode]::OpenOrCreate,
+                [System.IO.FileAccess]::ReadWrite,
+                [System.IO.FileShare]::None
+            )
+            $probe.Dispose()
+        } catch {
+            $helperReady = $true
+            break
+        }
+        Start-Sleep -Milliseconds 50
+    }
+    if (-not $helperReady -and (Test-Path -LiteralPath $pendingPath -PathType Leaf)) {
+        throw "Deferred FREAK binary replacement helper did not become ready"
+    }
+    if ($env:FREAK_INSTALL_TEST_HELPER_PID) {
+        Set-Content -LiteralPath $env:FREAK_INSTALL_TEST_HELPER_PID -Value $helper.Id -Encoding UTF8
+    }
 }
 
 function Install-StagedPayload {
@@ -448,11 +536,17 @@ function Install-StagedPayload {
             Copy-Item -LiteralPath "$applyRoot\bin\freak.exe" -Destination "$BinDir\freak.exe.next" -Force
             Copy-Item -LiteralPath "$applyRoot\bin\hangar.exe" -Destination "$BinDir\hangar.exe.next" -Force
             Start-DeferredBinaryReplacement
+        } elseif ($script:RecoveredPendingUpgrade) {
+            # A direct installer replaces both binaries synchronously. Once
+            # that transaction commits it also resolves any orphaned deferred
+            # state discovered while acquiring the install lock.
+            Remove-Item -LiteralPath "$BinDir\freak.exe.next", "$BinDir\hangar.exe.next" -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath "$BinDir\.freak-upgrade-failed", "$BinDir\.freak-upgrade-pending", "$BinDir\.freak-upgrade-helper.lock" -Force -ErrorAction SilentlyContinue
         }
     } catch {
         $applyError = $_.Exception.Message
         Remove-Item -LiteralPath "$BinDir\freak.exe.next", "$BinDir\hangar.exe.next" -Force -ErrorAction SilentlyContinue
-        if ($UpgradeMode) {
+        if ($UpgradeMode -and -not $script:RecoveredPendingUpgrade) {
             Remove-Item -LiteralPath "$BinDir\.freak-upgrade-pending" -Force -ErrorAction SilentlyContinue
         }
         for ($index = $items.Count - 1; $index -ge 0; $index--) {

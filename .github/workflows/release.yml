@@ -154,6 +154,27 @@ jobs:
           cp build/freak${{ matrix.ext }} dist/freak-${{ matrix.target }}${{ matrix.ext }}
           cp build/hangar${{ matrix.ext }} dist/hangar-${{ matrix.target }}${{ matrix.ext }}
 
+      - name: Finalize and smoke exact release archive
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            python - <<'PY'
+          import pathlib, zipfile
+          dist = pathlib.Path("dist")
+          payload = dist / "freak"
+          archive = dist / "freak-windows-x64.zip"
+          with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
+              for path in payload.rglob("*"):
+                  if path.is_file():
+                      output.write(path, path.relative_to(dist))
+          PY
+            archive="dist/freak-${{ matrix.target }}.zip"
+          else
+            archive="dist/freak-${{ matrix.target }}.tar.gz"
+            (cd dist && tar czf "$(basename "$archive")" freak/)
+          fi
+          python -u tests/v3_release_install_smoke.py --archive "$archive"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -171,19 +192,17 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Package distributions as tarballs/zips
+      - name: Collect finalized release archives
         run: |
           for dir in artifacts/freak-*/; do
             target=$(basename "$dir")
-            if [ -d "$dir/freak" ]; then
-              if echo "$target" | grep -q windows; then
-                # ZIP for Windows
-                (cd "$dir" && zip -r "../$target.zip" freak/)
-              else
-                # tar.gz for Linux/macOS
-                (cd "$dir" && tar czf "../$target.tar.gz" freak/)
-              fi
+            if echo "$target" | grep -q windows; then
+              archive="$target.zip"
+            else
+              archive="$target.tar.gz"
             fi
+            test -s "$dir/$archive"
+            mv "$dir/$archive" "artifacts/$archive"
           done
           ls -la artifacts/*.tar.gz artifacts/*.zip 2>/dev/null || true
 

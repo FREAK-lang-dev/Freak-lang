@@ -632,12 +632,15 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         link_cmd = link_cmd + " " + cli_quote_cmd_path(ui_obj) + " -luser32 -lgdi32 -lmsimg32"
         say "  " + C_DIM + SYM_GEAR + "  Linking packaged Windows runtime objects..." + C_RESET
         pilot link_exit = process::exec(link_cmd)
-        if link_exit != 0 {
-            say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- packaged runtime link error" + C_RESET
-            give back ""
+        if link_exit == 0 {
+            give back out_bin
         }
-
-        give back out_bin
+        -- A complete object bundle can still target a different Windows ABI
+        -- family than the selected Clang driver. Retry from the packaged
+        -- runtime sources so an otherwise supported toolchain is not rejected.
+        say "  " + C_BYELLOW + SYM_RING + C_RESET + " Packaged runtime objects were incompatible; retrying runtime sources."
+        if fs::exists(out_bin) { fs::delete(out_bin) }
+        if fs::exists(user_obj) { fs::delete(user_obj) }
     }
 
     -- LEGACY MODE: clang does everything (transpiled + runtime source -> binary)

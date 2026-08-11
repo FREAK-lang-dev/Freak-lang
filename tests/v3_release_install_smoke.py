@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install and execute a release-shaped archive containing the real CI binary."""
+"""Install and execute a finalized release archive containing the real CLI."""
 
 from __future__ import annotations
 
@@ -55,52 +55,65 @@ def manifest_entries(repo: Path) -> list[tuple[str, str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("freak", type=Path)
-    parser.add_argument("hangar", type=Path)
+    parser.add_argument("freak", nargs="?", type=Path)
+    parser.add_argument("hangar", nargs="?", type=Path)
+    parser.add_argument("--archive", type=Path)
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parents[1]
-    freak = args.freak.resolve()
-    hangar = args.hangar.resolve()
-    assert freak.is_file(), freak
-    assert hangar.is_file(), hangar
+    if args.archive:
+        assert args.freak is None and args.hangar is None
+        supplied_archive = args.archive.resolve()
+        assert supplied_archive.is_file(), supplied_archive
+        freak = None
+        hangar = None
+    else:
+        assert args.freak is not None and args.hangar is not None
+        freak = args.freak.resolve()
+        hangar = args.hangar.resolve()
+        assert freak.is_file(), freak
+        assert hangar.is_file(), hangar
+        supplied_archive = None
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-release-install-") as tmp:
         root = Path(tmp)
-        dist = root / "package" / "freak"
-        bin_dir = dist / "bin"
-        bin_dir.mkdir(parents=True)
         extension = ".exe" if sys.platform == "win32" else ""
-        shutil.copy2(freak, bin_dir / f"freak{extension}")
-        shutil.copy2(hangar, bin_dir / f"hangar{extension}")
-        for source, destination in manifest_entries(repo):
-            target = (dist / destination).resolve()
-            target.relative_to(dist.resolve())
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2((repo / source).resolve(), target)
-        shutil.copy2(
-            repo / "packaging" / "distribution-files.manifest",
-            dist / "distribution-files.manifest",
-        )
-
-        if sys.platform == "win32":
-            for name in (
-                "freak_runtime.obj",
-                "freak_llvm_runtime.obj",
-                "freak_ui_win32.obj",
-            ):
-                source = repo / "freakc" / "runtime" / name
-                assert source.is_file(), f"release runtime object missing: {source}"
-                shutil.copy2(source, dist / "runtime" / name)
-            archive = root / "freak-windows-x64.zip"
-            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zipped:
-                for path in dist.rglob("*"):
-                    if path.is_file():
-                        zipped.write(path, path.relative_to(dist.parent))
+        if supplied_archive:
+            archive = supplied_archive
         else:
-            archive = root / "freak-posix.tar.gz"
-            with tarfile.open(archive, "w:gz") as tarred:
-                tarred.add(dist, arcname="freak")
+            dist = root / "package" / "freak"
+            bin_dir = dist / "bin"
+            bin_dir.mkdir(parents=True)
+            shutil.copy2(freak, bin_dir / f"freak{extension}")
+            shutil.copy2(hangar, bin_dir / f"hangar{extension}")
+            for source, destination in manifest_entries(repo):
+                target = (dist / destination).resolve()
+                target.relative_to(dist.resolve())
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2((repo / source).resolve(), target)
+            shutil.copy2(
+                repo / "packaging" / "distribution-files.manifest",
+                dist / "distribution-files.manifest",
+            )
+
+            if sys.platform == "win32":
+                for name in (
+                    "freak_runtime.obj",
+                    "freak_llvm_runtime.obj",
+                    "freak_ui_win32.obj",
+                ):
+                    source = repo / "freakc" / "runtime" / name
+                    assert source.is_file(), f"release runtime object missing: {source}"
+                    shutil.copy2(source, dist / "runtime" / name)
+                archive = root / "freak-windows-x64.zip"
+                with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zipped:
+                    for path in dist.rglob("*"):
+                        if path.is_file():
+                            zipped.write(path, path.relative_to(dist.parent))
+            else:
+                archive = root / "freak-posix.tar.gz"
+                with tarfile.open(archive, "w:gz") as tarred:
+                    tarred.add(dist, arcname="freak")
 
         install_home = root / "installed"
         env = os.environ.copy()

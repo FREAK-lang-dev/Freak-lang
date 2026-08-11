@@ -541,6 +541,7 @@ def main() -> int:
 
         builtin_marker = tmp_path / "builtin-wrapper-marker.txt"
         builtin_marker.write_text("marker", encoding="utf-8")
+        builtin_directory = tmp_path / "builtin-wrapper-directory"
         builtin_wrappers = tmp_path / "builtin_wrappers.fk"
         builtin_wrappers.write_text(
             "task main() {\n"
@@ -553,6 +554,7 @@ def main() -> int:
             "    pilot mut letter: word = char_to_word(65)\n"
             "    say letter\n"
             "    letter = \"released\"\n"
+            f"    fs::make_dir(\"{builtin_directory.as_posix()}\")\n"
             "}\n",
             encoding="utf-8",
         )
@@ -580,7 +582,13 @@ def main() -> int:
                 check=False,
             )
             assert wrapper_run.returncode == 0, wrapper_run.stdout + wrapper_run.stderr
-            assert wrapper_run.stdout.strip().splitlines() == ["ok", "true", "A"]
+            wrapper_lines = wrapper_run.stdout.strip().splitlines()
+            assert wrapper_lines == ["ok", "true", "A"], (
+                f"{backend} builtin wrapper output mismatch: {wrapper_lines!r}\n"
+                f"stderr: {wrapper_run.stderr}"
+            )
+            assert builtin_directory.is_dir()
+            builtin_directory.rmdir()
 
         nominal_methods = tmp_path / "nominal_primitive_names.fk"
         nominal_methods.write_text(
@@ -651,6 +659,24 @@ def main() -> int:
             assert_rejected(rejected, f"{backend} unknown field receiver gate")
             output = rejected.stdout + rejected.stderr
             assert "cannot resolve the receiver type for field 'value'" in output
+            assert artifact.read_text(encoding="utf-8") == SENTINEL
+
+        unknown_method_receiver = tmp_path / "unknown_receiver_method.fk"
+        unknown_method_receiver.write_text(
+            "shape Alpha { value: int }\n"
+            "shape Beta { value: int }\n"
+            "impl Ping for Alpha { task ping(self) {} }\n"
+            "impl Ping for Beta { task ping(self) {} }\n"
+            "task main() { missing_binding.ping() }\n",
+            encoding="utf-8",
+        )
+        for backend, flag, suffix in (("C", "--c", ".c"), ("LLVM", "--llvm", ".ll")):
+            artifact = Path(str(unknown_method_receiver) + suffix)
+            artifact.write_text(SENTINEL, encoding="utf-8")
+            rejected = run(freak, repo, unknown_method_receiver, "transpile", flag)
+            assert_rejected(rejected, f"{backend} unknown method receiver gate")
+            output = rejected.stdout + rejected.stderr
+            assert "cannot resolve the receiver type for method 'ping'" in output
             assert artifact.read_text(encoding="utf-8") == SENTINEL
 
         doctrine_impls = tmp_path / "doctrine_impl_owners.fk"

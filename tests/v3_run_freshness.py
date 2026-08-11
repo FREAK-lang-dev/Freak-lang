@@ -350,6 +350,33 @@ def main() -> int:
             finally:
                 missing_ui_object.replace(runtime_objects[2])
 
+            # Release objects are built by pinned LLVM-MinGW, while an
+            # otherwise usable installed Clang may target a different Windows
+            # ABI family. Force only the packaged-object link to fail and
+            # prove the CLI transparently retries from runtime sources.
+            fallback_driver = root / "bundle-fallback-driver.py"
+            fallback_driver.write_text(
+                "import pathlib, subprocess, sys\n"
+                f"real = {clang!r}\n"
+                "if any(pathlib.Path(arg).name.lower() == 'freak_runtime.obj' for arg in sys.argv[1:]):\n"
+                "    raise SystemExit(86)\n"
+                "raise SystemExit(subprocess.call([real, *sys.argv[1:]]))\n",
+                encoding="utf-8",
+            )
+            fallback_wrapper = root / "bundle-fallback-clang.cmd"
+            fallback_wrapper.write_text(
+                f'@python "{fallback_driver}" %*\n', encoding="utf-8"
+            )
+            fallback_env = env.copy()
+            fallback_env["FREAK_CLANG"] = str(fallback_wrapper)
+            code, output = invoke(
+                freak, source_dir, source_arg, "--llvm", fallback_env
+            )
+            assert_run(code, output, "CACHE_B", cache_hit=False)
+            assert "Linking packaged Windows runtime objects" in output, output
+            assert "retrying runtime sources" in output, output
+            assert "Compiling native binary" in output, output
+
             try:
                 for runtime_source in runtime_sources:
                     runtime_source.write_text(
