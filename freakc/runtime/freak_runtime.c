@@ -1622,9 +1622,9 @@ int64_t freak_llvm_process_args_count(void) {
 
 int64_t freak_llvm_process_arg(int64_t index) {
     if (index < 0 || index >= freak_argc) {
-        return (int64_t)_strdup("");
+        return freak_llvm_word_adopt((int64_t)_strdup(""));
     }
-    return (int64_t)_strdup(freak_argv[index]);
+    return freak_llvm_word_adopt((int64_t)_strdup(freak_argv[index]));
 }
 
 void freak_llvm_process_exit(int64_t code) {

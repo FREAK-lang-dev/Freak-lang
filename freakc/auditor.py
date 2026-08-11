@@ -1769,6 +1769,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freak_word_replace_owned(&result",
                 "freak_llvm_word_release_replaced",
                 "freak_llvm_word_adopt",
+                "freak_llvm_word_adopt((int64_t)_strdup(freak_argv[index]))",
                 "FREAK_RUNTIME_OWNERSHIP_AUDIT",
                 "freak_array_set_owned",
                 "freak_array_release_owned",
@@ -1812,6 +1813,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "trim_identity",
                 "fs_list_program",
                 "word_from_int(99)",
+                "runtime_arg = process::arg(0)",
             ),
         ),
         "POSIX installer": (

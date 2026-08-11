@@ -218,6 +218,12 @@ task main() {
     repeat 64 times {
         word_from_int(99)
     }
+    pilot mut runtime_arg: word = process::arg(0)
+    repeat 64 times {
+        runtime_arg = process::arg(0)
+    }
+    say (runtime_arg.length() > 0).to_word()
+    runtime_arg = "released"
 }
 """
 
@@ -359,7 +365,7 @@ def main() -> int:
             ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"], ("c", "llvm")),
             ("global_call", GLOBAL_CALL_PROGRAM, [], ["local", "global"], ("c", "llvm")),
             ("return_shadow", RETURN_SHADOW_PROGRAM, [], ["local", "inner", "global"], ("c", "llvm")),
-            ("shadow_copy", SHADOW_COPY_PROGRAM, [], ["global", "param", "42"], ("c", "llvm")),
+            ("shadow_copy", SHADOW_COPY_PROGRAM, [], ["global", "param", "42", "true"], ("c", "llvm")),
             ("method_return", METHOD_RETURN_PROGRAM, [], ["ab", "trim"], ("c", "llvm")),
             ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join", "literal"], ("c", "llvm")),
             ("fs_list", fs_list_program, [], ["true"], ("c", "llvm")),
