@@ -129,8 +129,12 @@ task cli_invalidate_build_outputs(src_file: word) -> bool {
     if not src_file.ends_with(".fk") { give back false }
     pilot binary = cli_binary_path(src_file)
     pilot cache_file = binary + ".freak-run-cache"
-    if not cli_delete_derived_artifact(binary) { give back false }
+    -- The sidecar is the proof that permits `freak run` to trust an existing
+    -- executable. Invalidate that proof before touching the executable so a
+    -- locked binary can never retain a stale success record. Conversely, if
+    -- the proof itself cannot be removed, preserve the executable and fail.
     if not cli_delete_derived_artifact(cache_file) { give back false }
+    if not cli_delete_derived_artifact(binary) { give back false }
     give back true
 }
 
@@ -654,8 +658,8 @@ task cli_binary_path(src_file: word) -> word {
 
 task cli_is_windows() -> bool {
     pilot windir: word = process::env("WINDIR")
-    if windir != "" { give back true }
-    give back false
+    pilot system_root: word = process::env("SystemRoot")
+    give back windir != "" or system_root != ""
 }
 
 task cli_first_line(text: word) -> word {
