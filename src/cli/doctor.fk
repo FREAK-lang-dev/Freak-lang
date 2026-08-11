@@ -57,12 +57,29 @@ task cli_doctor_temp_stem(prefix: word) -> word {
     if temp_dir == "" { temp_dir = "." }
     if probe_nonce == "" { probe_nonce = "0" }
     pilot probe_id = word_from_int(time::now_ms()) + "_" + probe_nonce
-    pilot probe_stem = temp_dir
-    if not probe_stem.ends_with("/") and not probe_stem.ends_with("\\") {
-        probe_stem = probe_stem + "/"
+    pilot probe_dir = temp_dir
+    if not probe_dir.ends_with("/") and not probe_dir.ends_with("\\") {
+        probe_dir = probe_dir + "/"
     }
-    probe_stem = probe_stem + prefix + probe_id
-    give back probe_stem
+    probe_dir = probe_dir + prefix + probe_id
+    fs::make_dir(probe_dir)
+    give back probe_dir + "/probe"
+}
+
+task cli_doctor_remove_temp_parent(probe_path: word) -> void {
+    pilot probe_dir = cli_path_parent(probe_path)
+    if probe_dir == "" { give back }
+    if cli_is_windows() {
+        pilot remove_cmd = "rmdir /s /q " + cli_quote_cmd_path(probe_dir) + " >nul 2>nul"
+        process::exec(remove_cmd)
+        -- Antivirus and debugger helpers may briefly retain a just-executed
+        -- probe. Retry only this unique Doctor directory after one short tick.
+        if fs::exists(probe_dir) {
+            process::exec("ping 127.0.0.1 -n 2 >nul 2>nul & " + remove_cmd)
+        }
+    } else {
+        process::exec("rm -rf -- " + cli_quote_cmd_path(probe_dir) + " >/dev/null 2>/dev/null")
+    }
 }
 
 task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
@@ -96,6 +113,7 @@ task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     if fs::exists(probe_stem + ".obj") { fs::delete(probe_stem + ".obj") }
     if fs::exists(probe_stem + ".o") { fs::delete(probe_stem + ".o") }
     if fs::exists(probe_stem + ".pdb") { fs::delete(probe_stem + ".pdb") }
+    cli_doctor_remove_temp_parent(probe_source)
     give back probe_ok
 }
 
@@ -572,6 +590,7 @@ task cli_doctor(fix_mode: bool) -> int {
         if fs::exists(test_stem + ".o") { fs::delete(test_stem + ".o") }
         if fs::exists(test_stem + ".obj") { fs::delete(test_stem + ".obj") }
         if fs::exists(test_stem + ".pdb") { fs::delete(test_stem + ".pdb") }
+        cli_doctor_remove_temp_parent(test_path)
     } else {
         say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " skipped (fix clang/payload/ABI/pending upgrade first)" + C_RESET
     }

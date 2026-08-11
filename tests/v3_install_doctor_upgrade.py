@@ -806,8 +806,10 @@ def check_doctor(
     assert "compile, link, and execution work" in full.stdout
     assert not list(cwd.glob("_freak_doctor_probe_*")), "doctor left probe artifacts"
     assert not list(cwd.glob("freak-doctor-clang-probe-*"))
-    assert not list(probe_temp.glob("freak-doctor-clang-probe-*"))
-    assert not list(probe_temp.glob("freak-doctor-pipeline-probe-*"))
+    clang_probe_artifacts = list(probe_temp.glob("freak-doctor-clang-probe-*"))
+    pipeline_probe_artifacts = list(probe_temp.glob("freak-doctor-pipeline-probe-*"))
+    assert not clang_probe_artifacts, clang_probe_artifacts
+    assert not pipeline_probe_artifacts, pipeline_probe_artifacts
 
     # A backend failure after the Clang probe must clean only temp-backed
     # pipeline artifacts. In particular, an empty build result must never be
@@ -821,7 +823,8 @@ def check_doctor(
         failed_pipeline.stdout + failed_pipeline.stderr
     )
     assert caller_cache.read_bytes() == b"unrelated caller cache\n"
-    assert not list(probe_temp.glob("freak-doctor-pipeline-probe-*"))
+    failed_probe_artifacts = list(probe_temp.glob("freak-doctor-pipeline-probe-*"))
+    assert not failed_probe_artifacts, failed_probe_artifacts
     shutil.copy2(repo / "freakc" / "runtime" / "freak_runtime.c", runtime_source)
     caller_cache.unlink()
 

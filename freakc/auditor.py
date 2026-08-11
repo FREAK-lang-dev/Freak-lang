@@ -1972,6 +1972,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "upgrade_pending",
                 "ui/window.fk",
                 'process::env("TMPDIR")',
+                "cli_doctor_remove_temp_parent",
                 "probe_run_exit == 0",
                 "compile, link, and execution work",
                 "-> int",
