@@ -140,7 +140,7 @@ task main() {
 GLOBAL_CALL_PROGRAM = """pilot mut global_owner: word = "g" + "lobal"
 
 task shadow_global_type(global_owner: int) {
-    pilot copy = global_owner
+    pilot shadow_value = global_owner
 }
 
 task shadow_global_local() {
@@ -397,8 +397,12 @@ BORROWED_TEMP_PROGRAM = """task main() {
 NUMERIC_WORD_PROGRAM = """task main() {
     pilot first_number: num = 1.25
     pilot second_number: num = 9.5
+    pilot direct_first: word = format_num(first_number)
+    pilot direct_second: word = format_num(second_number)
     pilot first: word = first_number.to_word()
     pilot second: word = second_number.to_word()
+    say direct_first
+    say direct_second
     say first
     say second
     pilot integer_value: int = 42
@@ -410,17 +414,100 @@ NUMERIC_WORD_PROGRAM = """task main() {
 }
 """
 
+SCALAR_SAY_PROGRAM = """task main() {
+    say 42
+    say true
+    say false
+    say 1.25
+}
+"""
+
+NUMERIC_CONTEXT_PROGRAM = """pilot mut global_promoted: num = 2
+
+task accept_num(value: num) -> num {
+    give back value
+}
+
+task promote_return() -> num {
+    give back 7
+}
+
+task main() -> int {
+    say accept_num(3)
+    say promote_return()
+    pilot mut local_promoted: num = 4
+    say local_promoted
+    local_promoted = 5
+    say local_promoted
+    local_promoted += 1.5
+    say local_promoted
+    global_promoted = 6
+    say global_promoted
+    say 1 + 2.5
+    say 2.5 + 1
+    say 1 < 2.5
+    say 3.5 == 3 + 0.5
+    say math::sqrt(9)
+    give back 17
+}
+"""
+
 TOP_LEVEL_GLOBAL_PROGRAM = """pilot top_level: word = "top" + "level"
 say top_level
 """
 
-WHEN_LIFETIME_PROGRAM = """task main() {
-    pilot choice = 1
-    when choice {
-        1 -> pilot chosen: word = "cho" + "sen"
-        _ -> pilot other: word = "oth" + "er"
+WHEN_LIFETIME_PROGRAM = """task return_from_when() -> word {
+    when "ret" + "urn" {
+        "return" -> give back "matched"
+        _ -> give back "fallback"
     }
-    say "when"
+    give back "unreachable"
+}
+
+task main() {
+    repeat 3 times {
+        when "con" + "tinue" {
+            "continue" -> continue
+            _ -> say "bad continue"
+        }
+        say "bad after continue"
+    }
+    repeat 3 times {
+        when "br" + "eak" {
+            "break" -> break
+            _ -> say "bad break"
+        }
+        say "bad after break"
+    }
+    when "al" + "pha" {
+        "alpha" -> say "word"
+        _ -> say "bad word"
+    }
+    pilot numeric_choice: num = 2.5
+    when numeric_choice {
+        2.5 -> say "num"
+        _ -> say "bad num"
+    }
+    when 1 {
+        1.0 -> say "mixed"
+        _ -> say "bad mixed"
+    }
+    say return_from_when()
+}
+"""
+
+PREDICATE_OWNERSHIP_PROGRAM = """task main() {
+    if ("pre" + "dicate") == "predicate" { say "if" }
+    pilot mut spins = 0
+    repeat until ("spin" + spins.to_word()) == "spin2" {
+        spins += 1
+    }
+    say spins
+    pilot mut training_count = 0
+    training arc until ("session" + training_count.to_word()) == "session1" max 3 sessions {
+        training_count += 1
+    }
+    say training_count
 }
 """
 
@@ -446,6 +533,13 @@ def main() -> int:
     repo = Path(__file__).resolve().parents[1]
     freak = args.freak.resolve()
     assert freak.is_file(), freak
+    windows_build_script = (repo / "build_cli.bat").read_text(encoding="utf-8")
+    assert "call :remove_final_aliases" in windows_build_script
+    assert "for %%F in (build\\freak.exe build\\hangar.exe build\\freakc.exe build\\freakc_v3.exe)" in windows_build_script
+    assert windows_build_script.count("call :copy_final_alias") == 3
+    assert "if not exist build\\freak.exe" in windows_build_script
+    assert "if not exist \"%~2\"" in windows_build_script
+    assert windows_build_script.count("-lws2_32") >= 4
     runtime_source = (repo / "freakc" / "runtime" / "freak_runtime.c").read_text(
         encoding="utf-8"
     )
@@ -525,9 +619,12 @@ def main() -> int:
             ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field", "self", "self"], ("llvm",)),
             ("lexical_lifetime", LEXICAL_LIFETIME_PROGRAM, [], ["return", "fallback", "temporary", "global"], ("c", "llvm")),
             ("borrowed_temp", BORROWED_TEMP_PROGRAM, [], ["temps"], ("c", "llvm")),
-            ("numeric_word", NUMERIC_WORD_PROGRAM, [], ["1.25", "9.5", "42", "true"], ("c", "llvm")),
+            ("numeric_word", NUMERIC_WORD_PROGRAM, [], ["1.25", "9.5", "1.25", "9.5", "42", "true"], ("c", "llvm")),
+            ("scalar_say", SCALAR_SAY_PROGRAM, [], ["42", "true", "false", "1.25"], ("c", "llvm")),
+            ("numeric_context", NUMERIC_CONTEXT_PROGRAM, [], ["3", "7", "4", "5", "6.5", "6", "3.5", "3.5", "true", "true", "3"], ("c", "llvm")),
             ("top_level_global", TOP_LEVEL_GLOBAL_PROGRAM, [], ["toplevel"], ("c", "llvm")),
-            ("when_lifetime", WHEN_LIFETIME_PROGRAM, [], ["when"], ("c", "llvm")),
+            ("when_lifetime", WHEN_LIFETIME_PROGRAM, [], ["word", "num", "mixed", "matched"], ("c", "llvm")),
+            ("predicate_ownership", PREDICATE_OWNERSHIP_PROGRAM, [], ["if", "2", "1"], ("c", "llvm")),
         )
         for case_name, program, extra_flags, expected_output, backends in cases:
             source = root / f"replace_owned_{case_name}.fk"
@@ -546,8 +643,11 @@ def main() -> int:
                         "lexical_lifetime",
                         "borrowed_temp",
                         "numeric_word",
+                        "scalar_say",
+                        "numeric_context",
                         "top_level_global",
                         "when_lifetime",
+                        "predicate_ownership",
                     }:
                         assert "freak_word_replace_owned" in generated_text, case_name
                     if case_name == "strict":
@@ -594,7 +694,17 @@ def main() -> int:
                         assert "__freak_borrow_arg_" in generated_text
                         assert generated_text.count("freak_word_release_owned(&__freak_borrow_arg_") >= 5
                     elif case_name == "numeric_word":
+                        assert generated_text.count("freak_format_num") >= 4
+                    elif case_name == "scalar_say":
+                        assert "freak_word_from_int" in generated_text
+                        assert "freak_word_from_bool" in generated_text
                         assert "freak_format_num" in generated_text
+                    elif case_name == "numeric_context":
+                        assert "double __freak_return_value" in generated_text
+                        assert "freak_format_num" in generated_text
+                    elif case_name == "when_lifetime":
+                        assert "freak_word_eq(__freak_when_target_" in generated_text
+                        assert "freak_word_release_owned(&__freak_when_target_" in generated_text
                 else:
                     assert "@freak_llvm_word_release_replaced" in generated_text
                     assert "@freak_llvm_word_clone" in generated_text
@@ -606,7 +716,22 @@ def main() -> int:
                     elif case_name == "borrowed_temp":
                         assert generated_text.count("@freak_llvm_word_release_replaced") >= 10
                     elif case_name == "numeric_word":
+                        assert generated_text.count("call i64 @freak_llvm_format_num") >= 2
+                        assert generated_text.count("call i64 @freak_llvm_word_from_num") >= 2
+                    elif case_name == "scalar_say":
+                        assert "@freak_llvm_word_from_int" in generated_text
+                        assert "@freak_llvm_word_from_bool" in generated_text
                         assert "@freak_llvm_format_num" in generated_text
+                    elif case_name == "numeric_context":
+                        assert generated_text.count("sitofp i64") >= 5
+                        assert "fadd double" in generated_text
+                        assert "fcmp olt double" in generated_text
+                        assert re.search(r"= call i64 @__freak_user_main\(\)", generated_text)
+                    elif case_name == "when_lifetime":
+                        assert "@freak_llvm_word_eq" in generated_text
+                        assert "fcmp oeq double" in generated_text
+                        assert "sitofp i64 1 to double" in generated_text
+                        assert "%when_target_v" in generated_text
 
                 binary = root / (f"replace_owned_{case_name}_{backend}.exe" if sys.platform == "win32" else f"replace_owned_{case_name}_{backend}")
                 clang = os.environ.get("FREAK_CLANG") or shutil.which("clang")
@@ -626,7 +751,9 @@ def main() -> int:
                     command.append("-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
                     command.append(str(repo / "freakc" / "runtime" / "freak_runtime.c"))
                 command.extend(["-I", str(repo / "freakc" / "runtime")])
-                if sys.platform != "win32":
+                if sys.platform == "win32":
+                    command.append("-lws2_32")
+                else:
                     command.append("-lm")
                 compiled = run(command, repo)
                 assert compiled.returncode == 0, compiled.stdout + compiled.stderr
@@ -680,7 +807,9 @@ def main() -> int:
             "-I",
             str(repo / "freakc" / "runtime"),
         ]
-        if sys.platform != "win32":
+        if sys.platform == "win32":
+            llvm_audit_command.append("-lws2_32")
+        else:
             llvm_audit_command.append("-lm")
         llvm_audit_compiled = run(llvm_audit_command, repo)
         assert llvm_audit_compiled.returncode == 0, llvm_audit_compiled.stdout + llvm_audit_compiled.stderr
@@ -716,7 +845,9 @@ def main() -> int:
             "-I",
             str(repo / "freakc" / "runtime"),
         ]
-        if sys.platform != "win32":
+        if sys.platform == "win32":
+            c_audit_command.append("-lws2_32")
+        else:
             c_audit_command.append("-lm")
         c_audit_compiled = run(c_audit_command, repo)
         assert c_audit_compiled.returncode == 0, c_audit_compiled.stdout + c_audit_compiled.stderr

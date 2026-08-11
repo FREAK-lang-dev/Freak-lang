@@ -779,15 +779,25 @@ task emit_stmt(eid: word) -> void {
 
     if kind == STMT_PILOT { emit_stmt_pilot(eid) give back }
     if kind == STMT_SAY {
-        if emt_word_expr_is_owned_temporary(expr_id_w) {
-            emit("{ freak_word __freak_say_value = ")
+        pilot say_type = emt_expr_type_code(expr_id_w)
+        if say_type == "w" {
+            if emt_word_expr_is_owned_temporary(expr_id_w) {
+                emit("{ freak_word __freak_say_value = ")
+                emit_expr(expr_id_w)
+                emit_line("; freak_say(__freak_say_value); freak_word_release_owned(&__freak_say_value); }")
+                give back
+            }
+            emit("freak_say(")
             emit_expr(expr_id_w)
-            emit_line("; freak_say(__freak_say_value); freak_word_release_owned(&__freak_say_value); }")
+            emit_line(");")
             give back
         }
-        emit("freak_say(")
+        emit("{ freak_word __freak_say_value = ")
+        if say_type == "d" { emit("freak_format_num(") }
+        else if say_type == "b" { emit("freak_word_from_bool(") }
+        else { emit("freak_word_from_int(") }
         emit_expr(expr_id_w)
-        emit_line(");")
+        emit_line("); freak_say(__freak_say_value); freak_word_release_owned(&__freak_say_value); }")
         give back
     }
     if kind == STMT_EXPR {
@@ -1046,10 +1056,20 @@ task emit_stmt_when(eid: word) -> void {
     pilot target_id_w: word = array_get(ast_stmt_exprs, i)
     pilot cases_str: word = array_get(ast_stmt_bodies, i)
 
+    pilot saved_when_vars = emt_var_count
+    pilot saved_when_tc_locals = tc_local_count
+    pilot target_type = emt_expr_type_code(target_id_w)
+    pilot target_ctype = "int64_t"
+    if target_type == "w" { target_ctype = "freak_word" }
+    else if target_type == "d" { target_ctype = "double" }
+    else if target_type == "b" { target_ctype = "bool" }
     pilot target_tmp = "__freak_when_target_" + eid
-    emit("{ int64_t " + target_tmp + " = ")
+    emit("{ " + target_ctype + " " + target_tmp + " = ")
     emit_expr(target_id_w)
     emit_line(";")
+    if target_type == "w" and emt_word_expr_is_owned_temporary(target_id_w) {
+        emt_set_var_type_named("__freak_when_owned_" + eid, "w", target_tmp)
+    }
 
     pilot cases_len = cases_str.length()
     pilot ci = 0
@@ -1087,9 +1107,25 @@ task emit_stmt_when(eid: word) -> void {
                     emit_line("}")
                 } else {
                     if not is_first { emit("else ") }
-                    emit("if (" + target_tmp + " == ")
-                    emit_expr(c_expr)
-                    emit_line(") {")
+                    if target_type == "w" {
+                        if emt_word_expr_is_owned_temporary(c_expr) {
+                            pilot case_tmp = "__freak_when_case_" + eid + "_" + c_expr
+                            pilot match_tmp = "__freak_when_match_" + eid + "_" + c_expr
+                            emit("if (({ freak_word " + case_tmp + " = ")
+                            emit_expr(c_expr)
+                            emit("; bool " + match_tmp + " = freak_word_eq(" + target_tmp + ", " + case_tmp + "); ")
+                            emit("freak_word_release_owned(&" + case_tmp + "); " + match_tmp + "; }))")
+                            emit_line(" {")
+                        } else {
+                            emit("if (freak_word_eq(" + target_tmp + ", ")
+                            emit_expr(c_expr)
+                            emit_line(")) {")
+                        }
+                    } else {
+                        emit("if (" + target_tmp + " == ")
+                        emit_expr(c_expr)
+                        emit_line(") {")
+                    }
                     pilot saved_case_vars = emt_var_count
                     pilot saved_case_tc_locals = tc_local_count
                     emit_stmt(c_stmt)
@@ -1107,6 +1143,9 @@ task emit_stmt_when(eid: word) -> void {
         }
         ci += 1
     }
+    emit_word_local_cleanup_range(saved_when_vars, "")
+    emt_var_count = saved_when_vars
+    tc_local_count = saved_when_tc_locals
     emit_line("}")
 }
 
