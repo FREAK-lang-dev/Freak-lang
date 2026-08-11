@@ -19,7 +19,7 @@ and not enough sleep, but somehow it compiles.
 
 FREAK is a compiled, statically-typed systems language with a syntax inspired by visual novels, anime, and the kind of programming that only makes sense at 3am.
 
-It compiles to native binaries via LLVM (or C — your choice). It has a Phase-1 borrow checker behind `--strict-borrow`. It has a package manager called **Hangar**. It has a UI framework called **COCKPIT**. And every variable is called `pilot` because you are always on a mission.
+It compiles to native binaries via LLVM (or C — your choice). It has a Phase-1 borrow checker behind `--strict-borrow`. It has a package manager called **Hangar** and preserves the **COCKPIT** UI source preview for Maverick. And every variable is called `pilot` because you are always on a mission.
 
 ```fk
 pilot name = "Takeru"
@@ -227,13 +227,13 @@ freak hangar init my-project
 cd my-project
 
 # Add a dependency
-freak hangar add cockpit https://github.com/FREAK-lang-dev/Freak-lang
+freak hangar add package-name https://example.com/owner/package.git
 
 # Install all dependencies
 freak hangar install
 
 # Remove a package
-freak hangar remove cockpit
+freak hangar remove package-name
 ```
 
 `hangar.toml` looks like this:
@@ -244,61 +244,29 @@ name = "my-project"
 version = "0.1.0"
 
 [dependencies]
-cockpit = { git = "https://github.com/FREAK-lang-dev/Freak-lang", version = "latest" }
+package-name = { git = "https://example.com/owner/package.git", version = "latest" }
 ```
 
 Dependencies live in `hangar_modules/`. The layout is deliberately minimal.
 
 ---
 
-## COCKPIT — The UI Framework
+## COCKPIT — Maverick Source Preview
 
-COCKPIT is FREAK's immediate mode UI framework. It runs on Windows, macOS, and Linux. It has five built-in themes. It does not have widget trees, callbacks, or retained state. You just call widget functions in order and the frame renders.
+`packages/cockpit/` preserves the design and source of FREAK's intended
+immediate-mode UI framework: layout, widgets, themes, input handling, and
+animation helpers. It is not a supported package on the frozen V3 compiler and
+the included examples are design fixtures, not copy-and-run V3 programs.
 
-```
-Your FREAK app
-     │
-     ▼
-COCKPIT (Hangar)      ← widgets, layout, theming, input
-     │
-     ▼
-std::ui               ← window, events, raw draw calls
-     │
-     ├── Windows: Win32 / Direct2D
-     ├── macOS:   Cocoa / CoreGraphics
-     └── Linux:   X11 / Cairo
-```
+The smaller `std::ui` floor is partial in V3. Native execution is supported
+only by the LLVM backend on Windows through the Win32/GDI runtime. V3 exposes
+the raw indexed event queue (`ui::poll_events` plus `ui::event_*`) and basic
+drawing calls; it has no owned event-list ABI, no macOS/Linux native UI
+backend, and no C-backend shape storage for executable UI programs.
 
-### A Calculator in COCKPIT
-
-```fk
-use cockpit::{UI, Theme, label_heading}
-use std::ui::{Window, WindowConfig}
-
-pilot win = Window::open(WindowConfig { title: "Calc", width: 300, height: 400 })
-pilot ui  = UI::new(win, Theme::default())
-
-repeat until ui.should_quit {
-    ui.begin_frame()
-
-    ui.label_styled("FREAK Calc", label_heading)
-
-    if ui.button("7") { append_digit(7) }
-    if ui.button("=") { evaluate() }
-
-    ui.end_frame()
-}
-```
-
-### Themes
-
-| Theme | Mood | Vibe |
-|---|---|---|
-| `Theme::default()` | `.focused` | Dark. Professional. Ready. |
-| `Theme::light()` | `.chill` | Light. Calm. Readable. |
-| `Theme::terminal()` | `.hype` | Green on black. Pure. |
-| `Theme::alternative()` | `.muv_luv` | Navy and pink. Dangerous. |
-| `Theme::muvluv()` | `.mono_no_aware` | Red and black. You know what you've done. |
+COCKPIT's supported implementation belongs to Maverick / 00-Unit. The source
+preview remains in-tree to preserve the intended API and architectural history
+without claiming a release surface that V3 cannot execute.
 
 ---
 
@@ -382,7 +350,7 @@ impl Displayable for Point {
 | `std::time` | Timestamps, durations, sleep |
 | `std::process` | Process arguments, environment access, and command execution (partial in V3) |
 | `std::bytes` | `ByteBuffer` for binary I/O |
-| `std::ui` | Native window, events, canvas (COCKPIT runs on top of this) |
+| `std::ui` | Partial V3 Windows/LLVM Win32-GDI window, indexed events, and raw canvas |
 | `std::version` | Semver parsing, comparison, bumping, constraints |
 | `std::zip` | ZIP archive read/write |
 
@@ -482,7 +450,7 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 | Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | ✅ Complete |
 | `std::fs`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
 | `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` waits for a real list ABI |
-| COCKPIT UI framework | 🚧 In progress (MA–MF done, MG pending) |
+| COCKPIT UI framework | 📐 Source preview; supported implementation moves to Maverick |
 | LLVM JIT mode + DWARF debug info | 🚧 In progress |
 | V4 self-hosting compiler (variants, full BC, mood/prob/power, squadron concurrency, FFI surface, error voices) | 🔜 Roadmapped |
 | HFML (markup language) | 📐 Planned |

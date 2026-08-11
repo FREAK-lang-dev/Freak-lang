@@ -1724,7 +1724,7 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "tests" / "v3_codegen_error_gate.py",
             (
                 "assert_builtin_signature_parity",
-                "unsupported_c_intrinsics",
+                "internal_lowering_intrinsics",
                 "classified - llvm_mapped == set()",
                 "builtin_wrappers.fk",
                 "extern_builtin_collision.fk",

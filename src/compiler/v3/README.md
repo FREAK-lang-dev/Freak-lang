@@ -273,6 +273,11 @@ performance, ABI mismatch, installation, upgrade, and platform behavior.
 - Generated C is the portable self-host fixed-point artifact. Reproducible
   native bytes require pinning the whole host toolchain and SDK and are not a
   cross-platform promise.
+- V3 `std::ui` native execution is limited to the LLVM backend on Windows via
+  the Win32/GDI runtime. The C backend may transpile the declarations but does
+  not provide executable shape storage for UI programs; there is no macOS or
+  Linux native UI backend. `WindowConfig.vsync` is retained but ignored, events
+  use the raw indexed runtime API, and COCKPIT is a Maverick source preview.
 - `freak test` is a source-checkout development shim that runs
   `python tests/suite/run_tests.py`; the current runner uses the Python
   bootstrap compiler. It is not the V3 preservation corpus and is not proof of

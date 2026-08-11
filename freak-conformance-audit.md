@@ -560,7 +560,7 @@ completion remain open.
 | `std::http` (HTTP/1.1 client) | ✅ | ✅ | [std/http.fk](std/http.fk) |
 | `std::json` | ✅ | ✅ | [std/json.fk](std/json.fk) |
 | `std::bytes` ByteBuffer | ✅ | ✅ | runtime |
-| `std::ui` (window, widgets, themes, animation) | ⚠️ | partially shipped (Phase MA-MF), MG pending |
+| `std::ui` (window, indexed events, raw drawing) | ⚠️ | Frozen V3 executes the low-level Win32/GDI floor only through LLVM on Windows. `Window.poll`/owned event lists, POSIX native UI, executable C UI shapes, and COCKPIT widgets/themes are not shipped V3 surfaces; COCKPIT remains a Maverick source preview. |
 | `std::version` (semver) | ✅ | ✅ | [std/version.fk](std/version.fk) |
 | `std::algorithm` | ✅ | ✅ | [std/algorithm.fk](std/algorithm.fk) |
 | `std::convert` | ✅ | ✅ | [std/convert.fk](std/convert.fk) |

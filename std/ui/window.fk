@@ -1,9 +1,9 @@
 -- FREAK Standard Library: std::ui
--- Layer 1 of freak-ui: Window management, events, and raw drawing
+-- Frozen V3 surface: Windows/LLVM window management, indexed events, and raw drawing.
 --
 -- This is the "floor" — just enough to open a window, get input,
 -- and draw pixels/text. No widgets, no layout, no retained state.
--- freak-ui (Hangar package) builds on top of this.
+-- COCKPIT remains a source preview for Maverick; it is not a supported V3 package.
 
 -- ================================================================
 --  Core types
@@ -14,6 +14,8 @@ shape WindowConfig {
     width:     int
     height:    int
     resizable: bool
+    -- Retained for source compatibility. The frozen Win32/GDI backend does
+    -- not implement a synchronized swap interval.
     vsync:     bool
 }
 
@@ -253,43 +255,8 @@ impl Window {
         ui::destroy_window(self.handle)
     }
 
-    -- Poll events for this frame. Returns a list of events.
-    -- If quit was requested, the list will contain an event_quit event.
-    task poll(self) -> Squad {
-        pilot events = Squad::new()
-        pilot count = ui::poll_events(self.handle)
-
-        if count < 0 {
-            -- Quit requested
-            events.add(Event {
-                kind: event_quit, key: 0, pressed: 0, key_repeat: 0,
-                character: 0, mouse_x: 0, mouse_y: 0, button: 0,
-                scroll_dy: 0, width: 0, height: 0, gained: 0
-            })
-            give back events
-        }
-
-        pilot i = 0
-        repeat count times {
-            pilot ev = Event {
-                kind:      ui::event_kind(i),
-                key:       ui::event_key(i),
-                pressed:   ui::event_pressed(i),
-                key_repeat:    ui::event_repeat(i),
-                character: ui::event_character(i),
-                mouse_x:   ui::event_mouse_x(i),
-                mouse_y:   ui::event_mouse_y(i),
-                button:    ui::event_button(i),
-                scroll_dy: ui::event_scroll_dy(i),
-                width:     ui::event_width(i),
-                height:    ui::event_height(i),
-                gained:    ui::event_gained(i)
-            }
-            events.add(ev)
-            i = i + 1
-        }
-        give back events
-    }
+    -- V3 has no list ABI for an owned event collection. Poll with
+    -- ui::poll_events(handle), then read each event through ui::event_*(index).
 }
 
 -- ================================================================
@@ -318,19 +285,19 @@ impl Canvas {
     }
 
     task fill_rect(self, rect: Rect, color: Color) -> void {
-        ui::fill_rect(self.handle, rect.x, rect.y, rect.w, rect.h, color.r, color.g, color.b, color.a)
+        ui::fill_rect(self.handle, rect.x.to_int(), rect.y.to_int(), rect.w.to_int(), rect.h.to_int(), color.r, color.g, color.b, color.a)
     }
 
     task stroke_rect(self, rect: Rect, color: Color, thickness: int) -> void {
-        ui::stroke_rect(self.handle, rect.x, rect.y, rect.w, rect.h, color.r, color.g, color.b, color.a, thickness)
+        ui::stroke_rect(self.handle, rect.x.to_int(), rect.y.to_int(), rect.w.to_int(), rect.h.to_int(), color.r, color.g, color.b, color.a, thickness)
     }
 
     task fill_circle(self, center: Vec2, radius: int, color: Color) -> void {
-        ui::fill_circle(self.handle, center.x, center.y, radius, color.r, color.g, color.b, color.a)
+        ui::fill_circle(self.handle, center.x.to_int(), center.y.to_int(), radius, color.r, color.g, color.b, color.a)
     }
 
     task draw_line(self, from: Vec2, to: Vec2, color: Color, thickness: int) -> void {
-        ui::draw_line(self.handle, from.x, from.y, to.x, to.y, color.r, color.g, color.b, color.a, thickness)
+        ui::draw_line(self.handle, from.x.to_int(), from.y.to_int(), to.x.to_int(), to.y.to_int(), color.r, color.g, color.b, color.a, thickness)
     }
 
     task draw_text(self, text: word, x: int, y: int, font: Font, color: Color) -> int {
