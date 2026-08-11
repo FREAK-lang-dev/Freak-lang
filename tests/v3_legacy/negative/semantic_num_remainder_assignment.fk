@@ -1,0 +1,4 @@
+task main() {
+    pilot mut value: num = 5.0
+    value %= 2
+}

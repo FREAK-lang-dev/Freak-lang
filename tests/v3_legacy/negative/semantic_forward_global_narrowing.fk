@@ -1,0 +1,10 @@
+task consume(value: int) {
+    say value
+}
+
+pilot first = later
+pilot later: num = 1.5
+
+task main() {
+    consume(first)
+}

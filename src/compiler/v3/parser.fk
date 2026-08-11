@@ -793,7 +793,12 @@ task parse_impl() -> int {
         } else if parser_at_eof() {
             parser_diag_unclosed_at("impl declaration", "}", impl_file, impl_line, impl_col)
             impl_fin = true
-        } else if match_tok(TOK_KW, "task") {
+        } else if cur_tok_type() == TOK_KW and cur_tok_val() == "task" {
+            -- Capture the method declaration's own `task` token before
+            -- consuming it. Reusing the outer impl location made signature
+            -- and missing-return diagnostics point at `impl` instead.
+            pilot method_stmt_line = current_source_location()
+            advance_tok()
             pilot mname = parser_take_ident("impl method name")
             pilot params_file = current_source_file()
             pilot params_line = word_to_int(current_source_line())
@@ -818,7 +823,7 @@ task parse_impl() -> int {
             -- Preserve impl provenance separately from the mangled task name.
             -- The always-on nominal checker must not accept a free task named
             -- `Shape_method` as proof that `Shape.method` exists.
-            pilot sid = alloc_stmt(STMT_TASK, full_name, "", body_id, "", "impl:" + impl_name, params, ret_type, stmt_line)
+            pilot sid = alloc_stmt(STMT_TASK, full_name, "", body_id, "", "impl:" + impl_name, params, ret_type, method_stmt_line)
             array_push(ast_top_stmts, word_from_int(sid))
         } else {
             diag_error(

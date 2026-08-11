@@ -155,23 +155,43 @@ def assert_builtin_signature_parity(repo: Path) -> None:
             task_body(checker_source, "tc_builtin_call_params"),
         )
     )
-    missing = sorted(mapped - classified)
-    assert not missing, f"builtin return-type inventory missing: {missing}"
-    missing_signatures = sorted(mapped - signature_classified)
-    assert not missing_signatures, (
-        f"builtin parameter-signature inventory missing: {missing_signatures}"
-    )
-    unsupported_c_intrinsics = {
+    internal_lowering_intrinsics = {
         "shape::alloc",
         "shape::get",
         "shape::set",
     }
-    assert classified - c_mapped == unsupported_c_intrinsics
+    missing = sorted(mapped - classified - internal_lowering_intrinsics)
+    assert not missing, f"builtin return-type inventory missing: {missing}"
+    missing_signatures = sorted(
+        mapped - signature_classified - internal_lowering_intrinsics
+    )
+    assert not missing_signatures, (
+        f"builtin parameter-signature inventory missing: {missing_signatures}"
+    )
+    assert internal_lowering_intrinsics <= llvm_mapped
+    assert internal_lowering_intrinsics.isdisjoint(classified)
+    assert internal_lowering_intrinsics.isdisjoint(signature_classified)
+    assert classified - c_mapped == set()
     assert classified - llvm_mapped == set()
     assert signature_classified == classified
     builtin_params = task_body(checker_source, "tc_builtin_call_params")
     assert 'name == "array_push" { give back "int,word" }' in builtin_params
     assert 'name == "array_set" { give back "int,int,word" }' in builtin_params
+
+    canonical_namespace_owners = {
+        name.split("::", 1)[0] for name in classified if "::" in name
+    }
+    reserved_owner_body = task_body(
+        checker_source, "tc_reserved_builtin_namespace_owner"
+    )
+    reserved_namespace_owners = set(
+        re.findall(r'name == "([^"]+)"', reserved_owner_body)
+    )
+    assert reserved_namespace_owners == canonical_namespace_owners | {"shape"}, (
+        "reserved shape namespace owners drifted from compiler builtins: "
+        f"reserved={sorted(reserved_namespace_owners)}, "
+        f"canonical={sorted(canonical_namespace_owners)}"
+    )
 
 
 def assert_ci_shell_contract(repo: Path) -> None:
@@ -385,6 +405,10 @@ def main() -> int:
                 checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
                 assert f"/{malformed.name}:6:1" in checked_output, checked_output
                 assert "6 |         .missing()" in checked_output, checked_output
+            if case.name == "semantic_impl_method_missing_return":
+                checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
+                assert f"/{malformed.name}:4:1" in checked_output, checked_output
+                assert "4 |     task unfinished(" in checked_output, checked_output
             if case.kind == "borrow":
                 checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
                 assert f"/{malformed.name}:6:1" in checked_output, checked_output
@@ -670,6 +694,27 @@ def main() -> int:
         scale_check = run(freak, repo, scale_source, "check")
         assert scale_check.returncode == 0, scale_check.stdout + scale_check.stderr
 
+        global_scale_source = tmp_path / "prior_global_alias_scale.fk"
+        global_scale_source.write_text(
+            "\n".join(
+                ["pilot alias_127: num = 1.5"]
+                + [
+                    f"pilot alias_{index} = alias_{index + 1}"
+                    for index in range(126, -1, -1)
+                ]
+                + [
+                    "task consume_num(value: num) { say value }",
+                    "task main() { consume_num(alias_0) }",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        global_scale_check = run(freak, repo, global_scale_source, "check")
+        assert global_scale_check.returncode == 0, (
+            global_scale_check.stdout + global_scale_check.stderr
+        )
+
         # This matrix proves checker acceptance only. Some of these contracts
         # (mixed numeric lowering, num/word when equality, and int-returning
         # main ABI) have backend-specific executable coverage in their owning
@@ -686,6 +731,9 @@ def main() -> int:
             "}\n"
             "extern task external_num(value: num) -> num\n"
             "pilot top_num: num = 1\n"
+            "pilot prior_target: num = 1.5\n"
+            "pilot prior_alias = prior_target\n"
+            "pilot namespace_overlap: int = 7\n"
             "say \"top-level execution remains valid\"\n"
             "task main() -> int {\n"
             "    pilot mut widened: num = 1\n"
@@ -705,6 +753,23 @@ def main() -> int:
             "    pilot associated_num: num = associated_meter.add(1)\n"
             "    pilot forward_num: num = 1 |> later_num()\n"
             "    pilot extern_num: num = external_num(1)\n"
+            "    pilot alias_num: num = later_num(prior_alias)\n"
+            "    pilot shadowed: int = 1\n"
+            "    if true {\n"
+            "        pilot shadowed: int = 2\n"
+            "        say shadowed\n"
+            "    }\n"
+            "    say shadowed\n"
+            "    pilot signed_int: int = -1\n"
+            "    when signed_int {\n"
+            "        -1 -> say signed_int\n"
+            "        _ -> say namespace_overlap\n"
+            "    }\n"
+            "    pilot signed_num: num = -1.5\n"
+            "    when signed_num {\n"
+            "        -1.5 -> say alias_num\n"
+            "        _ -> say namespace_overlap()\n"
+            "    }\n"
             "    when widened {\n"
             "        1 -> say comparison\n"
             "        2.5 -> say method_num\n"
@@ -716,7 +781,8 @@ def main() -> int:
             "    }\n"
             "    give back 0\n"
             "}\n"
-            "task later_num(value: num) -> num { give back 1 }\n",
+            "task later_num(value: num) -> num { give back 1 }\n"
+            "task namespace_overlap() -> int { give back 8 }\n",
             encoding="utf-8",
         )
         semantic_check = run(freak, repo, semantic_positive, "check")
@@ -1093,14 +1159,6 @@ def main() -> int:
             assert "process::args() has no List<word> ABI in V3" in process_args_output
             assert "process::args_count()" in process_args_output
             assert "process::arg(index)" in process_args_output
-
-        c_intrinsic = tmp_path / "c_shape_intrinsic_bad.fk"
-        c_intrinsic.write_text(
-            "task main() { pilot raw = shape::alloc(1) say raw.to_word() }\n",
-            encoding="utf-8",
-        )
-        c_intrinsic_result = run(freak, repo, c_intrinsic, "transpile", "--c")
-        assert_rejected(c_intrinsic_result, "C unsupported shape intrinsic")
 
         primitive_ok = tmp_path / "primitive_methods_ok.fk"
         primitive_ok.write_text(

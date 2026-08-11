@@ -1,0 +1,11 @@
+shape math { value: num }
+
+impl math {
+    task sqrt(value: num) -> num {
+        give back value
+    }
+}
+
+task main() {
+    say math::sqrt(9.0)
+}

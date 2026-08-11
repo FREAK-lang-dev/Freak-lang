@@ -19,8 +19,14 @@ builtin arity/types, directional `int` to `num` assignment compatibility,
 operator domains, exact shape-constructor labels/order, lvalues, return and
 entry-point contracts, loop/declaration context, `if`/repeat/training types,
 literal-compatible `when` arms, nominal fields/methods, and the word-only V3
-array ABI. Shape operator-doctrine syntax remains fail-closed because V3 does
-not lower those operators; call the proven instance method explicitly.
+array ABI. They also pin same-scope binding uniqueness while preserving nested
+lexical shadowing, source-ordered global initialization with fail-closed
+forward references and cycles, integer-only remainder/compound assignment
+rules, and the raw UI runtime's integer pixel geometry. Shape operator-doctrine
+syntax remains fail-closed because V3 does not lower those operators; call the
+proven instance method explicitly. Shape constructors remain declaration-order
+dependent, and compiler-internal `shape::alloc/get/set` spellings are not
+source builtins.
 
 `manifest.json` is the inventory and diagnostic oracle. Its schema is
 `freak-v3-negative-corpus-v1`. Each entry records a unique case name, failure
@@ -38,4 +44,5 @@ recovery boundary without coupling the corpus to colors or surrounding prose.
 Acceptance coverage belongs in the main gate's positive matrices, not in this
 directory; those matrices preserve forward calls, associated and instance impl
 tasks, exact shape construction, boolean aliases, word concatenation, and
-numeric widening without turning them into negative fixtures.
+numeric widening, unary-minus numeric `when` literals, prior-global aliases,
+and nested lexical shadowing without turning them into negative fixtures.
