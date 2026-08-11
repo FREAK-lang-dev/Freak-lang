@@ -74,6 +74,11 @@ def set_version(version: str) -> None:
         r"(\[!\[Version\]\(https://img\.shields\.io/badge/)v[0-9]+\.[0-9]+\.[0-9]+",
         rf"\g<1>v{version}",
     )
+    replace_exact(
+        ROOT / "CLAUDE.md",
+        r"(current release \*\*v)[0-9]+\.[0-9]+\.[0-9]+",
+        rf"\g<1>{version}",
+    )
     check_version(version)
     print(f"FREAK release version synchronized: {version}")
 
@@ -112,6 +117,22 @@ def check_version(version: str, tag: str | None = None) -> None:
     require(
         f"[![Version](https://img.shields.io/badge/v{version}-" in readme_text,
         "README.md version badge differs from VERSION",
+        errors,
+    )
+    claude_text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    require(
+        f"current release **v{version}" in claude_text,
+        "CLAUDE.md current release differs from VERSION",
+        errors,
+    )
+    require(
+        "python -u tools/release_version.py set <major.minor.patch>" in claude_text,
+        "CLAUDE.md does not document the authoritative release bump command",
+        errors,
+    )
+    require(
+        "hardcoded in **two files**" not in claude_text,
+        "CLAUDE.md still documents obsolete hand-maintained version mirrors",
         errors,
     )
     if tag is not None:

@@ -41,8 +41,8 @@ Current facts:
 - `VERSION` is the release-version authority. Change it only through
   `python -u tools/release_version.py set <major.minor.patch>`; that one command
   synchronizes the compiled `FREAK_VERSION`, CLI/compiler display aliases,
-  package metadata, WinGet release directory, README version badge, and this
-  public-release fact.
+  package metadata, WinGet release directory, README version badge, and the
+  AGENTS/CLAUDE public-release facts.
   Never hand-edit those mirrors for a release bump. Run
   `python -u tools/release_version.py check` before committing; tagged release
   workflows additionally require the exact `v<major.minor.patch>` tag before

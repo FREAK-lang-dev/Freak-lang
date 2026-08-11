@@ -2033,6 +2033,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 "FREAKC_VERSION = FREAK_VERSION",
                 "Git tag",
                 "WinGet",
+                'ROOT / "CLAUDE.md"',
+                "hardcoded in **two files**",
             ),
         ),
     }

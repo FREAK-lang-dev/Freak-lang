@@ -286,6 +286,25 @@ def main() -> int:
 
             object_env = env.copy()
             object_env["FREAK_CLANG"] = clang
+            missing_ui_object = runtime / "freak_ui_win32.obj.partial"
+            runtime_objects[2].replace(missing_ui_object)
+            try:
+                partial_doctor = subprocess.run(
+                    [str(freak), "doctor", "--json"], cwd=root, env=object_env,
+                    capture_output=True, text=True, errors="replace", timeout=120,
+                    check=False,
+                )
+                partial_report = json.loads(partial_doctor.stdout)
+                assert partial_report["checks"]["runtime"]["precompiled_objects"] is False
+                code, output = invoke(
+                    freak, source_dir, source_arg, "--llvm", object_env
+                )
+                assert_run(code, output, "CACHE_B", cache_hit=False)
+                assert "Compiling native binary" in output, output
+                assert "Linking packaged Windows runtime objects" not in output, output
+            finally:
+                missing_ui_object.replace(runtime_objects[2])
+
             try:
                 for runtime_source in runtime_sources:
                     runtime_source.write_text(

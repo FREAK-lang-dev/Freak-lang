@@ -554,10 +554,10 @@ task cli_clang_command_works(clang_cmd: word) -> bool {
 task cli_precompiled_runtime_extension(runtime_dir: word) -> word {
     -- Current Windows archives use .obj. Accept the older COFF .o spelling so
     -- v0.14 installations can take the same driver-linked fast path.
-    if fs::exists(runtime_dir + "/freak_runtime.obj") and fs::exists(runtime_dir + "/freak_llvm_runtime.obj") {
+    if fs::exists(runtime_dir + "/freak_runtime.obj") and fs::exists(runtime_dir + "/freak_llvm_runtime.obj") and fs::exists(runtime_dir + "/freak_ui_win32.obj") {
         give back ".obj"
     }
-    if fs::exists(runtime_dir + "/freak_runtime.o") and fs::exists(runtime_dir + "/freak_llvm_runtime.o") {
+    if fs::exists(runtime_dir + "/freak_runtime.o") and fs::exists(runtime_dir + "/freak_llvm_runtime.o") and fs::exists(runtime_dir + "/freak_ui_win32.o") {
         give back ".o"
     }
     give back ""
@@ -629,9 +629,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
             link_cmd = link_cmd + " " + cli_quote_cmd_path(llvm_rt_obj)
         }
         link_cmd = link_cmd + " " + cli_quote_cmd_path(rt_obj) + " -lws2_32"
-        if fs::exists(ui_obj) {
-            link_cmd = link_cmd + " " + cli_quote_cmd_path(ui_obj) + " -luser32 -lgdi32 -lmsimg32"
-        }
+        link_cmd = link_cmd + " " + cli_quote_cmd_path(ui_obj) + " -luser32 -lgdi32 -lmsimg32"
         say "  " + C_DIM + SYM_GEAR + "  Linking packaged Windows runtime objects..." + C_RESET
         pilot link_exit = process::exec(link_cmd)
         if link_exit != 0 {
