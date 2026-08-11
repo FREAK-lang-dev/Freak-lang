@@ -194,17 +194,20 @@ APPLY_ROOT=""
 BACKUP_ROOT=""
 INSTALL_LOCK=""
 INSTALL_LOCK_OWNER=""
+INSTALL_LOCK_PREPARED=""
 TRANSACTION_ACTIVE=0
 release_install_lock() {
-    if [ -z "$INSTALL_LOCK" ]; then return; fi
     local current_owner=""
-    if [ -f "$INSTALL_LOCK/owner" ]; then current_owner=$(cat "$INSTALL_LOCK/owner" 2>/dev/null || true); fi
-    if [ -n "$INSTALL_LOCK_OWNER" ] && [ "$current_owner" = "$INSTALL_LOCK_OWNER" ]; then
-        rm -f -- "$INSTALL_LOCK/owner"
-        rmdir -- "$INSTALL_LOCK" 2>/dev/null || true
+    if [ -n "$INSTALL_LOCK" ] && [ -f "$INSTALL_LOCK" ] && [ ! -L "$INSTALL_LOCK" ]; then
+        current_owner=$(cat "$INSTALL_LOCK" 2>/dev/null || true)
+        if [ -n "$INSTALL_LOCK_OWNER" ] && [ "$current_owner" = "$INSTALL_LOCK_OWNER" ]; then
+            rm -f -- "$INSTALL_LOCK"
+        fi
     fi
+    if [ -n "$INSTALL_LOCK_PREPARED" ]; then rm -f -- "$INSTALL_LOCK_PREPARED"; fi
     INSTALL_LOCK=""
     INSTALL_LOCK_OWNER=""
+    INSTALL_LOCK_PREPARED=""
 }
 cleanup_install() {
     local status=$?
@@ -380,6 +383,7 @@ validate_stage
 
 process_start_token() {
     local pid="$1"
+    if truthy "${FREAK_INSTALL_TEST_NO_PROCESS_START_TOKEN:-0}"; then return; fi
     if [ -r "/proc/$pid/stat" ]; then
         sed 's/^[0-9][0-9]* (.*) //' "/proc/$pid/stat" 2>/dev/null | awk '{ print $20 }' || true
         return
@@ -394,8 +398,13 @@ lock_owner_is_active() {
 $record
 EOF
     case "$owner_pid" in ''|*[!0-9]*) return 1 ;; esac
-    [ -n "$owner_start" ] || return 1
-    [ -n "$owner_nonce" ] || return 1
+    # Legacy numeric locks and platforms without a stable process-start token
+    # remain live whenever that PID still exists. They are less precise, but
+    # must never be displaced merely because a later probe gains more detail.
+    if [ -z "$owner_start" ] || [ -z "$owner_nonce" ] || [ "$owner_start" = "pid-only" ]; then
+        if kill -0 "$owner_pid" 2>/dev/null || ps -p "$owner_pid" >/dev/null 2>&1; then return 0; fi
+        return 1
+    fi
     local current_start
     current_start=$(process_start_token "$owner_pid")
     if [ -n "$current_start" ]; then
@@ -415,29 +424,109 @@ lock_directory_identity() {
 acquire_install_lock() {
     mkdir -p "$INSTALL_DIR"
     local candidate="$INSTALL_DIR/.freak-install.lock"
-    local own_start own_nonce attempt owner owner_identity breaker current_owner current_identity missing_identity missing_attempts
+    local breaker="$INSTALL_DIR/.freak-stale-takeover"
+    local own_start own_nonce attempt owner owner_identity current_owner current_identity missing_identity missing_attempts
+    local breaker_owner breaker_identity current_breaker_owner current_breaker_identity breaker_missing_identity breaker_missing_attempts candidate_kind
     own_start=$(process_start_token "$$")
     if [ -z "$own_start" ]; then own_start="pid-only"; fi
     own_nonce=$(basename "$TMPDIR_INSTALL")
     INSTALL_LOCK_OWNER="$$|$own_start|$own_nonce"
+    INSTALL_LOCK_PREPARED="$INSTALL_DIR/.freak-install-owner-$own_nonce"
+    if ! (set -C; printf '%s\n' "$INSTALL_LOCK_OWNER" > "$INSTALL_LOCK_PREPARED") 2>/dev/null; then
+        err "Could not prepare FREAK installer ownership in $INSTALL_DIR"
+    fi
+    if truthy "${FREAK_INSTALL_TEST_PAUSE_BEFORE_LOCK_PUBLISH:-0}"; then
+        if [ -n "${FREAK_INSTALL_TEST_LOCK_PUBLISH_READY:-}" ]; then
+            printf 'ready\n' > "$FREAK_INSTALL_TEST_LOCK_PUBLISH_READY"
+        fi
+        attempt=0
+        while [ "$attempt" -lt 300 ] && [ ! -f "${FREAK_INSTALL_TEST_LOCK_PUBLISH_RELEASE:-}" ]; do
+            attempt=$((attempt + 1))
+            sleep 0.1
+        done
+    fi
     attempt=0
     missing_identity=""
     missing_attempts=0
+    breaker_missing_identity=""
+    breaker_missing_attempts=0
     while [ "$attempt" -lt 100 ]; do
-        if mkdir -- "$candidate" 2>/dev/null; then
-            INSTALL_LOCK="$candidate"
-            printf '%s\n' "$INSTALL_LOCK_OWNER" > "$INSTALL_LOCK/owner"
-            return
+        # The fixed election link is itself recoverable. Its complete owner
+        # record is published atomically by hard-linking the prepared file, so
+        # a stopped process can never resume and overwrite another owner.
+        if [ -e "$breaker" ] || [ -L "$breaker" ]; then
+            if [ -L "$breaker" ] || [ ! -f "$breaker" ]; then
+                err "Unsafe FREAK stale-lock takeover path: $breaker"
+            fi
+            breaker_owner=$(cat "$breaker" 2>/dev/null || true)
+            if [ -n "$breaker_owner" ] && lock_owner_is_active "$breaker_owner"; then
+                attempt=$((attempt + 1))
+                sleep 0.1
+                continue
+            fi
+            breaker_identity=$(lock_directory_identity "$breaker")
+            [ -n "$breaker_identity" ] || { attempt=$((attempt + 1)); continue; }
+            if [ -z "$breaker_owner" ]; then
+                if [ "$breaker_identity" != "$breaker_missing_identity" ]; then
+                    breaker_missing_identity="$breaker_identity"
+                    breaker_missing_attempts=0
+                fi
+                breaker_missing_attempts=$((breaker_missing_attempts + 1))
+                attempt=$((attempt + 1))
+                if [ "$breaker_missing_attempts" -lt 50 ]; then sleep 0.1; continue; fi
+            else
+                breaker_missing_identity=""
+                breaker_missing_attempts=0
+            fi
+            current_breaker_owner=$(cat "$breaker" 2>/dev/null || true)
+            current_breaker_identity=$(lock_directory_identity "$breaker")
+            if [ "$current_breaker_owner" != "$breaker_owner" ] || [ "$current_breaker_identity" != "$breaker_identity" ] || { [ -n "$current_breaker_owner" ] && lock_owner_is_active "$current_breaker_owner"; }; then
+                attempt=$((attempt + 1))
+                sleep 0.1
+                continue
+            fi
+            rm -f -- "$breaker"
+            info "Recovered interrupted stale-lock takeover"
+            attempt=$((attempt + 1))
+            continue
         fi
-        if [ -L "$candidate" ] || [ ! -d "$candidate" ]; then
+
+        # The owner record exists before this atomic hard link. There is no
+        # ownerless publication window for another installer to reclaim.
+        if [ -L "$candidate" ]; then
             err "Unsafe FREAK installer lock path: $candidate"
         fi
+        if ln -- "$INSTALL_LOCK_PREPARED" "$candidate" 2>/dev/null; then
+            if [ -f "$candidate" ] && [ ! -L "$candidate" ] && [ "$(lock_directory_identity "$candidate")" = "$(lock_directory_identity "$INSTALL_LOCK_PREPARED")" ]; then
+                INSTALL_LOCK="$candidate"
+                rm -f -- "$INSTALL_LOCK_PREPARED"
+                INSTALL_LOCK_PREPARED=""
+                return
+            fi
+            # Portable ln treats an existing directory as a destination
+            # container. Remove only the exact hard link this attempt created,
+            # then continue through legacy-directory recovery.
+            if [ -d "$candidate" ] && [ ! -L "$candidate" ]; then
+                rm -f -- "$candidate/$(basename "$INSTALL_LOCK_PREPARED")"
+            else
+                err "Could not verify atomic FREAK installer lock publication"
+            fi
+        fi
+        if [ -L "$candidate" ] || { [ ! -f "$candidate" ] && [ ! -d "$candidate" ]; }; then
+            err "Unsafe FREAK installer lock path: $candidate"
+        fi
+        candidate_kind="file"
         owner=""
-        if [ -f "$candidate/owner" ]; then owner=$(cat "$candidate/owner" 2>/dev/null || true); fi
+        if [ -d "$candidate" ]; then
+            candidate_kind="directory"
+            if [ -f "$candidate/owner" ]; then owner=$(cat "$candidate/owner" 2>/dev/null || true); fi
+        else
+            owner=$(cat "$candidate" 2>/dev/null || true)
+        fi
         if [ -z "$owner" ]; then
-            # A new owner writes this file immediately after mkdir. Give that
-            # atomic acquisition window time to finish; an unowned directory
-            # that persists is a recoverable crash remnant.
+            # Empty locks can only be legacy or damaged state now that new
+            # ownership is atomically published. Retain a bounded grace period
+            # for an older installer that is still between mkdir and write.
             current_identity=$(lock_directory_identity "$candidate")
             if [ "$current_identity" != "$missing_identity" ]; then
                 missing_identity="$current_identity"
@@ -454,24 +543,37 @@ acquire_install_lock() {
         fi
         owner_identity=$(lock_directory_identity "$candidate")
         [ -n "$owner_identity" ] || { attempt=$((attempt + 1)); continue; }
-        breaker="$candidate/.freak-stale-takeover"
-        if ! mkdir -- "$breaker" 2>/dev/null; then
+        if ! ln -- "$INSTALL_LOCK_PREPARED" "$breaker" 2>/dev/null; then
             attempt=$((attempt + 1))
             sleep 0.1
             continue
+        fi
+        if truthy "${FREAK_INSTALL_TEST_PAUSE_AFTER_STALE_BREAKER:-0}"; then
+            if [ -n "${FREAK_INSTALL_TEST_STALE_BREAKER_READY:-}" ]; then
+                printf 'ready\n' > "$FREAK_INSTALL_TEST_STALE_BREAKER_READY"
+            fi
+            sleep 30
         fi
         current_owner=""
-        if [ -f "$candidate/owner" ]; then current_owner=$(cat "$candidate/owner" 2>/dev/null || true); fi
+        if [ "$candidate_kind" = "directory" ]; then
+            if [ -f "$candidate/owner" ]; then current_owner=$(cat "$candidate/owner" 2>/dev/null || true); fi
+        elif [ -f "$candidate" ] && [ ! -L "$candidate" ]; then
+            current_owner=$(cat "$candidate" 2>/dev/null || true)
+        fi
         current_identity=$(lock_directory_identity "$candidate")
         if [ "$current_owner" != "$owner" ] || [ "$current_identity" != "$owner_identity" ] || { [ -n "$current_owner" ] && lock_owner_is_active "$current_owner"; }; then
-            rmdir -- "$breaker" 2>/dev/null || true
+            rm -f -- "$breaker"
             attempt=$((attempt + 1))
             sleep 0.1
             continue
         fi
-        rm -f -- "$candidate/owner"
-        rmdir -- "$breaker" 2>/dev/null || err "Could not release stale-lock takeover: $breaker"
-        rmdir -- "$candidate" 2>/dev/null || err "Could not recover stale installer lock: $candidate"
+        if [ "$candidate_kind" = "directory" ]; then
+            rm -f -- "$candidate/owner"
+            rmdir -- "$candidate" 2>/dev/null || err "Could not recover stale installer lock: $candidate"
+        else
+            rm -f -- "$candidate"
+        fi
+        rm -f -- "$breaker"
         info "Recovered stale installer lock${owner:+ from process ${owner%%|*}}"
         attempt=$((attempt + 1))
     done

@@ -119,9 +119,18 @@ def check_static_contracts(repo: Path) -> None:
         "verify_downloaded_asset",
         "SHA256SUMS",
         ".freak-install.lock",
+        ".freak-stale-takeover",
+        "FREAK_INSTALL_TEST_NO_PROCESS_START_TOKEN",
+        "FREAK_INSTALL_TEST_PAUSE_BEFORE_LOCK_PUBLISH",
+        "FREAK_INSTALL_TEST_PAUSE_AFTER_STALE_BREAKER",
         "Another FREAK installer",
     ):
         assert needle in shell_text, f"install.sh missing {needle}"
+    assert 'ln -- "$INSTALL_LOCK_PREPARED" "$candidate"' in shell_text
+    assert 'ln -- "$INSTALL_LOCK_PREPARED" "$breaker"' in shell_text
+    assert 'mkdir -- "$candidate"' not in shell_text, (
+        "POSIX installer ownership must be complete before atomic publication"
+    )
     for needle in (
         "MartinStorsjo.LLVM-MinGW.UCRT",
         "scoop.cmd install llvm-mingw",
@@ -146,6 +155,7 @@ def check_static_contracts(repo: Path) -> None:
         ".freak-upgrade-helper.lock",
         ".freak-upgrade-helper.ready",
         "FREAK_INSTALL_TEST_HELPER_START_DELAY_MS",
+        "DeferredHelperUnsafe",
         "Recover-OrphanedDeferredUpgrade",
     ):
         assert needle in ps_text, f"install.ps1 missing {needle}"
@@ -161,6 +171,13 @@ def check_static_contracts(repo: Path) -> None:
     )
     assert retired_cleanup < failed_cleanup < pending_cleanup, (
         "deferred Windows upgrade must remove pending only after transaction cleanup"
+    )
+    unsafe_helper_guard = ps_text.index("if ($script:DeferredHelperUnsafe)")
+    rollback_next_cleanup = ps_text.index(
+        'Remove-Item -LiteralPath "$BinDir\\freak.exe.next"', unsafe_helper_guard
+    )
+    assert unsafe_helper_guard < rollback_next_cleanup, (
+        "an unconfirmed live Windows helper must block pending/.next rollback"
     )
     for needle in (
         "packaging/distribution-files.manifest",
@@ -653,6 +670,8 @@ def check_offline_installer(
         delayed_env = env.copy()
         delayed_env["FREAK_HOME"] = str(delayed_root)
         delayed_env["FREAK_INSTALL_TEST_HELPER_START_DELAY_MS"] = "7000"
+        delayed_helper_pid_path = root / "delayed-helper-pid.txt"
+        delayed_env["FREAK_INSTALL_TEST_HELPER_PID"] = str(delayed_helper_pid_path)
         try:
             delayed = subprocess.run(
                 [*command, "-Upgrade"], cwd=repo, env=delayed_env,
@@ -663,6 +682,18 @@ def check_offline_installer(
         delayed_output = delayed.stdout + delayed.stderr
         assert delayed.returncode != 0, delayed_output
         assert "helper did not become ready" in delayed_output.lower()
+        assert delayed_helper_pid_path.is_file()
+        delayed_helper_pid = int(
+            delayed_helper_pid_path.read_text(encoding="utf-8-sig").strip()
+        )
+        helper_dead = subprocess.run(
+            [
+                "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                f"if (Get-Process -Id {delayed_helper_pid} -ErrorAction SilentlyContinue) {{ exit 1 }}",
+            ],
+            capture_output=True, text=True, errors="replace", timeout=30,
+        )
+        assert helper_dead.returncode == 0, helper_dead.stdout + helper_dead.stderr
         for state_name in (
             ".freak-upgrade-pending",
             ".freak-upgrade-failed",
@@ -679,6 +710,7 @@ def check_offline_installer(
         assert not (delayed_root / "std").exists()
 
         delayed_env.pop("FREAK_INSTALL_TEST_HELPER_START_DELAY_MS")
+        delayed_env.pop("FREAK_INSTALL_TEST_HELPER_PID")
         delayed_retry = subprocess.run(
             [*command, "-Upgrade"], cwd=repo, env=delayed_env,
             capture_output=True, text=True, errors="replace", timeout=120,
@@ -840,12 +872,41 @@ def check_offline_installer(
     assert not list(preserved_root.glob(".freak-backup-*"))
 
     if sys.platform != "win32":
+        # Ownership metadata is complete before the shared lock is atomically
+        # published. Pause one installer before publication, let a second
+        # installer become the live owner using the pid-only fallback, then
+        # release the first and prove it cannot overwrite the second owner.
+        prepublish_ready = root / "installer-prepublish-ready.txt"
+        prepublish_release = root / "installer-prepublish-release.txt"
+        prepublish_env = env.copy()
+        prepublish_env["FREAK_HOME"] = str(preserved_root)
+        prepublish_env["FREAK_INSTALL_ARCHIVE"] = str(archive)
+        prepublish_env["FREAK_INSTALL_TEST_PAUSE_BEFORE_LOCK_PUBLISH"] = "1"
+        prepublish_env["FREAK_INSTALL_TEST_LOCK_PUBLISH_READY"] = str(
+            prepublish_ready
+        )
+        prepublish_env["FREAK_INSTALL_TEST_LOCK_PUBLISH_RELEASE"] = str(
+            prepublish_release
+        )
+        prepublisher = subprocess.Popen(
+            command, cwd=repo, env=prepublish_env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, errors="replace",
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not prepublish_ready.exists():
+            if prepublisher.poll() is not None:
+                break
+            time.sleep(0.1)
+        assert prepublish_ready.is_file(), prepublisher.communicate(timeout=5)
+
         transaction_ready = root / "installer-transaction-ready.txt"
         signal_env = env.copy()
         signal_env["FREAK_HOME"] = str(preserved_root)
         signal_env["FREAK_INSTALL_ARCHIVE"] = str(archive)
         signal_env["FREAK_INSTALL_TEST_PAUSE_AFTER_BACKUP"] = "1"
         signal_env["FREAK_INSTALL_TEST_TRANSACTION_READY"] = str(transaction_ready)
+        signal_env["FREAK_INSTALL_TEST_NO_PROCESS_START_TOKEN"] = "1"
         interrupted = subprocess.Popen(
             command, cwd=repo, env=signal_env, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, errors="replace",
@@ -857,16 +918,11 @@ def check_offline_installer(
                 break
             time.sleep(0.1)
         assert transaction_ready.is_file(), interrupted.communicate(timeout=5)
-        contender_env = env.copy()
-        contender_env["FREAK_HOME"] = str(preserved_root)
-        contender_env["FREAK_INSTALL_ARCHIVE"] = str(archive)
-        contender = subprocess.run(
-            command, cwd=repo, env=contender_env, capture_output=True, text=True,
-            errors="replace", timeout=30,
-        )
-        assert contender.returncode != 0, contender.stdout + contender.stderr
+        prepublish_release.write_text("release\n", encoding="utf-8")
+        contender_stdout, contender_stderr = prepublisher.communicate(timeout=30)
+        assert prepublisher.returncode != 0, contender_stdout + contender_stderr
         assert "another freak installer" in (
-            contender.stdout + contender.stderr
+            contender_stdout + contender_stderr
         ).lower()
         assert len(list(preserved_root.glob(".freak-backup-*"))) == 1
         os.killpg(interrupted.pid, signal.SIGTERM)
@@ -897,8 +953,38 @@ def check_offline_installer(
         os.killpg(crashed.pid, signal.SIGKILL)
         crashed_stdout, crashed_stderr = crashed.communicate(timeout=30)
         assert crashed.returncode != 0, crashed_stdout + crashed_stderr
-        assert (preserved_root / ".freak-install.lock" / "owner").is_file()
+        assert (preserved_root / ".freak-install.lock").is_file()
         assert len(list(preserved_root.glob(".freak-backup-*"))) == 1
+
+        # The stale-takeover election is itself durable. Kill its elected
+        # owner before it can remove the stale lock, then require later
+        # contenders to recover the orphaned breaker before electing one new
+        # transaction owner.
+        stale_breaker_ready = root / "stale-breaker-ready.txt"
+        stale_breaker_env = signal_env.copy()
+        stale_breaker_env["FREAK_INSTALL_TEST_PAUSE_AFTER_STALE_BREAKER"] = "1"
+        stale_breaker_env["FREAK_INSTALL_TEST_STALE_BREAKER_READY"] = str(
+            stale_breaker_ready
+        )
+        stale_breaker = subprocess.Popen(
+            command, cwd=repo, env=stale_breaker_env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, errors="replace",
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not stale_breaker_ready.exists():
+            if stale_breaker.poll() is not None:
+                break
+            time.sleep(0.1)
+        assert stale_breaker_ready.is_file(), stale_breaker.communicate(timeout=5)
+        os.killpg(stale_breaker.pid, signal.SIGKILL)
+        breaker_stdout, breaker_stderr = stale_breaker.communicate(timeout=30)
+        assert stale_breaker.returncode != 0, breaker_stdout + breaker_stderr
+        assert (
+            preserved_root
+            / ".freak-stale-takeover"
+        ).is_file()
+
         race_processes: list[subprocess.Popen[str]] = []
         race_ready: list[Path] = []
         for contender_index in range(2):
@@ -930,6 +1016,7 @@ def check_offline_installer(
         winner_stdout, winner_stderr = race_processes[winner_index].communicate(timeout=30)
         assert race_processes[winner_index].returncode != 0, winner_stdout + winner_stderr
         winner_output = winner_stdout + winner_stderr
+        assert "Recovered interrupted stale-lock takeover" in winner_output
         assert "Recovered stale installer lock" in winner_output
         assert "Recovered the previous payload" in winner_output
         for relative, contents in preserved_files.items():
@@ -948,7 +1035,9 @@ def check_offline_installer(
             errors="replace", timeout=120,
         )
         assert missing_owner.returncode != 0, missing_owner.stdout + missing_owner.stderr
-        assert "Recovered stale installer lock" in missing_owner.stdout
+        assert "Recovered stale installer lock" in missing_owner.stdout, (
+            missing_owner.stdout + missing_owner.stderr
+        )
         assert not missing_owner_lock.exists()
 
         reused_pid_lock = preserved_root / ".freak-install.lock"
@@ -984,7 +1073,7 @@ def check_offline_installer(
         assert symlink_attempt.returncode != 0, symlink_attempt.stdout + symlink_attempt.stderr
         assert "unsafe freak installer lock path" in (
             symlink_attempt.stdout + symlink_attempt.stderr
-        ).lower()
+        ).lower(), symlink_attempt.stdout + symlink_attempt.stderr
         assert external_owner.read_text(encoding="utf-8").startswith("999999|")
         lock_symlink.unlink()
 

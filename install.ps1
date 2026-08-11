@@ -35,6 +35,7 @@ $BinDir = Join-Path $InstallDir "bin"
 $InstallLockPath = Join-Path $InstallDir ".freak-install.lock"
 $InstallLockStream = $null
 $RecoveredPendingUpgrade = $false
+$DeferredHelperUnsafe = $false
 
 function Acquire-InstallLock {
     [System.IO.Directory]::CreateDirectory($InstallDir) | Out-Null
@@ -86,7 +87,7 @@ function Test-DeferredUpgradeHelperActive {
         $helperStart = [long]$parts[1]
         $helper = Get-Process -Id $helperPid -ErrorAction Stop
         if ($helper.StartTime.ToFileTimeUtc() -ne $helperStart) { return $false }
-        return Test-DeferredUpgradeHelperLockHeld
+        return $true
     } catch {
         return $false
     }
@@ -480,6 +481,9 @@ exit 1
 "@
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($apply))
     $helper = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encoded" -WindowStyle Hidden -PassThru
+    if ($env:FREAK_INSTALL_TEST_HELPER_PID) {
+        Set-Content -LiteralPath $env:FREAK_INSTALL_TEST_HELPER_PID -Value $helper.Id -Encoding UTF8
+    }
     $helperReady = $false
     for ($attempt = 0; $attempt -lt 100; $attempt++) {
         if ($helper.HasExited) { break }
@@ -497,18 +501,23 @@ exit 1
         Start-Sleep -Milliseconds 50
     }
     if (-not $helperReady -and (Test-Path -LiteralPath $pendingPath -PathType Leaf)) {
+        $helperTerminated = $false
         try {
             if (-not $helper.HasExited) { Stop-Process -Id $helper.Id -Force -ErrorAction Stop }
-            $helper.WaitForExit(5000) | Out-Null
+            $helperTerminated = $helper.WaitForExit(5000)
         } catch { }
+        try { $helper.Refresh(); $helperTerminated = $helper.HasExited } catch { }
+        if (-not $helperTerminated) {
+            $script:DeferredHelperUnsafe = $true
+            Set-Content -LiteralPath $helperReadyPath -Value "$($helper.Id)|$($helper.StartTime.ToFileTimeUtc())" -Encoding UTF8
+            throw "Deferred FREAK binary replacement helper could not be stopped safely"
+        }
         if (Test-DeferredUpgradeHelperLockHeld) {
+            $script:DeferredHelperUnsafe = $true
             throw "Deferred FREAK binary replacement helper could not be stopped safely"
         }
         Remove-Item -LiteralPath $helperReadyPath, $helperLockPath -Force -ErrorAction SilentlyContinue
         throw "Deferred FREAK binary replacement helper did not become ready"
-    }
-    if ($env:FREAK_INSTALL_TEST_HELPER_PID) {
-        Set-Content -LiteralPath $env:FREAK_INSTALL_TEST_HELPER_PID -Value $helper.Id -Encoding UTF8
     }
 }
 
@@ -580,6 +589,9 @@ function Install-StagedPayload {
         }
     } catch {
         $applyError = $_.Exception.Message
+        if ($script:DeferredHelperUnsafe) {
+            Err "Could not safely roll back while the deferred binary helper remains active; pending state was preserved ($applyError)"
+        }
         Remove-Item -LiteralPath "$BinDir\freak.exe.next", "$BinDir\hangar.exe.next" -Force -ErrorAction SilentlyContinue
         if ($UpgradeMode -and -not $script:RecoveredPendingUpgrade) {
             Remove-Item -LiteralPath "$BinDir\.freak-upgrade-pending" -Force -ErrorAction SilentlyContinue
