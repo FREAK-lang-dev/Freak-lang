@@ -261,6 +261,12 @@ def check_static_contracts(repo: Path) -> None:
         'pilot lookup_target = "$PATH:" + argv0',
         "if resolved == \"\" or not fs::exists(resolved)",
         'if not resolved.contains("/")',
+        "CLI_PAYLOAD_ERROR_PREFIX",
+        "task cli_payload_is_resolution_error(value: word) -> bool",
+        "task cli_is_repo_checkout_root(root: word) -> bool",
+        "task cli_windows_cwd_is_shell_fallback(cwd: word) -> bool",
+        "PAYLOAD RESOLUTION FAILED",
+        "if not fs::exists(absolute) { give back \"\" }",
     ):
         assert needle in build_text, f"executable discovery missing {needle}"
     assert build_text.count(
@@ -1510,6 +1516,67 @@ def check_doctor(
         repo / "std"
     ).resolve()
 
+    # Checkout ownership is structural, not conditional on a healthy payload.
+    # A damaged <checkout>/build compiler must diagnose that checkout instead
+    # of silently borrowing a complete user installation with the same ABI.
+    damaged_checkout = root / "doctor-damaged-checkout"
+    damaged_build = damaged_checkout / "build"
+    damaged_build.mkdir(parents=True)
+    damaged_compiler = damaged_build / compiler.name
+    shutil.copy2(repo_compiler, damaged_compiler)
+    damaged_v3 = damaged_checkout / "src" / "compiler" / "v3"
+    damaged_v3.mkdir(parents=True)
+    shutil.copy2(repo / "src" / "compiler" / "v3" / "main.fk", damaged_v3 / "main.fk")
+    damaged_cli = damaged_checkout / "src" / "cli"
+    damaged_cli.mkdir(parents=True)
+    shutil.copy2(repo / "src" / "cli" / "build.fk", damaged_cli / "build.fk")
+    damaged_packaging = damaged_checkout / "packaging"
+    damaged_packaging.mkdir()
+    shutil.copy2(
+        repo / "packaging" / "distribution-files.manifest",
+        damaged_packaging / "distribution-files.manifest",
+    )
+    shutil.copytree(repo / "freakc" / "runtime", damaged_checkout / "freakc" / "runtime")
+    shutil.copytree(repo / "std", damaged_checkout / "std")
+    (damaged_checkout / "std" / "math.fk").unlink()
+    (damaged_checkout / "freakc" / "runtime" / "freak_abi").unlink()
+
+    damaged_env = repo_env.copy()
+    if sys.platform == "win32":
+        installed_parent = root / "doctor-damaged-installed-appdata"
+        installed_decoy = installed_parent / "freak"
+        damaged_env["APPDATA"] = str(installed_parent)
+    else:
+        installed_parent = root / "doctor-damaged-installed-home"
+        installed_decoy = installed_parent / ".freak"
+        damaged_env["HOME"] = str(installed_parent)
+    populate_payload(repo, installed_decoy, entries)
+
+    damaged = run_cli(
+        damaged_compiler, shadow_cwd, damaged_env, "doctor", "--json"
+    )
+    assert damaged.returncode != 0, damaged.stdout + damaged.stderr
+    damaged_report = json.loads(damaged.stdout)
+    assert Path(damaged_report["checks"]["runtime"]["path"]).resolve() == (
+        damaged_checkout / "freakc" / "runtime"
+    ).resolve()
+    assert Path(damaged_report["checks"]["stdlib"]["path"]).resolve() == (
+        damaged_checkout / "std"
+    ).resolve()
+    assert damaged_report["checks"]["abi"]["runtime"] == "missing"
+    assert "math.fk" in damaged_report["checks"]["stdlib"]["missing"]
+    damaged_build_result = run_cli(
+        damaged_compiler,
+        shadow_cwd,
+        damaged_env,
+        "build",
+        str(abi_source),
+        "--c",
+    )
+    assert damaged_build_result.returncode != 0
+    assert "abi mismatch" in damaged_build_result.stdout.lower()
+    assert not Path(str(abi_source) + ".c").exists()
+
     # A slashless argv[0] that cannot be found in PATH has no executable
     # identity. Even a same-named CWD decoy inside an otherwise recognizable
     # repository layout must not enable the development payload fallback.
@@ -1612,6 +1679,34 @@ def check_doctor(
             symlink_home / "std"
         ).resolve()
 
+        # Broken and cyclic argv[0] links never acquire payload identity. Run
+        # the real compiler with a deliberately different argv[0] so the
+        # resolver, rather than the operating system loader, owns the failure.
+        broken_shim = shim_dir / "broken-freak"
+        broken_shim.symlink_to("missing-freak-target")
+        cycle_a = shim_dir / "cycle-a"
+        cycle_b = shim_dir / "cycle-b"
+        cycle_a.symlink_to(cycle_b.name)
+        cycle_b.symlink_to(cycle_a.name)
+        for invalid_shim in (broken_shim, cycle_a):
+            invalid_link = subprocess.run(
+                [str(invalid_shim), "doctor", "--json"],
+                executable=str(compiler),
+                cwd=unresolved_cwd,
+                env=repo_env,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=180,
+                check=False,
+            )
+            assert invalid_link.returncode != 0, (
+                invalid_link.stdout + invalid_link.stderr
+            )
+            invalid_report = json.loads(invalid_link.stdout)
+            assert invalid_report["checks"]["runtime"]["path"] == ""
+            assert invalid_report["checks"]["stdlib"]["path"] == ""
+
     # An executable in an archive-style <home>/bin directory owns that payload
     # even when it is incomplete. Falling through to the hostile CWD would hide
     # a damaged installation and compile attacker-controlled runtime sources.
@@ -1658,6 +1753,7 @@ def check_doctor(
     assert not Path(str(abi_source) + ".c").exists()
 
     if sys.platform == "win32":
+        resolution_error_prefix = "!freak-payload-resolution-error!"
         # WinGet exposes an alias from Microsoft/WinGet/Links rather than the
         # package's bin directory. The registered package must beat both CWD
         # and an unrelated default AppData installation.
@@ -1732,8 +1828,8 @@ def check_doctor(
         slashless_decoy.unlink()
 
         # An alias with zero matching packages is still authoritative. Return
-        # the durable missing-package sentinel instead of falling through to a
-        # complete but unrelated AppData installation or the project CWD.
+        # an explicit resolution error instead of falling through to a complete
+        # but unrelated AppData installation or the project CWD.
         empty_winget_local = root / "doctor-winget-empty-localappdata"
         empty_packages = empty_winget_local / "Microsoft" / "WinGet" / "Packages"
         empty_packages.mkdir(parents=True)
@@ -1741,6 +1837,8 @@ def check_doctor(
         empty_alias_dir.mkdir()
         empty_alias = empty_alias_dir / compiler.name
         shutil.copy2(compiler, empty_alias)
+        missing_alias_collision = empty_packages / ".freak-missing-alias-package"
+        populate_payload(repo, missing_alias_collision, entries)
         empty_appdata_home = root / "doctor-winget-empty-appdata" / "freak"
         populate_payload(repo, empty_appdata_home, entries)
         empty_alias_env = winget_env.copy()
@@ -1758,13 +1856,27 @@ def check_doctor(
         )
         assert empty_alias_result.returncode != 0
         empty_alias_report = json.loads(empty_alias_result.stdout)
-        missing_alias_home = empty_packages / ".freak-missing-alias-package"
-        assert Path(
-            empty_alias_report["checks"]["runtime"]["path"]
-        ).resolve() == (missing_alias_home / "runtime").resolve()
-        assert Path(
-            empty_alias_report["checks"]["stdlib"]["path"]
-        ).resolve() == (missing_alias_home / "std").resolve()
+        missing_runtime = empty_alias_report["checks"]["runtime"]["path"]
+        missing_std = empty_alias_report["checks"]["stdlib"]["path"]
+        assert missing_runtime.startswith(
+            resolution_error_prefix + "winget-missing-alias-package|"
+        )
+        assert missing_std.startswith(
+            resolution_error_prefix + "winget-missing-alias-package|"
+        )
+        assert ".freak-missing-alias-package" not in missing_runtime
+        assert empty_alias_report["checks"]["abi"]["runtime"] == "resolution-error"
+        missing_alias_build = run_cli(
+            empty_alias,
+            shadow_cwd,
+            empty_alias_env,
+            "build",
+            str(abi_source),
+            "--c",
+        )
+        assert missing_alias_build.returncode != 0
+        assert "payload resolution failed" in missing_alias_build.stdout.lower()
+        assert not Path(str(abi_source) + ".c").exists()
 
         # An alias scope containing more than one matching package is
         # ambiguous. Neither an incomplete stale package nor two complete
@@ -1776,24 +1888,46 @@ def check_doctor(
             / "Packages"
             / "FREAK.freak_stale"
         )
+        ambiguous_collision = (
+            winget_local
+            / "Microsoft"
+            / "WinGet"
+            / "Packages"
+            / ".freak-ambiguous-installation"
+        )
+        populate_payload(repo, ambiguous_collision, entries)
         stale_package.mkdir(parents=True)
         stale_ambiguous = run_cli(
             winget_compiler, shadow_cwd, winget_env, "doctor", "--json"
         )
         assert stale_ambiguous.returncode != 0
         stale_report = json.loads(stale_ambiguous.stdout)
-        assert ".freak-ambiguous-installation" in stale_report["checks"][
-            "runtime"
-        ]["path"]
+        stale_runtime = stale_report["checks"]["runtime"]["path"]
+        assert stale_runtime.startswith(
+            resolution_error_prefix + "winget-ambiguous-packages|"
+        )
+        assert ".freak-ambiguous-installation" not in stale_runtime
+        assert stale_report["checks"]["abi"]["runtime"] == "resolution-error"
         populate_payload(repo, stale_package / "freak", entries)
         complete_ambiguous = run_cli(
             winget_compiler, shadow_cwd, winget_env, "doctor", "--json"
         )
         assert complete_ambiguous.returncode != 0
         complete_report = json.loads(complete_ambiguous.stdout)
-        assert ".freak-ambiguous-installation" in complete_report["checks"][
-            "stdlib"
-        ]["path"]
+        assert complete_report["checks"]["stdlib"]["path"].startswith(
+            resolution_error_prefix + "winget-ambiguous-packages|"
+        )
+        ambiguous_build = run_cli(
+            winget_compiler,
+            shadow_cwd,
+            winget_env,
+            "build",
+            str(abi_source),
+            "--c",
+        )
+        assert ambiguous_build.returncode != 0
+        assert "payload resolution failed" in ambiguous_build.stdout.lower()
+        assert not Path(str(abi_source) + ".c").exists()
         shutil.rmtree(stale_package)
 
         # Machine-scope aliases live under Program Files/WinGet/Links and must
@@ -1892,6 +2026,70 @@ def check_doctor(
         assert default_build.returncode != 0
         assert "upgrade pending" in default_build.stdout.lower()
         assert not Path(str(abi_source) + ".c").exists()
+
+        # cmd.exe reports WINDIR when it is launched from a UNC cwd. Reject
+        # that reported directory even when a same-named, complete-payload
+        # decoy exists there; existence alone is not executable identity.
+        fallback_home = root / "doctor-windows-cwd-fallback-home"
+        populate_payload(repo, fallback_home, entries)
+        fallback_bin = fallback_home / "bin"
+        fallback_bin.mkdir()
+        fallback_name = "freak-windows-cwd-fallback-probe.exe"
+        fallback_decoy = fallback_bin / fallback_name
+        shutil.copy2(compiler, fallback_decoy)
+        fallback_env = repo_env.copy()
+        fallback_env.pop("WINDIR", None)
+        fallback_env["SystemRoot"] = str(fallback_bin)
+        fallback = subprocess.run(
+            [f".\\{fallback_name}", "doctor", "--json"],
+            executable=str(compiler),
+            cwd=fallback_bin,
+            env=fallback_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=180,
+            check=False,
+        )
+        assert fallback.returncode != 0, fallback.stdout + fallback.stderr
+        fallback_report = json.loads(fallback.stdout)
+        assert fallback_report["checks"]["runtime"]["path"] == ""
+        assert fallback_report["checks"]["stdlib"]["path"] == ""
+
+        # Exercise the real UNC behavior when the runner exposes its temporary
+        # drive through the standard localhost administrative share. Hardened
+        # hosts may disable that share; the deterministic decoy case above is
+        # the mandatory guard coverage on every Windows run.
+        resolved_root = root.resolve()
+        if len(resolved_root.drive) == 2 and resolved_root.drive[1] == ":":
+            unc_root = (
+                Path(rf"\\localhost\{resolved_root.drive[0]}$")
+                / resolved_root.relative_to(resolved_root.anchor)
+            )
+            if unc_root.exists():
+                unc_home_local = root / "doctor-unc-relative-home"
+                populate_payload(repo, unc_home_local, entries)
+                unc_bin_local = unc_home_local / "bin"
+                unc_bin_local.mkdir()
+                unc_name = "freak-unc-relative-probe.exe"
+                unc_compiler_local = unc_bin_local / unc_name
+                shutil.copy2(compiler, unc_compiler_local)
+                unc_bin = unc_root / "doctor-unc-relative-home" / "bin"
+                unc = subprocess.run(
+                    [f".\\{unc_name}", "doctor", "--json"],
+                    executable=str(unc_compiler_local),
+                    cwd=unc_bin,
+                    env=repo_env,
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    timeout=180,
+                    check=False,
+                )
+                assert unc.returncode != 0, unc.stdout + unc.stderr
+                unc_report = json.loads(unc.stdout)
+                assert unc_report["checks"]["runtime"]["path"] == ""
+                assert unc_report["checks"]["stdlib"]["path"] == ""
 
     # Direct archive use (`cd <home>/bin && ./freak`) supplies a relative
     # argv[0]. It must still resolve the executable-adjacent payload before

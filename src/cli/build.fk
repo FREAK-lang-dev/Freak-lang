@@ -7,6 +7,18 @@
 -- Timing state for build steps
 pilot cli_build_start_ms = 0
 pilot cli_step_ms = 0
+pilot CLI_PAYLOAD_ERROR_PREFIX = "!freak-payload-resolution-error!"
+
+task cli_payload_resolution_error(kind: word, root: word) -> word {
+    -- Resolution failures are values, not filesystem sentinels. A directory
+    -- with a suggestive name must never turn an ambiguous/missing package into
+    -- a usable payload merely by containing compatible ABI markers.
+    give back CLI_PAYLOAD_ERROR_PREFIX + kind + "|" + root
+}
+
+task cli_payload_is_resolution_error(value: word) -> bool {
+    give back value.starts_with(CLI_PAYLOAD_ERROR_PREFIX)
+}
 
 task cli_step_start() -> void {
     cli_step_ms = time::now_ms()
@@ -220,6 +232,24 @@ task cli_current_dir() -> word {
     give back cli_first_line(process::exec_capture(command)).trim()
 }
 
+task cli_windows_cwd_is_shell_fallback(cwd: word) -> bool {
+    if not cli_is_windows() or cwd == "" { give back false }
+    pilot windir = process::env("WINDIR").replace("\\", "/").to_lower().trim()
+    pilot system_root = process::env("SystemRoot").replace("\\", "/").to_lower().trim()
+    pilot normalized = cwd.replace("\\", "/").to_lower().trim()
+    if windir.ends_with("/") {
+        windir = windir.substring(0, windir.length() - 1)
+    }
+    if system_root.ends_with("/") {
+        system_root = system_root.substring(0, system_root.length() - 1)
+    }
+    if normalized.ends_with("/") {
+        normalized = normalized.substring(0, normalized.length() - 1)
+    }
+    if windir != "" and normalized == windir { give back true }
+    give back system_root != "" and normalized == system_root
+}
+
 task cli_posix_path_parent(path: word) -> word {
     pilot last_sep = -1
     pilot pi = 0
@@ -315,7 +345,15 @@ task cli_executable_path() -> word {
         pilot cwd = cli_current_dir()
         if cwd == "" { give back "" }
         pilot absolute = cwd + "/" + relative
-        if cli_is_windows() { give back absolute }
+        if cli_is_windows() {
+            -- cmd.exe reports %WINDIR% when the real process cwd is UNC. Never
+            -- trust that fallback even if a same-named decoy exists there.
+            if cli_windows_cwd_is_shell_fallback(cwd) { give back "" }
+            -- Other shell/cwd failures must also fail closed rather than
+            -- returning an unverified synthesized executable identity.
+            if not fs::exists(absolute) { give back "" }
+            give back absolute
+        }
         give back cli_posix_canonical_executable(absolute)
     }
 
@@ -372,7 +410,7 @@ task cli_find_winget_home_in(root: word) -> word {
         -- Package enumeration order is not an ownership signal. Refuse an
         -- ambiguous root rather than silently mixing a stale package with the
         -- compiler alias that happened to launch this process.
-        give back root + "/.freak-ambiguous-installation"
+        give back cli_payload_resolution_error("winget-ambiguous-packages", root)
     }
     give back ""
 }
@@ -478,7 +516,7 @@ task cli_find_winget_alias_home() -> word {
     -- The alias itself proves this scope owns a WinGet installation. A missing
     -- package is an incomplete installation, not permission to fall through
     -- to AppData, HOME, or the project directory.
-    give back packages_root + "/.freak-missing-alias-package"
+    give back cli_payload_resolution_error("winget-missing-alias-package", packages_root)
 }
 
 task cli_is_repo_payload_root(root: word) -> bool {
@@ -486,6 +524,17 @@ task cli_is_repo_payload_root(root: word) -> bool {
     if not cli_has_runtime(root + "/freakc/runtime") { give back false }
     if not fs::exists(root + "/std/math.fk") { give back false }
     if not fs::exists(root + "/src/compiler/v3/main.fk") { give back false }
+    give back true
+}
+
+task cli_is_repo_checkout_root(root: word) -> bool {
+    -- Checkout identity must not disappear merely because the payload being
+    -- diagnosed is damaged. These source-tree markers are independent of the
+    -- runtime/std files whose absence Doctor must report.
+    if root == "" { give back false }
+    if not fs::exists(root + "/src/compiler/v3") { give back false }
+    if not fs::exists(root + "/src/cli") { give back false }
+    if not fs::exists(root + "/packaging/distribution-files.manifest") { give back false }
     give back true
 }
 
@@ -499,7 +548,7 @@ task cli_payload_home_present(root: word) -> bool {
 
 task cli_executable_repo_root() -> word {
     pilot root = cli_executable_home()
-    if cli_is_repo_payload_root(root) { give back root }
+    if cli_is_repo_checkout_root(root) { give back root }
     give back ""
 }
 
@@ -508,7 +557,7 @@ task cli_executable_payload_home() -> word {
     pilot bin_dir = cli_path_parent(executable)
     if bin_dir == "" { give back "" }
     pilot root = cli_path_parent(bin_dir)
-    if root == "" or cli_is_repo_payload_root(root) { give back "" }
+    if root == "" or cli_is_repo_checkout_root(root) { give back "" }
 
     -- Archive/install layouts always place the executable in <home>/bin.
     -- That location remains authoritative when runtime/std are incomplete so
@@ -951,6 +1000,7 @@ task cli_find_std_dir() -> word {
 
 task cli_payload_abi_value(directory: word) -> word {
     if directory == "" { give back "missing" }
+    if cli_payload_is_resolution_error(directory) { give back "resolution-error" }
     pilot marker = directory + "/freak_abi"
     if not fs::exists(marker) { give back "missing" }
     give back fs::read(marker).trim()
@@ -982,7 +1032,7 @@ task cli_pending_upgrade_marker() -> word {
     }
 
     pilot installed_home = cli_default_payload_home()
-    if installed_home != "" {
+    if installed_home != "" and not cli_payload_is_resolution_error(installed_home) {
         pilot installed_pending = installed_home + "/bin/.freak-upgrade-pending"
         if fs::exists(installed_pending) { give back installed_pending }
     }
@@ -1003,6 +1053,15 @@ task cli_build_environment_ready() -> bool {
 
     pilot runtime_dir = cli_find_runtime_dir()
     pilot std_dir = cli_find_std_dir()
+    if cli_payload_is_resolution_error(runtime_dir) or cli_payload_is_resolution_error(std_dir) {
+        say ""
+        say C_BRED + "  PAYLOAD RESOLUTION FAILED" + C_RESET
+        say C_DIM + "  Runtime resolution: " + runtime_dir + C_RESET
+        say C_DIM + "  Standard library resolution: " + std_dir + C_RESET
+        say C_DIM + "  Repair the selected installation before building." + C_RESET
+        say ""
+        give back false
+    }
     if not cli_payload_abi_ok(runtime_dir, std_dir) {
         say ""
         say C_BRED + "  ABI MISMATCH" + C_RESET
