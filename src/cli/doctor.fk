@@ -5,6 +5,8 @@
 -- freak doctor --fix  — diagnose AND auto-install missing tools
 -- ===================================================================
 
+pilot cli_doctor_retained_probe_path: word = ""
+
 task cli_doctor_json_escape(input: word) -> word {
     pilot out = ""
     pilot i = 0
@@ -57,21 +59,38 @@ task cli_doctor_temp_stem(prefix: word) -> word {
     if temp_dir == "" { temp_dir = "." }
     if probe_nonce == "" { probe_nonce = "0" }
     pilot probe_id = word_from_int(time::now_ms()) + "_" + probe_nonce
-    pilot probe_dir = temp_dir
-    if not probe_dir.ends_with("/") and not probe_dir.ends_with("\\") {
-        probe_dir = probe_dir + "/"
+    pilot forced_id: word = process::env("FREAK_DOCTOR_TEST_PROBE_ID")
+    if forced_id == "collision" { probe_id = "collision" }
+    pilot temp_prefix = temp_dir
+    if not temp_prefix.ends_with("/") and not temp_prefix.ends_with("\\") {
+        temp_prefix = temp_prefix + "/"
     }
-    probe_dir = probe_dir + prefix + probe_id
-    fs::make_dir(probe_dir)
-    give back probe_dir + "/probe"
+    pilot attempt = 0
+    repeat until attempt >= 8 {
+        pilot probe_dir = temp_prefix + prefix + probe_id + "_" + word_from_int(attempt)
+        pilot mkdir_cmd = "mkdir " + cli_quote_cmd_path(probe_dir) + " >/dev/null 2>/dev/null"
+        if cli_is_windows() {
+            mkdir_cmd = "mkdir " + cli_quote_cmd_path(probe_dir) + " >nul 2>nul"
+        }
+        if process::exec(mkdir_cmd) == 0 { give back probe_dir + "/probe" }
+        attempt += 1
+    }
+    give back ""
 }
 
-task cli_doctor_remove_temp_parent(probe_path: word) -> void {
+task cli_doctor_remove_temp_parent(probe_path: word) -> bool {
+    if probe_path == "" { give back false }
     pilot probe_dir = cli_path_parent(probe_path)
-    if probe_dir == "" { give back }
+    if probe_dir == "" { give back false }
+    pilot retain_probe: word = process::env("FREAK_DOCTOR_TEST_RETAIN_PROBE")
+    if retain_probe == "1" {
+        cli_doctor_retained_probe_path = probe_dir
+        give back false
+    }
     if cli_is_windows() {
         pilot remove_cmd = "rmdir /s /q " + cli_quote_cmd_path(probe_dir) + " >nul 2>nul"
-        process::exec(remove_cmd)
+        pilot fail_first: word = process::env("FREAK_DOCTOR_TEST_FAIL_FIRST_REMOVE")
+        if fail_first != "1" { process::exec(remove_cmd) }
         -- Antivirus and debugger helpers may briefly retain a just-executed
         -- probe. Retry only this unique Doctor directory after one short tick.
         if fs::exists(probe_dir) {
@@ -80,12 +99,18 @@ task cli_doctor_remove_temp_parent(probe_path: word) -> void {
     } else {
         process::exec("rm -rf -- " + cli_quote_cmd_path(probe_dir) + " >/dev/null 2>/dev/null")
     }
+    if fs::exists(probe_dir) {
+        cli_doctor_retained_probe_path = probe_dir
+        give back false
+    }
+    give back true
 }
 
 task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     if clang_cmd == "" { give back false }
     pilot windir: word = process::env("WINDIR")
     pilot probe_stem = cli_doctor_temp_stem("freak-doctor-clang-probe-")
+    if probe_stem == "" { give back false }
     pilot probe_source = probe_stem + ".c"
     pilot probe_binary = probe_stem
     if windir != "" { probe_binary = probe_binary + ".exe" }
@@ -113,8 +138,8 @@ task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     if fs::exists(probe_stem + ".obj") { fs::delete(probe_stem + ".obj") }
     if fs::exists(probe_stem + ".o") { fs::delete(probe_stem + ".o") }
     if fs::exists(probe_stem + ".pdb") { fs::delete(probe_stem + ".pdb") }
-    cli_doctor_remove_temp_parent(probe_source)
-    give back probe_ok
+    pilot cleanup_ok = cli_doctor_remove_temp_parent(probe_source)
+    give back probe_ok and cleanup_ok
 }
 
 task cli_doctor_clang_version_line(clang_cmd: word) -> word {
@@ -208,6 +233,7 @@ task cli_doctor_std_missing(std_dir: word) -> word {
 }
 
 task cli_doctor_json() -> int {
+    cli_doctor_retained_probe_path = ""
     pilot os_tag = "unix"
     pilot is_win = false
     pilot windir_env: word = process::env("WINDIR")
@@ -272,7 +298,8 @@ task cli_doctor_json() -> int {
     say "    \"clang\": {"
     say "      \"ok\": " + cli_doctor_json_bool(clang_ok) + ","
     say "      \"command\": \"" + cli_doctor_json_escape(clang_cmd) + "\","
-    say "      \"version\": \"" + cli_doctor_json_escape(clang_version) + "\""
+    say "      \"version\": \"" + cli_doctor_json_escape(clang_version) + "\","
+    say "      \"cleanup_retained\": \"" + cli_doctor_json_escape(cli_doctor_retained_probe_path) + "\""
     say "    },"
     say "    \"lld\": {"
     say "      \"ok\": " + cli_doctor_json_bool(lld_ok) + ","
@@ -383,6 +410,7 @@ task cli_install_clang(os_tag: word) -> int {
 }
 
 task cli_doctor(fix_mode: bool) -> int {
+    cli_doctor_retained_probe_path = ""
     -- Detect OS
     pilot os_tag = "unix"
     pilot is_win = false
@@ -432,6 +460,9 @@ task cli_doctor(fix_mode: bool) -> int {
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " clang toolchain " + C_RED + "unusable" + C_RESET
         say "        " + C_DIM + "The C headers, linker, or generated executable probe failed." + C_RESET
+        if cli_doctor_retained_probe_path != "" {
+            say "        " + C_BYELLOW + "Probe cleanup could not finish; retained: " + cli_doctor_retained_probe_path + C_RESET
+        }
         all_ok = false
         if fix_mode {
             say "        " + C_DIM + "Attempting auto-install..." + C_RESET
@@ -563,34 +594,44 @@ task cli_doctor(fix_mode: bool) -> int {
     say "  " + C_BWHITE + "[5/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " compile pipeline"
     if clang_ok and runtime_missing == "" and std_missing == "" and abi_ok and pending_marker == "" {
         pilot test_src = "say \"FREAK doctor test\""
-        pilot test_path = cli_doctor_temp_stem("freak-doctor-pipeline-probe-") + ".fk"
-        fs::write(test_path, test_src)
-        pilot bin: word = cli_build(test_path, "llvm", "0", "")
-        if bin != "" {
-            pilot probe_exit = process::exec(cli_shell_command_prefix(cli_quote_cmd_path(bin)))
-            if probe_exit == 0 {
-                say "        " + C_BGREEN + SYM_CHECK + C_RESET + " compile, link, and execution work"
-                checks_passed += 1
+        pilot test_probe = cli_doctor_temp_stem("freak-doctor-pipeline-probe-")
+        if test_probe == "" {
+            say "        " + C_BRED + SYM_CROSS + C_RESET + " could not create an owned temporary probe directory"
+            all_ok = false
+        } else {
+            pilot test_path = test_probe + ".fk"
+            fs::write(test_path, test_src)
+            pilot bin: word = cli_build(test_path, "llvm", "0", "")
+            if bin != "" {
+                pilot probe_exit = process::exec(cli_shell_command_prefix(cli_quote_cmd_path(bin)))
+                if probe_exit == 0 {
+                    say "        " + C_BGREEN + SYM_CHECK + C_RESET + " compile, link, and execution work"
+                    checks_passed += 1
+                } else {
+                    say "        " + C_BRED + SYM_CROSS + C_RESET + " compiled probe failed at runtime"
+                    all_ok = false
+                }
             } else {
-                say "        " + C_BRED + SYM_CROSS + C_RESET + " compiled probe failed at runtime"
+                say "        " + C_BRED + SYM_CROSS + C_RESET + " compiler/linker error (see above)"
                 all_ok = false
             }
-        } else {
-            say "        " + C_BRED + SYM_CROSS + C_RESET + " compiler/linker error (see above)"
-            all_ok = false
+            pilot test_stem = cli_strip_fk(test_path)
+            if fs::exists(test_path) { fs::delete(test_path) }
+            if fs::exists(test_path + ".ll") { fs::delete(test_path + ".ll") }
+            if fs::exists(test_path + ".c") { fs::delete(test_path + ".c") }
+            if bin != "" {
+                if fs::exists(bin) { fs::delete(bin) }
+                if fs::exists(bin + ".freak-run-cache") { fs::delete(bin + ".freak-run-cache") }
+            }
+            if fs::exists(test_stem + ".o") { fs::delete(test_stem + ".o") }
+            if fs::exists(test_stem + ".obj") { fs::delete(test_stem + ".obj") }
+            if fs::exists(test_stem + ".pdb") { fs::delete(test_stem + ".pdb") }
+            pilot cleanup_ok = cli_doctor_remove_temp_parent(test_path)
+            if not cleanup_ok {
+                say "        " + C_BYELLOW + "Probe cleanup could not finish; retained: " + cli_doctor_retained_probe_path + C_RESET
+                all_ok = false
+            }
         }
-        pilot test_stem = cli_strip_fk(test_path)
-        if fs::exists(test_path) { fs::delete(test_path) }
-        if fs::exists(test_path + ".ll") { fs::delete(test_path + ".ll") }
-        if fs::exists(test_path + ".c") { fs::delete(test_path + ".c") }
-        if bin != "" {
-            if fs::exists(bin) { fs::delete(bin) }
-            if fs::exists(bin + ".freak-run-cache") { fs::delete(bin + ".freak-run-cache") }
-        }
-        if fs::exists(test_stem + ".o") { fs::delete(test_stem + ".o") }
-        if fs::exists(test_stem + ".obj") { fs::delete(test_stem + ".obj") }
-        if fs::exists(test_stem + ".pdb") { fs::delete(test_stem + ".pdb") }
-        cli_doctor_remove_temp_parent(test_path)
     } else {
         say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " skipped (fix clang/payload/ABI/pending upgrade first)" + C_RESET
     }

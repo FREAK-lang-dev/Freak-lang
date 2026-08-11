@@ -183,6 +183,10 @@ def check_static_contracts(repo: Path) -> None:
         "FREAK_DOCTOR_INSTALL_COMMAND",
         'process::env("TMPDIR")',
         'pilot probe_nonce: word = ""',
+        "FREAK_DOCTOR_TEST_PROBE_ID",
+        "FREAK_DOCTOR_TEST_FAIL_FIRST_REMOVE",
+        "FREAK_DOCTOR_TEST_RETAIN_PROBE",
+        "cleanup_retained",
         "cli_quote_cmd_path(probe_source)",
         "probe_run_exit == 0",
         "clang toolchain ",
@@ -676,6 +680,7 @@ def check_doctor(
     assert healthy.stderr == "", healthy.stderr
     report = json.loads(healthy.stdout)
     assert report["status"] == "ok"
+    assert report["checks"]["clang"]["cleanup_retained"] == ""
     assert Path(report["checks"]["runtime"]["path"]).resolve() == (
         payload / "runtime"
     ).resolve()
@@ -791,6 +796,60 @@ def check_doctor(
         )
         assert "compile, link, and execution work" in read_only_full.stdout
         assert not list(read_only_cwd.iterdir()), "doctor wrote into read-only cwd"
+
+    # A pre-existing predictable candidate is not ours to delete. Atomic
+    # mkdir must skip it, use the next suffix, and preserve both sentinels.
+    collision_env = env.copy()
+    collision_env["FREAK_DOCTOR_TEST_PROBE_ID"] = "collision"
+    collision_dirs = (
+        probe_temp / "freak-doctor-clang-probe-collision_0",
+        probe_temp / "freak-doctor-pipeline-probe-collision_0",
+    )
+    for collision_dir in collision_dirs:
+        collision_dir.mkdir()
+        (collision_dir / "unrelated-sentinel").write_bytes(b"preserve me\n")
+    collision = run_cli(compiler, cwd, collision_env, "doctor")
+    assert collision.returncode == 0, collision.stdout + collision.stderr
+    for collision_dir in collision_dirs:
+        sentinel = collision_dir / "unrelated-sentinel"
+        assert sentinel.read_bytes() == b"preserve me\n"
+        assert list(collision_dir.iterdir()) == [sentinel]
+        shutil.rmtree(collision_dir)
+    assert not list(probe_temp.glob("freak-doctor-*-probe-collision_*"))
+
+    if sys.platform == "win32":
+        # Exercise the transient-lock retry with a shell-metacharacter-bearing
+        # temp root. The test hook skips the first rmdir without weakening the
+        # ownership check or the real second removal.
+        retry_temp = root / "doctor & retry probes"
+        retry_temp.mkdir()
+        retry_env = env.copy()
+        retry_env["TEMP"] = str(retry_temp)
+        retry_env["TMP"] = str(retry_temp)
+        retry_env["TMPDIR"] = str(retry_temp)
+        retry_env["FREAK_DOCTOR_TEST_FAIL_FIRST_REMOVE"] = "1"
+        retried = run_cli(compiler, cwd, retry_env, "doctor")
+        assert retried.returncode == 0, retried.stdout + retried.stderr
+        assert not list(retry_temp.iterdir()), list(retry_temp.iterdir())
+
+    # If cleanup still cannot finish, Doctor fails closed and names the
+    # retained owned directory instead of claiming success or deleting a
+    # different path.
+    retained_temp = root / "doctor-retained-probes"
+    retained_temp.mkdir()
+    retained_env = env.copy()
+    retained_env["TEMP"] = str(retained_temp)
+    retained_env["TMP"] = str(retained_temp)
+    retained_env["TMPDIR"] = str(retained_temp)
+    retained_env["FREAK_DOCTOR_TEST_RETAIN_PROBE"] = "1"
+    retained = run_cli(compiler, cwd, retained_env, "doctor", "--json")
+    assert retained.returncode != 0, retained.stdout + retained.stderr
+    retained_report = json.loads(retained.stdout)
+    retained_path = Path(retained_report["checks"]["clang"]["cleanup_retained"])
+    assert retained_path.is_dir(), retained_path
+    assert retained_path.parent.resolve() == retained_temp.resolve()
+    shutil.rmtree(retained_path)
+    assert not list(retained_temp.iterdir())
 
     ui_module = payload / "std" / "ui" / "window.fk"
     ui_module.unlink()
