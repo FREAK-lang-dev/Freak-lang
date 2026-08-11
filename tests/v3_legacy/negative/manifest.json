@@ -220,6 +220,237 @@
         "--strict-borrow"
       ],
       "direct": true
+    },
+    {
+      "name": "semantic_unknown_type",
+      "kind": "type",
+      "file": "semantic_unknown_type.fk",
+      "diagnostic": "unknown or non-value type 'MissingType'",
+      "direct": true
+    },
+    {
+      "name": "semantic_duplicate_params",
+      "kind": "type",
+      "file": "semantic_duplicate_params.fk",
+      "diagnostic": "duplicate parameter 'value'",
+      "direct": true
+    },
+    {
+      "name": "semantic_assignment_narrowing",
+      "kind": "type",
+      "file": "semantic_assignment_narrowing.fk",
+      "diagnostic": "cannot assign num to int",
+      "direct": true
+    },
+    {
+      "name": "semantic_invalid_lvalue",
+      "kind": "type",
+      "file": "semantic_invalid_lvalue.fk",
+      "diagnostic": "assignment target is not an assignable binding or shape field",
+      "direct": true
+    },
+    {
+      "name": "semantic_operator_domain",
+      "kind": "type",
+      "file": "semantic_operator_domain.fk",
+      "diagnostic": "operator '+' does not accept word and int",
+      "direct": true
+    },
+    {
+      "name": "semantic_unsupported_shape_operator",
+      "kind": "type",
+      "file": "semantic_unsupported_shape_operator.fk",
+      "diagnostic": "operator '+' does not accept Vector3 and Vector3",
+      "direct": true
+    },
+    {
+      "name": "semantic_multiline_operator",
+      "kind": "type",
+      "file": "semantic_multiline_operator.fk",
+      "diagnostic": "operator '+' does not accept word and int",
+      "direct": true
+    },
+    {
+      "name": "semantic_condition_types",
+      "kind": "type",
+      "file": "semantic_condition_types.fk",
+      "diagnostic": "if condition must have type bool",
+      "direct": true
+    },
+    {
+      "name": "semantic_multiline_condition",
+      "kind": "type",
+      "file": "semantic_multiline_condition.fk",
+      "diagnostic": "if condition must have type bool, got int",
+      "direct": true
+    },
+    {
+      "name": "semantic_multiline_member",
+      "kind": "type",
+      "file": "semantic_multiline_member.fk",
+      "diagnostic": "shape 'Box' has no method 'missing'",
+      "direct": true
+    },
+    {
+      "name": "semantic_when_case_type",
+      "kind": "type",
+      "file": "semantic_when_case_type.fk",
+      "diagnostic": "when case type int does not match target type word",
+      "direct": true
+    },
+    {
+      "name": "semantic_when_expression_case",
+      "kind": "type",
+      "file": "semantic_when_expression_case.fk",
+      "diagnostic": "when case must be a literal or '_'",
+      "direct": true
+    },
+    {
+      "name": "semantic_user_call_signature",
+      "kind": "type",
+      "file": "semantic_user_call_signature.fk",
+      "diagnostic": "call to 'consume' expects 2 argument(s), got 1",
+      "direct": true
+    },
+    {
+      "name": "semantic_extern_call_signature",
+      "kind": "type",
+      "file": "semantic_extern_call_signature.fk",
+      "diagnostic": "call to 'foreign_value' argument 1 expects int, got word",
+      "direct": true
+    },
+    {
+      "name": "semantic_builtin_call_signature",
+      "kind": "type",
+      "file": "semantic_builtin_call_signature.fk",
+      "diagnostic": "call to 'math::pow' expects 2 argument(s), got 1",
+      "direct": true
+    },
+    {
+      "name": "semantic_builtin_method_signature",
+      "kind": "type",
+      "file": "semantic_builtin_method_signature.fk",
+      "diagnostic": "method 'substring' expects 2 argument(s), got 1",
+      "direct": true
+    },
+    {
+      "name": "semantic_impl_call_signature",
+      "kind": "type",
+      "file": "semantic_impl_call_signature.fk",
+      "diagnostic": "method 'add' argument 1 expects int, got word",
+      "direct": true
+    },
+    {
+      "name": "semantic_pipe_signature",
+      "kind": "type",
+      "file": "semantic_pipe_signature.fk",
+      "diagnostic": "call to 'labelled' expects 2 argument(s), got 1",
+      "direct": true
+    },
+    {
+      "name": "semantic_unknown_names",
+      "kind": "type",
+      "file": "semantic_unknown_names.fk",
+      "diagnostic": "unknown binding 'missing_binding'",
+      "direct": true
+    },
+    {
+      "name": "semantic_return_contract",
+      "kind": "type",
+      "file": "semantic_return_contract.fk",
+      "diagnostic": "must give back int, got word",
+      "direct": true
+    },
+    {
+      "name": "semantic_control_context",
+      "kind": "type",
+      "file": "semantic_control_context.fk",
+      "diagnostic": "give back is valid only inside a task",
+      "direct": true
+    },
+    {
+      "name": "semantic_nested_declaration",
+      "kind": "type",
+      "file": "semantic_nested_declaration.fk",
+      "diagnostic": "impl declarations are valid only at top level",
+      "direct": true
+    },
+    {
+      "name": "semantic_main_contract",
+      "kind": "type",
+      "file": "semantic_main_contract.fk",
+      "diagnostic": "main must not declare parameters",
+      "direct": true
+    },
+    {
+      "name": "semantic_missing_return",
+      "kind": "type",
+      "file": "semantic_missing_return.fk",
+      "diagnostic": "may finish without giving back int",
+      "direct": true
+    },
+    {
+      "name": "semantic_shape_constructor",
+      "kind": "type",
+      "file": "semantic_shape_constructor.fk",
+      "diagnostic": "shape constructor 'Pair' argument 1 expects int, got word",
+      "direct": true
+    },
+    {
+      "name": "semantic_shape_constructor_unknown_label",
+      "kind": "type",
+      "file": "semantic_shape_constructor_unknown_label.fk",
+      "diagnostic": "shape constructor 'Pair' field 1 must be 'number', got 'missing'",
+      "direct": true
+    },
+    {
+      "name": "semantic_shape_constructor_reordered",
+      "kind": "type",
+      "file": "semantic_shape_constructor_reordered.fk",
+      "diagnostic": "shape constructor 'Pair' field 1 must be 'number', got 'label'",
+      "direct": true
+    },
+    {
+      "name": "semantic_shape_constructor_duplicate_label",
+      "kind": "type",
+      "file": "semantic_shape_constructor_duplicate_label.fk",
+      "diagnostic": "shape constructor 'Pair' field 2 must be 'label', got 'number'",
+      "direct": true
+    },
+    {
+      "name": "semantic_impl_self_contract",
+      "kind": "type",
+      "file": "semantic_impl_self_contract.fk",
+      "diagnostic": "must place self first or omit it for an associated task",
+      "direct": true
+    },
+    {
+      "name": "semantic_array_element_type",
+      "kind": "type",
+      "file": "semantic_array_element_type.fk",
+      "diagnostic": "array element must have type word, got int",
+      "direct": true
+    },
+    {
+      "name": "semantic_index_type",
+      "kind": "type",
+      "file": "semantic_index_type.fk",
+      "diagnostic": "indexing is supported only on word values in V3",
+      "direct": true
+    },
+    {
+      "name": "semantic_say_shape",
+      "kind": "type",
+      "file": "semantic_say_shape.fk",
+      "diagnostic": "say expects a scalar value, got Box",
+      "direct": true
+    },
+    {
+      "name": "semantic_unknown_empty_impl",
+      "kind": "type",
+      "file": "semantic_unknown_empty_impl.fk",
+      "diagnostic": "impl declaration has unknown owner type 'MissingOwner'",
+      "direct": true
     }
   ]
 }

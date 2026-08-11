@@ -50,6 +50,9 @@ pilot ast_expr_lefts = 0
 pilot ast_expr_rights = 0
 pilot ast_expr_files = 0
 pilot ast_expr_lines = 0
+-- Shape-constructor source labels, comma-separated and aligned with `left`.
+-- Other expression kinds store an empty string at the same expression id.
+pilot ast_expr_labels = 0
 
 -- ===================== AST STATEMENT KINDS =========================
 pilot STMT_PILOT = "1"
@@ -68,6 +71,7 @@ pilot STMT_BREAK = "13"
 pilot STMT_CONTINUE = "14"
 pilot STMT_EVENTUALLY = "15"
 pilot STMT_EXTERN = "16"
+pilot STMT_IMPL = "17"
 
 pilot ast_stmt_kinds = 0
 pilot ast_stmt_names = 0
@@ -106,13 +110,18 @@ pilot bc_sym_lines  = 0
 pilot bc_sym_count  = 0
 pilot bc_scope_depth = 0
 
--- Minimal always-on nominal member checking (shape fields/impl methods).
+-- Always-on V3 semantic checking state.  These tables and context scalars are
+-- reset for every compilation before any emitter is allowed to run.
 pilot tc_global_names = 0
 pilot tc_global_types = 0
 pilot tc_global_count = 0
 pilot tc_local_names = 0
 pilot tc_local_types = 0
 pilot tc_local_count = 0
+pilot tc_current_task_name = ""
+pilot tc_current_return_type = ""
+pilot tc_loop_depth = 0
+pilot tc_direct_top_stmt = false
 -- Hash-indexed callable signatures for the always-on checker. Keeping these
 -- separate from the AST avoids rescanning every top-level statement for each
 -- call, method, and return-type query.

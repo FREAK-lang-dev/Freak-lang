@@ -104,6 +104,8 @@ task current_source_location() -> word {
 task parse_primary() -> int {
     pilot ttype = cur_tok_type()
     pilot tval = cur_tok_val()
+    pilot expr_file = current_source_file()
+    pilot expr_line = current_source_line()
 
     if ttype == TOK_EOF or ttype == "" {
         diag_error("expected an expression, found end of file", "complete the expression")
@@ -119,16 +121,16 @@ task parse_primary() -> int {
             if tval.char_at(nci) == "." { is_float = true }
             nci += 1
         }
-        if is_float { give back alloc_expr(EXPR_FLOAT, tval, "", "") }
-        give back alloc_expr(EXPR_INT, tval, "", "")
+        if is_float { give back alloc_expr_at(EXPR_FLOAT, tval, "", "", expr_file, expr_line) }
+        give back alloc_expr_at(EXPR_INT, tval, "", "", expr_file, expr_line)
     }
     if ttype == TOK_STR {
         advance_tok()
-        give back alloc_expr(EXPR_STR, tval, "", "")
+        give back alloc_expr_at(EXPR_STR, tval, "", "", expr_file, expr_line)
     }
     if ttype == TOK_BOOL {
         advance_tok()
-        give back alloc_expr(EXPR_BOOL, tval, "", "")
+        give back alloc_expr_at(EXPR_BOOL, tval, "", "", expr_file, expr_line)
     }
     if ttype == TOK_IDENT {
         advance_tok()
@@ -148,6 +150,7 @@ task parse_primary() -> int {
                 pilot ctor_col = current_source_col()
                 advance_tok()
                 pilot val_ids = ""
+                pilot field_labels = ""
                 pilot cfin = false
                 pilot cis_first = true
                 if match_tok(TOK_PUNCT, "}") { cfin = true }
@@ -161,9 +164,11 @@ task parse_primary() -> int {
                         pilot fval_id = parse_expr()
                         if cis_first {
                             val_ids = word_from_int(fval_id)
+                            field_labels = fname
                             cis_first = false
                         } else {
                             val_ids = val_ids + "," + word_from_int(fval_id)
+                            field_labels = field_labels + "," + fname
                         }
                         if match_tok(TOK_PUNCT, "}") { cfin = true }
                         else if parser_at_eof() {
@@ -172,7 +177,9 @@ task parse_primary() -> int {
                         } else { expect_tok(TOK_PUNCT, ",") }
                     }
                 }
-                give back alloc_expr(EXPR_CALL, "shape::ctor::" + tval, val_ids, "")
+                pilot ctor_id = alloc_expr_at(EXPR_CALL, "shape::ctor::" + tval, val_ids, "", expr_file, expr_line)
+                array_set(ast_expr_labels, ctor_id, field_labels)
+                give back ctor_id
             }
         }
 
@@ -205,10 +212,10 @@ task parse_primary() -> int {
                     } else { expect_tok(TOK_PUNCT, ",") }
                 }
             }
-            give back alloc_expr(EXPR_CALL, tval, args, "")
+            give back alloc_expr_at(EXPR_CALL, tval, args, "", expr_file, expr_line)
         }
 
-        give back alloc_expr(EXPR_IDENT, tval, "", "")
+        give back alloc_expr_at(EXPR_IDENT, tval, "", "", expr_file, expr_line)
     }
 
     -- Parenthesized expression
@@ -259,7 +266,7 @@ task parse_primary() -> int {
                 } else { expect_tok(TOK_PUNCT, ",") }
             }
         }
-        give back alloc_expr(EXPR_ARRAY_LIT, "", elem_ids, "")
+        give back alloc_expr_at(EXPR_ARRAY_LIT, "", elem_ids, "", expr_file, expr_line)
     }
 
     diag_error("unexpected " + friendly_tok(ttype, tval) + " — this token cannot start an expression", "")
@@ -271,9 +278,9 @@ task parse_postfix() -> int {
     pilot left = parse_primary()
     pilot fin = false
     repeat until fin {
+        pilot postfix_file = current_source_file()
+        pilot postfix_line = current_source_line()
         if match_tok(TOK_PUNCT, ".") {
-            pilot member_line = current_source_line()
-            pilot member_file = current_source_file()
             pilot mname = parser_take_ident("member name")
             if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "(" {
                 -- Method call: .name(args)
@@ -305,16 +312,10 @@ task parse_postfix() -> int {
                         } else { expect_tok(TOK_PUNCT, ",") }
                     }
                 }
-                pilot member_id = alloc_expr(EXPR_METHOD, mname, word_from_int(left), args)
-                array_set(ast_expr_lines, member_id, member_line)
-                array_set(ast_expr_files, member_id, member_file)
-                left = member_id
+                left = alloc_expr_at(EXPR_METHOD, mname, word_from_int(left), args, postfix_file, postfix_line)
             } else {
                 -- Field access: .name
-                pilot field_id = alloc_expr(EXPR_FIELD, mname, word_from_int(left), "")
-                array_set(ast_expr_lines, field_id, member_line)
-                array_set(ast_expr_files, field_id, member_file)
-                left = field_id
+                left = alloc_expr_at(EXPR_FIELD, mname, word_from_int(left), "", postfix_file, postfix_line)
             }
         } else if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "[" {
             pilot index_file = current_source_file()
@@ -327,7 +328,7 @@ task parse_postfix() -> int {
             } else {
                 expect_tok(TOK_PUNCT, "]")
             }
-            left = alloc_expr(EXPR_INDEX, "", word_from_int(left), word_from_int(idx_expr))
+            left = alloc_expr_at(EXPR_INDEX, "", word_from_int(left), word_from_int(idx_expr), postfix_file, postfix_line)
         } else if match_tok(TOK_PUNCT, "|>") {
             -- Pipe: a |> f(args) => f(a, args)
             pilot fname = parser_take_ident("pipe target")
@@ -355,7 +356,7 @@ task parse_postfix() -> int {
                     }
                 }
             }
-            left = alloc_expr(EXPR_CALL, fname, pipe_args, "")
+            left = alloc_expr_at(EXPR_CALL, fname, pipe_args, "", postfix_file, postfix_line)
         } else {
             fin = true
         }
@@ -365,25 +366,27 @@ task parse_postfix() -> int {
 
 -- v3: flat if with early return (no else-if nesting)
 task parse_unary() -> int {
+    pilot unary_file = current_source_file()
+    pilot unary_line = current_source_line()
     if match_tok(TOK_KW, "not") {
         pilot op = parse_unary()
-        give back alloc_expr(EXPR_UNARYOP, "not", word_from_int(op), "")
+        give back alloc_expr_at(EXPR_UNARYOP, "not", word_from_int(op), "", unary_file, unary_line)
     }
     if match_tok(TOK_PUNCT, "-") {
         pilot op = parse_unary()
-        give back alloc_expr(EXPR_UNARYOP, "-", word_from_int(op), "")
+        give back alloc_expr_at(EXPR_UNARYOP, "-", word_from_int(op), "", unary_file, unary_line)
     }
     if match_tok(TOK_KW, "PLUS ULTRA") {
         pilot op = parse_unary()
-        give back alloc_expr(EXPR_UNARYOP, "PLUS ULTRA", word_from_int(op), "")
+        give back alloc_expr_at(EXPR_UNARYOP, "PLUS ULTRA", word_from_int(op), "", unary_file, unary_line)
     }
     if match_tok(TOK_KW, "FINAL FORM") {
         pilot op = parse_unary()
-        give back alloc_expr(EXPR_UNARYOP, "FINAL FORM", word_from_int(op), "")
+        give back alloc_expr_at(EXPR_UNARYOP, "FINAL FORM", word_from_int(op), "", unary_file, unary_line)
     }
     if match_tok(TOK_KW, "TSUNDERE") {
         pilot op = parse_unary()
-        give back alloc_expr(EXPR_UNARYOP, "TSUNDERE", word_from_int(op), "")
+        give back alloc_expr_at(EXPR_UNARYOP, "TSUNDERE", word_from_int(op), "", unary_file, unary_line)
     }
     give back parse_postfix()
 }
@@ -396,9 +399,11 @@ task parse_mul() -> int {
     repeat until fin {
         pilot tval = cur_tok_val()
         if tval == "*" or tval == "/" or tval == "%" {
+            pilot op_file = current_source_file()
+            pilot op_line = current_source_line()
             advance_tok()
             pilot right = parse_unary()
-            left = alloc_expr(EXPR_BINOP, tval, word_from_int(left), word_from_int(right))
+            left = alloc_expr_at(EXPR_BINOP, tval, word_from_int(left), word_from_int(right), op_file, op_line)
         } else {
             fin = true
         }
@@ -412,9 +417,11 @@ task parse_add() -> int {
     repeat until fin {
         pilot tval = cur_tok_val()
         if tval == "+" or tval == "-" or tval == "NAKAMA" {
+            pilot op_file = current_source_file()
+            pilot op_line = current_source_line()
             advance_tok()
             pilot right = parse_mul()
-            left = alloc_expr(EXPR_BINOP, tval, word_from_int(left), word_from_int(right))
+            left = alloc_expr_at(EXPR_BINOP, tval, word_from_int(left), word_from_int(right), op_file, op_line)
         } else {
             fin = true
         }
@@ -428,9 +435,11 @@ task parse_comparison() -> int {
     repeat until fin {
         pilot tval = cur_tok_val()
         if tval == "==" or tval == "!=" or tval == "<" or tval == ">" or tval == "<=" or tval == ">=" {
+            pilot op_file = current_source_file()
+            pilot op_line = current_source_line()
             advance_tok()
             pilot right = parse_add()
-            left = alloc_expr(EXPR_BINOP, tval, word_from_int(left), word_from_int(right))
+            left = alloc_expr_at(EXPR_BINOP, tval, word_from_int(left), word_from_int(right), op_file, op_line)
         } else {
             fin = true
         }
@@ -444,9 +453,11 @@ task parse_and() -> int {
     repeat until fin {
         pilot tval = cur_tok_val()
         if tval == "and" {
+            pilot op_file = current_source_file()
+            pilot op_line = current_source_line()
             advance_tok()
             pilot right = parse_comparison()
-            left = alloc_expr(EXPR_BINOP, "and", word_from_int(left), word_from_int(right))
+            left = alloc_expr_at(EXPR_BINOP, "and", word_from_int(left), word_from_int(right), op_file, op_line)
         } else {
             fin = true
         }
@@ -460,9 +471,11 @@ task parse_expr() -> int {
     repeat until fin {
         pilot tval = cur_tok_val()
         if tval == "or" {
+            pilot op_file = current_source_file()
+            pilot op_line = current_source_line()
             advance_tok()
             pilot right = parse_and()
-            left = alloc_expr(EXPR_BINOP, "or", word_from_int(left), word_from_int(right))
+            left = alloc_expr_at(EXPR_BINOP, "or", word_from_int(left), word_from_int(right), op_file, op_line)
         } else {
             fin = true
         }
@@ -815,7 +828,10 @@ task parse_impl() -> int {
             if not parser_at_eof() { advance_tok() }
         }
     }
-    give back alloc_stmt(STMT_BLOCK, "", "", "", "", "", "", "", "1")
+    -- Keep the declaration itself in the AST even when it has no methods.
+    -- The semantic pass must validate the owner and top-level context; method
+    -- tasks remain separately indexed for instance/associated dispatch.
+    give back alloc_stmt(STMT_IMPL, impl_name, "", "", "", doctrine_name, "", "", stmt_line)
 }
 
 task parse_when() -> int {

@@ -10,7 +10,7 @@ task assert_ok(label: word, passed: bool) -> void {
 
 pilot a = Vector3 { x: 1.0, y: 2.0, z: 3.0 }
 pilot b = Vector3 { x: 4.0, y: 5.0, z: 6.0 }
-pilot c = a + b
+pilot c = a.add(b)
 assert_ok("vec3 add x", c.x == 5.0)
 assert_ok("vec3 add y", c.y == 7.0)
 assert_ok("vec3 add z", c.z == 9.0)

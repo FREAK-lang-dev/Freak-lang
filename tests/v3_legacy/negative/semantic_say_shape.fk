@@ -1,0 +1,5 @@
+shape Box { value: int }
+
+task main() {
+    say Box { value: 1 }
+}

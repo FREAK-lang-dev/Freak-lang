@@ -149,8 +149,18 @@ def assert_builtin_signature_parity(repo: Path) -> None:
             r'name == "([^"]+)"', task_body(checker_source, "tc_builtin_call_type")
         )
     )
+    signature_classified = set(
+        re.findall(
+            r'name == "([^"]+)"',
+            task_body(checker_source, "tc_builtin_call_params"),
+        )
+    )
     missing = sorted(mapped - classified)
     assert not missing, f"builtin return-type inventory missing: {missing}"
+    missing_signatures = sorted(mapped - signature_classified)
+    assert not missing_signatures, (
+        f"builtin parameter-signature inventory missing: {missing_signatures}"
+    )
     unsupported_c_intrinsics = {
         "shape::alloc",
         "shape::get",
@@ -158,6 +168,10 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     }
     assert classified - c_mapped == unsupported_c_intrinsics
     assert classified - llvm_mapped == set()
+    assert signature_classified == classified
+    builtin_params = task_body(checker_source, "tc_builtin_call_params")
+    assert 'name == "array_push" { give back "int,word" }' in builtin_params
+    assert 'name == "array_set" { give back "int,int,word" }' in builtin_params
 
 
 def assert_ci_shell_contract(repo: Path) -> None:
@@ -351,7 +365,26 @@ def main() -> int:
                 freak, repo, malformed, "check", *case.flags, timeout=10
             )
             assert_check_rejected(checked, case.name)
-            assert case.diagnostic in (checked.stdout + checked.stderr).lower()
+            checked_text = (checked.stdout + checked.stderr).lower()
+            assert case.diagnostic in checked_text, (
+                f"{case.name}: missing diagnostic {case.diagnostic!r}\n{checked.stdout}{checked.stderr}"
+            )
+            if case.name == "semantic_control_context":
+                checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
+                assert f"/{malformed.name}:1:1" in checked_output, checked_output
+                assert "1 | give back 1" in checked_output, checked_output
+            if case.name == "semantic_multiline_operator":
+                checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
+                assert f"/{malformed.name}:4:1" in checked_output, checked_output
+                assert '4 |         + 7' in checked_output, checked_output
+            if case.name == "semantic_multiline_condition":
+                checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
+                assert f"/{malformed.name}:3:1" in checked_output, checked_output
+                assert "3 |         1" in checked_output, checked_output
+            if case.name == "semantic_multiline_member":
+                checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
+                assert f"/{malformed.name}:6:1" in checked_output, checked_output
+                assert "6 |         .missing()" in checked_output, checked_output
             if case.kind == "borrow":
                 checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
                 assert f"/{malformed.name}:6:1" in checked_output, checked_output
@@ -636,6 +669,151 @@ def main() -> int:
         )
         scale_check = run(freak, repo, scale_source, "check")
         assert scale_check.returncode == 0, scale_check.stdout + scale_check.stderr
+
+        # This matrix proves checker acceptance only. Some of these contracts
+        # (mixed numeric lowering, num/word when equality, and int-returning
+        # main ABI) have backend-specific executable coverage in their owning
+        # emitter regressions; this gate makes sure the semantic pass does not
+        # overreject them while still exercising both emission front doors.
+        semantic_positive = tmp_path / "semantic_positive_matrix.fk"
+        semantic_positive.write_text(
+            "shape Meter { value: num }\n"
+            "shape Marker {}\n"
+            "impl Marker {}\n"
+            "impl Meter {\n"
+            "    task from_value(value: num) -> Meter { give back Meter { value: value } }\n"
+            "    task add(self, delta: num) -> num { give back self.value + delta }\n"
+            "}\n"
+            "extern task external_num(value: num) -> num\n"
+            "pilot top_num: num = 1\n"
+            "say \"top-level execution remains valid\"\n"
+            "task main() -> int {\n"
+            "    pilot mut widened: num = 1\n"
+            "    widened = 2\n"
+            "    pilot sum: num = 1 + 2.5\n"
+            "    pilot comparison: bool = 1 < 2.5\n"
+            "    pilot joined: word = \"na\" + \"kama\"\n"
+            "    pilot truth_yes: bool = yes\n"
+            "    pilot truth_hai: bool = hai\n"
+            "    pilot false_no: bool = no\n"
+            "    pilot false_iie: bool = iie\n"
+            "    if truth_yes and truth_hai and not false_no and not false_iie { say joined }\n"
+            "    pilot mut meter = Meter { value: 1 }\n"
+            "    pilot associated_meter = Meter::from_value(1)\n"
+            "    meter.value = 2\n"
+            "    pilot method_num: num = meter.add(1)\n"
+            "    pilot associated_num: num = associated_meter.add(1)\n"
+            "    pilot forward_num: num = 1 |> later_num()\n"
+            "    pilot extern_num: num = external_num(1)\n"
+            "    when widened {\n"
+            "        1 -> say comparison\n"
+            "        2.5 -> say method_num\n"
+            "        _ -> say extern_num\n"
+            "    }\n"
+            "    when joined {\n"
+            "        \"nakama\" -> say joined\n"
+            "        _ -> say \"other\"\n"
+            "    }\n"
+            "    give back 0\n"
+            "}\n"
+            "task later_num(value: num) -> num { give back 1 }\n",
+            encoding="utf-8",
+        )
+        semantic_check = run(freak, repo, semantic_positive, "check")
+        assert semantic_check.returncode == 0, (
+            semantic_check.stdout + semantic_check.stderr
+        )
+        for backend, flag, suffix in (
+            ("LLVM", "--llvm", ".ll"),
+            ("C", "--c", ".c"),
+        ):
+            semantic_transpile = run(
+                freak, repo, semantic_positive, "transpile", flag
+            )
+            assert semantic_transpile.returncode == 0, (
+                f"{backend} semantic positive transpile failed\n"
+                + semantic_transpile.stdout
+                + semantic_transpile.stderr
+            )
+            assert Path(str(semantic_positive) + suffix).is_file()
+            if direct_compiler is not None:
+                direct_semantic = run_direct_compiler(
+                    direct_compiler, repo, str(semantic_positive), flag
+                )
+                assert direct_semantic.returncode == 0, (
+                    f"direct {backend} semantic positive transpile failed\n"
+                    + direct_semantic.stdout
+                    + direct_semantic.stderr
+                )
+
+        # Shipping std/ui uses associated impl tasks (no `self`) for these
+        # constructors. Keep an isolated copy of that exact dispatch shape so
+        # the unsupported legacy `Squad` surface in Window.poll cannot hide a
+        # regression in the valid static-call contract.
+        associated_std = tmp_path / "associated_std_tasks_ok.fk"
+        associated_std.write_text(
+            "shape WindowConfig { title: word, width: int, height: int, resizable: bool, vsync: bool }\n"
+            "shape Color { r: int, g: int, b: int, a: int }\n"
+            "impl Color {\n"
+            "    task rgb(r: int, g: int, b: int) -> Color { give back Color { r: r, g: g, b: b, a: 255 } }\n"
+            "    task rgba(r: int, g: int, b: int, a: int) -> Color { give back Color { r: r, g: g, b: b, a: a } }\n"
+            "    task red() -> Color { give back Color::rgb(255, 45, 45) }\n"
+            "}\n"
+            "shape Font { size: int, bold: bool, italic: bool }\n"
+            "impl Font { task default() -> Font { give back Font { size: 14, bold: false, italic: false } } }\n"
+            "shape Window { handle: int, width: int, height: int }\n"
+            "impl Window {\n"
+            "    task open(config: WindowConfig) -> Window {\n"
+            "        pilot resizable = 1\n"
+            "        if not config.resizable { resizable = 0 }\n"
+            "        pilot h = ui::create_window(config.title, config.width, config.height, resizable)\n"
+            "        give back Window { handle: h, width: config.width, height: config.height }\n"
+            "    }\n"
+            "}\n"
+            "shape Canvas { handle: int }\n"
+            "impl Canvas { task from_window(win: Window) -> Canvas { give back Canvas { handle: win.handle } } }\n"
+            "task main() {\n"
+            "    pilot color = Color::red()\n"
+            "    pilot rgba = Color::rgba(color.r, color.g, color.b, color.a)\n"
+            "    pilot font = Font::default()\n"
+            "    pilot config = WindowConfig { title: \"FREAK\", width: 640, height: 480, resizable: true, vsync: true }\n"
+            "    pilot window = Window::open(config)\n"
+            "    pilot canvas = Canvas::from_window(window)\n"
+            "    say font.size\n"
+            "    say rgba.a\n"
+            "    say canvas.handle\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        associated_check = run(freak, repo, associated_std, "check")
+        assert associated_check.returncode == 0, (
+            associated_check.stdout + associated_check.stderr
+        )
+        for backend, flag, suffix in (
+            ("LLVM", "--llvm", ".ll"),
+            ("C", "--c", ".c"),
+        ):
+            associated_emit = run(freak, repo, associated_std, "transpile", flag)
+            assert associated_emit.returncode == 0, (
+                associated_emit.stdout + associated_emit.stderr
+            )
+            generated = Path(str(associated_std) + suffix).read_text(encoding="utf-8")
+            for symbol in (
+                "Color_rgb",
+                "Color_rgba",
+                "Color_red",
+                "Font_default",
+                "Window_open",
+                "Canvas_from_window",
+            ):
+                assert symbol in generated, f"{backend} lost associated symbol {symbol}"
+            if direct_compiler is not None:
+                direct_associated = run_direct_compiler(
+                    direct_compiler, repo, str(associated_std), flag
+                )
+                assert direct_associated.returncode == 0, (
+                    direct_associated.stdout + direct_associated.stderr
+                )
 
         nominal_bad = tmp_path / "nominal_bad.fk"
         nominal_bad.write_text(
@@ -1182,6 +1360,21 @@ def main() -> int:
         assert math3d_build.returncode == 0, math3d_build.stdout + math3d_build.stderr
         math3d_binary = math3d_probe.with_suffix(".exe" if sys.platform == "win32" else "")
         assert math3d_binary.is_file(), math3d_binary
+        math3d_executed = subprocess.run(
+            [str(math3d_binary)],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+            check=False,
+        )
+        assert math3d_executed.returncode == 0, (
+            math3d_executed.stdout + math3d_executed.stderr
+        )
+        assert "FAIL" not in math3d_executed.stdout, math3d_executed.stdout
+        assert "OK" in math3d_executed.stdout, math3d_executed.stdout
 
         missing_input = subprocess.run(
             [str(freak), "check"],

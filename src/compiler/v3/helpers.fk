@@ -16,6 +16,7 @@ task init_arrays() -> void {
     ast_expr_rights = array_new()
     ast_expr_files = array_new()
     ast_expr_lines = array_new()
+    ast_expr_labels = array_new()
     ast_stmt_kinds = array_new()
     ast_stmt_names = array_new()
     ast_stmt_exprs = array_new()
@@ -62,22 +63,29 @@ task init_arrays() -> void {
 
 -- ===================== AST BUILDERS ================================
 
-task alloc_expr(kind: word, val: word, left: word, right: word) -> int {
+task alloc_expr_at(kind: word, val: word, left: word, right: word, origin_file: word, origin_line: word) -> int {
     pilot id = next_expr_id
     next_expr_id += 1
     array_push(ast_expr_kinds, kind)
     array_push(ast_expr_vals, val)
     array_push(ast_expr_lefts, left)
     array_push(ast_expr_rights, right)
+    if origin_file == "" { origin_file = input_file }
+    if origin_line == "" { origin_line = "1" }
+    array_push(ast_expr_files, origin_file)
+    array_push(ast_expr_lines, origin_line)
+    array_push(ast_expr_labels, "")
+    give back id
+}
+
+task alloc_expr(kind: word, val: word, left: word, right: word) -> int {
     pilot origin_file = input_file
     pilot origin_line = "1"
     if parse_idx >= 0 and parse_idx < tokens_count {
         origin_file = array_get(tok_origin_files, parse_idx)
         origin_line = array_get(tok_origin_lines, parse_idx)
     }
-    array_push(ast_expr_files, origin_file)
-    array_push(ast_expr_lines, origin_line)
-    give back id
+    give back alloc_expr_at(kind, val, left, right, origin_file, origin_line)
 }
 
 task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body: word, extra: word, params: word, returns: word, line_no: word) -> int {

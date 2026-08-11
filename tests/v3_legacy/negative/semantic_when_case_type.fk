@@ -1,0 +1,6 @@
+task main() {
+    when "route" {
+        1 -> say "wrong type"
+        _ -> say "fallback"
+    }
+}

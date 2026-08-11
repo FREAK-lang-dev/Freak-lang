@@ -14,6 +14,14 @@ for the shipping V3 frontend's truthful-failure contract:
 - standalone-stage type and strict-borrow cases run for both backends, with
   source-aware diagnostic oracles.
 
+The semantic cases cover known and duplicate declaration types, callable and
+builtin arity/types, directional `int` to `num` assignment compatibility,
+operator domains, exact shape-constructor labels/order, lvalues, return and
+entry-point contracts, loop/declaration context, `if`/repeat/training types,
+literal-compatible `when` arms, nominal fields/methods, and the word-only V3
+array ABI. Shape operator-doctrine syntax remains fail-closed because V3 does
+not lower those operators; call the proven instance method explicitly.
+
 `manifest.json` is the inventory and diagnostic oracle. Its schema is
 `freak-v3-negative-corpus-v1`. Each entry records a unique case name, failure
 kind, local `.fk` file, a stable case-insensitive diagnostic fragment, optional
@@ -27,3 +35,7 @@ directly on files in this directory.
 When adding a frontend recovery case, add one focused source and one manifest
 entry. Prefer the narrowest diagnostic fragment that proves the intended
 recovery boundary without coupling the corpus to colors or surrounding prose.
+Acceptance coverage belongs in the main gate's positive matrices, not in this
+directory; those matrices preserve forward calls, associated and instance impl
+tasks, exact shape construction, boolean aliases, word concatenation, and
+numeric widening without turning them into negative fixtures.

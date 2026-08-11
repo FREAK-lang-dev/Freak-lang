@@ -1,0 +1,5 @@
+task main() {
+    if 1 { say "not bool" }
+    repeat true times { break }
+    training arc until 1 max false sessions { continue }
+}

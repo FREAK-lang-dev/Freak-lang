@@ -1,0 +1,3 @@
+shape Broken { value: MissingType }
+
+task main() {}

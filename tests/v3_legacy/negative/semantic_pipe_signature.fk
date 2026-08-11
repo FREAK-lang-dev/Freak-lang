@@ -1,0 +1,5 @@
+task labelled(value: num, label: word) -> num { give back value }
+
+task main() {
+    say (1 |> labelled()).to_word()
+}

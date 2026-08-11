@@ -1,0 +1,7 @@
+task main() {
+    pilot value: int = 1
+    when value {
+        value -> say "not a literal arm"
+        _ -> say "fallback"
+    }
+}
