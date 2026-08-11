@@ -7,8 +7,20 @@ on:
 permissions:
   contents: read
 
+env:
+  LLVM_MINGW_VERSION: "20260616"
+  LLVM_MINGW_SHA256: "b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35"
+
 jobs:
+  version-invariant:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require tag, compiler, and package versions to agree
+        run: python -u tools/release_version.py check --tag "${GITHUB_REF_NAME}"
+
   build:
+    needs: version-invariant
     strategy:
       fail-fast: false
       matrix:
@@ -34,9 +46,21 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang lld
 
-      - name: Install Clang (Windows)
+      - name: Install pinned LLVM-MinGW (Windows)
         if: runner.os == 'Windows'
-        run: choco install llvm -y
+        shell: powershell
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64.zip"
+          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$env:LLVM_MINGW_VERSION/llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64.zip"
+          Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $env:LLVM_MINGW_SHA256) {
+            throw "LLVM-MinGW checksum mismatch: expected $env:LLVM_MINGW_SHA256, got $actual"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP -Force
+          $bin = Join-Path $env:RUNNER_TEMP "llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64\bin"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & (Join-Path $bin "clang.exe") --version
 
       - name: Set platform linker flags
         shell: bash
@@ -54,8 +78,10 @@ jobs:
         run: |
           cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/checker.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
           clang -o build/freakc_v3${{ matrix.ext }} build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
+          ./build/freakc_v3${{ matrix.ext }} build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage2${{ matrix.ext }} build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
 
-      - name: Build full CLI (Stage 1 — V3 compiler + CLI + Hangar)
+      - name: Build full CLI (Stage 2 — current V3 compiler + CLI + Hangar)
         shell: bash
         run: |
           mkdir -p build
@@ -77,10 +103,18 @@ jobs:
           cat src/cli/doctor.fk >> build/freakc_cli.fk
           cat src/cli/audit.fk >> build/freakc_cli.fk
           cat src/cli/main.fk >> build/freakc_cli.fk
-          ./build/freakc_v3${{ matrix.ext }} build/freakc_cli.fk --c
+          ./build/freakc_v3_stage2${{ matrix.ext }} build/freakc_cli.fk --c
           clang -o build/freak${{ matrix.ext }} build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
           # Create hangar binary (same binary, BusyBox pattern)
           cp build/freak${{ matrix.ext }} build/hangar${{ matrix.ext }}
+
+      - name: Pre-compile Windows runtime objects
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          clang -c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS -o freakc/runtime/freak_runtime.obj
+          clang -c freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS -DFREAK_HAS_UI -o freakc/runtime/freak_llvm_runtime.obj
+          clang -c freakc/runtime/ui/win32_backend.c -Ifreakc/runtime/ui -O2 -w -D_CRT_SECURE_NO_WARNINGS -o freakc/runtime/freak_ui_win32.obj
 
       - name: Smoke test (CLI build command)
         shell: bash
@@ -93,37 +127,53 @@ jobs:
         run: |
           ./build/freak${{ matrix.ext }} version
 
-      - name: Pre-compile runtime to .o
-        shell: bash
-        run: |
-          clang -c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS -o freakc/runtime/freak_runtime.o
-          clang -c freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS -o freakc/runtime/freak_llvm_runtime.o
-
       - name: Package release artifact
         shell: bash
         run: |
-          mkdir -p dist/freak/bin dist/freak/runtime dist/freak/std
+          mkdir -p dist/freak/bin dist/freak/runtime
           cp build/freak${{ matrix.ext }} dist/freak/bin/freak${{ matrix.ext }}
           cp build/hangar${{ matrix.ext }} dist/freak/bin/hangar${{ matrix.ext }}
-          # Ship pre-compiled .o files (preferred) + .c/.h source (fallback)
-          cp freakc/runtime/freak_runtime.o dist/freak/runtime/
-          cp freakc/runtime/freak_llvm_runtime.o dist/freak/runtime/
-          cp freakc/runtime/freak_runtime.c dist/freak/runtime/
-          cp freakc/runtime/freak_runtime.h dist/freak/runtime/
-          cp freakc/runtime/freak_llvm_runtime.c dist/freak/runtime/
-          # Ship standard library
-          cp std/math.fk dist/freak/std/
-          cp std/math3d.fk dist/freak/std/
-          cp std/string.fk dist/freak/std/
-          cp std/convert.fk dist/freak/std/
-          cp std/algorithm.fk dist/freak/std/
-          cp std/json.fk dist/freak/std/
-          cp std/http.fk dist/freak/std/
-          cp std/version.fk dist/freak/std/
-          cp std/runtime.fk dist/freak/std/
+          # Runtime sources keep final linking under the platform Clang
+          # driver's CRT/SDK policy on every released target.
+          while IFS='|' read -r source destination || [[ -n "$source$destination" ]]; do
+            source=${source%$'\r'}
+            destination=${destination%$'\r'}
+            if [[ -z "$source" || "$source" == \#* ]]; then
+              continue
+            fi
+            mkdir -p "dist/freak/$(dirname "$destination")"
+            cp "$source" "dist/freak/$destination"
+          done < packaging/distribution-files.manifest
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp freakc/runtime/freak_runtime.obj dist/freak/runtime/
+            cp freakc/runtime/freak_llvm_runtime.obj dist/freak/runtime/
+            cp freakc/runtime/freak_ui_win32.obj dist/freak/runtime/
+          fi
+          cp packaging/distribution-files.manifest dist/freak/distribution-files.manifest
           # Standalone binaries for direct download
           cp build/freak${{ matrix.ext }} dist/freak-${{ matrix.target }}${{ matrix.ext }}
           cp build/hangar${{ matrix.ext }} dist/hangar-${{ matrix.target }}${{ matrix.ext }}
+
+      - name: Finalize and smoke exact release archive
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            python - <<'PY'
+          import pathlib, zipfile
+          dist = pathlib.Path("dist")
+          payload = dist / "freak"
+          archive = dist / "freak-windows-x64.zip"
+          with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
+              for path in payload.rglob("*"):
+                  if path.is_file():
+                      output.write(path, path.relative_to(dist))
+          PY
+            archive="dist/freak-${{ matrix.target }}.zip"
+          else
+            archive="dist/freak-${{ matrix.target }}.tar.gz"
+            (cd dist && tar czf "$(basename "$archive")" freak/)
+          fi
+          python -u tests/v3_release_install_smoke.py --archive "$archive"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -142,27 +192,50 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Generate checksums
-        run: |
-          cd artifacts
-          find . -type f \( -name "freak-*" -o -name "hangar-*" \) -exec sha256sum {} \; | sort > SHA256SUMS
-          cat SHA256SUMS
-
-      - name: Package distributions as tarballs/zips
+      - name: Collect finalized release archives
         run: |
           for dir in artifacts/freak-*/; do
             target=$(basename "$dir")
-            if [ -d "$dir/freak" ]; then
-              if echo "$target" | grep -q windows; then
-                # ZIP for Windows
-                (cd "$dir" && zip -r "../$target.zip" freak/)
-              else
-                # tar.gz for Linux/macOS
-                (cd "$dir" && tar czf "../$target.tar.gz" freak/)
-              fi
+            if echo "$target" | grep -q windows; then
+              archive="$target.zip"
+            else
+              archive="$target.tar.gz"
             fi
+            test -s "$dir/$archive"
+            mv "$dir/$archive" "artifacts/$archive"
           done
           ls -la artifacts/*.tar.gz artifacts/*.zip 2>/dev/null || true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          : > SHA256SUMS
+          # Release downloads are flattened to their basenames by GitHub.
+          # Record those exact public asset names, not artifact-directory paths.
+          while IFS= read -r -d '' file; do
+            hash=$(sha256sum "$file" | awk '{print $1}')
+            printf '%s  %s\n' "$hash" "$(basename "$file")" >> SHA256SUMS
+          done < <(find . -type f \( -name "freak-*" -o -name "hangar-*" \) -print0)
+
+          # The standalone compatibility path downloads the tagged manifest
+          # and its raw payload files.  Bind those bytes to this release too.
+          payload_root="freak-linux-x64/freak"
+          manifest="$payload_root/distribution-files.manifest"
+          test -s "$manifest"
+          printf '%s  %s\n' "$(sha256sum "$manifest" | awk '{print $1}')" \
+            "raw/packaging/distribution-files.manifest" >> SHA256SUMS
+          while IFS='|' read -r source destination || [[ -n "$source$destination" ]]; do
+            source=${source%$'\r'}
+            destination=${destination%$'\r'}
+            if [[ -z "$source" || "$source" == \#* ]]; then continue; fi
+            test -s "$payload_root/$destination"
+            printf '%s  %s\n' "$(sha256sum "$payload_root/$destination" | awk '{print $1}')" \
+              "raw/$source" >> SHA256SUMS
+          done < "$manifest"
+          sort -k2,2 -o SHA256SUMS SHA256SUMS
+          duplicate=$(awk '{count[$2] += 1} END {for (name in count) if (count[name] != 1) print name}' SHA256SUMS)
+          test -z "$duplicate" || { echo "::error::duplicate checksum asset(s): $duplicate"; exit 1; }
+          cat SHA256SUMS
 
       - name: Checkout for packaging update
         uses: actions/checkout@v4
@@ -177,22 +250,50 @@ jobs:
           HASH_LINUX_X64=$(grep 'freak-linux-x64.tar.gz' SHA256SUMS | awk '{print $1}' || echo "")
           HASH_LINUX_ARM64=$(grep 'freak-linux-arm64.tar.gz' SHA256SUMS | awk '{print $1}' || echo "")
           HASH_WIN=$(grep 'freak-windows-x64.zip' SHA256SUMS | awk '{print $1}' || echo "")
+          for hash in "$HASH_MACOS" "$HASH_LINUX_X64" "$HASH_LINUX_ARM64" "$HASH_WIN"; do
+            if [ -z "$hash" ]; then
+              echo "::error::missing distribution checksum"
+              exit 1
+            fi
+          done
           cd ..
           VERSION="${GITHUB_REF_NAME#v}"
           sed -i "s/HOMEBREW_SHA256_MACOS_ARM64_PLACEHOLDER/$HASH_MACOS/g" repo/packaging/homebrew/freak.rb
           sed -i "s/HOMEBREW_SHA256_LINUX_X64_PLACEHOLDER/$HASH_LINUX_X64/g" repo/packaging/homebrew/freak.rb
           sed -i "s/HOMEBREW_SHA256_LINUX_ARM64_PLACEHOLDER/$HASH_LINUX_ARM64/g" repo/packaging/homebrew/freak.rb
           sed -i "s/SCOOP_HASH_PLACEHOLDER/$HASH_WIN/g" repo/packaging/scoop/freak.json
+          sed -E -i "s/version \"[0-9]+\.[0-9]+\.[0-9]+\"/version \"$VERSION\"/" repo/packaging/homebrew/freak.rb
+          sed -E -i "s/\"version\": \"[0-9]+\.[0-9]+\.[0-9]+\"/\"version\": \"$VERSION\"/" repo/packaging/scoop/freak.json
+          sed -E -i "s#/download/v[0-9]+\.[0-9]+\.[0-9]+/#/download/v$VERSION/#" repo/packaging/scoop/freak.json
           # Patch the winget manifest for the version we're releasing.
           # Manifests live under packaging/winget/manifests/F/FREAK/freak/<VERSION>/
           # and must exist before release; commit a new dir per bumped version.
           WINGET_DIR="repo/packaging/winget/manifests/F/FREAK/freak/$VERSION"
-          if [ -f "$WINGET_DIR/FREAK.freak.installer.yaml" ]; then
-            sed -i "s/WINGET_HASH_PLACEHOLDER/$HASH_WIN/g" "$WINGET_DIR/FREAK.freak.installer.yaml"
-          else
-            echo "::warning::winget manifest for $VERSION missing at $WINGET_DIR — skipping checksum patch"
+          for manifest in FREAK.freak.yaml FREAK.freak.installer.yaml FREAK.freak.locale.en-US.yaml; do
+            if [ ! -f "$WINGET_DIR/$manifest" ]; then
+              echo "::error::required WinGet manifest missing: $WINGET_DIR/$manifest"
+              exit 1
+            fi
+            tr -d '\r' < "$WINGET_DIR/$manifest" | grep -q "^PackageVersion: $VERSION$" || {
+              echo "::error::WinGet manifest version mismatch: $manifest"
+              exit 1
+            }
+          done
+          sed -i "s/WINGET_HASH_PLACEHOLDER/$HASH_WIN/g" "$WINGET_DIR/FREAK.freak.installer.yaml"
+          tr -d '\r' < "$WINGET_DIR/FREAK.freak.installer.yaml" | grep -q "^    InstallerSha256: $HASH_WIN$" || {
+            echo "::error::WinGet installer checksum was not patched"
+            exit 1
+          }
+          if grep -R -q 'PLACEHOLDER' "$WINGET_DIR"; then
+            echo "::error::unresolved WinGet placeholder"
+            exit 1
           fi
-          sed -i "s/0\.13\.1/$VERSION/g" repo/packaging/scoop/freak.json
+          mkdir -p artifacts/package-manager/winget
+          cp repo/packaging/homebrew/freak.rb artifacts/package-manager/freak.rb
+          cp repo/packaging/scoop/freak.json artifacts/package-manager/freak.json
+          # A WinGet submission is a version, installer, and locale manifest
+          # set. Publish the complete validated set with the patched hash.
+          cp "$WINGET_DIR"/*.yaml artifacts/package-manager/winget/
           echo "Checksums injected for $VERSION"
           cat repo/packaging/scoop/freak.json
 
@@ -214,3 +315,6 @@ jobs:
             artifacts/freak-macos-arm64.tar.gz
             artifacts/freak-windows-x64.zip
             artifacts/SHA256SUMS
+            artifacts/package-manager/freak.rb
+            artifacts/package-manager/freak.json
+            artifacts/package-manager/winget/*

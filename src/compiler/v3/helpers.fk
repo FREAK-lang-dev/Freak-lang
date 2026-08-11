@@ -8,10 +8,14 @@ task init_arrays() -> void {
     tok_vals = array_new()
     tok_lines = array_new()
     tok_cols = array_new()
+    tok_origin_files = array_new()
+    tok_origin_lines = array_new()
     ast_expr_kinds = array_new()
     ast_expr_vals = array_new()
     ast_expr_lefts = array_new()
     ast_expr_rights = array_new()
+    ast_expr_files = array_new()
+    ast_expr_lines = array_new()
     ast_stmt_kinds = array_new()
     ast_stmt_names = array_new()
     ast_stmt_exprs = array_new()
@@ -21,6 +25,9 @@ task init_arrays() -> void {
     ast_task_params = array_new()
     ast_task_returns = array_new()
     ast_stmt_lines = array_new()
+    ast_stmt_files = array_new()
+    source_location_lines = array_new()
+    source_location_files = array_new()
     ast_top_stmts = array_new()
     ast_pilot_is_mut = array_new()
     bc_sym_names  = array_new()
@@ -29,10 +36,25 @@ task init_arrays() -> void {
     bc_sym_state  = array_new()
     bc_sym_scopes = array_new()
     bc_sym_lines  = array_new()
+    tc_global_names = array_new()
+    tc_global_types = array_new()
+    tc_local_names = array_new()
+    tc_local_types = array_new()
+    tc_callable_bucket_heads = array_new()
+    tc_callable_names = array_new()
+    tc_callable_returns = array_new()
+    tc_callable_params = array_new()
+    tc_callable_extras = array_new()
+    tc_callable_stmt_ids = array_new()
+    tc_callable_next = array_new()
     shape_registry_names = array_new()
     shape_registry_fields = array_new()
     emt_var_names = array_new()
     emt_var_types = array_new()
+    emt_var_c_names = array_new()
+    emt_global_var_names = array_new()
+    emt_global_var_types = array_new()
+    emt_global_var_c_names = array_new()
     emt_word_tasks = array_new()
     emt_extern_names = array_new()
     emt_extern_rets = array_new()
@@ -47,6 +69,14 @@ task alloc_expr(kind: word, val: word, left: word, right: word) -> int {
     array_push(ast_expr_vals, val)
     array_push(ast_expr_lefts, left)
     array_push(ast_expr_rights, right)
+    pilot origin_file = input_file
+    pilot origin_line = "1"
+    if parse_idx >= 0 and parse_idx < tokens_count {
+        origin_file = array_get(tok_origin_files, parse_idx)
+        origin_line = array_get(tok_origin_lines, parse_idx)
+    }
+    array_push(ast_expr_files, origin_file)
+    array_push(ast_expr_lines, origin_line)
     give back id
 }
 
@@ -61,7 +91,18 @@ task alloc_stmt(kind: word, name: word, expr_id: word, body_id: word, else_body:
     array_push(ast_stmt_extras, extra)
     array_push(ast_task_params, params)
     array_push(ast_task_returns, returns)
-    array_push(ast_stmt_lines, line_no)
+    pilot actual_line = line_no
+    pilot source_file = input_file
+    if line_no.starts_with("@") {
+        pilot location_id = word_to_int(line_no.replace("@", ""))
+        if location_id >= 0 and location_id < array_len(source_location_lines) {
+            actual_line = array_get(source_location_lines, location_id)
+            source_file = array_get(source_location_files, location_id)
+        }
+    }
+    if actual_line == "" { actual_line = "1" }
+    array_push(ast_stmt_lines, actual_line)
+    array_push(ast_stmt_files, source_file)
     -- Default mutability: immutable. The `pilot mut` parser path overrides
     -- via array_set after this returns. All other stmt kinds keep "0".
     array_push(ast_pilot_is_mut, "0")
@@ -135,6 +176,32 @@ task get_shape_field_index(shape_name: word, field_name: word) -> int {
     give back 0 - 1
 }
 
+task get_shape_field_type(shape_name: word, field_name: word) -> word {
+    pilot fields = get_shape_fields(shape_name)
+    pilot cur_name = ""
+    pilot cur_type = ""
+    pilot in_type = false
+    pilot i = 0
+    repeat fields.length() times {
+        pilot c = fields.char_at(i)
+        if c == "," {
+            if cur_name == field_name { give back cur_type }
+            cur_name = ""
+            cur_type = ""
+            in_type = false
+        } else if c == ":" {
+            in_type = true
+        } else if in_type {
+            cur_type = cur_type + c
+        } else {
+            cur_name = cur_name + c
+        }
+        i += 1
+    }
+    if cur_name == field_name { give back cur_type }
+    give back ""
+}
+
 -- ===================== STREAMING EMIT ==============================
 -- v3 KEY CHANGE: emit writes directly to file. No buffer.
 
@@ -162,25 +229,84 @@ task adjust_token_lines(offset: int) -> void {
 
 -- ===================== EMITTER VARIABLE TRACKING ===================
 
+task emt_set_var_type_named(name: word, vtype: word, c_name: word) -> void {
+    if emt_var_count < array_len(emt_var_names) {
+        array_set(emt_var_names, emt_var_count, name)
+        array_set(emt_var_types, emt_var_count, vtype)
+        array_set(emt_var_c_names, emt_var_count, c_name)
+    } else {
+        array_push(emt_var_names, name)
+        array_push(emt_var_types, vtype)
+        array_push(emt_var_c_names, c_name)
+    }
+    emt_var_count += 1
+}
+
 task emt_set_var_type(name: word, vtype: word) -> void {
+    emt_set_var_type_named(name, vtype, name)
+}
+
+task emt_reset_local_types() -> void {
+    array_release(emt_var_names)
+    array_release(emt_var_types)
+    array_release(emt_var_c_names)
+    emt_var_names = array_new()
+    emt_var_types = array_new()
+    emt_var_c_names = array_new()
+    emt_var_count = 0
+}
+
+task emt_has_local_var(name: word) -> bool {
+    pilot i = emt_var_count - 1
+    repeat until i < 0 {
+        if array_get(emt_var_names, i) == name { give back true }
+        i -= 1
+    }
+    give back false
+}
+
+task emt_get_var_c_name(name: word) -> word {
+    pilot i = emt_var_count - 1
+    repeat until i < 0 {
+        if array_get(emt_var_names, i) == name { give back array_get(emt_var_c_names, i) }
+        i -= 1
+    }
+    i = 0
+    repeat emt_global_var_count times {
+        if array_get(emt_global_var_names, i) == name { give back array_get(emt_global_var_c_names, i) }
+        i += 1
+    }
+    give back name
+}
+
+task emt_set_global_var_type(name: word, vtype: word, c_name: word) -> void {
     pilot i = 0
-    repeat emt_var_count times {
-        if array_get(emt_var_names, i) == name {
-            array_set(emt_var_types, i, vtype)
+    repeat emt_global_var_count times {
+        if array_get(emt_global_var_names, i) == name {
+            array_set(emt_global_var_types, i, vtype)
+            array_set(emt_global_var_c_names, i, c_name)
             give back
         }
         i += 1
     }
-    array_push(emt_var_names, name)
-    array_push(emt_var_types, vtype)
-    emt_var_count += 1
+    array_push(emt_global_var_names, name)
+    array_push(emt_global_var_types, vtype)
+    array_push(emt_global_var_c_names, c_name)
+    emt_global_var_count += 1
 }
 
 task emt_get_var_type(name: word) -> word {
-    pilot i = 0
-    repeat emt_var_count times {
+    pilot i = emt_var_count - 1
+    repeat until i < 0 {
         if array_get(emt_var_names, i) == name {
             give back array_get(emt_var_types, i)
+        }
+        i -= 1
+    }
+    i = 0
+    repeat emt_global_var_count times {
+        if array_get(emt_global_var_names, i) == name {
+            give back array_get(emt_global_var_types, i)
         }
         i += 1
     }
@@ -229,6 +355,17 @@ task emt_get_extern_ret(name: word) -> word {
 
 -- ===================== WORD TYPE DETECTION =========================
 
+task is_shape_word_field(field_name: word) -> bool {
+    pilot i = 0
+    repeat shape_registry_count times {
+        pilot fields: word = array_get(shape_registry_fields, i)
+        pilot framed = "," + fields + ","
+        if framed.contains("," + field_name + ":word,") { give back true }
+        i += 1
+    }
+    give back false
+}
+
 task is_ast_word(id: word) -> bool {
     pilot i = word_to_int(id)
     pilot kind: word = array_get(ast_expr_kinds, i)
@@ -251,6 +388,7 @@ task is_ast_word(id: word) -> bool {
         if cname == "process::arg" { give back true }
         if cname == "process::exec_capture" { give back true }
         if cname == "format_num" { give back true }
+        if cname == "array_get" { give back true }
         if emt_is_word_task(cname) { give back true }
         pilot eret: word = emt_get_extern_ret(cname)
         if eret == "word" { give back true }
@@ -270,18 +408,109 @@ task is_ast_word(id: word) -> bool {
         }
         give back false
     }
-    if kind == EXPR_FIELD { give back false }
+    if kind == EXPR_FIELD {
+        pilot field_name: word = array_get(ast_expr_vals, i)
+        give back is_shape_word_field(field_name)
+    }
     give back false
 }
 
 -- ===================== DIAGNOSTICS =================================
 
+task source_map_reset() -> void {
+    if source_map_initialized {
+        array_release(source_map_paths)
+        array_release(source_map_starts)
+        array_release(source_map_ends)
+    }
+    source_map_paths = array_new()
+    source_map_starts = array_new()
+    source_map_ends = array_new()
+    source_map_count = 0
+    source_map_next_line = 1
+    source_map_initialized = true
+    trusted_internal_runtime_source_file = ""
+}
+
+task source_map_register(path: word, source: word) -> void {
+    pilot line_count = 1
+    pilot i = 0
+    repeat source.length() times {
+        if source.char_at(i) == "\n" { line_count += 1 }
+        i += 1
+    }
+    array_push(source_map_paths, path)
+    array_push(source_map_starts, word_from_int(source_map_next_line))
+    array_push(source_map_ends, word_from_int(source_map_next_line + line_count - 1))
+    source_map_count += 1
+    source_map_next_line += line_count
+}
+
+task source_map_file(combined_line: int) -> word {
+    pilot i = 0
+    repeat source_map_count times {
+        pilot start = word_to_int(array_get(source_map_starts, i))
+        pilot ending = word_to_int(array_get(source_map_ends, i))
+        if combined_line >= start and combined_line <= ending { give back array_get(source_map_paths, i) }
+        i += 1
+    }
+    give back input_file
+}
+
+task source_map_local_line(combined_line: int) -> int {
+    pilot i = 0
+    repeat source_map_count times {
+        pilot start = word_to_int(array_get(source_map_starts, i))
+        pilot ending = word_to_int(array_get(source_map_ends, i))
+        if combined_line >= start and combined_line <= ending { give back combined_line - start + 1 }
+        i += 1
+    }
+    give back combined_line
+}
+
+task get_file_source_line(path: word, n: int) -> word {
+    if n <= 0 { give back "" }
+    pilot source = lex_source
+    pilot combined_line = n
+    pilot found = false
+    pilot map_index = 0
+    repeat source_map_count times {
+        if array_get(source_map_paths, map_index) == path {
+            pilot start = word_to_int(array_get(source_map_starts, map_index))
+            pilot ending = word_to_int(array_get(source_map_ends, map_index))
+            if n <= ending - start + 1 {
+                combined_line = start + n - 1
+                found = true
+            }
+        }
+        map_index += 1
+    }
+    if not found {
+        if path != input_file { give back "" }
+        source = diagnostic_source
+    }
+    pilot cur_line = 1
+    pilot i = 0
+    pilot line_text = ""
+    repeat until i >= source.length() {
+        pilot ch = source.char_at(i)
+        if cur_line == combined_line {
+            if ch == "\n" or ch == "\r" { give back line_text }
+            line_text = line_text + ch
+        } else if ch == "\n" { cur_line += 1 }
+        i += 1
+    }
+    give back line_text
+}
+
 -- Extract the text of line N from the source (1-indexed).
 task get_source_line(n: int) -> word {
     if n <= 0 { give back "" }
+    pilot source = diagnostic_source
+    if source == "" { source = lex_source }
     pilot cur_line = 1
     pilot i = 0
-    pilot slen = lex_source.length()
+    pilot slen = source.length()
     pilot line_text = ""
     pilot found_line = false
     repeat until i >= slen {
@@ -289,11 +518,11 @@ task get_source_line(n: int) -> word {
             found_line = true
         }
         if found_line {
-            pilot ch = lex_source.char_at(i)
+            pilot ch = source.char_at(i)
             if ch == "\n" or ch == "\r" { give back line_text }
             line_text = line_text + ch
         } else {
-            if lex_source.char_at(i) == "\n" { cur_line += 1 }
+            if source.char_at(i) == "\n" { cur_line += 1 }
         }
         i += 1
     }
@@ -325,12 +554,28 @@ task friendly_tok(ttype: word, tval: word) -> word {
 
 -- Emit a Rust-style diagnostic and increment error counters.
 -- Reads the current token position from parse_idx + tok_lines/tok_cols.
-task diag_error(msg: word, hint: word) -> void {
+task diag_error_at(msg: word, hint: word, source_file: word, line_n: int, col_n: int) -> void {
     error_count += 1
     parse_error_count += 1
+    pilot src_line = get_file_source_line(source_file, line_n)
+    pilot line_str = word_from_int(line_n)
+    pilot col_str = word_from_int(col_n)
+    say "\x1b[1;31merror\x1b[0m: " + msg
+    say " --> " + source_file + ":" + line_str + ":" + col_str
+    say "  |"
+    say line_str + " | " + src_line
+    pilot caret = "  | " + diag_make_caret(col_n)
+    if hint != "" { caret = caret + " " + hint }
+    say "\x1b[1;31m" + caret + "\x1b[0m"
+    say ""
+}
+
+task diag_error(msg: word, hint: word) -> void {
     -- Clamp index to valid range
     pilot tidx = parse_idx
     if tokens_count == 0 {
+        error_count += 1
+        parse_error_count += 1
         say "\x1b[1;31merror\x1b[0m: " + msg
         say " --> " + input_file
         say ""
@@ -338,17 +583,8 @@ task diag_error(msg: word, hint: word) -> void {
     }
     if tidx >= tokens_count { tidx = tokens_count - 1 }
     if tidx < 0 { tidx = 0 }
-    pilot line_n = word_to_int(array_get(tok_lines, tidx))
+    pilot source_file: word = array_get(tok_origin_files, tidx)
+    pilot line_n = word_to_int(array_get(tok_origin_lines, tidx))
     pilot col_n  = word_to_int(array_get(tok_cols,  tidx))
-    pilot src_line = get_source_line(line_n)
-    pilot line_str = word_from_int(line_n)
-    pilot col_str  = word_from_int(col_n)
-    say "\x1b[1;31merror\x1b[0m: " + msg
-    say " --> " + input_file + ":" + line_str + ":" + col_str
-    say "  |"
-    say line_str + " | " + src_line
-    pilot caret = "  | " + diag_make_caret(col_n)
-    if hint != "" { caret = caret + " " + hint }
-    say "\x1b[1;31m" + caret + "\x1b[0m"
-    say ""
+    diag_error_at(msg, hint, source_file, line_n, col_n)
 }

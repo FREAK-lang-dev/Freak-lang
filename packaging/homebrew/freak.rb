@@ -4,6 +4,8 @@ class Freak < Formula
   version "0.14.0"
   license "MIT"
 
+  depends_on "llvm"
+
   on_macos do
     on_arm do
       url "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v#{version}/freak-macos-arm64.tar.gz"
@@ -40,6 +42,7 @@ class Freak < Formula
       (bin/cmd).write <<~SH
         #!/bin/sh
         export FREAK_HOME="${FREAK_HOME:-#{freak_home}}"
+        export FREAK_CLANG="${FREAK_CLANG:-#{Formula["llvm"].opt_bin}/clang}"
         exec "#{lib}/freak/bin/#{cmd}" "$@"
       SH
       (bin/cmd).chmod 0755

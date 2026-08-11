@@ -68,6 +68,9 @@ task freakc_v3_main() -> void {
 
     error_count = 0
     init_arrays()
+    diagnostic_source = src
+    source_map_reset()
+    source_map_register(input_file, src)
 
     say "[1/4] Lexing..."
     tokenize(src)

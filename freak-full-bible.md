@@ -1707,7 +1707,8 @@ freak hangar clean         -- clear cache
 | `std::math`, `std::math3d` | ✅ Implemented (pure FREAK) |
 | `std::string`, `std::convert`, `std::algorithm`, `std::version`, `std::zip` | ✅ Implemented (pure FREAK) |
 | `std::json`, `std::http` | ✅ Implemented (pure FREAK + TCP runtime) |
-| `std::fs`, `std::process`, `std::time`, `std::bytes` | ✅ Implemented (C runtime) |
+| `std::fs`, `std::time`, `std::bytes` | ✅ Implemented (C runtime) |
+| `std::process` | ⚠️ Partial in shipping V3; the normative `args() -> List<word>` surface requires the V4 list ABI |
 | `std::ui` | ⚠️ Partial — Phase MA-MF complete (window, layout, widgets, themes, animation); MG (polish + Hangar publish) pending |
 | `std::thread` (`spawn`, atomics, channels) | 🔜 V4 |
 | `std::anime` (mood arithmetic, power checks) | 🔜 V4 (depends on §2 types) |
@@ -1925,6 +1926,11 @@ process::args()                 -- List<word>
 -- Output shape: .stdout .stderr .exit_code .success
 -- Process shape: .pid .wait() .kill()
 ```
+
+> **Shipping V3 boundary:** `process::args()` is rejected rather than exposing
+> the runtime's raw `argv` pointer as a fake list handle. Use
+> `process::args_count()` with `process::arg(index)` in V3. The `List<word>`
+> signature above remains the normative V4 API.
 
 ### 7.13 std::thread
 
@@ -2174,6 +2180,18 @@ keyword classification instead of accidentally lowercasing them.
 - `...` is an ellipsis token used only in extern variadic signatures
 - `prob[lo..hi]` lexes as: IDENT("prob") LBRACKET FLOAT DOT_DOT FLOAT RBRACKET
 - Number suffixes: `42u` → uint, `3.14f` → float, `42t` → tiny, `999b` → big
+
+---
+
+### 8.5 Shipping V3 Native Symbol Boundary
+
+The shipping V3 compiler reserves the `__freak_` prefix for generated native
+symbols. An `extern task` whose native name begins with that prefix is a hard
+type error; this prevents a raw ABI symbol from being shadowed by generated
+locals, parameters, globals, or task symbols. Ordinary source task symbols are
+mangled into the reserved namespace and therefore cannot collide with runtime
+exports. A source task also cannot redeclare a compiler builtin call name;
+such a declaration is rejected before either backend emits code.
 
 ---
 
@@ -2451,9 +2469,11 @@ on §1.14), and root-`fixed pilot` cycle detection. The
 
 ## SECTION 11: CODE GENERATION NOTES (Full Compiler)
 
-**Status (v0.14.0): ⚠️ Partial.** LLVM IR and C backends both ship and
-handle core control flow, shapes/impl, arrays (LLVM-compatible pool),
-strings, fs/process/math/UI/TCP/JSON/HTTP. The LLVM backend emits
+**Status (v0.14.0): ⚠️ Partial.** LLVM IR and C backends both ship. LLVM
+handles core control flow, shapes/impl, arrays, strings, and the
+fs/process/math/UI/TCP/JSON/HTTP surface. The C portability backend covers
+the scalar, control-flow, word, array, and native-call paths, but packaged
+shape/impl runtime storage is not yet a claimed executable path. The LLVM backend emits
 LineTablesOnly DWARF — `DISubprogram` per function plus per-instruction
 `!dbg` annotations — so gdb/lldb get source-line backtraces today.
 **🔜 V4 — the special codegen rules listed below:** mood as uint8_t,
@@ -2512,8 +2532,10 @@ alternative     -- special mode. enables ALL anime features. full causality.
 
 | Subcommand / flag | v0.14.0 status |
 |---|---|
-| `freak run`, `freak build`, `freak check`, `freak transpile` | ✅ Implemented |
-| `freak version`, `freak help`, `freak init`, `freak flex`, `freak doctor`, `freak upgrade` | ✅ Implemented |
+| `freak run`, `freak build`, `freak check`, `freak transpile` | ✅ Implemented — `run` caches only with fingerprints over source, loaded stdlib, resolved compiler/toolchain identity, backend flags, runtime inputs, and the output artifact, then revalidates immediately before launch. Concurrent writers to the same output are not serialized. |
+| `freak version`, `freak help`, `freak init`, `freak flex` | ✅ Implemented |
+| `freak doctor`, `freak doctor --fix`, `freak doctor --json` | ✅ Implemented — validates standard C headers plus native link/execution (not only `clang --version`), optional LLD, the complete runtime/UI + 11-module stdlib payload, and a full FREAK compile-link-execute probe; required failures return nonzero. `--fix` repairs the distribution as one staged unit. |
+| `freak upgrade` | ✅ Implemented — current clients delegate to the tagged staged installer, with recoverable POSIX transaction state and a durable, hash-verified deferred Windows binary transaction. Immutable v0.14.0 POSIX clients require a standalone-binary hop followed by a second upgrade; immutable Windows clients must bootstrap once through `install.ps1`. |
 | `freak hangar <cmd>` and standalone `hangar` binary | ✅ Implemented |
 | `freak audit-science`, `freak audit-trust`, `freak audit-miracles`, `freak foreshadow-audit` | ✅ Implemented (native CLI shells out to Python; native FREAK port is V4) |
 | `freak audit-conformance` | ✅ Implemented (verifies §0.2 status table against the code) |

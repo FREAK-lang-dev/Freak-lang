@@ -127,6 +127,19 @@ task cli_init(project_name: word) -> void {
 task hangar_standalone_main() -> void {
     pilot args_cnt = process::args_count()
 
+    if args_cnt >= 2 {
+        pilot standalone_flag: word = process::arg(1)
+        if standalone_flag == "--version" or standalone_flag == "-V" or standalone_flag == "version" {
+            cli_show_version()
+            give back
+        }
+        if standalone_flag == "--help" or standalone_flag == "-h" or standalone_flag == "help" {
+            -- Force Hangar's own command list, not the compiler help screen.
+            hangar_dispatch(0)
+            give back
+        }
+    }
+
     -- Set the global offset so hangar_arg(N) reads process::arg(N-1)
     hangar_arg_offset = 1
 
@@ -195,7 +208,7 @@ task freakc_cli_main() -> void {
             say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " " + subcmd + " requires a file argument."
             say "  " + C_DIM + "Usage: " + C_RESET + "freak " + subcmd + " <file.fk> [options]"
             say ""
-            give back
+            process::exit(1)
         }
 
         pilot src_file: word = process::arg(2)
@@ -210,7 +223,8 @@ task freakc_cli_main() -> void {
                 process::exit(1)
             }
         } else if subcmd == "run" {
-            cli_run(src_file, target, opt, cross)
+            pilot run_exit = cli_run(src_file, target, opt, cross)
+            if run_exit != 0 { process::exit(run_exit) }
         } else if subcmd == "check" {
             -- Type-check only: read, lex, parse, check — no emit
             pilot source: word = fs::read(src_file)
@@ -223,6 +237,12 @@ task freakc_cli_main() -> void {
             say ""
             say "  " + C_G3 + SYM_GEAR + " CHECKING" + C_RESET + " " + C_BWHITE + src_file + C_RESET
             say ""
+            input_file = src_file
+            diagnostic_source = source
+            source_map_reset()
+            source_map_register(src_file, source)
+            error_count = 0
+            parse_error_count = 0
             init_arrays()
             cli_step_start()
             tokenize(source)
@@ -230,9 +250,21 @@ task freakc_cli_main() -> void {
             cli_step_start()
             parse_program()
             cli_step_done("Parsing")
+            if error_count > 0 {
+                say ""
+                say "  " + C_BRED + SYM_CROSS + " FAILED" + C_RESET + C_DIM + " -- syntax errors found" + C_RESET
+                say ""
+                process::exit(1)
+            }
             cli_step_start()
             check_program()
             cli_step_done("Type checking")
+            if error_count > 0 {
+                say ""
+                say "  " + C_BRED + SYM_CROSS + " FAILED" + C_RESET + C_DIM + " -- type/borrow errors found" + C_RESET
+                say ""
+                process::exit(1)
+            }
             say ""
             say "  " + C_BGREEN + SYM_SPARK + " PASSED" + C_RESET + C_DIM + " -- no type errors found" + C_RESET
             say ""
@@ -268,6 +300,8 @@ task freakc_cli_main() -> void {
             say ""
             say "  " + C_DIM + C_ITALIC + cli_random_quote(time::now_ms()) + C_RESET
             say ""
+        } else {
+            process::exit(upgrade_res)
         }
         give back
     }
@@ -284,10 +318,12 @@ task freakc_cli_main() -> void {
             doctor_arg_i += 1
         }
         if json_mode {
-            cli_doctor_json()
+            pilot json_exit = cli_doctor_json()
+            if json_exit != 0 { process::exit(json_exit) }
             give back
         }
-        cli_doctor(fix_mode)
+        pilot doctor_exit = cli_doctor(fix_mode)
+        if doctor_exit != 0 { process::exit(doctor_exit) }
         give back
     }
 

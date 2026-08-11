@@ -7,6 +7,11 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**V3 process ABI boundary (2026-08-10):** the shipping compiler rejects
+`process::args()` until it can return the bible-required `List<word>` through a
+real list ABI. V3 callers use `process::args_count()` and
+`process::arg(index)`; raw `argv` is no longer exposed as an integer handle.
+
 **V4 expansion and macro-contract bootstrap checkpoint (2026-08-09):** Maverick now routes every bootstrap frontend query through `parse -> expand -> HIR`. The identity-only `freak_expand` stage forwards syntax unchanged while recording stable ExpandedFile identity and deterministic provenance; its query, invalidation, component snapshot, 00-Unit v3 restore/manifest/diff/health, LSP wrappers, and architecture guards are executable. `freak_macro_api` now separately owns versioned, capability-limited `MacroContext`, read-only view, structured diagnostic, public `ExpansionId`, generated-node provenance, and deterministic non-executing builder contracts. This is an architecture-only checkpoint with no language-semantic change: user-defined syntax rewriting, hygiene, gensyms, third-party execution, and macro hosts remain absent, and the Alternative-4 annotation/macro boundary is unchanged.
 
 **V4 closure checkpoint (2026-07-18):** Maverick now carries resilient default/`copy`/`move`/`mut` closure syntax through HIR, TY, MIR, Meiya, editor/LSP facts, snapshot restore, and deterministic all-family invalidation. Capture discovery is lexical-scope and member-position aware, Callable environments can be copied, and resolved mutable receiver calls require `mut` capture. This is a frontend/query and ownership checkpoint; native closure-environment codegen, nested/generic closure inference, borrowed-return closure contracts, and `Send`/`Sync` proof remain open.
@@ -145,6 +150,11 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | `Foo { field: value }` instantiation | ✅ | ✅ | |
 | Method calls `instance.method()` | ✅ | ✅ | |
 | `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | V4 lowers concrete impl UFCS calls like `Pilot::boost(ship, bonus: 3)`, generic-owner `Box<int>::take(box)`, and doctrine-bound calls like `T::score(value, bonus: 2)` into MIR with receiver/value arguments plus arity and receiver-type diagnostics. Doctrine-bound static calls such as `T::baseline()` carry instantiated doctrine arguments through editor facts; body generics outrank same-named global aliases, and overlapping bound methods produce an ambiguity diagnostic instead of declaration-order dispatch. Production backend parity still expands |
+
+The shipping V3 LLVM path owns the executable shape/impl status in this table.
+The C portability emitter now keeps receiver-qualified field indexes, ownership,
+and nominal method symbols, but packaged C shape storage remains incomplete and
+is covered as a transpilation contract rather than claimed runtime parity.
 
 #### §1.6 Doctrines (Traits)
 
@@ -572,6 +582,7 @@ completion remain open.
 | `@identifier` annotation | ✅ | ✅ |
 | `'identifier` lifetime | ⚠️ | 📖 V4 — tokenized and preserved through ordinary-task binders, outlives-bound references, and TY/editor/query contracts; broader region grammar and solving remain |
 | `prob[lo..hi]` lex form | ❌ | 📖 V4 |
+| V3 generated/native symbol hygiene | ✅ | ✅ — user tasks are mangled away from runtime exports; `__freak_` extern names and task declarations that conflict with compiler builtins fail before C/LLVM emission |
 | Number suffixes `42u`, `3.14f`, `42t`, `999b` | ⚠️ | 📖 V4 — lexer/TY/value normalization smokes exist; production backend semantics still expand |
 
 ---
@@ -652,10 +663,12 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 
 | Subcommand | Status | Verdict | Notes |
 |---|---|---|---|
-| `freak run file.fk` | ✅ | ✅ | |
-| `freak build file.fk` | ✅ | ✅ | |
+| `freak run file.fk` | ✅ | ✅ | Sidecar covers source, loaded stdlib, resolved compiler/toolchain identity, backend flags, runtime inputs, and output artifact; proof is revalidated immediately before launch. Same-output concurrent writers are not serialized. |
+| `freak build file.fk` | ✅ | ✅ | Native Windows builds consume a complete packaged COFF runtime bundle through the selected Clang driver; POSIX, cross-target, and incomplete-bundle builds compile runtime sources. |
 | `freak check file.fk` | ✅ | ✅ | |
 | `freak transpile file.fk` | ✅ | ✅ | |
+| `freak doctor [--fix|--json]` | ✅ | ✅ | Complete runtime/UI and 11-module stdlib inventory, standard-header + native link/run Clang validation, optional dependency bootstrap, full FREAK compile-link-execute probe, exact passive JSON missing-file report, and nonzero required-failure status. |
+| `freak upgrade` | ✅ | ✅ | Tagged staged installer preserves the public command; POSIX tracks/reconciles recoverable rollback state, while Windows retains durable pending state and hash-verifies the deferred two-binary transaction after the invoking installer exits. Immutable v0.14.0 POSIX clients need a binary hop plus a second upgrade; immutable Windows clients bootstrap through `install.ps1`. |
 | `freak test` | ✅ | ✅ shim wraps `python tests/suite/run_tests.py` |
 | `freak vibe file.fk` | ❌ | 📖 V4 (or remove) |
 | `freak audit-science` | ⚠️ | 🛠 wire native CLI | Python-only; native dispatch missing |
@@ -811,7 +824,7 @@ E. **§4 Borrow Checker** — split into:
 
 F. **§5 Anime Layer** — per-feature status; `foreshadow-audit`/`audit-miracles`/`audit-trust`/`audit-science` are ✅; everything else 📖 V4.
 
-G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`, `std::test`) as Planned. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::process`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`, `std::ui` partial).
+G. **§7 Stdlib** — confirm planned modules (`std::thread`, `std::anime`, `std::narrative`, `std::test`) as Planned. Note shipped modules (`std::math`, `std::string`, `std::convert`, `std::algorithm`, `std::json`, `std::http`, `std::fs`, `std::time`, `std::bytes`, `std::math3d`, `std::version`, `std::zip`; `std::process` and `std::ui` partial).
 
 H. **§13 CLI** — remove or V4-tag `freak vibe`, `--voice`, `--clearance`, `--build-mode`, `-o`. Add `audit-conformance` once Phase C lands.
 

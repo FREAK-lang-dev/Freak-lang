@@ -3,13 +3,28 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include "freak_runtime.h"
+extern int64_t freak_llvm_word_adopt(int64_t pointer);
+extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifdef _WIN32
 __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 #else
 #include <unistd.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #endif
+
+static int64_t freak_llvm_normalize_process_status(int status) {
+#ifdef _WIN32
+    return (int64_t)status;
+#else
+    if (status == -1) return -1;
+    if (WIFEXITED(status)) return (int64_t)WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return (int64_t)(128 + WTERMSIG(status));
+    return (int64_t)status;
+#endif
+}
 
 /* ── Global args — no longer needed, moved to LLVM IR globals ── */
 
@@ -31,6 +46,44 @@ __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
    tasks in std/runtime.fk. They call the libc wrappers below. */
 
 /* libc wrappers — take/return i64 (FREAK's universal ABI) */
+static int64_t freak_llvm_copy_word_result(freak_word value) {
+    if (value.length == SIZE_MAX) {
+        freak_word_release_owned(&value);
+        fprintf(stderr, "FREAK: word bridge size overflow\n");
+        exit(1);
+    }
+    char* copy = (char*)malloc(value.length + 1);
+    if (!copy) {
+        freak_word_release_owned(&value);
+        fprintf(stderr, "FREAK: out of memory\n");
+        exit(1);
+    }
+    if (value.length > 0) memcpy(copy, value.data, value.length);
+    copy[value.length] = '\0';
+    freak_word_release_owned(&value);
+    return freak_llvm_word_adopt((int64_t)copy);
+}
+
+int64_t freak_llvm_fs_list_dir(int64_t path) {
+    return freak_llvm_copy_word_result(
+        freak_fs_list_dir(freak_word_lit((const char*)path))
+    );
+}
+
+void freak_llvm_fs_make_dir(int64_t path) {
+    freak_fs_make_dir(freak_word_lit((const char*)path));
+}
+
+int64_t freak_llvm_process_env(int64_t name) {
+    return freak_llvm_copy_word_result(
+        freak_process_env(freak_word_lit((const char*)name))
+    );
+}
+
+int64_t freak_llvm_process_input(void) {
+    return freak_llvm_copy_word_result(freak_process_input());
+}
+
 int64_t freak_fopen(int64_t path, int64_t mode) {
     return (int64_t)fopen((const char*)path, (const char*)mode);
 }
@@ -89,7 +142,7 @@ int64_t freak_llvm_process_exec_capture(int64_t cmd_p) {
 #else
     pclose(fp);
 #endif
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* ── Time ──────────────────────────────────────────── */
@@ -172,6 +225,13 @@ void freak_llvm_array_push(int64_t handle, int64_t item) {
     }
     a->data[a->length++] = item;
 }
+void freak_llvm_array_push_owned(int64_t handle, int64_t item) {
+    if (freak_llvm_array_slot_for_handle(handle) < 0) {
+        freak_llvm_word_release_replaced(item, 0);
+        return;
+    }
+    freak_llvm_array_push(handle, item);
+}
 int64_t freak_llvm_array_get(int64_t handle, int64_t index) {
     int64_t slot = freak_llvm_array_slot_for_handle(handle);
     if (slot < 0) return 0;
@@ -196,6 +256,22 @@ void freak_llvm_array_set(int64_t handle, int64_t index, int64_t item) {
     a->data[index] = item;
 }
 
+void freak_llvm_array_set_owned(int64_t handle, int64_t index, int64_t item) {
+    int64_t slot = freak_llvm_array_slot_for_handle(handle);
+    if (slot < 0) {
+        freak_llvm_word_release_replaced(item, 0);
+        return;
+    }
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
+    if (index < 0 || index >= a->length) {
+        fprintf(stderr, "FREAK: array_set index %lld out of bounds (len %lld)\n",
+                (long long)index, (long long)a->length);
+        exit(1);
+    }
+    freak_llvm_word_release_replaced(a->data[index], item);
+    a->data[index] = item;
+}
+
 void freak_llvm_array_release(int64_t handle) {
     int64_t slot = freak_llvm_array_slot_for_handle(handle);
     if (slot < 0) return;
@@ -213,7 +289,17 @@ void freak_llvm_array_release(int64_t handle) {
     freak_llvm_array_free_head = slot;
 }
 
-int64_t freak_llvm_word_join(int64_t handle) {
+void freak_llvm_array_release_owned(int64_t handle) {
+    int64_t slot = freak_llvm_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
+    for (int64_t i = 0; i < a->length; ++i) {
+        freak_llvm_word_release_replaced(a->data[i], 0);
+    }
+    freak_llvm_array_release(handle);
+}
+
+static int64_t freak_llvm_word_join_impl(int64_t handle, bool release_elements) {
     int64_t slot = freak_llvm_array_slot_for_handle(handle);
     if (slot < 0) return (int64_t)"";
     freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
@@ -243,8 +329,20 @@ int64_t freak_llvm_word_join(int64_t handle) {
         }
     }
     joined[total] = '\0';
-    freak_llvm_array_release(handle);
-    return (int64_t)joined;
+    if (release_elements) {
+        freak_llvm_array_release_owned(handle);
+    } else {
+        freak_llvm_array_release(handle);
+    }
+    return freak_llvm_word_adopt((int64_t)joined);
+}
+
+int64_t freak_llvm_word_join(int64_t handle) {
+    return freak_llvm_word_join_impl(handle, false);
+}
+
+int64_t freak_llvm_word_join_owned(int64_t handle) {
+    return freak_llvm_word_join_impl(handle, true);
 }
 
 /* ── Shape (struct) helpers ─────────────────────────── */
@@ -373,7 +471,7 @@ int64_t freak_llvm_char_to_word(int64_t code) {
         len = 4;
     }
     buf[len] = '\0';
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* ── Math bridge (LLVM i64-bitcast-double → real <math.h>) ─ */
@@ -490,7 +588,7 @@ int64_t freak_llvm_tcp_recv(int64_t fd, int64_t max_bytes) {
 #endif
     if (n <= 0) { free(buf); return (int64_t)""; }
     buf[n] = '\0';
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* freak_tcp_recv_all(fd, max_bytes) -> read until connection closes */
@@ -510,7 +608,7 @@ int64_t freak_llvm_tcp_recv_all(int64_t fd, int64_t max_bytes) {
         total += n;
     }
     buf[total] = '\0';
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* freak_tcp_close(fd) -> void */
@@ -555,7 +653,7 @@ int64_t freak_llvm_process_exec(int64_t cmd_p) {
     if (!cmd) {
         return -1;
     }
-    return (int64_t)system(cmd);
+    return freak_llvm_normalize_process_status(system(cmd));
 }
 
 /* ── Entry point setup ──────────────────────────────── */

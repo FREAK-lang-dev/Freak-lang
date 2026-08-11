@@ -51,6 +51,11 @@ That's it. That's the whole vibe.
 - **`eventually`** — block that runs at the end of the current scope.
 - **`isekai`** — nested scope with explicit `bringing back { ... }` exports.
 
+Native `extern task` names beginning with `__freak_` are reserved for compiler
+output, and source tasks cannot redeclare compiler builtin call names. V3
+rejects both cases before C or LLVM emission so user symbols cannot collide
+with the packaged runtime ABI.
+
 ### The Type System
 
 | Type | What it is |
@@ -133,23 +138,39 @@ with characteristic polynomial $\chi_{\hat{\mathbf{L}}}(\lambda) = \prod_{i\in\m
 **Linux / macOS:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.sh | bash
+
+# Also install a supported Clang/LLD/native build toolchain when missing:
+curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.sh | bash -s -- --with-deps
 ```
 
 **Windows (PowerShell):**
 ```powershell
 irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
+
+# Also install a self-contained LLVM-MinGW toolchain when missing:
+$env:FREAK_INSTALL_DEPS = "1"
+irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
 ```
 
-This downloads the latest `freak` binary and runtime to `~/.freak` (or `%APPDATA%\freak` on Windows) and adds it to your PATH. Open a new terminal and you're ready.
+Downloaded release archives and every standalone fallback payload file must match their exact filename entry in the release's `SHA256SUMS` before extraction or staging. A missing, malformed, duplicate, or mismatched checksum aborts before the installed payload is touched. The immutable v0.14.0 archives predate archive entries in `SHA256SUMS`; the installers recognize only those four release filenames, verify pinned full-archive SHA-256 values, and generate the manifest that release omitted. No later tag receives this compatibility exception.
 
-> **Requires:** [Clang](https://releases.llvm.org/) for native compilation. Most systems have it already — run `clang --version` to check.
+For maintainers, `VERSION` is authoritative. Run `python -u tools/release_version.py set <major.minor.patch>` once to synchronize compiler/CLI display versions and package metadata, then `python -u tools/release_version.py check`; tagged releases also fail before building unless the Git tag is exactly `v<major.minor.patch>`.
+
+This downloads the latest `freak` and `hangar` binaries to `~/.freak` (or `%APPDATA%\freak` on Windows). Installers serialize updates per destination so two concurrent installs cannot consume each other's backups or expose interleaved payloads. A canonical distribution manifest stages and validates every runtime source, platform UI file, recursive stdlib module—including `std/ui/window.fk`—and the required `freak-v3-abi-1` runtime/stdlib markers before installer-managed files are swapped into place. `freak build` and `freak doctor` reject missing or mismatched markers as an ABI mismatch instead of compiling a mixed installation. Windows release archives additionally carry an LLVM-MinGW-built runtime object bundle; native Windows builds try it through the selected Clang driver and automatically retry from packaged runtime sources when a complete bundle is incompatible, while incomplete/older bundles and every POSIX build use sources directly. Failed downloads and apply failures restore the previous installed payload. On POSIX, an interrupted transaction is rolled back on exit; if restoration itself cannot complete, the recoverable `.freak-backup-*` directory is retained and the next installer run reconciles it before applying anything new.
+
+The default installer reports a missing compiler without changing system packages. Opt into dependency installation with `--with-deps` or `FREAK_INSTALL_DEPS=1`. Linux package-manager support covers apt, dnf/yum, pacman, zypper, and apk; macOS uses Homebrew LLVM or Apple Command Line Tools; Windows prefers self-contained LLVM-MinGW so headers and link libraries are present as well as `clang.exe`.
 
 Verify the install:
 
 ```bash
 freak doctor
 freak doctor --json   # passive machine-readable report for editors and scripts
+freak doctor --fix    # install/repair dependencies and the distribution payload
 ```
+
+`freak doctor` verifies that Clang can parse the platform's standard C headers, link a native executable, and run it; a working `clang --version` alone is rejected. It also checks optional LLD, all required runtime/UI files, all 11 shipped stdlib modules, and a complete FREAK compile-link-execute probe. It exits nonzero when required checks fail and removes its probe artifacts. `--json` keeps the additive `freak.doctor.v1` schema, uses a unique system-temporary toolchain probe, and reports exact missing files without installing or repairing anything.
+
+`freak upgrade` remains the supported upgrade command. Current clients route it through the staged tagged installer. Windows keeps `.next` binaries plus a durable `.freak-upgrade-pending` marker, waits for the invoking installer process to exit, then hash-verifies and swaps both binaries as one rollback-capable transaction; Doctor reports the pending state and builds refuse to mix the old compiler with the newly staged payload. A failed attempt retains recovery state for retry. The immutable v0.14.0 updater predates recursive payloads and deferred self-replacement: on Linux/macOS, run `freak upgrade` once for the retained standalone-binary hop and again with the new client to install the complete payload; on Windows, bootstrap once with the PowerShell installer above, then use `freak upgrade` normally. Package-manager installs should likewise refresh through their manager or the installer so `FREAK_HOME` stays aligned.
 
 ### Your First Program
 
@@ -166,6 +187,20 @@ Compile and run:
 ```bash
 freak run hello.fk
 ```
+
+`freak run` reuses the adjacent `.freak-run-cache` sidecar only when the
+source, loaded standard library, resolved compiler executable/toolchain,
+backend flags, runtime inputs, and output-binary fingerprint still match. It
+revalidates that proof immediately before launch. Concurrent commands targeting
+the same output are not serialized; use distinct outputs or avoid overlapping
+runs when another process may replace the binary after that final check.
+
+Plain V3 `word` replacement now evaluates the new value before releasing the
+superseded owned buffer on both C and LLVM backends, including safe
+self-assignment and `name = name + suffix`. The CI regression runs the repeated
+replacement case under AddressSanitizer on POSIX and LeakSanitizer on Linux. Concatenation still
+copies the growing prefix each time, so repeated append remains O(n^2); this
+ownership fix does not claim to solve that separate performance cost.
 
 Or build separately:
 
@@ -345,7 +380,7 @@ impl Displayable for Point {
 | `std::string` / `std::convert` | String and conversion utilities |
 | `std::algorithm` | Sort, search, aggregate |
 | `std::time` | Timestamps, durations, sleep |
-| `std::process` | Spawn processes, read env, exec_capture |
+| `std::process` | Process arguments, environment access, and command execution (partial in V3) |
 | `std::bytes` | `ByteBuffer` for binary I/O |
 | `std::ui` | Native window, events, canvas (COCKPIT runs on top of this) |
 | `std::version` | Semver parsing, comparison, bumping, constraints |
@@ -445,7 +480,8 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 | CI/CD with 4-platform releases | ✅ Complete |
 | Phase-1 borrow checker (`--strict-borrow`) | ✅ Complete |
 | Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | ✅ Complete |
-| `std::fs`, `std::process`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
+| `std::fs`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
+| `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` waits for a real list ABI |
 | COCKPIT UI framework | 🚧 In progress (MA–MF done, MG pending) |
 | LLVM JIT mode + DWARF debug info | 🚧 In progress |
 | V4 self-hosting compiler (variants, full BC, mood/prob/power, squadron concurrency, FFI surface, error voices) | 🔜 Roadmapped |

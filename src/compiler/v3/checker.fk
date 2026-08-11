@@ -237,15 +237,10 @@ task bc_walk_stmt(stmt_id: int) -> void {
     if stmt_id < 0 { give back }
     pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
     pilot line = word_to_int(array_get(ast_stmt_lines, stmt_id))
-    -- adjust_token_lines clamps every prepended-std token to line 1
-    -- when the CLI auto-loads std (source_line_offset > 0). Skip BC on
-    -- those stmts so the user's file is the only thing checked. The
-    -- corner case of user-file line 1 sharing the clamp value is the
-    -- price; phases past v1 will track origin via stmt-id range
-    -- instead of line number.
-    if source_line_offset > 0 {
-        if line <= 1 { give back }
-    }
+    -- Auto-loaded std is trusted compiler payload. Strict borrow checking is
+    -- scoped to the requested user file, selected by exact statement origin.
+    pilot stmt_file: word = array_get(ast_stmt_files, stmt_id)
+    if source_line_offset > 0 and stmt_file != input_file { give back }
 
     if kind == STMT_PILOT {
         pilot name: word = array_get(ast_stmt_names, stmt_id)
@@ -430,6 +425,634 @@ task bc_register_task_params(params: word, line: int) -> void {
         pilot k2: word = "owned"
         if bc_is_copy_type(cur_type) { k2 = "copy" }
         bc_push_sym(cur_name, k2, "1", line)
+    }
+}
+
+-- ---------- Always-on nominal member validation --------------------
+
+task tc_set_global(name: word, shape_name: word) -> void {
+    if tc_global_count < array_len(tc_global_names) {
+        array_set(tc_global_names, tc_global_count, name)
+        array_set(tc_global_types, tc_global_count, shape_name)
+    } else {
+        array_push(tc_global_names, name)
+        array_push(tc_global_types, shape_name)
+    }
+    tc_global_count += 1
+}
+
+task tc_set_local(name: word, shape_name: word) -> void {
+    if tc_local_count < array_len(tc_local_names) {
+        array_set(tc_local_names, tc_local_count, name)
+        array_set(tc_local_types, tc_local_count, shape_name)
+    } else {
+        array_push(tc_local_names, name)
+        array_push(tc_local_types, shape_name)
+    }
+    tc_local_count += 1
+}
+
+task tc_reset_locals() -> void {
+    tc_local_count = 0
+}
+
+task tc_lookup_type(name: word) -> word {
+    pilot i = tc_local_count - 1
+    repeat until i < 0 {
+        if array_get(tc_local_names, i) == name { give back array_get(tc_local_types, i) }
+        i -= 1
+    }
+    i = tc_global_count - 1
+    repeat until i < 0 {
+        if array_get(tc_global_names, i) == name { give back array_get(tc_global_types, i) }
+        i -= 1
+    }
+    give back ""
+}
+
+task tc_has_binding(name: word) -> bool {
+    pilot i = tc_local_count - 1
+    repeat until i < 0 {
+        if array_get(tc_local_names, i) == name { give back true }
+        i -= 1
+    }
+    i = tc_global_count - 1
+    repeat until i < 0 {
+        if array_get(tc_global_names, i) == name { give back true }
+        i -= 1
+    }
+    give back false
+}
+
+task tc_lookup_shape(name: word) -> word {
+    pilot binding_type = tc_lookup_type(name)
+    if is_shape_name(binding_type) { give back binding_type }
+    give back ""
+}
+
+task tc_reset_callable_index(top_count: int) -> void {
+    array_release(tc_callable_bucket_heads)
+    array_release(tc_callable_names)
+    array_release(tc_callable_returns)
+    array_release(tc_callable_params)
+    array_release(tc_callable_extras)
+    array_release(tc_callable_stmt_ids)
+    array_release(tc_callable_next)
+    tc_callable_bucket_heads = array_new()
+    tc_callable_names = array_new()
+    tc_callable_returns = array_new()
+    tc_callable_params = array_new()
+    tc_callable_extras = array_new()
+    tc_callable_stmt_ids = array_new()
+    tc_callable_next = array_new()
+    tc_callable_count = 0
+    tc_callable_bucket_count = top_count * 2 + 1
+    if tc_callable_bucket_count < 17 { tc_callable_bucket_count = 17 }
+    repeat tc_callable_bucket_count times {
+        array_push(tc_callable_bucket_heads, word_from_int(0 - 1))
+    }
+}
+
+task tc_callable_bucket(name: word) -> int {
+    pilot hash: int = name.checksum()
+    if hash < 0 { hash = 0 - hash }
+    give back hash % tc_callable_bucket_count
+}
+
+task tc_callable_entry(name: word) -> int {
+    if tc_callable_bucket_count <= 0 { give back 0 - 1 }
+    pilot entry = word_to_int(array_get(tc_callable_bucket_heads, tc_callable_bucket(name)))
+    repeat until entry < 0 {
+        if array_get(tc_callable_names, entry) == name { give back entry }
+        entry = word_to_int(array_get(tc_callable_next, entry))
+    }
+    give back 0 - 1
+}
+
+task tc_index_callable(stmt_id: int) -> void {
+    pilot name: word = array_get(ast_stmt_names, stmt_id)
+    pilot bucket = tc_callable_bucket(name)
+    pilot prior = word_to_int(array_get(tc_callable_bucket_heads, bucket))
+    array_push(tc_callable_names, name)
+    array_push(tc_callable_returns, array_get(ast_task_returns, stmt_id))
+    array_push(tc_callable_params, array_get(ast_task_params, stmt_id))
+    array_push(tc_callable_extras, array_get(ast_stmt_extras, stmt_id))
+    array_push(tc_callable_stmt_ids, word_from_int(stmt_id))
+    array_push(tc_callable_next, word_from_int(prior))
+    array_set(tc_callable_bucket_heads, bucket, word_from_int(tc_callable_count))
+    tc_callable_count += 1
+}
+
+task tc_task_return_type(task_name: word) -> word {
+    pilot entry = tc_callable_entry(task_name)
+    if entry >= 0 { give back array_get(tc_callable_returns, entry) }
+    give back ""
+}
+
+task tc_task_return_shape(task_name: word) -> word {
+    pilot ret = tc_task_return_type(task_name)
+    if is_shape_name(ret) { give back ret }
+    give back ""
+}
+
+task tc_builtin_call_type(name: word) -> word {
+    if name == "word_from_int" or name == "word_from_bool" or name == "word_concat" or name == "word_join" or name == "char_to_word" { give back "word" }
+    if name == "format_num" or name == "ask" or name == "array_get" or name == "process::env" or name == "process::input" { give back "word" }
+    if name == "fs::read" or name == "fs::list_dir" or name == "process::arg" or name == "process::exec_capture" { give back "word" }
+    if name == "tcp::recv" or name == "tcp_recv" or name == "tcp::recv_all" or name == "tcp_recv_all" { give back "word" }
+    if name == "fs::exists" { give back "bool" }
+    if name == "array_new" or name == "array_len" or name == "process::args_count" or name == "process::exec" { give back "int" }
+    if name == "word_to_int" or name == "time::now_ms" or name == "tcp::connect" or name == "tcp_connect" or name == "tcp::send" or name == "tcp_send" { give back "int" }
+    if name == "shape::alloc" or name == "shape::get" { give back "int" }
+    if name == "ui::create_window" or name == "ui::poll_events" or name == "ui::draw_text" or name == "ui::measure_text" { give back "int" }
+    if name == "ui::event_kind" or name == "ui::event_key" or name == "ui::event_pressed" or name == "ui::event_character" { give back "int" }
+    if name == "ui::event_mouse_x" or name == "ui::event_mouse_y" or name == "ui::event_button" or name == "ui::event_repeat" { give back "int" }
+    if name == "ui::event_scroll_dy" or name == "ui::event_width" or name == "ui::event_height" or name == "ui::event_gained" { give back "int" }
+    if name == "ui::get_width" or name == "ui::get_height" { give back "int" }
+    if name == "math::sqrt" or name == "math::pow" or name == "math::sin" or name == "math::cos" { give back "num" }
+    if name == "math::tan" or name == "math::floor" or name == "math::ceil" or name == "parse_num" { give back "num" }
+    if name == "say" or name == "panic" or name == "fs::write" or name == "fs::append" or name == "fs::delete" or name == "fs::make_dir" { give back "void" }
+    if name == "array_push" or name == "array_set" or name == "array_release" or name == "process::exit" or name == "shape::set" { give back "void" }
+    if name == "tcp::close" or name == "tcp_close" { give back "void" }
+    if name == "ui::destroy_window" or name == "ui::begin_frame" or name == "ui::end_frame" or name == "ui::clear" { give back "void" }
+    if name == "ui::fill_rect" or name == "ui::stroke_rect" or name == "ui::fill_circle" or name == "ui::draw_line" { give back "void" }
+    give back ""
+}
+
+task tc_internal_runtime_task_name(name: word) -> bool {
+    give back name == "llvm_fs_read" or name == "llvm_fs_write" or name == "llvm_fs_append" or name == "llvm_fs_exists" or name == "llvm_fs_delete"
+}
+
+task tc_reserved_builtin_call(name: word) -> bool {
+    give back tc_builtin_call_type(name) != "" or name == "process::args"
+}
+
+task tc_internal_runtime_source(source_file: word) -> bool {
+    give back trusted_internal_runtime_source_file != "" and source_file == trusted_internal_runtime_source_file
+}
+
+task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
+    if receiver_type == "word" {
+        if name == "length" or name == "checksum" or name == "trim" { give back true }
+        if name == "to_upper" or name == "to_lower" or name == "replace" { give back true }
+        if name == "char_at" or name == "substring" or name == "contains" { give back true }
+        if name == "starts_with" or name == "ends_with" { give back true }
+        if name == "to_int" or name == "to_num" { give back true }
+        if name == "snapshot_escape" or name == "snapshot_unescape" { give back true }
+        if name == "snapshot_line_count" or name == "snapshot_line" { give back true }
+        if name == "snapshot_field_count" or name == "snapshot_field_raw" { give back true }
+    }
+    if receiver_type == "int" and (name == "to_num" or name == "to_word") { give back true }
+    if receiver_type == "num" and (name == "to_int" or name == "to_word") { give back true }
+    if receiver_type == "bool" and name == "to_word" { give back true }
+    give back false
+}
+
+task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
+    if not tc_builtin_method_allowed(receiver_type, name) { give back "" }
+    if name == "to_int" or name == "length" or name == "checksum" or name == "snapshot_line_count" or name == "snapshot_field_count" { give back "int" }
+    if name == "contains" or name == "starts_with" or name == "ends_with" { give back "bool" }
+    if name == "to_num" { give back "num" }
+    give back "word"
+}
+
+task tc_arg_count(args: word) -> int {
+    if args == "" { give back 0 }
+    pilot count = 1
+    pilot i = 0
+    repeat args.length() times {
+        if args.char_at(i) == "," { count += 1 }
+        i += 1
+    }
+    give back count
+}
+
+task tc_builtin_method_arity(name: word) -> int {
+    if name == "char_at" or name == "contains" or name == "starts_with" or name == "ends_with" { give back 1 }
+    if name == "snapshot_line" or name == "snapshot_field_raw" { give back 1 }
+    if name == "substring" or name == "replace" { give back 2 }
+    give back 0
+}
+
+task tc_impl_method_arity(shape_name: word, method_name: word) -> int {
+    pilot task_name = shape_name + "_" + method_name
+    pilot entry = tc_callable_entry(task_name)
+    if entry >= 0 and array_get(tc_callable_extras, entry) == "impl:" + shape_name {
+        pilot params: word = array_get(tc_callable_params, entry)
+        pilot total = tc_arg_count(params)
+        if total > 0 { give back total - 1 }
+        give back 0
+    }
+    give back 0 - 1
+}
+
+task tc_expr_type(expr_id: int) -> word {
+    if expr_id < 0 { give back "" }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    pilot val: word = array_get(ast_expr_vals, expr_id)
+    if kind == EXPR_INT { give back "int" }
+    if kind == EXPR_FLOAT { give back "num" }
+    if kind == EXPR_BOOL { give back "bool" }
+    if kind == EXPR_STR { give back "word" }
+    if kind == EXPR_IDENT { give back tc_lookup_type(val) }
+    if kind == EXPR_CALL {
+        if val.starts_with("shape::ctor::") { give back val.replace("shape::ctor::", "") }
+        pilot ret = tc_task_return_type(val)
+        if ret != "" { give back ret }
+        give back tc_builtin_call_type(val)
+    }
+    if kind == EXPR_FIELD {
+        pilot base = word_to_int(array_get(ast_expr_lefts, expr_id))
+        pilot base_shape = tc_expr_type(base)
+        if base_shape != "" {
+            pilot field_type = get_shape_field_type(base_shape, val)
+            if field_type != "" { give back field_type }
+        }
+    }
+    if kind == EXPR_METHOD {
+        pilot base = word_to_int(array_get(ast_expr_lefts, expr_id))
+        pilot base_type = tc_expr_type(base)
+        if is_shape_name(base_type) { give back tc_task_return_type(base_type + "_" + val) }
+        give back tc_builtin_method_return_type(base_type, val)
+    }
+    if kind == EXPR_BINOP {
+        pilot op: word = val
+        if op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">=" or op == "and" or op == "or" { give back "bool" }
+        pilot left_type = tc_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)))
+        pilot right_type = tc_expr_type(word_to_int(array_get(ast_expr_rights, expr_id)))
+        if op == "+" and (left_type == "word" or right_type == "word") { give back "word" }
+        if left_type == "num" or right_type == "num" { give back "num" }
+        if left_type != "" { give back left_type }
+        give back right_type
+    }
+    if kind == EXPR_UNARYOP { give back tc_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id))) }
+    if kind == EXPR_INDEX {
+        if tc_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id))) == "word" { give back "word" }
+        give back ""
+    }
+    if kind == EXPR_ARRAY_LIT { give back "int" }
+    give back ""
+}
+
+task tc_expr_shape(expr_id: int) -> word {
+    pilot expr_type = tc_expr_type(expr_id)
+    if is_shape_name(expr_type) { give back expr_type }
+    give back ""
+}
+
+task tc_expr_is_known_non_shape(expr_id: int) -> bool {
+    pilot expr_type = tc_expr_type(expr_id)
+    give back expr_type != "" and not is_shape_name(expr_type)
+}
+
+task tc_has_impl_method(shape_name: word, method_name: word) -> bool {
+    pilot task_name = shape_name + "_" + method_name
+    pilot entry = tc_callable_entry(task_name)
+    give back entry >= 0 and array_get(tc_callable_extras, entry) == "impl:" + shape_name
+}
+
+task tc_diag_member(shape_name: word, member_kind: word, member_name: word, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: shape '" + shape_name + "' has no " + member_kind + " '" + member_name + "' (line " + word_from_int(line) + ")"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_non_shape_field(line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: non-shape value has no fields (line " + word_from_int(line) + ")"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_unknown_field_receiver(field_name: word, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: cannot resolve the receiver type for field '" + field_name + "' (line " + word_from_int(line) + ")"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_unknown_method_receiver(method_name: word, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: cannot resolve the receiver type for method '" + method_name + "' (line " + word_from_int(line) + ")"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_non_shape_method(method_name: word, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: non-shape value has no method '" + method_name + "' (line " + word_from_int(line) + ")"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_method_arity(method_name: word, expected: int, actual: int, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: method '" + method_name + "' expects " + word_from_int(expected) + " argument(s), got " + word_from_int(actual) + " (line " + word_from_int(line) + ")"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_reserved_extern(name: word, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: extern symbol '" + name + "' uses the compiler-reserved '__freak_' prefix"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_builtin_callable(name: word, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: callable '" + name + "' conflicts with a compiler builtin"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_process_args_v3(line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: process::args() has no List<word> ABI in V3; use process::args_count() and process::arg(index)"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_diag_duplicate_callable(name: word, line: int, source_file: word) -> void {
+    error_count += 1
+    say "\x1b[1;31mtype error\x1b[0m: callable '" + name + "' conflicts with another task or extern declaration"
+    say " --> " + source_file + ":" + word_from_int(line) + ":1"
+    say word_from_int(line) + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
+}
+
+task tc_validate_args(args: word, line: int) -> void {
+    pilot current = ""
+    pilot i = 0
+    repeat args.length() times {
+        pilot c = args.char_at(i)
+        if c == "," {
+            if current != "" { tc_validate_expr(word_to_int(current), line) }
+            current = ""
+        } else { current = current + c }
+        i += 1
+    }
+    if current != "" { tc_validate_expr(word_to_int(current), line) }
+}
+
+task tc_validate_expr(expr_id: int, line: int) -> void {
+    if expr_id < 0 { give back }
+    pilot source_file = input_file
+    if expr_id < array_len(ast_expr_lines) {
+        pilot origin_line = word_to_int(array_get(ast_expr_lines, expr_id))
+        if origin_line > 0 { line = origin_line }
+        source_file = array_get(ast_expr_files, expr_id)
+    }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    pilot val: word = array_get(ast_expr_vals, expr_id)
+    pilot left: word = array_get(ast_expr_lefts, expr_id)
+    pilot right: word = array_get(ast_expr_rights, expr_id)
+    if kind == EXPR_FIELD {
+        tc_validate_expr(word_to_int(left), line)
+        pilot receiver_shape = tc_expr_shape(word_to_int(left))
+        if receiver_shape != "" and get_shape_field_index(receiver_shape, val) < 0 {
+            tc_diag_member(receiver_shape, "field", val, line, source_file)
+        } else if receiver_shape == "" and tc_expr_is_known_non_shape(word_to_int(left)) {
+            tc_diag_non_shape_field(line, source_file)
+        } else if receiver_shape == "" {
+            -- Unknown receiver types must not fall through to the emitters'
+            -- legacy field-index heuristic.  That heuristic cannot choose
+            -- safely when shapes reuse a field name at different indices.
+            tc_diag_unknown_field_receiver(val, line, source_file)
+        }
+        give back
+    }
+    if kind == EXPR_METHOD {
+        tc_validate_expr(word_to_int(left), line)
+        tc_validate_args(right, line)
+        pilot receiver_type = tc_expr_type(word_to_int(left))
+        if is_shape_name(receiver_type) and not tc_has_impl_method(receiver_type, val) {
+            tc_diag_member(receiver_type, "method", val, line, source_file)
+        } else if is_shape_name(receiver_type) {
+            pilot expected = tc_impl_method_arity(receiver_type, val)
+            pilot actual = tc_arg_count(right)
+            if expected >= 0 and actual != expected { tc_diag_method_arity(val, expected, actual, line, source_file) }
+        } else if receiver_type != "" and not is_shape_name(receiver_type) and not tc_builtin_method_allowed(receiver_type, val) {
+            tc_diag_non_shape_method(val, line, source_file)
+        } else if receiver_type != "" {
+            pilot expected = tc_builtin_method_arity(val)
+            pilot actual = tc_arg_count(right)
+            if actual != expected { tc_diag_method_arity(val, expected, actual, line, source_file) }
+        } else {
+            -- Unknown receivers are never safe to dispatch by method name:
+            -- multiple shapes may implement the same method with different
+            -- layouts and the legacy emitters cannot choose nominally.
+            tc_diag_unknown_method_receiver(val, line, source_file)
+        }
+        give back
+    }
+    if kind == EXPR_CALL {
+        tc_validate_args(left, line)
+        if val == "process::args" { tc_diag_process_args_v3(line, source_file) }
+        give back
+    }
+    if kind == EXPR_ARRAY_LIT { tc_validate_args(left, line) give back }
+    if kind == EXPR_BINOP {
+        tc_validate_expr(word_to_int(left), line)
+        tc_validate_expr(word_to_int(right), line)
+        give back
+    }
+    if kind == EXPR_UNARYOP { tc_validate_expr(word_to_int(left), line) give back }
+    if kind == EXPR_INDEX {
+        tc_validate_expr(word_to_int(left), line)
+        tc_validate_expr(word_to_int(right), line)
+    }
+}
+
+task tc_register_params(params: word) -> void {
+    pilot name = ""
+    pilot type_name = ""
+    pilot in_type = false
+    pilot i = 0
+    repeat params.length() times {
+        pilot c = params.char_at(i)
+        if c == "," {
+            if name != "" { tc_set_local(name, type_name) }
+            name = ""
+            type_name = ""
+            in_type = false
+        } else if c == ":" { in_type = true }
+        else if in_type { type_name = type_name + c }
+        else { name = name + c }
+        i += 1
+    }
+    if name != "" { tc_set_local(name, type_name) }
+}
+
+task tc_validate_when_cases(cases: word, line: int) -> void {
+    pilot case_expr = ""
+    pilot current = ""
+    pilot in_stmt = false
+    pilot i = 0
+    repeat cases.length() times {
+        pilot c = cases.char_at(i)
+        if c == ":" {
+            case_expr = current
+            current = ""
+            in_stmt = true
+        } else if c == "," {
+            pilot saved_local_count = tc_local_count
+            pilot case_line = line
+            if current != "" { case_line = word_to_int(array_get(ast_stmt_lines, word_to_int(current))) }
+            if case_expr != "" and case_expr != "-1" { tc_validate_expr(word_to_int(case_expr), case_line) }
+            if current != "" { tc_validate_stmt(word_to_int(current)) }
+            tc_local_count = saved_local_count
+            case_expr = ""
+            current = ""
+            in_stmt = false
+        } else { current = current + c }
+        i += 1
+    }
+    if in_stmt {
+        pilot saved_local_count = tc_local_count
+        pilot case_line = line
+        if current != "" { case_line = word_to_int(array_get(ast_stmt_lines, word_to_int(current))) }
+        if case_expr != "" and case_expr != "-1" { tc_validate_expr(word_to_int(case_expr), case_line) }
+        if current != "" { tc_validate_stmt(word_to_int(current)) }
+        tc_local_count = saved_local_count
+    }
+}
+
+task tc_validate_block(block: word) -> void {
+    pilot saved_local_count = tc_local_count
+    pilot current = ""
+    pilot i = 0
+    repeat block.length() times {
+        pilot c = block.char_at(i)
+        if c == "," {
+            if current != "" { tc_validate_stmt(word_to_int(current)) }
+            current = ""
+        } else { current = current + c }
+        i += 1
+    }
+    if current != "" { tc_validate_stmt(word_to_int(current)) }
+    tc_local_count = saved_local_count
+}
+
+task tc_validate_stmt(stmt_id: int) -> void {
+    if stmt_id < 0 { give back }
+    pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
+    pilot line = word_to_int(array_get(ast_stmt_lines, stmt_id))
+    pilot expr: word = array_get(ast_stmt_exprs, stmt_id)
+    if kind == STMT_PILOT {
+        tc_validate_expr(word_to_int(expr), line)
+        pilot type_ann: word = array_get(ast_stmt_extras, stmt_id)
+        pilot binding_type = type_ann
+        if binding_type == "" { binding_type = tc_expr_type(word_to_int(expr)) }
+        tc_set_local(array_get(ast_stmt_names, stmt_id), binding_type)
+        give back
+    }
+    if kind == STMT_ASSIGN {
+        tc_validate_expr(word_to_int(expr), line)
+        tc_validate_expr(word_to_int(array_get(ast_stmt_bodies, stmt_id)), line)
+        give back
+    }
+    if kind == STMT_SAY or kind == STMT_GIVE_BACK or kind == STMT_EXPR {
+        tc_validate_expr(word_to_int(expr), line)
+        give back
+    }
+    if kind == STMT_IF {
+        tc_validate_expr(word_to_int(expr), line)
+        tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
+        tc_validate_block(array_get(ast_stmt_else_bodies, stmt_id))
+        give back
+    }
+    if kind == STMT_REPEAT {
+        tc_validate_expr(word_to_int(expr), line)
+        tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
+        give back
+    }
+    if kind == STMT_TRAINING_ARC {
+        tc_validate_expr(word_to_int(expr), line)
+        tc_validate_expr(word_to_int(array_get(ast_stmt_extras, stmt_id)), line)
+        tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
+        give back
+    }
+    if kind == STMT_WHEN {
+        tc_validate_expr(word_to_int(expr), line)
+        tc_validate_when_cases(array_get(ast_stmt_bodies, stmt_id), line)
+        give back
+    }
+    if kind == STMT_BLOCK or kind == STMT_EVENTUALLY {
+        tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
+    }
+}
+
+task tc_run_program() -> void {
+    tc_global_count = 0
+    tc_local_count = 0
+    pilot top_count = array_len(ast_top_stmts)
+    tc_reset_callable_index(top_count)
+    pilot i = 0
+    -- Build the callable index before inferring globals so declarations may
+    -- refer to later task/extern signatures without quadratic AST rescans.
+    repeat top_count times {
+        pilot sid = word_to_int(array_get(ast_top_stmts, i))
+        pilot top_kind: word = array_get(ast_stmt_kinds, sid)
+        pilot callable_name: word = array_get(ast_stmt_names, sid)
+        if top_kind == STMT_EXTERN and array_get(ast_stmt_names, sid).starts_with("__freak_") {
+            tc_diag_reserved_extern(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+        }
+        if (top_kind == STMT_TASK or top_kind == STMT_EXTERN) and tc_reserved_builtin_call(array_get(ast_stmt_names, sid)) {
+            tc_diag_builtin_callable(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+        }
+        if top_kind == STMT_TASK and tc_internal_runtime_task_name(array_get(ast_stmt_names, sid)) and not tc_internal_runtime_source(array_get(ast_stmt_files, sid)) {
+            tc_diag_builtin_callable(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+        }
+        if top_kind == STMT_TASK or top_kind == STMT_EXTERN {
+            if tc_callable_entry(callable_name) >= 0 {
+                tc_diag_duplicate_callable(callable_name, word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+            } else {
+                tc_index_callable(sid)
+            }
+        }
+        i += 1
+    }
+    i = 0
+    repeat top_count times {
+        pilot sid = word_to_int(array_get(ast_top_stmts, i))
+        pilot top_kind: word = array_get(ast_stmt_kinds, sid)
+        if top_kind == STMT_PILOT {
+            pilot expr = word_to_int(array_get(ast_stmt_exprs, sid))
+            pilot type_ann: word = array_get(ast_stmt_extras, sid)
+            pilot binding_type = type_ann
+            if binding_type == "" { binding_type = tc_expr_type(expr) }
+            tc_set_global(array_get(ast_stmt_names, sid), binding_type)
+        }
+        i += 1
+    }
+    i = 0
+    repeat top_count times {
+        pilot sid = word_to_int(array_get(ast_top_stmts, i))
+        pilot kind: word = array_get(ast_stmt_kinds, sid)
+        if kind == STMT_TASK {
+            tc_reset_locals()
+            tc_register_params(array_get(ast_task_params, sid))
+            tc_validate_block(array_get(ast_stmt_bodies, sid))
+            tc_reset_locals()
+        } else if kind == STMT_PILOT {
+            tc_reset_locals()
+            tc_validate_expr(word_to_int(array_get(ast_stmt_exprs, sid)), word_to_int(array_get(ast_stmt_lines, sid)))
+        } else {
+            tc_reset_locals()
+            tc_validate_stmt(sid)
+        }
+        i += 1
     }
 }
 

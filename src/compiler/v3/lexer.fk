@@ -32,6 +32,8 @@ task push_token(kind: word, val: word) -> void {
     array_push(tok_vals, val)
     array_push(tok_lines, word_from_int(cur_tok_line))
     array_push(tok_cols, word_from_int(cur_tok_col))
+    array_push(tok_origin_files, source_map_file(cur_tok_line))
+    array_push(tok_origin_lines, word_from_int(source_map_local_line(cur_tok_line)))
     tokens_count += 1
 }
 

@@ -5,6 +5,8 @@
 -- freak doctor --fix  — diagnose AND auto-install missing tools
 -- ===================================================================
 
+pilot cli_doctor_retained_probe_path: word = ""
+
 task cli_doctor_json_escape(input: word) -> word {
     pilot out = ""
     pilot i = 0
@@ -39,22 +41,108 @@ task cli_doctor_normalize_cmd_override(cmd: word) -> word {
 }
 
 task cli_doctor_find_clang_command() -> word {
-    pilot override: word = process::env("FREAK_CLANG")
-    if override != "" {
-        give back cli_doctor_normalize_cmd_override(override)
+    give back cli_find_clang_command()
+}
+
+task cli_doctor_temp_stem(prefix: word) -> word {
+    pilot windir: word = process::env("WINDIR")
+    pilot temp_dir: word = process::env("TMPDIR")
+    pilot probe_nonce: word = ""
+    if windir != "" {
+        temp_dir = process::env("TEMP")
+        if temp_dir == "" { temp_dir = process::env("TMP") }
+        probe_nonce = process::exec_capture("echo %RANDOM% 2>nul").trim()
+    } else {
+        probe_nonce = process::exec_capture("echo $$ 2>/dev/null").trim()
+        if temp_dir == "" { temp_dir = "/tmp" }
     }
-    give back "clang"
+    if temp_dir == "" { temp_dir = "." }
+    if probe_nonce == "" { probe_nonce = "0" }
+    pilot probe_id = word_from_int(time::now_ms()) + "_" + probe_nonce
+    pilot forced_id: word = process::env("FREAK_DOCTOR_TEST_PROBE_ID")
+    if forced_id == "collision" { probe_id = "collision" }
+    pilot temp_prefix = temp_dir
+    if not temp_prefix.ends_with("/") and not temp_prefix.ends_with("\\") {
+        temp_prefix = temp_prefix + "/"
+    }
+    pilot attempt = 0
+    repeat until attempt >= 8 {
+        pilot probe_dir = temp_prefix + prefix + probe_id + "_" + word_from_int(attempt)
+        pilot mkdir_cmd = "mkdir " + cli_quote_cmd_path(probe_dir) + " >/dev/null 2>/dev/null"
+        if cli_is_windows() {
+            mkdir_cmd = "mkdir " + cli_quote_cmd_path(probe_dir) + " >nul 2>nul"
+        }
+        if process::exec(mkdir_cmd) == 0 { give back probe_dir + "/probe" }
+        attempt += 1
+    }
+    give back ""
+}
+
+task cli_doctor_remove_temp_parent(probe_path: word) -> bool {
+    if probe_path == "" { give back false }
+    pilot probe_dir = cli_path_parent(probe_path)
+    if probe_dir == "" { give back false }
+    pilot retain_probe: word = process::env("FREAK_DOCTOR_TEST_RETAIN_PROBE")
+    if retain_probe == "1" {
+        cli_doctor_retained_probe_path = probe_dir
+        give back false
+    }
+    if cli_is_windows() {
+        pilot remove_cmd = "rmdir /s /q " + cli_quote_cmd_path(probe_dir) + " >nul 2>nul"
+        pilot fail_first: word = process::env("FREAK_DOCTOR_TEST_FAIL_FIRST_REMOVE")
+        if fail_first != "1" { process::exec(remove_cmd) }
+        -- Antivirus and debugger helpers may briefly retain a just-executed
+        -- probe. Retry only this unique Doctor directory after one short tick.
+        if fs::exists(probe_dir) {
+            process::exec("ping 127.0.0.1 -n 2 >nul 2>nul & " + remove_cmd)
+        }
+    } else {
+        process::exec("rm -rf -- " + cli_quote_cmd_path(probe_dir) + " >/dev/null 2>/dev/null")
+    }
+    if fs::exists(probe_dir) {
+        cli_doctor_retained_probe_path = probe_dir
+        give back false
+    }
+    give back true
 }
 
 task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     if clang_cmd == "" { give back false }
     pilot windir: word = process::env("WINDIR")
+    pilot probe_stem = cli_doctor_temp_stem("freak-doctor-clang-probe-")
+    if probe_stem == "" { give back false }
+    pilot probe_source = probe_stem + ".c"
+    pilot probe_binary = probe_stem
+    if windir != "" { probe_binary = probe_binary + ".exe" }
+    pilot probe_text = "#include <stdio.h>\nint main(void) { return 0; }\n"
+    fs::write(probe_source, probe_text)
+    pilot probe_exit = 1
+    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
     if windir != "" {
-        if process::exec(clang_cmd + " --version >nul 2>nul") == 0 { give back true }
+        probe_exit = process::exec(clang_prefix + " -x c " + cli_quote_cmd_path(probe_source) + " -o " + cli_quote_cmd_path(probe_binary) + " >nul 2>nul")
     } else {
-        if process::exec(clang_cmd + " --version >/dev/null 2>/dev/null") == 0 { give back true }
+        probe_exit = process::exec(clang_prefix + " -x c " + cli_quote_cmd_path(probe_source) + " -o " + cli_quote_cmd_path(probe_binary) + " >/dev/null 2>/dev/null")
     }
-    give back false
+    pilot probe_run_exit = 1
+    if probe_exit == 0 and fs::exists(probe_binary) {
+        pilot probe_command = cli_shell_command_prefix(cli_quote_cmd_path(probe_binary))
+        if windir != "" {
+            probe_run_exit = process::exec(probe_command + " >nul 2>nul")
+        } else {
+            probe_run_exit = process::exec(probe_command + " >/dev/null 2>/dev/null")
+        }
+    }
+    pilot probe_ok = probe_exit == 0 and probe_run_exit == 0
+    if fs::exists(probe_source) { fs::delete(probe_source) }
+    if fs::exists(probe_binary) { fs::delete(probe_binary) }
+    if fs::exists(probe_stem + ".obj") { fs::delete(probe_stem + ".obj") }
+    if fs::exists(probe_stem + ".o") { fs::delete(probe_stem + ".o") }
+    if fs::exists(probe_stem + ".pdb") { fs::delete(probe_stem + ".pdb") }
+    -- Cleanup health is reported independently from toolchain health.  A
+    -- retained probe must make Doctor fail, but it must not make --fix
+    -- reinstall an otherwise usable Clang toolchain.
+    cli_doctor_remove_temp_parent(probe_source)
+    give back probe_ok
 }
 
 task cli_doctor_clang_version_line(clang_cmd: word) -> word {
@@ -96,10 +184,59 @@ task cli_doctor_std_module_count(std_dir: word) -> int {
     if fs::exists(std_dir + "/http.fk")      { mod_count += 1 }
     if fs::exists(std_dir + "/version.fk")   { mod_count += 1 }
     if fs::exists(std_dir + "/runtime.fk")   { mod_count += 1 }
+    if fs::exists(std_dir + "/ui/window.fk") { mod_count += 1 }
     give back mod_count
 }
 
-task cli_doctor_json() -> void {
+task cli_doctor_append_missing(missing: word, file: word) -> word {
+    if missing == "" { give back file }
+    give back missing + ", " + file
+}
+
+task cli_doctor_runtime_missing(runtime_dir: word) -> word {
+    if runtime_dir == "" { give back "runtime directory" }
+    pilot missing = ""
+    if not fs::exists(runtime_dir + "/freak_runtime.c") {
+        missing = cli_doctor_append_missing(missing, "freak_runtime.c")
+    }
+    if not fs::exists(runtime_dir + "/freak_runtime.h") {
+        missing = cli_doctor_append_missing(missing, "freak_runtime.h")
+    }
+    if not fs::exists(runtime_dir + "/freak_llvm_runtime.c") {
+        missing = cli_doctor_append_missing(missing, "freak_llvm_runtime.c")
+    }
+    if not fs::exists(runtime_dir + "/ui/win32_backend.c") {
+        missing = cli_doctor_append_missing(missing, "ui/win32_backend.c")
+    }
+    if not fs::exists(runtime_dir + "/ui/freak_ui_platform.h") {
+        missing = cli_doctor_append_missing(missing, "ui/freak_ui_platform.h")
+    }
+    if not fs::exists(runtime_dir + "/freak_abi") {
+        missing = cli_doctor_append_missing(missing, "freak_abi")
+    }
+    give back missing
+}
+
+task cli_doctor_std_missing(std_dir: word) -> word {
+    if std_dir == "" { give back "standard library directory" }
+    pilot missing = ""
+    if not fs::exists(std_dir + "/math.fk") { missing = cli_doctor_append_missing(missing, "math.fk") }
+    if not fs::exists(std_dir + "/math3d.fk") { missing = cli_doctor_append_missing(missing, "math3d.fk") }
+    if not fs::exists(std_dir + "/zip.fk") { missing = cli_doctor_append_missing(missing, "zip.fk") }
+    if not fs::exists(std_dir + "/string.fk") { missing = cli_doctor_append_missing(missing, "string.fk") }
+    if not fs::exists(std_dir + "/convert.fk") { missing = cli_doctor_append_missing(missing, "convert.fk") }
+    if not fs::exists(std_dir + "/algorithm.fk") { missing = cli_doctor_append_missing(missing, "algorithm.fk") }
+    if not fs::exists(std_dir + "/json.fk") { missing = cli_doctor_append_missing(missing, "json.fk") }
+    if not fs::exists(std_dir + "/http.fk") { missing = cli_doctor_append_missing(missing, "http.fk") }
+    if not fs::exists(std_dir + "/version.fk") { missing = cli_doctor_append_missing(missing, "version.fk") }
+    if not fs::exists(std_dir + "/runtime.fk") { missing = cli_doctor_append_missing(missing, "runtime.fk") }
+    if not fs::exists(std_dir + "/ui/window.fk") { missing = cli_doctor_append_missing(missing, "ui/window.fk") }
+    if not fs::exists(std_dir + "/freak_abi") { missing = cli_doctor_append_missing(missing, "freak_abi") }
+    give back missing
+}
+
+task cli_doctor_json() -> int {
+    cli_doctor_retained_probe_path = ""
     pilot os_tag = "unix"
     pilot is_win = false
     pilot windir_env: word = process::env("WINDIR")
@@ -126,23 +263,28 @@ task cli_doctor_json() -> void {
     pilot lld_version = cli_doctor_first_line(lld_out)
 
     pilot rt_dir: word = cli_find_runtime_dir()
-    pilot runtime_ok = rt_dir != ""
+    pilot runtime_missing = cli_doctor_runtime_missing(rt_dir)
+    pilot runtime_ok = runtime_missing == ""
     pilot runtime_obj = false
     pilot llvm_runtime = false
-    if runtime_ok {
+    if rt_dir != "" {
         if is_win {
-            runtime_obj = fs::exists(rt_dir + "/freak_runtime.obj")
-        } else {
-            runtime_obj = fs::exists(rt_dir + "/freak_runtime.o")
+            runtime_obj = cli_has_precompiled_runtime(rt_dir)
         }
         llvm_runtime = fs::exists(rt_dir + "/freak_llvm_runtime.c")
     }
 
     pilot std_dir: word = cli_find_std_dir()
     pilot std_modules = cli_doctor_std_module_count(std_dir)
-    pilot std_ok = std_modules >= 10
+    pilot std_missing = cli_doctor_std_missing(std_dir)
+    pilot std_ok = std_missing == ""
+    pilot runtime_abi = cli_payload_abi_value(rt_dir)
+    pilot std_abi = cli_payload_abi_value(std_dir)
+    pilot abi_ok = runtime_abi == FREAK_V3_ABI and std_abi == FREAK_V3_ABI
+    pilot pending_marker = cli_pending_upgrade_marker()
+    pilot upgrade_pending = pending_marker != ""
 
-    pilot all_ok = clang_ok and runtime_ok and std_ok
+    pilot all_ok = clang_ok and runtime_ok and std_ok and abi_ok and not upgrade_pending and cli_doctor_retained_probe_path == ""
     pilot status = "issues"
     if all_ok { status = "ok" }
 
@@ -159,7 +301,8 @@ task cli_doctor_json() -> void {
     say "    \"clang\": {"
     say "      \"ok\": " + cli_doctor_json_bool(clang_ok) + ","
     say "      \"command\": \"" + cli_doctor_json_escape(clang_cmd) + "\","
-    say "      \"version\": \"" + cli_doctor_json_escape(clang_version) + "\""
+    say "      \"version\": \"" + cli_doctor_json_escape(clang_version) + "\","
+    say "      \"cleanup_retained\": \"" + cli_doctor_json_escape(cli_doctor_retained_probe_path) + "\""
     say "    },"
     say "    \"lld\": {"
     say "      \"ok\": " + cli_doctor_json_bool(lld_ok) + ","
@@ -169,6 +312,8 @@ task cli_doctor_json() -> void {
     say "    \"runtime\": {"
     say "      \"ok\": " + cli_doctor_json_bool(runtime_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(rt_dir) + "\","
+    say "      \"files_expected\": 6,"
+    say "      \"missing\": \"" + cli_doctor_json_escape(runtime_missing) + "\","
     say "      \"precompiled_objects\": " + cli_doctor_json_bool(runtime_obj) + ","
     say "      \"llvm_runtime\": " + cli_doctor_json_bool(llvm_runtime)
     say "    },"
@@ -176,7 +321,18 @@ task cli_doctor_json() -> void {
     say "      \"ok\": " + cli_doctor_json_bool(std_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(std_dir) + "\","
     say "      \"modules_found\": " + word_from_int(std_modules) + ","
-    say "      \"modules_expected\": 10"
+    say "      \"modules_expected\": 11,"
+    say "      \"missing\": \"" + cli_doctor_json_escape(std_missing) + "\""
+    say "    },"
+    say "    \"abi\": {"
+    say "      \"ok\": " + cli_doctor_json_bool(abi_ok) + ","
+    say "      \"expected\": \"" + cli_doctor_json_escape(FREAK_V3_ABI) + "\","
+    say "      \"runtime\": \"" + cli_doctor_json_escape(runtime_abi) + "\","
+    say "      \"stdlib\": \"" + cli_doctor_json_escape(std_abi) + "\""
+    say "    },"
+    say "    \"upgrade\": {"
+    say "      \"pending\": " + cli_doctor_json_bool(upgrade_pending) + ","
+    say "      \"marker\": \"" + cli_doctor_json_escape(pending_marker) + "\""
     say "    },"
     say "    \"compile_pipeline\": {"
     say "      \"ok\": null,"
@@ -185,51 +341,79 @@ task cli_doctor_json() -> void {
     say "    }"
     say "  }"
     say "}"
+    if all_ok { give back 0 }
+    give back 1
 }
 
 -- Try to install clang/lld on the current platform.
 -- Returns 0 if installation succeeded (or already installed).
 task cli_install_clang(os_tag: word) -> int {
     say "  " + C_DIM + "Attempting to install clang..." + C_RESET
+    pilot install_override: word = process::env("FREAK_DOCTOR_INSTALL_COMMAND")
+    if install_override != "" {
+        give back process::exec(install_override)
+    }
     if os_tag == "windows" {
-        -- Try winget first (ships with Windows 10 1.0 and later)
-        pilot wg_res = process::exec("winget install LLVM.LLVM --silent --accept-package-agreements --accept-source-agreements")
-        if wg_res == 0 { give back 0 }
-        -- Fallback: chocolatey
-        pilot choco_res = process::exec("choco install llvm -y")
-        if choco_res == 0 { give back 0 }
+        if process::exec("where winget >nul 2>nul") == 0 {
+            pilot wg_res = process::exec("winget install --id MartinStorsjo.LLVM-MinGW.UCRT -e --silent --accept-package-agreements --accept-source-agreements")
+            if wg_res == 0 { give back 0 }
+        }
+        if process::exec("where scoop >nul 2>nul") == 0 {
+            pilot scoop_res = process::exec("scoop install llvm-mingw")
+            if scoop_res == 0 { give back 0 }
+        }
         say "  " + C_BYELLOW + "  Auto-install failed. Install manually:" + C_RESET
-        say "    " + C_CYAN + "winget install LLVM.LLVM" + C_RESET
-        say "    " + C_CYAN + "choco install llvm" + C_RESET
-        say "    https://github.com/llvm/llvm-project/releases"
+        say "    " + C_CYAN + "winget install --id MartinStorsjo.LLVM-MinGW.UCRT -e" + C_RESET
+        say "    " + C_CYAN + "scoop install llvm-mingw" + C_RESET
+        say "    https://github.com/mstorsjo/llvm-mingw/releases"
         give back 1
     } else if os_tag == "linux" {
-        -- Try apt (Debian/Ubuntu)
-        pilot apt_res = process::exec("sudo apt-get install -y clang lld")
-        if apt_res == 0 { give back 0 }
-        -- Try dnf (Fedora/RHEL)
-        pilot dnf_res = process::exec("sudo dnf install -y clang lld")
-        if dnf_res == 0 { give back 0 }
-        -- Try pacman (Arch)
-        pilot pacman_res = process::exec("sudo pacman -S --noconfirm clang lld")
-        if pacman_res == 0 { give back 0 }
+        pilot elevate = "sudo "
+        pilot user_id: word = process::exec_capture("id -u 2>/dev/null").trim()
+        if user_id == "0" { elevate = "" }
+        if elevate != "" and process::exec("command -v sudo >/dev/null 2>/dev/null") != 0 {
+            say "  " + C_BYELLOW + "  Administrator privileges are required for dependency installation." + C_RESET
+            give back 1
+        }
+        if process::exec("command -v apt-get >/dev/null 2>/dev/null") == 0 {
+            if process::exec(elevate + "apt-get update") == 0 {
+                pilot apt_res = process::exec(elevate + "apt-get install -y clang lld build-essential")
+                if apt_res == 0 { give back 0 }
+            }
+        } else if process::exec("command -v dnf >/dev/null 2>/dev/null") == 0 {
+            pilot dnf_res = process::exec(elevate + "dnf install -y clang lld gcc glibc-devel")
+            if dnf_res == 0 { give back 0 }
+        } else if process::exec("command -v yum >/dev/null 2>/dev/null") == 0 {
+            pilot yum_res = process::exec(elevate + "yum install -y clang lld gcc glibc-devel")
+            if yum_res == 0 { give back 0 }
+        } else if process::exec("command -v pacman >/dev/null 2>/dev/null") == 0 {
+            pilot pacman_res = process::exec(elevate + "pacman -S --needed --noconfirm clang lld base-devel")
+            if pacman_res == 0 { give back 0 }
+        } else if process::exec("command -v zypper >/dev/null 2>/dev/null") == 0 {
+            pilot zypper_res = process::exec(elevate + "zypper --non-interactive install clang lld gcc")
+            if zypper_res == 0 { give back 0 }
+        } else if process::exec("command -v apk >/dev/null 2>/dev/null") == 0 {
+            pilot apk_res = process::exec(elevate + "apk add clang lld build-base musl-dev")
+            if apk_res == 0 { give back 0 }
+        }
         say "  " + C_BYELLOW + "  Could not auto-install. Try:" + C_RESET
-        say "    " + C_CYAN + "sudo apt install clang lld" + C_RESET + "  (Debian/Ubuntu)"
-        say "    " + C_CYAN + "sudo dnf install clang lld" + C_RESET + "  (Fedora)"
+        say "    " + C_CYAN + "sudo apt install clang lld build-essential" + C_RESET + "  (Debian/Ubuntu)"
+        say "    " + C_CYAN + "sudo dnf install clang lld gcc glibc-devel" + C_RESET + "  (Fedora)"
         give back 1
     } else if os_tag == "macos" {
-        -- Try brew
-        pilot brew_res = process::exec("brew install llvm")
-        if brew_res == 0 { give back 0 }
-        -- Fallback: xcode command line tools
-        process::exec("xcode-select --install")
-        say "  " + C_DIM + "If prompted, complete the Xcode CLT install then rerun 'freak doctor'" + C_RESET
-        give back 0
+        if process::exec("command -v brew >/dev/null 2>/dev/null") == 0 {
+            pilot brew_res = process::exec("brew install llvm")
+            if brew_res == 0 { give back 0 }
+        }
+        process::exec("xcode-select --install >/dev/null 2>/dev/null")
+        say "  " + C_DIM + "Complete the Xcode Command Line Tools prompt, then rerun 'freak doctor'." + C_RESET
+        give back 1
     }
     give back 1
 }
 
-task cli_doctor(fix_mode: bool) -> void {
+task cli_doctor(fix_mode: bool) -> int {
+    cli_doctor_retained_probe_path = ""
     -- Detect OS
     pilot os_tag = "unix"
     pilot is_win = false
@@ -255,12 +439,19 @@ task cli_doctor(fix_mode: bool) -> void {
 
     pilot all_ok = true
     pilot checks_passed = 0
+    pilot pending_marker = cli_pending_upgrade_marker()
+    if pending_marker != "" {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " Windows upgrade replacement is still pending."
+        say "        " + C_DIM + pending_marker + C_RESET
+        say "        " + C_DIM + "Builds are disabled until freak.exe and hangar.exe finish replacing." + C_RESET
+        say ""
+    }
 
     -- ── 1. clang ──────────────────────────────────────────
     say "  " + C_BWHITE + "[1/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " clang"
     pilot clang_cmd = cli_find_clang_command()
     pilot clang_ok = false
-    if cli_clang_command_works(clang_cmd) {
+    if cli_doctor_clang_command_works(clang_cmd) {
         clang_ok = true
         pilot cv_line: word = cli_clang_version_line(clang_cmd)
         say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + cv_line + C_RESET
@@ -269,14 +460,14 @@ task cli_doctor(fix_mode: bool) -> void {
         }
         checks_passed += 1
     } else {
-        say "        " + C_BRED + SYM_CROSS + C_RESET + " clang " + C_RED + "not found" + C_RESET
-        all_ok = false
+        say "        " + C_BRED + SYM_CROSS + C_RESET + " clang toolchain " + C_RED + "unusable" + C_RESET
+        say "        " + C_DIM + "The C headers, linker, or generated executable probe failed." + C_RESET
         if fix_mode {
             say "        " + C_DIM + "Attempting auto-install..." + C_RESET
             pilot clang_fix = cli_install_clang(os_tag)
             if clang_fix == 0 {
                 clang_cmd = cli_find_clang_command()
-                if cli_clang_command_works(clang_cmd) {
+                if cli_doctor_clang_command_works(clang_cmd) {
                     clang_ok = true
                     pilot cv_line2: word = cli_clang_version_line(clang_cmd)
                     say "        " + C_BGREEN + SYM_CHECK + C_RESET + " clang installed: " + C_DIM + cv_line2 + C_RESET
@@ -284,7 +475,6 @@ task cli_doctor(fix_mode: bool) -> void {
                         say "        " + C_DIM + "using: " + clang_cmd + C_RESET
                     }
                     checks_passed += 1
-                    all_ok = true
                 } else {
                     say "        " + C_BYELLOW + SYM_RING + C_RESET + " LLVM installer finished, but this terminal still cannot run clang."
                     if is_win {
@@ -296,7 +486,7 @@ task cli_doctor(fix_mode: bool) -> void {
         } else {
             say "        " + C_DIM + "Fix: " + C_RESET + "run " + C_BWHITE + "freak doctor --fix" + C_RESET
             if is_win {
-                say "         or: " + C_CYAN + "winget install LLVM.LLVM" + C_RESET
+                say "         or: " + C_CYAN + "winget install --id MartinStorsjo.LLVM-MinGW.UCRT -e" + C_RESET
             } else if os_tag == "linux" {
                 say "         or: " + C_CYAN + "sudo apt install clang lld" + C_RESET
             } else if os_tag == "macos" {
@@ -318,42 +508,70 @@ task cli_doctor(fix_mode: bool) -> void {
         if lld_exit == 0 { lld_found = true }
     }
     if lld_found {
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " lld found " + C_DIM + "(bundle mode available)" + C_RESET
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " lld found " + C_DIM + "(optional linker utility)" + C_RESET
         checks_passed += 1
     } else {
         say "        " + C_BYELLOW + SYM_RING + C_RESET + " lld not found " + C_DIM + "(optional — clang can link too)" + C_RESET
         checks_passed += 1
     }
+    if cli_doctor_retained_probe_path != "" {
+        say "        " + C_BYELLOW + "Probe cleanup could not finish; retained: " + cli_doctor_retained_probe_path + C_RESET
+        all_ok = false
+    }
+    if not clang_ok { all_ok = false }
     say ""
+
+    -- Repair the distribution as one staged unit. Calling upgrade separately
+    -- for runtime and std could install twice and still leave mixed files.
+    pilot rt_dir: word = cli_find_runtime_dir()
+    pilot std_dir: word = cli_find_std_dir()
+    pilot runtime_missing = cli_doctor_runtime_missing(rt_dir)
+    pilot std_missing = cli_doctor_std_missing(std_dir)
+    pilot abi_ok = cli_payload_abi_ok(rt_dir, std_dir)
+    if fix_mode and (runtime_missing != "" or std_missing != "" or not abi_ok) {
+        say "  " + C_DIM + "Repairing the compiler/runtime/stdlib payload as one unit..." + C_RESET
+        pilot repair_res = hangar_install_freak()
+        if repair_res == 0 {
+            rt_dir = cli_find_runtime_dir()
+            std_dir = cli_find_std_dir()
+            runtime_missing = cli_doctor_runtime_missing(rt_dir)
+            std_missing = cli_doctor_std_missing(std_dir)
+            abi_ok = cli_payload_abi_ok(rt_dir, std_dir)
+            pending_marker = cli_pending_upgrade_marker()
+        } else {
+            say "  " + C_BRED + SYM_CROSS + C_RESET + " Distribution repair failed."
+        }
+        say ""
+    }
+
+    if not abi_ok {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " ABI mismatch"
+        say "        " + C_DIM + "compiler=" + FREAK_V3_ABI + C_RESET
+        say "        " + C_DIM + "runtime=" + cli_payload_abi_value(rt_dir) + C_RESET
+        say "        " + C_DIM + "stdlib=" + cli_payload_abi_value(std_dir) + C_RESET
+        say "        " + C_DIM + "Reinstall or run freak upgrade as one distribution unit." + C_RESET
+        say ""
+        all_ok = false
+    }
 
     -- ── 3. Runtime ────────────────────────────────────────
     say "  " + C_BWHITE + "[3/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " runtime"
-    pilot rt_dir: word = cli_find_runtime_dir()
-    if rt_dir != "" {
+    if runtime_missing == "" {
         say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + rt_dir + C_RESET
-        pilot has_obj = false
-        if is_win {
-            has_obj = fs::exists(rt_dir + "/freak_runtime.obj")
+        if is_win and cli_has_precompiled_runtime(rt_dir) {
+            say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " packaged Windows runtime objects available" + C_RESET
         } else {
-            has_obj = fs::exists(rt_dir + "/freak_runtime.o")
-        }
-        if has_obj {
-            say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " pre-compiled objects (fast bundle mode)" + C_RESET
-        } else {
-            say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " no pre-compiled objects (source fallback active)" + C_RESET
+            say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " source runtime fallback available" + C_RESET
         }
         if fs::exists(rt_dir + "/freak_llvm_runtime.c") {
             say "        " + C_BGREEN + SYM_CHECK + C_RESET + C_DIM + " LLVM runtime available" + C_RESET
         }
         checks_passed += 1
     } else {
-        say "        " + C_BRED + SYM_CROSS + C_RESET + " runtime directory not found"
+        say "        " + C_BRED + SYM_CROSS + C_RESET + " runtime incomplete"
+        say "        " + C_DIM + "Missing: " + runtime_missing + C_RESET
         all_ok = false
-        if fix_mode {
-            say "        " + C_DIM + "Downloading runtime..." + C_RESET
-            -- Re-run the upgrade to get runtime files
-            hangar_install_freak()
-        } else {
+        if not fix_mode {
             say "        " + C_DIM + "Fix: " + C_RESET + "run " + C_BWHITE + "freak upgrade" + C_RESET + " or re-run install script"
         }
     }
@@ -361,18 +579,15 @@ task cli_doctor(fix_mode: bool) -> void {
 
     -- ── 4. Standard library ───────────────────────────────
     say "  " + C_BWHITE + "[4/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " standard library"
-    pilot std_dir: word = cli_find_std_dir()
-    if std_dir != "" {
+    if std_missing == "" {
         pilot mod_count = cli_doctor_std_module_count(std_dir)
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/10 modules in " + C_DIM + std_dir + C_RESET
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/11 modules in " + C_DIM + std_dir + C_RESET
         checks_passed += 1
     } else {
-        say "        " + C_BRED + SYM_CROSS + C_RESET + " standard library not found"
+        say "        " + C_BRED + SYM_CROSS + C_RESET + " standard library incomplete"
+        say "        " + C_DIM + "Missing: " + std_missing + C_RESET
         all_ok = false
-        if fix_mode {
-            say "        " + C_DIM + "Re-run upgrade to download std..." + C_RESET
-            hangar_install_freak()
-        } else {
+        if not fix_mode {
             say "        " + C_DIM + "Fix: " + C_RESET + "run " + C_BWHITE + "freak upgrade" + C_RESET
         }
     }
@@ -380,31 +595,62 @@ task cli_doctor(fix_mode: bool) -> void {
 
     -- ── 5. Compile pipeline test ──────────────────────────
     say "  " + C_BWHITE + "[5/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " compile pipeline"
-    if clang_ok and rt_dir != "" {
+    -- The deferred Windows updater may finish or appear while Doctor runs.
+    -- Re-read the durable marker at each decision boundary.
+    pending_marker = cli_pending_upgrade_marker()
+    pilot pipeline_ok = false
+    if clang_ok and runtime_missing == "" and std_missing == "" and abi_ok and pending_marker == "" {
         pilot test_src = "say \"FREAK doctor test\""
-        pilot test_path = "_freak_doctor_test.fk"
-        fs::write(test_path, test_src)
-        pilot transpiled: word = cli_transpile(test_path, test_src, "llvm")
-        if transpiled != "" {
-            pilot bin: word = cli_build_binary(transpiled, test_path, "llvm", "2", "")
+        pilot test_probe = cli_doctor_temp_stem("freak-doctor-pipeline-probe-")
+        if test_probe == "" {
+            say "        " + C_BRED + SYM_CROSS + C_RESET + " could not create an owned temporary probe directory"
+            all_ok = false
+        } else {
+            pilot test_path = test_probe + ".fk"
+            fs::write(test_path, test_src)
+            pilot bin: word = cli_build(test_path, "llvm", "0", "")
             if bin != "" {
-                say "        " + C_BGREEN + SYM_CHECK + C_RESET + " full pipeline works"
-                fs::delete(bin)
-                checks_passed += 1
+                pilot probe_exit = process::exec(cli_shell_command_prefix(cli_quote_cmd_path(bin)))
+                if probe_exit == 0 {
+                    say "        " + C_BGREEN + SYM_CHECK + C_RESET + " compile, link, and execution work"
+                    checks_passed += 1
+                    pipeline_ok = true
+                } else {
+                    say "        " + C_BRED + SYM_CROSS + C_RESET + " compiled probe failed at runtime"
+                    all_ok = false
+                }
             } else {
-                say "        " + C_BRED + SYM_CROSS + C_RESET + " clang compilation error (see above)"
+                say "        " + C_BRED + SYM_CROSS + C_RESET + " compiler/linker error (see above)"
                 all_ok = false
             }
-            fs::delete(transpiled)
-        } else {
-            say "        " + C_BRED + SYM_CROSS + C_RESET + " transpilation error"
-            all_ok = false
+            pilot test_stem = cli_strip_fk(test_path)
+            if fs::exists(test_path) { fs::delete(test_path) }
+            if fs::exists(test_path + ".ll") { fs::delete(test_path + ".ll") }
+            if fs::exists(test_path + ".c") { fs::delete(test_path + ".c") }
+            if bin != "" {
+                if fs::exists(bin) { fs::delete(bin) }
+                if fs::exists(bin + ".freak-run-cache") { fs::delete(bin + ".freak-run-cache") }
+            }
+            if fs::exists(test_stem + ".o") { fs::delete(test_stem + ".o") }
+            if fs::exists(test_stem + ".obj") { fs::delete(test_stem + ".obj") }
+            if fs::exists(test_stem + ".pdb") { fs::delete(test_stem + ".pdb") }
+            pilot cleanup_ok = cli_doctor_remove_temp_parent(test_path)
+            if not cleanup_ok {
+                say "        " + C_BYELLOW + "Probe cleanup could not finish; retained: " + cli_doctor_retained_probe_path + C_RESET
+                all_ok = false
+            }
         }
-        fs::delete(test_path)
     } else {
-        say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " skipped (fix missing clang/runtime first)" + C_RESET
+        say "        " + C_BYELLOW + SYM_RING + C_RESET + C_DIM + " skipped (fix clang/payload/ABI/pending upgrade first)" + C_RESET
     }
     say ""
+
+    -- A successful repair of clang must not mask these independent states.
+    pending_marker = cli_pending_upgrade_marker()
+    if pending_marker != "" { all_ok = false }
+    if cli_doctor_retained_probe_path != "" { all_ok = false }
+    if not pipeline_ok { all_ok = false }
+    if not abi_ok { all_ok = false }
 
     -- ── Summary ───────────────────────────────────────────
     say cli_box_top(50)
@@ -423,4 +669,6 @@ task cli_doctor(fix_mode: bool) -> void {
     }
     say cli_box_bot(50)
     say ""
+    if all_ok { give back 0 }
+    give back 1
 }

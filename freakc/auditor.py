@@ -1662,6 +1662,430 @@ def audit_conformance(paths: List[Path]) -> int:
     if not bc_ok:
         failures.append("--strict-borrow not handled in src/cli/main.fk")
 
+    # Check 6b: V3 run freshness and distribution replacement contracts.
+    run_freshness_missing: List[str] = []
+    freshness_sources = {
+        "run pipeline": (
+            repo / "src" / "cli" / "run.fk",
+            (
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v3"',
+                "task cli_run_fingerprint",
+                "task cli_run_clang_identity",
+                "certutil -hashfile",
+                "sha256sum ",
+                "task cli_run_cache_record",
+                "fs::delete(cache_file)",
+                "confirmed != fingerprint",
+                "launch_fingerprint != fingerprint",
+                'run_path = "./" + run_path',
+                "run cache hit",
+            ),
+        ),
+        "build invalidation": (
+            repo / "src" / "cli" / "build.fk",
+            (
+                'pilot run_cache_file = cli_binary_path(src_file) + ".freak-run-cache"',
+                "fs::delete(run_cache_file)",
+                "task cli_cross_target_is_safe",
+                "invalid target triple",
+                'pilot use_bundle = is_win and cross == "" and runtime_obj_ext != ""',
+                "Linking packaged Windows runtime objects",
+                "POSIX double quotes still expand",
+            ),
+        ),
+        "main dispatch": (
+            cli_main,
+            ("pilot run_exit = cli_run", "process::exit(run_exit)"),
+        ),
+        "diagnostic origins": (
+            repo / "src" / "compiler" / "v3" / "helpers.fk",
+            (
+                "tok_origin_files",
+                "source_map_register",
+                "source_location_files",
+                "get_file_source_line",
+            ),
+        ),
+        "nominal hard gate": (
+            repo / "src" / "compiler" / "v3" / "checker.fk",
+            (
+                "tc_builtin_method_allowed",
+                "tc_builtin_method_arity",
+                "tc_expr_type",
+                "tc_reserved_builtin_call",
+                "tc_diag_process_args_v3",
+                "ast_expr_files",
+            ),
+        ),
+        "codegen gate regression": (
+            repo / "tests" / "v3_codegen_error_gate.py",
+            (
+                "assert_builtin_signature_parity",
+                "unsupported_c_intrinsics",
+                "classified - llvm_mapped == set()",
+                "builtin_wrappers.fk",
+                "extern_builtin_collision.fk",
+                "process_args_v3_bad.fk",
+                "FREAK_BUILTIN_PROBE",
+                "builtin task collision",
+                "spoofed std runtime source",
+                "impl task lowering collision",
+                "task/extern collision",
+                "malformed-stdlib-home/std/math.fk:2:",
+                "unclosed installed std block origin",
+                "PrimitiveNamed",
+                "primitive_methods_ok.fk",
+                "missing_multiline",
+            ),
+        ),
+        "regression": (
+            repo / "tests" / "v3_run_freshness.py",
+            (
+                "CACHE_A",
+                "CACHE_B",
+                "externally replaced artifact",
+                'for backend in ("--c", "--llvm")',
+                "FREAK_PATH_INJECTED",
+                "stale object",
+                "runtime_objects",
+                "Linking packaged Windows runtime objects",
+                "failed rebuild left stale freshness proof",
+            ),
+        ),
+        "process runtime": (
+            repo / "freakc" / "runtime" / "freak_runtime.c",
+            ("freak_normalize_process_status", "WIFEXITED"),
+        ),
+        "LLVM process runtime": (
+            repo / "freakc" / "runtime" / "freak_llvm_runtime.c",
+            (
+                "freak_llvm_normalize_process_status",
+                "WIFEXITED",
+                "freak_llvm_fs_list_dir",
+                "freak_llvm_process_env",
+            ),
+        ),
+        "word ownership runtime": (
+            repo / "freakc" / "runtime" / "freak_runtime.c",
+            (
+                "freak_word_replace_owned",
+                "freak_word_replace_owned(&result",
+                "freak_llvm_word_release_replaced",
+                "freak_llvm_word_adopt",
+                "freak_llvm_word_adopt((int64_t)_strdup(freak_argv[index]))",
+                "FREAK_RUNTIME_OWNERSHIP_AUDIT",
+                "freak_array_set_owned",
+                "freak_array_release_owned",
+                "freak_word_join_owned",
+                "freak_char_to_word",
+                "if (old_s.length == 0) return freak_word_clone(w);",
+                "while (*start && isspace((unsigned char)*start))",
+                "word replacement size overflow",
+                "(SIZE_MAX - w.length) / growth",
+                "(SIZE_MAX - source_len) / growth",
+            ),
+        ),
+        "C word temporary ownership": (
+            repo / "src" / "compiler" / "v3" / "emit_c.fk",
+            (
+                "emt_word_expr_is_owned_temporary",
+                "__freak_say_value",
+                "__freak_discarded_word",
+            ),
+        ),
+        "LLVM word temporary ownership": (
+            repo / "src" / "compiler" / "v3" / "emit_llvm.fk",
+            (
+                "llvm_word_expr_is_owned_temporary",
+                "discarded_reg",
+                "freak_llvm_word_release_replaced",
+            ),
+        ),
+        "word ownership regression": (
+            repo / "tests" / "v3_word_ownership.py",
+            (
+                "repeat 512 times",
+                "-fsanitize=address",
+                "LeakSanitizer",
+                "text = text",
+                "ownership audit found 1 unreleased word allocation",
+                "literal_items",
+                "message.observe(message.value)",
+                "METHOD_RETURN_PROGRAM",
+                "replace_identity",
+                "trim_identity",
+                "fs_list_program",
+                "word_from_int(99)",
+                "runtime_arg = process::arg(0)",
+            ),
+        ),
+        "POSIX installer": (
+            repo / "install.sh",
+            (
+                'STAGE_DIR="$TMPDIR_INSTALL/stage"',
+                "restore_previous_payload",
+                "TRANSACTION_ACTIVE",
+                "reconcile_orphaned_transaction",
+                "FREAK_INSTALL_TEST_FAIL_RESTORE",
+                ".freak-backup-",
+                "distribution-files.manifest",
+            ),
+        ),
+        "Windows installer": (
+            repo / "install.ps1",
+            (
+                '$StageDir = Join-Path $TmpDir "stage"',
+                ".freak-backup-",
+                ".freak-upgrade-pending",
+                ".freak-binary-backup",
+                "Get-FileHash",
+                "previous payload was restored",
+                "distribution-files.manifest",
+            ),
+        ),
+        "release payload": (
+            repo / ".github" / "workflows" / "release.yml",
+            (
+                "packaging/distribution-files.manifest",
+                "dist/freak/distribution-files.manifest",
+                "required WinGet manifest missing",
+            ),
+        ),
+    }
+    for label, (source_path, needles) in freshness_sources.items():
+        if not source_path.exists():
+            run_freshness_missing.append(f"{label}: {source_path.name} missing")
+            continue
+        source_text = source_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in source_text:
+                run_freshness_missing.append(f"{label}: {needle}")
+        if label == "release payload" and (
+            "Pre-compile runtime to .o" in source_text
+            or "dist/freak/runtime/freak_runtime.o" in source_text
+        ):
+            run_freshness_missing.append(
+                "release payload: unsafe precompiled POSIX runtime objects"
+            )
+    bible_text = bible.read_text(encoding="utf-8") if bible.exists() else ""
+    audit_text = audit_doc.read_text(encoding="utf-8") if audit_doc.exists() else ""
+    for label, text in (("bible", bible_text), ("audit", audit_text)):
+        if "output artifact" not in text or "not serialized" not in text:
+            run_freshness_missing.append(f"{label}: honest freshness boundary")
+    add(
+        "V3 run freshness",
+        not run_freshness_missing,
+        "content cache + stale-run gate + staged installers wired"
+        if not run_freshness_missing
+        else f"{len(run_freshness_missing)} gap(s)",
+    )
+    if run_freshness_missing:
+        failures.append(
+            "V3 run freshness/install cleanup regressed: "
+            + "; ".join(run_freshness_missing)
+        )
+
+    # Check 6c: one complete distribution manifest drives release/install,
+    # doctor proves the usable toolchain, and `freak upgrade` stays live with
+    # the immutable v0.14.0 migration boundary documented honestly.
+    distribution_missing: List[str] = []
+    dist_manifest = repo / "packaging" / "distribution-files.manifest"
+    manifest_sources: set[str] = set()
+    manifest_destinations: set[str] = set()
+    if not dist_manifest.exists():
+        distribution_missing.append("distribution manifest missing")
+    else:
+        for raw_line in dist_manifest.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            source, separator, destination = line.partition("|")
+            if not separator or not source or not destination:
+                distribution_missing.append(f"malformed manifest entry: {line}")
+                continue
+            normalized_source = source.replace("\\", "/")
+            normalized_destination = destination.replace("\\", "/")
+            source_parts = normalized_source.split("/")
+            destination_parts = normalized_destination.split("/")
+            source_unsafe = (
+                source != source.strip()
+                or normalized_source.startswith("/")
+                or (len(normalized_source) >= 2 and normalized_source[0].isalpha() and normalized_source[1] == ":")
+                or any(part in ("", ".", "..") for part in source_parts)
+                or not normalized_source.startswith(("freakc/runtime/", "std/"))
+            )
+            destination_unsafe = (
+                destination != destination.strip()
+                or normalized_destination.startswith("/")
+                or (len(normalized_destination) >= 2 and normalized_destination[0].isalpha() and normalized_destination[1] == ":")
+                or any(part in ("", ".", "..") for part in destination_parts)
+                or not normalized_destination.startswith(("runtime/", "std/"))
+            )
+            if source_unsafe or destination_unsafe:
+                distribution_missing.append(f"unsafe manifest entry: {line}")
+                continue
+            source = normalized_source
+            destination = normalized_destination
+            if source in manifest_sources:
+                distribution_missing.append(f"duplicate manifest source: {source}")
+            if destination in manifest_destinations:
+                distribution_missing.append(
+                    f"duplicate manifest destination: {destination}"
+                )
+            manifest_sources.add(source)
+            manifest_destinations.add(destination)
+            if not (repo / source).is_file():
+                distribution_missing.append(f"manifest source missing: {source}")
+
+        expected_sources = {
+            path.relative_to(repo).as_posix()
+            for path in (repo / "std").rglob("*.fk")
+        }
+        expected_sources.update(
+            {
+                "freakc/runtime/freak_runtime.c",
+                "freakc/runtime/freak_runtime.h",
+                "freakc/runtime/freak_llvm_runtime.c",
+                "freakc/runtime/ui/win32_backend.c",
+                "freakc/runtime/ui/freak_ui_platform.h",
+                "freakc/runtime/freak_abi",
+                "std/freak_abi",
+            }
+        )
+        for missing_source in sorted(expected_sources - manifest_sources):
+            distribution_missing.append(
+                f"required file absent from manifest: {missing_source}"
+            )
+        for extra_source in sorted(manifest_sources - expected_sources):
+            distribution_missing.append(
+                f"unexpected manifest source: {extra_source}"
+            )
+
+    distribution_sources = {
+        "POSIX dependency installer": (
+            repo / "install.sh",
+            (
+                "--with-deps",
+                "FREAK_INSTALL_ARCHIVE",
+                "FREAK_INSTALL_TEST_FAIL_RESTORE",
+                "reconcile_orphaned_transaction",
+                "distribution-files.manifest",
+                "verify_downloaded_asset",
+                "SHA256SUMS",
+                ".freak-install.lock",
+            ),
+        ),
+        "Windows dependency installer": (
+            repo / "install.ps1",
+            (
+                "Test-ClangToolchain",
+                "MartinStorsjo.LLVM-MinGW.UCRT",
+                "Start-DeferredBinaryReplacement",
+                ".freak-upgrade-pending",
+                "Get-Process -Id",
+                "Assert-DownloadedAssetChecksum",
+                "SHA256SUMS",
+                ".freak-install.lock",
+            ),
+        ),
+        "doctor": (
+            repo / "src" / "cli" / "doctor.fk",
+            (
+                "modules_expected\\\": 11",
+                "files_expected\\\": 6",
+                "FREAK_V3_ABI",
+                "ABI mismatch",
+                "upgrade_pending",
+                "ui/window.fk",
+                'process::env("TMPDIR")',
+                "cli_doctor_remove_temp_parent",
+                "probe_run_exit == 0",
+                "compile, link, and execution work",
+                "-> int",
+            ),
+        ),
+        "upgrade": (
+            repo / "src" / "cli" / "hangar.fk",
+            ("FREAK_UPGRADE_SCRIPT", "tagged installer", "migration limitations"),
+        ),
+        "CLI exit propagation": (
+            cli_main,
+            ("process::exit(upgrade_res)", "process::exit(doctor_exit)"),
+        ),
+        "regression": (
+            repo / "tests" / "v3_install_doctor_upgrade.py",
+            (
+                "check_offline_installer",
+                "FREAK_INSTALL_TEST_FAIL_APPLY",
+                "FREAK_INSTALL_TEST_FAIL_RESTORE",
+                ".freak-upgrade-pending",
+                "check_doctor",
+                "FREAK_DOCTOR_INSTALL_COMMAND",
+                "check_upgrade",
+            ),
+        ),
+        "CI": (
+            repo / ".github" / "workflows" / "ci.yml",
+            (
+                "tests/v3_install_doctor_upgrade.py",
+                "Pre-compile Windows runtime objects",
+                "V3 parser/type errors gate code generation",
+                "V3 word replacement ownership",
+            ),
+        ),
+        "release": (
+            repo / ".github" / "workflows" / "release.yml",
+            (
+                "LLVM_MINGW_SHA256",
+                "Pre-compile Windows runtime objects",
+                "freak_runtime.obj dist/freak/runtime/",
+                "freak_llvm_runtime.obj dist/freak/runtime/",
+                "freak_ui_win32.obj dist/freak/runtime/",
+            ),
+        ),
+        "release-shaped regression": (
+            repo / "tests" / "v3_release_install_smoke.py",
+            (
+                "distribution-files.manifest",
+                "compile, link, and execution work",
+                "Linking packaged Windows runtime objects",
+                'installed_hangar), "--version"',
+            ),
+        ),
+        "release version invariant": (
+            repo / "tools" / "release_version.py",
+            (
+                "FREAK_VERSION",
+                "CLI_VERSION = FREAK_VERSION",
+                "FREAKC_VERSION = FREAK_VERSION",
+                "Git tag",
+                "WinGet",
+                'ROOT / "CLAUDE.md"',
+                "hardcoded in **two files**",
+            ),
+        ),
+    }
+    for label, (source_path, needles) in distribution_sources.items():
+        if not source_path.exists():
+            distribution_missing.append(f"{label}: {source_path.name} missing")
+            continue
+        source_text = source_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in source_text:
+                distribution_missing.append(f"{label}: {needle}")
+    add(
+        "V3 distribution/doctor/upgrade",
+        not distribution_missing,
+        "complete manifest + usable toolchain + Windows object bundle + staged upgrade boundary"
+        if not distribution_missing
+        else f"{len(distribution_missing)} gap(s)",
+    )
+    if distribution_missing:
+        failures.append(
+            "V3 distribution/doctor/upgrade regressed: "
+            + "; ".join(distribution_missing)
+        )
+
     # ── Check 7: deus_ex_machina 20-word rule still enforced ──
     parser_path = repo / "freakc" / "parser.py"
     dem_ok = False

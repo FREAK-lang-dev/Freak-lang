@@ -27,6 +27,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Release version invariant
+        shell: bash
+        run: python -u tools/release_version.py check
+
       - name: Install Clang (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang lld
@@ -56,8 +60,10 @@ jobs:
         run: |
           cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/checker.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
           clang -o build/freakc_v3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          ./build/freakc_v3$EXT build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
-      - name: Build full CLI (Stage 1 — V3 compiler + CLI + Hangar)
+      - name: Build full CLI (Stage 2 — current V3 compiler + CLI + Hangar)
         shell: bash
         run: |
           mkdir -p build
@@ -79,21 +85,37 @@ jobs:
           cat src/cli/doctor.fk >> build/freakc_cli.fk
           cat src/cli/audit.fk >> build/freakc_cli.fk
           cat src/cli/main.fk >> build/freakc_cli.fk
-          ./build/freakc_v3$EXT build/freakc_cli.fk --c
+          ./build/freakc_v3_stage2$EXT build/freakc_cli.fk --c
           clang -o build/freak$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           # Create hangar binary (BusyBox pattern)
           cp build/freak$EXT build/hangar$EXT
 
+      - name: Pre-compile Windows runtime objects
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          clang -c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS -o freakc/runtime/freak_runtime.obj
+          clang -c freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS -DFREAK_HAS_UI -o freakc/runtime/freak_llvm_runtime.obj
+          clang -c freakc/runtime/ui/win32_backend.c -Ifreakc/runtime/ui $CLANG_FLAGS -o freakc/runtime/freak_ui_win32.obj
+
       - name: Self-hosting test (V3 compiles itself)
         shell: bash
         run: |
-          ./build/freakc_v3$EXT build/freakc_v3.fk --c
-          clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
+          ./build/freakc_v3_stage2$EXT build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           echo "V3 self-hosting: OK"
 
       - name: CLI smoke test — version
         shell: bash
         run: ./build/freak$EXT version
+
+      - name: V3 parser/type errors gate code generation
+        shell: bash
+        run: python -u tests/v3_codegen_error_gate.py ./build/freak$EXT
+
+      - name: V3 word replacement ownership
+        shell: bash
+        run: python -u tests/v3_word_ownership.py ./build/freak$EXT
 
       - name: CLI smoke test - doctor JSON
         shell: bash
@@ -104,7 +126,7 @@ jobs:
           with open("doctor.json", "r", encoding="utf-8") as handle:
               doc = json.load(handle)
           assert doc["schema"] == "freak.doctor.v1"
-          assert doc["checks"]["stdlib"]["modules_expected"] == 10
+          assert doc["checks"]["stdlib"]["modules_expected"] == 11
           assert "clang" in doc["checks"]
           PY
 
@@ -161,6 +183,18 @@ jobs:
         run: |
           ./build/freak$EXT build tests/fs_runtime_test.fk
           ./tests/fs_runtime_test$EXT
+
+      - name: Test - V3 run freshness and installer cleanup
+        shell: bash
+        run: python -u tests/v3_run_freshness.py ./build/freak$EXT
+
+      - name: Test - V3 install, doctor, and upgrade
+        shell: bash
+        run: python -u tests/v3_install_doctor_upgrade.py ./build/freak$EXT
+
+      - name: Test - release-shaped installed compiler
+        shell: bash
+        run: python -u tests/v3_release_install_smoke.py ./build/freak$EXT ./build/hangar$EXT
 
       - name: Test suite (regression tests)
         shell: bash
