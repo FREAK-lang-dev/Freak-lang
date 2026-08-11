@@ -51,6 +51,27 @@ task main() {{
 }}
 """
 
+FIELD_CORRECTNESS_PROGRAM = """shape Box {
+    value: word
+}
+
+pilot mut suffix_calls: int = 0
+
+task make_suffix() -> word {
+    suffix_calls += 1
+    give back "heap" + "suffix"
+}
+
+task main() {
+    pilot box: Box = Box { value: "seed" }
+    box.value = box.value + "12345678901"
+    box.value = box.value + make_suffix()
+    say box.value
+    say suffix_calls
+    box.value = ""
+}
+"""
+
 CORRECTNESS_PROGRAM = """task main() {
     pilot mut text: word = "a" + "b"
     text = text + "123456789"
@@ -247,6 +268,15 @@ def main() -> int:
                 correctness_transpiled.stdout + correctness_transpiled.stderr
             )
             correctness_generated = Path(str(correctness_source) + suffix)
+            correctness_text = correctness_generated.read_text(encoding="utf-8")
+            direct_append_marker = (
+                "freak_word_append_owned(&"
+                if backend == "c"
+                else "call i64 @freak_llvm_word_append_owned"
+            )
+            assert correctness_text.count(direct_append_marker) == 5, (
+                f"{backend} correctness case lost a direct append path"
+            )
             correctness_binary = root / (
                 f"correctness_{backend}.exe"
                 if sys.platform == "win32"
@@ -258,7 +288,7 @@ def main() -> int:
                 generated=correctness_generated,
                 backend=backend,
                 binary=correctness_binary,
-                audit=False,
+                audit=True,
                 force_move=True,
             )
             correctness_executed = run(
@@ -277,6 +307,12 @@ def main() -> int:
                 "borrowed",
             ]
             assert "ownership audit found" not in correctness_executed.stderr
+            match = AUDIT_RE.search(correctness_executed.stderr)
+            assert match, correctness_executed.stderr
+            correctness_stats = tuple(int(value) for value in match.groups())
+            assert correctness_stats[1] >= 5, correctness_stats
+            assert correctness_stats[3] >= 3, correctness_stats
+            assert correctness_stats[2] >= correctness_stats[3], correctness_stats
 
             additional_scaling = [("global", GLOBAL_SCALING_PROGRAM)]
             if backend == "llvm":
@@ -332,6 +368,47 @@ def main() -> int:
                     f"append_calls={stats[1]} allocations={stats[2]} "
                     f"growths={stats[3]} copied_bytes={stats[4]}"
                 )
+
+            if backend == "llvm":
+                field_source = root / "field_owned_suffix_llvm.fk"
+                field_source.write_text(FIELD_CORRECTNESS_PROGRAM, encoding="utf-8")
+                field_transpiled = run(
+                    [str(freak), "transpile", str(field_source), "--llvm"], repo
+                )
+                assert field_transpiled.returncode == 0, (
+                    field_transpiled.stdout + field_transpiled.stderr
+                )
+                field_generated = Path(str(field_source) + ".ll")
+                field_text = field_generated.read_text(encoding="utf-8")
+                assert field_text.count(
+                    "call i64 @freak_llvm_word_append_owned"
+                ) == 2, "LLVM field correctness case lost a direct append path"
+                field_binary = root / (
+                    "field_owned_suffix.exe"
+                    if sys.platform == "win32"
+                    else "field_owned_suffix"
+                )
+                compile_generated(
+                    clang=clang,
+                    repo=repo,
+                    generated=field_generated,
+                    backend="llvm",
+                    binary=field_binary,
+                    audit=True,
+                    force_move=True,
+                )
+                field_run = run([str(field_binary)], root, sanitizer_env())
+                assert field_run.returncode == 0, field_run.stdout + field_run.stderr
+                assert field_run.stdout.strip().splitlines() == [
+                    "seed12345678901heapsuffix",
+                    "1",
+                ], field_run.stdout
+                match = AUDIT_RE.search(field_run.stderr)
+                assert match, field_run.stderr
+                field_stats = tuple(int(value) for value in match.groups())
+                assert field_stats[:4] == (1, 2, 3, 2), field_stats
+                assert "ownership audit found" not in field_run.stderr
+                assert "AddressSanitizer" not in field_run.stderr
 
         overflow_source = root / "concat_overflow.c"
         overflow_source.write_text(OVERFLOW_PROBE, encoding="utf-8")
