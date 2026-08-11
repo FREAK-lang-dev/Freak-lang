@@ -1684,8 +1684,11 @@ def audit_conformance(paths: List[Path]) -> int:
         "build invalidation": (
             repo / "src" / "cli" / "build.fk",
             (
-                'pilot run_cache_file = cli_binary_path(src_file) + ".freak-run-cache"',
-                "fs::delete(run_cache_file)",
+                "task cli_invalidate_build_outputs",
+                'pilot cache_file = binary + ".freak-run-cache"',
+                "cli_delete_derived_artifact(binary)",
+                "cli_delete_derived_artifact(cache_file)",
+                "untrusted stale artifact could not be removed",
                 "task cli_cross_target_is_safe",
                 "invalid target triple",
                 'pilot use_bundle = is_win and cross == "" and runtime_obj_ext != ""',
@@ -1749,6 +1752,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "stale object",
                 "runtime_objects",
                 "Linking packaged Windows runtime objects",
+                "failed rebuild preserved an untrusted stale binary",
                 "failed rebuild left stale freshness proof",
             ),
         ),
