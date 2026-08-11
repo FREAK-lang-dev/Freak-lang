@@ -513,15 +513,15 @@ def main() -> int:
             assert "invalid target triple" in target_output, target_output
             assert not target_sentinel.exists(), "target triple executed shell syntax"
 
-        # A failed rebuild must invalidate proof before touching the old
+        # A failed rebuild must invalidate both the freshness proof and the old
         # executable. Remove the staged runtime, change source, and verify the
-        # prior CACHE_B binary is not run even though it remains on disk.
+        # prior CACHE_B artifact cannot be mistaken for a successful rebuild.
         (runtime / "freak_runtime.c").unlink()
         source.write_text('say "CACHE_C"\n', encoding="utf-8")
         code, output = invoke(freak, source_dir, source_arg, "--llvm", env)
         assert code != 0, output
         assert "CACHE_B" not in output, output
-        assert binary.is_file(), "the stale artifact should be ignored, not required to vanish"
+        assert not binary.exists(), "failed rebuild preserved an untrusted stale binary"
         assert not sidecar.exists(), "failed rebuild left stale freshness proof"
 
     print("V3 run freshness and installer cleanup: OK")
