@@ -228,6 +228,15 @@ static size_t freak_word_append_capacity(size_t required) {
     return capacity;
 }
 
+static size_t freak_word_concat_required(
+        size_t left_length, size_t right_length, const char* operation) {
+    if (left_length == SIZE_MAX || right_length > SIZE_MAX - 1 - left_length) {
+        fprintf(stderr, "FREAK: %s size overflow\n", operation);
+        exit(1);
+    }
+    return left_length + right_length + 1;
+}
+
 #ifdef FREAK_C_RUNTIME_OWNERSHIP_AUDIT
 static size_t freak_c_owned_word_count = 0;
 static bool freak_c_ownership_audit_registered = false;
@@ -287,13 +296,11 @@ freak_word freak_word_own(char* s, size_t len) {
 }
 
 freak_word freak_word_concat(freak_word a, freak_word b) {
-    if (a.length > SIZE_MAX - b.length - 1) {
-        fprintf(stderr, "FREAK: word concatenation size overflow\n");
-        exit(1);
-    }
-    size_t total = a.length + b.length;
+    size_t required = freak_word_concat_required(
+        a.length, b.length, "word concatenation");
+    size_t total = required - 1;
     freak_concat_audit_concat(total);
-    char* buf = (char*)malloc(total + 1);
+    char* buf = (char*)malloc(required);
     if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
     memcpy(buf, a.data, a.length);
     memcpy(buf + a.length, b.data, b.length);
@@ -306,14 +313,10 @@ void freak_word_append_owned(freak_word* slot, freak_word suffix, bool release_s
         if (release_suffix) freak_word_release_owned(&suffix);
         return;
     }
-    if (slot->length > SIZE_MAX - suffix.length - 1) {
-        fprintf(stderr, "FREAK: word append size overflow\n");
-        exit(1);
-    }
-
     size_t old_length = slot->length;
-    size_t total = old_length + suffix.length;
-    size_t required = total + 1;
+    size_t required = freak_word_concat_required(
+        old_length, suffix.length, "word append");
+    size_t total = required - 1;
     bool same_input = slot->data && slot->data == suffix.data;
     freak_c_append_buffer* tracked = freak_c_append_find((void*)slot->data);
     freak_concat_audit_append(suffix.length);
@@ -1706,13 +1709,9 @@ int64_t freak_llvm_word_append_owned(int64_t previous, int64_t suffix, int64_t r
     freak_llvm_owned_word* owned = freak_llvm_owned_find((void*)previous, &old_link);
     size_t old_length = owned ? owned->length : strlen(previous_text);
     size_t suffix_length = strlen(suffix_text);
-    if (old_length > SIZE_MAX - suffix_length - 1) {
-        fprintf(stderr, "FREAK: LLVM word append size overflow\n");
-        exit(1);
-    }
-
-    size_t total = old_length + suffix_length;
-    size_t required = total + 1;
+    size_t required = freak_word_concat_required(
+        old_length, suffix_length, "LLVM word append");
+    size_t total = required - 1;
     bool same_input = previous && previous == suffix;
     bool suffix_in_buffer = false;
     size_t suffix_offset = 0;
@@ -1787,9 +1786,11 @@ int64_t freak_llvm_word_concat(int64_t a, int64_t b) {
     if (!sb) sb = "";
     size_t a_len = strlen(sa);
     size_t b_len = strlen(sb);
-    size_t len = a_len + b_len + 1;
+    size_t len = freak_word_concat_required(
+        a_len, b_len, "LLVM word concatenation");
     freak_concat_audit_concat(a_len + b_len);
     char* buf = (char*)malloc(len);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
     strcpy(buf, sa);
     strcat(buf, sb);
     return freak_llvm_word_adopt((int64_t)buf);

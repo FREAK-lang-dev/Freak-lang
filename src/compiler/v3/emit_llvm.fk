@@ -1794,9 +1794,47 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         pilot fidx = llvm_infer_field_index(recv_id, field_name)
         if fidx < 0 { give back }
 
-        pilot rhs_reg = llvm_emit_expr(rhs_w)
         pilot fidx_w = word_from_int(fidx)
         pilot field_type = llvm_infer_field_type(recv_id, field_name)
+
+        -- Preserve the supported LLVM shape path's linear concat behavior for
+        -- a direct self-replacement such as box.value = box.value + suffix.
+        -- Both receivers must be the same simple binding so evaluation remains
+        -- single-shot and side-effect free.
+        if name_w == "=" and field_type.starts_with("w") {
+            pilot rhs_idx = word_to_int(rhs_w)
+            pilot rhs_kind: word = array_get(ast_expr_kinds, rhs_idx)
+            if rhs_kind == EXPR_BINOP and array_get(ast_expr_vals, rhs_idx) == "+" {
+                pilot append_left: word = array_get(ast_expr_lefts, rhs_idx)
+                pilot append_right: word = array_get(ast_expr_rights, rhs_idx)
+                pilot append_left_idx = word_to_int(append_left)
+                pilot append_left_kind: word = array_get(ast_expr_kinds, append_left_idx)
+                if append_left_kind == EXPR_FIELD and array_get(ast_expr_vals, append_left_idx) == field_name {
+                    pilot append_recv: word = array_get(ast_expr_lefts, append_left_idx)
+                    pilot recv_idx = word_to_int(recv_id)
+                    pilot append_recv_idx = word_to_int(append_recv)
+                    pilot recv_kind: word = array_get(ast_expr_kinds, recv_idx)
+                    pilot append_recv_kind: word = array_get(ast_expr_kinds, append_recv_idx)
+                    if recv_kind == EXPR_IDENT and append_recv_kind == EXPR_IDENT {
+                        pilot recv_name: word = array_get(ast_expr_vals, recv_idx)
+                        pilot append_recv_name: word = array_get(ast_expr_vals, append_recv_idx)
+                        if recv_name == append_recv_name {
+                            pilot previous_field = next_reg()
+                            llvm_emit_line("    " + previous_field + " = call i64 @freak_llvm_shape_get(i64 " + recv_reg + ", i64 " + fidx_w + ")")
+                            pilot suffix_reg = llvm_emit_expr(append_right)
+                            pilot release_suffix = "0"
+                            if llvm_word_expr_is_owned_temporary(append_right) { release_suffix = "1" }
+                            pilot appended_field = next_reg()
+                            llvm_emit_line("    " + appended_field + " = call i64 @freak_llvm_word_append_owned(i64 " + previous_field + ", i64 " + suffix_reg + ", i64 " + release_suffix + ")")
+                            llvm_emit_line("    call void @freak_llvm_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + appended_field + ")")
+                            give back
+                        }
+                    }
+                }
+            }
+        }
+
+        pilot rhs_reg = llvm_emit_expr(rhs_w)
 
         if name_w == "=" {
             pilot stored_field = rhs_reg

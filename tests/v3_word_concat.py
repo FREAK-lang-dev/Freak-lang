@@ -24,9 +24,40 @@ SCALING_PROGRAM = f"""task main() {{
 }}
 """
 
+GLOBAL_SCALING_PROGRAM = f"""pilot mut global_text: word = "s"
+
+task main() {{
+    repeat {APPENDS} times {{
+        global_text = global_text + "x"
+    }}
+    say global_text.length()
+    say global_text.checksum()
+    global_text = ""
+}}
+"""
+
+FIELD_SCALING_PROGRAM = f"""shape Box {{
+    value: word
+}}
+
+task main() {{
+    pilot box: Box = Box {{ value: "s" }}
+    repeat {APPENDS} times {{
+        box.value = box.value + "x"
+    }}
+    say box.value.length()
+    say box.value.checksum()
+    box.value = ""
+}}
+"""
+
 CORRECTNESS_PROGRAM = """task main() {
     pilot mut text: word = "a" + "b"
+    text = text + "123456789"
     text = text + text
+    say text
+    text = text + "123456789"
+    text = text + ("heap" + "suffix")
     say text
     pilot suffix: word = "y" + "z"
     text = text + suffix
@@ -37,6 +68,22 @@ CORRECTNESS_PROGRAM = """task main() {
     say source
     say derived
     say source
+}
+"""
+
+OVERFLOW_PROBE = r"""#include "freak_runtime.h"
+#include <stdint.h>
+#include <string.h>
+
+int main(int argc, char** argv) {
+    freak_word small = freak_word_lit("x");
+    freak_word malformed = { "x", SIZE_MAX, SIZE_MAX, false };
+    if (argc > 1 && strcmp(argv[1], "append") == 0) {
+        freak_word_append_owned(&small, malformed, false);
+        return 0;
+    }
+    (void)freak_word_concat(small, malformed);
+    return 0;
 }
 """
 
@@ -67,6 +114,14 @@ def stable_checksum(data: bytes) -> int:
     return value & ((1 << 63) - 1)
 
 
+def sanitizer_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.pop("ASAN_OPTIONS", None)
+    if sys.platform.startswith("linux"):
+        env["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1:exitcode=86"
+    return env
+
+
 def compile_generated(
     *,
     clang: str,
@@ -86,6 +141,8 @@ def compile_generated(
         command.append("-DFREAK_WORD_CONCAT_AUDIT=1")
     if force_move:
         command.append("-DFREAK_WORD_CONCAT_FORCE_MOVE=1")
+    if backend == "llvm":
+        command.append(str(repo / "freakc" / "runtime" / "freak_llvm_runtime.c"))
     command.extend(
         [
             str(repo / "freakc" / "runtime" / "freak_runtime.c"),
@@ -154,9 +211,7 @@ def main() -> int:
                     audit=True,
                     force_move=force_move,
                 )
-                env = os.environ.copy()
-                env["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1"
-                executed = run([str(binary)], root, env)
+                executed = run([str(binary)], root, sanitizer_env())
                 assert executed.returncode == 0, executed.stdout + executed.stderr
                 assert executed.stdout.strip().splitlines() == expected_stdout, executed.stdout
                 match = AUDIT_RE.search(executed.stderr)
@@ -206,19 +261,111 @@ def main() -> int:
                 audit=False,
                 force_move=True,
             )
-            correctness_executed = run([str(correctness_binary)], root)
+            correctness_executed = run(
+                [str(correctness_binary)], root, sanitizer_env()
+            )
             assert correctness_executed.returncode == 0, (
                 correctness_executed.stdout + correctness_executed.stderr
             )
             assert correctness_executed.stdout.strip().splitlines() == [
-                "abab",
-                "ababyz",
+                "ab123456789ab123456789",
+                "ab123456789ab123456789123456789heapsuffix",
+                "ab123456789ab123456789123456789heapsuffixyz",
                 "yz",
                 "borrowed",
                 "borrowed!",
                 "borrowed",
             ]
             assert "ownership audit found" not in correctness_executed.stderr
+
+            additional_scaling = [("global", GLOBAL_SCALING_PROGRAM)]
+            if backend == "llvm":
+                additional_scaling.append(("field", FIELD_SCALING_PROGRAM))
+            for scaling_name, scaling_program in additional_scaling:
+                extra_source = root / f"scaling_{backend}_{scaling_name}.fk"
+                extra_source.write_text(scaling_program, encoding="utf-8")
+                extra_transpiled = run(
+                    [str(freak), "transpile", str(extra_source), flag], repo
+                )
+                assert extra_transpiled.returncode == 0, (
+                    extra_transpiled.stdout + extra_transpiled.stderr
+                )
+                extra_generated = Path(str(extra_source) + suffix)
+                extra_text = extra_generated.read_text(encoding="utf-8")
+                helper = (
+                    "freak_word_append_owned"
+                    if backend == "c"
+                    else "@freak_llvm_word_append_owned"
+                )
+                assert helper in extra_text, extra_text
+                extra_binary = root / (
+                    f"scaling_{backend}_{scaling_name}.exe"
+                    if sys.platform == "win32"
+                    else f"scaling_{backend}_{scaling_name}"
+                )
+                compile_generated(
+                    clang=clang,
+                    repo=repo,
+                    generated=extra_generated,
+                    backend=backend,
+                    binary=extra_binary,
+                    audit=True,
+                    force_move=True,
+                )
+                extra_run = run([str(extra_binary)], root, sanitizer_env())
+                assert extra_run.returncode == 0, extra_run.stdout + extra_run.stderr
+                assert extra_run.stdout.strip().splitlines() == expected_stdout, (
+                    extra_run.stdout
+                )
+                match = AUDIT_RE.search(extra_run.stderr)
+                assert match, extra_run.stderr
+                stats = tuple(int(value) for value in match.groups())
+                assert stats[0] == 0, stats
+                assert stats[1] == APPENDS, stats
+                assert stats[2] == stats[3], stats
+                assert 1 <= stats[3] <= 16, stats
+                assert stats[4] <= 4 * len(expected_bytes), stats
+                assert "ownership audit found" not in extra_run.stderr
+                assert "AddressSanitizer" not in extra_run.stderr
+                print(
+                    f"{backend}/{scaling_name}/move: concat_calls={stats[0]} "
+                    f"append_calls={stats[1]} allocations={stats[2]} "
+                    f"growths={stats[3]} copied_bytes={stats[4]}"
+                )
+
+        overflow_source = root / "concat_overflow.c"
+        overflow_source.write_text(OVERFLOW_PROBE, encoding="utf-8")
+        overflow_binary = root / (
+            "concat_overflow.exe" if sys.platform == "win32" else "concat_overflow"
+        )
+        overflow_command = [
+            clang,
+            "-O1",
+            "-o",
+            str(overflow_binary),
+            str(overflow_source),
+            str(repo / "freakc" / "runtime" / "freak_runtime.c"),
+            "-I",
+            str(repo / "freakc" / "runtime"),
+        ]
+        if sys.platform == "win32":
+            overflow_command.append("-lws2_32")
+        else:
+            overflow_command.append("-lm")
+        overflow_compiled = run(overflow_command, repo)
+        assert overflow_compiled.returncode == 0, (
+            overflow_compiled.stdout + overflow_compiled.stderr
+        )
+        for mode, expected_error in (
+            ("concat", "word concatenation size overflow"),
+            ("append", "word append size overflow"),
+        ):
+            command = [str(overflow_binary)]
+            if mode == "append":
+                command.append("append")
+            overflow_run = run(command, root)
+            assert overflow_run.returncode != 0, mode
+            assert expected_error in overflow_run.stderr, overflow_run.stderr
 
     if args.measure_only:
         print("V3 word concat deterministic baseline: PASS")

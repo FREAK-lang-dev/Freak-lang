@@ -31,7 +31,7 @@ typedef struct {
     const char* data;
     size_t length;       /* byte length   */
     size_t char_count;   /* codepoint count (== length for ASCII) */
-    bool   heap;         /* true if data was malloc'd and must be freed */
+    bool   heap;         /* runtime-owned; release only through word APIs */
 } freak_word;
 
 /* Command line arguments */
@@ -62,7 +62,9 @@ freak_word freak_word_clone(freak_word source);
    Pointer equality keeps direct self-assignment safe. */
 void freak_word_replace_owned(freak_word* slot, freak_word replacement);
 
-/* Release a word binding at a task boundary and clear its slot. */
+/* Release a word binding at a task boundary and clear its slot. Runtime-owned
+   data must use this/replacement APIs rather than direct free(), because the
+   frozen runtime tracks private ownership and append-capacity metadata. */
 void freak_word_release_owned(freak_word* slot);
 
 /* Equality test (byte-wise). */
