@@ -386,7 +386,7 @@ task llvm_infer_expr_type(expr_id: word) -> word {
     pilot kind: word = array_get(ast_expr_kinds, i)
     pilot val: word = array_get(ast_expr_vals, i)
 
-    if kind == EXPR_STR { give back "w" }
+    if kind == EXPR_STR or kind == EXPR_INTERP { give back "w" }
     if kind == EXPR_INT { give back "i" }
     if kind == EXPR_FLOAT { give back "n" }
     if kind == EXPR_BOOL { give back "b" }
@@ -858,6 +858,7 @@ task llvm_emit_expr(id: word) -> word {
         llvm_emit_line("    " + cast_reg + " = ptrtoint i8* " + get_ptr + " to i64")
         give back cast_reg
     }
+    if kind == EXPR_INTERP { give back llvm_emit_interp(left) }
     if kind == EXPR_IDENT {
         pilot res_reg = next_reg()
         llvm_emit_line("    " + res_reg + " = load i64, i64* " + llvm_var_ptr(val))
@@ -927,6 +928,35 @@ task llvm_emit_expr(id: word) -> word {
         give back arr_reg
     }
     give back "0"
+}
+
+task llvm_emit_interp(segments: word) -> word {
+    pilot accumulator = "0"
+    pilot segment_count = tc_arg_count(segments)
+    pilot segment_index = 0
+    repeat segment_count times {
+        pilot segment_id = word_from_int(tc_arg_at(segments, segment_index))
+        pilot segment_reg = llvm_emit_expr(segment_id)
+        pilot segment_type = llvm_infer_expr_type(segment_id)
+        pilot release_segment = "0"
+        if not segment_type.starts_with("w") {
+            pilot converted_reg = next_reg()
+            if segment_type.starts_with("n") {
+                llvm_emit_line("    " + converted_reg + " = call i64 @freak_llvm_format_num(i64 " + segment_reg + ")")
+            } else if segment_type.starts_with("b") {
+                llvm_emit_line("    " + converted_reg + " = call i64 @freak_llvm_word_from_bool(i64 " + segment_reg + ")")
+            } else {
+                llvm_emit_line("    " + converted_reg + " = call i64 @freak_llvm_word_from_int(i64 " + segment_reg + ")")
+            }
+            segment_reg = converted_reg
+            release_segment = "1"
+        }
+        pilot appended_reg = next_reg()
+        llvm_emit_line("    " + appended_reg + " = call i64 @freak_llvm_word_append_owned(i64 " + accumulator + ", i64 " + segment_reg + ", i64 " + release_segment + ")")
+        accumulator = appended_reg
+        segment_index += 1
+    }
+    give back accumulator
 }
 
 -- ===================== CALL EMIT =====================================
@@ -1479,30 +1509,24 @@ task llvm_emit_stmt(eid: word) -> void {
 
     if kind == STMT_PILOT { llvm_emit_stmt_pilot(eid) give back }
     if kind == STMT_SAY {
-        pilot say_kind: word = array_get(ast_expr_kinds, word_to_int(expr_id_w))
-        pilot say_val: word = array_get(ast_expr_vals, word_to_int(expr_id_w))
-        if say_kind == EXPR_STR and llvm_str_has_interp(say_val) {
-            llvm_emit_say_interp(say_val)
-        } else {
-            pilot reg = llvm_emit_expr(expr_id_w)
-            pilot say_type = llvm_infer_expr_type(expr_id_w)
-            if say_type.starts_with("w") {
-                llvm_emit_line("    call void @freak_llvm_say(i64 " + reg + ")")
-                if llvm_word_expr_is_owned_temporary(expr_id_w) {
-                    llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + reg + ", i64 0)")
-                }
-            } else {
-                pilot say_word = next_reg()
-                if say_type.starts_with("n") {
-                    llvm_emit_line("    " + say_word + " = call i64 @freak_llvm_format_num(i64 " + reg + ")")
-                } else if say_type.starts_with("b") {
-                    llvm_emit_line("    " + say_word + " = call i64 @freak_llvm_word_from_bool(i64 " + reg + ")")
-                } else {
-                    llvm_emit_line("    " + say_word + " = call i64 @freak_llvm_word_from_int(i64 " + reg + ")")
-                }
-                llvm_emit_line("    call void @freak_llvm_say(i64 " + say_word + ")")
-                llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + say_word + ", i64 0)")
+        pilot reg = llvm_emit_expr(expr_id_w)
+        pilot say_type = llvm_infer_expr_type(expr_id_w)
+        if say_type.starts_with("w") {
+            llvm_emit_line("    call void @freak_llvm_say(i64 " + reg + ")")
+            if llvm_word_expr_is_owned_temporary(expr_id_w) {
+                llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + reg + ", i64 0)")
             }
+        } else {
+            pilot say_word = next_reg()
+            if say_type.starts_with("n") {
+                llvm_emit_line("    " + say_word + " = call i64 @freak_llvm_format_num(i64 " + reg + ")")
+            } else if say_type.starts_with("b") {
+                llvm_emit_line("    " + say_word + " = call i64 @freak_llvm_word_from_bool(i64 " + reg + ")")
+            } else {
+                llvm_emit_line("    " + say_word + " = call i64 @freak_llvm_word_from_int(i64 " + reg + ")")
+            }
+            llvm_emit_line("    call void @freak_llvm_say(i64 " + say_word + ")")
+            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + say_word + ", i64 0)")
         }
         give back
     }
@@ -2042,70 +2066,6 @@ task llvm_emit_stmt_when(eid: word) -> void {
     llvm_emit_line(l_end + ":")
     llvm_emit_word_local_cleanup_since(saved_when_word_slots, "")
     llvm_word_local_slots = saved_when_word_slots
-}
-
--- ===================== STRING INTERPOLATION ==========================
-
-task llvm_str_has_interp(val: word) -> bool {
-    pilot slen = val.length()
-    pilot i = 0
-    repeat slen times {
-        if val.char_at(i) == "{" { give back true }
-        i += 1
-    }
-    give back false
-}
-
-task llvm_emit_say_interp(val: word) -> void {
-    pilot slen = val.length()
-    pilot i = 0
-    pilot buf = ""
-    pilot vname = ""
-    pilot in_var = false
-    repeat until i >= slen {
-        pilot c = val.char_at(i)
-        if in_var {
-            if c == "}" {
-                pilot var_reg = next_reg()
-                llvm_emit_line("    " + var_reg + " = load i64, i64* " + llvm_var_ptr(vname))
-                pilot var_type = llvm_get_var_type(vname)
-                if var_type.starts_with("w") {
-                    llvm_emit_line("    call void @freak_llvm_print_str(i64 " + var_reg + ")")
-                } else if var_type.starts_with("n") {
-                    llvm_emit_line("    call void @freak_llvm_print_num(i64 " + var_reg + ")")
-                } else {
-                    llvm_emit_line("    call void @freak_llvm_print_int(i64 " + var_reg + ")")
-                }
-                vname = ""
-                in_var = false
-            } else { vname = vname + c }
-        } else {
-            if c == "{" {
-                if buf.length() > 0 {
-                    pilot lit_id = register_string_literal(buf)
-                    pilot lit_len = llvm_string_byte_len(buf) + 1
-                    pilot gep = next_reg()
-                    llvm_emit_line("    " + gep + " = getelementptr inbounds [" + word_from_int(lit_len) + " x i8], [" + word_from_int(lit_len) + " x i8]* " + lit_id + ", i64 0, i64 0")
-                    pilot ptr = next_reg()
-                    llvm_emit_line("    " + ptr + " = ptrtoint i8* " + gep + " to i64")
-                    llvm_emit_line("    call void @freak_llvm_print_str(i64 " + ptr + ")")
-                    buf = ""
-                }
-                in_var = true
-            } else { buf = buf + c }
-        }
-        i += 1
-    }
-    if buf.length() > 0 {
-        pilot lit_id = register_string_literal(buf)
-        pilot lit_len = llvm_string_byte_len(buf) + 1
-        pilot gep = next_reg()
-        llvm_emit_line("    " + gep + " = getelementptr inbounds [" + word_from_int(lit_len) + " x i8], [" + word_from_int(lit_len) + " x i8]* " + lit_id + ", i64 0, i64 0")
-        pilot ptr = next_reg()
-        llvm_emit_line("    " + ptr + " = ptrtoint i8* " + gep + " to i64")
-        llvm_emit_line("    call void @freak_llvm_print_str(i64 " + ptr + ")")
-    }
-    llvm_emit_line("    call void @freak_llvm_print_newline()")
 }
 
 -- ===================== TASK + PARAMS =================================

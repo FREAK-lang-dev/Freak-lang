@@ -151,6 +151,17 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
         give back
     }
 
+    if k == EXPR_INTERP {
+        pilot segments: word = array_get(ast_expr_lefts, expr_id)
+        pilot segment_count = tc_arg_count(segments)
+        pilot segment_index = 0
+        repeat segment_count times {
+            bc_walk_expr(tc_arg_at(segments, segment_index), false, use_line)
+            segment_index += 1
+        }
+        give back
+    }
+
     if k == EXPR_IDENT {
         pilot name: word = array_get(ast_expr_vals, expr_id)
         pilot idx = bc_lookup_idx(name)
@@ -873,7 +884,7 @@ task tc_expr_type(expr_id: int) -> word {
     if kind == EXPR_INT { give back "int" }
     if kind == EXPR_FLOAT { give back "num" }
     if kind == EXPR_BOOL { give back "bool" }
-    if kind == EXPR_STR { give back "word" }
+    if kind == EXPR_STR or kind == EXPR_INTERP { give back "word" }
     if kind == EXPR_IDENT { give back tc_lookup_type(val) }
     if kind == EXPR_CALL {
         if val.starts_with("shape::ctor::") { give back val.replace("shape::ctor::", "") }
@@ -1134,6 +1145,34 @@ task tc_validate_unary(op: word, operand_id: int, line: int, source_file: word) 
     if not valid { tc_diag("operator '" + op + "' does not accept " + operand_type, line, source_file) }
 }
 
+task tc_validate_interp_path(expr_id: int, line: int, source_file: word) -> word {
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    pilot val: word = array_get(ast_expr_vals, expr_id)
+    if kind == EXPR_IDENT {
+        if not tc_has_binding(val) {
+            tc_diag("unknown interpolation binding '" + val + "'", line, source_file)
+            give back ""
+        }
+        give back tc_lookup_type(val)
+    }
+    if kind == EXPR_FIELD {
+        pilot base_id = word_to_int(array_get(ast_expr_lefts, expr_id))
+        pilot base_type = tc_validate_interp_path(base_id, line, source_file)
+        if base_type == "" { give back "" }
+        if not is_shape_name(base_type) {
+            tc_diag("interpolation path crosses non-shape value before field '" + val + "'", line, source_file)
+            give back ""
+        }
+        pilot field_type = get_shape_field_type(base_type, val)
+        if field_type == "" {
+            tc_diag_member(base_type, "field", val, line, source_file)
+            give back ""
+        }
+        give back field_type
+    }
+    give back ""
+}
+
 task tc_validate_expr(expr_id: int, line: int) -> void {
     if expr_id < 0 { give back }
     pilot source_file = input_file
@@ -1146,6 +1185,21 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
     pilot val: word = array_get(ast_expr_vals, expr_id)
     pilot left: word = array_get(ast_expr_lefts, expr_id)
     pilot right: word = array_get(ast_expr_rights, expr_id)
+    if kind == EXPR_INTERP {
+        pilot segment_count = tc_arg_count(left)
+        pilot segment_index = 0
+        repeat segment_count times {
+            pilot segment_id = tc_arg_at(left, segment_index)
+            if array_get(ast_expr_kinds, segment_id) != EXPR_STR {
+                pilot terminal_type = tc_validate_interp_path(segment_id, line, source_file)
+                if terminal_type != "" and terminal_type != "word" and terminal_type != "int" and terminal_type != "num" and terminal_type != "bool" {
+                    tc_diag("interpolation path must end in word, int, num, or bool, got " + terminal_type, line, source_file)
+                }
+            }
+            segment_index += 1
+        }
+        give back
+    }
     if kind == EXPR_IDENT {
         if not tc_has_binding(val) { tc_diag("unknown binding '" + val + "'", line, source_file) }
         give back
@@ -1627,7 +1681,7 @@ task tc_dependency_expr_type(expr_id: int, local_names: int, local_types: int, l
     if kind == EXPR_INT { give back "int" }
     if kind == EXPR_FLOAT { give back "num" }
     if kind == EXPR_BOOL { give back "bool" }
-    if kind == EXPR_STR { give back "word" }
+    if kind == EXPR_STR or kind == EXPR_INTERP { give back "word" }
     if kind == EXPR_IDENT {
         if tc_dependency_has_local(local_names, local_count, val) {
             give back tc_dependency_local_type(local_names, local_types, local_count, val)
@@ -1721,6 +1775,10 @@ task tc_dependency_walk_expr(expr_id: int, local_names: int, local_types: int, l
                 tc_diag("global initializer for '" + global_name + "' depends on global '" + val + "' before it is initialized", tc_expr_diag_line(expr_id, 1), tc_expr_diag_file(expr_id, input_file))
             }
         }
+        give back
+    }
+    if kind == EXPR_INTERP {
+        tc_dependency_walk_args(left, local_names, local_types, local_count, global_index, global_name, visited)
         give back
     }
     if kind == EXPR_FIELD {
@@ -1885,6 +1943,14 @@ task tc_dependency_expr_has_task_call(expr_id: int) -> bool {
         give back tc_dependency_expr_has_task_call(word_to_int(left)) or tc_dependency_expr_has_task_call(word_to_int(right))
     }
     if kind == EXPR_ARRAY_LIT {
+        pilot count = tc_arg_count(left)
+        pilot i = 0
+        repeat count times {
+            if tc_dependency_expr_has_task_call(tc_arg_at(left, i)) { give back true }
+            i += 1
+        }
+    }
+    if kind == EXPR_INTERP {
         pilot count = tc_arg_count(left)
         pilot i = 0
         repeat count times {

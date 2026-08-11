@@ -294,6 +294,11 @@ task emit_expr(id: word) -> void {
         give back
     }
 
+    if kind == EXPR_INTERP {
+        emit_c_interp(id, left)
+        give back
+    }
+
     if kind == EXPR_CALL {
         emit_c_call(id, val, left)
         give back
@@ -411,6 +416,31 @@ task emit_c_string(val: word) -> void {
         else { tmp = tmp + sc si += 1 }
     }
     emit(tmp + "\")")
+}
+
+task emit_c_interp(expr_id: word, segments: word) -> void {
+    pilot interp_tmp = "__freak_interp_" + expr_id
+    emit("({ freak_word " + interp_tmp + " = freak_word_lit(\"\"); ")
+    pilot segment_count = tc_arg_count(segments)
+    pilot segment_index = 0
+    repeat segment_count times {
+        pilot segment_id = word_from_int(tc_arg_at(segments, segment_index))
+        pilot segment_type = emt_expr_type_code(segment_id)
+        emit("freak_word_append_owned(&" + interp_tmp + ", ")
+        if segment_type == "w" {
+            emit_expr(segment_id)
+        } else {
+            if segment_type == "d" { emit("freak_format_num(") }
+            else if segment_type == "b" { emit("freak_word_from_bool(") }
+            else { emit("freak_word_from_int(") }
+            emit_expr(segment_id)
+            emit(")")
+        }
+        if segment_type == "w" { emit(", false); ") }
+        else { emit(", true); ") }
+        segment_index += 1
+    }
+    emit(interp_tmp + "; })")
 }
 
 task emit_c_call(expr_id: word, val: word, left: word) -> void {

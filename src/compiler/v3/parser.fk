@@ -101,6 +101,97 @@ task current_source_location() -> word {
 
 -- ===================== EXPRESSION PARSING ============================
 
+task parser_interp_path_valid(path: word) -> bool {
+    if path.length() == 0 { give back false }
+    pilot i = 0
+    pilot at_segment_start = true
+    repeat path.length() times {
+        pilot c = path.char_at(i)
+        if c == "." {
+            if at_segment_start { give back false }
+            at_segment_start = true
+        } else if at_segment_start {
+            if not is_alphabetic(c) { give back false }
+            at_segment_start = false
+        } else if not is_alnum_ext(c) {
+            give back false
+        }
+        i += 1
+    }
+    give back not at_segment_start
+}
+
+task parser_interp_append(segments: word, expr_id: int) -> word {
+    if segments == "" { give back word_from_int(expr_id) }
+    give back segments + "," + word_from_int(expr_id)
+}
+
+task parser_alloc_interp_path(path: word, origin_file: word, origin_line: word) -> int {
+    pilot segment = ""
+    pilot expr_id = 0 - 1
+    pilot i = 0
+    repeat until i > path.length() {
+        pilot at_end = i == path.length()
+        pilot c = ""
+        if not at_end { c = path.char_at(i) }
+        if at_end or c == "." {
+            if expr_id < 0 {
+                expr_id = alloc_expr_at(EXPR_IDENT, segment, "", "", origin_file, origin_line)
+            } else {
+                expr_id = alloc_expr_at(EXPR_FIELD, segment, word_from_int(expr_id), "", origin_file, origin_line)
+            }
+            segment = ""
+        } else {
+            segment = segment + c
+        }
+        i += 1
+    }
+    give back expr_id
+}
+
+task parser_alloc_string_expr(value: word, origin_file: word, origin_line: word) -> int {
+    pilot segments = ""
+    pilot literal = ""
+    pilot has_path = false
+    pilot i = 0
+    repeat until i >= value.length() {
+        pilot c = value.char_at(i)
+        if c == "{" {
+            pilot close = i + 1
+            repeat until close >= value.length() or value.char_at(close) == "}" { close += 1 }
+            if close < value.length() {
+                pilot body = value.substring(i + 1, close - i - 1)
+                if parser_interp_path_valid(body) {
+                    if literal != "" {
+                        pilot literal_id = alloc_expr_at(EXPR_STR, literal, "", "", origin_file, origin_line)
+                        segments = parser_interp_append(segments, literal_id)
+                        literal = ""
+                    }
+                    pilot path_id = parser_alloc_interp_path(body, origin_file, origin_line)
+                    segments = parser_interp_append(segments, path_id)
+                    has_path = true
+                    i = close + 1
+                } else {
+                    literal = literal + value.substring(i, close - i + 1)
+                    i = close + 1
+                }
+            } else {
+                literal = literal + c
+                i += 1
+            }
+        } else {
+            literal = literal + c
+            i += 1
+        }
+    }
+    if not has_path { give back alloc_expr_at(EXPR_STR, value, "", "", origin_file, origin_line) }
+    if literal != "" {
+        pilot literal_id = alloc_expr_at(EXPR_STR, literal, "", "", origin_file, origin_line)
+        segments = parser_interp_append(segments, literal_id)
+    }
+    give back alloc_expr_at(EXPR_INTERP, "", segments, "", origin_file, origin_line)
+}
+
 task parse_primary() -> int {
     pilot ttype = cur_tok_type()
     pilot tval = cur_tok_val()
@@ -126,7 +217,7 @@ task parse_primary() -> int {
     }
     if ttype == TOK_STR {
         advance_tok()
-        give back alloc_expr_at(EXPR_STR, tval, "", "", expr_file, expr_line)
+        give back parser_alloc_string_expr(tval, expr_file, expr_line)
     }
     if ttype == TOK_BOOL {
         advance_tok()

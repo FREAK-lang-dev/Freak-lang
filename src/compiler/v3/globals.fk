@@ -43,6 +43,9 @@ pilot EXPR_INDEX = "11"
 -- `[a, b, c]` — value is unused, left holds the comma-separated list of
 -- element expr ids (same encoding as call args).
 pilot EXPR_ARRAY_LIT = "12"
+-- Ordered interpolation segments live in `left` as comma-separated expr ids.
+-- Literal segments are EXPR_STR; path segments are EXPR_IDENT/EXPR_FIELD.
+pilot EXPR_INTERP = "13"
 
 pilot ast_expr_kinds = 0
 pilot ast_expr_vals = 0
