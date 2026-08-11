@@ -210,7 +210,13 @@ def check_static_contracts(repo: Path) -> None:
         "freakc_v3_stage2",
         "raw/packaging/distribution-files.manifest",
         "Finalize and smoke exact release archive",
-        "v3_release_install_smoke.py --archive",
+        "v3_final_release_gate.py",
+        '--archive "$archive"',
+        "--freakc",
+        "--standalone-freak",
+        "--standalone-hangar",
+        "--tested-sha256",
+        "sha256sum",
     ):
         assert needle in release_text, f"release workflow missing {needle}"
     assert "destination=${destination%$'\\r'}" in release_text

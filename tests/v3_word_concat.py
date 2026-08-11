@@ -147,6 +147,7 @@ def compile_generated(
     *,
     clang: str,
     repo: Path,
+    runtime_root: Path,
     generated: Path,
     backend: str,
     binary: Path,
@@ -163,12 +164,12 @@ def compile_generated(
     if force_move:
         command.append("-DFREAK_WORD_CONCAT_FORCE_MOVE=1")
     if backend == "llvm":
-        command.append(str(repo / "freakc" / "runtime" / "freak_llvm_runtime.c"))
+        command.append(str(runtime_root / "freak_llvm_runtime.c"))
     command.extend(
         [
-            str(repo / "freakc" / "runtime" / "freak_runtime.c"),
+            str(runtime_root / "freak_runtime.c"),
             "-I",
-            str(repo / "freakc" / "runtime"),
+            str(runtime_root),
         ]
     )
     if sys.platform == "win32":
@@ -183,6 +184,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
     parser.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="runtime payload to compile (defaults to the repository runtime)",
+    )
+    parser.add_argument(
         "--measure-only",
         action="store_true",
         help="print the pre-optimization deterministic work baseline",
@@ -190,6 +196,13 @@ def main() -> int:
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parents[1]
+    runtime_root = (
+        args.runtime_root.resolve()
+        if args.runtime_root is not None
+        else (repo / "freakc" / "runtime").resolve()
+    )
+    assert (runtime_root / "freak_runtime.c").is_file(), runtime_root
+    assert (runtime_root / "freak_llvm_runtime.c").is_file(), runtime_root
     freak = args.freak.resolve()
     assert freak.is_file(), freak
     clang = os.environ.get("FREAK_CLANG") or shutil.which("clang")
@@ -226,6 +239,7 @@ def main() -> int:
                 compile_generated(
                     clang=clang,
                     repo=repo,
+                    runtime_root=runtime_root,
                     generated=generated,
                     backend=backend,
                     binary=binary,
@@ -285,6 +299,7 @@ def main() -> int:
             compile_generated(
                 clang=clang,
                 repo=repo,
+                runtime_root=runtime_root,
                 generated=correctness_generated,
                 backend=backend,
                 binary=correctness_binary,
@@ -346,6 +361,7 @@ def main() -> int:
                 compile_generated(
                     clang=clang,
                     repo=repo,
+                    runtime_root=runtime_root,
                     generated=extra_generated,
                     backend=backend,
                     binary=extra_binary,
@@ -395,6 +411,7 @@ def main() -> int:
                 compile_generated(
                     clang=clang,
                     repo=repo,
+                    runtime_root=runtime_root,
                     generated=field_generated,
                     backend="llvm",
                     binary=field_binary,
@@ -425,9 +442,9 @@ def main() -> int:
             "-o",
             str(overflow_binary),
             str(overflow_source),
-            str(repo / "freakc" / "runtime" / "freak_runtime.c"),
+            str(runtime_root / "freak_runtime.c"),
             "-I",
-            str(repo / "freakc" / "runtime"),
+            str(runtime_root),
         ]
         if sys.platform == "win32":
             overflow_command.append("-lws2_32")

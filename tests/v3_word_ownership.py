@@ -685,9 +685,21 @@ def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> sub
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
+    parser.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="runtime payload to compile (defaults to the repository runtime)",
+    )
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parents[1]
+    runtime_root = (
+        args.runtime_root.resolve()
+        if args.runtime_root is not None
+        else (repo / "freakc" / "runtime").resolve()
+    )
+    assert (runtime_root / "freak_runtime.c").is_file(), runtime_root
+    assert (runtime_root / "freak_llvm_runtime.c").is_file(), runtime_root
     freak = args.freak.resolve()
     assert freak.is_file(), freak
     windows_build_script = (repo / "build_cli.bat").read_text(encoding="utf-8")
@@ -700,9 +712,7 @@ def main() -> int:
     assert "call :copy_intermediate" in windows_build_script
     assert "fc /b \"%~1\" \"%~2\"" in windows_build_script
     assert windows_build_script.count("-lws2_32") >= 4
-    runtime_source = (repo / "freakc" / "runtime" / "freak_runtime.c").read_text(
-        encoding="utf-8"
-    )
+    runtime_source = (runtime_root / "freak_runtime.c").read_text(encoding="utf-8")
     assert runtime_source.count("word replacement size overflow") >= 4
     assert runtime_source.count("(SIZE_MAX -") >= 2
     assert runtime_source.count("freak_word_replace_owned(&result") >= 4
@@ -710,9 +720,9 @@ def main() -> int:
     assert "return freak_word_own(buf, (size_t)total);" in runtime_source
     assert "#ifdef FREAK_C_RUNTIME_OWNERSHIP_AUDIT" in runtime_source
     assert "return freak_word_own(buf, (size_t)len);" in runtime_source
-    llvm_runtime_source = (
-        repo / "freakc" / "runtime" / "freak_llvm_runtime.c"
-    ).read_text(encoding="utf-8")
+    llvm_runtime_source = (runtime_root / "freak_llvm_runtime.c").read_text(
+        encoding="utf-8"
+    )
     assert llvm_runtime_source.count("return freak_llvm_word_adopt((int64_t)buf);") >= 2
     assert re.search(r"void freak_llvm_ui_stroke_rect\([^\n]+int64_t thickness\)", llvm_runtime_source)
     assert re.search(r"void freak_llvm_ui_draw_line\([^\n]+int64_t thickness\)", llvm_runtime_source)
@@ -1047,14 +1057,14 @@ def main() -> int:
                     command.append("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1")
                     command.extend(
                         [
-                            str(repo / "freakc" / "runtime" / "freak_llvm_runtime.c"),
-                            str(repo / "freakc" / "runtime" / "freak_runtime.c"),
+                            str(runtime_root / "freak_llvm_runtime.c"),
+                            str(runtime_root / "freak_runtime.c"),
                         ]
                     )
                 else:
                     command.append("-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
-                    command.append(str(repo / "freakc" / "runtime" / "freak_runtime.c"))
-                command.extend(["-I", str(repo / "freakc" / "runtime")])
+                    command.append(str(runtime_root / "freak_runtime.c"))
+                command.extend(["-I", str(runtime_root)])
                 if sys.platform == "win32":
                     command.append("-lws2_32")
                 else:
@@ -1108,9 +1118,9 @@ def main() -> int:
             "-o",
             str(llvm_audit_binary),
             str(llvm_audit_source),
-            str(repo / "freakc" / "runtime" / "freak_runtime.c"),
+            str(runtime_root / "freak_runtime.c"),
             "-I",
-            str(repo / "freakc" / "runtime"),
+            str(runtime_root),
         ]
         if sys.platform == "win32":
             llvm_audit_command.append("-lws2_32")
@@ -1146,9 +1156,9 @@ def main() -> int:
             "-o",
             str(c_audit_binary),
             str(c_audit_source),
-            str(repo / "freakc" / "runtime" / "freak_runtime.c"),
+            str(runtime_root / "freak_runtime.c"),
             "-I",
-            str(repo / "freakc" / "runtime"),
+            str(runtime_root),
         ]
         if sys.platform == "win32":
             c_audit_command.append("-lws2_32")

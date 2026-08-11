@@ -1956,13 +1956,16 @@ def audit_conformance(paths: List[Path]) -> int:
         lite_suite.read_text(encoding="utf-8") if lite_suite.exists() else ""
     )
     lite_suite_needles = (
-        "FREAK Lite / Python Bootstrap Regression Test Suite",
+        'print(_bold("FREAK Lite / Python Bootstrap Regression Test Suite"))',
         "python -m freakc",
         "tests/v3_legacy_golden.py",
     )
     lite_suite_missing = [
         needle for needle in lite_suite_needles if needle not in lite_suite_text
     ]
+    old_runtime_label = 'print(_bold("FREAK Compiler Regression Test Suite"))'
+    if old_runtime_label in lite_suite_text:
+        lite_suite_missing.append("obsolete compiler-wide runtime banner")
     add(
         "V3/FREAK Lite test boundary",
         lite_suite.exists() and not lite_suite_missing,
@@ -2122,6 +2125,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "Pre-compile Windows runtime objects",
                 "V3 parser/type errors gate code generation",
                 "V3 word replacement ownership",
+                "tests/v3_final_release_gate.py",
             ),
         ),
         "release": (
@@ -2132,15 +2136,29 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freak_runtime.obj dist/freak/runtime/",
                 "freak_llvm_runtime.obj dist/freak/runtime/",
                 "freak_ui_win32.obj dist/freak/runtime/",
+                "tests/v3_final_release_gate.py",
+                '--archive "$archive"',
+                "--standalone-freak",
+                "--standalone-hangar",
+                "--tested-sha256",
+                "sha256sum",
             ),
         ),
-        "release-shaped regression": (
-            repo / "tests" / "v3_release_install_smoke.py",
+        "final release gate": (
+            repo / "tests" / "v3_final_release_gate.py",
             (
                 "distribution-files.manifest",
-                "compile, link, and execution work",
-                "Linking packaged Windows runtime objects",
-                'installed_hangar), "--version"',
+                "assert_archive_contract",
+                "assert_exact_installed_discovery",
+                "assert_installed_abi_mismatch",
+                "assert_exact_archive_upgrade",
+                "v3_legacy_golden.py",
+                "--internal-child",
+                "v3_codegen_error_gate.py",
+                "v3_word_ownership.py",
+                "v3_word_concat.py",
+                "--runtime-root",
+                "V3 FINAL RELEASE GATE: PASS",
             ),
         ),
         "release version invariant": (

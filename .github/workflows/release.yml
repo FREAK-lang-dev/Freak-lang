@@ -173,7 +173,12 @@ jobs:
             archive="dist/freak-${{ matrix.target }}.tar.gz"
             (cd dist && tar czf "$(basename "$archive")" freak/)
           fi
-          python -u tests/v3_release_install_smoke.py --archive "$archive"
+          python -u tests/v3_final_release_gate.py \
+            --archive "$archive" \
+            --freakc "./build/freakc_v3_stage2${{ matrix.ext }}" \
+            --standalone-freak "dist/freak-${{ matrix.target }}${{ matrix.ext }}" \
+            --standalone-hangar "dist/hangar-${{ matrix.target }}${{ matrix.ext }}" \
+            --tested-sha256 "$archive.tested.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -202,7 +207,13 @@ jobs:
               archive="$target.tar.gz"
             fi
             test -s "$dir/$archive"
+            sidecar="$dir/$archive.tested.sha256"
+            test -s "$sidecar"
+            expected=$(awk '{print $1}' "$sidecar")
+            actual=$(sha256sum "$dir/$archive" | awk '{print $1}')
+            test "$actual" = "$expected"
             mv "$dir/$archive" "artifacts/$archive"
+            mv "$sidecar" "artifacts/$archive.tested.sha256"
           done
           ls -la artifacts/*.tar.gz artifacts/*.zip 2>/dev/null || true
 

@@ -205,9 +205,12 @@ jobs:
         shell: bash
         run: python -u tests/v3_install_doctor_upgrade.py ./build/freak$EXT
 
-      - name: Test - release-shaped installed compiler
+      - name: Test - PR-built release-shaped V3 acceptance
         shell: bash
-        run: python -u tests/v3_release_install_smoke.py ./build/freak$EXT ./build/hangar$EXT
+        run: >-
+          python -u tests/v3_final_release_gate.py
+          ./build/freak$EXT ./build/hangar$EXT
+          --freakc ./build/freakc_v3_stage2$EXT
 
       - name: Test suite (regression tests)
         shell: bash
