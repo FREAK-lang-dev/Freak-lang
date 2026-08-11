@@ -15,8 +15,45 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-SENTINEL = "old artifact must survive a rejected transpile\n"
+SENTINEL = "stale output from an older successful invocation\n"
 NEGATIVE_CORPUS_SCHEMA = "freak-v3-negative-corpus-v1"
+
+
+def derived_binary(source: Path) -> Path:
+    return source.with_suffix(".exe" if sys.platform == "win32" else "")
+
+
+def run_cache(binary: Path) -> Path:
+    return Path(str(binary) + ".freak-run-cache")
+
+
+def seed_stale_outputs(*paths: Path) -> None:
+    for path in dict.fromkeys(paths):
+        path.write_text(SENTINEL, encoding="utf-8")
+
+
+def assert_outputs_absent(paths: tuple[Path, ...], label: str) -> None:
+    leftovers = [path for path in dict.fromkeys(paths) if path.exists()]
+    assert not leftovers, f"{label}: stale output survived: {leftovers}"
+
+
+def assert_outputs_preserved(paths: tuple[Path, ...], label: str) -> None:
+    for path in dict.fromkeys(paths):
+        assert path.read_text(encoding="utf-8") == SENTINEL, (
+            f"{label}: non-emitting check changed {path}"
+        )
+
+
+def assert_unreadable_diagnostic(output: str, label: str) -> None:
+    lowered = output.lower()
+    accepted = (
+        "could not read file",
+        "could not read source file",
+        "cannot open file",
+    )
+    assert any(message in lowered for message in accepted), (
+        f"{label}: missing unreadable-input diagnostic\n{output}"
+    )
 
 
 @dataclass(frozen=True)
@@ -248,11 +285,24 @@ def main() -> int:
             shutil.copy2(case.source, malformed)
             staged_cases[case.name] = malformed
 
+            binary = derived_binary(malformed)
+            cache = run_cache(binary)
+            check_outputs = (
+                Path(str(malformed) + ".c"),
+                Path(str(malformed) + ".ll"),
+                binary,
+                cache,
+            )
+            seed_stale_outputs(*check_outputs)
+
             checked = run(
                 freak, repo, malformed, "check", *case.flags, timeout=10
             )
             assert_check_rejected(checked, case.name)
             assert case.diagnostic in (checked.stdout + checked.stderr).lower()
+            assert_outputs_preserved(check_outputs, f"{case.name} check")
+            for output in dict.fromkeys(check_outputs):
+                output.unlink()
 
             for backend, flag, suffix in (
                 ("LLVM", "--llvm", ".ll"),
@@ -273,9 +323,11 @@ def main() -> int:
                 assert case.diagnostic in (
                     transpiled.stdout + transpiled.stderr
                 ).lower()
-                assert artifact.read_text(encoding="utf-8") == SENTINEL
+                assert_outputs_absent(
+                    (artifact,), f"{case.name} {backend} transpile"
+                )
 
-                artifact.unlink()
+                seed_stale_outputs(artifact, binary, cache)
                 built = run(
                     freak,
                     repo,
@@ -286,9 +338,9 @@ def main() -> int:
                     timeout=10,
                 )
                 assert_rejected(built, f"{case.name} {backend} build")
-                assert not artifact.exists()
-                assert not malformed.with_suffix("").exists()
-                assert not malformed.with_suffix(".exe").exists()
+                assert_outputs_absent(
+                    (artifact, binary, cache), f"{case.name} {backend} build"
+                )
 
         if direct_compiler is not None:
             missing_args = run_direct_compiler(direct_compiler, repo)
@@ -298,14 +350,27 @@ def main() -> int:
                 + missing_args.stderr
             )
             missing_source = tmp_path / "direct_missing.fk"
-            unreadable = run_direct_compiler(
-                direct_compiler, repo, str(missing_source)
-            )
-            assert unreadable.returncode != 0, (
-                "direct V3 compiler accepted an unreadable input\n"
-                + unreadable.stdout
-                + unreadable.stderr
-            )
+            for backend, flag, suffix in (
+                ("LLVM", "--llvm", ".ll"),
+                ("C", "--c", ".c"),
+            ):
+                artifact = Path(str(missing_source) + suffix)
+                seed_stale_outputs(artifact)
+                unreadable = run_direct_compiler(
+                    direct_compiler, repo, str(missing_source), flag
+                )
+                assert unreadable.returncode != 0, (
+                    f"direct {backend} accepted an unreadable input\n"
+                    + unreadable.stdout
+                    + unreadable.stderr
+                )
+                assert_unreadable_diagnostic(
+                    unreadable.stdout + unreadable.stderr,
+                    f"direct {backend} unreadable input",
+                )
+                assert_outputs_absent(
+                    (artifact,), f"direct {backend} unreadable input"
+                )
 
             for case in negative_cases:
                 if not case.direct:
@@ -316,8 +381,7 @@ def main() -> int:
                     ("C", "--c", ".c"),
                 ):
                     artifact = Path(str(malformed) + suffix)
-                    if artifact.exists():
-                        artifact.unlink()
+                    seed_stale_outputs(artifact)
                     rejected = run_direct_compiler(
                         direct_compiler, repo, str(malformed), flag
                     )
@@ -326,7 +390,96 @@ def main() -> int:
                         f"direct {backend} accepted {case.name}\n{output}"
                     )
                     assert "error" in output.lower(), output
-                    assert not artifact.exists(), artifact
+                    assert_outputs_absent(
+                        (artifact,), f"direct {backend} {case.name}"
+                    )
+
+        cli_missing = tmp_path / "cli_missing.fk"
+        missing_binary = derived_binary(cli_missing)
+        missing_cache = run_cache(missing_binary)
+        for backend, flag, suffix in (
+            ("LLVM", "--llvm", ".ll"),
+            ("C", "--c", ".c"),
+        ):
+            artifact = Path(str(cli_missing) + suffix)
+            seed_stale_outputs(artifact)
+            unreadable_transpile = run(
+                freak, repo, cli_missing, "transpile", flag, timeout=10
+            )
+            unreadable_output = (
+                unreadable_transpile.stdout + unreadable_transpile.stderr
+            )
+            assert unreadable_transpile.returncode != 0, unreadable_output
+            assert_unreadable_diagnostic(
+                unreadable_output, f"{backend} unreadable CLI transpile"
+            )
+            assert_outputs_absent(
+                (artifact,), f"{backend} unreadable CLI transpile"
+            )
+
+            seed_stale_outputs(artifact, missing_binary, missing_cache)
+            unreadable_build = run(
+                freak, repo, cli_missing, "build", flag, timeout=10
+            )
+            unreadable_output = unreadable_build.stdout + unreadable_build.stderr
+            assert unreadable_build.returncode != 0, unreadable_output
+            assert_unreadable_diagnostic(
+                unreadable_output, f"{backend} unreadable CLI build"
+            )
+            assert_outputs_absent(
+                (artifact, missing_binary, missing_cache),
+                f"{backend} unreadable CLI build",
+            )
+
+        abi_source = tmp_path / "preflight_abi_failure.fk"
+        abi_source.write_text('say "never compiled"\n', encoding="utf-8")
+        abi_binary = derived_binary(abi_source)
+        abi_cache = run_cache(abi_binary)
+        bad_home = tmp_path / "preflight-bad-abi-home"
+        (bad_home / "runtime").mkdir(parents=True)
+        (bad_home / "std").mkdir()
+        (bad_home / "runtime" / "freak_abi").write_text(
+            "freak-v3-abi-stale\n", encoding="utf-8"
+        )
+        (bad_home / "std" / "freak_abi").write_text(
+            "freak-v3-abi-stale\n", encoding="utf-8"
+        )
+        bad_abi_env = os.environ.copy()
+        bad_abi_env["FREAK_HOME"] = str(bad_home)
+        for backend, flag, suffix in (
+            ("LLVM", "--llvm", ".ll"),
+            ("C", "--c", ".c"),
+        ):
+            artifact = Path(str(abi_source) + suffix)
+            seed_stale_outputs(artifact, abi_binary, abi_cache)
+            rejected = run(
+                freak, repo, abi_source, "build", flag, env=bad_abi_env, timeout=10
+            )
+            output = rejected.stdout + rejected.stderr
+            assert rejected.returncode != 0, output
+            assert "abi mismatch" in output.lower(), output
+            assert_outputs_absent(
+                (artifact, abi_binary, abi_cache),
+                f"{backend} preflight ABI failure",
+            )
+
+        non_fk_source = tmp_path / "non_fk_source_must_survive"
+        non_fk_text = "say )\n"
+        non_fk_source.write_text(non_fk_text, encoding="utf-8")
+        for backend, flag, suffix in (
+            ("LLVM", "--llvm", ".ll"),
+            ("C", "--c", ".c"),
+        ):
+            artifact = Path(str(non_fk_source) + suffix)
+            seed_stale_outputs(artifact)
+            rejected = run(
+                freak, repo, non_fk_source, "build", flag, timeout=10
+            )
+            assert_rejected(rejected, f"{backend} non-.fk cleanup guard")
+            assert non_fk_source.read_text(encoding="utf-8") == non_fk_text
+            assert_outputs_absent(
+                (artifact,), f"{backend} non-.fk backend output"
+            )
 
         scale_source = tmp_path / "callable_index_scale.fk"
         scale_source.write_text(
@@ -364,14 +517,19 @@ def main() -> int:
             assert "nominal_bad.fk:7:1" in nominal_output
             assert "6 |     pilot missing = known.not_a_field" in nominal_output
             assert "7 |     known.not_a_method()" in nominal_output
-            assert nominal_artifact.read_text(encoding="utf-8") == SENTINEL
+            assert_outputs_absent(
+                (nominal_artifact,), f"{backend} nominal member transpile"
+            )
 
-            nominal_artifact.unlink()
+            nominal_binary = derived_binary(nominal_bad)
+            nominal_cache = run_cache(nominal_binary)
+            seed_stale_outputs(nominal_artifact, nominal_binary, nominal_cache)
             nominal_build = run(freak, repo, nominal_bad, "build", flag)
             assert_rejected(nominal_build, f"{backend} nominal member build gate")
-            assert not nominal_artifact.exists()
-            assert not nominal_bad.with_suffix("").exists()
-            assert not nominal_bad.with_suffix(".exe").exists()
+            assert_outputs_absent(
+                (nominal_artifact, nominal_binary, nominal_cache),
+                f"{backend} nominal member build",
+            )
 
         nested_nominal_bad = tmp_path / "nested_nominal_bad.fk"
         nested_nominal_bad.write_text(
@@ -435,7 +593,9 @@ def main() -> int:
             assert "nested_nominal_bad.fk:13:1" in output
             assert "nested_nominal_bad.fk:25:1" in output
             assert "25 |         known.missing_multiline" in output
-            assert artifact.read_text(encoding="utf-8") == SENTINEL
+            assert_outputs_absent(
+                (artifact,), f"{backend} nested nominal traversal transpile"
+            )
 
         install_home = tmp_path / "malformed-stdlib-home"
         shutil.copytree(repo / "freakc" / "runtime", install_home / "runtime")
@@ -823,7 +983,9 @@ def main() -> int:
             assert_rejected(rejected, f"{backend} unknown method receiver gate")
             output = rejected.stdout + rejected.stderr
             assert "cannot resolve the receiver type for method 'ping'" in output
-            assert artifact.read_text(encoding="utf-8") == SENTINEL
+            assert_outputs_absent(
+                (artifact,), f"{backend} unknown method receiver transpile"
+            )
 
         doctrine_impls = tmp_path / "doctrine_impl_owners.fk"
         doctrine_impls.write_text(

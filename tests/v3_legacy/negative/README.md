@@ -7,8 +7,8 @@ for the shipping V3 frontend's truthful-failure contract:
   `PASSED`;
 - C and LLVM transpile/build paths never emit a fresh artifact or binary after
   a lexer, parser, type, or strict-borrow failure;
-- a rejected transpile preserves an unrelated older artifact at the requested
-  output path.
+- a rejected transpile or build removes older selected artifacts so stale
+  output cannot be mistaken for the result of the rejected invocation.
 
 `manifest.json` is the inventory and diagnostic oracle. Its schema is
 `freak-v3-negative-corpus-v1`. Each entry records a unique case name, failure

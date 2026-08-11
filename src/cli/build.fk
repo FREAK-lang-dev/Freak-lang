@@ -76,8 +76,21 @@ task cli_strip_resolved_use_lines(source: word) -> word {
     give back out
 }
 
+task cli_backend_output_path(src_file: word, target: word) -> word {
+    if target == "llvm" { give back src_file + ".ll" }
+    give back src_file + ".c"
+}
+
+task cli_invalidate_backend_output(src_file: word, target: word) -> void {
+    pilot artifact = cli_backend_output_path(src_file, target)
+    if fs::exists(artifact) { fs::delete(artifact) }
+}
+
 task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
+    -- An output from an older invocation is not evidence that this invocation
+    -- succeeded. Remove the selected backend artifact before any frontend work.
+    cli_invalidate_backend_output(src_file, target)
     input_file = src_file
     if source_line_offset <= 0 { diagnostic_source = source }
     if source_map_count == 0 {
@@ -118,7 +131,7 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
 
     cli_step_start()
     if target == "llvm" {
-        pilot out_ll = src_file + ".ll"
+        pilot out_ll = cli_backend_output_path(src_file, target)
         out_file = out_ll
         fs::write(out_ll, "")
         emit_llvm_program()
@@ -126,7 +139,7 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
         cli_step_done("Emit LLVM IR")
         give back out_ll
     } else {
-        pilot out_c = src_file + ".c"
+        pilot out_c = cli_backend_output_path(src_file, target)
         out_file = out_c
         fs::write(out_c, "")
         emit_c_program()
@@ -894,13 +907,18 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     -- Returns the output binary path, or "" on error.
     cli_build_start_ms = time::now_ms()
 
-    if not cli_build_environment_ready() { give back "" }
+    -- Invalidate every output this explicit build can safely derive before its
+    -- first failure return. `cli_binary_path` equals the input on POSIX when
+    -- the source does not end in .fk, so never apply binary cleanup there.
+    cli_invalidate_backend_output(src_file, target)
+    if src_file.ends_with(".fk") {
+        pilot stale_binary = cli_binary_path(src_file)
+        pilot run_cache_file = cli_binary_path(src_file) + ".freak-run-cache"
+        if fs::exists(stale_binary) { fs::delete(stale_binary) }
+        if fs::exists(run_cache_file) { fs::delete(run_cache_file) }
+    }
 
-    -- Any explicit build may replace the adjacent executable. Invalidate run
-    -- proof before doing work so failed builds and non-run builds cannot leave
-    -- a sidecar describing an older artifact.
-    pilot run_cache_file = cli_binary_path(src_file) + ".freak-run-cache"
-    if fs::exists(run_cache_file) { fs::delete(run_cache_file) }
+    if not cli_build_environment_ready() { give back "" }
 
     pilot source: word = fs::read(src_file)
     if source == "" {

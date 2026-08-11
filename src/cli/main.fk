@@ -270,6 +270,9 @@ task freakc_cli_main() -> void {
             say ""
         } else if subcmd == "transpile" {
             -- Transpile only
+            -- Even an unreadable input invalidates the selected output from a
+            -- prior invocation. cli_transpile repeats this at frontend entry.
+            cli_invalidate_backend_output(src_file, target)
             pilot source: word = fs::read(src_file)
             if source == "" {
                 say ""
