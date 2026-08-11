@@ -155,7 +155,10 @@ connect(host: "localhost", port: 8080, timeout: 30)
 - `task` — function keyword
 - `give back` — return keyword
 - `say` — print keyword (always available, no import)
-- String interpolation: `{expr}` inside double-quoted strings
+- String path interpolation: `{path}` inside double-quoted strings, where a
+  path is an identifier followed by zero or more `.field` hops. The path must
+  resolve to `word`, `int`, `num`, or `bool`. Matched brace bodies that are not
+  paths, and unmatched braces, remain literal text.
 - `{}` and `done` are identical block delimiters
 
 ### 1.3 Types — Primitive

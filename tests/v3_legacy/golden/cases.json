@@ -41,7 +41,7 @@
       "backends": ["c", "llvm"],
       "generated_contains": {
         "c": ["freak_word_append_owned"],
-        "llvm": ["@freak_llvm_word_append_owned"]
+        "llvm": ["call i64 @freak_llvm_word_append_owned("]
       }
     },
     {
@@ -52,7 +52,7 @@
       "generated_contains": {
         "llvm": [
           "@__freak_user_Hero_summary",
-          "@freak_llvm_word_append_owned"
+          "call i64 @freak_llvm_word_append_owned("
         ]
       }
     }

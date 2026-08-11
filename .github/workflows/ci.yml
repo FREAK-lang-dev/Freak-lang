@@ -122,6 +122,10 @@ jobs:
         shell: bash
         run: python -u tests/v3_interpolation.py ./build/freak$EXT
 
+      - name: V3 legacy preservation corpus
+        shell: bash
+        run: python -u tests/v3_legacy_golden.py ./build/freak$EXT
+
       - name: V3 frozen UI surface
         shell: bash
         run: python -u tests/v3_ui_surface.py ./build/freak$EXT

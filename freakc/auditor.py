@@ -1889,7 +1889,69 @@ def audit_conformance(paths: List[Path]) -> int:
             + "; ".join(run_freshness_missing)
         )
 
-    # Check 6c: one complete distribution manifest drives release/install,
+    # Check 6c: V3 freezes path interpolation as an ordinary owned word
+    # expression. Non-path brace bodies are literal compatibility text.
+    interpolation_missing: List[str] = []
+    interpolation_sources = {
+        "bible": (
+            bible,
+            ("String path interpolation", "`{path}`", "remain literal text"),
+        ),
+        "audit": (
+            audit_doc,
+            ("String path interpolation", "IDENT(.IDENT)*", "tests/v3_interpolation.py"),
+        ),
+        "parser": (
+            repo / "src" / "compiler" / "v3" / "parser.fk",
+            ("parser_interp_path_valid", "lex_ident_token_type", "EXPR_INTERP"),
+        ),
+        "checker": (
+            repo / "src" / "compiler" / "v3" / "checker.fk",
+            ("EXPR_INTERP", "unknown interpolation binding"),
+        ),
+        "C emitter": (
+            repo / "src" / "compiler" / "v3" / "emit_c.fk",
+            ("emit_c_interp", "freak_word_append_owned"),
+        ),
+        "LLVM emitter": (
+            repo / "src" / "compiler" / "v3" / "emit_llvm.fk",
+            ("llvm_emit_interp", "@freak_llvm_word_append_owned"),
+        ),
+        "focused gate": (
+            repo / "tests" / "v3_interpolation.py",
+            ("LITERAL_PROGRAM", "NEGATIVE_PROGRAMS", "detect_leaks=1"),
+        ),
+        "preservation manifest": (
+            repo / "tests" / "v3_legacy" / "golden" / "cases.json",
+            ("freak.v3.legacy-golden.v2", "05_interpolation.fk"),
+        ),
+        "CI": (
+            repo / ".github" / "workflows" / "ci.yml",
+            ("tests/v3_interpolation.py", "tests/v3_legacy_golden.py"),
+        ),
+    }
+    for label, (source_path, needles) in interpolation_sources.items():
+        if not source_path.exists():
+            interpolation_missing.append(f"{label}: {source_path.name} missing")
+            continue
+        source_text = source_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in source_text:
+                interpolation_missing.append(f"{label}: {needle}")
+    add(
+        "V3 path interpolation",
+        not interpolation_missing,
+        "path-only C/LLVM expression contract + preservation evidence"
+        if not interpolation_missing
+        else f"{len(interpolation_missing)} gap(s)",
+    )
+    if interpolation_missing:
+        failures.append(
+            "V3 path interpolation contract regressed: "
+            + "; ".join(interpolation_missing)
+        )
+
+    # Check 6d: one complete distribution manifest drives release/install,
     # doctor proves the usable toolchain, and `freak upgrade` stays live with
     # the immutable v0.14.0 migration boundary documented honestly.
     distribution_missing: List[str] = []

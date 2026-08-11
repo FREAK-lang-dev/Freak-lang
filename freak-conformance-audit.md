@@ -106,7 +106,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | `task name(...) -> type { ... }` | ✅ | ✅ | core feature |
 | `give back` return keyword | ✅ | ✅ | |
 | `say` print keyword always available | ✅ | ✅ | |
-| String interpolation `"{expr}"` | ✅ | ✅ | [freakc/emitter.py:1050-1100](freakc/emitter.py) |
+| String path interpolation `"{path}"` | ✅ | ✅ | Self-hosted V3 lowers resolved `IDENT(.IDENT)*` paths in every word-expression context on C and LLVM; non-path brace bodies remain literal. Executable evidence: [tests/v3_interpolation.py](tests/v3_interpolation.py) and [tests/v3_legacy_golden.py](tests/v3_legacy_golden.py). |
 | Arrow shorthand `task square(x) => x*x` | ✅ | ✅ | parsed and emitted |
 | `done` synonym for `}` | ✅ | ✅ | |
 | Named parameters at call site `connect(host: "x", port: 80)` | ⚠️ | 📖 V4 | V4 lowers named call-site arguments for task calls, generic calls, instance methods, associated methods, and extern/callback calls, with unknown/duplicate/missing/positional-after-named diagnostics plus editor completion/definition facts; production backend parity still expands |
