@@ -217,6 +217,7 @@ task cli_find_winget_home_in(root: word) -> word {
     if root == "" or not fs::exists(root) { give back "" }
     pilot entries: word = fs::list_dir(root)
     pilot entry = ""
+    pilot incomplete_candidate = ""
     pilot ei = 0
     repeat until ei > entries.length() {
         pilot at_end = ei == entries.length()
@@ -225,7 +226,12 @@ task cli_find_winget_home_in(root: word) -> word {
         if ch == "|" {
             if entry.starts_with("FREAK.freak_") {
                 pilot candidate = root + "/" + entry + "/freak"
-                if cli_has_runtime(candidate + "/runtime") { give back candidate }
+                -- A registered WinGet package is authoritative even when its
+                -- payload is incomplete. Returning the expected home lets the
+                -- ABI/completeness checks diagnose the damaged installation
+                -- instead of silently trusting files from the project CWD.
+                if fs::exists(candidate) { give back candidate }
+                if incomplete_candidate == "" { incomplete_candidate = candidate }
             }
             entry = ""
         } else {
@@ -233,7 +239,7 @@ task cli_find_winget_home_in(root: word) -> word {
         }
         ei += 1
     }
-    give back ""
+    give back incomplete_candidate
 }
 
 task cli_find_winget_home() -> word {
@@ -320,6 +326,82 @@ task cli_find_windows_llvm_mingw() -> word {
     give back ""
 }
 
+task cli_is_repo_payload_root(root: word) -> bool {
+    if root == "" { give back false }
+    if not cli_has_runtime(root + "/freakc/runtime") { give back false }
+    if not fs::exists(root + "/std/math.fk") { give back false }
+    if not fs::exists(root + "/src/compiler/v3/main.fk") { give back false }
+    give back true
+}
+
+task cli_payload_home_present(root: word) -> bool {
+    if root == "" { give back false }
+    if fs::exists(root + "/bin") { give back true }
+    if fs::exists(root + "/runtime") { give back true }
+    if fs::exists(root + "/std") { give back true }
+    give back false
+}
+
+task cli_executable_repo_root() -> word {
+    pilot root = cli_executable_home()
+    if cli_is_repo_payload_root(root) { give back root }
+    give back ""
+}
+
+task cli_executable_payload_home() -> word {
+    pilot executable = cli_executable_path()
+    pilot bin_dir = cli_path_parent(executable)
+    if bin_dir == "" { give back "" }
+    pilot root = cli_path_parent(bin_dir)
+    if root == "" or cli_is_repo_payload_root(root) { give back "" }
+
+    -- Archive/install layouts always place the executable in <home>/bin.
+    -- That location remains authoritative when runtime/std are incomplete so
+    -- Doctor can report the actual broken payload instead of falling through.
+    pilot normalized_bin = bin_dir.replace("\\", "/").to_lower()
+    if normalized_bin.ends_with("/bin") { give back root }
+    if cli_payload_home_present(root) { give back root }
+    give back ""
+}
+
+task cli_executable_uses_winget_alias() -> bool {
+    pilot executable = cli_executable_path().replace("\\", "/").to_lower()
+    give back executable.contains("/microsoft/winget/links/")
+}
+
+task cli_default_payload_home() -> word {
+    pilot home_dir: word = process::env("HOME")
+    if cli_is_windows() {
+        -- A WinGet command alias is not adjacent to its packaged payload.
+        -- Resolve the registered package before unrelated user installations.
+        if cli_executable_uses_winget_alias() {
+            pilot alias_home = cli_find_winget_home()
+            if alias_home != "" { give back alias_home }
+        }
+
+        pilot appdata_dir: word = process::env("APPDATA")
+        if appdata_dir != "" {
+            pilot appdata_home = appdata_dir + "/freak"
+            if cli_payload_home_present(appdata_home) { give back appdata_home }
+        }
+
+        pilot winget_home = cli_find_winget_home()
+        if winget_home != "" { give back winget_home }
+
+        if home_dir != "" {
+            pilot windows_home = home_dir + "/.freak"
+            if cli_payload_home_present(windows_home) { give back windows_home }
+        }
+        give back ""
+    }
+
+    if home_dir != "" {
+        pilot posix_home = home_dir + "/.freak"
+        if cli_payload_home_present(posix_home) { give back posix_home }
+    }
+    give back ""
+}
+
 task cli_find_runtime_dir() -> word {
     -- Try to find the runtime directory.
     -- 1. An explicit FREAK_HOME is authoritative, including when a developer
@@ -330,45 +412,23 @@ task cli_find_runtime_dir() -> word {
         -- Doctor/build must diagnose that payload, never silently fall back.
         give back freak_home + "/runtime"
     }
-    -- 2. Installed/archive payloads beside the compiler beat the CWD. A
-    -- project must never shadow the compiler runtime with freakc/runtime.
-    pilot executable_home = cli_executable_home()
-    if executable_home != "" and cli_has_runtime(executable_home + "/runtime") {
-        give back executable_home + "/runtime"
-    }
-    -- 3. Development fallback relative to CWD (repo layout).
-    if cli_has_runtime("freakc/runtime") {
-        give back "freakc/runtime"
-    }
-    -- 4. Check ~/.freak/runtime/ (install.sh layout)
-    pilot home_dir: word = process::env("HOME")
-    if home_dir != "" {
-        pilot home_rt = home_dir + "/.freak/runtime"
-        if cli_has_runtime(home_rt) {
-            give back home_rt
-        }
-    }
-    -- 5. Check %APPDATA%\freak\runtime\ (install.ps1 layout on Windows)
-    pilot appdata_dir: word = process::env("APPDATA")
-    if appdata_dir != "" {
-        pilot appdata_rt = appdata_dir + "/freak/runtime"
-        if cli_has_runtime(appdata_rt) {
-            give back appdata_rt
-        }
-    }
-    -- 6. WinGet portable archives keep runtime/std beside the binaries but
-    -- expose command aliases from a separate Links directory.
-    pilot winget_home = cli_find_winget_home()
-    if winget_home != "" {
-        give back winget_home + "/runtime"
-    }
-    -- 7. Fallback: check if runtime is in current dir
-    if fs::exists("freak_runtime.c") {
-        give back "."
-    }
-    if fs::exists("freak_runtime.o") {
-        give back "."
-    }
+    -- 2. A compiler built in this checkout uses that checkout's development
+    -- payload regardless of the caller's CWD.
+    pilot repo_root = cli_executable_repo_root()
+    if repo_root != "" { give back repo_root + "/freakc/runtime" }
+
+    -- 3. Installed/archive payloads beside the compiler are authoritative,
+    -- including incomplete payloads which must fail the ABI gate.
+    pilot executable_payload = cli_executable_payload_home()
+    if executable_payload != "" { give back executable_payload + "/runtime" }
+
+    -- 4. Platform installation roots (including WinGet aliases) beat CWD.
+    pilot installed_home = cli_default_payload_home()
+    if installed_home != "" { give back installed_home + "/runtime" }
+
+    -- 5. Development fallback is allowed only for a recognizable repository
+    -- layout. A random project containing freakc/runtime is not trusted.
+    if cli_is_repo_payload_root(".") { give back "freakc/runtime" }
     give back ""
 }
 
@@ -727,25 +787,13 @@ task cli_find_std_dir() -> word {
     if freak_home != "" {
         give back freak_home + "/std"
     }
-    pilot executable_home = cli_executable_home()
-    if executable_home != "" and fs::exists(executable_home + "/std/math.fk") {
-        give back executable_home + "/std"
-    }
-    if fs::exists("std/math.fk") { give back "std" }
-    pilot home_dir: word = process::env("HOME")
-    if home_dir != "" {
-        pilot home_std = home_dir + "/.freak/std"
-        if fs::exists(home_std + "/math.fk") { give back home_std }
-    }
-    pilot appdata_dir: word = process::env("APPDATA")
-    if appdata_dir != "" {
-        pilot app_std = appdata_dir + "/freak/std"
-        if fs::exists(app_std + "/math.fk") { give back app_std }
-    }
-    pilot winget_home = cli_find_winget_home()
-    if winget_home != "" and fs::exists(winget_home + "/std/math.fk") {
-        give back winget_home + "/std"
-    }
+    pilot repo_root = cli_executable_repo_root()
+    if repo_root != "" { give back repo_root + "/std" }
+    pilot executable_payload = cli_executable_payload_home()
+    if executable_payload != "" { give back executable_payload + "/std" }
+    pilot installed_home = cli_default_payload_home()
+    if installed_home != "" { give back installed_home + "/std" }
+    if cli_is_repo_payload_root(".") { give back "std" }
     give back ""
 }
 
@@ -768,12 +816,23 @@ task cli_pending_upgrade_marker() -> word {
     if freak_home != "" {
         pilot home_pending = freak_home + "/bin/.freak-upgrade-pending"
         if fs::exists(home_pending) { give back home_pending }
+        give back ""
     }
-    pilot executable = cli_executable_path()
-    pilot bin_dir = cli_path_parent(executable)
-    if bin_dir != "" {
-        pilot adjacent_pending = bin_dir + "/.freak-upgrade-pending"
+
+    -- Keep pending-state discovery aligned with runtime/std discovery. A
+    -- checkout compiler does not use an unrelated installed payload.
+    if cli_executable_repo_root() != "" { give back "" }
+    pilot executable_payload = cli_executable_payload_home()
+    if executable_payload != "" {
+        pilot adjacent_pending = executable_payload + "/bin/.freak-upgrade-pending"
         if fs::exists(adjacent_pending) { give back adjacent_pending }
+        give back ""
+    }
+
+    pilot installed_home = cli_default_payload_home()
+    if installed_home != "" {
+        pilot installed_pending = installed_home + "/bin/.freak-upgrade-pending"
+        if fs::exists(installed_pending) { give back installed_pending }
     }
     give back ""
 }

@@ -1467,6 +1467,132 @@ def check_doctor(
         checkout / "std"
     ).resolve()
 
+    # An executable in an archive-style <home>/bin directory owns that payload
+    # even when it is incomplete. Falling through to the hostile CWD would hide
+    # a damaged installation and compile attacker-controlled runtime sources.
+    incomplete_home = root / "doctor-incomplete-adjacent"
+    incomplete_bin = incomplete_home / "bin"
+    incomplete_bin.mkdir(parents=True)
+    incomplete_compiler = incomplete_bin / compiler.name
+    shutil.copy2(compiler, incomplete_compiler)
+    (incomplete_home / "runtime").mkdir()
+    shutil.copy2(
+        repo / "freakc" / "runtime" / "freak_runtime.c",
+        incomplete_home / "runtime" / "freak_runtime.c",
+    )
+    incomplete_env = shadow_env.copy()
+    incomplete_env["HOME"] = str(root / "doctor-empty-home")
+    incomplete_env["APPDATA"] = str(root / "doctor-empty-appdata")
+    incomplete_env["LOCALAPPDATA"] = str(root / "doctor-empty-localappdata")
+    incomplete_env["ProgramFiles"] = str(root / "doctor-empty-program-files")
+    incomplete_env["ProgramFiles(x86)"] = str(
+        root / "doctor-empty-program-files-x86"
+    )
+    incomplete = run_cli(
+        incomplete_compiler, shadow_cwd, incomplete_env, "doctor", "--json"
+    )
+    assert incomplete.returncode != 0, incomplete.stdout + incomplete.stderr
+    incomplete_report = json.loads(incomplete.stdout)
+    assert Path(incomplete_report["checks"]["runtime"]["path"]).resolve() == (
+        incomplete_home / "runtime"
+    ).resolve()
+    assert Path(incomplete_report["checks"]["stdlib"]["path"]).resolve() == (
+        incomplete_home / "std"
+    ).resolve()
+    assert incomplete_report["checks"]["abi"]["ok"] is False
+    incomplete_build = run_cli(
+        incomplete_compiler,
+        shadow_cwd,
+        incomplete_env,
+        "build",
+        str(abi_source),
+        "--c",
+    )
+    assert incomplete_build.returncode != 0
+    assert "abi mismatch" in incomplete_build.stdout.lower()
+    assert not Path(str(abi_source) + ".c").exists()
+
+    if sys.platform == "win32":
+        # WinGet exposes an alias from Microsoft/WinGet/Links rather than the
+        # package's bin directory. The registered package must beat both CWD
+        # and an unrelated default AppData installation.
+        winget_local = root / "doctor-winget-localappdata"
+        winget_home = (
+            winget_local
+            / "Microsoft"
+            / "WinGet"
+            / "Packages"
+            / "FREAK.freak_fixture"
+            / "freak"
+        )
+        populate_payload(repo, winget_home, entries)
+        winget_alias_dir = winget_local / "Microsoft" / "WinGet" / "Links"
+        winget_alias_dir.mkdir(parents=True)
+        winget_compiler = winget_alias_dir / compiler.name
+        shutil.copy2(compiler, winget_compiler)
+        unrelated_appdata_home = root / "doctor-winget-appdata" / "freak"
+        populate_payload(repo, unrelated_appdata_home, entries)
+        winget_env = shadow_env.copy()
+        winget_env["LOCALAPPDATA"] = str(winget_local)
+        winget_env["APPDATA"] = str(unrelated_appdata_home.parent)
+        winget_env["HOME"] = str(root / "doctor-winget-empty-home")
+        winget_env["ProgramFiles"] = str(root / "doctor-winget-program-files")
+        winget_env["ProgramFiles(x86)"] = str(
+            root / "doctor-winget-program-files-x86"
+        )
+        winget = run_cli(
+            winget_compiler, shadow_cwd, winget_env, "doctor", "--json"
+        )
+        assert winget.returncode == 0, winget.stdout + winget.stderr
+        winget_report = json.loads(winget.stdout)
+        assert Path(winget_report["checks"]["runtime"]["path"]).resolve() == (
+            winget_home / "runtime"
+        ).resolve()
+        assert Path(winget_report["checks"]["stdlib"]["path"]).resolve() == (
+            winget_home / "std"
+        ).resolve()
+
+        # A non-adjacent compiler using the default AppData payload must see
+        # durable deferred-upgrade state even without FREAK_HOME.
+        default_appdata = root / "doctor-default-appdata"
+        default_home = default_appdata / "freak"
+        populate_payload(repo, default_home, entries)
+        default_pending = default_home / "bin" / ".freak-upgrade-pending"
+        default_pending.parent.mkdir(parents=True)
+        default_pending.write_text("v0.14.1|wait-pid=fixture\n", encoding="utf-8")
+        detached_bin = root / "doctor-detached" / "tools"
+        detached_bin.mkdir(parents=True)
+        detached_compiler = detached_bin / compiler.name
+        shutil.copy2(compiler, detached_compiler)
+        default_env = shadow_env.copy()
+        default_env["APPDATA"] = str(default_appdata)
+        default_env["LOCALAPPDATA"] = str(root / "doctor-default-localappdata")
+        default_env["HOME"] = str(root / "doctor-default-empty-home")
+        default_env["ProgramFiles"] = str(root / "doctor-default-program-files")
+        default_env["ProgramFiles(x86)"] = str(
+            root / "doctor-default-program-files-x86"
+        )
+        default_doctor = run_cli(
+            detached_compiler, shadow_cwd, default_env, "doctor", "--json"
+        )
+        assert default_doctor.returncode != 0
+        default_report = json.loads(default_doctor.stdout)
+        assert default_report["checks"]["upgrade"]["pending"] is True
+        assert Path(default_report["checks"]["upgrade"]["marker"]).resolve() == (
+            default_pending
+        ).resolve()
+        default_build = run_cli(
+            detached_compiler,
+            shadow_cwd,
+            default_env,
+            "build",
+            str(abi_source),
+            "--c",
+        )
+        assert default_build.returncode != 0
+        assert "upgrade pending" in default_build.stdout.lower()
+        assert not Path(str(abi_source) + ".c").exists()
+
     # Direct archive use (`cd <home>/bin && ./freak`) supplies a relative
     # argv[0]. It must still resolve the executable-adjacent payload before
     # looking at CWD or another user installation.
