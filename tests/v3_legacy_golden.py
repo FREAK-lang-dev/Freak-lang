@@ -28,11 +28,18 @@ def normalize_newlines(value: str) -> str:
 
 
 def corpus_fingerprint(corpus: Path) -> dict[str, str]:
-    """Bind every corpus file so the runner cannot hide generated artifacts."""
+    """Bind every corpus member so the runner cannot hide generated artifacts."""
     result: dict[str, str] = {}
-    for path in sorted(item for item in corpus.rglob("*") if item.is_file()):
+    for path in sorted(corpus.rglob("*")):
         relative = path.relative_to(corpus).as_posix()
-        result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        if path.is_symlink():
+            result[relative] = f"symlink:{os.readlink(path)}"
+        elif path.is_dir():
+            result[f"{relative}/"] = "directory"
+        elif path.is_file():
+            result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        else:
+            result[relative] = "special"
     return result
 
 
@@ -216,7 +223,17 @@ def assert_corpus_closure_controls(corpus: Path, root: Path) -> None:
         assert "untracked members" in str(error), error
     else:
         raise AssertionError("golden closure accepted a nested artifact directory")
-    print("PASS corpus closure controls [unlisted-file,nested-directory]")
+
+    mutation_copy = root / "late-directory"
+    shutil.copytree(corpus, mutation_copy)
+    before = corpus_fingerprint(mutation_copy)
+    (mutation_copy / "late-artifact").mkdir()
+    after = corpus_fingerprint(mutation_copy)
+    assert after != before, "corpus fingerprint ignored a late empty directory"
+    print(
+        "PASS corpus closure controls "
+        "[unlisted-file,nested-directory,late-empty-directory]"
+    )
 
 
 def run_corpus(

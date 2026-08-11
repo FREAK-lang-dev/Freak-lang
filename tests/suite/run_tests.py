@@ -264,7 +264,7 @@ def main() -> int:
     suite_dir = Path(__file__).resolve().parent
     repo_root = suite_dir.parent.parent  # tests/suite -> tests -> repo root
 
-    print(_bold("FREAK Compiler Regression Test Suite"))
+    print(_bold("FREAK Lite / Python Bootstrap Regression Test Suite"))
     print(f"Suite directory: {suite_dir}")
     print(f"Repo root:       {repo_root}")
     print()

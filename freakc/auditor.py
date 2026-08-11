@@ -1951,6 +1951,31 @@ def audit_conformance(paths: List[Path]) -> int:
             + "; ".join(interpolation_missing)
         )
 
+    lite_suite = repo / "tests" / "suite" / "run_tests.py"
+    lite_suite_text = (
+        lite_suite.read_text(encoding="utf-8") if lite_suite.exists() else ""
+    )
+    lite_suite_needles = (
+        "FREAK Lite / Python Bootstrap Regression Test Suite",
+        "python -m freakc",
+        "tests/v3_legacy_golden.py",
+    )
+    lite_suite_missing = [
+        needle for needle in lite_suite_needles if needle not in lite_suite_text
+    ]
+    add(
+        "V3/FREAK Lite test boundary",
+        lite_suite.exists() and not lite_suite_missing,
+        "bootstrap runner labels itself and points to the V3 preservation gate"
+        if not lite_suite_missing
+        else f"{len(lite_suite_missing)} gap(s)",
+    )
+    if not lite_suite.exists() or lite_suite_missing:
+        failures.append(
+            "V3/FREAK Lite test boundary regressed: "
+            + ("runner missing" if not lite_suite.exists() else "; ".join(lite_suite_missing))
+        )
+
     # Check 6d: one complete distribution manifest drives release/install,
     # doctor proves the usable toolchain, and `freak upgrade` stays live with
     # the immutable v0.14.0 migration boundary documented honestly.
