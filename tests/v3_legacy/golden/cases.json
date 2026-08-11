@@ -1,0 +1,26 @@
+{
+  "schema": "freak.v3.legacy-golden.v1",
+  "cases": [
+    {
+      "name": "core",
+      "source": "01_core.fk",
+      "stdout": "01_core.stdout"
+    },
+    {
+      "name": "control_tasks",
+      "source": "02_control_tasks.fk",
+      "stdout": "02_control_tasks.stdout"
+    },
+    {
+      "name": "shapes_methods",
+      "source": "03_shapes_methods.fk",
+      "stdout": "03_shapes_methods.stdout",
+      "generated_contains": "__freak_user_Point_dimensions"
+    },
+    {
+      "name": "words_stdlib",
+      "source": "04_words_stdlib.fk",
+      "stdout": "04_words_stdlib.stdout"
+    }
+  ]
+}

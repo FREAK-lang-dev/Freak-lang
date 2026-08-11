@@ -1,0 +1,13 @@
+shape Point {
+    x: int
+    y: int
+}
+
+impl Point {
+    task dimensions(self) -> int {
+        give back 2
+    }
+}
+
+say "Point"
+say word_from_int(2)
