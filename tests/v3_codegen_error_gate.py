@@ -777,6 +777,8 @@ def main() -> int:
             "pilot dependency_base: int = 7\n"
             "pilot dependency_earlier: int = read_dependency_base()\n"
             "pilot dependency_pure: int = pure_increment(1)\n"
+            "pilot dependency_shadowed: int = use_shadowed_later(3)\n"
+            "pilot later_shadowed_global: int = 7\n"
             "pilot namespace_overlap: int = 7\n"
             "say \"top-level execution remains valid\"\n"
             "task main() -> int {\n"
@@ -829,6 +831,7 @@ def main() -> int:
             "task later_num(value: num) -> num { give back 1 }\n"
             "task read_dependency_base() -> int { give back dependency_base }\n"
             "task pure_increment(value: int) -> int { give back value + 1 }\n"
+            "task use_shadowed_later(later_shadowed_global: int) -> int { give back later_shadowed_global }\n"
             "task namespace_overlap() -> int { give back 8 }\n",
             encoding="utf-8",
         )

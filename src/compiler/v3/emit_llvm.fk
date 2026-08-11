@@ -1192,18 +1192,10 @@ task llvm_emit_icmp(l_reg: word, r_reg: word, res_reg: word, left: word, right: 
 task llvm_emit_unaryop(val: word, left: word) -> word {
     pilot op_reg = llvm_emit_expr(left)
     pilot operand_type = llvm_infer_expr_type(left)
-    if operand_type.starts_with("n") and (val == "-" or val == "PLUS ULTRA" or val == "FINAL FORM" or val == "TSUNDERE") {
+    if operand_type.starts_with("n") and val == "-" {
         pilot operand_double = llvm_i64_to_double(op_reg)
         pilot result_double = next_reg()
-        if val == "-" or val == "TSUNDERE" {
-            llvm_emit_line("    " + result_double + " = fsub double 0.0, " + operand_double)
-        }
-        if val == "PLUS ULTRA" {
-            llvm_emit_line("    " + result_double + " = fmul double " + operand_double + ", 2.0")
-        }
-        if val == "FINAL FORM" {
-            llvm_emit_line("    " + result_double + " = fmul double " + operand_double + ", " + operand_double)
-        }
+        llvm_emit_line("    " + result_double + " = fsub double 0.0, " + operand_double)
         give back llvm_double_to_i64(result_double)
     }
     pilot res_reg = next_reg()
