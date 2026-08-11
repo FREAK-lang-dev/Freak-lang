@@ -404,14 +404,14 @@ void freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) 
 void freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) {
     freak_ui_fill_rect(h, x, y, w, hh, r, g, b, a);
 }
-void freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) {
-    freak_ui_stroke_rect(h, x, y, w, hh, r, g, b, a, 1);
+void freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {
+    freak_ui_stroke_rect(h, x, y, w, hh, r, g, b, a, thickness);
 }
 void freak_llvm_ui_fill_circle(int64_t h, int64_t cx, int64_t cy, int64_t radius, int64_t r, int64_t g, int64_t b, int64_t a) {
     freak_ui_fill_circle(h, cx, cy, radius, r, g, b, a);
 }
-void freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a) {
-    freak_ui_draw_line(h, x1, y1, x2, y2, r, g, b, a, 1);
+void freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {
+    freak_ui_draw_line(h, x1, y1, x2, y2, r, g, b, a, thickness);
 }
 int64_t freak_llvm_ui_draw_text(int64_t h, int64_t text, int64_t x, int64_t y, int64_t r, int64_t g, int64_t b, int64_t size, int64_t bold, int64_t italic) {
     freak_word t = freak_word_lit((const char*)text);

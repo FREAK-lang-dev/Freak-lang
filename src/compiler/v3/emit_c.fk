@@ -874,10 +874,14 @@ task emit_stmt(eid: word) -> void {
             emit_block(array_get(ast_stmt_bodies, i))
             emit_line("}")
         } else {
-            emit("for (int64_t __freak_repeat_index = 0; __freak_repeat_index < ")
+            pilot repeat_limit = "__freak_repeat_limit_" + eid
+            emit("{ int64_t " + repeat_limit + " = ")
             emit_expr(expr_id_w)
+            emit_line(";")
+            emit("for (int64_t __freak_repeat_index = 0; __freak_repeat_index < " + repeat_limit)
             emit_line("; __freak_repeat_index++) {")
             emit_block(array_get(ast_stmt_bodies, i))
+            emit_line("}")
             emit_line("}")
         }
         emt_loop_word_cleanup_base = saved_loop_cleanup_base
@@ -887,13 +891,17 @@ task emit_stmt(eid: word) -> void {
         pilot saved_loop_cleanup_base = emt_loop_word_cleanup_base
         emt_loop_word_cleanup_base = emt_var_count
         pilot max_id_w: word = array_get(ast_stmt_extras, i)
-        emit("for (int64_t __freak_arc_index = 0; __freak_arc_index < ")
+        pilot arc_limit = "__freak_arc_limit_" + eid
+        emit("{ int64_t " + arc_limit + " = ")
         emit_expr(max_id_w)
+        emit_line(";")
+        emit("for (int64_t __freak_arc_index = 0; __freak_arc_index < " + arc_limit)
         emit_line("; __freak_arc_index++) {")
         emit("    if (")
         emit_expr(expr_id_w)
         emit_line(") { break; }")
         emit_block(array_get(ast_stmt_bodies, i))
+        emit_line("}")
         emit_line("}")
         emt_loop_word_cleanup_base = saved_loop_cleanup_base
         give back
@@ -1068,7 +1076,9 @@ task emit_stmt_when(eid: word) -> void {
     emit_expr(target_id_w)
     emit_line(";")
     if target_type == "w" and emt_word_expr_is_owned_temporary(target_id_w) {
-        emt_set_var_type_named("__freak_when_owned_" + eid, "w", target_tmp)
+        -- Track the hidden temporary for exit cleanup without entering a
+        -- source-visible binding name that a legal user identifier can match.
+        emt_set_var_type_named("", "w", target_tmp)
     }
 
     pilot cases_len = cases_str.length()
@@ -1373,23 +1383,28 @@ task emit_c_program() -> void {
 
     -- Detect user-defined main
     pilot has_user_main = false
+    pilot user_main_return_type = "void"
     i = 0
     repeat top_count times {
         pilot cur_id: word = array_get(ast_top_stmts, i)
         pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
         if kind == STMT_TASK {
             pilot tname: word = array_get(ast_stmt_names, word_to_int(cur_id))
-            if tname == "main" { has_user_main = true }
+            if tname == "main" {
+                has_user_main = true
+                user_main_return_type = array_get(ast_task_returns, word_to_int(cur_id))
+            }
         }
         i += 1
     }
 
-    -- Pass 3: Global init + main wrapper
+    -- Pass 3: Global init + top-level wrapper. Generated symbols live in the
+    -- checker-reserved __freak_ namespace so legal extern names cannot collide.
     if has_user_main {
-        emit_line("void freak_init_globals(void) {")
+        emit_line("void __freak_generated_init_globals(void) {")
     }
     if not has_user_main {
-        emit_line("void freak_main(void) {")
+        emit_line("void __freak_generated_top_level(void) {")
     }
     emt_reset_local_types()
     tc_reset_locals()
@@ -1420,12 +1435,19 @@ task emit_c_program() -> void {
     emit_line("    freak_argc = argc;")
     emit_line("    freak_argv = argv;")
     emit_line("    freak_enable_ansi();")
+    if has_user_main and user_main_return_type == "int" {
+        emit_line("    int64_t __freak_native_main_result = 0;")
+    }
     if has_user_main {
-        emit_line("    freak_init_globals();")
-        emit_line("    " + c_user_task_symbol("main") + "();")
+        emit_line("    __freak_generated_init_globals();")
+        if user_main_return_type == "int" {
+            emit_line("    __freak_native_main_result = " + c_user_task_symbol("main") + "();")
+        } else {
+            emit_line("    " + c_user_task_symbol("main") + "();")
+        }
     }
     if not has_user_main {
-        emit_line("    freak_main();")
+        emit_line("    __freak_generated_top_level();")
     }
     pilot cleanup_i = emt_global_var_count - 1
     repeat until cleanup_i < 0 {
@@ -1434,6 +1456,10 @@ task emit_c_program() -> void {
         }
         cleanup_i -= 1
     }
-    emit_line("    return 0;")
+    if has_user_main and user_main_return_type == "int" {
+        emit_line("    return (int)__freak_native_main_result;")
+    } else {
+        emit_line("    return 0;")
+    }
     emit_line("}")
 }

@@ -433,6 +433,7 @@ task promote_return() -> num {
 }
 
 task main() -> int {
+    say global_promoted
     say accept_num(3)
     say promote_return()
     pilot mut local_promoted: num = 4
@@ -448,7 +449,163 @@ task main() -> int {
     say 1 < 2.5
     say 3.5 == 3 + 0.5
     say math::sqrt(9)
+    say math::pow(2, 3)
     give back 17
+}
+"""
+
+NUMERIC_SHAPE_PROGRAM = """extern task echo_num(value: num) -> num
+
+shape Gauge {
+    value: num
+}
+
+impl Gauge {
+    task plus(self, amount: num) -> num {
+        give back self.value + amount
+    }
+}
+
+pilot gauge: Gauge = Gauge { value: 2 }
+
+task main() {
+    say gauge.value
+    say echo_num(3)
+    say gauge.plus(4)
+    gauge.value = 5
+    say gauge.value
+    gauge.value += 2
+    say gauge.value
+    gauge.value *= 2
+    say gauge.value
+    gauge.value -= 1.5
+    say gauge.value
+    gauge.value /= 2
+    say gauge.value
+}
+"""
+
+NUMERIC_UNARY_PROGRAM = """task main() {
+    pilot value: num = 1.5
+    say -value
+    say PLUS ULTRA value
+    say FINAL FORM value
+    say TSUNDERE value
+}
+"""
+
+SHORT_CIRCUIT_PROGRAM = """pilot mut side_effects: int = 0
+
+task mark() -> bool {
+    side_effects += 1
+    give back true
+}
+
+task explode() -> bool {
+    panic("short-circuit failure")
+    give back true
+}
+
+task main() {
+    say false and mark()
+    say true or mark()
+    say false and explode()
+    say true or explode()
+    say side_effects
+}
+"""
+
+UI_ABI_PROGRAM = """task draw_probe() {
+    ui::stroke_rect(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    ui::draw_line(11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+}
+
+task main() {
+    say "ui abi"
+}
+"""
+
+WRAPPER_EXTERN_TOP_LEVEL_PROGRAM = """extern task freak_main() -> void
+
+say "top wrapper"
+"""
+
+WRAPPER_EXTERN_INIT_PROGRAM = """extern task freak_init_globals() -> void
+
+task main() {
+    say "init wrapper"
+}
+"""
+
+LOOP_EVALUATION_PROGRAM = """pilot mut repeat_limit_calls: int = 0
+pilot mut training_limit_calls: int = 0
+pilot mut training_until_calls: int = 0
+pilot mut zero_limit_calls: int = 0
+pilot mut forbidden_until_calls: int = 0
+
+task repeat_limit() -> int {
+    repeat_limit_calls += 1
+    give back 3
+}
+
+task training_limit() -> int {
+    training_limit_calls += 1
+    give back 2
+}
+
+task training_until() -> bool {
+    training_until_calls += 1
+    give back false
+}
+
+task zero_limit() -> int {
+    zero_limit_calls += 1
+    give back 0
+}
+
+task forbidden_until() -> bool {
+    forbidden_until_calls += 1
+    give back false
+}
+
+task main() {
+    pilot mut body_count: int = 0
+    repeat repeat_limit() times {
+        body_count += 1
+    }
+    training arc until training_until() max training_limit() sessions {
+        body_count += 1
+    }
+    training arc until forbidden_until() max zero_limit() sessions {
+        body_count += 100
+    }
+    say repeat_limit_calls
+    say training_limit_calls
+    say training_until_calls
+    say zero_limit_calls
+    say forbidden_until_calls
+    say body_count
+}
+"""
+
+WHEN_COLLISION_PROGRAM = """task main() {
+    pilot COLLISION_NAME: word = "sentinel"
+    when "a" + "b" {
+        "ab" -> say COLLISION_NAME
+        _ -> say "bad collision"
+    }
+}
+"""
+
+WHEN_STACK_PROGRAM = """task main() {
+    pilot mut matches: int = 0
+    repeat 250000 times {
+        when "a" + "b" {
+            "ab" -> matches += 1
+            _ -> matches += 1000000
+        }
+    }
+    say matches
 }
 """
 
@@ -537,8 +694,11 @@ def main() -> int:
     assert "call :remove_final_aliases" in windows_build_script
     assert "for %%F in (build\\freak.exe build\\hangar.exe build\\freakc.exe build\\freakc_v3.exe)" in windows_build_script
     assert windows_build_script.count("call :copy_final_alias") == 3
-    assert "if not exist build\\freak.exe" in windows_build_script
-    assert "if not exist \"%~2\"" in windows_build_script
+    assert "--self-test-remove-intermediate" in windows_build_script
+    assert "call :remove_intermediate" in windows_build_script
+    assert "call :append_source" in windows_build_script
+    assert "call :copy_intermediate" in windows_build_script
+    assert "fc /b \"%~1\" \"%~2\"" in windows_build_script
     assert windows_build_script.count("-lws2_32") >= 4
     runtime_source = (repo / "freakc" / "runtime" / "freak_runtime.c").read_text(
         encoding="utf-8"
@@ -554,9 +714,27 @@ def main() -> int:
         repo / "freakc" / "runtime" / "freak_llvm_runtime.c"
     ).read_text(encoding="utf-8")
     assert llvm_runtime_source.count("return freak_llvm_word_adopt((int64_t)buf);") >= 2
+    assert re.search(r"void freak_llvm_ui_stroke_rect\([^\n]+int64_t thickness\)", llvm_runtime_source)
+    assert re.search(r"void freak_llvm_ui_draw_line\([^\n]+int64_t thickness\)", llvm_runtime_source)
+    assert "freak_ui_stroke_rect(h, x, y, w, hh, r, g, b, a, thickness);" in llvm_runtime_source
+    assert "freak_ui_draw_line(h, x1, y1, x2, y2, r, g, b, a, thickness);" in llvm_runtime_source
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-word-ownership-") as tmp:
         root = Path(tmp)
+        if sys.platform == "win32":
+            stage_directory = root / "locked-stage2-output.fk.c"
+            stage_directory.mkdir()
+            fail_closed = run(
+                [
+                    str(repo / "build_cli.bat"),
+                    "--self-test-remove-intermediate",
+                    str(stage_directory),
+                ],
+                root,
+            )
+            assert fail_closed.returncode != 0, fail_closed.stdout + fail_closed.stderr
+            assert "Expected intermediate file but found a directory" in fail_closed.stdout
+            assert stage_directory.is_dir()
         listing_dir = root / "listing"
         listing_dir.mkdir()
         for entry_index in range(128):
@@ -621,7 +799,16 @@ def main() -> int:
             ("borrowed_temp", BORROWED_TEMP_PROGRAM, [], ["temps"], ("c", "llvm")),
             ("numeric_word", NUMERIC_WORD_PROGRAM, [], ["1.25", "9.5", "1.25", "9.5", "42", "true"], ("c", "llvm")),
             ("scalar_say", SCALAR_SAY_PROGRAM, [], ["42", "true", "false", "1.25"], ("c", "llvm")),
-            ("numeric_context", NUMERIC_CONTEXT_PROGRAM, [], ["3", "7", "4", "5", "6.5", "6", "3.5", "3.5", "true", "true", "3"], ("c", "llvm")),
+            ("numeric_context", NUMERIC_CONTEXT_PROGRAM, [], ["2", "3", "7", "4", "5", "6.5", "6", "3.5", "3.5", "true", "true", "3", "8"], ("c", "llvm")),
+            ("numeric_shape", NUMERIC_SHAPE_PROGRAM, [], ["2", "3", "6", "5", "7", "14", "12.5", "6.25"], ("c", "llvm")),
+            ("numeric_unary", NUMERIC_UNARY_PROGRAM, [], ["-1.5", "3", "2.25", "-1.5"], ("c", "llvm")),
+            ("short_circuit", SHORT_CIRCUIT_PROGRAM, [], ["false", "true", "false", "true", "0"], ("c", "llvm")),
+            ("ui_abi", UI_ABI_PROGRAM, [], ["ui abi"], ("c", "llvm")),
+            ("wrapper_extern_top_level", WRAPPER_EXTERN_TOP_LEVEL_PROGRAM, [], ["top wrapper"], ("c", "llvm")),
+            ("wrapper_extern_init", WRAPPER_EXTERN_INIT_PROGRAM, [], ["init wrapper"], ("c", "llvm")),
+            ("loop_evaluation", LOOP_EVALUATION_PROGRAM, [], ["1", "1", "2", "1", "0", "5"], ("c", "llvm")),
+            ("when_collision", WHEN_COLLISION_PROGRAM, [], ["sentinel"], ("c", "llvm")),
+            ("when_stack", WHEN_STACK_PROGRAM, [], ["250000"], ("c", "llvm")),
             ("top_level_global", TOP_LEVEL_GLOBAL_PROGRAM, [], ["toplevel"], ("c", "llvm")),
             ("when_lifetime", WHEN_LIFETIME_PROGRAM, [], ["word", "num", "mixed", "matched"], ("c", "llvm")),
             ("predicate_ownership", PREDICATE_OWNERSHIP_PROGRAM, [], ["if", "2", "1"], ("c", "llvm")),
@@ -632,6 +819,14 @@ def main() -> int:
             for backend, flag, suffix in (("c", "--c", ".c"), ("llvm", "--llvm", ".ll")):
                 if backend not in backends:
                     continue
+                if case_name == "when_collision" and backend == "c":
+                    probe = run([str(freak), "transpile", str(source), flag, *extra_flags], repo)
+                    assert probe.returncode == 0, probe.stdout + probe.stderr
+                    probe_text = Path(str(source) + suffix).read_text(encoding="utf-8")
+                    target_match = re.search(r"__freak_when_target_(\d+)", probe_text)
+                    assert target_match, probe_text
+                    collision_name = f"__freak_when_owned_{target_match.group(1)}"
+                    source.write_text(program.replace("COLLISION_NAME", collision_name), encoding="utf-8")
                 transpiled = run([str(freak), "transpile", str(source), flag, *extra_flags], repo)
                 assert transpiled.returncode == 0, transpiled.stdout + transpiled.stderr
                 generated = Path(str(source) + suffix)
@@ -645,6 +840,15 @@ def main() -> int:
                         "numeric_word",
                         "scalar_say",
                         "numeric_context",
+                        "numeric_shape",
+                        "numeric_unary",
+                        "short_circuit",
+                        "ui_abi",
+                        "wrapper_extern_top_level",
+                        "wrapper_extern_init",
+                        "loop_evaluation",
+                        "when_collision",
+                        "when_stack",
                         "top_level_global",
                         "when_lifetime",
                         "predicate_ownership",
@@ -702,6 +906,35 @@ def main() -> int:
                     elif case_name == "numeric_context":
                         assert "double __freak_return_value" in generated_text
                         assert "freak_format_num" in generated_text
+                        assert "int64_t __freak_native_main_result = 0;" in generated_text
+                        assert "return (int)__freak_native_main_result;" in generated_text
+                    elif case_name == "numeric_shape":
+                        assert "extern double echo_num(double" in generated_text
+                        assert "freak_llvm_shape_get" in generated_text
+                        assert "freak_llvm_shape_set" in generated_text
+                    elif case_name == "numeric_unary":
+                        assert "freak_format_num" in generated_text
+                    elif case_name == "short_circuit":
+                        assert "&&" in generated_text
+                        assert "||" in generated_text
+                    elif case_name == "ui_abi":
+                        assert re.search(r"freak_ui_stroke_rect\([^;]+, 10\)", generated_text)
+                        assert re.search(r"freak_ui_draw_line\([^;]+, 20\)", generated_text)
+                    elif case_name == "wrapper_extern_top_level":
+                        assert "extern void freak_main(void);" in generated_text
+                        assert "void __freak_generated_top_level(void) {" in generated_text
+                        assert "    __freak_generated_top_level();" in generated_text
+                        assert not re.search(r"(?m)^void freak_main\(void\) \{", generated_text)
+                    elif case_name == "wrapper_extern_init":
+                        assert "extern void freak_init_globals(void);" in generated_text
+                        assert "void __freak_generated_init_globals(void) {" in generated_text
+                        assert "    __freak_generated_init_globals();" in generated_text
+                        assert not re.search(r"(?m)^void freak_init_globals\(void\) \{", generated_text)
+                    elif case_name == "loop_evaluation":
+                        assert "__freak_repeat_limit_" in generated_text
+                        assert "__freak_arc_limit_" in generated_text
+                    elif case_name == "when_collision":
+                        assert "sentinel" in generated_text
                     elif case_name == "when_lifetime":
                         assert "freak_word_eq(__freak_when_target_" in generated_text
                         assert "freak_word_release_owned(&__freak_when_target_" in generated_text
@@ -723,20 +956,92 @@ def main() -> int:
                         assert "@freak_llvm_word_from_bool" in generated_text
                         assert "@freak_llvm_format_num" in generated_text
                     elif case_name == "numeric_context":
-                        assert generated_text.count("sitofp i64") >= 5
+                        assert generated_text.count("sitofp i64") >= 8
                         assert "fadd double" in generated_text
                         assert "fcmp olt double" in generated_text
+                        assert "call i64 @freak_llvm_math_pow" in generated_text
                         assert re.search(r"= call i64 @__freak_user_main\(\)", generated_text)
+                        assert re.search(r"= trunc i64 %t\d+ to i32", generated_text)
+                    elif case_name == "numeric_shape":
+                        assert generated_text.count("sitofp i64") >= 4
+                        assert "call i64 @echo_num" in generated_text
+                        assert "call i64 @__freak_user_Gauge_plus" in generated_text
+                        assert generated_text.count("call void @freak_llvm_shape_set") >= 5
+                        assert "fadd double" in generated_text
+                        assert "fmul double" in generated_text
+                        assert "fsub double" in generated_text
+                        assert "fdiv double" in generated_text
+                    elif case_name == "numeric_unary":
+                        assert generated_text.count("fsub double 0.0") >= 2
+                        assert generated_text.count("fmul double") >= 2
+                    elif case_name == "short_circuit":
+                        assert "logic.short." in generated_text
+                        assert "logic.rhs." in generated_text
+                        assert "phi i64" in generated_text
+                    elif case_name == "ui_abi":
+                        ten_i64 = r"i64 [^,\)]+(?:, i64 [^,\)]+){9}"
+                        assert re.search(r"call void @freak_llvm_ui_stroke_rect\(" + ten_i64 + r"\)", generated_text)
+                        assert re.search(r"call void @freak_llvm_ui_draw_line\(" + ten_i64 + r"\)", generated_text)
+                        assert "declare void @freak_llvm_ui_stroke_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)" in generated_text
+                        assert "declare void @freak_llvm_ui_draw_line(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)" in generated_text
+                    elif case_name == "wrapper_extern_top_level":
+                        assert "declare void @freak_main()" in generated_text
+                        assert "define void @__freak_generated_top_level()" in generated_text
+                        assert "call void @__freak_generated_top_level()" in generated_text
+                        assert "define void @freak_main()" not in generated_text
+                    elif case_name == "wrapper_extern_init":
+                        assert "declare void @freak_init_globals()" in generated_text
+                        assert "define void @__freak_generated_init_globals()" in generated_text
+                        assert "call void @__freak_generated_init_globals()" in generated_text
+                        assert "define void @freak_init_globals()" not in generated_text
+                    elif case_name == "loop_evaluation":
+                        assert "loop.until." in generated_text
+                        assert re.search(
+                            r"br i1 %t\d+, label %loop\.until\.\d+, label %loop\.end\.\d+",
+                            generated_text,
+                        )
+                    elif case_name == "when_stack":
+                        assert "%when_target_v" not in generated_text
+                        assert "call void @freak_llvm_word_release_replaced(i64 %t" in generated_text
                     elif case_name == "when_lifetime":
                         assert "@freak_llvm_word_eq" in generated_text
                         assert "fcmp oeq double" in generated_text
                         assert "sitofp i64 1 to double" in generated_text
-                        assert "%when_target_v" in generated_text
+                        assert "%when_target_v" not in generated_text
+
+                if case_name in {"numeric_shape", "ui_abi"} and backend == "c":
+                    continue
 
                 binary = root / (f"replace_owned_{case_name}_{backend}.exe" if sys.platform == "win32" else f"replace_owned_{case_name}_{backend}")
                 clang = os.environ.get("FREAK_CLANG") or shutil.which("clang")
                 assert clang, "clang is required for the ownership regression"
                 command = [clang, "-g", "-O1", "-o", str(binary), str(generated)]
+                if case_name == "numeric_shape" and backend == "llvm":
+                    extern_probe = root / "extern_numeric_probe.c"
+                    extern_probe.write_text(
+                        "#include <stdint.h>\n"
+                        "int64_t echo_num(int64_t value) { return value; }\n",
+                        encoding="utf-8",
+                    )
+                    command.append(str(extern_probe))
+                if case_name == "short_circuit" and backend == "llvm":
+                    panic_probe = root / "llvm_panic_probe.c"
+                    panic_probe.write_text(
+                        "#include <stdint.h>\n"
+                        "#include <stdlib.h>\n"
+                        "void freak_llvm_panic(int64_t message) { (void)message; abort(); }\n",
+                        encoding="utf-8",
+                    )
+                    command.append(str(panic_probe))
+                if case_name == "ui_abi" and backend == "llvm":
+                    ui_probe = root / "llvm_ui_abi_probe.c"
+                    ui_probe.write_text(
+                        "#include <stdint.h>\n"
+                        "void freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t height, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {}\n"
+                        "void freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {}\n",
+                        encoding="utf-8",
+                    )
+                    command.append(str(ui_probe))
                 if sys.platform != "win32":
                     command.extend(["-fsanitize=address", "-fno-omit-frame-pointer"])
                 if backend == "llvm":
@@ -764,7 +1069,8 @@ def main() -> int:
                     sanitizer_env["ASAN_OPTIONS"] += ":detect_leaks=1"
                     sanitizer_env["LSAN_OPTIONS"] = "exitcode=23"
                 executed = run([str(binary)], root, sanitizer_env)
-                assert executed.returncode == 0, executed.stdout + executed.stderr
+                expected_exit = 17 if case_name == "numeric_context" else 0
+                assert executed.returncode == expected_exit, executed.stdout + executed.stderr
                 assert executed.stdout.strip().splitlines() == expected_output, executed.stdout
                 assert "LeakSanitizer" not in executed.stderr
                 assert "ownership audit found" not in executed.stderr

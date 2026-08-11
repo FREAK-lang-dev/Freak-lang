@@ -4,7 +4,7 @@
 -- v3 KEY CHANGES:
 -- 1. Streaming emit via fs::append (no buffer, no flush, no O(n^2))
 -- 2. Flat if + early return for call mapping (never truncated)
--- 3. Proper freak_init_globals emitted (no Python post-processing)
+-- 3. Proper reserved global-init wrapper emitted (no Python post-processing)
 -- 4. Split into modular tasks (each <100 lines)
 
 -- ===================== LLVM EMIT HELPERS =============================
@@ -484,6 +484,30 @@ task llvm_infer_field_index(receiver_expr: word, field_name: word) -> int {
         si += 1
     }
     give back inferred
+}
+
+task llvm_shape_field_type_at(shape_name: word, wanted: int) -> word {
+    pilot fields = get_shape_fields(shape_name)
+    pilot field_index = 0
+    pilot current_type = ""
+    pilot in_type = false
+    pilot i = 0
+    repeat fields.length() times {
+        pilot ch = fields.char_at(i)
+        if ch == ":" {
+            in_type = true
+        } else if ch == "," {
+            if field_index == wanted { give back llvm_type_code(current_type) }
+            field_index += 1
+            current_type = ""
+            in_type = false
+        } else if in_type {
+            current_type = current_type + ch
+        }
+        i += 1
+    }
+    if field_index == wanted { give back llvm_type_code(current_type) }
+    give back ""
 }
 
 task llvm_infer_call_type(val: word) -> word {
@@ -974,6 +998,8 @@ task llvm_emit_shape_ctor(val: word, left: word) -> word {
             if cc == "," {
                 if cur.length() > 0 {
                     pilot fval_reg = llvm_emit_expr(cur)
+                    pilot field_type = llvm_shape_field_type_at(sname, fi)
+                    if field_type.starts_with("n") { fval_reg = llvm_coerce_num_bits(fval_reg, cur) }
                     if llvm_word_expr_needs_clone(cur) {
                         pilot cloned_field = next_reg()
                         llvm_emit_line("    " + cloned_field + " = call i64 @freak_llvm_word_clone(i64 " + fval_reg + ")")
@@ -988,6 +1014,8 @@ task llvm_emit_shape_ctor(val: word, left: word) -> word {
         }
         if cur.length() > 0 {
             pilot fval_reg = llvm_emit_expr(cur)
+            pilot field_type = llvm_shape_field_type_at(sname, fi)
+            if field_type.starts_with("n") { fval_reg = llvm_coerce_num_bits(fval_reg, cur) }
             if llvm_word_expr_needs_clone(cur) {
                 pilot cloned_field = next_reg()
                 llvm_emit_line("    " + cloned_field + " = call i64 @freak_llvm_word_clone(i64 " + fval_reg + ")")
@@ -1001,7 +1029,50 @@ task llvm_emit_shape_ctor(val: word, left: word) -> word {
 
 -- ===================== BINOP EMIT ====================================
 
+task llvm_emit_short_circuit(val: word, left: word, right: word) -> word {
+    pilot left_reg = llvm_emit_expr(left)
+    pilot left_bool = next_reg()
+    llvm_emit_line("    " + left_bool + " = icmp ne i64 " + left_reg + ", 0")
+
+    pilot short_block = "logic.short." + word_from_int(temp_reg_counter)
+    temp_reg_counter += 1
+    pilot rhs_block = "logic.rhs." + word_from_int(temp_reg_counter)
+    temp_reg_counter += 1
+    pilot rhs_done = "logic.rhs.done." + word_from_int(temp_reg_counter)
+    temp_reg_counter += 1
+    pilot end_block = "logic.end." + word_from_int(temp_reg_counter)
+    temp_reg_counter += 1
+
+    pilot short_value = "0"
+    if val == "and" {
+        llvm_emit_line("    br i1 " + left_bool + ", label %" + rhs_block + ", label %" + short_block)
+    } else {
+        short_value = "1"
+        llvm_emit_line("    br i1 " + left_bool + ", label %" + short_block + ", label %" + rhs_block)
+    }
+
+    llvm_emit_line(short_block + ":")
+    llvm_emit_line("    br label %" + end_block)
+
+    llvm_emit_line(rhs_block + ":")
+    pilot right_reg = llvm_emit_expr(right)
+    pilot right_bool = next_reg()
+    llvm_emit_line("    " + right_bool + " = icmp ne i64 " + right_reg + ", 0")
+    pilot right_value = next_reg()
+    llvm_emit_line("    " + right_value + " = zext i1 " + right_bool + " to i64")
+    llvm_emit_line("    br label %" + rhs_done)
+
+    llvm_emit_line(rhs_done + ":")
+    llvm_emit_line("    br label %" + end_block)
+
+    llvm_emit_line(end_block + ":")
+    pilot result_reg = next_reg()
+    llvm_emit_line("    " + result_reg + " = phi i64 [ " + short_value + ", %" + short_block + " ], [ " + right_value + ", %" + rhs_done + " ]")
+    give back result_reg
+}
+
 task llvm_emit_binop(val: word, left: word, right: word, id: word) -> word {
+    if val == "and" or val == "or" { give back llvm_emit_short_circuit(val, left, right) }
     pilot l_reg = llvm_emit_expr(left)
     pilot r_reg = llvm_emit_expr(right)
     pilot res_reg = next_reg()
@@ -1018,26 +1089,6 @@ task llvm_emit_binop(val: word, left: word, right: word, id: word) -> word {
     if val == ">" { give back llvm_emit_icmp(l_reg, r_reg, res_reg, left, right, is_num_op, "sgt", "ogt") }
     if val == "<=" { give back llvm_emit_icmp(l_reg, r_reg, res_reg, left, right, is_num_op, "sle", "ole") }
     if val == ">=" { give back llvm_emit_icmp(l_reg, r_reg, res_reg, left, right, is_num_op, "sge", "oge") }
-    if val == "and" {
-        pilot cmp_l = next_reg()
-        llvm_emit_line("    " + cmp_l + " = icmp ne i64 " + l_reg + ", 0")
-        pilot cmp_r = next_reg()
-        llvm_emit_line("    " + cmp_r + " = icmp ne i64 " + r_reg + ", 0")
-        pilot and_res = next_reg()
-        llvm_emit_line("    " + and_res + " = and i1 " + cmp_l + ", " + cmp_r)
-        llvm_emit_line("    " + res_reg + " = zext i1 " + and_res + " to i64")
-        give back res_reg
-    }
-    if val == "or" {
-        pilot cmp_l = next_reg()
-        llvm_emit_line("    " + cmp_l + " = icmp ne i64 " + l_reg + ", 0")
-        pilot cmp_r = next_reg()
-        llvm_emit_line("    " + cmp_r + " = icmp ne i64 " + r_reg + ", 0")
-        pilot or_res = next_reg()
-        llvm_emit_line("    " + or_res + " = or i1 " + cmp_l + ", " + cmp_r)
-        llvm_emit_line("    " + res_reg + " = zext i1 " + or_res + " to i64")
-        give back res_reg
-    }
     if val == "NAKAMA" {
         pilot t1 = next_reg()
         llvm_emit_line("    " + t1 + " = add i64 " + l_reg + ", " + r_reg)
@@ -1140,6 +1191,21 @@ task llvm_emit_icmp(l_reg: word, r_reg: word, res_reg: word, left: word, right: 
 
 task llvm_emit_unaryop(val: word, left: word) -> word {
     pilot op_reg = llvm_emit_expr(left)
+    pilot operand_type = llvm_infer_expr_type(left)
+    if operand_type.starts_with("n") and (val == "-" or val == "PLUS ULTRA" or val == "FINAL FORM" or val == "TSUNDERE") {
+        pilot operand_double = llvm_i64_to_double(op_reg)
+        pilot result_double = next_reg()
+        if val == "-" or val == "TSUNDERE" {
+            llvm_emit_line("    " + result_double + " = fsub double 0.0, " + operand_double)
+        }
+        if val == "PLUS ULTRA" {
+            llvm_emit_line("    " + result_double + " = fmul double " + operand_double + ", 2.0")
+        }
+        if val == "FINAL FORM" {
+            llvm_emit_line("    " + result_double + " = fmul double " + operand_double + ", " + operand_double)
+        }
+        give back llvm_double_to_i64(result_double)
+    }
     pilot res_reg = next_reg()
     if val == "not" {
         pilot cmp_reg = next_reg()
@@ -1369,6 +1435,10 @@ task llvm_register_word_local_slot(slot_name: word) -> void {
     llvm_word_local_slots = llvm_word_local_slots + slot_name + "|"
 }
 
+task llvm_register_owned_word_value(value_reg: word) -> void {
+    llvm_word_local_slots = llvm_word_local_slots + "ssa:" + value_reg + "|"
+}
+
 task llvm_emit_word_local_cleanup_since(prefix: word, skip_slot: word) -> void {
     pilot i = prefix.length()
     pilot current = ""
@@ -1376,11 +1446,16 @@ task llvm_emit_word_local_cleanup_since(prefix: word, skip_slot: word) -> void {
         pilot ch: word = llvm_word_local_slots.char_at(i)
         if ch == "|" {
             if current != "" and current != skip_slot {
-                pilot pointer = "%" + current
-                pilot previous = next_reg()
-                llvm_emit_line("    " + previous + " = load i64, i64* " + pointer)
-                llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous + ", i64 0)")
-                llvm_emit_line("    store i64 0, i64* " + pointer)
+                if current.starts_with("ssa:") {
+                    pilot owned_value = current.substring(4, current.length() - 4)
+                    llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + owned_value + ", i64 0)")
+                } else {
+                    pilot pointer = "%" + current
+                    pilot previous = next_reg()
+                    llvm_emit_line("    " + previous + " = load i64, i64* " + pointer)
+                    llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + previous + ", i64 0)")
+                    llvm_emit_line("    store i64 0, i64* " + pointer)
+                }
             }
             current = ""
         } else {
@@ -1654,6 +1729,8 @@ task llvm_emit_stmt_training_arc(eid: word) -> void {
     temp_reg_counter += 1
     pilot l_inc = "loop.inc." + word_from_int(temp_reg_counter)
     temp_reg_counter += 1
+    pilot l_until = "loop.until." + word_from_int(temp_reg_counter)
+    temp_reg_counter += 1
     pilot rep_var = "rep." + word_from_int(temp_reg_counter)
     temp_reg_counter += 1
 
@@ -1667,12 +1744,13 @@ task llvm_emit_stmt_training_arc(eid: word) -> void {
     llvm_emit_line("    " + curr_val + " = load i64, i64* %" + rep_var)
     pilot cmp_max = next_reg()
     llvm_emit_line("    " + cmp_max + " = icmp slt i64 " + curr_val + ", " + max_reg)
+    llvm_emit_line("    br i1 " + cmp_max + ", label %" + l_until + ", label %" + l_end)
+
+    llvm_emit_line(l_until + ":")
     pilot cond_reg = llvm_emit_expr(expr_id_w)
     pilot cmp_cond = next_reg()
     llvm_emit_line("    " + cmp_cond + " = icmp eq i64 " + cond_reg + ", 0")
-    pilot loop_continue = next_reg()
-    llvm_emit_line("    " + loop_continue + " = and i1 " + cmp_max + ", " + cmp_cond)
-    llvm_emit_line("    br i1 " + loop_continue + ", label %" + l_body + ", label %" + l_end)
+    llvm_emit_line("    br i1 " + cmp_cond + ", label %" + l_body + ", label %" + l_end)
 
     pilot save_end = llvm_loop_end_label
     pilot save_cond = llvm_loop_cond_label
@@ -1815,11 +1893,10 @@ task llvm_emit_stmt_when(eid: word) -> void {
     pilot cases_str: word = array_get(ast_stmt_bodies, i)
     pilot saved_when_word_slots = llvm_word_local_slots
     if target_type.starts_with("w") and llvm_word_expr_is_owned_temporary(expr_id_w) {
-        pilot target_slot = "when_target_v" + word_from_int(temp_reg_counter)
-        temp_reg_counter += 1
-        llvm_emit_line("    %" + target_slot + " = alloca i64")
-        llvm_emit_line("    store i64 " + target_reg + ", i64* %" + target_slot)
-        llvm_register_word_local_slot(target_slot)
+        -- The SSA target dominates every case/exit path. Tracking the value
+        -- directly avoids a loop-local alloca that grows the stack per
+        -- iteration while preserving the existing exact-once cleanup paths.
+        llvm_register_owned_word_value(target_reg)
     }
 
     pilot l_end = "when.end." + word_from_int(temp_reg_counter)
@@ -2153,9 +2230,9 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_llvm_ui_get_height(i64)")
     llvm_emit_line("declare void @freak_llvm_ui_clear(i64, i64, i64, i64, i64)")
     llvm_emit_line("declare void @freak_llvm_ui_fill_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_stroke_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_stroke_rect(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)")
     llvm_emit_line("declare void @freak_llvm_ui_fill_circle(i64, i64, i64, i64, i64, i64, i64, i64)")
-    llvm_emit_line("declare void @freak_llvm_ui_draw_line(i64, i64, i64, i64, i64, i64, i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_draw_line(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_ui_draw_text(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_ui_measure_text(i64, i64, i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_math_sqrt(i64)")
@@ -2190,7 +2267,7 @@ task llvm_emit_runtime_decls() -> void {
 }
 
 -- ===================== PROGRAM ASSEMBLY ==============================
--- v3 KEY CHANGE: proper freak_init_globals + freak_main split
+-- v3 KEY CHANGE: proper reserved global-init + top-level wrapper split
 
 task emit_llvm_program() -> void {
     temp_reg_counter = 0
@@ -2316,14 +2393,16 @@ task emit_llvm_program() -> void {
         i += 1
     }
 
-    -- v3 KEY FIX: emit freak_init_globals for programs with task main()
+    -- Emit the global initializer for programs with task main(). Compiler
+    -- wrappers use the checker-reserved __freak_ namespace so source externs
+    -- such as freak_init_globals cannot collide with generated definitions.
     if has_main_task {
         llvm_var_names = ""
         llvm_var_types = ""
         llvm_var_reg_map = ""
         llvm_cur_func_is_void = true
-        pilot init_dbg = llvm_dbg_begin_func("freak_init_globals", 1)
-        llvm_emit_line("define void @freak_init_globals()" + init_dbg + " {")
+        pilot init_dbg = llvm_dbg_begin_func("__freak_generated_init_globals", 1)
+        llvm_emit_line("define void @__freak_generated_init_globals()" + init_dbg + " {")
         llvm_emit_line("entry:")
         i = 0
         repeat top_count times {
@@ -2343,14 +2422,14 @@ task emit_llvm_program() -> void {
         llvm_dbg_current_line = 0
     }
 
-    -- Emit @freak_main wrapper (only if no user main)
+    -- Emit the reserved top-level wrapper (only if no user main).
     if not has_main_task {
         llvm_var_names = ""
         llvm_var_types = ""
         llvm_var_reg_map = ""
         llvm_cur_func_is_void = true
-        pilot main_dbg = llvm_dbg_begin_func("freak_main", 1)
-        llvm_emit_line("define void @freak_main()" + main_dbg + " {")
+        pilot main_dbg = llvm_dbg_begin_func("__freak_generated_top_level", 1)
+        llvm_emit_line("define void @__freak_generated_top_level()" + main_dbg + " {")
         llvm_emit_line("entry:")
         i = 0
         repeat top_count times {
@@ -2377,17 +2456,18 @@ task emit_llvm_program() -> void {
     llvm_emit_line("    %argc_ext = sext i32 %argc to i64")
     llvm_emit_line("    %argv_ptr = ptrtoint i8** %argv to i64")
     llvm_emit_line("    call void @freak_llvm_setup_args(i64 %argc_ext, i64 %argv_ptr)")
+    pilot native_main_result = ""
     if has_main_task {
-        llvm_emit_line("    call void @freak_init_globals()")
+        llvm_emit_line("    call void @__freak_generated_init_globals()")
         if main_task_return_type == "int" {
-            pilot ignored_main_result = next_reg()
-            llvm_emit_line("    " + ignored_main_result + " = call i64 " + llvm_user_task_symbol("main") + "()")
+            native_main_result = next_reg()
+            llvm_emit_line("    " + native_main_result + " = call i64 " + llvm_user_task_symbol("main") + "()")
         } else {
             llvm_emit_line("    call void " + llvm_user_task_symbol("main") + "()")
         }
     }
     if not has_main_task {
-        llvm_emit_line("    call void @freak_main()")
+        llvm_emit_line("    call void @__freak_generated_top_level()")
     }
     pilot cleanup_i = 0
     repeat top_count times {
@@ -2404,7 +2484,13 @@ task emit_llvm_program() -> void {
         }
         cleanup_i += 1
     }
-    llvm_emit_line("    ret i32 0")
+    if native_main_result != "" {
+        pilot native_exit_code = next_reg()
+        llvm_emit_line("    " + native_exit_code + " = trunc i64 " + native_main_result + " to i32")
+        llvm_emit_line("    ret i32 " + native_exit_code)
+    } else {
+        llvm_emit_line("    ret i32 0")
+    }
     llvm_emit_line("}")
     llvm_dbg_current_scope_id = 0
     llvm_dbg_current_line = 0
