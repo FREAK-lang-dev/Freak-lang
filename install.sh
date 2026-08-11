@@ -171,25 +171,6 @@ install_compiler_dependencies() {
 
 install_compiler_dependencies
 
-# Resolve the release unless a local archive is supplied for offline install/tests.
-if [ -n "$LOCAL_ARCHIVE" ]; then
-    [ -f "$LOCAL_ARCHIVE" ] || err "Local distribution archive not found: $LOCAL_ARCHIVE"
-    if [ -z "$LATEST" ]; then LATEST="local"; fi
-elif [ -z "$LATEST" ]; then
-    info "Fetching latest release..."
-    if command -v curl >/dev/null 2>&1; then
-        LATEST=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-    elif command -v wget >/dev/null 2>&1; then
-        LATEST=$(wget -qO- "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
-    else
-        err "Neither curl nor wget was found. Install one and retry."
-    fi
-fi
-[ -n "$LATEST" ] || err "Could not determine the latest release. Check https://github.com/$REPO/releases"
-info "Release: $LATEST"
-
-RAW_BASE="${RAW_BASE_OVERRIDE:-https://raw.githubusercontent.com/$REPO/$LATEST}"
-TARBALL_URL="$RELEASE_BASE/$LATEST/${TARGET}.tar.gz"
 TMPDIR_INSTALL=$(mktemp -d)
 APPLY_ROOT=""
 BACKUP_ROOT=""
@@ -377,48 +358,6 @@ stage_fallback_payload() {
     done < "$STAGE_MANIFEST"
 }
 
-ARCHIVE_PATH="$TMPDIR_INSTALL/freak.tar.gz"
-ARCHIVE_NAME="${TARGET}.tar.gz"
-ARCHIVE_OK=false
-if [ -n "$LOCAL_ARCHIVE" ]; then
-    cp "$LOCAL_ARCHIVE" "$ARCHIVE_PATH"
-    ARCHIVE_OK=true
-elif command -v tar >/dev/null 2>&1; then
-    info "Downloading $ARCHIVE_NAME..."
-    if fetch_file "$TARBALL_URL" "$ARCHIVE_PATH" 2>/dev/null; then ARCHIVE_OK=true; fi
-fi
-
-if [ "$ARCHIVE_OK" = true ] && [ -z "$LOCAL_ARCHIVE" ]; then
-    verify_downloaded_asset "$ARCHIVE_PATH" "$ARCHIVE_NAME"
-fi
-
-if [ "$ARCHIVE_OK" = true ]; then
-    info "Extracting distribution..."
-    if ! tar xzf "$ARCHIVE_PATH" -C "$TMPDIR_INSTALL"; then
-        [ -z "$LOCAL_ARCHIVE" ] || err "Could not extract local distribution archive"
-        stage_fallback_payload
-    else
-        [ -d "$TMPDIR_INSTALL/freak" ] || err "Distribution archive has no freak/ root"
-        cp "$TMPDIR_INSTALL/freak/bin/freak" "$STAGE_BIN/freak"
-        [ -s "$TMPDIR_INSTALL/freak/bin/hangar" ] || err "Distribution archive is missing Hangar"
-        cp "$TMPDIR_INSTALL/freak/bin/hangar" "$STAGE_BIN/hangar"
-        cp -R "$TMPDIR_INSTALL/freak/runtime/." "$STAGE_RUNTIME/"
-        cp -R "$TMPDIR_INSTALL/freak/std/." "$STAGE_STD/"
-        if [ -s "$TMPDIR_INSTALL/freak/distribution-files.manifest" ]; then
-            cp "$TMPDIR_INSTALL/freak/distribution-files.manifest" "$STAGE_MANIFEST"
-        elif [ "$LEGACY_V014_ARCHIVE" = true ]; then
-            write_legacy_v014_manifest
-        else
-            err "Distribution archive is missing distribution-files.manifest"
-        fi
-    fi
-else
-    [ -z "$LOCAL_ARCHIVE" ] || err "tar is required to extract the local distribution archive"
-    stage_fallback_payload
-fi
-
-validate_stage
-
 process_start_token() {
     local pid="$1"
     if truthy "${FREAK_INSTALL_TEST_NO_PROCESS_START_TOKEN:-0}"; then return; fi
@@ -456,7 +395,7 @@ EOF
 }
 
 lock_directory_identity() {
-    ls -di -- "$1" 2>/dev/null | awk '{ print $1 }'
+    ls -di -- "$1" 2>/dev/null | awk '{ print $1 }' || true
 }
 
 acquire_install_lock() {
@@ -497,7 +436,7 @@ acquire_install_lock() {
                 err "Another FREAK installer is recovering $INSTALL_DIR"
             fi
             breaker_identity=$(lock_directory_identity "$breaker")
-            [ -n "$breaker_identity" ] || { attempt=$((attempt + 1)); continue; }
+            [ -n "$breaker_identity" ] || { attempt=$((attempt + 1)); sleep 0.1; continue; }
             if [ -z "$breaker_owner" ]; then
                 err "Ownerless FREAK stale-lock takeover requires manual recovery: $breaker"
             fi
@@ -555,7 +494,7 @@ acquire_install_lock() {
             err "Another FREAK installer is already updating $INSTALL_DIR"
         fi
         owner_identity=$(lock_directory_identity "$candidate")
-        [ -n "$owner_identity" ] || { attempt=$((attempt + 1)); continue; }
+        [ -n "$owner_identity" ] || { attempt=$((attempt + 1)); sleep 0.1; continue; }
         if ! ln -- "$INSTALL_LOCK_PREPARED" "$breaker" 2>/dev/null; then
             attempt=$((attempt + 1))
             sleep 0.1
@@ -659,6 +598,69 @@ reconcile_orphaned_transaction() {
 }
 
 reconcile_orphaned_transaction
+
+# Recover the installed payload before any release lookup or staging request.
+# A network failure must never leave the only usable payload stranded in an
+# orphaned backup from an earlier interrupted transaction.
+if [ -n "$LOCAL_ARCHIVE" ]; then
+    [ -f "$LOCAL_ARCHIVE" ] || err "Local distribution archive not found: $LOCAL_ARCHIVE"
+    if [ -z "$LATEST" ]; then LATEST="local"; fi
+elif [ -z "$LATEST" ]; then
+    info "Fetching latest release..."
+    if command -v curl >/dev/null 2>&1; then
+        LATEST=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    elif command -v wget >/dev/null 2>&1; then
+        LATEST=$(wget -qO- "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+    else
+        err "Neither curl nor wget was found. Install one and retry."
+    fi
+fi
+[ -n "$LATEST" ] || err "Could not determine the latest release. Check https://github.com/$REPO/releases"
+info "Release: $LATEST"
+
+RAW_BASE="${RAW_BASE_OVERRIDE:-https://raw.githubusercontent.com/$REPO/$LATEST}"
+TARBALL_URL="$RELEASE_BASE/$LATEST/${TARGET}.tar.gz"
+ARCHIVE_PATH="$TMPDIR_INSTALL/freak.tar.gz"
+ARCHIVE_NAME="${TARGET}.tar.gz"
+ARCHIVE_OK=false
+if [ -n "$LOCAL_ARCHIVE" ]; then
+    cp "$LOCAL_ARCHIVE" "$ARCHIVE_PATH"
+    ARCHIVE_OK=true
+elif command -v tar >/dev/null 2>&1; then
+    info "Downloading $ARCHIVE_NAME..."
+    if fetch_file "$TARBALL_URL" "$ARCHIVE_PATH" 2>/dev/null; then ARCHIVE_OK=true; fi
+fi
+
+if [ "$ARCHIVE_OK" = true ] && [ -z "$LOCAL_ARCHIVE" ]; then
+    verify_downloaded_asset "$ARCHIVE_PATH" "$ARCHIVE_NAME"
+fi
+
+if [ "$ARCHIVE_OK" = true ]; then
+    info "Extracting distribution..."
+    if ! tar xzf "$ARCHIVE_PATH" -C "$TMPDIR_INSTALL"; then
+        [ -z "$LOCAL_ARCHIVE" ] || err "Could not extract local distribution archive"
+        stage_fallback_payload
+    else
+        [ -d "$TMPDIR_INSTALL/freak" ] || err "Distribution archive has no freak/ root"
+        cp "$TMPDIR_INSTALL/freak/bin/freak" "$STAGE_BIN/freak"
+        [ -s "$TMPDIR_INSTALL/freak/bin/hangar" ] || err "Distribution archive is missing Hangar"
+        cp "$TMPDIR_INSTALL/freak/bin/hangar" "$STAGE_BIN/hangar"
+        cp -R "$TMPDIR_INSTALL/freak/runtime/." "$STAGE_RUNTIME/"
+        cp -R "$TMPDIR_INSTALL/freak/std/." "$STAGE_STD/"
+        if [ -s "$TMPDIR_INSTALL/freak/distribution-files.manifest" ]; then
+            cp "$TMPDIR_INSTALL/freak/distribution-files.manifest" "$STAGE_MANIFEST"
+        elif [ "$LEGACY_V014_ARCHIVE" = true ]; then
+            write_legacy_v014_manifest
+        else
+            err "Distribution archive is missing distribution-files.manifest"
+        fi
+    fi
+else
+    [ -z "$LOCAL_ARCHIVE" ] || err "tar is required to extract the local distribution archive"
+    stage_fallback_payload
+fi
+
+validate_stage
 
 # Prepare replacements on the destination filesystem so every final move is
 # an atomic rename. If any apply step fails, restore the exact previous set.

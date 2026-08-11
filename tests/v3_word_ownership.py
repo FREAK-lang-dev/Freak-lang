@@ -7,9 +7,11 @@ import argparse
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 
@@ -352,6 +354,8 @@ def main() -> int:
     assert runtime_source.count("word replacement size overflow") >= 4
     assert runtime_source.count("(SIZE_MAX -") >= 2
     assert runtime_source.count("freak_word_replace_owned(&result") >= 4
+    assert "return freak_word_own(buf, (size_t)n);" in runtime_source
+    assert "return freak_word_own(buf, (size_t)total);" in runtime_source
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-word-ownership-") as tmp:
         root = Path(tmp)
@@ -371,6 +375,38 @@ def main() -> int:
             '    listing = "released"\n'
             "}\n"
         )
+        tcp_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp_listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        tcp_listener.bind(("127.0.0.1", 0))
+        tcp_listener.listen(2)
+        tcp_port = tcp_listener.getsockname()[1]
+        tcp_server_failures: list[str] = []
+
+        def serve_tcp_ownership_probe() -> None:
+            try:
+                for payload in (b"recv", b"all"):
+                    connection, _ = tcp_listener.accept()
+                    with connection:
+                        connection.sendall(payload)
+            except BaseException as exc:  # surfaced after the executable exits
+                tcp_server_failures.append(repr(exc))
+            finally:
+                tcp_listener.close()
+
+        tcp_server = threading.Thread(target=serve_tcp_ownership_probe, daemon=True)
+        tcp_server.start()
+        tcp_program = (
+            "task main() {\n"
+            f'    pilot first = tcp_connect("127.0.0.1", {tcp_port})\n'
+            "    say tcp_recv(first, 4)\n"
+            "    tcp_close(first)\n"
+            f'    pilot second = tcp_connect("127.0.0.1", {tcp_port})\n'
+            "    tcp_recv_all(second, 3)\n"
+            "    tcp_close(second)\n"
+            '    pilot mut marker: word = "o" + "wned"\n'
+            '    marker = "released"\n'
+            "}\n"
+        )
         cases = (
             ("strict", PROGRAM, ["--strict-borrow"], ["done", "xy", "call", "arg", "shadow", "global", "inner", "outer", "outer!"], ("c", "llvm")),
             ("global_return", GLOBAL_RETURN_PROGRAM, [], ["global"], ("c", "llvm")),
@@ -381,6 +417,7 @@ def main() -> int:
             ("concat_temp", CONCAT_TEMP_PROGRAM, [], ["left7righttail"], ("c", "llvm")),
             ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join", "literal"], ("c", "llvm")),
             ("fs_list", fs_list_program, [], ["true"], ("c", "llvm")),
+            ("tcp_owned", tcp_program, [], ["recv"], ("c",)),
             ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field", "self", "self"], ("llvm",)),
         )
         for case_name, program, extra_flags, expected_output, backends in cases:
@@ -395,7 +432,7 @@ def main() -> int:
                 assert generated.is_file(), generated
                 generated_text = generated.read_text(encoding="utf-8")
                 if backend == "c":
-                    assert "freak_word_replace_owned" in generated_text
+                    assert "freak_word_replace_owned" in generated_text, case_name
                     if case_name == "strict":
                         assert re.search(r"freak_word_clone\(__freak_local_\d+\)", generated_text)
                         assert re.search(r"__freak_user_identity\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
@@ -425,6 +462,10 @@ def main() -> int:
                         assert "freak_word_release_owned(&__freak_discarded_word)" in generated_text
                     elif case_name == "concat_temp":
                         assert generated_text.count("freak_word_concat_consuming") >= 4
+                    elif case_name == "tcp_owned":
+                        assert "freak_tcp_recv(" in generated_text
+                        assert "freak_tcp_recv_all(" in generated_text
+                        assert generated_text.count("freak_word_release_owned") >= 2
                 else:
                     assert "@freak_llvm_word_release_replaced" in generated_text
                     assert "@freak_llvm_word_clone" in generated_text
@@ -474,6 +515,10 @@ def main() -> int:
                 assert executed.stdout.strip().splitlines() == expected_output, executed.stdout
                 assert "LeakSanitizer" not in executed.stderr
                 assert "ownership audit found" not in executed.stderr
+
+        tcp_server.join(timeout=30)
+        assert not tcp_server.is_alive(), "TCP ownership probe server did not finish"
+        assert not tcp_server_failures, tcp_server_failures
 
         if sys.platform != "win32":
             # Negative control: LLVM allocations are globally reachable, so

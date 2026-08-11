@@ -2024,11 +2024,7 @@ freak_word freak_tcp_recv(int64_t fd, int64_t max_bytes) {
 #endif
     if (n <= 0) { free(buf); return freak_word_lit(""); }
     buf[n] = '\0';
-    freak_word w;
-    w.data = buf;
-    w.length = n;
-    w.char_count = n;
-    return w;
+    return freak_word_own(buf, (size_t)n);
 }
 
 freak_word freak_tcp_recv_all(int64_t fd, int64_t max_bytes) {
@@ -2047,11 +2043,7 @@ freak_word freak_tcp_recv_all(int64_t fd, int64_t max_bytes) {
         total += n;
     }
     buf[total] = '\0';
-    freak_word w;
-    w.data = buf;
-    w.length = total;
-    w.char_count = total;
-    return w;
+    return freak_word_own(buf, (size_t)total);
 }
 
 void freak_tcp_close(int64_t fd) {

@@ -129,8 +129,15 @@ def check_static_contracts(repo: Path) -> None:
         assert needle in shell_text, f"install.sh missing {needle}"
     assert 'ln -- "$INSTALL_LOCK_PREPARED" "$candidate"' in shell_text
     assert 'ln -- "$INSTALL_LOCK_PREPARED" "$breaker"' in shell_text
+    assert "| awk '{ print $1 }' || true" in shell_text
     assert 'mkdir -- "$candidate"' not in shell_text, (
         "POSIX installer ownership must be complete before atomic publication"
+    )
+    recovery_call = shell_text.rindex("\nreconcile_orphaned_transaction\n")
+    release_lookup = shell_text.index('info "Fetching latest release..."')
+    staging_start = shell_text.index('ARCHIVE_PATH="$TMPDIR_INSTALL/freak.tar.gz"')
+    assert recovery_call < release_lookup < staging_start, (
+        "POSIX orphan recovery must run before release lookup and staging"
     )
     for needle in (
         "MartinStorsjo.LLVM-MinGW.UCRT",
@@ -310,13 +317,51 @@ class QuietHttpHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> None:
+    command = (
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(repo / "install.ps1"),
+            "-SkipDeps",
+        ]
+        if sys.platform == "win32"
+        else ["bash", str(repo / "install.sh"), "--skip-deps"]
+    )
     if sys.platform == "win32":
         target = "freak-windows-x64.zip"
     else:
         platform_tag = "macos" if sys.platform == "darwin" else "linux"
         machine = platform.machine().lower()
-        arch_tag = "arm64" if machine in {"aarch64", "arm64"} else "x64"
+        if machine in {"aarch64", "arm64"}:
+            arch_tag = "arm64"
+        elif machine in {"amd64", "x86_64"}:
+            arch_tag = "x64"
+        else:
+            raise AssertionError(f"unsupported installer test architecture: {machine}")
         target = f"freak-{platform_tag}-{arch_tag}.tar.gz"
+
+    if target == "freak-macos-x64.tar.gz":
+        unsupported_env = os.environ.copy()
+        unsupported_env.update(
+            {
+                "FREAK_HOME": str(root / "unsupported-macos-x64"),
+                "FREAK_INSTALL_ARCHIVE": str(archive),
+                "FREAK_INSTALL_DEPS": "0",
+                "FREAK_SKIP_PATH_UPDATE": "1",
+            }
+        )
+        unsupported = subprocess.run(
+            command, cwd=repo, env=unsupported_env, capture_output=True, text=True,
+            errors="replace", timeout=120,
+        )
+        unsupported_output = unsupported.stdout + unsupported.stderr
+        assert unsupported.returncode != 0, unsupported_output
+        assert "intel macos is not available" in unsupported_output.lower(), unsupported_output
+        return
+
     release_root = root / "release-server"
     release = release_root / "vchecksum"
     release.mkdir(parents=True)
@@ -345,12 +390,20 @@ def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> 
     legacy_release = release_root / "v0.14.0"
     legacy_release.mkdir()
     legacy_archive = legacy_release / target
-    legacy_url = (
-        "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/"
-        f"v0.14.0/{target}"
-    )
-    with urllib.request.urlopen(legacy_url, timeout=60) as response:
-        legacy_archive.write_bytes(response.read())
+    assert target in legacy_archive_hashes and target in legacy_binary_hashes, target
+    # Offline/restricted runners can pre-seed this exact asset. It remains
+    # subject to the production immutable hash; a missing download is never
+    # converted into a skipped compatibility assertion.
+    prefetched_legacy = os.environ.get("FREAK_TEST_V014_ARCHIVE")
+    if prefetched_legacy:
+        shutil.copy2(Path(prefetched_legacy).expanduser().resolve(), legacy_archive)
+    else:
+        legacy_url = (
+            "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/"
+            f"v0.14.0/{target}"
+        )
+        with urllib.request.urlopen(legacy_url, timeout=60) as response:
+            legacy_archive.write_bytes(response.read())
     assert hashlib.sha256(legacy_archive.read_bytes()).hexdigest() == legacy_archive_hashes[target]
     if sys.platform == "win32":
         legacy_bundle = "freak-windows-x64"
@@ -381,20 +434,6 @@ def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> 
                 "FREAK_SKIP_PATH_UPDATE": "1",
             }
         )
-        command = (
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(repo / "install.ps1"),
-                "-SkipDeps",
-            ]
-            if sys.platform == "win32"
-            else ["bash", str(repo / "install.sh"), "--skip-deps"]
-        )
-
         legacy_env = base_env.copy()
         legacy_root = root / "legacy-v014-install"
         legacy_env.update(
@@ -1220,17 +1259,20 @@ def check_offline_installer(
             assert (recovery_backup / relative).read_bytes() == contents
         assert not list(preserved_root.glob(".freak-apply-*"))
 
-        # The next invocation must reconcile the orphan before attempting a
-        # new transaction. Keep apply failure enabled so the exact old payload
-        # remains observable after both recovery and the new rollback.
+        # Recovery happens before any network staging. Even an immediately
+        # unavailable release server must restore the old payload rather than
+        # leave its only copy stranded in the durable backup.
         reconcile_env = recovery_env.copy()
         reconcile_env.pop("FREAK_INSTALL_TEST_FAIL_RESTORE")
+        reconcile_env.pop("FREAK_INSTALL_ARCHIVE")
+        reconcile_env["FREAK_RELEASE_BASE"] = "http://127.0.0.1:1"
         reconciled = subprocess.run(
             command, cwd=repo, env=reconcile_env, capture_output=True, text=True,
             errors="replace", timeout=120,
         )
-        assert reconciled.returncode != 0, reconciled.stdout + reconciled.stderr
-        assert "Recovered the previous payload" in reconciled.stdout
+        reconcile_output = reconciled.stdout + reconciled.stderr
+        assert reconciled.returncode != 0, reconcile_output
+        assert "Recovered the previous payload" in reconcile_output, reconcile_output
         for relative, contents in preserved_files.items():
             assert (preserved_root / relative).read_bytes() == contents
         assert not list(preserved_root.glob(".freak-apply-*"))
