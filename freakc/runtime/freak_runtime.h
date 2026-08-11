@@ -50,6 +50,10 @@ freak_word freak_word_own(char* s, size_t len);
 freak_word freak_word_concat(freak_word a, freak_word b);
 freak_word freak_word_concat_consuming(freak_word a, freak_word b, bool release_a, bool release_b);
 
+/* Compiler-internal self-replacement fast path. Appends into a private
+   geometrically grown buffer without changing freak_word's public layout. */
+void freak_word_append_owned(freak_word* slot, freak_word suffix, bool release_suffix);
+
 /* Copy an existing word binding. Heap words receive independent ownership;
    literals remain shared immutable storage. */
 freak_word freak_word_clone(freak_word source);

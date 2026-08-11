@@ -975,9 +975,31 @@ task emit_stmt(eid: word) -> void {
         if lhs_kind == EXPR_IDENT and op_w == "=" {
             pilot lhs_name: word = array_get(ast_expr_vals, lhs_idx)
             if emt_get_var_type(lhs_name) == "w" {
-                emit("{ freak_word __freak_word_replacement = ")
                 pilot rhs_idx = word_to_int(rhs_w)
                 pilot rhs_kind: word = array_get(ast_expr_kinds, rhs_idx)
+                if rhs_kind == EXPR_BINOP and array_get(ast_expr_vals, rhs_idx) == "+" {
+                    pilot append_left: word = array_get(ast_expr_lefts, rhs_idx)
+                    pilot append_right: word = array_get(ast_expr_rights, rhs_idx)
+                    pilot append_left_idx = word_to_int(append_left)
+                    pilot append_left_kind: word = array_get(ast_expr_kinds, append_left_idx)
+                    pilot append_left_name: word = array_get(ast_expr_vals, append_left_idx)
+                    pilot append_right_idx = word_to_int(append_right)
+                    pilot append_right_kind: word = array_get(ast_expr_kinds, append_right_idx)
+                    pilot safe_global_suffix = append_right_kind == EXPR_STR or append_right_kind == EXPR_IDENT
+                    pilot can_append = append_left_kind == EXPR_IDENT and append_left_name == lhs_name
+                    if emt_active_binding_is_global(lhs_name) and not safe_global_suffix { can_append = false }
+                    if can_append {
+                        emit("{ freak_word __freak_append_suffix = ")
+                        emit_expr(append_right)
+                        emit("; freak_word_append_owned(&")
+                        emit_expr(expr_id_w)
+                        emit(", __freak_append_suffix, ")
+                        if emt_word_expr_is_owned_temporary(append_right) { emit("true") } else { emit("false") }
+                        emit_line("); }")
+                        give back
+                    }
+                }
+                emit("{ freak_word __freak_word_replacement = ")
                 pilot clone_rhs = emt_word_expr_needs_clone(rhs_w)
                 if clone_rhs { emit("freak_word_clone(") }
                 emit_expr(rhs_w)

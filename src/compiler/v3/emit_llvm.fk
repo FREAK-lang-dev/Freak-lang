@@ -1842,10 +1842,37 @@ task llvm_emit_stmt_assign(eid: word) -> void {
 
     -- Plain variable / global assignment
     pilot var_name_expr: word = array_get(ast_expr_vals, lhs_idx)
-    pilot reg = llvm_emit_expr(rhs_w)
-    pilot stored_reg = reg
     pilot var_ptr = llvm_var_ptr(var_name_expr)
     pilot target_type = llvm_get_var_type(var_name_expr)
+    if name_w == "=" and target_type.starts_with("w") {
+        pilot rhs_idx = word_to_int(rhs_w)
+        pilot rhs_kind: word = array_get(ast_expr_kinds, rhs_idx)
+        if rhs_kind == EXPR_BINOP and array_get(ast_expr_vals, rhs_idx) == "+" {
+            pilot append_left: word = array_get(ast_expr_lefts, rhs_idx)
+            pilot append_right: word = array_get(ast_expr_rights, rhs_idx)
+            pilot append_left_idx = word_to_int(append_left)
+            pilot append_left_kind: word = array_get(ast_expr_kinds, append_left_idx)
+            pilot append_left_name: word = array_get(ast_expr_vals, append_left_idx)
+            pilot append_right_idx = word_to_int(append_right)
+            pilot append_right_kind: word = array_get(ast_expr_kinds, append_right_idx)
+            pilot safe_global_suffix = append_right_kind == EXPR_STR or append_right_kind == EXPR_IDENT
+            pilot can_append = append_left_kind == EXPR_IDENT and append_left_name == var_name_expr
+            if llvm_is_global(var_name_expr) and not safe_global_suffix { can_append = false }
+            if can_append {
+                pilot previous_reg = next_reg()
+                llvm_emit_line("    " + previous_reg + " = load i64, i64* " + var_ptr)
+                pilot suffix_reg = llvm_emit_expr(append_right)
+                pilot release_suffix = "0"
+                if llvm_word_expr_is_owned_temporary(append_right) { release_suffix = "1" }
+                pilot appended_reg = next_reg()
+                llvm_emit_line("    " + appended_reg + " = call i64 @freak_llvm_word_append_owned(i64 " + previous_reg + ", i64 " + suffix_reg + ", i64 " + release_suffix + ")")
+                llvm_emit_line("    store i64 " + appended_reg + ", i64* " + var_ptr)
+                give back
+            }
+        }
+    }
+    pilot reg = llvm_emit_expr(rhs_w)
+    pilot stored_reg = reg
     if name_w == "=" {
         if target_type.starts_with("n") { stored_reg = llvm_coerce_num_bits(reg, rhs_w) }
         if target_type.starts_with("w") {
@@ -2160,6 +2187,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_llvm_word_from_bool(i64)")
     llvm_emit_line("declare i64 @freak_llvm_char_to_word(i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_concat(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_word_append_owned(i64, i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_clone(i64)")
     llvm_emit_line("declare void @freak_llvm_word_release_replaced(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_eq(i64, i64)")
