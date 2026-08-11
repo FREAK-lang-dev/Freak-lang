@@ -147,6 +147,7 @@ pilot parse_error_count = 0
 pilot error_count = 0
 pilot next_expr_id = 0
 pilot next_stmt_id = 0
+pilot bc_current_source_file = ""
 
 -- ===================== EMIT STATE ==================================
 -- v3 KEY CHANGE: out_file replaces out_buf. All emit() calls

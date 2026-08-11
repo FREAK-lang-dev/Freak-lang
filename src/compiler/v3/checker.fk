@@ -112,18 +112,21 @@ task bc_leave_scope() -> void {
 }
 
 -- ---------- Diagnostic emission -------------------------------------
--- diag_error in helpers.fk reads the current parse_idx to point at a
--- token. The borrow checker runs after parsing, so parse_idx is past
--- the end. We emit a free-form line so the user gets the message even
--- without a caret, and bump error_count directly.
+-- The borrow checker runs after parsing, so diagnostics use the current
+-- statement's stored source provenance rather than the exhausted token cursor.
 
 task bc_diag(msg: word, name: word, line: int) -> void {
     error_count += 1
-    pilot loc: word = ""
-    if line > 0 { loc = " (line " + word_from_int(line) + ")" }
+    if line <= 0 { line = 1 }
+    pilot source_file = bc_current_source_file
+    if source_file == "" { source_file = input_file }
     pilot at_name: word = ""
     if name != "" { at_name = " '" + name + "'" }
-    say "\x1b[1;31mborrowck\x1b[0m: " + msg + at_name + loc
+    pilot line_word = word_from_int(line)
+    say "\x1b[1;31mborrowck\x1b[0m: " + msg + at_name + " (line " + line_word + ")"
+    say " --> " + source_file + ":" + line_word + ":1"
+    say line_word + " | " + get_file_source_line(source_file, line)
+    say "  | ^"
 }
 
 -- Anime-voiced canonical messages from Bible §4.1, §4.2.
@@ -241,6 +244,7 @@ task bc_walk_stmt(stmt_id: int) -> void {
     -- scoped to the requested user file, selected by exact statement origin.
     pilot stmt_file: word = array_get(ast_stmt_files, stmt_id)
     if source_line_offset > 0 and stmt_file != input_file { give back }
+    bc_current_source_file = stmt_file
 
     if kind == STMT_PILOT {
         pilot name: word = array_get(ast_stmt_names, stmt_id)

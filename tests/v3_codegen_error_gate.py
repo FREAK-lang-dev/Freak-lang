@@ -104,10 +104,6 @@ def load_negative_corpus(repo: Path) -> list[NegativeCase]:
             f"negative case {name} has invalid flags"
         )
         assert isinstance(direct, bool), f"negative case {name} has invalid direct flag"
-        assert not direct or not flags, (
-            f"direct stage case {name} cannot require CLI-only flags"
-        )
-
         source = corpus / file_name
         assert source.is_file(), f"negative corpus source missing: {source}"
         names.add(name)
@@ -192,6 +188,59 @@ def assert_checker_callable_index(repo: Path) -> None:
         assert "ast_top_stmts" not in body, f"{task_name} still rescans every top-level statement"
 
 
+def assert_parser_required_token_contract(repo: Path) -> None:
+    parser = (repo / "src/compiler/v3/parser.fk").read_text(encoding="utf-8")
+    required_contexts = (
+        "namespace segment after '::'",
+        "shape constructor field",
+        "member name",
+        "pipe target",
+        "annotation name",
+        "fixed binding name",
+        "fixed binding type",
+        "binding name",
+        "binding type",
+        "parameter name",
+        "parameter type",
+        "shape name",
+        "shape field name",
+        "shape field type",
+        "impl target",
+        "impl owner",
+        "impl method name",
+        "impl method return type",
+        "extern task name",
+        "extern parameter name",
+        "extern parameter type",
+        "extern return type",
+        "task name",
+        "task return type",
+    )
+    for context in required_contexts:
+        assert f'parser_take_ident("{context}")' in parser, (
+            f"required parser token bypasses parser_take_ident: {context}"
+        )
+
+    delimiter_contexts = (
+        "shape constructor",
+        "call argument list",
+        "parenthesized expression",
+        "array literal",
+        "method argument list",
+        "index expression",
+        "pipe argument list",
+        "parameter list",
+        "shape declaration",
+        "impl declaration",
+        "when expression",
+        "extern parameter list",
+    )
+    for context in delimiter_contexts:
+        assert f'parser_diag_unclosed_at("{context}"' in parser, (
+            f"delimiter EOF diagnostic lacks opener provenance: {context}"
+        )
+
+
 def run(
     freak: Path,
     repo: Path,
@@ -272,9 +321,12 @@ def main() -> int:
             direct_compiler = stage_candidate.resolve()
     if direct_compiler is not None:
         assert direct_compiler.is_file(), f"direct V3 compiler not found: {direct_compiler}"
+    elif os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+        raise AssertionError("CI requires the current direct V3 stage compiler")
     assert_builtin_signature_parity(repo)
     assert_ci_shell_contract(repo)
     assert_checker_callable_index(repo)
+    assert_parser_required_token_contract(repo)
     negative_cases = load_negative_corpus(repo)
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-codegen-gate-") as tmp:
@@ -300,6 +352,10 @@ def main() -> int:
             )
             assert_check_rejected(checked, case.name)
             assert case.diagnostic in (checked.stdout + checked.stderr).lower()
+            if case.kind == "borrow":
+                checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
+                assert f"/{malformed.name}:6:1" in checked_output, checked_output
+                assert '6 |     name = "Meiya"' in checked_output, checked_output
             assert_outputs_preserved(check_outputs, f"{case.name} check")
             for output in dict.fromkeys(check_outputs):
                 output.unlink()
@@ -383,13 +439,14 @@ def main() -> int:
                     artifact = Path(str(malformed) + suffix)
                     seed_stale_outputs(artifact)
                     rejected = run_direct_compiler(
-                        direct_compiler, repo, str(malformed), flag
+                        direct_compiler, repo, str(malformed), flag, *case.flags
                     )
                     output = rejected.stdout + rejected.stderr
                     assert rejected.returncode != 0, (
                         f"direct {backend} accepted {case.name}\n{output}"
                     )
                     assert "error" in output.lower(), output
+                    assert case.diagnostic in output.lower(), output
                     assert_outputs_absent(
                         (artifact,), f"direct {backend} {case.name}"
                     )
@@ -430,6 +487,82 @@ def main() -> int:
                 (artifact, missing_binary, missing_cache),
                 f"{backend} unreadable CLI build",
             )
+
+            legacy_artifact = Path(str(cli_missing) + suffix)
+            seed_stale_outputs(legacy_artifact)
+            legacy_unreadable = subprocess.run(
+                [str(freak), str(cli_missing), flag],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                check=False,
+            )
+            assert legacy_unreadable.returncode != 0
+            assert_unreadable_diagnostic(
+                legacy_unreadable.stdout + legacy_unreadable.stderr,
+                f"{backend} unreadable legacy CLI",
+            )
+            assert_outputs_absent(
+                (legacy_artifact,), f"{backend} unreadable legacy CLI"
+            )
+
+        blocked_cleanup = tmp_path / "blocked_cleanup.fk"
+        blocked_cleanup.write_text('say "never emitted"\n', encoding="utf-8")
+        for backend, flag, suffix in (
+            ("LLVM", "--llvm", ".ll"),
+            ("C", "--c", ".c"),
+        ):
+            blocked_artifact = Path(str(blocked_cleanup) + suffix)
+            blocked_artifact.mkdir()
+            blocked_result = run(
+                freak, repo, blocked_cleanup, "transpile", flag, timeout=10
+            )
+            blocked_output = blocked_result.stdout + blocked_result.stderr
+            assert blocked_result.returncode != 0, blocked_output
+            assert "untrusted stale artifact" in blocked_output.lower(), blocked_output
+            assert blocked_artifact.is_dir(), blocked_artifact
+            blocked_artifact.rmdir()
+
+        blocked_binary = derived_binary(blocked_cleanup)
+        blocked_binary.mkdir()
+        blocked_binary_result = run(
+            freak, repo, blocked_cleanup, "build", "--c", timeout=10
+        )
+        blocked_binary_output = (
+            blocked_binary_result.stdout + blocked_binary_result.stderr
+        )
+        assert blocked_binary_result.returncode != 0, blocked_binary_output
+        assert "untrusted stale artifact" in blocked_binary_output.lower()
+        assert blocked_binary.is_dir(), blocked_binary
+        blocked_binary.rmdir()
+
+        blocked_cache = run_cache(blocked_binary)
+        blocked_cache.mkdir()
+        blocked_cache_result = run(
+            freak, repo, blocked_cleanup, "build", "--c", timeout=10
+        )
+        blocked_cache_output = blocked_cache_result.stdout + blocked_cache_result.stderr
+        assert blocked_cache_result.returncode != 0, blocked_cache_output
+        assert "untrusted stale artifact" in blocked_cache_output.lower()
+        assert blocked_cache.is_dir(), blocked_cache
+        blocked_cache.rmdir()
+
+        if direct_compiler is not None:
+            blocked_direct = Path(str(blocked_cleanup) + ".c")
+            blocked_direct.mkdir()
+            direct_blocked_result = run_direct_compiler(
+                direct_compiler, repo, str(blocked_cleanup), "--c"
+            )
+            direct_blocked_output = (
+                direct_blocked_result.stdout + direct_blocked_result.stderr
+            )
+            assert direct_blocked_result.returncode != 0, direct_blocked_output
+            assert "untrusted stale artifact" in direct_blocked_output.lower()
+            assert blocked_direct.is_dir(), blocked_direct
+            blocked_direct.rmdir()
 
         abi_source = tmp_path / "preflight_abi_failure.fk"
         abi_source.write_text('say "never compiled"\n', encoding="utf-8")
@@ -475,11 +608,22 @@ def main() -> int:
             rejected = run(
                 freak, repo, non_fk_source, "build", flag, timeout=10
             )
-            assert_rejected(rejected, f"{backend} non-.fk cleanup guard")
+            output = rejected.stdout + rejected.stderr
+            assert rejected.returncode != 0, output
+            assert "source path must end in .fk" in output.lower(), output
             assert non_fk_source.read_text(encoding="utf-8") == non_fk_text
-            assert_outputs_absent(
-                (artifact,), f"{backend} non-.fk backend output"
-            )
+            assert_outputs_preserved((artifact,), f"{backend} non-.fk neighbor")
+
+            if direct_compiler is not None:
+                direct_non_fk = run_direct_compiler(
+                    direct_compiler, repo, str(non_fk_source), flag
+                )
+                direct_non_fk_output = direct_non_fk.stdout + direct_non_fk.stderr
+                assert direct_non_fk.returncode != 0, direct_non_fk_output
+                assert "source path must end in .fk" in direct_non_fk_output.lower()
+                assert_outputs_preserved(
+                    (artifact,), f"direct {backend} non-.fk neighbor"
+                )
 
         scale_source = tmp_path / "callable_index_scale.fk"
         scale_source.write_text(
@@ -628,6 +772,19 @@ def main() -> int:
         )
         assert "malformed-stdlib-home/std/version.fk:1:" in unclosed_output
         assert "1 | task broken_std() {" in unclosed_output
+
+        broken_version.write_text(
+            "task broken_std() { say helper(", encoding="utf-8"
+        )
+        std_user.write_text("-- user source remains intentionally token-free\n", encoding="utf-8")
+        delimiter_result = run(freak, repo, std_user, "build", "--c", env=std_env)
+        assert_rejected(delimiter_result, "installed std delimiter opener origin")
+        delimiter_output = (
+            delimiter_result.stdout + delimiter_result.stderr
+        ).replace("\\", "/")
+        assert "unexpected end of file inside call argument list" in delimiter_output
+        assert "malformed-stdlib-home/std/version.fk:1:" in delimiter_output
+        assert "1 | task broken_std() { say helper(" in delimiter_output
 
         nominal_shadow_ok = tmp_path / "nominal_shadow_ok.fk"
         nominal_shadow_ok.write_text(

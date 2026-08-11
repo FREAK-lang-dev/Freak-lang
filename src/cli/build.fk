@@ -81,16 +81,52 @@ task cli_backend_output_path(src_file: word, target: word) -> word {
     give back src_file + ".c"
 }
 
-task cli_invalidate_backend_output(src_file: word, target: word) -> void {
+task cli_report_untrusted_stale_artifact(artifact: word) -> void {
+    say ""
+    say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " untrusted stale artifact could not be removed: " + C_BWHITE + artifact + C_RESET
+    say "  " + C_DIM + "Remove it manually, then retry. No compiler stage was run." + C_RESET
+    say ""
+}
+
+task cli_delete_derived_artifact(artifact: word) -> bool {
+    if not fs::exists(artifact) { give back true }
+    fs::delete(artifact)
+    if fs::exists(artifact) {
+        cli_report_untrusted_stale_artifact(artifact)
+        give back false
+    }
+    give back true
+}
+
+task cli_invalidate_backend_output(src_file: word, target: word) -> bool {
     pilot artifact = cli_backend_output_path(src_file, target)
-    if fs::exists(artifact) { fs::delete(artifact) }
+    -- Only a .fk input makes `<input>.c` / `<input>.ll` unambiguously
+    -- compiler-derived. Never remove a neighboring file for an extensionless
+    -- or otherwise non-.fk path supplied by the user.
+    if not src_file.ends_with(".fk") {
+        say ""
+        say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " source path must end in .fk: " + C_BWHITE + src_file + C_RESET
+        say "  " + C_DIM + "Neighboring outputs are untrusted and were preserved." + C_RESET
+        say ""
+        give back false
+    }
+    give back cli_delete_derived_artifact(artifact)
+}
+
+task cli_invalidate_build_outputs(src_file: word) -> bool {
+    if not src_file.ends_with(".fk") { give back false }
+    pilot binary = cli_binary_path(src_file)
+    pilot cache_file = binary + ".freak-run-cache"
+    if not cli_delete_derived_artifact(binary) { give back false }
+    if not cli_delete_derived_artifact(cache_file) { give back false }
+    give back true
 }
 
 task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
     -- An output from an older invocation is not evidence that this invocation
     -- succeeded. Remove the selected backend artifact before any frontend work.
-    cli_invalidate_backend_output(src_file, target)
+    if not cli_invalidate_backend_output(src_file, target) { give back "" }
     input_file = src_file
     if source_line_offset <= 0 { diagnostic_source = source }
     if source_map_count == 0 {
@@ -1085,13 +1121,8 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     -- Invalidate every output this explicit build can safely derive before its
     -- first failure return. `cli_binary_path` equals the input on POSIX when
     -- the source does not end in .fk, so never apply binary cleanup there.
-    cli_invalidate_backend_output(src_file, target)
-    if src_file.ends_with(".fk") {
-        pilot stale_binary = cli_binary_path(src_file)
-        pilot run_cache_file = cli_binary_path(src_file) + ".freak-run-cache"
-        if fs::exists(stale_binary) { fs::delete(stale_binary) }
-        if fs::exists(run_cache_file) { fs::delete(run_cache_file) }
-    }
+    if not cli_invalidate_backend_output(src_file, target) { give back "" }
+    if not cli_invalidate_build_outputs(src_file) { give back "" }
 
     if not cli_build_environment_ready() { give back "" }
 

@@ -272,7 +272,9 @@ task freakc_cli_main() -> void {
             -- Transpile only
             -- Even an unreadable input invalidates the selected output from a
             -- prior invocation. cli_transpile repeats this at frontend entry.
-            cli_invalidate_backend_output(src_file, target)
+            if not cli_invalidate_backend_output(src_file, target) {
+                process::exit(1)
+            }
             pilot source: word = fs::read(src_file)
             if source == "" {
                 say ""
@@ -359,6 +361,9 @@ task freakc_cli_main() -> void {
         pilot flags: word = cli_parse_flags(2, args_cnt)
         pilot target: word = cli_extract_flag(flags, 0)
 
+        if not cli_invalidate_backend_output(subcmd, target) {
+            process::exit(1)
+        }
         pilot source: word = fs::read(subcmd)
         if source == "" {
             say ""

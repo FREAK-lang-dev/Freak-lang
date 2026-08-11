@@ -7,8 +7,12 @@ for the shipping V3 frontend's truthful-failure contract:
   `PASSED`;
 - C and LLVM transpile/build paths never emit a fresh artifact or binary after
   a lexer, parser, type, or strict-borrow failure;
-- a rejected transpile or build removes older selected artifacts so stale
-  output cannot be mistaken for the result of the rejected invocation.
+- a rejected transpile or build removes older `.fk`-derived artifacts so stale
+  output cannot be mistaken for the result of the rejected invocation;
+- non-`.fk` neighboring files are never treated as compiler-owned cleanup
+  targets, and a derived artifact that cannot be removed fails closed;
+- standalone-stage type and strict-borrow cases run for both backends, with
+  source-aware diagnostic oracles.
 
 `manifest.json` is the inventory and diagnostic oracle. Its schema is
 `freak-v3-negative-corpus-v1`. Each entry records a unique case name, failure

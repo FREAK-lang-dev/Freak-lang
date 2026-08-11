@@ -5,7 +5,126 @@
       "name": "dangling_namespace",
       "kind": "parse",
       "file": "dangling_namespace.fk",
-      "diagnostic": "expected an identifier after '::'",
+      "diagnostic": "expected an identifier for namespace segment after '::'",
+      "direct": true
+    },
+    {
+      "name": "required_expression_eof",
+      "kind": "parse",
+      "file": "required_expression_eof.fk",
+      "diagnostic": "expected an expression, found end of file",
+      "direct": true
+    },
+    {
+      "name": "pipe_target_eof",
+      "kind": "parse",
+      "file": "pipe_target_eof.fk",
+      "diagnostic": "expected an identifier for pipe target",
+      "direct": true
+    },
+    {
+      "name": "unexpected_impl_member",
+      "kind": "parse",
+      "file": "unexpected_impl_member.fk",
+      "diagnostic": "inside impl declaration",
+      "direct": true
+    },
+    {
+      "name": "malformed_hex_escape",
+      "kind": "lex",
+      "file": "malformed_hex_escape.fk",
+      "diagnostic": "malformed hex escape",
+      "direct": true
+    },
+    {
+      "name": "invalid_annotation_name",
+      "kind": "parse",
+      "file": "invalid_annotation_name.fk",
+      "diagnostic": "expected an identifier for annotation name",
+      "direct": true
+    },
+    {
+      "name": "invalid_binding_name",
+      "kind": "parse",
+      "file": "invalid_binding_name.fk",
+      "diagnostic": "expected an identifier for binding name",
+      "direct": true
+    },
+    {
+      "name": "invalid_binding_type",
+      "kind": "parse",
+      "file": "invalid_binding_type.fk",
+      "diagnostic": "expected an identifier for binding type",
+      "direct": true
+    },
+    {
+      "name": "invalid_shape_name",
+      "kind": "parse",
+      "file": "invalid_shape_name.fk",
+      "diagnostic": "expected an identifier for shape name",
+      "direct": true
+    },
+    {
+      "name": "invalid_shape_field",
+      "kind": "parse",
+      "file": "invalid_shape_field.fk",
+      "diagnostic": "expected an identifier for shape field name",
+      "direct": true
+    },
+    {
+      "name": "invalid_task_name",
+      "kind": "parse",
+      "file": "invalid_task_name.fk",
+      "diagnostic": "expected an identifier for task name",
+      "direct": true
+    },
+    {
+      "name": "invalid_parameter_name",
+      "kind": "parse",
+      "file": "invalid_parameter_name.fk",
+      "diagnostic": "expected an identifier for parameter name",
+      "direct": true
+    },
+    {
+      "name": "invalid_parameter_type",
+      "kind": "parse",
+      "file": "invalid_parameter_type.fk",
+      "diagnostic": "expected an identifier for parameter type",
+      "direct": true
+    },
+    {
+      "name": "invalid_return_type",
+      "kind": "parse",
+      "file": "invalid_return_type.fk",
+      "diagnostic": "expected an identifier for task return type",
+      "direct": true
+    },
+    {
+      "name": "invalid_impl_method_name",
+      "kind": "parse",
+      "file": "invalid_impl_method_name.fk",
+      "diagnostic": "expected an identifier for impl method name",
+      "direct": true
+    },
+    {
+      "name": "invalid_extern_signature",
+      "kind": "parse",
+      "file": "invalid_extern_signature.fk",
+      "diagnostic": "expected an identifier for extern task name",
+      "direct": true
+    },
+    {
+      "name": "invalid_shape_constructor_field",
+      "kind": "parse",
+      "file": "invalid_shape_constructor_field.fk",
+      "diagnostic": "expected an identifier for shape constructor field",
+      "direct": true
+    },
+    {
+      "name": "invalid_member_name",
+      "kind": "parse",
+      "file": "invalid_member_name.fk",
+      "diagnostic": "expected an identifier for member name",
       "direct": true
     },
     {
@@ -89,7 +208,8 @@
       "name": "unknown_receiver_field",
       "kind": "type",
       "file": "unknown_receiver_field.fk",
-      "diagnostic": "cannot resolve the receiver type for field 'value'"
+      "diagnostic": "cannot resolve the receiver type for field 'value'",
+      "direct": true
     },
     {
       "name": "immutable_reassignment",
@@ -98,7 +218,8 @@
       "diagnostic": "cannot be reassigned",
       "flags": [
         "--strict-borrow"
-      ]
+      ],
+      "direct": true
     }
   ]
 }

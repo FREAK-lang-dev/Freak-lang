@@ -16,8 +16,35 @@ task parser_at_eof() -> bool {
     give back cur_tok_type() == TOK_EOF or cur_tok_type() == ""
 }
 
-task parser_diag_unclosed(context: word, closer: word) -> void {
-    diag_error("unexpected end of file inside " + context, "expected '" + closer + "'")
+task current_source_col() -> int {
+    if parse_idx < 0 or parse_idx >= tokens_count { give back 1 }
+    pilot col = word_to_int(array_get(tok_cols, parse_idx))
+    if col <= 0 { col = 1 }
+    give back col
+}
+
+task parser_diag_unclosed_at(context: word, closer: word, opener_file: word, opener_line: int, opener_col: int) -> void {
+    diag_error_at(
+        "unexpected end of file inside " + context,
+        "expected '" + closer + "' for opener here",
+        opener_file,
+        opener_line,
+        opener_col
+    )
+}
+
+task parser_take_ident(context: word) -> word {
+    if cur_tok_type() == TOK_IDENT {
+        pilot value = cur_tok_val()
+        advance_tok()
+        give back value
+    }
+    diag_error(
+        "expected an identifier for " + context + ", found " + friendly_tok(cur_tok_type(), cur_tok_val()),
+        "use an identifier here"
+    )
+    if not parser_at_eof() { advance_tok() }
+    give back ""
 }
 
 task advance_tok() -> void {
@@ -78,7 +105,10 @@ task parse_primary() -> int {
     pilot ttype = cur_tok_type()
     pilot tval = cur_tok_val()
 
-    if ttype == TOK_EOF or ttype == "" { give back 0 - 1 }
+    if ttype == TOK_EOF or ttype == "" {
+        diag_error("expected an expression, found end of file", "complete the expression")
+        give back 0 - 1
+    }
 
     if ttype == TOK_NUM {
         advance_tok()
@@ -105,18 +135,17 @@ task parse_primary() -> int {
 
         -- Namespace: foo::bar
         if match_tok(TOK_PUNCT, "::") {
-            pilot nttype = cur_tok_type()
-            pilot ntval = cur_tok_val()
-            if nttype == TOK_IDENT {
+            pilot ntval = parser_take_ident("namespace segment after '::'")
+            if ntval != "" {
                 tval = tval + "::" + ntval
-                advance_tok()
-            } else {
-                diag_error("expected an identifier after '::'", "complete the namespace path")
             }
         }
         -- Shape constructor: Name { field: val, ... }
         if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "{" {
             if is_shape_name(tval) {
+                pilot ctor_file = current_source_file()
+                pilot ctor_line = word_to_int(current_source_line())
+                pilot ctor_col = current_source_col()
                 advance_tok()
                 pilot val_ids = ""
                 pilot cfin = false
@@ -124,11 +153,10 @@ task parse_primary() -> int {
                 if match_tok(TOK_PUNCT, "}") { cfin = true }
                 repeat until cfin {
                     if parser_at_eof() {
-                        parser_diag_unclosed("shape constructor", "}")
+                        parser_diag_unclosed_at("shape constructor", "}", ctor_file, ctor_line, ctor_col)
                         cfin = true
                     } else {
-                        pilot fname = cur_tok_val()
-                        advance_tok()
+                        pilot fname = parser_take_ident("shape constructor field")
                         expect_tok(TOK_PUNCT, ":")
                         pilot fval_id = parse_expr()
                         if cis_first {
@@ -139,7 +167,7 @@ task parse_primary() -> int {
                         }
                         if match_tok(TOK_PUNCT, "}") { cfin = true }
                         else if parser_at_eof() {
-                            parser_diag_unclosed("shape constructor", "}")
+                            parser_diag_unclosed_at("shape constructor", "}", ctor_file, ctor_line, ctor_col)
                             cfin = true
                         } else { expect_tok(TOK_PUNCT, ",") }
                     }
@@ -149,14 +177,18 @@ task parse_primary() -> int {
         }
 
         -- Function call: name(args)
-        if match_tok(TOK_PUNCT, "(") {
+        if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "(" {
+            pilot call_file = current_source_file()
+            pilot call_line = word_to_int(current_source_line())
+            pilot call_col = current_source_col()
+            advance_tok()
             pilot args = ""
             pilot fin = false
             pilot is_first = true
             if match_tok(TOK_PUNCT, ")") { fin = true }
             repeat until fin {
                 if parser_at_eof() {
-                    parser_diag_unclosed("call argument list", ")")
+                    parser_diag_unclosed_at("call argument list", ")", call_file, call_line, call_col)
                     fin = true
                 } else {
                     pilot arg_id = parse_expr()
@@ -168,7 +200,7 @@ task parse_primary() -> int {
                     }
                     if match_tok(TOK_PUNCT, ")") { fin = true }
                     else if parser_at_eof() {
-                        parser_diag_unclosed("call argument list", ")")
+                        parser_diag_unclosed_at("call argument list", ")", call_file, call_line, call_col)
                         fin = true
                     } else { expect_tok(TOK_PUNCT, ",") }
                 }
@@ -181,9 +213,16 @@ task parse_primary() -> int {
 
     -- Parenthesized expression
     if ttype == TOK_PUNCT and tval == "(" {
+        pilot paren_file = current_source_file()
+        pilot paren_line = word_to_int(current_source_line())
+        pilot paren_col = current_source_col()
         advance_tok()
         pilot inner = parse_expr()
-        expect_tok(TOK_PUNCT, ")")
+        if parser_at_eof() {
+            parser_diag_unclosed_at("parenthesized expression", ")", paren_file, paren_line, paren_col)
+        } else {
+            expect_tok(TOK_PUNCT, ")")
+        }
         give back inner
     }
 
@@ -192,6 +231,9 @@ task parse_primary() -> int {
     -- separated list of word-from-int ids in `left`.  Lowering happens
     -- in the emitters: array_new() then array_push() per element.
     if ttype == TOK_PUNCT and tval == "[" {
+        pilot array_file = current_source_file()
+        pilot array_line = word_to_int(current_source_line())
+        pilot array_col = current_source_col()
         advance_tok()
         pilot elem_ids = ""
         pilot afin = false
@@ -199,7 +241,7 @@ task parse_primary() -> int {
         if match_tok(TOK_PUNCT, "]") { afin = true }
         repeat until afin {
             if parser_at_eof() {
-                parser_diag_unclosed("array literal", "]")
+                parser_diag_unclosed_at("array literal", "]", array_file, array_line, array_col)
                 afin = true
             }
             else {
@@ -212,7 +254,7 @@ task parse_primary() -> int {
                 }
                 if match_tok(TOK_PUNCT, "]") { afin = true }
                 else if parser_at_eof() {
-                    parser_diag_unclosed("array literal", "]")
+                    parser_diag_unclosed_at("array literal", "]", array_file, array_line, array_col)
                     afin = true
                 } else { expect_tok(TOK_PUNCT, ",") }
             }
@@ -232,10 +274,12 @@ task parse_postfix() -> int {
         if match_tok(TOK_PUNCT, ".") {
             pilot member_line = current_source_line()
             pilot member_file = current_source_file()
-            pilot mname = cur_tok_val()
-            expect_tok(TOK_IDENT, "")
+            pilot mname = parser_take_ident("member name")
             if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "(" {
                 -- Method call: .name(args)
+                pilot method_file = current_source_file()
+                pilot method_line = word_to_int(current_source_line())
+                pilot method_col = current_source_col()
                 advance_tok()
                 pilot args = ""
                 pilot argfin = false
@@ -243,7 +287,7 @@ task parse_postfix() -> int {
                 if match_tok(TOK_PUNCT, ")") { argfin = true }
                 repeat until argfin {
                     if parser_at_eof() {
-                        parser_diag_unclosed("method argument list", ")")
+                        parser_diag_unclosed_at("method argument list", ")", method_file, method_line, method_col)
                         argfin = true
                     }
                     else {
@@ -256,7 +300,7 @@ task parse_postfix() -> int {
                         }
                         if match_tok(TOK_PUNCT, ")") { argfin = true }
                         else if parser_at_eof() {
-                            parser_diag_unclosed("method argument list", ")")
+                            parser_diag_unclosed_at("method argument list", ")", method_file, method_line, method_col)
                             argfin = true
                         } else { expect_tok(TOK_PUNCT, ",") }
                     }
@@ -272,28 +316,39 @@ task parse_postfix() -> int {
                 array_set(ast_expr_files, field_id, member_file)
                 left = field_id
             }
-        } else if match_tok(TOK_PUNCT, "[") {
+        } else if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "[" {
+            pilot index_file = current_source_file()
+            pilot index_line = word_to_int(current_source_line())
+            pilot index_col = current_source_col()
+            advance_tok()
             pilot idx_expr = parse_expr()
-            expect_tok(TOK_PUNCT, "]")
+            if parser_at_eof() {
+                parser_diag_unclosed_at("index expression", "]", index_file, index_line, index_col)
+            } else {
+                expect_tok(TOK_PUNCT, "]")
+            }
             left = alloc_expr(EXPR_INDEX, "", word_from_int(left), word_from_int(idx_expr))
         } else if match_tok(TOK_PUNCT, "|>") {
             -- Pipe: a |> f(args) => f(a, args)
-            pilot fname = cur_tok_val()
-            advance_tok()
+            pilot fname = parser_take_ident("pipe target")
             pilot pipe_args = word_from_int(left)
-            if match_tok(TOK_PUNCT, "(") {
+            if cur_tok_type() == TOK_PUNCT and cur_tok_val() == "(" {
+                pilot pipe_file = current_source_file()
+                pilot pipe_line = word_to_int(current_source_line())
+                pilot pipe_col = current_source_col()
+                advance_tok()
                 if not match_tok(TOK_PUNCT, ")") {
                     pilot pfin = false
                     repeat until pfin {
                         if parser_at_eof() {
-                            parser_diag_unclosed("pipe argument list", ")")
+                            parser_diag_unclosed_at("pipe argument list", ")", pipe_file, pipe_line, pipe_col)
                             pfin = true
                         } else {
                             pilot parg_id = parse_expr()
                             pipe_args = pipe_args + "," + word_from_int(parg_id)
                             if match_tok(TOK_PUNCT, ")") { pfin = true }
                             else if parser_at_eof() {
-                                parser_diag_unclosed("pipe argument list", ")")
+                                parser_diag_unclosed_at("pipe argument list", ")", pipe_file, pipe_line, pipe_col)
                                 pfin = true
                             } else { expect_tok(TOK_PUNCT, ",") }
                         }
@@ -452,7 +507,7 @@ task parse_stmt() -> int {
     -- Skip @annotations
     if ttype == TOK_PUNCT and tval == "@" {
         advance_tok()
-        advance_tok()
+        parser_take_ident("annotation name")
         ttype = cur_tok_type()
         tval = cur_tok_val()
     }
@@ -489,13 +544,11 @@ task parse_stmt() -> int {
         if not match_tok(TOK_KW, "pilot") {
             diag_error("expected 'pilot' after 'fixed'", "")
         }
-        pilot fname = cur_tok_val()
-        advance_tok()
+        pilot fname = parser_take_ident("fixed binding name")
         pilot ftype_ann = ""
         if cur_tok_type() == TOK_PUNCT and cur_tok_val() == ":" {
             advance_tok()
-            ftype_ann = cur_tok_val()
-            advance_tok()
+            ftype_ann = parser_take_ident("fixed binding type")
         }
         expect_tok(TOK_PUNCT, "=")
         pilot fexpr_id = parse_expr()
@@ -506,13 +559,11 @@ task parse_stmt() -> int {
     if match_tok(TOK_KW, "pilot") {
         pilot is_mut = false
         if match_tok(TOK_KW, "mut") { is_mut = true }
-        pilot name = cur_tok_val()
-        advance_tok()
+        pilot name = parser_take_ident("binding name")
         pilot type_ann = ""
         if cur_tok_type() == TOK_PUNCT and cur_tok_val() == ":" {
             advance_tok()
-            type_ann = cur_tok_val()
-            advance_tok()
+            type_ann = parser_take_ident("binding type")
         }
         expect_tok(TOK_PUNCT, "=")
         pilot expr_id = parse_expr()
@@ -633,18 +684,17 @@ task parse_stmt() -> int {
 -- ===================== HELPER PARSE TASKS ============================
 -- v3: Split out from parse_stmt to keep functions short.
 
-task parse_params() -> word {
+task parse_params(opener_file: word, opener_line: int, opener_col: int) -> word {
     pilot params = ""
     pilot fin = false
     pilot is_first = true
     if match_tok(TOK_PUNCT, ")") { fin = true }
     repeat until fin {
         if cur_tok_type() == TOK_EOF or cur_tok_type() == "" {
-            diag_error("unexpected end of file inside parameter list", "")
+            parser_diag_unclosed_at("parameter list", ")", opener_file, opener_line, opener_col)
             fin = true
         } else {
-            pilot pname = cur_tok_val()
-            advance_tok()
+            pilot pname = parser_take_ident("parameter name")
             if pname == "self" {
                 if match_tok(TOK_PUNCT, ")") { fin = true }
                 else { expect_tok(TOK_PUNCT, ",") }
@@ -656,8 +706,7 @@ task parse_params() -> word {
                 }
             } else {
                 expect_tok(TOK_PUNCT, ":")
-                pilot ptype = cur_tok_val()
-                advance_tok()
+                pilot ptype = parser_take_ident("parameter type")
                 pilot pstr = pname + ":" + ptype
                 if is_first {
                     params = pstr
@@ -675,8 +724,10 @@ task parse_params() -> word {
 
 task parse_shape() -> int {
     pilot stmt_line = current_source_location()
-    pilot shape_name = cur_tok_val()
-    advance_tok()
+    pilot shape_name = parser_take_ident("shape name")
+    pilot shape_file = current_source_file()
+    pilot shape_line = word_to_int(current_source_line())
+    pilot shape_col = current_source_col()
     expect_tok(TOK_PUNCT, "{")
     pilot fields = ""
     pilot sfin = false
@@ -685,14 +736,12 @@ task parse_shape() -> int {
         if match_tok(TOK_PUNCT, "}") {
             sfin = true
         } else if parser_at_eof() {
-            parser_diag_unclosed("shape declaration", "}")
+            parser_diag_unclosed_at("shape declaration", "}", shape_file, shape_line, shape_col)
             sfin = true
         } else {
-            pilot fname = cur_tok_val()
-            advance_tok()
+            pilot fname = parser_take_ident("shape field name")
             expect_tok(TOK_PUNCT, ":")
-            pilot ftype = cur_tok_val()
-            advance_tok()
+            pilot ftype = parser_take_ident("shape field type")
             if sis_first {
                 fields = fname + ":" + ftype
                 sis_first = false
@@ -709,18 +758,19 @@ task parse_shape() -> int {
 }
 
 task parse_impl() -> int {
-    pilot doctrine_name = cur_tok_val()
-    pilot impl_name = doctrine_name
     pilot stmt_line = current_source_location()
-    advance_tok()
+    pilot doctrine_name = parser_take_ident("impl target")
+    pilot impl_name = doctrine_name
     -- Doctrine implementations use `impl Doctrine for Shape`.  Methods are
     -- nominally owned by the shape, not by the doctrine: several shapes may
     -- implement Add/Eq without colliding in the native symbol namespace.
     -- Keep accepting the legacy/direct `impl Shape { ... }` form.
     if match_tok(TOK_KW, "for") {
-        impl_name = cur_tok_val()
-        advance_tok()
+        impl_name = parser_take_ident("impl owner")
     }
+    pilot impl_file = current_source_file()
+    pilot impl_line = word_to_int(current_source_line())
+    pilot impl_col = current_source_col()
     expect_tok(TOK_PUNCT, "{")
 
     pilot impl_fin = false
@@ -728,13 +778,15 @@ task parse_impl() -> int {
         if match_tok(TOK_PUNCT, "}") {
             impl_fin = true
         } else if parser_at_eof() {
-            parser_diag_unclosed("impl declaration", "}")
+            parser_diag_unclosed_at("impl declaration", "}", impl_file, impl_line, impl_col)
             impl_fin = true
         } else if match_tok(TOK_KW, "task") {
-            pilot mname = cur_tok_val()
-            advance_tok()
+            pilot mname = parser_take_ident("impl method name")
+            pilot params_file = current_source_file()
+            pilot params_line = word_to_int(current_source_line())
+            pilot params_col = current_source_col()
             expect_tok(TOK_PUNCT, "(")
-            pilot params = parse_params()
+            pilot params = parse_params(params_file, params_line, params_col)
             -- `self` is parsed generically, then specialized here once the
             -- owning impl shape is known. Emitters can now resolve duplicate
             -- field and method names through the receiver's actual shape.
@@ -746,8 +798,7 @@ task parse_impl() -> int {
             }
             pilot ret_type = "void"
             if match_tok(TOK_PUNCT, "->") {
-                ret_type = cur_tok_val()
-                advance_tok()
+                ret_type = parser_take_ident("impl method return type")
             }
             pilot body_id = parse_block()
             pilot full_name = impl_name + "_" + mname
@@ -757,7 +808,11 @@ task parse_impl() -> int {
             pilot sid = alloc_stmt(STMT_TASK, full_name, "", body_id, "", "impl:" + impl_name, params, ret_type, stmt_line)
             array_push(ast_top_stmts, word_from_int(sid))
         } else {
-            advance_tok()
+            diag_error(
+                "unexpected " + friendly_tok(cur_tok_type(), cur_tok_val()) + " inside impl declaration",
+                "expected keyword 'task' or '}'"
+            )
+            if not parser_at_eof() { advance_tok() }
         }
     }
     give back alloc_stmt(STMT_BLOCK, "", "", "", "", "", "", "", "1")
@@ -766,6 +821,9 @@ task parse_impl() -> int {
 task parse_when() -> int {
     pilot stmt_line = current_source_location()
     pilot target_id = parse_expr()
+    pilot when_file = current_source_file()
+    pilot when_line = word_to_int(current_source_line())
+    pilot when_col = current_source_col()
     expect_tok(TOK_PUNCT, "{")
     pilot cases_str = ""
     pilot fin = false
@@ -774,7 +832,7 @@ task parse_when() -> int {
         if match_tok(TOK_PUNCT, "}") {
             fin = true
         } else if parser_at_eof() {
-            parser_diag_unclosed("when expression", "}")
+            parser_diag_unclosed_at("when expression", "}", when_file, when_line, when_col)
             fin = true
         } else {
             pilot case_expr = 0 - 1
@@ -800,8 +858,10 @@ task parse_when() -> int {
 task parse_extern() -> int {
     pilot stmt_line = current_source_location()
     expect_tok(TOK_KW, "task")
-    pilot ename = cur_tok_val()
-    advance_tok()
+    pilot ename = parser_take_ident("extern task name")
+    pilot extern_file = current_source_file()
+    pilot extern_line = word_to_int(current_source_line())
+    pilot extern_col = current_source_col()
     expect_tok(TOK_PUNCT, "(")
     pilot eparams = ""
     pilot efin = false
@@ -809,14 +869,12 @@ task parse_extern() -> int {
     if match_tok(TOK_PUNCT, ")") { efin = true }
     repeat until efin {
         if parser_at_eof() {
-            parser_diag_unclosed("extern parameter list", ")")
+            parser_diag_unclosed_at("extern parameter list", ")", extern_file, extern_line, extern_col)
             efin = true
         } else {
-            pilot epname = cur_tok_val()
-            advance_tok()
+            pilot epname = parser_take_ident("extern parameter name")
             expect_tok(TOK_PUNCT, ":")
-            pilot eptype = cur_tok_val()
-            advance_tok()
+            pilot eptype = parser_take_ident("extern parameter type")
             pilot epstr = epname + ":" + eptype
             if eis_first {
                 eparams = epstr
@@ -826,27 +884,27 @@ task parse_extern() -> int {
             }
             if match_tok(TOK_PUNCT, ")") { efin = true }
             else if parser_at_eof() {
-                parser_diag_unclosed("extern parameter list", ")")
+                parser_diag_unclosed_at("extern parameter list", ")", extern_file, extern_line, extern_col)
                 efin = true
             } else { expect_tok(TOK_PUNCT, ",") }
         }
     }
     expect_tok(TOK_PUNCT, "->")
-    pilot eret_type = cur_tok_val()
-    advance_tok()
+    pilot eret_type = parser_take_ident("extern return type")
     give back alloc_stmt(STMT_EXTERN, ename, "", "", "", "", eparams, eret_type, stmt_line)
 }
 
 task parse_task_def() -> int {
     pilot stmt_line = current_source_location()
-    pilot name = cur_tok_val()
-    advance_tok()
+    pilot name = parser_take_ident("task name")
+    pilot params_file = current_source_file()
+    pilot params_line = word_to_int(current_source_line())
+    pilot params_col = current_source_col()
     expect_tok(TOK_PUNCT, "(")
-    pilot params = parse_params()
+    pilot params = parse_params(params_file, params_line, params_col)
     pilot ret_type = "void"
     if match_tok(TOK_PUNCT, "->") {
-        ret_type = cur_tok_val()
-        advance_tok()
+        ret_type = parser_take_ident("task return type")
     }
     pilot body_id = parse_block()
     give back alloc_stmt(STMT_TASK, name, "", body_id, "", "", params, ret_type, stmt_line)

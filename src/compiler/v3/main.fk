@@ -63,7 +63,16 @@ task freakc_v3_main() -> void {
     -- so invalidate only the requested backend before reading or compiling.
     pilot selected_output = input_file + ".ll"
     if emit_target == "c" { selected_output = input_file + ".c" }
-    if fs::exists(selected_output) { fs::delete(selected_output) }
+    if not input_file.ends_with(".fk") {
+        say "Error: source path must end in .fk; neighboring outputs were preserved."
+        process::exit(1)
+    } else if fs::exists(selected_output) {
+        fs::delete(selected_output)
+        if fs::exists(selected_output) {
+            say "Error: untrusted stale artifact could not be removed: " + selected_output
+            process::exit(1)
+        }
+    }
 
     say "FREAK v3 Compiling: " + input_file + " (Target: " + emit_target + ")"
 

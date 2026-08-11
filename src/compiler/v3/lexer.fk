@@ -71,6 +71,14 @@ task is_numeric(c: word) -> bool {
     give back false
 }
 
+task is_hex_digit(c: word) -> bool {
+    if is_numeric(c) { give back true }
+    pilot lower = c.to_lower()
+    if lower == "a" or lower == "b" or lower == "c" { give back true }
+    if lower == "d" or lower == "e" or lower == "f" { give back true }
+    give back false
+}
+
 task is_alphabetic(c: word) -> bool {
     if c == "_" { give back true }
     if c == "a" or c == "b" or c == "c" or c == "d" or c == "e" { give back true }
@@ -214,9 +222,22 @@ task lex_string() -> void {
             else if esc == "t" { res = res + "\t" }
             else if esc == "x" {
                 -- Hex escape \xNN: store as \\xNN so C emitter passes it through
-                pilot hex_hi = lex_advance()
-                pilot hex_lo = lex_advance()
-                res = res + "\\x" + hex_hi + hex_lo
+                pilot hex_hi = lex_cur_ch()
+                pilot hex_lo = lex_ch_at(1)
+                if is_hex_digit(hex_hi) and is_hex_digit(hex_lo) {
+                    lex_advance()
+                    lex_advance()
+                    res = res + "\\x" + hex_hi + hex_lo
+                } else {
+                    diag_error_at(
+                        "malformed hex escape",
+                        "use exactly two hexadecimal digits after '\\x'",
+                        source_map_file(lex_line),
+                        source_map_local_line(lex_line),
+                        lex_col
+                    )
+                    res = res + "\\x"
+                }
             } else { res = res + esc }
         } else if c == "|" {
             res = res + "<<PIPE>>"
