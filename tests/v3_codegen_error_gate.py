@@ -83,6 +83,7 @@ def run(
     source: Path,
     *args: str,
     env: dict[str, str] | None = None,
+    timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
     command, *flags = args
     return subprocess.run(
@@ -92,7 +93,7 @@ def run(
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=60,
+        timeout=timeout,
         check=False,
         env=env,
     )
@@ -108,20 +109,184 @@ def assert_rejected(result: subprocess.CompletedProcess[str], label: str) -> Non
     assert "emit c" not in output.lower(), f"{label}: C emitter ran\n{output}"
 
 
+def assert_check_rejected(
+    result: subprocess.CompletedProcess[str], label: str
+) -> None:
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, f"{label}: check accepted invalid input\n{output}"
+    assert "error" in output.lower(), f"{label}: missing diagnostic\n{output}"
+    assert "passed" not in output.lower(), f"{label}: check printed PASSED\n{output}"
+
+
+def run_direct_compiler(
+    compiler: Path,
+    repo: Path,
+    *args: str,
+    timeout: int = 10,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(compiler), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        check=False,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
+    parser.add_argument(
+        "--freakc",
+        type=Path,
+        help="current direct V3 stage compiler (auto-detected beside freak in CI)",
+    )
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parents[1]
     freak = args.freak.resolve()
     assert freak.is_file(), f"FREAK CLI not found: {freak}"
+    direct_compiler = args.freakc.resolve() if args.freakc else None
+    if direct_compiler is None:
+        stage_name = "freakc_v3_stage2.exe" if sys.platform == "win32" else "freakc_v3_stage2"
+        stage_candidate = freak.parent / stage_name
+        if stage_candidate.is_file():
+            direct_compiler = stage_candidate.resolve()
+    if direct_compiler is not None:
+        assert direct_compiler.is_file(), f"direct V3 compiler not found: {direct_compiler}"
     assert_builtin_signature_parity(repo)
     assert_ci_shell_contract(repo)
     assert_checker_callable_index(repo)
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-codegen-gate-") as tmp:
         tmp_path = Path(tmp)
+        malformed_cases = {
+            "dangling_namespace": (
+                "say missing::\n",
+                "expected an identifier after '::'",
+            ),
+            "unterminated_string": (
+                'say "unterminated',
+                "unterminated string literal",
+            ),
+            "malformed_number": (
+                "say 1.2.3\n",
+                "malformed numeric literal",
+            ),
+            "call_args_eof": (
+                "task helper(value: int) { say value }\nsay helper(1",
+                "unexpected end of file inside call argument list",
+            ),
+            "method_args_eof": (
+                'say "value".trim(',
+                "unexpected end of file inside method argument list",
+            ),
+            "pipe_args_eof": (
+                "task helper(value: int) { say value }\nsay 1 |> helper(",
+                "unexpected end of file inside pipe argument list",
+            ),
+            "array_eof": (
+                "say [1, 2",
+                "unexpected end of file inside array literal",
+            ),
+            "shape_constructor_eof": (
+                "shape Known { value: int }\nsay Known { value: 1",
+                "unexpected end of file inside shape constructor",
+            ),
+            "shape_eof": (
+                "shape Broken { value: int",
+                "unexpected end of file inside shape declaration",
+            ),
+            "impl_eof": (
+                'impl Broken { task run(self) { say "value" }',
+                "unexpected end of file inside impl declaration",
+            ),
+            "when_eof": (
+                'when 1 { 1 -> say "one"',
+                "unexpected end of file inside when expression",
+            ),
+            "extern_eof": (
+                "extern task broken(value: int",
+                "unexpected end of file inside extern parameter list",
+            ),
+        }
+
+        for case_name, (case_text, expected_diagnostic) in malformed_cases.items():
+            malformed = tmp_path / f"{case_name}.fk"
+            malformed.write_text(case_text, encoding="utf-8")
+
+            checked = run(freak, repo, malformed, "check", timeout=10)
+            assert_check_rejected(checked, case_name)
+            assert expected_diagnostic in (checked.stdout + checked.stderr).lower()
+
+            for backend, flag, suffix in (
+                ("LLVM", "--llvm", ".ll"),
+                ("C", "--c", ".c"),
+            ):
+                artifact = Path(str(malformed) + suffix)
+                artifact.write_text(SENTINEL, encoding="utf-8")
+                transpiled = run(
+                    freak, repo, malformed, "transpile", flag, timeout=10
+                )
+                assert_rejected(transpiled, f"{case_name} {backend} transpile")
+                assert expected_diagnostic in (
+                    transpiled.stdout + transpiled.stderr
+                ).lower()
+                assert artifact.read_text(encoding="utf-8") == SENTINEL
+
+                artifact.unlink()
+                built = run(freak, repo, malformed, "build", flag, timeout=10)
+                assert_rejected(built, f"{case_name} {backend} build")
+                assert not artifact.exists()
+                assert not malformed.with_suffix("").exists()
+                assert not malformed.with_suffix(".exe").exists()
+
+        if direct_compiler is not None:
+            missing_args = run_direct_compiler(direct_compiler, repo)
+            assert missing_args.returncode != 0, (
+                "direct V3 compiler accepted missing arguments\n"
+                + missing_args.stdout
+                + missing_args.stderr
+            )
+            missing_source = tmp_path / "direct_missing.fk"
+            unreadable = run_direct_compiler(
+                direct_compiler, repo, str(missing_source)
+            )
+            assert unreadable.returncode != 0, (
+                "direct V3 compiler accepted an unreadable input\n"
+                + unreadable.stdout
+                + unreadable.stderr
+            )
+
+            for case_name in (
+                "dangling_namespace",
+                "unterminated_string",
+                "malformed_number",
+                "call_args_eof",
+                "shape_eof",
+                "impl_eof",
+            ):
+                malformed = tmp_path / f"{case_name}.fk"
+                for backend, flag, suffix in (
+                    ("LLVM", "--llvm", ".ll"),
+                    ("C", "--c", ".c"),
+                ):
+                    artifact = Path(str(malformed) + suffix)
+                    if artifact.exists():
+                        artifact.unlink()
+                    rejected = run_direct_compiler(
+                        direct_compiler, repo, str(malformed), flag
+                    )
+                    output = rejected.stdout + rejected.stderr
+                    assert rejected.returncode != 0, (
+                        f"direct {backend} accepted {case_name}\n{output}"
+                    )
+                    assert "error" in output.lower(), output
+                    assert not artifact.exists(), artifact
+
         scale_source = tmp_path / "callable_index_scale.fk"
         scale_source.write_text(
             "\n".join(

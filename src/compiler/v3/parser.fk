@@ -12,6 +12,14 @@ task cur_tok_val() -> word {
     give back array_get(tok_vals, parse_idx)
 }
 
+task parser_at_eof() -> bool {
+    give back cur_tok_type() == TOK_EOF or cur_tok_type() == ""
+}
+
+task parser_diag_unclosed(context: word, closer: word) -> void {
+    diag_error("unexpected end of file inside " + context, "expected '" + closer + "'")
+}
+
 task advance_tok() -> void {
     parse_idx += 1
 }
@@ -103,7 +111,7 @@ task parse_primary() -> int {
                 tval = tval + "::" + ntval
                 advance_tok()
             } else {
-                say "Expected identifier after ::"
+                diag_error("expected an identifier after '::'", "complete the namespace path")
             }
         }
         -- Shape constructor: Name { field: val, ... }
@@ -115,18 +123,26 @@ task parse_primary() -> int {
                 pilot cis_first = true
                 if match_tok(TOK_PUNCT, "}") { cfin = true }
                 repeat until cfin {
-                    pilot fname = cur_tok_val()
-                    advance_tok()
-                    expect_tok(TOK_PUNCT, ":")
-                    pilot fval_id = parse_expr()
-                    if cis_first {
-                        val_ids = word_from_int(fval_id)
-                        cis_first = false
+                    if parser_at_eof() {
+                        parser_diag_unclosed("shape constructor", "}")
+                        cfin = true
                     } else {
-                        val_ids = val_ids + "," + word_from_int(fval_id)
+                        pilot fname = cur_tok_val()
+                        advance_tok()
+                        expect_tok(TOK_PUNCT, ":")
+                        pilot fval_id = parse_expr()
+                        if cis_first {
+                            val_ids = word_from_int(fval_id)
+                            cis_first = false
+                        } else {
+                            val_ids = val_ids + "," + word_from_int(fval_id)
+                        }
+                        if match_tok(TOK_PUNCT, "}") { cfin = true }
+                        else if parser_at_eof() {
+                            parser_diag_unclosed("shape constructor", "}")
+                            cfin = true
+                        } else { expect_tok(TOK_PUNCT, ",") }
                     }
-                    if match_tok(TOK_PUNCT, "}") { cfin = true }
-                    else { expect_tok(TOK_PUNCT, ",") }
                 }
                 give back alloc_expr(EXPR_CALL, "shape::ctor::" + tval, val_ids, "")
             }
@@ -139,15 +155,23 @@ task parse_primary() -> int {
             pilot is_first = true
             if match_tok(TOK_PUNCT, ")") { fin = true }
             repeat until fin {
-                pilot arg_id = parse_expr()
-                if is_first {
-                    args = word_from_int(arg_id)
-                    is_first = false
+                if parser_at_eof() {
+                    parser_diag_unclosed("call argument list", ")")
+                    fin = true
                 } else {
-                    args = args + "," + word_from_int(arg_id)
+                    pilot arg_id = parse_expr()
+                    if is_first {
+                        args = word_from_int(arg_id)
+                        is_first = false
+                    } else {
+                        args = args + "," + word_from_int(arg_id)
+                    }
+                    if match_tok(TOK_PUNCT, ")") { fin = true }
+                    else if parser_at_eof() {
+                        parser_diag_unclosed("call argument list", ")")
+                        fin = true
+                    } else { expect_tok(TOK_PUNCT, ",") }
                 }
-                if match_tok(TOK_PUNCT, ")") { fin = true }
-                else { expect_tok(TOK_PUNCT, ",") }
             }
             give back alloc_expr(EXPR_CALL, tval, args, "")
         }
@@ -174,7 +198,10 @@ task parse_primary() -> int {
         pilot afirst = true
         if match_tok(TOK_PUNCT, "]") { afin = true }
         repeat until afin {
-            if cur_tok_type() == TOK_EOF or cur_tok_type() == "" { afin = true }
+            if parser_at_eof() {
+                parser_diag_unclosed("array literal", "]")
+                afin = true
+            }
             else {
                 pilot e_id = parse_expr()
                 if afirst {
@@ -184,7 +211,10 @@ task parse_primary() -> int {
                     elem_ids = elem_ids + "," + word_from_int(e_id)
                 }
                 if match_tok(TOK_PUNCT, "]") { afin = true }
-                else { expect_tok(TOK_PUNCT, ",") }
+                else if parser_at_eof() {
+                    parser_diag_unclosed("array literal", "]")
+                    afin = true
+                } else { expect_tok(TOK_PUNCT, ",") }
             }
         }
         give back alloc_expr(EXPR_ARRAY_LIT, "", elem_ids, "")
@@ -212,7 +242,10 @@ task parse_postfix() -> int {
                 pilot is_first = true
                 if match_tok(TOK_PUNCT, ")") { argfin = true }
                 repeat until argfin {
-                    if cur_tok_type() == TOK_EOF or cur_tok_type() == "" { argfin = true }
+                    if parser_at_eof() {
+                        parser_diag_unclosed("method argument list", ")")
+                        argfin = true
+                    }
                     else {
                         pilot arg_id = parse_expr()
                         if is_first {
@@ -222,7 +255,10 @@ task parse_postfix() -> int {
                             args = args + "," + word_from_int(arg_id)
                         }
                         if match_tok(TOK_PUNCT, ")") { argfin = true }
-                        else { expect_tok(TOK_PUNCT, ",") }
+                        else if parser_at_eof() {
+                            parser_diag_unclosed("method argument list", ")")
+                            argfin = true
+                        } else { expect_tok(TOK_PUNCT, ",") }
                     }
                 }
                 pilot member_id = alloc_expr(EXPR_METHOD, mname, word_from_int(left), args)
@@ -249,10 +285,18 @@ task parse_postfix() -> int {
                 if not match_tok(TOK_PUNCT, ")") {
                     pilot pfin = false
                     repeat until pfin {
-                        pilot parg_id = parse_expr()
-                        pipe_args = pipe_args + "," + word_from_int(parg_id)
-                        if match_tok(TOK_PUNCT, ")") { pfin = true }
-                        else { expect_tok(TOK_PUNCT, ",") }
+                        if parser_at_eof() {
+                            parser_diag_unclosed("pipe argument list", ")")
+                            pfin = true
+                        } else {
+                            pilot parg_id = parse_expr()
+                            pipe_args = pipe_args + "," + word_from_int(parg_id)
+                            if match_tok(TOK_PUNCT, ")") { pfin = true }
+                            else if parser_at_eof() {
+                                parser_diag_unclosed("pipe argument list", ")")
+                                pfin = true
+                            } else { expect_tok(TOK_PUNCT, ",") }
+                        }
                     }
                 }
             }
@@ -640,6 +684,9 @@ task parse_shape() -> int {
     repeat until sfin {
         if match_tok(TOK_PUNCT, "}") {
             sfin = true
+        } else if parser_at_eof() {
+            parser_diag_unclosed("shape declaration", "}")
+            sfin = true
         } else {
             pilot fname = cur_tok_val()
             advance_tok()
@@ -676,8 +723,14 @@ task parse_impl() -> int {
     }
     expect_tok(TOK_PUNCT, "{")
 
-    repeat until cur_tok_type() == TOK_PUNCT and cur_tok_val() == "}" {
-        if match_tok(TOK_KW, "task") {
+    pilot impl_fin = false
+    repeat until impl_fin {
+        if match_tok(TOK_PUNCT, "}") {
+            impl_fin = true
+        } else if parser_at_eof() {
+            parser_diag_unclosed("impl declaration", "}")
+            impl_fin = true
+        } else if match_tok(TOK_KW, "task") {
             pilot mname = cur_tok_val()
             advance_tok()
             expect_tok(TOK_PUNCT, "(")
@@ -707,7 +760,6 @@ task parse_impl() -> int {
             advance_tok()
         }
     }
-    expect_tok(TOK_PUNCT, "}")
     give back alloc_stmt(STMT_BLOCK, "", "", "", "", "", "", "", "1")
 }
 
@@ -720,6 +772,9 @@ task parse_when() -> int {
     pilot is_first = true
     repeat until fin {
         if match_tok(TOK_PUNCT, "}") {
+            fin = true
+        } else if parser_at_eof() {
+            parser_diag_unclosed("when expression", "}")
             fin = true
         } else {
             pilot case_expr = 0 - 1
@@ -753,20 +808,28 @@ task parse_extern() -> int {
     pilot eis_first = true
     if match_tok(TOK_PUNCT, ")") { efin = true }
     repeat until efin {
-        pilot epname = cur_tok_val()
-        advance_tok()
-        expect_tok(TOK_PUNCT, ":")
-        pilot eptype = cur_tok_val()
-        advance_tok()
-        pilot epstr = epname + ":" + eptype
-        if eis_first {
-            eparams = epstr
-            eis_first = false
+        if parser_at_eof() {
+            parser_diag_unclosed("extern parameter list", ")")
+            efin = true
         } else {
-            eparams = eparams + "," + epstr
+            pilot epname = cur_tok_val()
+            advance_tok()
+            expect_tok(TOK_PUNCT, ":")
+            pilot eptype = cur_tok_val()
+            advance_tok()
+            pilot epstr = epname + ":" + eptype
+            if eis_first {
+                eparams = epstr
+                eis_first = false
+            } else {
+                eparams = eparams + "," + epstr
+            }
+            if match_tok(TOK_PUNCT, ")") { efin = true }
+            else if parser_at_eof() {
+                parser_diag_unclosed("extern parameter list", ")")
+                efin = true
+            } else { expect_tok(TOK_PUNCT, ",") }
         }
-        if match_tok(TOK_PUNCT, ")") { efin = true }
-        else { expect_tok(TOK_PUNCT, ",") }
     }
     expect_tok(TOK_PUNCT, "->")
     pilot eret_type = cur_tok_val()

@@ -95,9 +95,11 @@ task is_alnum_ext(c: word) -> bool {
 task lex_number() -> void {
     pilot res = ""
     pilot fin = false
+    pilot dot_count = 0
     repeat until fin {
         pilot c = lex_cur_ch()
         if is_numeric(c) or c == "." {
+            if c == "." { dot_count += 1 }
             res = res + c
             lex_advance()
         } else {
@@ -105,6 +107,15 @@ task lex_number() -> void {
         }
     }
     push_token(TOK_NUM, res)
+    if dot_count > 1 {
+        diag_error_at(
+            "malformed numeric literal '" + res + "'",
+            "a numeric literal may contain only one decimal point",
+            source_map_file(cur_tok_line),
+            source_map_local_line(cur_tok_line),
+            cur_tok_col
+        )
+    }
 }
 
 task try_consume_word(target: word) -> bool {
@@ -188,9 +199,11 @@ task lex_string() -> void {
     lex_advance()
     pilot res = ""
     pilot fin = false
+    pilot closed = false
     repeat until fin {
         pilot c = lex_advance()
         if c == "\"" {
+            closed = true
             fin = true
         } else if c == "" {
             fin = true
@@ -212,6 +225,15 @@ task lex_string() -> void {
         }
     }
     push_token(TOK_STR, res)
+    if not closed {
+        diag_error_at(
+            "unterminated string literal",
+            "add a closing quote",
+            source_map_file(cur_tok_line),
+            source_map_local_line(cur_tok_line),
+            cur_tok_col
+        )
+    }
 }
 
 task lex_operators() -> void {
