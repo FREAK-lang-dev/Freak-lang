@@ -425,8 +425,8 @@ acquire_install_lock() {
     mkdir -p "$INSTALL_DIR"
     local candidate="$INSTALL_DIR/.freak-install.lock"
     local breaker="$INSTALL_DIR/.freak-stale-takeover"
-    local own_start own_nonce attempt owner owner_identity current_owner current_identity missing_identity missing_attempts
-    local breaker_owner breaker_identity current_breaker_owner current_breaker_identity breaker_missing_identity breaker_missing_attempts candidate_kind
+    local own_start own_nonce attempt owner owner_identity current_owner current_identity
+    local breaker_owner breaker_identity current_breaker_owner current_breaker_identity candidate_kind
     own_start=$(process_start_token "$$")
     if [ -z "$own_start" ]; then own_start="pid-only"; fi
     own_nonce=$(basename "$TMPDIR_INSTALL")
@@ -446,10 +446,6 @@ acquire_install_lock() {
         done
     fi
     attempt=0
-    missing_identity=""
-    missing_attempts=0
-    breaker_missing_identity=""
-    breaker_missing_attempts=0
     while [ "$attempt" -lt 100 ]; do
         # The fixed election link is itself recoverable. Its complete owner
         # record is published atomically by hard-linking the prepared file, so
@@ -460,23 +456,12 @@ acquire_install_lock() {
             fi
             breaker_owner=$(cat "$breaker" 2>/dev/null || true)
             if [ -n "$breaker_owner" ] && lock_owner_is_active "$breaker_owner"; then
-                attempt=$((attempt + 1))
-                sleep 0.1
-                continue
+                err "Another FREAK installer is recovering $INSTALL_DIR"
             fi
             breaker_identity=$(lock_directory_identity "$breaker")
             [ -n "$breaker_identity" ] || { attempt=$((attempt + 1)); continue; }
             if [ -z "$breaker_owner" ]; then
-                if [ "$breaker_identity" != "$breaker_missing_identity" ]; then
-                    breaker_missing_identity="$breaker_identity"
-                    breaker_missing_attempts=0
-                fi
-                breaker_missing_attempts=$((breaker_missing_attempts + 1))
-                attempt=$((attempt + 1))
-                if [ "$breaker_missing_attempts" -lt 50 ]; then sleep 0.1; continue; fi
-            else
-                breaker_missing_identity=""
-                breaker_missing_attempts=0
+                err "Ownerless FREAK stale-lock takeover requires manual recovery: $breaker"
             fi
             current_breaker_owner=$(cat "$breaker" 2>/dev/null || true)
             current_breaker_identity=$(lock_directory_identity "$breaker")
@@ -524,22 +509,12 @@ acquire_install_lock() {
             owner=$(cat "$candidate" 2>/dev/null || true)
         fi
         if [ -z "$owner" ]; then
-            # Empty locks can only be legacy or damaged state now that new
-            # ownership is atomically published. Retain a bounded grace period
-            # for an older installer that is still between mkdir and write.
-            current_identity=$(lock_directory_identity "$candidate")
-            if [ "$current_identity" != "$missing_identity" ]; then
-                missing_identity="$current_identity"
-                missing_attempts=0
-            fi
-            missing_attempts=$((missing_attempts + 1))
-            attempt=$((attempt + 1))
-            if [ "$missing_attempts" -lt 50 ]; then sleep 0.1; continue; fi
+            # A live legacy installer may still be stopped between mkdir and
+            # owner publication. That state is indistinguishable from an
+            # abandoned directory, so never reclaim it automatically.
+            err "Ownerless legacy FREAK installer lock requires manual recovery: $candidate"
         elif lock_owner_is_active "$owner"; then
             err "Another FREAK installer is already updating $INSTALL_DIR"
-        else
-            missing_identity=""
-            missing_attempts=0
         fi
         owner_identity=$(lock_directory_identity "$candidate")
         [ -n "$owner_identity" ] || { attempt=$((attempt + 1)); continue; }

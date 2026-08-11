@@ -1011,7 +1011,9 @@ def check_offline_installer(
         loser_index = 1 - winner_index
         loser_stdout, loser_stderr = race_processes[loser_index].communicate(timeout=30)
         assert race_processes[loser_index].returncode != 0, loser_stdout + loser_stderr
-        assert "another freak installer" in (loser_stdout + loser_stderr).lower()
+        assert "another freak installer" in (
+            loser_stdout + loser_stderr
+        ).lower(), loser_stdout + loser_stderr
         os.killpg(race_processes[winner_index].pid, signal.SIGTERM)
         winner_stdout, winner_stderr = race_processes[winner_index].communicate(timeout=30)
         assert race_processes[winner_index].returncode != 0, winner_stdout + winner_stderr
@@ -1025,9 +1027,9 @@ def check_offline_installer(
         assert not list(preserved_root.glob(".freak-apply-*"))
         assert not list(preserved_root.glob(".freak-backup-*"))
 
-        # An ownerless mkdir crash becomes recoverable after the bounded
-        # acquisition grace period, and a live but reused PID is rejected as
-        # the old owner when its durable process-start token differs.
+        # An ownerless legacy mkdir cannot be distinguished from a live old
+        # installer stopped before publishing its owner. Fail closed and
+        # preserve it for explicit recovery; never guess and create two owners.
         missing_owner_lock = preserved_root / ".freak-install.lock"
         missing_owner_lock.mkdir()
         missing_owner = subprocess.run(
@@ -1035,11 +1037,14 @@ def check_offline_installer(
             errors="replace", timeout=120,
         )
         assert missing_owner.returncode != 0, missing_owner.stdout + missing_owner.stderr
-        assert "Recovered stale installer lock" in missing_owner.stdout, (
+        assert "ownerless legacy freak installer lock" in (
             missing_owner.stdout + missing_owner.stderr
-        )
-        assert not missing_owner_lock.exists()
+        ).lower(), missing_owner.stdout + missing_owner.stderr
+        assert missing_owner_lock.is_dir()
+        missing_owner_lock.rmdir()
 
+        # A live but reused PID is rejected as the old owner when its durable
+        # process-start token differs.
         reused_pid_lock = preserved_root / ".freak-install.lock"
         reused_pid_lock.mkdir()
         (reused_pid_lock / "owner").write_text(
