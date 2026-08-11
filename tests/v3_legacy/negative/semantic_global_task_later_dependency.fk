@@ -1,0 +1,10 @@
+pilot first: int = read_later()
+pilot later: int = 7
+
+task read_later() -> int {
+    give back later
+}
+
+task main() {
+    say first
+}

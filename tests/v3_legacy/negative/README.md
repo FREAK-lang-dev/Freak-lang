@@ -21,8 +21,9 @@ entry-point contracts, loop/declaration context, `if`/repeat/training types,
 literal-compatible `when` arms, nominal fields/methods, and the word-only V3
 array ABI. They also pin same-scope binding uniqueness while preserving nested
 lexical shadowing, source-ordered global initialization with fail-closed
-forward references and cycles, integer-only remainder/compound assignment
-rules, and the raw UI runtime's integer pixel geometry. Shape operator-doctrine
+forward references and transitive user/impl task dependencies, integer-only
+remainder/compound assignment rules, and integer geometry across all raw UI
+drawing calls. Shape operator-doctrine
 syntax remains fail-closed because V3 does not lower those operators; call the
 proven instance method explicitly. Shape constructors remain declaration-order
 dependent, and compiler-internal `shape::alloc/get/set` spellings are not

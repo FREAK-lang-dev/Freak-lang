@@ -549,6 +549,41 @@
       "file": "unreachable_shape_intrinsic.fk",
       "diagnostic": "unexpected 'shape'",
       "direct": true
+    },
+    {
+      "name": "semantic_global_task_later_dependency",
+      "kind": "type",
+      "file": "semantic_global_task_later_dependency.fk",
+      "diagnostic": "global initializer for 'first' depends on global 'later' before it is initialized",
+      "direct": true
+    },
+    {
+      "name": "semantic_global_task_self_dependency",
+      "kind": "type",
+      "file": "semantic_global_task_self_dependency.fk",
+      "diagnostic": "global initializer for 'first' depends on global 'first' before it is initialized",
+      "direct": true
+    },
+    {
+      "name": "semantic_global_task_transitive_cycle",
+      "kind": "type",
+      "file": "semantic_global_task_transitive_cycle.fk",
+      "diagnostic": "global initializer for 'first' depends on global 'first' before it is initialized",
+      "direct": true
+    },
+    {
+      "name": "semantic_global_associated_later_dependency",
+      "kind": "type",
+      "file": "semantic_global_associated_later_dependency.fk",
+      "diagnostic": "global initializer for 'first' depends on global 'later' before it is initialized",
+      "direct": true
+    },
+    {
+      "name": "semantic_global_instance_self_dependency",
+      "kind": "type",
+      "file": "semantic_global_instance_self_dependency.fk",
+      "diagnostic": "global initializer for 'answer' depends on global 'answer' before it is initialized",
+      "direct": true
     }
   ]
 }

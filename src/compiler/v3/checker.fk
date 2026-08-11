@@ -1585,6 +1585,340 @@ task tc_impl_has_top_level_marker(top_index: int) -> bool {
     give back false
 }
 
+task tc_dependency_local_type(local_names: int, local_types: int, local_count: int, name: word) -> word {
+    pilot i = local_count - 1
+    repeat until i < 0 {
+        if array_get(local_names, i) == name { give back array_get(local_types, i) }
+        i -= 1
+    }
+    give back ""
+}
+
+task tc_dependency_has_local(local_names: int, local_count: int, name: word) -> bool {
+    pilot i = local_count - 1
+    repeat until i < 0 {
+        if array_get(local_names, i) == name { give back true }
+        i -= 1
+    }
+    give back false
+}
+
+task tc_dependency_global_type(name: word) -> word {
+    pilot global_index = tc_global_index(name)
+    if global_index >= 0 { give back array_get(tc_global_types, global_index) }
+    give back ""
+}
+
+task tc_dependency_set_local(local_names: int, local_types: int, local_count: int, name: word, type_name: word) -> int {
+    if local_count < array_len(local_names) {
+        array_set(local_names, local_count, name)
+        array_set(local_types, local_count, type_name)
+    } else {
+        array_push(local_names, name)
+        array_push(local_types, type_name)
+    }
+    give back local_count + 1
+}
+
+task tc_dependency_expr_type(expr_id: int, local_names: int, local_types: int, local_count: int) -> word {
+    if expr_id < 0 { give back "" }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    pilot val: word = array_get(ast_expr_vals, expr_id)
+    if kind == EXPR_INT { give back "int" }
+    if kind == EXPR_FLOAT { give back "num" }
+    if kind == EXPR_BOOL { give back "bool" }
+    if kind == EXPR_STR { give back "word" }
+    if kind == EXPR_IDENT {
+        if tc_dependency_has_local(local_names, local_count, val) {
+            give back tc_dependency_local_type(local_names, local_types, local_count, val)
+        }
+        give back tc_dependency_global_type(val)
+    }
+    if kind == EXPR_CALL {
+        if val.starts_with("shape::ctor::") { give back val.replace("shape::ctor::", "") }
+        pilot ret = tc_task_return_type(val)
+        if ret != "" { give back ret }
+        pilot associated_entry = tc_associated_callable_entry(val)
+        if associated_entry >= 0 { give back array_get(tc_callable_returns, associated_entry) }
+        give back tc_builtin_call_type(val)
+    }
+    if kind == EXPR_FIELD {
+        pilot base_type = tc_dependency_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)), local_names, local_types, local_count)
+        if base_type != "" { give back get_shape_field_type(base_type, val) }
+        give back ""
+    }
+    if kind == EXPR_METHOD {
+        pilot base_type = tc_dependency_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)), local_names, local_types, local_count)
+        if is_shape_name(base_type) { give back tc_task_return_type(base_type + "_" + val) }
+        give back tc_builtin_method_return_type(base_type, val)
+    }
+    if kind == EXPR_BINOP {
+        pilot op: word = val
+        if op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">=" or op == "and" or op == "or" { give back "bool" }
+        pilot left_type = tc_dependency_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)), local_names, local_types, local_count)
+        pilot right_type = tc_dependency_expr_type(word_to_int(array_get(ast_expr_rights, expr_id)), local_names, local_types, local_count)
+        if op == "+" and left_type == "word" and right_type == "word" { give back "word" }
+        if left_type == "num" or right_type == "num" { give back "num" }
+        if left_type != "" { give back left_type }
+        give back right_type
+    }
+    if kind == EXPR_UNARYOP {
+        if val == "not" { give back "bool" }
+        give back tc_dependency_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)), local_names, local_types, local_count)
+    }
+    if kind == EXPR_INDEX {
+        if tc_dependency_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)), local_names, local_types, local_count) == "word" { give back "word" }
+        give back ""
+    }
+    if kind == EXPR_ARRAY_LIT { give back "int" }
+    give back ""
+}
+
+task tc_dependency_walk_args(args: word, local_names: int, local_types: int, local_count: int, global_index: int, global_name: word, visited: int) -> void {
+    pilot count = tc_arg_count(args)
+    pilot i = 0
+    repeat count times {
+        tc_dependency_walk_expr(tc_arg_at(args, i), local_names, local_types, local_count, global_index, global_name, visited)
+        i += 1
+    }
+}
+
+task tc_dependency_walk_callable(entry: int, global_index: int, global_name: word, visited: int) -> void {
+    if entry < 0 or entry >= tc_callable_count { give back }
+    if array_get(visited, entry) == "1" { give back }
+    array_set(visited, entry, "1")
+    array_push(tc_dependency_pending_calls, word_from_int(entry))
+}
+
+task tc_dependency_scan_callable(entry: int, global_index: int, global_name: word, visited: int) -> void {
+    pilot stmt_id = word_to_int(array_get(tc_callable_stmt_ids, entry))
+    if array_get(ast_stmt_kinds, stmt_id) != STMT_TASK { give back }
+    pilot local_names = array_new()
+    pilot local_types = array_new()
+    pilot local_count = 0
+    pilot params: word = array_get(ast_task_params, stmt_id)
+    pilot param_count = tc_arg_count(params)
+    pilot i = 0
+    repeat param_count times {
+        local_count = tc_dependency_set_local(local_names, local_types, local_count, tc_param_name_at(params, i), tc_param_type_at(params, i))
+        i += 1
+    }
+    tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
+    array_release(local_names)
+    array_release(local_types)
+}
+
+task tc_dependency_walk_expr(expr_id: int, local_names: int, local_types: int, local_count: int, global_index: int, global_name: word, visited: int) -> void {
+    if expr_id < 0 { give back }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    pilot val: word = array_get(ast_expr_vals, expr_id)
+    pilot left: word = array_get(ast_expr_lefts, expr_id)
+    pilot right: word = array_get(ast_expr_rights, expr_id)
+    if kind == EXPR_IDENT {
+        if not tc_dependency_has_local(local_names, local_count, val) {
+            pilot dependency_index = tc_global_index(val)
+            if dependency_index >= global_index and global_index >= 0 {
+                tc_diag("global initializer for '" + global_name + "' depends on global '" + val + "' before it is initialized", tc_expr_diag_line(expr_id, 1), tc_expr_diag_file(expr_id, input_file))
+            }
+        }
+        give back
+    }
+    if kind == EXPR_FIELD {
+        tc_dependency_walk_expr(word_to_int(left), local_names, local_types, local_count, global_index, global_name, visited)
+        give back
+    }
+    if kind == EXPR_METHOD {
+        pilot receiver_id = word_to_int(left)
+        tc_dependency_walk_expr(receiver_id, local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_args(right, local_names, local_types, local_count, global_index, global_name, visited)
+        pilot receiver_type = tc_dependency_expr_type(receiver_id, local_names, local_types, local_count)
+        if is_shape_name(receiver_type) {
+            tc_dependency_walk_callable(tc_callable_entry(receiver_type + "_" + val), global_index, global_name, visited)
+        }
+        give back
+    }
+    if kind == EXPR_CALL {
+        tc_dependency_walk_args(left, local_names, local_types, local_count, global_index, global_name, visited)
+        if not val.starts_with("shape::ctor::") {
+            pilot entry = tc_callable_entry(val)
+            if entry < 0 { entry = tc_associated_callable_entry(val) }
+            tc_dependency_walk_callable(entry, global_index, global_name, visited)
+        }
+        give back
+    }
+    if kind == EXPR_ARRAY_LIT {
+        tc_dependency_walk_args(left, local_names, local_types, local_count, global_index, global_name, visited)
+        give back
+    }
+    if kind == EXPR_BINOP {
+        tc_dependency_walk_expr(word_to_int(left), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_expr(word_to_int(right), local_names, local_types, local_count, global_index, global_name, visited)
+        give back
+    }
+    if kind == EXPR_UNARYOP {
+        tc_dependency_walk_expr(word_to_int(left), local_names, local_types, local_count, global_index, global_name, visited)
+        give back
+    }
+    if kind == EXPR_INDEX {
+        tc_dependency_walk_expr(word_to_int(left), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_expr(word_to_int(right), local_names, local_types, local_count, global_index, global_name, visited)
+    }
+}
+
+task tc_dependency_walk_stmt(stmt_id: int, local_names: int, local_types: int, local_count: int, global_index: int, global_name: word, visited: int) -> int {
+    if stmt_id < 0 { give back local_count }
+    pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
+    pilot expr: word = array_get(ast_stmt_exprs, stmt_id)
+    if kind == STMT_PILOT {
+        pilot expr_id = word_to_int(expr)
+        tc_dependency_walk_expr(expr_id, local_names, local_types, local_count, global_index, global_name, visited)
+        pilot type_name: word = array_get(ast_stmt_extras, stmt_id)
+        if type_name == "" { type_name = tc_dependency_expr_type(expr_id, local_names, local_types, local_count) }
+        give back tc_dependency_set_local(local_names, local_types, local_count, array_get(ast_stmt_names, stmt_id), type_name)
+    }
+    if kind == STMT_ASSIGN {
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_expr(word_to_int(array_get(ast_stmt_bodies, stmt_id)), local_names, local_types, local_count, global_index, global_name, visited)
+        give back local_count
+    }
+    if kind == STMT_SAY or kind == STMT_GIVE_BACK or kind == STMT_EXPR {
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
+        give back local_count
+    }
+    if kind == STMT_IF {
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_block(array_get(ast_stmt_else_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
+        give back local_count
+    }
+    if kind == STMT_REPEAT {
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
+        give back local_count
+    }
+    if kind == STMT_TRAINING_ARC {
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_expr(word_to_int(array_get(ast_stmt_extras, stmt_id)), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
+        give back local_count
+    }
+    if kind == STMT_WHEN {
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
+        pilot cases: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot count = tc_arg_count(cases)
+        pilot i = 0
+        repeat count times {
+            pilot item = tc_list_item(cases, i)
+            pilot case_expr = tc_case_expr_part(item)
+            if case_expr != "" and case_expr != "-1" {
+                tc_dependency_walk_expr(word_to_int(case_expr), local_names, local_types, local_count, global_index, global_name, visited)
+            }
+            pilot case_stmt = tc_case_stmt_part(item)
+            if case_stmt != "" {
+                tc_dependency_walk_stmt(word_to_int(case_stmt), local_names, local_types, local_count, global_index, global_name, visited)
+            }
+            i += 1
+        }
+        give back local_count
+    }
+    if kind == STMT_BLOCK or kind == STMT_EVENTUALLY {
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
+    }
+    give back local_count
+}
+
+task tc_dependency_walk_block(block: word, local_names: int, local_types: int, local_count: int, global_index: int, global_name: word, visited: int) -> int {
+    pilot count = tc_arg_count(block)
+    pilot i = 0
+    pilot current_count = local_count
+    repeat count times {
+        pilot stmt_text = tc_list_item(block, i)
+        if stmt_text != "" {
+            current_count = tc_dependency_walk_stmt(word_to_int(stmt_text), local_names, local_types, current_count, global_index, global_name, visited)
+        }
+        i += 1
+    }
+    give back current_count
+}
+
+task tc_dependency_expr_has_task_call(expr_id: int) -> bool {
+    if expr_id < 0 { give back false }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    pilot val: word = array_get(ast_expr_vals, expr_id)
+    pilot left: word = array_get(ast_expr_lefts, expr_id)
+    pilot right: word = array_get(ast_expr_rights, expr_id)
+    if kind == EXPR_CALL {
+        pilot entry = tc_callable_entry(val)
+        if entry < 0 { entry = tc_associated_callable_entry(val) }
+        if entry >= 0 {
+            pilot stmt_id = word_to_int(array_get(tc_callable_stmt_ids, entry))
+            if array_get(ast_stmt_kinds, stmt_id) == STMT_TASK { give back true }
+        }
+        pilot count = tc_arg_count(left)
+        pilot i = 0
+        repeat count times {
+            if tc_dependency_expr_has_task_call(tc_arg_at(left, i)) { give back true }
+            i += 1
+        }
+        give back false
+    }
+    if kind == EXPR_METHOD {
+        pilot receiver_id = word_to_int(left)
+        if tc_dependency_expr_has_task_call(receiver_id) { give back true }
+        pilot receiver_type = tc_expr_type(receiver_id)
+        if is_shape_name(receiver_type) {
+            pilot entry = tc_callable_entry(receiver_type + "_" + val)
+            if entry >= 0 { give back true }
+        }
+        pilot count = tc_arg_count(right)
+        pilot i = 0
+        repeat count times {
+            if tc_dependency_expr_has_task_call(tc_arg_at(right, i)) { give back true }
+            i += 1
+        }
+        give back false
+    }
+    if kind == EXPR_FIELD or kind == EXPR_UNARYOP {
+        give back tc_dependency_expr_has_task_call(word_to_int(left))
+    }
+    if kind == EXPR_BINOP or kind == EXPR_INDEX {
+        give back tc_dependency_expr_has_task_call(word_to_int(left)) or tc_dependency_expr_has_task_call(word_to_int(right))
+    }
+    if kind == EXPR_ARRAY_LIT {
+        pilot count = tc_arg_count(left)
+        pilot i = 0
+        repeat count times {
+            if tc_dependency_expr_has_task_call(tc_arg_at(left, i)) { give back true }
+            i += 1
+        }
+    }
+    give back false
+}
+
+task tc_validate_global_initializer_dependencies(expr_id: int, global_index: int, global_name: word) -> void {
+    -- Literal/builtin-only initializers already obey the direct visibility
+    -- gate and need no callable graph. This keeps the common many-global case
+    -- linear instead of allocating a callable-sized mark table per binding.
+    if not tc_dependency_expr_has_task_call(expr_id) { give back }
+    pilot visited = array_new()
+    repeat tc_callable_count times { array_push(visited, "0") }
+    tc_dependency_pending_calls = array_new()
+    pilot local_names = array_new()
+    pilot local_types = array_new()
+    tc_dependency_walk_expr(expr_id, local_names, local_types, 0, global_index, global_name, visited)
+    pilot pending_index = 0
+    repeat until pending_index >= array_len(tc_dependency_pending_calls) {
+        pilot entry = word_to_int(array_get(tc_dependency_pending_calls, pending_index))
+        tc_dependency_scan_callable(entry, global_index, global_name, visited)
+        pending_index += 1
+    }
+    array_release(local_names)
+    array_release(local_types)
+    array_release(tc_dependency_pending_calls)
+    tc_dependency_pending_calls = 0
+    array_release(visited)
+}
+
 task tc_validate_stmt(stmt_id: int) -> void {
     if stmt_id < 0 { give back }
     pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
@@ -1595,6 +1929,10 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot expr_id = word_to_int(expr)
         tc_validate_expr(expr_id, line)
         pilot binding_name: word = array_get(ast_stmt_names, stmt_id)
+        if tc_direct_top_stmt {
+            pilot global_index = tc_global_index(binding_name)
+            if global_index >= 0 { tc_validate_global_initializer_dependencies(expr_id, global_index, binding_name) }
+        }
         if tc_local_in_current_scope(binding_name) {
             tc_diag("duplicate binding '" + binding_name + "' in the same scope", line, source_file)
         }

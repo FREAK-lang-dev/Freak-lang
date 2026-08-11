@@ -316,6 +316,21 @@ def assert_check_rejected(
     assert "passed" not in output.lower(), f"{label}: check printed PASSED\n{output}"
 
 
+def assert_case_diagnostics(case: NegativeCase, output: str) -> None:
+    lowered = output.lower()
+    assert case.diagnostic in lowered, (
+        f"{case.name}: missing diagnostic {case.diagnostic!r}\n{output}"
+    )
+    if case.name == "semantic_ui_num_geometry":
+        for builtin in ("fill_rect", "stroke_rect", "fill_circle", "draw_line"):
+            expected = (
+                f"call to 'ui::{builtin}' argument 2 expects int, got num"
+            )
+            assert expected in lowered, (
+                f"{case.name}: missing {builtin} geometry diagnostic\n{output}"
+            )
+
+
 def run_direct_compiler(
     compiler: Path,
     repo: Path,
@@ -385,10 +400,7 @@ def main() -> int:
                 freak, repo, malformed, "check", *case.flags, timeout=10
             )
             assert_check_rejected(checked, case.name)
-            checked_text = (checked.stdout + checked.stderr).lower()
-            assert case.diagnostic in checked_text, (
-                f"{case.name}: missing diagnostic {case.diagnostic!r}\n{checked.stdout}{checked.stderr}"
-            )
+            assert_case_diagnostics(case, checked.stdout + checked.stderr)
             if case.name == "semantic_control_context":
                 checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
                 assert f"/{malformed.name}:1:1" in checked_output, checked_output
@@ -433,9 +445,9 @@ def main() -> int:
                     timeout=10,
                 )
                 assert_rejected(transpiled, f"{case.name} {backend} transpile")
-                assert case.diagnostic in (
-                    transpiled.stdout + transpiled.stderr
-                ).lower()
+                assert_case_diagnostics(
+                    case, transpiled.stdout + transpiled.stderr
+                )
                 assert_outputs_absent(
                     (artifact,), f"{case.name} {backend} transpile"
                 )
@@ -451,6 +463,7 @@ def main() -> int:
                     timeout=10,
                 )
                 assert_rejected(built, f"{case.name} {backend} build")
+                assert_case_diagnostics(case, built.stdout + built.stderr)
                 assert_outputs_absent(
                     (artifact, binary, cache), f"{case.name} {backend} build"
                 )
@@ -503,7 +516,7 @@ def main() -> int:
                         f"direct {backend} accepted {case.name}\n{output}"
                     )
                     assert "error" in output.lower(), output
-                    assert case.diagnostic in output.lower(), output
+                    assert_case_diagnostics(case, output)
                     assert_outputs_absent(
                         (artifact,), f"direct {backend} {case.name}"
                     )
@@ -715,6 +728,32 @@ def main() -> int:
             global_scale_check.stdout + global_scale_check.stderr
         )
 
+        dependency_scale_source = tmp_path / "global_callable_dependency_scale.fk"
+        dependency_scale_source.write_text(
+            "\n".join(
+                [
+                    "pilot dependency_base: int = 7",
+                    "pilot dependency_result: int = dependency_0()",
+                ]
+                + [
+                    f"task dependency_{index}() -> int {{ give back dependency_{index + 1}() }}"
+                    for index in range(127)
+                ]
+                + [
+                    "task dependency_127() -> int { give back dependency_base }",
+                    "task main() { say dependency_result }",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        dependency_scale_check = run(
+            freak, repo, dependency_scale_source, "check", timeout=30
+        )
+        assert dependency_scale_check.returncode == 0, (
+            dependency_scale_check.stdout + dependency_scale_check.stderr
+        )
+
         # This matrix proves checker acceptance only. Some of these contracts
         # (mixed numeric lowering, num/word when equality, and int-returning
         # main ABI) have backend-specific executable coverage in their owning
@@ -729,10 +768,15 @@ def main() -> int:
             "    task from_value(value: num) -> Meter { give back Meter { value: value } }\n"
             "    task add(self, delta: num) -> num { give back self.value + delta }\n"
             "}\n"
+            "pilot global_associated_meter = Meter::from_value(1)\n"
+            "pilot global_instance_num: num = global_associated_meter.add(1)\n"
             "extern task external_num(value: num) -> num\n"
             "pilot top_num: num = 1\n"
             "pilot prior_target: num = 1.5\n"
             "pilot prior_alias = prior_target\n"
+            "pilot dependency_base: int = 7\n"
+            "pilot dependency_earlier: int = read_dependency_base()\n"
+            "pilot dependency_pure: int = pure_increment(1)\n"
             "pilot namespace_overlap: int = 7\n"
             "say \"top-level execution remains valid\"\n"
             "task main() -> int {\n"
@@ -754,6 +798,7 @@ def main() -> int:
             "    pilot forward_num: num = 1 |> later_num()\n"
             "    pilot extern_num: num = external_num(1)\n"
             "    pilot alias_num: num = later_num(prior_alias)\n"
+            "    say dependency_earlier + dependency_pure\n"
             "    pilot shadowed: int = 1\n"
             "    if true {\n"
             "        pilot shadowed: int = 2\n"
@@ -782,6 +827,8 @@ def main() -> int:
             "    give back 0\n"
             "}\n"
             "task later_num(value: num) -> num { give back 1 }\n"
+            "task read_dependency_base() -> int { give back dependency_base }\n"
+            "task pure_increment(value: int) -> int { give back value + 1 }\n"
             "task namespace_overlap() -> int { give back 8 }\n",
             encoding="utf-8",
         )

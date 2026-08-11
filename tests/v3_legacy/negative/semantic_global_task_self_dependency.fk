@@ -1,0 +1,9 @@
+pilot first: int = read_first()
+
+task read_first() -> int {
+    give back first
+}
+
+task main() {
+    say first
+}

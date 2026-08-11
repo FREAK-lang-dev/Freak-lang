@@ -116,6 +116,7 @@ pilot tc_global_names = 0
 pilot tc_global_types = 0
 pilot tc_global_count = 0
 pilot tc_global_visibility_count = 0 - 1
+pilot tc_dependency_pending_calls = 0
 pilot tc_local_names = 0
 pilot tc_local_types = 0
 pilot tc_local_count = 0
