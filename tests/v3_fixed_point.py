@@ -113,9 +113,13 @@ def main() -> int:
         generated_hashes: list[str] = []
         generations: list[Path] = []
         for generation in range(1, 4):
-            run([str(previous), str(aggregate), "--c"], root, env)
             emitted = Path(str(aggregate) + ".c")
+            emitted.unlink(missing_ok=True)
+            run([str(previous), str(aggregate), "--c"], root, env)
             assert emitted.is_file(), f"generation {generation} emitted no C"
+            assert emitted.stat().st_size > 0, (
+                f"generation {generation} emitted an empty C artifact"
+            )
             generation_c = root / f"freakc-stage{generation}.c"
             shutil.copyfile(emitted, generation_c)
             generations.append(generation_c)

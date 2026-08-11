@@ -1524,6 +1524,40 @@ def main() -> int:
                 f"stderr={literal_run.stderr}"
             )
 
+        llvm_interp_hex = tmp_path / "llvm_interpolation_hex.fk"
+        llvm_interp_hex.write_text(
+            'pilot value: int = 7\n'
+            'say "\\x41{value}\\x42"\n',
+            encoding="utf-8",
+        )
+        llvm_interp_build = run(freak, repo, llvm_interp_hex, "build", "--llvm")
+        assert llvm_interp_build.returncode == 0, (
+            "LLVM interpolation fragments with hex escapes failed to build\n"
+            + llvm_interp_build.stdout
+            + llvm_interp_build.stderr
+        )
+        llvm_interp_binary = llvm_interp_hex.with_suffix(
+            ".exe" if sys.platform == "win32" else ""
+        )
+        llvm_interp_run = subprocess.run(
+            [str(llvm_interp_binary)],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+            check=False,
+        )
+        assert llvm_interp_run.returncode == 0, (
+            llvm_interp_run.stdout + llvm_interp_run.stderr
+        )
+        assert llvm_interp_run.stdout.splitlines() == ["A7B"], (
+            "LLVM interpolation fragment byte lengths changed meaning\n"
+            f"actual={llvm_interp_run.stdout.splitlines()!r}\n"
+            f"stderr={llvm_interp_run.stderr}"
+        )
+
         embedded_nul = tmp_path / "embedded_nul_bad.fk"
         embedded_nul.write_text('say "before\\x00after"\n', encoding="utf-8")
         embedded_nul_binary = derived_binary(embedded_nul)

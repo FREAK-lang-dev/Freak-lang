@@ -2018,7 +2018,7 @@ task llvm_emit_say_interp(val: word) -> void {
             if c == "{" {
                 if buf.length() > 0 {
                     pilot lit_id = register_string_literal(buf)
-                    pilot lit_len = buf.length() + 1
+                    pilot lit_len = llvm_string_byte_len(buf) + 1
                     pilot gep = next_reg()
                     llvm_emit_line("    " + gep + " = getelementptr inbounds [" + word_from_int(lit_len) + " x i8], [" + word_from_int(lit_len) + " x i8]* " + lit_id + ", i64 0, i64 0")
                     pilot ptr = next_reg()
@@ -2033,7 +2033,7 @@ task llvm_emit_say_interp(val: word) -> void {
     }
     if buf.length() > 0 {
         pilot lit_id = register_string_literal(buf)
-        pilot lit_len = buf.length() + 1
+        pilot lit_len = llvm_string_byte_len(buf) + 1
         pilot gep = next_reg()
         llvm_emit_line("    " + gep + " = getelementptr inbounds [" + word_from_int(lit_len) + " x i8], [" + word_from_int(lit_len) + " x i8]* " + lit_id + ", i64 0, i64 0")
         pilot ptr = next_reg()
