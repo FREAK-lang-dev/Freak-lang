@@ -36,6 +36,11 @@ task emt_word_expr_needs_clone(expr_id: word) -> bool {
     give back false
 }
 
+task emt_word_expr_is_owned_temporary(expr_id: word) -> bool {
+    if emt_expr_type_code(expr_id) != "w" { give back false }
+    give back not emt_word_expr_needs_clone(expr_id)
+}
+
 task emit_args(args: word, clone_borrowed_words: bool) -> void {
     pilot i = 0
     pilot slen = args.length()
@@ -599,12 +604,24 @@ task emit_stmt(eid: word) -> void {
 
     if kind == STMT_PILOT { emit_stmt_pilot(eid) give back }
     if kind == STMT_SAY {
+        if emt_word_expr_is_owned_temporary(expr_id_w) {
+            emit("{ freak_word __freak_say_value = ")
+            emit_expr(expr_id_w)
+            emit_line("; freak_say(__freak_say_value); freak_word_release_owned(&__freak_say_value); }")
+            give back
+        }
         emit("freak_say(")
         emit_expr(expr_id_w)
         emit_line(");")
         give back
     }
     if kind == STMT_EXPR {
+        if emt_word_expr_is_owned_temporary(expr_id_w) {
+            emit("{ freak_word __freak_discarded_word = ")
+            emit_expr(expr_id_w)
+            emit_line("; freak_word_release_owned(&__freak_discarded_word); }")
+            give back
+        }
         emit_expr(expr_id_w)
         emit_line(";")
         give back

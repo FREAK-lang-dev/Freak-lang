@@ -49,6 +49,21 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     assert classified - llvm_mapped == set()
 
 
+def assert_ci_shell_contract(repo: Path) -> None:
+    workflow = (repo / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    for step_name in (
+        "V3 parser/type errors gate code generation",
+        "V3 word replacement ownership",
+    ):
+        marker = f"      - name: {step_name}\n"
+        start = workflow.index(marker)
+        end = workflow.find("\n      - name: ", start + len(marker))
+        block = workflow[start:] if end < 0 else workflow[start:end]
+        assert "\n        shell: bash\n" in block, (
+            f"{step_name} must use bash so $EXT expands on Windows"
+        )
+
+
 def run(
     freak: Path,
     repo: Path,
@@ -89,6 +104,7 @@ def main() -> int:
     freak = args.freak.resolve()
     assert freak.is_file(), f"FREAK CLI not found: {freak}"
     assert_builtin_signature_parity(repo)
+    assert_ci_shell_contract(repo)
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-codegen-gate-") as tmp:
         tmp_path = Path(tmp)

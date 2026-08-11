@@ -623,6 +623,11 @@ task llvm_word_expr_needs_clone(expr_id: word) -> bool {
     give back false
 }
 
+task llvm_word_expr_is_owned_temporary(expr_id: word) -> bool {
+    if not llvm_infer_expr_type(expr_id).starts_with("w") { give back false }
+    give back not llvm_word_expr_needs_clone(expr_id)
+}
+
 task llvm_emit_args(args: word, clone_borrowed_words: bool) -> word {
     pilot res = ""
     pilot i = 0
@@ -1176,10 +1181,19 @@ task llvm_emit_stmt(eid: word) -> void {
         } else {
             pilot reg = llvm_emit_expr(expr_id_w)
             llvm_emit_line("    call void @freak_llvm_say(i64 " + reg + ")")
+            if llvm_word_expr_is_owned_temporary(expr_id_w) {
+                llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + reg + ", i64 0)")
+            }
         }
         give back
     }
-    if kind == STMT_EXPR { llvm_emit_expr(expr_id_w) give back }
+    if kind == STMT_EXPR {
+        pilot discarded_reg = llvm_emit_expr(expr_id_w)
+        if llvm_word_expr_is_owned_temporary(expr_id_w) {
+            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + discarded_reg + ", i64 0)")
+        }
+        give back
+    }
     if kind == STMT_GIVE_BACK {
         if llvm_cur_func_is_void {
             llvm_emit_current_word_param_cleanup("")

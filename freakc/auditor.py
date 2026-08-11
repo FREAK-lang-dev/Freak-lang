@@ -1781,6 +1781,22 @@ def audit_conformance(paths: List[Path]) -> int:
                 "(SIZE_MAX - source_len) / growth",
             ),
         ),
+        "C word temporary ownership": (
+            repo / "src" / "compiler" / "v3" / "emit_c.fk",
+            (
+                "emt_word_expr_is_owned_temporary",
+                "__freak_say_value",
+                "__freak_discarded_word",
+            ),
+        ),
+        "LLVM word temporary ownership": (
+            repo / "src" / "compiler" / "v3" / "emit_llvm.fk",
+            (
+                "llvm_word_expr_is_owned_temporary",
+                "discarded_reg",
+                "freak_llvm_word_release_replaced",
+            ),
+        ),
         "word ownership regression": (
             repo / "tests" / "v3_word_ownership.py",
             (
@@ -1795,6 +1811,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "replace_identity",
                 "trim_identity",
                 "fs_list_program",
+                "word_from_int(99)",
             ),
         ),
         "POSIX installer": (
@@ -1980,7 +1997,12 @@ def audit_conformance(paths: List[Path]) -> int:
         ),
         "CI": (
             repo / ".github" / "workflows" / "ci.yml",
-            ("tests/v3_install_doctor_upgrade.py", "Pre-compile Windows runtime objects"),
+            (
+                "tests/v3_install_doctor_upgrade.py",
+                "Pre-compile Windows runtime objects",
+                "V3 parser/type errors gate code generation",
+                "V3 word replacement ownership",
+            ),
         ),
         "release": (
             repo / ".github" / "workflows" / "release.yml",

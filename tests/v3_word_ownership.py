@@ -215,6 +215,9 @@ task main() {
     say param_copy
     param_copy = "released"
     say read_generated_name_collision(7).to_word()
+    repeat 64 times {
+        word_from_int(99)
+    }
 }
 """
 
@@ -400,6 +403,8 @@ def main() -> int:
                         assert "__freak_user_return_param_shadow" in generated_text
                     elif case_name == "shadow_copy":
                         assert re.search(r"__freak_return_value = __freak_global_\d+;", generated_text)
+                        assert "freak_word_release_owned(&__freak_say_value)" in generated_text
+                        assert "freak_word_release_owned(&__freak_discarded_word)" in generated_text
                 else:
                     assert "@freak_llvm_word_release_replaced" in generated_text
                     assert "@freak_llvm_word_clone" in generated_text
