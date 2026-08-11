@@ -102,6 +102,8 @@ task c_map_call(val: word) -> word {
     if val == "fs::exists" { give back "freak_fs_exists" }
     if val == "fs::delete" { give back "freak_fs_delete" }
     if val == "fs::list_dir" { give back "freak_fs_list_dir" }
+    if val == "fs::make_dir" { give back "freak_fs_make_dir" }
+    if val == "process::input" { give back "freak_process_input" }
     if val == "math::sqrt" { give back "freak_math_sqrt" }
     if val == "math::pow" { give back "freak_math_pow" }
     if val == "math::sin" { give back "freak_math_sin" }
@@ -410,7 +412,12 @@ task emit_c_field(val: word, left: word) -> void {
             si += 1
         }
     }
-    if fidx < 0 { fidx = 0 }
+    if fidx < 0 {
+        -- The semantic checker hard-gates this path.  Keep the emitter
+        -- defensive so a missed diagnostic never aliases an unrelated field.
+        emit("0")
+        give back
+    }
     emit("freak_llvm_shape_get(")
     emit_expr(left)
     emit(", " + word_from_int(fidx) + ")")
@@ -419,10 +426,14 @@ task emit_c_field(val: word, left: word) -> void {
 task emit_c_binop(val: word, left: word, right: word) -> void {
     if val == "+" {
         if emt_expr_type_code(left) == "w" or emt_expr_type_code(right) == "w" {
-            emit("freak_word_concat(")
+            emit("freak_word_concat_consuming(")
             emit_expr(left)
             emit(", ")
             emit_expr(right)
+            emit(", ")
+            if emt_word_expr_is_owned_temporary(left) { emit("true") } else { emit("false") }
+            emit(", ")
+            if emt_word_expr_is_owned_temporary(right) { emit("true") } else { emit("false") }
             emit(")")
             give back
         }

@@ -31,10 +31,17 @@ def manifest_entries(repo: Path) -> list[tuple[str, str]]:
             continue
         source, separator, destination = line.partition("|")
         assert separator and source and destination, line
-        assert source.startswith(("freakc/runtime/", "std/")), source
-        assert destination.startswith(("runtime/", "std/")), destination
-        assert ".." not in Path(source).parts
-        assert ".." not in Path(destination).parts
+        source = source.replace("\\", "/")
+        destination = destination.replace("\\", "/")
+        for value, prefixes in (
+            (source, ("freakc/runtime/", "std/")),
+            (destination, ("runtime/", "std/")),
+        ):
+            parts = value.split("/")
+            assert not value.startswith("/"), value
+            assert not (len(value) >= 2 and value[0].isalpha() and value[1] == ":"), value
+            assert all(part not in ("", ".", "..") for part in parts), value
+            assert value.startswith(prefixes), value
         entries.append((source, destination))
     assert entries
     assert len({destination for _, destination in entries}) == len(entries)
@@ -109,8 +116,10 @@ def check_static_contracts(repo: Path) -> None:
         "reconcile_orphaned_transaction",
         "packaging/distribution-files.manifest",
         "restore_previous_payload",
-        "verify_downloaded_archive",
+        "verify_downloaded_asset",
         "SHA256SUMS",
+        ".freak-install.lock",
+        "Another FREAK installer",
     ):
         assert needle in shell_text, f"install.sh missing {needle}"
     for needle in (
@@ -129,8 +138,11 @@ def check_static_contracts(repo: Path) -> None:
         ".freak-backup-",
         "FREAK_INSTALL_TEST_FAIL_APPLY",
         "distribution-files.manifest",
-        "Assert-DownloadedArchiveChecksum",
+        "Assert-DownloadedAssetChecksum",
         "SHA256SUMS",
+        ".freak-install.lock",
+        "FileShare]::None",
+        "wait-start=",
     ):
         assert needle in ps_text, f"install.ps1 missing {needle}"
     assert "choco.exe install llvm" not in ps_text
@@ -156,9 +168,14 @@ def check_static_contracts(repo: Path) -> None:
         "freak_llvm_runtime.obj dist/freak/runtime/",
         "freak_ui_win32.obj dist/freak/runtime/",
         "LLVM_MINGW_SHA256",
+        "freakc_v3_stage2",
+        "raw/packaging/distribution-files.manifest",
     ):
         assert needle in release_text, f"release workflow missing {needle}"
     assert "destination=${destination%$'\\r'}" in release_text
+    assert 'read -r source destination || [[ -n "$source$destination" ]]' in release_text
+    assert "freakc_v3_stage2" in ci_text
+    assert "freakc_v3_stage3" in ci_text
     assert release_text.index("Package distributions as tarballs/zips") < release_text.index(
         "Generate checksums"
     )
@@ -189,6 +206,8 @@ def check_static_contracts(repo: Path) -> None:
         "cleanup_retained",
         "cli_quote_cmd_path(probe_source)",
         "probe_run_exit == 0",
+        "give back probe_ok",
+        "pending_marker = cli_pending_upgrade_marker()",
         "clang toolchain ",
         "compile, link, and execution work",
         "task cli_doctor(fix_mode: bool) -> int",
@@ -238,7 +257,7 @@ def create_distribution(
         encoding="utf-8"
     )
     (dist / "distribution-files.manifest").write_bytes(
-        manifest_text.replace("\n", "\r\n").encode("utf-8")
+        manifest_text.replace("\n", "\r\n").rstrip("\r\n").encode("utf-8")
     )
 
     if windows:
@@ -368,6 +387,77 @@ def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> 
         assert rejected.returncode != 0, rejected.stdout + rejected.stderr
         assert "sha256 mismatch" in (rejected.stdout + rejected.stderr).lower()
         assert sentinel.read_bytes() == b"old payload\n"
+
+        # Exercise the archive-missing compatibility path with the same exact
+        # hash contract. The manifest deliberately has no final newline.
+        fallback_release = release_root / "vfallback"
+        fallback_raw = release_root / "raw"
+        fallback_release.mkdir()
+        if sys.platform == "win32":
+            freak_asset = "freak-windows-x64.exe"
+            hangar_asset = "hangar-windows-x64.exe"
+        else:
+            platform_tag = "macos" if sys.platform == "darwin" else "linux"
+            machine = platform.machine().lower()
+            arch_tag = "arm64" if machine in {"aarch64", "arm64"} else "x64"
+            freak_asset = f"freak-{platform_tag}-{arch_tag}"
+            hangar_asset = f"hangar-{platform_tag}-{arch_tag}"
+        (fallback_release / freak_asset).write_bytes(b"standalone freak\n")
+        (fallback_release / hangar_asset).write_bytes(b"standalone hangar\n")
+        manifest_bytes = (repo / "packaging" / "distribution-files.manifest").read_bytes().rstrip(b"\r\n")
+        raw_manifest = fallback_raw / "packaging" / "distribution-files.manifest"
+        raw_manifest.parent.mkdir(parents=True)
+        raw_manifest.write_bytes(manifest_bytes)
+        checksum_lines: list[str] = []
+        for asset in (freak_asset, hangar_asset):
+            asset_path = fallback_release / asset
+            checksum_lines.append(f"{hashlib.sha256(asset_path.read_bytes()).hexdigest()}  {asset}")
+        for source, _ in manifest_entries(repo):
+            raw_target = fallback_raw / source
+            raw_target.parent.mkdir(parents=True, exist_ok=True)
+            raw_target.write_bytes((repo / source).read_bytes())
+            checksum_lines.append(
+                f"{hashlib.sha256(raw_target.read_bytes()).hexdigest()}  raw/{source}"
+            )
+        checksum_lines.append(
+            f"{hashlib.sha256(manifest_bytes).hexdigest()}  raw/packaging/distribution-files.manifest"
+        )
+        (fallback_release / "SHA256SUMS").write_text(
+            "\n".join(sorted(checksum_lines)) + "\n", encoding="utf-8"
+        )
+        fallback_env = base_env.copy()
+        fallback_env.update(
+            {
+                "FREAK_RELEASE_TAG": "vfallback",
+                "FREAK_RAW_BASE": f"http://127.0.0.1:{server.server_port}/raw",
+                "FREAK_HOME": str(root / "fallback-valid"),
+            }
+        )
+        fallback = subprocess.run(
+            command, cwd=repo, env=fallback_env, capture_output=True, text=True,
+            errors="replace", timeout=120,
+        )
+        assert fallback.returncode == 0, fallback.stdout + fallback.stderr
+        assert fallback.stdout.count("Verified SHA-256") >= 3 + len(manifest_entries(repo))
+
+        tampered_source = fallback_raw / manifest_entries(repo)[0][0]
+        tampered_source.write_bytes(tampered_source.read_bytes() + b"tampered\n")
+        fallback_rejected_root = root / "fallback-rejected"
+        fallback_sentinel = fallback_rejected_root / "std" / "preserve.fk"
+        fallback_sentinel.parent.mkdir(parents=True)
+        fallback_sentinel.write_bytes(b"old fallback payload\n")
+        fallback_env["FREAK_HOME"] = str(fallback_rejected_root)
+        fallback_rejected = subprocess.run(
+            command, cwd=repo, env=fallback_env, capture_output=True, text=True,
+            errors="replace", timeout=120,
+        )
+        assert fallback_rejected.returncode != 0, (
+            fallback_rejected.stdout + fallback_rejected.stderr
+        )
+        assert "sha256 mismatch" in (
+            fallback_rejected.stdout + fallback_rejected.stderr
+        ).lower()
+        assert fallback_sentinel.read_bytes() == b"old fallback payload\n"
     finally:
         server.shutdown()
         server.server_close()
@@ -433,6 +523,10 @@ def check_offline_installer(
         old_hangar = deferred_bin / "hangar.exe"
         old_freak.write_bytes(b"old locked freak\n")
         old_hangar.write_bytes(b"old hangar\n")
+        deferred_runtime = deferred_root / "runtime"
+        deferred_runtime.mkdir()
+        deferred_runtime_sentinel = deferred_runtime / "freak_runtime.c"
+        deferred_runtime_sentinel.write_bytes(b"old runtime before pending barrier\n")
 
         create_file = ctypes.windll.kernel32.CreateFileW
         create_file.argtypes = [
@@ -445,19 +539,53 @@ def check_offline_installer(
         close_handle = ctypes.windll.kernel32.CloseHandle
         close_handle.argtypes = [ctypes.wintypes.HANDLE]
         close_handle.restype = ctypes.wintypes.BOOL
+
+        install_lock_path = install_root / ".freak-install.lock"
+        install_lock_handle = create_file(
+            str(install_lock_path), 0xC0000000, 0, None, 4, 0x00000080, None
+        )
+        assert install_lock_handle != ctypes.wintypes.HANDLE(-1).value
+        runtime_before_lock_test = (install_root / "runtime" / "freak_runtime.c").read_bytes()
+        try:
+            contender = subprocess.run(
+                command, cwd=repo, env=env, capture_output=True, text=True,
+                errors="replace", timeout=30,
+            )
+            assert contender.returncode != 0, contender.stdout + contender.stderr
+            assert "another freak installer" in (
+                contender.stdout + contender.stderr
+            ).lower()
+            assert (install_root / "runtime" / "freak_runtime.c").read_bytes() == runtime_before_lock_test
+        finally:
+            assert close_handle(install_lock_handle)
+            install_lock_path.unlink(missing_ok=True)
+
         lock_handle = create_file(
             str(old_freak), 0x80000000, 0x00000001, None, 3, 0x00000080, None
         )
         assert lock_handle != ctypes.wintypes.HANDLE(-1).value
         deferred_env = env.copy()
         deferred_env["FREAK_HOME"] = str(deferred_root)
+        pending_ready = root / "windows-pending-ready.txt"
+        deferred_env["FREAK_INSTALL_TEST_PAUSE_AFTER_PENDING"] = "1"
+        deferred_env["FREAK_INSTALL_TEST_PENDING_READY"] = str(pending_ready)
         try:
-            staged = subprocess.run(
+            staged_process = subprocess.Popen(
                 [*command, "-Upgrade"], cwd=repo, env=deferred_env,
-                capture_output=True, text=True, errors="replace", timeout=120,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                errors="replace",
             )
-            assert staged.returncode == 0, staged.stdout + staged.stderr
-            assert "payload staged successfully" in staged.stdout
+            pending_deadline = time.monotonic() + 15
+            while time.monotonic() < pending_deadline and not pending_ready.exists():
+                if staged_process.poll() is not None:
+                    break
+                time.sleep(0.1)
+            assert pending_ready.is_file()
+            assert (deferred_bin / ".freak-upgrade-pending").is_file()
+            assert deferred_runtime_sentinel.read_bytes() == b"old runtime before pending barrier\n"
+            staged_stdout, staged_stderr = staged_process.communicate(timeout=120)
+            assert staged_process.returncode == 0, staged_stdout + staged_stderr
+            assert "payload staged successfully" in staged_stdout
             time.sleep(1.5)
             assert (deferred_bin / ".freak-upgrade-pending").is_file()
             assert (deferred_bin / "freak.exe.next").is_file()
@@ -527,6 +655,41 @@ def check_offline_installer(
     for relative, contents in preserved_files.items():
         assert (preserved_root / relative).read_bytes() == contents
 
+    unsafe_dist = root / "unsafe-archive" / "freak"
+    unsafe_bin = unsafe_dist / "bin"
+    unsafe_bin.mkdir(parents=True)
+    (unsafe_bin / f"freak{extension}").write_bytes(b"unsafe fixture freak\n")
+    (unsafe_bin / f"hangar{extension}").write_bytes(b"unsafe fixture hangar\n")
+    (unsafe_dist / "runtime").mkdir()
+    (unsafe_dist / "std").mkdir()
+    (unsafe_dist / "runtime" / "placeholder").write_bytes(b"runtime\n")
+    (unsafe_dist / "std" / "placeholder").write_bytes(b"std\n")
+    (unsafe_dist / "distribution-files.manifest").write_text(
+        "std/math.fk|std/..", encoding="utf-8"
+    )
+    unsafe_archive = root / (
+        "unsafe-manifest.zip" if sys.platform == "win32" else "unsafe-manifest.tar.gz"
+    )
+    if sys.platform == "win32":
+        with zipfile.ZipFile(unsafe_archive, "w", zipfile.ZIP_DEFLATED) as zipped:
+            for path in unsafe_dist.rglob("*"):
+                if path.is_file():
+                    zipped.write(path, path.relative_to(unsafe_dist.parent))
+    else:
+        with tarfile.open(unsafe_archive, "w:gz") as tarred:
+            tarred.add(unsafe_dist, arcname="freak")
+    unsafe_env = failure_env.copy()
+    unsafe_env["FREAK_INSTALL_ARCHIVE"] = str(unsafe_archive)
+    unsafe = subprocess.run(
+        command, cwd=repo, env=unsafe_env, capture_output=True, text=True,
+        errors="replace", timeout=120,
+    )
+    assert unsafe.returncode != 0, unsafe.stdout + unsafe.stderr
+    unsafe_output = unsafe.stdout + unsafe.stderr
+    assert "unsafe distribution" in unsafe_output.lower(), unsafe_output
+    for relative, contents in preserved_files.items():
+        assert (preserved_root / relative).read_bytes() == contents
+
     failure_env["FREAK_INSTALL_ARCHIVE"] = str(archive)
     failure_env["FREAK_INSTALL_TEST_FAIL_APPLY"] = "1"
     rolled_back = subprocess.run(
@@ -557,6 +720,18 @@ def check_offline_installer(
                 break
             time.sleep(0.1)
         assert transaction_ready.is_file(), interrupted.communicate(timeout=5)
+        contender_env = env.copy()
+        contender_env["FREAK_HOME"] = str(preserved_root)
+        contender_env["FREAK_INSTALL_ARCHIVE"] = str(archive)
+        contender = subprocess.run(
+            command, cwd=repo, env=contender_env, capture_output=True, text=True,
+            errors="replace", timeout=30,
+        )
+        assert contender.returncode != 0, contender.stdout + contender.stderr
+        assert "another freak installer" in (
+            contender.stdout + contender.stderr
+        ).lower()
+        assert len(list(preserved_root.glob(".freak-backup-*"))) == 1
         os.killpg(interrupted.pid, signal.SIGTERM)
         interrupted_stdout, interrupted_stderr = interrupted.communicate(timeout=30)
         assert interrupted.returncode != 0, interrupted_stdout + interrupted_stderr
@@ -624,6 +799,38 @@ def check_offline_installer(
             dependency_attempt.stdout + dependency_attempt.stderr
         )
         assert dependency_sentinel.is_file()
+
+        output_only_clang = root / "installer-output-only-clang.sh"
+        output_only_clang.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "${1:-}" = "--version" ]; then echo "clang output-only fixture"; exit 0; fi\n'
+            "output=''\n"
+            "while [ $# -gt 0 ]; do\n"
+            '  if [ "$1" = "-o" ]; then shift; output="$1"; break; fi\n'
+            "  shift\n"
+            "done\n"
+            '[ -n "$output" ] || exit 1\n'
+            'printf "not executable\\n" > "$output"\n'
+            'chmod +x "$output"\n'
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        output_only_clang.chmod(0o755)
+        output_dependency_sentinel = root / "installer-output-dependency-attempted.txt"
+        output_env = dependency_env.copy()
+        output_env["FREAK_HOME"] = str(root / "output-dependency-install")
+        output_env["FREAK_CLANG"] = str(output_only_clang)
+        output_env["FREAK_INSTALL_DEP_COMMAND"] = (
+            f'printf attempted > "{output_dependency_sentinel}"'
+        )
+        output_attempt = subprocess.run(
+            dependency_command, cwd=repo, env=output_env, capture_output=True,
+            text=True, errors="replace", timeout=120,
+        )
+        assert output_attempt.returncode != 0, output_attempt.stdout + output_attempt.stderr
+        assert output_dependency_sentinel.is_file(), (
+            "POSIX installer accepted a linked file that could not execute"
+        )
 
 
 def run_cli(
@@ -850,6 +1057,32 @@ def check_doctor(
     assert retained_path.parent.resolve() == retained_temp.resolve()
     shutil.rmtree(retained_path)
     assert not list(retained_temp.iterdir())
+
+    retained_fix_temp = root / "doctor-retained-fix-probes"
+    retained_fix_temp.mkdir()
+    retained_fix_env = retained_env.copy()
+    retained_fix_env["TEMP"] = str(retained_fix_temp)
+    retained_fix_env["TMP"] = str(retained_fix_temp)
+    retained_fix_env["TMPDIR"] = str(retained_fix_temp)
+    clang_install_sentinel = root / "unexpected-clang-reinstall.txt"
+    if sys.platform == "win32":
+        retained_fix_env["FREAK_DOCTOR_INSTALL_COMMAND"] = (
+            f'powershell -NoProfile -Command "Set-Content -LiteralPath \'{clang_install_sentinel}\' unexpected"'
+        )
+    else:
+        retained_fix_env["FREAK_DOCTOR_INSTALL_COMMAND"] = (
+            f'printf unexpected > "{clang_install_sentinel}"'
+        )
+    retained_fix = run_cli(compiler, cwd, retained_fix_env, "doctor", "--fix")
+    assert retained_fix.returncode != 0, retained_fix.stdout + retained_fix.stderr
+    assert "Probe cleanup could not finish; retained:" in retained_fix.stdout
+    assert not clang_install_sentinel.exists(), (
+        "Doctor reinstalled a usable Clang merely because probe cleanup was retained"
+    )
+    retained_fix_paths = list(retained_fix_temp.glob("freak-doctor-*-probe-*"))
+    assert retained_fix_paths, retained_fix.stdout
+    for path in retained_fix_paths:
+        shutil.rmtree(path)
 
     ui_module = payload / "std" / "ui" / "window.fk"
     ui_module.unlink()

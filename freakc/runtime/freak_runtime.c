@@ -88,6 +88,14 @@ freak_word freak_word_concat(freak_word a, freak_word b) {
     return freak_word_own(buf, total);
 }
 
+freak_word freak_word_concat_consuming(freak_word a, freak_word b, bool release_a, bool release_b) {
+    freak_word result = freak_word_concat(a, b);
+    bool same_input = a.data == b.data;
+    if (release_a) freak_word_release_owned(&a);
+    if (release_b && (!same_input || !release_a)) freak_word_release_owned(&b);
+    return result;
+}
+
 freak_word freak_word_clone(freak_word source) {
     if (!source.heap || !source.data) return source;
     char* buf = (char*)malloc(source.length + 1);
@@ -1250,22 +1258,56 @@ typedef struct freak_llvm_owned_word {
     struct freak_llvm_owned_word* next;
 } freak_llvm_owned_word;
 
-static freak_llvm_owned_word* freak_llvm_owned_words = NULL;
+static freak_llvm_owned_word** freak_llvm_owned_buckets = NULL;
+static size_t freak_llvm_owned_bucket_count = 0;
+static size_t freak_llvm_owned_count = 0;
+
+static size_t freak_llvm_owned_bucket(void* pointer, size_t bucket_count) {
+    uint64_t value = (uint64_t)(uintptr_t)pointer;
+    value ^= value >> 33;
+    value *= UINT64_C(0xff51afd7ed558ccd);
+    value ^= value >> 33;
+    return (size_t)(value & (uint64_t)(bucket_count - 1));
+}
+
+static void freak_llvm_owned_resize(size_t new_bucket_count) {
+    freak_llvm_owned_word** resized = (freak_llvm_owned_word**)calloc(
+        new_bucket_count, sizeof(*resized));
+    if (!resized) {
+        fprintf(stderr, "FREAK: out of memory growing the owned-word registry\n");
+        exit(1);
+    }
+    for (size_t bucket = 0; bucket < freak_llvm_owned_bucket_count; bucket++) {
+        freak_llvm_owned_word* current = freak_llvm_owned_buckets[bucket];
+        while (current) {
+            freak_llvm_owned_word* next = current->next;
+            size_t target = freak_llvm_owned_bucket(current->pointer, new_bucket_count);
+            current->next = resized[target];
+            resized[target] = current;
+            current = next;
+        }
+    }
+    free(freak_llvm_owned_buckets);
+    freak_llvm_owned_buckets = resized;
+    freak_llvm_owned_bucket_count = new_bucket_count;
+}
+
+static void freak_llvm_owned_ensure_capacity(void) {
+    if (freak_llvm_owned_bucket_count == 0) {
+        freak_llvm_owned_resize(64);
+    } else if ((freak_llvm_owned_count + 1) * 4 >= freak_llvm_owned_bucket_count * 3) {
+        freak_llvm_owned_resize(freak_llvm_owned_bucket_count * 2);
+    }
+}
 
 #ifdef FREAK_RUNTIME_OWNERSHIP_AUDIT
 static bool freak_llvm_ownership_audit_registered = false;
 
 static void freak_llvm_ownership_audit_at_exit(void) {
-    int64_t remaining = 0;
-    freak_llvm_owned_word* current = freak_llvm_owned_words;
-    while (current) {
-        remaining += 1;
-        current = current->next;
-    }
-    if (remaining != 0) {
+    if (freak_llvm_owned_count != 0) {
         fprintf(stderr,
-                "FREAK: LLVM ownership audit found %lld unreleased word allocation(s)\n",
-                (long long)remaining);
+                "FREAK: LLVM ownership audit found %llu unreleased word allocation(s)\n",
+                (unsigned long long)freak_llvm_owned_count);
         _Exit(86);
     }
 }
@@ -1282,7 +1324,9 @@ int64_t freak_llvm_word_adopt(int64_t pointer) {
         freak_llvm_ownership_audit_registered = true;
     }
 #endif
-    freak_llvm_owned_word* current = freak_llvm_owned_words;
+    freak_llvm_owned_ensure_capacity();
+    size_t bucket = freak_llvm_owned_bucket((void*)pointer, freak_llvm_owned_bucket_count);
+    freak_llvm_owned_word* current = freak_llvm_owned_buckets[bucket];
     while (current) {
         if (current->pointer == (void*)pointer) return pointer;
         current = current->next;
@@ -1293,8 +1337,9 @@ int64_t freak_llvm_word_adopt(int64_t pointer) {
         exit(1);
     }
     owned->pointer = (void*)pointer;
-    owned->next = freak_llvm_owned_words;
-    freak_llvm_owned_words = owned;
+    owned->next = freak_llvm_owned_buckets[bucket];
+    freak_llvm_owned_buckets[bucket] = owned;
+    freak_llvm_owned_count += 1;
     return pointer;
 }
 
@@ -1313,13 +1358,18 @@ int64_t freak_llvm_word_clone(int64_t source) {
 
 void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement) {
     if (!previous || previous == replacement) return;
-    freak_llvm_owned_word** link = &freak_llvm_owned_words;
+    /* Literal/static/foreign pointers are deliberately absent from this
+       registry and therefore ignored. Only adopted allocations are freed. */
+    if (freak_llvm_owned_bucket_count == 0) return;
+    size_t bucket = freak_llvm_owned_bucket((void*)previous, freak_llvm_owned_bucket_count);
+    freak_llvm_owned_word** link = &freak_llvm_owned_buckets[bucket];
     while (*link) {
         freak_llvm_owned_word* owned = *link;
         if (owned->pointer == (void*)previous) {
             *link = owned->next;
             free(owned->pointer);
             free(owned);
+            freak_llvm_owned_count -= 1;
             return;
         }
         link = &owned->next;

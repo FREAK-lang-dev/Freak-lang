@@ -32,6 +32,34 @@ if ($InstallDir -eq [System.IO.Path]::GetPathRoot($InstallDir)) {
 }
 $InstallDir = $InstallDir.TrimEnd([char[]]@('\', '/'))
 $BinDir = Join-Path $InstallDir "bin"
+$InstallLockPath = Join-Path $InstallDir ".freak-install.lock"
+$InstallLockStream = $null
+
+function Acquire-InstallLock {
+    [System.IO.Directory]::CreateDirectory($InstallDir) | Out-Null
+    $pending = Join-Path $BinDir ".freak-upgrade-pending"
+    if (Test-Path -LiteralPath $pending -PathType Leaf) {
+        Err "A FREAK binary replacement is still pending: $pending"
+    }
+    try {
+        $script:InstallLockStream = [System.IO.File]::Open(
+            $InstallLockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+    } catch {
+        Err "Another FREAK installer is already updating $InstallDir"
+    }
+}
+
+function Release-InstallLock {
+    if ($script:InstallLockStream) {
+        $script:InstallLockStream.Dispose()
+        $script:InstallLockStream = $null
+        Remove-Item -LiteralPath $InstallLockPath -Force -ErrorAction SilentlyContinue
+    }
+}
 
 function Test-ClangToolchain($candidate) {
     if (-not $candidate -or -not (Test-Path -LiteralPath $candidate -PathType Leaf)) { return $false }
@@ -169,9 +197,17 @@ function Get-ManifestEntries {
         if ($parts.Count -ne 2 -or -not $parts[1]) { Err "Malformed distribution manifest entry: $line" }
         $source = $parts[0].Replace('\', '/')
         $destination = $parts[1].Replace('\', '/')
+        $sourceParts = @($source.Split('/') | Where-Object { $_ })
+        $destinationParts = @($destination.Split('/') | Where-Object { $_ })
         if (($source -notlike 'freakc/runtime/*' -and $source -notlike 'std/*') -or
             ($destination -notlike 'runtime/*' -and $destination -notlike 'std/*') -or
-            $source.Contains('../') -or $destination.Contains('../')) {
+            [System.IO.Path]::IsPathRooted($source) -or [System.IO.Path]::IsPathRooted($destination) -or
+            $source.StartsWith('/') -or $destination.StartsWith('/') -or
+            $source.Contains('//') -or $destination.Contains('//') -or
+            $source.StartsWith('./') -or $destination.StartsWith('./') -or
+            $source.EndsWith('/.') -or $destination.EndsWith('/.') -or
+            $sourceParts -contains '.' -or $destinationParts -contains '.' -or
+            $sourceParts -contains '..' -or $destinationParts -contains '..') {
             Err "Unsafe distribution manifest entry: $line"
         }
         [pscustomobject]@{ Source = $source; Destination = $destination }
@@ -190,12 +226,14 @@ function Assert-StagedPayload {
     }
 }
 
-function Assert-DownloadedArchiveChecksum($ArchivePath, $AssetName) {
+function Assert-DownloadedAssetChecksum($ArchivePath, $AssetName) {
     $checksumsPath = Join-Path $TmpDir "SHA256SUMS"
-    try {
-        Invoke-WebRequest -Uri "$ReleaseBase/$Latest/SHA256SUMS" -OutFile $checksumsPath -UseBasicParsing
-    } catch {
-        Err "Could not download SHA256SUMS for $Latest"
+    if (-not (Test-Path -LiteralPath $checksumsPath -PathType Leaf)) {
+        try {
+            Invoke-WebRequest -Uri "$ReleaseBase/$Latest/SHA256SUMS" -OutFile $checksumsPath -UseBasicParsing
+        } catch {
+            Err "Could not download SHA256SUMS for $Latest"
+        }
     }
     $expected = $null
     foreach ($rawLine in Get-Content -LiteralPath $checksumsPath) {
@@ -219,27 +257,28 @@ function Assert-DownloadedArchiveChecksum($ArchivePath, $AssetName) {
 function Stage-FallbackPayload {
     Info "Distribution archive unavailable; staging standalone compatibility assets..."
     Invoke-WebRequest -Uri "$ReleaseBase/$Latest/$Target.exe" -OutFile "$StageBin\freak.exe" -UseBasicParsing
-    try {
-        Invoke-WebRequest -Uri "$ReleaseBase/$Latest/hangar-windows-x64.exe" -OutFile "$StageBin\hangar.exe" -UseBasicParsing
-    } catch {
-        Copy-Item -LiteralPath "$StageBin\freak.exe" -Destination "$StageBin\hangar.exe" -Force
-    }
+    Assert-DownloadedAssetChecksum "$StageBin\freak.exe" "$Target.exe"
+    Invoke-WebRequest -Uri "$ReleaseBase/$Latest/hangar-windows-x64.exe" -OutFile "$StageBin\hangar.exe" -UseBasicParsing
+    Assert-DownloadedAssetChecksum "$StageBin\hangar.exe" "hangar-windows-x64.exe"
     Invoke-WebRequest -Uri "$RawBase/packaging/distribution-files.manifest" -OutFile $StageManifest -UseBasicParsing
+    Assert-DownloadedAssetChecksum $StageManifest "raw/packaging/distribution-files.manifest"
     foreach ($entry in Get-ManifestEntries) {
         $destination = Join-Path $StageDir $entry.Destination
         New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
         Invoke-WebRequest -Uri "$RawBase/$($entry.Source)" -OutFile $destination -UseBasicParsing
+        Assert-DownloadedAssetChecksum $destination "raw/$($entry.Source)"
     }
 }
 
 function Start-DeferredBinaryReplacement {
     $quotedBin = $BinDir.Replace("'", "''")
     $replacementWaitPid = $PID
+    $replacementWaitStart = (Get-Process -Id $PID).StartTime.ToFileTimeUtc()
     $pendingPath = Join-Path $BinDir ".freak-upgrade-pending"
     $failedPath = Join-Path $BinDir ".freak-upgrade-failed"
     $expectedFreakHash = (Get-FileHash -LiteralPath (Join-Path $BinDir "freak.exe.next") -Algorithm SHA256).Hash
     $expectedHangarHash = (Get-FileHash -LiteralPath (Join-Path $BinDir "hangar.exe.next") -Algorithm SHA256).Hash
-    Set-Content -LiteralPath $pendingPath -Value "$Latest|wait-pid=$replacementWaitPid|freak-sha256=$expectedFreakHash|hangar-sha256=$expectedHangarHash" -Encoding UTF8
+    Set-Content -LiteralPath $pendingPath -Value "$Latest|wait-pid=$replacementWaitPid|wait-start=$replacementWaitStart|freak-sha256=$expectedFreakHash|hangar-sha256=$expectedHangarHash" -Encoding UTF8
     Remove-Item -LiteralPath $failedPath -Force -ErrorAction SilentlyContinue
     $apply = @"
 `$ErrorActionPreference = 'Stop'
@@ -281,8 +320,16 @@ function Restore-BinaryBackup {
 # The installer cannot replace the executable that launched it. Wait for that
 # exact process, then retain durable .next/pending state until both binaries
 # have been swapped and hash-verified as one recoverable transaction.
-while (Get-Process -Id $replacementWaitPid -ErrorAction SilentlyContinue) {
+`$waitDeadline = [DateTime]::UtcNow.AddHours(24)
+while ([DateTime]::UtcNow -lt `$waitDeadline) {
+    `$owner = Get-Process -Id $replacementWaitPid -ErrorAction SilentlyContinue
+    if (-not `$owner) { break }
+    if (`$owner.StartTime.ToFileTimeUtc() -ne $replacementWaitStart) { break }
     Start-Sleep -Milliseconds 250
+}
+if ([DateTime]::UtcNow -ge `$waitDeadline) {
+    Set-Content -LiteralPath `$failed -Value 'timed out waiting for the invoking installer process' -Encoding UTF8
+    exit 1
 }
 `$deadline = [DateTime]::UtcNow.AddHours(24)
 while ([DateTime]::UtcNow -lt `$deadline) {
@@ -367,6 +414,20 @@ function Install-StagedPayload {
             $items += [pscustomobject]@{ Live = "$BinDir\hangar.exe"; Pending = "$applyRoot\bin\hangar.exe"; Backup = "$backupRoot\bin\hangar.exe"; Prepared = $false; HadOriginal = $false }
         }
 
+        if ($UpgradeMode) {
+            # This marker is the public build/run exclusion guard.  Publish it
+            # before the first live payload path moves, then replace its
+            # preparing state with the hash-bound deferred transaction state.
+            New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+            Set-Content -LiteralPath "$BinDir\.freak-upgrade-pending" -Value "$Latest|preparing=1" -Encoding UTF8
+            if (Test-Truthy $env:FREAK_INSTALL_TEST_PAUSE_AFTER_PENDING) {
+                if ($env:FREAK_INSTALL_TEST_PENDING_READY) {
+                    Set-Content -LiteralPath $env:FREAK_INSTALL_TEST_PENDING_READY -Value "ready" -Encoding UTF8
+                }
+                Start-Sleep -Seconds 3
+            }
+        }
+
         foreach ($item in $items) {
             $item.HadOriginal = Test-Path -LiteralPath $item.Live
             if ($item.HadOriginal) {
@@ -391,6 +452,9 @@ function Install-StagedPayload {
     } catch {
         $applyError = $_.Exception.Message
         Remove-Item -LiteralPath "$BinDir\freak.exe.next", "$BinDir\hangar.exe.next" -Force -ErrorAction SilentlyContinue
+        if ($UpgradeMode) {
+            Remove-Item -LiteralPath "$BinDir\.freak-upgrade-pending" -Force -ErrorAction SilentlyContinue
+        }
         for ($index = $items.Count - 1; $index -ge 0; $index--) {
             $item = $items[$index]
             if (-not $item.Prepared) { continue }
@@ -406,6 +470,7 @@ function Install-StagedPayload {
 }
 
 try {
+    Acquire-InstallLock
     $ZipPath = Join-Path $TmpDir "freak.zip"
     $ZipOk = $false
     if ($LocalArchive) {
@@ -419,7 +484,7 @@ try {
         } catch {
             $ZipOk = $false
         }
-        if ($ZipOk) { Assert-DownloadedArchiveChecksum $ZipPath "$Target.zip" }
+        if ($ZipOk) { Assert-DownloadedAssetChecksum $ZipPath "$Target.zip" }
     }
 
     if ($ZipOk) {
@@ -427,11 +492,10 @@ try {
             Info "Extracting distribution..."
             Expand-Archive -LiteralPath $ZipPath -DestinationPath $ExtractDir -Force
             Copy-Item -LiteralPath "$ExtractDir\freak\bin\freak.exe" -Destination "$StageBin\freak.exe" -Force
-            if (Test-Path -LiteralPath "$ExtractDir\freak\bin\hangar.exe") {
-                Copy-Item -LiteralPath "$ExtractDir\freak\bin\hangar.exe" -Destination "$StageBin\hangar.exe" -Force
-            } else {
-                Copy-Item -LiteralPath "$StageBin\freak.exe" -Destination "$StageBin\hangar.exe" -Force
+            if (-not (Test-Path -LiteralPath "$ExtractDir\freak\bin\hangar.exe" -PathType Leaf)) {
+                Err "Distribution archive is missing Hangar"
             }
+            Copy-Item -LiteralPath "$ExtractDir\freak\bin\hangar.exe" -Destination "$StageBin\hangar.exe" -Force
             Copy-Item -Path "$ExtractDir\freak\runtime\*" -Destination $StageRuntime -Recurse -Force
             Copy-Item -Path "$ExtractDir\freak\std\*" -Destination $StageStd -Recurse -Force
             Copy-Item -LiteralPath "$ExtractDir\freak\distribution-files.manifest" -Destination $StageManifest -Force
@@ -447,6 +511,7 @@ try {
     Install-StagedPayload
 } finally {
     Remove-Item -LiteralPath $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    Release-InstallLock
 }
 
 if (-not $SkipPathUpdate) {

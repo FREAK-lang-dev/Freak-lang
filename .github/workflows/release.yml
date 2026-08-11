@@ -78,8 +78,10 @@ jobs:
         run: |
           cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/checker.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
           clang -o build/freakc_v3${{ matrix.ext }} build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
+          ./build/freakc_v3${{ matrix.ext }} build/freakc_v3.fk --c
+          clang -o build/freakc_v3_stage2${{ matrix.ext }} build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O2 -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
 
-      - name: Build full CLI (Stage 1 — V3 compiler + CLI + Hangar)
+      - name: Build full CLI (Stage 2 — current V3 compiler + CLI + Hangar)
         shell: bash
         run: |
           mkdir -p build
@@ -101,7 +103,7 @@ jobs:
           cat src/cli/doctor.fk >> build/freakc_cli.fk
           cat src/cli/audit.fk >> build/freakc_cli.fk
           cat src/cli/main.fk >> build/freakc_cli.fk
-          ./build/freakc_v3${{ matrix.ext }} build/freakc_cli.fk --c
+          ./build/freakc_v3_stage2${{ matrix.ext }} build/freakc_cli.fk --c
           clang -o build/freak${{ matrix.ext }} build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -O2 -w -D_CRT_SECURE_NO_WARNINGS $LINK_FLAGS
           # Create hangar binary (same binary, BusyBox pattern)
           cp build/freak${{ matrix.ext }} build/hangar${{ matrix.ext }}
@@ -133,7 +135,7 @@ jobs:
           cp build/hangar${{ matrix.ext }} dist/freak/bin/hangar${{ matrix.ext }}
           # Runtime sources keep final linking under the platform Clang
           # driver's CRT/SDK policy on every released target.
-          while IFS='|' read -r source destination; do
+          while IFS='|' read -r source destination || [[ -n "$source$destination" ]]; do
             source=${source%$'\r'}
             destination=${destination%$'\r'}
             if [[ -z "$source" || "$source" == \#* ]]; then
@@ -188,7 +190,32 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          find . -type f \( -name "freak-*" -o -name "hangar-*" \) -exec sha256sum {} \; | sort > SHA256SUMS
+          : > SHA256SUMS
+          # Release downloads are flattened to their basenames by GitHub.
+          # Record those exact public asset names, not artifact-directory paths.
+          while IFS= read -r -d '' file; do
+            hash=$(sha256sum "$file" | awk '{print $1}')
+            printf '%s  %s\n' "$hash" "$(basename "$file")" >> SHA256SUMS
+          done < <(find . -type f \( -name "freak-*" -o -name "hangar-*" \) -print0)
+
+          # The standalone compatibility path downloads the tagged manifest
+          # and its raw payload files.  Bind those bytes to this release too.
+          payload_root="freak-linux-x64/freak"
+          manifest="$payload_root/distribution-files.manifest"
+          test -s "$manifest"
+          printf '%s  %s\n' "$(sha256sum "$manifest" | awk '{print $1}')" \
+            "raw/packaging/distribution-files.manifest" >> SHA256SUMS
+          while IFS='|' read -r source destination || [[ -n "$source$destination" ]]; do
+            source=${source%$'\r'}
+            destination=${destination%$'\r'}
+            if [[ -z "$source" || "$source" == \#* ]]; then continue; fi
+            test -s "$payload_root/$destination"
+            printf '%s  %s\n' "$(sha256sum "$payload_root/$destination" | awk '{print $1}')" \
+              "raw/$source" >> SHA256SUMS
+          done < "$manifest"
+          sort -k2,2 -o SHA256SUMS SHA256SUMS
+          duplicate=$(awk '{count[$2] += 1} END {for (name in count) if (count[name] != 1) print name}' SHA256SUMS)
+          test -z "$duplicate" || { echo "::error::duplicate checksum asset(s): $duplicate"; exit 1; }
           cat SHA256SUMS
 
       - name: Checkout for packaging update

@@ -652,6 +652,9 @@ task parse_shape() -> int {
             } else {
                 fields = fields + "," + fname + ":" + ftype
             }
+            -- Field commas are separators, including the conventional
+            -- trailing comma before `}` used throughout std/math3d.fk.
+            match_tok(TOK_PUNCT, ",")
         }
     }
     register_shape(shape_name, fields)
@@ -659,9 +662,18 @@ task parse_shape() -> int {
 }
 
 task parse_impl() -> int {
-    pilot impl_name = cur_tok_val()
+    pilot doctrine_name = cur_tok_val()
+    pilot impl_name = doctrine_name
     pilot stmt_line = current_source_location()
     advance_tok()
+    -- Doctrine implementations use `impl Doctrine for Shape`.  Methods are
+    -- nominally owned by the shape, not by the doctrine: several shapes may
+    -- implement Add/Eq without colliding in the native symbol namespace.
+    -- Keep accepting the legacy/direct `impl Shape { ... }` form.
+    if match_tok(TOK_KW, "for") {
+        impl_name = cur_tok_val()
+        advance_tok()
+    }
     expect_tok(TOK_PUNCT, "{")
 
     repeat until cur_tok_type() == TOK_PUNCT and cur_tok_val() == "}" {

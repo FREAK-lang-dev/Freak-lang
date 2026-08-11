@@ -4,7 +4,7 @@
 -- Handles: freshness check, build when needed, then execute the binary.
 -- ===================================================================
 
-pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v2"
+pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v3"
 
 task cli_run_file_fingerprint(path: word) -> word {
     if path == "" { give back "<empty-path>:missing" }
@@ -31,7 +31,7 @@ task cli_run_fingerprint(src_file: word, target: word, opt: word, cross: word) -
     material = material + "|source=" + word_from_int(source.length()) + ":" + word_from_int(source.checksum())
     material = material + "|std=" + word_from_int(std_source.length()) + ":" + word_from_int(std_source.checksum())
     material = material + "|target=" + target + "|opt=" + opt + "|cross=" + cross + "|strict=" + strict_label
-    material = material + "|clang=" + cli_clang_version_line(cli_find_clang_command())
+    material = material + "|clang=" + cli_run_clang_identity(cli_find_clang_command())
     material = material + "|runtime-dir=" + runtime_dir
     if runtime_dir != "" {
         material = material + "|" + cli_run_file_fingerprint(runtime_dir + "/freak_runtime.c")
@@ -51,6 +51,36 @@ task cli_run_fingerprint(src_file: word, target: word, opt: word, cross: word) -
     material = material + "|pending-upgrade=" + cli_run_file_fingerprint(pending_marker)
 
     give back word_from_int(material.checksum())
+}
+
+task cli_run_clang_identity(clang_cmd: word) -> word {
+    if clang_cmd == "" { give back "clang-command:missing" }
+    pilot clean_cmd = clang_cmd.replace("\"", "")
+    pilot resolved = ""
+    if fs::exists(clean_cmd) {
+        resolved = clean_cmd
+    } else if cli_is_windows() {
+        resolved = cli_first_line(process::exec_capture("where " + cli_quote_cmd_path(clean_cmd) + " 2>nul"))
+    } else {
+        resolved = cli_first_line(process::exec_capture("command -v " + cli_quote_cmd_path(clean_cmd) + " 2>/dev/null"))
+    }
+
+    pilot digest_output = ""
+    if resolved != "" {
+        if cli_is_windows() {
+            digest_output = process::exec_capture("certutil -hashfile " + cli_quote_cmd_path(resolved) + " SHA256 2>nul")
+        } else {
+            digest_output = process::exec_capture("sha256sum " + cli_quote_cmd_path(resolved) + " 2>/dev/null")
+            if digest_output == "" {
+                digest_output = process::exec_capture("shasum -a 256 " + cli_quote_cmd_path(resolved) + " 2>/dev/null")
+            }
+        }
+    }
+    pilot digest = word_from_int(digest_output.length()) + ":" + word_from_int(digest_output.checksum())
+    if digest_output == "" and resolved != "" {
+        digest = cli_run_file_fingerprint(resolved)
+    }
+    give back "command=" + clang_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + cli_clang_version_line(clang_cmd)
 }
 
 task cli_run_cache_record(fingerprint: word, binary: word) -> word {

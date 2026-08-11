@@ -64,6 +64,19 @@ def assert_ci_shell_contract(repo: Path) -> None:
         )
 
 
+def assert_checker_callable_index(repo: Path) -> None:
+    checker = (repo / "src/compiler/v3/checker.fk").read_text(encoding="utf-8")
+    assert "task tc_callable_entry(name: word) -> int" in checker
+    assert "task tc_index_callable(stmt_id: int) -> void" in checker
+    for task_name in (
+        "tc_task_return_type",
+        "tc_impl_method_arity",
+        "tc_has_impl_method",
+    ):
+        body = task_body(checker, task_name)
+        assert "ast_top_stmts" not in body, f"{task_name} still rescans every top-level statement"
+
+
 def run(
     freak: Path,
     repo: Path,
@@ -105,9 +118,22 @@ def main() -> int:
     assert freak.is_file(), f"FREAK CLI not found: {freak}"
     assert_builtin_signature_parity(repo)
     assert_ci_shell_contract(repo)
+    assert_checker_callable_index(repo)
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-codegen-gate-") as tmp:
         tmp_path = Path(tmp)
+        scale_source = tmp_path / "callable_index_scale.fk"
+        scale_source.write_text(
+            "\n".join(
+                [f"task helper_{index}() -> int {{ give back {index} }}" for index in range(600)]
+                + ["task main() { say helper_599().to_word() }"]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        scale_check = run(freak, repo, scale_source, "check")
+        assert scale_check.returncode == 0, scale_check.stdout + scale_check.stderr
+
         parse_bad = tmp_path / "parse_bad.fk"
         parse_bad.write_text('task main() {\n    say )\n}\n', encoding="utf-8")
 
@@ -610,6 +636,61 @@ def main() -> int:
             r"__freak_user_consume_number\(freak_word_clone\(freak_llvm_shape_get",
             nominal_c_text,
         )
+
+        unknown_receiver = tmp_path / "unknown_receiver_field.fk"
+        unknown_receiver.write_text(
+            "task main() {\n"
+            "    say missing_binding.value\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        for backend, flag, suffix in (("C", "--c", ".c"), ("LLVM", "--llvm", ".ll")):
+            artifact = Path(str(unknown_receiver) + suffix)
+            artifact.write_text(SENTINEL, encoding="utf-8")
+            rejected = run(freak, repo, unknown_receiver, "transpile", flag)
+            assert_rejected(rejected, f"{backend} unknown field receiver gate")
+            output = rejected.stdout + rejected.stderr
+            assert "cannot resolve the receiver type for field 'value'" in output
+            assert artifact.read_text(encoding="utf-8") == SENTINEL
+
+        doctrine_impls = tmp_path / "doctrine_impl_owners.fk"
+        doctrine_impls.write_text(
+            "shape Alpha { value: int }\n"
+            "shape Beta { value: int }\n"
+            "impl Labelled for Alpha {\n"
+            "    task label(self) -> word { give back \"alpha\" }\n"
+            "}\n"
+            "impl Labelled for Beta {\n"
+            "    task label(self) -> word { give back \"beta\" }\n"
+            "}\n"
+            "task main() {\n"
+            "    pilot alpha = Alpha { value: 1 }\n"
+            "    pilot beta = Beta { value: 2 }\n"
+            "    say alpha.label()\n"
+            "    say beta.label()\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        for backend, flag, suffix in (("C", "--c", ".c"), ("LLVM", "--llvm", ".ll")):
+            transpiled = run(freak, repo, doctrine_impls, "transpile", flag)
+            assert transpiled.returncode == 0, transpiled.stdout + transpiled.stderr
+            generated = Path(str(doctrine_impls) + suffix).read_text(encoding="utf-8")
+            assert "Alpha_label" in generated
+            assert "Beta_label" in generated
+            assert "Labelled_label" not in generated
+
+        # The release CLI must be compiled by a current self-host stage.  This
+        # full stdlib case used to expose parser errors yet continue into LLVM
+        # with duplicate doctrine symbols when the stale bootstrap built it.
+        math3d_probe = tmp_path / "math3d_release_probe.fk"
+        math3d_probe.write_text(
+            (repo / "tests" / "math3d_test.fk").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        math3d_build = run(freak, repo, math3d_probe, "build", "--llvm")
+        assert math3d_build.returncode == 0, math3d_build.stdout + math3d_build.stderr
+        math3d_binary = math3d_probe.with_suffix(".exe" if sys.platform == "win32" else "")
+        assert math3d_binary.is_file(), math3d_binary
 
         check_result = run(freak, repo, parse_bad, "check")
         check_output = check_result.stdout + check_result.stderr

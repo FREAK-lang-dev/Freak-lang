@@ -35,6 +35,20 @@ def manifest_entries(repo: Path) -> list[tuple[str, str]]:
             continue
         source, separator, destination = line.partition("|")
         assert separator and source and destination, line
+        source = source.replace("\\", "/")
+        destination = destination.replace("\\", "/")
+        for value, prefixes in (
+            (source, ("freakc/runtime/", "std/")),
+            (destination, ("runtime/", "std/")),
+        ):
+            parts = value.split("/")
+            assert not value.startswith("/"), value
+            assert not (len(value) >= 2 and value[0].isalpha() and value[1] == ":"), value
+            assert all(part not in ("", ".", "..") for part in parts), value
+            assert value.startswith(prefixes), value
+        source_path = (repo / source).resolve()
+        source_path.relative_to(repo.resolve())
+        assert source_path.is_file(), source_path
         entries.append((source, destination))
     return entries
 
@@ -60,9 +74,10 @@ def main() -> int:
         shutil.copy2(freak, bin_dir / f"freak{extension}")
         shutil.copy2(hangar, bin_dir / f"hangar{extension}")
         for source, destination in manifest_entries(repo):
-            target = dist / destination
+            target = (dist / destination).resolve()
+            target.relative_to(dist.resolve())
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(repo / source, target)
+            shutil.copy2((repo / source).resolve(), target)
         shutil.copy2(
             repo / "packaging" / "distribution-files.manifest",
             dist / "distribution-files.manifest",

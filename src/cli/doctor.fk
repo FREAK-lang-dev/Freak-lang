@@ -138,8 +138,11 @@ task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     if fs::exists(probe_stem + ".obj") { fs::delete(probe_stem + ".obj") }
     if fs::exists(probe_stem + ".o") { fs::delete(probe_stem + ".o") }
     if fs::exists(probe_stem + ".pdb") { fs::delete(probe_stem + ".pdb") }
-    pilot cleanup_ok = cli_doctor_remove_temp_parent(probe_source)
-    give back probe_ok and cleanup_ok
+    -- Cleanup health is reported independently from toolchain health.  A
+    -- retained probe must make Doctor fail, but it must not make --fix
+    -- reinstall an otherwise usable Clang toolchain.
+    cli_doctor_remove_temp_parent(probe_source)
+    give back probe_ok
 }
 
 task cli_doctor_clang_version_line(clang_cmd: word) -> word {
@@ -281,7 +284,7 @@ task cli_doctor_json() -> int {
     pilot pending_marker = cli_pending_upgrade_marker()
     pilot upgrade_pending = pending_marker != ""
 
-    pilot all_ok = clang_ok and runtime_ok and std_ok and abi_ok and not upgrade_pending
+    pilot all_ok = clang_ok and runtime_ok and std_ok and abi_ok and not upgrade_pending and cli_doctor_retained_probe_path == ""
     pilot status = "issues"
     if all_ok { status = "ok" }
 
@@ -442,7 +445,6 @@ task cli_doctor(fix_mode: bool) -> int {
         say "        " + C_DIM + pending_marker + C_RESET
         say "        " + C_DIM + "Builds are disabled until freak.exe and hangar.exe finish replacing." + C_RESET
         say ""
-        all_ok = false
     }
 
     -- ── 1. clang ──────────────────────────────────────────
@@ -460,10 +462,6 @@ task cli_doctor(fix_mode: bool) -> int {
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " clang toolchain " + C_RED + "unusable" + C_RESET
         say "        " + C_DIM + "The C headers, linker, or generated executable probe failed." + C_RESET
-        if cli_doctor_retained_probe_path != "" {
-            say "        " + C_BYELLOW + "Probe cleanup could not finish; retained: " + cli_doctor_retained_probe_path + C_RESET
-        }
-        all_ok = false
         if fix_mode {
             say "        " + C_DIM + "Attempting auto-install..." + C_RESET
             pilot clang_fix = cli_install_clang(os_tag)
@@ -477,7 +475,6 @@ task cli_doctor(fix_mode: bool) -> int {
                         say "        " + C_DIM + "using: " + clang_cmd + C_RESET
                     }
                     checks_passed += 1
-                    all_ok = true
                 } else {
                     say "        " + C_BYELLOW + SYM_RING + C_RESET + " LLVM installer finished, but this terminal still cannot run clang."
                     if is_win {
@@ -517,6 +514,11 @@ task cli_doctor(fix_mode: bool) -> int {
         say "        " + C_BYELLOW + SYM_RING + C_RESET + " lld not found " + C_DIM + "(optional — clang can link too)" + C_RESET
         checks_passed += 1
     }
+    if cli_doctor_retained_probe_path != "" {
+        say "        " + C_BYELLOW + "Probe cleanup could not finish; retained: " + cli_doctor_retained_probe_path + C_RESET
+        all_ok = false
+    }
+    if not clang_ok { all_ok = false }
     say ""
 
     -- Repair the distribution as one staged unit. Calling upgrade separately
@@ -535,6 +537,7 @@ task cli_doctor(fix_mode: bool) -> int {
             runtime_missing = cli_doctor_runtime_missing(rt_dir)
             std_missing = cli_doctor_std_missing(std_dir)
             abi_ok = cli_payload_abi_ok(rt_dir, std_dir)
+            pending_marker = cli_pending_upgrade_marker()
         } else {
             say "  " + C_BRED + SYM_CROSS + C_RESET + " Distribution repair failed."
         }
@@ -592,6 +595,10 @@ task cli_doctor(fix_mode: bool) -> int {
 
     -- ── 5. Compile pipeline test ──────────────────────────
     say "  " + C_BWHITE + "[5/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " compile pipeline"
+    -- The deferred Windows updater may finish or appear while Doctor runs.
+    -- Re-read the durable marker at each decision boundary.
+    pending_marker = cli_pending_upgrade_marker()
+    pilot pipeline_ok = false
     if clang_ok and runtime_missing == "" and std_missing == "" and abi_ok and pending_marker == "" {
         pilot test_src = "say \"FREAK doctor test\""
         pilot test_probe = cli_doctor_temp_stem("freak-doctor-pipeline-probe-")
@@ -607,6 +614,7 @@ task cli_doctor(fix_mode: bool) -> int {
                 if probe_exit == 0 {
                     say "        " + C_BGREEN + SYM_CHECK + C_RESET + " compile, link, and execution work"
                     checks_passed += 1
+                    pipeline_ok = true
                 } else {
                     say "        " + C_BRED + SYM_CROSS + C_RESET + " compiled probe failed at runtime"
                     all_ok = false
@@ -638,7 +646,10 @@ task cli_doctor(fix_mode: bool) -> int {
     say ""
 
     -- A successful repair of clang must not mask these independent states.
+    pending_marker = cli_pending_upgrade_marker()
     if pending_marker != "" { all_ok = false }
+    if cli_doctor_retained_probe_path != "" { all_ok = false }
+    if not pipeline_ok { all_ok = false }
     if not abi_ok { all_ok = false }
 
     -- ── Summary ───────────────────────────────────────────

@@ -1668,8 +1668,11 @@ def audit_conformance(paths: List[Path]) -> int:
         "run pipeline": (
             repo / "src" / "cli" / "run.fk",
             (
-                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v2"',
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v3"',
                 "task cli_run_fingerprint",
+                "task cli_run_clang_identity",
+                "certutil -hashfile",
+                "sha256sum ",
                 "task cli_run_cache_record",
                 "fs::delete(cache_file)",
                 "confirmed != fingerprint",
@@ -1900,14 +1903,35 @@ def audit_conformance(paths: List[Path]) -> int:
             if not separator or not source or not destination:
                 distribution_missing.append(f"malformed manifest entry: {line}")
                 continue
+            normalized_source = source.replace("\\", "/")
+            normalized_destination = destination.replace("\\", "/")
+            source_parts = normalized_source.split("/")
+            destination_parts = normalized_destination.split("/")
+            source_unsafe = (
+                source != source.strip()
+                or normalized_source.startswith("/")
+                or (len(normalized_source) >= 2 and normalized_source[0].isalpha() and normalized_source[1] == ":")
+                or any(part in ("", ".", "..") for part in source_parts)
+                or not normalized_source.startswith(("freakc/runtime/", "std/"))
+            )
+            destination_unsafe = (
+                destination != destination.strip()
+                or normalized_destination.startswith("/")
+                or (len(normalized_destination) >= 2 and normalized_destination[0].isalpha() and normalized_destination[1] == ":")
+                or any(part in ("", ".", "..") for part in destination_parts)
+                or not normalized_destination.startswith(("runtime/", "std/"))
+            )
+            if source_unsafe or destination_unsafe:
+                distribution_missing.append(f"unsafe manifest entry: {line}")
+                continue
+            source = normalized_source
+            destination = normalized_destination
             if source in manifest_sources:
                 distribution_missing.append(f"duplicate manifest source: {source}")
             if destination in manifest_destinations:
                 distribution_missing.append(
                     f"duplicate manifest destination: {destination}"
                 )
-            if ".." in Path(source).parts or ".." in Path(destination).parts:
-                distribution_missing.append(f"unsafe manifest entry: {line}")
             manifest_sources.add(source)
             manifest_destinations.add(destination)
             if not (repo / source).is_file():
@@ -1946,8 +1970,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 "FREAK_INSTALL_TEST_FAIL_RESTORE",
                 "reconcile_orphaned_transaction",
                 "distribution-files.manifest",
-                "verify_downloaded_archive",
+                "verify_downloaded_asset",
                 "SHA256SUMS",
+                ".freak-install.lock",
             ),
         ),
         "Windows dependency installer": (
@@ -1958,8 +1983,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 "Start-DeferredBinaryReplacement",
                 ".freak-upgrade-pending",
                 "Get-Process -Id",
-                "Assert-DownloadedArchiveChecksum",
+                "Assert-DownloadedAssetChecksum",
                 "SHA256SUMS",
+                ".freak-install.lock",
             ),
         ),
         "doctor": (

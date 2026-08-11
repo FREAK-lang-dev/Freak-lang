@@ -113,6 +113,18 @@ pilot tc_global_count = 0
 pilot tc_local_names = 0
 pilot tc_local_types = 0
 pilot tc_local_count = 0
+-- Hash-indexed callable signatures for the always-on checker. Keeping these
+-- separate from the AST avoids rescanning every top-level statement for each
+-- call, method, and return-type query.
+pilot tc_callable_bucket_heads = 0
+pilot tc_callable_names = 0
+pilot tc_callable_returns = 0
+pilot tc_callable_params = 0
+pilot tc_callable_extras = 0
+pilot tc_callable_stmt_ids = 0
+pilot tc_callable_next = 0
+pilot tc_callable_bucket_count = 0
+pilot tc_callable_count = 0
 
 -- ===================== SHAPE REGISTRY ==============================
 pilot shape_registry_names = 0

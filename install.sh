@@ -82,6 +82,9 @@ have_clang() {
     probe_status=0
     "$candidate" -x c "$probe_source" -o "$probe_binary" >/dev/null 2>&1 || probe_status=$?
     if [ "$probe_status" -eq 0 ] && [ ! -s "$probe_binary" ]; then probe_status=1; fi
+    if [ "$probe_status" -eq 0 ]; then
+        "$probe_binary" >/dev/null 2>&1 || probe_status=$?
+    fi
     rm -rf -- "$probe_dir"
     return "$probe_status"
 }
@@ -189,7 +192,14 @@ TARBALL_URL="$RELEASE_BASE/$LATEST/${TARGET}.tar.gz"
 TMPDIR_INSTALL=$(mktemp -d)
 APPLY_ROOT=""
 BACKUP_ROOT=""
+INSTALL_LOCK=""
 TRANSACTION_ACTIVE=0
+release_install_lock() {
+    if [ -z "$INSTALL_LOCK" ]; then return; fi
+    rm -f -- "$INSTALL_LOCK/owner"
+    rmdir -- "$INSTALL_LOCK" 2>/dev/null || true
+    INSTALL_LOCK=""
+}
 cleanup_install() {
     local status=$?
     trap - EXIT INT TERM HUP
@@ -207,6 +217,7 @@ cleanup_install() {
     rm -rf -- "$TMPDIR_INSTALL"
     if [ -n "$APPLY_ROOT" ]; then rm -rf -- "$APPLY_ROOT"; fi
     if [ -n "$BACKUP_ROOT" ]; then rm -rf -- "$BACKUP_ROOT"; fi
+    release_install_lock
     exit "$status"
 }
 trap cleanup_install EXIT
@@ -243,11 +254,13 @@ sha256_file() {
     fi
 }
 
-verify_downloaded_archive() {
+verify_downloaded_asset() {
     local archive="$1"
     local asset="$2"
     local checksums="$TMPDIR_INSTALL/SHA256SUMS"
-    fetch_file "$RELEASE_BASE/$LATEST/SHA256SUMS" "$checksums" || err "Could not download SHA256SUMS for $LATEST"
+    if [ ! -s "$checksums" ]; then
+        fetch_file "$RELEASE_BASE/$LATEST/SHA256SUMS" "$checksums" || err "Could not download SHA256SUMS for $LATEST"
+    fi
     local matches match_count expected
     matches=$(awk -v asset="$asset" '$2 == asset || $2 == "./" asset || $2 == "*" asset || $2 == "*./" asset { print $1 }' "$checksums")
     match_count=$(printf '%s\n' "$matches" | awk 'NF { count += 1 } END { print count + 0 }')
@@ -270,15 +283,20 @@ validate_manifest_entry() {
     local source="$1"
     local destination="$2"
     case "$source" in
+        /*|[A-Za-z]:*|*\\*|..|../*|*/../*|*/..|./*|*/./*|*/.|*//* )
+            err "Unsafe distribution source in manifest: $source" ;;
+    esac
+    case "$destination" in
+        /*|[A-Za-z]:*|*\\*|..|../*|*/../*|*/..|./*|*/./*|*/.|*//* )
+            err "Unsafe distribution destination in manifest: $destination" ;;
+    esac
+    case "$source" in
         freakc/runtime/*|std/*) ;;
         *) err "Unsafe distribution source in manifest: $source" ;;
     esac
     case "$destination" in
         runtime/*|std/*) ;;
         *) err "Unsafe distribution destination in manifest: $destination" ;;
-    esac
-    case "$source|$destination" in
-        *../*|*/..|/*) err "Unsafe traversal in distribution manifest" ;;
     esac
 }
 
@@ -287,7 +305,7 @@ validate_stage() {
     [ -s "$STAGE_BIN/hangar" ] || err "Staged Hangar is missing"
     [ -s "$STAGE_MANIFEST" ] || err "Staged distribution manifest is missing"
     local source destination
-    while IFS='|' read -r source destination; do
+    while IFS='|' read -r source destination || [ -n "$source$destination" ]; do
         source=${source%$'\r'}
         destination=${destination%$'\r'}
         if [ -z "$source" ] || [[ "$source" == \#* ]]; then continue; fi
@@ -300,12 +318,13 @@ validate_stage() {
 stage_fallback_payload() {
     info "Distribution archive unavailable; staging standalone compatibility assets..."
     fetch_file "$RELEASE_BASE/$LATEST/$TARGET" "$STAGE_BIN/freak"
-    if ! fetch_file "$RELEASE_BASE/$LATEST/hangar-${PLATFORM}-${ARCH_TAG}" "$STAGE_BIN/hangar"; then
-        cp "$STAGE_BIN/freak" "$STAGE_BIN/hangar"
-    fi
+    verify_downloaded_asset "$STAGE_BIN/freak" "$TARGET"
+    fetch_file "$RELEASE_BASE/$LATEST/hangar-${PLATFORM}-${ARCH_TAG}" "$STAGE_BIN/hangar"
+    verify_downloaded_asset "$STAGE_BIN/hangar" "hangar-${PLATFORM}-${ARCH_TAG}"
     fetch_file "$RAW_BASE/packaging/distribution-files.manifest" "$STAGE_MANIFEST"
+    verify_downloaded_asset "$STAGE_MANIFEST" "raw/packaging/distribution-files.manifest"
     local source destination
-    while IFS='|' read -r source destination; do
+    while IFS='|' read -r source destination || [ -n "$source$destination" ]; do
         source=${source%$'\r'}
         destination=${destination%$'\r'}
         if [ -z "$source" ] || [[ "$source" == \#* ]]; then continue; fi
@@ -313,6 +332,7 @@ stage_fallback_payload() {
         validate_manifest_entry "$source" "$destination"
         mkdir -p "$(dirname "$STAGE_DIR/$destination")"
         fetch_file "$RAW_BASE/$source" "$STAGE_DIR/$destination"
+        verify_downloaded_asset "$STAGE_DIR/$destination" "raw/$source"
     done < "$STAGE_MANIFEST"
 }
 
@@ -328,7 +348,7 @@ elif command -v tar >/dev/null 2>&1; then
 fi
 
 if [ "$ARCHIVE_OK" = true ] && [ -z "$LOCAL_ARCHIVE" ]; then
-    verify_downloaded_archive "$ARCHIVE_PATH" "$ARCHIVE_NAME"
+    verify_downloaded_asset "$ARCHIVE_PATH" "$ARCHIVE_NAME"
 fi
 
 if [ "$ARCHIVE_OK" = true ]; then
@@ -339,11 +359,8 @@ if [ "$ARCHIVE_OK" = true ]; then
     else
         [ -d "$TMPDIR_INSTALL/freak" ] || err "Distribution archive has no freak/ root"
         cp "$TMPDIR_INSTALL/freak/bin/freak" "$STAGE_BIN/freak"
-        if [ -f "$TMPDIR_INSTALL/freak/bin/hangar" ]; then
-            cp "$TMPDIR_INSTALL/freak/bin/hangar" "$STAGE_BIN/hangar"
-        else
-            cp "$STAGE_BIN/freak" "$STAGE_BIN/hangar"
-        fi
+        [ -s "$TMPDIR_INSTALL/freak/bin/hangar" ] || err "Distribution archive is missing Hangar"
+        cp "$TMPDIR_INSTALL/freak/bin/hangar" "$STAGE_BIN/hangar"
         cp -R "$TMPDIR_INSTALL/freak/runtime/." "$STAGE_RUNTIME/"
         cp -R "$TMPDIR_INSTALL/freak/std/." "$STAGE_STD/"
         cp "$TMPDIR_INSTALL/freak/distribution-files.manifest" "$STAGE_MANIFEST"
@@ -354,6 +371,18 @@ else
 fi
 
 validate_stage
+
+acquire_install_lock() {
+    mkdir -p "$INSTALL_DIR"
+    local candidate="$INSTALL_DIR/.freak-install.lock"
+    if ! mkdir -- "$candidate" 2>/dev/null; then
+        err "Another FREAK installer is already updating $INSTALL_DIR"
+    fi
+    INSTALL_LOCK="$candidate"
+    printf '%s\n' "$$" > "$INSTALL_LOCK/owner"
+}
+
+acquire_install_lock
 
 restore_previous_payload() {
     local live backup
@@ -471,6 +500,7 @@ TRANSACTION_ACTIVE=0
 rm -rf -- "$APPLY_ROOT" "$BACKUP_ROOT"
 APPLY_ROOT=""
 BACKUP_ROOT=""
+release_install_lock
 
 add_to_path() {
     local rc_file="$1"

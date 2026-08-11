@@ -70,10 +70,18 @@ int64_t freak_llvm_fs_list_dir(int64_t path) {
     );
 }
 
+void freak_llvm_fs_make_dir(int64_t path) {
+    freak_fs_make_dir(freak_word_lit((const char*)path));
+}
+
 int64_t freak_llvm_process_env(int64_t name) {
     return freak_llvm_copy_word_result(
         freak_process_env(freak_word_lit((const char*)name))
     );
+}
+
+int64_t freak_llvm_process_input(void) {
+    return freak_llvm_copy_word_result(freak_process_input());
 }
 
 int64_t freak_fopen(int64_t path, int64_t mode) {

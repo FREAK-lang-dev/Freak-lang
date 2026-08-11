@@ -70,6 +70,7 @@ def check_installer_contracts(repo: Path) -> None:
     manifest_text = (repo / "packaging" / "distribution-files.manifest").read_text(
         encoding="utf-8"
     )
+    run_text = (repo / "src" / "cli" / "run.fk").read_text(encoding="utf-8")
 
     for needle in (
         'STAGE_DIR="$TMPDIR_INSTALL/stage"',
@@ -104,6 +105,14 @@ def check_installer_contracts(repo: Path) -> None:
         "std/ui/window.fk|std/ui/window.fk",
     ):
         assert needle in manifest_text, f"distribution manifest missing {needle}"
+    for needle in (
+        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v3"',
+        "task cli_run_clang_identity",
+        "command -v ",
+        "certutil -hashfile",
+        "sha256sum ",
+    ):
+        assert needle in run_text, f"run cache identity missing {needle}"
 
     bash = shutil.which("bash")
     if bash:
@@ -188,6 +197,42 @@ def main() -> int:
         code, output = invoke(freak, source_dir, source_arg, "--c", env)
         assert_run(code, output, "CACHE_A", cache_hit=True)
         assert binary.stat().st_mtime_ns == first_mtime
+
+        # Version text alone is not a toolchain identity. Two wrappers can
+        # advertise the same version while selecting different compiler
+        # bytes. Replacing the selected executable must invalidate the cache.
+        real_clang = selected_clang(freak, root, env)
+        clang_wrapper = root / (
+            "clang-fingerprint.cmd" if sys.platform == "win32" else "clang-fingerprint.sh"
+        )
+        if sys.platform == "win32":
+            wrapper_template = (
+                "@echo off\n"
+                "rem fixture generation {generation}\n"
+                'if "%~1"=="--version" (echo clang identical-version fixture& exit /b 0)\n'
+                f'"{real_clang}" %*\n'
+            )
+        else:
+            wrapper_template = (
+                "#!/bin/sh\n"
+                "# fixture generation {generation}\n"
+                'if [ "$1" = "--version" ]; then echo "clang identical-version fixture"; exit 0; fi\n'
+                f'exec \'{real_clang}\' "$@"\n'
+            )
+        clang_env = env.copy()
+        clang_env["FREAK_CLANG"] = str(clang_wrapper)
+        clang_wrapper.write_text(wrapper_template.format(generation=1), encoding="utf-8")
+        if sys.platform != "win32":
+            clang_wrapper.chmod(0o755)
+        code, output = invoke(freak, source_dir, source_arg, "--c", clang_env)
+        assert_run(code, output, "CACHE_A", cache_hit=False)
+        code, output = invoke(freak, source_dir, source_arg, "--c", clang_env)
+        assert_run(code, output, "CACHE_A", cache_hit=True)
+        clang_wrapper.write_text(wrapper_template.format(generation=2), encoding="utf-8")
+        if sys.platform != "win32":
+            clang_wrapper.chmod(0o755)
+        code, output = invoke(freak, source_dir, source_arg, "--c", clang_env)
+        assert_run(code, output, "CACHE_A", cache_hit=False)
 
         # A warm cache never bypasses distribution integrity. Changing only
         # the ABI marker must reject the run before the cached program starts.

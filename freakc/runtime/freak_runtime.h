@@ -48,6 +48,7 @@ freak_word freak_word_own(char* s, size_t len);
 
 /* Concatenate two words — allocates. */
 freak_word freak_word_concat(freak_word a, freak_word b);
+freak_word freak_word_concat_consuming(freak_word a, freak_word b, bool release_a, bool release_b);
 
 /* Copy an existing word binding. Heap words receive independent ownership;
    literals remain shared immutable storage. */

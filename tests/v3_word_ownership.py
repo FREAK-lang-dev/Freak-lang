@@ -249,6 +249,17 @@ task main() {
 }
 """
 
+CONCAT_TEMP_PROGRAM = """task main() {
+    pilot mut text: word = "seed" + "value"
+    repeat 256 times {
+        text = ("left" + word_from_int(7)) + ("right" + "tail")
+    }
+    say text
+    text = "released"
+    ("discard" + "ed") + ("temp" + "orary")
+}
+"""
+
 METHOD_SHAPE_PROGRAM = """shape Counter {
     value: int
 }
@@ -367,6 +378,7 @@ def main() -> int:
             ("return_shadow", RETURN_SHADOW_PROGRAM, [], ["local", "inner", "global"], ("c", "llvm")),
             ("shadow_copy", SHADOW_COPY_PROGRAM, [], ["global", "param", "42", "true"], ("c", "llvm")),
             ("method_return", METHOD_RETURN_PROGRAM, [], ["ab", "trim"], ("c", "llvm")),
+            ("concat_temp", CONCAT_TEMP_PROGRAM, [], ["left7righttail"], ("c", "llvm")),
             ("aggregate", AGGREGATE_PROGRAM, [], ["hi", "hi", "hi", "xy", "stored", "join", "literal"], ("c", "llvm")),
             ("fs_list", fs_list_program, [], ["true"], ("c", "llvm")),
             ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field", "self", "self"], ("llvm",)),
@@ -388,17 +400,17 @@ def main() -> int:
                         assert re.search(r"freak_word_clone\(__freak_local_\d+\)", generated_text)
                         assert re.search(r"__freak_user_identity\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
                         assert re.search(r"__freak_user_observe\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
-                        assert "__freak_user_observe(freak_word_concat(" in generated_text
+                        assert "__freak_user_observe(freak_word_concat_consuming(" in generated_text
                         assert re.search(r"__freak_user_observe_shadow\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
                         assert re.search(r"__freak_global_\d+ = freak_word_clone\(__freak_global_\d+\)", generated_text)
                         assert "freak_word_release_owned(&__freak_param_0)" in generated_text
                     elif case_name == "aggregate":
                         assert re.search(r"freak_array_push_owned\(__freak_local_\d+, freak_word_clone\(__freak_local_\d+\)\)", generated_text)
-                        assert re.search(r"freak_array_set_owned\(__freak_local_\d+, 0, freak_word_concat\(", generated_text)
+                        assert re.search(r"freak_array_set_owned\(__freak_local_\d+, 0, freak_word_concat_consuming\(", generated_text)
                         assert re.search(r"freak_array_release_owned\(__freak_local_\d+\)", generated_text)
                         assert re.search(r"freak_word_join_owned\(__freak_local_\d+\)", generated_text)
                         assert re.search(r"\(\{ int64_t __freak_array_\d+ = freak_array_new\(\);", generated_text)
-                        assert re.search(r"freak_array_push_owned\(__freak_array_\d+, freak_word_concat\(", generated_text)
+                        assert re.search(r"freak_array_push_owned\(__freak_array_\d+, freak_word_concat_consuming\(", generated_text)
                         assert "freak_array_get" in generated_text
                     elif case_name == "global_call":
                         assert re.search(r"__freak_user_observe\(freak_word_clone\(__freak_global_\d+\)\)", generated_text)
@@ -411,9 +423,13 @@ def main() -> int:
                         assert re.search(r"__freak_return_value = __freak_global_\d+;", generated_text)
                         assert "freak_word_release_owned(&__freak_say_value)" in generated_text
                         assert "freak_word_release_owned(&__freak_discarded_word)" in generated_text
+                    elif case_name == "concat_temp":
+                        assert generated_text.count("freak_word_concat_consuming") >= 4
                 else:
                     assert "@freak_llvm_word_release_replaced" in generated_text
                     assert "@freak_llvm_word_clone" in generated_text
+                    if case_name == "concat_temp":
+                        assert generated_text.count("@freak_llvm_word_release_replaced") >= 4
 
                 binary = root / (f"replace_owned_{case_name}_{backend}.exe" if sys.platform == "win32" else f"replace_owned_{case_name}_{backend}")
                 if sys.platform == "win32":
