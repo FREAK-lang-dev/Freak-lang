@@ -18,6 +18,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -157,6 +158,9 @@ def check_static_contracts(repo: Path) -> None:
         "FREAK_INSTALL_TEST_HELPER_START_DELAY_MS",
         "DeferredHelperUnsafe",
         "Recover-OrphanedDeferredUpgrade",
+        "Recover-OrphanedPayloadTransaction",
+        "LegacyV014Archive",
+        "FREAK_INSTALL_TEST_PAUSE_AFTER_BACKUP",
     ):
         assert needle in ps_text, f"install.ps1 missing {needle}"
     assert "choco.exe install llvm" not in ps_text
@@ -173,10 +177,14 @@ def check_static_contracts(repo: Path) -> None:
         "deferred Windows upgrade must remove pending only after transaction cleanup"
     )
     unsafe_helper_guard = ps_text.index("if ($script:DeferredHelperUnsafe)")
+    unsafe_helper_abort = ps_text.index(
+        'Err "Could not safely roll back while the deferred binary helper remains active',
+        unsafe_helper_guard,
+    )
     rollback_next_cleanup = ps_text.index(
         'Remove-Item -LiteralPath "$BinDir\\freak.exe.next"', unsafe_helper_guard
     )
-    assert unsafe_helper_guard < rollback_next_cleanup, (
+    assert unsafe_helper_guard < unsafe_helper_abort < rollback_next_cleanup, (
         "an unconfirmed live Windows helper must block pending/.next rollback"
     )
     for needle in (
@@ -319,6 +327,46 @@ def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> 
         f"{expected}  ./{target}\n", encoding="utf-8"
     )
 
+    # v0.14.0 shipped complete distribution archives but its SHA256SUMS lists
+    # only extracted binary paths. Download the immutable historical archive,
+    # verify the installer pin, and serve it with the original checksum shape.
+    legacy_archive_hashes = {
+        "freak-linux-x64.tar.gz": "dac2920e7bf2e4a1ce9a6a5394cdddbb2c92ed68aa587c25249e78bee4ac7bcb",
+        "freak-linux-arm64.tar.gz": "eae4b954e8b361788e7c4fc1c077fa259b842d9cf2b125348b5c490fb44dd0b0",
+        "freak-macos-arm64.tar.gz": "484bbca735c020b4e53e3824bb414677f05cf8b1ef93c78963dc238440e7ec51",
+        "freak-windows-x64.zip": "4d1f43eb79838a100010b6b2d6a303921d75f6b0a5f947ee0104d86de3783699",
+    }
+    legacy_binary_hashes = {
+        "freak-linux-x64.tar.gz": "5b5050ae040a6c2018715653e0d5e2cd4b9ec166df83386f5efdedde4595a459",
+        "freak-linux-arm64.tar.gz": "c79234b76d4f93c12a39d00b19b510461e502f5aa104d37aeeea1b1d32a9f591",
+        "freak-macos-arm64.tar.gz": "b33ef38d187814675c73ceb4e6e3fb5068836fb458ce69ad75042af04abd447a",
+        "freak-windows-x64.zip": "8c80ce8df63e05162343032c26684f574c9abbc1e03d23ac560a82cd02075a36",
+    }
+    legacy_release = release_root / "v0.14.0"
+    legacy_release.mkdir()
+    legacy_archive = legacy_release / target
+    legacy_url = (
+        "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/"
+        f"v0.14.0/{target}"
+    )
+    with urllib.request.urlopen(legacy_url, timeout=60) as response:
+        legacy_archive.write_bytes(response.read())
+    assert hashlib.sha256(legacy_archive.read_bytes()).hexdigest() == legacy_archive_hashes[target]
+    if sys.platform == "win32":
+        legacy_bundle = "freak-windows-x64"
+        legacy_freak = "freak-windows-x64.exe"
+        legacy_hangar = "hangar-windows-x64.exe"
+    else:
+        legacy_bundle = target.removesuffix(".tar.gz")
+        legacy_freak = legacy_bundle
+        legacy_hangar = legacy_bundle.replace("freak-", "hangar-", 1)
+    legacy_binary_hash = legacy_binary_hashes[target]
+    (legacy_release / "SHA256SUMS").write_text(
+        f"{legacy_binary_hash}  ./{legacy_bundle}/{legacy_freak}\n"
+        f"{legacy_binary_hash}  ./{legacy_bundle}/{legacy_hangar}\n",
+        encoding="utf-8",
+    )
+
     handler = functools.partial(QuietHttpHandler, directory=str(release_root))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -346,6 +394,28 @@ def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> 
             if sys.platform == "win32"
             else ["bash", str(repo / "install.sh"), "--skip-deps"]
         )
+
+        legacy_env = base_env.copy()
+        legacy_root = root / "legacy-v014-install"
+        legacy_env.update(
+            {"FREAK_RELEASE_TAG": "v0.14.0", "FREAK_HOME": str(legacy_root)}
+        )
+        legacy = subprocess.run(
+            command,
+            cwd=repo,
+            env=legacy_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=120,
+        )
+        legacy_output = legacy.stdout + legacy.stderr
+        assert legacy.returncode == 0, legacy_output
+        assert "pinned immutable archive hash" in legacy_output.lower(), legacy_output
+        assert "generated a compatibility manifest" in legacy_output.lower(), legacy_output
+        assert (legacy_root / "distribution-files.manifest").is_file()
+        assert (legacy_root / "runtime" / "freak_runtime.c").is_file()
+        assert (legacy_root / "std" / "math.fk").is_file()
 
         valid_env = base_env.copy()
         valid_root = root / "checksum-valid"
@@ -870,6 +940,56 @@ def check_offline_installer(
         assert (preserved_root / relative).read_bytes() == contents
     assert not list(preserved_root.glob(".freak-apply-*"))
     assert not list(preserved_root.glob(".freak-backup-*"))
+
+    if sys.platform == "win32":
+        # A forced process death after every old path moved to backup bypasses
+        # PowerShell finally/catch cleanup. The next installer must reconcile
+        # that durable backup before beginning its own transaction.
+        crash_ready = root / "windows-payload-crash-ready.txt"
+        crash_env = failure_env.copy()
+        crash_env.pop("FREAK_INSTALL_TEST_FAIL_APPLY")
+        crash_env["FREAK_INSTALL_TEST_PAUSE_AFTER_BACKUP"] = "1"
+        crash_env["FREAK_INSTALL_TEST_TRANSACTION_READY"] = str(crash_ready)
+        crashed = subprocess.Popen(
+            command, cwd=repo, env=crash_env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, errors="replace",
+        )
+        try:
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline and not crash_ready.exists():
+                if crashed.poll() is not None:
+                    break
+                time.sleep(0.1)
+            assert crash_ready.is_file()
+        finally:
+            if crashed.poll() is None:
+                terminated = subprocess.run(
+                    ["taskkill.exe", "/PID", str(crashed.pid), "/T", "/F"],
+                    capture_output=True, text=True, errors="replace", timeout=30,
+                )
+                assert terminated.returncode == 0, terminated.stdout + terminated.stderr
+        crashed_stdout, crashed_stderr = crashed.communicate(timeout=30)
+        assert crashed.returncode != 0, crashed_stdout + crashed_stderr
+        assert len(list(preserved_root.glob(".freak-backup-*"))) == 1
+        assert len(list(preserved_root.glob(".freak-apply-*"))) == 1
+        for relative in preserved_files:
+            assert not (preserved_root / relative).exists(), relative
+
+        reconcile_env = crash_env.copy()
+        reconcile_env.pop("FREAK_INSTALL_TEST_PAUSE_AFTER_BACKUP")
+        reconcile_env.pop("FREAK_INSTALL_TEST_TRANSACTION_READY")
+        reconcile_env["FREAK_INSTALL_TEST_FAIL_APPLY"] = "1"
+        reconciled = subprocess.run(
+            command, cwd=repo, env=reconcile_env, capture_output=True, text=True,
+            errors="replace", timeout=120,
+        )
+        reconcile_output = reconciled.stdout + reconciled.stderr
+        assert reconciled.returncode != 0, reconcile_output
+        assert "Recovered the previous payload" in reconcile_output, reconcile_output
+        for relative, contents in preserved_files.items():
+            assert (preserved_root / relative).read_bytes() == contents
+        assert not list(preserved_root.glob(".freak-apply-*"))
+        assert not list(preserved_root.glob(".freak-backup-*"))
 
     if sys.platform != "win32":
         # Ownership metadata is complete before the shared lock is atomically

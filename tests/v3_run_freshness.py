@@ -198,6 +198,20 @@ def main() -> int:
         assert_run(code, output, "CACHE_A", cache_hit=True)
         assert binary.stat().st_mtime_ns == first_mtime
 
+        # WinGet upgrades remove versioned LLVM-MinGW directories. A stale
+        # persisted FREAK_CLANG must fall through to normal discovery rather
+        # than masking the replacement toolchain that is already available.
+        stale_source = source_dir / "stale-clang-override.fk"
+        stale_source.write_text('say "STALE_CLANG_RECOVERED"\n', encoding="utf-8")
+        stale_env = env.copy()
+        stale_env["FREAK_CLANG"] = str(
+            root / "removed-llvm-mingw-version" / "bin" / "clang.exe"
+        )
+        code, output = invoke(
+            freak, source_dir, Path(stale_source.name), "--c", stale_env
+        )
+        assert_run(code, output, "STALE_CLANG_RECOVERED", cache_hit=False)
+
         # Version text alone is not a toolchain identity. Two wrappers can
         # advertise the same version while selecting different compiler
         # bytes. Replacing the selected executable must invalidate the cache.
@@ -439,6 +453,7 @@ def main() -> int:
             mock_clang.write_text(
                 "@echo off\n"
                 "setlocal DisableDelayedExpansion\n"
+                'if "%~1"=="--version" (echo clang mock-version& exit /b 0)\n'
                 ":scan\n"
                 'if "%~1"=="" exit /b 2\n'
                 'if "%~1"=="-o" goto output\n'

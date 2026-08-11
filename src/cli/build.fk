@@ -477,7 +477,11 @@ task cli_normalize_cmd_override(cmd: word) -> word {
 task cli_find_clang_command() -> word {
     pilot override: word = process::env("FREAK_CLANG")
     if override != "" {
-        give back cli_normalize_cmd_override(override)
+        pilot normalized_override = cli_normalize_cmd_override(override)
+        -- Installer-managed LLVM-MinGW paths are versioned. If WinGet removes
+        -- an older directory during upgrade, ignore the stale override and
+        -- continue normal toolchain discovery instead of failing every build.
+        if cli_clang_command_works(normalized_override) { give back normalized_override }
     }
 
     if cli_is_windows() {

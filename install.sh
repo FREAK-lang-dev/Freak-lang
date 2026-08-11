@@ -14,6 +14,7 @@ RELEASE_BASE="${FREAK_RELEASE_BASE:-https://github.com/$REPO/releases/download}"
 RAW_BASE_OVERRIDE="${FREAK_RAW_BASE:-}"
 EXTRA_PATH_DIR=""
 DEPENDENCY_PENDING=false
+LEGACY_V014_ARCHIVE=false
 
 info()  { printf "\033[1;34m>\033[0m %s\n" "$*"; }
 ok()    { printf "\033[1;32m>\033[0m %s\n" "$*"; }
@@ -263,6 +264,16 @@ sha256_file() {
     fi
 }
 
+legacy_v014_archive_hash() {
+    [ "$LATEST" = "v0.14.0" ] || return 1
+    case "$1" in
+        freak-linux-x64.tar.gz)   printf '%s\n' "dac2920e7bf2e4a1ce9a6a5394cdddbb2c92ed68aa587c25249e78bee4ac7bcb" ;;
+        freak-linux-arm64.tar.gz) printf '%s\n' "eae4b954e8b361788e7c4fc1c077fa259b842d9cf2b125348b5c490fb44dd0b0" ;;
+        freak-macos-arm64.tar.gz) printf '%s\n' "484bbca735c020b4e53e3824bb414677f05cf8b1ef93c78963dc238440e7ec51" ;;
+        *) return 1 ;;
+    esac
+}
+
 verify_downloaded_asset() {
     local archive="$1"
     local asset="$2"
@@ -273,9 +284,15 @@ verify_downloaded_asset() {
     local matches match_count expected
     matches=$(awk -v asset="$asset" '$2 == asset || $2 == "./" asset || $2 == "*" asset || $2 == "*./" asset { print $1 }' "$checksums")
     match_count=$(printf '%s\n' "$matches" | awk 'NF { count += 1 } END { print count + 0 }')
-    [ "$match_count" -ne 0 ] || err "SHA256SUMS has no exact entry for $asset"
-    [ "$match_count" -eq 1 ] || err "SHA256SUMS has duplicate entries for $asset"
-    expected=$(printf '%s\n' "$matches" | awk 'NF { print; exit }')
+    if [ "$match_count" -eq 0 ]; then
+        expected=$(legacy_v014_archive_hash "$asset" || true)
+        [ -n "$expected" ] || err "SHA256SUMS has no exact entry for $asset"
+        LEGACY_V014_ARCHIVE=true
+        warn "Release v0.14.0 predates archive entries in SHA256SUMS; verifying the pinned immutable archive hash."
+    else
+        [ "$match_count" -eq 1 ] || err "SHA256SUMS has duplicate entries for $asset"
+        expected=$(printf '%s\n' "$matches" | awk 'NF { print; exit }')
+    fi
     [ "${#expected}" -eq 64 ] || err "SHA256SUMS has an invalid hash for $asset"
     case "$expected" in
         *[!0-9a-fA-F]*) err "SHA256SUMS has an invalid hash for $asset" ;;
@@ -286,6 +303,21 @@ verify_downloaded_asset() {
     actual=$(printf '%s' "$actual" | tr 'A-F' 'a-f')
     [ "$actual" = "$expected" ] || err "SHA256 mismatch for $asset"
     ok "Verified SHA-256 for $asset"
+}
+
+write_legacy_v014_manifest() {
+    : > "$STAGE_MANIFEST"
+    local path relative
+    while IFS= read -r path; do
+        relative=${path#"$STAGE_RUNTIME/"}
+        printf 'freakc/runtime/%s|runtime/%s\n' "$relative" "$relative" >> "$STAGE_MANIFEST"
+    done < <(find "$STAGE_RUNTIME" -type f -print | LC_ALL=C sort)
+    while IFS= read -r path; do
+        relative=${path#"$STAGE_STD/"}
+        printf 'std/%s|std/%s\n' "$relative" "$relative" >> "$STAGE_MANIFEST"
+    done < <(find "$STAGE_STD" -type f -print | LC_ALL=C sort)
+    [ -s "$STAGE_MANIFEST" ] || err "Legacy v0.14.0 archive contained no runtime or standard-library payload"
+    info "Generated a compatibility manifest for the verified v0.14.0 archive"
 }
 
 validate_manifest_entry() {
@@ -372,7 +404,13 @@ if [ "$ARCHIVE_OK" = true ]; then
         cp "$TMPDIR_INSTALL/freak/bin/hangar" "$STAGE_BIN/hangar"
         cp -R "$TMPDIR_INSTALL/freak/runtime/." "$STAGE_RUNTIME/"
         cp -R "$TMPDIR_INSTALL/freak/std/." "$STAGE_STD/"
-        cp "$TMPDIR_INSTALL/freak/distribution-files.manifest" "$STAGE_MANIFEST"
+        if [ -s "$TMPDIR_INSTALL/freak/distribution-files.manifest" ]; then
+            cp "$TMPDIR_INSTALL/freak/distribution-files.manifest" "$STAGE_MANIFEST"
+        elif [ "$LEGACY_V014_ARCHIVE" = true ]; then
+            write_legacy_v014_manifest
+        else
+            err "Distribution archive is missing distribution-files.manifest"
+        fi
     fi
 else
     [ -z "$LOCAL_ARCHIVE" ] || err "tar is required to extract the local distribution archive"

@@ -36,6 +36,7 @@ $InstallLockPath = Join-Path $InstallDir ".freak-install.lock"
 $InstallLockStream = $null
 $RecoveredPendingUpgrade = $false
 $DeferredHelperUnsafe = $false
+$LegacyV014Archive = $false
 
 function Acquire-InstallLock {
     [System.IO.Directory]::CreateDirectory($InstallDir) | Out-Null
@@ -50,6 +51,7 @@ function Acquire-InstallLock {
         Err "Another FREAK installer is already updating $InstallDir"
     }
     Recover-OrphanedDeferredUpgrade
+    Recover-OrphanedPayloadTransaction
 }
 
 function Release-InstallLock {
@@ -133,6 +135,60 @@ function Recover-OrphanedDeferredUpgrade {
     Remove-Item -LiteralPath (Join-Path $BinDir ".freak-binary-retired") -Recurse -Force -ErrorAction SilentlyContinue
     $script:RecoveredPendingUpgrade = $true
     Warn "Recovered an orphaned deferred upgrade; the pending guard remains until this install commits."
+}
+
+function Recover-OrphanedPayloadTransaction {
+    $backups = @(Get-ChildItem -LiteralPath $InstallDir -Directory -Filter ".freak-backup-*" -ErrorAction SilentlyContinue)
+    $applies = @(Get-ChildItem -LiteralPath $InstallDir -Directory -Filter ".freak-apply-*" -ErrorAction SilentlyContinue)
+    if ($backups.Count -gt 1) {
+        Err "Multiple interrupted installer backups require manual recovery under $InstallDir"
+    }
+
+    if ($backups.Count -eq 1) {
+        $backupRoot = $backups[0].FullName
+        $allowedTopLevel = @("bin", "runtime", "runtime.missing", "std", "std.missing", "distribution-files.manifest", "distribution-files.manifest.missing")
+        foreach ($entry in Get-ChildItem -LiteralPath $backupRoot -Force -ErrorAction SilentlyContinue) {
+            if ($allowedTopLevel -notcontains $entry.Name) {
+                Err "Interrupted installer backup contains an unexpected entry; backup preserved at $backupRoot"
+            }
+        }
+        $backupBin = Join-Path $backupRoot "bin"
+        if (Test-Path -LiteralPath $backupBin -PathType Container) {
+            foreach ($entry in Get-ChildItem -LiteralPath $backupBin -Force -ErrorAction SilentlyContinue) {
+                if (@("freak.exe", "freak.exe.missing", "hangar.exe", "hangar.exe.missing") -notcontains $entry.Name) {
+                    Err "Interrupted installer backup contains an unexpected binary entry; backup preserved at $backupRoot"
+                }
+            }
+        }
+
+        $records = @(
+            [pscustomobject]@{ Live = "$InstallDir\runtime"; Backup = "$backupRoot\runtime" },
+            [pscustomobject]@{ Live = "$InstallDir\std"; Backup = "$backupRoot\std" },
+            [pscustomobject]@{ Live = "$InstallDir\distribution-files.manifest"; Backup = "$backupRoot\distribution-files.manifest" },
+            [pscustomobject]@{ Live = "$BinDir\freak.exe"; Backup = "$backupRoot\bin\freak.exe" },
+            [pscustomobject]@{ Live = "$BinDir\hangar.exe"; Backup = "$backupRoot\bin\hangar.exe" }
+        )
+        try {
+            foreach ($record in $records) {
+                $missing = "$($record.Backup).missing"
+                if (Test-Path -LiteralPath $record.Backup) {
+                    Remove-Item -LiteralPath $record.Live -Recurse -Force -ErrorAction SilentlyContinue
+                    New-Item -ItemType Directory -Path (Split-Path -Parent $record.Live) -Force | Out-Null
+                    Move-Item -LiteralPath $record.Backup -Destination $record.Live
+                } elseif (Test-Path -LiteralPath $missing -PathType Leaf) {
+                    Remove-Item -LiteralPath $record.Live -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+            Remove-Item -LiteralPath $backupRoot -Recurse -Force
+        } catch {
+            Err "Could not recover the interrupted payload; backup preserved at $backupRoot ($($_.Exception.Message))"
+        }
+        Warn "Recovered the previous payload from an interrupted Windows installer transaction"
+    }
+
+    foreach ($apply in $applies) {
+        Remove-Item -LiteralPath $apply.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Test-ClangToolchain($candidate) {
@@ -320,8 +376,17 @@ function Assert-DownloadedAssetChecksum($ArchivePath, $AssetName) {
             $expected = $parts[0]
         }
     }
-    if (-not $expected -or $expected -notmatch '^[0-9a-fA-F]{64}$') {
-        Err "SHA256SUMS has no valid exact entry for $AssetName"
+    if (-not $expected) {
+        if ($Latest -eq "v0.14.0" -and $AssetName -eq "freak-windows-x64.zip") {
+            $expected = "4d1f43eb79838a100010b6b2d6a303921d75f6b0a5f947ee0104d86de3783699"
+            $script:LegacyV014Archive = $true
+            Warn "Release v0.14.0 predates archive entries in SHA256SUMS; verifying the pinned immutable archive hash."
+        } else {
+            Err "SHA256SUMS has no exact entry for $AssetName"
+        }
+    }
+    if ($expected -notmatch '^[0-9a-fA-F]{64}$') {
+        Err "SHA256SUMS has an invalid hash for $AssetName"
     }
     $actual = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash
     if ($actual -ine $expected) { Err "SHA256 mismatch for $AssetName" }
@@ -565,8 +630,17 @@ function Install-StagedPayload {
             if ($item.HadOriginal) {
                 New-Item -ItemType Directory -Path (Split-Path -Parent $item.Backup) -Force | Out-Null
                 Move-Item -LiteralPath $item.Live -Destination $item.Backup
+            } else {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $item.Backup) -Force | Out-Null
+                Set-Content -LiteralPath "$($item.Backup).missing" -Value "missing" -Encoding UTF8
             }
             $item.Prepared = $true
+        }
+        if (Test-Truthy $env:FREAK_INSTALL_TEST_PAUSE_AFTER_BACKUP) {
+            if ($env:FREAK_INSTALL_TEST_TRANSACTION_READY) {
+                Set-Content -LiteralPath $env:FREAK_INSTALL_TEST_TRANSACTION_READY -Value "ready" -Encoding UTF8
+            }
+            Start-Sleep -Seconds 30
         }
         for ($index = 0; $index -lt $items.Count; $index++) {
             $item = $items[$index]
@@ -639,7 +713,29 @@ try {
             Copy-Item -LiteralPath "$ExtractDir\freak\bin\hangar.exe" -Destination "$StageBin\hangar.exe" -Force
             Copy-Item -Path "$ExtractDir\freak\runtime\*" -Destination $StageRuntime -Recurse -Force
             Copy-Item -Path "$ExtractDir\freak\std\*" -Destination $StageStd -Recurse -Force
-            Copy-Item -LiteralPath "$ExtractDir\freak\distribution-files.manifest" -Destination $StageManifest -Force
+            $archiveManifest = "$ExtractDir\freak\distribution-files.manifest"
+            if (Test-Path -LiteralPath $archiveManifest -PathType Leaf) {
+                Copy-Item -LiteralPath $archiveManifest -Destination $StageManifest -Force
+            } elseif ($script:LegacyV014Archive) {
+                $legacyEntries = [System.Collections.Generic.List[string]]::new()
+                foreach ($file in Get-ChildItem -LiteralPath $StageRuntime -File -Recurse | Sort-Object FullName) {
+                    $relative = $file.FullName.Substring($StageRuntime.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+                    $legacyEntries.Add("freakc/runtime/$relative|runtime/$relative")
+                }
+                foreach ($file in Get-ChildItem -LiteralPath $StageStd -File -Recurse | Sort-Object FullName) {
+                    $relative = $file.FullName.Substring($StageStd.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+                    $legacyEntries.Add("std/$relative|std/$relative")
+                }
+                if ($legacyEntries.Count -eq 0) { Err "Legacy v0.14.0 archive contained no runtime or standard-library payload" }
+                [System.IO.File]::WriteAllLines(
+                    $StageManifest,
+                    $legacyEntries,
+                    [System.Text.UTF8Encoding]::new($false)
+                )
+                Info "Generated a compatibility manifest for the verified v0.14.0 archive"
+            } else {
+                Err "Distribution archive is missing distribution-files.manifest"
+            }
         } catch {
             if ($LocalArchive) { throw }
             Remove-Item -LiteralPath $StageDir -Recurse -Force

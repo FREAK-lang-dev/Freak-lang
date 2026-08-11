@@ -152,7 +152,7 @@ $env:FREAK_INSTALL_DEPS = "1"
 irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
 ```
 
-Downloaded release archives and every standalone fallback payload file must match their exact filename entry in the release's `SHA256SUMS` before extraction or staging. A missing, malformed, duplicate, or mismatched checksum aborts before the installed payload is touched.
+Downloaded release archives and every standalone fallback payload file must match their exact filename entry in the release's `SHA256SUMS` before extraction or staging. A missing, malformed, duplicate, or mismatched checksum aborts before the installed payload is touched. The immutable v0.14.0 archives predate archive entries in `SHA256SUMS`; the installers recognize only those four release filenames, verify pinned full-archive SHA-256 values, and generate the manifest that release omitted. No later tag receives this compatibility exception.
 
 For maintainers, `VERSION` is authoritative. Run `python -u tools/release_version.py set <major.minor.patch>` once to synchronize compiler/CLI display versions and package metadata, then `python -u tools/release_version.py check`; tagged releases also fail before building unless the Git tag is exactly `v<major.minor.patch>`.
 
