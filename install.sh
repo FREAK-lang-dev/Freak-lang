@@ -193,12 +193,18 @@ TMPDIR_INSTALL=$(mktemp -d)
 APPLY_ROOT=""
 BACKUP_ROOT=""
 INSTALL_LOCK=""
+INSTALL_LOCK_OWNER=""
 TRANSACTION_ACTIVE=0
 release_install_lock() {
     if [ -z "$INSTALL_LOCK" ]; then return; fi
-    rm -f -- "$INSTALL_LOCK/owner"
-    rmdir -- "$INSTALL_LOCK" 2>/dev/null || true
+    local current_owner=""
+    if [ -f "$INSTALL_LOCK/owner" ]; then current_owner=$(cat "$INSTALL_LOCK/owner" 2>/dev/null || true); fi
+    if [ -n "$INSTALL_LOCK_OWNER" ] && [ "$current_owner" = "$INSTALL_LOCK_OWNER" ]; then
+        rm -f -- "$INSTALL_LOCK/owner"
+        rmdir -- "$INSTALL_LOCK" 2>/dev/null || true
+    fi
     INSTALL_LOCK=""
+    INSTALL_LOCK_OWNER=""
 }
 cleanup_install() {
     local status=$?
@@ -372,28 +378,104 @@ fi
 
 validate_stage
 
+process_start_token() {
+    local pid="$1"
+    if [ -r "/proc/$pid/stat" ]; then
+        sed 's/^[0-9][0-9]* (.*) //' "/proc/$pid/stat" 2>/dev/null | awk '{ print $20 }' || true
+        return
+    fi
+    ps -o lstart= -p "$pid" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true
+}
+
+lock_owner_is_active() {
+    local record="$1"
+    local owner_pid owner_start owner_nonce
+    IFS='|' read -r owner_pid owner_start owner_nonce <<EOF
+$record
+EOF
+    case "$owner_pid" in ''|*[!0-9]*) return 1 ;; esac
+    [ -n "$owner_start" ] || return 1
+    [ -n "$owner_nonce" ] || return 1
+    local current_start
+    current_start=$(process_start_token "$owner_pid")
+    if [ -n "$current_start" ]; then
+        [ "$owner_start" = "$current_start" ]
+        return
+    fi
+    # If this platform cannot expose a start token, fail closed whenever the
+    # process still appears to exist. This never declares EPERM to be stale.
+    if kill -0 "$owner_pid" 2>/dev/null || ps -p "$owner_pid" >/dev/null 2>&1; then return 0; fi
+    return 1
+}
+
+lock_directory_identity() {
+    ls -di -- "$1" 2>/dev/null | awk '{ print $1 }'
+}
+
 acquire_install_lock() {
     mkdir -p "$INSTALL_DIR"
     local candidate="$INSTALL_DIR/.freak-install.lock"
-    if ! mkdir -- "$candidate" 2>/dev/null; then
-        local owner=""
-        if [ -f "$candidate/owner" ]; then owner=$(cat "$candidate/owner" 2>/dev/null || true); fi
-        case "$owner" in
-            ''|*[!0-9]*) err "Another FREAK installer is already updating $INSTALL_DIR" ;;
-        esac
-        if kill -0 "$owner" 2>/dev/null; then
-            err "Another FREAK installer is already updating $INSTALL_DIR"
+    local own_start own_nonce attempt owner owner_identity breaker current_owner current_identity missing_identity missing_attempts
+    own_start=$(process_start_token "$$")
+    if [ -z "$own_start" ]; then own_start="pid-only"; fi
+    own_nonce=$(basename "$TMPDIR_INSTALL")
+    INSTALL_LOCK_OWNER="$$|$own_start|$own_nonce"
+    attempt=0
+    missing_identity=""
+    missing_attempts=0
+    while [ "$attempt" -lt 100 ]; do
+        if mkdir -- "$candidate" 2>/dev/null; then
+            INSTALL_LOCK="$candidate"
+            printf '%s\n' "$INSTALL_LOCK_OWNER" > "$INSTALL_LOCK/owner"
+            return
         fi
-        # The recorded process no longer exists, so this lock survived an
-        # untrappable crash. Remove only this exact installer-owned directory,
-        # then reacquire before touching any orphaned backup state.
+        if [ -L "$candidate" ] || [ ! -d "$candidate" ]; then
+            err "Unsafe FREAK installer lock path: $candidate"
+        fi
+        owner=""
+        if [ -f "$candidate/owner" ]; then owner=$(cat "$candidate/owner" 2>/dev/null || true); fi
+        if [ -z "$owner" ]; then
+            # A new owner writes this file immediately after mkdir. Give that
+            # atomic acquisition window time to finish; an unowned directory
+            # that persists is a recoverable crash remnant.
+            current_identity=$(lock_directory_identity "$candidate")
+            if [ "$current_identity" != "$missing_identity" ]; then
+                missing_identity="$current_identity"
+                missing_attempts=0
+            fi
+            missing_attempts=$((missing_attempts + 1))
+            attempt=$((attempt + 1))
+            if [ "$missing_attempts" -lt 50 ]; then sleep 0.1; continue; fi
+        elif lock_owner_is_active "$owner"; then
+            err "Another FREAK installer is already updating $INSTALL_DIR"
+        else
+            missing_identity=""
+            missing_attempts=0
+        fi
+        owner_identity=$(lock_directory_identity "$candidate")
+        [ -n "$owner_identity" ] || { attempt=$((attempt + 1)); continue; }
+        breaker="$candidate/.freak-stale-takeover"
+        if ! mkdir -- "$breaker" 2>/dev/null; then
+            attempt=$((attempt + 1))
+            sleep 0.1
+            continue
+        fi
+        current_owner=""
+        if [ -f "$candidate/owner" ]; then current_owner=$(cat "$candidate/owner" 2>/dev/null || true); fi
+        current_identity=$(lock_directory_identity "$candidate")
+        if [ "$current_owner" != "$owner" ] || [ "$current_identity" != "$owner_identity" ] || { [ -n "$current_owner" ] && lock_owner_is_active "$current_owner"; }; then
+            rmdir -- "$breaker" 2>/dev/null || true
+            attempt=$((attempt + 1))
+            sleep 0.1
+            continue
+        fi
         rm -f -- "$candidate/owner"
+        rmdir -- "$breaker" 2>/dev/null || err "Could not release stale-lock takeover: $breaker"
         rmdir -- "$candidate" 2>/dev/null || err "Could not recover stale installer lock: $candidate"
-        mkdir -- "$candidate" 2>/dev/null || err "Another FREAK installer is already updating $INSTALL_DIR"
-        info "Recovered stale installer lock from process $owner"
-    fi
-    INSTALL_LOCK="$candidate"
-    printf '%s\n' "$$" > "$INSTALL_LOCK/owner"
+        info "Recovered stale installer lock${owner:+ from process ${owner%%|*}}"
+        attempt=$((attempt + 1))
+    done
+    err "Could not acquire FREAK installer lock for $INSTALL_DIR"
 }
 
 acquire_install_lock

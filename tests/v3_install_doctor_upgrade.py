@@ -144,6 +144,8 @@ def check_static_contracts(repo: Path) -> None:
         "FileShare]::None",
         "wait-start=",
         ".freak-upgrade-helper.lock",
+        ".freak-upgrade-helper.ready",
+        "FREAK_INSTALL_TEST_HELPER_START_DELAY_MS",
         "Recover-OrphanedDeferredUpgrade",
     ):
         assert needle in ps_text, f"install.ps1 missing {needle}"
@@ -627,10 +629,73 @@ def check_offline_installer(
         assert not (deferred_bin / ".freak-binary-backup").exists()
         assert not (deferred_bin / ".freak-binary-retired").exists()
         assert not (deferred_bin / ".freak-upgrade-helper.lock").exists()
+        assert not (deferred_bin / ".freak-upgrade-helper.ready").exists()
         assert not (deferred_bin / "freak.exe.next").exists()
         assert not (deferred_bin / "hangar.exe.next").exists()
         assert old_freak.read_bytes() == b"mock-freak\n"
         assert old_hangar.read_bytes() == b"mock-hangar\n"
+
+        # A helper that cannot authenticate itself within the bounded startup
+        # window must be killed before transaction state is rolled back. A
+        # later invocation must then succeed without a delayed orphan racing
+        # it after pending/.next state has been removed.
+        delayed_root = root / "delayed-helper-start"
+        delayed_bin = delayed_root / "bin"
+        delayed_bin.mkdir(parents=True)
+        delayed_freak = delayed_bin / "freak.exe"
+        delayed_hangar = delayed_bin / "hangar.exe"
+        delayed_freak.write_bytes(b"delayed old freak\n")
+        delayed_hangar.write_bytes(b"delayed old hangar\n")
+        delayed_lock = create_file(
+            str(delayed_freak), 0x80000000, 0x00000001, None, 3, 0x00000080, None
+        )
+        assert delayed_lock != ctypes.wintypes.HANDLE(-1).value
+        delayed_env = env.copy()
+        delayed_env["FREAK_HOME"] = str(delayed_root)
+        delayed_env["FREAK_INSTALL_TEST_HELPER_START_DELAY_MS"] = "7000"
+        try:
+            delayed = subprocess.run(
+                [*command, "-Upgrade"], cwd=repo, env=delayed_env,
+                capture_output=True, text=True, errors="replace", timeout=120,
+            )
+        finally:
+            assert close_handle(delayed_lock)
+        delayed_output = delayed.stdout + delayed.stderr
+        assert delayed.returncode != 0, delayed_output
+        assert "helper did not become ready" in delayed_output.lower()
+        for state_name in (
+            ".freak-upgrade-pending",
+            ".freak-upgrade-failed",
+            ".freak-upgrade-helper.lock",
+            ".freak-upgrade-helper.ready",
+            ".freak-binary-backup",
+            "freak.exe.next",
+            "hangar.exe.next",
+        ):
+            assert not (delayed_bin / state_name).exists(), state_name
+        assert delayed_freak.read_bytes() == b"delayed old freak\n"
+        assert delayed_hangar.read_bytes() == b"delayed old hangar\n"
+        assert not (delayed_root / "runtime").exists()
+        assert not (delayed_root / "std").exists()
+
+        delayed_env.pop("FREAK_INSTALL_TEST_HELPER_START_DELAY_MS")
+        delayed_retry = subprocess.run(
+            [*command, "-Upgrade"], cwd=repo, env=delayed_env,
+            capture_output=True, text=True, errors="replace", timeout=120,
+        )
+        assert delayed_retry.returncode == 0, (
+            delayed_retry.stdout + delayed_retry.stderr
+        )
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if not (delayed_bin / ".freak-upgrade-pending").exists():
+                break
+            time.sleep(0.25)
+        assert not (delayed_bin / ".freak-upgrade-pending").exists()
+        assert not (delayed_bin / ".freak-upgrade-helper.lock").exists()
+        assert not (delayed_bin / ".freak-upgrade-helper.ready").exists()
+        assert delayed_freak.read_bytes() == b"mock-freak\n"
+        assert delayed_hangar.read_bytes() == b"mock-hangar\n"
 
         # A killed deferred helper must not strand the installation forever.
         # A live helper still excludes contenders; once killed, the next
@@ -695,6 +760,7 @@ def check_offline_installer(
         assert not (orphan_bin / ".freak-upgrade-pending").exists()
         assert not (orphan_bin / ".freak-upgrade-failed").exists()
         assert not (orphan_bin / ".freak-upgrade-helper.lock").exists()
+        assert not (orphan_bin / ".freak-upgrade-helper.ready").exists()
         assert orphan_freak.read_bytes() == b"mock-freak\n"
         assert orphan_hangar.read_bytes() == b"mock-hangar\n"
 
@@ -833,21 +899,94 @@ def check_offline_installer(
         assert crashed.returncode != 0, crashed_stdout + crashed_stderr
         assert (preserved_root / ".freak-install.lock" / "owner").is_file()
         assert len(list(preserved_root.glob(".freak-backup-*"))) == 1
-        crash_recovery_env = failure_env.copy()
-        crash_recovery_env["FREAK_INSTALL_ARCHIVE"] = str(archive)
-        recovered_crash = subprocess.run(
-            command, cwd=repo, env=crash_recovery_env, capture_output=True,
-            text=True, errors="replace", timeout=120,
-        )
-        crash_output = recovered_crash.stdout + recovered_crash.stderr
-        assert recovered_crash.returncode != 0, crash_output
-        assert "Recovered stale installer lock" in crash_output
-        assert "Recovered the previous payload" in crash_output
+        race_processes: list[subprocess.Popen[str]] = []
+        race_ready: list[Path] = []
+        for contender_index in range(2):
+            ready = root / f"stale-lock-race-{contender_index}.txt"
+            race_ready.append(ready)
+            race_env = signal_env.copy()
+            race_env["FREAK_INSTALL_TEST_TRANSACTION_READY"] = str(ready)
+            race_processes.append(
+                subprocess.Popen(
+                    command, cwd=repo, env=race_env, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, text=True, errors="replace",
+                    start_new_session=True,
+                )
+            )
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if sum(path.exists() for path in race_ready) == 1 and any(
+                process.poll() is not None for process in race_processes
+            ):
+                break
+            time.sleep(0.1)
+        assert sum(path.exists() for path in race_ready) == 1, race_ready
+        winner_index = 0 if race_ready[0].exists() else 1
+        loser_index = 1 - winner_index
+        loser_stdout, loser_stderr = race_processes[loser_index].communicate(timeout=30)
+        assert race_processes[loser_index].returncode != 0, loser_stdout + loser_stderr
+        assert "another freak installer" in (loser_stdout + loser_stderr).lower()
+        os.killpg(race_processes[winner_index].pid, signal.SIGTERM)
+        winner_stdout, winner_stderr = race_processes[winner_index].communicate(timeout=30)
+        assert race_processes[winner_index].returncode != 0, winner_stdout + winner_stderr
+        winner_output = winner_stdout + winner_stderr
+        assert "Recovered stale installer lock" in winner_output
+        assert "Recovered the previous payload" in winner_output
         for relative, contents in preserved_files.items():
             assert (preserved_root / relative).read_bytes() == contents
         assert not (preserved_root / ".freak-install.lock").exists()
         assert not list(preserved_root.glob(".freak-apply-*"))
         assert not list(preserved_root.glob(".freak-backup-*"))
+
+        # An ownerless mkdir crash becomes recoverable after the bounded
+        # acquisition grace period, and a live but reused PID is rejected as
+        # the old owner when its durable process-start token differs.
+        missing_owner_lock = preserved_root / ".freak-install.lock"
+        missing_owner_lock.mkdir()
+        missing_owner = subprocess.run(
+            command, cwd=repo, env=failure_env, capture_output=True, text=True,
+            errors="replace", timeout=120,
+        )
+        assert missing_owner.returncode != 0, missing_owner.stdout + missing_owner.stderr
+        assert "Recovered stale installer lock" in missing_owner.stdout
+        assert not missing_owner_lock.exists()
+
+        reused_pid_lock = preserved_root / ".freak-install.lock"
+        reused_pid_lock.mkdir()
+        (reused_pid_lock / "owner").write_text(
+            f"{os.getpid()}|definitely-not-this-process-start|pid-reuse-fixture\n",
+            encoding="utf-8",
+        )
+        reused_pid = subprocess.run(
+            command, cwd=repo, env=failure_env, capture_output=True, text=True,
+            errors="replace", timeout=120,
+        )
+        assert reused_pid.returncode != 0, reused_pid.stdout + reused_pid.stderr
+        assert "Recovered stale installer lock" in reused_pid.stdout
+        assert not reused_pid_lock.exists()
+
+        # Never follow an attacker-controlled intermediate symlink while
+        # inspecting or cleaning a stale lock owner.
+        symlink_install = root / "symlink-lock-install"
+        symlink_install.mkdir()
+        external_lock = root / "external-lock-sentinel"
+        external_lock.mkdir()
+        external_owner = external_lock / "owner"
+        external_owner.write_text("999999|dead|external-sentinel\n", encoding="utf-8")
+        lock_symlink = symlink_install / ".freak-install.lock"
+        lock_symlink.symlink_to(external_lock, target_is_directory=True)
+        symlink_env = failure_env.copy()
+        symlink_env["FREAK_HOME"] = str(symlink_install)
+        symlink_attempt = subprocess.run(
+            command, cwd=repo, env=symlink_env, capture_output=True, text=True,
+            errors="replace", timeout=120,
+        )
+        assert symlink_attempt.returncode != 0, symlink_attempt.stdout + symlink_attempt.stderr
+        assert "unsafe freak installer lock path" in (
+            symlink_attempt.stdout + symlink_attempt.stderr
+        ).lower()
+        assert external_owner.read_text(encoding="utf-8").startswith("999999|")
+        lock_symlink.unlink()
 
         # If restoration itself fails, never delete the only recoverable old
         # payload. Leave one explicit backup and remove only apply scratch.
