@@ -4,10 +4,14 @@ shape Point {
 }
 
 impl Point {
-    task dimensions(self) -> int {
-        give back 2
+    task area(self) -> int {
+        give back self.x * self.y
     }
 }
 
-say "Point"
-say word_from_int(2)
+task main() {
+    pilot point: Point = Point { x: 3, y: 4 }
+    say point.x
+    say point.y
+    say point.area()
+}

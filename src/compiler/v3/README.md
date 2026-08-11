@@ -258,9 +258,17 @@ The permanent positive corpus is under `tests/v3_legacy/golden/` and is run by:
 python -u tests/v3_legacy_golden.py <path-to-real-v3-freak>
 ```
 
-It exercises deterministic representative programs through C and LLVM. The
-broader V3 tests remain responsible for malformed programs, ownership,
-performance, ABI mismatch, installation, upgrade, and platform behavior.
+It exercises deterministic representative programs through each case's
+explicit backend matrix. Scalar/control/word/interpolation cases run through C
+and LLVM; shape construction, field/method execution, and dotted shape/`self`
+interpolation are executable LLVM evidence only. The C backend is not claimed
+to execute V3 shape storage. The harness copies the supplied CLI beside only
+the manifest-listed runtime/std payload, runs outside the repository, proves a
+poisoned explicit `FREAK_HOME` wins, then removes it in a child before running
+the corpus through executable-local discovery. It also rejects unlisted and
+nested generated artifacts. The broader V3 tests remain responsible for
+malformed programs, ownership, performance, installation, upgrade, and
+platform behavior.
 
 ## Intentional limitations
 
