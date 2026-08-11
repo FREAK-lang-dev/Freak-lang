@@ -1,0 +1,104 @@
+{
+  "schema": "freak-v3-negative-corpus-v1",
+  "cases": [
+    {
+      "name": "dangling_namespace",
+      "kind": "parse",
+      "file": "dangling_namespace.fk",
+      "diagnostic": "expected an identifier after '::'",
+      "direct": true
+    },
+    {
+      "name": "unterminated_string",
+      "kind": "lex",
+      "file": "unterminated_string.fk",
+      "diagnostic": "unterminated string literal",
+      "direct": true
+    },
+    {
+      "name": "malformed_number",
+      "kind": "lex",
+      "file": "malformed_number.fk",
+      "diagnostic": "malformed numeric literal",
+      "direct": true
+    },
+    {
+      "name": "call_args_eof",
+      "kind": "parse",
+      "file": "call_args_eof.fk",
+      "diagnostic": "unexpected end of file inside call argument list",
+      "direct": true
+    },
+    {
+      "name": "method_args_eof",
+      "kind": "parse",
+      "file": "method_args_eof.fk",
+      "diagnostic": "unexpected end of file inside method argument list"
+    },
+    {
+      "name": "pipe_args_eof",
+      "kind": "parse",
+      "file": "pipe_args_eof.fk",
+      "diagnostic": "unexpected end of file inside pipe argument list"
+    },
+    {
+      "name": "array_eof",
+      "kind": "parse",
+      "file": "array_eof.fk",
+      "diagnostic": "unexpected end of file inside array literal"
+    },
+    {
+      "name": "shape_constructor_eof",
+      "kind": "parse",
+      "file": "shape_constructor_eof.fk",
+      "diagnostic": "unexpected end of file inside shape constructor"
+    },
+    {
+      "name": "shape_eof",
+      "kind": "parse",
+      "file": "shape_eof.fk",
+      "diagnostic": "unexpected end of file inside shape declaration",
+      "direct": true
+    },
+    {
+      "name": "impl_eof",
+      "kind": "parse",
+      "file": "impl_eof.fk",
+      "diagnostic": "unexpected end of file inside impl declaration",
+      "direct": true
+    },
+    {
+      "name": "when_eof",
+      "kind": "parse",
+      "file": "when_eof.fk",
+      "diagnostic": "unexpected end of file inside when expression"
+    },
+    {
+      "name": "extern_eof",
+      "kind": "parse",
+      "file": "extern_eof.fk",
+      "diagnostic": "unexpected end of file inside extern parameter list"
+    },
+    {
+      "name": "unexpected_closing_token",
+      "kind": "parse",
+      "file": "unexpected_closing_token.fk",
+      "diagnostic": "this token cannot start an expression"
+    },
+    {
+      "name": "unknown_receiver_field",
+      "kind": "type",
+      "file": "unknown_receiver_field.fk",
+      "diagnostic": "cannot resolve the receiver type for field 'value'"
+    },
+    {
+      "name": "immutable_reassignment",
+      "kind": "borrow",
+      "file": "immutable_reassignment.fk",
+      "diagnostic": "cannot be reassigned",
+      "flags": [
+        "--strict-borrow"
+      ]
+    }
+  ]
+}

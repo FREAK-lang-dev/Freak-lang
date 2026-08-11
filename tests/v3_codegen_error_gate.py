@@ -4,16 +4,94 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 
 SENTINEL = "old artifact must survive a rejected transpile\n"
+NEGATIVE_CORPUS_SCHEMA = "freak-v3-negative-corpus-v1"
+
+
+@dataclass(frozen=True)
+class NegativeCase:
+    name: str
+    kind: str
+    source: Path
+    diagnostic: str
+    flags: tuple[str, ...]
+    direct: bool
+
+
+def load_negative_corpus(repo: Path) -> list[NegativeCase]:
+    corpus = repo / "tests" / "v3_legacy" / "negative"
+    manifest_path = corpus / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest.get("schema") == NEGATIVE_CORPUS_SCHEMA, (
+        f"unexpected V3 negative corpus schema in {manifest_path}"
+    )
+    entries = manifest.get("cases")
+    assert isinstance(entries, list) and entries, "V3 negative corpus is empty"
+
+    cases: list[NegativeCase] = []
+    names: set[str] = set()
+    sources: set[str] = set()
+    for entry in entries:
+        assert isinstance(entry, dict), f"invalid negative corpus entry: {entry!r}"
+        name = entry.get("name")
+        kind = entry.get("kind")
+        file_name = entry.get("file")
+        diagnostic = entry.get("diagnostic")
+        flags = entry.get("flags", [])
+        direct = entry.get("direct", False)
+        assert isinstance(name, str) and name, f"negative case has no name: {entry!r}"
+        assert name not in names, f"duplicate negative case name: {name}"
+        assert kind in {"lex", "parse", "type", "borrow"}, (
+            f"negative case {name} has invalid kind: {kind!r}"
+        )
+        assert isinstance(file_name, str) and Path(file_name).name == file_name, (
+            f"negative case {name} must name one local .fk file"
+        )
+        assert file_name.endswith(".fk"), f"negative case {name} is not a .fk source"
+        assert file_name not in sources, f"negative source listed twice: {file_name}"
+        assert isinstance(diagnostic, str) and diagnostic, (
+            f"negative case {name} has no diagnostic oracle"
+        )
+        assert isinstance(flags, list) and all(isinstance(flag, str) for flag in flags), (
+            f"negative case {name} has invalid flags"
+        )
+        assert isinstance(direct, bool), f"negative case {name} has invalid direct flag"
+        assert not direct or not flags, (
+            f"direct stage case {name} cannot require CLI-only flags"
+        )
+
+        source = corpus / file_name
+        assert source.is_file(), f"negative corpus source missing: {source}"
+        names.add(name)
+        sources.add(file_name)
+        cases.append(
+            NegativeCase(
+                name=name,
+                kind=kind,
+                source=source,
+                diagnostic=diagnostic.lower(),
+                flags=tuple(flags),
+                direct=direct,
+            )
+        )
+
+    on_disk = {path.name for path in corpus.glob("*.fk")}
+    assert sources == on_disk, (
+        "negative corpus manifest/file mismatch: "
+        f"unlisted={sorted(on_disk - sources)}, missing={sorted(sources - on_disk)}"
+    )
+    return cases
 
 
 def task_body(source: str, task_name: str) -> str:
@@ -160,67 +238,21 @@ def main() -> int:
     assert_builtin_signature_parity(repo)
     assert_ci_shell_contract(repo)
     assert_checker_callable_index(repo)
+    negative_cases = load_negative_corpus(repo)
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-codegen-gate-") as tmp:
         tmp_path = Path(tmp)
-        malformed_cases = {
-            "dangling_namespace": (
-                "say missing::\n",
-                "expected an identifier after '::'",
-            ),
-            "unterminated_string": (
-                'say "unterminated',
-                "unterminated string literal",
-            ),
-            "malformed_number": (
-                "say 1.2.3\n",
-                "malformed numeric literal",
-            ),
-            "call_args_eof": (
-                "task helper(value: int) { say value }\nsay helper(1",
-                "unexpected end of file inside call argument list",
-            ),
-            "method_args_eof": (
-                'say "value".trim(',
-                "unexpected end of file inside method argument list",
-            ),
-            "pipe_args_eof": (
-                "task helper(value: int) { say value }\nsay 1 |> helper(",
-                "unexpected end of file inside pipe argument list",
-            ),
-            "array_eof": (
-                "say [1, 2",
-                "unexpected end of file inside array literal",
-            ),
-            "shape_constructor_eof": (
-                "shape Known { value: int }\nsay Known { value: 1",
-                "unexpected end of file inside shape constructor",
-            ),
-            "shape_eof": (
-                "shape Broken { value: int",
-                "unexpected end of file inside shape declaration",
-            ),
-            "impl_eof": (
-                'impl Broken { task run(self) { say "value" }',
-                "unexpected end of file inside impl declaration",
-            ),
-            "when_eof": (
-                'when 1 { 1 -> say "one"',
-                "unexpected end of file inside when expression",
-            ),
-            "extern_eof": (
-                "extern task broken(value: int",
-                "unexpected end of file inside extern parameter list",
-            ),
-        }
+        staged_cases: dict[str, Path] = {}
+        for case in negative_cases:
+            malformed = tmp_path / case.source.name
+            shutil.copy2(case.source, malformed)
+            staged_cases[case.name] = malformed
 
-        for case_name, (case_text, expected_diagnostic) in malformed_cases.items():
-            malformed = tmp_path / f"{case_name}.fk"
-            malformed.write_text(case_text, encoding="utf-8")
-
-            checked = run(freak, repo, malformed, "check", timeout=10)
-            assert_check_rejected(checked, case_name)
-            assert expected_diagnostic in (checked.stdout + checked.stderr).lower()
+            checked = run(
+                freak, repo, malformed, "check", *case.flags, timeout=10
+            )
+            assert_check_rejected(checked, case.name)
+            assert case.diagnostic in (checked.stdout + checked.stderr).lower()
 
             for backend, flag, suffix in (
                 ("LLVM", "--llvm", ".ll"),
@@ -229,17 +261,31 @@ def main() -> int:
                 artifact = Path(str(malformed) + suffix)
                 artifact.write_text(SENTINEL, encoding="utf-8")
                 transpiled = run(
-                    freak, repo, malformed, "transpile", flag, timeout=10
+                    freak,
+                    repo,
+                    malformed,
+                    "transpile",
+                    flag,
+                    *case.flags,
+                    timeout=10,
                 )
-                assert_rejected(transpiled, f"{case_name} {backend} transpile")
-                assert expected_diagnostic in (
+                assert_rejected(transpiled, f"{case.name} {backend} transpile")
+                assert case.diagnostic in (
                     transpiled.stdout + transpiled.stderr
                 ).lower()
                 assert artifact.read_text(encoding="utf-8") == SENTINEL
 
                 artifact.unlink()
-                built = run(freak, repo, malformed, "build", flag, timeout=10)
-                assert_rejected(built, f"{case_name} {backend} build")
+                built = run(
+                    freak,
+                    repo,
+                    malformed,
+                    "build",
+                    flag,
+                    *case.flags,
+                    timeout=10,
+                )
+                assert_rejected(built, f"{case.name} {backend} build")
                 assert not artifact.exists()
                 assert not malformed.with_suffix("").exists()
                 assert not malformed.with_suffix(".exe").exists()
@@ -261,15 +307,10 @@ def main() -> int:
                 + unreadable.stderr
             )
 
-            for case_name in (
-                "dangling_namespace",
-                "unterminated_string",
-                "malformed_number",
-                "call_args_eof",
-                "shape_eof",
-                "impl_eof",
-            ):
-                malformed = tmp_path / f"{case_name}.fk"
+            for case in negative_cases:
+                if not case.direct:
+                    continue
+                malformed = staged_cases[case.name]
                 for backend, flag, suffix in (
                     ("LLVM", "--llvm", ".ll"),
                     ("C", "--c", ".c"),
@@ -282,7 +323,7 @@ def main() -> int:
                     )
                     output = rejected.stdout + rejected.stderr
                     assert rejected.returncode != 0, (
-                        f"direct {backend} accepted {case_name}\n{output}"
+                        f"direct {backend} accepted {case.name}\n{output}"
                     )
                     assert "error" in output.lower(), output
                     assert not artifact.exists(), artifact
@@ -298,50 +339,6 @@ def main() -> int:
         )
         scale_check = run(freak, repo, scale_source, "check")
         assert scale_check.returncode == 0, scale_check.stdout + scale_check.stderr
-
-        parse_bad = tmp_path / "parse_bad.fk"
-        parse_bad.write_text('task main() {\n    say )\n}\n', encoding="utf-8")
-
-        for backend, flag, suffix in (("LLVM", "--llvm", ".ll"), ("C", "--c", ".c")):
-            artifact = Path(str(parse_bad) + suffix)
-            artifact.write_text(SENTINEL, encoding="utf-8")
-            result = run(freak, repo, parse_bad, "transpile", flag)
-            assert_rejected(result, f"{backend} parse gate")
-            assert artifact.read_text(encoding="utf-8") == SENTINEL, (
-                f"{backend} parse gate overwrote the previous artifact"
-            )
-
-        for backend, flag, suffix in (("LLVM", "--llvm", ".ll"), ("C", "--c", ".c")):
-            borrow_bad = tmp_path / f"borrow_bad_{backend.lower()}.fk"
-            borrow_bad.write_text(
-                "-- checker error must gate both emitters and linkers\n"
-                "-- keep the user statement beyond the prepended-stdlib line clamp\n"
-                "\n"
-                "task main() -> int {\n"
-                '    pilot name: word = "Maverick"\n'
-                '    name = "Meiya"\n'
-                "    give back 0\n"
-                "}\n"
-                "\n"
-                "main()\n",
-                encoding="utf-8",
-            )
-            borrow_artifact = Path(str(borrow_bad) + suffix)
-            borrow_artifact.write_text(SENTINEL, encoding="utf-8")
-            borrow_result = run(
-                freak, repo, borrow_bad, "transpile", flag, "--strict-borrow"
-            )
-            assert_rejected(borrow_result, f"{backend} borrow/type gate")
-            assert borrow_artifact.read_text(encoding="utf-8") == SENTINEL
-
-            borrow_artifact.unlink()
-            borrow_build = run(
-                freak, repo, borrow_bad, "build", flag, "--strict-borrow"
-            )
-            assert_rejected(borrow_build, f"{backend} borrow/type build gate")
-            assert not borrow_artifact.exists()
-            assert not borrow_bad.with_suffix("").exists()
-            assert not borrow_bad.with_suffix(".exe").exists()
 
         nominal_bad = tmp_path / "nominal_bad.fk"
         nominal_bad.write_text(
@@ -810,22 +807,6 @@ def main() -> int:
             nominal_c_text,
         )
 
-        unknown_receiver = tmp_path / "unknown_receiver_field.fk"
-        unknown_receiver.write_text(
-            "task main() {\n"
-            "    say missing_binding.value\n"
-            "}\n",
-            encoding="utf-8",
-        )
-        for backend, flag, suffix in (("C", "--c", ".c"), ("LLVM", "--llvm", ".ll")):
-            artifact = Path(str(unknown_receiver) + suffix)
-            artifact.write_text(SENTINEL, encoding="utf-8")
-            rejected = run(freak, repo, unknown_receiver, "transpile", flag)
-            assert_rejected(rejected, f"{backend} unknown field receiver gate")
-            output = rejected.stdout + rejected.stderr
-            assert "cannot resolve the receiver type for field 'value'" in output
-            assert artifact.read_text(encoding="utf-8") == SENTINEL
-
         unknown_method_receiver = tmp_path / "unknown_receiver_method.fk"
         unknown_method_receiver.write_text(
             "shape Alpha { value: int }\n"
@@ -883,11 +864,6 @@ def main() -> int:
         math3d_binary = math3d_probe.with_suffix(".exe" if sys.platform == "win32" else "")
         assert math3d_binary.is_file(), math3d_binary
 
-        check_result = run(freak, repo, parse_bad, "check")
-        check_output = check_result.stdout + check_result.stderr
-        assert check_result.returncode != 0, f"check accepted invalid syntax\n{check_output}"
-        assert "passed" not in check_output.lower(), f"check printed PASSED\n{check_output}"
-
         missing_input = subprocess.run(
             [str(freak), "check"],
             cwd=repo,
@@ -903,24 +879,6 @@ def main() -> int:
             + missing_input.stdout
             + missing_input.stderr
         )
-
-        for backend, flag, suffix in (("LLVM", "--llvm", ".ll"), ("C", "--c", ".c")):
-            build_bad = tmp_path / f"build_bad_{backend.lower()}.fk"
-            build_bad.write_text('task main() {\n    say )\n}\n', encoding="utf-8")
-            build_result = run(freak, repo, build_bad, "build", flag)
-            build_output = build_result.stdout + build_result.stderr
-            assert build_result.returncode != 0, (
-                f"{backend} build accepted invalid syntax\n{build_output}"
-            )
-            assert not Path(str(build_bad) + suffix).exists(), (
-                f"{backend} build emitted {suffix} for invalid input"
-            )
-            assert not build_bad.with_suffix("").exists(), (
-                f"{backend} build emitted a binary for invalid input"
-            )
-            assert not build_bad.with_suffix(".exe").exists(), (
-                f"{backend} build emitted a Windows binary for invalid input"
-            )
 
     print("V3 codegen error gate: PASS")
     return 0
