@@ -326,6 +326,104 @@ task main() {
 }
 """
 
+LEXICAL_LIFETIME_PROGRAM = """pilot global_final: word = "g" + "lobal"
+
+task return_scoped(flag: bool) -> word {
+    pilot first: word = "ret" + "urn"
+    if flag {
+        pilot nested: word = "n" + "ested"
+        give back first
+    }
+    pilot fallback: word = "fall" + "back"
+    give back fallback
+}
+
+task return_temporary() -> word {
+    pilot discarded: word = "dis" + "carded"
+    give back "tem" + "porary"
+}
+
+task measure_scoped() -> int {
+    pilot measured: word = "num" + "ber"
+    give back measured.length()
+}
+
+task return_void(flag: bool) {
+    pilot owned: word = "vo" + "id"
+    if flag { give back }
+    say "bad void"
+}
+
+task main() {
+    repeat 128 times {
+        pilot scoped: word = "scope" + "owned"
+        if scoped.length() != 10 { say "bad scope" }
+    }
+    pilot mut index = 0
+    repeat 8 times {
+        pilot loop_value: word = "loop" + index.to_word()
+        index += 1
+        if index == 2 { continue }
+        if index == 4 { break }
+    }
+    pilot returned: word = return_scoped(true)
+    say returned
+    pilot fallback: word = return_scoped(false)
+    say fallback
+    pilot temporary: word = return_temporary()
+    say temporary
+    if measure_scoped() != 6 { say "bad measure" }
+    return_void(true)
+    say global_final
+}
+"""
+
+BORROWED_TEMP_PROGRAM = """task main() {
+    repeat 128 times {
+        pilot measured = ("le" + "ngth").length()
+        if measured != 6 { say "bad length" }
+        if ("a" + "b") != "ab" { say "bad compare" }
+        if not ("prefix" + "tail").starts_with("pre" + "fix") { say "bad prefix" }
+        if not ("left" + "right").contains("ri" + "ght") { say "bad contains" }
+        pilot piece: word = ("zero" + "one").substring(1, 3)
+        if piece != "ero" { say "bad substring" }
+        pilot parsed = word_to_int("7" + "")
+        if parsed != 7 { say "bad parsed" }
+    }
+    say "temps"
+}
+"""
+
+NUMERIC_WORD_PROGRAM = """task main() {
+    pilot first_number: num = 1.25
+    pilot second_number: num = 9.5
+    pilot first: word = first_number.to_word()
+    pilot second: word = second_number.to_word()
+    say first
+    say second
+    pilot integer_value: int = 42
+    pilot truth_value: bool = true
+    pilot integer: word = integer_value.to_word()
+    pilot truth: word = truth_value.to_word()
+    say integer
+    say truth
+}
+"""
+
+TOP_LEVEL_GLOBAL_PROGRAM = """pilot top_level: word = "top" + "level"
+say top_level
+"""
+
+WHEN_LIFETIME_PROGRAM = """task main() {
+    pilot choice = 1
+    when choice {
+        1 -> pilot chosen: word = "cho" + "sen"
+        _ -> pilot other: word = "oth" + "er"
+    }
+    say "when"
+}
+"""
+
 
 def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -356,6 +454,12 @@ def main() -> int:
     assert runtime_source.count("freak_word_replace_owned(&result") >= 4
     assert "return freak_word_own(buf, (size_t)n);" in runtime_source
     assert "return freak_word_own(buf, (size_t)total);" in runtime_source
+    assert "#ifdef FREAK_C_RUNTIME_OWNERSHIP_AUDIT" in runtime_source
+    assert "return freak_word_own(buf, (size_t)len);" in runtime_source
+    llvm_runtime_source = (
+        repo / "freakc" / "runtime" / "freak_llvm_runtime.c"
+    ).read_text(encoding="utf-8")
+    assert llvm_runtime_source.count("return freak_llvm_word_adopt((int64_t)buf);") >= 2
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-word-ownership-") as tmp:
         root = Path(tmp)
@@ -419,6 +523,11 @@ def main() -> int:
             ("fs_list", fs_list_program, [], ["true"], ("c", "llvm")),
             ("tcp_owned", tcp_program, [], ["recv"], ("c",)),
             ("method_shape", METHOD_SHAPE_PROGRAM, [], ["xy", "xy", "new", "field", "self", "self"], ("llvm",)),
+            ("lexical_lifetime", LEXICAL_LIFETIME_PROGRAM, [], ["return", "fallback", "temporary", "global"], ("c", "llvm")),
+            ("borrowed_temp", BORROWED_TEMP_PROGRAM, [], ["temps"], ("c", "llvm")),
+            ("numeric_word", NUMERIC_WORD_PROGRAM, [], ["1.25", "9.5", "42", "true"], ("c", "llvm")),
+            ("top_level_global", TOP_LEVEL_GLOBAL_PROGRAM, [], ["toplevel"], ("c", "llvm")),
+            ("when_lifetime", WHEN_LIFETIME_PROGRAM, [], ["when"], ("c", "llvm")),
         )
         for case_name, program, extra_flags, expected_output, backends in cases:
             source = root / f"replace_owned_{case_name}.fk"
@@ -432,7 +541,15 @@ def main() -> int:
                 assert generated.is_file(), generated
                 generated_text = generated.read_text(encoding="utf-8")
                 if backend == "c":
-                    assert "freak_word_replace_owned" in generated_text, case_name
+                    assert "freak_word_release_owned" in generated_text, case_name
+                    if case_name not in {
+                        "lexical_lifetime",
+                        "borrowed_temp",
+                        "numeric_word",
+                        "top_level_global",
+                        "when_lifetime",
+                    }:
+                        assert "freak_word_replace_owned" in generated_text, case_name
                     if case_name == "strict":
                         assert re.search(r"freak_word_clone\(__freak_local_\d+\)", generated_text)
                         assert re.search(r"__freak_user_identity\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
@@ -466,44 +583,53 @@ def main() -> int:
                         assert "freak_tcp_recv(" in generated_text
                         assert "freak_tcp_recv_all(" in generated_text
                         assert generated_text.count("freak_word_release_owned") >= 2
+                    elif case_name == "lexical_lifetime":
+                        assert generated_text.count("freak_word_release_owned") >= 8
+                        assert re.search(
+                            r"freak_word __freak_return_value = __freak_local_\d+;\s+"
+                            r"freak_word_release_owned\(&__freak_local_\d+\);",
+                            generated_text,
+                        )
+                    elif case_name == "borrowed_temp":
+                        assert "__freak_borrow_arg_" in generated_text
+                        assert generated_text.count("freak_word_release_owned(&__freak_borrow_arg_") >= 5
+                    elif case_name == "numeric_word":
+                        assert "freak_format_num" in generated_text
                 else:
                     assert "@freak_llvm_word_release_replaced" in generated_text
                     assert "@freak_llvm_word_clone" in generated_text
                     if case_name == "concat_temp":
                         assert generated_text.count("@freak_llvm_word_release_replaced") >= 4
+                    elif case_name == "lexical_lifetime":
+                        assert generated_text.count("@freak_llvm_word_release_replaced") >= 8
+                        assert "return.dead." in generated_text
+                    elif case_name == "borrowed_temp":
+                        assert generated_text.count("@freak_llvm_word_release_replaced") >= 10
+                    elif case_name == "numeric_word":
+                        assert "@freak_llvm_format_num" in generated_text
 
                 binary = root / (f"replace_owned_{case_name}_{backend}.exe" if sys.platform == "win32" else f"replace_owned_{case_name}_{backend}")
-                if sys.platform == "win32":
-                    built = run([str(freak), "build", str(source), flag, *extra_flags], repo)
-                    assert built.returncode == 0, built.stdout + built.stderr
-                    produced = source.with_suffix(".exe")
-                    shutil.copy2(produced, binary)
+                clang = os.environ.get("FREAK_CLANG") or shutil.which("clang")
+                assert clang, "clang is required for the ownership regression"
+                command = [clang, "-g", "-O1", "-o", str(binary), str(generated)]
+                if sys.platform != "win32":
+                    command.extend(["-fsanitize=address", "-fno-omit-frame-pointer"])
+                if backend == "llvm":
+                    command.append("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1")
+                    command.extend(
+                        [
+                            str(repo / "freakc" / "runtime" / "freak_llvm_runtime.c"),
+                            str(repo / "freakc" / "runtime" / "freak_runtime.c"),
+                        ]
+                    )
                 else:
-                    clang = os.environ.get("FREAK_CLANG") or shutil.which("clang")
-                    assert clang, "clang is required for the ownership sanitizer regression"
-                    command = [
-                        clang,
-                        "-g",
-                        "-O1",
-                        "-fsanitize=address",
-                        "-fno-omit-frame-pointer",
-                        "-o",
-                        str(binary),
-                        str(generated),
-                    ]
-                    if backend == "llvm":
-                        command.append("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1")
-                        command.extend(
-                            [
-                                str(repo / "freakc" / "runtime" / "freak_llvm_runtime.c"),
-                                str(repo / "freakc" / "runtime" / "freak_runtime.c"),
-                            ]
-                        )
-                    else:
-                        command.append(str(repo / "freakc" / "runtime" / "freak_runtime.c"))
-                    command.extend(["-I", str(repo / "freakc" / "runtime"), "-lm"])
-                    compiled = run(command, repo)
-                    assert compiled.returncode == 0, compiled.stdout + compiled.stderr
+                    command.append("-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
+                    command.append(str(repo / "freakc" / "runtime" / "freak_runtime.c"))
+                command.extend(["-I", str(repo / "freakc" / "runtime")])
+                if sys.platform != "win32":
+                    command.append("-lm")
+                compiled = run(command, repo)
+                assert compiled.returncode == 0, compiled.stdout + compiled.stderr
 
                 sanitizer_env = os.environ.copy()
                 sanitizer_env["ASAN_OPTIONS"] = "halt_on_error=1"
@@ -520,45 +646,83 @@ def main() -> int:
         assert not tcp_server.is_alive(), "TCP ownership probe server did not finish"
         assert not tcp_server_failures, tcp_server_failures
 
+        # Negative controls prove both deterministic runtime audits reject one
+        # deliberately retained allocation, including on Windows where LSan is
+        # not part of the compiler matrix.
+        clang = os.environ.get("FREAK_CLANG") or shutil.which("clang")
+        assert clang, "clang is required for the ownership audit controls"
+        llvm_audit_source = root / "llvm_ownership_audit_control.c"
+        llvm_audit_source.write_text(
+            "#include <stdint.h>\n"
+            "#include <stdlib.h>\n"
+            "extern int64_t freak_llvm_word_adopt(int64_t);\n"
+            "int main(void) {\n"
+            "    char *owned = (char *)malloc(2);\n"
+            "    if (!owned) return 2;\n"
+            "    owned[0] = 'x'; owned[1] = '\\0';\n"
+            "    freak_llvm_word_adopt((int64_t)owned);\n"
+            "    return 0;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        llvm_audit_binary = root / (
+            "llvm_ownership_audit_control.exe"
+            if sys.platform == "win32"
+            else "llvm_ownership_audit_control"
+        )
+        llvm_audit_command = [
+            clang,
+            "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1",
+            "-o",
+            str(llvm_audit_binary),
+            str(llvm_audit_source),
+            str(repo / "freakc" / "runtime" / "freak_runtime.c"),
+            "-I",
+            str(repo / "freakc" / "runtime"),
+        ]
         if sys.platform != "win32":
-            # Negative control: LLVM allocations are globally reachable, so
-            # LSan alone cannot prove tracker cleanup. The test-only audit must
-            # independently reject one deliberately retained tracker entry.
-            clang = os.environ.get("FREAK_CLANG") or shutil.which("clang")
-            assert clang, "clang is required for the ownership audit control"
-            audit_source = root / "ownership_audit_control.c"
-            audit_source.write_text(
-                "#include <stdint.h>\n"
-                "#include <stdlib.h>\n"
-                "extern int64_t freak_llvm_word_adopt(int64_t);\n"
-                "int main(void) {\n"
-                "    char *owned = (char *)malloc(2);\n"
-                "    if (!owned) return 2;\n"
-                "    owned[0] = 'x'; owned[1] = '\\0';\n"
-                "    freak_llvm_word_adopt((int64_t)owned);\n"
-                "    return 0;\n"
-                "}\n",
-                encoding="utf-8",
-            )
-            audit_binary = root / "ownership_audit_control"
-            audit_compiled = run(
-                [
-                    clang,
-                    "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1",
-                    "-o",
-                    str(audit_binary),
-                    str(audit_source),
-                    str(repo / "freakc" / "runtime" / "freak_runtime.c"),
-                    "-I",
-                    str(repo / "freakc" / "runtime"),
-                    "-lm",
-                ],
-                repo,
-            )
-            assert audit_compiled.returncode == 0, audit_compiled.stdout + audit_compiled.stderr
-            audit_executed = run([str(audit_binary)], root)
-            assert audit_executed.returncode == 86, audit_executed.stdout + audit_executed.stderr
-            assert "ownership audit found 1 unreleased word allocation" in audit_executed.stderr
+            llvm_audit_command.append("-lm")
+        llvm_audit_compiled = run(llvm_audit_command, repo)
+        assert llvm_audit_compiled.returncode == 0, llvm_audit_compiled.stdout + llvm_audit_compiled.stderr
+        llvm_audit_executed = run([str(llvm_audit_binary)], root)
+        assert llvm_audit_executed.returncode == 86, llvm_audit_executed.stdout + llvm_audit_executed.stderr
+        assert "LLVM ownership audit found 1 unreleased word allocation" in llvm_audit_executed.stderr
+
+        c_audit_source = root / "c_ownership_audit_control.c"
+        c_audit_source.write_text(
+            '#include "freak_runtime.h"\n'
+            "#include <stdlib.h>\n"
+            "int main(void) {\n"
+            "    char *owned = (char *)malloc(2);\n"
+            "    if (!owned) return 2;\n"
+            "    owned[0] = 'x'; owned[1] = '\\0';\n"
+            "    (void)freak_word_own(owned, 1);\n"
+            "    return 0;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        c_audit_binary = root / (
+            "c_ownership_audit_control.exe"
+            if sys.platform == "win32"
+            else "c_ownership_audit_control"
+        )
+        c_audit_command = [
+            clang,
+            "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1",
+            "-o",
+            str(c_audit_binary),
+            str(c_audit_source),
+            str(repo / "freakc" / "runtime" / "freak_runtime.c"),
+            "-I",
+            str(repo / "freakc" / "runtime"),
+        ]
+        if sys.platform != "win32":
+            c_audit_command.append("-lm")
+        c_audit_compiled = run(c_audit_command, repo)
+        assert c_audit_compiled.returncode == 0, c_audit_compiled.stdout + c_audit_compiled.stderr
+        c_audit_executed = run([str(c_audit_binary)], root)
+        assert c_audit_executed.returncode == 87, c_audit_executed.stdout + c_audit_executed.stderr
+        assert "C ownership audit found 1 unreleased word allocation" in c_audit_executed.stderr
 
     print("V3 word replacement ownership: PASS")
     return 0

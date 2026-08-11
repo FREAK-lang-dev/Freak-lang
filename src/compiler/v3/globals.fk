@@ -170,6 +170,8 @@ pilot emt_extern_rets = 0
 pilot emt_extern_count = 0
 pilot emt_current_word_params = ""
 pilot emt_current_return_type = ""
+pilot emt_current_word_local_base = 0
+pilot emt_loop_word_cleanup_base = 0 - 1
 
 -- LLVM emitter state
 pilot llvm_line_count = 0
@@ -184,6 +186,9 @@ pilot llvm_task_reg_count = 0
 pilot llvm_cur_func_is_void = false
 pilot llvm_cur_func_returns_word = false
 pilot llvm_current_word_params = ""
+pilot llvm_word_local_slots = ""
+pilot llvm_loop_word_cleanup_prefix = ""
+pilot llvm_last_borrowed_cleanup = ""
 pilot llvm_declared_funcs = ""
 pilot llvm_loop_end_label = ""
 pilot llvm_loop_cond_label = ""

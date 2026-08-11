@@ -441,9 +441,13 @@ int64_t freak_llvm_num_to_int(int64_t n) {
     return (int64_t)i64_to_double(n);
 }
 int64_t freak_llvm_word_from_num(int64_t n) {
-    static char buf[64];
-    snprintf(buf, sizeof(buf), "%.10g", i64_to_double(n));
-    return (int64_t)buf;
+    char* buf = (char*)malloc(64);
+    if (!buf) {
+        fprintf(stderr, "FREAK: out of memory formatting a number\n");
+        exit(1);
+    }
+    snprintf(buf, 64, "%.10g", i64_to_double(n));
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* ── char_to_word (UTF-8 encode a code point) ───────── */
@@ -489,9 +493,13 @@ int64_t freak_llvm_parse_num(int64_t w) {
     return double_to_i64(strtod((const char*)w, NULL));
 }
 int64_t freak_llvm_format_num(int64_t n) {
-    static char buf[64];
-    snprintf(buf, sizeof(buf), "%.10g", i64_to_double(n));
-    return (int64_t)buf;
+    char* buf = (char*)malloc(64);
+    if (!buf) {
+        fprintf(stderr, "FREAK: out of memory formatting a number\n");
+        exit(1);
+    }
+    snprintf(buf, 64, "%.10g", i64_to_double(n));
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* ── Num (double) helpers ──────────────────────────── */

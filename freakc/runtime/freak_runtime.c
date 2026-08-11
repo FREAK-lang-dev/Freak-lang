@@ -59,6 +59,44 @@ freak_word freak_arg(int64_t index) {
 /*  word helpers                                                      */
 /* ------------------------------------------------------------------ */
 
+#ifdef FREAK_C_RUNTIME_OWNERSHIP_AUDIT
+static size_t freak_c_owned_word_count = 0;
+static bool freak_c_ownership_audit_registered = false;
+
+static void freak_c_ownership_audit_at_exit(void) {
+    if (freak_c_owned_word_count != 0) {
+        fprintf(stderr,
+                "FREAK: C ownership audit found %llu unreleased word allocation(s)\n",
+                (unsigned long long)freak_c_owned_word_count);
+        fflush(stderr);
+        _Exit(87);
+    }
+}
+
+static void freak_c_ownership_audit_acquire(void) {
+    if (!freak_c_ownership_audit_registered) {
+        if (atexit(freak_c_ownership_audit_at_exit) != 0) {
+            fprintf(stderr, "FREAK: could not register C ownership audit\n");
+            exit(1);
+        }
+        freak_c_ownership_audit_registered = true;
+    }
+    freak_c_owned_word_count += 1;
+}
+
+static void freak_c_ownership_audit_release(void) {
+    if (freak_c_owned_word_count == 0) {
+        fprintf(stderr, "FREAK: C ownership audit observed an untracked release\n");
+        fflush(stderr);
+        _Exit(88);
+    }
+    freak_c_owned_word_count -= 1;
+}
+#else
+static void freak_c_ownership_audit_acquire(void) {}
+static void freak_c_ownership_audit_release(void) {}
+#endif
+
 freak_word freak_word_lit(const char* s) {
     size_t len = strlen(s);
     freak_word w;
@@ -75,6 +113,7 @@ freak_word freak_word_own(char* s, size_t len) {
     w.length     = len;
     w.char_count = len;
     w.heap       = true;
+    freak_c_ownership_audit_acquire();
     return w;
 }
 
@@ -109,13 +148,17 @@ void freak_word_replace_owned(freak_word* slot, freak_word replacement) {
     if (!slot) return;
     if (slot->heap && slot->data && slot->data != replacement.data) {
         free((void*)slot->data);
+        freak_c_ownership_audit_release();
     }
     *slot = replacement;
 }
 
 void freak_word_release_owned(freak_word* slot) {
     if (!slot) return;
-    if (slot->heap && slot->data) free((void*)slot->data);
+    if (slot->heap && slot->data) {
+        free((void*)slot->data);
+        freak_c_ownership_audit_release();
+    }
     *slot = (freak_word)FREAK_WORD_EMPTY;
 }
 
@@ -858,9 +901,11 @@ double freak_parse_num(freak_word w) {
 }
 
 freak_word freak_format_num(double n) {
-    static char buf[64];
-    snprintf(buf, sizeof(buf), "%.10g", n);
-    return freak_word_lit(buf);
+    char* buf = (char*)malloc(64);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    int len = snprintf(buf, 64, "%.10g", n);
+    if (len < 0) len = 0;
+    return freak_word_own(buf, (size_t)len);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1308,6 +1353,7 @@ static void freak_llvm_ownership_audit_at_exit(void) {
         fprintf(stderr,
                 "FREAK: LLVM ownership audit found %llu unreleased word allocation(s)\n",
                 (unsigned long long)freak_llvm_owned_count);
+        fflush(stderr);
         _Exit(86);
     }
 }
