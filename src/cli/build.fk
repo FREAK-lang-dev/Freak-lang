@@ -184,34 +184,120 @@ task cli_current_dir() -> word {
     give back cli_first_line(process::exec_capture(command)).trim()
 }
 
+task cli_posix_path_parent(path: word) -> word {
+    pilot last_sep = -1
+    pilot pi = 0
+    repeat until pi >= path.length() {
+        if path.char_at(pi) == "/" { last_sep = pi }
+        pi += 1
+    }
+    if last_sep < 0 { give back "" }
+    if last_sep == 0 { give back "/" }
+    give back path.substring(0, last_sep)
+}
+
+task cli_posix_path_leaf(path: word) -> word {
+    pilot leaf = ""
+    pilot pi = 0
+    repeat until pi >= path.length() {
+        pilot ch = path.char_at(pi)
+        if ch == "/" { leaf = "" }
+        else { leaf = leaf + ch }
+        pi += 1
+    }
+    give back leaf
+}
+
+task cli_posix_canonical_executable(path: word) -> word {
+    -- Resolve a PATH shim without trusting its containing directory as the
+    -- compiler home. Keep the loop bounded and require every symlink target
+    -- and the physical final parent to resolve; cycles, broken links, and
+    -- readlink failures all leave executable identity unresolved.
+    if path == "" or cli_is_windows() { give back path }
+    pilot current = path
+    if not current.starts_with("/") {
+        pilot cwd = cli_current_dir()
+        if cwd == "" { give back "" }
+        current = cwd + "/" + current
+    }
+
+    pilot link_hops = 0
+    pilot resolved_leaf = false
+    repeat until resolved_leaf {
+        pilot quoted_current = cli_quote_cmd_path(current)
+        pilot link_probe = "if [ -L " + quoted_current + " ]; then printf link; "
+        link_probe = link_probe + "elif [ -e " + quoted_current + " ]; then printf file; else exit 1; fi"
+        pilot link_kind = cli_first_line(process::exec_capture(link_probe)).trim()
+        if link_kind == "file" {
+            resolved_leaf = true
+        } else {
+            if link_kind != "link" { give back "" }
+            if link_hops >= 32 { give back "" }
+            pilot link_command = "readlink " + quoted_current + " 2>/dev/null"
+            pilot link_target = cli_first_line(process::exec_capture(link_command))
+            if link_target == "" { give back "" }
+            if link_target.starts_with("/") {
+                current = link_target
+            } else {
+                pilot link_parent = cli_posix_path_parent(current)
+                if link_parent == "" { give back "" }
+                if link_parent == "/" { current = link_parent + link_target }
+                else { current = link_parent + "/" + link_target }
+            }
+            link_hops += 1
+        }
+    }
+
+    pilot parent = cli_posix_path_parent(current)
+    pilot leaf = cli_posix_path_leaf(current)
+    if parent == "" or leaf == "" { give back "" }
+    pilot parent_command = "cd -P " + cli_quote_cmd_path(parent) + " 2>/dev/null && pwd -P"
+    pilot canonical_parent = cli_first_line(process::exec_capture(parent_command)).trim()
+    if canonical_parent == "" { give back "" }
+    pilot canonical = canonical_parent + "/" + leaf
+    if canonical_parent == "/" { canonical = canonical_parent + leaf }
+    if not fs::exists(canonical) { give back "" }
+    give back canonical
+}
+
 task cli_executable_path() -> word {
     pilot argv0: word = process::arg(0)
     if argv0 == "" { give back "" }
 
-    if cli_path_is_absolute(argv0) { give back argv0 }
+    if cli_path_is_absolute(argv0) {
+        if not fs::exists(argv0) { give back "" }
+        if cli_is_windows() { give back argv0 }
+        give back cli_posix_canonical_executable(argv0)
+    }
     pilot has_separator = argv0.contains("/") or argv0.contains("\\")
-    if has_separator and fs::exists(argv0) {
+    if has_separator {
+        if not fs::exists(argv0) { give back "" }
         pilot relative = argv0
         if relative.starts_with("./") or relative.starts_with(".\\") {
             relative = relative.substring(2, relative.length() - 2)
         }
         pilot cwd = cli_current_dir()
-        if cwd != "" { give back cwd + "/" + relative }
-        give back argv0
+        if cwd == "" { give back "" }
+        pilot absolute = cwd + "/" + relative
+        if cli_is_windows() { give back absolute }
+        give back cli_posix_canonical_executable(absolute)
     }
 
     -- A separator-free argv[0] is a PATH command, not a CWD-relative path on
-    -- POSIX. Resolve it before consulting the CWD so a project file named
-    -- `freak` cannot spoof the running compiler's installation root.
+    -- either platform. Search only PATH and fail closed: a same-named project
+    -- file must never become the running compiler's installation root.
     pilot lookup_cmd = "command -v " + cli_quote_cmd_path(argv0) + " 2>/dev/null"
-    if cli_is_windows() { lookup_cmd = "where " + cli_quote_cmd_path(argv0) + " 2>nul" }
-    pilot resolved: word = cli_first_line(process::exec_capture(lookup_cmd)).trim()
-    if resolved != "" and fs::exists(resolved) { give back resolved }
-    if fs::exists(argv0) {
-        pilot cwd = cli_current_dir()
-        if cwd != "" { give back cwd + "/" + argv0 }
+    if cli_is_windows() {
+        pilot lookup_target = "$PATH:" + argv0
+        lookup_cmd = "where " + cli_quote_cmd_path(lookup_target) + " 2>nul"
     }
-    give back argv0
+    pilot resolved: word = cli_first_line(process::exec_capture(lookup_cmd)).trim()
+    if resolved == "" or not fs::exists(resolved) { give back "" }
+    if cli_is_windows() { give back resolved }
+    -- `command -v` may name a shell function/builtin without a path. Never
+    -- reinterpret that slashless text as a file from the caller's CWD.
+    if not resolved.contains("/") { give back "" }
+    give back cli_posix_canonical_executable(resolved)
 }
 
 task cli_executable_home() -> word {
@@ -454,7 +540,9 @@ task cli_find_runtime_dir() -> word {
 
     -- 5. Development fallback is allowed only for a recognizable repository
     -- layout. A random project containing freakc/runtime is not trusted.
-    if cli_is_repo_payload_root(".") { give back "freakc/runtime" }
+    if cli_executable_path() != "" and cli_is_repo_payload_root(".") {
+        give back "freakc/runtime"
+    }
     give back ""
 }
 
@@ -819,7 +907,9 @@ task cli_find_std_dir() -> word {
     if executable_payload != "" { give back executable_payload + "/std" }
     pilot installed_home = cli_default_payload_home()
     if installed_home != "" { give back installed_home + "/std" }
-    if cli_is_repo_payload_root(".") { give back "std" }
+    if cli_executable_path() != "" and cli_is_repo_payload_root(".") {
+        give back "std"
+    }
     give back ""
 }
 

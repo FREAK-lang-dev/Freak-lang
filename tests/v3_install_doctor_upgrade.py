@@ -104,6 +104,9 @@ def check_static_contracts(repo: Path) -> None:
     doctor_text = (repo / "src" / "cli" / "doctor.fk").read_text(
         encoding="utf-8"
     )
+    build_text = (repo / "src" / "cli" / "build.fk").read_text(
+        encoding="utf-8"
+    )
     main_text = (repo / "src" / "cli" / "main.fk").read_text(encoding="utf-8")
 
     for needle in (
@@ -252,6 +255,17 @@ def check_static_contracts(repo: Path) -> None:
     ):
         assert needle in doctor_text, f"doctor missing {needle}"
     assert "choco install llvm" not in doctor_text
+    for needle in (
+        "task cli_posix_canonical_executable(path: word) -> word",
+        "if link_hops >= 32",
+        'pilot lookup_target = "$PATH:" + argv0',
+        "if resolved == \"\" or not fs::exists(resolved)",
+        'if not resolved.contains("/")',
+    ):
+        assert needle in build_text, f"executable discovery missing {needle}"
+    assert build_text.count(
+        'cli_executable_path() != "" and cli_is_repo_payload_root(".")'
+    ) == 2, "unresolved executable identity must disable both CWD payload fallbacks"
     assert 'if subcmd == "upgrade"' in main_text
     assert "process::exit(upgrade_res)" in main_text
     assert "process::exit(doctor_exit)" in main_text
@@ -1364,6 +1378,10 @@ def populate_payload(
 def check_doctor(
     repo: Path, root: Path, compiler: Path, entries: list[tuple[str, str]]
 ) -> None:
+    repo_compiler = compiler.resolve()
+    assert repo_compiler.parent.parent == repo.resolve(), (
+        "doctor discovery regression requires the real checkout compiler"
+    )
     payload = root / "doctor-home"
     populate_payload(repo, payload, entries)
     # Model an archive/install layout with a second complete payload beside the
@@ -1467,6 +1485,66 @@ def check_doctor(
         checkout / "std"
     ).resolve()
 
+    # The real compiler built in this checkout must discover the checkout's
+    # freakc/runtime + std payload from any project CWD. This is distinct from
+    # the archive/install layout exercised by `checkout_compiler` above.
+    repo_env = shadow_env.copy()
+    repo_env["HOME"] = str(root / "doctor-repo-empty-home")
+    repo_env["APPDATA"] = str(root / "doctor-repo-empty-appdata")
+    repo_env["LOCALAPPDATA"] = str(root / "doctor-repo-empty-localappdata")
+    repo_env["ProgramFiles"] = str(root / "doctor-repo-empty-program-files")
+    repo_env["ProgramFiles(x86)"] = str(
+        root / "doctor-repo-empty-program-files-x86"
+    )
+    repo_discovery = run_cli(
+        repo_compiler, shadow_cwd, repo_env, "doctor", "--json"
+    )
+    assert repo_discovery.returncode == 0, (
+        repo_discovery.stdout + repo_discovery.stderr
+    )
+    repo_report = json.loads(repo_discovery.stdout)
+    assert Path(repo_report["checks"]["runtime"]["path"]).resolve() == (
+        repo / "freakc" / "runtime"
+    ).resolve()
+    assert Path(repo_report["checks"]["stdlib"]["path"]).resolve() == (
+        repo / "std"
+    ).resolve()
+
+    # A slashless argv[0] that cannot be found in PATH has no executable
+    # identity. Even a same-named CWD decoy inside an otherwise recognizable
+    # repository layout must not enable the development payload fallback.
+    unresolved_cwd = root / "doctor-unresolved-slashless-cwd"
+    shutil.copytree(repo / "freakc" / "runtime", unresolved_cwd / "freakc" / "runtime")
+    shutil.copytree(repo / "std", unresolved_cwd / "std")
+    unresolved_marker = unresolved_cwd / "src" / "compiler" / "v3" / "main.fk"
+    unresolved_marker.parent.mkdir(parents=True)
+    shutil.copy2(repo / "src" / "compiler" / "v3" / "main.fk", unresolved_marker)
+    unresolved_decoy = unresolved_cwd / compiler.name
+    unresolved_decoy.write_text("not the running compiler\n", encoding="utf-8")
+    if sys.platform != "win32":
+        unresolved_decoy.chmod(0o644)
+    unresolved_env = repo_env.copy()
+    if sys.platform == "win32":
+        windows_dir = Path(unresolved_env.get("WINDIR", r"C:\Windows"))
+        unresolved_env["PATH"] = str(windows_dir / "System32")
+    else:
+        unresolved_env["PATH"] = "/usr/bin:/bin"
+    unresolved = subprocess.run(
+        [compiler.name, "doctor", "--json"],
+        executable=str(compiler),
+        cwd=unresolved_cwd,
+        env=unresolved_env,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=180,
+        check=False,
+    )
+    assert unresolved.returncode != 0, unresolved.stdout + unresolved.stderr
+    unresolved_report = json.loads(unresolved.stdout)
+    assert unresolved_report["checks"]["runtime"]["path"] == ""
+    assert unresolved_report["checks"]["stdlib"]["path"] == ""
+
     if sys.platform != "win32":
         # A slashless PATH invocation normally leaves argv[0] as `freak`. A
         # same-named non-executable project file must not replace the actual
@@ -1497,6 +1575,42 @@ def check_doctor(
             checkout / "std"
         ).resolve()
         decoy.unlink()
+
+        # PATH shims are allowed, but their directory never owns the payload.
+        # Resolve a relative leaf symlink to the real archive compiler before
+        # executable-adjacent runtime/std discovery.
+        symlink_home = root / "doctor-posix-symlink-home"
+        populate_payload(repo, symlink_home, entries)
+        symlink_bin = symlink_home / "bin"
+        symlink_bin.mkdir()
+        symlink_compiler = symlink_bin / compiler.name
+        shutil.copy2(compiler, symlink_compiler)
+        shim_dir = root / "doctor-posix-shims"
+        shim_dir.mkdir()
+        shim = shim_dir / compiler.name
+        shim.symlink_to(Path(os.path.relpath(symlink_compiler, shim_dir)))
+        symlink_env = repo_env.copy()
+        symlink_env["PATH"] = (
+            str(shim_dir) + os.pathsep + symlink_env.get("PATH", "")
+        )
+        symlinked = subprocess.run(
+            [compiler.name, "doctor", "--json"],
+            cwd=shadow_cwd,
+            env=symlink_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=180,
+            check=False,
+        )
+        assert symlinked.returncode == 0, symlinked.stdout + symlinked.stderr
+        symlink_report = json.loads(symlinked.stdout)
+        assert Path(symlink_report["checks"]["runtime"]["path"]).resolve() == (
+            symlink_home / "runtime"
+        ).resolve()
+        assert Path(symlink_report["checks"]["stdlib"]["path"]).resolve() == (
+            symlink_home / "std"
+        ).resolve()
 
     # An executable in an archive-style <home>/bin directory owns that payload
     # even when it is incomplete. Falling through to the hostile CWD would hide
@@ -1582,6 +1696,75 @@ def check_doctor(
         assert Path(winget_report["checks"]["stdlib"]["path"]).resolve() == (
             winget_home / "std"
         ).resolve()
+
+        # A real Windows command invocation supplies slashless argv[0] and
+        # relies on `where`. Restrict lookup to PATH so a same-named CWD file
+        # cannot hide the WinGet alias that owns the package scope.
+        slashless_decoy = shadow_cwd / compiler.name
+        slashless_decoy.write_text("not a Windows executable\n", encoding="utf-8")
+        slashless_winget_env = winget_env.copy()
+        slashless_winget_env["PATH"] = (
+            str(winget_alias_dir)
+            + os.pathsep
+            + slashless_winget_env.get("PATH", "")
+        )
+        slashless_winget = subprocess.run(
+            [compiler.name, "doctor", "--json"],
+            executable=str(winget_compiler),
+            cwd=shadow_cwd,
+            env=slashless_winget_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=180,
+            check=False,
+        )
+        assert slashless_winget.returncode == 0, (
+            slashless_winget.stdout + slashless_winget.stderr
+        )
+        slashless_winget_report = json.loads(slashless_winget.stdout)
+        assert Path(
+            slashless_winget_report["checks"]["runtime"]["path"]
+        ).resolve() == (winget_home / "runtime").resolve()
+        assert Path(
+            slashless_winget_report["checks"]["stdlib"]["path"]
+        ).resolve() == (winget_home / "std").resolve()
+        slashless_decoy.unlink()
+
+        # An alias with zero matching packages is still authoritative. Return
+        # the durable missing-package sentinel instead of falling through to a
+        # complete but unrelated AppData installation or the project CWD.
+        empty_winget_local = root / "doctor-winget-empty-localappdata"
+        empty_packages = empty_winget_local / "Microsoft" / "WinGet" / "Packages"
+        empty_packages.mkdir(parents=True)
+        empty_alias_dir = empty_winget_local / "Microsoft" / "WinGet" / "Links"
+        empty_alias_dir.mkdir()
+        empty_alias = empty_alias_dir / compiler.name
+        shutil.copy2(compiler, empty_alias)
+        empty_appdata_home = root / "doctor-winget-empty-appdata" / "freak"
+        populate_payload(repo, empty_appdata_home, entries)
+        empty_alias_env = winget_env.copy()
+        empty_alias_env["LOCALAPPDATA"] = str(empty_winget_local)
+        empty_alias_env["APPDATA"] = str(empty_appdata_home.parent)
+        empty_alias_env["HOME"] = str(root / "doctor-winget-zero-empty-home")
+        empty_alias_env["ProgramFiles"] = str(
+            root / "doctor-winget-zero-program-files"
+        )
+        empty_alias_env["ProgramFiles(x86)"] = str(
+            root / "doctor-winget-zero-program-files-x86"
+        )
+        empty_alias_result = run_cli(
+            empty_alias, shadow_cwd, empty_alias_env, "doctor", "--json"
+        )
+        assert empty_alias_result.returncode != 0
+        empty_alias_report = json.loads(empty_alias_result.stdout)
+        missing_alias_home = empty_packages / ".freak-missing-alias-package"
+        assert Path(
+            empty_alias_report["checks"]["runtime"]["path"]
+        ).resolve() == (missing_alias_home / "runtime").resolve()
+        assert Path(
+            empty_alias_report["checks"]["stdlib"]["path"]
+        ).resolve() == (missing_alias_home / "std").resolve()
 
         # An alias scope containing more than one matching package is
         # ambiguous. Neither an incomplete stale package nor two complete
