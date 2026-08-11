@@ -164,24 +164,30 @@ task llvm_dbg_begin_func(name: word, line_no: int) -> word {
     give back " !dbg !" + word_from_int(sp_id)
 }
 
+task llvm_string_byte_len(val: word) -> int {
+    pilot source_len = val.length()
+    pilot byte_len = 0
+    pilot i = 0
+    repeat until i >= source_len {
+        if val.char_at(i) == "\\" and i + 3 < source_len {
+            if val.char_at(i + 1) == "x" {
+                i += 4
+            } else {
+                i += 1
+            }
+        } else {
+            i += 1
+        }
+        byte_len += 1
+    }
+    give back byte_len
+}
+
 task register_string_literal(val: word) -> word {
     pilot id = "@.str." + word_from_int(string_literals_count)
     string_literals_count += 1
-    pilot real_val = val.replace("<<PIPE>>", "|")
-    -- Calculate actual byte length (\xNN is 4 source chars but 1 byte)
-    pilot len = real_val.length()
-    pilot adj_i = 0
-    repeat until adj_i >= len {
-        pilot adj_ch = real_val.char_at(adj_i)
-        if adj_ch == "\\" and adj_i + 3 < len {
-            pilot adj_nx = real_val.char_at(adj_i + 1)
-            if adj_nx == "x" {
-                len -= 3
-                adj_i += 4
-            } else { adj_i += 1 }
-        } else { adj_i += 1 }
-    }
-    pilot null_term_len = len + 1
+    pilot real_val = val
+    pilot null_term_len = llvm_string_byte_len(real_val) + 1
     pilot escaped = llvm_escape_str(real_val)
     pilot decl = id + " = private unnamed_addr constant [" + word_from_int(null_term_len) + " x i8] c\"" + escaped + "\\00\", align 1\n"
     string_literals = string_literals + decl
@@ -845,7 +851,7 @@ task llvm_emit_expr(id: word) -> word {
     }
     if kind == EXPR_STR {
         pilot str_id = register_string_literal(val)
-        pilot len = val.replace("<<PIPE>>", "|").length() + 1
+        pilot len = llvm_string_byte_len(val) + 1
         pilot get_ptr = next_reg()
         llvm_emit_line("    " + get_ptr + " = getelementptr inbounds [" + word_from_int(len) + " x i8], [" + word_from_int(len) + " x i8]* " + str_id + ", i64 0, i64 0")
         pilot cast_reg = next_reg()

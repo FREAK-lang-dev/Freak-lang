@@ -1484,6 +1484,78 @@ def main() -> int:
         assert "FAIL" not in math3d_executed.stdout, math3d_executed.stdout
         assert "OK" in math3d_executed.stdout, math3d_executed.stdout
 
+        literal_matrix = tmp_path / "string_literal_fixed_point.fk"
+        literal_matrix.write_text(
+            'say "|"\n'
+            'say "<<PIPE>>"\n'
+            'say "\\x41\\x42"\n'
+            'say "z\\x41q\\x42"\n'
+            'say "\\x41BC"\n',
+            encoding="utf-8",
+        )
+        expected_literals = ["|", "<<PIPE>>", "AB", "zAqB", "ABC"]
+        for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+            literal_build = run(freak, repo, literal_matrix, "build", flag)
+            assert literal_build.returncode == 0, (
+                f"{backend} string literal matrix failed to build\n"
+                + literal_build.stdout
+                + literal_build.stderr
+            )
+            literal_binary = literal_matrix.with_suffix(
+                ".exe" if sys.platform == "win32" else ""
+            )
+            literal_run = subprocess.run(
+                [str(literal_binary)],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=60,
+                check=False,
+            )
+            assert literal_run.returncode == 0, (
+                literal_run.stdout + literal_run.stderr
+            )
+            assert literal_run.stdout.splitlines() == expected_literals, (
+                f"{backend} string literal matrix changed meaning\n"
+                f"expected={expected_literals!r}\n"
+                f"actual={literal_run.stdout.splitlines()!r}\n"
+                f"stderr={literal_run.stderr}"
+            )
+
+        embedded_nul = tmp_path / "embedded_nul_bad.fk"
+        embedded_nul.write_text('say "before\\x00after"\n', encoding="utf-8")
+        embedded_nul_binary = derived_binary(embedded_nul)
+        embedded_nul_cache = run_cache(embedded_nul_binary)
+        for backend, flag, suffix in (
+            ("LLVM", "--llvm", ".ll"),
+            ("C", "--c", ".c"),
+        ):
+            artifact = Path(str(embedded_nul) + suffix)
+            seed_stale_outputs(artifact, embedded_nul_binary, embedded_nul_cache)
+            nul_build = run(freak, repo, embedded_nul, "build", flag)
+            assert_rejected(nul_build, f"{backend} embedded NUL escape")
+            nul_output = nul_build.stdout + nul_build.stderr
+            assert "embedded NUL escape is not supported" in nul_output, nul_output
+            assert "1 syntax error(s)" in nul_output, nul_output
+            assert_outputs_absent(
+                (artifact, embedded_nul_binary, embedded_nul_cache),
+                f"{backend} embedded NUL escape",
+            )
+            if direct_compiler is not None:
+                seed_stale_outputs(artifact)
+                direct_nul = run_direct_compiler(
+                    direct_compiler, repo, str(embedded_nul), flag
+                )
+                direct_output = direct_nul.stdout + direct_nul.stderr
+                assert direct_nul.returncode != 0, direct_output
+                assert "embedded NUL escape is not supported" in direct_output
+                assert "aborting: 1 error(s) found" in direct_output, direct_output
+                assert_outputs_absent(
+                    (artifact,), f"direct {backend} embedded NUL escape"
+                )
+
         missing_input = subprocess.run(
             [str(freak), "check"],
             cwd=repo,

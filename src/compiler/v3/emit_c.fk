@@ -388,7 +388,7 @@ task emit_expr(id: word) -> void {
 
 task emit_c_string(val: word) -> void {
     pilot tmp = "freak_word_lit(\""
-    pilot str_val = val.replace("<<PIPE>>", "|")
+    pilot str_val = val
     pilot si = 0
     pilot sslen = str_val.length()
     repeat until si >= sslen {
@@ -396,8 +396,8 @@ task emit_c_string(val: word) -> void {
         if sc == "\\" and si + 3 < sslen {
             pilot snx = str_val.char_at(si + 1)
             if snx == "x" {
-                -- Pass \xNN hex escapes through to C as-is
-                tmp = tmp + "\\x" + str_val.char_at(si + 2) + str_val.char_at(si + 3)
+                -- Adjacent C string literals terminate C's greedy \x escape.
+                tmp = tmp + "\\x" + str_val.char_at(si + 2) + str_val.char_at(si + 3) + "\"\""
                 si += 4
             } else {
                 tmp = tmp + "\\\\"

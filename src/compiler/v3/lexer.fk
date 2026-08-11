@@ -227,6 +227,15 @@ task lex_string() -> void {
                 if is_hex_digit(hex_hi) and is_hex_digit(hex_lo) {
                     lex_advance()
                     lex_advance()
+                    if hex_hi == "0" and hex_lo == "0" {
+                        diag_error_at(
+                            "embedded NUL escape is not supported",
+                            "V3 words use a NUL-terminated runtime representation",
+                            source_map_file(lex_line),
+                            source_map_local_line(lex_line),
+                            lex_col
+                        )
+                    }
                     res = res + "\\x" + hex_hi + hex_lo
                 } else {
                     diag_error_at(
@@ -239,8 +248,6 @@ task lex_string() -> void {
                     res = res + "\\x"
                 }
             } else { res = res + esc }
-        } else if c == "|" {
-            res = res + "<<PIPE>>"
         } else {
             res = res + c
         }

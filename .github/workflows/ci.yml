@@ -55,6 +55,10 @@ jobs:
             echo "EXT=" >> "$GITHUB_ENV"
           fi
 
+      - name: V3 clean self-host fixed point
+        shell: bash
+        run: python -u tests/v3_fixed_point.py
+
       - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
         shell: bash
         run: |
@@ -97,13 +101,6 @@ jobs:
           clang -c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS -o freakc/runtime/freak_runtime.obj
           clang -c freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS -DFREAK_HAS_UI -o freakc/runtime/freak_llvm_runtime.obj
           clang -c freakc/runtime/ui/win32_backend.c -Ifreakc/runtime/ui $CLANG_FLAGS -o freakc/runtime/freak_ui_win32.obj
-
-      - name: Self-hosting test (V3 compiles itself)
-        shell: bash
-        run: |
-          ./build/freakc_v3_stage2$EXT build/freakc_v3.fk --c
-          clang -o build/freakc_v3_stage3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          echo "V3 self-hosting: OK"
 
       - name: CLI smoke test — version
         shell: bash

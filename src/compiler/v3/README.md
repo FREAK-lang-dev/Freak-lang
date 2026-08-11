@@ -130,6 +130,8 @@ and call it reproducible; fix the compiler, review any deliberate seed refresh,
 and run the clean reconstruction again before creating the final generation
 marker.
 
+The cross-platform automated equivalent is `python -u tests/v3_fixed_point.py`.
+
 ### Manual clean reconstruction
 
 Run this from the repository root with Bash, Clang, and Python available. Git
