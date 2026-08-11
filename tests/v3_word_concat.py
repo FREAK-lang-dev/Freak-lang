@@ -310,9 +310,13 @@ def main() -> int:
             match = AUDIT_RE.search(correctness_executed.stderr)
             assert match, correctness_executed.stderr
             correctness_stats = tuple(int(value) for value in match.groups())
-            assert correctness_stats[1] >= 5, correctness_stats
-            assert correctness_stats[3] >= 3, correctness_stats
-            assert correctness_stats[2] >= correctness_stats[3], correctness_stats
+            expected_correctness_prefix = {
+                "c": (1, 9, 7, 6),
+                "llvm": (5, 5, 8, 3),
+            }[backend]
+            assert correctness_stats[:4] == expected_correctness_prefix, (
+                correctness_stats
+            )
 
             additional_scaling = [("global", GLOBAL_SCALING_PROGRAM)]
             if backend == "llvm":
