@@ -118,6 +118,10 @@ jobs:
         shell: bash
         run: python -u tests/v3_word_concat.py ./build/freak$EXT
 
+      - name: V3 path interpolation
+        shell: bash
+        run: python -u tests/v3_interpolation.py ./build/freak$EXT
+
       - name: V3 frozen UI surface
         shell: bash
         run: python -u tests/v3_ui_surface.py ./build/freak$EXT
