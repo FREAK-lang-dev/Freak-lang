@@ -646,6 +646,44 @@ def main() -> int:
                     assert not outside_target.exists(), outside_target
                     dangling_artifact.unlink()
 
+            protected_root = tmp_path / "protected-dangling-artifacts"
+            protected_root.mkdir()
+            protected_source = protected_root / "protected.fk"
+            protected_source.write_text('say "never redirected"\n', encoding="utf-8")
+            for backend, flag, suffix in (
+                ("LLVM", "--llvm", ".ll"),
+                ("C", "--c", ".c"),
+            ):
+                protected_artifact = Path(str(protected_source) + suffix)
+                outside_target = dangling_root / f"protected-{backend.lower()}{suffix}"
+                protected_artifact.symlink_to(outside_target)
+                protected_root.chmod(0o500)
+                try:
+                    protected_result = run(
+                        freak, repo, protected_source, "transpile", flag, timeout=10
+                    )
+                    protected_output = protected_result.stdout + protected_result.stderr
+                    assert protected_result.returncode != 0, protected_output
+                    assert "untrusted stale artifact" in protected_output.lower()
+                    assert protected_artifact.is_symlink(), protected_artifact
+                    assert not outside_target.exists(), outside_target
+
+                    if direct_compiler is not None:
+                        direct_protected = run_direct_compiler(
+                            direct_compiler,
+                            repo,
+                            str(protected_source),
+                            flag,
+                        )
+                        direct_output = direct_protected.stdout + direct_protected.stderr
+                        assert direct_protected.returncode != 0, direct_output
+                        assert "untrusted stale artifact" in direct_output.lower()
+                        assert protected_artifact.is_symlink(), protected_artifact
+                        assert not outside_target.exists(), outside_target
+                finally:
+                    protected_root.chmod(0o700)
+                    protected_artifact.unlink(missing_ok=True)
+
         blocked_binary = derived_binary(blocked_cleanup)
         blocked_binary.mkdir()
         blocked_binary_result = run(

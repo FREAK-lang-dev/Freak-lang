@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <errno.h>
 #include "freak_runtime.h"
 extern int64_t freak_llvm_word_adopt(int64_t pointer);
 extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
@@ -112,6 +113,15 @@ int64_t freak_remove(int64_t path) {
 #else
     return (int64_t)unlink((const char*)path);
 #endif
+}
+
+int64_t freak_llvm_fs_delete_checked(int64_t path) {
+#ifdef _WIN32
+    int result = _unlink((const char*)path);
+#else
+    int result = unlink((const char*)path);
+#endif
+    return result == 0 || errno == ENOENT;
 }
 
 /* ── Process ────────────────────────────────────────── */

@@ -2094,6 +2094,21 @@ def check_doctor(
         # and a controlled local PowerShell installer so no network is used.
         system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
         assert system_root, "Windows regression requires SystemRoot or WINDIR"
+        systemroot_doctor_env = env.copy()
+        systemroot_doctor_env.pop("WINDIR", None)
+        systemroot_doctor_env["SystemRoot"] = system_root
+        systemroot_doctor = run_cli(
+            compiler, shadow_cwd, systemroot_doctor_env, "doctor", "--json"
+        )
+        assert systemroot_doctor.returncode == 0, (
+            systemroot_doctor.stdout + systemroot_doctor.stderr
+        )
+        systemroot_report = json.loads(systemroot_doctor.stdout)
+        assert systemroot_report["status"] == "ok"
+        assert systemroot_report["platform"] == {"os": "windows", "windows": True}
+        assert systemroot_report["checks"]["clang"]["ok"] is True
+        assert systemroot_report["checks"]["clang"]["cleanup_retained"] == ""
+
         systemroot_appdata = root / "doctor-systemroot-only-appdata"
         systemroot_marker = root / "doctor-systemroot-only-upgrade.txt"
         systemroot_script = root / "doctor-systemroot-only-upgrade.ps1"

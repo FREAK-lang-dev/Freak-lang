@@ -733,7 +733,7 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "format_num" or name == "ask" or name == "array_get" or name == "process::env" or name == "process::input" { give back "word" }
     if name == "fs::read" or name == "fs::list_dir" or name == "process::arg" or name == "process::exec_capture" { give back "word" }
     if name == "tcp::recv" or name == "tcp_recv" or name == "tcp::recv_all" or name == "tcp_recv_all" { give back "word" }
-    if name == "fs::exists" { give back "bool" }
+    if name == "fs::exists" or name == "fs::delete_file_checked" { give back "bool" }
     if name == "array_new" or name == "array_len" or name == "process::args_count" or name == "process::exec" { give back "int" }
     if name == "word_to_int" or name == "time::now_ms" or name == "tcp::connect" or name == "tcp_connect" or name == "tcp::send" or name == "tcp_send" { give back "int" }
     if name == "ui::create_window" or name == "ui::poll_events" or name == "ui::draw_text" or name == "ui::measure_text" { give back "int" }
@@ -775,7 +775,7 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "process::args_count" or name == "process::input" { give back "" }
     if name == "time::now_ms" { give back "" }
     if name == "panic" { give back "word" }
-    if name == "fs::read" or name == "fs::exists" or name == "fs::delete" or name == "fs::list_dir" or name == "fs::make_dir" { give back "word" }
+    if name == "fs::read" or name == "fs::exists" or name == "fs::delete" or name == "fs::delete_file_checked" or name == "fs::list_dir" or name == "fs::make_dir" { give back "word" }
     if name == "fs::write" or name == "fs::append" { give back "word,word" }
     if name == "math::pow" { give back "num,num" }
     if name == "math::sqrt" or name == "math::sin" or name == "math::cos" or name == "math::tan" or name == "math::floor" or name == "math::ceil" { give back "num" }
