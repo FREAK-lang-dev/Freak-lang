@@ -122,6 +122,7 @@ bool fs_exists(freak_word path);
 void fs_delete(freak_word path);
 
 bool freak_fs_exists(freak_word path);
+int64_t freak_path_exists(int64_t path);
 void freak_fs_delete(freak_word path);
 void freak_fs_make_dir(freak_word path);
 freak_word freak_fs_list_dir(freak_word path);

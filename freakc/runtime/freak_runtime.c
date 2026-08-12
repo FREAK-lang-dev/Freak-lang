@@ -671,6 +671,14 @@ bool freak_fs_exists(freak_word path) {
 #endif
 }
 
+/* Universal-ABI bridge used by the pure-FREAK LLVM runtime task. Unlike an
+   fopen probe, access/_access also recognizes directories, which is required
+   by fail-closed stale-artifact checks. */
+int64_t freak_path_exists(int64_t path) {
+    const char* value = (const char*)(intptr_t)path;
+    return freak_fs_exists(freak_word_lit(value)) ? 1 : 0;
+}
+
 void freak_fs_delete(freak_word path) {
     const char* p = freak_word_to_cstr(path);
     remove(p); /* ignore errors for now */
