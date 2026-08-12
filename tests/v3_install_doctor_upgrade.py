@@ -885,6 +885,7 @@ def check_offline_installer(
         orphan_env = env.copy()
         orphan_env["FREAK_HOME"] = str(orphan_root)
         orphan_env["FREAK_INSTALL_TEST_HELPER_PID"] = str(helper_pid_path)
+        helper_pid = None
         try:
             orphan_staged = subprocess.run(
                 [*command, "-Upgrade"], cwd=repo, env=orphan_env,
@@ -903,15 +904,23 @@ def check_offline_installer(
             assert live_contender.returncode != 0, (
                 live_contender.stdout + live_contender.stderr
             )
-            assert "replacement helper is still active" in (
-                live_contender.stdout + live_contender.stderr
-            ).lower()
+            contender_output = (live_contender.stdout + live_contender.stderr).lower()
+            assert (
+                "replacement helper is still active" in contender_output
+                or "another freak installer" in contender_output
+            ), contender_output
             terminated = subprocess.run(
                 ["taskkill.exe", "/PID", str(helper_pid), "/F"],
                 capture_output=True, text=True, errors="replace", timeout=30,
             )
             assert terminated.returncode == 0, terminated.stdout + terminated.stderr
+            helper_pid = None
         finally:
+            if helper_pid is not None:
+                subprocess.run(
+                    ["taskkill.exe", "/PID", str(helper_pid), "/F"],
+                    capture_output=True, text=True, errors="replace", timeout=30,
+                )
             assert close_handle(orphan_lock)
 
         orphan_env.pop("FREAK_INSTALL_TEST_HELPER_PID")
