@@ -358,12 +358,12 @@ task cli_install_clang(os_tag: word) -> int {
             if wg_res == 0 { give back 0 }
         }
         if process::exec("where scoop >nul 2>nul") == 0 {
-            pilot scoop_res = process::exec("scoop install llvm-mingw")
+            pilot scoop_res = process::exec("scoop install mingw-mstorsjo-llvm-ucrt")
             if scoop_res == 0 { give back 0 }
         }
         say "  " + C_BYELLOW + "  Auto-install failed. Install manually:" + C_RESET
         say "    " + C_CYAN + "winget install --id MartinStorsjo.LLVM-MinGW.UCRT -e" + C_RESET
-        say "    " + C_CYAN + "scoop install llvm-mingw" + C_RESET
+        say "    " + C_CYAN + "scoop install mingw-mstorsjo-llvm-ucrt" + C_RESET
         say "    https://github.com/mstorsjo/llvm-mingw/releases"
         give back 1
     } else if os_tag == "linux" {

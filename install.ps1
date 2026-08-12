@@ -258,7 +258,7 @@ function Install-CompilerDependencies {
         $installed = $LASTEXITCODE -eq 0
     }
     if (-not $installed -and (Get-Command scoop.cmd -ErrorAction SilentlyContinue)) {
-        & scoop.cmd install llvm-mingw
+        & scoop.cmd install mingw-mstorsjo-llvm-ucrt
         $installed = $LASTEXITCODE -eq 0
     }
     if (-not $installed) {

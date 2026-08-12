@@ -23,7 +23,7 @@ Description: |-
   - Hangar package manager (hangar.toml)
   - Standard library: std::fs, std::math, std::json, std::http, std::process, std::ui, and more
   - Tasks, shapes, impl methods, path interpolation, and literal-value when matching
-  - Unique language constructs: training arc, foreshadow/payoff, deus_ex_machina, isekai
+  - Anime-inspired pilot, task, give back, and when vocabulary
 Moniker: freak
 Tags:
   - compiler

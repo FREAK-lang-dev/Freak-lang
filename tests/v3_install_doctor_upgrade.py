@@ -144,7 +144,7 @@ def check_static_contracts(repo: Path) -> None:
     )
     for needle in (
         "MartinStorsjo.LLVM-MinGW.UCRT",
-        "scoop.cmd install llvm-mingw",
+        "scoop.cmd install mingw-mstorsjo-llvm-ucrt",
         "Test-ClangToolchain",
         "& $binary",
         "FREAK_INSTALL_ARCHIVE",
@@ -245,7 +245,7 @@ def check_static_contracts(repo: Path) -> None:
     for needle in (
         "modules_expected\\\": 11",
         "ui/window.fk",
-        "scoop install llvm-mingw",
+        "scoop install mingw-mstorsjo-llvm-ucrt",
         "FREAK_DOCTOR_INSTALL_COMMAND",
         'process::env("TMPDIR")',
         'pilot probe_nonce: word = ""',
@@ -275,6 +275,7 @@ def check_static_contracts(repo: Path) -> None:
         "task cli_windows_cwd_is_shell_fallback(cwd: word) -> bool",
         "PAYLOAD RESOLUTION FAILED",
         "if not fs::exists(absolute) { give back \"\" }",
+        "/scoop/apps/mingw-mstorsjo-llvm-ucrt/current/bin/clang.exe",
     ):
         assert needle in build_text, f"executable discovery missing {needle}"
     assert build_text.count(
