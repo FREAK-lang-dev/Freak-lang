@@ -612,6 +612,16 @@ while ([DateTime]::UtcNow -lt `$deadline) {
             exit 1
         }
 
+        # Test-only barrier for the terminal ownership window. The shared
+        # installer lock must remain authoritative after helper markers are
+        # gone and until the durable pending marker is removed.
+        if (`$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_READY) {
+            Set-Content -LiteralPath `$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_READY -Value 'ready' -Encoding UTF8
+        }
+        if (`$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_DELAY_MS -match '^[0-9]+$') {
+            Start-Sleep -Milliseconds ([int]`$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_DELAY_MS)
+        }
+
         # Pending is the externally visible completion signal. Remove it only
         # after all transaction state, retired binaries, and helper markers are gone.
         `$pendingClean = `$false

@@ -544,10 +544,15 @@ def assert_exact_archive_upgrade(
 
     if sys.platform == "win32":
         retry_observed = root / "windows-upgrade-retry-observed.txt"
+        pending_cleanup_ready = root / "windows-upgrade-pending-cleanup-ready.txt"
         upgrade_env["FREAK_INSTALL_TEST_HELPER_START_DELAY_MS"] = "1500"
         upgrade_env["FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES"] = "205"
         upgrade_env["FREAK_INSTALL_TEST_TERMINAL_CLEANUP_FAILURES"] = "205"
         upgrade_env["FREAK_INSTALL_TEST_RETRY_OBSERVED"] = str(retry_observed)
+        upgrade_env["FREAK_INSTALL_TEST_PENDING_CLEANUP_READY"] = str(
+            pending_cleanup_ready
+        )
+        upgrade_env["FREAK_INSTALL_TEST_PENDING_CLEANUP_DELAY_MS"] = "5000"
     succeeded = run([str(freak), "upgrade"], root, upgrade_env, timeout=300)
     require_ok(succeeded, "successful exact-archive upgrade")
     assert "Upgrade payload staged successfully" in succeeded.stdout
@@ -555,14 +560,23 @@ def assert_exact_archive_upgrade(
     bin_dir = install_home / "bin"
     pending = bin_dir / ".freak-upgrade-pending"
     if sys.platform == "win32":
-        assert pending.exists(), "forced cleanup retries did not retain pending"
+        ready_deadline = time.monotonic() + 120
+        while not pending_cleanup_ready.exists() and time.monotonic() < ready_deadline:
+            time.sleep(0.1)
+        assert pending_cleanup_ready.exists(), (
+            "deferred helper never reached the terminal shared-lock window"
+        )
+        assert pending.exists(), "terminal shared-lock window did not retain pending"
+        assert not (bin_dir / ".freak-upgrade-helper.lock").exists(), (
+            "terminal shared-lock barrier fired before helper-lock cleanup"
+        )
+        assert not (bin_dir / ".freak-upgrade-helper.ready").exists(), (
+            "terminal shared-lock barrier fired before helper-ready cleanup"
+        )
         contender = run([str(freak), "upgrade"], root, upgrade_env, timeout=60)
         contender_output = show_output(contender).lower()
         assert contender.returncode != 0, contender_output
-        assert (
-            "another freak installer" in contender_output
-            or "replacement helper is still active" in contender_output
-        ), contender_output
+        assert "another freak installer" in contender_output, contender_output
     if pending.exists():
         guarded = run([str(freak), "doctor", "--json"], root, upgrade_env)
         guarded_report = json.loads(guarded.stdout)
