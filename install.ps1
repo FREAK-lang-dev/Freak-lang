@@ -453,6 +453,10 @@ Set-Content -LiteralPath `$helperReadyPath -Value "`$PID|`$helperStart" -Encodin
 if (`$env:FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES -match '^[0-9]+$') {
     `$retiredCleanupFailuresRemaining = [int]`$env:FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES
 }
+`$terminalCleanupFailuresRemaining = 0
+if (`$env:FREAK_INSTALL_TEST_TERMINAL_CLEANUP_FAILURES -match '^[0-9]+$') {
+    `$terminalCleanupFailuresRemaining = [int]`$env:FREAK_INSTALL_TEST_TERMINAL_CLEANUP_FAILURES
+}
 
 function Restore-BinaryBackup {
     if (-not (Test-Path -LiteralPath `$backupRoot -PathType Container)) { return `$true }
@@ -545,18 +549,67 @@ while ([DateTime]::UtcNow -lt `$deadline) {
         if (-not `$retiredClean) {
             throw "retired binary cleanup did not complete"
         }
-        foreach (`$name in `$names) {
-            Remove-Item -LiteralPath (Join-Path `$bin (`$name + '.next')) -Force -ErrorAction SilentlyContinue
+        `$terminalClean = `$false
+        for (`$attempt = 0; `$attempt -lt 200; `$attempt++) {
+            if (`$terminalCleanupFailuresRemaining -gt 0) {
+                `$terminalCleanupFailuresRemaining--
+            } else {
+                foreach (`$name in `$names) {
+                    Remove-Item -LiteralPath (Join-Path `$bin (`$name + '.next')) -Force -ErrorAction SilentlyContinue
+                }
+                Remove-Item -LiteralPath `$failed -Force -ErrorAction SilentlyContinue
+            }
+            `$nextRemain = @(`$names | Where-Object {
+                Test-Path -LiteralPath (Join-Path `$bin (`$_ + '.next'))
+            })
+            if (`$nextRemain.Count -eq 0 -and -not (Test-Path -LiteralPath `$failed)) {
+                `$terminalClean = `$true
+                break
+            }
+            Start-Sleep -Milliseconds 50
         }
-        # Pending is the externally visible completion signal. Remove it only
-        # after all transaction state and retired binaries are gone.
-        Remove-Item -LiteralPath `$failed -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath `$pending -Force -ErrorAction SilentlyContinue
+        if (-not `$terminalClean) {
+            throw "terminal transaction cleanup did not complete"
+        }
+
         `$helperLock.Dispose()
-        Remove-Item -LiteralPath `$helperReadyPath, `$helperLockPath -Force -ErrorAction SilentlyContinue
+        `$helperLock = `$null
+        `$helperMarkersClean = `$false
+        for (`$attempt = 0; `$attempt -lt 200; `$attempt++) {
+            Remove-Item -LiteralPath `$helperReadyPath, `$helperLockPath -Force -ErrorAction SilentlyContinue
+            if (-not (Test-Path -LiteralPath `$helperReadyPath) -and
+                -not (Test-Path -LiteralPath `$helperLockPath)) {
+                `$helperMarkersClean = `$true
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not `$helperMarkersClean) {
+            Set-Content -LiteralPath `$failed -Value 'helper marker cleanup did not complete' -Encoding UTF8
+            exit 1
+        }
+
+        # Pending is the externally visible completion signal. Remove it only
+        # after all transaction state, retired binaries, and helper markers are gone.
+        `$pendingClean = `$false
+        for (`$attempt = 0; `$attempt -lt 200; `$attempt++) {
+            Remove-Item -LiteralPath `$pending -Force -ErrorAction SilentlyContinue
+            if (-not (Test-Path -LiteralPath `$pending)) {
+                `$pendingClean = `$true
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not `$pendingClean) {
+            Set-Content -LiteralPath `$failed -Value 'pending marker cleanup did not complete' -Encoding UTF8
+            exit 1
+        }
         exit 0
     } catch {
         `$detail = `$_.Exception.Message
+        if (`$env:FREAK_INSTALL_TEST_RETRY_OBSERVED) {
+            Add-Content -LiteralPath `$env:FREAK_INSTALL_TEST_RETRY_OBSERVED -Value `$detail -Encoding UTF8
+        }
         Restore-BinaryBackup | Out-Null
         Set-Content -LiteralPath `$failed -Value `$detail -Encoding UTF8
         Start-Sleep -Seconds 1

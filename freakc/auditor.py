@@ -2158,6 +2158,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 "assert_exact_archive_upgrade",
                 "FREAK_FINAL_GATE_STALE_HANGAR",
                 "FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES",
+                "FREAK_INSTALL_TEST_TERMINAL_CLEANUP_FAILURES",
+                "FREAK_INSTALL_TEST_RETRY_OBSERVED",
                 "v3_legacy_golden.py",
                 "--internal-child",
                 "v3_codegen_error_gate.py",

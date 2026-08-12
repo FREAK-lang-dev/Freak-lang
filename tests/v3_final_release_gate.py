@@ -543,8 +543,11 @@ def assert_exact_archive_upgrade(
     ], "successful-upgrade binary replacement precondition was not established"
 
     if sys.platform == "win32":
+        retry_observed = root / "windows-upgrade-retry-observed.txt"
         upgrade_env["FREAK_INSTALL_TEST_HELPER_START_DELAY_MS"] = "1500"
         upgrade_env["FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES"] = "205"
+        upgrade_env["FREAK_INSTALL_TEST_TERMINAL_CLEANUP_FAILURES"] = "205"
+        upgrade_env["FREAK_INSTALL_TEST_RETRY_OBSERVED"] = str(retry_observed)
     succeeded = run([str(freak), "upgrade"], root, upgrade_env, timeout=300)
     require_ok(succeeded, "successful exact-archive upgrade")
     assert "Upgrade payload staged successfully" in succeeded.stdout
@@ -572,6 +575,10 @@ def assert_exact_archive_upgrade(
     while any(path.exists() for path in durable_state) and time.monotonic() < deadline:
         time.sleep(0.25)
     assert not [path for path in durable_state if path.exists()], durable_state
+    if sys.platform == "win32":
+        observed = retry_observed.read_text(encoding="utf-8-sig")
+        assert "retired binary cleanup did not complete" in observed, observed
+        assert "terminal transaction cleanup did not complete" in observed, observed
     assert not rollback_sentinel.exists(), "successful upgrade retained stale std payload"
     assert_installed_payload(
         archive_files_by_name=archive_payload,
