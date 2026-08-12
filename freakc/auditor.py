@@ -1929,6 +1929,13 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / ".github" / "workflows" / "ci.yml",
             ("tests/v3_interpolation.py", "tests/v3_legacy_golden.py"),
         ),
+        "public backend status": (
+            repo / "README.md",
+            (
+                "C backend (`--c`) | ⚠️ Portability target",
+                "V3 shape storage is LLVM-only",
+            ),
+        ),
     }
     for label, (source_path, needles) in interpolation_sources.items():
         if not source_path.exists():

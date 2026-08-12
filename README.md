@@ -439,7 +439,7 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 |---|---|
 | Self-hosting compiler | ✅ Complete |
 | LLVM IR backend (default) | ✅ Complete |
-| C backend (`--c`) | ✅ Complete |
+| C backend (`--c`) | ⚠️ Portability target — scalar/control/word paths are executable; V3 shape storage is LLVM-only |
 | Native CLI (`freak build`/`run`/`check`/`transpile`/`test`) | ✅ Complete |
 | Hangar package manager | ✅ Complete |
 | Cross-compilation (`--target=`) | ✅ Complete |
