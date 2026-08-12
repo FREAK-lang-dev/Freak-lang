@@ -115,7 +115,11 @@ def main() -> int:
         for generation in range(1, 4):
             emitted = Path(str(aggregate) + ".c")
             emitted.unlink(missing_ok=True)
-            run([str(previous), str(aggregate), "--c"], root, env)
+            run(
+                [str(previous), str(aggregate), "--c", "--compiler-internal"],
+                root,
+                env,
+            )
             assert emitted.is_file(), f"generation {generation} emitted no C"
             assert emitted.stat().st_size > 0, (
                 f"generation {generation} emitted an empty C artifact"

@@ -143,6 +143,13 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     llvm_runtime_c = (repo / "freakc/runtime/freak_llvm_runtime.c").read_text(
         encoding="utf-8"
     )
+    compiler_main = (repo / "src/compiler/v3/main.fk").read_text(encoding="utf-8")
+    build_script = (repo / "build_cli.bat").read_text(encoding="utf-8")
+    ci_workflow = (repo / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    release_workflow = (repo / ".github/workflows/release.yml").read_text(
+        encoding="utf-8"
+    )
+    fixed_point = (repo / "tests/v3_fixed_point.py").read_text(encoding="utf-8")
     c_mapped = set(
         re.findall(r'val == "([^"]+)"', task_body(c_source, "c_map_call"))
     )
@@ -170,6 +177,12 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     assert "bool freak_internal_delete_file_checked(freak_word path);" in runtime_header
     assert "bool freak_internal_delete_file_checked(freak_word path)" in runtime_c
     assert "int64_t freak_llvm_fs_delete_checked(int64_t path)" in llvm_runtime_c
+    assert 'flag == "--compiler-internal"' in compiler_main
+    assert "src.contains(" not in task_body(compiler_main, "freakc_v3_main")
+    assert build_script.count("--compiler-internal") == 3
+    assert ci_workflow.count("--compiler-internal") == 2
+    assert release_workflow.count("--compiler-internal") == 2
+    assert '"--compiler-internal"' in fixed_point
     signature_classified = set(
         re.findall(
             r'name == "([^"]+)"',
@@ -1011,6 +1024,49 @@ def main() -> int:
                 + collision_run.stderr
             )
             assert collision_sentinel.read_text(encoding="utf-8") == "preserve me\n"
+
+        forged_aggregate = tmp_path / "freakc_cli.fk"
+        forged_aggregate.write_text(
+            "-- pilot FREAKC_VERSION\n"
+            "-- task emit_llvm_program()\n"
+            "-- task freakc_cli_main()\n"
+            "extern task freak_internal_delete_file_checked(path: word) -> bool\n"
+            'task main() { freak_internal_delete_file_checked("must-not-map") }\n',
+            encoding="utf-8",
+        )
+        forged_check = run(freak, repo, forged_aggregate, "check")
+        assert_check_rejected(forged_check, "forged compiler aggregate check")
+        assert "conflicts with a compiler builtin" in (
+            forged_check.stdout + forged_check.stderr
+        ).lower()
+        for backend, flag, suffix in (
+            ("LLVM", "--llvm", ".ll"),
+            ("C", "--c", ".c"),
+        ):
+            forged_artifact = Path(str(forged_aggregate) + suffix)
+            forged_artifact.write_text(SENTINEL, encoding="utf-8")
+            forged_emit = run(
+                freak, repo, forged_aggregate, "transpile", flag, timeout=10
+            )
+            assert_rejected(forged_emit, f"{backend} forged compiler aggregate")
+            assert "conflicts with a compiler builtin" in (
+                forged_emit.stdout + forged_emit.stderr
+            ).lower()
+            assert_outputs_absent(
+                (forged_artifact,), f"{backend} forged compiler aggregate"
+            )
+            if direct_compiler is not None:
+                forged_artifact.write_text(SENTINEL, encoding="utf-8")
+                forged_direct = run_direct_compiler(
+                    direct_compiler, repo, str(forged_aggregate), flag
+                )
+                forged_output = forged_direct.stdout + forged_direct.stderr
+                assert forged_direct.returncode != 0, forged_output
+                assert "conflicts with a compiler builtin" in forged_output.lower()
+                assert_outputs_absent(
+                    (forged_artifact,),
+                    f"direct {backend} forged compiler aggregate",
+                )
 
         # Shipping std/ui uses associated impl tasks (no `self`) for these
         # constructors. Keep an isolated copy of that exact dispatch shape so

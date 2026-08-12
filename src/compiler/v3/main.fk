@@ -39,12 +39,14 @@ task freakc_v3_main() -> void {
     input_file = process::arg(1)
 
     -- Parse flags
+    pilot compiler_internal_build = false
     pilot fi = 2
     repeat until fi >= args_cnt {
         pilot flag = process::arg(fi)
         if flag == "--c" { emit_target = "c" }
         if flag == "--llvm" { emit_target = "llvm" }
         if flag == "--strict-borrow" { strict_borrow = true }
+        if flag == "--compiler-internal" { compiler_internal_build = true }
         if flag.starts_with("--opt=") { opt_level = flag.char_at(6) }
         if flag.starts_with("--target=") {
             pilot ti = 9
@@ -92,14 +94,10 @@ task freakc_v3_main() -> void {
     diagnostic_source = src
     source_map_reset()
     source_map_register(input_file, src)
-    -- The checked-delete extern belongs only to compiler aggregates assembled
-    -- from the canonical V3 sources. Bind trust to both the known aggregate
-    -- leaf name and multiple compiler-owned markers; ordinary project files,
-    -- including a project-authored extern with the same name, stay untrusted.
-    pilot aggregate_name_ok = input_file.ends_with("freakc_v3.fk") or input_file.ends_with("freakc_v3_stage1.fk") or input_file.ends_with("freakc_v3_stage2.fk") or input_file.ends_with("freakc_cli.fk")
-    pilot aggregate_entry_ok = src.contains("task freakc_v3_main()") or src.contains("task freakc_cli_main()")
-    pilot aggregate_markers_ok = src.contains("pilot FREAKC_VERSION") and src.contains("task emit_llvm_program()") and aggregate_entry_ok
-    if aggregate_name_ok and aggregate_markers_ok {
+    -- Only bootstrap/reconstruction commands opt into the compiler aggregate's
+    -- checked-delete extern. Source text and filenames cannot assert this
+    -- provenance, and ordinary CLI/direct project compilation never sets it.
+    if compiler_internal_build {
         trusted_compiler_internal_source_file = input_file
     }
 

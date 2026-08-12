@@ -64,7 +64,7 @@ jobs:
         run: |
           cat src/compiler/v3/globals.fk src/compiler/v3/helpers.fk src/compiler/v3/lexer.fk src/compiler/v3/parser.fk src/compiler/v3/checker.fk src/compiler/v3/emit_c.fk src/compiler/v3/emit_llvm.fk src/compiler/v3/main.fk > build/freakc_v3.fk
           clang -o build/freakc_v3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          ./build/freakc_v3$EXT build/freakc_v3.fk --c
+          ./build/freakc_v3$EXT build/freakc_v3.fk --c --compiler-internal
           clang -o build/freakc_v3_stage2$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
 
       - name: Build full CLI (Stage 2 — current V3 compiler + CLI + Hangar)
@@ -89,7 +89,7 @@ jobs:
           cat src/cli/doctor.fk >> build/freakc_cli.fk
           cat src/cli/audit.fk >> build/freakc_cli.fk
           cat src/cli/main.fk >> build/freakc_cli.fk
-          ./build/freakc_v3_stage2$EXT build/freakc_cli.fk --c
+          ./build/freakc_v3_stage2$EXT build/freakc_cli.fk --c --compiler-internal
           clang -o build/freak$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           # Create hangar binary (BusyBox pattern)
           cp build/freak$EXT build/hangar$EXT
