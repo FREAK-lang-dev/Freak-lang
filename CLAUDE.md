@@ -61,7 +61,7 @@ Single short-lived agents on a single branch can run in the normal checkout — 
 Key facts:
 - Files use the `.fk` extension
 - The authoritative spec is `freak-full-bible.md` — if code disagrees with the bible, **the bible wins**
-- Version name: **Alternative-4 Edition** — current release **v0.14.0 "Maverick"**
+- Version name: **Alternative-4 Edition** — current release **v0.14.1 "Maverick"**
 - The self-hosting compiler (`freakc_self.exe`) is a major credibility milestone and should be prominently featured in public materials
 
 ---
