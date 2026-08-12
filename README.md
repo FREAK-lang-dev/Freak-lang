@@ -103,6 +103,11 @@ freak foreshadow-audit    # Find any narrative promises you haven't kept
 
 `freak audit-conformance` is the gate for v0.13.x: it cross-checks lexer keywords, audit dispatch, stdlib presence, the `--strict-borrow` flag, and the `deus_ex_machina` 20-word rule. It exits zero only when the v0.13.x scope is intact.
 
+These audit subcommands are source-checkout development tools: the native CLI
+dispatches them to `python -m freakc`, so they require the Python bootstrap
+package and repository audit inputs. They are not embedded in standalone
+release archives.
+
 ---
 
 ### Memory Safety (Phase 1)
@@ -383,7 +388,8 @@ Not actually a module. The official FREAK-developer snack. Serves one compiler. 
 
 ## Testing
 
-The native CLI ships a regression harness that runs every `tests/suite/*.fk` file and compares output against `-- EXPECT:` / `-- EXPECT_COMPILE_ERROR:` / `-- SKIP:` directives in each file:
+In a source checkout, the native CLI exposes a development shim that runs the
+Python bootstrap regression harness over `tests/suite/test_*.fk`:
 
 ```bash
 freak test
@@ -402,7 +408,7 @@ Found 14 test(s).
 ==================================================
 ```
 
-> The bible describes a richer in-language test framework — `test "name" { expect X to be Y }` blocks, `@nakige` test annotations, vibes ratings on output. That ships with V4. Today, write one `.fk` per test under `tests/suite/` with an `EXPECT` directive and `freak test` will pick it up.
+> The bible describes a richer in-language test framework — `test "name" { expect X to be Y }` blocks, `@nakige` test annotations, vibes ratings on output. That ships with V4. Today, add a `test_*.fk` case under `tests/suite/` and run `freak test` from the repository checkout. The shim and Python bootstrap compiler are not included in standalone release archives; use `tests/v3_legacy_golden.py` for the preserved self-hosted V3 corpus.
 
 ---
 
@@ -440,14 +446,14 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 | Self-hosting compiler | ✅ Complete |
 | LLVM IR backend (default) | ✅ Complete |
 | C backend (`--c`) | ⚠️ Portability target — scalar/control/word paths are executable; V3 shape storage is LLVM-only |
-| Native CLI (`freak build`/`run`/`check`/`transpile`/`test`) | ✅ Complete |
+| Native CLI (`freak build`/`run`/`check`/`transpile`) | ✅ Complete; `freak test` is a source-checkout Python shim |
 | Hangar package manager | ✅ Complete |
 | Cross-compilation (`--target=`) | ✅ Complete |
 | Optimization levels (`--opt=0..3`) | ✅ Complete |
 | One-command install (Linux/macOS/Windows) | ✅ Complete |
 | CI/CD with 4-platform releases | ✅ Complete |
 | Phase-1 borrow checker (`--strict-borrow`) | ✅ Complete |
-| Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | ✅ Complete |
+| Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | 🧰 Source-checkout Python tools; not embedded in release archives |
 | `std::fs`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
 | `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` waits for a real list ABI |
 | COCKPIT UI framework | 📐 Source preview; supported implementation moves to Maverick |

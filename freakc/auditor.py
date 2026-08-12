@@ -1945,6 +1945,21 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in needles:
             if needle not in source_text:
                 interpolation_missing.append(f"{label}: {needle}")
+    public_readme = repo / "README.md"
+    public_readme_text = (
+        public_readme.read_text(encoding="utf-8") if public_readme.exists() else ""
+    )
+    c_backend_status_rows = [
+        line
+        for line in public_readme_text.splitlines()
+        if line.startswith("| C backend (`--c`) |")
+    ]
+    if len(c_backend_status_rows) != 1:
+        interpolation_missing.append(
+            f"public backend status: expected one C backend row, found {len(c_backend_status_rows)}"
+        )
+    if "| C backend (`--c`) | ✅ Complete |" in public_readme_text:
+        interpolation_missing.append("public backend status: obsolete Complete claim")
     add(
         "V3 path interpolation",
         not interpolation_missing,
@@ -1966,9 +1981,14 @@ def audit_conformance(paths: List[Path]) -> int:
         'print(_bold("FREAK Lite / Python Bootstrap Regression Test Suite"))',
         "python -m freakc",
         "tests/v3_legacy_golden.py",
+        "`freak test` is a source-checkout Python shim",
+        "not embedded in release archives",
     )
+    lite_suite_sources = (lite_suite_text, public_readme_text)
     lite_suite_missing = [
-        needle for needle in lite_suite_needles if needle not in lite_suite_text
+        needle
+        for needle in lite_suite_needles
+        if not any(needle in source for source in lite_suite_sources)
     ]
     old_runtime_label = 'print(_bold("FREAK Compiler Regression Test Suite"))'
     if old_runtime_label in lite_suite_text:
