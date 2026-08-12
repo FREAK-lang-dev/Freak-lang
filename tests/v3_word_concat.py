@@ -143,8 +143,12 @@ def stable_checksum(data: bytes) -> int:
 def sanitizer_env(*, detect_leaks: bool = True) -> dict[str, str]:
     env = os.environ.copy()
     env.pop("ASAN_OPTIONS", None)
-    if sys.platform.startswith("linux") and detect_leaks:
-        env["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1:exitcode=86"
+    env.pop("LSAN_OPTIONS", None)
+    if sys.platform.startswith("linux"):
+        if detect_leaks:
+            env["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1:exitcode=86"
+        else:
+            env["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=0"
     return env
 
 
