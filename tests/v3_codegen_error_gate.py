@@ -1319,7 +1319,10 @@ def main() -> int:
             "    pilot mut letter: word = char_to_word(65)\n"
             "    say letter\n"
             "    letter = \"released\"\n"
+            f"    say fs::exists(\"{builtin_marker.as_posix()}\").to_word()\n"
+            f"    say fs::exists(\"{(tmp_path / 'builtin-wrapper-missing').as_posix()}\").to_word()\n"
             f"    fs::make_dir(\"{builtin_directory.as_posix()}\")\n"
+            f"    say fs::exists(\"{builtin_directory.as_posix()}\").to_word()\n"
             "}\n",
             encoding="utf-8",
         )
@@ -1348,7 +1351,7 @@ def main() -> int:
             )
             assert wrapper_run.returncode == 0, wrapper_run.stdout + wrapper_run.stderr
             wrapper_lines = wrapper_run.stdout.strip().splitlines()
-            assert wrapper_lines == ["ok", "true", "A"], (
+            assert wrapper_lines == ["ok", "true", "A", "true", "false", "true"], (
                 f"{backend} builtin wrapper output mismatch: {wrapper_lines!r}\n"
                 f"stderr: {wrapper_run.stderr}"
             )
