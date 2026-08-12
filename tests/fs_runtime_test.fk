@@ -8,7 +8,7 @@ say "Wrote file."
 
 -- Check it exists
 pilot exists = fs::exists("tests/test_output.txt")
-if exists == 1 {
+if exists {
     say "File exists: YES"
 } else {
     say "File exists: NO"
@@ -28,7 +28,7 @@ say content2
 -- Delete it
 fs::delete("tests/test_output.txt")
 pilot exists2 = fs::exists("tests/test_output.txt")
-if exists2 == 1 {
+if exists2 {
     say "File still exists (BAD)"
 } else {
     say "File deleted: YES"

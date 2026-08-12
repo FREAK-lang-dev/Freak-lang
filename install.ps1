@@ -411,6 +411,7 @@ function Stage-FallbackPayload {
 
 function Start-DeferredBinaryReplacement {
     $quotedBin = $BinDir.Replace("'", "''")
+    $quotedInstallDir = $InstallDir.Replace("'", "''")
     $replacementWaitPid = $PID
     $replacementWaitStart = (Get-Process -Id $PID).StartTime.ToFileTimeUtc()
     $pendingPath = Join-Path $BinDir ".freak-upgrade-pending"
@@ -429,6 +430,8 @@ function Start-DeferredBinaryReplacement {
     $apply = @"
 `$ErrorActionPreference = 'Stop'
 `$bin = '$quotedBin'
+`$installDir = '$quotedInstallDir'
+`$installLockPath = Join-Path `$installDir '.freak-install.lock'
 `$pending = Join-Path `$bin '.freak-upgrade-pending'
 `$failed = Join-Path `$bin '.freak-upgrade-failed'
 `$helperLockPath = Join-Path `$bin '.freak-upgrade-helper.lock'
@@ -448,6 +451,14 @@ Set-Content -LiteralPath `$helperReadyPath -Value "`$PID|`$helperStart" -Encodin
 `$expectedHashes = @{
     'freak.exe' = '$expectedFreakHash'
     'hangar.exe' = '$expectedHangarHash'
+}
+`$retiredCleanupFailuresRemaining = 0
+if (`$env:FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES -match '^[0-9]+$') {
+    `$retiredCleanupFailuresRemaining = [int]`$env:FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES
+}
+`$terminalCleanupFailuresRemaining = 0
+if (`$env:FREAK_INSTALL_TEST_TERMINAL_CLEANUP_FAILURES -match '^[0-9]+$') {
+    `$terminalCleanupFailuresRemaining = [int]`$env:FREAK_INSTALL_TEST_TERMINAL_CLEANUP_FAILURES
 }
 
 function Restore-BinaryBackup {
@@ -488,6 +499,26 @@ if ([DateTime]::UtcNow -ge `$waitDeadline) {
     Set-Content -LiteralPath `$failed -Value 'timed out waiting for the invoking installer process' -Encoding UTF8
     exit 1
 }
+`$installLock = `$null
+`$installLockDeadline = [DateTime]::UtcNow.AddMinutes(5)
+while (-not `$installLock -and [DateTime]::UtcNow -lt `$installLockDeadline) {
+    try {
+        `$installLock = [System.IO.FileStream]::new(
+            `$installLockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None,
+            1,
+            [System.IO.FileOptions]::DeleteOnClose
+        )
+    } catch {
+        Start-Sleep -Milliseconds 100
+    }
+}
+if (-not `$installLock) {
+    Set-Content -LiteralPath `$failed -Value 'timed out acquiring the deferred installer lock' -Encoding UTF8
+    exit 1
+}
 `$deadline = [DateTime]::UtcNow.AddHours(24)
 while ([DateTime]::UtcNow -lt `$deadline) {
     try {
@@ -521,22 +552,103 @@ while ([DateTime]::UtcNow -lt `$deadline) {
             }
         }
         # Renaming the complete old-binary directory is the commit point.
-        # Cleanup after it is best-effort because both live binaries already
-        # match their staged hashes and no rollback is required anymore.
+        # Both live binaries now match their staged hashes. Keep the durable
+        # .next inputs until every retired binary is gone so a cleanup retry
+        # can validate and reapply the committed pair safely.
         Move-Item -LiteralPath `$backupRoot -Destination `$retiredRoot
-        foreach (`$name in `$names) {
-            Remove-Item -LiteralPath (Join-Path `$bin (`$name + '.next')) -Force -ErrorAction SilentlyContinue
+        `$retiredClean = `$false
+        for (`$attempt = 0; `$attempt -lt 200; `$attempt++) {
+            if (`$retiredCleanupFailuresRemaining -gt 0) {
+                `$retiredCleanupFailuresRemaining--
+            } else {
+                Remove-Item -LiteralPath `$retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            if (-not (Test-Path -LiteralPath `$retiredRoot)) {
+                `$retiredClean = `$true
+                break
+            }
+            Start-Sleep -Milliseconds 50
         }
-        Remove-Item -LiteralPath `$retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
-        # Pending is the externally visible completion signal. Remove it only
-        # after all transaction state and retired binaries are gone.
-        Remove-Item -LiteralPath `$failed -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath `$pending -Force -ErrorAction SilentlyContinue
+        if (-not `$retiredClean) {
+            throw "retired binary cleanup did not complete"
+        }
+        `$terminalClean = `$false
+        for (`$attempt = 0; `$attempt -lt 200; `$attempt++) {
+            if (`$terminalCleanupFailuresRemaining -gt 0) {
+                `$terminalCleanupFailuresRemaining--
+            } else {
+                foreach (`$name in `$names) {
+                    Remove-Item -LiteralPath (Join-Path `$bin (`$name + '.next')) -Force -ErrorAction SilentlyContinue
+                }
+                Remove-Item -LiteralPath `$failed -Force -ErrorAction SilentlyContinue
+            }
+            `$nextRemain = @(`$names | Where-Object {
+                Test-Path -LiteralPath (Join-Path `$bin (`$_ + '.next'))
+            })
+            if (`$nextRemain.Count -eq 0 -and -not (Test-Path -LiteralPath `$failed)) {
+                `$terminalClean = `$true
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not `$terminalClean) {
+            throw "terminal transaction cleanup did not complete"
+        }
+
         `$helperLock.Dispose()
-        Remove-Item -LiteralPath `$helperReadyPath, `$helperLockPath -Force -ErrorAction SilentlyContinue
+        `$helperLock = `$null
+        `$helperMarkersClean = `$false
+        for (`$attempt = 0; `$attempt -lt 200; `$attempt++) {
+            Remove-Item -LiteralPath `$helperReadyPath, `$helperLockPath -Force -ErrorAction SilentlyContinue
+            if (-not (Test-Path -LiteralPath `$helperReadyPath) -and
+                -not (Test-Path -LiteralPath `$helperLockPath)) {
+                `$helperMarkersClean = `$true
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not `$helperMarkersClean) {
+            Set-Content -LiteralPath `$failed -Value 'helper marker cleanup did not complete' -Encoding UTF8
+            exit 1
+        }
+
+        # Test-only barrier for the terminal ownership window. The shared
+        # installer lock must remain authoritative after helper markers are
+        # gone and until the durable pending marker is removed.
+        if (`$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_READY) {
+            Set-Content -LiteralPath `$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_READY -Value 'ready' -Encoding UTF8
+        }
+        if (`$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_RELEASE) {
+            `$testBarrierDeadline = [DateTime]::UtcNow.AddMinutes(3)
+            while (-not (Test-Path -LiteralPath `$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_RELEASE) -and
+                [DateTime]::UtcNow -lt `$testBarrierDeadline) {
+                Start-Sleep -Milliseconds 50
+            }
+        }
+
+        # Pending is the externally visible completion signal. Remove it only
+        # after all transaction state, retired binaries, and helper markers are gone.
+        `$pendingClean = `$false
+        for (`$attempt = 0; `$attempt -lt 200; `$attempt++) {
+            Remove-Item -LiteralPath `$pending -Force -ErrorAction SilentlyContinue
+            if (-not (Test-Path -LiteralPath `$pending)) {
+                `$pendingClean = `$true
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not `$pendingClean) {
+            Set-Content -LiteralPath `$failed -Value 'pending marker cleanup did not complete' -Encoding UTF8
+            exit 1
+        }
+        `$installLock.Dispose()
+        `$installLock = `$null
         exit 0
     } catch {
         `$detail = `$_.Exception.Message
+        if (`$env:FREAK_INSTALL_TEST_RETRY_OBSERVED) {
+            Add-Content -LiteralPath `$env:FREAK_INSTALL_TEST_RETRY_OBSERVED -Value `$detail -Encoding UTF8
+        }
         Restore-BinaryBackup | Out-Null
         Set-Content -LiteralPath `$failed -Value `$detail -Encoding UTF8
         Start-Sleep -Seconds 1

@@ -1,0 +1,5 @@
+task wrong_return() -> int {
+    give back "not an int"
+}
+
+task main() {}

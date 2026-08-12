@@ -1,0 +1,8 @@
+pilot title: word = "Muv-" + "Luv"
+
+say title
+say string_reverse("FREAK")
+say string_repeat("ha", 3)
+say word_from_int(string_count("banana", "an"))
+say word_from_int(std_gcd(84, 30))
+say word_from_bool(title.starts_with("Muv-"))

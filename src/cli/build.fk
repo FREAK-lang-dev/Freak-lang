@@ -7,6 +7,18 @@
 -- Timing state for build steps
 pilot cli_build_start_ms = 0
 pilot cli_step_ms = 0
+pilot CLI_PAYLOAD_ERROR_PREFIX = "!freak-payload-resolution-error!"
+
+task cli_payload_resolution_error(kind: word, root: word) -> word {
+    -- Resolution failures are values, not filesystem sentinels. A directory
+    -- with a suggestive name must never turn an ambiguous/missing package into
+    -- a usable payload merely by containing compatible ABI markers.
+    give back CLI_PAYLOAD_ERROR_PREFIX + kind + "|" + root
+}
+
+task cli_payload_is_resolution_error(value: word) -> bool {
+    give back value.starts_with(CLI_PAYLOAD_ERROR_PREFIX)
+}
 
 task cli_step_start() -> void {
     cli_step_ms = time::now_ms()
@@ -76,8 +88,66 @@ task cli_strip_resolved_use_lines(source: word) -> word {
     give back out
 }
 
+task cli_backend_output_path(src_file: word, target: word) -> word {
+    if target == "llvm" { give back src_file + ".ll" }
+    give back src_file + ".c"
+}
+
+task cli_report_untrusted_stale_artifact(artifact: word) -> void {
+    say ""
+    say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " untrusted stale artifact could not be removed: " + C_BWHITE + artifact + C_RESET
+    say "  " + C_DIM + "Remove it manually, then retry. No compiler stage was run." + C_RESET
+    say ""
+}
+
+task cli_delete_derived_artifact(artifact: word) -> bool {
+    -- unlink is file-only and does not follow the final path component. Run it
+    -- even when fs::exists cannot see a dangling symlink; otherwise a later
+    -- write could follow that stale link outside the source directory.
+    if not fs::delete(artifact) {
+        cli_report_untrusted_stale_artifact(artifact)
+        give back false
+    }
+    if fs::exists(artifact) {
+        cli_report_untrusted_stale_artifact(artifact)
+        give back false
+    }
+    give back true
+}
+
+task cli_invalidate_backend_output(src_file: word, target: word) -> bool {
+    pilot artifact = cli_backend_output_path(src_file, target)
+    -- Only a .fk input makes `<input>.c` / `<input>.ll` unambiguously
+    -- compiler-derived. Never remove a neighboring file for an extensionless
+    -- or otherwise non-.fk path supplied by the user.
+    if not src_file.ends_with(".fk") {
+        say ""
+        say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " source path must end in .fk: " + C_BWHITE + src_file + C_RESET
+        say "  " + C_DIM + "Neighboring outputs are untrusted and were preserved." + C_RESET
+        say ""
+        give back false
+    }
+    give back cli_delete_derived_artifact(artifact)
+}
+
+task cli_invalidate_build_outputs(src_file: word) -> bool {
+    if not src_file.ends_with(".fk") { give back false }
+    pilot binary = cli_binary_path(src_file)
+    pilot cache_file = binary + ".freak-run-cache"
+    -- The sidecar is the proof that permits `freak run` to trust an existing
+    -- executable. Invalidate that proof before touching the executable so a
+    -- locked binary can never retain a stale success record. Conversely, if
+    -- the proof itself cannot be removed, preserve the executable and fail.
+    if not cli_delete_derived_artifact(cache_file) { give back false }
+    if not cli_delete_derived_artifact(binary) { give back false }
+    give back true
+}
+
 task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
+    -- An output from an older invocation is not evidence that this invocation
+    -- succeeded. Remove the selected backend artifact before any frontend work.
+    if not cli_invalidate_backend_output(src_file, target) { give back "" }
     input_file = src_file
     if source_line_offset <= 0 { diagnostic_source = source }
     if source_map_count == 0 {
@@ -118,7 +188,7 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
 
     cli_step_start()
     if target == "llvm" {
-        pilot out_ll = src_file + ".ll"
+        pilot out_ll = cli_backend_output_path(src_file, target)
         out_file = out_ll
         fs::write(out_ll, "")
         emit_llvm_program()
@@ -126,7 +196,7 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
         cli_step_done("Emit LLVM IR")
         give back out_ll
     } else {
-        pilot out_c = src_file + ".c"
+        pilot out_c = cli_backend_output_path(src_file, target)
         out_file = out_c
         fs::write(out_c, "")
         emit_c_program()
@@ -171,24 +241,146 @@ task cli_current_dir() -> word {
     give back cli_first_line(process::exec_capture(command)).trim()
 }
 
+task cli_windows_cwd_is_shell_fallback(cwd: word) -> bool {
+    if not cli_is_windows() or cwd == "" { give back false }
+    pilot windir = process::env("WINDIR").replace("\\", "/").to_lower().trim()
+    pilot system_root = process::env("SystemRoot").replace("\\", "/").to_lower().trim()
+    pilot normalized = cwd.replace("\\", "/").to_lower().trim()
+    if windir.ends_with("/") {
+        windir = windir.substring(0, windir.length() - 1)
+    }
+    if system_root.ends_with("/") {
+        system_root = system_root.substring(0, system_root.length() - 1)
+    }
+    if normalized.ends_with("/") {
+        normalized = normalized.substring(0, normalized.length() - 1)
+    }
+    if windir != "" and normalized == windir { give back true }
+    give back system_root != "" and normalized == system_root
+}
+
+task cli_posix_path_parent(path: word) -> word {
+    pilot last_sep = -1
+    pilot pi = 0
+    repeat until pi >= path.length() {
+        if path.char_at(pi) == "/" { last_sep = pi }
+        pi += 1
+    }
+    if last_sep < 0 { give back "" }
+    if last_sep == 0 { give back "/" }
+    give back path.substring(0, last_sep)
+}
+
+task cli_posix_path_leaf(path: word) -> word {
+    pilot leaf = ""
+    pilot pi = 0
+    repeat until pi >= path.length() {
+        pilot ch = path.char_at(pi)
+        if ch == "/" { leaf = "" }
+        else { leaf = leaf + ch }
+        pi += 1
+    }
+    give back leaf
+}
+
+task cli_posix_canonical_executable(path: word) -> word {
+    -- Resolve a PATH shim without trusting its containing directory as the
+    -- compiler home. Keep the loop bounded and require every symlink target
+    -- and the physical final parent to resolve; cycles, broken links, and
+    -- readlink failures all leave executable identity unresolved.
+    if path == "" or cli_is_windows() { give back path }
+    pilot current = path
+    if not current.starts_with("/") {
+        pilot cwd = cli_current_dir()
+        if cwd == "" { give back "" }
+        current = cwd + "/" + current
+    }
+
+    pilot link_hops = 0
+    pilot resolved_leaf = false
+    repeat until resolved_leaf {
+        pilot quoted_current = cli_quote_cmd_path(current)
+        pilot link_probe = "if [ -L " + quoted_current + " ]; then printf link; "
+        link_probe = link_probe + "elif [ -e " + quoted_current + " ]; then printf file; else exit 1; fi"
+        pilot link_kind = cli_first_line(process::exec_capture(link_probe)).trim()
+        if link_kind == "file" {
+            resolved_leaf = true
+        } else {
+            if link_kind != "link" { give back "" }
+            if link_hops >= 32 { give back "" }
+            pilot link_command = "readlink " + quoted_current + " 2>/dev/null"
+            pilot link_target = cli_first_line(process::exec_capture(link_command))
+            if link_target == "" { give back "" }
+            if link_target.starts_with("/") {
+                current = link_target
+            } else {
+                pilot link_parent = cli_posix_path_parent(current)
+                if link_parent == "" { give back "" }
+                if link_parent == "/" { current = link_parent + link_target }
+                else { current = link_parent + "/" + link_target }
+            }
+            link_hops += 1
+        }
+    }
+
+    pilot parent = cli_posix_path_parent(current)
+    pilot leaf = cli_posix_path_leaf(current)
+    if parent == "" or leaf == "" { give back "" }
+    pilot parent_command = "cd -P " + cli_quote_cmd_path(parent) + " 2>/dev/null && pwd -P"
+    pilot canonical_parent = cli_first_line(process::exec_capture(parent_command)).trim()
+    if canonical_parent == "" { give back "" }
+    pilot canonical = canonical_parent + "/" + leaf
+    if canonical_parent == "/" { canonical = canonical_parent + leaf }
+    if not fs::exists(canonical) { give back "" }
+    give back canonical
+}
+
 task cli_executable_path() -> word {
     pilot argv0: word = process::arg(0)
     if argv0 == "" { give back "" }
-    if fs::exists(argv0) {
-        if cli_path_is_absolute(argv0) { give back argv0 }
+
+    if cli_path_is_absolute(argv0) {
+        if not fs::exists(argv0) { give back "" }
+        if cli_is_windows() { give back argv0 }
+        give back cli_posix_canonical_executable(argv0)
+    }
+    pilot has_separator = argv0.contains("/") or argv0.contains("\\")
+    if has_separator {
+        if not fs::exists(argv0) { give back "" }
         pilot relative = argv0
         if relative.starts_with("./") or relative.starts_with(".\\") {
             relative = relative.substring(2, relative.length() - 2)
         }
         pilot cwd = cli_current_dir()
-        if cwd != "" { give back cwd + "/" + relative }
-        give back argv0
+        if cwd == "" { give back "" }
+        pilot absolute = cwd + "/" + relative
+        if cli_is_windows() {
+            -- cmd.exe reports %WINDIR% when the real process cwd is UNC. Never
+            -- trust that fallback even if a same-named decoy exists there.
+            if cli_windows_cwd_is_shell_fallback(cwd) { give back "" }
+            -- Other shell/cwd failures must also fail closed rather than
+            -- returning an unverified synthesized executable identity.
+            if not fs::exists(absolute) { give back "" }
+            give back absolute
+        }
+        give back cli_posix_canonical_executable(absolute)
     }
+
+    -- A separator-free argv[0] is a PATH command, not a CWD-relative path on
+    -- either platform. Search only PATH and fail closed: a same-named project
+    -- file must never become the running compiler's installation root.
     pilot lookup_cmd = "command -v " + cli_quote_cmd_path(argv0) + " 2>/dev/null"
-    if cli_is_windows() { lookup_cmd = "where " + cli_quote_cmd_path(argv0) + " 2>nul" }
+    if cli_is_windows() {
+        pilot lookup_target = "$PATH:" + argv0
+        lookup_cmd = "where " + cli_quote_cmd_path(lookup_target) + " 2>nul"
+    }
     pilot resolved: word = cli_first_line(process::exec_capture(lookup_cmd)).trim()
-    if resolved != "" and fs::exists(resolved) { give back resolved }
-    give back argv0
+    if resolved == "" or not fs::exists(resolved) { give back "" }
+    if cli_is_windows() { give back resolved }
+    -- `command -v` may name a shell function/builtin without a path. Never
+    -- reinterpret that slashless text as a file from the caller's CWD.
+    if not resolved.contains("/") { give back "" }
+    give back cli_posix_canonical_executable(resolved)
 }
 
 task cli_executable_home() -> word {
@@ -204,6 +396,8 @@ task cli_find_winget_home_in(root: word) -> word {
     if root == "" or not fs::exists(root) { give back "" }
     pilot entries: word = fs::list_dir(root)
     pilot entry = ""
+    pilot candidate = ""
+    pilot candidate_count = 0
     pilot ei = 0
     repeat until ei > entries.length() {
         pilot at_end = ei == entries.length()
@@ -211,14 +405,21 @@ task cli_find_winget_home_in(root: word) -> word {
         if not at_end { ch = entries.char_at(ei) }
         if ch == "|" {
             if entry.starts_with("FREAK.freak_") {
-                pilot candidate = root + "/" + entry + "/freak"
-                if cli_has_runtime(candidate + "/runtime") { give back candidate }
+                candidate_count += 1
+                if candidate == "" { candidate = root + "/" + entry + "/freak" }
             }
             entry = ""
         } else {
             entry = entry + ch
         }
         ei += 1
+    }
+    if candidate_count == 1 { give back candidate }
+    if candidate_count > 1 {
+        -- Package enumeration order is not an ownership signal. Refuse an
+        -- ambiguous root rather than silently mixing a stale package with the
+        -- compiler alias that happened to launch this process.
+        give back cli_payload_resolution_error("winget-ambiguous-packages", root)
     }
     give back ""
 }
@@ -307,6 +508,106 @@ task cli_find_windows_llvm_mingw() -> word {
     give back ""
 }
 
+task cli_executable_uses_winget_alias() -> bool {
+    pilot executable = cli_executable_path().replace("\\", "/").to_lower()
+    give back executable.contains("/winget/links/")
+}
+
+task cli_find_winget_alias_home() -> word {
+    if not cli_executable_uses_winget_alias() { give back "" }
+    pilot alias_dir = cli_path_parent(cli_executable_path())
+    pilot winget_root = cli_path_parent(alias_dir)
+    if winget_root == "" { give back "" }
+    pilot packages_root = winget_root + "/Packages"
+    pilot package_home = cli_find_winget_home_in(packages_root)
+    if package_home != "" { give back package_home }
+
+    -- The alias itself proves this scope owns a WinGet installation. A missing
+    -- package is an incomplete installation, not permission to fall through
+    -- to AppData, HOME, or the project directory.
+    give back cli_payload_resolution_error("winget-missing-alias-package", packages_root)
+}
+
+task cli_is_repo_payload_root(root: word) -> bool {
+    if root == "" { give back false }
+    if not cli_has_runtime(root + "/freakc/runtime") { give back false }
+    if not fs::exists(root + "/std/math.fk") { give back false }
+    if not fs::exists(root + "/src/compiler/v3/main.fk") { give back false }
+    give back true
+}
+
+task cli_is_repo_checkout_root(root: word) -> bool {
+    -- Checkout identity must not disappear merely because the payload being
+    -- diagnosed is damaged. These source-tree markers are independent of the
+    -- runtime/std files whose absence Doctor must report.
+    if root == "" { give back false }
+    if not fs::exists(root + "/src/compiler/v3") { give back false }
+    if not fs::exists(root + "/src/cli") { give back false }
+    if not fs::exists(root + "/packaging/distribution-files.manifest") { give back false }
+    give back true
+}
+
+task cli_payload_home_present(root: word) -> bool {
+    if root == "" { give back false }
+    if fs::exists(root + "/bin") { give back true }
+    if fs::exists(root + "/runtime") { give back true }
+    if fs::exists(root + "/std") { give back true }
+    give back false
+}
+
+task cli_executable_repo_root() -> word {
+    pilot root = cli_executable_home()
+    if cli_is_repo_checkout_root(root) { give back root }
+    give back ""
+}
+
+task cli_executable_payload_home() -> word {
+    pilot executable = cli_executable_path()
+    pilot bin_dir = cli_path_parent(executable)
+    if bin_dir == "" { give back "" }
+    pilot root = cli_path_parent(bin_dir)
+    if root == "" or cli_is_repo_checkout_root(root) { give back "" }
+
+    -- Archive/install layouts always place the executable in <home>/bin.
+    -- That location remains authoritative when runtime/std are incomplete so
+    -- Doctor can report the actual broken payload instead of falling through.
+    pilot normalized_bin = bin_dir.replace("\\", "/").to_lower()
+    if normalized_bin.ends_with("/bin") { give back root }
+    give back ""
+}
+
+task cli_default_payload_home() -> word {
+    pilot home_dir: word = process::env("HOME")
+    if cli_is_windows() {
+        -- A WinGet command alias is not adjacent to its packaged payload.
+        -- Resolve the registered package before unrelated user installations.
+        if cli_executable_uses_winget_alias() {
+            give back cli_find_winget_alias_home()
+        }
+
+        pilot appdata_dir: word = process::env("APPDATA")
+        if appdata_dir != "" {
+            pilot appdata_home = appdata_dir + "/freak"
+            if cli_payload_home_present(appdata_home) { give back appdata_home }
+        }
+
+        pilot winget_home = cli_find_winget_home()
+        if winget_home != "" { give back winget_home }
+
+        if home_dir != "" {
+            pilot windows_home = home_dir + "/.freak"
+            if cli_payload_home_present(windows_home) { give back windows_home }
+        }
+        give back ""
+    }
+
+    if home_dir != "" {
+        pilot posix_home = home_dir + "/.freak"
+        if cli_payload_home_present(posix_home) { give back posix_home }
+    }
+    give back ""
+}
+
 task cli_find_runtime_dir() -> word {
     -- Try to find the runtime directory.
     -- 1. An explicit FREAK_HOME is authoritative, including when a developer
@@ -317,44 +618,24 @@ task cli_find_runtime_dir() -> word {
         -- Doctor/build must diagnose that payload, never silently fall back.
         give back freak_home + "/runtime"
     }
-    -- 2. Installed/archive payloads beside the compiler beat the CWD. A
-    -- project must never shadow the compiler runtime with freakc/runtime.
-    pilot executable_home = cli_executable_home()
-    if executable_home != "" and cli_has_runtime(executable_home + "/runtime") {
-        give back executable_home + "/runtime"
-    }
-    -- 3. Development fallback relative to CWD (repo layout).
-    if cli_has_runtime("freakc/runtime") {
+    -- 2. A compiler built in this checkout uses that checkout's development
+    -- payload regardless of the caller's CWD.
+    pilot repo_root = cli_executable_repo_root()
+    if repo_root != "" { give back repo_root + "/freakc/runtime" }
+
+    -- 3. Installed/archive payloads beside the compiler are authoritative,
+    -- including incomplete payloads which must fail the ABI gate.
+    pilot executable_payload = cli_executable_payload_home()
+    if executable_payload != "" { give back executable_payload + "/runtime" }
+
+    -- 4. Platform installation roots (including WinGet aliases) beat CWD.
+    pilot installed_home = cli_default_payload_home()
+    if installed_home != "" { give back installed_home + "/runtime" }
+
+    -- 5. Development fallback is allowed only for a recognizable repository
+    -- layout. A random project containing freakc/runtime is not trusted.
+    if cli_executable_path() != "" and cli_is_repo_payload_root(".") {
         give back "freakc/runtime"
-    }
-    -- 4. Check ~/.freak/runtime/ (install.sh layout)
-    pilot home_dir: word = process::env("HOME")
-    if home_dir != "" {
-        pilot home_rt = home_dir + "/.freak/runtime"
-        if cli_has_runtime(home_rt) {
-            give back home_rt
-        }
-    }
-    -- 5. Check %APPDATA%\freak\runtime\ (install.ps1 layout on Windows)
-    pilot appdata_dir: word = process::env("APPDATA")
-    if appdata_dir != "" {
-        pilot appdata_rt = appdata_dir + "/freak/runtime"
-        if cli_has_runtime(appdata_rt) {
-            give back appdata_rt
-        }
-    }
-    -- 6. WinGet portable archives keep runtime/std beside the binaries but
-    -- expose command aliases from a separate Links directory.
-    pilot winget_home = cli_find_winget_home()
-    if winget_home != "" {
-        give back winget_home + "/runtime"
-    }
-    -- 7. Fallback: check if runtime is in current dir
-    if fs::exists("freak_runtime.c") {
-        give back "."
-    }
-    if fs::exists("freak_runtime.o") {
-        give back "."
     }
     give back ""
 }
@@ -382,8 +663,8 @@ task cli_binary_path(src_file: word) -> word {
 
 task cli_is_windows() -> bool {
     pilot windir: word = process::env("WINDIR")
-    if windir != "" { give back true }
-    give back false
+    pilot system_root: word = process::env("SystemRoot")
+    give back windir != "" or system_root != ""
 }
 
 task cli_first_line(text: word) -> word {
@@ -714,30 +995,21 @@ task cli_find_std_dir() -> word {
     if freak_home != "" {
         give back freak_home + "/std"
     }
-    pilot executable_home = cli_executable_home()
-    if executable_home != "" and fs::exists(executable_home + "/std/math.fk") {
-        give back executable_home + "/std"
-    }
-    if fs::exists("std/math.fk") { give back "std" }
-    pilot home_dir: word = process::env("HOME")
-    if home_dir != "" {
-        pilot home_std = home_dir + "/.freak/std"
-        if fs::exists(home_std + "/math.fk") { give back home_std }
-    }
-    pilot appdata_dir: word = process::env("APPDATA")
-    if appdata_dir != "" {
-        pilot app_std = appdata_dir + "/freak/std"
-        if fs::exists(app_std + "/math.fk") { give back app_std }
-    }
-    pilot winget_home = cli_find_winget_home()
-    if winget_home != "" and fs::exists(winget_home + "/std/math.fk") {
-        give back winget_home + "/std"
+    pilot repo_root = cli_executable_repo_root()
+    if repo_root != "" { give back repo_root + "/std" }
+    pilot executable_payload = cli_executable_payload_home()
+    if executable_payload != "" { give back executable_payload + "/std" }
+    pilot installed_home = cli_default_payload_home()
+    if installed_home != "" { give back installed_home + "/std" }
+    if cli_executable_path() != "" and cli_is_repo_payload_root(".") {
+        give back "std"
     }
     give back ""
 }
 
 task cli_payload_abi_value(directory: word) -> word {
     if directory == "" { give back "missing" }
+    if cli_payload_is_resolution_error(directory) { give back "resolution-error" }
     pilot marker = directory + "/freak_abi"
     if not fs::exists(marker) { give back "missing" }
     give back fs::read(marker).trim()
@@ -755,12 +1027,23 @@ task cli_pending_upgrade_marker() -> word {
     if freak_home != "" {
         pilot home_pending = freak_home + "/bin/.freak-upgrade-pending"
         if fs::exists(home_pending) { give back home_pending }
+        give back ""
     }
-    pilot executable = cli_executable_path()
-    pilot bin_dir = cli_path_parent(executable)
-    if bin_dir != "" {
-        pilot adjacent_pending = bin_dir + "/.freak-upgrade-pending"
+
+    -- Keep pending-state discovery aligned with runtime/std discovery. A
+    -- checkout compiler does not use an unrelated installed payload.
+    if cli_executable_repo_root() != "" { give back "" }
+    pilot executable_payload = cli_executable_payload_home()
+    if executable_payload != "" {
+        pilot adjacent_pending = executable_payload + "/bin/.freak-upgrade-pending"
         if fs::exists(adjacent_pending) { give back adjacent_pending }
+        give back ""
+    }
+
+    pilot installed_home = cli_default_payload_home()
+    if installed_home != "" and not cli_payload_is_resolution_error(installed_home) {
+        pilot installed_pending = installed_home + "/bin/.freak-upgrade-pending"
+        if fs::exists(installed_pending) { give back installed_pending }
     }
     give back ""
 }
@@ -779,6 +1062,15 @@ task cli_build_environment_ready() -> bool {
 
     pilot runtime_dir = cli_find_runtime_dir()
     pilot std_dir = cli_find_std_dir()
+    if cli_payload_is_resolution_error(runtime_dir) or cli_payload_is_resolution_error(std_dir) {
+        say ""
+        say C_BRED + "  PAYLOAD RESOLUTION FAILED" + C_RESET
+        say C_DIM + "  Runtime resolution: " + runtime_dir + C_RESET
+        say C_DIM + "  Standard library resolution: " + std_dir + C_RESET
+        say C_DIM + "  Repair the selected installation before building." + C_RESET
+        say ""
+        give back false
+    }
     if not cli_payload_abi_ok(runtime_dir, std_dir) {
         say ""
         say C_BRED + "  ABI MISMATCH" + C_RESET
@@ -894,13 +1186,13 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     -- Returns the output binary path, or "" on error.
     cli_build_start_ms = time::now_ms()
 
-    if not cli_build_environment_ready() { give back "" }
+    -- Invalidate every output this explicit build can safely derive before its
+    -- first failure return. `cli_binary_path` equals the input on POSIX when
+    -- the source does not end in .fk, so never apply binary cleanup there.
+    if not cli_invalidate_backend_output(src_file, target) { give back "" }
+    if not cli_invalidate_build_outputs(src_file) { give back "" }
 
-    -- Any explicit build may replace the adjacent executable. Invalidate run
-    -- proof before doing work so failed builds and non-run builds cannot leave
-    -- a sidecar describing an older artifact.
-    pilot run_cache_file = cli_binary_path(src_file) + ".freak-run-cache"
-    if fs::exists(run_cache_file) { fs::delete(run_cache_file) }
+    if not cli_build_environment_ready() { give back "" }
 
     pilot source: word = fs::read(src_file)
     if source == "" {

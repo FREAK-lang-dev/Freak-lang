@@ -1,0 +1,10 @@
+task outer() {
+    task nested() {}
+    extern task nested_foreign() -> int
+    shape Nested { value: int }
+    impl Nested {
+        task read(self) -> int { give back self.value }
+    }
+}
+
+task main() {}

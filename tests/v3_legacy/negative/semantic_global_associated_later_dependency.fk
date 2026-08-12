@@ -1,0 +1,14 @@
+shape Reader {}
+
+impl Reader {
+    task read() -> int {
+        give back later
+    }
+}
+
+pilot first: int = Reader::read()
+pilot later: int = 7
+
+task main() {
+    say first
+}

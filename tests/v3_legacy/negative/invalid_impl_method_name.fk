@@ -1,0 +1,2 @@
+shape Box { value: int }
+impl Box { task 7(self) {} }

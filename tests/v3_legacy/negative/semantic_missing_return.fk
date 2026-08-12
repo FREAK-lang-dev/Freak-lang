@@ -1,0 +1,5 @@
+task maybe_value(flag: bool) -> int {
+    if flag { give back 1 }
+}
+
+task main() {}

@@ -1,0 +1,5 @@
+task main() {
+    pilot invalid =
+        "score: "
+        + 7
+}

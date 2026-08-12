@@ -3,6 +3,6 @@ name = "cockpit"
 version = "0.1.0"
 author = "FREAK Core Team"
 edition = "alternative-4"
-description = "COCKPIT — FREAK's official immediate-mode UI framework. The pilot sits in the cockpit."
+description = "COCKPIT — preserved Maverick immediate-mode UI source preview; not a frozen-V3 release package."
 
 [dependencies]

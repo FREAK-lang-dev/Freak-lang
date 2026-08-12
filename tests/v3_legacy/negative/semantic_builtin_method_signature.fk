@@ -1,0 +1,3 @@
+task main() {
+    say "route".substring("wrong")
+}

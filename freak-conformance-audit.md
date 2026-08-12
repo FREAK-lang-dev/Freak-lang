@@ -106,7 +106,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | `task name(...) -> type { ... }` | ✅ | ✅ | core feature |
 | `give back` return keyword | ✅ | ✅ | |
 | `say` print keyword always available | ✅ | ✅ | |
-| String interpolation `"{expr}"` | ✅ | ✅ | [freakc/emitter.py:1050-1100](freakc/emitter.py) |
+| String path interpolation `"{path}"` | ✅ | ✅ | Self-hosted V3 lowers resolved `IDENT(.IDENT)*` paths in every word-expression context on C and LLVM; non-path brace bodies remain literal. Executable evidence: [tests/v3_interpolation.py](tests/v3_interpolation.py) and [tests/v3_legacy_golden.py](tests/v3_legacy_golden.py). |
 | Arrow shorthand `task square(x) => x*x` | ✅ | ✅ | parsed and emitted |
 | `done` synonym for `}` | ✅ | ✅ | |
 | Named parameters at call site `connect(host: "x", port: 80)` | ⚠️ | 📖 V4 | V4 lowers named call-site arguments for task calls, generic calls, instance methods, associated methods, and extern/callback calls, with unknown/duplicate/missing/positional-after-named diagnostics plus editor completion/definition facts; production backend parity still expands |
@@ -179,7 +179,7 @@ is covered as a transpilation contract rather than claimed runtime parity.
 | `if`/`else` | ✅ | ✅ | |
 | `when` pattern matching with literal patterns | ⚠️ | 📖 V4 | V4 also lowers tuple, fixed-array, and route/variant payload patterns; production V3 remains narrower |
 | `when` pattern destructuring `Variant::Case { field }` | ⚠️ | 📖 V4 | V4 carries payload destructuring, refutable-pattern checks, exhaustive route/variant `when`, and alias-backed duplicate/unreachable diagnostics; broader pattern ergonomics still expand |
-| `for each item in list` | ✅ | ✅ | |
+| `for each item in list` | ⚠️ | 📖 V4 | The phrase is lexed, but shipping V3 has no executable `for each` statement path. |
 | `repeat N times` | ✅ | ✅ | |
 | `repeat until condition` | ✅ | ✅ | |
 | `training arc until cond max N sessions` | ✅ | ✅ | parsed and emitted as bounded while |
@@ -545,7 +545,7 @@ completion remain open.
 | `.filter` / `.collect` lazy iterators | ❌ | 📖 V4 | List has eager methods only |
 | `ask(prompt)` stdin | ✅ | ✅ | runtime |
 | `say_err(msg)` stderr | ❌ | 📖 V4 | not in runtime |
-| `fs::read`, `fs::write`, `fs::append`, `fs::exists`, `fs::delete` | ✅ | ✅ | C runtime |
+| `fs::read`, `fs::write`, `fs::append`, `fs::exists`, `fs::delete` | ✅ | ✅ | C/LLVM runtimes; V3 `fs::delete` is file-only and returns checked success/already-absent status |
 | `TcpSocket::connect` async | ❌ | 📖 V4 | no promise type |
 | `time::sleep`, duration literals | ⚠️ | 📖 V4 | sleep works; literals like `500.milliseconds` not parsed |
 | `random::rand`, `random::seed` | ⚠️ | 📖 V4 | runtime present, FREAK API unclear |
@@ -560,7 +560,7 @@ completion remain open.
 | `std::http` (HTTP/1.1 client) | ✅ | ✅ | [std/http.fk](std/http.fk) |
 | `std::json` | ✅ | ✅ | [std/json.fk](std/json.fk) |
 | `std::bytes` ByteBuffer | ✅ | ✅ | runtime |
-| `std::ui` (window, widgets, themes, animation) | ⚠️ | partially shipped (Phase MA-MF), MG pending |
+| `std::ui` (window, indexed events, raw drawing) | ⚠️ | 📖 V3 boundary | Frozen V3 executes the low-level Win32/GDI floor only through LLVM on Windows. `Window.poll`/owned event lists, POSIX native UI, executable C UI shapes, and COCKPIT widgets/themes are not shipped V3 surfaces; COCKPIT remains a Maverick source preview. |
 | `std::version` (semver) | ✅ | ✅ | [std/version.fk](std/version.fk) |
 | `std::algorithm` | ✅ | ✅ | [std/algorithm.fk](std/algorithm.fk) |
 | `std::convert` | ✅ | ✅ | [std/convert.fk](std/convert.fk) |

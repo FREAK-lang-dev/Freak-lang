@@ -1,0 +1,4 @@
+task main() {
+    say missing_binding
+    missing_callable()
+}

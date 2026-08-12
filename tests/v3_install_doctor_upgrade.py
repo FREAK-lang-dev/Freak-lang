@@ -104,6 +104,9 @@ def check_static_contracts(repo: Path) -> None:
     doctor_text = (repo / "src" / "cli" / "doctor.fk").read_text(
         encoding="utf-8"
     )
+    build_text = (repo / "src" / "cli" / "build.fk").read_text(
+        encoding="utf-8"
+    )
     main_text = (repo / "src" / "cli" / "main.fk").read_text(encoding="utf-8")
 
     for needle in (
@@ -207,13 +210,21 @@ def check_static_contracts(repo: Path) -> None:
         "freakc_v3_stage2",
         "raw/packaging/distribution-files.manifest",
         "Finalize and smoke exact release archive",
-        "v3_release_install_smoke.py --archive",
+        "v3_final_release_gate.py",
+        '--archive "$archive"',
+        "--freakc",
+        "--standalone-freak",
+        "--standalone-hangar",
+        "--tested-sha256",
+        '! -name "*.tested.sha256"',
+        '$2 == "freak-macos-arm64.tar.gz"',
+        "sha256sum",
     ):
         assert needle in release_text, f"release workflow missing {needle}"
     assert "destination=${destination%$'\\r'}" in release_text
     assert 'read -r source destination || [[ -n "$source$destination" ]]' in release_text
     assert "freakc_v3_stage2" in ci_text
-    assert "freakc_v3_stage3" in ci_text
+    assert "tests/v3_fixed_point.py" in ci_text
     assert release_text.index("Collect finalized release archives") < release_text.index(
         "Generate checksums"
     )
@@ -252,6 +263,23 @@ def check_static_contracts(repo: Path) -> None:
     ):
         assert needle in doctor_text, f"doctor missing {needle}"
     assert "choco install llvm" not in doctor_text
+    for needle in (
+        "task cli_posix_canonical_executable(path: word) -> word",
+        "if link_hops >= 32",
+        'pilot lookup_target = "$PATH:" + argv0',
+        "if resolved == \"\" or not fs::exists(resolved)",
+        'if not resolved.contains("/")',
+        "CLI_PAYLOAD_ERROR_PREFIX",
+        "task cli_payload_is_resolution_error(value: word) -> bool",
+        "task cli_is_repo_checkout_root(root: word) -> bool",
+        "task cli_windows_cwd_is_shell_fallback(cwd: word) -> bool",
+        "PAYLOAD RESOLUTION FAILED",
+        "if not fs::exists(absolute) { give back \"\" }",
+    ):
+        assert needle in build_text, f"executable discovery missing {needle}"
+    assert build_text.count(
+        'cli_executable_path() != "" and cli_is_repo_payload_root(".")'
+    ) == 2, "unresolved executable identity must disable both CWD payload fallbacks"
     assert 'if subcmd == "upgrade"' in main_text
     assert "process::exit(upgrade_res)" in main_text
     assert "process::exit(doctor_exit)" in main_text
@@ -671,6 +699,14 @@ def check_offline_installer(
         close_handle = ctypes.windll.kernel32.CloseHandle
         close_handle.argtypes = [ctypes.wintypes.HANDLE]
         close_handle.restype = ctypes.wintypes.BOOL
+        open_process = ctypes.windll.kernel32.OpenProcess
+        open_process.argtypes = [
+            ctypes.wintypes.DWORD, ctypes.wintypes.BOOL, ctypes.wintypes.DWORD,
+        ]
+        open_process.restype = ctypes.wintypes.HANDLE
+        wait_for_single_object = ctypes.windll.kernel32.WaitForSingleObject
+        wait_for_single_object.argtypes = [ctypes.wintypes.HANDLE, ctypes.wintypes.DWORD]
+        wait_for_single_object.restype = ctypes.wintypes.DWORD
 
         install_lock_path = install_root / ".freak-install.lock"
         install_lock_handle = create_file(
@@ -857,16 +893,20 @@ def check_offline_installer(
         orphan_env = env.copy()
         orphan_env["FREAK_HOME"] = str(orphan_root)
         orphan_env["FREAK_INSTALL_TEST_HELPER_PID"] = str(helper_pid_path)
+        helper_pid = None
         try:
             orphan_staged = subprocess.run(
                 [*command, "-Upgrade"], cwd=repo, env=orphan_env,
                 capture_output=True, text=True, errors="replace", timeout=120,
             )
+            if helper_pid_path.is_file():
+                helper_pid = int(
+                    helper_pid_path.read_text(encoding="utf-8-sig").strip()
+                )
             assert orphan_staged.returncode == 0, (
                 orphan_staged.stdout + orphan_staged.stderr
             )
-            assert helper_pid_path.is_file()
-            helper_pid = int(helper_pid_path.read_text(encoding="utf-8-sig").strip())
+            assert helper_pid is not None
             assert (orphan_bin / ".freak-upgrade-pending").is_file()
             live_contender = subprocess.run(
                 [*command, "-Upgrade"], cwd=repo, env=orphan_env,
@@ -875,16 +915,28 @@ def check_offline_installer(
             assert live_contender.returncode != 0, (
                 live_contender.stdout + live_contender.stderr
             )
-            assert "replacement helper is still active" in (
-                live_contender.stdout + live_contender.stderr
-            ).lower()
-            terminated = subprocess.run(
-                ["taskkill.exe", "/PID", str(helper_pid), "/F"],
-                capture_output=True, text=True, errors="replace", timeout=30,
-            )
-            assert terminated.returncode == 0, terminated.stdout + terminated.stderr
+            contender_output = (live_contender.stdout + live_contender.stderr).lower()
+            assert (
+                "replacement helper is still active" in contender_output
+                or "another freak installer" in contender_output
+            ), contender_output
         finally:
-            assert close_handle(orphan_lock)
+            try:
+                if helper_pid is not None:
+                    terminated = subprocess.run(
+                        ["taskkill.exe", "/PID", str(helper_pid), "/F"],
+                        capture_output=True, text=True, errors="replace", timeout=30,
+                    )
+                    process_handle = open_process(0x00100000, False, helper_pid)
+                    if process_handle:
+                        try:
+                            assert wait_for_single_object(process_handle, 10_000) == 0, (
+                                terminated.stdout + terminated.stderr
+                            )
+                        finally:
+                            assert close_handle(process_handle)
+            finally:
+                assert close_handle(orphan_lock)
 
         orphan_env.pop("FREAK_INSTALL_TEST_HELPER_PID")
         resumed = subprocess.run(
@@ -1364,12 +1416,16 @@ def populate_payload(
 def check_doctor(
     repo: Path, root: Path, compiler: Path, entries: list[tuple[str, str]]
 ) -> None:
+    repo_compiler = compiler.resolve()
+    assert repo_compiler.parent.parent == repo.resolve(), (
+        "doctor discovery regression requires the real checkout compiler"
+    )
     payload = root / "doctor-home"
     populate_payload(repo, payload, entries)
-    # Model CI's build/freak layout with a second complete payload beside the
+    # Model an archive/install layout with a second complete payload beside the
     # compiler. Explicit FREAK_HOME must still select the isolated test payload.
     checkout = root / "doctor-checkout"
-    checkout_bin = checkout / "build"
+    checkout_bin = checkout / "bin"
     checkout_bin.mkdir(parents=True)
     checkout_compiler = checkout_bin / compiler.name
     shutil.copy2(compiler, checkout_compiler)
@@ -1466,6 +1522,658 @@ def check_doctor(
     assert Path(shadow_report["checks"]["stdlib"]["path"]).resolve() == (
         checkout / "std"
     ).resolve()
+
+    # The real compiler built in this checkout must discover the checkout's
+    # freakc/runtime + std payload from any project CWD. This is distinct from
+    # the archive/install layout exercised by `checkout_compiler` above.
+    repo_env = shadow_env.copy()
+    repo_env["HOME"] = str(root / "doctor-repo-empty-home")
+    repo_env["APPDATA"] = str(root / "doctor-repo-empty-appdata")
+    repo_env["LOCALAPPDATA"] = str(root / "doctor-repo-empty-localappdata")
+    repo_env["ProgramFiles"] = str(root / "doctor-repo-empty-program-files")
+    repo_env["ProgramFiles(x86)"] = str(
+        root / "doctor-repo-empty-program-files-x86"
+    )
+    repo_discovery = run_cli(
+        repo_compiler, shadow_cwd, repo_env, "doctor", "--json"
+    )
+    assert repo_discovery.returncode == 0, (
+        repo_discovery.stdout + repo_discovery.stderr
+    )
+    repo_report = json.loads(repo_discovery.stdout)
+    assert Path(repo_report["checks"]["runtime"]["path"]).resolve() == (
+        repo / "freakc" / "runtime"
+    ).resolve()
+    assert Path(repo_report["checks"]["stdlib"]["path"]).resolve() == (
+        repo / "std"
+    ).resolve()
+
+    # Checkout ownership is structural, not conditional on a healthy payload.
+    # A damaged <checkout>/build compiler must diagnose that checkout instead
+    # of silently borrowing a complete user installation with the same ABI.
+    damaged_checkout = root / "doctor-damaged-checkout"
+    damaged_build = damaged_checkout / "build"
+    damaged_build.mkdir(parents=True)
+    damaged_compiler = damaged_build / compiler.name
+    shutil.copy2(repo_compiler, damaged_compiler)
+    damaged_v3 = damaged_checkout / "src" / "compiler" / "v3"
+    damaged_v3.mkdir(parents=True)
+    shutil.copy2(repo / "src" / "compiler" / "v3" / "main.fk", damaged_v3 / "main.fk")
+    damaged_cli = damaged_checkout / "src" / "cli"
+    damaged_cli.mkdir(parents=True)
+    shutil.copy2(repo / "src" / "cli" / "build.fk", damaged_cli / "build.fk")
+    damaged_packaging = damaged_checkout / "packaging"
+    damaged_packaging.mkdir()
+    shutil.copy2(
+        repo / "packaging" / "distribution-files.manifest",
+        damaged_packaging / "distribution-files.manifest",
+    )
+    shutil.copytree(repo / "freakc" / "runtime", damaged_checkout / "freakc" / "runtime")
+    shutil.copytree(repo / "std", damaged_checkout / "std")
+    (damaged_checkout / "std" / "math.fk").unlink()
+    (damaged_checkout / "freakc" / "runtime" / "freak_abi").unlink()
+
+    damaged_env = repo_env.copy()
+    if sys.platform == "win32":
+        installed_parent = root / "doctor-damaged-installed-appdata"
+        installed_decoy = installed_parent / "freak"
+        damaged_env["APPDATA"] = str(installed_parent)
+    else:
+        installed_parent = root / "doctor-damaged-installed-home"
+        installed_decoy = installed_parent / ".freak"
+        damaged_env["HOME"] = str(installed_parent)
+    populate_payload(repo, installed_decoy, entries)
+
+    damaged = run_cli(
+        damaged_compiler, shadow_cwd, damaged_env, "doctor", "--json"
+    )
+    assert damaged.returncode != 0, damaged.stdout + damaged.stderr
+    damaged_report = json.loads(damaged.stdout)
+    assert Path(damaged_report["checks"]["runtime"]["path"]).resolve() == (
+        damaged_checkout / "freakc" / "runtime"
+    ).resolve()
+    assert Path(damaged_report["checks"]["stdlib"]["path"]).resolve() == (
+        damaged_checkout / "std"
+    ).resolve()
+    assert damaged_report["checks"]["abi"]["runtime"] == "missing"
+    assert "math.fk" in damaged_report["checks"]["stdlib"]["missing"]
+    damaged_build_result = run_cli(
+        damaged_compiler,
+        shadow_cwd,
+        damaged_env,
+        "build",
+        str(abi_source),
+        "--c",
+    )
+    assert damaged_build_result.returncode != 0
+    assert "abi mismatch" in damaged_build_result.stdout.lower()
+    assert not Path(str(abi_source) + ".c").exists()
+
+    # A slashless argv[0] that cannot be found in PATH has no executable
+    # identity. Even a same-named CWD decoy inside an otherwise recognizable
+    # repository layout must not enable the development payload fallback.
+    unresolved_cwd = root / "doctor-unresolved-slashless-cwd"
+    shutil.copytree(repo / "freakc" / "runtime", unresolved_cwd / "freakc" / "runtime")
+    shutil.copytree(repo / "std", unresolved_cwd / "std")
+    unresolved_marker = unresolved_cwd / "src" / "compiler" / "v3" / "main.fk"
+    unresolved_marker.parent.mkdir(parents=True)
+    shutil.copy2(repo / "src" / "compiler" / "v3" / "main.fk", unresolved_marker)
+    unresolved_decoy = unresolved_cwd / compiler.name
+    unresolved_decoy.write_text("not the running compiler\n", encoding="utf-8")
+    if sys.platform != "win32":
+        unresolved_decoy.chmod(0o644)
+    unresolved_env = repo_env.copy()
+    if sys.platform == "win32":
+        windows_dir = Path(unresolved_env.get("WINDIR", r"C:\Windows"))
+        unresolved_env["PATH"] = str(windows_dir / "System32")
+    else:
+        unresolved_env["PATH"] = "/usr/bin:/bin"
+    unresolved = subprocess.run(
+        [compiler.name, "doctor", "--json"],
+        executable=str(compiler),
+        cwd=unresolved_cwd,
+        env=unresolved_env,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=180,
+        check=False,
+    )
+    assert unresolved.returncode != 0, unresolved.stdout + unresolved.stderr
+    unresolved_report = json.loads(unresolved.stdout)
+    assert unresolved_report["checks"]["runtime"]["path"] == ""
+    assert unresolved_report["checks"]["stdlib"]["path"] == ""
+
+    if sys.platform != "win32":
+        # A slashless PATH invocation normally leaves argv[0] as `freak`. A
+        # same-named non-executable project file must not replace the actual
+        # executable path during payload discovery.
+        decoy = shadow_cwd / compiler.name
+        decoy.write_text("not the running compiler\n", encoding="utf-8")
+        decoy.chmod(0o644)
+        path_env = shadow_env.copy()
+        path_env["PATH"] = str(compiler.parent) + os.pathsep + path_env.get("PATH", "")
+        path_invocation = subprocess.run(
+            [compiler.name, "doctor", "--json"],
+            cwd=shadow_cwd,
+            env=path_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=180,
+            check=False,
+        )
+        assert path_invocation.returncode == 0, (
+            path_invocation.stdout + path_invocation.stderr
+        )
+        path_report = json.loads(path_invocation.stdout)
+        assert Path(path_report["checks"]["runtime"]["path"]).resolve() == (
+            checkout / "runtime"
+        ).resolve()
+        assert Path(path_report["checks"]["stdlib"]["path"]).resolve() == (
+            checkout / "std"
+        ).resolve()
+        decoy.unlink()
+
+        # PATH shims are allowed, but their directory never owns the payload.
+        # Resolve a relative leaf symlink to the real archive compiler before
+        # executable-adjacent runtime/std discovery.
+        symlink_home = root / "doctor-posix-symlink-home"
+        populate_payload(repo, symlink_home, entries)
+        symlink_bin = symlink_home / "bin"
+        symlink_bin.mkdir()
+        symlink_compiler = symlink_bin / compiler.name
+        shutil.copy2(compiler, symlink_compiler)
+        shim_dir = root / "doctor-posix-shims"
+        shim_dir.mkdir()
+        shim = shim_dir / compiler.name
+        shim.symlink_to(Path(os.path.relpath(symlink_compiler, shim_dir)))
+        symlink_env = repo_env.copy()
+        symlink_env["PATH"] = (
+            str(shim_dir) + os.pathsep + symlink_env.get("PATH", "")
+        )
+        symlinked = subprocess.run(
+            [compiler.name, "doctor", "--json"],
+            cwd=shadow_cwd,
+            env=symlink_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=180,
+            check=False,
+        )
+        assert symlinked.returncode == 0, symlinked.stdout + symlinked.stderr
+        symlink_report = json.loads(symlinked.stdout)
+        assert Path(symlink_report["checks"]["runtime"]["path"]).resolve() == (
+            symlink_home / "runtime"
+        ).resolve()
+        assert Path(symlink_report["checks"]["stdlib"]["path"]).resolve() == (
+            symlink_home / "std"
+        ).resolve()
+
+        # Broken and cyclic argv[0] links never acquire payload identity. Run
+        # the real compiler with a deliberately different argv[0] so the
+        # resolver, rather than the operating system loader, owns the failure.
+        broken_shim = shim_dir / "broken-freak"
+        broken_shim.symlink_to("missing-freak-target")
+        cycle_a = shim_dir / "cycle-a"
+        cycle_b = shim_dir / "cycle-b"
+        cycle_a.symlink_to(cycle_b.name)
+        cycle_b.symlink_to(cycle_a.name)
+        for invalid_shim in (broken_shim, cycle_a):
+            invalid_link = subprocess.run(
+                [str(invalid_shim), "doctor", "--json"],
+                executable=str(compiler),
+                cwd=unresolved_cwd,
+                env=repo_env,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=180,
+                check=False,
+            )
+            assert invalid_link.returncode != 0, (
+                invalid_link.stdout + invalid_link.stderr
+            )
+            invalid_report = json.loads(invalid_link.stdout)
+            assert invalid_report["checks"]["runtime"]["path"] == ""
+            assert invalid_report["checks"]["stdlib"]["path"] == ""
+
+    # An executable in an archive-style <home>/bin directory owns that payload
+    # even when it is incomplete. Falling through to the hostile CWD would hide
+    # a damaged installation and compile attacker-controlled runtime sources.
+    incomplete_home = root / "doctor-incomplete-adjacent"
+    incomplete_bin = incomplete_home / "bin"
+    incomplete_bin.mkdir(parents=True)
+    incomplete_compiler = incomplete_bin / compiler.name
+    shutil.copy2(compiler, incomplete_compiler)
+    (incomplete_home / "runtime").mkdir()
+    shutil.copy2(
+        repo / "freakc" / "runtime" / "freak_runtime.c",
+        incomplete_home / "runtime" / "freak_runtime.c",
+    )
+    incomplete_env = shadow_env.copy()
+    incomplete_env["HOME"] = str(root / "doctor-empty-home")
+    incomplete_env["APPDATA"] = str(root / "doctor-empty-appdata")
+    incomplete_env["LOCALAPPDATA"] = str(root / "doctor-empty-localappdata")
+    incomplete_env["ProgramFiles"] = str(root / "doctor-empty-program-files")
+    incomplete_env["ProgramFiles(x86)"] = str(
+        root / "doctor-empty-program-files-x86"
+    )
+    incomplete = run_cli(
+        incomplete_compiler, shadow_cwd, incomplete_env, "doctor", "--json"
+    )
+    assert incomplete.returncode != 0, incomplete.stdout + incomplete.stderr
+    incomplete_report = json.loads(incomplete.stdout)
+    assert Path(incomplete_report["checks"]["runtime"]["path"]).resolve() == (
+        incomplete_home / "runtime"
+    ).resolve()
+    assert Path(incomplete_report["checks"]["stdlib"]["path"]).resolve() == (
+        incomplete_home / "std"
+    ).resolve()
+    assert incomplete_report["checks"]["abi"]["ok"] is False
+    incomplete_build = run_cli(
+        incomplete_compiler,
+        shadow_cwd,
+        incomplete_env,
+        "build",
+        str(abi_source),
+        "--c",
+    )
+    assert incomplete_build.returncode != 0
+    assert "abi mismatch" in incomplete_build.stdout.lower()
+    assert not Path(str(abi_source) + ".c").exists()
+
+    if sys.platform == "win32":
+        resolution_error_prefix = "!freak-payload-resolution-error!"
+        # WinGet exposes an alias from Microsoft/WinGet/Links rather than the
+        # package's bin directory. The registered package must beat both CWD
+        # and an unrelated default AppData installation.
+        winget_local = root / "doctor-winget-localappdata"
+        winget_home = (
+            winget_local
+            / "Microsoft"
+            / "WinGet"
+            / "Packages"
+            / "FREAK.freak_fixture"
+            / "freak"
+        )
+        populate_payload(repo, winget_home, entries)
+        winget_alias_dir = winget_local / "Microsoft" / "WinGet" / "Links"
+        winget_alias_dir.mkdir(parents=True)
+        winget_compiler = winget_alias_dir / compiler.name
+        shutil.copy2(compiler, winget_compiler)
+        unrelated_appdata_home = root / "doctor-winget-appdata" / "freak"
+        populate_payload(repo, unrelated_appdata_home, entries)
+        winget_env = shadow_env.copy()
+        winget_env["LOCALAPPDATA"] = str(winget_local)
+        winget_env["APPDATA"] = str(unrelated_appdata_home.parent)
+        winget_env["HOME"] = str(root / "doctor-winget-empty-home")
+        winget_env["ProgramFiles"] = str(root / "doctor-winget-program-files")
+        winget_env["ProgramFiles(x86)"] = str(
+            root / "doctor-winget-program-files-x86"
+        )
+        winget = run_cli(
+            winget_compiler, shadow_cwd, winget_env, "doctor", "--json"
+        )
+        assert winget.returncode == 0, winget.stdout + winget.stderr
+        winget_report = json.loads(winget.stdout)
+        assert Path(winget_report["checks"]["runtime"]["path"]).resolve() == (
+            winget_home / "runtime"
+        ).resolve()
+        assert Path(winget_report["checks"]["stdlib"]["path"]).resolve() == (
+            winget_home / "std"
+        ).resolve()
+
+        # A real Windows command invocation supplies slashless argv[0] and
+        # relies on `where`. Restrict lookup to PATH so a same-named CWD file
+        # cannot hide the WinGet alias that owns the package scope.
+        slashless_decoy = shadow_cwd / compiler.name
+        slashless_decoy.write_text("not a Windows executable\n", encoding="utf-8")
+        slashless_winget_env = winget_env.copy()
+        slashless_winget_env["PATH"] = (
+            str(winget_alias_dir)
+            + os.pathsep
+            + slashless_winget_env.get("PATH", "")
+        )
+        slashless_winget = subprocess.run(
+            [compiler.name, "doctor", "--json"],
+            executable=str(winget_compiler),
+            cwd=shadow_cwd,
+            env=slashless_winget_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=180,
+            check=False,
+        )
+        assert slashless_winget.returncode == 0, (
+            slashless_winget.stdout + slashless_winget.stderr
+        )
+        slashless_winget_report = json.loads(slashless_winget.stdout)
+        assert Path(
+            slashless_winget_report["checks"]["runtime"]["path"]
+        ).resolve() == (winget_home / "runtime").resolve()
+        assert Path(
+            slashless_winget_report["checks"]["stdlib"]["path"]
+        ).resolve() == (winget_home / "std").resolve()
+        slashless_decoy.unlink()
+
+        # An alias with zero matching packages is still authoritative. Return
+        # an explicit resolution error instead of falling through to a complete
+        # but unrelated AppData installation or the project CWD.
+        empty_winget_local = root / "doctor-winget-empty-localappdata"
+        empty_packages = empty_winget_local / "Microsoft" / "WinGet" / "Packages"
+        empty_packages.mkdir(parents=True)
+        empty_alias_dir = empty_winget_local / "Microsoft" / "WinGet" / "Links"
+        empty_alias_dir.mkdir()
+        empty_alias = empty_alias_dir / compiler.name
+        shutil.copy2(compiler, empty_alias)
+        missing_alias_collision = empty_packages / ".freak-missing-alias-package"
+        populate_payload(repo, missing_alias_collision, entries)
+        empty_appdata_home = root / "doctor-winget-empty-appdata" / "freak"
+        populate_payload(repo, empty_appdata_home, entries)
+        empty_alias_env = winget_env.copy()
+        empty_alias_env["LOCALAPPDATA"] = str(empty_winget_local)
+        empty_alias_env["APPDATA"] = str(empty_appdata_home.parent)
+        empty_alias_env["HOME"] = str(root / "doctor-winget-zero-empty-home")
+        empty_alias_env["ProgramFiles"] = str(
+            root / "doctor-winget-zero-program-files"
+        )
+        empty_alias_env["ProgramFiles(x86)"] = str(
+            root / "doctor-winget-zero-program-files-x86"
+        )
+        empty_alias_result = run_cli(
+            empty_alias, shadow_cwd, empty_alias_env, "doctor", "--json"
+        )
+        assert empty_alias_result.returncode != 0
+        empty_alias_report = json.loads(empty_alias_result.stdout)
+        missing_runtime = empty_alias_report["checks"]["runtime"]["path"]
+        missing_std = empty_alias_report["checks"]["stdlib"]["path"]
+        assert missing_runtime.startswith(
+            resolution_error_prefix + "winget-missing-alias-package|"
+        )
+        assert missing_std.startswith(
+            resolution_error_prefix + "winget-missing-alias-package|"
+        )
+        assert ".freak-missing-alias-package" not in missing_runtime
+        assert empty_alias_report["checks"]["abi"]["runtime"] == "resolution-error"
+        missing_alias_build = run_cli(
+            empty_alias,
+            shadow_cwd,
+            empty_alias_env,
+            "build",
+            str(abi_source),
+            "--c",
+        )
+        assert missing_alias_build.returncode != 0
+        assert "payload resolution failed" in missing_alias_build.stdout.lower()
+        assert not Path(str(abi_source) + ".c").exists()
+
+        # An alias scope containing more than one matching package is
+        # ambiguous. Neither an incomplete stale package nor two complete
+        # packages may be selected by filesystem enumeration order.
+        stale_package = (
+            winget_local
+            / "Microsoft"
+            / "WinGet"
+            / "Packages"
+            / "FREAK.freak_stale"
+        )
+        ambiguous_collision = (
+            winget_local
+            / "Microsoft"
+            / "WinGet"
+            / "Packages"
+            / ".freak-ambiguous-installation"
+        )
+        populate_payload(repo, ambiguous_collision, entries)
+        stale_package.mkdir(parents=True)
+        stale_ambiguous = run_cli(
+            winget_compiler, shadow_cwd, winget_env, "doctor", "--json"
+        )
+        assert stale_ambiguous.returncode != 0
+        stale_report = json.loads(stale_ambiguous.stdout)
+        stale_runtime = stale_report["checks"]["runtime"]["path"]
+        assert stale_runtime.startswith(
+            resolution_error_prefix + "winget-ambiguous-packages|"
+        )
+        assert ".freak-ambiguous-installation" not in stale_runtime
+        assert stale_report["checks"]["abi"]["runtime"] == "resolution-error"
+        populate_payload(repo, stale_package / "freak", entries)
+        complete_ambiguous = run_cli(
+            winget_compiler, shadow_cwd, winget_env, "doctor", "--json"
+        )
+        assert complete_ambiguous.returncode != 0
+        complete_report = json.loads(complete_ambiguous.stdout)
+        assert complete_report["checks"]["stdlib"]["path"].startswith(
+            resolution_error_prefix + "winget-ambiguous-packages|"
+        )
+        ambiguous_build = run_cli(
+            winget_compiler,
+            shadow_cwd,
+            winget_env,
+            "build",
+            str(abi_source),
+            "--c",
+        )
+        assert ambiguous_build.returncode != 0
+        assert "payload resolution failed" in ambiguous_build.stdout.lower()
+        assert not Path(str(abi_source) + ".c").exists()
+        shutil.rmtree(stale_package)
+
+        # Machine-scope aliases live under Program Files/WinGet/Links and must
+        # bind to the sibling machine Packages root, not AppData or a user
+        # WinGet package with the same public ABI marker.
+        machine_program_files = root / "doctor-machine-program-files"
+        machine_home = (
+            machine_program_files
+            / "WinGet"
+            / "Packages"
+            / "FREAK.freak_machine"
+            / "freak"
+        )
+        populate_payload(repo, machine_home, entries)
+        machine_alias_dir = machine_program_files / "WinGet" / "Links"
+        machine_alias_dir.mkdir(parents=True)
+        machine_compiler = machine_alias_dir / compiler.name
+        shutil.copy2(compiler, machine_compiler)
+        machine_env = winget_env.copy()
+        machine_env["ProgramFiles"] = str(machine_program_files)
+        machine = run_cli(
+            machine_compiler, shadow_cwd, machine_env, "doctor", "--json"
+        )
+        assert machine.returncode == 0, machine.stdout + machine.stderr
+        machine_report = json.loads(machine.stdout)
+        assert Path(machine_report["checks"]["runtime"]["path"]).resolve() == (
+            machine_home / "runtime"
+        ).resolve()
+        assert Path(machine_report["checks"]["stdlib"]["path"]).resolve() == (
+            machine_home / "std"
+        ).resolve()
+
+        machine_pending = machine_home / "bin" / ".freak-upgrade-pending"
+        machine_pending.parent.mkdir(parents=True, exist_ok=True)
+        machine_pending.write_text(
+            "v0.14.1|wait-pid=machine-fixture\n", encoding="utf-8"
+        )
+        machine_pending_doctor = run_cli(
+            machine_compiler, shadow_cwd, machine_env, "doctor", "--json"
+        )
+        assert machine_pending_doctor.returncode != 0
+        assert json.loads(machine_pending_doctor.stdout)["checks"]["upgrade"][
+            "pending"
+        ] is True
+        for command in ("build", "run"):
+            rejected = run_cli(
+                machine_compiler,
+                shadow_cwd,
+                machine_env,
+                command,
+                str(abi_source),
+                "--c",
+            )
+            assert rejected.returncode != 0
+            assert "upgrade pending" in rejected.stdout.lower()
+        machine_pending.unlink()
+
+        # A non-adjacent compiler using the default AppData payload must see
+        # durable deferred-upgrade state even without FREAK_HOME.
+        default_appdata = root / "doctor-default-appdata"
+        default_home = default_appdata / "freak"
+        populate_payload(repo, default_home, entries)
+        default_pending = default_home / "bin" / ".freak-upgrade-pending"
+        default_pending.parent.mkdir(parents=True)
+        default_pending.write_text("v0.14.1|wait-pid=fixture\n", encoding="utf-8")
+        detached_bin = root / "doctor-detached" / "tools"
+        detached_bin.mkdir(parents=True)
+        (detached_bin.parent / "bin").mkdir()
+        detached_compiler = detached_bin / compiler.name
+        shutil.copy2(compiler, detached_compiler)
+        default_env = shadow_env.copy()
+        default_env["APPDATA"] = str(default_appdata)
+        default_env["LOCALAPPDATA"] = str(root / "doctor-default-localappdata")
+        default_env["HOME"] = str(root / "doctor-default-empty-home")
+        default_env["ProgramFiles"] = str(root / "doctor-default-program-files")
+        default_env["ProgramFiles(x86)"] = str(
+            root / "doctor-default-program-files-x86"
+        )
+        default_doctor = run_cli(
+            detached_compiler, shadow_cwd, default_env, "doctor", "--json"
+        )
+        assert default_doctor.returncode != 0
+        default_report = json.loads(default_doctor.stdout)
+        assert default_report["checks"]["upgrade"]["pending"] is True
+        assert Path(default_report["checks"]["upgrade"]["marker"]).resolve() == (
+            default_pending
+        ).resolve()
+        default_build = run_cli(
+            detached_compiler,
+            shadow_cwd,
+            default_env,
+            "build",
+            str(abi_source),
+            "--c",
+        )
+        assert default_build.returncode != 0
+        assert "upgrade pending" in default_build.stdout.lower()
+        assert not Path(str(abi_source) + ".c").exists()
+
+        # cmd.exe reports WINDIR when it is launched from a UNC cwd. Reject
+        # that reported directory even when a same-named, complete-payload
+        # decoy exists there; existence alone is not executable identity.
+        fallback_home = root / "doctor-windows-cwd-fallback-home"
+        populate_payload(repo, fallback_home, entries)
+        fallback_bin = fallback_home / "bin"
+        fallback_bin.mkdir()
+        fallback_name = "freak-windows-cwd-fallback-probe.exe"
+        fallback_decoy = fallback_bin / fallback_name
+        shutil.copy2(compiler, fallback_decoy)
+        fallback_env = repo_env.copy()
+        fallback_env.pop("WINDIR", None)
+        fallback_env["SystemRoot"] = str(fallback_bin)
+        fallback = subprocess.run(
+            [f".\\{fallback_name}", "doctor", "--json"],
+            executable=str(compiler),
+            cwd=fallback_bin,
+            env=fallback_env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=180,
+            check=False,
+        )
+        assert fallback.returncode != 0, fallback.stdout + fallback.stderr
+        fallback_report = json.loads(fallback.stdout)
+        assert fallback_report["platform"]["os"] == "windows"
+        assert fallback_report["checks"]["runtime"]["path"] == ""
+        assert fallback_report["checks"]["stdlib"]["path"] == ""
+
+        # Every Windows caller must share the same WINDIR-or-SystemRoot
+        # classification. Exercise the public upgrade route with WINDIR absent
+        # and a controlled local PowerShell installer so no network is used.
+        system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
+        assert system_root, "Windows regression requires SystemRoot or WINDIR"
+        systemroot_doctor_env = env.copy()
+        systemroot_doctor_env.pop("WINDIR", None)
+        systemroot_doctor_env["SystemRoot"] = system_root
+        systemroot_doctor = run_cli(
+            compiler, shadow_cwd, systemroot_doctor_env, "doctor", "--json"
+        )
+        assert systemroot_doctor.returncode == 0, (
+            systemroot_doctor.stdout + systemroot_doctor.stderr
+        )
+        systemroot_report = json.loads(systemroot_doctor.stdout)
+        assert systemroot_report["status"] == "ok"
+        assert systemroot_report["platform"] == {"os": "windows", "windows": True}
+        assert systemroot_report["checks"]["clang"]["ok"] is True
+        assert systemroot_report["checks"]["clang"]["cleanup_retained"] == ""
+
+        systemroot_appdata = root / "doctor-systemroot-only-appdata"
+        systemroot_marker = root / "doctor-systemroot-only-upgrade.txt"
+        systemroot_script = root / "doctor-systemroot-only-upgrade.ps1"
+        systemroot_script.write_text(
+            "param([switch]$Upgrade, [switch]$SkipDeps)\n"
+            "$value = $env:FREAK_HOME + '|' + $Upgrade + '|' + $SkipDeps\n"
+            "Set-Content -LiteralPath $env:FREAK_SYSTEMROOT_UPGRADE_MARKER "
+            "-Value $value -Encoding UTF8\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        systemroot_env = repo_env.copy()
+        systemroot_env.pop("WINDIR", None)
+        systemroot_env.pop("FREAK_HOME", None)
+        systemroot_env["SystemRoot"] = system_root
+        systemroot_env["APPDATA"] = str(systemroot_appdata)
+        systemroot_env["FREAK_UPGRADE_SCRIPT"] = str(systemroot_script)
+        systemroot_env["FREAK_SYSTEMROOT_UPGRADE_MARKER"] = str(systemroot_marker)
+        systemroot_upgrade = run_cli(
+            compiler, shadow_cwd, systemroot_env, "upgrade"
+        )
+        assert systemroot_upgrade.returncode == 0, (
+            systemroot_upgrade.stdout + systemroot_upgrade.stderr
+        )
+        expected_systemroot_home = systemroot_appdata / "freak"
+        marker_text = systemroot_marker.read_text(encoding="utf-8-sig").strip()
+        assert marker_text.replace("\\", "/").lower() == (
+            f"{expected_systemroot_home.as_posix()}|true|true".lower()
+        ), marker_text
+        assert not (expected_systemroot_home / ".freak-upgrade-launch.ps1").exists()
+
+        # Exercise the real UNC behavior when the runner exposes its temporary
+        # drive through the standard localhost administrative share. Hardened
+        # hosts may disable that share; the deterministic decoy case above is
+        # the mandatory guard coverage on every Windows run.
+        resolved_root = root.resolve()
+        if len(resolved_root.drive) == 2 and resolved_root.drive[1] == ":":
+            unc_root = (
+                Path(rf"\\localhost\{resolved_root.drive[0]}$")
+                / resolved_root.relative_to(resolved_root.anchor)
+            )
+            if unc_root.exists():
+                unc_home_local = root / "doctor-unc-relative-home"
+                populate_payload(repo, unc_home_local, entries)
+                unc_bin_local = unc_home_local / "bin"
+                unc_bin_local.mkdir()
+                unc_name = "freak-unc-relative-probe.exe"
+                unc_compiler_local = unc_bin_local / unc_name
+                shutil.copy2(compiler, unc_compiler_local)
+                unc_bin = unc_root / "doctor-unc-relative-home" / "bin"
+                unc = subprocess.run(
+                    [f".\\{unc_name}", "doctor", "--json"],
+                    executable=str(unc_compiler_local),
+                    cwd=unc_bin,
+                    env=repo_env,
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    timeout=180,
+                    check=False,
+                )
+                assert unc.returncode != 0, unc.stdout + unc.stderr
+                unc_report = json.loads(unc.stdout)
+                assert unc_report["checks"]["runtime"]["path"] == ""
+                assert unc_report["checks"]["stdlib"]["path"] == ""
 
     # Direct archive use (`cd <home>/bin && ./freak`) supplies a relative
     # argv[0]. It must still resolve the executable-adjacent payload before

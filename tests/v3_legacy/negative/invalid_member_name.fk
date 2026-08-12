@@ -1,0 +1,1 @@
+task main() { pilot text = "x" say text.7 }

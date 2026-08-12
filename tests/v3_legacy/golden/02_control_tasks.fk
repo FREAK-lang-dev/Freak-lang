@@ -1,0 +1,27 @@
+task triple(value: int) -> int {
+    give back value * 3
+}
+
+task main() {
+    pilot total: int = 0
+    repeat 4 times {
+        total += triple(1)
+    }
+
+    if total == 12 {
+        say "branch-ok"
+    } else {
+        say "branch-bad"
+    }
+
+    when total {
+        12 -> say "match-ok"
+        _ -> say "match-bad"
+    }
+
+    pilot energy: int = 0
+    training arc until energy >= 3 max 5 sessions {
+        energy += 1
+    }
+    say word_from_int(energy)
+}

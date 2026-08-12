@@ -50,13 +50,13 @@ Pipeline (full compiler):
 | §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, body-derived provenance/source discovery through projection/scalar-holder/projected-reborrow/statically resolved call/reordered-argument/CFG-join paths with bounded deterministic loop-header/backedge fixed points, all-candidate final-use liveness (including elided multi-owner results), and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed child provenance, projection-assignment rebinding (including conservative dynamic-index overlap), field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Generic-call, owner-generic, and `Shared<T>::new` checks recursively expose nominal shape/route lends before substitution; direct nominal impl and overloaded operator calls on lend-bearing owners fail closed, and classifier depth exhaustion has a distinct diagnostic. First-pass closure capture ownership (`CaptureBorrow`, `CaptureBorrowMut`, `CaptureCopy`, `CaptureMove`) with stored-closure loan liveness and OneShot consumption, queryable Meiya-owned loan/move facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating also exist. Declaration-order children use `freak-mir-snapshot-v5`; v4 is rejected, and restore re-resolves IDs in a fresh borrowck generation. Ordinary-task fixed-layout aggregate parameters and returns now preserve leaf provenance; non-ordinary aggregate task parameters and returns, dynamic and wrapper containers, lend-bearing aliases/doctrine/callback contracts, signature-derived lifetime solving beyond declared ordinary-task relations, general lexical region inference, `'static`, general arena reclamation, runtime `Shared<T>`/`Weak<T>` depth, closure `Send`/`Sync`, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax exists, but borrowed-return closure contracts and forwarding do not yet. No fixed-aggregate backend or runtime ABI is claimed. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
-| §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; ui partial (Phase MA-MF complete, MG pending). Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
+| §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; V3 ui is limited to the LLVM/Windows Win32-GDI floor and COCKPIT remains a Maverick source preview. Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
 | §8 Lexer | ⚠️ Partial | All v0.13.x keywords lex. V4 token streams now carry `'a` lifetimes and number suffixes (`42u`/`3.14f`/`42t`/`999b`); the `\|\|` xm3 separator and remaining production recovery depth are still V4. |
 | §9 Parser | ⚠️ Partial | Tolerant parsing (`ErrorNode`/`IncompleteNode`, recovery boundaries, IDE-grade incremental parsing) is V4. v1 (Python) parser fails on V3-superset syntax — V3 self-hosting compiler is the bible-conformant parser. |
 | §10 Type Checker | ⚠️ Partial | Most semantic checks listed (power arithmetic, prob ranges, foreshadow strict enforcement, classified redaction, full FFI safety) are V4. V4 now validates route exhaustiveness, first-pass `dyn Doctrine` object-safety/coercion contracts, and the basic `@layout(C)` / `packed` / `transparent` contracts; deeper layout and backend guarantees still expand. |
 | §11 Code Generation | ⚠️ Partial | Basic codegen works on both LLVM and C backends. LLVM emits LineTablesOnly DWARF (DISubprogram per function + per-instruction `!dbg`). Special codegen for `mood`/variants/`dyn` fat-pointer vtables/`Shared<T>` runtime headers/optimization pragmas/classified symbol stripping is V4; extern ABI lowering is partial in V4. JIT (OrcJIT) is V4. |
 | §12 Build Modes | 🔜 V4 | `slice_of_life`/`mecha`/`shonen_jump`/`final_form`/`alternative` modes are V4. v0.13.x has only LLVM `--opt=0..3` and `--c`/`--llvm` backend selection. |
-| §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`. V4: `freak vibe`, `freak test`, `--voice=…`, `--clearance=…`, `--build-mode=…`, `-o output_path`. |
+| §13 Compiler CLI | ⚠️ Partial | Implemented: `run`, `build`, `check`, `transpile`, `version`, `help`, `init`, `flex`, `doctor`, `hangar`, `audit-science`, `audit-trust`, `audit-miracles`, `foreshadow-audit`, `audit-conformance`; `freak test` is a source-checkout Python regression shim, not an installed in-language test framework. V4: `freak vibe`, the `test "name" { ... }` framework, `--voice=…`, `--clearance=…`, `--build-mode=…`, `-o output_path`. |
 | §14 Error Voices | 🔜 V4 | Voice routing (Meiya/Yuuko/Sagiri/Sumika/Kasumi/Takeru/Mana/Hayase/00-Unit per error class) is V4. v0.13.x uses generic phrasing; the borrow checker has signature anime lines (`"Shirogane. You gave this away."`) but they are not character-routed. |
 | §15 Cheatsheet | ⚠️ Partial | Reflects §1-§14 status. |
 | §16 FFI | ⚠️ Partial | V4 has landed substantial section-16 work (extern ABI metadata, layout attributes, callback surface validation + `@extern_callback` task export with trampolines, stack-unwinder import diagnostics, raw-pointer `.is_null()`, trust-me-gated `*ptr`/`.read()` read, `*ptr = value`/`.write(value)` write, `.offset(n)`, `.cast<U>()`, fieldless `@repr(...)` route/variant FFI safety, and more). Per-landing breakdown lives in [freak-conformance-audit.md §16](freak-conformance-audit.md#§16-system-boundaries-ffi). Still V4: runtime panic-catch in trampoline bodies, raw allocation/freeing, `std::os` platform modules, error-code translation. |
@@ -155,7 +155,10 @@ connect(host: "localhost", port: 8080, timeout: 30)
 - `task` — function keyword
 - `give back` — return keyword
 - `say` — print keyword (always available, no import)
-- String interpolation: `{expr}` inside double-quoted strings
+- String path interpolation: `{path}` inside double-quoted strings, where a
+  path is an identifier followed by zero or more `.field` hops. The path must
+  resolve to `word`, `int`, `num`, or `bool`. Matched brace bodies that are not
+  paths, and unmatched braces, remain literal text.
 - `{}` and `done` are identical block delimiters
 
 ### 1.3 Types — Primitive
@@ -1709,7 +1712,7 @@ freak hangar clean         -- clear cache
 | `std::json`, `std::http` | ✅ Implemented (pure FREAK + TCP runtime) |
 | `std::fs`, `std::time`, `std::bytes` | ✅ Implemented (C runtime) |
 | `std::process` | ⚠️ Partial in shipping V3; the normative `args() -> List<word>` surface requires the V4 list ABI |
-| `std::ui` | ⚠️ Partial — Phase MA-MF complete (window, layout, widgets, themes, animation); MG (polish + Hangar publish) pending |
+| `std::ui` | ⚠️ Partial in V3 — LLVM/Windows Win32-GDI window, indexed event, and raw drawing floor only; no owned event-list API, POSIX native backend, or executable C UI path. COCKPIT is a Maverick source preview, not a frozen-V3 package. |
 | `std::thread` (`spawn`, atomics, channels) | 🔜 V4 |
 | `std::anime` (mood arithmetic, power checks) | 🔜 V4 (depends on §2 types) |
 | `std::narrative` (death-flag analysis, foreshadow logs) | 🔜 V4 (depends on §5 enforcement) |
@@ -2540,7 +2543,7 @@ alternative     -- special mode. enables ALL anime features. full causality.
 | `freak audit-science`, `freak audit-trust`, `freak audit-miracles`, `freak foreshadow-audit` | ✅ Implemented (native CLI shells out to Python; native FREAK port is V4) |
 | `freak audit-conformance` | ✅ Implemented (verifies §0.2 status table against the code) |
 | `--llvm`, `--c`, `--opt=0..3`, `--target=TRIPLE`, `--strict-borrow` | ✅ Implemented |
-| `freak test` | ✅ Implemented — wraps `python tests/suite/run_tests.py`. The test framework with `test "name" { expect ... to be ... }` and vibes ratings is still 🔜 V4. |
+| `freak test` | 🧰 Source-checkout shim — wraps `python tests/suite/run_tests.py`; it is not included in standalone release archives. The in-language framework with `test "name" { expect ... to be ... }` and vibes ratings is still 🔜 V4. |
 | `freak vibe` | 🔜 V4 |
 | `--voice=[character]` flag | 🔜 V4 (depends on §14) |
 | `--clearance=TOP_SECRET` flag | 🔜 V4 (depends on `@classified`) |
@@ -2552,7 +2555,7 @@ alternative     -- special mode. enables ALL anime features. full causality.
 freak run file.fk             -- compile and run
 freak build file.fk           -- compile to binary
 freak check file.fk           -- type check + borrow check only
-freak test                    -- run all test blocks
+freak test                    -- source-checkout Python regression shim (not test blocks)
 freak vibe file.fk            -- Opus vibe analysis
 
 freak hangar [command]        -- package manager (see Section 6.3)

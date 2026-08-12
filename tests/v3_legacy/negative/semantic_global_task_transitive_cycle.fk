@@ -1,0 +1,14 @@
+pilot first: int = outer()
+
+task outer() -> int {
+    give back inner()
+}
+
+task inner() -> int {
+    if false { give back outer() }
+    give back first
+}
+
+task main() {
+    say first
+}

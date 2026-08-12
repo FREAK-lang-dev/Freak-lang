@@ -1,0 +1,7 @@
+shape Box { value: int }
+
+task main() {
+    pilot box = Box { value: 1 }
+    say box
+        .missing()
+}

@@ -1,0 +1,5 @@
+extern task freak_internal_delete_file_checked(path: word) -> bool
+
+task main() {
+    freak_internal_delete_file_checked("must-not-map")
+}

@@ -43,6 +43,9 @@ pilot EXPR_INDEX = "11"
 -- `[a, b, c]` — value is unused, left holds the comma-separated list of
 -- element expr ids (same encoding as call args).
 pilot EXPR_ARRAY_LIT = "12"
+-- Ordered interpolation segments live in `left` as comma-separated expr ids.
+-- Literal segments are EXPR_STR; path segments are EXPR_IDENT/EXPR_FIELD.
+pilot EXPR_INTERP = "13"
 
 pilot ast_expr_kinds = 0
 pilot ast_expr_vals = 0
@@ -50,6 +53,9 @@ pilot ast_expr_lefts = 0
 pilot ast_expr_rights = 0
 pilot ast_expr_files = 0
 pilot ast_expr_lines = 0
+-- Shape-constructor source labels, comma-separated and aligned with `left`.
+-- Other expression kinds store an empty string at the same expression id.
+pilot ast_expr_labels = 0
 
 -- ===================== AST STATEMENT KINDS =========================
 pilot STMT_PILOT = "1"
@@ -68,6 +74,7 @@ pilot STMT_BREAK = "13"
 pilot STMT_CONTINUE = "14"
 pilot STMT_EVENTUALLY = "15"
 pilot STMT_EXTERN = "16"
+pilot STMT_IMPL = "17"
 
 pilot ast_stmt_kinds = 0
 pilot ast_stmt_names = 0
@@ -106,13 +113,21 @@ pilot bc_sym_lines  = 0
 pilot bc_sym_count  = 0
 pilot bc_scope_depth = 0
 
--- Minimal always-on nominal member checking (shape fields/impl methods).
+-- Always-on V3 semantic checking state.  These tables and context scalars are
+-- reset for every compilation before any emitter is allowed to run.
 pilot tc_global_names = 0
 pilot tc_global_types = 0
 pilot tc_global_count = 0
+pilot tc_global_visibility_count = 0 - 1
+pilot tc_dependency_pending_calls = 0
 pilot tc_local_names = 0
 pilot tc_local_types = 0
 pilot tc_local_count = 0
+pilot tc_local_scope_start = 0
+pilot tc_current_task_name = ""
+pilot tc_current_return_type = ""
+pilot tc_loop_depth = 0
+pilot tc_direct_top_stmt = false
 -- Hash-indexed callable signatures for the always-on checker. Keeping these
 -- separate from the AST avoids rescanning every top-level statement for each
 -- call, method, and return-type query.
@@ -147,6 +162,7 @@ pilot parse_error_count = 0
 pilot error_count = 0
 pilot next_expr_id = 0
 pilot next_stmt_id = 0
+pilot bc_current_source_file = ""
 
 -- ===================== EMIT STATE ==================================
 -- v3 KEY CHANGE: out_file replaces out_buf. All emit() calls
@@ -170,6 +186,8 @@ pilot emt_extern_rets = 0
 pilot emt_extern_count = 0
 pilot emt_current_word_params = ""
 pilot emt_current_return_type = ""
+pilot emt_current_word_local_base = 0
+pilot emt_loop_word_cleanup_base = 0 - 1
 
 -- LLVM emitter state
 pilot llvm_line_count = 0
@@ -184,6 +202,9 @@ pilot llvm_task_reg_count = 0
 pilot llvm_cur_func_is_void = false
 pilot llvm_cur_func_returns_word = false
 pilot llvm_current_word_params = ""
+pilot llvm_word_local_slots = ""
+pilot llvm_loop_word_cleanup_prefix = ""
+pilot llvm_last_borrowed_cleanup = ""
 pilot llvm_declared_funcs = ""
 pilot llvm_loop_end_label = ""
 pilot llvm_loop_cond_label = ""

@@ -1684,8 +1684,11 @@ def audit_conformance(paths: List[Path]) -> int:
         "build invalidation": (
             repo / "src" / "cli" / "build.fk",
             (
-                'pilot run_cache_file = cli_binary_path(src_file) + ".freak-run-cache"',
-                "fs::delete(run_cache_file)",
+                "task cli_invalidate_build_outputs",
+                'pilot cache_file = binary + ".freak-run-cache"',
+                "cli_delete_derived_artifact(binary)",
+                "cli_delete_derived_artifact(cache_file)",
+                "untrusted stale artifact could not be removed",
                 "task cli_cross_target_is_safe",
                 "invalid target triple",
                 'pilot use_bundle = is_win and cross == "" and runtime_obj_ext != ""',
@@ -1721,7 +1724,7 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "tests" / "v3_codegen_error_gate.py",
             (
                 "assert_builtin_signature_parity",
-                "unsupported_c_intrinsics",
+                "internal_lowering_intrinsics",
                 "classified - llvm_mapped == set()",
                 "builtin_wrappers.fk",
                 "extern_builtin_collision.fk",
@@ -1749,6 +1752,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "stale object",
                 "runtime_objects",
                 "Linking packaged Windows runtime objects",
+                "failed rebuild preserved an untrusted stale binary",
                 "failed rebuild left stale freshness proof",
             ),
         ),
@@ -1885,7 +1889,132 @@ def audit_conformance(paths: List[Path]) -> int:
             + "; ".join(run_freshness_missing)
         )
 
-    # Check 6c: one complete distribution manifest drives release/install,
+    # Check 6c: V3 freezes path interpolation as an ordinary owned word
+    # expression. Non-path brace bodies are literal compatibility text.
+    interpolation_missing: List[str] = []
+    interpolation_sources = {
+        "bible": (
+            bible,
+            ("String path interpolation", "`{path}`", "remain literal text"),
+        ),
+        "audit": (
+            audit_doc,
+            ("String path interpolation", "IDENT(.IDENT)*", "tests/v3_interpolation.py"),
+        ),
+        "parser": (
+            repo / "src" / "compiler" / "v3" / "parser.fk",
+            ("parser_interp_path_valid", "lex_ident_token_type", "EXPR_INTERP"),
+        ),
+        "checker": (
+            repo / "src" / "compiler" / "v3" / "checker.fk",
+            ("EXPR_INTERP", "unknown interpolation binding"),
+        ),
+        "C emitter": (
+            repo / "src" / "compiler" / "v3" / "emit_c.fk",
+            ("emit_c_interp", "freak_word_append_owned"),
+        ),
+        "LLVM emitter": (
+            repo / "src" / "compiler" / "v3" / "emit_llvm.fk",
+            ("llvm_emit_interp", "@freak_llvm_word_append_owned"),
+        ),
+        "focused gate": (
+            repo / "tests" / "v3_interpolation.py",
+            ("LITERAL_PROGRAM", "NEGATIVE_PROGRAMS", "detect_leaks=1"),
+        ),
+        "preservation manifest": (
+            repo / "tests" / "v3_legacy" / "golden" / "cases.json",
+            ("freak.v3.legacy-golden.v2", "05_interpolation.fk"),
+        ),
+        "CI": (
+            repo / ".github" / "workflows" / "ci.yml",
+            ("tests/v3_interpolation.py", "tests/v3_legacy_golden.py"),
+        ),
+        "public backend status": (
+            repo / "README.md",
+            (
+                "C backend (`--c`) | ⚠️ Portability target",
+                "V3 shape storage is LLVM-only",
+            ),
+        ),
+    }
+    for label, (source_path, needles) in interpolation_sources.items():
+        if not source_path.exists():
+            interpolation_missing.append(f"{label}: {source_path.name} missing")
+            continue
+        source_text = source_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in source_text:
+                interpolation_missing.append(f"{label}: {needle}")
+    public_readme = repo / "README.md"
+    public_readme_text = (
+        public_readme.read_text(encoding="utf-8") if public_readme.exists() else ""
+    )
+    c_backend_status_rows = [
+        line
+        for line in public_readme_text.splitlines()
+        if line.startswith("| C backend (`--c`) |")
+    ]
+    if len(c_backend_status_rows) != 1:
+        interpolation_missing.append(
+            f"public backend status: expected one C backend row, found {len(c_backend_status_rows)}"
+        )
+    if "| C backend (`--c`) | ✅ Complete |" in public_readme_text:
+        interpolation_missing.append("public backend status: obsolete Complete claim")
+    add(
+        "V3 path interpolation",
+        not interpolation_missing,
+        "path-only C/LLVM expression contract + preservation evidence"
+        if not interpolation_missing
+        else f"{len(interpolation_missing)} gap(s)",
+    )
+    if interpolation_missing:
+        failures.append(
+            "V3 path interpolation contract regressed: "
+            + "; ".join(interpolation_missing)
+        )
+
+    lite_suite = repo / "tests" / "suite" / "run_tests.py"
+    lite_suite_text = (
+        lite_suite.read_text(encoding="utf-8") if lite_suite.exists() else ""
+    )
+    bible_path = repo / "freak-full-bible.md"
+    bible_text = (
+        bible_path.read_text(encoding="utf-8") if bible_path.exists() else ""
+    )
+    lite_suite_needles = (
+        'print(_bold("FREAK Lite / Python Bootstrap Regression Test Suite"))',
+        "python -m freakc",
+        "tests/v3_legacy_golden.py",
+        "`freak test` is a source-checkout Python shim",
+        "not embedded in release archives",
+        "Source-checkout shim — wraps `python tests/suite/run_tests.py`",
+        "source-checkout Python regression shim (not test blocks)",
+    )
+    lite_suite_sources = (lite_suite_text, public_readme_text, bible_text)
+    lite_suite_missing = [
+        needle
+        for needle in lite_suite_needles
+        if not any(needle in source for source in lite_suite_sources)
+    ]
+    old_runtime_label = 'print(_bold("FREAK Compiler Regression Test Suite"))'
+    if old_runtime_label in lite_suite_text:
+        lite_suite_missing.append("obsolete compiler-wide runtime banner")
+    if "freak test                    -- run all test blocks" in bible_text:
+        lite_suite_missing.append("obsolete in-language test-block command claim")
+    add(
+        "V3/FREAK Lite test boundary",
+        lite_suite.exists() and not lite_suite_missing,
+        "bootstrap runner labels itself and points to the V3 preservation gate"
+        if not lite_suite_missing
+        else f"{len(lite_suite_missing)} gap(s)",
+    )
+    if not lite_suite.exists() or lite_suite_missing:
+        failures.append(
+            "V3/FREAK Lite test boundary regressed: "
+            + ("runner missing" if not lite_suite.exists() else "; ".join(lite_suite_missing))
+        )
+
+    # Check 6d: one complete distribution manifest drives release/install,
     # doctor proves the usable toolchain, and `freak upgrade` stays live with
     # the immutable v0.14.0 migration boundary documented honestly.
     distribution_missing: List[str] = []
@@ -1986,6 +2115,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "Assert-DownloadedAssetChecksum",
                 "SHA256SUMS",
                 ".freak-install.lock",
+                "DeleteOnClose",
             ),
         ),
         "doctor": (
@@ -2031,6 +2161,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "Pre-compile Windows runtime objects",
                 "V3 parser/type errors gate code generation",
                 "V3 word replacement ownership",
+                "tests/v3_final_release_gate.py",
             ),
         ),
         "release": (
@@ -2041,15 +2172,37 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freak_runtime.obj dist/freak/runtime/",
                 "freak_llvm_runtime.obj dist/freak/runtime/",
                 "freak_ui_win32.obj dist/freak/runtime/",
+                "tests/v3_final_release_gate.py",
+                '--archive "$archive"',
+                "--standalone-freak",
+                "--standalone-hangar",
+                "--tested-sha256",
+                '! -name "*.tested.sha256"',
+                '$2 == "freak-macos-arm64.tar.gz"',
+                "sha256sum",
             ),
         ),
-        "release-shaped regression": (
-            repo / "tests" / "v3_release_install_smoke.py",
+        "final release gate": (
+            repo / "tests" / "v3_final_release_gate.py",
             (
                 "distribution-files.manifest",
-                "compile, link, and execution work",
-                "Linking packaged Windows runtime objects",
-                'installed_hangar), "--version"',
+                "assert_archive_contract",
+                "assert_archive_safety_controls",
+                "archive_payload_fingerprint",
+                "assert_exact_installed_discovery",
+                "assert_installed_abi_mismatch",
+                "assert_exact_archive_upgrade",
+                "FREAK_FINAL_GATE_STALE_HANGAR",
+                "FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES",
+                "FREAK_INSTALL_TEST_TERMINAL_CLEANUP_FAILURES",
+                "FREAK_INSTALL_TEST_RETRY_OBSERVED",
+                "v3_legacy_golden.py",
+                "--internal-child",
+                "v3_codegen_error_gate.py",
+                "v3_word_ownership.py",
+                "v3_word_concat.py",
+                "--runtime-root",
+                "V3 FINAL RELEASE GATE: PASS",
             ),
         ),
         "release version invariant": (

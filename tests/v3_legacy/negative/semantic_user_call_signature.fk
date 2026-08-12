@@ -1,0 +1,5 @@
+task consume(value: int, label: word) {}
+
+task main() {
+    consume("wrong")
+}

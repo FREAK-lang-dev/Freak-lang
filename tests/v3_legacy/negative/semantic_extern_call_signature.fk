@@ -1,0 +1,5 @@
+extern task foreign_value(value: int) -> int
+
+task main() {
+    foreign_value("wrong")
+}

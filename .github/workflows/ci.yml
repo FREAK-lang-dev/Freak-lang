@@ -55,6 +55,10 @@ jobs:
             echo "EXT=" >> "$GITHUB_ENV"
           fi
 
+      - name: V3 clean self-host fixed point
+        shell: bash
+        run: python -u tests/v3_fixed_point.py
+
       - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
         shell: bash
         run: |
@@ -98,13 +102,6 @@ jobs:
           clang -c freakc/runtime/freak_llvm_runtime.c -Ifreakc/runtime $CLANG_FLAGS -DFREAK_HAS_UI -o freakc/runtime/freak_llvm_runtime.obj
           clang -c freakc/runtime/ui/win32_backend.c -Ifreakc/runtime/ui $CLANG_FLAGS -o freakc/runtime/freak_ui_win32.obj
 
-      - name: Self-hosting test (V3 compiles itself)
-        shell: bash
-        run: |
-          ./build/freakc_v3_stage2$EXT build/freakc_v3.fk --c
-          clang -o build/freakc_v3_stage3$EXT build/freakc_v3.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
-          echo "V3 self-hosting: OK"
-
       - name: CLI smoke test — version
         shell: bash
         run: ./build/freak$EXT version
@@ -116,6 +113,22 @@ jobs:
       - name: V3 word replacement ownership
         shell: bash
         run: python -u tests/v3_word_ownership.py ./build/freak$EXT
+
+      - name: V3 repeated word concat scaling
+        shell: bash
+        run: python -u tests/v3_word_concat.py ./build/freak$EXT
+
+      - name: V3 path interpolation
+        shell: bash
+        run: python -u tests/v3_interpolation.py ./build/freak$EXT
+
+      - name: V3 legacy preservation corpus
+        shell: bash
+        run: python -u tests/v3_legacy_golden.py ./build/freak$EXT
+
+      - name: V3 frozen UI surface
+        shell: bash
+        run: python -u tests/v3_ui_surface.py ./build/freak$EXT
 
       - name: CLI smoke test - doctor JSON
         shell: bash
@@ -192,9 +205,12 @@ jobs:
         shell: bash
         run: python -u tests/v3_install_doctor_upgrade.py ./build/freak$EXT
 
-      - name: Test - release-shaped installed compiler
+      - name: Test - PR-built release-shaped V3 acceptance
         shell: bash
-        run: python -u tests/v3_release_install_smoke.py ./build/freak$EXT ./build/hangar$EXT
+        run: >-
+          python -u tests/v3_final_release_gate.py
+          ./build/freak$EXT ./build/hangar$EXT
+          --freakc ./build/freakc_v3_stage2$EXT
 
       - name: Test suite (regression tests)
         shell: bash

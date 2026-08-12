@@ -1,6 +1,8 @@
 # COCKPIT
 
-COCKPIT is FREAK's official immediate-mode UI framework.
+COCKPIT is the preserved source preview for FREAK's immediate-mode UI
+framework. Its supported implementation belongs to Maverick / 00-Unit; the
+frozen V3 compiler does not provide a complete executable COCKPIT surface.
 
 It is built on top of `std::ui` and gives you:
 - layout
@@ -9,16 +11,13 @@ It is built on top of `std::ui` and gives you:
 - input handling
 - simple animation helpers
 
-No widget trees. No callbacks. No retained-mode ceremony. You call UI functions in order and the frame renders.
+No widget trees. No callbacks. No retained-mode ceremony. The source records
+the intended call-in-order design, but it is not a V3 release package.
 
-## Install
+## Preserved design sketch
 
-```toml
-[dependencies]
-cockpit = { git = "https://github.com/FREAK-lang-dev/Freak-lang", version = "latest" }
-```
-
-## Use
+The following shows the intended Maverick-facing API. It is kept as design
+evidence and is not expected to build on frozen V3:
 
 ```fk
 use std::ui::{Window, WindowConfig}
@@ -47,7 +46,7 @@ task main() {
 }
 ```
 
-## Themes
+## Preserved themes
 
 - `Theme::default()`
 - `Theme::light()`
@@ -55,9 +54,14 @@ task main() {
 - `Theme::alternative()`
 - `Theme::muvluv()`
 
-## Examples
+## Design examples
 
 - [`examples/showcase.fk`](./examples/showcase.fk)
 - [`examples/calculator.fk`](./examples/calculator.fk)
 
 Legacy note: older docs may still refer to this package as `freak-ui`. The official public name is now `cockpit`.
+
+V3 does retain a smaller `std::ui` floor for LLVM builds on Windows using the
+Win32/GDI runtime. That floor exposes indexed raw events and drawing calls; it
+does not provide COCKPIT's collection/widget requirements, a POSIX UI backend,
+or executable C-backend shape storage.

@@ -1,0 +1,17 @@
+shape Point {
+    x: int
+    y: int
+}
+
+impl Point {
+    task area(self) -> int {
+        give back self.x * self.y
+    }
+}
+
+task main() {
+    pilot point: Point = Point { x: 3, y: 4 }
+    say point.x
+    say point.y
+    say point.area()
+}

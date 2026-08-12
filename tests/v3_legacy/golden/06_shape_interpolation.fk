@@ -1,0 +1,16 @@
+shape Hero {
+    name: word
+    score: int
+}
+
+impl Hero {
+    task summary(self) -> word {
+        give back "self={self.name}:{self.score}"
+    }
+}
+
+task main() {
+    pilot hero: Hero = Hero { name: "Ami", score: 42 }
+    say "shape={hero.name}:{hero.score}"
+    say hero.summary()
+}

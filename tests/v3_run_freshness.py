@@ -198,6 +198,68 @@ def main() -> int:
         assert_run(code, output, "CACHE_A", cache_hit=True)
         assert binary.stat().st_mtime_ns == first_mtime
 
+        # Build invalidation is ordered proof-first. If the cache proof cannot
+        # be removed, the old executable is preserved; if only the executable
+        # is undeletable, its proof is already gone before the build rejects.
+        blocked_source = source_dir / "blocked-invalidation.fk"
+        blocked_source.write_text('say "BLOCKED_INVALIDATION"\n', encoding="utf-8")
+        blocked_arg = Path(blocked_source.name)
+        blocked_binary = blocked_source.with_suffix(
+            ".exe" if sys.platform == "win32" else ""
+        )
+        blocked_sidecar = Path(str(blocked_binary) + ".freak-run-cache")
+        code, output = invoke(freak, source_dir, blocked_arg, "--c", env)
+        assert_run(code, output, "BLOCKED_INVALIDATION", cache_hit=False)
+        assert blocked_binary.is_file() and blocked_sidecar.is_file()
+
+        original_binary = blocked_binary.read_bytes()
+        blocked_sidecar.unlink()
+        blocked_sidecar.mkdir()
+        blocked_cache_result = subprocess.run(
+            [str(freak), "build", str(blocked_source), "--c"],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=120,
+            check=False,
+        )
+        blocked_cache_output = ANSI.sub(
+            "", blocked_cache_result.stdout + blocked_cache_result.stderr
+        )
+        assert blocked_cache_result.returncode != 0, blocked_cache_output
+        assert "untrusted stale artifact" in blocked_cache_output.lower()
+        assert blocked_sidecar.is_dir()
+        assert blocked_binary.read_bytes() == original_binary
+        blocked_sidecar.rmdir()
+
+        code, output = invoke(freak, source_dir, blocked_arg, "--c", env)
+        assert_run(code, output, "BLOCKED_INVALIDATION", cache_hit=False)
+        assert blocked_sidecar.is_file()
+        blocked_binary.unlink()
+        blocked_binary.mkdir()
+        blocked_binary_result = subprocess.run(
+            [str(freak), "build", str(blocked_source), "--c"],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=120,
+            check=False,
+        )
+        blocked_binary_output = ANSI.sub(
+            "", blocked_binary_result.stdout + blocked_binary_result.stderr
+        )
+        assert blocked_binary_result.returncode != 0, blocked_binary_output
+        assert "untrusted stale artifact" in blocked_binary_output.lower()
+        assert blocked_binary.is_dir()
+        assert not blocked_sidecar.exists(), (
+            "undeletable binary retained a stale freshness proof"
+        )
+        blocked_binary.rmdir()
+
         # WinGet upgrades remove versioned LLVM-MinGW directories. A stale
         # persisted FREAK_CLANG must fall through to normal discovery rather
         # than masking the replacement toolchain that is already available.
@@ -513,15 +575,15 @@ def main() -> int:
             assert "invalid target triple" in target_output, target_output
             assert not target_sentinel.exists(), "target triple executed shell syntax"
 
-        # A failed rebuild must invalidate proof before touching the old
+        # A failed rebuild must invalidate both the freshness proof and the old
         # executable. Remove the staged runtime, change source, and verify the
-        # prior CACHE_B binary is not run even though it remains on disk.
+        # prior CACHE_B artifact cannot be mistaken for a successful rebuild.
         (runtime / "freak_runtime.c").unlink()
         source.write_text('say "CACHE_C"\n', encoding="utf-8")
         code, output = invoke(freak, source_dir, source_arg, "--llvm", env)
         assert code != 0, output
         assert "CACHE_B" not in output, output
-        assert binary.is_file(), "the stale artifact should be ignored, not required to vanish"
+        assert not binary.exists(), "failed rebuild preserved an untrusted stale binary"
         assert not sidecar.exists(), "failed rebuild left stale freshness proof"
 
     print("V3 run freshness and installer cleanup: OK")

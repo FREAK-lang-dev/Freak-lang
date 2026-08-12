@@ -3,11 +3,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <errno.h>
 #include "freak_runtime.h"
 extern int64_t freak_llvm_word_adopt(int64_t pointer);
 extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifdef _WIN32
+#include <io.h>
 __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 #else
 #include <unistd.h>
@@ -106,7 +108,12 @@ int64_t freak_calloc(int64_t count, int64_t size) {
     return (int64_t)calloc((size_t)count, (size_t)size);
 }
 int64_t freak_remove(int64_t path) {
-    return (int64_t)remove((const char*)path);
+#ifdef _WIN32
+    int result = _unlink((const char*)path);
+#else
+    int result = unlink((const char*)path);
+#endif
+    return result == 0 || errno == ENOENT;
 }
 
 /* ── Process ────────────────────────────────────────── */
@@ -404,14 +411,14 @@ void freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) 
 void freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) {
     freak_ui_fill_rect(h, x, y, w, hh, r, g, b, a);
 }
-void freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) {
-    freak_ui_stroke_rect(h, x, y, w, hh, r, g, b, a, 1);
+void freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {
+    freak_ui_stroke_rect(h, x, y, w, hh, r, g, b, a, thickness);
 }
 void freak_llvm_ui_fill_circle(int64_t h, int64_t cx, int64_t cy, int64_t radius, int64_t r, int64_t g, int64_t b, int64_t a) {
     freak_ui_fill_circle(h, cx, cy, radius, r, g, b, a);
 }
-void freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a) {
-    freak_ui_draw_line(h, x1, y1, x2, y2, r, g, b, a, 1);
+void freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {
+    freak_ui_draw_line(h, x1, y1, x2, y2, r, g, b, a, thickness);
 }
 int64_t freak_llvm_ui_draw_text(int64_t h, int64_t text, int64_t x, int64_t y, int64_t r, int64_t g, int64_t b, int64_t size, int64_t bold, int64_t italic) {
     freak_word t = freak_word_lit((const char*)text);
@@ -428,6 +435,8 @@ void    freak_llvm_ui_begin_frame(int64_t h)  { }
 void    freak_llvm_ui_end_frame(int64_t h)    { }
 void    freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) { }
 void    freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) { }
+void    freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) { }
+void    freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) { }
 #endif /* FREAK_HAS_UI */
 
 /* ── Numeric conversions (i64 ↔ bitcast double) ────── */
@@ -441,9 +450,13 @@ int64_t freak_llvm_num_to_int(int64_t n) {
     return (int64_t)i64_to_double(n);
 }
 int64_t freak_llvm_word_from_num(int64_t n) {
-    static char buf[64];
-    snprintf(buf, sizeof(buf), "%.10g", i64_to_double(n));
-    return (int64_t)buf;
+    char* buf = (char*)malloc(64);
+    if (!buf) {
+        fprintf(stderr, "FREAK: out of memory formatting a number\n");
+        exit(1);
+    }
+    snprintf(buf, 64, "%.10g", i64_to_double(n));
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* ── char_to_word (UTF-8 encode a code point) ───────── */
@@ -489,9 +502,13 @@ int64_t freak_llvm_parse_num(int64_t w) {
     return double_to_i64(strtod((const char*)w, NULL));
 }
 int64_t freak_llvm_format_num(int64_t n) {
-    static char buf[64];
-    snprintf(buf, sizeof(buf), "%.10g", i64_to_double(n));
-    return (int64_t)buf;
+    char* buf = (char*)malloc(64);
+    if (!buf) {
+        fprintf(stderr, "FREAK: out of memory formatting a number\n");
+        exit(1);
+    }
+    snprintf(buf, 64, "%.10g", i64_to_double(n));
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 /* ── Num (double) helpers ──────────────────────────── */

@@ -1,0 +1,14 @@
+shape Meter { value: int }
+
+impl Meter {
+    task unfinished(
+        self,
+        delta: int
+    ) -> int {
+        say self.value + delta
+    }
+}
+
+task main() {
+    say "unreachable"
+}

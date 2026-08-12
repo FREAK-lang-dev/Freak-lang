@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-FREAK Compiler Regression Test Suite
-=====================================
+FREAK Lite / Python Bootstrap Regression Test Suite
+====================================================
 
 Discovers test_*.fk files in the same directory, compiles and runs each one,
 then compares actual output to the expected output declared in the file header.
+This suite exercises ``python -m freakc``; it is not the self-hosted V3
+preservation oracle. Use ``tests/v3_legacy_golden.py`` for that contract.
 
 CI integration -- add to .github/workflows/ci.yml:
 
@@ -262,7 +264,7 @@ def main() -> int:
     suite_dir = Path(__file__).resolve().parent
     repo_root = suite_dir.parent.parent  # tests/suite -> tests -> repo root
 
-    print(_bold("FREAK Compiler Regression Test Suite"))
+    print(_bold("FREAK Lite / Python Bootstrap Regression Test Suite"))
     print(f"Suite directory: {suite_dir}")
     print(f"Repo root:       {repo_root}")
     print()
