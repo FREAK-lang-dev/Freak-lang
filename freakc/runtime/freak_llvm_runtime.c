@@ -8,6 +8,7 @@ extern int64_t freak_llvm_word_adopt(int64_t pointer);
 extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifdef _WIN32
+#include <io.h>
 __declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 #else
 #include <unistd.h>
@@ -106,7 +107,11 @@ int64_t freak_calloc(int64_t count, int64_t size) {
     return (int64_t)calloc((size_t)count, (size_t)size);
 }
 int64_t freak_remove(int64_t path) {
-    return (int64_t)remove((const char*)path);
+#ifdef _WIN32
+    return (int64_t)_unlink((const char*)path);
+#else
+    return (int64_t)unlink((const char*)path);
+#endif
 }
 
 /* ── Process ────────────────────────────────────────── */

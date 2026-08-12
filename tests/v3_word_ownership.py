@@ -1042,15 +1042,6 @@ def main() -> int:
                         encoding="utf-8",
                     )
                     command.append(str(panic_probe))
-                if case_name == "ui_abi" and backend == "llvm":
-                    ui_probe = root / "llvm_ui_abi_probe.c"
-                    ui_probe.write_text(
-                        "#include <stdint.h>\n"
-                        "void freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t height, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {}\n"
-                        "void freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {}\n",
-                        encoding="utf-8",
-                    )
-                    command.append(str(ui_probe))
                 if sys.platform != "win32":
                     command.extend(["-fsanitize=address", "-fno-omit-frame-pointer"])
                 if backend == "llvm":

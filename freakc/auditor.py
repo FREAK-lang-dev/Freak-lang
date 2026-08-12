@@ -1977,14 +1977,20 @@ def audit_conformance(paths: List[Path]) -> int:
     lite_suite_text = (
         lite_suite.read_text(encoding="utf-8") if lite_suite.exists() else ""
     )
+    bible_path = repo / "freak-full-bible.md"
+    bible_text = (
+        bible_path.read_text(encoding="utf-8") if bible_path.exists() else ""
+    )
     lite_suite_needles = (
         'print(_bold("FREAK Lite / Python Bootstrap Regression Test Suite"))',
         "python -m freakc",
         "tests/v3_legacy_golden.py",
         "`freak test` is a source-checkout Python shim",
         "not embedded in release archives",
+        "Source-checkout shim — wraps `python tests/suite/run_tests.py`",
+        "source-checkout Python regression shim (not test blocks)",
     )
-    lite_suite_sources = (lite_suite_text, public_readme_text)
+    lite_suite_sources = (lite_suite_text, public_readme_text, bible_text)
     lite_suite_missing = [
         needle
         for needle in lite_suite_needles
@@ -1993,6 +1999,8 @@ def audit_conformance(paths: List[Path]) -> int:
     old_runtime_label = 'print(_bold("FREAK Compiler Regression Test Suite"))'
     if old_runtime_label in lite_suite_text:
         lite_suite_missing.append("obsolete compiler-wide runtime banner")
+    if "freak test                    -- run all test blocks" in bible_text:
+        lite_suite_missing.append("obsolete in-language test-block command claim")
     add(
         "V3/FREAK Lite test boundary",
         lite_suite.exists() and not lite_suite_missing,

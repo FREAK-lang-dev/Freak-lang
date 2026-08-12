@@ -2543,7 +2543,7 @@ alternative     -- special mode. enables ALL anime features. full causality.
 | `freak audit-science`, `freak audit-trust`, `freak audit-miracles`, `freak foreshadow-audit` | ✅ Implemented (native CLI shells out to Python; native FREAK port is V4) |
 | `freak audit-conformance` | ✅ Implemented (verifies §0.2 status table against the code) |
 | `--llvm`, `--c`, `--opt=0..3`, `--target=TRIPLE`, `--strict-borrow` | ✅ Implemented |
-| `freak test` | ✅ Implemented — wraps `python tests/suite/run_tests.py`. The test framework with `test "name" { expect ... to be ... }` and vibes ratings is still 🔜 V4. |
+| `freak test` | 🧰 Source-checkout shim — wraps `python tests/suite/run_tests.py`; it is not included in standalone release archives. The in-language framework with `test "name" { expect ... to be ... }` and vibes ratings is still 🔜 V4. |
 | `freak vibe` | 🔜 V4 |
 | `--voice=[character]` flag | 🔜 V4 (depends on §14) |
 | `--clearance=TOP_SECRET` flag | 🔜 V4 (depends on `@classified`) |
@@ -2555,7 +2555,7 @@ alternative     -- special mode. enables ALL anime features. full causality.
 freak run file.fk             -- compile and run
 freak build file.fk           -- compile to binary
 freak check file.fk           -- type check + borrow check only
-freak test                    -- run all test blocks
+freak test                    -- source-checkout Python regression shim (not test blocks)
 freak vibe file.fk            -- Opus vibe analysis
 
 freak hangar [command]        -- package manager (see Section 6.3)
