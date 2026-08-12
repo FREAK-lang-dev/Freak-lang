@@ -101,7 +101,9 @@ task cli_report_untrusted_stale_artifact(artifact: word) -> void {
 }
 
 task cli_delete_derived_artifact(artifact: word) -> bool {
-    if not fs::exists(artifact) { give back true }
+    -- unlink is file-only and does not follow the final path component. Run it
+    -- even when fs::exists cannot see a dangling symlink; otherwise a later
+    -- write could follow that stale link outside the source directory.
     fs::delete(artifact)
     if fs::exists(artifact) {
         cli_report_untrusted_stale_artifact(artifact)

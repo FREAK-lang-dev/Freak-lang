@@ -102,9 +102,10 @@ an older FREAK executable. Treat it as a reviewed root of trust.
 The other tracked files beneath `build/`, including `build/freakc_v3.fk`,
 `build/freakc_cli.fk`, and native executables, are historical/convenience
 artifacts. They are not canonical aggregate source and must not be reused for a
-reproducibility claim. `build_cli.bat` is useful for local iteration but also
-reuses existing aggregate files and binaries; it is not the clean-room
-reproduction procedure.
+reproducibility claim. `build_cli.bat` removes and reconstructs its stage
+aggregates, generated C, compiler executables, and final aliases, but it writes
+those products in-tree and does not compare generation 2 with generation 3.
+It is useful for local iteration, not the clean-room reproduction procedure.
 
 A valid reconstruction always starts from a clean temporary directory:
 

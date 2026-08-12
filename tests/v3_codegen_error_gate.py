@@ -611,6 +611,41 @@ def main() -> int:
             )
             blocked_artifact.rmdir()
 
+        if os.name != "nt":
+            dangling_root = tmp_path / "dangling-artifact-targets"
+            dangling_root.mkdir()
+            for backend, flag, suffix in (
+                ("LLVM", "--llvm", ".ll"),
+                ("C", "--c", ".c"),
+            ):
+                dangling_artifact = Path(str(blocked_cleanup) + suffix)
+                outside_target = dangling_root / f"outside-{backend.lower()}{suffix}"
+                dangling_artifact.symlink_to(outside_target)
+                dangling_result = run(
+                    freak, repo, blocked_cleanup, "transpile", flag, timeout=10
+                )
+                dangling_output = dangling_result.stdout + dangling_result.stderr
+                assert dangling_result.returncode == 0, dangling_output
+                assert not dangling_artifact.is_symlink(), dangling_artifact
+                assert dangling_artifact.is_file(), dangling_artifact
+                assert not outside_target.exists(), outside_target
+                dangling_artifact.unlink()
+
+                if direct_compiler is not None:
+                    dangling_artifact.symlink_to(outside_target)
+                    direct_dangling = run_direct_compiler(
+                        direct_compiler,
+                        repo,
+                        str(blocked_cleanup),
+                        flag,
+                    )
+                    direct_output = direct_dangling.stdout + direct_dangling.stderr
+                    assert direct_dangling.returncode == 0, direct_output
+                    assert not dangling_artifact.is_symlink(), dangling_artifact
+                    assert dangling_artifact.is_file(), dangling_artifact
+                    assert not outside_target.exists(), outside_target
+                    dangling_artifact.unlink()
+
         blocked_binary = derived_binary(blocked_cleanup)
         blocked_binary.mkdir()
         blocked_binary_result = run(

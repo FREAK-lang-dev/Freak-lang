@@ -239,8 +239,7 @@ task cli_doctor_json() -> int {
     cli_doctor_retained_probe_path = ""
     pilot os_tag = "unix"
     pilot is_win = false
-    pilot windir_env: word = process::env("WINDIR")
-    if windir_env != "" {
+    if cli_is_windows() {
         os_tag = "windows"
         is_win = true
     } else {
@@ -417,8 +416,7 @@ task cli_doctor(fix_mode: bool) -> int {
     -- Detect OS
     pilot os_tag = "unix"
     pilot is_win = false
-    pilot windir_env: word = process::env("WINDIR")
-    if windir_env != "" {
+    if cli_is_windows() {
         os_tag = "windows"
         is_win = true
     } else {
