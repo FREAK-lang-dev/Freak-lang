@@ -120,6 +120,17 @@ AUDIT_RE = re.compile(
 
 
 def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """
+    Run a subprocess with captured text output and a 180-second timeout.
+    
+    Parameters:
+    	command (list[str]): Command and arguments to execute.
+    	cwd (Path): Working directory for the subprocess.
+    	env (dict[str, str] | None): Optional environment variables for the subprocess.
+    
+    Returns:
+    	subprocess.CompletedProcess[str]: The completed subprocess result, including its exit status and captured output.
+    """
     return subprocess.run(
         command,
         cwd=cwd,
@@ -133,6 +144,15 @@ def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> sub
 
 
 def stable_checksum(data: bytes) -> int:
+    """
+    Compute a deterministic checksum for byte data.
+    
+    Parameters:
+    	data (bytes): The data to checksum.
+    
+    Returns:
+    	int: A non-negative 63-bit checksum value.
+    """
     value = 14695981039346656037
     for byte in data:
         value ^= byte
@@ -141,6 +161,15 @@ def stable_checksum(data: bytes) -> int:
 
 
 def sanitizer_env(*, detect_leaks: bool = True) -> dict[str, str]:
+    """
+    Create an environment configured for sanitizer error handling.
+    
+    Parameters:
+    	detect_leaks (bool): Whether to enable leak detection on Linux.
+    
+    Returns:
+    	dict[str, str]: A copy of the process environment with sanitizer options configured.
+    """
     env = os.environ.copy()
     env.pop("ASAN_OPTIONS", None)
     env.pop("LSAN_OPTIONS", None)
@@ -163,6 +192,19 @@ def compile_generated(
     audit: bool,
     force_move: bool,
 ) -> None:
+    """
+    Compile generated C or LLVM code into an executable with the selected runtime and build options.
+    
+    Parameters:
+        clang (str): Path to the Clang compiler.
+        repo (Path): Working directory for the compilation command.
+        runtime_root (Path): Directory containing the runtime source files.
+        generated (Path): Generated source file to compile.
+        backend (str): Backend that produced the generated source.
+        binary (Path): Output path for the compiled executable.
+        audit (bool): Whether to enable word-concatenation auditing.
+        force_move (bool): Whether to enable forced-move concatenation behavior.
+    """
     command = [clang, "-g", "-O1", "-o", str(binary), str(generated)]
     if backend == "llvm":
         command.append("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1")
@@ -190,6 +232,12 @@ def compile_generated(
 
 
 def main() -> int:
+    """
+    Run the V3 word concatenation regression tests for the C and LLVM backends.
+    
+    Returns:
+    	int: Zero when all regression checks pass.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
     parser.add_argument(

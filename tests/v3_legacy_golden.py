@@ -31,7 +31,15 @@ def normalize_newlines(value: str) -> str:
 
 
 def corpus_fingerprint(corpus: Path) -> dict[str, str]:
-    """Bind every corpus member so the runner cannot hide generated artifacts."""
+    """
+    Record a stable fingerprint for every member of the corpus.
+    
+    Parameters:
+    	corpus (Path): Root directory of the corpus.
+    
+    Returns:
+    	dict[str, str]: Mapping of relative member paths to content hashes or entry descriptors.
+    """
     result: dict[str, str] = {}
     for path in sorted(corpus.rglob("*")):
         relative = path.relative_to(corpus).as_posix()
@@ -47,6 +55,17 @@ def corpus_fingerprint(corpus: Path) -> dict[str, str]:
 
 
 def manifest_member(corpus: Path, value: Any, suffix: str) -> Path:
+    """
+    Validate a manifest filename and resolve it within the corpus.
+    
+    Parameters:
+    	corpus (Path): Root directory containing the corpus.
+    	value (Any): Manifest value expected to name a file.
+    	suffix (str): Required filename suffix.
+    
+    Returns:
+    	Path: Resolved path to the validated regular file.
+    """
     assert isinstance(value, str) and value, f"manifest member is not a filename: {value!r}"
     assert "/" not in value and "\\" not in value and value not in (".", ".."), value
     relative = Path(value)
@@ -59,6 +78,15 @@ def manifest_member(corpus: Path, value: Any, suffix: str) -> Path:
 
 
 def load_cases(corpus: Path) -> list[dict[str, Any]]:
+    """
+    Load and validate the golden corpus manifest and return its normalized case metadata.
+    
+    Parameters:
+    	corpus (Path): Directory containing the manifest and corpus files.
+    
+    Returns:
+    	list[dict[str, Any]]: Validated case definitions with normalized source, output, backend, and generated-content marker metadata.
+    """
     manifest_path = corpus / "cases.json"
     document = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert isinstance(document, dict), "golden manifest must be an object"
@@ -164,6 +192,17 @@ def load_cases(corpus: Path) -> list[dict[str, Any]]:
 def run(
     command: list[str], cwd: Path, env: dict[str, str]
 ) -> subprocess.CompletedProcess[bytes]:
+    """
+    Execute a command in the specified directory and environment.
+    
+    Parameters:
+    	command (list[str]): The command and its arguments.
+    	cwd (Path): The working directory for the command.
+    	env (dict[str, str]): Environment variables for the subprocess.
+    
+    Returns:
+    	subprocess.CompletedProcess[bytes]: The completed process result with captured output.
+    """
     return subprocess.run(
         command,
         cwd=cwd,
@@ -175,10 +214,29 @@ def run(
 
 
 def show_output(result: subprocess.CompletedProcess[bytes]) -> str:
+    """Combine and decode captured standard output and standard error.
+    
+    Parameters:
+    	result (subprocess.CompletedProcess[bytes]): Completed subprocess result containing captured output.
+    
+    Returns:
+    	str: The decoded standard output followed by standard error.
+    """
     return (result.stdout + result.stderr).decode("utf-8", errors="replace")
 
 
 def copy_adjacent_distribution(repo: Path, freak: Path, install: Path) -> Path:
+    """
+    Create an adjacent compiler installation from the distribution manifest.
+    
+    Parameters:
+    	repo (Path): Repository containing the compiler and distribution manifest.
+    	freak (Path): Compiler executable to install.
+    	install (Path): Destination installation directory.
+    
+    Returns:
+    	Path: Path to the installed compiler executable.
+    """
     bin_dir = install / "bin"
     bin_dir.mkdir(parents=True)
     installed_freak = bin_dir / freak.name
@@ -205,6 +263,13 @@ def copy_adjacent_distribution(repo: Path, freak: Path, install: Path) -> Path:
 
 
 def assert_corpus_closure_controls(corpus: Path, root: Path) -> None:
+    """
+    Validate that corpus closure checks detect untracked files, nested artifact directories, and newly added directories.
+    
+    Parameters:
+    	corpus (Path): Path to the golden corpus.
+    	root (Path): Temporary root used for validation copies.
+    """
     generated_copy = root / "generated-member"
     shutil.copytree(corpus, generated_copy)
     (generated_copy / "01_core.fk.ll").write_text("unlisted generated IR\n", encoding="utf-8")
@@ -242,6 +307,15 @@ def assert_corpus_closure_controls(corpus: Path, root: Path) -> None:
 def run_corpus(
     *, freak: Path, corpus: Path, env: dict[str, str], outside_root: Path
 ) -> None:
+    """
+    Compile and execute every declared golden-corpus case across its configured backends.
+    
+    Parameters:
+        freak (Path): Path to the compiler executable.
+        corpus (Path): Root directory of the golden corpus.
+        env (dict[str, str]): Environment variables for compiler and executable runs.
+        outside_root (Path): Directory where isolated case workspaces are created.
+    """
     before = corpus_fingerprint(corpus)
     cases = load_cases(corpus)
     run_count = 0
@@ -302,6 +376,16 @@ def run_corpus(
 
 
 def run_internal_child(freak: Path, expected_poison: Path) -> int:
+    """
+    Runs the golden corpus in an isolated child environment using adjacent compiler payloads.
+    
+    Parameters:
+    	freak (Path): Path to the compiler executable.
+    	expected_poison (Path): Expected poisoned runtime path inherited through `FREAK_HOME`.
+    
+    Returns:
+    	An exit status of zero after the isolated corpus passes.
+    """
     repo = Path(__file__).resolve().parents[1]
     inherited = os.environ.get("FREAK_HOME")
     assert inherited is not None, "isolation child did not inherit FREAK_HOME poison"
@@ -338,6 +422,12 @@ def run_internal_child(freak: Path, expected_poison: Path) -> int:
 
 
 def main() -> int:
+    """
+    Validate the explicit V3 compiler against the permanent backend-specific golden corpus.
+    
+    Returns:
+    	int: 0 after successful corpus validation, isolation checks, and corpus preservation checks.
+    """
     parser = argparse.ArgumentParser(
         description="Compile and execute the permanent backend-specific V3 corpus."
     )

@@ -25,10 +25,28 @@ COMPILER_SOURCES = (
 
 
 def digest(path: Path) -> str:
+    """Return the SHA-256 hexadecimal digest of a file.
+    
+    Parameters:
+    	path (Path): Path to the file to hash.
+    
+    Returns:
+    	str: The file's SHA-256 digest in hexadecimal form.
+    """
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def repository_fingerprint(repo: Path) -> dict[str, str]:
+    """
+    Create a SHA-256 fingerprint of the repository's Git-tracked files.
+    
+    Parameters:
+        repo (Path): Repository root directory.
+    
+    Returns:
+        dict[str, str]: Mapping of tracked relative paths to their SHA-256 digests,
+            or "<absent>" when a tracked file is missing.
+    """
     listed = subprocess.run(
         ["git", "ls-files", "-z"],
         cwd=repo,
@@ -46,6 +64,17 @@ def repository_fingerprint(repo: Path) -> dict[str, str]:
 
 
 def run(command: list[str], cwd: Path, env: dict[str, str]) -> None:
+    """
+    Execute a command in the specified working directory and environment.
+    
+    Parameters:
+        command (list[str]): The command and its arguments to execute.
+        cwd (Path): The working directory for the command.
+        env (dict[str, str]): Environment variables for the command.
+    
+    Raises:
+        AssertionError: If the command exits with a nonzero status.
+    """
     result = subprocess.run(
         command,
         cwd=cwd,
@@ -66,6 +95,12 @@ def run(command: list[str], cwd: Path, env: dict[str, str]) -> None:
 
 
 def main() -> int:
+    """
+    Verify that the V3 compiler reaches a stable C self-hosting output.
+    
+    Returns:
+    	int: Zero when all fixed-point and repository-integrity checks pass.
+    """
     repo = Path(__file__).resolve().parents[1]
     runtime_dir = repo / "freakc" / "runtime"
     runtime_c = runtime_dir / "freak_runtime.c"

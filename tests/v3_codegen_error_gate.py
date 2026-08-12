@@ -20,24 +20,59 @@ NEGATIVE_CORPUS_SCHEMA = "freak-v3-negative-corpus-v1"
 
 
 def derived_binary(source: Path) -> Path:
+    """Derive the platform-specific executable path for a source file.
+    
+    Parameters:
+    	source (Path): The source file path.
+    
+    Returns:
+    	Path: The source path with an executable suffix on Windows and no suffix elsewhere.
+    """
     return source.with_suffix(".exe" if sys.platform == "win32" else "")
 
 
 def run_cache(binary: Path) -> Path:
+    """Derive the cache path associated with an executable.
+    
+    Parameters:
+    	binary (Path): Path to the executable.
+    
+    Returns:
+    	Path to the executable's run cache.
+    """
     return Path(str(binary) + ".freak-run-cache")
 
 
 def seed_stale_outputs(*paths: Path) -> None:
+    """Create stale output files containing the test sentinel value.
+    
+    Parameters:
+    	paths (Path): Output paths to seed; duplicate paths are written once.
+    """
     for path in dict.fromkeys(paths):
         path.write_text(SENTINEL, encoding="utf-8")
 
 
 def assert_outputs_absent(paths: tuple[Path, ...], label: str) -> None:
+    """
+    Assert that none of the specified output paths exist.
+    
+    Parameters:
+    	paths (tuple[Path, ...]): Output paths to verify.
+    	label (str): Label included in the failure message.
+    """
     leftovers = [path for path in dict.fromkeys(paths) if path.exists()]
     assert not leftovers, f"{label}: stale output survived: {leftovers}"
 
 
 def assert_outputs_preserved(paths: tuple[Path, ...], label: str) -> None:
+    """
+    Assert that each specified output retains the sentinel content.
+    
+    Parameters:
+    	paths (tuple[Path, ...]): Output paths to verify.
+    	label (str): Context included in the assertion message.
+    """
     for path in dict.fromkeys(paths):
         assert path.read_text(encoding="utf-8") == SENTINEL, (
             f"{label}: non-emitting check changed {path}"
@@ -45,6 +80,13 @@ def assert_outputs_preserved(paths: tuple[Path, ...], label: str) -> None:
 
 
 def assert_unreadable_diagnostic(output: str, label: str) -> None:
+    """
+    Verify that command output contains an accepted unreadable-input diagnostic.
+    
+    Parameters:
+        output (str): Command output to inspect.
+        label (str): Label identifying the command or test case.
+    """
     lowered = output.lower()
     accepted = (
         "could not read file",
@@ -67,6 +109,15 @@ class NegativeCase:
 
 
 def load_negative_corpus(repo: Path) -> list[NegativeCase]:
+    """
+    Load and validate the V3 negative-test corpus manifest.
+    
+    Parameters:
+    	repo (Path): Repository root containing the negative-test corpus.
+    
+    Returns:
+    	list[NegativeCase]: Validated negative test cases described by the manifest.
+    """
     corpus = repo / "tests" / "v3_legacy" / "negative"
     manifest_path = corpus / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -128,12 +179,31 @@ def load_negative_corpus(repo: Path) -> list[NegativeCase]:
 
 
 def task_body(source: str, task_name: str) -> str:
+    """
+    Extract the source text for a named task.
+    
+    Parameters:
+    	source (str): FREAK source code containing the task.
+    	task_name (str): Name of the task to extract.
+    
+    Returns:
+    	str: The task declaration and body through the next task declaration or the end of the source.
+    
+    Raises:
+    	ValueError: If the named task is not present in the source.
+    """
     start = source.index(f"task {task_name}")
     next_task = source.find("\ntask ", start + 1)
     return source[start:] if next_task < 0 else source[start:next_task]
 
 
 def assert_builtin_signature_parity(repo: Path) -> None:
+    """
+    Verify that builtin mappings, type and parameter signatures, and reserved namespaces remain consistent across compiler stages.
+    
+    Parameters:
+        repo (Path): Repository root containing the compiler source files.
+    """
     c_source = (repo / "src/compiler/v3/emit_c.fk").read_text(encoding="utf-8")
     llvm_source = (repo / "src/compiler/v3/emit_llvm.fk").read_text(encoding="utf-8")
     checker_source = (repo / "src/compiler/v3/checker.fk").read_text(encoding="utf-8")
@@ -195,6 +265,9 @@ def assert_builtin_signature_parity(repo: Path) -> None:
 
 
 def assert_ci_shell_contract(repo: Path) -> None:
+    """
+    Verify that required CI workflow steps explicitly use Bash shells.
+    """
     workflow = (repo / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     for step_name in (
         "V3 parser/type errors gate code generation",
@@ -210,6 +283,7 @@ def assert_ci_shell_contract(repo: Path) -> None:
 
 
 def assert_checker_callable_index(repo: Path) -> None:
+    """Verify that checker callable indexing tasks exist and avoid rescanning all top-level statements."""
     checker = (repo / "src/compiler/v3/checker.fk").read_text(encoding="utf-8")
     assert "task tc_callable_entry(name: word) -> int" in checker
     assert "task tc_index_callable(stmt_id: int) -> void" in checker
@@ -223,6 +297,14 @@ def assert_checker_callable_index(repo: Path) -> None:
 
 
 def assert_parser_required_token_contract(repo: Path) -> None:
+    """Verify that required parser tokens use the standard identifier parser and delimiter diagnostics preserve opener context.
+    
+    Parameters:
+    	repo (Path): Repository root containing the V3 parser source.
+    
+    Raises:
+    	AssertionError: If a required token context bypasses the standard parser or a delimiter context lacks opener provenance.
+    """
     parser = (repo / "src/compiler/v3/parser.fk").read_text(encoding="utf-8")
     required_contexts = (
         "namespace segment after '::'",
@@ -283,6 +365,16 @@ def run(
     env: dict[str, str] | None = None,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
+    """
+    Run the V3 command-line tool for a source file and capture its completed result.
+    
+    Parameters:
+        env (dict[str, str] | None): Environment variables for the subprocess.
+        timeout (int): Maximum time in seconds allowed for the subprocess.
+    
+    Returns:
+        subprocess.CompletedProcess[str]: The captured subprocess result.
+    """
     command, *flags = args
     return subprocess.run(
         [str(freak), command, str(source), *flags],
@@ -298,6 +390,12 @@ def run(
 
 
 def assert_rejected(result: subprocess.CompletedProcess[str], label: str) -> None:
+    """
+    Verify that a rejected compilation fails before code generation.
+    
+    Parameters:
+        label (str): Context label included in assertion messages.
+    """
     output = result.stdout + result.stderr
     assert result.returncode != 0, f"{label}: invalid input exited successfully\n{output}"
     assert "code generation skipped" in output.lower(), (
@@ -310,6 +408,13 @@ def assert_rejected(result: subprocess.CompletedProcess[str], label: str) -> Non
 def assert_check_rejected(
     result: subprocess.CompletedProcess[str], label: str
 ) -> None:
+    """
+    Verify that a check command rejects invalid input and reports an error.
+    
+    Parameters:
+    	result (subprocess.CompletedProcess[str]): Completed check-command result.
+    	label (str): Label used to identify the test in assertion messages.
+    """
     output = result.stdout + result.stderr
     assert result.returncode != 0, f"{label}: check accepted invalid input\n{output}"
     assert "error" in output.lower(), f"{label}: missing diagnostic\n{output}"
@@ -317,6 +422,9 @@ def assert_check_rejected(
 
 
 def assert_case_diagnostics(case: NegativeCase, output: str) -> None:
+    """
+    Validate that compiler output contains the diagnostics required for a negative test case.
+    """
     lowered = output.lower()
     assert case.diagnostic in lowered, (
         f"{case.name}: missing diagnostic {case.diagnostic!r}\n{output}"
@@ -346,6 +454,18 @@ def run_direct_compiler(
     *args: str,
     timeout: int = 10,
 ) -> subprocess.CompletedProcess[str]:
+    """
+    Run the direct compiler with captured text output.
+    
+    Parameters:
+    	compiler (Path): Path to the compiler executable.
+    	repo (Path): Working directory for the compiler process.
+    	*args (str): Arguments passed to the compiler.
+    	timeout (int): Maximum execution time in seconds.
+    
+    Returns:
+    	subprocess.CompletedProcess[str]: The completed compiler process result.
+    """
     return subprocess.run(
         [str(compiler), *args],
         cwd=repo,
@@ -359,6 +479,12 @@ def run_direct_compiler(
 
 
 def main() -> int:
+    """
+    Run the V3 compiler diagnostic and code-generation regression suite.
+    
+    Returns:
+    	int: Zero when all checks pass.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
     parser.add_argument(

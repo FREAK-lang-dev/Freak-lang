@@ -176,6 +176,18 @@ def run(
     env: dict[str, str],
     timeout: int = 180,
 ) -> subprocess.CompletedProcess[str]:
+    """
+    Run a subprocess and capture its text output.
+    
+    Parameters:
+    	command (list[str]): The command and its arguments.
+    	cwd (Path): The working directory for the subprocess.
+    	env (dict[str, str]): Environment variables for the subprocess.
+    	timeout (int): Maximum execution time in seconds.
+    
+    Returns:
+    	subprocess.CompletedProcess[str]: The completed process result, including its exit status, standard output, and standard error.
+    """
     return subprocess.run(
         command,
         cwd=cwd,
@@ -190,16 +202,42 @@ def run(
 
 
 def assert_ok(result: subprocess.CompletedProcess[str], label: str) -> None:
+    """
+    Require a subprocess result to indicate successful completion.
+    
+    Parameters:
+    	result (subprocess.CompletedProcess[str]): The completed subprocess result to verify.
+    	label (str): A label identifying the subprocess in failure messages.
+    """
     assert result.returncode == 0, (
         f"{label} failed ({result.returncode})\n{result.stdout}{result.stderr}"
     )
 
 
 def binary_for(source: Path) -> Path:
+    """Return the platform-specific executable path for a source path.
+    
+    Parameters:
+    	source (Path): Path whose suffix is replaced with the platform executable suffix.
+    
+    Returns:
+    	Path: Executable path ending in `.exe` on Windows and no suffix on other platforms.
+    """
     return source.with_suffix(".exe" if sys.platform == "win32" else "")
 
 
 def execute(binary: Path, cwd: Path, env: dict[str, str]) -> list[str]:
+    """
+    Run a compiled test binary and return its output lines.
+    
+    Parameters:
+    	binary (Path): Path to the executable binary.
+    	cwd (Path): Working directory for the execution.
+    	env (dict[str, str]): Environment variables used by the process.
+    
+    Returns:
+    	list[str]: Lines written to standard output.
+    """
     result = run([str(binary)], cwd, env)
     assert_ok(result, f"execute {binary.name}")
     assert "ownership audit found" not in result.stderr.lower(), result.stderr
@@ -216,6 +254,9 @@ def compile_generated(
     output: Path,
     env: dict[str, str],
 ) -> None:
+    """
+    Compile generated C or LLVM output with the runtime and ownership-audit settings required by the test.
+    """
     command = [
         clang,
         "-g",
@@ -256,6 +297,20 @@ def build_and_run(
     expected: list[str],
     env: dict[str, str],
 ) -> None:
+    """Build a source program for the specified backend and verify its runtime output.
+    
+    Parameters:
+        freak (Path): Path to the compiler executable.
+        repo (Path): Repository working directory for the build command.
+        source (Path): Source file to build and execute.
+        backend (str): Backend name used in failure descriptions.
+        flag (str): Backend-specific build flag.
+        expected (list[str]): Expected output lines.
+        env (dict[str, str]): Environment variables for the build and execution.
+    
+    Raises:
+        AssertionError: If the build fails or the executable output differs from the expected output.
+    """
     built = run([str(freak), "build", str(source), flag], repo, env)
     assert_ok(built, f"{backend} build {source.name}")
     assert execute(binary_for(source), source.parent, env) == expected
@@ -269,6 +324,16 @@ def assert_negative(
     source: Path,
     line: int,
 ) -> None:
+    """
+    Validate a failed compilation result against its expected diagnostic and source location.
+    
+    Parameters:
+        result (subprocess.CompletedProcess[str]): The completed compilation process.
+        label (str): Label used in assertion failure messages.
+        diagnostic (str): Required diagnostic text.
+        source (Path): Source file expected in the diagnostic location.
+        line (int): Expected source line for the diagnostic.
+    """
     output = result.stdout + result.stderr
     normalized = output.replace("\\", "/")
     assert result.returncode != 0, f"{label} unexpectedly passed\n{output}"
@@ -282,11 +347,24 @@ def assert_negative(
 
 
 def assert_absent(paths: list[Path], label: str) -> None:
+    """
+    Ensure that none of the specified artifact paths exist.
+    
+    Parameters:
+    	paths (list[Path]): Paths that must be absent.
+    	label (str): Description used in the failure message.
+    """
     leftovers = [path for path in paths if path.exists()]
     assert not leftovers, f"{label} left artifacts: {leftovers}"
 
 
 def main() -> int:
+    """
+    Run the V3 interpolation test suite across supported compiler backends.
+    
+    Returns:
+    	int: 0 after all interpolation, ownership, diagnostic, and artifact checks pass.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
     parser.add_argument("--freakc", type=Path)
