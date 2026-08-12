@@ -812,6 +812,10 @@ task tc_internal_runtime_source(source_file: word) -> bool {
     give back trusted_internal_runtime_source_file != "" and source_file == trusted_internal_runtime_source_file
 }
 
+task tc_compiler_internal_source(source_file: word) -> bool {
+    give back trusted_compiler_internal_source_file != "" and source_file == trusted_compiler_internal_source_file
+}
+
 task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
     if receiver_type == "word" {
         if name == "length" or name == "checksum" or name == "trim" { give back true }
@@ -2155,6 +2159,9 @@ task tc_run_program() -> void {
         pilot callable_name: word = array_get(ast_stmt_names, sid)
         if top_kind == STMT_EXTERN and array_get(ast_stmt_names, sid).starts_with("__freak_") {
             tc_diag_reserved_extern(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+        }
+        if top_kind == STMT_EXTERN and callable_name == "freak_internal_delete_file_checked" and not tc_compiler_internal_source(array_get(ast_stmt_files, sid)) {
+            tc_diag_builtin_callable(callable_name, word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
         }
         if (top_kind == STMT_TASK or top_kind == STMT_EXTERN) and tc_reserved_builtin_call(array_get(ast_stmt_names, sid)) {
             tc_diag_builtin_callable(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))

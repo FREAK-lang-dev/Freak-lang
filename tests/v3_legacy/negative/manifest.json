@@ -598,6 +598,13 @@
       "file": "semantic_internal_checked_delete_symbol.fk",
       "diagnostic": "unknown callable 'freak_internal_delete_file_checked'",
       "direct": true
+    },
+    {
+      "name": "semantic_internal_checked_delete_extern",
+      "kind": "type",
+      "file": "semantic_internal_checked_delete_extern.fk",
+      "diagnostic": "conflicts with a compiler builtin",
+      "direct": true
     }
   ]
 }

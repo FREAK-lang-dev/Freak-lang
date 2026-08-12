@@ -595,7 +595,7 @@ task llvm_map_call_name(val: word) -> word {
         pilot internal_entry = tc_callable_entry(val)
         if internal_entry >= 0 {
             pilot declaration_id = word_to_int(array_get(tc_callable_stmt_ids, internal_entry))
-            if array_get(ast_stmt_kinds, declaration_id) == STMT_EXTERN {
+            if array_get(ast_stmt_kinds, declaration_id) == STMT_EXTERN and tc_compiler_internal_source(array_get(ast_stmt_files, declaration_id)) {
                 give back "@freak_llvm_fs_delete_checked"
             }
         }
