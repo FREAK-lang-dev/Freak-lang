@@ -679,7 +679,7 @@ int64_t freak_path_exists(int64_t path) {
     return freak_fs_exists(freak_word_lit(value)) ? 1 : 0;
 }
 
-bool freak_fs_delete_file_checked(freak_word path) {
+bool freak_internal_delete_file_checked(freak_word path) {
     const char* p = freak_word_to_cstr(path);
 #ifdef _WIN32
     int result = _unlink(p); /* file-only: never consume an artifact directory */
@@ -690,7 +690,7 @@ bool freak_fs_delete_file_checked(freak_word path) {
 }
 
 void freak_fs_delete(freak_word path) {
-    (void)freak_fs_delete_file_checked(path);
+    (void)freak_internal_delete_file_checked(path);
 }
 
 /* Aliases without freak_ prefix — the self-hosted compiler's generic

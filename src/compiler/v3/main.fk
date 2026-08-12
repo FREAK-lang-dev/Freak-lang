@@ -69,7 +69,7 @@ task freakc_v3_main() -> void {
     } else {
         -- Delete unconditionally so a dangling output symlink, which
         -- fs::exists cannot observe, is unlinked before the emitter writes.
-        if not fs::delete_file_checked(selected_output) {
+        if not freak_internal_delete_file_checked(selected_output) {
             say "Error: untrusted stale artifact could not be removed: " + selected_output
             process::exit(1)
         }

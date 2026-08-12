@@ -217,7 +217,6 @@ task c_map_call(val: word) -> word {
     if val == "fs::append" { give back "freak_fs_append" }
     if val == "fs::exists" { give back "freak_fs_exists" }
     if val == "fs::delete" { give back "freak_fs_delete" }
-    if val == "fs::delete_file_checked" { give back "freak_fs_delete_file_checked" }
     if val == "fs::list_dir" { give back "freak_fs_list_dir" }
     if val == "fs::make_dir" { give back "freak_fs_make_dir" }
     if val == "process::input" { give back "freak_process_input" }

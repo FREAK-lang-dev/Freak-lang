@@ -3,6 +3,11 @@
 -- ===================================================================
 -- All global state in one file. Keeps other files pure logic.
 
+-- Compiler-internal checked file removal. This declaration is compiled into
+-- the compiler/CLI aggregates, but is not part of the source-facing builtin
+-- inventory prepended to user programs.
+extern task freak_internal_delete_file_checked(path: word) -> bool
+
 -- ===================== VERSION =====================================
 -- Generated/synchronized by tools/release_version.py from the root VERSION.
 -- Release bumps change the version through that one command only.

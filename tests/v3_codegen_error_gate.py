@@ -137,6 +137,7 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     c_source = (repo / "src/compiler/v3/emit_c.fk").read_text(encoding="utf-8")
     llvm_source = (repo / "src/compiler/v3/emit_llvm.fk").read_text(encoding="utf-8")
     checker_source = (repo / "src/compiler/v3/checker.fk").read_text(encoding="utf-8")
+    globals_source = (repo / "src/compiler/v3/globals.fk").read_text(encoding="utf-8")
     c_mapped = set(
         re.findall(r'val == "([^"]+)"', task_body(c_source, "c_map_call"))
     )
@@ -144,10 +145,19 @@ def assert_builtin_signature_parity(repo: Path) -> None:
         re.findall(r'val == "([^"]+)"', task_body(llvm_source, "llvm_map_call_name"))
     )
     mapped = c_mapped | llvm_mapped
+    compiler_internal_externs = {"freak_internal_delete_file_checked"}
+    assert compiler_internal_externs <= llvm_mapped
+    assert compiler_internal_externs.isdisjoint(c_mapped)
+    mapped -= compiler_internal_externs
     classified = set(
         re.findall(
             r'name == "([^"]+)"', task_body(checker_source, "tc_builtin_call_type")
         )
+    )
+    assert compiler_internal_externs.isdisjoint(classified)
+    assert (
+        "extern task freak_internal_delete_file_checked(path: word) -> bool"
+        in globals_source
     )
     signature_classified = set(
         re.findall(
