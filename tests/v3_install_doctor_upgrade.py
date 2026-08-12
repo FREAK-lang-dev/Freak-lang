@@ -145,6 +145,7 @@ def check_static_contracts(repo: Path) -> None:
     for needle in (
         "MartinStorsjo.LLVM-MinGW.UCRT",
         "scoop.cmd install mingw-mstorsjo-llvm-ucrt",
+        "scoop\\apps\\mingw-mstorsjo-llvm-ucrt\\current\\bin\\clang.exe",
         "Test-ClangToolchain",
         "& $binary",
         "FREAK_INSTALL_ARCHIVE",
