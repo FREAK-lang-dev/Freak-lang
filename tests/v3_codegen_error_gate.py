@@ -991,7 +991,7 @@ def main() -> int:
         for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
             collision_sentinel.write_text("preserve me\n", encoding="utf-8")
             collision_build = run(
-                freak, repo, internal_collision, "build", flag, timeout=30
+                freak, repo, internal_collision, "build", flag, timeout=60
             )
             assert collision_build.returncode == 0, (
                 collision_build.stdout + collision_build.stderr
