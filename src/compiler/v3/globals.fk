@@ -6,7 +6,7 @@
 -- ===================== VERSION =====================================
 -- Generated/synchronized by tools/release_version.py from the root VERSION.
 -- Release bumps change the version through that one command only.
-pilot FREAK_VERSION = "0.14.0"
+pilot FREAK_VERSION = "0.14.1"
 pilot FREAKC_VERSION = FREAK_VERSION
 pilot FREAKC_CODENAME = "Maverick"
 pilot FREAK_V3_ABI = "freak-v3-abi-1"

@@ -214,6 +214,13 @@ function Find-Clang {
     $candidates = [System.Collections.Generic.List[string]]::new()
     if ($env:FREAK_CLANG) { $candidates.Add($env:FREAK_CLANG) }
 
+    if ($env:USERPROFILE) {
+        $candidates.Add((Join-Path $env:USERPROFILE "scoop\apps\mingw-mstorsjo-llvm-ucrt\current\bin\clang.exe"))
+    }
+    if ($env:ProgramData) {
+        $candidates.Add((Join-Path $env:ProgramData "scoop\apps\mingw-mstorsjo-llvm-ucrt\current\bin\clang.exe"))
+    }
+
     $wingetRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
     if (Test-Path -LiteralPath $wingetRoot -PathType Container) {
         Get-ChildItem -LiteralPath $wingetRoot -Directory -Filter "MartinStorsjo.LLVM-MinGW.UCRT_*" -ErrorAction SilentlyContinue |
@@ -258,7 +265,7 @@ function Install-CompilerDependencies {
         $installed = $LASTEXITCODE -eq 0
     }
     if (-not $installed -and (Get-Command scoop.cmd -ErrorAction SilentlyContinue)) {
-        & scoop.cmd install llvm-mingw
+        & scoop.cmd install mingw-mstorsjo-llvm-ucrt
         $installed = $LASTEXITCODE -eq 0
     }
     if (-not $installed) {

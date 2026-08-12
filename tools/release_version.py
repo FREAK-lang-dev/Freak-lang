@@ -101,6 +101,11 @@ def check_version(version: str, tag: str | None = None) -> None:
     scoop = json.loads((ROOT / "packaging" / "scoop" / "freak.json").read_text(encoding="utf-8"))
     require(scoop.get("version") == version, "Scoop version differs from VERSION", errors)
     require(f"/v{version}/freak-windows-x64.zip" in scoop.get("url", ""), "Scoop URL differs from VERSION", errors)
+    require(
+        scoop.get("depends") == "mingw-mstorsjo-llvm-ucrt",
+        "Scoop LLVM dependency is not the canonical Scoop Main package",
+        errors,
+    )
 
     winget_dir = ROOT / "packaging" / "winget" / "manifests" / "F" / "FREAK" / "freak" / version
     manifests = sorted(winget_dir.glob("*.yaml")) if winget_dir.is_dir() else []

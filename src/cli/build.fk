@@ -487,12 +487,12 @@ task cli_find_llvm_mingw_in(root: word) -> word {
 task cli_find_windows_llvm_mingw() -> word {
     pilot user_profile: word = process::env("USERPROFILE")
     if user_profile != "" {
-        pilot scoop_clang = user_profile + "/scoop/apps/llvm-mingw/current/bin/clang.exe"
+        pilot scoop_clang = user_profile + "/scoop/apps/mingw-mstorsjo-llvm-ucrt/current/bin/clang.exe"
         if fs::exists(scoop_clang) { give back cli_quote_cmd_path(scoop_clang) }
     }
     pilot program_data: word = process::env("ProgramData")
     if program_data != "" {
-        pilot global_scoop = program_data + "/scoop/apps/llvm-mingw/current/bin/clang.exe"
+        pilot global_scoop = program_data + "/scoop/apps/mingw-mstorsjo-llvm-ucrt/current/bin/clang.exe"
         if fs::exists(global_scoop) { give back cli_quote_cmd_path(global_scoop) }
     }
     pilot local_appdata: word = process::env("LOCALAPPDATA")

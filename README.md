@@ -6,7 +6,7 @@
 and not enough sleep, but somehow it compiles.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-pink?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/v0.14.0-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
+[![Version](https://img.shields.io/badge/v0.14.1-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/FREAK-lang-dev/Freak-lang/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/FREAK-lang-dev/Freak-lang/actions)
 [![Status](https://img.shields.io/badge/status-self--hosting-brightgreen?style=flat-square)](#)
 [![Vibes](https://img.shields.io/badge/vibes-MONO__NO__AWARE-blueviolet?style=flat-square)](#)

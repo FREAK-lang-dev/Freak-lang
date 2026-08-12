@@ -27,7 +27,7 @@ while keeping engineering decisions precise.
 
 Current facts:
 
-- Public release: **v0.14.0 "Maverick"**.
+- Public release: **v0.14.1 "Maverick"**.
 - Shipping compiler: self-hosted V3, emitting LLVM IR and linking natively. The
   C backend remains a portability target.
 - V4 implementation: `src/compiler/v4/`.
