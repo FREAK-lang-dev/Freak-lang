@@ -2080,6 +2080,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "Assert-DownloadedAssetChecksum",
                 "SHA256SUMS",
                 ".freak-install.lock",
+                "DeleteOnClose",
             ),
         ),
         "doctor": (

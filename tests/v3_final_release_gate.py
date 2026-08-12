@@ -554,6 +554,15 @@ def assert_exact_archive_upgrade(
 
     bin_dir = install_home / "bin"
     pending = bin_dir / ".freak-upgrade-pending"
+    if sys.platform == "win32":
+        assert pending.exists(), "forced cleanup retries did not retain pending"
+        contender = run([str(freak), "upgrade"], root, upgrade_env, timeout=60)
+        contender_output = show_output(contender).lower()
+        assert contender.returncode != 0, contender_output
+        assert (
+            "another freak installer" in contender_output
+            or "replacement helper is still active" in contender_output
+        ), contender_output
     if pending.exists():
         guarded = run([str(freak), "doctor", "--json"], root, upgrade_env)
         guarded_report = json.loads(guarded.stdout)

@@ -411,6 +411,7 @@ function Stage-FallbackPayload {
 
 function Start-DeferredBinaryReplacement {
     $quotedBin = $BinDir.Replace("'", "''")
+    $quotedInstallDir = $InstallDir.Replace("'", "''")
     $replacementWaitPid = $PID
     $replacementWaitStart = (Get-Process -Id $PID).StartTime.ToFileTimeUtc()
     $pendingPath = Join-Path $BinDir ".freak-upgrade-pending"
@@ -429,6 +430,8 @@ function Start-DeferredBinaryReplacement {
     $apply = @"
 `$ErrorActionPreference = 'Stop'
 `$bin = '$quotedBin'
+`$installDir = '$quotedInstallDir'
+`$installLockPath = Join-Path `$installDir '.freak-install.lock'
 `$pending = Join-Path `$bin '.freak-upgrade-pending'
 `$failed = Join-Path `$bin '.freak-upgrade-failed'
 `$helperLockPath = Join-Path `$bin '.freak-upgrade-helper.lock'
@@ -494,6 +497,26 @@ while ([DateTime]::UtcNow -lt `$waitDeadline) {
 }
 if ([DateTime]::UtcNow -ge `$waitDeadline) {
     Set-Content -LiteralPath `$failed -Value 'timed out waiting for the invoking installer process' -Encoding UTF8
+    exit 1
+}
+`$installLock = `$null
+`$installLockDeadline = [DateTime]::UtcNow.AddMinutes(5)
+while (-not `$installLock -and [DateTime]::UtcNow -lt `$installLockDeadline) {
+    try {
+        `$installLock = [System.IO.FileStream]::new(
+            `$installLockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None,
+            1,
+            [System.IO.FileOptions]::DeleteOnClose
+        )
+    } catch {
+        Start-Sleep -Milliseconds 100
+    }
+}
+if (-not `$installLock) {
+    Set-Content -LiteralPath `$failed -Value 'timed out acquiring the deferred installer lock' -Encoding UTF8
     exit 1
 }
 `$deadline = [DateTime]::UtcNow.AddHours(24)
@@ -604,6 +627,8 @@ while ([DateTime]::UtcNow -lt `$deadline) {
             Set-Content -LiteralPath `$failed -Value 'pending marker cleanup did not complete' -Encoding UTF8
             exit 1
         }
+        `$installLock.Dispose()
+        `$installLock = `$null
         exit 0
     } catch {
         `$detail = `$_.Exception.Message
