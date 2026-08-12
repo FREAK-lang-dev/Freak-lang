@@ -618,8 +618,12 @@ while ([DateTime]::UtcNow -lt `$deadline) {
         if (`$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_READY) {
             Set-Content -LiteralPath `$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_READY -Value 'ready' -Encoding UTF8
         }
-        if (`$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_DELAY_MS -match '^[0-9]+$') {
-            Start-Sleep -Milliseconds ([int]`$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_DELAY_MS)
+        if (`$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_RELEASE) {
+            `$testBarrierDeadline = [DateTime]::UtcNow.AddMinutes(3)
+            while (-not (Test-Path -LiteralPath `$env:FREAK_INSTALL_TEST_PENDING_CLEANUP_RELEASE) -and
+                [DateTime]::UtcNow -lt `$testBarrierDeadline) {
+                Start-Sleep -Milliseconds 50
+            }
         }
 
         # Pending is the externally visible completion signal. Remove it only

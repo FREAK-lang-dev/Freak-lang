@@ -545,6 +545,7 @@ def assert_exact_archive_upgrade(
     if sys.platform == "win32":
         retry_observed = root / "windows-upgrade-retry-observed.txt"
         pending_cleanup_ready = root / "windows-upgrade-pending-cleanup-ready.txt"
+        pending_cleanup_release = root / "windows-upgrade-pending-cleanup-release.txt"
         upgrade_env["FREAK_INSTALL_TEST_HELPER_START_DELAY_MS"] = "1500"
         upgrade_env["FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES"] = "205"
         upgrade_env["FREAK_INSTALL_TEST_TERMINAL_CLEANUP_FAILURES"] = "205"
@@ -552,7 +553,9 @@ def assert_exact_archive_upgrade(
         upgrade_env["FREAK_INSTALL_TEST_PENDING_CLEANUP_READY"] = str(
             pending_cleanup_ready
         )
-        upgrade_env["FREAK_INSTALL_TEST_PENDING_CLEANUP_DELAY_MS"] = "5000"
+        upgrade_env["FREAK_INSTALL_TEST_PENDING_CLEANUP_RELEASE"] = str(
+            pending_cleanup_release
+        )
     succeeded = run([str(freak), "upgrade"], root, upgrade_env, timeout=300)
     require_ok(succeeded, "successful exact-archive upgrade")
     assert "Upgrade payload staged successfully" in succeeded.stdout
@@ -573,7 +576,10 @@ def assert_exact_archive_upgrade(
         assert not (bin_dir / ".freak-upgrade-helper.ready").exists(), (
             "terminal shared-lock barrier fired before helper-ready cleanup"
         )
-        contender = run([str(freak), "upgrade"], root, upgrade_env, timeout=60)
+        try:
+            contender = run([str(freak), "upgrade"], root, upgrade_env, timeout=120)
+        finally:
+            pending_cleanup_release.write_text("release\n", encoding="utf-8")
         contender_output = show_output(contender).lower()
         assert contender.returncode != 0, contender_output
         assert "another freak installer" in contender_output, contender_output
