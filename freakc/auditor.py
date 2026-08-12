@@ -2151,11 +2151,13 @@ def audit_conformance(paths: List[Path]) -> int:
             (
                 "distribution-files.manifest",
                 "assert_archive_contract",
+                "assert_archive_safety_controls",
                 "archive_payload_fingerprint",
                 "assert_exact_installed_discovery",
                 "assert_installed_abi_mismatch",
                 "assert_exact_archive_upgrade",
                 "FREAK_FINAL_GATE_STALE_HANGAR",
+                "FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES",
                 "v3_legacy_golden.py",
                 "--internal-child",
                 "v3_codegen_error_gate.py",

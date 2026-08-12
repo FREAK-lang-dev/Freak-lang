@@ -168,40 +168,92 @@ def create_release_archive(
     return archive
 
 
-def archive_files(archive: Path) -> dict[str, bytes]:
+def normalized_archive_member(raw_name: str) -> str:
+    name = raw_name.replace("\\", "/")
+    while name.startswith("./"):
+        name = name[2:]
+    name = name.rstrip("/")
+    assert name and not name.startswith("/"), raw_name
+    assert not (len(name) >= 2 and name[0].isalpha() and name[1] == ":"), raw_name
+    assert all(part not in ("", ".", "..") for part in name.split("/")), raw_name
+    return name
+
+
+def archive_files(archive: Path) -> tuple[dict[str, bytes], set[str]]:
     files: dict[str, bytes] = {}
+    directories: set[str] = set()
     if archive.suffix.lower() == ".zip":
         with zipfile.ZipFile(archive) as source:
             for info in source.infolist():
-                name = info.filename.replace("\\", "/")
-                while name.startswith("./"):
-                    name = name[2:]
-                if info.is_dir():
-                    continue
+                name = normalized_archive_member(info.filename)
                 mode = (info.external_attr >> 16) & 0o170000
                 assert not stat.S_ISLNK(mode), (
                     f"release archive contains a symlink: {name}"
                 )
-                assert name and not name.startswith("/"), name
-                assert ".." not in Path(name).parts, name
+                if info.is_dir():
+                    assert name not in directories and name not in files, name
+                    directories.add(name)
+                    continue
                 assert name not in files, name
+                assert name not in directories, name
                 files[name] = source.read(info)
     else:
         with tarfile.open(archive, "r:gz") as source:
             for member in source.getmembers():
-                name = member.name.replace("\\", "/")
-                while name.startswith("./"):
-                    name = name[2:]
+                name = normalized_archive_member(member.name)
                 if member.isdir():
+                    assert name not in directories and name not in files, name
+                    directories.add(name)
                     continue
                 assert member.isfile(), f"release archive contains non-file member: {name}"
-                assert name and not name.startswith("/"), name
-                assert ".." not in Path(name).parts, name
                 handle = source.extractfile(member)
                 assert handle is not None, name
                 assert name not in files, name
+                assert name not in directories, name
                 files[name] = handle.read()
-    return files
+    return files, directories
+
+
+def expected_archive_directories(files: set[str]) -> set[str]:
+    result: set[str] = set()
+    for name in files:
+        parts = name.split("/")
+        for depth in range(1, len(parts)):
+            result.add("/".join(parts[:depth]))
+    return result
+
+
+def assert_archive_directory_closure(
+    directories: set[str], files: set[str]
+) -> None:
+    allowed = expected_archive_directories(files)
+    assert directories <= allowed, (
+        f"release archive has unexpected directories: "
+        f"{sorted(directories - allowed)}"
+    )
+
+
+def assert_archive_safety_controls(root: Path) -> None:
+    traversal = root / "unsafe-directory-traversal.zip"
+    with zipfile.ZipFile(traversal, "w") as output:
+        output.writestr("../escape/", b"")
+    try:
+        archive_files(traversal)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("archive traversal directory was accepted")
+
+    unexpected = root / "unexpected-empty-directory.zip"
+    with zipfile.ZipFile(unexpected, "w") as output:
+        output.writestr("freak/extra/", b"")
+    _, directories = archive_files(unexpected)
+    try:
+        assert_archive_directory_closure(directories, {"freak/bin/freak"})
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("unexpected archive directory was accepted")
 
 
 def assert_archive_contract(
@@ -222,11 +274,12 @@ def assert_archive_contract(
                 "freak/runtime/freak_ui_win32.obj",
             }
         )
-    files = archive_files(archive)
+    files, directories = archive_files(archive)
     assert set(files) == expected, (
         f"release archive closure mismatch: missing={sorted(expected - set(files))} "
         f"extra={sorted(set(files) - expected)}"
     )
+    assert_archive_directory_closure(directories, expected)
     assert all(files[name] for name in files), "release archive contains an empty file"
     assert files["freak/distribution-files.manifest"] == (
         repo / "packaging" / "distribution-files.manifest"
@@ -491,6 +544,7 @@ def assert_exact_archive_upgrade(
 
     if sys.platform == "win32":
         upgrade_env["FREAK_INSTALL_TEST_HELPER_START_DELAY_MS"] = "1500"
+        upgrade_env["FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES"] = "205"
     succeeded = run([str(freak), "upgrade"], root, upgrade_env, timeout=300)
     require_ok(succeeded, "successful exact-archive upgrade")
     assert "Upgrade payload staged successfully" in succeeded.stdout
@@ -581,6 +635,7 @@ def main() -> int:
     base_env["NO_COLOR"] = "1"
     with tempfile.TemporaryDirectory(prefix="freak-v3-final-release-") as temporary:
         root = Path(temporary)
+        assert_archive_safety_controls(root)
         archive = supplied_archive or create_release_archive(
             repo=repo,
             root=root,

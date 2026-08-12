@@ -449,6 +449,10 @@ Set-Content -LiteralPath `$helperReadyPath -Value "`$PID|`$helperStart" -Encodin
     'freak.exe' = '$expectedFreakHash'
     'hangar.exe' = '$expectedHangarHash'
 }
+`$retiredCleanupFailuresRemaining = 0
+if (`$env:FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES -match '^[0-9]+$') {
+    `$retiredCleanupFailuresRemaining = [int]`$env:FREAK_INSTALL_TEST_RETIRED_CLEANUP_FAILURES
+}
 
 function Restore-BinaryBackup {
     if (-not (Test-Path -LiteralPath `$backupRoot -PathType Container)) { return `$true }
@@ -521,15 +525,17 @@ while ([DateTime]::UtcNow -lt `$deadline) {
             }
         }
         # Renaming the complete old-binary directory is the commit point.
-        # Cleanup after it is best-effort because both live binaries already
-        # match their staged hashes and no rollback is required anymore.
+        # Both live binaries now match their staged hashes. Keep the durable
+        # .next inputs until every retired binary is gone so a cleanup retry
+        # can validate and reapply the committed pair safely.
         Move-Item -LiteralPath `$backupRoot -Destination `$retiredRoot
-        foreach (`$name in `$names) {
-            Remove-Item -LiteralPath (Join-Path `$bin (`$name + '.next')) -Force -ErrorAction SilentlyContinue
-        }
         `$retiredClean = `$false
         for (`$attempt = 0; `$attempt -lt 200; `$attempt++) {
-            Remove-Item -LiteralPath `$retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
+            if (`$retiredCleanupFailuresRemaining -gt 0) {
+                `$retiredCleanupFailuresRemaining--
+            } else {
+                Remove-Item -LiteralPath `$retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
+            }
             if (-not (Test-Path -LiteralPath `$retiredRoot)) {
                 `$retiredClean = `$true
                 break
@@ -538,6 +544,9 @@ while ([DateTime]::UtcNow -lt `$deadline) {
         }
         if (-not `$retiredClean) {
             throw "retired binary cleanup did not complete"
+        }
+        foreach (`$name in `$names) {
+            Remove-Item -LiteralPath (Join-Path `$bin (`$name + '.next')) -Force -ErrorAction SilentlyContinue
         }
         # Pending is the externally visible completion signal. Remove it only
         # after all transaction state and retired binaries are gone.
