@@ -377,7 +377,19 @@ def main() -> int:
                     audit=True,
                     force_move=True,
                 )
-                extra_run = run([str(extra_binary)], root, sanitizer_env())
+                # V3 has no shape-object release ABI yet. The field-scaling
+                # fixture owns and clears its word slot, but the surrounding
+                # shape allocation is intentionally unreleasable. Keep ASan's
+                # memory-error checks while disabling only that known LSan
+                # boundary, just like the field correctness fixture below.
+                scaling_detect_leaks = not (
+                    backend == "llvm" and scaling_name == "field"
+                )
+                extra_run = run(
+                    [str(extra_binary)],
+                    root,
+                    sanitizer_env(detect_leaks=scaling_detect_leaks),
+                )
                 assert extra_run.returncode == 0, extra_run.stdout + extra_run.stderr
                 assert extra_run.stdout.strip().splitlines() == expected_stdout, (
                     extra_run.stdout
