@@ -699,6 +699,14 @@ def check_offline_installer(
         close_handle = ctypes.windll.kernel32.CloseHandle
         close_handle.argtypes = [ctypes.wintypes.HANDLE]
         close_handle.restype = ctypes.wintypes.BOOL
+        open_process = ctypes.windll.kernel32.OpenProcess
+        open_process.argtypes = [
+            ctypes.wintypes.DWORD, ctypes.wintypes.BOOL, ctypes.wintypes.DWORD,
+        ]
+        open_process.restype = ctypes.wintypes.HANDLE
+        wait_for_single_object = ctypes.windll.kernel32.WaitForSingleObject
+        wait_for_single_object.argtypes = [ctypes.wintypes.HANDLE, ctypes.wintypes.DWORD]
+        wait_for_single_object.restype = ctypes.wintypes.DWORD
 
         install_lock_path = install_root / ".freak-install.lock"
         install_lock_handle = create_file(
@@ -891,11 +899,14 @@ def check_offline_installer(
                 [*command, "-Upgrade"], cwd=repo, env=orphan_env,
                 capture_output=True, text=True, errors="replace", timeout=120,
             )
+            if helper_pid_path.is_file():
+                helper_pid = int(
+                    helper_pid_path.read_text(encoding="utf-8-sig").strip()
+                )
             assert orphan_staged.returncode == 0, (
                 orphan_staged.stdout + orphan_staged.stderr
             )
-            assert helper_pid_path.is_file()
-            helper_pid = int(helper_pid_path.read_text(encoding="utf-8-sig").strip())
+            assert helper_pid is not None
             assert (orphan_bin / ".freak-upgrade-pending").is_file()
             live_contender = subprocess.run(
                 [*command, "-Upgrade"], cwd=repo, env=orphan_env,
@@ -909,19 +920,23 @@ def check_offline_installer(
                 "replacement helper is still active" in contender_output
                 or "another freak installer" in contender_output
             ), contender_output
-            terminated = subprocess.run(
-                ["taskkill.exe", "/PID", str(helper_pid), "/F"],
-                capture_output=True, text=True, errors="replace", timeout=30,
-            )
-            assert terminated.returncode == 0, terminated.stdout + terminated.stderr
-            helper_pid = None
         finally:
-            if helper_pid is not None:
-                subprocess.run(
-                    ["taskkill.exe", "/PID", str(helper_pid), "/F"],
-                    capture_output=True, text=True, errors="replace", timeout=30,
-                )
-            assert close_handle(orphan_lock)
+            try:
+                if helper_pid is not None:
+                    terminated = subprocess.run(
+                        ["taskkill.exe", "/PID", str(helper_pid), "/F"],
+                        capture_output=True, text=True, errors="replace", timeout=30,
+                    )
+                    process_handle = open_process(0x00100000, False, helper_pid)
+                    if process_handle:
+                        try:
+                            assert wait_for_single_object(process_handle, 10_000) == 0, (
+                                terminated.stdout + terminated.stderr
+                            )
+                        finally:
+                            assert close_handle(process_handle)
+            finally:
+                assert close_handle(orphan_lock)
 
         orphan_env.pop("FREAK_INSTALL_TEST_HELPER_PID")
         resumed = subprocess.run(
