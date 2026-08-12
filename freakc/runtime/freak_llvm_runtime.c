@@ -109,14 +109,6 @@ int64_t freak_calloc(int64_t count, int64_t size) {
 }
 int64_t freak_remove(int64_t path) {
 #ifdef _WIN32
-    return (int64_t)_unlink((const char*)path);
-#else
-    return (int64_t)unlink((const char*)path);
-#endif
-}
-
-int64_t freak_llvm_fs_delete_checked(int64_t path) {
-#ifdef _WIN32
     int result = _unlink((const char*)path);
 #else
     int result = unlink((const char*)path);

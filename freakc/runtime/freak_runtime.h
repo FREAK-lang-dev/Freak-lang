@@ -119,12 +119,11 @@ void freak_fs_append(freak_word path, freak_word content);
 /* Aliases without freak_ prefix (self-hosted compiler compatibility) */
 void fs_append(freak_word path, freak_word content);
 bool fs_exists(freak_word path);
-void fs_delete(freak_word path);
+bool fs_delete(freak_word path);
 
 bool freak_fs_exists(freak_word path);
 int64_t freak_path_exists(int64_t path);
-bool freak_internal_delete_file_checked(freak_word path);
-void freak_fs_delete(freak_word path);
+bool freak_fs_delete(freak_word path);
 void freak_fs_make_dir(freak_word path);
 freak_word freak_fs_list_dir(freak_word path);
 

@@ -39,14 +39,12 @@ task freakc_v3_main() -> void {
     input_file = process::arg(1)
 
     -- Parse flags
-    pilot compiler_internal_build = false
     pilot fi = 2
     repeat until fi >= args_cnt {
         pilot flag = process::arg(fi)
         if flag == "--c" { emit_target = "c" }
         if flag == "--llvm" { emit_target = "llvm" }
         if flag == "--strict-borrow" { strict_borrow = true }
-        if flag == "--compiler-internal" { compiler_internal_build = true }
         if flag.starts_with("--opt=") { opt_level = flag.char_at(6) }
         if flag.starts_with("--target=") {
             pilot ti = 9
@@ -71,7 +69,7 @@ task freakc_v3_main() -> void {
     } else {
         -- Delete unconditionally so a dangling output symlink, which
         -- fs::exists cannot observe, is unlinked before the emitter writes.
-        if not freak_internal_delete_file_checked(selected_output) {
+        if not fs::delete(selected_output) {
             say "Error: untrusted stale artifact could not be removed: " + selected_output
             process::exit(1)
         }
@@ -94,13 +92,6 @@ task freakc_v3_main() -> void {
     diagnostic_source = src
     source_map_reset()
     source_map_register(input_file, src)
-    -- Only bootstrap/reconstruction commands opt into the compiler aggregate's
-    -- checked-delete extern. Source text and filenames cannot assert this
-    -- provenance, and ordinary CLI/direct project compilation never sets it.
-    if compiler_internal_build {
-        trusted_compiler_internal_source_file = input_file
-    }
-
     say "[1/4] Lexing..."
     tokenize(src)
 

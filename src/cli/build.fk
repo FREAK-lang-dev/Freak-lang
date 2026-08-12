@@ -104,7 +104,7 @@ task cli_delete_derived_artifact(artifact: word) -> bool {
     -- unlink is file-only and does not follow the final path component. Run it
     -- even when fs::exists cannot see a dangling symlink; otherwise a later
     -- write could follow that stale link outside the source directory.
-    if not freak_internal_delete_file_checked(artifact) {
+    if not fs::delete(artifact) {
         cli_report_untrusted_stale_artifact(artifact)
         give back false
     }

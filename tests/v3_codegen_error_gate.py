@@ -144,12 +144,6 @@ def assert_builtin_signature_parity(repo: Path) -> None:
         encoding="utf-8"
     )
     compiler_main = (repo / "src/compiler/v3/main.fk").read_text(encoding="utf-8")
-    build_script = (repo / "build_cli.bat").read_text(encoding="utf-8")
-    ci_workflow = (repo / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    release_workflow = (repo / ".github/workflows/release.yml").read_text(
-        encoding="utf-8"
-    )
-    fixed_point = (repo / "tests/v3_fixed_point.py").read_text(encoding="utf-8")
     c_mapped = set(
         re.findall(r'val == "([^"]+)"', task_body(c_source, "c_map_call"))
     )
@@ -157,32 +151,27 @@ def assert_builtin_signature_parity(repo: Path) -> None:
         re.findall(r'val == "([^"]+)"', task_body(llvm_source, "llvm_map_call_name"))
     )
     mapped = c_mapped | llvm_mapped
-    compiler_internal_externs = {"freak_internal_delete_file_checked"}
-    assert compiler_internal_externs <= llvm_mapped
-    assert compiler_internal_externs.isdisjoint(c_mapped)
-    mapped -= compiler_internal_externs
+    removed_internal_symbols = {"freak_internal_delete_file_checked"}
+    assert removed_internal_symbols.isdisjoint(mapped)
     classified = set(
         re.findall(
             r'name == "([^"]+)"', task_body(checker_source, "tc_builtin_call_type")
         )
     )
-    assert compiler_internal_externs.isdisjoint(classified)
+    assert removed_internal_symbols.isdisjoint(classified)
+    assert "freak_internal_delete_file_checked" not in globals_source
+    assert "freak_internal_delete_file_checked" not in llvm_source
+    assert "freak_llvm_fs_delete_checked" not in llvm_source
+    assert "freak_internal_delete_file_checked" not in runtime_header
+    assert "freak_internal_delete_file_checked" not in runtime_c
+    assert "freak_llvm_fs_delete_checked" not in llvm_runtime_c
+    assert "--compiler-internal" not in compiler_main
+    assert "bool freak_fs_delete(freak_word path);" in runtime_header
+    assert "bool freak_fs_delete(freak_word path)" in runtime_c
     assert (
-        "extern task freak_internal_delete_file_checked(path: word) -> bool"
-        in globals_source
+        'if name == "fs::exists" or name == "fs::delete" { give back "bool" }'
+        in checker_source
     )
-    assert 'give back "@freak_llvm_fs_delete_checked"' in llvm_source
-    assert 'declare i64 @freak_llvm_fs_delete_checked(i64)' in llvm_source
-    assert "|freak_llvm_fs_delete_checked|" in llvm_source
-    assert "bool freak_internal_delete_file_checked(freak_word path);" in runtime_header
-    assert "bool freak_internal_delete_file_checked(freak_word path)" in runtime_c
-    assert "int64_t freak_llvm_fs_delete_checked(int64_t path)" in llvm_runtime_c
-    assert 'flag == "--compiler-internal"' in compiler_main
-    assert "src.contains(" not in task_body(compiler_main, "freakc_v3_main")
-    assert build_script.count("--compiler-internal") == 3
-    assert ci_workflow.count("--compiler-internal") == 2
-    assert release_workflow.count("--compiler-internal") == 2
-    assert '"--compiler-internal"' in fixed_point
     signature_classified = set(
         re.findall(
             r'name == "([^"]+)"',
@@ -1034,7 +1023,9 @@ def main() -> int:
             'task main() { freak_internal_delete_file_checked("must-not-map") }\n',
             encoding="utf-8",
         )
-        forged_check = run(freak, repo, forged_aggregate, "check")
+        forged_check = run(
+            freak, repo, forged_aggregate, "check", "--compiler-internal"
+        )
         assert_check_rejected(forged_check, "forged compiler aggregate check")
         assert "conflicts with a compiler builtin" in (
             forged_check.stdout + forged_check.stderr
@@ -1046,7 +1037,13 @@ def main() -> int:
             forged_artifact = Path(str(forged_aggregate) + suffix)
             forged_artifact.write_text(SENTINEL, encoding="utf-8")
             forged_emit = run(
-                freak, repo, forged_aggregate, "transpile", flag, timeout=10
+                freak,
+                repo,
+                forged_aggregate,
+                "transpile",
+                flag,
+                "--compiler-internal",
+                timeout=10,
             )
             assert_rejected(forged_emit, f"{backend} forged compiler aggregate")
             assert "conflicts with a compiler builtin" in (
@@ -1058,7 +1055,11 @@ def main() -> int:
             if direct_compiler is not None:
                 forged_artifact.write_text(SENTINEL, encoding="utf-8")
                 forged_direct = run_direct_compiler(
-                    direct_compiler, repo, str(forged_aggregate), flag
+                    direct_compiler,
+                    repo,
+                    str(forged_aggregate),
+                    flag,
+                    "--compiler-internal",
                 )
                 forged_output = forged_direct.stdout + forged_direct.stderr
                 assert forged_direct.returncode != 0, forged_output
@@ -1512,6 +1513,7 @@ def main() -> int:
 
         builtin_marker = tmp_path / "builtin-wrapper-marker.txt"
         builtin_marker.write_text("marker", encoding="utf-8")
+        builtin_deletable = tmp_path / "builtin-wrapper-deletable.txt"
         builtin_directory = tmp_path / "builtin-wrapper-directory"
         builtin_wrappers = tmp_path / "builtin_wrappers.fk"
         builtin_wrappers.write_text(
@@ -1527,6 +1529,10 @@ def main() -> int:
             "    letter = \"released\"\n"
             f"    say fs::exists(\"{builtin_marker.as_posix()}\").to_word()\n"
             f"    say fs::exists(\"{(tmp_path / 'builtin-wrapper-missing').as_posix()}\").to_word()\n"
+            f"    fs::write(\"{builtin_deletable.as_posix()}\", \"delete me\")\n"
+            f"    say fs::delete(\"{builtin_deletable.as_posix()}\").to_word()\n"
+            f"    say fs::exists(\"{builtin_deletable.as_posix()}\").to_word()\n"
+            f"    say fs::delete(\"{builtin_deletable.as_posix()}\").to_word()\n"
             f"    fs::make_dir(\"{builtin_directory.as_posix()}\")\n"
             f"    say fs::exists(\"{builtin_directory.as_posix()}\").to_word()\n"
             f"    fs::delete(\"{builtin_directory.as_posix()}\")\n"
@@ -1560,7 +1566,7 @@ def main() -> int:
             assert wrapper_run.returncode == 0, wrapper_run.stdout + wrapper_run.stderr
             wrapper_lines = wrapper_run.stdout.strip().splitlines()
             assert wrapper_lines == [
-                "ok", "true", "A", "true", "false", "true", "true"
+                "ok", "true", "A", "true", "false", "true", "false", "true", "true", "true"
             ], (
                 f"{backend} builtin wrapper output mismatch: {wrapper_lines!r}\n"
                 f"stderr: {wrapper_run.stderr}"

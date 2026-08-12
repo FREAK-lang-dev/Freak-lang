@@ -679,7 +679,7 @@ int64_t freak_path_exists(int64_t path) {
     return freak_fs_exists(freak_word_lit(value)) ? 1 : 0;
 }
 
-bool freak_internal_delete_file_checked(freak_word path) {
+bool freak_fs_delete(freak_word path) {
     const char* p = freak_word_to_cstr(path);
 #ifdef _WIN32
     int result = _unlink(p); /* file-only: never consume an artifact directory */
@@ -689,16 +689,12 @@ bool freak_internal_delete_file_checked(freak_word path) {
     return result == 0 || errno == ENOENT;
 }
 
-void freak_fs_delete(freak_word path) {
-    (void)freak_internal_delete_file_checked(path);
-}
-
 /* Aliases without freak_ prefix — the self-hosted compiler's generic
    call handler emits fs_append/fs_exists/fs_delete (no prefix) for
    builtins it doesn't explicitly know about. */
 void fs_append(freak_word path, freak_word content) { freak_fs_append(path, content); }
 bool fs_exists(freak_word path) { return freak_fs_exists(path); }
-void fs_delete(freak_word path) { freak_fs_delete(path); }
+bool fs_delete(freak_word path) { return freak_fs_delete(path); }
 
 void freak_fs_make_dir(freak_word path) {
     const char* p = freak_word_to_cstr(path);

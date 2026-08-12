@@ -3,11 +3,6 @@
 -- ===================================================================
 -- All global state in one file. Keeps other files pure logic.
 
--- Compiler-internal checked file removal. This declaration is compiled into
--- the compiler/CLI aggregates, but is not part of the source-facing builtin
--- inventory prepended to user programs.
-extern task freak_internal_delete_file_checked(path: word) -> bool
-
 -- ===================== VERSION =====================================
 -- Generated/synchronized by tools/release_version.py from the root VERSION.
 -- Release bumps change the version through that one command only.
@@ -245,10 +240,6 @@ pilot source_map_initialized = false
 -- compilation. Reserved native bridge task names are trusted only from this
 -- registered module, never from a user-controlled path suffix.
 pilot trusted_internal_runtime_source_file = ""
--- Exact aggregate source path authorized to declare the checked-delete bridge
--- while rebuilding the compiler/CLI. Ordinary project compilation leaves this
--- empty, so a project-authored extern cannot acquire the runtime mapping.
-pilot trusted_compiler_internal_source_file = ""
 pilot opt_level = "2"
 pilot cross_target = ""
 pilot source_line_offset = 0

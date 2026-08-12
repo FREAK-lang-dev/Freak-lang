@@ -545,7 +545,7 @@ completion remain open.
 | `.filter` / `.collect` lazy iterators | ❌ | 📖 V4 | List has eager methods only |
 | `ask(prompt)` stdin | ✅ | ✅ | runtime |
 | `say_err(msg)` stderr | ❌ | 📖 V4 | not in runtime |
-| `fs::read`, `fs::write`, `fs::append`, `fs::exists`, `fs::delete` | ✅ | ✅ | C runtime |
+| `fs::read`, `fs::write`, `fs::append`, `fs::exists`, `fs::delete` | ✅ | ✅ | C/LLVM runtimes; V3 `fs::delete` is file-only and returns checked success/already-absent status |
 | `TcpSocket::connect` async | ❌ | 📖 V4 | no promise type |
 | `time::sleep`, duration literals | ⚠️ | 📖 V4 | sleep works; literals like `500.milliseconds` not parsed |
 | `random::rand`, `random::seed` | ⚠️ | 📖 V4 | runtime present, FREAK API unclear |

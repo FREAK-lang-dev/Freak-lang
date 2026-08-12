@@ -54,7 +54,7 @@ call :require_file build\freakc_v3_seed.exe "fresh V3 bootstrap executable"
 if errorlevel 1 exit /b 1
 
 echo   Compiling current sources with bootstrap seed...
-build\freakc_v3_seed.exe build\freakc_v3_stage1.fk --c --compiler-internal
+build\freakc_v3_seed.exe build\freakc_v3_stage1.fk --c
 if errorlevel 1 (
     echo [ERROR] Bootstrap seed failed to compile current V3 sources
     exit /b 1
@@ -70,7 +70,7 @@ call :require_file build\freakc_v3_stage1.exe "fresh V3 stage1 executable"
 if errorlevel 1 exit /b 1
 
 echo   Recompiling current sources with stage1...
-build\freakc_v3_stage1.exe build\freakc_v3_stage2.fk --c --compiler-internal
+build\freakc_v3_stage1.exe build\freakc_v3_stage2.fk --c
 if errorlevel 1 (
     echo [ERROR] V3 stage1 failed to compile V3 stage2
     exit /b 1
@@ -86,7 +86,7 @@ call :require_file build\freakc_v3_stage2.exe "fresh V3 stage2 executable"
 if errorlevel 1 exit /b 1
 
 echo [Stage 3] Compiling build\freakc_cli.fk with fresh V3 stage2...
-build\freakc_v3_stage2.exe build\freakc_cli.fk --c --compiler-internal
+build\freakc_v3_stage2.exe build\freakc_cli.fk --c
 
 if errorlevel 1 (
     echo [ERROR] V3 compiler failed to compile freakc_cli.fk

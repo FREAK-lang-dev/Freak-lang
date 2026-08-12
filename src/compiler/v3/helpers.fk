@@ -438,7 +438,6 @@ task source_map_reset() -> void {
     source_map_next_line = 1
     source_map_initialized = true
     trusted_internal_runtime_source_file = ""
-    trusted_compiler_internal_source_file = ""
 }
 
 task source_map_register(path: word, source: word) -> void {

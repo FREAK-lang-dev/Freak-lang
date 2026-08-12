@@ -175,19 +175,19 @@ clang -o "$work/freakc-seed$exe" \
   "$repo/build/freakc_v3.fk.c" "$repo/freakc/runtime/freak_runtime.c" \
   -I"$repo/freakc/runtime" -O2 -w -D_CRT_SECURE_NO_WARNINGS "${link_flags[@]}"
 
-"$work/freakc-seed$exe" "$work/freakc_v3.fk" --c --compiler-internal
+"$work/freakc-seed$exe" "$work/freakc_v3.fk" --c
 mv "$work/freakc_v3.fk.c" "$work/freakc-stage1.c"
 clang -o "$work/freakc-stage1$exe" \
   "$work/freakc-stage1.c" "$repo/freakc/runtime/freak_runtime.c" \
   -I"$repo/freakc/runtime" -O2 -w -D_CRT_SECURE_NO_WARNINGS "${link_flags[@]}"
 
-"$work/freakc-stage1$exe" "$work/freakc_v3.fk" --c --compiler-internal
+"$work/freakc-stage1$exe" "$work/freakc_v3.fk" --c
 mv "$work/freakc_v3.fk.c" "$work/freakc-stage2.c"
 clang -o "$work/freakc-stage2$exe" \
   "$work/freakc-stage2.c" "$repo/freakc/runtime/freak_runtime.c" \
   -I"$repo/freakc/runtime" -O2 -w -D_CRT_SECURE_NO_WARNINGS "${link_flags[@]}"
 
-"$work/freakc-stage2$exe" "$work/freakc_v3.fk" --c --compiler-internal
+"$work/freakc-stage2$exe" "$work/freakc_v3.fk" --c
 mv "$work/freakc_v3.fk.c" "$work/freakc-stage3.c"
 cmp "$work/freakc-stage2.c" "$work/freakc-stage3.c"
 
@@ -211,7 +211,7 @@ cli_sources=(
   src/cli/main.fk
 )
 cat "${cli_sources[@]}" > "$work/freakc_cli.fk"
-"$work/freakc-stage2$exe" "$work/freakc_cli.fk" --c --compiler-internal
+"$work/freakc-stage2$exe" "$work/freakc_cli.fk" --c
 install_home="$work/freak-home"
 mkdir -p "$install_home/bin"
 clang -o "$install_home/bin/freak$exe" \
@@ -281,6 +281,9 @@ platform behavior.
   incremental or lossless editor parser.
 - Source and stdlib inputs are flattened before compilation. V3 has no V4-style
   per-module query graph or IR ownership boundary.
+- V3 `fs::delete(path)` is file-only on both backends and returns `true` when
+  the file was removed or was already absent. It returns `false` when the path
+  could not be unlinked, allowing compiler artifact cleanup to fail closed.
 - Generated C is the portable self-host fixed-point artifact. Reproducible
   native bytes require pinning the whole host toolchain and SDK and are not a
   cross-platform promise.
