@@ -18,11 +18,11 @@ Description: |-
   native binaries via an LLVM IR backend. Includes the Hangar package manager.
 
   Features:
-  - Self-hosting compiler (freakc_self.exe compiles itself)
+  - Self-hosted V3 compiler exposed through the freak command
   - LLVM IR backend with cross-compilation support
   - Hangar package manager (hangar.toml)
   - Standard library: std::fs, std::math, std::json, std::http, std::process, std::ui, and more
-  - Operator overloading, closures, maybe<T>/result<T,E>, pattern matching
+  - Tasks, shapes, impl methods, path interpolation, and literal-value when matching
   - Unique language constructs: training arc, foreshadow/payoff, deus_ex_machina, isekai
 Moniker: freak
 Tags:
