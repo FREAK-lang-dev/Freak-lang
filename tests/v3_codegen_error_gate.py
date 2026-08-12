@@ -138,6 +138,11 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     llvm_source = (repo / "src/compiler/v3/emit_llvm.fk").read_text(encoding="utf-8")
     checker_source = (repo / "src/compiler/v3/checker.fk").read_text(encoding="utf-8")
     globals_source = (repo / "src/compiler/v3/globals.fk").read_text(encoding="utf-8")
+    runtime_header = (repo / "freakc/runtime/freak_runtime.h").read_text(encoding="utf-8")
+    runtime_c = (repo / "freakc/runtime/freak_runtime.c").read_text(encoding="utf-8")
+    llvm_runtime_c = (repo / "freakc/runtime/freak_llvm_runtime.c").read_text(
+        encoding="utf-8"
+    )
     c_mapped = set(
         re.findall(r'val == "([^"]+)"', task_body(c_source, "c_map_call"))
     )
@@ -159,6 +164,12 @@ def assert_builtin_signature_parity(repo: Path) -> None:
         "extern task freak_internal_delete_file_checked(path: word) -> bool"
         in globals_source
     )
+    assert 'give back "@freak_llvm_fs_delete_checked"' in llvm_source
+    assert 'declare i64 @freak_llvm_fs_delete_checked(i64)' in llvm_source
+    assert "|freak_llvm_fs_delete_checked|" in llvm_source
+    assert "bool freak_internal_delete_file_checked(freak_word path);" in runtime_header
+    assert "bool freak_internal_delete_file_checked(freak_word path)" in runtime_c
+    assert "int64_t freak_llvm_fs_delete_checked(int64_t path)" in llvm_runtime_c
     signature_classified = set(
         re.findall(
             r'name == "([^"]+)"',
@@ -959,6 +970,47 @@ def main() -> int:
                     + direct_semantic.stdout
                     + direct_semantic.stderr
                 )
+
+        internal_collision = tmp_path / "internal_checked_delete_collision.fk"
+        collision_sentinel = tmp_path / "internal-bridge-must-not-delete.txt"
+        collision_path = str(collision_sentinel).replace("\\", "/")
+        internal_collision.write_text(
+            "task freak_internal_delete_file_checked(path: word) -> bool { give back false }\n"
+            "task main() {\n"
+            f'    if freak_internal_delete_file_checked("{collision_path}") {{\n'
+            '        say "runtime bridge called"\n'
+            "    } else {\n"
+            '        say "user task called"\n'
+            "    }\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        collision_binary = derived_binary(internal_collision)
+        for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+            collision_sentinel.write_text("preserve me\n", encoding="utf-8")
+            collision_build = run(
+                freak, repo, internal_collision, "build", flag, timeout=30
+            )
+            assert collision_build.returncode == 0, (
+                collision_build.stdout + collision_build.stderr
+            )
+            collision_run = subprocess.run(
+                [str(collision_binary)],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                check=False,
+            )
+            assert collision_run.returncode == 0, collision_run.stderr
+            assert collision_run.stdout == "user task called\n", (
+                f"{backend} remapped a user task to the internal runtime bridge\n"
+                + collision_run.stdout
+                + collision_run.stderr
+            )
+            assert collision_sentinel.read_text(encoding="utf-8") == "preserve me\n"
 
         # Shipping std/ui uses associated impl tasks (no `self`) for these
         # constructors. Keep an isolated copy of that exact dispatch shape so

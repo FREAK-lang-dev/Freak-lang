@@ -588,7 +588,18 @@ task llvm_map_call_name(val: word) -> word {
     if val == "fs::append" { give back "@freak_llvm_fs_append" }
     if val == "fs::exists" { give back "@freak_llvm_fs_exists" }
     if val == "fs::delete" { give back "@freak_llvm_fs_delete" }
-    if val == "freak_internal_delete_file_checked" { give back "@freak_llvm_fs_delete_checked" }
+    if val == "freak_internal_delete_file_checked" {
+        -- Only the compiler aggregate's explicit extern declaration maps to
+        -- the runtime bridge. A same-named user task remains a normal nominal
+        -- task and must never acquire filesystem authority by name alone.
+        pilot internal_entry = tc_callable_entry(val)
+        if internal_entry >= 0 {
+            pilot declaration_id = word_to_int(array_get(tc_callable_stmt_ids, internal_entry))
+            if array_get(ast_stmt_kinds, declaration_id) == STMT_EXTERN {
+                give back "@freak_llvm_fs_delete_checked"
+            }
+        }
+    }
     if val == "fs::list_dir" { give back "@freak_llvm_fs_list_dir" }
     if val == "fs::make_dir" { give back "@freak_llvm_fs_make_dir" }
     if val == "process::env" { give back "@freak_llvm_process_env" }
