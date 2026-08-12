@@ -563,20 +563,23 @@ def assert_exact_archive_upgrade(
     bin_dir = install_home / "bin"
     pending = bin_dir / ".freak-upgrade-pending"
     if sys.platform == "win32":
-        ready_deadline = time.monotonic() + 120
-        while not pending_cleanup_ready.exists() and time.monotonic() < ready_deadline:
-            time.sleep(0.1)
-        assert pending_cleanup_ready.exists(), (
-            "deferred helper never reached the terminal shared-lock window"
-        )
-        assert pending.exists(), "terminal shared-lock window did not retain pending"
-        assert not (bin_dir / ".freak-upgrade-helper.lock").exists(), (
-            "terminal shared-lock barrier fired before helper-lock cleanup"
-        )
-        assert not (bin_dir / ".freak-upgrade-helper.ready").exists(), (
-            "terminal shared-lock barrier fired before helper-ready cleanup"
-        )
         try:
+            ready_deadline = time.monotonic() + 120
+            while (
+                not pending_cleanup_ready.exists()
+                and time.monotonic() < ready_deadline
+            ):
+                time.sleep(0.1)
+            assert pending_cleanup_ready.exists(), (
+                "deferred helper never reached the terminal shared-lock window"
+            )
+            assert pending.exists(), "terminal shared-lock window did not retain pending"
+            assert not (bin_dir / ".freak-upgrade-helper.lock").exists(), (
+                "terminal shared-lock barrier fired before helper-lock cleanup"
+            )
+            assert not (bin_dir / ".freak-upgrade-helper.ready").exists(), (
+                "terminal shared-lock barrier fired before helper-ready cleanup"
+            )
             contender = run([str(freak), "upgrade"], root, upgrade_env, timeout=120)
         finally:
             pending_cleanup_release.write_text("release\n", encoding="utf-8")
