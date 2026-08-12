@@ -329,6 +329,15 @@ def assert_case_diagnostics(case: NegativeCase, output: str) -> None:
             assert expected in lowered, (
                 f"{case.name}: missing {builtin} geometry diagnostic\n{output}"
             )
+    if case.name == "semantic_condition_types":
+        for expected in (
+            "repeat count must have type int, got bool",
+            "training arc condition must have type bool, got int",
+            "training arc max must have type int, got bool",
+        ):
+            assert expected in lowered, (
+                f"{case.name}: missing condition diagnostic {expected!r}\n{output}"
+            )
 
 
 def run_direct_compiler(
@@ -421,7 +430,7 @@ def main() -> int:
                 checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
                 assert f"/{malformed.name}:4:1" in checked_output, checked_output
                 assert "4 |     task unfinished(" in checked_output, checked_output
-            if case.kind == "borrow":
+            if case.name == "immutable_reassignment":
                 checked_output = (checked.stdout + checked.stderr).replace("\\", "/")
                 assert f"/{malformed.name}:6:1" in checked_output, checked_output
                 assert '6 |     name = "Meiya"' in checked_output, checked_output
@@ -591,9 +600,15 @@ def main() -> int:
                 freak, repo, blocked_cleanup, "transpile", flag, timeout=10
             )
             blocked_output = blocked_result.stdout + blocked_result.stderr
-            assert blocked_result.returncode != 0, blocked_output
-            assert "untrusted stale artifact" in blocked_output.lower(), blocked_output
-            assert blocked_artifact.is_dir(), blocked_artifact
+            assert blocked_result.returncode != 0, (
+                f"{backend} blocked cleanup unexpectedly succeeded\n{blocked_output}"
+            )
+            assert "untrusted stale artifact" in blocked_output.lower(), (
+                f"{backend} blocked cleanup: missing diagnostic\n{blocked_output}"
+            )
+            assert blocked_artifact.is_dir(), (
+                f"{backend} blocked cleanup removed the directory: {blocked_artifact}"
+            )
             blocked_artifact.rmdir()
 
         blocked_binary = derived_binary(blocked_cleanup)

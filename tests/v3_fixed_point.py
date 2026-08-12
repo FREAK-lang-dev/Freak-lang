@@ -39,7 +39,7 @@ def repository_fingerprint(repo: Path) -> dict[str, str]:
     assert listed.returncode == 0, listed.stderr.decode("utf-8", errors="replace")
     relative_paths = listed.stdout.decode("utf-8").split("\0")
     return {
-        relative: digest(repo / relative)
+        relative: digest(repo / relative) if (repo / relative).is_file() else "<absent>"
         for relative in relative_paths
         if relative
     }

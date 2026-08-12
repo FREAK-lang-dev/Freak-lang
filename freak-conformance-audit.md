@@ -179,7 +179,7 @@ is covered as a transpilation contract rather than claimed runtime parity.
 | `if`/`else` | ✅ | ✅ | |
 | `when` pattern matching with literal patterns | ⚠️ | 📖 V4 | V4 also lowers tuple, fixed-array, and route/variant payload patterns; production V3 remains narrower |
 | `when` pattern destructuring `Variant::Case { field }` | ⚠️ | 📖 V4 | V4 carries payload destructuring, refutable-pattern checks, exhaustive route/variant `when`, and alias-backed duplicate/unreachable diagnostics; broader pattern ergonomics still expand |
-| `for each item in list` | ✅ | ✅ | |
+| `for each item in list` | ⚠️ | 📖 V4 | The phrase is lexed, but shipping V3 has no executable `for each` statement path. |
 | `repeat N times` | ✅ | ✅ | |
 | `repeat until condition` | ✅ | ✅ | |
 | `training arc until cond max N sessions` | ✅ | ✅ | parsed and emitted as bounded while |
@@ -560,7 +560,7 @@ completion remain open.
 | `std::http` (HTTP/1.1 client) | ✅ | ✅ | [std/http.fk](std/http.fk) |
 | `std::json` | ✅ | ✅ | [std/json.fk](std/json.fk) |
 | `std::bytes` ByteBuffer | ✅ | ✅ | runtime |
-| `std::ui` (window, indexed events, raw drawing) | ⚠️ | Frozen V3 executes the low-level Win32/GDI floor only through LLVM on Windows. `Window.poll`/owned event lists, POSIX native UI, executable C UI shapes, and COCKPIT widgets/themes are not shipped V3 surfaces; COCKPIT remains a Maverick source preview. |
+| `std::ui` (window, indexed events, raw drawing) | ⚠️ | 📖 V3 boundary | Frozen V3 executes the low-level Win32/GDI floor only through LLVM on Windows. `Window.poll`/owned event lists, POSIX native UI, executable C UI shapes, and COCKPIT widgets/themes are not shipped V3 surfaces; COCKPIT remains a Maverick source preview. |
 | `std::version` (semver) | ✅ | ✅ | [std/version.fk](std/version.fk) |
 | `std::algorithm` | ✅ | ✅ | [std/algorithm.fk](std/algorithm.fk) |
 | `std::convert` | ✅ | ✅ | [std/convert.fk](std/convert.fk) |

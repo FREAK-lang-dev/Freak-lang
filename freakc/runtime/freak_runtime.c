@@ -681,7 +681,11 @@ int64_t freak_path_exists(int64_t path) {
 
 void freak_fs_delete(freak_word path) {
     const char* p = freak_word_to_cstr(path);
-    remove(p); /* ignore errors for now */
+#ifdef _WIN32
+    _unlink(p); /* file-only: never consume a directory used as an artifact path */
+#else
+    unlink(p);  /* file-only: never consume a directory used as an artifact path */
+#endif
 }
 
 /* Aliases without freak_ prefix — the self-hosted compiler's generic
@@ -1799,8 +1803,9 @@ int64_t freak_llvm_word_concat(int64_t a, int64_t b) {
     freak_concat_audit_concat(a_len + b_len);
     char* buf = (char*)malloc(len);
     if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
-    strcpy(buf, sa);
-    strcat(buf, sb);
+    memcpy(buf, sa, a_len);
+    memcpy(buf + a_len, sb, b_len);
+    buf[a_len + b_len] = '\0';
     return freak_llvm_word_adopt((int64_t)buf);
 }
 

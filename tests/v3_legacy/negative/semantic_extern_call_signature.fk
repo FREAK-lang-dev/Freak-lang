@@ -1,5 +1,5 @@
 extern task foreign_value(value: int) -> int
 
 task main() {
-    say foreign_value("wrong").to_word()
+    foreign_value("wrong")
 }

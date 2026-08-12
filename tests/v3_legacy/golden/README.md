@@ -9,7 +9,7 @@ suite.
 source file, one exact expected-stdout file, an ordered unique backend list,
 and backend-local generated-code markers:
 
-| Case | Backends | Preserved behavior |
+| Source stem | Backends | Preserved behavior |
 |---|---|---|
 | `01_core` | C, LLVM | typed primitive bindings, integer arithmetic, booleans, and output |
 | `02_control_tasks` | C, LLVM | task calls, repetition, branching, `when`, and `training arc` |

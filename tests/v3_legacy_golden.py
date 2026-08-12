@@ -21,6 +21,9 @@ BACKENDS = {
     "llvm": ("--llvm", ".ll"),
 }
 
+if not __debug__:
+    raise SystemExit("v3_legacy_golden.py requires assertions; do not run with python -O")
+
 
 def normalize_newlines(value: str) -> str:
     """Normalize only platform newline representation, never content spacing."""
@@ -137,12 +140,12 @@ def load_cases(corpus: Path) -> list[dict[str, Any]]:
     discovered_sources = {path.name for path in corpus.glob("*.fk")}
     discovered_outputs = {path.name for path in corpus.glob("*.stdout")}
     assert sources == discovered_sources, (
-        f"golden source inventory mismatch: missing={sorted(discovered_sources - sources)} "
-        f"extra={sorted(sources - discovered_sources)}"
+        f"golden source inventory mismatch: missing={sorted(sources - discovered_sources)} "
+        f"extra={sorted(discovered_sources - sources)}"
     )
     assert outputs == discovered_outputs, (
-        f"golden output inventory mismatch: missing={sorted(discovered_outputs - outputs)} "
-        f"extra={sorted(outputs - discovered_outputs)}"
+        f"golden output inventory mismatch: missing={sorted(outputs - discovered_outputs)} "
+        f"extra={sorted(discovered_outputs - outputs)}"
     )
     allowed_members = {"README.md", "cases.json"} | sources | outputs
     discovered_members = {path.name for path in corpus.iterdir()}
@@ -276,12 +279,14 @@ def run_corpus(
             )
 
             executed = run([str(binary)], case_root, env)
-            actual = normalize_newlines(executed.stdout.decode("utf-8", errors="strict"))
             stderr = normalize_newlines(
                 executed.stderr.decode("utf-8", errors="replace")
             )
             assert executed.returncode == 0, (
                 f"{case['name']} ({backend}) exited {executed.returncode}\n{stderr}"
+            )
+            actual = normalize_newlines(
+                executed.stdout.decode("utf-8", errors="strict")
             )
             assert stderr == "", f"{case['name']} ({backend}) wrote stderr:\n{stderr}"
             assert actual == expected, (
