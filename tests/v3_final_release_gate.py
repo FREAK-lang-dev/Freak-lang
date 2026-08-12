@@ -66,6 +66,13 @@ def manifest_entries(repo: Path) -> list[tuple[Path, str]]:
             assert not value.startswith("/"), value
             assert not (len(value) >= 2 and value[0].isalpha() and value[1] == ":"), value
             assert all(part not in ("", ".", "..") for part in parts), value
+        if source_text.startswith("freakc/runtime/"):
+            assert destination == "runtime/" + source_text.removeprefix(
+                "freakc/runtime/"
+            ), (source_text, destination)
+        else:
+            assert source_text.startswith("std/"), source_text
+            assert destination == source_text, (source_text, destination)
         source = (repo / source_text).resolve()
         source.relative_to(repo.resolve())
         assert source.is_file(), source
@@ -198,7 +205,7 @@ def archive_files(archive: Path) -> dict[str, bytes]:
 
 
 def assert_archive_contract(
-    archive: Path, entries: list[tuple[Path, str]]
+    archive: Path, entries: list[tuple[Path, str]], repo: Path
 ) -> dict[str, bytes]:
     extension = ".exe" if sys.platform == "win32" else ""
     expected = {
@@ -221,6 +228,9 @@ def assert_archive_contract(
         f"extra={sorted(set(files) - expected)}"
     )
     assert all(files[name] for name in files), "release archive contains an empty file"
+    assert files["freak/distribution-files.manifest"] == (
+        repo / "packaging" / "distribution-files.manifest"
+    ).read_bytes(), "release archive contains a stale distribution manifest"
     for source, destination in entries:
         assert files[f"freak/{destination}"] == source.read_bytes(), destination
     return files
@@ -287,6 +297,13 @@ def assert_installed_payload(
             assert (install_home / "runtime" / name).read_bytes() == (
                 archive_files_by_name[f"freak/runtime/{name}"]
             )
+    expected = archive_payload_fingerprint(archive_files_by_name)
+    actual = payload_fingerprint(install_home)
+    assert actual == expected, (
+        "installed payload closure mismatch: "
+        f"missing={sorted(set(expected) - set(actual))} "
+        f"extra={sorted(set(actual) - set(expected))}"
+    )
     return freak, hangar
 
 
@@ -393,10 +410,34 @@ def assert_installed_abi_mismatch(
 
 def payload_fingerprint(root: Path) -> dict[str, str]:
     result: dict[str, str] = {}
-    for path in sorted(item for item in root.rglob("*") if item.is_file()):
-        result[path.relative_to(root).as_posix()] = hashlib.sha256(
-            path.read_bytes()
-        ).hexdigest()
+
+    def visit(directory: Path, prefix: str = "") -> None:
+        for entry in sorted(os.scandir(directory), key=lambda item: item.name):
+            relative = f"{prefix}/{entry.name}" if prefix else entry.name
+            if entry.is_symlink():
+                result[relative] = f"symlink:{os.readlink(entry.path)}"
+            elif entry.is_dir(follow_symlinks=False):
+                result[relative] = "directory"
+                visit(Path(entry.path), relative)
+            elif entry.is_file(follow_symlinks=False):
+                digest = hashlib.sha256(Path(entry.path).read_bytes()).hexdigest()
+                result[relative] = f"file:{digest}"
+            else:
+                result[relative] = f"special:{stat.S_IFMT(os.lstat(entry.path).st_mode)}"
+
+    visit(root)
+    return result
+
+
+def archive_payload_fingerprint(files: dict[str, bytes]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for archive_name, data in sorted(files.items()):
+        assert archive_name.startswith("freak/"), archive_name
+        relative = archive_name.removeprefix("freak/")
+        parts = relative.split("/")
+        for depth in range(1, len(parts)):
+            result["/".join(parts[:depth])] = "directory"
+        result[relative] = f"file:{hashlib.sha256(data).hexdigest()}"
     return result
 
 
@@ -438,6 +479,15 @@ def assert_exact_archive_upgrade(
     assert payload_fingerprint(install_home) == before, (
         "failed exact-archive upgrade did not restore the previous payload"
     )
+
+    extension = ".exe" if sys.platform == "win32" else ""
+    installed_hangar = install_home / "bin" / f"hangar{extension}"
+    installed_hangar.write_bytes(
+        installed_hangar.read_bytes() + b"\nFREAK_FINAL_GATE_STALE_HANGAR\n"
+    )
+    assert installed_hangar.read_bytes() != archive_payload[
+        f"freak/bin/hangar{extension}"
+    ], "successful-upgrade binary replacement precondition was not established"
 
     if sys.platform == "win32":
         upgrade_env["FREAK_INSTALL_TEST_HELPER_START_DELAY_MS"] = "1500"
@@ -540,7 +590,7 @@ def main() -> int:
             env=base_env,
         )
         archive_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
-        archive_payload = assert_archive_contract(archive, entries)
+        archive_payload = assert_archive_contract(archive, entries, repo)
         extension = ".exe" if sys.platform == "win32" else ""
         assert archive_payload[f"freak/bin/freak{extension}"] == (
             standalone_freak.read_bytes()

@@ -226,7 +226,8 @@ jobs:
           while IFS= read -r -d '' file; do
             hash=$(sha256sum "$file" | awk '{print $1}')
             printf '%s  %s\n' "$hash" "$(basename "$file")" >> SHA256SUMS
-          done < <(find . -type f \( -name "freak-*" -o -name "hangar-*" \) -print0)
+          done < <(find . -type f \( -name "freak-*" -o -name "hangar-*" \) \
+            ! -name "*.tested.sha256" -print0)
 
           # The standalone compatibility path downloads the tagged manifest
           # and its raw payload files.  Bind those bytes to this release too.
@@ -257,10 +258,10 @@ jobs:
         run: |
           # Parse SHA256SUMS and patch packaging files with real hashes
           cd artifacts
-          HASH_MACOS=$(grep 'freak-macos-arm64.tar.gz' SHA256SUMS | awk '{print $1}' || echo "")
-          HASH_LINUX_X64=$(grep 'freak-linux-x64.tar.gz' SHA256SUMS | awk '{print $1}' || echo "")
-          HASH_LINUX_ARM64=$(grep 'freak-linux-arm64.tar.gz' SHA256SUMS | awk '{print $1}' || echo "")
-          HASH_WIN=$(grep 'freak-windows-x64.zip' SHA256SUMS | awk '{print $1}' || echo "")
+          HASH_MACOS=$(awk '$2 == "freak-macos-arm64.tar.gz" {print $1}' SHA256SUMS)
+          HASH_LINUX_X64=$(awk '$2 == "freak-linux-x64.tar.gz" {print $1}' SHA256SUMS)
+          HASH_LINUX_ARM64=$(awk '$2 == "freak-linux-arm64.tar.gz" {print $1}' SHA256SUMS)
+          HASH_WIN=$(awk '$2 == "freak-windows-x64.zip" {print $1}' SHA256SUMS)
           for hash in "$HASH_MACOS" "$HASH_LINUX_X64" "$HASH_LINUX_ARM64" "$HASH_WIN"; do
             if [ -z "$hash" ]; then
               echo "::error::missing distribution checksum"

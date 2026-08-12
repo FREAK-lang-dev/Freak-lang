@@ -527,7 +527,18 @@ while ([DateTime]::UtcNow -lt `$deadline) {
         foreach (`$name in `$names) {
             Remove-Item -LiteralPath (Join-Path `$bin (`$name + '.next')) -Force -ErrorAction SilentlyContinue
         }
-        Remove-Item -LiteralPath `$retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
+        `$retiredClean = `$false
+        for (`$attempt = 0; `$attempt -lt 200; `$attempt++) {
+            Remove-Item -LiteralPath `$retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
+            if (-not (Test-Path -LiteralPath `$retiredRoot)) {
+                `$retiredClean = `$true
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not `$retiredClean) {
+            throw "retired binary cleanup did not complete"
+        }
         # Pending is the externally visible completion signal. Remove it only
         # after all transaction state and retired binaries are gone.
         Remove-Item -LiteralPath `$failed -Force -ErrorAction SilentlyContinue

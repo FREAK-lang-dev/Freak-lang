@@ -216,13 +216,15 @@ def check_static_contracts(repo: Path) -> None:
         "--standalone-freak",
         "--standalone-hangar",
         "--tested-sha256",
+        '! -name "*.tested.sha256"',
+        '$2 == "freak-macos-arm64.tar.gz"',
         "sha256sum",
     ):
         assert needle in release_text, f"release workflow missing {needle}"
     assert "destination=${destination%$'\\r'}" in release_text
     assert 'read -r source destination || [[ -n "$source$destination" ]]' in release_text
     assert "freakc_v3_stage2" in ci_text
-    assert "freakc_v3_stage3" in ci_text
+    assert "tests/v3_fixed_point.py" in ci_text
     assert release_text.index("Collect finalized release archives") < release_text.index(
         "Generate checksums"
     )
