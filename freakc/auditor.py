@@ -1668,10 +1668,12 @@ def audit_conformance(paths: List[Path]) -> int:
         "run pipeline": (
             repo / "src" / "cli" / "run.fk",
             (
-                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v5"',
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"',
                 "task cli_run_fingerprint",
                 "task cli_run_clang_identity",
                 "task cli_run_linker_identity",
+                "task cli_clang_linker_trace",
+                "task cli_file_sha256_required",
                 "certutil -hashfile",
                 "sha256sum ",
                 "task cli_run_cache_record",
