@@ -9061,8 +9061,8 @@ EXECUTABLE_SMOKES = [
             "local-annotation-mir-diagnostics=0",
             "local-annotation-borrow-status=clean",
             "local-annotation-borrow-diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v4 files=1 items=1 alias-targets=0 local-annotations=4 diagnostics=0",
-            "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 diagnostics=0 skipped-other=0 live-files=1",
+            "hir-snapshot format=freak-hir-snapshot-v5 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 diagnostics=0",
+            "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 task-returns=1 diagnostics=0 skipped-other=0 live-files=1",
             "local-annotation-restored-count=4",
             "local-annotation-restored-fixed=char",
             "local-annotation-malformed-restore-rejected=true",
@@ -9076,6 +9076,41 @@ EXECUTABLE_SMOKES = [
             "local-annotation-bad-message=invalid local annotation type",
             "local-annotation-bad-help=Meiya lifetime debt: maybe expects 1 generic arguments in local declaration hold but received 2",
             "local-annotation-bad-stmt-span-stable=true",
+        ],
+    },
+    {
+        "name": "task return semantic boundary",
+        "fixture": "task_return_semantic_boundary_smoke.fk",
+        "expect": [
+            "task-return-parse-diagnostics=0",
+            "task-return-hir-records=3",
+            "task-return-explicit-form=explicit",
+            "task-return-explicit-surface=lend 'a maybe<[word;2]>",
+            "task-return-explicit-source=lend 'a maybe< [word; 2] >",
+            "task-return-explicit-span-contained=true",
+            "task-return-implicit-form=implicit-block",
+            "task-return-implicit-surface=",
+            "task-return-implicit-type=unknown",
+            "task-return-implicit-span-empty=true",
+            "task-return-arrow-form=arrow",
+            "task-return-arrow-type=bool",
+            "task-return-arrow-display=task arrow(...) -> bool",
+            "task-return-arrow-span-empty=true",
+            "task-return-ty-surface=lend 'a maybe<[word;2]>",
+            "task-return-ty-canonical=lend 'a maybe<[word;2]>",
+            "task-return-ty-display=task keep<'a>(...) -> lend 'a maybe<[word;2]>",
+            "task-return-mir-expected=lend 'a maybe<[word;2]>",
+            "task-return-mir-diagnostics=0",
+            "task-return-borrow-status=clean",
+            "ty-snapshot format=freak-ty-snapshot-v1 files=1 signatures=3 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v5 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 diagnostics=0",
+            "hir-snapshot-restore ok=1 files=1 items=3 local-annotations=0 task-returns=3 diagnostics=0 skipped-other=0 live-files=1",
+            "task-return-restored-form=explicit",
+            "task-return-restored-surface=lend 'a maybe<[word;2]>",
+            "task-return-schema-variants-rejected=true",
+            "task-return-schema-variants-atomic=true",
+            "task-return-editor-display=task keep<'a>(...) -> lend 'a maybe<[word;2]>",
+            "task-return-return-only-invalidation=task changed(...) -> int|task changed(...) -> num",
         ],
     },
 ]
@@ -9492,7 +9527,7 @@ def check_mir_local_annotation_boundary() -> None:
     violations: list[str] = []
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v4"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v5"',
         "pilot v4_hir_local_annotation_items = 0",
         "pilot v4_hir_local_annotation_stmt_spans = 0",
         "pilot v4_hir_local_annotation_types = 0",
@@ -9603,6 +9638,138 @@ def check_mir_local_annotation_boundary() -> None:
         raise SystemExit(1)
 
     print("semantic MIR local annotations: TY facts, six-task builder type-text allowlist")
+
+
+def check_task_return_hir_boundary() -> None:
+    hir_source = read_text(crate_path("freak_hir"))
+    ty_source = read_text(crate_path("freak_ty"))
+    violations: list[str] = []
+
+    if 'pilot v4_ty_snapshot_format = "freak-ty-snapshot-v1"' not in ty_source:
+        violations.append("task return boundary unexpectedly changed the TY snapshot format")
+
+    for marker in (
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v5"',
+        "pilot v4_hir_task_return_items = 0",
+        "pilot v4_hir_task_return_forms = 0",
+        "pilot v4_hir_task_return_types = 0",
+        "pilot v4_hir_task_return_spans = 0",
+        '"hir-task-return"',
+        '"task-returns"',
+        "v4_hir_task_return_explicit",
+        "v4_hir_task_return_implicit_block",
+        "v4_hir_task_return_arrow",
+    ):
+        if marker not in hir_source:
+            violations.append(f"task return HIR boundary missing: {marker}")
+
+    hir_storage_accessors = (
+        "v4_hir_task_return_record_id",
+        "v4_hir_task_return_form",
+        "v4_hir_task_return_type",
+        "v4_hir_task_return_span",
+    )
+    for task_name in hir_storage_accessors:
+        body = freak_task_body(hir_source, task_name)
+        if body is None:
+            violations.append(f"task return HIR storage accessor missing: {task_name}")
+            continue
+        for forbidden in (
+            "v4_parse_",
+            "v4_lex_",
+            "v4_expand_",
+            "_token",
+            "v4_hir_local_annotation_type_text",
+        ):
+            if forbidden in body:
+                violations.append(
+                    f"task return HIR storage accessor reconstructs syntax: {task_name} uses {forbidden}"
+                )
+
+    ty_hir_contracts = {
+        "v4_ty_ordinary_task_explicit_return_from_hir": "v4_hir_task_return_type",
+        "v4_ty_ordinary_task_explicit_return_span_from_hir": "v4_hir_task_return_span",
+    }
+    for task_name, required in ty_hir_contracts.items():
+        body = freak_task_body(ty_source, task_name)
+        if body is None:
+            violations.append(f"task return TY HIR adapter missing: {task_name}")
+            continue
+        if required not in body or "v4_hir_task_return_form" not in body:
+            violations.append(f"task return TY HIR adapter bypasses stored facts: {task_name}")
+        for forbidden in (
+            "v4_parse_",
+            "v4_lex_",
+            "v4_expand_",
+            "_token",
+            "v4_ty_type_text",
+            "v4_ty_task_return_from_tokens",
+            "v4_ty_span_from_tokens",
+        ):
+            if forbidden in body:
+                violations.append(
+                    f"task return TY HIR adapter reconstructs syntax: {task_name} uses {forbidden}"
+                )
+
+    surface_body = freak_task_body(ty_source, "v4_ty_signature_return_surface_type")
+    if surface_body is None:
+        violations.append("task return signature surface adapter missing")
+    else:
+        for required in (
+            "v4_ty_signature_is_ordinary_hir_task",
+            "v4_ty_task_return_from_hir",
+            "v4_ty_nonordinary_signature_return_fallback",
+        ):
+            if required not in surface_body:
+                violations.append(f"task return signature dispatch missing: {required}")
+        if "v4_ty_task_return_from_tokens" in surface_body or "v4_ty_type_text" in surface_body:
+            violations.append("ordinary task return signature surface directly reconstructs token type text")
+
+    span_body = freak_task_body(ty_source, "v4_ty_signature_return_span")
+    if span_body is None:
+        violations.append("task return signature span adapter missing")
+    else:
+        if "v4_ty_ordinary_task_explicit_return_span_from_hir" not in span_body or "v4_ty_nonordinary_signature_return_span_fallback" not in span_body:
+            violations.append("task return signature span dispatch does not separate HIR and nonordinary fallbacks")
+        if "v4_ty_task_return_span_from_tokens" in span_body or "v4_ty_span_from_tokens" in span_body:
+            violations.append("ordinary task return signature span directly reconstructs tokens")
+
+    arrow_body = freak_task_body(ty_source, "v4_ty_ordinary_task_arrow_return_fallback")
+    if arrow_body is None or "v4_ty_infer_arrow_expr_return" not in arrow_body:
+        violations.append("arrow shorthand return fallback is not separately pinned")
+
+    hir_dispatch_body = freak_task_body(ty_source, "v4_ty_task_return_from_hir")
+    if hir_dispatch_body is None or "v4_ty_nonordinary_hir_item_return_fallback" not in hir_dispatch_body:
+        violations.append("nonordinary HIR-item return fallback is not separately pinned")
+
+    allowed_return_token_tasks = {
+        "v4_ty_display_for_hir_item",
+        "v4_ty_doctrine_method_return_surface_type",
+        "v4_ty_extern_member_return_surface_type",
+        "v4_ty_extern_member_return_type",
+        "v4_ty_impl_method_return_type",
+        "v4_ty_nonordinary_hir_item_return_fallback",
+        "v4_ty_nonordinary_signature_return_fallback",
+    }
+    actual_return_token_tasks = freak_tasks_containing(ty_source, "v4_ty_task_return_from_tokens(")
+    if actual_return_token_tasks != allowed_return_token_tasks:
+        missing = sorted(allowed_return_token_tasks - actual_return_token_tasks)
+        extra = sorted(actual_return_token_tasks - allowed_return_token_tasks)
+        if missing:
+            violations.append("task return token fallback allowlist missing expected tasks: " + ", ".join(missing))
+        if extra:
+            violations.append("task return token fallback allowlist gained tasks: " + ", ".join(extra))
+
+    display_body = freak_task_body(ty_source, "v4_ty_display_for_hir_item")
+    if display_body is None or "v4_resolve_is_extern_member_def" not in display_body or "v4_ty_task_return_from_hir" not in display_body:
+        violations.append("task display does not isolate extern token fallback from ordinary HIR returns")
+
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+
+    print("no syntax past HIR: ordinary task declared return type and span")
 
 
 def check_tooling_interfaces() -> None:
@@ -11070,6 +11237,7 @@ def main(argv: list[str] | None = None) -> int:
     check_crate_boundaries()
     check_alias_hir_boundary()
     check_mir_local_annotation_boundary()
+    check_task_return_hir_boundary()
     check_tooling_interfaces()
     check_snapshot_inventories()
     base_source = check_flattened_crates()

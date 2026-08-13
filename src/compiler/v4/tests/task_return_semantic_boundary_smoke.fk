@@ -1,0 +1,196 @@
+-- V4 ordinary-task declared-return HIR ownership smoke fixture.
+-- Verification prepends the V4 crates before this file.
+
+task v4_task_return_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_task_return_braces(inner: word) -> word {
+    give back "{" + inner + "}"
+}
+
+task v4_task_return_find_symbol(doc_id: int, name: word) -> int {
+    pilot symbol_id = 0
+    repeat until symbol_id >= v4_document_symbol_count(doc_id) {
+        if v4_document_symbol_name(doc_id, symbol_id) == name {
+            give back symbol_id
+        }
+        symbol_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_task_return_symbol_display(path: word, source: word, name: word) -> word {
+    pilot symbols = v4_document_symbols_text_cached(path, source)
+    pilot symbol_id = v4_task_return_find_symbol(symbols, name)
+    give back v4_document_symbol_type(symbols, symbol_id)
+}
+
+task v4_task_return_invalidation_display() -> word {
+    pilot before = "task changed() -> int " + v4_task_return_braces(" give back 7 ") + "\n"
+    pilot after = "task changed() -> num " + v4_task_return_braces(" give back 7 ") + "\n"
+    pilot before_display = v4_task_return_symbol_display("task-return-invalidation.fk", before, "changed")
+    pilot after_display = v4_task_return_symbol_display("task-return-invalidation.fk", after, "changed")
+    give back before_display + "|" + after_display
+}
+
+task v4_task_return_source_text() -> word {
+    pilot src = "task keep<'a>(lend 'a value: maybe<[word;2]>) -> lend 'a maybe< [word; 2] > "
+    src = src + v4_task_return_braces("\n    give back lend value\n") + "\n"
+    src = src + "task implicit() " + v4_task_return_braces(" give back 7 ") + "\n"
+    src = src + "task arrow() => true\n"
+    give back src
+}
+
+task v4_task_return_snapshot_variant(payload: word, mode: word) -> word {
+    pilot wanted_hir = ""
+    pilot wanted_item = ""
+    pilot search_id = 0
+    pilot search_count = v4_hir_snapshot_line_count(payload)
+    repeat until search_id >= search_count {
+        pilot candidate = v4_hir_snapshot_line(payload, search_id)
+        if wanted_hir == "" and v4_hir_snapshot_field_raw(candidate, 0) == "hir-task-return" {
+            wanted_hir = v4_hir_snapshot_field_raw(candidate, 1)
+            wanted_item = v4_hir_snapshot_field_raw(candidate, 3)
+        }
+        search_id += 1
+    }
+
+    pilot out = ""
+    pilot changed = 0
+    pilot line_id = 0
+    pilot line_count = v4_hir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if kind == "hir-snapshot" and mode == "count" {
+            line = "hir-snapshot|format=" + v4_hir_snapshot_key_value(line, "format")
+            line = line + "|files=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "files")
+            line = line + "|items=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "items")
+            line = line + "|alias-targets=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "alias-targets")
+            line = line + "|local-annotations=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "local-annotations")
+            line = line + "|task-returns=" + word_from_int(word_to_int(v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "task-returns")) + 1)
+            line = line + "|diagnostics=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "diagnostics")
+        } else if kind == "hir-item" and mode == "owner-kind" and changed == 0 and v4_hir_snapshot_field_raw(line, 1) == wanted_hir and v4_hir_snapshot_field_raw(line, 2) == wanted_item {
+            pilot rebuilt_item = "hir-item"
+            pilot item_field_id = 1
+            repeat until item_field_id >= 10 {
+                if item_field_id == 3 {
+                    rebuilt_item = rebuilt_item + "|" + v4_hir_snapshot_escape(v4_hir_shape)
+                } else {
+                    rebuilt_item = rebuilt_item + "|" + v4_hir_snapshot_field_raw(line, item_field_id)
+                }
+                item_field_id += 1
+            }
+            line = rebuilt_item
+            changed = 1
+        } else if kind == "hir-task-return" and changed == 0 and mode != "count" {
+            pilot rebuilt = "hir-task-return"
+            pilot field_id = 1
+            repeat until field_id >= 7 {
+                if field_id == 2 and mode == "slot" {
+                    rebuilt = rebuilt + "|1"
+                } else if field_id == 4 and mode == "form" {
+                    rebuilt = rebuilt + "|invented"
+                } else if field_id == 5 and mode == "type" {
+                    rebuilt = rebuilt + "|"
+                } else if field_id == 6 and mode == "span" {
+                    rebuilt = rebuilt + "|" + v4_hir_snapshot_escape(V4_NO_SPAN)
+                } else {
+                    rebuilt = rebuilt + "|" + v4_hir_snapshot_field_raw(line, field_id)
+                }
+                field_id += 1
+            }
+            line = rebuilt
+            changed = 1
+        }
+        if line_id > 0 {
+            out = out + "\n"
+        }
+        out = out + line
+        line_id += 1
+    }
+    give back out
+}
+
+pilot v4_task_return_source = v4_task_return_source_text()
+pilot v4_task_return_stream = v4_lex_text(0, v4_task_return_source)
+pilot v4_task_return_tree = v4_parse_stream(0, v4_task_return_stream)
+pilot v4_task_return_hir = v4_hir_lower_tree(0, v4_task_return_tree)
+pilot v4_task_return_resolve = v4_resolve_lower_hir(0, v4_task_return_hir)
+pilot v4_task_return_ty = v4_ty_lower_resolve(0, v4_task_return_resolve)
+pilot v4_task_return_mir = v4_mir_lower_ty(0, v4_task_return_ty)
+pilot v4_task_return_borrow = v4_borrowck_check_mir(0, v4_task_return_mir)
+
+pilot v4_task_return_keep_def = v4_resolve_def_for_name(v4_task_return_resolve, "keep")
+pilot v4_task_return_implicit_def = v4_resolve_def_for_name(v4_task_return_resolve, "implicit")
+pilot v4_task_return_arrow_def = v4_resolve_def_for_name(v4_task_return_resolve, "arrow")
+pilot v4_task_return_keep_sig = v4_ty_lookup_signature(v4_task_return_ty, v4_task_return_keep_def)
+pilot v4_task_return_implicit_sig = v4_ty_lookup_signature(v4_task_return_ty, v4_task_return_implicit_def)
+pilot v4_task_return_arrow_sig = v4_ty_lookup_signature(v4_task_return_ty, v4_task_return_arrow_def)
+pilot v4_task_return_keep_item = v4_ty_signature_hir_item(v4_task_return_ty, v4_task_return_keep_sig)
+pilot v4_task_return_implicit_item = v4_ty_signature_hir_item(v4_task_return_ty, v4_task_return_implicit_sig)
+pilot v4_task_return_arrow_item = v4_ty_signature_hir_item(v4_task_return_ty, v4_task_return_arrow_sig)
+pilot v4_task_return_keep_span = v4_hir_task_return_span(v4_task_return_hir, v4_task_return_keep_item)
+pilot v4_task_return_keep_body = v4_mir_lookup_body(v4_task_return_mir, v4_task_return_keep_def)
+pilot v4_task_return_keep_result = v4_borrowck_lookup_result(v4_task_return_borrow, v4_task_return_keep_def)
+
+say "task-return-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_task_return_tree))
+say "task-return-hir-records=" + word_from_int(v4_hir_task_return_record_count(v4_task_return_hir))
+say "task-return-explicit-form=" + v4_hir_task_return_form(v4_task_return_hir, v4_task_return_keep_item)
+say "task-return-explicit-surface=" + v4_hir_task_return_type(v4_task_return_hir, v4_task_return_keep_item)
+say "task-return-explicit-source=" + v4_slice(v4_task_return_source, v4_span_start(v4_task_return_keep_span), v4_span_end(v4_task_return_keep_span))
+say "task-return-explicit-span-contained=" + v4_task_return_bool(v4_span_start(v4_task_return_keep_span) >= v4_span_start(v4_hir_item_span(v4_task_return_hir, v4_task_return_keep_item)) and v4_span_end(v4_task_return_keep_span) <= v4_span_end(v4_hir_item_span(v4_task_return_hir, v4_task_return_keep_item)))
+say "task-return-implicit-form=" + v4_hir_task_return_form(v4_task_return_hir, v4_task_return_implicit_item)
+say "task-return-implicit-surface=" + v4_hir_task_return_type(v4_task_return_hir, v4_task_return_implicit_item)
+say "task-return-implicit-type=" + v4_ty_signature_return_type(v4_task_return_ty, v4_task_return_implicit_sig)
+say "task-return-implicit-span-empty=" + v4_task_return_bool(v4_hir_task_return_span(v4_task_return_hir, v4_task_return_implicit_item) == V4_NO_SPAN)
+say "task-return-arrow-form=" + v4_hir_task_return_form(v4_task_return_hir, v4_task_return_arrow_item)
+say "task-return-arrow-type=" + v4_ty_signature_return_type(v4_task_return_ty, v4_task_return_arrow_sig)
+say "task-return-arrow-display=" + v4_ty_signature_of(v4_task_return_ty, v4_task_return_arrow_def)
+say "task-return-arrow-span-empty=" + v4_task_return_bool(v4_hir_task_return_span(v4_task_return_hir, v4_task_return_arrow_item) == V4_NO_SPAN)
+say "task-return-ty-surface=" + v4_ty_signature_return_surface_type(v4_task_return_ty, v4_task_return_keep_sig)
+say "task-return-ty-canonical=" + v4_ty_signature_return_type(v4_task_return_ty, v4_task_return_keep_sig)
+say "task-return-ty-display=" + v4_ty_signature_of(v4_task_return_ty, v4_task_return_keep_def)
+say "task-return-mir-expected=" + v4_mir_expected_return_type(v4_task_return_mir, v4_task_return_keep_body)
+say "task-return-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_task_return_mir))
+say "task-return-borrow-status=" + v4_borrowck_result_status(v4_task_return_borrow, v4_task_return_keep_result)
+say v4_ty_snapshot_summary()
+
+pilot v4_task_return_snapshot = v4_hir_snapshot()
+say v4_hir_snapshot_summary()
+say v4_hir_snapshot_restore(v4_task_return_snapshot)
+say "task-return-restored-form=" + v4_hir_task_return_form(v4_task_return_hir, v4_task_return_keep_item)
+say "task-return-restored-surface=" + v4_hir_task_return_type(v4_task_return_hir, v4_task_return_keep_item)
+
+pilot v4_task_return_before_bad_files = v4_hir_file_count()
+pilot v4_task_return_before_bad_records = v4_hir_task_return_record_count(v4_task_return_hir)
+pilot v4_task_return_schema_rejected = true
+pilot v4_task_return_schema_atomic = true
+pilot v4_task_return_modes = array_new()
+array_push(v4_task_return_modes, "form")
+array_push(v4_task_return_modes, "type")
+array_push(v4_task_return_modes, "span")
+array_push(v4_task_return_modes, "count")
+array_push(v4_task_return_modes, "slot")
+array_push(v4_task_return_modes, "owner-kind")
+pilot v4_task_return_mode_id = 0
+repeat until v4_task_return_mode_id >= array_len(v4_task_return_modes) {
+    pilot v4_task_return_mode: word = array_get(v4_task_return_modes, v4_task_return_mode_id)
+    pilot v4_task_return_variant = v4_task_return_snapshot_variant(v4_task_return_snapshot, v4_task_return_mode)
+    pilot v4_task_return_validation = v4_hir_snapshot_validate(v4_task_return_variant)
+    pilot v4_task_return_restore = v4_hir_snapshot_restore(v4_task_return_variant)
+    if v4_task_return_validation.starts_with("hir-snapshot-import ok=0") == false or v4_task_return_restore.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") == false {
+        v4_task_return_schema_rejected = false
+    }
+    if v4_hir_file_count() != v4_task_return_before_bad_files or v4_hir_task_return_record_count(v4_task_return_hir) != v4_task_return_before_bad_records or v4_hir_task_return_type(v4_task_return_hir, v4_task_return_keep_item) != "lend 'a maybe<[word;2]>" {
+        v4_task_return_schema_atomic = false
+    }
+    v4_task_return_mode_id += 1
+}
+say "task-return-schema-variants-rejected=" + v4_task_return_bool(v4_task_return_schema_rejected)
+say "task-return-schema-variants-atomic=" + v4_task_return_bool(v4_task_return_schema_atomic)
+
+say "task-return-editor-display=" + v4_task_return_symbol_display("task-return-boundary.fk", v4_task_return_source, "keep")
+say "task-return-return-only-invalidation=" + v4_task_return_invalidation_display()

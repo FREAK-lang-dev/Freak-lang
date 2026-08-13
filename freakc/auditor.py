@@ -2867,6 +2867,101 @@ def audit_conformance(paths: List[Path]) -> int:
     if unw_missing:
         failures.append("V4 unwinder-import diagnostic regressed: " + "; ".join(unw_missing))
 
+    # Check 9b: V4 ordinary-task return facts belong to HIR. This is an
+    # ownership boundary, not a new return semantic.
+    v4_hir_task_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_hir" / "src" / "lib.fk"
+    v4_ty_task_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_task_return_smoke = repo / "src" / "compiler" / "v4" / "tests" / "task_return_semantic_boundary_smoke.fk"
+    v4_task_return_harness = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    v4_task_return_readme = repo / "src" / "compiler" / "v4" / "README.md"
+    task_return_boundary_missing: List[str] = []
+    if v4_hir_task_return.exists():
+        hir_src = v4_hir_task_return.read_text(encoding="utf-8")
+        for needle in (
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v5"',
+            'pilot v4_hir_task_return_explicit = "explicit"',
+            'pilot v4_hir_task_return_implicit_block = "implicit-block"',
+            'pilot v4_hir_task_return_arrow = "arrow"',
+            "pilot v4_hir_task_return_items = 0",
+            "pilot v4_hir_task_return_forms = 0",
+            "pilot v4_hir_task_return_types = 0",
+            "pilot v4_hir_task_return_spans = 0",
+            "task v4_hir_task_return_form(",
+            "task v4_hir_task_return_type(",
+            "task v4_hir_task_return_span(",
+            'pilot out = "hir-task-return"',
+            '"task-returns"',
+            "task v4_hir_snapshot_task_return_is_valid(",
+            "task v4_hir_snapshot_task_return_owner_is_valid(",
+            "task v4_hir_snapshot_task_return_slots_are_valid(",
+        ):
+            if needle not in hir_src:
+                task_return_boundary_missing.append(f"freak_hir: {needle}")
+    else:
+        task_return_boundary_missing.append("freak_hir/src/lib.fk missing")
+    if v4_ty_task_return.exists():
+        ty_src = v4_ty_task_return.read_text(encoding="utf-8")
+        for needle in (
+            "task v4_ty_signature_is_ordinary_hir_task(",
+            "task v4_ty_ordinary_task_explicit_return_from_hir(",
+            "task v4_ty_ordinary_task_explicit_return_span_from_hir(",
+            "task v4_ty_ordinary_task_arrow_return_fallback(",
+            "task v4_ty_nonordinary_signature_return_fallback(",
+            "task v4_ty_nonordinary_signature_return_span_fallback(",
+            "task v4_ty_nonordinary_hir_item_return_fallback(",
+        ):
+            if needle not in ty_src:
+                task_return_boundary_missing.append(f"freak_ty: {needle}")
+    else:
+        task_return_boundary_missing.append("freak_ty/src/lib.fk missing")
+    if not v4_task_return_smoke.exists():
+        task_return_boundary_missing.append("smoke fixture: task_return_semantic_boundary_smoke.fk")
+    if v4_task_return_harness.exists():
+        harness_src = v4_task_return_harness.read_text(encoding="utf-8")
+        for needle in (
+            '"name": "task return semantic boundary"',
+            '"fixture": "task_return_semantic_boundary_smoke.fk"',
+            "def check_task_return_hir_boundary() -> None:",
+            "check_task_return_hir_boundary()",
+        ):
+            if needle not in harness_src:
+                task_return_boundary_missing.append(f"check_v4.py: {needle}")
+    else:
+        task_return_boundary_missing.append("check_v4.py harness missing")
+    for doc_path, needles in (
+        (
+            v4_task_return_readme,
+            (
+                "The third bounded boundary covers declared returns on ordinary top-level tasks.",
+                "HIR snapshot v5 validates that vocabulary",
+            ),
+        ),
+        (
+            audit_doc,
+            (
+                "V4 stores ordinary top-level tasks as closed",
+                "TY consumes that declared type/span without token reconstruction",
+            ),
+        ),
+    ):
+        if not doc_path.exists():
+            task_return_boundary_missing.append(f"documentation missing: {doc_path.name}")
+            continue
+        doc_src = doc_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in doc_src:
+                task_return_boundary_missing.append(f"{doc_path.name}: {needle}")
+    add(
+        "V4 task return HIR boundary",
+        not task_return_boundary_missing,
+        "HIR v5 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
+    )
+    if task_return_boundary_missing:
+        failures.append(
+            "V4 ordinary-task return HIR boundary regressed: "
+            + "; ".join(task_return_boundary_missing)
+        )
+
     # ── Check 10: V4 contract-region source sets ──
     # Borrowed return signatures may select every parameter whose lifetime
     # outlives the return region. Require the set-valued TY/MIR/Meiya contract,
