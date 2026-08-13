@@ -1,0 +1,109 @@
+{
+  "schema": "freak-v3-performance-manifest-v1",
+  "cases": [
+    {
+      "id": "cpu_integer_10m",
+      "category": "runtime",
+      "source": "cpu_integer_10m.fk",
+      "source_sha256": "c8ef750c6d991e41868456eddcad693cbbf9eea83fe62e6e500e4f2511893f8b",
+      "modes": {
+        "default": {
+          "arguments": ["10000000"],
+          "parameters": {"iterations": 10000000},
+          "expected_exit_code": 0,
+          "expected_stdout": "994650007\n",
+          "expected_stdout_sha256": "2e2e2761453ae09a5d3e6b7b8d3d207d5f5fa05067819b872bb36479df1c3306",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": ["10000"],
+          "parameters": {"iterations": 10000},
+          "expected_exit_code": 0,
+          "expected_stdout": "49995000\n",
+          "expected_stdout_sha256": "d6075389cdb7a8f518e688411a7c63544210fcef63d52dc47068a46cef0d92ab",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "word_dynamic_append",
+      "category": "runtime",
+      "source": "word_dynamic_append.fk",
+      "source_sha256": "ad7acc088f698cd192c98103dfe01fe73bce706d3d6ac96f8900847b0d87304a",
+      "modes": {
+        "default": {
+          "arguments": ["1000000"],
+          "parameters": {"iterations": 1000000},
+          "expected_exit_code": 0,
+          "expected_stdout": "1000000\n5019702865342455845\n",
+          "expected_stdout_sha256": "bfa21a6289cc8d117f23403589d701940ae092ec80b7cd97311744492ef6e818",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": ["1000"],
+          "parameters": {"iterations": 1000},
+          "expected_exit_code": 0,
+          "expected_stdout": "1000\n7038512523413607109\n",
+          "expected_stdout_sha256": "0421214e7961e2de1c22784207bd6905f955b7b36584dae0abb1b81c390333da",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "startup_empty",
+      "category": "startup",
+      "source": "startup_empty.fk",
+      "source_sha256": "593dee229bb8168f9905a5b9623901f26254225e8fdc65a3f6e6ddf8d92e0f02",
+      "modes": {
+        "default": {
+          "arguments": [],
+          "parameters": {},
+          "expected_exit_code": 0,
+          "expected_stdout": "",
+          "expected_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [],
+          "parameters": {},
+          "expected_exit_code": 0,
+          "expected_stdout": "",
+          "expected_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "compile_hello",
+      "category": "compile",
+      "source": "compile_hello.fk",
+      "source_sha256": "8a9d002a472a4f3f30bb437c9c6253ab15d7553ee5471039e984e2d6a1e595fe",
+      "modes": {
+        "default": {
+          "arguments": [],
+          "parameters": {},
+          "expected_exit_code": 0,
+          "expected_stdout": "FREAK_PERF_HELLO_V1\n",
+          "expected_stdout_sha256": "7f45fa006b61ae72aec5661b140d85703ef17fbb6d0f49828ab0c41e607186dd",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [],
+          "parameters": {},
+          "expected_exit_code": 0,
+          "expected_stdout": "FREAK_PERF_HELLO_V1\n",
+          "expected_stdout_sha256": "7f45fa006b61ae72aec5661b140d85703ef17fbb6d0f49828ab0c41e607186dd",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    }
+  ]
+}
