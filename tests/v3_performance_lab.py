@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -93,43 +94,114 @@ def _process_is_running(pid: int) -> bool:
     return True
 
 
-def _assert_descendant_stopped(pid_path: Path, context: str) -> None:
-    if not pid_path.is_file():
-        raise AssertionError(f"{context}: launcher did not publish the descendant PID")
-    pid = int(pid_path.read_text(encoding="ascii"))
+def _assert_pid_stopped(pid: int, context: str) -> None:
     deadline = time.monotonic() + 5.0
     while _process_is_running(pid) and time.monotonic() < deadline:
         time.sleep(0.05)
-    assert not _process_is_running(pid), f"{context}: descendant {pid} survived process-tree cleanup"
+    assert not _process_is_running(pid), f"{context}: process {pid} survived containment cleanup"
 
 
-def _descendant_launcher(pid_path: Path, action: str) -> list[str]:
-    child_code = "import time; time.sleep(60)"
+def _assert_descendant_stopped(pid_path: Path, ready_path: Path, context: str) -> None:
+    if not pid_path.is_file():
+        raise AssertionError(f"{context}: launcher did not publish the descendant PID")
+    if not ready_path.is_file():
+        raise AssertionError(f"{context}: descendant did not publish its ready marker")
+    pid = int(pid_path.read_text(encoding="ascii"))
+    _assert_pid_stopped(pid, context)
+
+
+def _descendant_launcher(
+    pid_path: Path,
+    ready_path: Path,
+    action: str,
+    *,
+    detached: bool = False,
+    child_sleep: float = 60.0,
+) -> list[str]:
+    child_code = (
+        "import os, sys, time\n"
+        "from pathlib import Path\n"
+        "Path(sys.argv[1]).write_text(str(os.getpid()), encoding='ascii')\n"
+        "Path(sys.argv[2]).write_text('ready', encoding='ascii')\n"
+        f"time.sleep({child_sleep!r})\n"
+    )
+    detached_option = ", start_new_session=True" if detached else ""
     launcher_code = (
         "import subprocess, sys, time\n"
         "from pathlib import Path\n"
-        f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
-        "Path(sys.argv[1]).write_text(str(child.pid), encoding='ascii')\n"
+        f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}, sys.argv[1], sys.argv[2]]"
+        f"{detached_option})\n"
+        "deadline = time.monotonic() + 5.0\n"
+        "while not Path(sys.argv[2]).is_file():\n"
+        "    if child.poll() is not None:\n"
+        "        raise SystemExit('descendant exited before publishing ready')\n"
+        "    if time.monotonic() >= deadline:\n"
+        "        raise SystemExit('descendant readiness timed out')\n"
+        "    time.sleep(0.01)\n"
         f"{action}\n"
     )
-    return [sys.executable, "-c", launcher_code, str(pid_path)]
+    return [sys.executable, "-c", launcher_code, str(pid_path), str(ready_path)]
+
+
+def _resource_handle_count() -> int | None:
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.GetProcessHandleCount.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.GetProcessHandleCount.restype = wintypes.BOOL
+        count = wintypes.DWORD()
+        if not kernel32.GetProcessHandleCount(kernel32.GetCurrentProcess(), ctypes.byref(count)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return int(count.value)
+    fd_root = Path("/proc/self/fd")
+    return len(list(fd_root.iterdir())) if fd_root.is_dir() else None
+
+
+def _assert_no_capture_threads(context: str) -> None:
+    active = [
+        thread.name
+        for thread in threading.enumerate()
+        if thread.name.startswith("freak-v3-capture-")
+    ]
+    assert not active, f"{context}: capture threads leaked: {active}"
 
 
 def _process_tree_checks(temporary: Path) -> None:
+    expected_capture = b"capture-drain" * 8192
+    captured = LAB._run_bytes(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.buffer.write(b'capture-drain' * 8192); sys.stdout.buffer.flush()",
+        ],
+        cwd=temporary,
+        environment=os.environ,
+        timeout=5.0,
+    )
+    assert captured.returncode == 0
+    assert captured.stdout == expected_capture and captured.stderr == b""
+    _assert_no_capture_threads("capture drain warmup")
+    baseline_handles = _resource_handle_count()
+
     exit_pid = temporary / "exit-descendant.pid"
+    exit_ready = temporary / "exit-descendant.ready"
     completed = LAB._run_bytes(
-        _descendant_launcher(exit_pid, "raise SystemExit(0)"),
+        _descendant_launcher(exit_pid, exit_ready, "raise SystemExit(0)"),
         cwd=temporary,
         environment=os.environ,
         timeout=5.0,
     )
     assert completed.returncode == 0
-    _assert_descendant_stopped(exit_pid, "normal launcher exit")
+    _assert_descendant_stopped(exit_pid, exit_ready, "normal launcher exit")
 
     timeout_pid = temporary / "timeout-descendant.pid"
+    timeout_ready = temporary / "timeout-descendant.ready"
     _expect_lab_error(
         lambda: LAB._run_bytes(
-            _descendant_launcher(timeout_pid, "time.sleep(60)"),
+            _descendant_launcher(timeout_pid, timeout_ready, "time.sleep(60)"),
             cwd=temporary,
             environment=os.environ,
             timeout=1.0,
@@ -137,9 +209,10 @@ def _process_tree_checks(temporary: Path) -> None:
         "timed-out launcher left its process tree running",
         "timed out after",
     )
-    _assert_descendant_stopped(timeout_pid, "launcher timeout")
+    _assert_descendant_stopped(timeout_pid, timeout_ready, "launcher timeout")
 
     overflow_pid = temporary / "overflow-descendant.pid"
+    overflow_ready = temporary / "overflow-descendant.ready"
     old_capture_bound = LAB.MAX_CAPTURE_BYTES
     LAB.MAX_CAPTURE_BYTES = 32
     try:
@@ -147,6 +220,7 @@ def _process_tree_checks(temporary: Path) -> None:
             lambda: LAB._run_bytes(
                 _descendant_launcher(
                     overflow_pid,
+                    overflow_ready,
                     "sys.stdout.write('x' * (128 * 1024)); sys.stdout.flush(); time.sleep(60)",
                 ),
                 cwd=temporary,
@@ -158,7 +232,107 @@ def _process_tree_checks(temporary: Path) -> None:
         )
     finally:
         LAB.MAX_CAPTURE_BYTES = old_capture_bound
-    _assert_descendant_stopped(overflow_pid, "launcher output overflow")
+    _assert_descendant_stopped(overflow_pid, overflow_ready, "launcher output overflow")
+
+    if sys.platform == "win32":
+        assignment_pid: list[int] = []
+        original_assign = LAB._WindowsJob.assign
+
+        def reject_assignment(job: Any, process: Any) -> None:
+            del job
+            assignment_pid.append(process.pid)
+            raise OSError("injected job assignment failure")
+
+        LAB._WindowsJob.assign = reject_assignment
+        try:
+            never_pid = temporary / "assignment-failure-descendant.pid"
+            never_ready = temporary / "assignment-failure-descendant.ready"
+            _expect_lab_error(
+                lambda: LAB._run_bytes(
+                    _descendant_launcher(never_pid, never_ready, "time.sleep(60)"),
+                    cwd=temporary,
+                    environment=os.environ,
+                    timeout=5.0,
+                ),
+                "job assignment failure allowed the suspended launcher to run",
+                "cannot atomically enroll and resume Windows process",
+            )
+        finally:
+            LAB._WindowsJob.assign = original_assign
+        assert len(assignment_pid) == 1
+        _assert_pid_stopped(assignment_pid[0], "job assignment failure")
+        assert not never_pid.exists() and not never_ready.exists(), (
+            "suspended launcher executed before successful Job Object enrollment"
+        )
+
+        resume_pid: list[int] = []
+        original_resume = LAB._WindowsProcess.resume
+
+        def reject_resume(process: Any) -> None:
+            resume_pid.append(process.pid)
+            raise OSError("injected primary thread resume failure")
+
+        LAB._WindowsProcess.resume = reject_resume
+        try:
+            resume_never_pid = temporary / "resume-failure-descendant.pid"
+            resume_never_ready = temporary / "resume-failure-descendant.ready"
+            _expect_lab_error(
+                lambda: LAB._run_bytes(
+                    _descendant_launcher(
+                        resume_never_pid,
+                        resume_never_ready,
+                        "time.sleep(60)",
+                    ),
+                    cwd=temporary,
+                    environment=os.environ,
+                    timeout=5.0,
+                ),
+                "primary thread resume failure left the enrolled launcher alive",
+                "cannot atomically enroll and resume Windows process",
+            )
+        finally:
+            LAB._WindowsProcess.resume = original_resume
+        assert len(resume_pid) == 1
+        _assert_pid_stopped(resume_pid[0], "primary thread resume failure")
+        assert not resume_never_pid.exists() and not resume_never_ready.exists(), (
+            "suspended launcher executed after failed primary-thread resume"
+        )
+
+    if sys.platform != "win32":
+        detached_pid = temporary / "detached-descendant.pid"
+        detached_ready = temporary / "detached-descendant.ready"
+        _expect_lab_error(
+            lambda: LAB._run_bytes(
+                _descendant_launcher(
+                    detached_pid,
+                    detached_ready,
+                    "raise SystemExit(0)",
+                    detached=True,
+                    child_sleep=4.0,
+                ),
+                cwd=temporary,
+                environment=os.environ,
+                timeout=5.0,
+            ),
+            "detectable detached POSIX descendant was accepted as contained",
+            "POSIX toolchain descendants must not detach",
+        )
+        _assert_descendant_stopped(detached_pid, detached_ready, "detached-boundary control")
+
+    for _ in range(8):
+        completed = LAB._run_bytes(
+            [sys.executable, "-c", "raise SystemExit(0)"],
+            cwd=temporary,
+            environment=os.environ,
+            timeout=5.0,
+        )
+        assert completed.returncode == 0
+    _assert_no_capture_threads("repeated process launch")
+    final_handles = _resource_handle_count()
+    if baseline_handles is not None and final_handles is not None:
+        assert final_handles <= baseline_handles, (
+            f"repeated process launch leaked handles/fds: {baseline_handles} -> {final_handles}"
+        )
 
 
 def _static_checks(temporary: Path) -> dict[str, Any]:
@@ -260,6 +434,8 @@ def _static_checks(temporary: Path) -> dict[str, Any]:
     normalized_help = " ".join(help_text.split())
     assert "not digitally signed" in normalized_help
     assert "live compiler, Clang, and linker" in normalized_help
+    assert "process containment is cooperative" in normalized_help
+    assert "must not detach from the isolated session/process group" in normalized_help
     posix_wrapper = LAB._recording_wrapper_bytes(
         "posix-sh",
         "/tmp/python with spaces",

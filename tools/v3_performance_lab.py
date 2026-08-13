@@ -4,7 +4,10 @@
 ``--validate-output`` checks schema closure, evidence consistency, and the live
 compiler/Clang/linker identities. Result JSON is intentionally not a digital
 signature and cannot authenticate a report that an attacker coherently
-reauthored in full.
+reauthored in full. POSIX process containment is cooperative: compiler
+toolchains must remain in the isolated session/process group created for them.
+Detached descendants that also close inherited capture handles cannot be
+identified portably.
 """
 
 from __future__ import annotations
@@ -45,6 +48,11 @@ TRUST_MODEL_HELP = (
     "Validation checks internal consistency and revalidates the live compiler, Clang, and linker. "
     "Result JSON is not digitally signed and cannot prove historical execution after malicious "
     "coherent reauthoring."
+)
+PROCESS_CONTAINMENT_HELP = (
+    "On POSIX, process containment is cooperative: compiler toolchains must not detach from "
+    "the isolated session/process group. Detached descendants that close inherited capture "
+    "handles cannot be identified portably."
 )
 RUNTIME_STATS_PREFIX = "FREAK_RUNTIME_STATS "
 RUNTIME_STATS_SCHEMA = "freak-v3-runtime-stats-v1"
@@ -694,99 +702,436 @@ def _resolve_clang(value: str | None) -> Path:
     return Path(found).resolve(strict=True)
 
 
+_WINDOWS_API: Any | None = None
+
+
+def _windows_api() -> Any:
+    """Load the narrowly scoped Win32 API used for suspended process launch."""
+
+    global _WINDOWS_API
+    if _WINDOWS_API is not None:
+        return _WINDOWS_API
+    import ctypes
+    from ctypes import wintypes
+
+    class StartupInfo(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD),
+            ("lp_reserved", wintypes.LPWSTR),
+            ("lp_desktop", wintypes.LPWSTR),
+            ("lp_title", wintypes.LPWSTR),
+            ("dw_x", wintypes.DWORD),
+            ("dw_y", wintypes.DWORD),
+            ("dw_x_size", wintypes.DWORD),
+            ("dw_y_size", wintypes.DWORD),
+            ("dw_x_count_chars", wintypes.DWORD),
+            ("dw_y_count_chars", wintypes.DWORD),
+            ("dw_fill_attribute", wintypes.DWORD),
+            ("dw_flags", wintypes.DWORD),
+            ("w_show_window", wintypes.WORD),
+            ("cb_reserved2", wintypes.WORD),
+            ("lp_reserved2", ctypes.POINTER(ctypes.c_ubyte)),
+            ("h_std_input", wintypes.HANDLE),
+            ("h_std_output", wintypes.HANDLE),
+            ("h_std_error", wintypes.HANDLE),
+        ]
+
+    class StartupInfoEx(ctypes.Structure):
+        _fields_ = [("startup_info", StartupInfo), ("attribute_list", ctypes.c_void_p)]
+
+    class ProcessInformation(ctypes.Structure):
+        _fields_ = [
+            ("process", wintypes.HANDLE),
+            ("thread", wintypes.HANDLE),
+            ("process_id", wintypes.DWORD),
+            ("thread_id", wintypes.DWORD),
+        ]
+
+    class IoCounters(ctypes.Structure):
+        _fields_ = [
+            ("read_operations", ctypes.c_ulonglong),
+            ("write_operations", ctypes.c_ulonglong),
+            ("other_operations", ctypes.c_ulonglong),
+            ("read_bytes", ctypes.c_ulonglong),
+            ("write_bytes", ctypes.c_ulonglong),
+            ("other_bytes", ctypes.c_ulonglong),
+        ]
+
+    class BasicLimits(ctypes.Structure):
+        _fields_ = [
+            ("per_process_user_time", ctypes.c_longlong),
+            ("per_job_user_time", ctypes.c_longlong),
+            ("limit_flags", wintypes.DWORD),
+            ("minimum_working_set", ctypes.c_size_t),
+            ("maximum_working_set", ctypes.c_size_t),
+            ("active_process_limit", wintypes.DWORD),
+            ("affinity", ctypes.c_size_t),
+            ("priority_class", wintypes.DWORD),
+            ("scheduling_class", wintypes.DWORD),
+        ]
+
+    class ExtendedLimits(ctypes.Structure):
+        _fields_ = [
+            ("basic_limits", BasicLimits),
+            ("io_counters", IoCounters),
+            ("process_memory_limit", ctypes.c_size_t),
+            ("job_memory_limit", ctypes.c_size_t),
+            ("peak_process_memory", ctypes.c_size_t),
+            ("peak_job_memory", ctypes.c_size_t),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateJobObject.restype = wintypes.BOOL
+    kernel32.InitializeProcThreadAttributeList.argtypes = [
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_size_t),
+    ]
+    kernel32.InitializeProcThreadAttributeList.restype = wintypes.BOOL
+    kernel32.UpdateProcThreadAttribute.argtypes = [
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.c_size_t,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    kernel32.UpdateProcThreadAttribute.restype = wintypes.BOOL
+    kernel32.DeleteProcThreadAttributeList.argtypes = [ctypes.c_void_p]
+    kernel32.DeleteProcThreadAttributeList.restype = None
+    kernel32.CreateProcessW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.LPWSTR,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        wintypes.BOOL,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.LPCWSTR,
+        ctypes.POINTER(StartupInfo),
+        ctypes.POINTER(ProcessInformation),
+    ]
+    kernel32.CreateProcessW.restype = wintypes.BOOL
+    kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
+    kernel32.ResumeThread.restype = wintypes.DWORD
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    class Api:
+        pass
+
+    api = Api()
+    api.ctypes = ctypes
+    api.wintypes = wintypes
+    api.kernel32 = kernel32
+    api.StartupInfoEx = StartupInfoEx
+    api.ProcessInformation = ProcessInformation
+    api.ExtendedLimits = ExtendedLimits
+    _WINDOWS_API = api
+    return api
+
+
+class _WindowsProcess:
+    """Minimal Popen-compatible wrapper retaining the suspended primary thread."""
+
+    def __init__(
+        self,
+        command: Sequence[str],
+        process_handle: Any,
+        thread_handle: Any,
+        pid: int,
+        stdout: Any,
+        stderr: Any,
+    ) -> None:
+        self.args = list(command)
+        self.pid = pid
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode: int | None = None
+        self._api = _windows_api()
+        self._process_handle = process_handle
+        self._thread_handle = thread_handle
+
+    @classmethod
+    def create_suspended(
+        cls,
+        command: Sequence[str],
+        cwd: Path,
+        environment: Mapping[str, str],
+    ) -> _WindowsProcess:
+        """Create a suspended process with only its three standard handles inherited."""
+
+        if not command:
+            raise OSError("cannot launch an empty command")
+        import ctypes
+        import msvcrt
+
+        api = _windows_api()
+        read_fds: list[int] = []
+        child_fds: list[int] = []
+        opened_streams: list[Any] = []
+        attribute_buffer: Any | None = None
+        attribute_list: Any | None = None
+        process_information = api.ProcessInformation()
+        created = False
+        try:
+            stdin_fd = os.open(os.devnull, os.O_RDONLY | os.O_BINARY)
+            child_fds.append(stdin_fd)
+            stdout_read, stdout_write = os.pipe()
+            read_fds.append(stdout_read)
+            child_fds.append(stdout_write)
+            stderr_read, stderr_write = os.pipe()
+            read_fds.append(stderr_read)
+            child_fds.append(stderr_write)
+            for fd in child_fds:
+                os.set_inheritable(fd, True)
+            for fd in read_fds:
+                os.set_inheritable(fd, False)
+            inherited_handles = (api.wintypes.HANDLE * len(child_fds))(
+                *(msvcrt.get_osfhandle(fd) for fd in child_fds)
+            )
+            attribute_size = ctypes.c_size_t()
+            api.kernel32.InitializeProcThreadAttributeList(
+                None, 1, 0, ctypes.byref(attribute_size)
+            )
+            attribute_buffer = ctypes.create_string_buffer(attribute_size.value)
+            attribute_list = ctypes.cast(attribute_buffer, ctypes.c_void_p)
+            if not api.kernel32.InitializeProcThreadAttributeList(
+                attribute_list, 1, 0, ctypes.byref(attribute_size)
+            ):
+                raise ctypes.WinError(ctypes.get_last_error())
+            # PROC_THREAD_ATTRIBUTE_HANDLE_LIST restricts inheritance even though
+            # CreateProcessW must receive bInheritHandles=TRUE for stdio.
+            if not api.kernel32.UpdateProcThreadAttribute(
+                attribute_list,
+                0,
+                0x00020002,
+                ctypes.cast(inherited_handles, ctypes.c_void_p),
+                ctypes.sizeof(inherited_handles),
+                None,
+                None,
+            ):
+                raise ctypes.WinError(ctypes.get_last_error())
+            startup = api.StartupInfoEx()
+            startup.startup_info.cb = ctypes.sizeof(startup)
+            startup.startup_info.dw_flags = 0x00000100  # STARTF_USESTDHANDLES
+            startup.startup_info.h_std_input = inherited_handles[0]
+            startup.startup_info.h_std_output = inherited_handles[1]
+            startup.startup_info.h_std_error = inherited_handles[2]
+            command_line = ctypes.create_unicode_buffer(
+                subprocess.list2cmdline([os.fsdecode(argument) for argument in command])
+            )
+            entries = [f"{name}={value}" for name, value in environment.items()]
+            if any("\0" in entry for entry in entries):
+                raise OSError("Windows process environment contains NUL")
+            entries.sort(key=str.upper)
+            environment_block = ctypes.create_unicode_buffer("\0".join(entries) + "\0\0")
+            creation_flags = (
+                0x00000004  # CREATE_SUSPENDED
+                | 0x00000200  # CREATE_NEW_PROCESS_GROUP
+                | 0x00000400  # CREATE_UNICODE_ENVIRONMENT
+                | 0x00080000  # EXTENDED_STARTUPINFO_PRESENT
+            )
+            if not api.kernel32.CreateProcessW(
+                os.fsdecode(command[0]),
+                command_line,
+                None,
+                None,
+                True,
+                creation_flags,
+                ctypes.cast(environment_block, ctypes.c_void_p),
+                str(cwd),
+                ctypes.byref(startup.startup_info),
+                ctypes.byref(process_information),
+            ):
+                raise ctypes.WinError(ctypes.get_last_error())
+            created = True
+            for fd in child_fds:
+                os.close(fd)
+            child_fds.clear()
+            stdout = os.fdopen(stdout_read, "rb", buffering=0)
+            opened_streams.append(stdout)
+            read_fds.remove(stdout_read)
+            stderr = os.fdopen(stderr_read, "rb", buffering=0)
+            opened_streams.append(stderr)
+            read_fds.remove(stderr_read)
+            process = cls(
+                command,
+                process_information.process,
+                process_information.thread,
+                int(process_information.process_id),
+                stdout,
+                stderr,
+            )
+            opened_streams.clear()
+            return process
+        except BaseException as error:
+            for stream in opened_streams:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+            cleanup_errors: list[str] = []
+            if created:
+                if not api.kernel32.TerminateProcess(process_information.process, 1):
+                    cleanup_errors.append(
+                        f"cannot terminate suspended Windows process: "
+                        f"{api.ctypes.WinError(api.ctypes.get_last_error())}"
+                    )
+                wait_result = api.kernel32.WaitForSingleObject(process_information.process, 2000)
+                if wait_result != 0:
+                    cleanup_errors.append(
+                        f"cannot verify suspended Windows process termination: wait result {wait_result}"
+                    )
+                if not api.kernel32.CloseHandle(process_information.thread):
+                    cleanup_errors.append(
+                        f"cannot close suspended Windows thread handle: "
+                        f"{api.ctypes.WinError(api.ctypes.get_last_error())}"
+                    )
+                if not api.kernel32.CloseHandle(process_information.process):
+                    cleanup_errors.append(
+                        f"cannot close suspended Windows process handle: "
+                        f"{api.ctypes.WinError(api.ctypes.get_last_error())}"
+                    )
+            if cleanup_errors:
+                raise OSError(f"{error}; cleanup failed: {'; '.join(cleanup_errors)}") from error
+            raise
+        finally:
+            if attribute_list is not None:
+                api.kernel32.DeleteProcThreadAttributeList(attribute_list)
+            for fd in child_fds + read_fds:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+    def resume(self) -> None:
+        if not self._thread_handle:
+            raise OSError("Windows primary thread handle is unavailable")
+        previous_count = self._api.kernel32.ResumeThread(self._thread_handle)
+        if previous_count == 0xFFFFFFFF:
+            raise self._api.ctypes.WinError(self._api.ctypes.get_last_error())
+        if previous_count != 1:
+            raise OSError(f"unexpected Windows primary thread suspend count {previous_count}")
+        if not self._api.kernel32.CloseHandle(self._thread_handle):
+            raise self._api.ctypes.WinError(self._api.ctypes.get_last_error())
+        self._thread_handle = None
+
+    def poll(self) -> int | None:
+        if self.returncode is not None:
+            return self.returncode
+        result = self._api.kernel32.WaitForSingleObject(self._process_handle, 0)
+        if result == 0x00000102:  # WAIT_TIMEOUT
+            return None
+        if result != 0:  # WAIT_OBJECT_0
+            raise self._api.ctypes.WinError(self._api.ctypes.get_last_error())
+        code = self._api.wintypes.DWORD()
+        if not self._api.kernel32.GetExitCodeProcess(self._process_handle, self._api.ctypes.byref(code)):
+            raise self._api.ctypes.WinError(self._api.ctypes.get_last_error())
+        self.returncode = int(code.value)
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        milliseconds = 0xFFFFFFFF if timeout is None else min(0xFFFFFFFE, max(0, int(timeout * 1000 + 0.999)))
+        result = self._api.kernel32.WaitForSingleObject(self._process_handle, milliseconds)
+        if result == 0x00000102:
+            raise subprocess.TimeoutExpired(self.args, timeout)
+        if result != 0:
+            raise self._api.ctypes.WinError(self._api.ctypes.get_last_error())
+        returncode = self.poll()
+        assert returncode is not None
+        return returncode
+
+    def kill(self) -> None:
+        if self.poll() is None and not self._api.kernel32.TerminateProcess(self._process_handle, 1):
+            raise self._api.ctypes.WinError(self._api.ctypes.get_last_error())
+
+    def close(self) -> None:
+        errors: list[OSError] = []
+        if self._thread_handle:
+            if not self._api.kernel32.CloseHandle(self._thread_handle):
+                errors.append(self._api.ctypes.WinError(self._api.ctypes.get_last_error()))
+            else:
+                self._thread_handle = None
+        if self._process_handle:
+            if not self._api.kernel32.CloseHandle(self._process_handle):
+                errors.append(self._api.ctypes.WinError(self._api.ctypes.get_last_error()))
+            else:
+                self._process_handle = None
+        if errors:
+            raise errors[0]
+
+
 class _WindowsJob:
     """Own one Windows process tree and kill it when the job is closed."""
 
     def __init__(self) -> None:
-        import ctypes
-        from ctypes import wintypes
-
-        class IoCounters(ctypes.Structure):
-            _fields_ = [
-                ("read_operations", ctypes.c_ulonglong),
-                ("write_operations", ctypes.c_ulonglong),
-                ("other_operations", ctypes.c_ulonglong),
-                ("read_bytes", ctypes.c_ulonglong),
-                ("write_bytes", ctypes.c_ulonglong),
-                ("other_bytes", ctypes.c_ulonglong),
-            ]
-
-        class BasicLimits(ctypes.Structure):
-            _fields_ = [
-                ("per_process_user_time", ctypes.c_longlong),
-                ("per_job_user_time", ctypes.c_longlong),
-                ("limit_flags", wintypes.DWORD),
-                ("minimum_working_set", ctypes.c_size_t),
-                ("maximum_working_set", ctypes.c_size_t),
-                ("active_process_limit", wintypes.DWORD),
-                ("affinity", ctypes.c_size_t),
-                ("priority_class", wintypes.DWORD),
-                ("scheduling_class", wintypes.DWORD),
-            ]
-
-        class ExtendedLimits(ctypes.Structure):
-            _fields_ = [
-                ("basic_limits", BasicLimits),
-                ("io_counters", IoCounters),
-                ("process_memory_limit", ctypes.c_size_t),
-                ("job_memory_limit", ctypes.c_size_t),
-                ("peak_process_memory", ctypes.c_size_t),
-                ("peak_job_memory", ctypes.c_size_t),
-            ]
-
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
-        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
-        kernel32.SetInformationJobObject.argtypes = [
-            wintypes.HANDLE,
-            ctypes.c_int,
-            ctypes.c_void_p,
-            wintypes.DWORD,
-        ]
-        kernel32.SetInformationJobObject.restype = wintypes.BOOL
-        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
-        kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
-        kernel32.TerminateJobObject.restype = wintypes.BOOL
-        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-        kernel32.CloseHandle.restype = wintypes.BOOL
-
-        handle = kernel32.CreateJobObjectW(None, None)
+        api = _windows_api()
+        handle = api.kernel32.CreateJobObjectW(None, None)
         if not handle:
-            raise ctypes.WinError(ctypes.get_last_error())
-        limits = ExtendedLimits()
+            raise api.ctypes.WinError(api.ctypes.get_last_error())
+        limits = api.ExtendedLimits()
         limits.basic_limits.limit_flags = 0x00002000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        if not kernel32.SetInformationJobObject(handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
-            error = ctypes.WinError(ctypes.get_last_error())
-            kernel32.CloseHandle(handle)
+        if not api.kernel32.SetInformationJobObject(
+            handle, 9, api.ctypes.byref(limits), api.ctypes.sizeof(limits)
+        ):
+            error = api.ctypes.WinError(api.ctypes.get_last_error())
+            api.kernel32.CloseHandle(handle)
             raise error
-        self._ctypes = ctypes
-        self._wintypes = wintypes
-        self._kernel32 = kernel32
+        self._api = api
         self._handle = handle
 
-    def assign(self, process: subprocess.Popen[bytes]) -> None:
-        process_handle = self._wintypes.HANDLE(int(process._handle))  # type: ignore[attr-defined]
-        if not self._kernel32.AssignProcessToJobObject(self._handle, process_handle):
-            raise self._ctypes.WinError(self._ctypes.get_last_error())
+    def assign(self, process: _WindowsProcess) -> None:
+        if not self._api.kernel32.AssignProcessToJobObject(self._handle, process._process_handle):
+            raise self._api.ctypes.WinError(self._api.ctypes.get_last_error())
 
     def terminate(self) -> None:
-        if self._handle and not self._kernel32.TerminateJobObject(self._handle, 1):
-            raise self._ctypes.WinError(self._ctypes.get_last_error())
+        if self._handle and not self._api.kernel32.TerminateJobObject(self._handle, 1):
+            raise self._api.ctypes.WinError(self._api.ctypes.get_last_error())
 
     def close(self) -> None:
         if self._handle:
-            handle = self._handle
+            if not self._api.kernel32.CloseHandle(self._handle):
+                raise self._api.ctypes.WinError(self._api.ctypes.get_last_error())
             self._handle = None
-            if not self._kernel32.CloseHandle(handle):
-                raise self._ctypes.WinError(self._ctypes.get_last_error())
 
 
-def _terminate_process_tree(
-    process: subprocess.Popen[bytes],
-    windows_job: _WindowsJob | None,
-) -> list[str]:
-    """Terminate the whole launched tree and reap the direct child."""
+def _direct_process_exited_without_reaping(process: Any) -> bool:
+    """Observe direct-child exit while preserving the POSIX group leader PID."""
+
+    if sys.platform == "win32":
+        return process.poll() is not None
+    if not all(hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT")):
+        raise LabError("POSIX platform lacks waitid(WNOWAIT) required for safe process-group containment")
+    try:
+        status = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    except ChildProcessError as error:
+        raise LabError("direct process was reaped before process-group cleanup") from error
+    return status is not None and status.si_pid != 0
+
+
+def _terminate_process_tree(process: Any, windows_job: _WindowsJob | None) -> list[str]:
+    """Terminate the launched Windows job or cooperative POSIX process group."""
 
     errors: list[str] = []
     if sys.platform == "win32":
@@ -796,6 +1141,8 @@ def _terminate_process_tree(
             except OSError as error:
                 errors.append(f"cannot terminate Windows process job: {error}")
     else:
+        # The leader is deliberately unreaped until after this signal so its
+        # numeric PID cannot be recycled as an unrelated process-group ID.
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -817,19 +1164,35 @@ def _terminate_process_tree(
 def _join_capture_threads(
     readers: Sequence[threading.Thread],
     streams: Sequence[Any],
+    shutdown: threading.Event,
 ) -> list[str]:
-    """Bound reader shutdown after the process tree has been terminated."""
+    """Bound natural pipe drain, then close every stream and bound shutdown."""
 
+    errors: list[str] = []
+    drain_deadline = time.monotonic() + 2.0
+    for reader in readers:
+        reader.join(timeout=max(0.0, drain_deadline - time.monotonic()))
+    readers_without_eof = [index for index, reader in enumerate(readers) if reader.is_alive()]
+    shutdown.set()
+    for stream in streams:
+        try:
+            stream.close()
+        except OSError as error:
+            errors.append(f"cannot close capture pipe: {error}")
     deadline = time.monotonic() + 2.0
     for reader in readers:
-        reader.join(timeout=max(0.0, deadline - time.monotonic()))
-    errors = [f"capture reader {index} did not stop" for index, reader in enumerate(readers) if reader.is_alive()]
-    if not errors:
-        for stream in streams:
-            try:
-                stream.close()
-            except OSError as error:
-                errors.append(f"cannot close capture pipe: {error}")
+        if reader.is_alive():
+            reader.join(timeout=max(0.0, deadline - time.monotonic()))
+    for index in readers_without_eof:
+        detail = f"capture reader {index} did not reach EOF after process containment cleanup"
+        if sys.platform != "win32":
+            detail += "; POSIX toolchain descendants must not detach from the launched session/process group"
+        errors.append(detail)
+    errors.extend(
+        f"capture reader {index} did not stop after its capture pipe was closed"
+        for index, reader in enumerate(readers)
+        if reader.is_alive()
+    )
     return errors
 
 
@@ -840,14 +1203,17 @@ def _run_bytes(
     environment: Mapping[str, str],
     timeout: float,
 ) -> subprocess.CompletedProcess[bytes]:
-    process: subprocess.Popen[bytes] | None = None
+    process: Any | None = None
     windows_job: _WindowsJob | None = None
     readers: list[threading.Thread] = []
     streams: list[Any] = []
     stdout_buffer = bytearray()
     stderr_buffer = bytearray()
     overflow = threading.Event()
+    capture_shutdown = threading.Event()
     reader_errors: list[BaseException] = []
+    primary_error: BaseException | None = None
+    cleanup_errors: list[str] = []
 
     def capture(stream: Any, destination: bytearray) -> None:
         try:
@@ -862,90 +1228,100 @@ def _run_bytes(
                 if len(block) > remaining:
                     overflow.set()
         except BaseException as error:  # surfaced deterministically on the launcher thread
-            reader_errors.append(error)
+            if not capture_shutdown.is_set():
+                reader_errors.append(error)
 
     try:
-        popen_options: dict[str, Any] = {}
         if sys.platform == "win32":
             windows_job = _WindowsJob()
-            popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            process = _WindowsProcess.create_suspended(command, cwd, environment)
+            streams = [process.stdout, process.stderr]
+            try:
+                windows_job.assign(process)
+                process.resume()
+            except OSError as error:
+                raise LabError(
+                    f"cannot atomically enroll and resume Windows process {process.pid}: {error}"
+                ) from error
         else:
-            popen_options["start_new_session"] = True
-        process = subprocess.Popen(
-            list(command),
-            cwd=str(cwd),
-            env=dict(environment),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            **popen_options,
-        )
-        assert process.stdout is not None and process.stderr is not None
-        streams = [process.stdout, process.stderr]
-        if windows_job is not None:
-            windows_job.assign(process)
+            process = subprocess.Popen(
+                list(command),
+                cwd=str(cwd),
+                env=dict(environment),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+                start_new_session=True,
+            )
+            assert process.stdout is not None and process.stderr is not None
+            streams = [process.stdout, process.stderr]
         readers = [
-            threading.Thread(target=capture, args=(process.stdout, stdout_buffer), daemon=True),
-            threading.Thread(target=capture, args=(process.stderr, stderr_buffer), daemon=True),
+            threading.Thread(
+                target=capture,
+                args=(streams[0], stdout_buffer),
+                daemon=True,
+                name="freak-v3-capture-stdout",
+            ),
+            threading.Thread(
+                target=capture,
+                args=(streams[1], stderr_buffer),
+                daemon=True,
+                name="freak-v3-capture-stderr",
+            ),
         ]
         for reader in readers:
             reader.start()
         deadline = time.monotonic() + timeout
-        terminal_error: BaseException | None = None
-        while process.poll() is None:
+        while not _direct_process_exited_without_reaping(process):
             if overflow.is_set():
-                terminal_error = LabError(
+                primary_error = LabError(
                     f"command output exceeds the {MAX_CAPTURE_BYTES}-byte per-channel bound: {command!r}"
                 )
                 break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                terminal_error = subprocess.TimeoutExpired(list(command), timeout)
+                primary_error = subprocess.TimeoutExpired(list(command), timeout)
                 break
-            try:
-                process.wait(timeout=min(0.05, remaining))
-            except subprocess.TimeoutExpired:
-                pass
-        direct_returncode = process.poll()
-        cleanup_errors = _terminate_process_tree(process, windows_job)
-        cleanup_errors.extend(_join_capture_threads(readers, streams))
-        if terminal_error is not None:
-            if cleanup_errors:
-                raise LabError(f"{terminal_error}; cleanup failed: {'; '.join(cleanup_errors)}") from terminal_error
-            raise terminal_error
-        if cleanup_errors:
-            raise LabError(f"command process-tree cleanup failed: {'; '.join(cleanup_errors)}")
-        if overflow.is_set():
-            raise LabError(
-                f"command output exceeds the {MAX_CAPTURE_BYTES}-byte per-channel bound: {command!r}"
-            )
-        if reader_errors:
-            raise LabError(f"command output capture failed: {command!r}: {reader_errors[0]}")
-        return subprocess.CompletedProcess(
-            list(command),
-            direct_returncode,
-            bytes(stdout_buffer),
-            bytes(stderr_buffer),
-        )
-    except LabError:
-        raise
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise LabError(f"command failed to execute: {command!r}: {error}") from error
+            time.sleep(min(0.05, remaining))
+    except BaseException as error:
+        primary_error = error
     finally:
-        if process is not None and process.poll() is None:
-            _terminate_process_tree(process, windows_job)
+        if process is not None:
+            cleanup_errors.extend(_terminate_process_tree(process, windows_job))
+        cleanup_errors.extend(_join_capture_threads(readers, streams, capture_shutdown))
         if windows_job is not None:
             try:
                 windows_job.close()
-            except OSError:
-                pass
-        if not any(reader.is_alive() for reader in readers):
-            for stream in streams:
-                if not stream.closed:
-                    try:
-                        stream.close()
-                    except OSError:
-                        pass
+            except OSError as error:
+                cleanup_errors.append(f"cannot close Windows process job: {error}")
+        if isinstance(process, _WindowsProcess):
+            try:
+                process.close()
+            except OSError as error:
+                cleanup_errors.append(f"cannot close Windows process handles: {error}")
+
+    if primary_error is not None:
+        if cleanup_errors:
+            raise LabError(f"{primary_error}; cleanup failed: {'; '.join(cleanup_errors)}") from primary_error
+        if isinstance(primary_error, LabError):
+            raise primary_error
+        if isinstance(primary_error, (OSError, subprocess.TimeoutExpired)):
+            raise LabError(f"command failed to execute: {command!r}: {primary_error}") from primary_error
+        raise primary_error
+    if cleanup_errors:
+        raise LabError(f"command process containment cleanup failed: {'; '.join(cleanup_errors)}")
+    if overflow.is_set():
+        raise LabError(f"command output exceeds the {MAX_CAPTURE_BYTES}-byte per-channel bound: {command!r}")
+    if reader_errors:
+        raise LabError(f"command output capture failed: {command!r}: {reader_errors[0]}")
+    assert process is not None and process.returncode is not None
+    return subprocess.CompletedProcess(
+        list(command),
+        process.returncode,
+        bytes(stdout_buffer),
+        bytes(stderr_buffer),
+    )
 
 
 def _decode(value: bytes, context: str) -> str:
@@ -2567,7 +2943,10 @@ def _write_document(document: Mapping[str, Any], output: str) -> None:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__, epilog=TRUST_MODEL_HELP)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog=f"{TRUST_MODEL_HELP} {PROCESS_CONTAINMENT_HELP}",
+    )
     parser.add_argument("--cli", help="exact FREAK CLI executable (required for benchmark runs)")
     parser.add_argument("--clang", help="exact Clang executable; defaults to clean PATH lookup")
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
