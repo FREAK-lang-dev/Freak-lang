@@ -6,6 +6,90 @@ task v4_local_annotation_bool(value: bool) -> word {
     give back "false"
 }
 
+task v4_local_annotation_snapshot_variant(payload: word, mode: word) -> word {
+    pilot wanted_hir = ""
+    pilot wanted_item = ""
+    pilot line_id = 0
+    pilot line_count = v4_hir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot candidate = v4_hir_snapshot_line(payload, line_id)
+        if wanted_hir == "" and v4_hir_snapshot_field_raw(candidate, 0) == "hir-local-annotation" {
+            wanted_hir = v4_hir_snapshot_field_raw(candidate, 1)
+            wanted_item = v4_hir_snapshot_field_raw(candidate, 3)
+        }
+        line_id += 1
+    }
+
+    pilot owner_span = V4_NO_SPAN
+    line_id = 0
+    repeat until line_id >= line_count {
+        pilot candidate = v4_hir_snapshot_line(payload, line_id)
+        if v4_hir_snapshot_field_raw(candidate, 0) == "hir-item" and v4_hir_snapshot_field_raw(candidate, 1) == wanted_hir and v4_hir_snapshot_field_raw(candidate, 2) == wanted_item {
+            owner_span = v4_hir_snapshot_field(candidate, 6)
+        }
+        line_id += 1
+    }
+
+    pilot out = ""
+    pilot changed = 0
+    line_id = 0
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if kind == "hir-snapshot" and mode == "count" {
+            line = "hir-snapshot|format=" + v4_hir_snapshot_key_value(line, "format")
+            line = line + "|files=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "files")
+            line = line + "|items=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "items")
+            line = line + "|alias-targets=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "alias-targets")
+            line = line + "|local-annotations=" + word_from_int(word_to_int(v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "local-annotations")) + 1)
+            line = line + "|diagnostics=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "diagnostics")
+        } else if kind == "hir-item" and mode == "owner-kind" and changed == 0 and v4_hir_snapshot_field_raw(line, 1) == wanted_hir and v4_hir_snapshot_field_raw(line, 2) == wanted_item {
+            pilot rebuilt = "hir-item"
+            pilot field_id = 1
+            repeat until field_id >= 10 {
+                if field_id == 3 {
+                    rebuilt = rebuilt + "|" + v4_hir_snapshot_escape(v4_hir_shape)
+                } else {
+                    rebuilt = rebuilt + "|" + v4_hir_snapshot_field_raw(line, field_id)
+                }
+                field_id += 1
+            }
+            line = rebuilt
+            changed = 1
+        } else if kind == "hir-local-annotation" and changed == 0 and mode != "count" and mode != "owner-kind" {
+            pilot rebuilt = "hir-local-annotation"
+            pilot field_id = 1
+            repeat until field_id >= 7 {
+                if field_id == 2 and mode == "noncanonical" {
+                    rebuilt = rebuilt + "|00"
+                } else if field_id == 2 and mode == "duplicate-slot" {
+                    rebuilt = rebuilt + "|1"
+                } else if field_id == 4 and mode == "out-of-owner" {
+                    pilot forged_start = v4_span_end(owner_span) + 1
+                    rebuilt = rebuilt + "|" + v4_hir_snapshot_escape(v4_span_new(v4_span_file(owner_span), forged_start, forged_start + 4))
+                } else if field_id == 6 and mode == "out-of-owner" {
+                    pilot forged_start = v4_span_end(owner_span) + 1
+                    rebuilt = rebuilt + "|" + v4_hir_snapshot_escape(v4_span_new(v4_span_file(owner_span), forged_start + 1, forged_start + 3))
+                } else if field_id == 4 and mode == "empty-span" {
+                    pilot stmt_span = v4_hir_snapshot_field(line, 4)
+                    rebuilt = rebuilt + "|" + v4_hir_snapshot_escape(v4_span_new(v4_span_file(stmt_span), v4_span_start(stmt_span), v4_span_start(stmt_span)))
+                } else {
+                    rebuilt = rebuilt + "|" + v4_hir_snapshot_field_raw(line, field_id)
+                }
+                field_id += 1
+            }
+            line = rebuilt
+            changed = 1
+        }
+        if line_id > 0 {
+            out = out + "\n"
+        }
+        out = out + line
+        line_id += 1
+    }
+    give back out
+}
+
 task v4_local_annotation_source() -> word {
     pilot src = "task main() -> char {\n"
     src = src + "    fixed pilot mark: char = 'A'\n"
@@ -24,6 +108,32 @@ task v4_local_annotation_bad_source() -> word {
     src = src + "    give back hold\n"
     src = src + "}\n"
     give back src
+}
+
+task v4_local_annotation_run_bad_case() -> void {
+    pilot src = v4_local_annotation_bad_source()
+    pilot stream = v4_lex_text(1, src)
+    pilot tree = v4_parse_stream(1, stream)
+    pilot hir = v4_hir_lower_tree(1, tree)
+    pilot resolve_id = v4_resolve_lower_hir(1, hir)
+    pilot ty_id = v4_ty_lower_resolve(1, resolve_id)
+    pilot mir_id = v4_mir_lower_ty(1, ty_id)
+    pilot def_id = v4_resolve_def_for_name(resolve_id, "bad")
+    pilot sig_id = v4_ty_lookup_signature(ty_id, def_id)
+    pilot item_id = v4_ty_signature_hir_item(ty_id, sig_id)
+    pilot body_id = v4_mir_lookup_body(mir_id, def_id)
+    pilot hold_local = v4_mir_find_local(mir_id, body_id, "hold")
+    pilot annotation_id = v4_ty_signature_local_annotation_at_offset(ty_id, sig_id, v4_span_start(v4_mir_local_span(mir_id, body_id, hold_local)))
+    pilot type_span = v4_ty_signature_local_annotation_type_span(ty_id, sig_id, annotation_id)
+    pilot diag = v4_mir_diag(mir_id, 0)
+
+    say "local-annotation-bad-hir-count=" + word_from_int(v4_hir_local_annotation_count(hir, item_id))
+    say "local-annotation-bad-surface=" + v4_ty_signature_local_annotation_surface_type(ty_id, sig_id, annotation_id)
+    say "local-annotation-bad-type-source=" + v4_slice(src, v4_span_start(type_span), v4_span_end(type_span))
+    say "local-annotation-bad-diagnostics=" + word_from_int(v4_mir_diag_count(mir_id))
+    say "local-annotation-bad-message=" + v4_diag_message(diag)
+    say "local-annotation-bad-help=" + v4_diag_help(diag)
+    say "local-annotation-bad-stmt-span-stable=" + v4_local_annotation_bool(v4_diag_span(diag) == v4_mir_local_span(mir_id, body_id, hold_local))
 }
 
 pilot v4_local_annotation_src = v4_local_annotation_source()
@@ -88,26 +198,29 @@ pilot v4_local_annotation_bad_restore = v4_hir_snapshot_restore(v4_local_annotat
 say "local-annotation-malformed-restore-rejected=" + v4_local_annotation_bool(v4_local_annotation_bad_restore.starts_with("hir-snapshot-restore ok=0"))
 say "local-annotation-malformed-restore-atomic=" + v4_local_annotation_bool(v4_hir_file_count() == v4_local_annotation_before_bad_files and v4_hir_local_annotation_count(v4_local_annotation_hir, v4_local_annotation_item) == v4_local_annotation_before_bad_count)
 
-pilot v4_local_annotation_bad_src = v4_local_annotation_bad_source()
-pilot v4_local_annotation_bad_stream = v4_lex_text(1, v4_local_annotation_bad_src)
-pilot v4_local_annotation_bad_tree = v4_parse_stream(1, v4_local_annotation_bad_stream)
-pilot v4_local_annotation_bad_hir = v4_hir_lower_tree(1, v4_local_annotation_bad_tree)
-pilot v4_local_annotation_bad_resolve = v4_resolve_lower_hir(1, v4_local_annotation_bad_hir)
-pilot v4_local_annotation_bad_ty = v4_ty_lower_resolve(1, v4_local_annotation_bad_resolve)
-pilot v4_local_annotation_bad_mir = v4_mir_lower_ty(1, v4_local_annotation_bad_ty)
-pilot v4_local_annotation_bad_def = v4_resolve_def_for_name(v4_local_annotation_bad_resolve, "bad")
-pilot v4_local_annotation_bad_sig = v4_ty_lookup_signature(v4_local_annotation_bad_ty, v4_local_annotation_bad_def)
-pilot v4_local_annotation_bad_item = v4_ty_signature_hir_item(v4_local_annotation_bad_ty, v4_local_annotation_bad_sig)
-pilot v4_local_annotation_bad_body = v4_mir_lookup_body(v4_local_annotation_bad_mir, v4_local_annotation_bad_def)
-pilot v4_local_annotation_bad_hold = v4_mir_find_local(v4_local_annotation_bad_mir, v4_local_annotation_bad_body, "hold")
-pilot v4_local_annotation_bad_id = v4_ty_signature_local_annotation_at_offset(v4_local_annotation_bad_ty, v4_local_annotation_bad_sig, v4_span_start(v4_mir_local_span(v4_local_annotation_bad_mir, v4_local_annotation_bad_body, v4_local_annotation_bad_hold)))
-pilot v4_local_annotation_bad_type_span = v4_ty_signature_local_annotation_type_span(v4_local_annotation_bad_ty, v4_local_annotation_bad_sig, v4_local_annotation_bad_id)
-pilot v4_local_annotation_bad_diag = v4_mir_diag(v4_local_annotation_bad_mir, 0)
-
-say "local-annotation-bad-hir-count=" + word_from_int(v4_hir_local_annotation_count(v4_local_annotation_bad_hir, v4_local_annotation_bad_item))
-say "local-annotation-bad-surface=" + v4_ty_signature_local_annotation_surface_type(v4_local_annotation_bad_ty, v4_local_annotation_bad_sig, v4_local_annotation_bad_id)
-say "local-annotation-bad-type-source=" + v4_slice(v4_local_annotation_bad_src, v4_span_start(v4_local_annotation_bad_type_span), v4_span_end(v4_local_annotation_bad_type_span))
-say "local-annotation-bad-diagnostics=" + word_from_int(v4_mir_diag_count(v4_local_annotation_bad_mir))
-say "local-annotation-bad-message=" + v4_diag_message(v4_local_annotation_bad_diag)
-say "local-annotation-bad-help=" + v4_diag_help(v4_local_annotation_bad_diag)
-say "local-annotation-bad-stmt-span-stable=" + v4_local_annotation_bool(v4_diag_span(v4_local_annotation_bad_diag) == v4_mir_local_span(v4_local_annotation_bad_mir, v4_local_annotation_bad_body, v4_local_annotation_bad_hold))
+pilot v4_local_annotation_schema_rejected = true
+pilot v4_local_annotation_schema_atomic = true
+pilot v4_local_annotation_schema_modes = array_new()
+array_push(v4_local_annotation_schema_modes, "noncanonical")
+array_push(v4_local_annotation_schema_modes, "duplicate-slot")
+array_push(v4_local_annotation_schema_modes, "owner-kind")
+array_push(v4_local_annotation_schema_modes, "out-of-owner")
+array_push(v4_local_annotation_schema_modes, "empty-span")
+array_push(v4_local_annotation_schema_modes, "count")
+pilot v4_local_annotation_schema_mode_id = 0
+repeat until v4_local_annotation_schema_mode_id >= array_len(v4_local_annotation_schema_modes) {
+    pilot v4_local_annotation_schema_mode: word = array_get(v4_local_annotation_schema_modes, v4_local_annotation_schema_mode_id)
+    pilot v4_local_annotation_schema_variant = v4_local_annotation_snapshot_variant(v4_local_annotation_snapshot, v4_local_annotation_schema_mode)
+    pilot v4_local_annotation_schema_validation = v4_hir_snapshot_validate(v4_local_annotation_schema_variant)
+    pilot v4_local_annotation_schema_restore = v4_hir_snapshot_restore(v4_local_annotation_schema_variant)
+    if v4_local_annotation_schema_validation.starts_with("hir-snapshot-import ok=0") == false or v4_local_annotation_schema_restore.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") == false {
+        v4_local_annotation_schema_rejected = false
+    }
+    if v4_hir_file_count() != v4_local_annotation_before_bad_files or v4_hir_local_annotation_count(v4_local_annotation_hir, v4_local_annotation_item) != v4_local_annotation_before_bad_count {
+        v4_local_annotation_schema_atomic = false
+    }
+    v4_local_annotation_schema_mode_id += 1
+}
+say "local-annotation-schema-variants-rejected=" + v4_local_annotation_bool(v4_local_annotation_schema_rejected)
+say "local-annotation-schema-variants-atomic=" + v4_local_annotation_bool(v4_local_annotation_schema_atomic)
+v4_local_annotation_run_bad_case()

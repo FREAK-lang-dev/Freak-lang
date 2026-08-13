@@ -9061,12 +9061,14 @@ EXECUTABLE_SMOKES = [
             "local-annotation-mir-diagnostics=0",
             "local-annotation-borrow-status=clean",
             "local-annotation-borrow-diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v4 files=2 items=2 alias-targets=0 local-annotations=5 diagnostics=0",
-            "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 diagnostics=0 skipped-other=0 live-files=2",
+            "hir-snapshot format=freak-hir-snapshot-v4 files=1 items=1 alias-targets=0 local-annotations=4 diagnostics=0",
+            "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 diagnostics=0 skipped-other=0 live-files=1",
             "local-annotation-restored-count=4",
             "local-annotation-restored-fixed=char",
             "local-annotation-malformed-restore-rejected=true",
             "local-annotation-malformed-restore-atomic=true",
+            "local-annotation-schema-variants-rejected=true",
+            "local-annotation-schema-variants-atomic=true",
             "local-annotation-bad-hir-count=1",
             "local-annotation-bad-surface=maybe<int,word>",
             "local-annotation-bad-type-source=maybe<int,word>",
@@ -9502,6 +9504,8 @@ def check_mir_local_annotation_boundary() -> None:
             violations.append(f"local annotation HIR boundary missing: {marker}")
 
     ty_contracts = {
+        "v4_ty_signature_local_annotation_hir_id": "v4_ty_signature_hir_id",
+        "v4_ty_signature_local_annotation_count": "v4_hir_local_annotation_count",
         "v4_ty_signature_local_annotation_at_offset": "v4_hir_local_annotation_at_offset",
         "v4_ty_signature_local_annotation_stmt_span": "v4_hir_local_annotation_stmt_span",
         "v4_ty_signature_local_annotation_surface_type": "v4_hir_local_annotation_type",
@@ -9526,6 +9530,31 @@ def check_mir_local_annotation_boundary() -> None:
             if forbidden in body:
                 violations.append(
                     f"local annotation TY accessor reconstructs syntax: {task_name} uses {forbidden}"
+                )
+
+    hir_storage_accessors = (
+        "v4_hir_local_annotation_record_id",
+        "v4_hir_local_annotation_count",
+        "v4_hir_local_annotation_stmt_span",
+        "v4_hir_local_annotation_type",
+        "v4_hir_local_annotation_type_span",
+        "v4_hir_local_annotation_at_offset",
+    )
+    for task_name in hir_storage_accessors:
+        body = freak_task_body(hir_source, task_name)
+        if body is None:
+            violations.append(f"local annotation HIR storage accessor missing: {task_name}")
+            continue
+        for forbidden in (
+            "v4_parse_",
+            "v4_lex_",
+            "v4_expand_",
+            "_token",
+            "v4_hir_local_annotation_type_text",
+        ):
+            if forbidden in body:
+                violations.append(
+                    f"local annotation HIR storage accessor reconstructs syntax: {task_name} uses {forbidden}"
                 )
 
     lower_task = "v4_mir_lower_pilot_stmt"

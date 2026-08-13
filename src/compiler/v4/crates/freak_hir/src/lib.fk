@@ -1234,10 +1234,12 @@ task v4_hir_snapshot_local_annotation_is_valid(line: word) -> bool {
         give back false
     }
 
+    pilot no_span = V4_NO_SPAN
+    pilot no_file = V4_NO_FILE
     pilot stmt_span = v4_hir_snapshot_field(line, 4)
     pilot type_text = v4_hir_snapshot_field(line, 5)
     pilot type_span = v4_hir_snapshot_field(line, 6)
-    if stmt_span == V4_NO_SPAN or type_span == V4_NO_SPAN or type_text == "" {
+    if stmt_span == no_span or type_span == no_span or type_text == "" {
         give back false
     }
 
@@ -1247,10 +1249,10 @@ task v4_hir_snapshot_local_annotation_is_valid(line: word) -> bool {
     pilot type_file = v4_span_file(type_span)
     pilot type_start = v4_span_start(type_span)
     pilot type_end = v4_span_end(type_span)
-    if stmt_file == V4_NO_FILE or type_file != stmt_file {
+    if stmt_file == no_file or type_file != stmt_file {
         give back false
     }
-    if stmt_end < stmt_start or type_end < type_start {
+    if stmt_end <= stmt_start or type_end <= type_start {
         give back false
     }
     if type_start < stmt_start or type_end > stmt_end {
@@ -1296,8 +1298,10 @@ task v4_hir_snapshot_alias_target_owner_is_valid(payload: word, line: word) -> b
 task v4_hir_snapshot_local_annotation_owner_is_valid(payload: word, line: word) -> bool {
     pilot wanted_hir_id = v4_hir_snapshot_field_raw(line, 1)
     pilot wanted_item_id = v4_hir_snapshot_field_raw(line, 3)
+    pilot no_file = V4_NO_FILE
+    pilot no_span = V4_NO_SPAN
     pilot snapshot_file = v4_hir_snapshot_file_for_hir(payload, wanted_hir_id)
-    if snapshot_file == V4_NO_FILE {
+    if snapshot_file == no_file {
         give back false
     }
     if v4_span_file(v4_hir_snapshot_field(line, 4)) != snapshot_file or v4_span_file(v4_hir_snapshot_field(line, 6)) != snapshot_file {
@@ -1310,6 +1314,25 @@ task v4_hir_snapshot_local_annotation_owner_is_valid(payload: word, line: word) 
     repeat until line_id >= line_count {
         pilot candidate = v4_hir_snapshot_line(payload, line_id)
         if v4_hir_snapshot_field_raw(candidate, 0) == "hir-item" and v4_hir_snapshot_field_raw(candidate, 1) == wanted_hir_id and v4_hir_snapshot_field_raw(candidate, 2) == wanted_item_id {
+            pilot item_kind = v4_hir_snapshot_field(candidate, 3)
+            if item_kind != v4_hir_task and item_kind != v4_hir_impl and item_kind != v4_hir_doctrine {
+                give back false
+            }
+            pilot item_span = v4_hir_snapshot_field(candidate, 6)
+            pilot item_start = v4_span_start(item_span)
+            pilot item_end = v4_span_end(item_span)
+            pilot stmt_span = v4_hir_snapshot_field(line, 4)
+            pilot stmt_start = v4_span_start(stmt_span)
+            pilot stmt_end = v4_span_end(stmt_span)
+            if item_span == no_span or v4_span_file(item_span) != snapshot_file {
+                give back false
+            }
+            if item_end <= item_start or v4_span_new(snapshot_file, item_start, item_end) != item_span {
+                give back false
+            }
+            if stmt_start < item_start or stmt_end > item_end {
+                give back false
+            }
             matches += 1
         }
         line_id += 1
@@ -1753,7 +1776,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             pilot kind = v4_hir_snapshot_field_raw(line, 0)
             if kind == "hir" {
                 restored_files += v4_hir_snapshot_restore_file_line(line)
-            } else if kind != "hir-item" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
+            } else if kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
