@@ -2878,7 +2878,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if v4_hir_task_return.exists():
         hir_src = v4_hir_task_return.read_text(encoding="utf-8")
         for needle in (
-            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v5"',
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
             'pilot v4_hir_task_return_explicit = "explicit"',
             'pilot v4_hir_task_return_implicit_block = "implicit-block"',
             'pilot v4_hir_task_return_arrow = "arrow"',
@@ -2935,7 +2935,7 @@ def audit_conformance(paths: List[Path]) -> int:
             v4_task_return_readme,
             (
                 "The third bounded boundary covers declared returns on ordinary top-level tasks.",
-                "HIR snapshot v5 validates that vocabulary",
+                "HIR snapshot v6 validates that vocabulary",
             ),
         ),
         (
@@ -2956,7 +2956,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 task return HIR boundary",
         not task_return_boundary_missing,
-        "HIR v5 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
+        "HIR v6 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
     )
     if task_return_boundary_missing:
         failures.append(
@@ -2968,6 +2968,95 @@ def audit_conformance(paths: List[Path]) -> int:
     # Borrowed return signatures may select every parameter whose lifetime
     # outlives the return region. Require the set-valued TY/MIR/Meiya contract,
     # editor lifetime resolution, and executable source-set fixtures.
+    # Check 9c: ordinary-task parameter contracts belong to HIR. Nonordinary
+    # impl/doctrine/extern signatures remain explicit, guarded token fallbacks.
+    v4_hir_task_param = repo / "src" / "compiler" / "v4" / "crates" / "freak_hir" / "src" / "lib.fk"
+    v4_ty_task_param = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_mir_build_task_param = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir_build" / "src" / "lib.fk"
+    v4_editor_task_param = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
+    v4_task_param_smoke = repo / "src" / "compiler" / "v4" / "tests" / "task_param_semantic_boundary_smoke.fk"
+    task_param_boundary_missing: List[str] = []
+    for path, label, needles in (
+        (
+            v4_hir_task_param,
+            "freak_hir",
+            (
+                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
+                'pilot v4_hir_task_param_mode_value = "value"',
+                'pilot v4_hir_task_param_mode_lend = "lend"',
+                'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
+                "task v4_hir_task_param_count(",
+                "task v4_hir_task_param_name_span(",
+                "task v4_hir_task_param_segment_span(",
+                'pilot out = "hir-task-param-owner"',
+                'pilot out = "hir-task-param"',
+                "task v4_hir_snapshot_task_param_owner_is_valid(",
+                "task v4_hir_snapshot_task_param_is_valid(",
+                "task v4_hir_snapshot_task_param_slots_are_valid(",
+            ),
+        ),
+        (
+            v4_ty_task_param,
+            "freak_ty",
+            (
+                "task v4_ty_signature_is_ordinary_hir_task(",
+                "task v4_ty_signature_param_count(",
+                "task v4_ty_signature_param_name(",
+                "task v4_ty_signature_param_mode(",
+                "task v4_ty_signature_param_lifetime(",
+                "task v4_ty_signature_param_surface_type(",
+                "task v4_ty_signature_param_type_span(",
+                "task v4_ty_signature_param_segment_span(",
+                "task v4_ty_signature_param_name_span(",
+                "task v4_ty_nonordinary_signature_param_count_fallback(",
+                "task v4_ty_nonordinary_signature_param_name_fallback(",
+                "task v4_ty_nonordinary_signature_param_surface_type_fallback(",
+            ),
+        ),
+        (v4_mir_build_task_param, "freak_mir_build", ("v4_ty_signature_param_segment_span",)),
+        (v4_editor_task_param, "freak_editor", ("v4_ty_signature_param_name_span",)),
+    ):
+        if not path.exists():
+            task_param_boundary_missing.append(f"{label}/src/lib.fk missing")
+            continue
+        source = path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in source:
+                task_param_boundary_missing.append(f"{label}: {needle}")
+    if not v4_task_param_smoke.exists():
+        task_param_boundary_missing.append("smoke fixture: task_param_semantic_boundary_smoke.fk")
+    if v4_task_return_harness.exists():
+        harness_src = v4_task_return_harness.read_text(encoding="utf-8")
+        for needle in (
+            '"name": "task parameter semantic boundary"',
+            '"fixture": "task_param_semantic_boundary_smoke.fk"',
+            "def check_task_param_hir_boundary() -> None:",
+            "check_task_param_hir_boundary()",
+        ):
+            if needle not in harness_src:
+                task_param_boundary_missing.append(f"check_v4.py: {needle}")
+    for doc_path, needles in (
+        (v4_task_return_readme, ("The fourth", "ordinary-task parameter APIs", "HIR snapshot v6 validates exact record")),
+        (audit_doc, ("Ordinary-task parameters are likewise stored", "Impl/doctrine/extern parameter signatures")),
+    ):
+        if not doc_path.exists():
+            task_param_boundary_missing.append(f"documentation missing: {doc_path.name}")
+            continue
+        doc_src = doc_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in doc_src:
+                task_param_boundary_missing.append(f"{doc_path.name}: {needle}")
+    add(
+        "V4 task parameter HIR boundary",
+        not task_param_boundary_missing,
+        "HIR v6 + TY/MIR/editor adapters + smoke + docs wired" if not task_param_boundary_missing else f"{len(task_param_boundary_missing)} gap(s)",
+    )
+    if task_param_boundary_missing:
+        failures.append(
+            "V4 ordinary-task parameter HIR boundary regressed: "
+            + "; ".join(task_param_boundary_missing)
+        )
+
     v4_ty_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
     v4_borrowck_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_borrowck" / "src" / "lib.fk"
     v4_editor_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"

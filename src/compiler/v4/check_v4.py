@@ -9061,8 +9061,8 @@ EXECUTABLE_SMOKES = [
             "local-annotation-mir-diagnostics=0",
             "local-annotation-borrow-status=clean",
             "local-annotation-borrow-diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v5 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 diagnostics=0",
-            "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 task-returns=1 diagnostics=0 skipped-other=0 live-files=1",
+            "hir-snapshot format=freak-hir-snapshot-v6 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 diagnostics=0",
+            "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 diagnostics=0 skipped-other=0 live-files=1",
             "local-annotation-restored-count=4",
             "local-annotation-restored-fixed=char",
             "local-annotation-malformed-restore-rejected=true",
@@ -9103,8 +9103,8 @@ EXECUTABLE_SMOKES = [
             "task-return-mir-diagnostics=0",
             "task-return-borrow-status=clean",
             "ty-snapshot format=freak-ty-snapshot-v1 files=1 signatures=3 diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v5 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 diagnostics=0",
-            "hir-snapshot-restore ok=1 files=1 items=3 local-annotations=0 task-returns=3 diagnostics=0 skipped-other=0 live-files=1",
+            "hir-snapshot format=freak-hir-snapshot-v6 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 diagnostics=0",
+            "hir-snapshot-restore ok=1 files=1 items=3 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 diagnostics=0 skipped-other=0 live-files=1",
             "task-return-restored-form=explicit",
             "task-return-restored-surface=lend 'a maybe<[word;2]>",
             "task-return-schema-variants-rejected=true",
@@ -9124,6 +9124,51 @@ EXECUTABLE_SMOKES = [
             "task-return-after-mir=num",
             "task-return-after-borrow=clean",
             "task-return-after-editor=task changed(...) -> num",
+        ],
+    },
+    {
+        "name": "task parameter semantic boundary",
+        "fixture": "task_param_semantic_boundary_smoke.fk",
+        "expect": [
+            "task-param-parse-diagnostics=0",
+            "task-param-hir-diagnostics=0",
+            "task-param-empty-count=0",
+            "task-param-rich-hir-count=4",
+            "task-param-hir-borrowed-name=borrowed",
+            "task-param-hir-borrowed-name-source=borrowed",
+            "task-param-hir-borrowed-mode=lend",
+            "task-param-hir-borrowed-lifetime='a",
+            "task-param-hir-borrowed-surface=list<maybe<int>>",
+            "task-param-rich-ty-count=4",
+            "task-param-value-name=value",
+            "task-param-value-mode=value",
+            "task-param-borrowed-mode=lend",
+            "task-param-borrowed-lifetime='a",
+            "task-param-changed-mode=lend mut",
+            "task-param-mir-value-name=value",
+            "task-param-mir-span-semantic=true",
+            "task-param-meiya-status=clean",
+            "task-param-editor-label-definition=true",
+            "hir-snapshot format=freak-hir-snapshot-v6",
+            "task-param-restored-count=4",
+            "task-param-schema-variants-rejected=true",
+            "task-param-schema-variants-atomic=true",
+            "task-param-invalid-no-invented=true",
+            "task-param-anonymous-normalized=true",
+            "task-param-static-preserved=true",
+            "task-param-doctrine-fallback=true",
+            "task-param-impl-fallback=true",
+            "task-param-extern-fallback=true",
+            "task-param-invalidation-hir=true",
+            "task-param-invalidation-ty=true",
+            "task-param-invalidation-mir=true",
+            "task-param-invalidation-borrowck=true",
+            "task-param-invalidation-editor=true",
+            "task-param-invalidation-after-hir=num",
+            "task-param-invalidation-after-ty=num",
+            "task-param-invalidation-after-mir=num",
+            "task-param-invalidation-after-borrow=clean",
+            "task-param-invalidation-after-editor=num",
         ],
     },
 ]
@@ -9772,7 +9817,7 @@ def check_mir_local_annotation_boundary() -> None:
     violations: list[str] = []
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v5"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
         "pilot v4_hir_local_annotation_items = 0",
         "pilot v4_hir_local_annotation_stmt_spans = 0",
         "pilot v4_hir_local_annotation_types = 0",
@@ -9894,7 +9939,7 @@ def check_task_return_hir_boundary() -> None:
         violations.append("task return boundary unexpectedly changed the TY snapshot format")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v5"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
         "pilot v4_hir_task_return_items = 0",
         "pilot v4_hir_task_return_forms = 0",
         "pilot v4_hir_task_return_types = 0",
@@ -10036,6 +10081,183 @@ def check_task_return_hir_boundary() -> None:
 
     print("task return boundary guard self-test: helper-indirected fallback rejected")
     print("no syntax past HIR: ordinary task declared return type and span")
+
+
+def task_param_ordinary_call_closure_violations(ty_source: str) -> list[str]:
+    violations: list[str] = []
+    public_contracts = {
+        "v4_ty_signature_param_count": "v4_hir_task_param_count",
+        "v4_ty_signature_param_name": "v4_hir_task_param_name",
+        "v4_ty_signature_param_mode": "v4_hir_task_param_mode",
+        "v4_ty_signature_param_lifetime": "v4_hir_task_param_lifetime",
+        "v4_ty_signature_param_lifetime_span": "v4_hir_task_param_lifetime_span",
+        "v4_ty_signature_param_surface_type": "v4_hir_task_param_surface_type",
+        "v4_ty_signature_param_type_span": "v4_hir_task_param_type_span",
+        "v4_ty_signature_param_segment_span": "v4_hir_task_param_segment_span",
+        "v4_ty_signature_param_name_span": "v4_hir_task_param_name_span",
+    }
+    reached: set[str] = set()
+    ordinary_marker = "if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id)"
+
+    for task_name, hir_accessor in public_contracts.items():
+        body = freak_task_body(ty_source, task_name)
+        ordinary_arm = None if body is None else freak_braced_arm(body, ordinary_marker)
+        if ordinary_arm is None:
+            violations.append(
+                f"task parameter TY adapter has no bounded ordinary-task arm: {task_name}"
+            )
+            continue
+        if hir_accessor not in ordinary_arm:
+            violations.append(
+                f"task parameter ordinary arm does not consume {hir_accessor}: {task_name}"
+            )
+        reached.update(
+            freak_task_call_closure(
+                ty_source,
+                freak_task_calls(ty_source, ordinary_arm),
+            )
+        )
+
+    forbidden_fragments = (
+        "v4_ty_nonordinary_signature_param_",
+        "v4_ty_type_text",
+        "v4_lex_",
+        "v4_parse_",
+        "v4_expand_",
+        "v4_ty_span_from_tokens",
+        "_token",
+    )
+    for task_name in sorted(reached):
+        body = freak_task_body(ty_source, task_name) or ""
+        for forbidden in forbidden_fragments:
+            if forbidden in task_name or forbidden in body:
+                violations.append(
+                    f"task parameter ordinary HIR call closure reconstructs syntax: "
+                    f"{task_name} uses {forbidden}"
+                )
+
+    return violations
+
+
+def check_task_param_hir_boundary() -> None:
+    hir_source = read_text(crate_path("freak_hir"))
+    ty_source = read_text(crate_path("freak_ty"))
+    mir_build_source = read_text(crate_path("freak_mir_build"))
+    editor_source = read_text(crate_path("freak_editor"))
+    violations: list[str] = []
+
+    for marker in (
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
+        'pilot v4_hir_task_param_mode_value = "value"',
+        'pilot v4_hir_task_param_mode_lend = "lend"',
+        'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
+        '"hir-task-param-owner"',
+        '"hir-task-param"',
+        '"task-param-owners"',
+        '"task-params"',
+        "task v4_hir_snapshot_task_param_owner_is_valid(",
+        "task v4_hir_snapshot_task_param_is_valid(",
+        "task v4_hir_snapshot_task_param_slots_are_valid(",
+    ):
+        if marker not in hir_source:
+            violations.append(f"task parameter HIR boundary missing: {marker}")
+
+    hir_accessors = (
+        "v4_hir_task_param_count",
+        "v4_hir_task_param_name",
+        "v4_hir_task_param_name_span",
+        "v4_hir_task_param_mode",
+        "v4_hir_task_param_lifetime",
+        "v4_hir_task_param_lifetime_span",
+        "v4_hir_task_param_surface_type",
+        "v4_hir_task_param_type_span",
+        "v4_hir_task_param_segment_span",
+    )
+    for task_name in hir_accessors:
+        body = freak_task_body(hir_source, task_name)
+        if body is None:
+            violations.append(f"task parameter HIR storage accessor missing: {task_name}")
+            continue
+        for forbidden in ("v4_parse_", "v4_lex_", "v4_expand_", "_token"):
+            if forbidden in body:
+                violations.append(
+                    f"task parameter HIR accessor reconstructs syntax: {task_name} uses {forbidden}"
+                )
+
+    public_contracts = {
+        "v4_ty_signature_param_count": ("v4_hir_task_param_count", "v4_ty_nonordinary_signature_param_count_fallback"),
+        "v4_ty_signature_param_name": ("v4_hir_task_param_name", "v4_ty_nonordinary_signature_param_name_fallback"),
+        "v4_ty_signature_param_mode": ("v4_hir_task_param_mode", "v4_ty_nonordinary_signature_param_mode_fallback"),
+        "v4_ty_signature_param_lifetime": ("v4_hir_task_param_lifetime", "v4_ty_nonordinary_signature_param_lifetime_fallback"),
+        "v4_ty_signature_param_lifetime_span": ("v4_hir_task_param_lifetime_span", "v4_ty_nonordinary_signature_param_lifetime_span_fallback"),
+        "v4_ty_signature_param_surface_type": ("v4_hir_task_param_surface_type", "v4_ty_nonordinary_signature_param_surface_type_fallback"),
+        "v4_ty_signature_param_type_span": ("v4_hir_task_param_type_span", "v4_ty_nonordinary_signature_param_type_span_fallback"),
+        "v4_ty_signature_param_segment_span": ("v4_hir_task_param_segment_span", "v4_ty_nonordinary_signature_param_segment_span_fallback"),
+        "v4_ty_signature_param_name_span": ("v4_hir_task_param_name_span", "v4_ty_nonordinary_signature_param_name_span_fallback"),
+    }
+    for task_name, required in public_contracts.items():
+        body = freak_task_body(ty_source, task_name)
+        if body is None:
+            violations.append(f"task parameter TY public adapter missing: {task_name}")
+            continue
+        if "v4_ty_signature_is_ordinary_hir_task" not in body:
+            violations.append(f"task parameter TY adapter has no ordinary HIR dispatch: {task_name}")
+        for needle in required:
+            if needle not in body:
+                violations.append(f"task parameter TY adapter missing {needle}: {task_name}")
+        for forbidden in ("v4_lex_", "v4_parse_", "v4_expand_", "v4_ty_type_text"):
+            if forbidden in body:
+                violations.append(f"ordinary task parameter adapter reconstructs syntax: {task_name} uses {forbidden}")
+
+    type_body = freak_task_body(ty_source, "v4_ty_signature_param_type")
+    if type_body is None or "v4_ty_signature_param_surface_type" not in type_body:
+        violations.append("task parameter canonical type does not derive from semantic surface type")
+
+    ordinary_body = freak_task_body(ty_source, "v4_ty_signature_is_ordinary_hir_task")
+    if ordinary_body is None or "v4_hir_item_is_ordinary_task" not in ordinary_body:
+        violations.append("task parameter ordinary discriminator bypasses HIR ownership")
+    if ordinary_body is not None:
+        for forbidden in ("v4_lex_", "v4_parse_", "v4_expand_", "_token"):
+            if forbidden in ordinary_body:
+                violations.append(f"task parameter ordinary discriminator reconstructs syntax: {forbidden}")
+
+    lower_body = freak_task_body(mir_build_source, "v4_mir_seed_signature_params")
+    if lower_body is None or "v4_ty_signature_param_segment_span" not in lower_body:
+        violations.append("MIR build does not consume semantic parameter segment spans")
+    editor_body = freak_task_body(editor_source, "v4_editor_signature_param_name_span")
+    if editor_body is None or "v4_ty_signature_param_name_span" not in editor_body:
+        violations.append("editor parameter definitions do not consume semantic name spans")
+
+    violations.extend(task_param_ordinary_call_closure_violations(ty_source))
+
+    param_count_body = freak_task_body(ty_source, "v4_ty_signature_param_count")
+    canonical_count_return = (
+        "give back v4_hir_task_param_count(v4_ty_signature_hir_id(ty_id), "
+        "v4_ty_signature_hir_item(ty_id, sig_id))"
+    )
+    if param_count_body is None or canonical_count_return not in param_count_body:
+        violations.append("task parameter boundary guard self-test could not locate ordinary count return")
+    else:
+        mutated_body = param_count_body.replace(
+            canonical_count_return,
+            "give back v4_ty_nonordinary_signature_param_count_fallback(ty_id, sig_id)",
+            1,
+        )
+        mutated_source = ty_source.replace(param_count_body, mutated_body, 1)
+        probe_violations = task_param_ordinary_call_closure_violations(mutated_source)
+        if not any(
+            "v4_ty_nonordinary_signature_param_" in violation
+            for violation in probe_violations
+        ):
+            violations.append("task parameter boundary guard self-test accepted ordinary fallback")
+
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+
+    print("task parameter boundary guard self-test: ordinary fallback rejected")
+    print("no syntax past HIR: ordinary task parameter contracts and spans")
 
 
 def check_tooling_interfaces() -> None:
@@ -11501,6 +11723,7 @@ def main(argv: list[str] | None = None) -> int:
     check_alias_hir_boundary()
     check_mir_local_annotation_boundary()
     check_task_return_hir_boundary()
+    check_task_param_hir_boundary()
     check_tooling_interfaces()
     check_snapshot_inventories()
     base_source = check_flattened_crates()

@@ -8638,15 +8638,15 @@ task v4_mir_lower_task_body_tokens(mir_id: int, body_id: int, stream_id: int, it
     v4_mir_lower_task_body_token_range(mir_id, body_id, stream_id, start_token, end_token, item_span)
 }
 
-task v4_mir_seed_param_local(mir_id: int, body_id: int, param_name: word, param_ty: word, param_mode: word, item_span: word, duplicate_help: word) -> void {
+task v4_mir_seed_param_local(mir_id: int, body_id: int, param_name: word, param_ty: word, param_mode: word, param_span: word, scope_span: word, duplicate_help: word) -> void {
     if param_name == "" {
         give back
     }
-    if v4_mir_find_local_visible_at(mir_id, body_id, param_name, v4_span_start(item_span)) >= 0 {
-        v4_mir_add_type_error(mir_id, item_span, "duplicate parameter binding", param_name + " already exists in " + duplicate_help)
+    if v4_mir_find_local_visible_at(mir_id, body_id, param_name, v4_span_start(param_span)) >= 0 {
+        v4_mir_add_type_error(mir_id, param_span, "duplicate parameter binding", param_name + " already exists in " + duplicate_help)
         give back
     }
-    pilot local_id = v4_mir_add_local(mir_id, body_id, param_name, param_ty, item_span)
+    pilot local_id = v4_mir_add_local_at_scope(mir_id, body_id, param_name, param_ty, param_span, scope_span)
     v4_mir_set_local_mode(mir_id, body_id, local_id, param_mode)
 }
 
@@ -8663,7 +8663,7 @@ task v4_mir_seed_signature_params(mir_id: int, body_id: int, ty_id: int, sig_id:
             if param_span == no_span {
                 param_span = item_span
             }
-            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, param_mode, param_span, "this signature")
+            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, param_mode, param_span, item_span, "this signature")
         }
         param_idx += 1
     }
@@ -8677,7 +8677,7 @@ task v4_mir_seed_impl_method_params(mir_id: int, body_id: int, ty_id: int, hir_i
         if param_name != "" {
             pilot param_ty = v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_idx)
             pilot param_mode = v4_ty_impl_method_param_mode(ty_id, hir_item, method_id, param_idx)
-            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, param_mode, item_span, "this method signature")
+            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, param_mode, item_span, item_span, "this method signature")
         }
         param_idx += 1
     }

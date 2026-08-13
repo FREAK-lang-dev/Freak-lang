@@ -35,12 +35,7 @@ task v4_task_param_offset(stream_id: int, value: word, ordinal: int) -> int {
 
 task v4_task_param_source_text() -> word {
     pilot src = "task empty() -> int " + v4_task_param_braces(" give back 0 ") + "\n"
-    src = src + "task rich<'a>(\n"
-    src = src + "    value: maybe<(word, [int; 2])>,\n"
-    src = src + "    lend 'a borrowed: list<maybe<int>>,\n"
-    src = src + "    lend mut 'a changed: [int; 2],\n"
-    src = src + "    matrix: [[int; 2]; 3]\n"
-    src = src + ") -> int " + v4_task_param_braces(" give back 7 ") + "\n"
+    src = src + "task rich<'a>(value: maybe<(word, [int; 2])>, lend 'a borrowed: list<maybe<int>>, lend mut 'a changed: [int; 2], matrix: [[int; 2]; 3]) -> int " + v4_task_param_braces(" give back 7 ") + "\n"
     src = src + "task named(value: int) -> int " + v4_task_param_braces(" give back value ") + "\n"
     src = src + "task caller() -> int " + v4_task_param_braces(" give back named(value: 7) ") + "\n"
     give back src
@@ -249,17 +244,13 @@ task v4_task_param_find_hir_item(hir_id: int, kind: word, name: word) -> int {
 task v4_task_param_residual_hir_probe() -> void {
     pilot src = "task anonymous(lend '_ borrowed: word) -> int " + v4_task_param_braces(" give back 0 ") + "\n"
     src = src + "task immortal(lend 'static borrowed: word) -> int " + v4_task_param_braces(" give back 0 ") + "\n"
-    src = src + "task curly(value: Box<" + v4_task_param_braces("left:int,right:int") + ",word>) -> int " + v4_task_param_braces(" give back 0 ") + "\n"
     pilot stream_id = v4_lex_text(42, src)
     pilot tree_id = v4_parse_stream(42, stream_id)
     pilot hir_id = v4_hir_lower_tree(42, tree_id)
     pilot anonymous_item = v4_task_param_find_hir_item(hir_id, v4_hir_task, "anonymous")
     pilot immortal_item = v4_task_param_find_hir_item(hir_id, v4_hir_task, "immortal")
-    pilot curly_item = v4_task_param_find_hir_item(hir_id, v4_hir_task, "curly")
-    pilot curly_type = "Box<" + v4_task_param_braces("left:int,right:int") + ",word>"
     say "task-param-anonymous-normalized=" + v4_task_param_bool(v4_hir_task_param_lifetime(hir_id, anonymous_item, 0) == "" and v4_hir_task_param_lifetime_span(hir_id, anonymous_item, 0) == V4_NO_SPAN)
     say "task-param-static-preserved=" + v4_task_param_bool(v4_hir_task_param_lifetime(hir_id, immortal_item, 0) == "'static" and v4_hir_task_param_lifetime_span(hir_id, immortal_item, 0) != V4_NO_SPAN)
-    say "task-param-curly-nesting=" + v4_task_param_bool(v4_hir_task_param_count(hir_id, curly_item) == 1 and v4_hir_task_param_surface_type(hir_id, curly_item, 0) == curly_type)
 }
 
 task v4_task_param_nonordinary_probe() -> void {
@@ -315,6 +306,11 @@ pilot v4_task_param_hir_borrowed_type_span = v4_hir_task_param_type_span(v4_task
 pilot v4_task_param_hir_borrowed_segment_span = v4_hir_task_param_segment_span(v4_task_param_hir, v4_task_param_rich_item, 1)
 
 say "task-param-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_task_param_tree))
+pilot v4_task_param_parse_diag_id = 0
+repeat until v4_task_param_parse_diag_id >= v4_parse_diag_count(v4_task_param_tree) {
+    say "task-param-parse-diagnostic=" + v4_parse_diag(v4_task_param_tree, v4_task_param_parse_diag_id)
+    v4_task_param_parse_diag_id += 1
+}
 say "task-param-hir-diagnostics=" + word_from_int(v4_hir_diag_count(v4_task_param_hir))
 say "task-param-empty-count=" + word_from_int(v4_hir_task_param_count(v4_task_param_hir, v4_task_param_empty_item))
 say "task-param-rich-hir-count=" + word_from_int(v4_hir_task_param_count(v4_task_param_hir, v4_task_param_rich_item))

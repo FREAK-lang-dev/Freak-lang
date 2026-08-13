@@ -1758,8 +1758,8 @@ task v4_hir_snapshot_task_param_owner_line(hir_id: int, record_id: int) -> word 
     pilot out = "hir-task-param-owner"
     out = out + "|" + word_from_int(hir_id)
     out = out + "|" + word_from_int(record_id)
-    out = out + "|" + array_get(v4_hir_task_param_owner_items_handle(hir_id), record_id)
-    out = out + "|" + array_get(v4_hir_task_param_owner_counts_handle(hir_id), record_id)
+    out = out + "|" + word_from_int(word_to_int(array_get(v4_hir_task_param_owner_items_handle(hir_id), record_id)))
+    out = out + "|" + word_from_int(word_to_int(array_get(v4_hir_task_param_owner_counts_handle(hir_id), record_id)))
     give back out
 }
 
@@ -1767,8 +1767,8 @@ task v4_hir_snapshot_task_param_line(hir_id: int, record_id: int) -> word {
     pilot out = "hir-task-param"
     out = out + "|" + word_from_int(hir_id)
     out = out + "|" + word_from_int(record_id)
-    out = out + "|" + array_get(v4_hir_task_param_items_handle(hir_id), record_id)
-    out = out + "|" + array_get(v4_hir_task_param_ordinals_handle(hir_id), record_id)
+    out = out + "|" + word_from_int(word_to_int(array_get(v4_hir_task_param_items_handle(hir_id), record_id)))
+    out = out + "|" + word_from_int(word_to_int(array_get(v4_hir_task_param_ordinals_handle(hir_id), record_id)))
     out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_task_param_names_handle(hir_id), record_id))
     out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_task_param_name_spans_handle(hir_id), record_id))
     out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_task_param_modes_handle(hir_id), record_id))
