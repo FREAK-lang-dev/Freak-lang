@@ -4,7 +4,7 @@
 -- Handles: freshness check, build when needed, then execute the binary.
 -- ===================================================================
 
-pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v4"
+pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v5"
 
 task cli_run_file_fingerprint(path: word) -> word {
     if path == "" { give back "<empty-path>:missing" }
@@ -88,7 +88,9 @@ task cli_run_clang_identity(clang_cmd: word) -> word {
 }
 
 task cli_run_linker_identity(clang_cmd: word, lto: word, cross: word) -> word {
-    pilot linker_cmd = cli_selected_linker_command(clang_cmd, lto, cross)
+    pilot clang_target = cli_clang_target_triple(clang_cmd, cross)
+    if clang_target == "" { give back "clang-target:missing|linker-command:missing" }
+    pilot linker_cmd = cli_selected_linker_command(clang_cmd, lto, clang_target)
     if linker_cmd == "" { give back "linker-command:missing" }
     pilot clean_cmd = linker_cmd.replace("\"", "")
     pilot resolved = ""
@@ -114,7 +116,7 @@ task cli_run_linker_identity(clang_cmd: word, lto: word, cross: word) -> word {
     pilot digest = word_from_int(digest_output.length()) + ":" + word_from_int(digest_output.checksum())
     if digest_output == "" and resolved != "" { digest = cli_run_file_fingerprint(resolved) }
     pilot version = cli_first_line(process::exec_capture(cli_shell_command_prefix(linker_cmd) + " --version 2>&1"))
-    give back "command=" + linker_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + version
+    give back "target=" + clang_target + "|command=" + linker_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + version
 }
 
 task cli_run_cache_record(fingerprint: word, binary: word) -> word {

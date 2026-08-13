@@ -855,31 +855,47 @@ task cli_lto_linker_flags(lto: word) -> word {
     give back " -fuse-ld=lld"
 }
 
-task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> word {
-    if lto != "off" and not cli_is_macos() {
-        pilot linker_name = "ld.lld"
-        if cli_is_windows() and cross == "" { linker_name = "ld.lld.exe" }
-        pilot clean_clang = clang_cmd.replace("\"", "")
-        pilot clang_dir = cli_path_parent(clean_clang)
-        if clang_dir != "" {
-            pilot sibling_linker = clang_dir + "/" + linker_name
-            if fs::exists(sibling_linker) { give back cli_quote_cmd_path(sibling_linker) }
-        }
-        give back linker_name
-    }
+task cli_clang_target_triple(clang_cmd: word, cross: word) -> word {
+    if cross != "" { give back cross }
     pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
-    pilot linker_name = "ld"
-    if cli_is_windows() and cross == "" { linker_name = "link.exe" }
+    give back cli_first_line(process::exec_capture(clang_prefix + " -dumpmachine 2>&1")).trim()
+}
+
+task cli_linker_program_name(clang_target: word, lto: word) -> word {
+    pilot normalized_target = clang_target.to_lower()
+    pilot windows_programs = cli_is_windows()
+    pilot is_msvc = normalized_target.contains("msvc")
+    pilot is_windows_gnu = normalized_target.contains("mingw") or normalized_target.contains("windows-gnu") or normalized_target.contains("w64-windows")
+    pilot is_darwin = normalized_target.contains("apple") or normalized_target.contains("darwin")
+
+    if is_msvc {
+        if lto == "off" {
+            if windows_programs { give back "link.exe" }
+            give back "link"
+        }
+        if windows_programs { give back "lld-link.exe" }
+        give back "lld-link"
+    }
+    if is_darwin { give back "ld" }
+    if lto != "off" or is_windows_gnu or windows_programs {
+        if windows_programs { give back "ld.lld.exe" }
+        give back "ld.lld"
+    }
+    give back "ld"
+}
+
+task cli_selected_linker_command(clang_cmd: word, lto: word, clang_target: word) -> word {
+    pilot linker_name = cli_linker_program_name(clang_target, lto)
     pilot clean_clang = clang_cmd.replace("\"", "")
     pilot clang_dir = cli_path_parent(clean_clang)
     if clang_dir != "" {
         pilot sibling_linker = clang_dir + "/" + linker_name
         if fs::exists(sibling_linker) { give back cli_quote_cmd_path(sibling_linker) }
     }
+    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
     pilot printed = cli_first_line(process::exec_capture(clang_prefix + " -print-prog-name=" + linker_name))
-    if printed != "" { give back printed }
-    if cli_is_windows() { give back "link.exe" }
-    give back "ld"
+    if printed != "" { give back cli_normalize_cmd_override(printed) }
+    give back linker_name
 }
 
 task cli_runtime_link_plan(runtime_dir: word, lto: word, cross: word) -> word {

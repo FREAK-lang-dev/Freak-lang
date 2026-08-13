@@ -56,9 +56,6 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
             target = "llvm"
             backend_seen = "llvm"
         } else if flag == "--strict-borrow" {
-            if subcommand_mode == "transpile" {
-                give back cli_flag_error("--strict-borrow is only valid for build, run, and check")
-            }
             strict_seen = true
         } else if flag == "+03" {
             if not allow_build_profile {
@@ -129,6 +126,9 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
         if lto_seen == "" { lto = "thin" }
     } else {
         profile = "o" + opt
+    }
+    if cross != "" and lto != "off" {
+        give back cli_flag_error("LTO is not supported with --target; use --lto=off")
     }
 
     strict_borrow = strict_seen

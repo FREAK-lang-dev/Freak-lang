@@ -68,6 +68,9 @@ from pathlib import Path
 args = sys.argv[1:]
 with Path(os.environ["FREAK_PROFILE_CLANG_LOG"]).open("a", encoding="utf-8") as stream:
     stream.write(json.dumps(args) + "\\n")
+if args == ["-dumpmachine"] and os.environ.get("FREAK_PROFILE_FAKE_TARGET"):
+    print(os.environ["FREAK_PROFILE_FAKE_TARGET"])
+    raise SystemExit(0)
 if os.environ.get("FREAK_PROFILE_REJECT_LTO") == "1" and any(
     arg.startswith("-flto=") for arg in args
 ):
@@ -103,7 +106,9 @@ def compile_entries(log: Path) -> list[list[str]]:
     return [
         args
         for args in read_log(log)
-        if "--version" not in args and not any("print-prog-name" in arg for arg in args)
+        if "--version" not in args
+        and "-dumpmachine" not in args
+        and not any("print-prog-name" in arg for arg in args)
     ]
 
 
@@ -140,6 +145,7 @@ def check_static_contract(repo: Path) -> None:
         'cli_flag_error("unknown or malformed flag " + flag)',
         'cli_flag_error("+03 cannot be combined with --opt")',
         'cli_flag_error("+03 cannot disable LTO")',
+        'cli_flag_error("LTO is not supported with --target; use --lto=off")',
     ):
         assert needle in main, f"profile parser missing {needle}"
     for needle in (
@@ -147,6 +153,11 @@ def check_static_contract(repo: Path) -> None:
         'give back " -flto=full"',
         'give back " -fuse-ld=lld"',
         'give back " -fuse-ld=ld"',
+        "task cli_clang_target_triple",
+        "task cli_linker_program_name",
+        'give back "lld-link.exe"',
+        'give back "ld.lld.exe"',
+        'give back "link.exe"',
         'lto == "off" and runtime_obj_ext != ""',
         'profile_label = "+03 — FINAL FORM"',
         "No non-LTO fallback was attempted",
@@ -155,7 +166,7 @@ def check_static_contract(repo: Path) -> None:
     for forbidden in ("-Ofast", "-ffast-math", "-march=native"):
         assert forbidden not in build, f"unsafe optimization flag present: {forbidden}"
     for needle in (
-        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v4"',
+        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v5"',
         '"|target=" + target + "|profile=" + profile + "|clang-opt=" + opt + "|lto=" + lto',
         '"|runtime-policy=" + runtime_policy + "|runtime-stats=" + runtime_stats',
         '"|linker=" + cli_run_linker_identity',
@@ -177,8 +188,8 @@ def assert_invalid_preserves_artifacts(
 ) -> None:
     artifacts = [
         binary_path(source),
-        source.with_suffix(".c"),
-        source.with_suffix(".ll"),
+        Path(str(source) + ".c"),
+        Path(str(source) + ".ll"),
         source.with_suffix(".obj"),
         Path(str(binary_path(source)) + ".freak-run-cache"),
     ]
@@ -220,6 +231,7 @@ def check_real_profile_matrix(
     root: Path,
     env: dict[str, str],
     log: Path,
+    native_target: str,
 ) -> None:
     source = root / "profile-matrix.fk"
     source.write_text('say "PROFILE_MATRIX_OK"\n', encoding="utf-8")
@@ -260,6 +272,18 @@ def check_real_profile_matrix(
         full_flat = [arg for entry in full_entries for arg in entry]
         assert "-O3" in full_flat and "-flto=full" in full_flat, full_entries
 
+    _, cross_off_entries = build_and_record(
+        freak,
+        root,
+        source,
+        ["--c", "--opt=2", "--lto=off", f"--target={native_target}"],
+        env,
+        log,
+    )
+    cross_off_flat = [arg for entry in cross_off_entries for arg in entry]
+    assert f"--target={native_target}" in cross_off_flat, cross_off_entries
+    assert not any(arg.startswith("-flto=") for arg in cross_off_flat), cross_off_entries
+
 
 def check_invalid_flags(
     freak: Path, root: Path, env: dict[str, str]
@@ -278,6 +302,11 @@ def check_invalid_flags(
         ["+03", "--lto=off"],
         ["--target="],
         ["--target=x86_64;bad"],
+        ["--c", "--unknown"],
+        ["--llvm", "--unknown"],
+        ["+03", "--target=x86_64-unknown-linux-gnu"],
+        ["--lto", "--target=x86_64-unknown-linux-gnu"],
+        ["--lto=full", "--target=x86_64-unknown-linux-gnu"],
     )
     for flags in invalid_builds:
         assert_invalid_preserves_artifacts(freak, root, source, list(flags), env)
@@ -287,8 +316,40 @@ def check_invalid_flags(
                 freak, root, source, list(flags), env, command=command
             )
     assert_invalid_preserves_artifacts(
-        freak, root, source, ["--strict-borrow"], env, command="transpile"
+        freak,
+        root,
+        source,
+        ["+03", "--target=x86_64-unknown-linux-gnu"],
+        env,
+        command="run",
     )
+
+
+def check_strict_transpile_compatibility(
+    freak: Path, root: Path, env: dict[str, str]
+) -> None:
+    source = root / "strict-transpile.fk"
+    source.write_text(
+        "task main() -> int {\n"
+        "    pilot counter = 0\n"
+        "    counter = counter + 1\n"
+        "    give back counter\n"
+        "}\n"
+        "main()\n",
+        encoding="utf-8",
+    )
+    generated = Path(str(source) + ".c")
+    invocations = (
+        ["transpile", str(source), "--strict-borrow", "--c"],
+        [str(source), "--strict-borrow", "--c"],
+    )
+    for args in invocations:
+        generated.write_bytes(b"stale generated C\n")
+        code, output = invoke(freak, root, args, env)
+        assert code != 0, output
+        assert "only valid for build" not in output, output
+        assert "sworn to silence" in output.lower(), output
+        assert not generated.exists(), (args, output)
 
 
 def check_unsupported_lto(
@@ -351,6 +412,72 @@ def check_cache_separation(
     assert_run_cache(freak, root, source, ["+03", "--lto=full"], env, hit=False)
 
 
+def create_fake_linkers(root: Path, real_clang: str) -> dict[str, Path]:
+    names = {
+        "gnu": "ld.lld.exe" if sys.platform == "win32" else "ld.lld",
+        "msvc_off": "link.exe" if sys.platform == "win32" else "link",
+        "msvc_lto": "lld-link.exe" if sys.platform == "win32" else "lld-link",
+    }
+    programs: dict[str, Path] = {}
+    for role, name in names.items():
+        destination = root / name
+        shutil.copy2(real_clang, destination)
+        if sys.platform != "win32":
+            destination.chmod(0o755)
+        programs[role] = destination
+    return programs
+
+
+def mutate_fake_linker(path: Path, marker: str) -> None:
+    with path.open("ab") as stream:
+        stream.write(f"\nFREAK-LINKER-{marker}\n".encode())
+
+
+def check_linker_identity_selection(
+    freak: Path,
+    root: Path,
+    env: dict[str, str],
+    log: Path,
+    real_clang: str,
+) -> None:
+    source = root / "linker-cache.fk"
+    source.write_text('say "CACHE_PROFILE_OK"\n', encoding="utf-8")
+    programs = create_fake_linkers(root, real_clang)
+    scenarios = (
+        ("x86_64-w64-windows-gnu", [], "gnu", "msvc_off"),
+        ("x86_64-pc-windows-msvc", [], "msvc_off", "gnu"),
+        ("x86_64-w64-windows-gnu", ["--lto=thin"], "gnu", "msvc_lto"),
+        ("x86_64-pc-windows-msvc", ["--lto=thin"], "msvc_lto", "gnu"),
+    )
+    controlled_env = env.copy()
+    for index, (target, flags, selected_role, unrelated_role) in enumerate(scenarios):
+        controlled_env["FREAK_PROFILE_FAKE_TARGET"] = target
+        assert_run_cache(freak, root, source, flags, controlled_env, hit=False)
+        assert_run_cache(freak, root, source, flags, controlled_env, hit=True)
+        mutate_fake_linker(programs[unrelated_role], f"unrelated-{index}")
+        assert_run_cache(freak, root, source, flags, controlled_env, hit=True)
+        mutate_fake_linker(programs[selected_role], f"selected-{index}")
+        assert_run_cache(freak, root, source, flags, controlled_env, hit=False)
+    assert ["-dumpmachine"] in read_log(log), read_log(log)
+
+
+def clang_target(real_clang: str) -> str:
+    completed = subprocess.run(
+        [real_clang, "-dumpmachine"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+    target = completed.stdout.strip()
+    assert completed.returncode == 0 and re.fullmatch(r"[A-Za-z0-9_.-]+", target), (
+        completed.stdout + completed.stderr
+    )
+    return target
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
@@ -377,9 +504,11 @@ def main() -> int:
         env["FREAK_PROFILE_CLANG_LOG"] = str(log)
 
         check_invalid_flags(freak, root, env)
-        check_real_profile_matrix(freak, root, env, log)
+        check_strict_transpile_compatibility(freak, root, env)
+        check_real_profile_matrix(freak, root, env, log, clang_target(real_clang))
         check_unsupported_lto(freak, root, env, log)
         check_cache_separation(freak, root, env)
+        check_linker_identity_selection(freak, root, env, log, real_clang)
 
     print("v3_build_profiles: PASS")
     return 0
