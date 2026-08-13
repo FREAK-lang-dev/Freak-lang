@@ -836,6 +836,60 @@ task cli_clang_command_works(clang_cmd: word) -> bool {
     give back false
 }
 
+task cli_is_macos() -> bool {
+    if cli_is_windows() { give back false }
+    give back cli_first_line(process::exec_capture("uname -s 2>/dev/null")) == "Darwin"
+}
+
+task cli_lto_clang_flags(lto: word) -> word {
+    if lto == "thin" { give back " -flto=thin" }
+    if lto == "full" { give back " -flto=full" }
+    give back ""
+}
+
+task cli_lto_linker_flags(lto: word) -> word {
+    if lto == "off" { give back "" }
+    if cli_is_macos() { give back " -fuse-ld=ld" }
+    -- Use LLVM's linker when emitting LLVM bitcode. Apple Clang's native
+    -- linker supports LTO directly; Windows and ELF hosts select LLD.
+    give back " -fuse-ld=lld"
+}
+
+task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> word {
+    if lto != "off" and not cli_is_macos() {
+        pilot linker_name = "ld.lld"
+        if cli_is_windows() and cross == "" { linker_name = "ld.lld.exe" }
+        pilot clean_clang = clang_cmd.replace("\"", "")
+        pilot clang_dir = cli_path_parent(clean_clang)
+        if clang_dir != "" {
+            pilot sibling_linker = clang_dir + "/" + linker_name
+            if fs::exists(sibling_linker) { give back cli_quote_cmd_path(sibling_linker) }
+        }
+        give back linker_name
+    }
+    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
+    pilot linker_name = "ld"
+    if cli_is_windows() and cross == "" { linker_name = "link.exe" }
+    pilot clean_clang = clang_cmd.replace("\"", "")
+    pilot clang_dir = cli_path_parent(clean_clang)
+    if clang_dir != "" {
+        pilot sibling_linker = clang_dir + "/" + linker_name
+        if fs::exists(sibling_linker) { give back cli_quote_cmd_path(sibling_linker) }
+    }
+    pilot printed = cli_first_line(process::exec_capture(clang_prefix + " -print-prog-name=" + linker_name))
+    if printed != "" { give back printed }
+    if cli_is_windows() { give back "link.exe" }
+    give back "ld"
+}
+
+task cli_runtime_link_plan(runtime_dir: word, lto: word, cross: word) -> word {
+    pilot runtime_obj_ext = cli_precompiled_runtime_extension(runtime_dir)
+    if cli_is_windows() and cross == "" and lto == "off" and runtime_obj_ext != "" {
+        give back "bundle"
+    }
+    give back "source"
+}
+
 task cli_precompiled_runtime_extension(runtime_dir: word) -> word {
     -- Current Windows archives use .obj. Accept the older COFF .o spelling so
     -- v0.14 installations can take the same driver-linked fast path.
@@ -852,7 +906,7 @@ task cli_has_precompiled_runtime(runtime_dir: word) -> bool {
     give back cli_precompiled_runtime_extension(runtime_dir) != ""
 }
 
-task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: word, cross: word) -> word {
+task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: word, lto: word, cross: word) -> word {
     -- Compile the transpiled .c or .ll file into a native binary.
     -- Returns the output binary path, or "" on error.
 
@@ -881,7 +935,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     -- only for a native Windows build and keep final CRT/SDK selection under
     -- the same Clang driver that links source fallback builds. POSIX and cross
     -- builds continue through sources; raw ld.lld linking stays disabled.
-    pilot use_bundle = is_win and cross == "" and runtime_obj_ext != ""
+    pilot use_bundle = cli_runtime_link_plan(runtime_dir, lto, cross) == "bundle"
 
     if not cli_cross_target_is_safe(cross) {
         say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- invalid target triple" + C_RESET
@@ -947,6 +1001,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
     pilot cmd = clang_prefix + " -g -o " + cli_quote_cmd_path(out_bin) + " " + cli_quote_cmd_path(transpiled_file) + " " + runtime_file
     cmd = cmd + " -I" + cli_quote_cmd_path(runtime_dir) + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
+    cmd = cmd + cli_lto_clang_flags(lto) + cli_lto_linker_flags(lto)
 
     if not is_win {
         cmd = cmd + " -lm"
@@ -975,6 +1030,10 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     if exit_code != 0 {
         say ""
         say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- clang compilation error" + C_RESET
+        if lto != "off" {
+            say C_BRED + "  LTO BUILD FAILED" + C_RESET + C_RED + " -- selected Clang/linker rejected " + lto + " LTO" + C_RESET
+            say C_DIM + "  No non-LTO fallback was attempted. Use --lto=off explicitly or repair the LLVM linker." + C_RESET
+        }
         say ""
         say C_DIM + "  Make sure clang is installed and in your PATH:" + C_RESET
         say "    Windows: " + C_CYAN + "winget install --id MartinStorsjo.LLVM-MinGW.UCRT -e" + C_RESET
@@ -1181,7 +1240,7 @@ task cli_load_std(source: word, target: word) -> word {
     give back std_src
 }
 
-task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
+task cli_build_profile(src_file: word, target: word, profile: word, opt: word, lto: word, runtime_policy: word, runtime_stats: word, cross: word) -> word {
     -- Full build pipeline: read source, transpile, compile.
     -- Returns the output binary path, or "" on error.
     cli_build_start_ms = time::now_ms()
@@ -1204,10 +1263,15 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     -- Build header with box
     pilot backend_label = "LLVM IR"
     if target == "c" { backend_label = "C" }
+    pilot profile_label = "O" + opt
+    if profile == "plus03" { profile_label = "+03 — FINAL FORM" }
     say ""
     say cli_box_top(45)
     say cli_box_mid(" " + C_G1 + SYM_BOLT + " FREAK" + C_RESET + "  " + C_BWHITE + src_file + C_RESET, 45)
-    say cli_box_mid(" " + C_DIM + "  Backend: " + C_RESET + C_BCYAN + backend_label + C_RESET + C_DIM + "  Opt: -O" + opt + C_RESET, 45)
+    say cli_box_mid(" " + C_DIM + "  Backend: " + C_RESET + C_BCYAN + backend_label + C_RESET + C_DIM + "  Profile: " + profile_label + C_RESET, 45)
+    if lto != "off" {
+        say cli_box_mid(" " + C_DIM + "  LTO: " + lto + "  Runtime: " + runtime_policy + C_RESET, 45)
+    }
     say cli_box_bot(45)
     say ""
 
@@ -1237,7 +1301,7 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     }
 
     cli_step_start()
-    pilot binary: word = cli_build_binary(transpiled, src_file, target, opt, cross)
+    pilot binary: word = cli_build_binary(transpiled, src_file, target, opt, lto, cross)
     if binary == "" {
         say ""
         say "  " + C_BRED + SYM_SKULL + " BUILD FAILED" + C_RESET
@@ -1262,4 +1326,10 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     say ""
 
     give back binary
+}
+
+task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
+    -- Compatibility entry point for internal probes such as `freak doctor`.
+    -- Public build/run commands always pass the complete canonical profile.
+    give back cli_build_profile(src_file, target, "o" + opt, opt, "off", "default", "off", cross)
 }

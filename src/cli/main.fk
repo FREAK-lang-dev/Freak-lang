@@ -5,40 +5,134 @@
 -- Dispatches to subcommands: build, run, check, transpile, version, help.
 -- ===================================================================
 
-task cli_parse_flags(start_idx: int, args_cnt: int) -> word {
+task cli_flag_value(flag: word, start_idx: int) -> word {
+    pilot value = ""
+    pilot vi = start_idx
+    repeat until vi >= flag.length() {
+        value = value + flag.char_at(vi)
+        vi += 1
+    }
+    give back value
+}
+
+task cli_flag_error(message: word) -> word {
+    give back "error:" + message
+}
+
+task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> word {
     -- Parse flags from command line args starting at start_idx.
-    -- Returns a colon-delimited string: "target:opt:cross"
-    -- Side effect: --strict-borrow flips the global `strict_borrow`
-    -- so check_program() runs the borrow checker in-process.
+    -- Returns the canonical build specification:
+    --   ok:target:profile:clang-opt:lto:runtime-policy:runtime-stats:cross
+    -- or error:message. Validation is complete before global state or build
+    -- artifacts can change.
     pilot target = "llvm"
     pilot opt = "2"
+    pilot profile = "o2"
+    pilot lto = "off"
+    pilot runtime_policy = "default"
+    pilot runtime_stats = "off"
     pilot cross = ""
-    strict_borrow = false
+    pilot backend_seen = ""
+    pilot opt_seen = ""
+    pilot lto_seen = ""
+    pilot cross_seen = ""
+    pilot plus03_seen = false
+    pilot strict_seen = false
+    pilot allow_build_profile = subcommand_mode == "build" or subcommand_mode == "run"
 
     pilot fi = start_idx
     repeat until fi >= args_cnt {
         pilot flag: word = process::arg(fi)
         if flag == "--c" {
+            if backend_seen != "" and backend_seen != "c" {
+                give back cli_flag_error("conflicting backend flags")
+            }
             target = "c"
+            backend_seen = "c"
         } else if flag == "--llvm" {
+            if backend_seen != "" and backend_seen != "llvm" {
+                give back cli_flag_error("conflicting backend flags")
+            }
             target = "llvm"
+            backend_seen = "llvm"
         } else if flag == "--strict-borrow" {
-            strict_borrow = true
+            if subcommand_mode == "transpile" {
+                give back cli_flag_error("--strict-borrow is only valid for build, run, and check")
+            }
+            strict_seen = true
+        } else if flag == "+03" {
+            if not allow_build_profile {
+                give back cli_flag_error("+03 is only valid for build and run")
+            }
+            plus03_seen = true
         } else if flag.starts_with("--opt=") {
-            opt = flag.char_at(6)
+            if not allow_build_profile {
+                give back cli_flag_error("--opt is only valid for build and run")
+            }
+            pilot oval = cli_flag_value(flag, 6)
+            if oval != "0" and oval != "1" and oval != "2" and oval != "3" {
+                give back cli_flag_error("--opt must be exactly 0, 1, 2, or 3")
+            }
+            if opt_seen != "" and opt_seen != oval {
+                give back cli_flag_error("conflicting --opt flags")
+            }
+            opt = oval
+            opt_seen = oval
+        } else if flag == "--lto" {
+            if not allow_build_profile {
+                give back cli_flag_error("--lto is only valid for build and run")
+            }
+            if lto_seen != "" and lto_seen != "thin" {
+                give back cli_flag_error("conflicting --lto flags")
+            }
+            lto = "thin"
+            lto_seen = "thin"
+        } else if flag.starts_with("--lto=") {
+            if not allow_build_profile {
+                give back cli_flag_error("--lto is only valid for build and run")
+            }
+            pilot lval = cli_flag_value(flag, 6)
+            if lval != "thin" and lval != "full" and lval != "off" {
+                give back cli_flag_error("--lto must be thin, full, or off")
+            }
+            if lto_seen != "" and lto_seen != lval {
+                give back cli_flag_error("conflicting --lto flags")
+            }
+            lto = lval
+            lto_seen = lval
         } else if flag.starts_with("--target=") {
-            pilot ti = 9
-            pilot tval = ""
-            repeat until ti >= flag.length() {
-                tval = tval + flag.char_at(ti)
-                ti += 1
+            pilot tval = cli_flag_value(flag, 9)
+            if tval == "" or not cli_cross_target_is_safe(tval) {
+                give back cli_flag_error("--target requires a safe target triple")
+            }
+            if cross_seen != "" and cross_seen != tval {
+                give back cli_flag_error("conflicting --target flags")
             }
             cross = tval
+            cross_seen = tval
+        } else {
+            give back cli_flag_error("unknown or malformed flag " + flag)
         }
         fi += 1
     }
 
-    give back target + ":" + opt + ":" + cross
+    if plus03_seen and opt_seen != "" {
+        give back cli_flag_error("+03 cannot be combined with --opt")
+    }
+    if plus03_seen and lto_seen == "off" {
+        give back cli_flag_error("+03 cannot disable LTO")
+    }
+    if plus03_seen {
+        profile = "plus03"
+        opt = "3"
+        runtime_policy = "plus03"
+        if lto_seen == "" { lto = "thin" }
+    } else {
+        profile = "o" + opt
+    }
+
+    strict_borrow = strict_seen
+    give back "ok:" + target + ":" + profile + ":" + opt + ":" + lto + ":" + runtime_policy + ":" + runtime_stats + ":" + cross
 }
 
 task cli_extract_flag(flags: word, idx: int) -> word {
@@ -212,18 +306,28 @@ task freakc_cli_main() -> void {
         }
 
         pilot src_file: word = process::arg(2)
-        pilot flags: word = cli_parse_flags(3, args_cnt)
-        pilot target: word = cli_extract_flag(flags, 0)
-        pilot opt: word = cli_extract_flag(flags, 1)
-        pilot cross: word = cli_extract_flag(flags, 2)
+        pilot flags: word = cli_parse_flags(3, args_cnt, subcmd)
+        if cli_extract_flag(flags, 0) == "error" {
+            say ""
+            say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " " + cli_extract_flag(flags, 1)
+            say ""
+            process::exit(1)
+        }
+        pilot target: word = cli_extract_flag(flags, 1)
+        pilot profile: word = cli_extract_flag(flags, 2)
+        pilot opt: word = cli_extract_flag(flags, 3)
+        pilot lto: word = cli_extract_flag(flags, 4)
+        pilot runtime_policy: word = cli_extract_flag(flags, 5)
+        pilot runtime_stats: word = cli_extract_flag(flags, 6)
+        pilot cross: word = cli_extract_flag(flags, 7)
 
         if subcmd == "build" {
-            pilot binary: word = cli_build(src_file, target, opt, cross)
+            pilot binary: word = cli_build_profile(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
             if binary == "" {
                 process::exit(1)
             }
         } else if subcmd == "run" {
-            pilot run_exit = cli_run(src_file, target, opt, cross)
+            pilot run_exit = cli_run(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
             if run_exit != 0 { process::exit(run_exit) }
         } else if subcmd == "check" {
             -- Type-check only: read, lex, parse, check — no emit
@@ -358,8 +462,14 @@ task freakc_cli_main() -> void {
 
     -- Legacy mode: first arg is a .fk file (backwards compat with freakc_v2 behavior)
     if subcmd.ends_with(".fk") {
-        pilot flags: word = cli_parse_flags(2, args_cnt)
-        pilot target: word = cli_extract_flag(flags, 0)
+        pilot flags: word = cli_parse_flags(2, args_cnt, "transpile")
+        if cli_extract_flag(flags, 0) == "error" {
+            say ""
+            say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " " + cli_extract_flag(flags, 1)
+            say ""
+            process::exit(1)
+        }
+        pilot target: word = cli_extract_flag(flags, 1)
 
         if not cli_invalidate_backend_output(subcmd, target) {
             process::exit(1)

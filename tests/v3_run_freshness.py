@@ -106,7 +106,7 @@ def check_installer_contracts(repo: Path) -> None:
     ):
         assert needle in manifest_text, f"distribution manifest missing {needle}"
     for needle in (
-        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v3"',
+        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v4"',
         "task cli_run_clang_identity",
         "command -v ",
         "certutil -hashfile",
