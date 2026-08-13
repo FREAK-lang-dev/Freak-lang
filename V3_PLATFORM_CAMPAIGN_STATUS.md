@@ -20,6 +20,58 @@ compiler architecture or semantics.
 | Public runtime ABI | Frozen by default | Additive ABI requires classification and tests; layout/signature replacement requires explicit approval. |
 | `word += word` | Not approved | It is a backward-compatible source extension, not a runtime-only optimization. Preserve the negative corpus until separately approved. |
 
+## Approved first-tranche contracts
+
+- `word.repeated(count: int) -> word` is approved as a class-D additive source
+  extension explicitly requested by this campaign. It repeats complete pattern
+  byte sequences, returns empty for `count <= 0`, performs one checked exact
+  allocation for nonempty output, and preserves the existing V3 UTF-8/byte
+  boundary rather than redefining indexing semantics.
+- General word construction is approved through generation-checked opaque
+  integer handles under `word_builder::*`. A nominal `shape WordBuilder` is
+  rejected because C shape storage is not an executable parity surface.
+  `finish` and `discard` consume a handle; V3 does not gain automatic
+  destruction or move-only semantics.
+- ByteBuffer is approved through generation-checked opaque integer handles and
+  explicit release. Raw borrowed views and automatic destruction are deferred
+  to Maverick. The legacy public `freak_byte_buffer` struct and symbols remain
+  unchanged for compatibility.
+- `+03` is approved as the canonical internal profile `plus03`, displayed as
+  `+03 — FINAL FORM`: LLVM O3, ThinLTO by default, and semantics-preserving
+  runtime policy. It is not the Bible's V4-only `final_form` build mode and
+  never enables fast-math, `-Ofast`, target-native tuning, or UB-dependent
+  behavior.
+- `--lto`, `--lto=thin`, `--lto=full`, and `--lto=off` are approved CLI
+  additions. LTO must compile runtime sources into the link unit and must fail
+  clearly when unsupported rather than silently degrading to packaged O2
+  objects.
+- Runtime layout/signature ABI remains `freak-v3-abi-1`. Additive runtime APIs
+  will carry a separate monotonic runtime-API capability marker. A compiler
+  requiring a newer capability must reject an older same-ABI payload before
+  emission/linking.
+- Runtime metrics are compile-time/test controlled and emit one versioned JSON
+  record. Default production builds incur no large instrumentation overhead.
+
+## Discovery dispositions
+
+- Public ByteBuffer completeness claims are currently false for shipping V3:
+  only the Python bootstrap and dormant C runtime know the old API. The new
+  implementation must land before those claims can remain “complete.”
+- The old ByteBuffer implementation has no release, aliases storage on value
+  copy, contains `from`/`to_list` stubs, accepts malformed/NUL-containing text,
+  and has unchecked capacity arithmetic. It will not be exposed to native V3
+  unchanged.
+- `time::now_ms` currently disagrees across backends (wall clock on C/POSIX
+  LLVM, monotonic-since-boot on Windows LLVM). Preserve it as wall-clock epoch
+  time everywhere and add a separately named monotonic clock.
+- Several historical process APIs are FREAK Lite placeholders. New process
+  work must use native argv/cwd/environment handles and must not forward
+  structured arguments through a shell.
+- Native `--opt=` parsing currently truncates to one character and ignores
+  malformed/unknown flags. Profile work must validate the entire value before
+  artifact invalidation and include canonical profile/LTO/link-plan fields in
+  freshness identity.
+
 ## Lane matrix
 
 | Agent | Scope | Current task | Blockers | Tests added | ABI impact | Performance impact | Ready to integrate? |
