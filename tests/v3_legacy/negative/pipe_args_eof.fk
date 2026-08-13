@@ -1,0 +1,2 @@
+task helper(value: int) { say value }
+say 1 |> helper(

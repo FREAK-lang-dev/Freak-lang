@@ -61,7 +61,7 @@ Single short-lived agents on a single branch can run in the normal checkout — 
 Key facts:
 - Files use the `.fk` extension
 - The authoritative spec is `freak-full-bible.md` — if code disagrees with the bible, **the bible wins**
-- Version name: **Alternative-4 Edition** — current release **v0.14.0 "Maverick"**
+- Version name: **Alternative-4 Edition** — current release **v0.14.1 "Maverick"**
 - The self-hosting compiler (`freakc_self.exe`) is a major credibility milestone and should be prominently featured in public materials
 
 ---
@@ -633,14 +633,15 @@ Test files in `tests/` directory. Run with `python -m freakc test` or `freak tes
 - Build command: `clang -o output.exe source.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O3`
 - Bootstrap: `bootstrap.bat`
 
-### Version String (hardcoded — update before tagging releases!)
+### Release Version (single authority)
 
-The version is hardcoded in **two files** that must be updated together before tagging a release:
-
-- `src/cli/version.fk` → `pilot CLI_VERSION = "0.14.0"` and `CLI_CODENAME = "Maverick"` (shown by `freak version`)
-- `src/compiler/v3/globals.fk` → `pilot FREAKC_VERSION = "0.14.0"` and `FREAKC_CODENAME = "Maverick"` (shown by `freakc_v3 --version`)
-
-If you forget, the installed binary will report the old version even though the release tag is newer. This has happened before (v0.10.0 shipped reporting 0.9.0).
+The root `VERSION` file is authoritative. Run
+`python -u tools/release_version.py set <major.minor.patch>` once to synchronize
+the compiler and CLI display aliases, package metadata, WinGet manifest
+directory, and public release facts. Never hand-edit those mirrors for a
+release bump. Run `python -u tools/release_version.py check` before committing;
+tagged release workflows additionally require the exact
+`v<major.minor.patch>` tag before building assets.
 
 ### LLVM Backend Progress (V3 — current default)
 

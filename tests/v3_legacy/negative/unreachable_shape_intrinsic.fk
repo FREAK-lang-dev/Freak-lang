@@ -1,0 +1,4 @@
+task main() {
+    pilot raw = shape::alloc(1)
+    say raw.to_word()
+}

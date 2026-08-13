@@ -33,7 +33,7 @@ task freakc_v3_main() -> void {
     if args_cnt < 2 {
         say "Usage: freakc <file.fk> [--c] [--llvm] [--opt=N] [--target=TRIPLE] [--strict-borrow]"
         say "       freakc --version | --help"
-        give back
+        process::exit(1)
     }
 
     input_file = process::arg(1)
@@ -58,17 +58,40 @@ task freakc_v3_main() -> void {
         fi += 1
     }
 
+    -- A failed invocation must not leave a selected artifact from an older
+    -- standalone-compiler run looking current. Flags are known at this point,
+    -- so invalidate only the requested backend before reading or compiling.
+    pilot selected_output = input_file + ".ll"
+    if emit_target == "c" { selected_output = input_file + ".c" }
+    if not input_file.ends_with(".fk") {
+        say "Error: source path must end in .fk; neighboring outputs were preserved."
+        process::exit(1)
+    } else {
+        -- Delete unconditionally so a dangling output symlink, which
+        -- fs::exists cannot observe, is unlinked before the emitter writes.
+        if not fs::delete(selected_output) {
+            say "Error: untrusted stale artifact could not be removed: " + selected_output
+            process::exit(1)
+        }
+        if fs::exists(selected_output) {
+            say "Error: untrusted stale artifact could not be removed: " + selected_output
+            process::exit(1)
+        }
+    }
+
     say "FREAK v3 Compiling: " + input_file + " (Target: " + emit_target + ")"
 
     pilot src = fs::read(input_file)
     if src == "" {
         say "Error: Could not read file."
-        give back
+        process::exit(1)
     }
 
     error_count = 0
     init_arrays()
-
+    diagnostic_source = src
+    source_map_reset()
+    source_map_register(input_file, src)
     say "[1/4] Lexing..."
     tokenize(src)
 
@@ -92,11 +115,11 @@ task freakc_v3_main() -> void {
 
     say "[4/4] Emitting..."
     if emit_target == "llvm" {
-        out_file = input_file + ".ll"
+        out_file = selected_output
         emit_llvm_program()
         say "Generated LLVM IR at " + out_file
     } else {
-        out_file = input_file + ".c"
+        out_file = selected_output
         -- Clear the output file before streaming
         fs::write(out_file, "")
         emit_c_program()

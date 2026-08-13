@@ -1,0 +1,7 @@
+task main() {
+    if
+        1
+    {
+        say "unreachable"
+    }
+}

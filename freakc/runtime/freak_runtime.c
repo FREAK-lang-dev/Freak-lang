@@ -23,10 +23,22 @@
 #include <direct.h>
 #else
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <dirent.h>
 #define _strdup strdup
 #endif
+
+static int64_t freak_normalize_process_status(int status) {
+#ifdef _WIN32
+    return (int64_t)status;
+#else
+    if (status == -1) return -1;
+    if (WIFEXITED(status)) return (int64_t)WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return (int64_t)(128 + WTERMSIG(status));
+    return (int64_t)status;
+#endif
+}
 
 /* runtime bootstrap globals (set by generated main) */
 int freak_argc = 0;
@@ -47,6 +59,222 @@ freak_word freak_arg(int64_t index) {
 /*  word helpers                                                      */
 /* ------------------------------------------------------------------ */
 
+#ifdef FREAK_WORD_CONCAT_AUDIT
+static size_t freak_concat_audit_concat_calls = 0;
+static size_t freak_concat_audit_append_calls = 0;
+static size_t freak_concat_audit_allocations = 0;
+static size_t freak_concat_audit_growths = 0;
+static size_t freak_concat_audit_copied_bytes = 0;
+static bool freak_concat_audit_registered = false;
+
+static void freak_concat_audit_at_exit(void) {
+    fprintf(stderr,
+            "FREAK concat audit: concat_calls=%llu append_calls=%llu allocations=%llu growths=%llu copied_bytes=%llu\n",
+            (unsigned long long)freak_concat_audit_concat_calls,
+            (unsigned long long)freak_concat_audit_append_calls,
+            (unsigned long long)freak_concat_audit_allocations,
+            (unsigned long long)freak_concat_audit_growths,
+            (unsigned long long)freak_concat_audit_copied_bytes);
+}
+
+static void freak_concat_audit_ensure_registered(void) {
+    if (freak_concat_audit_registered) return;
+    if (atexit(freak_concat_audit_at_exit) != 0) {
+        fprintf(stderr, "FREAK: could not register concat audit\n");
+        exit(1);
+    }
+    freak_concat_audit_registered = true;
+}
+
+static void freak_concat_audit_concat(size_t copied_bytes) {
+    freak_concat_audit_ensure_registered();
+    freak_concat_audit_concat_calls += 1;
+    freak_concat_audit_allocations += 1;
+    freak_concat_audit_copied_bytes += copied_bytes;
+}
+
+static void freak_concat_audit_append(size_t copied_bytes) {
+    freak_concat_audit_ensure_registered();
+    freak_concat_audit_append_calls += 1;
+    freak_concat_audit_copied_bytes += copied_bytes;
+}
+
+static void freak_concat_audit_growth(size_t copied_bytes, bool allocated) {
+    freak_concat_audit_growths += 1;
+    if (allocated) freak_concat_audit_allocations += 1;
+    freak_concat_audit_copied_bytes += copied_bytes;
+}
+#else
+static void freak_concat_audit_concat(size_t copied_bytes) { (void)copied_bytes; }
+static void freak_concat_audit_append(size_t copied_bytes) { (void)copied_bytes; }
+static void freak_concat_audit_growth(size_t copied_bytes, bool allocated) {
+    (void)copied_bytes;
+    (void)allocated;
+}
+#endif
+
+/* Capacity is an implementation detail: freak_word's public layout remains
+   unchanged. Only buffers produced by the append helper enter this registry,
+   and every freeing path removes them before the address can be reused. */
+typedef struct freak_c_append_buffer {
+    void* pointer;
+    size_t capacity;
+    struct freak_c_append_buffer* next;
+} freak_c_append_buffer;
+
+static freak_c_append_buffer** freak_c_append_buckets = NULL;
+static size_t freak_c_append_bucket_count = 0;
+static size_t freak_c_append_count = 0;
+
+static size_t freak_c_append_bucket(void* pointer, size_t bucket_count) {
+    uint64_t value = (uint64_t)(uintptr_t)pointer;
+    value ^= value >> 33;
+    value *= UINT64_C(0xff51afd7ed558ccd);
+    value ^= value >> 33;
+    return (size_t)(value & (uint64_t)(bucket_count - 1));
+}
+
+static void freak_c_append_resize(size_t new_bucket_count) {
+    freak_c_append_buffer** resized = (freak_c_append_buffer**)calloc(
+        new_bucket_count, sizeof(*resized));
+    if (!resized) {
+        fprintf(stderr, "FREAK: out of memory growing concat capacity registry\n");
+        exit(1);
+    }
+    for (size_t bucket = 0; bucket < freak_c_append_bucket_count; bucket++) {
+        freak_c_append_buffer* current = freak_c_append_buckets[bucket];
+        while (current) {
+            freak_c_append_buffer* next = current->next;
+            size_t target = freak_c_append_bucket(current->pointer, new_bucket_count);
+            current->next = resized[target];
+            resized[target] = current;
+            current = next;
+        }
+    }
+    free(freak_c_append_buckets);
+    freak_c_append_buckets = resized;
+    freak_c_append_bucket_count = new_bucket_count;
+}
+
+static void freak_c_append_ensure_capacity(void) {
+    if (freak_c_append_bucket_count == 0) {
+        freak_c_append_resize(64);
+    } else if ((freak_c_append_count + 1) * 4 >= freak_c_append_bucket_count * 3) {
+        freak_c_append_resize(freak_c_append_bucket_count * 2);
+    }
+}
+
+static freak_c_append_buffer* freak_c_append_find(void* pointer) {
+    if (!pointer || freak_c_append_bucket_count == 0) return NULL;
+    size_t bucket = freak_c_append_bucket(pointer, freak_c_append_bucket_count);
+    freak_c_append_buffer* current = freak_c_append_buckets[bucket];
+    while (current) {
+        if (current->pointer == pointer) return current;
+        current = current->next;
+    }
+    return NULL;
+}
+
+static freak_c_append_buffer* freak_c_append_track(void* pointer, size_t capacity) {
+    freak_c_append_ensure_capacity();
+    freak_c_append_buffer* tracked = (freak_c_append_buffer*)malloc(sizeof(*tracked));
+    if (!tracked) {
+        fprintf(stderr, "FREAK: out of memory tracking concat capacity\n");
+        exit(1);
+    }
+    size_t bucket = freak_c_append_bucket(pointer, freak_c_append_bucket_count);
+    tracked->pointer = pointer;
+    tracked->capacity = capacity;
+    tracked->next = freak_c_append_buckets[bucket];
+    freak_c_append_buckets[bucket] = tracked;
+    freak_c_append_count += 1;
+    return tracked;
+}
+
+static void freak_c_append_repoint(freak_c_append_buffer* tracked, void* pointer) {
+    if (!tracked || tracked->pointer == pointer) return;
+    size_t old_bucket = freak_c_append_bucket(tracked->pointer, freak_c_append_bucket_count);
+    freak_c_append_buffer** link = &freak_c_append_buckets[old_bucket];
+    while (*link && *link != tracked) link = &(*link)->next;
+    if (*link == tracked) *link = tracked->next;
+    tracked->pointer = pointer;
+    size_t new_bucket = freak_c_append_bucket(pointer, freak_c_append_bucket_count);
+    tracked->next = freak_c_append_buckets[new_bucket];
+    freak_c_append_buckets[new_bucket] = tracked;
+}
+
+static void freak_c_append_untrack(void* pointer) {
+    if (!pointer || freak_c_append_bucket_count == 0) return;
+    size_t bucket = freak_c_append_bucket(pointer, freak_c_append_bucket_count);
+    freak_c_append_buffer** link = &freak_c_append_buckets[bucket];
+    while (*link) {
+        freak_c_append_buffer* tracked = *link;
+        if (tracked->pointer == pointer) {
+            *link = tracked->next;
+            free(tracked);
+            freak_c_append_count -= 1;
+            return;
+        }
+        link = &tracked->next;
+    }
+}
+
+static size_t freak_word_append_capacity(size_t required) {
+    size_t capacity = 16;
+    while (capacity < required) {
+        if (capacity > SIZE_MAX / 2) return required;
+        capacity *= 2;
+    }
+    return capacity;
+}
+
+static size_t freak_word_concat_required(
+        size_t left_length, size_t right_length, const char* operation) {
+    if (left_length == SIZE_MAX || right_length > SIZE_MAX - 1 - left_length) {
+        fprintf(stderr, "FREAK: %s size overflow\n", operation);
+        exit(1);
+    }
+    return left_length + right_length + 1;
+}
+
+#ifdef FREAK_C_RUNTIME_OWNERSHIP_AUDIT
+static size_t freak_c_owned_word_count = 0;
+static bool freak_c_ownership_audit_registered = false;
+
+static void freak_c_ownership_audit_at_exit(void) {
+    if (freak_c_owned_word_count != 0) {
+        fprintf(stderr,
+                "FREAK: C ownership audit found %llu unreleased word allocation(s)\n",
+                (unsigned long long)freak_c_owned_word_count);
+        fflush(stderr);
+        _Exit(87);
+    }
+}
+
+static void freak_c_ownership_audit_acquire(void) {
+    if (!freak_c_ownership_audit_registered) {
+        if (atexit(freak_c_ownership_audit_at_exit) != 0) {
+            fprintf(stderr, "FREAK: could not register C ownership audit\n");
+            exit(1);
+        }
+        freak_c_ownership_audit_registered = true;
+    }
+    freak_c_owned_word_count += 1;
+}
+
+static void freak_c_ownership_audit_release(void) {
+    if (freak_c_owned_word_count == 0) {
+        fprintf(stderr, "FREAK: C ownership audit observed an untracked release\n");
+        fflush(stderr);
+        _Exit(88);
+    }
+    freak_c_owned_word_count -= 1;
+}
+#else
+static void freak_c_ownership_audit_acquire(void) {}
+static void freak_c_ownership_audit_release(void) {}
+#endif
+
 freak_word freak_word_lit(const char* s) {
     size_t len = strlen(s);
     freak_word w;
@@ -63,17 +291,127 @@ freak_word freak_word_own(char* s, size_t len) {
     w.length     = len;
     w.char_count = len;
     w.heap       = true;
+    freak_c_ownership_audit_acquire();
     return w;
 }
 
 freak_word freak_word_concat(freak_word a, freak_word b) {
-    size_t total = a.length + b.length;
-    char* buf = (char*)malloc(total + 1);
+    size_t required = freak_word_concat_required(
+        a.length, b.length, "word concatenation");
+    size_t total = required - 1;
+    freak_concat_audit_concat(total);
+    char* buf = (char*)malloc(required);
     if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
     memcpy(buf, a.data, a.length);
     memcpy(buf + a.length, b.data, b.length);
     buf[total] = '\0';
     return freak_word_own(buf, total);
+}
+
+void freak_word_append_owned(freak_word* slot, freak_word suffix, bool release_suffix) {
+    if (!slot) {
+        if (release_suffix) freak_word_release_owned(&suffix);
+        return;
+    }
+    size_t old_length = slot->length;
+    size_t required = freak_word_concat_required(
+        old_length, suffix.length, "word append");
+    size_t total = required - 1;
+    bool same_input = slot->data && slot->data == suffix.data;
+    freak_c_append_buffer* tracked = freak_c_append_find((void*)slot->data);
+    freak_concat_audit_append(suffix.length);
+
+    if (!tracked) {
+        size_t capacity = freak_word_append_capacity(required);
+        char* buffer = (char*)malloc(capacity);
+        if (!buffer) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+        if (old_length > 0) memcpy(buffer, slot->data, old_length);
+        if (suffix.length > 0) memcpy(buffer + old_length, suffix.data, suffix.length);
+        buffer[total] = '\0';
+        freak_concat_audit_growth(old_length, true);
+        freak_word replacement = freak_word_own(buffer, total);
+        freak_c_append_track(buffer, capacity);
+        freak_word_replace_owned(slot, replacement);
+        if (release_suffix && !same_input) freak_word_release_owned(&suffix);
+        return;
+    }
+
+    char* buffer = (char*)slot->data;
+    const char* suffix_data = suffix.data;
+    bool suffix_in_buffer = false;
+    size_t suffix_offset = 0;
+    if (buffer && suffix_data) {
+        uintptr_t start = (uintptr_t)buffer;
+        uintptr_t source = (uintptr_t)suffix_data;
+        if (source >= start && source - start <= old_length) {
+            suffix_in_buffer = true;
+            suffix_offset = (size_t)(source - start);
+        }
+    }
+
+    if (required > tracked->capacity) {
+        size_t capacity = freak_word_append_capacity(required);
+#ifdef FREAK_WORD_CONCAT_FORCE_MOVE
+        char* grown = (char*)malloc(capacity);
+        if (grown && old_length > 0) memcpy(grown, buffer, old_length);
+        if (grown) free(buffer);
+#else
+        char* grown = (char*)realloc(buffer, capacity);
+#endif
+        if (!grown) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+        buffer = grown;
+        freak_c_append_repoint(tracked, buffer);
+        tracked->capacity = capacity;
+        slot->data = buffer;
+        if (suffix_in_buffer) suffix_data = buffer + suffix_offset;
+        freak_concat_audit_growth(old_length, true);
+    }
+
+    if (suffix.length > 0) memmove(buffer + old_length, suffix_data, suffix.length);
+    buffer[total] = '\0';
+    slot->length = total;
+    slot->char_count = total;
+    slot->heap = true;
+    if (release_suffix && !same_input) freak_word_release_owned(&suffix);
+}
+
+freak_word freak_word_concat_consuming(freak_word a, freak_word b, bool release_a, bool release_b) {
+    if (release_a) {
+        freak_word_append_owned(&a, b, release_b);
+        return a;
+    }
+    freak_word result = freak_word_concat(a, b);
+    if (release_b) freak_word_release_owned(&b);
+    return result;
+}
+
+freak_word freak_word_clone(freak_word source) {
+    if (!source.heap || !source.data) return source;
+    char* buf = (char*)malloc(source.length + 1);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    memcpy(buf, source.data, source.length);
+    buf[source.length] = '\0';
+    return freak_word_own(buf, source.length);
+}
+
+void freak_word_replace_owned(freak_word* slot, freak_word replacement) {
+    if (!slot) return;
+    if (slot->heap && slot->data && slot->data != replacement.data) {
+        freak_c_append_untrack((void*)slot->data);
+        free((void*)slot->data);
+        freak_c_ownership_audit_release();
+    }
+    *slot = replacement;
+}
+
+void freak_word_release_owned(freak_word* slot) {
+    if (!slot) return;
+    if (slot->heap && slot->data) {
+        freak_c_append_untrack((void*)slot->data);
+        free((void*)slot->data);
+        freak_c_ownership_audit_release();
+    }
+    *slot = (freak_word)FREAK_WORD_EMPTY;
 }
 
 bool freak_word_eq(freak_word a, freak_word b) {
@@ -109,6 +447,33 @@ freak_word freak_word_from_double(double n) {
 
 freak_word freak_word_from_bool(bool b) {
     return freak_word_lit(b ? "true" : "false");
+}
+
+freak_word freak_char_to_word(int64_t code) {
+    char* buf = (char*)malloc(5);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    size_t len = 0;
+    uint32_t c = (uint32_t)code;
+    if (c <= 0x7F) {
+        buf[0] = (char)c; len = 1;
+    } else if (c <= 0x7FF) {
+        buf[0] = (char)(0xC0 | (c >> 6));
+        buf[1] = (char)(0x80 | (c & 0x3F));
+        len = 2;
+    } else if (c <= 0xFFFF) {
+        buf[0] = (char)(0xE0 | (c >> 12));
+        buf[1] = (char)(0x80 | ((c >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (c & 0x3F));
+        len = 3;
+    } else {
+        buf[0] = (char)(0xF0 | (c >> 18));
+        buf[1] = (char)(0x80 | ((c >> 12) & 0x3F));
+        buf[2] = (char)(0x80 | ((c >> 6) & 0x3F));
+        buf[3] = (char)(0x80 | (c & 0x3F));
+        len = 4;
+    }
+    buf[len] = '\0';
+    return freak_word_own(buf, len);
 }
 
 /* ------------------------------------------------------------------ */
@@ -306,9 +671,22 @@ bool freak_fs_exists(freak_word path) {
 #endif
 }
 
-void freak_fs_delete(freak_word path) {
+/* Universal-ABI bridge used by the pure-FREAK LLVM runtime task. Unlike an
+   fopen probe, access/_access also recognizes directories, which is required
+   by fail-closed stale-artifact checks. */
+int64_t freak_path_exists(int64_t path) {
+    const char* value = (const char*)(intptr_t)path;
+    return freak_fs_exists(freak_word_lit(value)) ? 1 : 0;
+}
+
+bool freak_fs_delete(freak_word path) {
     const char* p = freak_word_to_cstr(path);
-    remove(p); /* ignore errors for now */
+#ifdef _WIN32
+    int result = _unlink(p); /* file-only: never consume an artifact directory */
+#else
+    int result = unlink(p);  /* file-only: never consume an artifact directory */
+#endif
+    return result == 0 || errno == ENOENT;
 }
 
 /* Aliases without freak_ prefix — the self-hosted compiler's generic
@@ -316,7 +694,7 @@ void freak_fs_delete(freak_word path) {
    builtins it doesn't explicitly know about. */
 void fs_append(freak_word path, freak_word content) { freak_fs_append(path, content); }
 bool fs_exists(freak_word path) { return freak_fs_exists(path); }
-void fs_delete(freak_word path) { freak_fs_delete(path); }
+bool fs_delete(freak_word path) { return freak_fs_delete(path); }
 
 void freak_fs_make_dir(freak_word path) {
     const char* p = freak_word_to_cstr(path);
@@ -338,8 +716,8 @@ freak_word freak_fs_list_dir(freak_word path) {
     if (hFind != INVALID_HANDLE_VALUE) {
         do {
             if (strcmp(fd.cFileName, ".") != 0 && strcmp(fd.cFileName, "..") != 0) {
-                if (result.length > 0) result = freak_word_concat(result, freak_word_lit("|"));
-                result = freak_word_concat(result, freak_word_lit(fd.cFileName));
+                if (result.length > 0) freak_word_replace_owned(&result, freak_word_concat(result, freak_word_lit("|")));
+                freak_word_replace_owned(&result, freak_word_concat(result, freak_word_lit(fd.cFileName)));
             }
         } while (FindNextFileA(hFind, &fd));
         FindClose(hFind);
@@ -350,8 +728,8 @@ freak_word freak_fs_list_dir(freak_word path) {
         struct dirent* ent;
         while ((ent = readdir(dir)) != NULL) {
             if (strcmp(ent->d_name, ".") != 0 && strcmp(ent->d_name, "..") != 0) {
-                if (result.length > 0) result = freak_word_concat(result, freak_word_lit("|"));
-                result = freak_word_concat(result, freak_word_lit(ent->d_name));
+                if (result.length > 0) freak_word_replace_owned(&result, freak_word_concat(result, freak_word_lit("|")));
+                freak_word_replace_owned(&result, freak_word_concat(result, freak_word_lit(ent->d_name)));
             }
         }
         closedir(dir);
@@ -513,7 +891,9 @@ freak_word freak_word_trim(freak_word w) {
 }
 
 freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s) {
-    if (old_s.length == 0) return w;
+    /* Method results are owned values. Even an identity replacement must not
+       alias a parameter which the generated callee epilogue will release. */
+    if (old_s.length == 0) return freak_word_clone(w);
     if (w.length < old_s.length) {
         char* buf = (char*)malloc(w.length + 1);
         if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
@@ -536,7 +916,22 @@ freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s) 
         buf[w.length] = '\0';
         return freak_word_own(buf, w.length);
     }
-    size_t new_len = w.length + count * (new_s.length - old_s.length);
+    size_t new_len = w.length;
+    if (new_s.length >= old_s.length) {
+        size_t growth = new_s.length - old_s.length;
+        if (growth > 0 && count > (SIZE_MAX - w.length) / growth) {
+            fprintf(stderr, "FREAK: word replacement size overflow\n");
+            exit(1);
+        }
+        new_len = w.length + count * growth;
+    } else {
+        size_t shrink = old_s.length - new_s.length;
+        new_len = w.length - count * shrink;
+    }
+    if (new_len == SIZE_MAX) {
+        fprintf(stderr, "FREAK: word replacement size overflow\n");
+        exit(1);
+    }
     char* buf = (char*)malloc(new_len + 1);
     if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
     size_t j = 0;
@@ -771,9 +1166,11 @@ double freak_parse_num(freak_word w) {
 }
 
 freak_word freak_format_num(double n) {
-    static char buf[64];
-    snprintf(buf, sizeof(buf), "%.10g", n);
-    return freak_word_lit(buf);
+    char* buf = (char*)malloc(64);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    int len = snprintf(buf, 64, "%.10g", n);
+    if (len < 0) len = 0;
+    return freak_word_own(buf, (size_t)len);
 }
 
 /* ------------------------------------------------------------------ */
@@ -822,15 +1219,15 @@ freak_process_output freak_process_run(freak_word cmd, void* args) {
 
     out.out = freak_word_own(buf, len);
     out.err = freak_word_lit("");
-    out.exit_code = (int64_t)status;
-    out.success = (status == 0);
+    out.exit_code = freak_normalize_process_status(status);
+    out.success = (out.exit_code == 0);
     return out;
 }
 
 /* Simple exec: run command, return exit code */
 int64_t freak_process_exec(freak_word cmd) {
     const char* cmd_str = freak_word_to_cstr(cmd);
-    return (int64_t)system(cmd_str);
+    return freak_normalize_process_status(system(cmd_str));
 }
 
 /* Exec and capture stdout */
@@ -1166,10 +1563,229 @@ void freak_llvm_setup_args(int64_t argc, int64_t argv) {
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct freak_llvm_owned_word {
+    void* pointer;
+    size_t length;
+    size_t capacity;
+    struct freak_llvm_owned_word* next;
+} freak_llvm_owned_word;
+
+static freak_llvm_owned_word** freak_llvm_owned_buckets = NULL;
+static size_t freak_llvm_owned_bucket_count = 0;
+static size_t freak_llvm_owned_count = 0;
+
+static size_t freak_llvm_owned_bucket(void* pointer, size_t bucket_count) {
+    uint64_t value = (uint64_t)(uintptr_t)pointer;
+    value ^= value >> 33;
+    value *= UINT64_C(0xff51afd7ed558ccd);
+    value ^= value >> 33;
+    return (size_t)(value & (uint64_t)(bucket_count - 1));
+}
+
+static void freak_llvm_owned_resize(size_t new_bucket_count) {
+    freak_llvm_owned_word** resized = (freak_llvm_owned_word**)calloc(
+        new_bucket_count, sizeof(*resized));
+    if (!resized) {
+        fprintf(stderr, "FREAK: out of memory growing the owned-word registry\n");
+        exit(1);
+    }
+    for (size_t bucket = 0; bucket < freak_llvm_owned_bucket_count; bucket++) {
+        freak_llvm_owned_word* current = freak_llvm_owned_buckets[bucket];
+        while (current) {
+            freak_llvm_owned_word* next = current->next;
+            size_t target = freak_llvm_owned_bucket(current->pointer, new_bucket_count);
+            current->next = resized[target];
+            resized[target] = current;
+            current = next;
+        }
+    }
+    free(freak_llvm_owned_buckets);
+    freak_llvm_owned_buckets = resized;
+    freak_llvm_owned_bucket_count = new_bucket_count;
+}
+
+static void freak_llvm_owned_ensure_capacity(void) {
+    if (freak_llvm_owned_bucket_count == 0) {
+        freak_llvm_owned_resize(64);
+    } else if ((freak_llvm_owned_count + 1) * 4 >= freak_llvm_owned_bucket_count * 3) {
+        freak_llvm_owned_resize(freak_llvm_owned_bucket_count * 2);
+    }
+}
+
+static freak_llvm_owned_word* freak_llvm_owned_find(
+        void* pointer, freak_llvm_owned_word*** link_out) {
+    if (link_out) *link_out = NULL;
+    if (!pointer || freak_llvm_owned_bucket_count == 0) return NULL;
+    size_t bucket = freak_llvm_owned_bucket(pointer, freak_llvm_owned_bucket_count);
+    freak_llvm_owned_word** link = &freak_llvm_owned_buckets[bucket];
+    while (*link) {
+        if ((*link)->pointer == pointer) {
+            if (link_out) *link_out = link;
+            return *link;
+        }
+        link = &(*link)->next;
+    }
+    return NULL;
+}
+
+static void freak_llvm_owned_repoint(
+        freak_llvm_owned_word* owned,
+        freak_llvm_owned_word** old_link,
+        void* pointer) {
+    if (!owned || owned->pointer == pointer) return;
+    if (old_link && *old_link == owned) *old_link = owned->next;
+    owned->pointer = pointer;
+    size_t bucket = freak_llvm_owned_bucket(pointer, freak_llvm_owned_bucket_count);
+    owned->next = freak_llvm_owned_buckets[bucket];
+    freak_llvm_owned_buckets[bucket] = owned;
+}
+
+#ifdef FREAK_RUNTIME_OWNERSHIP_AUDIT
+static bool freak_llvm_ownership_audit_registered = false;
+
+static void freak_llvm_ownership_audit_at_exit(void) {
+    if (freak_llvm_owned_count != 0) {
+        fprintf(stderr,
+                "FREAK: LLVM ownership audit found %llu unreleased word allocation(s)\n",
+                (unsigned long long)freak_llvm_owned_count);
+        fflush(stderr);
+        _Exit(86);
+    }
+}
+#endif
+
+int64_t freak_llvm_word_adopt(int64_t pointer) {
+    if (!pointer) return pointer;
+#ifdef FREAK_RUNTIME_OWNERSHIP_AUDIT
+    if (!freak_llvm_ownership_audit_registered) {
+        if (atexit(freak_llvm_ownership_audit_at_exit) != 0) {
+            fprintf(stderr, "FREAK: could not register LLVM ownership audit\n");
+            exit(1);
+        }
+        freak_llvm_ownership_audit_registered = true;
+    }
+#endif
+    freak_llvm_owned_ensure_capacity();
+    size_t bucket = freak_llvm_owned_bucket((void*)pointer, freak_llvm_owned_bucket_count);
+    if (freak_llvm_owned_find((void*)pointer, NULL)) return pointer;
+    freak_llvm_owned_word* owned = (freak_llvm_owned_word*)malloc(sizeof(*owned));
+    if (!owned) {
+        fprintf(stderr, "FREAK: out of memory tracking an owned word\n");
+        exit(1);
+    }
+    owned->pointer = (void*)pointer;
+    owned->length = strlen((const char*)pointer);
+    owned->capacity = owned->length + 1;
+    owned->next = freak_llvm_owned_buckets[bucket];
+    freak_llvm_owned_buckets[bucket] = owned;
+    freak_llvm_owned_count += 1;
+    return pointer;
+}
+
+int64_t freak_llvm_word_clone(int64_t source) {
+    const char* text = (const char*)source;
+    if (!text) return 0;
+    size_t length = strlen(text);
+    char* clone = (char*)malloc(length + 1);
+    if (!clone) {
+        fprintf(stderr, "FREAK: out of memory cloning a word\n");
+        exit(1);
+    }
+    memcpy(clone, text, length + 1);
+    return freak_llvm_word_adopt((int64_t)clone);
+}
+
+void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement) {
+    if (!previous || previous == replacement) return;
+    /* Literal/static/foreign pointers are deliberately absent from this
+       registry and therefore ignored. Only adopted allocations are freed. */
+    if (freak_llvm_owned_bucket_count == 0) return;
+    size_t bucket = freak_llvm_owned_bucket((void*)previous, freak_llvm_owned_bucket_count);
+    freak_llvm_owned_word** link = &freak_llvm_owned_buckets[bucket];
+    while (*link) {
+        freak_llvm_owned_word* owned = *link;
+        if (owned->pointer == (void*)previous) {
+            *link = owned->next;
+            free(owned->pointer);
+            free(owned);
+            freak_llvm_owned_count -= 1;
+            return;
+        }
+        link = &owned->next;
+    }
+}
+
+int64_t freak_llvm_word_append_owned(int64_t previous, int64_t suffix, int64_t release_suffix) {
+    const char* previous_text = previous ? (const char*)previous : "";
+    const char* suffix_text = suffix ? (const char*)suffix : "";
+    freak_llvm_owned_word** old_link = NULL;
+    freak_llvm_owned_word* owned = freak_llvm_owned_find((void*)previous, &old_link);
+    size_t old_length = owned ? owned->length : strlen(previous_text);
+    size_t suffix_length = strlen(suffix_text);
+    size_t required = freak_word_concat_required(
+        old_length, suffix_length, "LLVM word append");
+    size_t total = required - 1;
+    bool same_input = previous && previous == suffix;
+    bool suffix_in_buffer = false;
+    size_t suffix_offset = 0;
+    if (previous && suffix) {
+        uintptr_t start = (uintptr_t)previous;
+        uintptr_t source = (uintptr_t)suffix;
+        if (source >= start && source - start <= old_length) {
+            suffix_in_buffer = true;
+            suffix_offset = (size_t)(source - start);
+        }
+    }
+    freak_concat_audit_append(suffix_length);
+
+    if (!owned) {
+        size_t capacity = freak_word_append_capacity(required);
+        char* buffer = (char*)malloc(capacity);
+        if (!buffer) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+        if (old_length > 0) memcpy(buffer, previous_text, old_length);
+        if (suffix_length > 0) memcpy(buffer + old_length, suffix_text, suffix_length);
+        buffer[total] = '\0';
+        freak_concat_audit_growth(old_length, true);
+        int64_t result = freak_llvm_word_adopt((int64_t)buffer);
+        freak_llvm_owned_word* result_owned = freak_llvm_owned_find(buffer, NULL);
+        if (result_owned) result_owned->capacity = capacity;
+        if (release_suffix && !same_input) {
+            freak_llvm_word_release_replaced(suffix, 0);
+        }
+        return result;
+    }
+
+    char* buffer = (char*)owned->pointer;
+    if (required > owned->capacity) {
+        size_t capacity = freak_word_append_capacity(required);
+#ifdef FREAK_WORD_CONCAT_FORCE_MOVE
+        char* grown = (char*)malloc(capacity);
+        if (grown && old_length > 0) memcpy(grown, buffer, old_length);
+        if (grown) free(buffer);
+#else
+        char* grown = (char*)realloc(buffer, capacity);
+#endif
+        if (!grown) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+        buffer = grown;
+        freak_llvm_owned_repoint(owned, old_link, buffer);
+        owned->capacity = capacity;
+        if (suffix_in_buffer) suffix_text = buffer + suffix_offset;
+        freak_concat_audit_growth(old_length, true);
+    }
+
+    if (suffix_length > 0) memmove(buffer + old_length, suffix_text, suffix_length);
+    buffer[total] = '\0';
+    owned->length = total;
+    if (release_suffix && !same_input) {
+        freak_llvm_word_release_replaced(suffix, 0);
+    }
+    return (int64_t)buffer;
+}
+
 int64_t freak_llvm_word_from_int(int64_t n) {
     char* buf = (char*)malloc(32);
     snprintf(buf, 32, "%lld", (long long)n);
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 int64_t freak_llvm_word_from_bool(int64_t b) {
@@ -1181,11 +1797,17 @@ int64_t freak_llvm_word_concat(int64_t a, int64_t b) {
     const char* sb = (const char*)b;
     if (!sa) sa = "";
     if (!sb) sb = "";
-    size_t len = strlen(sa) + strlen(sb) + 1;
+    size_t a_len = strlen(sa);
+    size_t b_len = strlen(sb);
+    size_t len = freak_word_concat_required(
+        a_len, b_len, "LLVM word concatenation");
+    freak_concat_audit_concat(a_len + b_len);
     char* buf = (char*)malloc(len);
-    strcpy(buf, sa);
-    strcat(buf, sb);
-    return (int64_t)buf;
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    memcpy(buf, sa, a_len);
+    memcpy(buf + a_len, sb, b_len);
+    buf[a_len + b_len] = '\0';
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 int64_t freak_llvm_word_eq(int64_t a, int64_t b) {
@@ -1215,12 +1837,14 @@ int64_t freak_llvm_word_checksum(int64_t a) {
 int64_t freak_llvm_word_snapshot_escape(int64_t a) {
     const char* sa = (const char*)a;
     freak_word out = freak_word_snapshot_escape(freak_word_lit(sa ? sa : ""));
+    if (out.heap) return freak_llvm_word_adopt((int64_t)out.data);
     return (int64_t)out.data;
 }
 
 int64_t freak_llvm_word_snapshot_unescape(int64_t a) {
     const char* sa = (const char*)a;
     freak_word out = freak_word_snapshot_unescape(freak_word_lit(sa ? sa : ""));
+    if (out.heap) return freak_llvm_word_adopt((int64_t)out.data);
     return (int64_t)out.data;
 }
 
@@ -1232,6 +1856,7 @@ int64_t freak_llvm_word_snapshot_line_count(int64_t a) {
 int64_t freak_llvm_word_snapshot_line(int64_t a, int64_t wanted) {
     const char* sa = (const char*)a;
     freak_word out = freak_word_snapshot_line(freak_word_lit(sa ? sa : ""), wanted);
+    if (out.heap) return freak_llvm_word_adopt((int64_t)out.data);
     return (int64_t)out.data;
 }
 
@@ -1243,6 +1868,7 @@ int64_t freak_llvm_word_snapshot_field_count(int64_t a) {
 int64_t freak_llvm_word_snapshot_field_raw(int64_t a, int64_t wanted) {
     const char* sa = (const char*)a;
     freak_word out = freak_word_snapshot_field_raw(freak_word_lit(sa ? sa : ""), wanted);
+    if (out.heap) return freak_llvm_word_adopt((int64_t)out.data);
     return (int64_t)out.data;
 }
 
@@ -1257,6 +1883,7 @@ int64_t freak_llvm_word_char_at(int64_t a, int64_t idx) {
 int64_t freak_llvm_word_substring(int64_t a, int64_t start, int64_t len) {
     const char* sa = (const char*)a;
     freak_word out = freak_word_substring(freak_word_lit(sa ? sa : ""), start, len);
+    if (out.heap) return freak_llvm_word_adopt((int64_t)out.data);
     return (int64_t)out.data;
 }
 
@@ -1291,7 +1918,7 @@ int64_t freak_llvm_word_to_upper(int64_t a) {
     for (char* p = buf; *p; p++) {
         if (*p >= 'a' && *p <= 'z') *p -= 32;
     }
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 int64_t freak_llvm_word_to_lower(int64_t a) {
@@ -1301,19 +1928,76 @@ int64_t freak_llvm_word_to_lower(int64_t a) {
     for (char* p = buf; *p; p++) {
         if (*p >= 'A' && *p <= 'Z') *p += 32;
     }
-    return (int64_t)buf;
+    return freak_llvm_word_adopt((int64_t)buf);
 }
 
 int64_t freak_llvm_word_trim(int64_t a) {
     const char* sa = (const char*)a;
-    if (!sa) return (int64_t)"";
-    return (int64_t)sa; // Stub implementation
+    if (!sa) sa = "";
+    const char* start = sa;
+    while (*start && isspace((unsigned char)*start)) start++;
+    const char* end = sa + strlen(sa);
+    while (end > start && isspace((unsigned char)end[-1])) end--;
+    size_t length = (size_t)(end - start);
+    char* output = (char*)malloc(length + 1);
+    if (!output) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    memcpy(output, start, length);
+    output[length] = '\0';
+    return freak_llvm_word_adopt((int64_t)output);
 }
 
 int64_t freak_llvm_word_replace(int64_t a, int64_t b, int64_t c) {
     const char* sa = (const char*)a;
-    if (!sa) return (int64_t)"";
-    return (int64_t)sa; // Stub implementation
+    const char* old_s = (const char*)b;
+    const char* new_s = (const char*)c;
+    if (!sa) sa = "";
+    if (!old_s) old_s = "";
+    if (!new_s) new_s = "";
+    size_t source_len = strlen(sa);
+    size_t old_len = strlen(old_s);
+    size_t replacement_len = strlen(new_s);
+    size_t count = 0;
+    if (old_len > 0 && source_len >= old_len) {
+        for (size_t i = 0; i <= source_len - old_len; ) {
+            if (memcmp(sa + i, old_s, old_len) == 0) {
+                count++;
+                i += old_len;
+            } else {
+                i++;
+            }
+        }
+    }
+    size_t output_len = source_len;
+    if (replacement_len >= old_len) {
+        size_t growth = replacement_len - old_len;
+        if (growth > 0 && count > (SIZE_MAX - source_len) / growth) {
+            fprintf(stderr, "FREAK: word replacement size overflow\n");
+            exit(1);
+        }
+        output_len = source_len + count * growth;
+    } else {
+        size_t shrink = old_len - replacement_len;
+        output_len = source_len - count * shrink;
+    }
+    if (output_len == SIZE_MAX) {
+        fprintf(stderr, "FREAK: word replacement size overflow\n");
+        exit(1);
+    }
+    char* output = (char*)malloc(output_len + 1);
+    if (!output) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    size_t src = 0;
+    size_t dst = 0;
+    while (src < source_len) {
+        if (old_len > 0 && src + old_len <= source_len && memcmp(sa + src, old_s, old_len) == 0) {
+            memcpy(output + dst, new_s, replacement_len);
+            dst += replacement_len;
+            src += old_len;
+        } else {
+            output[dst++] = sa[src++];
+        }
+    }
+    output[dst] = '\0';
+    return freak_llvm_word_adopt((int64_t)output);
 }
 
 int64_t freak_llvm_word_to_int(int64_t a) {
@@ -1378,9 +2062,9 @@ int64_t freak_llvm_ask(int64_t prompt) {
         if (len > 0 && buf[len - 1] == '\n') {
             buf[len - 1] = '\0';
         }
-        return (int64_t)_strdup(buf);
+        return freak_llvm_word_adopt((int64_t)_strdup(buf));
     }
-    return (int64_t)_strdup("");
+    return freak_llvm_word_adopt((int64_t)_strdup(""));
 }
 
 int64_t freak_process_args_count(void) {
@@ -1400,9 +2084,9 @@ int64_t freak_llvm_process_args_count(void) {
 
 int64_t freak_llvm_process_arg(int64_t index) {
     if (index < 0 || index >= freak_argc) {
-        return (int64_t)_strdup("");
+        return freak_llvm_word_adopt((int64_t)_strdup(""));
     }
-    return (int64_t)_strdup(freak_argv[index]);
+    return freak_llvm_word_adopt((int64_t)_strdup(freak_argv[index]));
 }
 
 void freak_llvm_process_exit(int64_t code) {
@@ -1550,6 +2234,14 @@ void freak_array_push(int64_t handle, freak_word item) {
     a->data[a->length++] = item;
 }
 
+void freak_array_push_owned(int64_t handle, freak_word item) {
+    if (freak_array_slot_for_handle(handle) < 0) {
+        freak_word_release_owned(&item);
+        return;
+    }
+    freak_array_push(handle, item);
+}
+
 freak_word freak_array_get(int64_t handle, int64_t index) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) return freak_word_lit("");
@@ -1576,6 +2268,21 @@ void freak_array_set(int64_t handle, int64_t index, freak_word item) {
     a->data[index] = item;
 }
 
+void freak_array_set_owned(int64_t handle, int64_t index, freak_word item) {
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) {
+        freak_word_release_owned(&item);
+        return;
+    }
+    freak_dyn_array* a = &freak_arrays[slot];
+    if (index < 0 || index >= a->length) {
+        fprintf(stderr, "FREAK: array_set index %lld out of bounds (len %lld)\n",
+                (long long)index, (long long)a->length);
+        exit(1);
+    }
+    freak_word_replace_owned(&a->data[index], item);
+}
+
 void freak_array_release(int64_t handle) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) return;
@@ -1594,7 +2301,17 @@ void freak_array_release(int64_t handle) {
     freak_array_free_head = slot;
 }
 
-freak_word freak_word_join(int64_t handle) {
+void freak_array_release_owned(int64_t handle) {
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    freak_dyn_array* a = &freak_arrays[slot];
+    for (int64_t i = 0; i < a->length; ++i) {
+        freak_word_release_owned(&a->data[i]);
+    }
+    freak_array_release(handle);
+}
+
+static freak_word freak_word_join_impl(int64_t handle, bool release_elements) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) {
         return freak_word_lit("");
@@ -1627,8 +2344,20 @@ freak_word freak_word_join(int64_t handle) {
     }
     joined[total] = '\0';
     freak_word result = freak_word_own(joined, total);
-    freak_array_release(handle);
+    if (release_elements) {
+        freak_array_release_owned(handle);
+    } else {
+        freak_array_release(handle);
+    }
     return result;
+}
+
+freak_word freak_word_join(int64_t handle) {
+    return freak_word_join_impl(handle, false);
+}
+
+freak_word freak_word_join_owned(int64_t handle) {
+    return freak_word_join_impl(handle, true);
 }
 
 /* ── TCP Socket primitives ─────────────────────────── */
@@ -1707,11 +2436,7 @@ freak_word freak_tcp_recv(int64_t fd, int64_t max_bytes) {
 #endif
     if (n <= 0) { free(buf); return freak_word_lit(""); }
     buf[n] = '\0';
-    freak_word w;
-    w.data = buf;
-    w.length = n;
-    w.char_count = n;
-    return w;
+    return freak_word_own(buf, (size_t)n);
 }
 
 freak_word freak_tcp_recv_all(int64_t fd, int64_t max_bytes) {
@@ -1730,11 +2455,7 @@ freak_word freak_tcp_recv_all(int64_t fd, int64_t max_bytes) {
         total += n;
     }
     buf[total] = '\0';
-    freak_word w;
-    w.data = buf;
-    w.length = total;
-    w.char_count = total;
-    return w;
+    return freak_word_own(buf, (size_t)total);
 }
 
 void freak_tcp_close(int64_t fd) {

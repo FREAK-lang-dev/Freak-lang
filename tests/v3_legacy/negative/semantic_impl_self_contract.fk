@@ -1,0 +1,7 @@
+shape Counter { value: int }
+
+impl Counter {
+    task read(value: int, self) -> int { give back self.value + value }
+}
+
+task main() {}

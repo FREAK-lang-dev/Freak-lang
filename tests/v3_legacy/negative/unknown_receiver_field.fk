@@ -1,0 +1,3 @@
+task main() {
+    say missing_binding.value
+}

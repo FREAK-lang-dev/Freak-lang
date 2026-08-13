@@ -1,8 +1,10 @@
 class Freak < Formula
   desc "FREAK programming language compiler and package manager"
   homepage "https://github.com/FREAK-lang-dev/Freak-lang"
-  version "0.14.0"
+  version "0.14.1"
   license "MIT"
+
+  depends_on "llvm"
 
   on_macos do
     on_arm do
@@ -40,6 +42,7 @@ class Freak < Formula
       (bin/cmd).write <<~SH
         #!/bin/sh
         export FREAK_HOME="${FREAK_HOME:-#{freak_home}}"
+        export FREAK_CLANG="${FREAK_CLANG:-#{Formula["llvm"].opt_bin}/clang}"
         exec "#{lib}/freak/bin/#{cmd}" "$@"
       SH
       (bin/cmd).chmod 0755

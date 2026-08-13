@@ -32,6 +32,8 @@ task push_token(kind: word, val: word) -> void {
     array_push(tok_vals, val)
     array_push(tok_lines, word_from_int(cur_tok_line))
     array_push(tok_cols, word_from_int(cur_tok_col))
+    array_push(tok_origin_files, source_map_file(cur_tok_line))
+    array_push(tok_origin_lines, word_from_int(source_map_local_line(cur_tok_line)))
     tokens_count += 1
 }
 
@@ -69,6 +71,14 @@ task is_numeric(c: word) -> bool {
     give back false
 }
 
+task is_hex_digit(c: word) -> bool {
+    if is_numeric(c) { give back true }
+    pilot lower = c.to_lower()
+    if lower == "a" or lower == "b" or lower == "c" { give back true }
+    if lower == "d" or lower == "e" or lower == "f" { give back true }
+    give back false
+}
+
 task is_alphabetic(c: word) -> bool {
     if c == "_" { give back true }
     if c == "a" or c == "b" or c == "c" or c == "d" or c == "e" { give back true }
@@ -93,9 +103,11 @@ task is_alnum_ext(c: word) -> bool {
 task lex_number() -> void {
     pilot res = ""
     pilot fin = false
+    pilot dot_count = 0
     repeat until fin {
         pilot c = lex_cur_ch()
         if is_numeric(c) or c == "." {
+            if c == "." { dot_count += 1 }
             res = res + c
             lex_advance()
         } else {
@@ -103,6 +115,15 @@ task lex_number() -> void {
         }
     }
     push_token(TOK_NUM, res)
+    if dot_count > 1 {
+        diag_error_at(
+            "malformed numeric literal '" + res + "'",
+            "a numeric literal may contain only one decimal point",
+            source_map_file(cur_tok_line),
+            source_map_local_line(cur_tok_line),
+            cur_tok_col
+        )
+    }
 }
 
 task try_consume_word(target: word) -> bool {
@@ -128,6 +149,17 @@ task try_consume_word(target: word) -> bool {
     lex_line = s_line
     lex_col = s_col
     give back false
+}
+
+task lex_ident_token_type(value: word) -> word {
+    pilot lower = value.to_lower()
+    if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "impl" or lower == "doctrine" or lower == "launch" or lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "break" or lower == "continue" or lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" or lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "sadly" or lower == "deus_ex_machina" or lower == "isekai" or lower == "eventually" or lower == "and" or lower == "or" or lower == "not" or lower == "nakama" or lower == "tsundere" or lower == "extern" {
+        give back TOK_KW
+    }
+    if lower == "true" or lower == "false" or lower == "yes" or lower == "no" or lower == "hai" or lower == "iie" {
+        give back TOK_BOOL
+    }
+    give back TOK_IDENT
 }
 
 task lex_ident() -> void {
@@ -172,23 +204,18 @@ task lex_ident() -> void {
     if lower == "final" {
         if try_consume_word("form") { push_token(TOK_KW, "FINAL FORM") give back }
     }
-    -- Single-word keywords
-    if lower == "pilot" or lower == "fixed" or lower == "task" or lower == "say" or lower == "shape" or lower == "impl" or lower == "doctrine" or lower == "launch" or lower == "use" or lower == "as" or lower == "in" or lower == "lend" or lower == "mut" or lower == "move" or lower == "copy" or lower == "break" or lower == "continue" or lower == "if" or lower == "else" or lower == "when" or lower == "repeat" or lower == "times" or lower == "until" or lower == "done" or lower == "for" or lower == "each" or lower == "check" or lower == "result" or lower == "got" or lower == "nobody" or lower == "some" or lower == "ok" or lower == "err" or lower == "sessions" or lower == "max" or lower == "foreshadow" or lower == "payoff" or lower == "route" or lower == "sadly" or lower == "deus_ex_machina" or lower == "isekai" or lower == "eventually" or lower == "and" or lower == "or" or lower == "not" or lower == "nakama" or lower == "tsundere" or lower == "extern" {
-        push_token(TOK_KW, res)
-    } else if lower == "true" or lower == "false" or lower == "yes" or lower == "no" or lower == "hai" or lower == "iie" {
-        push_token(TOK_BOOL, res)
-    } else {
-        push_token(TOK_IDENT, res)
-    }
+    push_token(lex_ident_token_type(res), res)
 }
 
 task lex_string() -> void {
     lex_advance()
     pilot res = ""
     pilot fin = false
+    pilot closed = false
     repeat until fin {
         pilot c = lex_advance()
         if c == "\"" {
+            closed = true
             fin = true
         } else if c == "" {
             fin = true
@@ -199,17 +226,46 @@ task lex_string() -> void {
             else if esc == "t" { res = res + "\t" }
             else if esc == "x" {
                 -- Hex escape \xNN: store as \\xNN so C emitter passes it through
-                pilot hex_hi = lex_advance()
-                pilot hex_lo = lex_advance()
-                res = res + "\\x" + hex_hi + hex_lo
+                pilot hex_hi = lex_cur_ch()
+                pilot hex_lo = lex_ch_at(1)
+                if is_hex_digit(hex_hi) and is_hex_digit(hex_lo) {
+                    lex_advance()
+                    lex_advance()
+                    if hex_hi == "0" and hex_lo == "0" {
+                        diag_error_at(
+                            "embedded NUL escape is not supported",
+                            "V3 words use a NUL-terminated runtime representation",
+                            source_map_file(lex_line),
+                            source_map_local_line(lex_line),
+                            lex_col
+                        )
+                    }
+                    res = res + "\\x" + hex_hi + hex_lo
+                } else {
+                    diag_error_at(
+                        "malformed hex escape",
+                        "use exactly two hexadecimal digits after '\\x'",
+                        source_map_file(lex_line),
+                        source_map_local_line(lex_line),
+                        lex_col
+                    )
+                    res = res + "\\x"
+                }
             } else { res = res + esc }
-        } else if c == "|" {
-            res = res + "<<PIPE>>"
         } else {
             res = res + c
         }
     }
     push_token(TOK_STR, res)
+    if not closed {
+        diag_error_at(
+            "unterminated string literal",
+            "add a closing quote",
+            source_map_file(cur_tok_line),
+            source_map_local_line(cur_tok_line),
+            cur_tok_col
+        )
+    }
 }
 
 task lex_operators() -> void {

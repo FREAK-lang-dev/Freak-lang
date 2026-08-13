@@ -1,0 +1,4 @@
+task main() {
+    pilot values = array_new()
+    say values[0]
+}

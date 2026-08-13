@@ -1,0 +1,10 @@
+shape Counter { value: int }
+
+impl Counter {
+    task add(self, amount: int) -> int { give back self.value + amount }
+}
+
+task main() {
+    pilot counter = Counter { value: 1 }
+    say counter.add("wrong").to_word()
+}

@@ -1,0 +1,5 @@
+task main() {
+    if fs::delete_file_checked("not-a-source-api") {
+        say "unreachable"
+    }
+}

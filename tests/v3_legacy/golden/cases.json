@@ -1,0 +1,60 @@
+{
+  "schema": "freak.v3.legacy-golden.v2",
+  "cases": [
+    {
+      "name": "core",
+      "source": "01_core.fk",
+      "stdout": "01_core.stdout",
+      "backends": ["c", "llvm"],
+      "generated_contains": {}
+    },
+    {
+      "name": "control_tasks",
+      "source": "02_control_tasks.fk",
+      "stdout": "02_control_tasks.stdout",
+      "backends": ["c", "llvm"],
+      "generated_contains": {}
+    },
+    {
+      "name": "shapes_methods",
+      "source": "03_shapes_methods.fk",
+      "stdout": "03_shapes_methods.stdout",
+      "backends": ["llvm"],
+      "generated_contains": {
+        "llvm": [
+          "call i64 @freak_llvm_shape_alloc",
+          "@__freak_user_Point_area"
+        ]
+      }
+    },
+    {
+      "name": "words_stdlib",
+      "source": "04_words_stdlib.fk",
+      "stdout": "04_words_stdlib.stdout",
+      "backends": ["c", "llvm"],
+      "generated_contains": {}
+    },
+    {
+      "name": "interpolation",
+      "source": "05_interpolation.fk",
+      "stdout": "05_interpolation.stdout",
+      "backends": ["c", "llvm"],
+      "generated_contains": {
+        "c": ["freak_word_append_owned"],
+        "llvm": ["call i64 @freak_llvm_word_append_owned("]
+      }
+    },
+    {
+      "name": "shape_interpolation",
+      "source": "06_shape_interpolation.fk",
+      "stdout": "06_shape_interpolation.stdout",
+      "backends": ["llvm"],
+      "generated_contains": {
+        "llvm": [
+          "@__freak_user_Hero_summary",
+          "call i64 @freak_llvm_word_append_owned("
+        ]
+      }
+    }
+  ]
+}

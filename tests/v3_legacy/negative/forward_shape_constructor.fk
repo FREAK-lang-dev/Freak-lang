@@ -1,0 +1,9 @@
+task make() -> Later {
+    give back Later { value: 1 }
+}
+
+shape Later { value: int }
+
+task main() {
+    say "unreachable"
+}

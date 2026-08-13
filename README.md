@@ -6,7 +6,7 @@
 and not enough sleep, but somehow it compiles.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-pink?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/v0.14.0-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
+[![Version](https://img.shields.io/badge/v0.14.1-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/FREAK-lang-dev/Freak-lang/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/FREAK-lang-dev/Freak-lang/actions)
 [![Status](https://img.shields.io/badge/status-self--hosting-brightgreen?style=flat-square)](#)
 [![Vibes](https://img.shields.io/badge/vibes-MONO__NO__AWARE-blueviolet?style=flat-square)](#)
@@ -19,7 +19,7 @@ and not enough sleep, but somehow it compiles.
 
 FREAK is a compiled, statically-typed systems language with a syntax inspired by visual novels, anime, and the kind of programming that only makes sense at 3am.
 
-It compiles to native binaries via LLVM (or C — your choice). It has a Phase-1 borrow checker behind `--strict-borrow`. It has a package manager called **Hangar**. It has a UI framework called **COCKPIT**. And every variable is called `pilot` because you are always on a mission.
+It compiles to native binaries via LLVM (or C — your choice). It has a Phase-1 borrow checker behind `--strict-borrow`. It has a package manager called **Hangar** and preserves the **COCKPIT** UI source preview for Maverick. And every variable is called `pilot` because you are always on a mission.
 
 ```fk
 pilot name = "Takeru"
@@ -50,6 +50,11 @@ That's it. That's the whole vibe.
 - **`training arc`** — bounded loop with a session cap. Compiles to a counted while.
 - **`eventually`** — block that runs at the end of the current scope.
 - **`isekai`** — nested scope with explicit `bringing back { ... }` exports.
+
+Native `extern task` names beginning with `__freak_` are reserved for compiler
+output, and source tasks cannot redeclare compiler builtin call names. V3
+rejects both cases before C or LLVM emission so user symbols cannot collide
+with the packaged runtime ABI.
 
 ### The Type System
 
@@ -98,6 +103,11 @@ freak foreshadow-audit    # Find any narrative promises you haven't kept
 
 `freak audit-conformance` is the gate for v0.13.x: it cross-checks lexer keywords, audit dispatch, stdlib presence, the `--strict-borrow` flag, and the `deus_ex_machina` 20-word rule. It exits zero only when the v0.13.x scope is intact.
 
+These audit subcommands are source-checkout development tools: the native CLI
+dispatches them to `python -m freakc`, so they require the Python bootstrap
+package and repository audit inputs. They are not embedded in standalone
+release archives.
+
 ---
 
 ### Memory Safety (Phase 1)
@@ -133,23 +143,39 @@ with characteristic polynomial $\chi_{\hat{\mathbf{L}}}(\lambda) = \prod_{i\in\m
 **Linux / macOS:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.sh | bash
+
+# Also install a supported Clang/LLD/native build toolchain when missing:
+curl -fsSL https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.sh | bash -s -- --with-deps
 ```
 
 **Windows (PowerShell):**
 ```powershell
 irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
+
+# Also install a self-contained LLVM-MinGW toolchain when missing:
+$env:FREAK_INSTALL_DEPS = "1"
+irm https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/main/install.ps1 | iex
 ```
 
-This downloads the latest `freak` binary and runtime to `~/.freak` (or `%APPDATA%\freak` on Windows) and adds it to your PATH. Open a new terminal and you're ready.
+Downloaded release archives and every standalone fallback payload file must match their exact filename entry in the release's `SHA256SUMS` before extraction or staging. A missing, malformed, duplicate, or mismatched checksum aborts before the installed payload is touched. The immutable v0.14.0 archives predate archive entries in `SHA256SUMS`; the installers recognize only those four release filenames, verify pinned full-archive SHA-256 values, and generate the manifest that release omitted. No later tag receives this compatibility exception.
 
-> **Requires:** [Clang](https://releases.llvm.org/) for native compilation. Most systems have it already — run `clang --version` to check.
+For maintainers, `VERSION` is authoritative. Run `python -u tools/release_version.py set <major.minor.patch>` once to synchronize compiler/CLI display versions and package metadata, then `python -u tools/release_version.py check`; tagged releases also fail before building unless the Git tag is exactly `v<major.minor.patch>`.
+
+This downloads the latest `freak` and `hangar` binaries to `~/.freak` (or `%APPDATA%\freak` on Windows). Installers serialize updates per destination so two concurrent installs cannot consume each other's backups or expose interleaved payloads. A canonical distribution manifest stages and validates every runtime source, platform UI file, recursive stdlib module—including `std/ui/window.fk`—and the required `freak-v3-abi-1` runtime/stdlib markers before installer-managed files are swapped into place. `freak build` and `freak doctor` reject missing or mismatched markers as an ABI mismatch instead of compiling a mixed installation. Windows release archives additionally carry an LLVM-MinGW-built runtime object bundle; native Windows builds try it through the selected Clang driver and automatically retry from packaged runtime sources when a complete bundle is incompatible, while incomplete/older bundles and every POSIX build use sources directly. Failed downloads and apply failures restore the previous installed payload. On POSIX, an interrupted transaction is rolled back on exit; if restoration itself cannot complete, the recoverable `.freak-backup-*` directory is retained and the next installer run reconciles it before applying anything new.
+
+The default installer reports a missing compiler without changing system packages. Opt into dependency installation with `--with-deps` or `FREAK_INSTALL_DEPS=1`. Linux package-manager support covers apt, dnf/yum, pacman, zypper, and apk; macOS uses Homebrew LLVM or Apple Command Line Tools; Windows prefers self-contained LLVM-MinGW so headers and link libraries are present as well as `clang.exe`.
 
 Verify the install:
 
 ```bash
 freak doctor
 freak doctor --json   # passive machine-readable report for editors and scripts
+freak doctor --fix    # install/repair dependencies and the distribution payload
 ```
+
+`freak doctor` verifies that Clang can parse the platform's standard C headers, link a native executable, and run it; a working `clang --version` alone is rejected. It also checks optional LLD, all required runtime/UI files, all 11 shipped stdlib modules, and a complete FREAK compile-link-execute probe. It exits nonzero when required checks fail and removes its probe artifacts. `--json` keeps the additive `freak.doctor.v1` schema, uses a unique system-temporary toolchain probe, and reports exact missing files without installing or repairing anything.
+
+`freak upgrade` remains the supported upgrade command. Current clients route it through the staged tagged installer. Windows keeps `.next` binaries plus a durable `.freak-upgrade-pending` marker, waits for the invoking installer process to exit, then hash-verifies and swaps both binaries as one rollback-capable transaction; Doctor reports the pending state and builds refuse to mix the old compiler with the newly staged payload. A failed attempt retains recovery state for retry. The immutable v0.14.0 updater predates recursive payloads and deferred self-replacement: on Linux/macOS, run `freak upgrade` once for the retained standalone-binary hop and again with the new client to install the complete payload; on Windows, bootstrap once with the PowerShell installer above, then use `freak upgrade` normally. Package-manager installs should likewise refresh through their manager or the installer so `FREAK_HOME` stays aligned.
 
 ### Your First Program
 
@@ -166,6 +192,20 @@ Compile and run:
 ```bash
 freak run hello.fk
 ```
+
+`freak run` reuses the adjacent `.freak-run-cache` sidecar only when the
+source, loaded standard library, resolved compiler executable/toolchain,
+backend flags, runtime inputs, and output-binary fingerprint still match. It
+revalidates that proof immediately before launch. Concurrent commands targeting
+the same output are not serialized; use distinct outputs or avoid overlapping
+runs when another process may replace the binary after that final check.
+
+Plain V3 `word` replacement now evaluates the new value before releasing the
+superseded owned buffer on both C and LLVM backends, including safe
+self-assignment and `name = name + suffix`. The CI regression runs the repeated
+replacement case under AddressSanitizer on POSIX and LeakSanitizer on Linux. Concatenation still
+copies the growing prefix each time, so repeated append remains O(n^2); this
+ownership fix does not claim to solve that separate performance cost.
 
 Or build separately:
 
@@ -192,13 +232,13 @@ freak hangar init my-project
 cd my-project
 
 # Add a dependency
-freak hangar add cockpit https://github.com/FREAK-lang-dev/Freak-lang
+freak hangar add package-name https://example.com/owner/package.git
 
 # Install all dependencies
 freak hangar install
 
 # Remove a package
-freak hangar remove cockpit
+freak hangar remove package-name
 ```
 
 `hangar.toml` looks like this:
@@ -209,61 +249,29 @@ name = "my-project"
 version = "0.1.0"
 
 [dependencies]
-cockpit = { git = "https://github.com/FREAK-lang-dev/Freak-lang", version = "latest" }
+package-name = { git = "https://example.com/owner/package.git", version = "latest" }
 ```
 
 Dependencies live in `hangar_modules/`. The layout is deliberately minimal.
 
 ---
 
-## COCKPIT — The UI Framework
+## COCKPIT — Maverick Source Preview
 
-COCKPIT is FREAK's immediate mode UI framework. It runs on Windows, macOS, and Linux. It has five built-in themes. It does not have widget trees, callbacks, or retained state. You just call widget functions in order and the frame renders.
+`packages/cockpit/` preserves the design and source of FREAK's intended
+immediate-mode UI framework: layout, widgets, themes, input handling, and
+animation helpers. It is not a supported package on the frozen V3 compiler and
+the included examples are design fixtures, not copy-and-run V3 programs.
 
-```
-Your FREAK app
-     │
-     ▼
-COCKPIT (Hangar)      ← widgets, layout, theming, input
-     │
-     ▼
-std::ui               ← window, events, raw draw calls
-     │
-     ├── Windows: Win32 / Direct2D
-     ├── macOS:   Cocoa / CoreGraphics
-     └── Linux:   X11 / Cairo
-```
+The smaller `std::ui` floor is partial in V3. Native execution is supported
+only by the LLVM backend on Windows through the Win32/GDI runtime. V3 exposes
+the raw indexed event queue (`ui::poll_events` plus `ui::event_*`) and basic
+drawing calls; it has no owned event-list ABI, no macOS/Linux native UI
+backend, and no C-backend shape storage for executable UI programs.
 
-### A Calculator in COCKPIT
-
-```fk
-use cockpit::{UI, Theme, label_heading}
-use std::ui::{Window, WindowConfig}
-
-pilot win = Window::open(WindowConfig { title: "Calc", width: 300, height: 400 })
-pilot ui  = UI::new(win, Theme::default())
-
-repeat until ui.should_quit {
-    ui.begin_frame()
-
-    ui.label_styled("FREAK Calc", label_heading)
-
-    if ui.button("7") { append_digit(7) }
-    if ui.button("=") { evaluate() }
-
-    ui.end_frame()
-}
-```
-
-### Themes
-
-| Theme | Mood | Vibe |
-|---|---|---|
-| `Theme::default()` | `.focused` | Dark. Professional. Ready. |
-| `Theme::light()` | `.chill` | Light. Calm. Readable. |
-| `Theme::terminal()` | `.hype` | Green on black. Pure. |
-| `Theme::alternative()` | `.muv_luv` | Navy and pink. Dangerous. |
-| `Theme::muvluv()` | `.mono_no_aware` | Red and black. You know what you've done. |
+COCKPIT's supported implementation belongs to Maverick / 00-Unit. The source
+preview remains in-tree to preserve the intended API and architectural history
+without claiming a release surface that V3 cannot execute.
 
 ---
 
@@ -345,9 +353,9 @@ impl Displayable for Point {
 | `std::string` / `std::convert` | String and conversion utilities |
 | `std::algorithm` | Sort, search, aggregate |
 | `std::time` | Timestamps, durations, sleep |
-| `std::process` | Spawn processes, read env, exec_capture |
+| `std::process` | Process arguments, environment access, and command execution (partial in V3) |
 | `std::bytes` | `ByteBuffer` for binary I/O |
-| `std::ui` | Native window, events, canvas (COCKPIT runs on top of this) |
+| `std::ui` | Partial V3 Windows/LLVM Win32-GDI window, indexed events, and raw canvas |
 | `std::version` | Semver parsing, comparison, bumping, constraints |
 | `std::zip` | ZIP archive read/write |
 
@@ -380,7 +388,8 @@ Not actually a module. The official FREAK-developer snack. Serves one compiler. 
 
 ## Testing
 
-The native CLI ships a regression harness that runs every `tests/suite/*.fk` file and compares output against `-- EXPECT:` / `-- EXPECT_COMPILE_ERROR:` / `-- SKIP:` directives in each file:
+In a source checkout, the native CLI exposes a development shim that runs the
+Python bootstrap regression harness over `tests/suite/test_*.fk`:
 
 ```bash
 freak test
@@ -399,7 +408,7 @@ Found 14 test(s).
 ==================================================
 ```
 
-> The bible describes a richer in-language test framework — `test "name" { expect X to be Y }` blocks, `@nakige` test annotations, vibes ratings on output. That ships with V4. Today, write one `.fk` per test under `tests/suite/` with an `EXPECT` directive and `freak test` will pick it up.
+> The bible describes a richer in-language test framework — `test "name" { expect X to be Y }` blocks, `@nakige` test annotations, vibes ratings on output. That ships with V4. Today, add a `test_*.fk` case under `tests/suite/` and run `freak test` from the repository checkout. The shim and Python bootstrap compiler are not included in standalone release archives; use `tests/v3_legacy_golden.py` for the preserved self-hosted V3 corpus.
 
 ---
 
@@ -436,17 +445,18 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 |---|---|
 | Self-hosting compiler | ✅ Complete |
 | LLVM IR backend (default) | ✅ Complete |
-| C backend (`--c`) | ✅ Complete |
-| Native CLI (`freak build`/`run`/`check`/`transpile`/`test`) | ✅ Complete |
+| C backend (`--c`) | ⚠️ Portability target — scalar/control/word paths are executable; V3 shape storage is LLVM-only |
+| Native CLI (`freak build`/`run`/`check`/`transpile`) | ✅ Complete; `freak test` is a source-checkout Python shim |
 | Hangar package manager | ✅ Complete |
 | Cross-compilation (`--target=`) | ✅ Complete |
 | Optimization levels (`--opt=0..3`) | ✅ Complete |
 | One-command install (Linux/macOS/Windows) | ✅ Complete |
 | CI/CD with 4-platform releases | ✅ Complete |
 | Phase-1 borrow checker (`--strict-borrow`) | ✅ Complete |
-| Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | ✅ Complete |
-| `std::fs`, `std::process`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
-| COCKPIT UI framework | 🚧 In progress (MA–MF done, MG pending) |
+| Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | 🧰 Source-checkout Python tools; not embedded in release archives |
+| `std::fs`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
+| `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` waits for a real list ABI |
+| COCKPIT UI framework | 📐 Source preview; supported implementation moves to Maverick |
 | LLVM JIT mode + DWARF debug info | 🚧 In progress |
 | V4 self-hosting compiler (variants, full BC, mood/prob/power, squadron concurrency, FFI surface, error voices) | 🔜 Roadmapped |
 | HFML (markup language) | 📐 Planned |

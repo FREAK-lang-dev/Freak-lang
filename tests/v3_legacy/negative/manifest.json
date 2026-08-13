@@ -1,0 +1,610 @@
+{
+  "schema": "freak-v3-negative-corpus-v1",
+  "cases": [
+    {
+      "name": "dangling_namespace",
+      "kind": "parse",
+      "file": "dangling_namespace.fk",
+      "diagnostic": "expected an identifier for namespace segment after '::'",
+      "direct": true
+    },
+    {
+      "name": "required_expression_eof",
+      "kind": "parse",
+      "file": "required_expression_eof.fk",
+      "diagnostic": "expected an expression, found end of file",
+      "direct": true
+    },
+    {
+      "name": "pipe_target_eof",
+      "kind": "parse",
+      "file": "pipe_target_eof.fk",
+      "diagnostic": "expected an identifier for pipe target",
+      "direct": true
+    },
+    {
+      "name": "unexpected_impl_member",
+      "kind": "parse",
+      "file": "unexpected_impl_member.fk",
+      "diagnostic": "inside impl declaration",
+      "direct": true
+    },
+    {
+      "name": "malformed_hex_escape",
+      "kind": "lex",
+      "file": "malformed_hex_escape.fk",
+      "diagnostic": "malformed hex escape",
+      "direct": true
+    },
+    {
+      "name": "invalid_annotation_name",
+      "kind": "parse",
+      "file": "invalid_annotation_name.fk",
+      "diagnostic": "expected an identifier for annotation name",
+      "direct": true
+    },
+    {
+      "name": "invalid_binding_name",
+      "kind": "parse",
+      "file": "invalid_binding_name.fk",
+      "diagnostic": "expected an identifier for binding name",
+      "direct": true
+    },
+    {
+      "name": "invalid_binding_type",
+      "kind": "parse",
+      "file": "invalid_binding_type.fk",
+      "diagnostic": "expected an identifier for binding type",
+      "direct": true
+    },
+    {
+      "name": "invalid_shape_name",
+      "kind": "parse",
+      "file": "invalid_shape_name.fk",
+      "diagnostic": "expected an identifier for shape name",
+      "direct": true
+    },
+    {
+      "name": "invalid_shape_field",
+      "kind": "parse",
+      "file": "invalid_shape_field.fk",
+      "diagnostic": "expected an identifier for shape field name",
+      "direct": true
+    },
+    {
+      "name": "invalid_task_name",
+      "kind": "parse",
+      "file": "invalid_task_name.fk",
+      "diagnostic": "expected an identifier for task name",
+      "direct": true
+    },
+    {
+      "name": "invalid_parameter_name",
+      "kind": "parse",
+      "file": "invalid_parameter_name.fk",
+      "diagnostic": "expected an identifier for parameter name",
+      "direct": true
+    },
+    {
+      "name": "invalid_parameter_type",
+      "kind": "parse",
+      "file": "invalid_parameter_type.fk",
+      "diagnostic": "expected an identifier for parameter type",
+      "direct": true
+    },
+    {
+      "name": "invalid_return_type",
+      "kind": "parse",
+      "file": "invalid_return_type.fk",
+      "diagnostic": "expected an identifier for task return type",
+      "direct": true
+    },
+    {
+      "name": "invalid_impl_method_name",
+      "kind": "parse",
+      "file": "invalid_impl_method_name.fk",
+      "diagnostic": "expected an identifier for impl method name",
+      "direct": true
+    },
+    {
+      "name": "invalid_extern_signature",
+      "kind": "parse",
+      "file": "invalid_extern_signature.fk",
+      "diagnostic": "expected an identifier for extern task name",
+      "direct": true
+    },
+    {
+      "name": "invalid_shape_constructor_field",
+      "kind": "parse",
+      "file": "invalid_shape_constructor_field.fk",
+      "diagnostic": "expected an identifier for shape constructor field",
+      "direct": true
+    },
+    {
+      "name": "invalid_member_name",
+      "kind": "parse",
+      "file": "invalid_member_name.fk",
+      "diagnostic": "expected an identifier for member name",
+      "direct": true
+    },
+    {
+      "name": "unterminated_string",
+      "kind": "lex",
+      "file": "unterminated_string.fk",
+      "diagnostic": "unterminated string literal",
+      "direct": true
+    },
+    {
+      "name": "malformed_number",
+      "kind": "lex",
+      "file": "malformed_number.fk",
+      "diagnostic": "malformed numeric literal",
+      "direct": true
+    },
+    {
+      "name": "call_args_eof",
+      "kind": "parse",
+      "file": "call_args_eof.fk",
+      "diagnostic": "unexpected end of file inside call argument list",
+      "direct": true
+    },
+    {
+      "name": "method_args_eof",
+      "kind": "parse",
+      "file": "method_args_eof.fk",
+      "diagnostic": "unexpected end of file inside method argument list",
+      "direct": true
+    },
+    {
+      "name": "pipe_args_eof",
+      "kind": "parse",
+      "file": "pipe_args_eof.fk",
+      "diagnostic": "unexpected end of file inside pipe argument list",
+      "direct": true
+    },
+    {
+      "name": "array_eof",
+      "kind": "parse",
+      "file": "array_eof.fk",
+      "diagnostic": "unexpected end of file inside array literal",
+      "direct": true
+    },
+    {
+      "name": "shape_constructor_eof",
+      "kind": "parse",
+      "file": "shape_constructor_eof.fk",
+      "diagnostic": "unexpected end of file inside shape constructor",
+      "direct": true
+    },
+    {
+      "name": "shape_eof",
+      "kind": "parse",
+      "file": "shape_eof.fk",
+      "diagnostic": "unexpected end of file inside shape declaration",
+      "direct": true
+    },
+    {
+      "name": "impl_eof",
+      "kind": "parse",
+      "file": "impl_eof.fk",
+      "diagnostic": "unexpected end of file inside impl declaration",
+      "direct": true
+    },
+    {
+      "name": "when_eof",
+      "kind": "parse",
+      "file": "when_eof.fk",
+      "diagnostic": "unexpected end of file inside when expression",
+      "direct": true
+    },
+    {
+      "name": "extern_eof",
+      "kind": "parse",
+      "file": "extern_eof.fk",
+      "diagnostic": "unexpected end of file inside extern parameter list",
+      "direct": true
+    },
+    {
+      "name": "unexpected_closing_token",
+      "kind": "parse",
+      "file": "unexpected_closing_token.fk",
+      "diagnostic": "this token cannot start an expression",
+      "direct": true
+    },
+    {
+      "name": "unknown_receiver_field",
+      "kind": "type",
+      "file": "unknown_receiver_field.fk",
+      "diagnostic": "cannot resolve the receiver type for field 'value'",
+      "direct": true
+    },
+    {
+      "name": "immutable_reassignment",
+      "kind": "borrow",
+      "file": "immutable_reassignment.fk",
+      "diagnostic": "cannot be reassigned",
+      "flags": [
+        "--strict-borrow"
+      ],
+      "direct": true
+    },
+    {
+      "name": "semantic_unknown_type",
+      "kind": "type",
+      "file": "semantic_unknown_type.fk",
+      "diagnostic": "unknown or non-value type 'MissingType'",
+      "direct": true
+    },
+    {
+      "name": "semantic_duplicate_params",
+      "kind": "type",
+      "file": "semantic_duplicate_params.fk",
+      "diagnostic": "duplicate parameter 'value'",
+      "direct": true
+    },
+    {
+      "name": "semantic_assignment_narrowing",
+      "kind": "type",
+      "file": "semantic_assignment_narrowing.fk",
+      "diagnostic": "cannot assign num to int",
+      "direct": true
+    },
+    {
+      "name": "semantic_invalid_lvalue",
+      "kind": "type",
+      "file": "semantic_invalid_lvalue.fk",
+      "diagnostic": "assignment target is not an assignable binding or shape field",
+      "direct": true
+    },
+    {
+      "name": "semantic_operator_domain",
+      "kind": "type",
+      "file": "semantic_operator_domain.fk",
+      "diagnostic": "operator '+' does not accept word and int",
+      "direct": true
+    },
+    {
+      "name": "semantic_unsupported_shape_operator",
+      "kind": "type",
+      "file": "semantic_unsupported_shape_operator.fk",
+      "diagnostic": "operator '+' does not accept Vector3 and Vector3",
+      "direct": true
+    },
+    {
+      "name": "semantic_multiline_operator",
+      "kind": "type",
+      "file": "semantic_multiline_operator.fk",
+      "diagnostic": "operator '+' does not accept word and int",
+      "direct": true
+    },
+    {
+      "name": "semantic_condition_types",
+      "kind": "type",
+      "file": "semantic_condition_types.fk",
+      "diagnostic": "if condition must have type bool",
+      "direct": true
+    },
+    {
+      "name": "semantic_multiline_condition",
+      "kind": "type",
+      "file": "semantic_multiline_condition.fk",
+      "diagnostic": "if condition must have type bool, got int",
+      "direct": true
+    },
+    {
+      "name": "semantic_multiline_member",
+      "kind": "type",
+      "file": "semantic_multiline_member.fk",
+      "diagnostic": "shape 'Box' has no method 'missing'",
+      "direct": true
+    },
+    {
+      "name": "semantic_when_case_type",
+      "kind": "type",
+      "file": "semantic_when_case_type.fk",
+      "diagnostic": "when case type int does not match target type word",
+      "direct": true
+    },
+    {
+      "name": "semantic_when_expression_case",
+      "kind": "type",
+      "file": "semantic_when_expression_case.fk",
+      "diagnostic": "when case must be a literal or '_'",
+      "direct": true
+    },
+    {
+      "name": "semantic_user_call_signature",
+      "kind": "type",
+      "file": "semantic_user_call_signature.fk",
+      "diagnostic": "call to 'consume' expects 2 argument(s), got 1",
+      "direct": true
+    },
+    {
+      "name": "semantic_extern_call_signature",
+      "kind": "type",
+      "file": "semantic_extern_call_signature.fk",
+      "diagnostic": "call to 'foreign_value' argument 1 expects int, got word",
+      "direct": true
+    },
+    {
+      "name": "semantic_builtin_call_signature",
+      "kind": "type",
+      "file": "semantic_builtin_call_signature.fk",
+      "diagnostic": "call to 'math::pow' expects 2 argument(s), got 1",
+      "direct": true
+    },
+    {
+      "name": "semantic_builtin_method_signature",
+      "kind": "type",
+      "file": "semantic_builtin_method_signature.fk",
+      "diagnostic": "method 'substring' expects 2 argument(s), got 1",
+      "direct": true
+    },
+    {
+      "name": "semantic_impl_call_signature",
+      "kind": "type",
+      "file": "semantic_impl_call_signature.fk",
+      "diagnostic": "method 'add' argument 1 expects int, got word",
+      "direct": true
+    },
+    {
+      "name": "semantic_pipe_signature",
+      "kind": "type",
+      "file": "semantic_pipe_signature.fk",
+      "diagnostic": "call to 'labelled' expects 2 argument(s), got 1",
+      "direct": true
+    },
+    {
+      "name": "semantic_unknown_names",
+      "kind": "type",
+      "file": "semantic_unknown_names.fk",
+      "diagnostic": "unknown binding 'missing_binding'",
+      "direct": true
+    },
+    {
+      "name": "semantic_return_contract",
+      "kind": "type",
+      "file": "semantic_return_contract.fk",
+      "diagnostic": "must give back int, got word",
+      "direct": true
+    },
+    {
+      "name": "semantic_control_context",
+      "kind": "type",
+      "file": "semantic_control_context.fk",
+      "diagnostic": "give back is valid only inside a task",
+      "direct": true
+    },
+    {
+      "name": "semantic_nested_declaration",
+      "kind": "type",
+      "file": "semantic_nested_declaration.fk",
+      "diagnostic": "impl declarations are valid only at top level",
+      "direct": true
+    },
+    {
+      "name": "semantic_main_contract",
+      "kind": "type",
+      "file": "semantic_main_contract.fk",
+      "diagnostic": "main must not declare parameters",
+      "direct": true
+    },
+    {
+      "name": "semantic_missing_return",
+      "kind": "type",
+      "file": "semantic_missing_return.fk",
+      "diagnostic": "may finish without giving back int",
+      "direct": true
+    },
+    {
+      "name": "semantic_shape_constructor",
+      "kind": "type",
+      "file": "semantic_shape_constructor.fk",
+      "diagnostic": "shape constructor 'Pair' argument 1 expects int, got word",
+      "direct": true
+    },
+    {
+      "name": "semantic_shape_constructor_unknown_label",
+      "kind": "type",
+      "file": "semantic_shape_constructor_unknown_label.fk",
+      "diagnostic": "shape constructor 'Pair' field 1 must be 'number', got 'missing'",
+      "direct": true
+    },
+    {
+      "name": "semantic_shape_constructor_reordered",
+      "kind": "type",
+      "file": "semantic_shape_constructor_reordered.fk",
+      "diagnostic": "shape constructor 'Pair' field 1 must be 'number', got 'label'",
+      "direct": true
+    },
+    {
+      "name": "semantic_shape_constructor_duplicate_label",
+      "kind": "type",
+      "file": "semantic_shape_constructor_duplicate_label.fk",
+      "diagnostic": "shape constructor 'Pair' field 2 must be 'label', got 'number'",
+      "direct": true
+    },
+    {
+      "name": "semantic_impl_self_contract",
+      "kind": "type",
+      "file": "semantic_impl_self_contract.fk",
+      "diagnostic": "must place self first or omit it for an associated task",
+      "direct": true
+    },
+    {
+      "name": "semantic_array_element_type",
+      "kind": "type",
+      "file": "semantic_array_element_type.fk",
+      "diagnostic": "array element must have type word, got int",
+      "direct": true
+    },
+    {
+      "name": "semantic_index_type",
+      "kind": "type",
+      "file": "semantic_index_type.fk",
+      "diagnostic": "indexing is supported only on word values in V3",
+      "direct": true
+    },
+    {
+      "name": "semantic_say_shape",
+      "kind": "type",
+      "file": "semantic_say_shape.fk",
+      "diagnostic": "say expects a scalar value, got Box",
+      "direct": true
+    },
+    {
+      "name": "semantic_unknown_empty_impl",
+      "kind": "type",
+      "file": "semantic_unknown_empty_impl.fk",
+      "diagnostic": "impl declaration has unknown owner type 'MissingOwner'",
+      "direct": true
+    },
+    {
+      "name": "semantic_word_compound_assignment",
+      "kind": "type",
+      "file": "semantic_word_compound_assignment.fk",
+      "diagnostic": "assignment operator '+=' does not accept word and word",
+      "direct": true
+    },
+    {
+      "name": "semantic_ui_num_geometry",
+      "kind": "type",
+      "file": "semantic_ui_num_geometry.fk",
+      "diagnostic": "call to 'ui::fill_rect' argument 2 expects int, got num",
+      "direct": true
+    },
+    {
+      "name": "semantic_duplicate_top_binding",
+      "kind": "type",
+      "file": "semantic_duplicate_top_binding.fk",
+      "diagnostic": "duplicate top-level binding 'duplicate'",
+      "direct": true
+    },
+    {
+      "name": "semantic_duplicate_local_binding",
+      "kind": "type",
+      "file": "semantic_duplicate_local_binding.fk",
+      "diagnostic": "duplicate binding 'duplicate' in the same scope",
+      "direct": true
+    },
+    {
+      "name": "semantic_num_remainder",
+      "kind": "type",
+      "file": "semantic_num_remainder.fk",
+      "diagnostic": "operator '%' does not accept num and int",
+      "direct": true
+    },
+    {
+      "name": "semantic_num_remainder_assignment",
+      "kind": "type",
+      "file": "semantic_num_remainder_assignment.fk",
+      "diagnostic": "assignment operator '%=' does not accept num and int",
+      "direct": true
+    },
+    {
+      "name": "semantic_forward_global_narrowing",
+      "kind": "type",
+      "file": "semantic_forward_global_narrowing.fk",
+      "diagnostic": "unknown binding 'later'",
+      "direct": true
+    },
+    {
+      "name": "semantic_forward_global_annotated",
+      "kind": "type",
+      "file": "semantic_forward_global_annotated.fk",
+      "diagnostic": "unknown binding 'later'",
+      "direct": true
+    },
+    {
+      "name": "semantic_global_inference_cycle",
+      "kind": "type",
+      "file": "semantic_global_inference_cycle.fk",
+      "diagnostic": "cannot infer a value type for binding 'first'",
+      "direct": true
+    },
+    {
+      "name": "semantic_builtin_namespace_shape",
+      "kind": "type",
+      "file": "semantic_builtin_namespace_shape.fk",
+      "diagnostic": "shape name 'math' conflicts with a compiler builtin namespace",
+      "direct": true
+    },
+    {
+      "name": "semantic_impl_method_missing_return",
+      "kind": "type",
+      "file": "semantic_impl_method_missing_return.fk",
+      "diagnostic": "may finish without giving back int",
+      "direct": true
+    },
+    {
+      "name": "forward_shape_constructor",
+      "kind": "parse",
+      "file": "forward_shape_constructor.fk",
+      "diagnostic": "unexpected ':'",
+      "direct": true
+    },
+    {
+      "name": "unreachable_shape_intrinsic",
+      "kind": "parse",
+      "file": "unreachable_shape_intrinsic.fk",
+      "diagnostic": "unexpected 'shape'",
+      "direct": true
+    },
+    {
+      "name": "semantic_global_task_later_dependency",
+      "kind": "type",
+      "file": "semantic_global_task_later_dependency.fk",
+      "diagnostic": "global initializer for 'first' depends on global 'later' before it is initialized",
+      "direct": true
+    },
+    {
+      "name": "semantic_global_task_self_dependency",
+      "kind": "type",
+      "file": "semantic_global_task_self_dependency.fk",
+      "diagnostic": "global initializer for 'first' depends on global 'first' before it is initialized",
+      "direct": true
+    },
+    {
+      "name": "semantic_global_task_transitive_cycle",
+      "kind": "type",
+      "file": "semantic_global_task_transitive_cycle.fk",
+      "diagnostic": "global initializer for 'first' depends on global 'first' before it is initialized",
+      "direct": true
+    },
+    {
+      "name": "semantic_global_associated_later_dependency",
+      "kind": "type",
+      "file": "semantic_global_associated_later_dependency.fk",
+      "diagnostic": "global initializer for 'first' depends on global 'later' before it is initialized",
+      "direct": true
+    },
+    {
+      "name": "semantic_global_instance_self_dependency",
+      "kind": "type",
+      "file": "semantic_global_instance_self_dependency.fk",
+      "diagnostic": "global initializer for 'answer' depends on global 'answer' before it is initialized",
+      "direct": true
+    },
+    {
+      "name": "semantic_internal_checked_delete",
+      "kind": "type",
+      "file": "semantic_internal_checked_delete.fk",
+      "diagnostic": "unknown callable 'fs::delete_file_checked'",
+      "direct": true
+    },
+    {
+      "name": "semantic_internal_checked_delete_symbol",
+      "kind": "type",
+      "file": "semantic_internal_checked_delete_symbol.fk",
+      "diagnostic": "unknown callable 'freak_internal_delete_file_checked'",
+      "direct": true
+    },
+    {
+      "name": "semantic_internal_checked_delete_extern",
+      "kind": "type",
+      "file": "semantic_internal_checked_delete_extern.fk",
+      "diagnostic": "conflicts with a compiler builtin",
+      "direct": true
+    }
+  ]
+}

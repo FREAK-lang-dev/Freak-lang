@@ -1,0 +1,6 @@
+pilot first: int = later
+pilot later: int = 7
+
+task main() {
+    say first
+}

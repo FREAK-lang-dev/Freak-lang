@@ -1,0 +1,4 @@
+task main() {
+    pilot invalid = 5.0 % 2
+    say invalid
+}

@@ -1,0 +1,6 @@
+pilot first = second
+pilot second = first
+
+task main() {
+    say first
+}

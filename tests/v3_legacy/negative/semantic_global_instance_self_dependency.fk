@@ -1,0 +1,14 @@
+shape Reader {}
+
+impl Reader {
+    task read(self) -> int {
+        give back answer
+    }
+}
+
+pilot reader = Reader {}
+pilot answer: int = reader.read()
+
+task main() {
+    say answer
+}

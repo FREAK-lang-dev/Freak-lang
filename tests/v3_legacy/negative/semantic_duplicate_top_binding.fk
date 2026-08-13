@@ -1,0 +1,6 @@
+pilot duplicate = 1
+pilot duplicate = 2
+
+task main() {
+    say duplicate
+}

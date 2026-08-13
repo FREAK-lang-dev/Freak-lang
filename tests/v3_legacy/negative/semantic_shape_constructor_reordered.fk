@@ -1,0 +1,6 @@
+shape Pair { number: int, label: word }
+
+task main() {
+    pilot pair = Pair { label: "first", number: 1 }
+    say pair.label
+}

@@ -31,7 +31,7 @@ typedef struct {
     const char* data;
     size_t length;       /* byte length   */
     size_t char_count;   /* codepoint count (== length for ASCII) */
-    bool   heap;         /* true if data was malloc'd and must be freed */
+    bool   heap;         /* runtime-owned; release only through word APIs */
 } freak_word;
 
 /* Command line arguments */
@@ -48,6 +48,24 @@ freak_word freak_word_own(char* s, size_t len);
 
 /* Concatenate two words — allocates. */
 freak_word freak_word_concat(freak_word a, freak_word b);
+freak_word freak_word_concat_consuming(freak_word a, freak_word b, bool release_a, bool release_b);
+
+/* Compiler-internal self-replacement fast path. Appends into a private
+   geometrically grown buffer without changing freak_word's public layout. */
+void freak_word_append_owned(freak_word* slot, freak_word suffix, bool release_suffix);
+
+/* Copy an existing word binding. Heap words receive independent ownership;
+   literals remain shared immutable storage. */
+freak_word freak_word_clone(freak_word source);
+
+/* Evaluate the replacement first, then release the previous owned buffer.
+   Pointer equality keeps direct self-assignment safe. */
+void freak_word_replace_owned(freak_word* slot, freak_word replacement);
+
+/* Release a word binding at a task boundary and clear its slot. Runtime-owned
+   data must use this/replacement APIs rather than direct free(), because the
+   frozen runtime tracks private ownership and append-capacity metadata. */
+void freak_word_release_owned(freak_word* slot);
 
 /* Equality test (byte-wise). */
 bool freak_word_eq(freak_word a, freak_word b);
@@ -60,6 +78,7 @@ const char* freak_word_to_cstr(freak_word w);
 freak_word freak_word_from_int(int64_t n);
 freak_word freak_word_from_double(double n);
 freak_word freak_word_from_bool(bool b);
+freak_word freak_char_to_word(int64_t code);
 
 /* printf-style interpolation — returns a heap-allocated word. */
 freak_word freak_interpolate(const char* fmt, ...);
@@ -100,10 +119,11 @@ void freak_fs_append(freak_word path, freak_word content);
 /* Aliases without freak_ prefix (self-hosted compiler compatibility) */
 void fs_append(freak_word path, freak_word content);
 bool fs_exists(freak_word path);
-void fs_delete(freak_word path);
+bool fs_delete(freak_word path);
 
 bool freak_fs_exists(freak_word path);
-void freak_fs_delete(freak_word path);
+int64_t freak_path_exists(int64_t path);
+bool freak_fs_delete(freak_word path);
 void freak_fs_make_dir(freak_word path);
 freak_word freak_fs_list_dir(freak_word path);
 
@@ -340,6 +360,7 @@ int64_t freak_array_new(void);
 
 /* Push a word onto the array. */
 void freak_array_push(int64_t handle, freak_word item);
+void freak_array_push_owned(int64_t handle, freak_word item);
 
 /* Get item at index (0-based). Returns empty word if out of bounds. */
 freak_word freak_array_get(int64_t handle, int64_t index);
@@ -349,13 +370,16 @@ int64_t freak_array_len(int64_t handle);
 
 /* Set item at index. Panics if out of bounds. */
 void freak_array_set(int64_t handle, int64_t index, freak_word item);
+void freak_array_set_owned(int64_t handle, int64_t index, freak_word item);
 
 /* Release an array slot so a later array_new call can reuse it with a new
    generation-tagged handle. Stale handles remain invalid. */
 void freak_array_release(int64_t handle);
+void freak_array_release_owned(int64_t handle);
 
 /* Join every word in an array with one allocation and release the handle. */
 freak_word freak_word_join(int64_t handle);
+freak_word freak_word_join_owned(int64_t handle);
 
 /* ------------------------------------------------------------------ */
 /*  TCP Socket primitives                                             */

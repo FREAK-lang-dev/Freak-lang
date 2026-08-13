@@ -1,0 +1,17 @@
+pilot title: word = "V3"
+pilot score: int = 7
+
+task stored(label: word, ready: bool) -> word {
+    pilot rendered: word = "stored={label}:{score}:{ready}"
+    give back rendered
+}
+
+task returned(amount: num) -> word {
+    give back "returned={amount}"
+}
+
+task main() {
+    say "direct={title}:{score}"
+    say stored("path", true)
+    say returned(2.5)
+}

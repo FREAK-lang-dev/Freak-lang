@@ -1,0 +1,2 @@
+shape Box { value: int }
+task main() { pilot box = Box { 7: 1 } }

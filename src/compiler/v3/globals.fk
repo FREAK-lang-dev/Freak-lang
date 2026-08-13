@@ -4,8 +4,12 @@
 -- All global state in one file. Keeps other files pure logic.
 
 -- ===================== VERSION =====================================
-pilot FREAKC_VERSION = "0.14.0"
+-- Generated/synchronized by tools/release_version.py from the root VERSION.
+-- Release bumps change the version through that one command only.
+pilot FREAK_VERSION = "0.14.1"
+pilot FREAKC_VERSION = FREAK_VERSION
 pilot FREAKC_CODENAME = "Maverick"
+pilot FREAK_V3_ABI = "freak-v3-abi-1"
 
 -- ===================== TOKENS ======================================
 pilot TOK_EOF = "0"
@@ -20,6 +24,8 @@ pilot tok_types = 0
 pilot tok_vals  = 0
 pilot tok_lines = 0
 pilot tok_cols  = 0
+pilot tok_origin_files = 0
+pilot tok_origin_lines = 0
 pilot tokens_count = 0
 
 -- ===================== AST EXPRESSION KINDS ========================
@@ -37,11 +43,19 @@ pilot EXPR_INDEX = "11"
 -- `[a, b, c]` — value is unused, left holds the comma-separated list of
 -- element expr ids (same encoding as call args).
 pilot EXPR_ARRAY_LIT = "12"
+-- Ordered interpolation segments live in `left` as comma-separated expr ids.
+-- Literal segments are EXPR_STR; path segments are EXPR_IDENT/EXPR_FIELD.
+pilot EXPR_INTERP = "13"
 
 pilot ast_expr_kinds = 0
 pilot ast_expr_vals = 0
 pilot ast_expr_lefts = 0
 pilot ast_expr_rights = 0
+pilot ast_expr_files = 0
+pilot ast_expr_lines = 0
+-- Shape-constructor source labels, comma-separated and aligned with `left`.
+-- Other expression kinds store an empty string at the same expression id.
+pilot ast_expr_labels = 0
 
 -- ===================== AST STATEMENT KINDS =========================
 pilot STMT_PILOT = "1"
@@ -60,6 +74,7 @@ pilot STMT_BREAK = "13"
 pilot STMT_CONTINUE = "14"
 pilot STMT_EVENTUALLY = "15"
 pilot STMT_EXTERN = "16"
+pilot STMT_IMPL = "17"
 
 pilot ast_stmt_kinds = 0
 pilot ast_stmt_names = 0
@@ -70,6 +85,9 @@ pilot ast_stmt_extras = 0
 pilot ast_task_params = 0
 pilot ast_task_returns = 0
 pilot ast_stmt_lines = 0
+pilot ast_stmt_files = 0
+pilot source_location_lines = 0
+pilot source_location_files = 0
 
 pilot ast_top_stmts = 0
 
@@ -95,6 +113,34 @@ pilot bc_sym_lines  = 0
 pilot bc_sym_count  = 0
 pilot bc_scope_depth = 0
 
+-- Always-on V3 semantic checking state.  These tables and context scalars are
+-- reset for every compilation before any emitter is allowed to run.
+pilot tc_global_names = 0
+pilot tc_global_types = 0
+pilot tc_global_count = 0
+pilot tc_global_visibility_count = 0 - 1
+pilot tc_dependency_pending_calls = 0
+pilot tc_local_names = 0
+pilot tc_local_types = 0
+pilot tc_local_count = 0
+pilot tc_local_scope_start = 0
+pilot tc_current_task_name = ""
+pilot tc_current_return_type = ""
+pilot tc_loop_depth = 0
+pilot tc_direct_top_stmt = false
+-- Hash-indexed callable signatures for the always-on checker. Keeping these
+-- separate from the AST avoids rescanning every top-level statement for each
+-- call, method, and return-type query.
+pilot tc_callable_bucket_heads = 0
+pilot tc_callable_names = 0
+pilot tc_callable_returns = 0
+pilot tc_callable_params = 0
+pilot tc_callable_extras = 0
+pilot tc_callable_stmt_ids = 0
+pilot tc_callable_next = 0
+pilot tc_callable_bucket_count = 0
+pilot tc_callable_count = 0
+
 -- ===================== SHAPE REGISTRY ==============================
 pilot shape_registry_names = 0
 pilot shape_registry_fields = 0
@@ -116,6 +162,7 @@ pilot parse_error_count = 0
 pilot error_count = 0
 pilot next_expr_id = 0
 pilot next_stmt_id = 0
+pilot bc_current_source_file = ""
 
 -- ===================== EMIT STATE ==================================
 -- v3 KEY CHANGE: out_file replaces out_buf. All emit() calls
@@ -126,12 +173,21 @@ pilot emit_target = "llvm"
 -- C emitter variable tracking
 pilot emt_var_names = 0
 pilot emt_var_types = 0
+pilot emt_var_c_names = 0
 pilot emt_var_count = 0
+pilot emt_global_var_names = 0
+pilot emt_global_var_types = 0
+pilot emt_global_var_c_names = 0
+pilot emt_global_var_count = 0
 pilot emt_word_tasks = 0
 pilot emt_word_task_count = 0
 pilot emt_extern_names = 0
 pilot emt_extern_rets = 0
 pilot emt_extern_count = 0
+pilot emt_current_word_params = ""
+pilot emt_current_return_type = ""
+pilot emt_current_word_local_base = 0
+pilot emt_loop_word_cleanup_base = 0 - 1
 
 -- LLVM emitter state
 pilot llvm_line_count = 0
@@ -144,10 +200,18 @@ pilot llvm_task_reg_names = ""
 pilot llvm_task_reg_types = ""
 pilot llvm_task_reg_count = 0
 pilot llvm_cur_func_is_void = false
+pilot llvm_cur_func_returns_word = false
+pilot llvm_current_word_params = ""
+pilot llvm_word_local_slots = ""
+pilot llvm_loop_word_cleanup_prefix = ""
+pilot llvm_last_borrowed_cleanup = ""
 pilot llvm_declared_funcs = ""
 pilot llvm_loop_end_label = ""
 pilot llvm_loop_cond_label = ""
 pilot llvm_global_names = ""
+pilot llvm_global_type_names = ""
+pilot llvm_global_types = ""
+pilot llvm_emitting_global_init = false
 pilot llvm_var_reg_map = ""   -- "freak_name:llvm_name|..." latest binding wins
 pilot llvm_dbg_md = ""
 pilot llvm_dbg_next_id = 0
@@ -162,6 +226,20 @@ pilot llvm_dbg_current_file = ""
 
 -- ===================== CLI STATE ===================================
 pilot input_file = ""
+-- User-authored source used by diagnostics. `lex_source` may also contain a
+-- prepended standard library payload and therefore is not source-coordinate
+-- compatible after token line adjustment.
+pilot diagnostic_source = ""
+pilot source_map_paths = 0
+pilot source_map_starts = 0
+pilot source_map_ends = 0
+pilot source_map_count = 0
+pilot source_map_next_line = 1
+pilot source_map_initialized = false
+-- Exact source-map path of the installed std/runtime.fk module for the active
+-- compilation. Reserved native bridge task names are trusted only from this
+-- registered module, never from a user-controlled path suffix.
+pilot trusted_internal_runtime_source_file = ""
 pilot opt_level = "2"
 pilot cross_target = ""
 pilot source_line_offset = 0

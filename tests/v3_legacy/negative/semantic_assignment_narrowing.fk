@@ -1,0 +1,4 @@
+task main() {
+    pilot mut whole: int = 1
+    whole = 1.5
+}

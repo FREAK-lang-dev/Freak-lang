@@ -320,7 +320,7 @@ task math3d_mat4_transform_direction(m: Matrix4x4, v: Vector3) -> Vector3 {
 }
 
 task math3d_mat4_look_at(eye: Vector3, target: Vector3, up: Vector3) -> Matrix4x4 {
-    pilot forward = math3d_normalize3(target - eye)
+    pilot forward = math3d_normalize3(target.sub(eye))
     pilot side = math3d_normalize3(math3d_cross(forward, up))
     pilot true_up = math3d_cross(side, forward)
     give back math3d_mat4(

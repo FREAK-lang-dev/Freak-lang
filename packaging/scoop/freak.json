@@ -1,14 +1,21 @@
 {
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "FREAK programming language compiler and package manager",
   "homepage": "https://github.com/FREAK-lang-dev/Freak-lang",
   "license": "MIT",
-  "url": "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v0.14.0/freak-windows-x64.zip",
+  "depends": "mingw-mstorsjo-llvm-ucrt",
+  "url": "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v0.14.1/freak-windows-x64.zip",
   "hash": "SCOOP_HASH_PLACEHOLDER",
   "extract_dir": "freak",
   "bin": [
-    ["bin\\freak.exe", "freak"],
-    ["bin\\hangar.exe", "hangar"]
+    [
+      "bin\\freak.exe",
+      "freak"
+    ],
+    [
+      "bin\\hangar.exe",
+      "hangar"
+    ]
   ],
   "env_add_path": "bin",
   "env_set": {
@@ -23,7 +30,7 @@
     "url": "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v$version/freak-windows-x64.zip",
     "hash": {
       "url": "https://github.com/FREAK-lang-dev/Freak-lang/releases/download/v$version/SHA256SUMS",
-      "regex": "([a-fA-F0-9]{64})\\s+\\.?/?freak-windows-x64/freak-windows-x64\\.zip"
+      "regex": "([a-fA-F0-9]{64})\\s+\\.?/?freak-windows-x64\\.zip"
     }
   }
 }

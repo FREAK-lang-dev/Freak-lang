@@ -18,7 +18,9 @@ extern task freak_ftell(file: int) -> int
 extern task freak_fread(buf: int, size: int, count: int, file: int) -> int
 extern task freak_fwrite(buf: int, size: int, count: int, file: int) -> int
 extern task freak_calloc(count: int, size: int) -> int
+extern task freak_llvm_word_adopt(pointer: int) -> int
 extern task freak_remove(path: int) -> int
+extern task freak_path_exists(path: int) -> int
 extern task freak_llvm_word_length(s: int) -> int
 
 -- ── fs::read — read entire file contents ─────────────
@@ -34,7 +36,7 @@ task llvm_fs_read(path_p: int) -> int {
     pilot buf = freak_calloc(sz + 1, 1)
     freak_fread(buf, 1, sz, f)
     freak_fclose(f)
-    give back buf
+    give back freak_llvm_word_adopt(buf)
 }
 
 -- ── fs::write — write string to file (overwrite) ────
@@ -63,13 +65,10 @@ task llvm_fs_append(path_p: int, content_p: int) -> void {
 
 -- ── fs::exists — check if file exists ────────────────
 task llvm_fs_exists(path_p: int) -> int {
-    pilot f = freak_fopen(path_p, "rb")
-    if f == 0 { give back 0 }
-    freak_fclose(f)
-    give back 1
+    give back freak_path_exists(path_p)
 }
 
 -- ── fs::delete — delete a file ───────────────────────
-task llvm_fs_delete(path_p: int) -> void {
-    freak_remove(path_p)
+task llvm_fs_delete(path_p: int) -> int {
+    give back freak_remove(path_p)
 }

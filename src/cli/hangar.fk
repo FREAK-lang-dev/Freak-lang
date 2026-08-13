@@ -762,37 +762,44 @@ task hangar_version_cmd(project_dir: word, bump: word) -> int {
 task hangar_download_file(url: word, dest: word, is_win: bool) -> int {
     if is_win {
         -- Prefer curl.exe so PowerShell's curl alias and old Net.WebClient stay out of the path.
-        pilot curl_cmd = "curl.exe -fsSL --retry 2 -A \"freak-upgrade\" -o \"" + dest + "\" \"" + url + "\" 2>nul"
+        pilot curl_cmd = "curl.exe -fsSL --retry 2 -A \"freak-upgrade\" -o " + cli_quote_cmd_path(dest) + " " + cli_quote_cmd_path(url) + " 2>nul"
         pilot curl_res = process::exec(curl_cmd)
         if curl_res == 0 { give back 0 }
 
         -- Fallback: Invoke-WebRequest handles locked-down Windows images better than WebClient.
-        pilot ps_cmd = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -UserAgent 'freak-upgrade' -ErrorAction SilentlyContinue -Uri '" + url + "' -OutFile '" + dest + "'\" 2>nul"
+        -- PowerShell 5 reparses arguments following -Command as script text.
+        -- Put user-controlled values in a temporary script instead, where
+        -- single-quoted literals are escaped by PowerShell rules rather than cmd.
+        pilot download_wrapper = dest + ".download.ps1"
+        pilot download_body = "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12\n$ProgressPreference = 'SilentlyContinue'\nInvoke-WebRequest -UseBasicParsing -UserAgent 'freak-upgrade' -ErrorAction SilentlyContinue -Uri " + hangar_powershell_quote(url) + " -OutFile " + hangar_powershell_quote(dest) + "\n"
+        fs::write(download_wrapper, download_body)
+        pilot ps_cmd = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " + cli_quote_cmd_path(download_wrapper) + " 2>nul"
         pilot ps_res = process::exec(ps_cmd)
+        if fs::exists(download_wrapper) { fs::delete(download_wrapper) }
         if ps_res == 0 {
             if fs::exists(dest) { give back 0 }
         }
         give back 1
     } else {
-        pilot curl_cmd = "curl -fsSL --retry 2 -A \"freak-upgrade\" -o \"" + dest + "\" \"" + url + "\" 2>/dev/null"
+        pilot curl_cmd = "curl -fsSL --retry 2 -A \"freak-upgrade\" -o " + hangar_shell_quote(dest) + " " + hangar_shell_quote(url) + " 2>/dev/null"
         give back process::exec(curl_cmd)
     }
 }
 
 task hangar_fetch_url(url: word, is_win: bool) -> word {
     if is_win {
-        pilot curl_cmd = "curl.exe -fsSL --retry 2 -A \"freak-upgrade\" \"" + url + "\" 2>nul"
+        pilot curl_cmd = "curl.exe -fsSL --retry 2 -A \"freak-upgrade\" " + cli_quote_cmd_path(url) + " 2>nul"
         pilot curl_resp: word = process::exec_capture(curl_cmd)
         if curl_resp != "" { give back curl_resp }
 
-        pilot ps_cmd = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'SilentlyContinue'; (Invoke-WebRequest -UseBasicParsing -UserAgent 'freak-upgrade' -ErrorAction SilentlyContinue -Uri '" + url + "').Content\" 2>nul"
+        pilot ps_cmd = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"& { param([string]$u); [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'SilentlyContinue'; (Invoke-WebRequest -UseBasicParsing -UserAgent 'freak-upgrade' -ErrorAction SilentlyContinue -Uri $u).Content }\" " + cli_quote_cmd_path(url) + " 2>nul"
         pilot ps_resp: word = process::exec_capture(ps_cmd)
         if ps_resp != "" { give back ps_resp }
 
         give back ""
     }
 
-    pilot curl_cmd = "curl -fsSL --retry 2 -A \"freak-upgrade\" \"" + url + "\" 2>/dev/null"
+    pilot curl_cmd = "curl -fsSL --retry 2 -A \"freak-upgrade\" " + hangar_shell_quote(url) + " 2>/dev/null"
     give back process::exec_capture(curl_cmd)
 }
 
@@ -910,15 +917,124 @@ task hangar_fetch_latest_download_release_tag(artifact: word, is_win: bool) -> w
 -- Ensure a directory exists (cross-platform).
 task hangar_mkdir(path: word, is_win: bool) -> void {
     if is_win {
-        -- powershell New-Item handles nested dirs and ignores already-exists
-        pilot cmd = "powershell -NoProfile -NonInteractive -Command \"New-Item -Force -ItemType Directory -Path '" + path + "' | Out-Null\""
+        pilot cmd = "mkdir " + cli_quote_cmd_path(path) + " 2>nul"
         process::exec(cmd)
     } else {
-        process::exec("mkdir -p \"" + path + "\"")
+        process::exec("mkdir -p " + hangar_shell_quote(path))
     }
 }
 
+task hangar_shell_quote(value: word) -> word {
+    give back "'" + value.replace("'", "'\"'\"'") + "'"
+}
+
+task hangar_powershell_quote(value: word) -> word {
+    give back "'" + value.replace("'", "''") + "'"
+}
+
 task hangar_install_freak() -> int {
+    -- Keep `freak upgrade` as the public entry point, but let the tagged
+    -- installer own manifests, staging, rollback, dependency policy, and
+    -- Windows deferred replacement. Immutable v0.14.0 clients predate this
+    -- path; their migration limitations are documented below and in README.
+    pilot is_win = cli_is_windows()
+    pilot freak_home: word = process::env("FREAK_HOME")
+    if freak_home == "" {
+        if is_win {
+            pilot appdata: word = process::env("APPDATA")
+            if appdata == "" {
+                appdata = process::env("USERPROFILE") + "/AppData/Roaming"
+            }
+            freak_home = appdata + "/freak"
+        } else {
+            freak_home = process::env("HOME") + "/.freak"
+        }
+    }
+
+    pilot local_script: word = process::env("FREAK_UPGRADE_SCRIPT")
+    pilot version = "local"
+    pilot script_path = local_script
+    pilot downloaded_script = false
+
+    if script_path == "" {
+        say "  Checking latest version..."
+        version = hangar_fetch_latest_release_tag(is_win)
+        if version == "" {
+            pilot platform = "linux-x64"
+            pilot ext = ""
+            if is_win {
+                platform = "windows-x64"
+                ext = ".exe"
+            } else {
+                pilot uname_out: word = process::exec_capture("uname -s 2>/dev/null")
+                pilot arch_out: word = process::exec_capture("uname -m 2>/dev/null")
+                if uname_out.contains("Darwin") { platform = "macos-arm64" }
+                if arch_out.contains("aarch64") or arch_out.contains("arm64") {
+                    if uname_out.contains("Linux") { platform = "linux-arm64" }
+                }
+            }
+            version = hangar_fetch_latest_download_release_tag("freak-" + platform + ext, is_win)
+        }
+        if version == "" {
+            say "  " + C_BRED + SYM_CROSS + C_RESET + " Could not resolve latest release tag."
+            say "  Manual download: https://github.com/FREAK-lang-dev/Freak-lang/releases"
+            give back 1
+        }
+
+        hangar_mkdir(freak_home, is_win)
+        if is_win {
+            script_path = freak_home + "/.freak-upgrade-install.ps1"
+            pilot ps_url = "https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/" + version + "/install.ps1"
+            if hangar_download_file(ps_url, script_path, true) != 0 {
+                say "  " + C_BRED + SYM_CROSS + C_RESET + " Could not download the tagged Windows installer."
+                give back 1
+            }
+        } else {
+            script_path = freak_home + "/.freak-upgrade-install.sh"
+            pilot sh_url = "https://raw.githubusercontent.com/FREAK-lang-dev/Freak-lang/" + version + "/install.sh"
+            if hangar_download_file(sh_url, script_path, false) != 0 {
+                say "  " + C_BRED + SYM_CROSS + C_RESET + " Could not download the tagged installer."
+                give back 1
+            }
+        }
+        downloaded_script = true
+    }
+
+    say "  Installing " + C_BWHITE + version + C_RESET + " through the staged distribution installer..."
+    pilot install_res = 1
+    if is_win {
+        -- Use a wrapper file so PowerShell 5 never reparses user-controlled
+        -- values from the tail of a -Command string.
+        hangar_mkdir(freak_home, true)
+        pilot launch_wrapper = freak_home + "/.freak-upgrade-launch.ps1"
+        pilot launch_body = "$env:FREAK_HOME=" + hangar_powershell_quote(freak_home) + "\n$env:FREAK_RELEASE_TAG=" + hangar_powershell_quote(version) + "\n$env:FREAK_INSTALL_UPGRADE='1'\n& " + hangar_powershell_quote(script_path) + " -Upgrade -SkipDeps\nexit $LASTEXITCODE\n"
+        fs::write(launch_wrapper, launch_body)
+        pilot ps_cmd = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " + cli_quote_cmd_path(launch_wrapper)
+        install_res = process::exec(ps_cmd)
+        if fs::exists(launch_wrapper) { fs::delete(launch_wrapper) }
+    } else {
+        pilot sh_cmd = "FREAK_HOME=" + hangar_shell_quote(freak_home) + " FREAK_RELEASE_TAG=" + hangar_shell_quote(version) + " FREAK_INSTALL_DEPS=0 bash " + hangar_shell_quote(script_path) + " --upgrade --without-deps"
+        install_res = process::exec(sh_cmd)
+    }
+
+    if downloaded_script and fs::exists(script_path) { fs::delete(script_path) }
+    if install_res != 0 {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " Upgrade failed; the previous installed payload was preserved."
+        give back install_res
+    }
+
+    say "  " + C_BGREEN + SYM_CHECK + C_RESET + " Upgrade payload staged successfully."
+    if is_win {
+        say "  " + C_DIM + "The compiler binary will finish replacing itself after this command exits." + C_RESET
+    }
+    say "  " + C_DIM + "Open a new terminal and run: freak doctor" + C_RESET
+    give back 0
+}
+
+-- Retained only to document the immutable v0.14.0 protocol limitations. New
+-- clients never call it. It cannot fetch recursive UI payloads, honor custom
+-- FREAK_HOME, or safely self-replace a running Windows executable.
+task hangar_install_freak_v014_legacy_protocol() -> int {
     say "  Detecting platform..."
 
     -- Detect OS via environment variables (reliable, no shell expansion needed)

@@ -1,4 +1,12 @@
-# FREAK v3 Compiler Design
+# FREAK v3 Compiler Design (Historical Proposal)
+
+> **Preservation note:** This is the original v2-to-v3 design record. It is
+> retained to explain the constraints and decisions that produced V3; it is
+> not the current build or reconstruction guide. Several planned file names
+> below changed during implementation, and the v2 bootstrap executable was
+> retired. See [`v3/README.md`](v3/README.md) for the as-built eight-file
+> architecture, exact source order, checked-in C bootstrap seed, clean
+> self-host fixed-point procedure, supported surface, and legacy status.
 
 ## Why v3?
 
@@ -142,7 +150,11 @@ task emit(s: word) -> void {
 }
 ```
 
-### File Structure
+### Planned File Structure (Historical)
+
+The following was the proposed split. The preserved implementation uses
+`globals.fk` and `helpers.fk` rather than separate `ast.fk`, `builtins.fk`, and
+`runtime.fk`; the authoritative current inventory is in `v3/README.md`.
 
 ```
 src/compiler/v3/
@@ -157,7 +169,13 @@ src/compiler/v3/
     runtime.fk       -- Runtime function registry
 ```
 
-### Bootstrap Strategy
+### Original Bootstrap Strategy (Historical)
+
+This describes the one-time transition from v2. A modern reconstruction does
+not require `freakc_v2.exe`: it links the reviewed
+`build/freakc_v3.fk.c` seed, regenerates V3 twice from a fresh ordered source
+aggregate, and requires the two generated C stages to be byte-identical. See
+`v3/README.md` for that procedure.
 
 v3 is compiled by v2 (the existing `freakc_v2.exe`). Key constraint:
 - Each v3 source file must be small enough for v2 to handle

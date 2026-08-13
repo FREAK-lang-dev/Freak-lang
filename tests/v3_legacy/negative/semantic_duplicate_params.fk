@@ -1,0 +1,3 @@
+task duplicate(value: int, value: int) {}
+
+task main() {}
