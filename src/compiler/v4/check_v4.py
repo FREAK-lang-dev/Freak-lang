@@ -9110,7 +9110,20 @@ EXECUTABLE_SMOKES = [
             "task-return-schema-variants-rejected=true",
             "task-return-schema-variants-atomic=true",
             "task-return-editor-display=task keep<'a>(...) -> lend 'a maybe<[word;2]>",
-            "task-return-return-only-invalidation=task changed(...) -> int|task changed(...) -> num",
+            "task-return-invalidation-edit-isolated=true",
+            "task-return-before-ty=int",
+            "task-return-before-mir=int",
+            "task-return-before-borrow=clean",
+            "task-return-before-editor=task changed(...) -> int",
+            "task-return-invalidation-hir=true",
+            "task-return-invalidation-ty=true",
+            "task-return-invalidation-mir=true",
+            "task-return-invalidation-borrowck=true",
+            "task-return-invalidation-editor=true",
+            "task-return-after-ty=num",
+            "task-return-after-mir=num",
+            "task-return-after-borrow=clean",
+            "task-return-after-editor=task changed(...) -> num",
         ],
     },
 ]
@@ -9408,6 +9421,126 @@ def freak_tasks_containing(source: str, needle: str) -> set[str]:
         for task_name in task_names
         if needle in (freak_task_body(source, task_name) or "")
     }
+
+
+def freak_task_calls(source: str, body: str) -> set[str]:
+    task_names = set(re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", source))
+    return {
+        task_name
+        for task_name in task_names
+        if re.search(rf"\b{re.escape(task_name)}\s*\(", body) is not None
+    }
+
+
+def freak_task_call_closure(source: str, roots: set[str]) -> set[str]:
+    task_names = set(re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", source))
+    pending = sorted(roots & task_names)
+    reached: set[str] = set()
+    while pending:
+        task_name = pending.pop()
+        if task_name in reached:
+            continue
+        reached.add(task_name)
+        body = freak_task_body(source, task_name)
+        if body is None:
+            continue
+        pending.extend(sorted(freak_task_calls(source, body) - reached))
+    return reached
+
+
+def freak_braced_arm(body: str, marker: str) -> str | None:
+    marker_index = body.find(marker)
+    if marker_index < 0:
+        return None
+    open_index = body.find("{", marker_index + len(marker))
+    if open_index < 0:
+        return None
+    close_index = freak_matching_brace(body, open_index, len(body))
+    if close_index is None:
+        return None
+    return body[open_index + 1 : close_index]
+
+
+def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:
+    violations: list[str] = []
+    explicit_roots = {
+        "v4_ty_ordinary_task_explicit_return_from_hir",
+        "v4_ty_ordinary_task_explicit_return_span_from_hir",
+    }
+
+    surface_body = freak_task_body(ty_source, "v4_ty_signature_return_surface_type")
+    surface_arm = None if surface_body is None else freak_braced_arm(
+        surface_body,
+        "if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id)",
+    )
+    if surface_arm is None or "v4_ty_task_return_from_hir" not in surface_arm:
+        violations.append("task return ordinary surface dispatch no longer enters the HIR return dispatcher")
+    elif "v4_ty_nonordinary_signature_return_fallback" in surface_arm:
+        violations.append("task return ordinary surface dispatch reaches the nonordinary fallback")
+    if surface_arm is not None:
+        explicit_roots.update(
+            freak_task_calls(ty_source, surface_arm) - {"v4_ty_task_return_from_hir"}
+        )
+
+    hir_dispatch_body = freak_task_body(ty_source, "v4_ty_task_return_from_hir")
+    explicit_arm = None if hir_dispatch_body is None else freak_braced_arm(
+        hir_dispatch_body,
+        "if form == v4_hir_task_return_explicit",
+    )
+    if explicit_arm is None:
+        violations.append("task return HIR dispatcher has no bounded explicit-return arm")
+    else:
+        explicit_roots.update(freak_task_calls(ty_source, explicit_arm))
+
+    span_body = freak_task_body(ty_source, "v4_ty_signature_return_span")
+    span_arm = None if span_body is None else freak_braced_arm(
+        span_body,
+        "if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id)",
+    )
+    if span_arm is None:
+        violations.append("task return signature span dispatcher has no bounded ordinary-task arm")
+    else:
+        explicit_roots.update(freak_task_calls(ty_source, span_arm))
+
+    reached = freak_task_call_closure(ty_source, explicit_roots)
+    forbidden_tasks = {
+        "v4_ty_nonordinary_signature_return_fallback",
+        "v4_ty_nonordinary_signature_return_span_fallback",
+        "v4_ty_nonordinary_hir_item_return_fallback",
+        "v4_ty_task_return_from_tokens",
+        "v4_ty_task_return_span_from_tokens",
+    }
+    reached_forbidden = sorted(reached & forbidden_tasks)
+    if reached_forbidden:
+        violations.append(
+            "task return explicit HIR call closure reaches forbidden fallback: "
+            + ", ".join(reached_forbidden)
+        )
+
+    forbidden_fragments = (
+        "v4_ty_type_text",
+        "v4_lex_",
+        "v4_parse_",
+        "v4_expand_",
+        "_token",
+        "v4_ty_span_from_tokens",
+    )
+    for task_name in sorted(reached):
+        body = freak_task_body(ty_source, task_name) or ""
+        for forbidden in forbidden_fragments:
+            if forbidden in body:
+                violations.append(
+                    f"task return explicit HIR call closure reconstructs syntax: {task_name} uses {forbidden}"
+                )
+        token_helpers = sorted(
+            call for call in freak_task_calls(ty_source, body) if "token" in call
+        )
+        if token_helpers:
+            violations.append(
+                f"task return explicit HIR call closure reaches token helper from {task_name}: "
+                + ", ".join(token_helpers)
+            )
+    return violations
 
 
 def check_alias_hir_boundary() -> None:
@@ -9764,11 +9897,32 @@ def check_task_return_hir_boundary() -> None:
     if display_body is None or "v4_resolve_is_extern_member_def" not in display_body or "v4_ty_task_return_from_hir" not in display_body:
         violations.append("task display does not isolate extern token fallback from ordinary HIR returns")
 
+    violations.extend(task_return_explicit_call_closure_violations(ty_source))
+
+    explicit_adapter = "v4_ty_ordinary_task_explicit_return_from_hir"
+    explicit_body = freak_task_body(ty_source, explicit_adapter)
+    if explicit_body is None or "give back return_ty" not in explicit_body:
+        violations.append("task return boundary guard self-test could not locate explicit adapter return")
+    else:
+        mutated_body = explicit_body.replace(
+            "give back return_ty",
+            "give back v4_ty_nonordinary_signature_return_fallback(0, 0)",
+            1,
+        )
+        mutated_source = ty_source.replace(explicit_body, mutated_body, 1)
+        probe_violations = task_return_explicit_call_closure_violations(mutated_source)
+        if not any(
+            "v4_ty_nonordinary_signature_return_fallback" in violation
+            for violation in probe_violations
+        ):
+            violations.append("task return boundary guard self-test accepted helper-indirected fallback")
+
     if violations:
         for violation in violations:
             print(violation)
         raise SystemExit(1)
 
+    print("task return boundary guard self-test: helper-indirected fallback rejected")
     print("no syntax past HIR: ordinary task declared return type and span")
 
 

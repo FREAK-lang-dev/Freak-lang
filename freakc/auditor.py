@@ -2922,6 +2922,8 @@ def audit_conformance(paths: List[Path]) -> int:
             '"name": "task return semantic boundary"',
             '"fixture": "task_return_semantic_boundary_smoke.fk"',
             "def check_task_return_hir_boundary() -> None:",
+            "def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:",
+            "task return boundary guard self-test: helper-indirected fallback rejected",
             "check_task_return_hir_boundary()",
         ):
             if needle not in harness_src:

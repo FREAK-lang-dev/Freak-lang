@@ -27,12 +27,58 @@ task v4_task_return_symbol_display(path: word, source: word, name: word) -> word
     give back v4_document_symbol_type(symbols, symbol_id)
 }
 
-task v4_task_return_invalidation_display() -> word {
-    pilot before = "task changed() -> int " + v4_task_return_braces(" give back 7 ") + "\n"
-    pilot after = "task changed() -> num " + v4_task_return_braces(" give back 7 ") + "\n"
-    pilot before_display = v4_task_return_symbol_display("task-return-invalidation.fk", before, "changed")
-    pilot after_display = v4_task_return_symbol_display("task-return-invalidation.fk", after, "changed")
-    give back before_display + "|" + after_display
+task v4_task_return_invalidation_positive(report: word, key: word) -> bool {
+    give back word_to_int(v4_unit_snapshot_key_value(report, key)) > 0
+}
+
+task v4_task_return_invalidation_probe() -> void {
+    pilot path = "task-return-invalidation.fk"
+    pilot prefix = "task changed() -> "
+    pilot suffix = " " + v4_task_return_braces(" give back 7 ") + "\n"
+    pilot before = prefix + "int" + suffix
+    pilot after = prefix + "num" + suffix
+    say "task-return-invalidation-edit-isolated=" + v4_task_return_bool(before == prefix + "int" + suffix and after == prefix + "num" + suffix and before.length() == after.length())
+
+    v4_lsp_open_document(path, before)
+    pilot before_hir = v4_hir_text_cached(path, before)
+    pilot before_ty = v4_ty_text_cached(path, before)
+    pilot before_mir = v4_mir_text_cached(path, before)
+    pilot before_borrow = v4_borrowck_text_cached(path, before)
+    pilot before_symbols = v4_document_symbols_text_cached(path, before)
+    pilot before_resolve = v4_ty_resolve_id(before_ty)
+    pilot before_def = v4_resolve_def_for_name(before_resolve, "changed")
+    pilot before_sig = v4_ty_lookup_signature(before_ty, before_def)
+    pilot before_body = v4_mir_lookup_body(before_mir, before_def)
+    pilot before_result = v4_borrowck_lookup_result(before_borrow, before_def)
+    pilot before_symbol = v4_task_return_find_symbol(before_symbols, "changed")
+    say "task-return-before-ty=" + v4_ty_signature_return_type(before_ty, before_sig)
+    say "task-return-before-mir=" + v4_mir_expected_return_type(before_mir, before_body)
+    say "task-return-before-borrow=" + v4_borrowck_result_status(before_borrow, before_result)
+    say "task-return-before-editor=" + v4_document_symbol_type(before_symbols, before_symbol)
+
+    pilot change = v4_lsp_handle_text_request("textDocument/didChange", path, after, 0)
+    pilot report = v4_unit_snapshot_line(change, 2)
+    say "task-return-invalidation-hir=" + v4_task_return_bool(v4_task_return_invalidation_positive(report, "hir-invalidations-added"))
+    say "task-return-invalidation-ty=" + v4_task_return_bool(v4_task_return_invalidation_positive(report, "ty-invalidations-added"))
+    say "task-return-invalidation-mir=" + v4_task_return_bool(v4_task_return_invalidation_positive(report, "mir-invalidations-added"))
+    say "task-return-invalidation-borrowck=" + v4_task_return_bool(v4_task_return_invalidation_positive(report, "borrowck-invalidations-added"))
+    say "task-return-invalidation-editor=" + v4_task_return_bool(v4_task_return_invalidation_positive(report, "editor-invalidations-added"))
+
+    pilot after_hir = v4_hir_text_cached(path, after)
+    pilot after_ty = v4_ty_text_cached(path, after)
+    pilot after_mir = v4_mir_text_cached(path, after)
+    pilot after_borrow = v4_borrowck_text_cached(path, after)
+    pilot after_symbols = v4_document_symbols_text_cached(path, after)
+    pilot after_resolve = v4_ty_resolve_id(after_ty)
+    pilot after_def = v4_resolve_def_for_name(after_resolve, "changed")
+    pilot after_sig = v4_ty_lookup_signature(after_ty, after_def)
+    pilot after_body = v4_mir_lookup_body(after_mir, after_def)
+    pilot after_result = v4_borrowck_lookup_result(after_borrow, after_def)
+    pilot after_symbol = v4_task_return_find_symbol(after_symbols, "changed")
+    say "task-return-after-ty=" + v4_ty_signature_return_type(after_ty, after_sig)
+    say "task-return-after-mir=" + v4_mir_expected_return_type(after_mir, after_body)
+    say "task-return-after-borrow=" + v4_borrowck_result_status(after_borrow, after_result)
+    say "task-return-after-editor=" + v4_document_symbol_type(after_symbols, after_symbol)
 }
 
 task v4_task_return_source_text() -> word {
@@ -193,4 +239,4 @@ say "task-return-schema-variants-rejected=" + v4_task_return_bool(v4_task_return
 say "task-return-schema-variants-atomic=" + v4_task_return_bool(v4_task_return_schema_atomic)
 
 say "task-return-editor-display=" + v4_task_return_symbol_display("task-return-boundary.fk", v4_task_return_source, "keep")
-say "task-return-return-only-invalidation=" + v4_task_return_invalidation_display()
+v4_task_return_invalidation_probe()
