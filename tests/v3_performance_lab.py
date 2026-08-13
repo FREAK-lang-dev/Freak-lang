@@ -60,6 +60,12 @@ def _static_checks(temporary: Path) -> dict[str, Any]:
         "compile_hello",
     ]
 
+    crlf = temporary / "crlf"
+    shutil.copytree(MANIFEST.parent, crlf)
+    for source in crlf.glob("*.fk"):
+        source.write_bytes(source.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    LAB.load_manifest(crlf / "manifest.json")
+
     stale = temporary / "stale"
     shutil.copytree(MANIFEST.parent, stale)
     with (stale / "cpu_integer_10m.fk").open("a", encoding="utf-8") as stream:

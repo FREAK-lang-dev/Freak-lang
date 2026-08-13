@@ -125,6 +125,17 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sha256_source_file(path: Path) -> str:
+    """Hash FREAK source in its repository-canonical UTF-8/LF form."""
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise LabError(f"cannot read FREAK source {path}: {error}") from error
+    canonical = text.replace("\r\n", "\n").replace("\r", "\n")
+    return _sha256_text(canonical)
+
+
 def _strict_json(path: Path) -> Any:
     try:
         with path.open("r", encoding="utf-8") as stream:
@@ -216,7 +227,7 @@ def load_manifest(path: Path) -> dict[str, Any]:
             raise LabError(f"duplicate manifest source: {source_name}")
         seen_sources.add(source_name)
         source_hash = _require_string(case["source_sha256"], f"{context}.source_sha256")
-        if source_hash != _sha256_file(source):
+        if source_hash != _sha256_source_file(source):
             raise LabError(f"stale source hash for {source_name}")
 
         modes = _require_dict(case["modes"], f"{context}.modes")
