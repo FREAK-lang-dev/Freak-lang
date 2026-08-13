@@ -208,7 +208,11 @@ def main() -> int:
         # same cache entry without rebuilding.
         cached_binary = binary.read_bytes()
         cached_sidecar = sidecar.read_bytes()
-        for marker_value in (None, "freak-v3-runtime-api-999\n"):
+        for marker_value in (
+            None,
+            "freak-v3-runtime-api-1\n",
+            "freak-v3-runtime-api-999\n",
+        ):
             if marker_value is None:
                 runtime_api.unlink()
             else:

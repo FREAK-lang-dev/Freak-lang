@@ -46,9 +46,9 @@ compiler architecture or semantics.
   clearly when unsupported rather than silently degrading to packaged O2
   objects.
 - Runtime layout/signature ABI remains `freak-v3-abi-1`. Additive runtime APIs
-  will carry a separate monotonic runtime-API capability marker. A compiler
-  requiring a newer capability must reject an older same-ABI payload before
-  emission/linking.
+  carry the separate monotonic `freak-v3-runtime-api-2` capability marker. A
+  compiler requiring a newer capability must reject an older same-ABI payload
+  before emission/linking.
 - Runtime metrics are compile-time/test controlled and emit one versioned JSON
   record. Default production builds incur no large instrumentation overhead.
 

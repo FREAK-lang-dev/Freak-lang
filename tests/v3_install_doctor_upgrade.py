@@ -1468,8 +1468,8 @@ def check_doctor(
     }
     assert report["checks"]["runtime_api"] == {
         "ok": True,
-        "expected": "freak-v3-runtime-api-1",
-        "runtime": "freak-v3-runtime-api-1",
+        "expected": "freak-v3-runtime-api-2",
+        "runtime": "freak-v3-runtime-api-2",
     }
     assert report["checks"]["upgrade"]["pending"] is False
 
@@ -1501,7 +1501,7 @@ def check_doctor(
     assert missing_api_report["checks"]["abi"]["ok"] is True
     assert missing_api_report["checks"]["runtime_api"] == {
         "ok": False,
-        "expected": "freak-v3-runtime-api-1",
+        "expected": "freak-v3-runtime-api-2",
         "runtime": "missing",
     }
     missing_api_human = run_cli(compiler, cwd, env, "doctor")
@@ -1536,7 +1536,7 @@ def check_doctor(
             "param([switch]$Upgrade,[switch]$SkipDeps)\n"
             "$runtime = Join-Path $env:FREAK_HOME 'runtime'\n"
             "$marker = Join-Path $runtime 'freak_runtime_api'\n"
-            "[IO.File]::WriteAllText($marker, \"freak-v3-runtime-api-1`n\")\n"
+            "[IO.File]::WriteAllText($marker, \"freak-v3-runtime-api-2`n\")\n"
             "[IO.File]::WriteAllText($env:FREAK_DOCTOR_RUNTIME_API_FIX_SENTINEL, "
             "\"$Upgrade|$SkipDeps|$env:FREAK_RELEASE_TAG|$env:FREAK_INSTALL_UPGRADE\")\n"
             "$bin = Join-Path $env:FREAK_HOME 'bin'\n"
@@ -1550,7 +1550,7 @@ def check_doctor(
         fix_script = root / "doctor-runtime-api-fix.sh"
         fix_script.write_text(
             "#!/usr/bin/env bash\nset -e\n"
-            "printf 'freak-v3-runtime-api-1\\n' > "
+            "printf 'freak-v3-runtime-api-2\\n' > "
             '"$FREAK_HOME/runtime/freak_runtime_api"\n'
             "printf '%s|%s|%s' \"$FREAK_RELEASE_TAG\" \"$FREAK_HOME\" \"$*\" > "
             '"$FREAK_DOCTOR_RUNTIME_API_FIX_SENTINEL"\n',
@@ -1566,7 +1566,7 @@ def check_doctor(
     assert "Repairing the compiler/runtime/stdlib payload" in fixed_api.stdout
     assert "Upgrade payload staged successfully" in fixed_api.stdout
     assert runtime_api.read_text(encoding="utf-8").strip() == (
-        "freak-v3-runtime-api-1"
+        "freak-v3-runtime-api-2"
     )
     fix_record = fix_sentinel.read_text(encoding="utf-8")
     if sys.platform == "win32":
@@ -1600,8 +1600,8 @@ def check_doctor(
     repaired_api_report = json.loads(repaired_api.stdout)
     assert repaired_api_report["checks"]["runtime_api"] == {
         "ok": True,
-        "expected": "freak-v3-runtime-api-1",
-        "runtime": "freak-v3-runtime-api-1",
+        "expected": "freak-v3-runtime-api-2",
+        "runtime": "freak-v3-runtime-api-2",
     }
 
     runtime_api.write_text("freak-v3-runtime-api-999\n", encoding="utf-8")
