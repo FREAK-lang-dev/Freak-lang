@@ -2964,10 +2964,6 @@ def audit_conformance(paths: List[Path]) -> int:
             + "; ".join(task_return_boundary_missing)
         )
 
-    # ── Check 10: V4 contract-region source sets ──
-    # Borrowed return signatures may select every parameter whose lifetime
-    # outlives the return region. Require the set-valued TY/MIR/Meiya contract,
-    # editor lifetime resolution, and executable source-set fixtures.
     # Check 9c: ordinary-task parameter contracts belong to HIR. Nonordinary
     # impl/doctrine/extern signatures remain explicit, guarded token fallbacks.
     v4_hir_task_param = repo / "src" / "compiler" / "v4" / "crates" / "freak_hir" / "src" / "lib.fk"
@@ -3057,6 +3053,10 @@ def audit_conformance(paths: List[Path]) -> int:
             + "; ".join(task_param_boundary_missing)
         )
 
+    # ── Check 10: V4 contract-region source sets ──
+    # Borrowed return signatures may select every parameter whose lifetime
+    # outlives the return region. Require the set-valued TY/MIR/Meiya contract,
+    # editor lifetime resolution, and executable source-set fixtures.
     v4_ty_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
     v4_borrowck_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_borrowck" / "src" / "lib.fk"
     v4_editor_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
