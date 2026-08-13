@@ -1548,6 +1548,232 @@ task v4_borrowck_path_root(path_text: word) -> word {
     give back canon
 }
 
+-- Meiya owns this TY-backed interpretation of stored call facts. Built-MIR
+-- remains source-independent, and borrowck does not depend on MIR construction.
+task v4_borrowck_call_borrowed_source_signature_id(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
+        give back 0 - 1
+    }
+    if rvalue_id < 0 or rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        give back 0 - 1
+    }
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call {
+        give back 0 - 1
+    }
+    if v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id) >= 0 or v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id) >= 0 {
+        give back 0 - 1
+    }
+
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, v4_mir_rvalue_op(mir_id, body_id, rvalue_id))
+    if sig_id < 0 {
+        give back 0 - 1
+    }
+    if not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
+        give back 0 - 1
+    }
+
+    pilot call_return_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot signature_return_ty = v4_ty_signature_return_type(ty_id, sig_id)
+    if not v4_ty_types_compatible_in_signature(ty_id, sig_id, signature_return_ty, call_return_ty) {
+        give back 0 - 1
+    }
+    if v4_ty_is_lend_type(signature_return_ty) {
+        if not v4_ty_is_lend_type(call_return_ty) or v4_ty_lend_mode(signature_return_ty) != v4_ty_lend_mode(call_return_ty) {
+            give back 0 - 1
+        }
+        give back sig_id
+    }
+    pilot signature_leaf_count = v4_ty_fixed_lend_leaf_count(ty_id, signature_return_ty)
+    pilot signature_has_lend_schema: bool = v4_ty_type_stores_lend(ty_id, signature_return_ty)
+    if signature_leaf_count == 0 and v4_ty_type_contains_lend(signature_return_ty) {
+        signature_has_lend_schema = true
+    }
+    if not v4_ty_type_supports_fixed_lend_storage(ty_id, signature_return_ty) or not signature_has_lend_schema {
+        give back 0 - 1
+    }
+    pilot call_leaf_count = v4_ty_fixed_lend_leaf_count(ty_id, call_return_ty)
+    pilot call_has_lend_schema: bool = v4_ty_type_may_store_lend(ty_id, call_return_ty)
+    if call_leaf_count == 0 and v4_ty_type_contains_lend(call_return_ty) {
+        call_has_lend_schema = true
+    }
+    if not v4_ty_type_supports_fixed_lend_storage(ty_id, call_return_ty) or not call_has_lend_schema {
+        give back 0 - 1
+    }
+    give back sig_id
+}
+
+task v4_borrowck_call_return_lend_leaf_count(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    pilot sig_id = v4_borrowck_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
+    if sig_id < 0 { give back 0 - 1 }
+    give back v4_ty_signature_return_lend_leaf_count(v4_mir_ty_id(mir_id), sig_id)
+}
+
+task v4_borrowck_call_return_lend_leaf_projection_at(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> word {
+    pilot sig_id = v4_borrowck_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
+    if sig_id < 0 { give back "" }
+    give back v4_ty_signature_return_lend_leaf_projection_at(v4_mir_ty_id(mir_id), sig_id, return_leaf_id)
+}
+
+task v4_borrowck_call_borrowed_source_payload_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> word {
+    pilot sig_id = v4_borrowck_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
+    if sig_id < 0 or return_leaf_id < 0 { give back v4_ty_return_lend_source_opaque }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot source_payload = v4_ty_signature_return_lend_source_payload(ty_id, sig_id, return_leaf_id)
+    pilot source_count = v4_ty_return_lend_source_payload_count(source_payload)
+    if source_count < 0 { give back v4_ty_return_lend_source_opaque }
+
+    pilot fixed_param_count = v4_ty_signature_fixed_param_count(ty_id, sig_id)
+    if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) < fixed_param_count {
+        give back v4_ty_return_lend_source_opaque
+    }
+    pilot mapped = ""
+    pilot source_id = 0
+    repeat until source_id >= source_count {
+        pilot edge = v4_ty_return_lend_source_payload_at(source_payload, source_id)
+        if edge == "" { give back v4_ty_return_lend_source_opaque }
+        pilot param_id = word_to_int(v4_resolve_snapshot_field_raw(edge, 0))
+        if param_id < 0 or param_id >= fixed_param_count {
+            give back v4_ty_return_lend_source_opaque
+        }
+        pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, param_id)
+        if arg_rvalue < 0 or arg_rvalue >= v4_mir_body_rvalue_count(mir_id, body_id) {
+            give back v4_ty_return_lend_source_opaque
+        }
+
+        pilot arg_ty = v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+        pilot param_type = v4_ty_signature_param_type(ty_id, sig_id, param_id)
+        pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_id)
+        if param_mode == v4_ty_param_mode_lend or param_mode == v4_ty_param_mode_lend_mut {
+            if not v4_ty_is_lend_type(arg_ty) {
+                give back v4_ty_return_lend_source_opaque
+            }
+            if param_mode == v4_ty_param_mode_lend_mut and not v4_ty_is_lend_mut_type(arg_ty) {
+                give back v4_ty_return_lend_source_opaque
+            }
+            if not v4_ty_types_compatible_in_signature(ty_id, sig_id, param_type, v4_ty_lend_target_type(arg_ty)) {
+                give back v4_ty_return_lend_source_opaque
+            }
+        } else {
+            if not v4_ty_type_supports_fixed_lend_storage(ty_id, arg_ty) or not v4_ty_type_may_store_lend(ty_id, arg_ty) {
+                give back v4_ty_return_lend_source_opaque
+            }
+            if not v4_ty_types_compatible_in_signature(ty_id, sig_id, param_type, arg_ty) {
+                give back v4_ty_return_lend_source_opaque
+            }
+        }
+        pilot projection = v4_resolve_snapshot_field_raw(edge, 1)
+        pilot guard = v4_resolve_snapshot_field_raw(edge, 2)
+        mapped = v4_ty_return_lend_source_payload_append(mapped, word_from_int(arg_rvalue) + "|" + projection + "|" + guard)
+        source_id += 1
+    }
+    give back mapped
+}
+
+task v4_borrowck_call_borrowed_source_edge_at_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int, source_id: int) -> word {
+    pilot payload = v4_borrowck_call_borrowed_source_payload_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id)
+    give back v4_ty_return_lend_source_payload_at(payload, source_id)
+}
+
+task v4_borrowck_call_borrowed_source_arg_count_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> int {
+    pilot payload = v4_borrowck_call_borrowed_source_payload_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id)
+    give back v4_ty_return_lend_source_payload_count(payload)
+}
+
+task v4_borrowck_call_borrowed_source_arg_at_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int, source_id: int) -> int {
+    pilot edge = v4_borrowck_call_borrowed_source_edge_at_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id, source_id)
+    if edge == "" { give back 0 - 1 }
+    give back word_to_int(v4_resolve_snapshot_field_raw(edge, 0))
+}
+
+task v4_borrowck_call_borrowed_source_arg_count(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        give back 0 - 1
+    }
+    give back v4_borrowck_call_borrowed_source_arg_count_for_leaf(mir_id, body_id, rvalue_id, 0)
+}
+
+task v4_borrowck_call_borrowed_source_arg_at(mir_id: int, body_id: int, rvalue_id: int, source_id: int) -> int {
+    if source_id < 0 or not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        give back 0 - 1
+    }
+    give back v4_borrowck_call_borrowed_source_arg_at_for_leaf(mir_id, body_id, rvalue_id, 0, source_id)
+}
+
+-- Compatibility query names remain callable by existing Meiya fixtures, but
+-- their policy now belongs to freak_borrowck rather than freak_mir_build.
+task v4_mir_rvalue_call_borrowed_source_signature_id(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    give back v4_borrowck_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
+}
+
+task v4_mir_rvalue_call_return_lend_leaf_count(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    give back v4_borrowck_call_return_lend_leaf_count(mir_id, body_id, rvalue_id)
+}
+
+task v4_mir_rvalue_call_return_lend_leaf_projection_at(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> word {
+    give back v4_borrowck_call_return_lend_leaf_projection_at(mir_id, body_id, rvalue_id, return_leaf_id)
+}
+
+task v4_mir_rvalue_call_return_lend_leaf_route_guard_at(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> word {
+    pilot sig_id = v4_borrowck_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
+    if sig_id < 0 { give back "" }
+    give back v4_ty_signature_return_lend_leaf_route_guard_at(v4_mir_ty_id(mir_id), sig_id, return_leaf_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_payload_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> word {
+    give back v4_borrowck_call_borrowed_source_payload_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_edge_at_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int, source_id: int) -> word {
+    give back v4_borrowck_call_borrowed_source_edge_at_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id, source_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_for_leaf(mir_id: int, body_id: int, rvalue_id: int, sig_id: int, return_leaf_id: int, source_id: int) -> int {
+    give back v4_borrowck_call_borrowed_source_arg_at_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id, source_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_count_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int) -> int {
+    give back v4_borrowck_call_borrowed_source_arg_count_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_at_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int, source_id: int) -> int {
+    give back v4_borrowck_call_borrowed_source_arg_at_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id, source_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_projection_at_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int, source_id: int) -> word {
+    pilot edge = v4_borrowck_call_borrowed_source_edge_at_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id, source_id)
+    if edge == "" { give back "" }
+    give back v4_resolve_snapshot_field_raw(edge, 1)
+}
+
+task v4_mir_rvalue_call_borrowed_source_route_guard_at_for_leaf(mir_id: int, body_id: int, rvalue_id: int, return_leaf_id: int, source_id: int) -> word {
+    pilot edge = v4_borrowck_call_borrowed_source_edge_at_for_leaf(mir_id, body_id, rvalue_id, return_leaf_id, source_id)
+    if edge == "" { give back "" }
+    give back v4_resolve_snapshot_field_raw(edge, 2)
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_for_signature(mir_id: int, body_id: int, rvalue_id: int, sig_id: int, source_id: int) -> int {
+    if not v4_ty_is_lend_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) {
+        give back 0 - 1
+    }
+    give back v4_borrowck_call_borrowed_source_arg_at_for_leaf(mir_id, body_id, rvalue_id, 0, source_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_count(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    give back v4_borrowck_call_borrowed_source_arg_count(mir_id, body_id, rvalue_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg_at(mir_id: int, body_id: int, rvalue_id: int, source_id: int) -> int {
+    give back v4_borrowck_call_borrowed_source_arg_at(mir_id, body_id, rvalue_id, source_id)
+}
+
+task v4_mir_rvalue_call_borrowed_source_arg(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    pilot source_count = v4_borrowck_call_borrowed_source_arg_count(mir_id, body_id, rvalue_id)
+    if source_count <= 0 { give back 0 - 1 }
+    if source_count > 1 { give back 0 - 2 }
+    give back v4_borrowck_call_borrowed_source_arg_at(mir_id, body_id, rvalue_id, 0)
+}
+
 task v4_borrowck_local_mode_for_path(mir_id: int, body_id: int, path_text: word) -> word {
     pilot root = v4_borrowck_path_root(path_text)
     if root == "" {
@@ -1938,7 +2164,7 @@ task v4_borrowck_projection_match_tail(pattern: word, actual: word) -> word {
 
 task v4_borrowck_fill_return_call_lend_provenance(mir_id: int, body_id: int, use_stmt: int, call_rvalue: int, projection: word, provenance_id: int) -> void {
     projection = v4_borrowck_path_canon(projection)
-    pilot leaf_count = v4_mir_rvalue_call_return_lend_leaf_count(mir_id, body_id, call_rvalue)
+    pilot leaf_count = v4_borrowck_call_return_lend_leaf_count(mir_id, body_id, call_rvalue)
     if leaf_count < 0 {
         v4_borrowck_provenance_mark_opaque(provenance_id)
         v4_borrowck_provenance_union_borrow_capable_call_args(mir_id, body_id, use_stmt, call_rvalue, provenance_id)
@@ -1954,7 +2180,7 @@ task v4_borrowck_fill_return_call_lend_provenance(mir_id: int, body_id: int, use
     pilot mapping_failed = false
     pilot leaf_id = 0
     repeat until leaf_id >= leaf_count {
-        pilot return_projection = v4_mir_rvalue_call_return_lend_leaf_projection_at(mir_id, body_id, call_rvalue, leaf_id)
+        pilot return_projection = v4_borrowck_call_return_lend_leaf_projection_at(mir_id, body_id, call_rvalue, leaf_id)
         pilot projection_tail = ""
         pilot leaf_matches: bool = projection == ""
         if not leaf_matches {
@@ -1963,7 +2189,7 @@ task v4_borrowck_fill_return_call_lend_provenance(mir_id: int, body_id: int, use
         }
         if leaf_matches {
             matched_leaf = true
-            pilot source_payload = v4_mir_rvalue_call_borrowed_source_payload_for_leaf(mir_id, body_id, call_rvalue, leaf_id)
+            pilot source_payload = v4_borrowck_call_borrowed_source_payload_for_leaf(mir_id, body_id, call_rvalue, leaf_id)
             pilot source_count = v4_ty_return_lend_source_payload_count(source_payload)
             if source_count <= 0 {
                 mapping_failed = true
@@ -3280,7 +3506,7 @@ task v4_borrowck_rvalue_is_fixed_aggregate_storage_kind(kind: word) -> bool {
 }
 
 task v4_borrowck_call_arg_retained_in_fixed_result(mir_id: int, body_id: int, call_rvalue: int, arg_id: int) -> bool {
-    pilot sig_id = v4_mir_signature_id_for_name(mir_id, v4_mir_rvalue_op(mir_id, body_id, call_rvalue))
+    pilot sig_id = v4_ty_task_signature_id_for_name(v4_mir_ty_id(mir_id), v4_mir_rvalue_op(mir_id, body_id, call_rvalue))
     pilot ty_id = v4_mir_ty_id(mir_id)
     if sig_id < 0 or not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) {
         give back true
@@ -3892,11 +4118,11 @@ task v4_borrowck_rvalue_returns_holder(mir_id: int, body_id: int, rvalue_id: int
             give back false
         }
         if v4_ty_is_lend_type(result_ty) {
-            pilot source_count = v4_mir_rvalue_call_borrowed_source_arg_count(mir_id, body_id, rvalue_id)
+            pilot source_count = v4_borrowck_call_borrowed_source_arg_count(mir_id, body_id, rvalue_id)
             if source_count >= 0 {
                 pilot source_id = 0
                 repeat until source_id >= source_count {
-                    pilot source_arg = v4_mir_rvalue_call_borrowed_source_arg_at(mir_id, body_id, rvalue_id, source_id)
+                    pilot source_arg = v4_borrowck_call_borrowed_source_arg_at(mir_id, body_id, rvalue_id, source_id)
                     if source_arg >= 0 and v4_borrowck_rvalue_returns_holder(mir_id, body_id, source_arg, holder) { give back true }
                     source_id += 1
                 }
@@ -3904,10 +4130,10 @@ task v4_borrowck_rvalue_returns_holder(mir_id: int, body_id: int, rvalue_id: int
             }
         } else if v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), result_ty) {
             pilot leaf_id = 0
-            pilot leaf_count = v4_mir_rvalue_call_return_lend_leaf_count(mir_id, body_id, rvalue_id)
+            pilot leaf_count = v4_borrowck_call_return_lend_leaf_count(mir_id, body_id, rvalue_id)
             if leaf_count < 0 { give back true }
             repeat until leaf_id >= leaf_count {
-                pilot source_payload = v4_mir_rvalue_call_borrowed_source_payload_for_leaf(mir_id, body_id, rvalue_id, leaf_id)
+                pilot source_payload = v4_borrowck_call_borrowed_source_payload_for_leaf(mir_id, body_id, rvalue_id, leaf_id)
                 pilot source_count = v4_ty_return_lend_source_payload_count(source_payload)
                 if source_count < 0 { give back true }
                 pilot source_id = 0
@@ -4014,14 +4240,14 @@ task v4_borrowck_collect_call_holder_projections(mir_id: int, body_id: int, rval
     pilot leaf_id = 0
     pilot relation_count = 0
     pilot call_stmt = v4_borrowck_stmt_for_rvalue(mir_id, body_id, rvalue_id)
-    pilot leaf_count = v4_mir_rvalue_call_return_lend_leaf_count(mir_id, body_id, rvalue_id)
+    pilot leaf_count = v4_borrowck_call_return_lend_leaf_count(mir_id, body_id, rvalue_id)
     if leaf_count < 0 {
         v4_borrowck_projection_array_push_unique(projections, v4_borrowck_holder_projection_whole)
         give back
     }
     repeat until leaf_id >= leaf_count {
-        pilot return_projection = v4_mir_rvalue_call_return_lend_leaf_projection_at(mir_id, body_id, rvalue_id, leaf_id)
-        pilot source_payload = v4_mir_rvalue_call_borrowed_source_payload_for_leaf(mir_id, body_id, rvalue_id, leaf_id)
+        pilot return_projection = v4_borrowck_call_return_lend_leaf_projection_at(mir_id, body_id, rvalue_id, leaf_id)
+        pilot source_payload = v4_borrowck_call_borrowed_source_payload_for_leaf(mir_id, body_id, rvalue_id, leaf_id)
         pilot source_count = v4_ty_return_lend_source_payload_count(source_payload)
         if source_count < 0 {
             v4_borrowck_projection_array_push_unique(projections, v4_borrowck_holder_projection_whole)

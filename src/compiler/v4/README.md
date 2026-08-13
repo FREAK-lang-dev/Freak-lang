@@ -376,7 +376,8 @@ crates/
   freak_hir/       top-level item lowering, normalized alias-target type facts, and stable def ids
   freak_resolve/   file-local semantic index and duplicate diagnostics
   freak_ty/        item-level signatures and primitive type helpers
-  freak_mir/       typed task MIR bodies, CFG blocks, locals, places, rvalues, diagnostics
+  freak_mir/       persistent Built-MIR bodies, CFG/storage accessors, validation, diagnostics, snapshots
+  freak_mir_build/ stateless HIR+TY to Built-MIR construction and request-scoped lowering scratch
   freak_borrowck/  Meiya borrow-check paths and result scaffold over MIR bodies
   freak_codegen_llvm/ LLVM-facing declaration and call-plan lowering over MIR/TY
   freak_query/     memoized query cache prototype
@@ -389,7 +390,7 @@ crates/
 Current FREAK compilation still works best with concatenated source files, so these crates use globally unique `v4_` names and a dependency order that can be flattened by a later bootstrap script:
 
 ```text
-freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> freak_session -> freak_target -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
+freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> freak_session -> freak_target -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_mir_build -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
 ```
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
@@ -402,6 +403,28 @@ calling-convention acceptance matrix. It does not probe the host or toolchain,
 calculate physical type layout, lower function ABI signatures, or select LLVM
 calling-convention spellings. Those later subsystems must consume this target
 identity rather than create parallel target tables.
+
+`freak_mir` owns the persistent Built-MIR representation: stable file/body and
+node identities, CFG/local/place/rvalue storage, validation, diagnostics, and
+the byte-stable MIR snapshot v5 protocol. `freak_mir_build` is the stateless
+construction policy layer over HIR and TY. It keeps only request-scoped loop,
+scope, and trust-lowering scratch and preserves `v4_mir_lower_ty` as the public
+driver entrypoint. Meiya, codegen, query, and snapshot code consume the
+representation directly; Meiya and LLVM own their TY-backed interpretation of
+stored call spellings through canonical TY queries and never call construction
+tasks. Return-loan source mapping remains Meiya-owned interpretation of
+Built-MIR plus TY facts; persisting that derived policy would require an
+explicitly versioned semantic/snapshot slice rather than this mechanical move.
+The builder still
+calls `freak_span`, `freak_diag`, `freak_lex`, and `freak_parse` directly while
+the remaining token-based lowering families move behind semantic HIR/TY facts.
+`check_v4.py` pins every direct span, diagnostic, lexer, parser, token-kind, and
+span-sentinel symbol in an exact shrinking allowlist: additions fail, and
+removals require the list to shrink in the same patch. The editor's existing
+token-facing MIR helper calls resolve through `freak_mir_build` in this
+mechanical slice; moving those source views to their eventual semantic owner
+remains a separate tooling boundary slice and does not move editor facts or
+storage into the builder.
 
 `freak_expand` is currently an identity-only architecture stage. Its internal
 ExpandedFile arena records an internal arena id, source file, forwarded parse
