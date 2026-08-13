@@ -1,6 +1,10 @@
 -- V4 ordinary-task parameter HIR ownership smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
+-- Snapshot mutation marker: TRUE is canonical case-insensitive boolean
+-- vocabulary and therefore cannot be restored as an identifier-owned name.
+pilot v4_task_param_bool_name_mutation_marker = "TRUE"
+
 task v4_task_param_bool(value: bool) -> word {
     if value { give back "true" }
     give back "false"
@@ -120,6 +124,8 @@ task v4_task_param_snapshot_variant(payload: word, wanted_hir: int, wanted_item:
                     rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_escape("bad-name")
                 } else if param_field == 5 and mode == "name-keyword" {
                     rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_escape("task")
+                } else if param_field == 5 and mode == "name-bool-vocabulary" {
+                    rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_escape(v4_task_param_bool_name_mutation_marker)
                 } else if param_field == 6 and mode == "name-span-reordered" {
                     rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_field_raw(line, 11)
                 } else if param_field == 7 and mode == "mode" {
@@ -362,6 +368,7 @@ say "task-param-restored-type=" + v4_hir_task_param_surface_type(v4_task_param_h
 
 pilot v4_task_param_before_bad_files = v4_hir_file_count()
 pilot v4_task_param_before_bad_count = v4_hir_task_param_count(v4_task_param_hir, v4_task_param_rich_item)
+pilot v4_task_param_before_bad_snapshot = v4_hir_snapshot()
 pilot v4_task_param_schema_rejected = true
 pilot v4_task_param_schema_atomic = true
 pilot v4_task_param_modes = array_new()
@@ -373,6 +380,7 @@ array_push(v4_task_param_modes, "ordinal")
 array_push(v4_task_param_modes, "name-spacing")
 array_push(v4_task_param_modes, "name-punctuation")
 array_push(v4_task_param_modes, "name-keyword")
+array_push(v4_task_param_modes, "name-bool-vocabulary")
 array_push(v4_task_param_modes, "name-span-reordered")
 array_push(v4_task_param_modes, "mode")
 array_push(v4_task_param_modes, "lifetime")
@@ -391,7 +399,7 @@ repeat until v4_task_param_mode_id >= array_len(v4_task_param_modes) {
     if v4_task_param_validation.starts_with("hir-snapshot-import ok=0") == false or v4_task_param_restore.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") == false {
         v4_task_param_schema_rejected = false
     }
-    if v4_hir_file_count() != v4_task_param_before_bad_files or v4_hir_task_param_count(v4_task_param_hir, v4_task_param_rich_item) != v4_task_param_before_bad_count or v4_hir_task_param_surface_type(v4_task_param_hir, v4_task_param_rich_item, 0) != "maybe<(word,[int;2])>" {
+    if v4_hir_file_count() != v4_task_param_before_bad_files or v4_hir_task_param_count(v4_task_param_hir, v4_task_param_rich_item) != v4_task_param_before_bad_count or v4_hir_task_param_surface_type(v4_task_param_hir, v4_task_param_rich_item, 0) != "maybe<(word,[int;2])>" or v4_hir_snapshot() != v4_task_param_before_bad_snapshot {
         v4_task_param_schema_atomic = false
     }
     v4_task_param_mode_id += 1
