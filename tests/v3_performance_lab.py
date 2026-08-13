@@ -235,44 +235,67 @@ def _process_tree_checks(temporary: Path) -> None:
     _assert_descendant_stopped(overflow_pid, overflow_ready, "launcher output overflow")
 
     if sys.platform == "win32":
-        import ctypes
         import msvcrt
 
         sentinel_path = temporary / "must-not-inherit.handle"
         sentinel_path.write_bytes(b"sentinel\n")
-        sentinel_fd = os.open(sentinel_path, os.O_RDONLY | os.O_BINARY)
-        os.set_inheritable(sentinel_fd, True)
-        sentinel_handle = msvcrt.get_osfhandle(sentinel_fd)
         handle_probe = (
-            "import ctypes, sys\n"
+            "import ctypes, os, sys\n"
             "from ctypes import wintypes\n"
             "kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)\n"
-            "kernel32.GetHandleInformation.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]\n"
-            "kernel32.GetHandleInformation.restype = wintypes.BOOL\n"
-            "flags = wintypes.DWORD()\n"
+            "kernel32.GetFinalPathNameByHandleW.argtypes = "
+            "[wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]\n"
+            "kernel32.GetFinalPathNameByHandleW.restype = wintypes.DWORD\n"
+            "buffer = ctypes.create_unicode_buffer(32768)\n"
             "ctypes.set_last_error(0)\n"
-            "inherited = kernel32.GetHandleInformation(wintypes.HANDLE(int(sys.argv[1])), ctypes.byref(flags))\n"
-            "if inherited:\n"
-            "    print('unrelated handle inherited', file=sys.stderr)\n"
+            "length = kernel32.GetFinalPathNameByHandleW("
+            "wintypes.HANDLE(int(sys.argv[1])), buffer, len(buffer), 0)\n"
+            "def normalize(path):\n"
+            "    if path.startswith('\\\\\\\\?\\\\UNC\\\\'):\n"
+            "        path = '\\\\\\\\' + path[8:]\n"
+            "    elif path.startswith('\\\\\\\\?\\\\'):\n"
+            "        path = path[4:]\n"
+            "    return os.path.normcase(os.path.abspath(path))\n"
+            "if length and length < len(buffer) and normalize(buffer.value) == normalize(sys.argv[2]):\n"
+            "    print('sentinel file handle inherited', file=sys.stderr)\n"
             "    raise SystemExit(91)\n"
-            "error = ctypes.get_last_error()\n"
-            "if error != 6:\n"
-            "    print(f'unexpected GetHandleInformation error {error}', file=sys.stderr)\n"
-            "    raise SystemExit(92)\n"
-            "print('unrelated handle excluded')\n"
+            "print('sentinel file handle excluded')\n"
         )
-        try:
-            handle_result = LAB._run_bytes(
-                [sys.executable, "-c", handle_probe, str(sentinel_handle)],
-                cwd=temporary,
-                environment=os.environ,
-                timeout=5.0,
+        for probe_index in range(16):
+            sentinel_fd = os.open(sentinel_path, os.O_RDONLY | os.O_BINARY)
+            os.set_inheritable(sentinel_fd, True)
+            sentinel_handle = msvcrt.get_osfhandle(sentinel_fd)
+            try:
+                if probe_index == 0:
+                    inherited_result = subprocess.run(
+                        [sys.executable, "-c", handle_probe, str(sentinel_handle), str(sentinel_path.resolve())],
+                        cwd=temporary,
+                        env=os.environ,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=5.0,
+                        close_fds=False,
+                        check=False,
+                    )
+                    assert inherited_result.returncode == 91, (
+                        b"identity oracle did not recognize the inherited sentinel: "
+                        + inherited_result.stdout
+                        + inherited_result.stderr
+                    )
+                handle_result = LAB._run_bytes(
+                    [sys.executable, "-c", handle_probe, str(sentinel_handle), str(sentinel_path.resolve())],
+                    cwd=temporary,
+                    environment=os.environ,
+                    timeout=5.0,
+                )
+            finally:
+                os.set_inheritable(sentinel_fd, False)
+                os.close(sentinel_fd)
+            assert handle_result.returncode == 0, (
+                f"handle isolation probe {probe_index} failed: "
+                + (handle_result.stdout + handle_result.stderr).decode(errors="replace")
             )
-        finally:
-            os.set_inheritable(sentinel_fd, False)
-            os.close(sentinel_fd)
-        assert handle_result.returncode == 0, handle_result.stdout + handle_result.stderr
-        assert handle_result.stdout.strip() == b"unrelated handle excluded", handle_result.stdout
+            assert handle_result.stdout.strip() == b"sentinel file handle excluded", handle_result.stdout
 
         assignment_pid: list[int] = []
         original_assign = LAB._WindowsJob.assign
