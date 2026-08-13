@@ -157,6 +157,10 @@ def main() -> int:
             shutil.copy2(repo / "freakc" / "runtime" / name, runtime / name)
         runtime_abi = runtime / "freak_abi"
         shutil.copy2(repo / "freakc" / "runtime" / "freak_abi", runtime_abi)
+        runtime_api = runtime / "freak_runtime_api"
+        shutil.copy2(
+            repo / "freakc" / "runtime" / "freak_runtime_api", runtime_api
+        )
         if sys.platform == "win32":
             runtime_ui = runtime / "ui"
             runtime_ui.mkdir()
@@ -197,6 +201,33 @@ def main() -> int:
         code, output = invoke(freak, source_dir, source_arg, "--c", env)
         assert_run(code, output, "CACHE_A", cache_hit=True)
         assert binary.stat().st_mtime_ns == first_mtime
+
+        # Runtime API capability gates apply before the warm-cache fast path.
+        # A missing or incompatible marker must not launch or mutate the cached
+        # executable/proof, and restoring the exact marker must recover the
+        # same cache entry without rebuilding.
+        cached_binary = binary.read_bytes()
+        cached_sidecar = sidecar.read_bytes()
+        for marker_value in (None, "freak-v3-runtime-api-999\n"):
+            if marker_value is None:
+                runtime_api.unlink()
+            else:
+                runtime_api.write_text(marker_value, encoding="utf-8")
+            code, output = invoke(freak, source_dir, source_arg, "--c", env)
+            assert code != 0, output
+            assert "runtime api mismatch" in output.lower(), output
+            assert "CACHE_A" not in output, output
+            assert binary.read_bytes() == cached_binary
+            assert sidecar.read_bytes() == cached_sidecar
+
+            shutil.copy2(
+                repo / "freakc" / "runtime" / "freak_runtime_api", runtime_api
+            )
+            code, output = invoke(freak, source_dir, source_arg, "--c", env)
+            assert_run(code, output, "CACHE_A", cache_hit=True)
+            assert binary.stat().st_mtime_ns == first_mtime
+            assert binary.read_bytes() == cached_binary
+            assert sidecar.read_bytes() == cached_sidecar
 
         # Build invalidation is ordered proof-first. If the cache proof cannot
         # be removed, the old executable is preserved; if only the executable
