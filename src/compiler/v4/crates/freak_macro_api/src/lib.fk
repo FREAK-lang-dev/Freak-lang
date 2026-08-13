@@ -316,7 +316,12 @@ task v4_macro_ast_view_new(source_view: word, root_handle: word) -> word {
 }
 
 task v4_macro_ast_view_valid(ast_view: word) -> bool {
-    give back v4_macro_api_record_valid(ast_view, v4_macro_tag_ast_view, 3) and v4_macro_source_view_valid(v4_macro_api_field(ast_view, 1)) and v4_macro_api_field(ast_view, 2) != ""
+    if not v4_macro_api_record_valid(ast_view, v4_macro_tag_ast_view, 3) {
+        give back false
+    }
+    pilot source_view = v4_macro_api_field(ast_view, 1)
+    pilot root_handle = v4_macro_api_field(ast_view, 2)
+    give back v4_macro_ast_view_new(source_view, root_handle) == ast_view
 }
 
 task v4_macro_ast_view_source(ast_view: word) -> word {
@@ -344,7 +349,7 @@ task v4_macro_span_view_valid(span_view: word) -> bool {
     }
     pilot source_view = v4_macro_api_field(span_view, 1)
     pilot span = v4_macro_api_field(span_view, 2)
-    give back v4_macro_source_view_valid(source_view) and v4_macro_api_span_valid(span) and v4_span_file(span) == v4_macro_source_view_id(source_view) and v4_span_end(span) <= v4_macro_source_view_byte_length(source_view)
+    give back v4_macro_span_view_new(source_view, span) == span_view
 }
 
 task v4_macro_span_view_source(span_view: word) -> word {
@@ -385,13 +390,7 @@ task v4_macro_node_view_valid(node_view: word) -> bool {
     pilot ast_view = v4_macro_api_field(node_view, 1)
     pilot span_view = v4_macro_api_field(node_view, 4)
     pilot provenance = v4_macro_api_field(node_view, 5)
-    pilot same_source_view: bool = v4_macro_ast_view_source(ast_view) == v4_macro_span_view_source(span_view)
-    pilot provenance_valid: bool = provenance == "" or v4_generated_node_provenance_valid(provenance)
-    pilot provenance_source_matches = true
-    if provenance != "" {
-        provenance_source_matches = v4_expansion_id_source(v4_generated_node_provenance_expansion(provenance)) == v4_macro_source_view_id(v4_macro_ast_view_source(ast_view))
-    }
-    give back v4_macro_ast_view_valid(ast_view) and v4_macro_api_field(node_view, 2) != "" and v4_macro_api_field(node_view, 3) != "" and v4_macro_span_view_valid(span_view) and same_source_view and provenance_valid and provenance_source_matches
+    give back v4_macro_node_view_new(ast_view, v4_macro_api_field(node_view, 2), v4_macro_api_field(node_view, 3), span_view, provenance) == node_view
 }
 
 task v4_macro_node_view_handle(node_view: word) -> word {
@@ -501,7 +500,11 @@ task v4_macro_api_result_valid(api_result: word) -> bool {
         give back false
     }
     pilot status = v4_macro_api_field(api_result, 1)
-    give back (status == v4_macro_result_ok or status == v4_macro_result_unsupported or status == v4_macro_result_invalid) and v4_macro_api_field(api_result, 2) != ""
+    pilot operation = v4_macro_api_field(api_result, 2)
+    if (status != v4_macro_result_ok and status != v4_macro_result_unsupported and status != v4_macro_result_invalid) or operation == "" {
+        give back false
+    }
+    give back v4_macro_api_result_new(status, operation, v4_macro_api_field(api_result, 3)) == api_result
 }
 
 task v4_macro_api_result_status(api_result: word) -> word {
@@ -546,7 +549,7 @@ task v4_macro_builder_valid(builder: word) -> bool {
     }
     pilot context = v4_macro_api_field(builder, 1)
     pilot provenance = v4_macro_api_field(builder, 2)
-    give back v4_macro_context_valid(context) and v4_macro_context_has_capability(context, v4_macro_cap_build_syntax) and v4_generated_node_provenance_valid(provenance) and v4_macro_context_expansion(context) == v4_generated_node_provenance_expansion(provenance)
+    give back v4_macro_builder_open(context, provenance) == builder
 }
 
 task v4_macro_builder_can_execute(builder: word) -> bool {

@@ -611,11 +611,14 @@ EXECUTABLE_SMOKES = [
             "macro-api-effects-denied=true",
             "macro-api-context-valid=true",
             "macro-api-noncanonical-context-rejected=true",
+            "macro-api-noncanonical-context-framing-rejected=true",
             "macro-api-context-capabilities=true",
             "macro-api-expansion-owned=true",
             "macro-api-noncanonical-expansion-rejected=true",
+            "macro-api-noncanonical-expansion-framing-rejected=true",
             "macro-api-provenance-owned=true",
             "macro-api-noncanonical-provenance-rejected=true",
+            "macro-api-noncanonical-provenance-framing-rejected=true",
             "macro-api-cross-source-provenance-rejected=true",
             "macro-api-reversed-provenance-rejected=true",
             "macro-api-malformed-span-rejected=true",
@@ -625,13 +628,18 @@ EXECUTABLE_SMOKES = [
             "macro-api-expand-bridge-provenance=true",
             "macro-api-source-view-readonly=true",
             "macro-api-noncanonical-source-view-rejected=true",
+            "macro-api-noncanonical-source-view-framing-rejected=true",
             "macro-api-ast-view-readonly=true",
+            "macro-api-noncanonical-ast-view-rejected=true",
             "macro-api-span-view-readonly=true",
+            "macro-api-noncanonical-span-view-rejected=true",
             "macro-api-node-view-readonly=true",
+            "macro-api-noncanonical-node-view-rejected=true",
             "macro-api-mixed-revision-node-rejected=true",
             "macro-api-cross-source-node-provenance-rejected=true",
             "macro-api-diagnostic-structured=true",
             "macro-api-noncanonical-diagnostic-rejected=true",
+            "macro-api-noncanonical-diagnostic-framing-rejected=true",
             "macro-api-cross-source-diagnostic-rejected=true",
             "macro-api-diagnostic-adapter-fails-closed=true",
             "macro-api-diagnostic-help-adapter-fails-closed=true",
@@ -640,9 +648,11 @@ EXECUTABLE_SMOKES = [
             "macro-api-capability-denied=true",
             "macro-api-mismatched-expansion-invalid=true",
             "macro-api-builder-valid=true",
+            "macro-api-noncanonical-builder-rejected=true",
             "macro-api-builder-open-capability-denied=true",
             "macro-api-builder-cannot-execute=true",
             "macro-api-builder-add-unsupported=true",
+            "macro-api-noncanonical-result-rejected=true",
             "macro-api-builder-finish-unsupported=true",
             "macro-api-builder-deterministic=true",
             "macro-api-builder-add-invalid=true",
@@ -9095,8 +9105,22 @@ def freak_task_body(source: str, task_name: str) -> str | None:
         open_index = match.start() + brace_index
         close_index = freak_matching_brace(source, open_index, len(source))
         if close_index is None:
-            return source[open_index + 1 : signature_end]
+            return None
         return source[open_index + 1 : close_index]
+
+    marker_index = signature_end + 1
+    while marker_index < len(source) and source[marker_index] in " \t\r\n":
+        marker_index += 1
+    if source.startswith("=>", marker_index):
+        arrow_end = source.find("\n", marker_index)
+        if arrow_end < 0:
+            arrow_end = len(source)
+        return source[marker_index + 2 : arrow_end]
+    if marker_index < len(source) and source[marker_index] == "{":
+        close_index = freak_matching_brace(source, marker_index, len(source))
+        if close_index is None:
+            return None
+        return source[marker_index + 1 : close_index]
 
     done_match = re.search(r"(?m)^done[ \t]*$", source[signature_end + 1 :])
     if done_match is not None:
@@ -9122,6 +9146,11 @@ def check_alias_hir_boundary() -> None:
         "pilot later = v4_parse_outside\n"
         "task arrow_sample() => 1\n"
         "shape Later\n"
+        "task multiline_brace_sample() -> void\n"
+        "{\n"
+        "pilot local = v4_parse_multiline_inside\n"
+        "}\n"
+        "pilot multiline_later = v4_parse_multiline_outside\n"
         "task done_sample() -> void\n"
         "fixed pilot local = 1\n"
         "    say \"safe\"\n"
@@ -9130,11 +9159,14 @@ def check_alias_hir_boundary() -> None:
     )
     brace_body = freak_task_body(extractor_sample, "brace_sample")
     arrow_body = freak_task_body(extractor_sample, "arrow_sample")
+    multiline_brace_body = freak_task_body(extractor_sample, "multiline_brace_sample")
     done_body = freak_task_body(extractor_sample, "done_sample")
     if brace_body is None or "v4_parse_inside" not in brace_body or "v4_parse_outside" in brace_body or "pilot close" not in brace_body or "pilot quote" not in brace_body or "lend 'a" not in brace_body or "say" not in brace_body:
         violations.append("alias HIR guard task extractor leaks past brace task")
     if arrow_body is None or arrow_body.strip() != "1":
         violations.append("alias HIR guard task extractor misses arrow task")
+    if multiline_brace_body is None or "v4_parse_multiline_inside" not in multiline_brace_body or "v4_parse_multiline_outside" in multiline_brace_body:
+        violations.append("alias HIR guard task extractor leaks past multiline brace task")
     if done_body is None or "fixed pilot local" not in done_body or "say \"safe\"" not in done_body or "doctrine Final" in done_body:
         violations.append("alias HIR guard task extractor leaks past done task")
 
