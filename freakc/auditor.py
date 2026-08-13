@@ -1668,9 +1668,10 @@ def audit_conformance(paths: List[Path]) -> int:
         "run pipeline": (
             repo / "src" / "cli" / "run.fk",
             (
-                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v3"',
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v4"',
                 "task cli_run_fingerprint",
                 "task cli_run_clang_identity",
+                "task cli_run_linker_identity",
                 "certutil -hashfile",
                 "sha256sum ",
                 "task cli_run_cache_record",
@@ -1691,7 +1692,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 "untrusted stale artifact could not be removed",
                 "task cli_cross_target_is_safe",
                 "invalid target triple",
-                'pilot use_bundle = is_win and cross == "" and runtime_obj_ext != ""',
+                "task cli_runtime_link_plan",
+                'cli_is_windows() and cross == "" and lto == "off" and runtime_obj_ext != ""',
                 "Linking packaged Windows runtime objects",
                 "POSIX double quotes still expand",
             ),
