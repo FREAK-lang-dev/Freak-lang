@@ -1510,6 +1510,10 @@ def check_doctor(
     )
     assert "Runtime API mismatch" in missing_api_human.stdout
     assert "runtime=missing" in missing_api_human.stdout
+    assert "skipped (fix clang/payload/ABI/pending upgrade first)" in (
+        missing_api_human.stdout
+    )
+    assert "compile, link, and execution work" not in missing_api_human.stdout
     assert not list(probe_temp.glob("freak-doctor-*-probe-*"))
     for backend in ("--c", "--llvm"):
         rejected_api_build = run_cli(
@@ -1575,6 +1579,10 @@ def check_doctor(
         pending_report = json.loads(pending_report_result.stdout)
         assert pending_report["checks"]["runtime_api"]["ok"] is True
         assert pending_report["checks"]["upgrade"]["pending"] is True
+        assert "skipped (fix clang/payload/ABI/pending upgrade first)" in (
+            fixed_api.stdout
+        )
+        assert "compile, link, and execution work" not in fixed_api.stdout
         pending_after_fix.unlink()
     else:
         assert fix_record == (
@@ -1582,6 +1590,9 @@ def check_doctor(
         ), fix_record
         assert fixed_api.returncode == 0, fixed_api.stdout + fixed_api.stderr
         assert "compile, link, and execution work" in fixed_api.stdout
+        assert "skipped (fix clang/payload/ABI/pending upgrade first)" not in (
+            fixed_api.stdout
+        )
     assert not list(probe_temp.glob("freak-doctor-*-probe-*"))
 
     repaired_api = run_cli(compiler, cwd, env, "doctor", "--json")
