@@ -3,10 +3,17 @@
   "capabilities": {
     "v4_native": false
   },
+  "required_fixture_categories": [
+    "compatible_positive",
+    "intentional_difference",
+    "syntax_negative",
+    "type_negative"
+  ],
   "cases": [
     {
       "id": "compatible-basic-task",
-      "taxonomy": "equal",
+      "fixture_category": "compatible_positive",
+      "relationship": "equal",
       "source": "compatible/basic_task.fk",
       "intentional_difference_reason": "",
       "requires_v4_native": false,
@@ -21,9 +28,10 @@
       }
     },
     {
-      "id": "negative-missing-parameter",
-      "taxonomy": "negative",
-      "source": "negative/missing_parameter.fk",
+      "id": "negative-missing-task-body",
+      "fixture_category": "syntax_negative",
+      "relationship": "equal",
+      "source": "negative/missing_task_body.fk",
       "intentional_difference_reason": "",
       "requires_v4_native": false,
       "compare": [
@@ -38,7 +46,8 @@
     },
     {
       "id": "negative-constant-type-mismatch",
-      "taxonomy": "negative",
+      "fixture_category": "type_negative",
+      "relationship": "equal",
       "source": "negative/constant_type_mismatch.fk",
       "intentional_difference_reason": "",
       "requires_v4_native": false,
@@ -54,7 +63,8 @@
     },
     {
       "id": "v4-extension-named-lifetime",
-      "taxonomy": "v4_extension",
+      "fixture_category": "intentional_difference",
+      "relationship": "v4_extension",
       "source": "v4_extension/named_lifetime.fk",
       "intentional_difference_reason": "V4 accepts explicit named lifetime parameters and lend-qualified parameter and return types; shipping V3 rejects that syntax.",
       "requires_v4_native": false,

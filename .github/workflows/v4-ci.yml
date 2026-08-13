@@ -10,6 +10,74 @@ permissions:
   contents: read
 
 jobs:
+  v4-differential-frontend:
+    name: V3/V4 frontend differential
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: Build current V3 CLI in isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/freak-v4-differential"
+          mkdir -p "$root"
+          cat \
+            src/compiler/v3/globals.fk \
+            src/compiler/v3/helpers.fk \
+            src/compiler/v3/lexer.fk \
+            src/compiler/v3/parser.fk \
+            src/compiler/v3/checker.fk \
+            src/compiler/v3/emit_c.fk \
+            src/compiler/v3/emit_llvm.fk \
+            src/compiler/v3/main.fk \
+            > "$root/freakc_v3.fk"
+          clang -o "$root/freakc_seed" build/freakc_v3.fk.c \
+            freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O0 -lm
+          "$root/freakc_seed" "$root/freakc_v3.fk" --c
+          clang -o "$root/freakc_stage2" "$root/freakc_v3.fk.c" \
+            freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O0 -lm
+          cat \
+            std/version.fk \
+            src/compiler/v3/globals.fk \
+            src/compiler/v3/helpers.fk \
+            src/compiler/v3/lexer.fk \
+            src/compiler/v3/parser.fk \
+            src/compiler/v3/checker.fk \
+            src/compiler/v3/emit_c.fk \
+            src/compiler/v3/emit_llvm.fk \
+            src/cli/version.fk \
+            src/cli/toml.fk \
+            src/cli/lockfile.fk \
+            src/cli/build.fk \
+            src/cli/run.fk \
+            src/cli/hangar.fk \
+            src/cli/doctor.fk \
+            src/cli/audit.fk \
+            src/cli/main.fk \
+            > "$root/freakc_cli.fk"
+          "$root/freakc_stage2" "$root/freakc_cli.fk" --c
+          clang -o "$root/freak" "$root/freakc_cli.fk.c" \
+            freakc/runtime/freak_runtime.c -Ifreakc/runtime -w -O0 -lm
+          echo "FREAK_DIFFERENTIAL_V3=$root/freak" >> "$GITHUB_ENV"
+
+      - name: Generated V4 probe contract
+        run: python -u src/compiler/v4/tools/campaign_probe.py --self-test --clang clang
+
+      - name: Differential campaign gate
+        run: >
+          python -u tests/v4_differential/run_differential.py
+          "$FREAK_DIFFERENTIAL_V3" --clang clang
+
   v4-fast:
     name: V4 fast (${{ matrix.os }})
     strategy:

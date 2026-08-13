@@ -14,6 +14,7 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -40,6 +41,9 @@ CRATE_ORDER = (
     "freak_resolve",
     "freak_ty",
 )
+
+if not __debug__:
+    raise SystemExit("campaign_probe.py requires assertions; do not run with python -O")
 
 
 def repo_root() -> Path:
@@ -124,6 +128,8 @@ class WindowsJob:
         self.kernel32.CloseHandle.restype = wintypes.BOOL
         self.ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
         self.ntdll.NtResumeProcess.restype = ctypes.c_long
+        self.ntdll.RtlNtStatusToDosError.argtypes = [ctypes.c_long]
+        self.ntdll.RtlNtStatusToDosError.restype = wintypes.ULONG
         self.handle = self.kernel32.CreateJobObjectW(None, None)
         if not self.handle:
             raise ctypes.WinError(ctypes.get_last_error())
@@ -138,19 +144,23 @@ class WindowsJob:
             self.handle = None
             raise error
 
-    def assign_and_resume(self, process: subprocess.Popen[bytes]) -> None:
+    def assign(self, process: subprocess.Popen[bytes]) -> None:
         if not self.kernel32.AssignProcessToJobObject(self.handle, process._handle):
             raise ctypes.WinError(ctypes.get_last_error())
+
+    def resume(self, process: subprocess.Popen[bytes]) -> None:
         status = self.ntdll.NtResumeProcess(process._handle)
         if status != 0:
-            raise RuntimeError(f"NtResumeProcess failed with status {status}")
+            raise ctypes.WinError(self.ntdll.RtlNtStatusToDosError(status))
 
-    def memory_bytes(self) -> int:
+    def memory_bytes(self) -> int | None:
+        if not self.handle:
+            return None
         info = self.info_type()
         if not self.kernel32.QueryInformationJobObject(
             self.handle, 9, ctypes.byref(info), ctypes.sizeof(info), None
         ):
-            return 0
+            return None
         return max(int(info.PeakProcessMemoryUsed), int(info.PeakJobMemoryUsed))
 
     def terminate(self) -> None:
@@ -167,6 +177,8 @@ class WindowsJob:
 def v4_host_mutex(timeout_seconds: int = 3600):
     """Serialize bootstrap compiler processes with the repository-wide mutex."""
 
+    if timeout_seconds <= 0 or timeout_seconds > 4_294_967:
+        raise RuntimeError("V4 host mutex timeout must be between 1 and 4294967 seconds")
     if sys.platform.startswith("win"):
         from ctypes import wintypes
 
@@ -212,28 +224,68 @@ def v4_host_mutex(timeout_seconds: int = 3600):
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
-def _posix_group_memory(group_id: int) -> int:
+def _posix_group_memory(group_id: int) -> int | None:
     proc_root = Path("/proc")
-    if not proc_root.is_dir():
-        return 0
-    total_kb = 0
-    for entry in proc_root.iterdir():
-        if not entry.name.isdigit():
-            continue
-        try:
-            stat = (entry / "stat").read_text(encoding="ascii", errors="replace")
-            close_paren = stat.rfind(")")
-            fields = stat[close_paren + 2 :].split()
-            if close_paren < 0 or len(fields) < 3 or int(fields[2]) != group_id:
+    try:
+        if proc_root.is_dir():
+            total_kb = 0
+            found = False
+            for entry in proc_root.iterdir():
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    stat = (entry / "stat").read_text(encoding="ascii", errors="replace")
+                    close_paren = stat.rfind(")")
+                    if close_paren < 0:
+                        continue
+                    fields = stat[close_paren + 2 :].split()
+                    if len(fields) < 3 or int(fields[2]) != group_id:
+                        continue
+                    found = True
+                    for line in (entry / "status").read_text(
+                        encoding="ascii", errors="replace"
+                    ).splitlines():
+                        if line.startswith("VmRSS:") or line.startswith("VmSwap:"):
+                            total_kb += int(line.split()[1])
+                except (OSError, ValueError):
+                    continue
+            return total_kb * 1024 if found else None
+
+        measured = subprocess.run(
+            ["ps", "-axo", "pgid=,rss="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if measured.returncode != 0:
+            return None
+        total_kb = 0
+        found = False
+        for line in measured.stdout.splitlines():
+            fields = line.split()
+            if len(fields) != 2 or int(fields[0]) != group_id:
                 continue
-            for line in (entry / "status").read_text(
-                encoding="ascii", errors="replace"
-            ).splitlines():
-                if line.startswith("VmRSS:") or line.startswith("VmSwap:"):
-                    total_kb += int(line.split()[1])
-        except (OSError, ValueError):
-            continue
-    return total_kb * 1024
+            found = True
+            total_kb += int(fields[1])
+        return total_kb * 1024 if found else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def _terminate_process_tree(
+    process: subprocess.Popen[bytes], windows_job: WindowsJob | None
+) -> None:
+    if windows_job is not None:
+        windows_job.terminate()
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    if process.poll() is None:
+        process.kill()
+    process.wait()
 
 
 def run_bounded(
@@ -258,18 +310,29 @@ def run_bounded(
         windows_job = WindowsJob(memory_limit) if sys.platform.startswith("win") else None
         creationflags = 0x00000004 if windows_job is not None else 0
         with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
-            process = subprocess.Popen(
-                command,
-                cwd=cwd,
-                env=env,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                creationflags=creationflags,
-                start_new_session=windows_job is None,
-            )
             try:
+                process = subprocess.Popen(
+                    command,
+                    cwd=cwd,
+                    env=env,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    creationflags=creationflags,
+                    start_new_session=windows_job is None,
+                )
+            except BaseException:
                 if windows_job is not None:
-                    windows_job.assign_and_resume(process)
+                    windows_job.close()
+                raise
+            if windows_job is not None:
+                try:
+                    windows_job.assign(process)
+                    windows_job.resume(process)
+                except BaseException:
+                    _terminate_process_tree(process, windows_job)
+                    windows_job.close()
+                    raise
+            try:
                 started = time.monotonic()
                 peak_memory = 0
                 failure = ""
@@ -280,21 +343,20 @@ def run_bounded(
                         if windows_job is not None
                         else _posix_group_memory(process.pid)
                     )
-                    peak_memory = max(peak_memory, measured)
+                    if measured is not None:
+                        peak_memory = max(peak_memory, measured)
                     if elapsed > timeout_seconds:
                         failure = f"timeout after {timeout_seconds}s"
-                    elif measured > memory_limit:
+                    elif measured is None and windows_job is None:
+                        failure = "process-tree memory measurement unavailable"
+                    elif measured is not None and measured > memory_limit:
                         failure = (
                             f"memory limit exceeded: {measured} > {memory_limit} bytes"
                         )
                     elif stdout_path.stat().st_size > output_limit or stderr_path.stat().st_size > output_limit:
                         failure = f"output limit exceeded: {output_limit_mb}MB per stream"
                     if failure:
-                        if windows_job is not None:
-                            windows_job.terminate()
-                        else:
-                            os.killpg(process.pid, signal.SIGKILL)
-                        process.wait()
+                        _terminate_process_tree(process, windows_job)
                         break
                     time.sleep(0.05)
                 measured = (
@@ -302,14 +364,11 @@ def run_bounded(
                     if windows_job is not None
                     else _posix_group_memory(process.pid)
                 )
-                peak_memory = max(peak_memory, measured)
+                if measured is not None:
+                    peak_memory = max(peak_memory, measured)
             finally:
                 if process.poll() is None:
-                    if windows_job is not None:
-                        windows_job.terminate()
-                    else:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    process.wait()
+                    _terminate_process_tree(process, windows_job)
                 if windows_job is not None:
                     windows_job.close()
 
@@ -332,23 +391,35 @@ def run_bounded(
         )
 
 
-def _freak_word_literal(value: str) -> str:
-    return json.dumps(value, ensure_ascii=True)
+def _freak_source_builder(value: str) -> str:
+    """Encode source as numeric Unicode scalars, never FREAK literal syntax."""
 
-
-def _freak_source_initialization(value: str) -> str:
-    statements = ["pilot v4_campaign_source = \"\""]
-    for line in value.splitlines(keepends=True):
-        statements.append(
-            "v4_campaign_source = v4_campaign_source + " + _freak_word_literal(line)
-        )
+    statements = [
+        "task v4_campaign_build_source() -> word {",
+        "    pilot parts: int = array_new()",
+    ]
+    codepoints = [ord(character) for character in value]
+    for start in range(0, len(codepoints), 12):
+        encoded = " + ".join(f"chr({value})" for value in codepoints[start : start + 12])
+        statements.append(f"    array_push(parts, {encoded})")
+    statements.extend(["    give back word_join(parts)", "}"])
     return "\n".join(statements)
+
+
+def stable_word_checksum(value: bytes) -> int:
+    checksum = 14_695_981_039_346_656_037
+    for byte in value:
+        checksum ^= byte
+        checksum = (checksum * 1_099_511_628_211) & 0xFFFF_FFFF_FFFF_FFFF
+    return checksum & 0x7FFF_FFFF_FFFF_FFFF
 
 
 def build_probe_fixture(source: str) -> str:
     """Build a fixed frontend probe; the inspected source is data, not the program."""
 
-    return f'''-- Generated campaign probe. The source under test is embedded as data.
+    return f'''-- Generated campaign probe. The source under test is opaque data.
+{_freak_source_builder(source)}
+
 task v4_campaign_lex_errors(stream_id: int) -> int {{
     pilot count = 0
     pilot i = 0
@@ -399,20 +470,20 @@ task v4_campaign_ty_errors(ty_id: int) -> int {{
     give back count
 }}
 
-{_freak_source_initialization(source)}
-pilot v4_campaign_file = v4_source_add("campaign-case.fk", v4_campaign_source)
-pilot v4_campaign_stream = v4_lex_text(v4_campaign_file, v4_campaign_source)
-pilot v4_campaign_tree = v4_parse_stream(v4_campaign_file, v4_campaign_stream)
-pilot v4_campaign_expansion = v4_expand_identity(v4_campaign_file, v4_campaign_tree)
-pilot v4_campaign_hir = v4_hir_lower_expanded(v4_campaign_file, v4_campaign_expansion)
-pilot v4_campaign_resolve = v4_resolve_lower_hir(v4_campaign_file, v4_campaign_hir)
-pilot v4_campaign_ty = v4_ty_lower_resolve(v4_campaign_file, v4_campaign_resolve)
-pilot v4_campaign_lex_error_count = v4_campaign_lex_errors(v4_campaign_stream)
-pilot v4_campaign_parse_error_count = v4_campaign_parse_errors(v4_campaign_tree)
-pilot v4_campaign_hir_error_count = v4_campaign_hir_errors(v4_campaign_hir)
-pilot v4_campaign_resolve_error_count = v4_campaign_resolve_errors(v4_campaign_resolve)
-pilot v4_campaign_ty_error_count = v4_campaign_ty_errors(v4_campaign_ty)
-pilot v4_campaign_class = "none"
+pilot v4_campaign_source: word = v4_campaign_build_source()
+pilot v4_campaign_file: int = v4_source_add("campaign-case.fk", v4_campaign_source)
+pilot v4_campaign_stream: int = v4_lex_text(v4_campaign_file, v4_campaign_source)
+pilot v4_campaign_tree: int = v4_parse_stream(v4_campaign_file, v4_campaign_stream)
+pilot v4_campaign_expansion: int = v4_expand_identity(v4_campaign_file, v4_campaign_tree)
+pilot v4_campaign_hir: int = v4_hir_lower_expanded(v4_campaign_file, v4_campaign_expansion)
+pilot v4_campaign_resolve: int = v4_resolve_lower_hir(v4_campaign_file, v4_campaign_hir)
+pilot v4_campaign_ty: int = v4_ty_lower_resolve(v4_campaign_file, v4_campaign_resolve)
+pilot v4_campaign_lex_error_count: int = v4_campaign_lex_errors(v4_campaign_stream)
+pilot v4_campaign_parse_error_count: int = v4_campaign_parse_errors(v4_campaign_tree)
+pilot v4_campaign_hir_error_count: int = v4_campaign_hir_errors(v4_campaign_hir)
+pilot v4_campaign_resolve_error_count: int = v4_campaign_resolve_errors(v4_campaign_resolve)
+pilot v4_campaign_ty_error_count: int = v4_campaign_ty_errors(v4_campaign_ty)
+pilot v4_campaign_class: word = "none"
 if v4_campaign_lex_error_count > 0 {{
     v4_campaign_class = "lexical"
 }} else if v4_campaign_parse_error_count > 0 {{
@@ -424,8 +495,8 @@ if v4_campaign_lex_error_count > 0 {{
 }} else if v4_campaign_ty_error_count > 0 {{
     v4_campaign_class = "type"
 }}
-pilot v4_campaign_accepted = v4_campaign_class == "none"
-say "V4_CAMPAIGN|accepted=" + word_from_bool(v4_campaign_accepted) + "|diagnostic-class=" + v4_campaign_class
+pilot v4_campaign_accepted: bool = v4_campaign_lex_error_count == 0 and v4_campaign_parse_error_count == 0 and v4_campaign_hir_error_count == 0 and v4_campaign_resolve_error_count == 0 and v4_campaign_ty_error_count == 0
+say "V4_CAMPAIGN|accepted=" + word_from_bool(v4_campaign_accepted) + "|diagnostic-class=" + v4_campaign_class + "|source-bytes=" + word_from_int(v4_campaign_source.length()) + "|source-checksum=" + word_from_int(v4_campaign_source.checksum())
 say "V4_PHASE|tokens=" + word_from_int(v4_lex_token_count(v4_campaign_stream)) + "|lex-diags=" + word_from_int(v4_lex_diag_count(v4_campaign_stream)) + "|parse-nodes=" + word_from_int(v4_parse_node_count(v4_campaign_tree)) + "|parse-diags=" + word_from_int(v4_parse_diag_count(v4_campaign_tree)) + "|hir-items=" + word_from_int(v4_hir_item_count(v4_campaign_hir)) + "|hir-diags=" + word_from_int(v4_hir_diag_count(v4_campaign_hir)) + "|symbols=" + word_from_int(v4_resolve_symbol_count(v4_campaign_resolve)) + "|resolve-diags=" + word_from_int(v4_resolve_diag_count(v4_campaign_resolve)) + "|signatures=" + word_from_int(v4_ty_signature_count(v4_campaign_ty)) + "|ty-diags=" + word_from_int(v4_ty_diag_count(v4_campaign_ty))
 '''
 
@@ -476,29 +547,87 @@ def _visual_studio_environment(base: dict[str, str]) -> dict[str, str]:
     return enriched
 
 
+def _resolve_clang(requested: str | None, environment: dict[str, str]) -> str:
+    candidates = [requested] if requested else []
+    if sys.platform.startswith("win") and not requested:
+        candidates.append("x86_64-w64-mingw32-clang")
+    if not requested:
+        candidates.append("clang")
+    for candidate in candidates:
+        if not candidate:
+            continue
+        found = shutil.which(candidate, path=environment.get("PATH"))
+        if found:
+            return str(Path(found).resolve())
+        path = Path(candidate).expanduser()
+        if path.is_file():
+            return str(path.resolve())
+    raise RuntimeError("clang not found; V4 semantic probe is unavailable")
+
+
+def _compiler_environment(clang_path: str) -> tuple[dict[str, str], bool]:
+    environment = os.environ.copy()
+    lowered_clang = str(Path(clang_path)).lower()
+    is_llvm_mingw = "w64-mingw32-clang" in Path(clang_path).name.lower() or "llvm-mingw" in lowered_clang
+    if is_llvm_mingw:
+        for key in (
+            "INCLUDE",
+            "LIB",
+            "LIBPATH",
+            "UniversalCRTSdkDir",
+            "VCINSTALLDIR",
+            "VCToolsInstallDir",
+            "WindowsSdkDir",
+        ):
+            environment.pop(key, None)
+        return environment, True
+    return _visual_studio_environment(environment), False
+
+
 def parse_probe_output(output: str) -> dict[str, object]:
-    campaign_line = next(
-        (line for line in output.splitlines() if line.startswith("V4_CAMPAIGN|")), ""
-    )
-    phase_line = next(
-        (line for line in output.splitlines() if line.startswith("V4_PHASE|")), ""
-    )
-    if not campaign_line or not phase_line:
+    campaign_lines = [
+        line for line in output.splitlines() if line.startswith("V4_CAMPAIGN|")
+    ]
+    phase_lines = [line for line in output.splitlines() if line.startswith("V4_PHASE|")]
+    if len(campaign_lines) != 1 or len(phase_lines) != 1:
         raise RuntimeError(f"V4 probe markers missing from output: {output[-2000:]}")
+    campaign_line = campaign_lines[0]
+    phase_line = phase_lines[0]
     fields: dict[str, str] = {}
     for part in campaign_line.split("|")[1:]:
+        if part.count("=") != 1:
+            raise RuntimeError(f"V4 probe campaign marker is malformed: {campaign_line}")
         key, value = part.split("=", 1)
+        if key in fields:
+            raise RuntimeError(f"V4 probe campaign marker duplicates {key!r}")
         fields[key] = value
+    if set(fields) != {"accepted", "diagnostic-class", "source-bytes", "source-checksum"}:
+        raise RuntimeError(f"V4 probe campaign marker fields are invalid: {campaign_line}")
     if fields.get("accepted") not in {"true", "false"}:
         raise RuntimeError(f"V4 probe accepted marker is invalid: {campaign_line}")
     if fields.get("diagnostic-class") not in {
         "none", "lexical", "syntax", "hir", "resolve", "type"
     }:
         raise RuntimeError(f"V4 probe diagnostic class is invalid: {campaign_line}")
+    if (fields["accepted"] == "true") != (fields["diagnostic-class"] == "none"):
+        raise RuntimeError(f"V4 probe acceptance and diagnostic class disagree: {campaign_line}")
+    if not fields["source-bytes"].isdigit() or str(int(fields["source-bytes"])) != fields["source-bytes"]:
+        raise RuntimeError(f"V4 probe source byte count is invalid: {campaign_line}")
+    if not fields["source-checksum"].isdigit() or str(int(fields["source-checksum"])) != fields["source-checksum"]:
+        raise RuntimeError(f"V4 probe source checksum is invalid: {campaign_line}")
+    phase_pattern = (
+        r"V4_PHASE\|tokens=\d+\|lex-diags=\d+\|parse-nodes=\d+"
+        r"\|parse-diags=\d+\|hir-items=\d+\|hir-diags=\d+\|symbols=\d+"
+        r"\|resolve-diags=\d+\|signatures=\d+\|ty-diags=\d+"
+    )
+    if re.fullmatch(phase_pattern, phase_line) is None:
+        raise RuntimeError(f"V4 probe phase marker is invalid: {phase_line}")
     return {
         "accepted": fields.get("accepted") == "true",
         "diagnostic_class": fields.get("diagnostic-class", "tool"),
         "phase_summary": phase_line,
+        "source_bytes": int(fields["source-bytes"]),
+        "source_checksum": int(fields["source-checksum"]),
     }
 
 
@@ -510,7 +639,11 @@ def probe_source(
     memory_limit_mb: int,
     output_limit_mb: int,
 ) -> dict[str, object]:
-    source = source_path.read_text(encoding="utf-8")
+    source_raw = source_path.read_bytes()
+    try:
+        source = source_raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(f"source is not valid UTF-8: {source_path}") from exc
     fixture = build_probe_fixture(source)
     full_source = _flattened_crates() + "\n\n" + fixture
     if str(ROOT) not in sys.path:
@@ -530,10 +663,8 @@ def probe_source(
         c_path.write_text(c_source, encoding="utf-8")
         suffix = ".exe" if sys.platform.startswith("win") else ""
         executable = build_root / f"campaign-probe{suffix}"
-        environment = _visual_studio_environment(os.environ.copy())
-        clang_path = clang or shutil.which("clang", path=environment.get("PATH"))
-        if not clang_path:
-            raise RuntimeError("clang not found; V4 semantic probe is unavailable")
+        clang_path = _resolve_clang(clang, os.environ.copy())
+        environment, is_llvm_mingw = _compiler_environment(clang_path)
         compile_command = [
             str(clang_path),
             "-o",
@@ -545,12 +676,14 @@ def probe_source(
             "-O0",
         ]
         if sys.platform.startswith("win"):
-            for include_dir in environment.get("INCLUDE", "").split(os.pathsep):
-                if include_dir:
-                    compile_command.extend(["-isystem", include_dir])
-            for library_dir in environment.get("LIB", "").split(os.pathsep):
-                if library_dir:
-                    compile_command.append(f"-L{library_dir}")
+            if not is_llvm_mingw:
+                for include_dir in environment.get("INCLUDE", "").split(os.pathsep):
+                    if include_dir:
+                        compile_command.extend(["-isystem", include_dir])
+                for library_dir in environment.get("LIB", "").split(os.pathsep):
+                    if library_dir:
+                        compile_command.append(f"-L{library_dir}")
+            compile_command.append("-lws2_32")
         if sys.platform.startswith("linux"):
             compile_command.append("-lm")
         compiled = run_bounded(
@@ -558,7 +691,7 @@ def probe_source(
             cwd=build_root,
             env=environment,
             timeout_seconds=timeout_seconds,
-            memory_limit_mb=1024,
+            memory_limit_mb=memory_limit_mb,
             output_limit_mb=output_limit_mb,
         )
         if compiled.returncode != 0:
@@ -587,6 +720,19 @@ def probe_source(
                     + (result.stdout + result.stderr)[-4000:]
                 )
         parsed = [parse_probe_output(result.stdout + result.stderr) for result in runs]
+        expected_source_bytes = len(source_raw)
+        if any(result["source_bytes"] != expected_source_bytes for result in parsed):
+            raise RuntimeError(
+                "V4 probe did not reconstruct the exact UTF-8 source byte length: "
+                f"expected={expected_source_bytes} actual={[result['source_bytes'] for result in parsed]}"
+            )
+        expected_source_checksum = stable_word_checksum(source_raw)
+        if any(result["source_checksum"] != expected_source_checksum for result in parsed):
+            raise RuntimeError(
+                "V4 probe did not reconstruct the exact UTF-8 source checksum: "
+                f"expected={expected_source_checksum} "
+                f"actual={[result['source_checksum'] for result in parsed]}"
+            )
         deterministic = parsed[0] == parsed[1]
         out = dict(parsed[0])
         out.update(
@@ -594,7 +740,7 @@ def probe_source(
                 "schema": SCHEMA,
                 "adapter": "embedded-v4-frontend-through-ty",
                 "deterministic": deterministic,
-                "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+                "source_sha256": hashlib.sha256(source_raw).hexdigest(),
                 "native_program_executed": False,
                 "peak_memory_bytes": max(result.peak_memory_bytes for result in runs),
             }
@@ -602,27 +748,91 @@ def probe_source(
         return out
 
 
-def self_test() -> None:
-    source = 'task main() -> int {\n    give back 0\n}\n'
+def self_test(
+    *, clang: str | None, timeout_seconds: int, memory_limit_mb: int, output_limit_mb: int
+) -> None:
+    source = (
+        '-- opaque {not_interpolation} "quote" \\ /\t\x00\x01 snowman=☃\r\n'
+        "task main() -> int {\r\n    give back 0\r\n}\r\n"
+    )
     fixture = build_probe_fixture(source)
-    assert 'v4_campaign_source = v4_campaign_source + "task main() -> int {\\n"' in fixture
+    assert "{not_interpolation}" not in fixture
+    assert "snowman=☃" not in fixture
+    assert "chr(123)" in fixture and "chr(9731)" in fixture
+    assert fixture.index("pilot v4_campaign_source: word") < fixture.index("v4_source_add(")
+    assert "pilot v4_campaign_accepted: bool" in fixture
     parsed = parse_probe_output(
-        "V4_CAMPAIGN|accepted=true|diagnostic-class=none\n"
-        "V4_PHASE|tokens=10|lex-diags=0|parse-nodes=2|parse-diags=0\n"
+        "V4_CAMPAIGN|accepted=true|diagnostic-class=none|source-bytes=7|source-checksum=9\n"
+        "V4_PHASE|tokens=10|lex-diags=0|parse-nodes=2|parse-diags=0|hir-items=1|"
+        "hir-diags=0|symbols=1|resolve-diags=0|signatures=1|ty-diags=0\n"
     )
     assert parsed == {
         "accepted": True,
         "diagnostic_class": "none",
-        "phase_summary": "V4_PHASE|tokens=10|lex-diags=0|parse-nodes=2|parse-diags=0",
+        "phase_summary": "V4_PHASE|tokens=10|lex-diags=0|parse-nodes=2|parse-diags=0|"
+        "hir-items=1|hir-diags=0|symbols=1|resolve-diags=0|signatures=1|ty-diags=0",
+        "source_bytes": 7,
+        "source_checksum": 9,
     }
     assert tuple(CRATE_ORDER)[-1] == "freak_ty"
+    if sys.platform.startswith("win"):
+        old_include = os.environ.get("INCLUDE")
+        old_lib = os.environ.get("LIB")
+        try:
+            os.environ["INCLUDE"] = "C:/incompatible-msvc/include"
+            os.environ["LIB"] = "C:/incompatible-msvc/lib"
+            isolated, is_llvm_mingw = _compiler_environment(
+                "C:/toolchains/llvm-mingw/bin/x86_64-w64-mingw32-clang.exe"
+            )
+            assert is_llvm_mingw and "INCLUDE" not in isolated and "LIB" not in isolated
+        finally:
+            if old_include is None:
+                os.environ.pop("INCLUDE", None)
+            else:
+                os.environ["INCLUDE"] = old_include
+            if old_lib is None:
+                os.environ.pop("LIB", None)
+            else:
+                os.environ["LIB"] = old_lib
     try:
         run_bounded(["must-not-run"], cwd=ROOT, timeout_seconds=0)
     except RuntimeError as exc:
         assert "must all be positive" in str(exc)
     else:
         raise AssertionError("non-positive process limit was accepted")
-    print("campaign probe self-test: PASS")
+
+    sources = {
+        "opaque-positive.fk": (source.encode("utf-8"), True, "none"),
+        "syntax-negative.fk": (b"task main() -> int\n", False, "syntax"),
+        "type-negative.fk": (
+            b"fixed pilot ANSWER: int = true\n\ntask main() -> int {\n    give back 0\n}\n",
+            False,
+            "type",
+        ),
+    }
+    with tempfile.TemporaryDirectory(prefix="freak-v4-campaign-self-test-") as temporary:
+        root = Path(temporary)
+        for filename, (raw_source, accepted, diagnostic_class) in sources.items():
+            path = root / filename
+            path.write_bytes(raw_source)
+            observation = probe_source(
+                path,
+                clang=clang,
+                timeout_seconds=timeout_seconds,
+                memory_limit_mb=memory_limit_mb,
+                output_limit_mb=output_limit_mb,
+            )
+            assert observation["accepted"] is accepted, (filename, observation)
+            assert observation["diagnostic_class"] == diagnostic_class, (
+                filename,
+                observation,
+            )
+            assert observation["source_bytes"] == len(raw_source), (filename, observation)
+            assert observation["source_checksum"] == stable_word_checksum(raw_source)
+            assert observation["source_sha256"] == hashlib.sha256(raw_source).hexdigest()
+            assert observation["deterministic"] is True
+            assert observation["native_program_executed"] is False
+    print(f"campaign probe self-test: PASS compiled={len(sources)}")
 
 
 def main() -> int:
@@ -630,12 +840,28 @@ def main() -> int:
     parser.add_argument("--source", type=Path)
     parser.add_argument("--clang")
     parser.add_argument("--timeout", type=int, default=60)
-    parser.add_argument("--memory-limit-mb", type=int, default=512)
+    parser.add_argument("--memory-limit-mb", type=int, default=768)
     parser.add_argument("--output-limit-mb", type=int, default=4)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
+    if args.timeout <= 0 or args.memory_limit_mb <= 0 or args.output_limit_mb <= 0:
+        parser.error("time, memory, and output limits must all be positive")
     if args.self_test:
-        self_test()
+        if os.environ.get("FREAK_CAMPAIGN_MUTEX_HELD") == "1":
+            self_test(
+                clang=args.clang,
+                timeout_seconds=args.timeout,
+                memory_limit_mb=args.memory_limit_mb,
+                output_limit_mb=args.output_limit_mb,
+            )
+        else:
+            with v4_host_mutex(timeout_seconds=args.timeout):
+                self_test(
+                    clang=args.clang,
+                    timeout_seconds=args.timeout,
+                    memory_limit_mb=args.memory_limit_mb,
+                    output_limit_mb=args.output_limit_mb,
+                )
         return 0
     if args.source is None or not args.source.is_file():
         parser.error("--source must name an existing .fk file")
@@ -649,7 +875,7 @@ def main() -> int:
                 output_limit_mb=args.output_limit_mb,
             )
         else:
-            with v4_host_mutex():
+            with v4_host_mutex(timeout_seconds=args.timeout):
                 result = probe_source(
                     args.source.resolve(),
                     clang=args.clang,
