@@ -182,6 +182,36 @@ BOOTSTRAP_STALE_PROGRAM = """task main() {
 }
 """
 
+BOOTSTRAP_BUILDER_NEGATIVE_CASES = (
+    ("new_arity", "word_builder::new(1)", "call to 'word_builder::new' expects 0 argument(s), got 1"),
+    ("with_capacity_arity", "word_builder::with_capacity()", "call to 'word_builder::with_capacity' expects 1 argument(s), got 0"),
+    ("reserve_arity", "word_builder::reserve(1)", "call to 'word_builder::reserve' expects 2 argument(s), got 1"),
+    ("capacity_arity", "word_builder::capacity()", "call to 'word_builder::capacity' expects 1 argument(s), got 0"),
+    ("length_arity", "word_builder::length()", "call to 'word_builder::length' expects 1 argument(s), got 0"),
+    ("clear_arity", "word_builder::clear()", "call to 'word_builder::clear' expects 1 argument(s), got 0"),
+    ("append_arity", "word_builder::append(1)", "call to 'word_builder::append' expects 2 argument(s), got 1"),
+    ("append_char_arity", "word_builder::append_char(1)", "call to 'word_builder::append_char' expects 2 argument(s), got 1"),
+    ("append_int_arity", "word_builder::append_int(1)", "call to 'word_builder::append_int' expects 2 argument(s), got 1"),
+    ("finish_arity", "word_builder::finish()", "call to 'word_builder::finish' expects 1 argument(s), got 0"),
+    ("discard_arity", "word_builder::discard()", "call to 'word_builder::discard' expects 1 argument(s), got 0"),
+    ("with_capacity_type", 'word_builder::with_capacity("bad")', "call to 'word_builder::with_capacity' argument 1 expects int, got word"),
+    ("reserve_handle_type", 'word_builder::reserve("bad", 1)', "call to 'word_builder::reserve' argument 1 expects int, got word"),
+    ("reserve_capacity_type", 'word_builder::reserve(1, "bad")', "call to 'word_builder::reserve' argument 2 expects int, got word"),
+    ("capacity_type", 'word_builder::capacity("bad")', "call to 'word_builder::capacity' argument 1 expects int, got word"),
+    ("length_type", 'word_builder::length("bad")', "call to 'word_builder::length' argument 1 expects int, got word"),
+    ("clear_type", 'word_builder::clear("bad")', "call to 'word_builder::clear' argument 1 expects int, got word"),
+    ("append_handle_type", 'word_builder::append("bad", "ok")', "call to 'word_builder::append' argument 1 expects int, got word"),
+    ("append_value_type", "word_builder::append(1, 2)", "call to 'word_builder::append' argument 2 expects word, got int"),
+    ("append_char_handle_type", 'word_builder::append_char("bad", 65)', "call to 'word_builder::append_char' argument 1 expects int, got word"),
+    ("append_char_scalar_type", "word_builder::append_char(1, 1.5)", "call to 'word_builder::append_char' argument 2 expects int, got num"),
+    ("append_int_handle_type", 'word_builder::append_int("bad", 1)', "call to 'word_builder::append_int' argument 1 expects int, got word"),
+    ("append_int_value_type", 'word_builder::append_int(1, "bad")', "call to 'word_builder::append_int' argument 2 expects int, got word"),
+    ("finish_type", 'word_builder::finish("bad")', "call to 'word_builder::finish' argument 1 expects int, got word"),
+    ("discard_type", 'word_builder::discard("bad")', "call to 'word_builder::discard' argument 1 expects int, got word"),
+    ("new_return_type", 'word_builder::append(1, word_builder::new())', "call to 'word_builder::append' argument 2 expects word, got int"),
+    ("finish_return_type", 'word_builder::append_int(word_builder::finish(1), 2)', "call to 'word_builder::append_int' argument 1 expects int, got word"),
+)
+
 RUNTIME_PROBE = r'''#include "freak_runtime.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -337,6 +367,25 @@ EXPECTED_RUNTIME_STATS = {
             "copied_bytes": 48,
             "finishes": 3,
             "discards": 1,
+        },
+    },
+}
+
+EXPECTED_LEAK_RUNTIME_STATS = {
+    "schema": "freak-runtime-stats-v1",
+    "counters": {
+        "word_repeat": {
+            "calls": 0,
+            "allocations": 0,
+            "copied_bytes": 0,
+        },
+        "word_builder": {
+            "creations": 1,
+            "allocations": 1,
+            "growths": 1,
+            "copied_bytes": 4,
+            "finishes": 0,
+            "discards": 0,
         },
     },
 }
@@ -663,6 +712,8 @@ def main() -> int:
             )
             assert leaked.returncode != 0, backend
             assert "word builder ownership audit found 1 live builder(s)" in leaked.stderr
+            leak_stats = parse_runtime_stats(leaked.stderr)
+            assert leak_stats == EXPECTED_LEAK_RUNTIME_STATS, (backend, leak_stats)
 
             stdlib_source = root / f"string_repeat_{backend}.fk"
             stdlib_source.write_bytes(
@@ -810,6 +861,40 @@ def main() -> int:
             "invalid or stale word builder handle in length"
             in bootstrap_stale_run.stderr
         ), bootstrap_stale_run.stderr
+
+        for case_name, expression, diagnostic in BOOTSTRAP_BUILDER_NEGATIVE_CASES:
+            case_source = root / f"bootstrap_word_builder_{case_name}.fk"
+            case_source.write_text(
+                "task main() {\n    " + expression + "\n}\n", encoding="utf-8"
+            )
+            case_c = case_source.with_suffix(".c")
+            case_binary = root / f"bootstrap_word_builder_{case_name}{executable_suffix}"
+            for command in ("check", "build"):
+                case_c.unlink(missing_ok=True)
+                case_binary.unlink(missing_ok=True)
+                command_line = [
+                    sys.executable,
+                    "-m",
+                    "freakc",
+                    command,
+                    str(case_source),
+                ]
+                if command == "build":
+                    command_line.extend(["-o", str(case_binary)])
+                rejected = run(command_line, repo)
+                rejected_output = rejected.stdout + rejected.stderr
+                assert rejected.returncode != 0, (
+                    case_name,
+                    command,
+                    rejected_output,
+                )
+                assert diagnostic in rejected_output, (
+                    case_name,
+                    command,
+                    rejected_output,
+                )
+                assert not case_c.exists(), (case_name, command, case_c)
+                assert not case_binary.exists(), (case_name, command, case_binary)
 
         runtime_probe = root / "word_foundation_runtime_probe.c"
         runtime_probe.write_text(RUNTIME_PROBE, encoding="utf-8")

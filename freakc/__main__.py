@@ -314,7 +314,12 @@ def find_c_compiler() -> str | None:
 
 
 def transpile(source: str, path: Path):
-    """Parse + type-check + emit C.  Returns (c_source, diagnostics, uses_ui)."""
+    """Parse + type-check + emit C.
+
+    Returns (c_source, diagnostics, uses_ui, has_errors). Diagnostics are
+    rendered for display, so callers must use the structured error bit instead
+    of guessing severity from localized text.
+    """
     file_path = str(path)
 
     # Resolve imports: concatenate library .fk files into one compilation unit
@@ -325,7 +330,7 @@ def transpile(source: str, path: Path):
     except ParseError as e:
         # Use structured location info if available, falling back to string parsing
         formatted = format_parse_error(str(e), source=source, file_path=file_path)
-        return None, [formatted], uses_ui
+        return None, [formatted], uses_ui, True
 
     # Type check
     checker = TypeChecker()
@@ -352,9 +357,9 @@ def transpile(source: str, path: Path):
     except EmitError as e:
         formatted = format_emit_error(str(e), source=source, file_path=file_path)
         diag_msgs.append(formatted)
-        return None, diag_msgs, uses_ui
+        return None, diag_msgs, uses_ui, True
 
-    return c_source, diag_msgs, uses_ui
+    return c_source, diag_msgs, uses_ui, has_errors
 
 
 def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path,
@@ -448,7 +453,7 @@ def cmd_run(path: Path, keep_c: bool = False, output: str = None,
             backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile → run."""
     source = path.read_text(encoding="utf-8")
-    c_source, diags, uses_ui = transpile(source, path)
+    c_source, diags, uses_ui, _ = transpile(source, path)
 
     for d in diags:
         print(d, file=sys.stderr)
@@ -505,7 +510,7 @@ def cmd_build(path: Path, keep_c: bool = False, output: str = None,
               backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile (no run)."""
     source = path.read_text(encoding="utf-8")
-    c_source, diags, uses_ui = transpile(source, path)
+    c_source, diags, uses_ui, _ = transpile(source, path)
 
     for d in diags:
         print(d, file=sys.stderr)
@@ -550,18 +555,15 @@ def cmd_build(path: Path, keep_c: bool = False, output: str = None,
 def cmd_check(path: Path) -> int:
     """Type-check only (no compilation)."""
     source = path.read_text(encoding="utf-8")
-    _, diags, _ = transpile(source, path)
+    _, diags, _, has_errors = transpile(source, path)
 
     if not diags:
         print(_green(f"✓ {path.name}: No issues found"))
         return 0
 
     print(f"{_bold(str(path))}:")
-    has_errors = False
     for d in diags:
         print(d, file=sys.stderr)
-        if "error" in d.lower() if isinstance(d, str) else False:
-            has_errors = True
     return 1 if has_errors else 0
 
 

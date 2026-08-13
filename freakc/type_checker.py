@@ -125,6 +125,52 @@ class FuncSignature:
     is_method: bool = False
 
 
+@dataclass(frozen=True)
+class BuiltinSignature:
+    c_name: str
+    argument_types: Tuple[FreakType, ...]
+    return_type: FreakType
+    returns_owned: bool = False
+
+
+WORD_BUILDER_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "word_builder::new": BuiltinSignature(
+        "freak_word_builder_new", (), T_INT
+    ),
+    "word_builder::with_capacity": BuiltinSignature(
+        "freak_word_builder_with_capacity", (T_INT,), T_INT
+    ),
+    "word_builder::reserve": BuiltinSignature(
+        "freak_word_builder_reserve", (T_INT, T_INT), T_VOID
+    ),
+    "word_builder::capacity": BuiltinSignature(
+        "freak_word_builder_capacity", (T_INT,), T_INT
+    ),
+    "word_builder::length": BuiltinSignature(
+        "freak_word_builder_length", (T_INT,), T_INT
+    ),
+    "word_builder::clear": BuiltinSignature(
+        "freak_word_builder_clear", (T_INT,), T_VOID
+    ),
+    "word_builder::append": BuiltinSignature(
+        "freak_word_builder_append", (T_INT, T_WORD), T_VOID
+    ),
+    "word_builder::append_char": BuiltinSignature(
+        "freak_word_builder_append_char", (T_INT, T_INT), T_VOID
+    ),
+    "word_builder::append_int": BuiltinSignature(
+        "freak_word_builder_append_int", (T_INT, T_INT), T_VOID
+    ),
+    # finish consumes the handle and transfers its buffer into an owned word.
+    "word_builder::finish": BuiltinSignature(
+        "freak_word_builder_finish", (T_INT,), T_WORD, returns_owned=True
+    ),
+    "word_builder::discard": BuiltinSignature(
+        "freak_word_builder_discard", (T_INT,), T_VOID
+    ),
+}
+
+
 class Scope:
     def __init__(self, parent: Optional["Scope"] = None) -> None:
         self.parent = parent
@@ -581,8 +627,7 @@ class TypeChecker:
 
     def _check_call(self, call: Call) -> FreakType:
         # Check arguments
-        for a in call.args:
-            self._check_expr(a)
+        argument_types = [self._check_expr(a) for a in call.args]
 
         if isinstance(call.func, Ident):
             sig = self.functions.get(call.func.name)
@@ -602,6 +647,27 @@ class TypeChecker:
 
         if isinstance(call.func, PathIdent):
             fq_name = "::".join(call.func.parts)
+
+            word_builder_signature = WORD_BUILDER_SIGNATURES.get(fq_name)
+            if word_builder_signature is not None:
+                expected_arity = len(word_builder_signature.argument_types)
+                actual_arity = len(argument_types)
+                if expected_arity != actual_arity:
+                    self._error(
+                        f"call to '{fq_name}' expects {expected_arity} "
+                        f"argument(s), got {actual_arity}"
+                    )
+                else:
+                    for index, (actual, expected) in enumerate(
+                        zip(argument_types, word_builder_signature.argument_types),
+                        start=1,
+                    ):
+                        if actual != T_UNKNOWN and actual != expected:
+                            self._error(
+                                f"call to '{fq_name}' argument {index} expects "
+                                f"{expected}, got {actual}"
+                            )
+                return word_builder_signature.return_type
 
             # std::process built-ins
             process_builtins: Dict[str, Tuple[int, FreakType]] = {
@@ -679,4 +745,10 @@ class TypeChecker:
         self.diagnostics.append(Diagnostic("warning", msg, line=line))
 
 
-__all__ = ["TypeChecker", "Diagnostic", "FreakType"]
+__all__ = [
+    "BuiltinSignature",
+    "Diagnostic",
+    "FreakType",
+    "TypeChecker",
+    "WORD_BUILDER_SIGNATURES",
+]

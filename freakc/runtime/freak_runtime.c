@@ -248,8 +248,11 @@ static size_t freak_word_foundation_builder_copied_bytes = 0;
 static size_t freak_word_foundation_builder_finishes = 0;
 static size_t freak_word_foundation_builder_discards = 0;
 static bool freak_word_foundation_audit_registered = false;
+static bool freak_word_foundation_audit_emitted = false;
 
-static void freak_word_foundation_audit_at_exit(void) {
+static void freak_word_foundation_audit_emit(void) {
+    if (freak_word_foundation_audit_emitted) return;
+    freak_word_foundation_audit_emitted = true;
     fprintf(stderr,
             "FREAK_RUNTIME_STATS {\"schema\":\"freak-runtime-stats-v1\",\"counters\":{\"word_repeat\":{\"calls\":%llu,\"allocations\":%llu,\"copied_bytes\":%llu},\"word_builder\":{\"creations\":%llu,\"allocations\":%llu,\"growths\":%llu,\"copied_bytes\":%llu,\"finishes\":%llu,\"discards\":%llu}}}\n",
             (unsigned long long)freak_word_foundation_repeat_calls,
@@ -261,6 +264,11 @@ static void freak_word_foundation_audit_at_exit(void) {
             (unsigned long long)freak_word_foundation_builder_copied_bytes,
             (unsigned long long)freak_word_foundation_builder_finishes,
             (unsigned long long)freak_word_foundation_builder_discards);
+    fflush(stderr);
+}
+
+static void freak_word_foundation_audit_at_exit(void) {
+    freak_word_foundation_audit_emit();
 }
 
 static void freak_word_foundation_audit_ensure_registered(void) {
@@ -303,6 +311,7 @@ static void freak_word_foundation_audit_builder_discard(void) {
     freak_word_foundation_builder_discards += 1;
 }
 #else
+static void freak_word_foundation_audit_emit(void) {}
 static void freak_word_foundation_audit_repeat(size_t copied_bytes) {
     (void)copied_bytes;
 }
@@ -325,6 +334,7 @@ static bool freak_c_ownership_audit_registered = false;
 
 static void freak_c_ownership_audit_at_exit(void) {
     if (freak_c_owned_word_count != 0) {
+        freak_word_foundation_audit_emit();
         fprintf(stderr,
                 "FREAK: C ownership audit found %llu unreleased word allocation(s)\n",
                 (unsigned long long)freak_c_owned_word_count);
@@ -346,6 +356,7 @@ static void freak_c_ownership_audit_acquire(void) {
 
 static void freak_c_ownership_audit_release(void) {
     if (freak_c_owned_word_count == 0) {
+        freak_word_foundation_audit_emit();
         fprintf(stderr, "FREAK: C ownership audit observed an untracked release\n");
         fflush(stderr);
         _Exit(88);
@@ -1773,6 +1784,7 @@ static bool freak_llvm_ownership_audit_registered = false;
 
 static void freak_llvm_ownership_audit_at_exit(void) {
     if (freak_llvm_owned_count != 0) {
+        freak_word_foundation_audit_emit();
         fprintf(stderr,
                 "FREAK: LLVM ownership audit found %llu unreleased word allocation(s)\n",
                 (unsigned long long)freak_llvm_owned_count);
@@ -2256,6 +2268,7 @@ static bool freak_word_builder_ownership_audit_registered = false;
 
 static void freak_word_builder_ownership_audit_at_exit(void) {
     if (freak_word_builder_live_count != 0) {
+        freak_word_foundation_audit_emit();
         fprintf(stderr,
                 "FREAK: word builder ownership audit found %llu live builder(s)\n",
                 (unsigned long long)freak_word_builder_live_count);
