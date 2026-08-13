@@ -63,8 +63,51 @@ def _static_checks(temporary: Path) -> dict[str, Any]:
     crlf = temporary / "crlf"
     shutil.copytree(MANIFEST.parent, crlf)
     for source in crlf.glob("*.fk"):
-        source.write_bytes(source.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        normalized = source.read_bytes().decode("utf-8").replace("\r\n", "\n")
+        source.write_bytes(normalized.replace("\n", "\r\n").encode("utf-8"))
     LAB.load_manifest(crlf / "manifest.json")
+
+    cr_only = temporary / "cr-only"
+    shutil.copytree(MANIFEST.parent, cr_only)
+    cr_source = cr_only / "startup_empty.fk"
+    cr_text = cr_source.read_bytes().decode("utf-8").replace("\r\n", "\n")
+    cr_source.write_bytes(cr_text.replace("\n", "\r").encode("utf-8"))
+    _expect_lab_error(
+        lambda: LAB.load_manifest(cr_only / "manifest.json"),
+        "lone-CR source mutation was canonicalized as LF",
+    )
+
+    snapshot = temporary / "snapshot"
+    LAB._snapshot_sources(manifest, MANIFEST.parent, snapshot)
+    snapshot_hashes = {
+        case["source"]: LAB._sha256_source_file(snapshot / case["source"])
+        for case in manifest["cases"]
+    }
+    assert snapshot_hashes == {
+        case["source"]: case["source_sha256"] for case in manifest["cases"]
+    }
+
+    valid_stats = {
+        "schema": LAB.RUNTIME_STATS_SCHEMA,
+        "source": LAB.RUNTIME_STATS_SOURCE,
+        "counters": {"allocations": 0, "copied_bytes": 42},
+    }
+    clean, record, failures = LAB._strip_runtime_stats(
+        LAB.RUNTIME_STATS_PREFIX + json.dumps(valid_stats) + "\n"
+    )
+    assert clean == "" and record == valid_stats and failures == []
+    invalid_stats = copy.deepcopy(valid_stats)
+    invalid_stats["counters"]["allocations"] = -1
+    _, record, failures = LAB._strip_runtime_stats(
+        LAB.RUNTIME_STATS_PREFIX + json.dumps(invalid_stats) + "\n"
+    )
+    assert record is None and failures
+    duplicate_stats = (
+        '{"schema":"freak-v3-runtime-stats-v1","source":"freak-v3-runtime",'
+        '"counters":{"allocations":0,"allocations":1}}'
+    )
+    _, record, failures = LAB._strip_runtime_stats(LAB.RUNTIME_STATS_PREFIX + duplicate_stats + "\n")
+    assert record is None and failures
 
     stale = temporary / "stale"
     shutil.copytree(MANIFEST.parent, stale)
@@ -118,6 +161,19 @@ def _mutate_and_reject(
     )
 
 
+def _mutate_recorded_optimization(document: dict[str, Any]) -> None:
+    observation = document["results"][0]["compile"]["observation"]
+    changed = False
+    for invocation in observation["invocations"]:
+        invocation["argv"] = [
+            "-O2" if argument == "-O0" else argument for argument in invocation["argv"]
+        ]
+        invocation["argv_sha256"] = LAB._json_sha256(invocation["argv"])
+        changed = changed or "-O2" in invocation["argv"]
+    assert changed
+    observation["optimization_flags"] = ["-O2"]
+
+
 def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Path | None) -> None:
     before = {path.relative_to(MANIFEST.parent).as_posix(): _sha256(path) for path in MANIFEST.parent.rglob("*") if path.is_file()}
     output = temporary / "quick.json"
@@ -147,6 +203,9 @@ def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Pa
         command.extend(["--clang", str(clang)])
     environment = os.environ.copy()
     environment["FREAK_HOME"] = str(temporary / "must-not-leak-freak-home")
+    environment["FREAK_CLANG"] = str(temporary / "must-not-leak-fake-clang")
+    environment["CFLAGS"] = "-Ofast must-not-leak"
+    environment["LDFLAGS"] = "-fuse-ld=must-not-leak"
     environment["FREAK_UNRELATED_TEST_POISON"] = "must-not-leak"
     completed = subprocess.run(
         command,
@@ -182,6 +241,14 @@ def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Pa
         assert result["workload"]["parameters"] == mode["parameters"]
         assert result["workload"]["expected_stdout_sha256"] == mode["expected_stdout_sha256"]
         assert result["run"]["samples"][0]["stdout_sha256"] == mode["expected_stdout_sha256"]
+        observation = result["compile"]["observation"]
+        assert observation["schema"] == LAB.COMPILE_OBSERVATION_SCHEMA
+        assert observation["optimization_flags"] == ["-O0"]
+        assert observation["lto_flags"] == []
+        assert observation["backend_artifact"]["suffix"] == (
+            ".c" if result["backend"] == "c" else ".ll"
+        )
+        assert observation["runtime_plan"] in {"source", "bundle", "bundle-source-fallback"}
         assert result["peak_rss_bytes"] is None and result["peak_rss_reason"]
         assert result["runtime_counters"] is None and result["runtime_counters_reason"]
     assert "must-not-leak" not in output.read_text(encoding="utf-8")
@@ -224,6 +291,83 @@ def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Pa
         document,
         "checksum",
         lambda value: value["results"][0]["run"]["samples"][0].__setitem__("stdout_sha256", "0" * 64),
+        cli,
+    )
+    _mutate_and_reject(
+        temporary,
+        document,
+        "raw-checksum",
+        lambda value: value["results"][0]["run"]["samples"][0].__setitem__(
+            "stdout_raw_sha256", "0" * 64
+        ),
+        cli,
+    )
+    _mutate_and_reject(
+        temporary,
+        document,
+        "toolchain-version",
+        lambda value: value["toolchain"].__setitem__("version", "fabricated toolchain"),
+        cli,
+    )
+    _mutate_and_reject(
+        temporary,
+        document,
+        "available-profiles",
+        lambda value: value["configuration"]["available_profiles"].append("+03"),
+        cli,
+    )
+    _mutate_and_reject(
+        temporary,
+        document,
+        "peak-rss",
+        lambda value: value["results"][0].__setitem__("peak_rss_bytes", 123),
+        cli,
+    )
+
+    def fabricate_counters(value: dict[str, Any]) -> None:
+        result = value["results"][0]
+        result["runtime_counters"] = {
+            "samples": [
+                {
+                    "schema": LAB.RUNTIME_STATS_SCHEMA,
+                    "source": LAB.RUNTIME_STATS_SOURCE,
+                    "counters": {"allocations": 999},
+                }
+            ]
+        }
+        result["runtime_counters_reason"] = None
+
+    _mutate_and_reject(temporary, document, "fabricated-counters", fabricate_counters, cli)
+    _mutate_and_reject(
+        temporary,
+        document,
+        "ignored-optimization",
+        _mutate_recorded_optimization,
+        cli,
+    )
+    _mutate_and_reject(
+        temporary,
+        document,
+        "ignored-backend",
+        lambda value: value["results"][0]["compile"]["observation"]["backend_artifact"].__setitem__(
+            "suffix", ".ll"
+        ),
+        cli,
+    )
+    _mutate_and_reject(
+        temporary,
+        document,
+        "backend-artifact-hash",
+        lambda value: value["results"][0]["compile"]["observation"]["backend_artifact"].__setitem__(
+            "sha256", "0" * 64
+        ),
+        cli,
+    )
+    _mutate_and_reject(
+        temporary,
+        document,
+        "binary-hash",
+        lambda value: value["results"][0]["binary"].__setitem__("sha256", "0" * 64),
         cli,
     )
 
