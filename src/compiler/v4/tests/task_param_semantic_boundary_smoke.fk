@@ -88,7 +88,7 @@ task v4_task_param_snapshot_variant(payload: word, wanted_hir: int, wanted_item:
             }
             line = rebuilt_item
             changed = 1
-        } else if kind == "hir-task-param-owner" and changed == 0 and v4_hir_snapshot_field_raw(line, 1) == word_from_int(wanted_hir) and v4_hir_snapshot_field_raw(line, 3) == word_from_int(wanted_item) and (mode == "owner" or mode == "count") {
+        } else if kind == "hir-task-param-owner" and changed == 0 and v4_hir_snapshot_field_raw(line, 1) == word_from_int(wanted_hir) and v4_hir_snapshot_field_raw(line, 3) == word_from_int(wanted_item) and (mode == "owner" or mode == "count" or mode == "owner-over-wide") {
             pilot rebuilt_owner = "hir-task-param-owner"
             pilot owner_field = 1
             repeat until owner_field >= 5 {
@@ -101,6 +101,9 @@ task v4_task_param_snapshot_variant(payload: word, wanted_hir: int, wanted_item:
                 }
                 owner_field += 1
             }
+            if mode == "owner-over-wide" {
+                rebuilt_owner = rebuilt_owner + "|unexpected"
+            }
             line = rebuilt_owner
             changed = 1
         } else if kind == "hir-task-param" and changed == 0 and v4_hir_snapshot_field_raw(line, 1) == word_from_int(wanted_hir) and v4_hir_snapshot_field_raw(line, 3) == word_from_int(wanted_item) and v4_hir_snapshot_field_raw(line, 4) == "1" and mode != "header-count" and mode != "owner-kind" and mode != "owner" and mode != "count" {
@@ -111,12 +114,22 @@ task v4_task_param_snapshot_variant(payload: word, wanted_hir: int, wanted_item:
                     rebuilt_param = rebuilt_param + "|0" + v4_hir_snapshot_field_raw(line, param_field)
                 } else if param_field == 4 and mode == "ordinal" {
                     rebuilt_param = rebuilt_param + "|0"
+                } else if param_field == 5 and mode == "name-spacing" {
+                    rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_escape("bad name")
+                } else if param_field == 5 and mode == "name-punctuation" {
+                    rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_escape("bad-name")
+                } else if param_field == 5 and mode == "name-keyword" {
+                    rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_escape("task")
+                } else if param_field == 6 and mode == "name-span-reordered" {
+                    rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_field_raw(line, 11)
                 } else if param_field == 7 and mode == "mode" {
                     rebuilt_param = rebuilt_param + "|invented"
                 } else if param_field == 8 and mode == "lifetime" {
                     rebuilt_param = rebuilt_param + "|'_"
                 } else if param_field == 9 and mode == "lifetime-span" {
                     rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_escape(V4_NO_SPAN)
+                } else if param_field == 9 and mode == "lifetime-span-overlap" {
+                    rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_field_raw(line, 6)
                 } else if param_field == 12 and mode == "span" {
                     pilot forged_start = v4_span_end(owner_span) + 1
                     rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_escape(v4_span_new(v4_span_file(owner_span), forged_start, forged_start + 5))
@@ -124,6 +137,9 @@ task v4_task_param_snapshot_variant(payload: word, wanted_hir: int, wanted_item:
                     rebuilt_param = rebuilt_param + "|" + v4_hir_snapshot_field_raw(line, param_field)
                 }
                 param_field += 1
+            }
+            if mode == "param-over-wide" {
+                rebuilt_param = rebuilt_param + "|unexpected"
             }
             line = rebuilt_param
             changed = 1
@@ -211,6 +227,56 @@ task v4_task_param_invalid_source_probe() -> void {
     }
     say "task-param-invalid-hir-diagnostics=" + word_from_int(v4_hir_diag_count(hir_id))
     say "task-param-invalid-no-invented=" + v4_task_param_bool(no_invented)
+}
+
+task v4_task_param_find_hir_item(hir_id: int, kind: word, name: word) -> int {
+    pilot item_id = 0
+    repeat until item_id >= v4_hir_item_count(hir_id) {
+        if v4_hir_item_kind(hir_id, item_id) == kind and (name == "" or v4_hir_item_name(hir_id, item_id) == name) {
+            give back item_id
+        }
+        item_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_task_param_residual_hir_probe() -> void {
+    pilot src = "task anonymous(lend '_ borrowed: word) -> int " + v4_task_param_braces(" give back 0 ") + "\n"
+    src = src + "task immortal(lend 'static borrowed: word) -> int " + v4_task_param_braces(" give back 0 ") + "\n"
+    src = src + "task curly(value: Box<" + v4_task_param_braces("left:int,right:int") + ",word>) -> int " + v4_task_param_braces(" give back 0 ") + "\n"
+    pilot stream_id = v4_lex_text(42, src)
+    pilot tree_id = v4_parse_stream(42, stream_id)
+    pilot hir_id = v4_hir_lower_tree(42, tree_id)
+    pilot anonymous_item = v4_task_param_find_hir_item(hir_id, v4_hir_task, "anonymous")
+    pilot immortal_item = v4_task_param_find_hir_item(hir_id, v4_hir_task, "immortal")
+    pilot curly_item = v4_task_param_find_hir_item(hir_id, v4_hir_task, "curly")
+    pilot curly_type = "Box<" + v4_task_param_braces("left:int,right:int") + ",word>"
+    say "task-param-anonymous-normalized=" + v4_task_param_bool(v4_hir_task_param_lifetime(hir_id, anonymous_item, 0) == "" and v4_hir_task_param_lifetime_span(hir_id, anonymous_item, 0) == V4_NO_SPAN)
+    say "task-param-static-preserved=" + v4_task_param_bool(v4_hir_task_param_lifetime(hir_id, immortal_item, 0) == "'static" and v4_hir_task_param_lifetime_span(hir_id, immortal_item, 0) != V4_NO_SPAN)
+    say "task-param-curly-nesting=" + v4_task_param_bool(v4_hir_task_param_count(hir_id, curly_item) == 1 and v4_hir_task_param_surface_type(hir_id, curly_item, 0) == curly_type)
+}
+
+task v4_task_param_nonordinary_probe() -> void {
+    pilot doctrine_body = "\n    task echo(self, value: word) -> word\n"
+    pilot shape_body = "\n    value: word\n"
+    pilot impl_body = "\n    task echo(self, value: word) -> word " + v4_task_param_braces(" give back value ") + "\n"
+    pilot extern_body = "\n    task native(input: *const tiny) -> std::ffi::c_int\n"
+    pilot src = "doctrine Echo " + v4_task_param_braces(doctrine_body) + "\n"
+    src = src + "shape Packet " + v4_task_param_braces(shape_body) + "\n"
+    src = src + "impl Echo for Packet " + v4_task_param_braces(impl_body) + "\n"
+    src = src + "extern [C] " + v4_task_param_braces(extern_body) + "\n"
+    pilot stream_id = v4_lex_text(43, src)
+    pilot tree_id = v4_parse_stream(43, stream_id)
+    pilot hir_id = v4_hir_lower_tree(43, tree_id)
+    pilot resolve_id = v4_resolve_lower_hir(43, hir_id)
+    pilot ty_id = v4_ty_lower_resolve(43, resolve_id)
+    pilot doctrine_sig = v4_ty_doctrine_signature_id_for_name(ty_id, "Echo")
+    pilot impl_item = v4_task_param_find_hir_item(hir_id, v4_hir_impl, "")
+    pilot extern_sig = v4_ty_task_signature_id_for_name(ty_id, "native")
+    say "task-param-nonordinary-owner-records=" + word_from_int(v4_hir_task_param_owner_record_count(hir_id))
+    say "task-param-doctrine-fallback=" + v4_task_param_bool(v4_ty_doctrine_method_explicit_param_count(ty_id, doctrine_sig, 0) == 1 and v4_ty_doctrine_method_explicit_param_name(ty_id, doctrine_sig, 0, 0) == "value" and v4_ty_doctrine_method_explicit_param_surface_type(ty_id, doctrine_sig, 0, 0) == "word")
+    say "task-param-impl-fallback=" + v4_task_param_bool(v4_ty_impl_method_explicit_param_count(ty_id, impl_item, 0) == 1 and v4_ty_impl_method_explicit_param_name(ty_id, impl_item, 0, 0) == "value" and v4_ty_impl_method_explicit_param_type(ty_id, impl_item, 0, 0) == "word")
+    say "task-param-extern-fallback=" + v4_task_param_bool(v4_ty_signature_is_ordinary_hir_task(ty_id, extern_sig) == false and v4_ty_signature_param_count(ty_id, extern_sig) == 1 and v4_ty_signature_param_name(ty_id, extern_sig, 0) == "input" and v4_ty_signature_param_surface_type(ty_id, extern_sig, 0) == "*consttiny")
 }
 
 pilot v4_task_param_source = v4_task_param_source_text()
@@ -301,10 +367,17 @@ pilot v4_task_param_schema_atomic = true
 pilot v4_task_param_modes = array_new()
 array_push(v4_task_param_modes, "owner")
 array_push(v4_task_param_modes, "count")
+array_push(v4_task_param_modes, "owner-over-wide")
+array_push(v4_task_param_modes, "param-over-wide")
 array_push(v4_task_param_modes, "ordinal")
+array_push(v4_task_param_modes, "name-spacing")
+array_push(v4_task_param_modes, "name-punctuation")
+array_push(v4_task_param_modes, "name-keyword")
+array_push(v4_task_param_modes, "name-span-reordered")
 array_push(v4_task_param_modes, "mode")
 array_push(v4_task_param_modes, "lifetime")
 array_push(v4_task_param_modes, "lifetime-span")
+array_push(v4_task_param_modes, "lifetime-span-overlap")
 array_push(v4_task_param_modes, "span")
 array_push(v4_task_param_modes, "noncanonical")
 array_push(v4_task_param_modes, "owner-kind")
@@ -327,4 +400,6 @@ say "task-param-schema-variants-rejected=" + v4_task_param_bool(v4_task_param_sc
 say "task-param-schema-variants-atomic=" + v4_task_param_bool(v4_task_param_schema_atomic)
 
 v4_task_param_invalid_source_probe()
+v4_task_param_residual_hir_probe()
+v4_task_param_nonordinary_probe()
 v4_task_param_invalidation_probe()

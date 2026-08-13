@@ -2027,6 +2027,22 @@ task v4_hir_snapshot_named_lifetime_is_valid(lifetime_name: word) -> bool {
     give back true
 }
 
+task v4_hir_snapshot_task_param_name_is_valid(name: word) -> bool {
+    if name == "" or v4_lex_is_ident_start(name.char_at(0)) == false {
+        give back false
+    }
+    pilot idx = 1
+    repeat until idx >= name.length() {
+        if v4_lex_is_ident_continue(name.char_at(idx)) == false {
+            give back false
+        }
+        idx += 1
+    }
+    -- Lowering only accepts v4_tok_ident. Keywords and the case-insensitive
+    -- boolean vocabulary are emitted as distinct token kinds by freak_lex.
+    give back v4_lex_is_keyword_word(name) == false and v4_lex_is_bool_word(name) == false
+}
+
 task v4_hir_snapshot_task_param_is_valid(line: word) -> bool {
     if v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 1)) == false or v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 2)) == false or v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 3)) == false or v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 4)) == false {
         give back false
@@ -2040,7 +2056,7 @@ task v4_hir_snapshot_task_param_is_valid(line: word) -> bool {
     pilot type_span = v4_hir_snapshot_field(line, 11)
     pilot segment_span = v4_hir_snapshot_field(line, 12)
     pilot no_span = V4_NO_SPAN
-    if name == "" or type_text == "" {
+    if v4_hir_snapshot_task_param_name_is_valid(name) == false or type_text == "" {
         give back false
     }
     if mode != v4_hir_task_param_mode_value and mode != v4_hir_task_param_mode_lend and mode != v4_hir_task_param_mode_lend_mut {
@@ -2062,6 +2078,15 @@ task v4_hir_snapshot_task_param_is_valid(line: word) -> bool {
         }
     }
     if v4_hir_snapshot_span_is_contained(name_span, segment_span) == false or v4_hir_snapshot_span_is_contained(type_span, segment_span) == false {
+        give back false
+    }
+    -- These facts feed editor definitions and TY diagnostics after restore.
+    -- Preserve the source order guaranteed by lowering instead of accepting
+    -- overlapping or retargeted semantic spans that merely share an owner.
+    if v4_span_end(name_span) >= v4_span_start(type_span) {
+        give back false
+    }
+    if lifetime_name != "" and v4_span_end(lifetime_span) >= v4_span_start(name_span) {
         give back false
     }
     give back true
@@ -2556,6 +2581,11 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
         give back false
     }
     if v4_hir_snapshot_field_count(line) < expected {
+        give back false
+    }
+    -- Parameter records are new in v6 and have a closed canonical schema.
+    -- Reject extensions rather than silently restoring only the known prefix.
+    if (kind == "hir-task-param-owner" or kind == "hir-task-param") and v4_hir_snapshot_field_count(line) != expected {
         give back false
     }
     if kind == "hir-item" and v4_hir_snapshot_alias_target_is_valid(line) == false {
