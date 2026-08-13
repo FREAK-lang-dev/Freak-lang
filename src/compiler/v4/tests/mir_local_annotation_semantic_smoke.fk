@@ -79,6 +79,15 @@ say v4_hir_snapshot_restore(v4_local_annotation_snapshot)
 say "local-annotation-restored-count=" + word_from_int(v4_hir_local_annotation_count(v4_local_annotation_hir, v4_local_annotation_item))
 say "local-annotation-restored-fixed=" + v4_hir_local_annotation_type(v4_local_annotation_hir, v4_local_annotation_item, v4_local_annotation_mark_id)
 
+pilot v4_local_annotation_before_bad_files = v4_hir_file_count()
+pilot v4_local_annotation_before_bad_count = v4_hir_local_annotation_count(v4_local_annotation_hir, v4_local_annotation_item)
+pilot v4_local_annotation_bad_snapshot = "hir-snapshot|format=freak-hir-snapshot-v4|files=0|items=0|alias-targets=0|local-annotations=1|diagnostics=0\n"
+v4_local_annotation_bad_snapshot = v4_local_annotation_bad_snapshot + "hir-local-annotation|0|0|0|" + v4_hir_snapshot_escape(V4_NO_SPAN) + "|int|" + v4_hir_snapshot_escape(V4_NO_SPAN) + "\n"
+v4_local_annotation_bad_snapshot = v4_local_annotation_bad_snapshot + "end|freak-hir-snapshot-v4"
+pilot v4_local_annotation_bad_restore = v4_hir_snapshot_restore(v4_local_annotation_bad_snapshot)
+say "local-annotation-malformed-restore-rejected=" + v4_local_annotation_bool(v4_local_annotation_bad_restore.starts_with("hir-snapshot-restore ok=0"))
+say "local-annotation-malformed-restore-atomic=" + v4_local_annotation_bool(v4_hir_file_count() == v4_local_annotation_before_bad_files and v4_hir_local_annotation_count(v4_local_annotation_hir, v4_local_annotation_item) == v4_local_annotation_before_bad_count)
+
 pilot v4_local_annotation_bad_src = v4_local_annotation_bad_source()
 pilot v4_local_annotation_bad_stream = v4_lex_text(1, v4_local_annotation_bad_src)
 pilot v4_local_annotation_bad_tree = v4_parse_stream(1, v4_local_annotation_bad_stream)

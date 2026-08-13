@@ -67,9 +67,24 @@ semantic slices: alias target type text and its exact source span are normalized
 once at the expanded-AST-to-HIR boundary, stored and snapshotted by `freak_hir`,
 and consumed by `freak_ty` without reconstructing the declaration from token
 ranges. A harness guard rejects any return of alias-target token scraping in TY.
+The next bounded boundary covers task-local declaration annotations. `freak_hir`
+stores each `pilot` / task-local `fixed pilot` statement span, normalized surface
+type, and exact type span; `freak_ty` exposes and canonicalizes those semantic
+facts; and `freak_mir_build` consumes them in `v4_mir_lower_pilot_stmt` without
+calling `v4_ty_type_text` (directly or through
+`v4_mir_compact_type_text`) to rediscover the declared type. This includes
+tuple and fixed-array annotations used by tuple/list destructuring. MIR build
+still reads body tokens for patterns, initializer boundaries, places, and CFG
+construction. Six unrelated `v4_ty_type_text` consumers remain allowlisted for
+method type arguments, raw-pointer instance methods, associated methods,
+shape/route constructor heads, and route-case expressions; the harness requires
+that exact set and prevents local declaration lowering from returning to it.
 Task parameter and return types, shape/route fields, const annotations,
-doctrine/extern types, MIR body syntax, and all other type families remain
-explicit follow-up slices; this boundary changes ownership, not alias semantics.
+doctrine/extern types, the remaining MIR body families, and all other type
+families remain explicit follow-up slices. These boundaries change fact
+ownership, not language semantics or backend representation. Symbol-valued
+annotated locals still retain the pre-existing phantom-local-IR limitation
+described in the FFI section below.
 Closures now form a complete first-pass frontend/query slice. The resilient
 parser records arrow and block forms as `ClosureExpr` trees and leaves
 `IncompleteNode` recovery facts for missing pipes, body markers, expressions,
