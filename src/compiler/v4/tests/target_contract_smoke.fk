@@ -16,10 +16,10 @@ pilot v4_target_smoke_noncanonical_pointer = ""
 v4_target_smoke_noncanonical_pointer = v4_target_pack_field(v4_target_tag_spec) + v4_target_pack_field(v4_target_wire_format) + v4_target_pack_field(v4_target_triple_linux_x86_64) + v4_target_pack_field(v4_target_arch_x86_64) + v4_target_pack_field(v4_target_os_linux) + v4_target_pack_field(v4_target_environment_gnu) + v4_target_pack_field("064") + v4_target_pack_field(v4_target_endian_little) + v4_target_pack_field(v4_target_c_data_model_lp64) + v4_target_pack_field(v4_target_object_format_elf) + v4_target_pack_field("C,cdecl,system,sysv64") + v4_target_pack_field("") + v4_target_pack_field("") + v4_target_pack_field("") + v4_target_pack_field(".o") + v4_target_pack_field(v4_target_link_clang_gnu) + v4_target_pack_field(v4_target_entry_posix_main)
 
 say "target-count=" + word_from_int(v4_target_spec_count())
-say v4_target_spec_summary(v4_target_smoke_linux_x64)
-say v4_target_spec_summary(v4_target_smoke_linux_arm64)
-say v4_target_spec_summary(v4_target_smoke_macos_arm64)
-say v4_target_spec_summary(v4_target_smoke_windows_x64)
+say "target-linux-x64-summary=" + v4_target_spec_summary(v4_target_smoke_linux_x64)
+say "target-linux-arm64-summary=" + v4_target_spec_summary(v4_target_smoke_linux_arm64)
+say "target-macos-arm64-summary=" + v4_target_spec_summary(v4_target_smoke_macos_arm64)
+say "target-windows-x64-summary=" + v4_target_spec_summary(v4_target_smoke_windows_x64)
 
 say "target-all-valid=" + v4_target_smoke_bool(v4_target_spec_valid(v4_target_smoke_linux_x64) and v4_target_spec_valid(v4_target_smoke_linux_arm64) and v4_target_spec_valid(v4_target_smoke_macos_arm64) and v4_target_spec_valid(v4_target_smoke_windows_x64))
 say "target-index-stable=" + v4_target_smoke_bool(v4_target_spec_at(0) == v4_target_smoke_linux_x64 and v4_target_spec_at(1) == v4_target_smoke_linux_arm64 and v4_target_spec_at(2) == v4_target_smoke_macos_arm64 and v4_target_spec_at(3) == v4_target_smoke_windows_x64 and v4_target_spec_at(4) == "")
