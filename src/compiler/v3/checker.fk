@@ -779,9 +779,12 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "fs::read" or name == "fs::list_dir" or name == "process::arg" or name == "process::exec_capture" { give back "word" }
     if name == "tcp::recv" or name == "tcp_recv" or name == "tcp::recv_all" or name == "tcp_recv_all" { give back "word" }
     if name == "fs::exists" or name == "fs::delete" { give back "bool" }
+    if name == "tcp::socket_eof" { give back "bool" }
     if name == "array_new" or name == "array_len" or name == "process::args_count" or name == "process::exec" { give back "int" }
     if name == "word_builder::new" or name == "word_builder::with_capacity" or name == "word_builder::capacity" or name == "word_builder::length" { give back "int" }
     if name == "word_to_int" or name == "time::now_ms" or name == "time::monotonic_ns" or name == "process::pid" or name == "tcp::connect" or name == "tcp_connect" or name == "tcp::send" or name == "tcp_send" { give back "int" }
+    if name == "tcp::socket_connect" or name == "tcp::socket_listen" or name == "tcp::socket_accept" { give back "int" }
+    if name == "tcp::socket_status" or name == "tcp::socket_local_port" or name == "tcp::socket_send" or name == "tcp::socket_send_all" or name == "tcp::socket_receive" { give back "int" }
     if name == "ui::create_window" or name == "ui::poll_events" or name == "ui::draw_text" or name == "ui::measure_text" { give back "int" }
     if name == "ui::event_kind" or name == "ui::event_key" or name == "ui::event_pressed" or name == "ui::event_character" { give back "int" }
     if name == "ui::event_mouse_x" or name == "ui::event_mouse_y" or name == "ui::event_button" or name == "ui::event_repeat" { give back "int" }
@@ -794,6 +797,7 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "word_builder::reserve" or name == "word_builder::clear" or name == "word_builder::append" { give back "void" }
     if name == "word_builder::append_char" or name == "word_builder::append_int" or name == "word_builder::discard" { give back "void" }
     if name == "tcp::close" or name == "tcp_close" { give back "void" }
+    if name == "tcp::socket_set_timeout" or name == "tcp::socket_close" { give back "void" }
     if name == "ui::destroy_window" or name == "ui::begin_frame" or name == "ui::end_frame" or name == "ui::clear" { give back "void" }
     if name == "ui::fill_rect" or name == "ui::stroke_rect" or name == "ui::fill_circle" or name == "ui::draw_line" { give back "void" }
     give back ""
@@ -841,6 +845,12 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "tcp::send" or name == "tcp_send" { give back "int,word" }
     if name == "tcp::recv" or name == "tcp_recv" or name == "tcp::recv_all" or name == "tcp_recv_all" { give back "int,int" }
     if name == "tcp::close" or name == "tcp_close" { give back "int" }
+    if name == "tcp::socket_connect" { give back "word,int" }
+    if name == "tcp::socket_listen" { give back "word,int,int" }
+    if name == "tcp::socket_accept" or name == "tcp::socket_status" or name == "tcp::socket_eof" or name == "tcp::socket_local_port" or name == "tcp::socket_close" { give back "int" }
+    if name == "tcp::socket_send" or name == "tcp::socket_send_all" { give back "int,ByteBuffer,int,int" }
+    if name == "tcp::socket_receive" { give back "int,ByteBuffer,int" }
+    if name == "tcp::socket_set_timeout" { give back "int,int,int" }
     if name == "ui::create_window" { give back "word,int,int,int" }
     if name == "ui::destroy_window" or name == "ui::poll_events" or name == "ui::begin_frame" or name == "ui::end_frame" { give back "int" }
     if name == "ui::event_kind" or name == "ui::event_key" or name == "ui::event_pressed" or name == "ui::event_character" { give back "int" }

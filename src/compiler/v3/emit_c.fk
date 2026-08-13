@@ -276,6 +276,17 @@ task c_map_call(val: word) -> word {
     if val == "tcp::recv" { give back "freak_tcp_recv" }
     if val == "tcp::recv_all" { give back "freak_tcp_recv_all" }
     if val == "tcp::close" { give back "freak_tcp_close" }
+    if val == "tcp::socket_connect" { give back "freak_tcp_socket_connect" }
+    if val == "tcp::socket_listen" { give back "freak_tcp_socket_listen" }
+    if val == "tcp::socket_accept" { give back "freak_tcp_socket_accept" }
+    if val == "tcp::socket_status" { give back "freak_tcp_socket_status" }
+    if val == "tcp::socket_eof" { give back "freak_tcp_socket_eof" }
+    if val == "tcp::socket_local_port" { give back "freak_tcp_socket_local_port" }
+    if val == "tcp::socket_send" { give back "freak_tcp_socket_send" }
+    if val == "tcp::socket_send_all" { give back "freak_tcp_socket_send_all" }
+    if val == "tcp::socket_receive" { give back "freak_tcp_socket_receive" }
+    if val == "tcp::socket_set_timeout" { give back "freak_tcp_socket_set_timeout" }
+    if val == "tcp::socket_close" { give back "freak_tcp_socket_close" }
     if val == "tcp_connect" { give back "freak_tcp_connect" }
     if val == "tcp_send" { give back "freak_tcp_send" }
     if val == "tcp_recv" { give back "freak_tcp_recv" }

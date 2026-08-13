@@ -214,7 +214,6 @@ BYTE_BUFFER_METHOD_SIGNATURES: Dict[str, BuiltinSignature] = {
     ),
 }
 
-
 SYSTEM_RUNTIME_SIGNATURES: Dict[str, BuiltinSignature] = {
     "time::now_ms": BuiltinSignature("freak_time_now_ms", (), T_INT),
     "time::monotonic_ns": BuiltinSignature(
@@ -226,6 +225,42 @@ SYSTEM_RUNTIME_SIGNATURES: Dict[str, BuiltinSignature] = {
     ),
     "process::set_env": BuiltinSignature(
         "freak_process_set_env", (T_WORD, T_WORD), T_VOID
+    ),
+}
+
+TCP_SOCKET_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "tcp::socket_connect": BuiltinSignature(
+        "freak_tcp_socket_connect", (T_WORD, T_INT), T_INT
+    ),
+    "tcp::socket_listen": BuiltinSignature(
+        "freak_tcp_socket_listen", (T_WORD, T_INT, T_INT), T_INT
+    ),
+    "tcp::socket_accept": BuiltinSignature(
+        "freak_tcp_socket_accept", (T_INT,), T_INT
+    ),
+    "tcp::socket_status": BuiltinSignature(
+        "freak_tcp_socket_status", (T_INT,), T_INT
+    ),
+    "tcp::socket_eof": BuiltinSignature(
+        "freak_tcp_socket_eof", (T_INT,), T_BOOL
+    ),
+    "tcp::socket_local_port": BuiltinSignature(
+        "freak_tcp_socket_local_port", (T_INT,), T_INT
+    ),
+    "tcp::socket_send": BuiltinSignature(
+        "freak_tcp_socket_send", (T_INT, T_BYTE_BUFFER, T_INT, T_INT), T_INT
+    ),
+    "tcp::socket_send_all": BuiltinSignature(
+        "freak_tcp_socket_send_all", (T_INT, T_BYTE_BUFFER, T_INT, T_INT), T_INT
+    ),
+    "tcp::socket_receive": BuiltinSignature(
+        "freak_tcp_socket_receive", (T_INT, T_BYTE_BUFFER, T_INT), T_INT
+    ),
+    "tcp::socket_set_timeout": BuiltinSignature(
+        "freak_tcp_socket_set_timeout", (T_INT, T_INT, T_INT), T_VOID
+    ),
+    "tcp::socket_close": BuiltinSignature(
+        "freak_tcp_socket_close", (T_INT,), T_VOID
     ),
 }
 
@@ -816,6 +851,30 @@ class TypeChecker:
                             )
                 return system_signature.return_type
 
+            tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq_name)
+            if tcp_socket_signature is not None:
+                expected_arity = len(tcp_socket_signature.argument_types)
+                actual_arity = len(argument_types)
+                if expected_arity != actual_arity:
+                    self._error(
+                        f"call to '{fq_name}' expects {expected_arity} "
+                        f"argument(s), got {actual_arity}"
+                    )
+                else:
+                    for index, (actual, expected) in enumerate(
+                        zip(argument_types, tcp_socket_signature.argument_types),
+                        start=1,
+                    ):
+                        if actual != T_UNKNOWN and actual != expected:
+                            self._error(
+                                f"call to '{fq_name}' argument {index} expects "
+                                f"{expected}, got {actual}"
+                            )
+                return tcp_socket_signature.return_type
+            if fq_name.startswith("tcp::socket_"):
+                self._error(f"unknown TCP socket builtin '{fq_name}'")
+                return T_UNKNOWN
+
             word_builder_signature = WORD_BUILDER_SIGNATURES.get(fq_name)
             if word_builder_signature is not None:
                 expected_arity = len(word_builder_signature.argument_types)
@@ -915,6 +974,7 @@ __all__ = [
     "PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED",
     "T_BYTE_BUFFER",
     "SYSTEM_RUNTIME_SIGNATURES",
+    "TCP_SOCKET_SIGNATURES",
     "TypeChecker",
     "WORD_BUILDER_SIGNATURES",
     "WORD_METHOD_SIGNATURES",

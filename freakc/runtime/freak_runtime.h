@@ -157,6 +157,59 @@ int64_t freak_llvm_byte_buffer_read_word(int64_t handle, int64_t length);
 int64_t freak_llvm_byte_buffer_slice(int64_t handle, int64_t offset, int64_t length);
 int64_t freak_llvm_byte_buffer_to_word(int64_t handle);
 
+/* Managed TCP sockets. Handles are generation checked and occupy a domain
+   disjoint from arrays, word builders, and ByteBuffer. Constructor failures
+   still return owned live handles so callers can inspect status then close. */
+typedef int64_t freak_tcp_socket_handle;
+
+#define FREAK_TCP_SOCKET_STATUS_OK 0
+#define FREAK_TCP_SOCKET_STATUS_INVALID_ARGUMENT 1
+#define FREAK_TCP_SOCKET_STATUS_RESOLVE_FAILED 2
+#define FREAK_TCP_SOCKET_STATUS_OPEN_FAILED 3
+#define FREAK_TCP_SOCKET_STATUS_CONNECT_FAILED 4
+#define FREAK_TCP_SOCKET_STATUS_BIND_FAILED 5
+#define FREAK_TCP_SOCKET_STATUS_LISTEN_FAILED 6
+#define FREAK_TCP_SOCKET_STATUS_ACCEPT_FAILED 7
+#define FREAK_TCP_SOCKET_STATUS_IO_FAILED 8
+#define FREAK_TCP_SOCKET_STATUS_WRONG_ROLE 9
+#define FREAK_TCP_SOCKET_STATUS_TIMED_OUT 10
+
+freak_tcp_socket_handle freak_tcp_socket_connect(freak_word host, int64_t port);
+freak_tcp_socket_handle freak_tcp_socket_listen(
+    freak_word host, int64_t port, int64_t backlog);
+freak_tcp_socket_handle freak_tcp_socket_accept(freak_tcp_socket_handle listener);
+int64_t freak_tcp_socket_status(freak_tcp_socket_handle handle);
+bool freak_tcp_socket_eof(freak_tcp_socket_handle handle);
+int64_t freak_tcp_socket_local_port(freak_tcp_socket_handle handle);
+int64_t freak_tcp_socket_send(
+    freak_tcp_socket_handle handle, freak_byte_buffer_handle source,
+    int64_t offset, int64_t count);
+int64_t freak_tcp_socket_send_all(
+    freak_tcp_socket_handle handle, freak_byte_buffer_handle source,
+    int64_t offset, int64_t count);
+int64_t freak_tcp_socket_receive(
+    freak_tcp_socket_handle handle, freak_byte_buffer_handle destination,
+    int64_t max_bytes);
+void freak_tcp_socket_set_timeout(
+    freak_tcp_socket_handle handle, int64_t receive_ms, int64_t send_ms);
+void freak_tcp_socket_close(freak_tcp_socket_handle handle);
+
+int64_t freak_llvm_tcp_socket_connect(int64_t host, int64_t port);
+int64_t freak_llvm_tcp_socket_listen(int64_t host, int64_t port, int64_t backlog);
+int64_t freak_llvm_tcp_socket_accept(int64_t listener);
+int64_t freak_llvm_tcp_socket_status(int64_t handle);
+int64_t freak_llvm_tcp_socket_eof(int64_t handle);
+int64_t freak_llvm_tcp_socket_local_port(int64_t handle);
+int64_t freak_llvm_tcp_socket_send(
+    int64_t handle, int64_t source, int64_t offset, int64_t count);
+int64_t freak_llvm_tcp_socket_send_all(
+    int64_t handle, int64_t source, int64_t offset, int64_t count);
+int64_t freak_llvm_tcp_socket_receive(
+    int64_t handle, int64_t destination, int64_t max_bytes);
+void freak_llvm_tcp_socket_set_timeout(
+    int64_t handle, int64_t receive_ms, int64_t send_ms);
+void freak_llvm_tcp_socket_close(int64_t handle);
+
 /* Equality test (byte-wise). */
 bool freak_word_eq(freak_word a, freak_word b);
 

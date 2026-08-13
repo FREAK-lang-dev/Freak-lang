@@ -1,0 +1,67 @@
+task main() {
+    pilot port = 0
+    pilot connection_limit = 1
+    if process::args_count() > 1 { port = word_to_int(process::arg(1)) }
+    if process::args_count() > 2 {
+        connection_limit = word_to_int(process::arg(2))
+    }
+    if port < 0 or port > 65535 or connection_limit <= 0 {
+        say "ORDNANCE_ERROR invalid arguments"
+        process::exit(2)
+    }
+
+    pilot listener = tcp::socket_listen("127.0.0.1", port, 16)
+    if tcp::socket_status(listener) != 0 {
+        say "ORDNANCE_ERROR listen " + word_from_int(tcp::socket_status(listener))
+        tcp::socket_close(listener)
+        process::exit(3)
+    }
+    say "ORDNANCE_READY " + word_from_int(tcp::socket_local_port(listener))
+
+    pilot accepted = 0
+    repeat until accepted >= connection_limit {
+        pilot client = tcp::socket_accept(listener)
+        if tcp::socket_status(client) != 0 {
+            tcp::socket_close(client)
+            tcp::socket_close(listener)
+            process::exit(4)
+        }
+
+        pilot request: ByteBuffer = ByteBuffer::with_capacity(4096)
+        pilot request_text = ""
+        pilot headers_complete = false
+        pilot bad_request = false
+        repeat until headers_complete or bad_request {
+            pilot received = tcp::socket_receive(client, request, 4096)
+            if received > 0 {
+                if request.length() > 65536 {
+                    bad_request = true
+                } else {
+                    request_text = request.to_word()
+                    if request.status() != 0 {
+                        bad_request = true
+                    } else if request_text.contains("\r\n\r\n") {
+                        headers_complete = true
+                    }
+                }
+            } else if tcp::socket_eof(client) {
+                bad_request = true
+            } else if tcp::socket_status(client) != 0 {
+                bad_request = true
+            }
+        }
+
+        pilot response: ByteBuffer = ByteBuffer::with_capacity(160)
+        if headers_complete and not bad_request and request_text.starts_with("GET /hello HTTP/1.1\r\n") {
+            response.write_word("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 28\r\nConnection: close\r\n\r\n{\"message\":\"FREAKING WORKS\"}")
+        } else {
+            response.write_word("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: 11\r\nConnection: close\r\n\r\nbad request")
+        }
+        tcp::socket_send_all(client, response, 0, response.length())
+        response.release()
+        request.release()
+        tcp::socket_close(client)
+        accepted += 1
+    }
+    tcp::socket_close(listener)
+}

@@ -3839,6 +3839,647 @@ static void freak_wsa_init(void) {
 #include <netdb.h>
 #endif
 
+/* Managed TCP sockets ------------------------------------------------ */
+
+enum {
+    FREAK_TCP_SOCKET_OK = FREAK_TCP_SOCKET_STATUS_OK,
+    FREAK_TCP_SOCKET_INVALID_ARGUMENT = FREAK_TCP_SOCKET_STATUS_INVALID_ARGUMENT,
+    FREAK_TCP_SOCKET_RESOLVE_FAILED = FREAK_TCP_SOCKET_STATUS_RESOLVE_FAILED,
+    FREAK_TCP_SOCKET_OPEN_FAILED = FREAK_TCP_SOCKET_STATUS_OPEN_FAILED,
+    FREAK_TCP_SOCKET_CONNECT_FAILED = FREAK_TCP_SOCKET_STATUS_CONNECT_FAILED,
+    FREAK_TCP_SOCKET_BIND_FAILED = FREAK_TCP_SOCKET_STATUS_BIND_FAILED,
+    FREAK_TCP_SOCKET_LISTEN_FAILED = FREAK_TCP_SOCKET_STATUS_LISTEN_FAILED,
+    FREAK_TCP_SOCKET_ACCEPT_FAILED = FREAK_TCP_SOCKET_STATUS_ACCEPT_FAILED,
+    FREAK_TCP_SOCKET_IO_FAILED = FREAK_TCP_SOCKET_STATUS_IO_FAILED,
+    FREAK_TCP_SOCKET_WRONG_ROLE = FREAK_TCP_SOCKET_STATUS_WRONG_ROLE,
+    FREAK_TCP_SOCKET_TIMED_OUT = FREAK_TCP_SOCKET_STATUS_TIMED_OUT
+};
+
+enum {
+    FREAK_TCP_SOCKET_ROLE_FAILED = 0,
+    FREAK_TCP_SOCKET_ROLE_STREAM = 1,
+    FREAK_TCP_SOCKET_ROLE_LISTENER = 2
+};
+
+#ifdef _WIN32
+typedef SOCKET freak_native_socket;
+#define FREAK_INVALID_NATIVE_SOCKET INVALID_SOCKET
+#else
+typedef int freak_native_socket;
+#define FREAK_INVALID_NATIVE_SOCKET (-1)
+#endif
+
+typedef struct {
+    freak_native_socket native_socket;
+    int64_t next_free;
+    uint32_t generation;
+    int status;
+    int role;
+    bool eof;
+    bool in_use;
+} freak_tcp_socket_record;
+
+static freak_tcp_socket_record* freak_tcp_sockets = NULL;
+static int64_t freak_tcp_socket_count = 0;
+static int64_t freak_tcp_socket_table_capacity = 0;
+static int64_t freak_tcp_socket_free_head = -1;
+static size_t freak_tcp_socket_live_count = 0;
+
+#define FREAK_TCP_SOCKET_DOMAIN_MASK UINT64_C(0xe000000000000000)
+#define FREAK_TCP_SOCKET_HANDLE_DOMAIN UINT64_C(0xc000000000000000)
+#define FREAK_TCP_SOCKET_GENERATION_MAX FREAK_HANDLE_GENERATION_MAX
+
+static void freak_tcp_socket_native_close(freak_native_socket socket_value) {
+    if (socket_value == FREAK_INVALID_NATIVE_SOCKET) return;
+#ifdef _WIN32
+    closesocket(socket_value);
+#else
+    close(socket_value);
+#endif
+}
+
+#if defined(FREAK_C_RUNTIME_OWNERSHIP_AUDIT) || defined(FREAK_RUNTIME_OWNERSHIP_AUDIT)
+static bool freak_tcp_socket_ownership_audit_registered = false;
+
+static void freak_tcp_socket_ownership_audit_at_exit(void) {
+    if (freak_tcp_socket_live_count != 0) {
+        freak_word_foundation_audit_emit();
+        fprintf(stderr,
+                "FREAK: TCP socket ownership audit found %llu live socket(s)\n",
+                (unsigned long long)freak_tcp_socket_live_count);
+        fflush(stderr);
+        _Exit(89);
+    }
+}
+
+static void freak_tcp_socket_ownership_audit_ensure_registered(void) {
+    if (freak_tcp_socket_ownership_audit_registered) return;
+    if (atexit(freak_tcp_socket_ownership_audit_at_exit) != 0) {
+        fprintf(stderr, "FREAK: could not register TCP socket ownership audit\n");
+        exit(1);
+    }
+    freak_tcp_socket_ownership_audit_registered = true;
+}
+#else
+static void freak_tcp_socket_ownership_audit_ensure_registered(void) {}
+#endif
+
+static void freak_tcp_socket_fail(const char* message) {
+    freak_word_foundation_audit_emit();
+    fprintf(stderr, "FREAK: %s\n", message);
+    exit(1);
+}
+
+static int64_t freak_tcp_socket_make_handle(int64_t slot, uint32_t generation) {
+    return (int64_t)(
+        FREAK_TCP_SOCKET_HANDLE_DOMAIN |
+        ((uint64_t)generation << 32) |
+        (uint64_t)(uint32_t)slot);
+}
+
+static int64_t freak_tcp_socket_slot_for_handle(int64_t handle) {
+    uint64_t raw = (uint64_t)handle;
+    if ((raw & FREAK_TCP_SOCKET_DOMAIN_MASK) != FREAK_TCP_SOCKET_HANDLE_DOMAIN) {
+        return -1;
+    }
+    int64_t slot = (int64_t)(uint32_t)(raw & UINT64_C(0xffffffff));
+    uint32_t generation =
+        (uint32_t)(raw >> 32) & FREAK_TCP_SOCKET_GENERATION_MAX;
+    if (slot < 0 || slot >= freak_tcp_socket_count) return -1;
+    freak_tcp_socket_record* socket_record = &freak_tcp_sockets[slot];
+    if (!socket_record->in_use || socket_record->generation != generation) return -1;
+    return slot;
+}
+
+static freak_tcp_socket_record* freak_tcp_socket_require(
+        int64_t handle, const char* operation) {
+    int64_t slot = freak_tcp_socket_slot_for_handle(handle);
+    if (slot < 0) {
+        fprintf(stderr,
+                "FREAK: invalid or stale TCP socket handle in %s\n",
+                operation);
+        exit(1);
+    }
+    return &freak_tcp_sockets[slot];
+}
+
+static void freak_tcp_socket_reserve_handle(void) {
+    if (freak_tcp_socket_count < freak_tcp_socket_table_capacity) return;
+    int64_t old_capacity = freak_tcp_socket_table_capacity;
+    if (old_capacity > INT64_MAX / 2) {
+        freak_tcp_socket_fail("TCP socket handle table is too large");
+    }
+    int64_t new_capacity = old_capacity == 0 ? 64 : old_capacity * 2;
+    if (new_capacity <= old_capacity ||
+            (uint64_t)new_capacity > SIZE_MAX / sizeof(freak_tcp_socket_record)) {
+        freak_tcp_socket_fail("TCP socket handle table is too large");
+    }
+    freak_tcp_socket_record* grown = (freak_tcp_socket_record*)realloc(
+        freak_tcp_sockets,
+        (size_t)new_capacity * sizeof(freak_tcp_socket_record));
+    if (!grown) freak_tcp_socket_fail("out of memory growing TCP socket handle table");
+    memset(
+        grown + old_capacity,
+        0,
+        (size_t)(new_capacity - old_capacity) * sizeof(freak_tcp_socket_record));
+    freak_tcp_sockets = grown;
+    freak_tcp_socket_table_capacity = new_capacity;
+}
+
+static int64_t freak_tcp_socket_create(int initial_status) {
+    int64_t slot = freak_tcp_socket_free_head;
+    if (slot >= 0) {
+        freak_tcp_socket_free_head = freak_tcp_sockets[slot].next_free;
+        freak_tcp_sockets[slot].generation += 1;
+    } else {
+        freak_tcp_socket_reserve_handle();
+        slot = freak_tcp_socket_count++;
+        if ((uint64_t)slot > UINT32_MAX) {
+            freak_tcp_socket_fail("TCP socket handle table exhausted");
+        }
+        freak_tcp_sockets[slot].generation = 1;
+    }
+    freak_tcp_socket_record* socket_record = &freak_tcp_sockets[slot];
+    socket_record->native_socket = FREAK_INVALID_NATIVE_SOCKET;
+    socket_record->next_free = -1;
+    socket_record->status = initial_status;
+    socket_record->role = FREAK_TCP_SOCKET_ROLE_FAILED;
+    socket_record->eof = false;
+    socket_record->in_use = true;
+    freak_tcp_socket_ownership_audit_ensure_registered();
+    freak_tcp_socket_live_count += 1;
+    return freak_tcp_socket_make_handle(slot, socket_record->generation);
+}
+
+static void freak_tcp_socket_set_error(
+        freak_tcp_socket_record* socket_record, int status) {
+    if (socket_record->status == FREAK_TCP_SOCKET_OK) socket_record->status = status;
+}
+
+static char* freak_tcp_socket_host_copy(freak_word host) {
+    if (host.length > 0 && !host.data) return NULL;
+    if (host.length > 0 && memchr(host.data, '\0', host.length) != NULL) return NULL;
+    if (host.length == SIZE_MAX) return NULL;
+    char* copy = (char*)malloc(host.length + 1);
+    if (!copy) freak_tcp_socket_fail("out of memory copying TCP host");
+    if (host.length > 0) memcpy(copy, host.data, host.length);
+    copy[host.length] = '\0';
+    return copy;
+}
+
+static bool freak_tcp_socket_error_is_interrupted(void) {
+#ifdef _WIN32
+    return WSAGetLastError() == WSAEINTR;
+#else
+    return errno == EINTR;
+#endif
+}
+
+static bool freak_tcp_socket_error_is_timeout(void) {
+#ifdef _WIN32
+    int error = WSAGetLastError();
+    return error == WSAETIMEDOUT || error == WSAEWOULDBLOCK;
+#else
+    return errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT;
+#endif
+}
+
+static void freak_tcp_socket_configure_no_sigpipe(freak_native_socket socket_value) {
+#if defined(SO_NOSIGPIPE)
+    int enabled = 1;
+    (void)setsockopt(
+        socket_value, SOL_SOCKET, SO_NOSIGPIPE,
+        (const char*)&enabled, (socklen_t)sizeof(enabled));
+#else
+    (void)socket_value;
+#endif
+}
+
+static int freak_tcp_socket_send_flags(void) {
+#ifdef MSG_NOSIGNAL
+    return MSG_NOSIGNAL;
+#else
+    return 0;
+#endif
+}
+
+freak_tcp_socket_handle freak_tcp_socket_connect(freak_word host, int64_t port) {
+    int64_t handle = freak_tcp_socket_create(FREAK_TCP_SOCKET_OK);
+    freak_tcp_socket_record* socket_record =
+        freak_tcp_socket_require(handle, "connect result");
+    if (port <= 0 || port > 65535 || host.length == 0) {
+        socket_record->status = FREAK_TCP_SOCKET_INVALID_ARGUMENT;
+        return handle;
+    }
+    char* host_text = freak_tcp_socket_host_copy(host);
+    if (!host_text) {
+        socket_record->status = FREAK_TCP_SOCKET_INVALID_ARGUMENT;
+        return handle;
+    }
+#ifdef _WIN32
+    freak_wsa_init();
+#endif
+    char port_text[16];
+    snprintf(port_text, sizeof(port_text), "%lld", (long long)port);
+    struct addrinfo hints;
+    struct addrinfo* addresses = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    if (getaddrinfo(host_text, port_text, &hints, &addresses) != 0) {
+        free(host_text);
+        socket_record->status = FREAK_TCP_SOCKET_RESOLVE_FAILED;
+        return handle;
+    }
+    free(host_text);
+    bool opened = false;
+    for (struct addrinfo* address = addresses; address; address = address->ai_next) {
+        freak_native_socket native_socket = socket(
+            address->ai_family, address->ai_socktype, address->ai_protocol);
+        if (native_socket == FREAK_INVALID_NATIVE_SOCKET) continue;
+        opened = true;
+        freak_tcp_socket_configure_no_sigpipe(native_socket);
+        if (connect(native_socket, address->ai_addr, (int)address->ai_addrlen) == 0) {
+            socket_record->native_socket = native_socket;
+            socket_record->role = FREAK_TCP_SOCKET_ROLE_STREAM;
+            break;
+        }
+        freak_tcp_socket_native_close(native_socket);
+    }
+    freeaddrinfo(addresses);
+    if (socket_record->role != FREAK_TCP_SOCKET_ROLE_STREAM) {
+        socket_record->status = opened
+            ? FREAK_TCP_SOCKET_CONNECT_FAILED : FREAK_TCP_SOCKET_OPEN_FAILED;
+    }
+    return handle;
+}
+
+freak_tcp_socket_handle freak_tcp_socket_listen(
+        freak_word host, int64_t port, int64_t backlog) {
+    int64_t handle = freak_tcp_socket_create(FREAK_TCP_SOCKET_OK);
+    freak_tcp_socket_record* socket_record =
+        freak_tcp_socket_require(handle, "listen result");
+    if (port < 0 || port > 65535 || backlog <= 0) {
+        socket_record->status = FREAK_TCP_SOCKET_INVALID_ARGUMENT;
+        return handle;
+    }
+    char* host_text = freak_tcp_socket_host_copy(host);
+    if (!host_text) {
+        socket_record->status = FREAK_TCP_SOCKET_INVALID_ARGUMENT;
+        return handle;
+    }
+#ifdef _WIN32
+    freak_wsa_init();
+#endif
+    char port_text[16];
+    snprintf(port_text, sizeof(port_text), "%lld", (long long)port);
+    struct addrinfo hints;
+    struct addrinfo* addresses = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    hints.ai_flags = AI_PASSIVE;
+    const char* node = host.length == 0 ? NULL : host_text;
+    if (getaddrinfo(node, port_text, &hints, &addresses) != 0) {
+        free(host_text);
+        socket_record->status = FREAK_TCP_SOCKET_RESOLVE_FAILED;
+        return handle;
+    }
+    free(host_text);
+    int native_backlog = backlog > SOMAXCONN ? SOMAXCONN : (int)backlog;
+    bool opened = false;
+    bool bound = false;
+    for (struct addrinfo* address = addresses; address; address = address->ai_next) {
+        freak_native_socket native_socket = socket(
+            address->ai_family, address->ai_socktype, address->ai_protocol);
+        if (native_socket == FREAK_INVALID_NATIVE_SOCKET) continue;
+        opened = true;
+        int reuse = 1;
+        (void)setsockopt(
+            native_socket, SOL_SOCKET, SO_REUSEADDR,
+            (const char*)&reuse, (socklen_t)sizeof(reuse));
+        freak_tcp_socket_configure_no_sigpipe(native_socket);
+        if (bind(native_socket, address->ai_addr, (int)address->ai_addrlen) != 0) {
+            freak_tcp_socket_native_close(native_socket);
+            continue;
+        }
+        bound = true;
+        if (listen(native_socket, native_backlog) != 0) {
+            freak_tcp_socket_native_close(native_socket);
+            continue;
+        }
+        socket_record->native_socket = native_socket;
+        socket_record->role = FREAK_TCP_SOCKET_ROLE_LISTENER;
+        break;
+    }
+    freeaddrinfo(addresses);
+    if (socket_record->role != FREAK_TCP_SOCKET_ROLE_LISTENER) {
+        socket_record->status = !opened
+            ? FREAK_TCP_SOCKET_OPEN_FAILED
+            : (!bound ? FREAK_TCP_SOCKET_BIND_FAILED : FREAK_TCP_SOCKET_LISTEN_FAILED);
+    }
+    return handle;
+}
+
+freak_tcp_socket_handle freak_tcp_socket_accept(freak_tcp_socket_handle listener) {
+    freak_tcp_socket_record* listener_record =
+        freak_tcp_socket_require(listener, "accept");
+    if (listener_record->status != FREAK_TCP_SOCKET_OK) {
+        return freak_tcp_socket_create(listener_record->status);
+    }
+    if (listener_record->role != FREAK_TCP_SOCKET_ROLE_LISTENER) {
+        return freak_tcp_socket_create(FREAK_TCP_SOCKET_WRONG_ROLE);
+    }
+    freak_native_socket accepted;
+    do {
+        accepted = accept(listener_record->native_socket, NULL, NULL);
+    } while (accepted == FREAK_INVALID_NATIVE_SOCKET &&
+             freak_tcp_socket_error_is_interrupted());
+    if (accepted == FREAK_INVALID_NATIVE_SOCKET) {
+        int status = freak_tcp_socket_error_is_timeout()
+            ? FREAK_TCP_SOCKET_TIMED_OUT : FREAK_TCP_SOCKET_ACCEPT_FAILED;
+        freak_tcp_socket_set_error(listener_record, status);
+        return freak_tcp_socket_create(status);
+    }
+    freak_tcp_socket_configure_no_sigpipe(accepted);
+    int64_t result = freak_tcp_socket_create(FREAK_TCP_SOCKET_OK);
+    freak_tcp_socket_record* result_record =
+        freak_tcp_socket_require(result, "accept result");
+    result_record->native_socket = accepted;
+    result_record->role = FREAK_TCP_SOCKET_ROLE_STREAM;
+    return result;
+}
+
+int64_t freak_tcp_socket_status(freak_tcp_socket_handle handle) {
+    return freak_tcp_socket_require(handle, "status")->status;
+}
+
+bool freak_tcp_socket_eof(freak_tcp_socket_handle handle) {
+    return freak_tcp_socket_require(handle, "eof")->eof;
+}
+
+int64_t freak_tcp_socket_local_port(freak_tcp_socket_handle handle) {
+    freak_tcp_socket_record* socket_record =
+        freak_tcp_socket_require(handle, "local_port");
+    if (socket_record->status != FREAK_TCP_SOCKET_OK ||
+            socket_record->native_socket == FREAK_INVALID_NATIVE_SOCKET) {
+        return 0;
+    }
+    struct sockaddr_storage address;
+    socklen_t address_length = (socklen_t)sizeof(address);
+    if (getsockname(
+            socket_record->native_socket,
+            (struct sockaddr*)&address,
+            &address_length) != 0) {
+        freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_IO_FAILED);
+        return 0;
+    }
+    if (address.ss_family == AF_INET) {
+        return (int64_t)ntohs(((struct sockaddr_in*)&address)->sin_port);
+    }
+    if (address.ss_family == AF_INET6) {
+        return (int64_t)ntohs(((struct sockaddr_in6*)&address)->sin6_port);
+    }
+    freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_IO_FAILED);
+    return 0;
+}
+
+static bool freak_tcp_socket_validate_send(
+        freak_tcp_socket_record* socket_record,
+        freak_byte_buffer_handle source,
+        int64_t offset,
+        int64_t count,
+        freak_byte_buffer_record** buffer_out) {
+    if (socket_record->status != FREAK_TCP_SOCKET_OK) return false;
+    if (socket_record->role != FREAK_TCP_SOCKET_ROLE_STREAM) {
+        freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_WRONG_ROLE);
+        return false;
+    }
+    freak_byte_buffer_record* buffer =
+        freak_byte_buffer_require(source, "TCP socket send source");
+    if (buffer->status != FREAK_BYTE_BUFFER_OK || offset < 0 || count < 0 ||
+            (uint64_t)offset > (uint64_t)buffer->length ||
+            (uint64_t)count > (uint64_t)buffer->length - (uint64_t)offset) {
+        freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_INVALID_ARGUMENT);
+        return false;
+    }
+    *buffer_out = buffer;
+    return true;
+}
+
+static int64_t freak_tcp_socket_send_once(
+        freak_tcp_socket_record* socket_record,
+        const uint8_t* data,
+        size_t count) {
+    int chunk = count > (size_t)INT_MAX ? INT_MAX : (int)count;
+    int sent;
+    do {
+        sent = send(
+            socket_record->native_socket,
+            (const char*)data,
+            chunk,
+            freak_tcp_socket_send_flags());
+    } while (sent < 0 && freak_tcp_socket_error_is_interrupted());
+    if (sent < 0) {
+        freak_tcp_socket_set_error(
+            socket_record,
+            freak_tcp_socket_error_is_timeout()
+                ? FREAK_TCP_SOCKET_TIMED_OUT : FREAK_TCP_SOCKET_IO_FAILED);
+        return -1;
+    }
+    return (int64_t)sent;
+}
+
+int64_t freak_tcp_socket_send(
+        freak_tcp_socket_handle handle,
+        freak_byte_buffer_handle source,
+        int64_t offset,
+        int64_t count) {
+    freak_tcp_socket_record* socket_record = freak_tcp_socket_require(handle, "send");
+    freak_byte_buffer_record* buffer = NULL;
+    if (!freak_tcp_socket_validate_send(
+            socket_record, source, offset, count, &buffer)) return 0;
+    if (count == 0) return 0;
+    int64_t sent = freak_tcp_socket_send_once(
+        socket_record, buffer->data + (size_t)offset, (size_t)count);
+    return sent < 0 ? 0 : sent;
+}
+
+int64_t freak_tcp_socket_send_all(
+        freak_tcp_socket_handle handle,
+        freak_byte_buffer_handle source,
+        int64_t offset,
+        int64_t count) {
+    freak_tcp_socket_record* socket_record =
+        freak_tcp_socket_require(handle, "send_all");
+    freak_byte_buffer_record* buffer = NULL;
+    if (!freak_tcp_socket_validate_send(
+            socket_record, source, offset, count, &buffer)) return 0;
+    int64_t total = 0;
+    while (total < count) {
+        int64_t sent = freak_tcp_socket_send_once(
+            socket_record,
+            buffer->data + (size_t)offset + (size_t)total,
+            (size_t)(count - total));
+        if (sent <= 0) break;
+        total += sent;
+    }
+    return total;
+}
+
+int64_t freak_tcp_socket_receive(
+        freak_tcp_socket_handle handle,
+        freak_byte_buffer_handle destination,
+        int64_t max_bytes) {
+    freak_tcp_socket_record* socket_record =
+        freak_tcp_socket_require(handle, "receive");
+    if (socket_record->status != FREAK_TCP_SOCKET_OK) return 0;
+    if (socket_record->role != FREAK_TCP_SOCKET_ROLE_STREAM) {
+        freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_WRONG_ROLE);
+        return 0;
+    }
+    if (max_bytes <= 0) {
+        freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_INVALID_ARGUMENT);
+        return 0;
+    }
+    freak_byte_buffer_record* buffer =
+        freak_byte_buffer_require(destination, "TCP socket receive destination");
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) {
+        freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_INVALID_ARGUMENT);
+        return 0;
+    }
+    if (socket_record->eof) return 0;
+    size_t requested = (uint64_t)max_bytes > (uint64_t)INT_MAX
+        ? (size_t)INT_MAX : (size_t)max_bytes;
+    if (!freak_byte_buffer_ensure_append(buffer, requested)) {
+        freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_INVALID_ARGUMENT);
+        return 0;
+    }
+    int received;
+    do {
+        received = recv(
+            socket_record->native_socket,
+            (char*)buffer->data + buffer->length,
+            (int)requested,
+            0);
+    } while (received < 0 && freak_tcp_socket_error_is_interrupted());
+    if (received == 0) {
+        socket_record->eof = true;
+        return 0;
+    }
+    if (received < 0) {
+        freak_tcp_socket_set_error(
+            socket_record,
+            freak_tcp_socket_error_is_timeout()
+                ? FREAK_TCP_SOCKET_TIMED_OUT : FREAK_TCP_SOCKET_IO_FAILED);
+        return 0;
+    }
+    buffer->length += (size_t)received;
+    return (int64_t)received;
+}
+
+void freak_tcp_socket_set_timeout(
+        freak_tcp_socket_handle handle, int64_t receive_ms, int64_t send_ms) {
+    freak_tcp_socket_record* socket_record =
+        freak_tcp_socket_require(handle, "set_timeout");
+    if (socket_record->status != FREAK_TCP_SOCKET_OK) return;
+    if (socket_record->role == FREAK_TCP_SOCKET_ROLE_FAILED ||
+            receive_ms < 0 || send_ms < 0 ||
+            receive_ms > INT_MAX || send_ms > INT_MAX) {
+        freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_INVALID_ARGUMENT);
+        return;
+    }
+#ifdef _WIN32
+    DWORD receive_timeout = (DWORD)receive_ms;
+    DWORD send_timeout = (DWORD)send_ms;
+    int receive_result = setsockopt(
+        socket_record->native_socket, SOL_SOCKET, SO_RCVTIMEO,
+        (const char*)&receive_timeout, (int)sizeof(receive_timeout));
+    int send_result = setsockopt(
+        socket_record->native_socket, SOL_SOCKET, SO_SNDTIMEO,
+        (const char*)&send_timeout, (int)sizeof(send_timeout));
+#else
+    struct timeval receive_timeout;
+    receive_timeout.tv_sec = (time_t)(receive_ms / 1000);
+    receive_timeout.tv_usec = (suseconds_t)((receive_ms % 1000) * 1000);
+    struct timeval send_timeout;
+    send_timeout.tv_sec = (time_t)(send_ms / 1000);
+    send_timeout.tv_usec = (suseconds_t)((send_ms % 1000) * 1000);
+    int receive_result = setsockopt(
+        socket_record->native_socket, SOL_SOCKET, SO_RCVTIMEO,
+        &receive_timeout, (socklen_t)sizeof(receive_timeout));
+    int send_result = setsockopt(
+        socket_record->native_socket, SOL_SOCKET, SO_SNDTIMEO,
+        &send_timeout, (socklen_t)sizeof(send_timeout));
+#endif
+    if (receive_result != 0 || send_result != 0) {
+        freak_tcp_socket_set_error(socket_record, FREAK_TCP_SOCKET_IO_FAILED);
+    }
+}
+
+void freak_tcp_socket_close(freak_tcp_socket_handle handle) {
+    int64_t slot = freak_tcp_socket_slot_for_handle(handle);
+    if (slot < 0) {
+        fprintf(stderr, "FREAK: invalid or stale TCP socket handle in close\n");
+        exit(1);
+    }
+    freak_tcp_socket_record* socket_record = &freak_tcp_sockets[slot];
+    freak_tcp_socket_native_close(socket_record->native_socket);
+    socket_record->native_socket = FREAK_INVALID_NATIVE_SOCKET;
+    socket_record->status = FREAK_TCP_SOCKET_OK;
+    socket_record->role = FREAK_TCP_SOCKET_ROLE_FAILED;
+    socket_record->eof = false;
+    socket_record->in_use = false;
+    freak_tcp_socket_live_count -= 1;
+    if (socket_record->generation >= FREAK_TCP_SOCKET_GENERATION_MAX) {
+        socket_record->next_free = -1;
+        return;
+    }
+    socket_record->next_free = freak_tcp_socket_free_head;
+    freak_tcp_socket_free_head = slot;
+}
+
+int64_t freak_llvm_tcp_socket_connect(int64_t host, int64_t port) {
+    return freak_tcp_socket_connect(freak_word_lit(host ? (const char*)host : ""), port);
+}
+int64_t freak_llvm_tcp_socket_listen(int64_t host, int64_t port, int64_t backlog) {
+    return freak_tcp_socket_listen(
+        freak_word_lit(host ? (const char*)host : ""), port, backlog);
+}
+int64_t freak_llvm_tcp_socket_accept(int64_t listener) {
+    return freak_tcp_socket_accept(listener);
+}
+int64_t freak_llvm_tcp_socket_status(int64_t handle) {
+    return freak_tcp_socket_status(handle);
+}
+int64_t freak_llvm_tcp_socket_eof(int64_t handle) {
+    return freak_tcp_socket_eof(handle) ? 1 : 0;
+}
+int64_t freak_llvm_tcp_socket_local_port(int64_t handle) {
+    return freak_tcp_socket_local_port(handle);
+}
+int64_t freak_llvm_tcp_socket_send(
+        int64_t handle, int64_t source, int64_t offset, int64_t count) {
+    return freak_tcp_socket_send(handle, source, offset, count);
+}
+int64_t freak_llvm_tcp_socket_send_all(
+        int64_t handle, int64_t source, int64_t offset, int64_t count) {
+    return freak_tcp_socket_send_all(handle, source, offset, count);
+}
+int64_t freak_llvm_tcp_socket_receive(
+        int64_t handle, int64_t destination, int64_t max_bytes) {
+    return freak_tcp_socket_receive(handle, destination, max_bytes);
+}
+void freak_llvm_tcp_socket_set_timeout(
+        int64_t handle, int64_t receive_ms, int64_t send_ms) {
+    freak_tcp_socket_set_timeout(handle, receive_ms, send_ms);
+}
+void freak_llvm_tcp_socket_close(int64_t handle) {
+    freak_tcp_socket_close(handle);
+}
+
 int64_t freak_tcp_connect(freak_word host, int64_t port) {
 #ifdef _WIN32
     freak_wsa_init();

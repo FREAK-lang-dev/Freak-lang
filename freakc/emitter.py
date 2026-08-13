@@ -62,6 +62,7 @@ from .type_checker import (
     PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED,
     PYTHON_OWNED_WORD_UNSUPPORTED,
     SYSTEM_RUNTIME_SIGNATURES,
+    TCP_SOCKET_SIGNATURES,
     WORD_BUILDER_SIGNATURES,
     WORD_METHOD_SIGNATURES,
 )
@@ -78,6 +79,7 @@ class VarInfo:
 
 _FREAK_TYPE_TO_C = {
     "ByteBuffer": "freak_byte_buffer_handle",
+    "bool": "bool",
     "int": "int64_t",
     "word": "freak_word",
     "void": "void",
@@ -1188,6 +1190,27 @@ class CEmitter:
                         )
                 return f"{system_signature.c_name}({args_c})"
 
+            tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq_name)
+            if tcp_socket_signature is not None:
+                if len(expr.args) != len(tcp_socket_signature.argument_types):
+                    raise EmitError(
+                        f"{fq_name} expects {len(tcp_socket_signature.argument_types)} "
+                        f"argument(s), got {len(expr.args)}"
+                    )
+                for index, (argument, expected) in enumerate(
+                    zip(expr.args, tcp_socket_signature.argument_types), start=1
+                ):
+                    actual_c_type = self._infer_c_type_of_expr(argument)
+                    expected_c_type = _word_builder_c_type(expected.name)
+                    if actual_c_type != expected_c_type:
+                        raise EmitError(
+                            f"call to '{fq_name}' argument {index} expects "
+                            f"{expected}, got {_word_builder_freak_type(actual_c_type)}"
+                        )
+                return f"{tcp_socket_signature.c_name}({args_c})"
+            if fq_name.startswith("tcp::socket_"):
+                raise EmitError(f"unknown TCP socket builtin '{fq_name}'")
+
             word_builder_signature = WORD_BUILDER_SIGNATURES.get(fq_name)
             if word_builder_signature is not None:
                 if len(expr.args) != len(word_builder_signature.argument_types):
@@ -1702,6 +1725,9 @@ class CEmitter:
                 return _word_builder_c_type(
                     SYSTEM_RUNTIME_SIGNATURES[fq_name].return_type.name
                 )
+            tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq_name)
+            if tcp_socket_signature is not None:
+                return _word_builder_c_type(tcp_socket_signature.return_type.name)
             if fq_name in ("fs::read",):
                 return "freak_word"
             return "int64_t"
@@ -1773,6 +1799,9 @@ class CEmitter:
                 word_builder_signature = WORD_BUILDER_SIGNATURES.get(fq)
                 if word_builder_signature is not None:
                     return _word_builder_c_type(word_builder_signature.return_type.name)
+                tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq)
+                if tcp_socket_signature is not None:
+                    return _word_builder_c_type(tcp_socket_signature.return_type.name)
                 # std::process return types
                 _PROCESS_RET = {
                     "process::exit": "void",
