@@ -9159,6 +9159,118 @@ def hash_text(*parts: str) -> str:
     return digest.hexdigest()
 
 
+def runtime_platform_link_args(platform_name: str | None = None) -> tuple[str, ...]:
+    platform = sys.platform if platform_name is None else platform_name
+    if platform.startswith("win"):
+        return ("-lws2_32",)
+    if platform.startswith("linux"):
+        return ("-lm",)
+    return ()
+
+
+def runtime_platform_final_link_args(
+    platform_name: str | None = None,
+) -> tuple[str, ...]:
+    platform = sys.platform if platform_name is None else platform_name
+    link_args = runtime_platform_link_args(platform)
+    if platform.startswith("linux"):
+        return (*link_args, "-Wl,-z,muldefs")
+    return link_args
+
+
+def runtime_platform_cache_parts(
+    include_arg: str,
+    platform_name: str | None = None,
+    *,
+    final_link: bool = False,
+) -> tuple[str, ...]:
+    platform = sys.platform if platform_name is None else platform_name
+    runtime_link_args = runtime_platform_link_args(platform)
+    parts = (
+        f"platform={platform}",
+        f"include_arg={include_arg}",
+        *(f"runtime_link_arg={arg}" for arg in runtime_link_args),
+    )
+    if final_link:
+        return (
+            *parts,
+            *(
+                f"final_link_arg={arg}"
+                for arg in runtime_platform_final_link_args(platform)
+            ),
+        )
+    return parts
+
+
+def check_runtime_platform_link_contract() -> None:
+    expected = {
+        "win32": ("-lws2_32",),
+        "linux": ("-lm",),
+        "darwin": (),
+        "freebsd": (),
+    }
+    for platform, expected_args in expected.items():
+        actual_args = runtime_platform_link_args(platform)
+        if actual_args != expected_args:
+            raise RuntimeError(
+                "runtime platform link contract mismatch: "
+                f"platform={platform} expected={expected_args!r} actual={actual_args!r}"
+            )
+
+    expected_final = {
+        "win32": ("-lws2_32",),
+        "linux": ("-lm", "-Wl,-z,muldefs"),
+        "darwin": (),
+        "freebsd": (),
+    }
+    for platform, expected_args in expected_final.items():
+        actual_args = runtime_platform_final_link_args(platform)
+        if actual_args != expected_args:
+            raise RuntimeError(
+                "runtime final link contract mismatch: "
+                f"platform={platform} expected={expected_args!r} actual={actual_args!r}"
+            )
+
+    platform_probes = {
+        platform: hash_text(
+            "v4-runtime-platform-cache-contract-v1",
+            *runtime_platform_cache_parts(
+                "-I/runtime-contract-probe",
+                platform,
+                final_link=True,
+            ),
+        )
+        for platform in expected
+    }
+    if len(set(platform_probes.values())) != len(platform_probes):
+        raise RuntimeError("runtime cache identity aliases distinct platforms")
+
+    include_probe_a = hash_text(
+        "v4-runtime-platform-cache-contract-v1",
+        *runtime_platform_cache_parts("-I/runtime-a", "win32"),
+    )
+    include_probe_b = hash_text(
+        "v4-runtime-platform-cache-contract-v1",
+        *runtime_platform_cache_parts("-I/runtime-b", "win32"),
+    )
+    if include_probe_a == include_probe_b:
+        raise RuntimeError("runtime cache identity omits the include argument")
+
+    linux_stage_probe = hash_text(
+        "v4-runtime-platform-cache-contract-v1",
+        *runtime_platform_cache_parts("-I/runtime", "linux"),
+    )
+    linux_final_probe = hash_text(
+        "v4-runtime-platform-cache-contract-v1",
+        *runtime_platform_cache_parts("-I/runtime", "linux", final_link=True),
+    )
+    if linux_stage_probe == linux_final_probe:
+        raise RuntimeError("runtime cache identity omits Linux final link arguments")
+
+    if runtime_platform_link_args() != runtime_platform_link_args(sys.platform):
+        raise RuntimeError("runtime platform link default does not use sys.platform")
+
+
 def crate_path(name: str) -> Path:
     return CRATES_ROOT / name / "src" / "lib.fk"
 
@@ -10786,13 +10898,14 @@ def compile_runtime_smoke(
     c_path = RUNTIME_BUILD_ROOT / f"{fixture.stem}.fk.c"
     exe_path = RUNTIME_BUILD_ROOT / f"{fixture.stem}{suffix}"
     stamp_path = RUNTIME_BUILD_ROOT / f"{fixture.stem}.compile.sha256"
+    platform_link_args = runtime_platform_link_args()
     compile_key = hash_text(
-        "v4-runtime-smoke-v1",
+        "v4-runtime-smoke-v2",
         clang,
-        include_arg,
         runtime_source,
         c_source,
         *extra_cflags,
+        *runtime_platform_cache_parts(include_arg),
     )
 
     write_text_if_changed(c_path, c_source)
@@ -10809,9 +10922,8 @@ def compile_runtime_smoke(
         "-w",
         "-O0",
         *extra_cflags,
+        *platform_link_args,
     ]
-    if sys.platform.startswith("linux"):
-        compile_cmd.append("-lm")
     compiled = run_with_heartbeat(
         compile_cmd,
         label=f"runtime compile: {rel(fixture)}",
@@ -11015,12 +11127,14 @@ int main(void) {
 '''
     runtime_source = read_text(runtime_c)
     llvm_runtime_source = read_text(llvm_runtime_c)
+    platform_link_args = runtime_platform_link_args()
     compile_key = hash_text(
-        "v4-llvm-runtime-primitives-v1",
+        "v4-llvm-runtime-primitives-v2",
         clang,
         source,
         runtime_source,
         llvm_runtime_source,
+        *runtime_platform_cache_parts(include_arg),
     )
     write_text_if_changed(source_path, source)
 
@@ -11040,9 +11154,8 @@ int main(void) {
             include_arg,
             "-w",
             "-O0",
+            *platform_link_args,
         ]
-        if sys.platform.startswith("linux"):
-            compile_cmd.append("-lm")
         compiled = run_with_heartbeat(
             compile_cmd,
             label="LLVM runtime primitive compile",
@@ -11100,14 +11213,17 @@ def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
     bootstrap_c = read_text(bootstrap_c_path)
     runtime_source = read_text(runtime_c)
     llvm_runtime_source = read_text(llvm_runtime_c)
+    platform_link_args = runtime_platform_link_args()
+    final_link_args = runtime_platform_final_link_args()
     pipeline_key = hash_text(
-        "v4-v3-llvm-substring-pipeline-v1",
+        "v4-v3-llvm-substring-pipeline-v2",
         clang,
         bootstrap_c,
         compiler_source,
         fixture_source,
         runtime_source,
         llvm_runtime_source,
+        *runtime_platform_cache_parts(include_arg, final_link=True),
     )
     write_text_if_changed(compiler_source_path, compiler_source)
     write_text_if_changed(fixture_path, fixture_source)
@@ -11118,12 +11234,6 @@ def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
         and read_text(stamp_path).strip() == pipeline_key
     )
     if compiled_now:
-        platform_link_args: list[str] = []
-        if sys.platform.startswith("win"):
-            platform_link_args.append("-lws2_32")
-        else:
-            platform_link_args.append("-lm")
-
         stage0 = run_with_heartbeat(
             [
                 clang,
@@ -11203,10 +11313,8 @@ def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
             include_arg,
             "-w",
             "-O0",
-            *platform_link_args,
+            *final_link_args,
         ]
-        if sys.platform.startswith("linux"):
-            link_command.append("-Wl,-z,muldefs")
         linked = run_with_heartbeat(
             link_command,
             label="V3 LLVM substring native link",
@@ -11375,6 +11483,7 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(line_buffering=True)
     args = parse_args(argv)
+    check_runtime_platform_link_contract()
     check_process_memory_sampler()
     crates = crate_paths()
     fixtures = fixture_paths()
