@@ -50,6 +50,11 @@ freak_word freak_word_own(char* s, size_t len);
 freak_word freak_word_concat(freak_word a, freak_word b);
 freak_word freak_word_concat_consuming(freak_word a, freak_word b, bool release_a, bool release_b);
 
+/* Repeat the complete byte sequence count times. Nonempty output uses one
+   checked exact allocation; count <= 0 and empty input return empty. */
+freak_word freak_word_repeated(freak_word pattern, int64_t count);
+int64_t freak_llvm_word_repeated(int64_t pattern, int64_t count);
+
 /* Compiler-internal self-replacement fast path. Appends into a private
    geometrically grown buffer without changing freak_word's public layout. */
 void freak_word_append_owned(freak_word* slot, freak_word suffix, bool release_suffix);
@@ -66,6 +71,32 @@ void freak_word_replace_owned(freak_word* slot, freak_word replacement);
    data must use this/replacement APIs rather than direct free(), because the
    frozen runtime tracks private ownership and append-capacity metadata. */
 void freak_word_release_owned(freak_word* slot);
+
+/* Opaque generation-checked word builders. Handles are ordinary V3 int
+   values; finish and discard consume the handle and invalidate every alias. */
+int64_t freak_word_builder_new(void);
+int64_t freak_word_builder_with_capacity(int64_t min_capacity);
+void freak_word_builder_reserve(int64_t handle, int64_t min_capacity);
+int64_t freak_word_builder_capacity(int64_t handle);
+int64_t freak_word_builder_length(int64_t handle);
+void freak_word_builder_clear(int64_t handle);
+void freak_word_builder_append(int64_t handle, freak_word value);
+void freak_word_builder_append_char(int64_t handle, int64_t scalar);
+void freak_word_builder_append_int(int64_t handle, int64_t value);
+freak_word freak_word_builder_finish(int64_t handle);
+void freak_word_builder_discard(int64_t handle);
+
+int64_t freak_llvm_word_builder_new(void);
+int64_t freak_llvm_word_builder_with_capacity(int64_t min_capacity);
+void freak_llvm_word_builder_reserve(int64_t handle, int64_t min_capacity);
+int64_t freak_llvm_word_builder_capacity(int64_t handle);
+int64_t freak_llvm_word_builder_length(int64_t handle);
+void freak_llvm_word_builder_clear(int64_t handle);
+void freak_llvm_word_builder_append(int64_t handle, int64_t value);
+void freak_llvm_word_builder_append_char(int64_t handle, int64_t scalar);
+void freak_llvm_word_builder_append_int(int64_t handle, int64_t value);
+int64_t freak_llvm_word_builder_finish(int64_t handle);
+void freak_llvm_word_builder_discard(int64_t handle);
 
 /* Equality test (byte-wise). */
 bool freak_word_eq(freak_word a, freak_word b);

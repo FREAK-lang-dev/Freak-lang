@@ -237,6 +237,88 @@ static size_t freak_word_concat_required(
     return left_length + right_length + 1;
 }
 
+#ifdef FREAK_WORD_FOUNDATION_AUDIT
+static size_t freak_word_foundation_repeat_calls = 0;
+static size_t freak_word_foundation_repeat_allocations = 0;
+static size_t freak_word_foundation_repeat_copied_bytes = 0;
+static size_t freak_word_foundation_builder_creations = 0;
+static size_t freak_word_foundation_builder_allocations = 0;
+static size_t freak_word_foundation_builder_growths = 0;
+static size_t freak_word_foundation_builder_copied_bytes = 0;
+static size_t freak_word_foundation_builder_finishes = 0;
+static size_t freak_word_foundation_builder_discards = 0;
+static bool freak_word_foundation_audit_registered = false;
+
+static void freak_word_foundation_audit_at_exit(void) {
+    fprintf(stderr,
+            "FREAK word foundation audit: repeat_calls=%llu repeat_allocations=%llu repeat_copied_bytes=%llu builder_creations=%llu builder_allocations=%llu builder_growths=%llu builder_copied_bytes=%llu builder_finishes=%llu builder_discards=%llu\n",
+            (unsigned long long)freak_word_foundation_repeat_calls,
+            (unsigned long long)freak_word_foundation_repeat_allocations,
+            (unsigned long long)freak_word_foundation_repeat_copied_bytes,
+            (unsigned long long)freak_word_foundation_builder_creations,
+            (unsigned long long)freak_word_foundation_builder_allocations,
+            (unsigned long long)freak_word_foundation_builder_growths,
+            (unsigned long long)freak_word_foundation_builder_copied_bytes,
+            (unsigned long long)freak_word_foundation_builder_finishes,
+            (unsigned long long)freak_word_foundation_builder_discards);
+}
+
+static void freak_word_foundation_audit_ensure_registered(void) {
+    if (freak_word_foundation_audit_registered) return;
+    if (atexit(freak_word_foundation_audit_at_exit) != 0) {
+        fprintf(stderr, "FREAK: could not register word foundation audit\n");
+        exit(1);
+    }
+    freak_word_foundation_audit_registered = true;
+}
+
+static void freak_word_foundation_audit_repeat(size_t copied_bytes) {
+    freak_word_foundation_audit_ensure_registered();
+    freak_word_foundation_repeat_calls += 1;
+    if (copied_bytes > 0) freak_word_foundation_repeat_allocations += 1;
+    freak_word_foundation_repeat_copied_bytes += copied_bytes;
+}
+
+static void freak_word_foundation_audit_builder_create(void) {
+    freak_word_foundation_audit_ensure_registered();
+    freak_word_foundation_builder_creations += 1;
+}
+
+static void freak_word_foundation_audit_builder_allocation(
+        size_t copied_bytes, bool growth) {
+    freak_word_foundation_builder_allocations += 1;
+    if (growth) freak_word_foundation_builder_growths += 1;
+    freak_word_foundation_builder_copied_bytes += copied_bytes;
+}
+
+static void freak_word_foundation_audit_builder_append(size_t copied_bytes) {
+    freak_word_foundation_builder_copied_bytes += copied_bytes;
+}
+
+static void freak_word_foundation_audit_builder_finish(void) {
+    freak_word_foundation_builder_finishes += 1;
+}
+
+static void freak_word_foundation_audit_builder_discard(void) {
+    freak_word_foundation_builder_discards += 1;
+}
+#else
+static void freak_word_foundation_audit_repeat(size_t copied_bytes) {
+    (void)copied_bytes;
+}
+static void freak_word_foundation_audit_builder_create(void) {}
+static void freak_word_foundation_audit_builder_allocation(
+        size_t copied_bytes, bool growth) {
+    (void)copied_bytes;
+    (void)growth;
+}
+static void freak_word_foundation_audit_builder_append(size_t copied_bytes) {
+    (void)copied_bytes;
+}
+static void freak_word_foundation_audit_builder_finish(void) {}
+static void freak_word_foundation_audit_builder_discard(void) {}
+#endif
+
 #ifdef FREAK_C_RUNTIME_OWNERSHIP_AUDIT
 static size_t freak_c_owned_word_count = 0;
 static bool freak_c_ownership_audit_registered = false;
@@ -306,6 +388,52 @@ freak_word freak_word_concat(freak_word a, freak_word b) {
     memcpy(buf + a.length, b.data, b.length);
     buf[total] = '\0';
     return freak_word_own(buf, total);
+}
+
+static char* freak_word_repeat_bytes(
+        const char* pattern, size_t pattern_length, int64_t count, size_t* length_out) {
+    *length_out = 0;
+    if (count <= 0 || pattern_length == 0) {
+        freak_word_foundation_audit_repeat(0);
+        return NULL;
+    }
+    uint64_t repeat_count = (uint64_t)count;
+    size_t size_limit = SIZE_MAX - 1;
+    if (size_limit > (size_t)INT64_MAX) size_limit = (size_t)INT64_MAX;
+    if (repeat_count > (uint64_t)(size_limit / pattern_length)) {
+        fprintf(stderr, "FREAK: word repetition size overflow\n");
+        exit(1);
+    }
+    size_t total = pattern_length * (size_t)repeat_count;
+    char* buffer = (char*)malloc(total + 1);
+    if (!buffer) {
+        fprintf(stderr, "FREAK: out of memory repeating word\n");
+        exit(1);
+    }
+    if (pattern_length == 1) {
+        memset(buffer, (unsigned char)pattern[0], total);
+    } else {
+        memcpy(buffer, pattern, pattern_length);
+        size_t filled = pattern_length;
+        while (filled < total) {
+            size_t copied = filled;
+            if (copied > total - filled) copied = total - filled;
+            memcpy(buffer + filled, buffer, copied);
+            filled += copied;
+        }
+    }
+    buffer[total] = '\0';
+    *length_out = total;
+    freak_word_foundation_audit_repeat(total);
+    return buffer;
+}
+
+freak_word freak_word_repeated(freak_word pattern, int64_t count) {
+    size_t length = 0;
+    char* buffer = freak_word_repeat_bytes(
+        pattern.data ? pattern.data : "", pattern.length, count, &length);
+    if (!buffer) return freak_word_lit("");
+    return freak_word_own(buffer, length);
 }
 
 void freak_word_append_owned(freak_word* slot, freak_word suffix, bool release_suffix) {
@@ -1810,6 +1938,15 @@ int64_t freak_llvm_word_concat(int64_t a, int64_t b) {
     return freak_llvm_word_adopt((int64_t)buf);
 }
 
+int64_t freak_llvm_word_repeated(int64_t pattern, int64_t count) {
+    const char* text = pattern ? (const char*)pattern : "";
+    size_t length = 0;
+    char* buffer = freak_word_repeat_bytes(text, strlen(text), count, &length);
+    (void)length;
+    if (!buffer) return (int64_t)"";
+    return freak_llvm_word_adopt((int64_t)buffer);
+}
+
 int64_t freak_llvm_word_eq(int64_t a, int64_t b) {
     const char* sa = (const char*)a;
     const char* sb = (const char*)b;
@@ -2091,6 +2228,372 @@ int64_t freak_llvm_process_arg(int64_t index) {
 
 void freak_llvm_process_exit(int64_t code) {
     exit((int)code);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Opaque word builders                                              */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    char* data;
+    size_t length;
+    size_t capacity;
+    int64_t next_free;
+    uint32_t generation;
+    bool in_use;
+} freak_word_builder_record;
+
+static freak_word_builder_record* freak_word_builders = NULL;
+static int64_t freak_word_builder_count = 0;
+static int64_t freak_word_builder_table_capacity = 0;
+static int64_t freak_word_builder_free_head = -1;
+static size_t freak_word_builder_live_count = 0;
+
+#define FREAK_WORD_BUILDER_GENERATION_MAX UINT32_C(0x7fffffff)
+
+#if defined(FREAK_C_RUNTIME_OWNERSHIP_AUDIT) || defined(FREAK_RUNTIME_OWNERSHIP_AUDIT)
+static bool freak_word_builder_ownership_audit_registered = false;
+
+static void freak_word_builder_ownership_audit_at_exit(void) {
+    if (freak_word_builder_live_count != 0) {
+        fprintf(stderr,
+                "FREAK: word builder ownership audit found %llu live builder(s)\n",
+                (unsigned long long)freak_word_builder_live_count);
+        fflush(stderr);
+        _Exit(89);
+    }
+}
+
+static void freak_word_builder_ownership_audit_ensure_registered(void) {
+    if (freak_word_builder_ownership_audit_registered) return;
+    if (atexit(freak_word_builder_ownership_audit_at_exit) != 0) {
+        fprintf(stderr, "FREAK: could not register word builder ownership audit\n");
+        exit(1);
+    }
+    freak_word_builder_ownership_audit_registered = true;
+}
+#else
+static void freak_word_builder_ownership_audit_ensure_registered(void) {}
+#endif
+
+static void freak_word_builder_fail(const char* message) {
+    fprintf(stderr, "FREAK: %s\n", message);
+    exit(1);
+}
+
+static int64_t freak_word_builder_make_handle(int64_t slot, uint32_t generation) {
+    return (int64_t)(((uint64_t)generation << 32) | (uint64_t)(uint32_t)slot);
+}
+
+static int64_t freak_word_builder_slot_for_handle(int64_t handle) {
+    if (handle < 0) return -1;
+    uint64_t raw = (uint64_t)handle;
+    int64_t slot = (int64_t)(uint32_t)(raw & UINT64_C(0xffffffff));
+    uint32_t generation = (uint32_t)(raw >> 32);
+    if (slot < 0 || slot >= freak_word_builder_count) return -1;
+    freak_word_builder_record* builder = &freak_word_builders[slot];
+    if (!builder->in_use || builder->generation != generation) return -1;
+    return slot;
+}
+
+static freak_word_builder_record* freak_word_builder_require(
+        int64_t handle, const char* operation) {
+    int64_t slot = freak_word_builder_slot_for_handle(handle);
+    if (slot < 0) {
+        fprintf(stderr,
+                "FREAK: invalid or stale word builder handle in %s\n",
+                operation);
+        exit(1);
+    }
+    return &freak_word_builders[slot];
+}
+
+static void freak_word_builder_reserve_handle(void) {
+    if (freak_word_builder_count < freak_word_builder_table_capacity) return;
+    int64_t old_capacity = freak_word_builder_table_capacity;
+    if (old_capacity > INT64_MAX / 2) {
+        freak_word_builder_fail("word builder handle table is too large");
+    }
+    int64_t new_capacity = old_capacity == 0 ? 64 : old_capacity * 2;
+    if (new_capacity <= old_capacity ||
+            (uint64_t)new_capacity > SIZE_MAX / sizeof(freak_word_builder_record)) {
+        freak_word_builder_fail("word builder handle table is too large");
+    }
+    freak_word_builder_record* grown = (freak_word_builder_record*)realloc(
+        freak_word_builders,
+        (size_t)new_capacity * sizeof(freak_word_builder_record));
+    if (!grown) {
+        freak_word_builder_fail("out of memory growing word builder handle table");
+    }
+    memset(
+        grown + old_capacity,
+        0,
+        (size_t)(new_capacity - old_capacity) * sizeof(freak_word_builder_record));
+    freak_word_builders = grown;
+    freak_word_builder_table_capacity = new_capacity;
+}
+
+static size_t freak_word_builder_checked_capacity(int64_t min_capacity) {
+    if (min_capacity < 0) {
+        freak_word_builder_fail("word builder capacity must be non-negative");
+    }
+    uint64_t requested = (uint64_t)min_capacity;
+    if (requested > (uint64_t)(SIZE_MAX - 1)) {
+        freak_word_builder_fail("word builder capacity overflow");
+    }
+    return (size_t)requested;
+}
+
+static void freak_word_builder_reserve_exact(
+        freak_word_builder_record* builder, size_t min_capacity, bool growth) {
+    if (min_capacity <= builder->capacity) return;
+    char* grown = (char*)realloc(builder->data, min_capacity + 1);
+    if (!grown) {
+        freak_word_builder_fail("out of memory growing word builder");
+    }
+    if (!builder->data) grown[0] = '\0';
+    freak_word_foundation_audit_builder_allocation(builder->length, growth);
+    builder->data = grown;
+    builder->capacity = min_capacity;
+}
+
+static size_t freak_word_builder_growth_capacity(
+        size_t current_capacity, size_t required) {
+    size_t capacity = current_capacity == 0 ? 16 : current_capacity;
+    size_t size_limit = SIZE_MAX - 1;
+    if (size_limit > (size_t)INT64_MAX) size_limit = (size_t)INT64_MAX;
+    while (capacity < required) {
+        if (capacity > size_limit / 2) return required;
+        capacity *= 2;
+    }
+    return capacity;
+}
+
+static void freak_word_builder_ensure_append_capacity(
+        freak_word_builder_record* builder, size_t appended) {
+    size_t size_limit = SIZE_MAX - 1;
+    if (size_limit > (size_t)INT64_MAX) size_limit = (size_t)INT64_MAX;
+    if (builder->length > size_limit || appended > size_limit - builder->length) {
+        freak_word_builder_fail("word builder size overflow");
+    }
+    size_t required = builder->length + appended;
+    if (required <= builder->capacity) return;
+    size_t capacity = freak_word_builder_growth_capacity(builder->capacity, required);
+    freak_word_builder_reserve_exact(builder, capacity, true);
+}
+
+static int64_t freak_word_builder_create(int64_t min_capacity) {
+    size_t capacity = freak_word_builder_checked_capacity(min_capacity);
+    int64_t slot = freak_word_builder_free_head;
+    if (slot >= 0) {
+        freak_word_builder_free_head = freak_word_builders[slot].next_free;
+        freak_word_builders[slot].generation += 1;
+    } else {
+        freak_word_builder_reserve_handle();
+        slot = freak_word_builder_count++;
+        if ((uint64_t)slot > UINT32_MAX) {
+            freak_word_builder_fail("word builder handle table exhausted");
+        }
+        freak_word_builders[slot].generation = 1;
+    }
+    freak_word_builder_record* builder = &freak_word_builders[slot];
+    builder->data = NULL;
+    builder->length = 0;
+    builder->capacity = 0;
+    builder->next_free = -1;
+    builder->in_use = true;
+    freak_word_foundation_audit_builder_create();
+    freak_word_builder_ownership_audit_ensure_registered();
+    if (capacity > 0) freak_word_builder_reserve_exact(builder, capacity, false);
+    freak_word_builder_live_count += 1;
+    return freak_word_builder_make_handle(slot, builder->generation);
+}
+
+static void freak_word_builder_append_bytes(
+        int64_t handle, const char* data, size_t length, const char* operation) {
+    freak_word_builder_record* builder = freak_word_builder_require(handle, operation);
+    if (length > 0 && !data) {
+        freak_word_builder_fail("word builder append received invalid word data");
+    }
+    freak_word_builder_ensure_append_capacity(builder, length);
+    if (length > 0) memcpy(builder->data + builder->length, data, length);
+    builder->length += length;
+    if (builder->data) builder->data[builder->length] = '\0';
+    freak_word_foundation_audit_builder_append(length);
+}
+
+static void freak_word_builder_consume(int64_t slot) {
+    freak_word_builder_record* builder = &freak_word_builders[slot];
+    builder->data = NULL;
+    builder->length = 0;
+    builder->capacity = 0;
+    builder->in_use = false;
+    freak_word_builder_live_count -= 1;
+    if (builder->generation >= FREAK_WORD_BUILDER_GENERATION_MAX) {
+        builder->next_free = -1;
+        return;
+    }
+    builder->next_free = freak_word_builder_free_head;
+    freak_word_builder_free_head = slot;
+}
+
+static char* freak_word_builder_take(
+        int64_t handle, size_t* length_out, const char* operation) {
+    int64_t slot = freak_word_builder_slot_for_handle(handle);
+    if (slot < 0) {
+        fprintf(stderr,
+                "FREAK: invalid or stale word builder handle in %s\n",
+                operation);
+        exit(1);
+    }
+    freak_word_builder_record* builder = &freak_word_builders[slot];
+    char* data = builder->data;
+    *length_out = builder->length;
+    freak_word_builder_consume(slot);
+    freak_word_foundation_audit_builder_finish();
+    return data;
+}
+
+int64_t freak_word_builder_new(void) {
+    return freak_word_builder_create(0);
+}
+
+int64_t freak_word_builder_with_capacity(int64_t min_capacity) {
+    return freak_word_builder_create(min_capacity);
+}
+
+void freak_word_builder_reserve(int64_t handle, int64_t min_capacity) {
+    freak_word_builder_record* builder = freak_word_builder_require(handle, "reserve");
+    size_t capacity = freak_word_builder_checked_capacity(min_capacity);
+    freak_word_builder_reserve_exact(builder, capacity, true);
+}
+
+int64_t freak_word_builder_capacity(int64_t handle) {
+    freak_word_builder_record* builder = freak_word_builder_require(handle, "capacity");
+    return (int64_t)builder->capacity;
+}
+
+int64_t freak_word_builder_length(int64_t handle) {
+    freak_word_builder_record* builder = freak_word_builder_require(handle, "length");
+    return (int64_t)builder->length;
+}
+
+void freak_word_builder_clear(int64_t handle) {
+    freak_word_builder_record* builder = freak_word_builder_require(handle, "clear");
+    builder->length = 0;
+    if (builder->data) builder->data[0] = '\0';
+}
+
+void freak_word_builder_append(int64_t handle, freak_word value) {
+    freak_word_builder_append_bytes(handle, value.data, value.length, "append");
+}
+
+void freak_word_builder_append_char(int64_t handle, int64_t scalar) {
+    unsigned char encoded[4];
+    size_t length = 0;
+    if (scalar <= 0 || scalar > INT64_C(0x10ffff) ||
+            (scalar >= INT64_C(0xd800) && scalar <= INT64_C(0xdfff))) {
+        freak_word_builder_fail("word builder append_char requires a non-NUL Unicode scalar");
+    }
+    if (scalar <= INT64_C(0x7f)) {
+        encoded[0] = (unsigned char)scalar;
+        length = 1;
+    } else if (scalar <= INT64_C(0x7ff)) {
+        encoded[0] = (unsigned char)(UINT64_C(0xc0) | ((uint64_t)scalar >> 6));
+        encoded[1] = (unsigned char)(UINT64_C(0x80) | ((uint64_t)scalar & UINT64_C(0x3f)));
+        length = 2;
+    } else if (scalar <= INT64_C(0xffff)) {
+        encoded[0] = (unsigned char)(UINT64_C(0xe0) | ((uint64_t)scalar >> 12));
+        encoded[1] = (unsigned char)(UINT64_C(0x80) | (((uint64_t)scalar >> 6) & UINT64_C(0x3f)));
+        encoded[2] = (unsigned char)(UINT64_C(0x80) | ((uint64_t)scalar & UINT64_C(0x3f)));
+        length = 3;
+    } else {
+        encoded[0] = (unsigned char)(UINT64_C(0xf0) | ((uint64_t)scalar >> 18));
+        encoded[1] = (unsigned char)(UINT64_C(0x80) | (((uint64_t)scalar >> 12) & UINT64_C(0x3f)));
+        encoded[2] = (unsigned char)(UINT64_C(0x80) | (((uint64_t)scalar >> 6) & UINT64_C(0x3f)));
+        encoded[3] = (unsigned char)(UINT64_C(0x80) | ((uint64_t)scalar & UINT64_C(0x3f)));
+        length = 4;
+    }
+    freak_word_builder_append_bytes(
+        handle, (const char*)encoded, length, "append_char");
+}
+
+void freak_word_builder_append_int(int64_t handle, int64_t value) {
+    char formatted[32];
+    int length = snprintf(formatted, sizeof(formatted), "%lld", (long long)value);
+    if (length < 0 || (size_t)length >= sizeof(formatted)) {
+        freak_word_builder_fail("could not format integer for word builder");
+    }
+    freak_word_builder_append_bytes(
+        handle, formatted, (size_t)length, "append_int");
+}
+
+freak_word freak_word_builder_finish(int64_t handle) {
+    size_t length = 0;
+    char* data = freak_word_builder_take(handle, &length, "finish");
+    if (!data) return freak_word_lit("");
+    return freak_word_own(data, length);
+}
+
+void freak_word_builder_discard(int64_t handle) {
+    int64_t slot = freak_word_builder_slot_for_handle(handle);
+    if (slot < 0) {
+        fprintf(stderr,
+                "FREAK: invalid or stale word builder handle in discard\n");
+        exit(1);
+    }
+    free(freak_word_builders[slot].data);
+    freak_word_builder_consume(slot);
+    freak_word_foundation_audit_builder_discard();
+}
+
+int64_t freak_llvm_word_builder_new(void) {
+    return freak_word_builder_new();
+}
+
+int64_t freak_llvm_word_builder_with_capacity(int64_t min_capacity) {
+    return freak_word_builder_with_capacity(min_capacity);
+}
+
+void freak_llvm_word_builder_reserve(int64_t handle, int64_t min_capacity) {
+    freak_word_builder_reserve(handle, min_capacity);
+}
+
+int64_t freak_llvm_word_builder_capacity(int64_t handle) {
+    return freak_word_builder_capacity(handle);
+}
+
+int64_t freak_llvm_word_builder_length(int64_t handle) {
+    return freak_word_builder_length(handle);
+}
+
+void freak_llvm_word_builder_clear(int64_t handle) {
+    freak_word_builder_clear(handle);
+}
+
+void freak_llvm_word_builder_append(int64_t handle, int64_t value) {
+    const char* text = value ? (const char*)value : "";
+    freak_word_builder_append_bytes(handle, text, strlen(text), "append");
+}
+
+void freak_llvm_word_builder_append_char(int64_t handle, int64_t scalar) {
+    freak_word_builder_append_char(handle, scalar);
+}
+
+void freak_llvm_word_builder_append_int(int64_t handle, int64_t value) {
+    freak_word_builder_append_int(handle, value);
+}
+
+int64_t freak_llvm_word_builder_finish(int64_t handle) {
+    size_t length = 0;
+    char* data = freak_word_builder_take(handle, &length, "finish");
+    (void)length;
+    if (!data) return (int64_t)"";
+    return freak_llvm_word_adopt((int64_t)data);
+}
+
+void freak_llvm_word_builder_discard(int64_t handle) {
+    freak_word_builder_discard(handle);
 }
 
 /* ------------------------------------------------------------------ */

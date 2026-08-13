@@ -1282,6 +1282,7 @@ class CEmitter:
             "to_int": ("freak_word_to_int", 0, False),
             "to_num": ("freak_word_to_num", 0, False),
             "substring": ("freak_word_substring", 2, False),
+            "repeated": ("freak_word_repeated", 1, False),
         }
         if obj_type == "freak_word" and expr.method in WORD_METHODS:
             c_func, _, _ = WORD_METHODS[expr.method]
@@ -1832,6 +1833,7 @@ class CEmitter:
                 "trim": "freak_word",
                 "replace": "freak_word",
                 "substring": "freak_word",
+                "repeated": "freak_word",
                 "char_at": "freak_word",
                 "snapshot_escape": "freak_word",
                 "snapshot_unescape": "freak_word",

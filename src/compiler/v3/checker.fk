@@ -682,7 +682,7 @@ task tc_namespace_owner(name: word) -> word {
 -- user `shape math` (for example) from being accepted as nominal dispatch and
 -- then silently lowered to math::sqrt instead.
 task tc_reserved_builtin_namespace_owner(name: word) -> bool {
-    give back name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui"
+    give back name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui" or name == "word_builder"
 }
 
 task tc_callable_is_instance(entry: int) -> bool {
@@ -730,11 +730,13 @@ task tc_task_return_shape(task_name: word) -> word {
 
 task tc_builtin_call_type(name: word) -> word {
     if name == "word_from_int" or name == "word_from_bool" or name == "word_concat" or name == "word_join" or name == "char_to_word" { give back "word" }
+    if name == "word_builder::finish" { give back "word" }
     if name == "format_num" or name == "ask" or name == "array_get" or name == "process::env" or name == "process::input" { give back "word" }
     if name == "fs::read" or name == "fs::list_dir" or name == "process::arg" or name == "process::exec_capture" { give back "word" }
     if name == "tcp::recv" or name == "tcp_recv" or name == "tcp::recv_all" or name == "tcp_recv_all" { give back "word" }
     if name == "fs::exists" or name == "fs::delete" { give back "bool" }
     if name == "array_new" or name == "array_len" or name == "process::args_count" or name == "process::exec" { give back "int" }
+    if name == "word_builder::new" or name == "word_builder::with_capacity" or name == "word_builder::capacity" or name == "word_builder::length" { give back "int" }
     if name == "word_to_int" or name == "time::now_ms" or name == "tcp::connect" or name == "tcp_connect" or name == "tcp::send" or name == "tcp_send" { give back "int" }
     if name == "ui::create_window" or name == "ui::poll_events" or name == "ui::draw_text" or name == "ui::measure_text" { give back "int" }
     if name == "ui::event_kind" or name == "ui::event_key" or name == "ui::event_pressed" or name == "ui::event_character" { give back "int" }
@@ -745,6 +747,8 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "math::tan" or name == "math::floor" or name == "math::ceil" or name == "parse_num" { give back "num" }
     if name == "say" or name == "panic" or name == "fs::write" or name == "fs::append" or name == "fs::make_dir" { give back "void" }
     if name == "array_push" or name == "array_set" or name == "array_release" or name == "process::exit" { give back "void" }
+    if name == "word_builder::reserve" or name == "word_builder::clear" or name == "word_builder::append" { give back "void" }
+    if name == "word_builder::append_char" or name == "word_builder::append_int" or name == "word_builder::discard" { give back "void" }
     if name == "tcp::close" or name == "tcp_close" { give back "void" }
     if name == "ui::destroy_window" or name == "ui::begin_frame" or name == "ui::end_frame" or name == "ui::clear" { give back "void" }
     if name == "ui::fill_rect" or name == "ui::stroke_rect" or name == "ui::fill_circle" or name == "ui::draw_line" { give back "void" }
@@ -769,6 +773,13 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "array_get" { give back "int,int" }
     if name == "array_set" { give back "int,int,word" }
     if name == "array_len" or name == "array_release" { give back "int" }
+    if name == "word_builder::new" { give back "" }
+    if name == "word_builder::with_capacity" { give back "int" }
+    if name == "word_builder::reserve" { give back "int,int" }
+    if name == "word_builder::capacity" or name == "word_builder::length" or name == "word_builder::clear" { give back "int" }
+    if name == "word_builder::append" { give back "int,word" }
+    if name == "word_builder::append_char" or name == "word_builder::append_int" { give back "int,int" }
+    if name == "word_builder::finish" or name == "word_builder::discard" { give back "int" }
     if name == "process::exit" { give back "int" }
     if name == "process::exec" or name == "process::exec_capture" or name == "process::env" { give back "word" }
     if name == "process::arg" { give back "int" }
@@ -822,6 +833,7 @@ task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
         if name == "snapshot_escape" or name == "snapshot_unescape" { give back true }
         if name == "snapshot_line_count" or name == "snapshot_line" { give back true }
         if name == "snapshot_field_count" or name == "snapshot_field_raw" { give back true }
+        if name == "repeated" { give back true }
     }
     if receiver_type == "int" and (name == "to_num" or name == "to_word") { give back true }
     if receiver_type == "num" and (name == "to_int" or name == "to_word") { give back true }
@@ -843,6 +855,7 @@ task tc_builtin_method_params(receiver_type: word, name: word) -> word {
         if name == "contains" or name == "starts_with" or name == "ends_with" { give back "word" }
         if name == "substring" { give back "int,int" }
         if name == "replace" { give back "word,word" }
+        if name == "repeated" { give back "int" }
     }
     give back ""
 }
@@ -859,7 +872,7 @@ task tc_arg_count(args: word) -> int {
 }
 
 task tc_builtin_method_arity(name: word) -> int {
-    if name == "char_at" or name == "contains" or name == "starts_with" or name == "ends_with" { give back 1 }
+    if name == "char_at" or name == "contains" or name == "starts_with" or name == "ends_with" or name == "repeated" { give back 1 }
     if name == "snapshot_line" or name == "snapshot_field_raw" { give back 1 }
     if name == "substring" or name == "replace" { give back 2 }
     give back 0

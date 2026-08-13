@@ -204,6 +204,17 @@ task c_map_call(val: word) -> word {
     if val == "array_len" { give back "freak_array_len" }
     if val == "array_release" { give back "freak_array_release_owned" }
     if val == "word_join" { give back "freak_word_join_owned" }
+    if val == "word_builder::new" { give back "freak_word_builder_new" }
+    if val == "word_builder::with_capacity" { give back "freak_word_builder_with_capacity" }
+    if val == "word_builder::reserve" { give back "freak_word_builder_reserve" }
+    if val == "word_builder::capacity" { give back "freak_word_builder_capacity" }
+    if val == "word_builder::length" { give back "freak_word_builder_length" }
+    if val == "word_builder::clear" { give back "freak_word_builder_clear" }
+    if val == "word_builder::append" { give back "freak_word_builder_append" }
+    if val == "word_builder::append_char" { give back "freak_word_builder_append_char" }
+    if val == "word_builder::append_int" { give back "freak_word_builder_append_int" }
+    if val == "word_builder::finish" { give back "freak_word_builder_finish" }
+    if val == "word_builder::discard" { give back "freak_word_builder_discard" }
     if val == "process::exit" { give back "freak_process_exit" }
     if val == "process::exec" { give back "freak_process_exec" }
     if val == "process::exec_capture" { give back "freak_process_exec_capture" }
