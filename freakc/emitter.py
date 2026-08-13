@@ -61,6 +61,7 @@ from .type_checker import (
     BYTE_BUFFER_METHOD_SIGNATURES,
     PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED,
     PYTHON_OWNED_WORD_UNSUPPORTED,
+    PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED,
     SYSTEM_RUNTIME_SIGNATURES,
     TCP_SOCKET_SIGNATURES,
     WORD_BUILDER_SIGNATURES,
@@ -1188,6 +1189,8 @@ class CEmitter:
                             f"call to '{fq_name}' argument {index} expects "
                             f"{expected}, got {_word_builder_freak_type(actual_c_type)}"
                         )
+                if fq_name == "process::env":
+                    raise EmitError(PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED)
                 return f"{system_signature.c_name}({args_c})"
 
             tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq_name)

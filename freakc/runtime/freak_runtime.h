@@ -416,6 +416,8 @@ freak_process_handle freak_process_spawn(freak_word cmd, void* args /* TODO: lis
 uint64_t freak_process_pid(void);
 void freak_process_exit(int64_t code);
 freak_word freak_process_input(void);
+/* Environment reads snapshot process-global storage. A present nonempty value
+   is independently runtime-owned in both the direct and Maybe forms. */
 freak_maybe_word freak_process_env_var(freak_word name);
 void freak_process_set_env(freak_word name, freak_word val);
 freak_word freak_process_env(freak_word name);

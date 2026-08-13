@@ -274,6 +274,11 @@ PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED = (
     "use the native V3 compiler"
 )
 
+PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED = (
+    "Python bootstrap does not support owned process::env results; "
+    "use the native V3 compiler"
+)
+
 
 class Scope:
     def __init__(self, parent: Optional["Scope"] = None) -> None:
@@ -849,6 +854,8 @@ class TypeChecker:
                                 f"call to '{fq_name}' argument {index} expects "
                                 f"{expected}, got {actual}"
                             )
+                if fq_name == "process::env":
+                    self._error(PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED)
                 return system_signature.return_type
 
             tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq_name)
@@ -972,6 +979,7 @@ __all__ = [
     "FreakType",
     "PYTHON_OWNED_WORD_UNSUPPORTED",
     "PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED",
+    "PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED",
     "T_BYTE_BUFFER",
     "SYSTEM_RUNTIME_SIGNATURES",
     "TCP_SOCKET_SIGNATURES",
