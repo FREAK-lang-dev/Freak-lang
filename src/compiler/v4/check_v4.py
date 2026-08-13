@@ -29,6 +29,7 @@ CRATE_ORDER = [
     "freak_resolve",
     "freak_ty",
     "freak_mir",
+    "freak_mir_build",
     "freak_borrowck",
     "freak_codegen_llvm",
     "freak_query",
@@ -243,6 +244,17 @@ CRATE_BOUNDARY_REQUIRED = {
         ("expanded lowering", "task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {"),
         ("compatibility path expands first", "pilot expansion_id = v4_expand_identity(file_id, tree_id)"),
     ],
+    "freak_mir": [
+        ("representation ownership comment", "-- freak_mir - persistent V4 Built-MIR representation"),
+        ("explicit-scope local primitive", "task v4_mir_add_local_at_scope("),
+        ("snapshot v5 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v5"'),
+    ],
+    "freak_mir_build": [
+        ("construction ownership comment", "-- freak_mir_build - stateless V4 HIR+TY to Built-MIR construction"),
+        ("builder scratch initialization", "task v4_mir_build_init() -> void {"),
+        ("public MIR lowering entrypoint", "task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {"),
+        ("scope-aware local wrapper", "task v4_mir_add_local("),
+    ],
     "freak_driver": [
         ("driver ownership comment", "-- freak_driver - early V4 driver facade"),
         ("core diagnostics query", "task v4_diagnostics_text_cached(path: word, text: word) -> int {"),
@@ -338,6 +350,25 @@ CRATE_BOUNDARY_FORBIDDEN = {
     ],
     "freak_hir": [
         ("direct parse access", "v4_parse_"),
+    ],
+    "freak_mir": [
+        ("lexer access", "v4_lex_"),
+        ("parser access", "v4_parse_"),
+        ("HIR access", "v4_hir_"),
+        ("resolve access", "v4_resolve_"),
+        ("token type reconstruction", "v4_ty_type_text"),
+        ("source lowering definition", "task v4_mir_lower_"),
+    ],
+    "freak_mir_build": [
+        ("persistent file arena", "pilot v4_mir_files ="),
+        ("persistent body arenas", "pilot v4_mir_body_"),
+        ("persistent diagnostic arena", "pilot v4_mir_diags ="),
+        ("snapshot implementation", "task v4_mir_snapshot_"),
+        ("restore implementation", "task v4_mir_restore_"),
+        ("query ownership", "task v4_query_"),
+        ("driver ownership", "task v4_driver_"),
+        ("borrow-check ownership", "task v4_borrowck_"),
+        ("codegen ownership", "task v4_codegen_"),
     ],
     "freak_driver": [
         ("semantic fact arena", "pilot v4_editor_sem_paths = 0"),
@@ -9022,6 +9053,12 @@ def check_crate_boundaries() -> None:
                     f"boundary violation: {crate} depends on macro implementation internal {marker}"
                 )
 
+    mir_index = CRATE_ORDER.index("freak_mir")
+    mir_build_index = CRATE_ORDER.index("freak_mir_build")
+    borrowck_index = CRATE_ORDER.index("freak_borrowck")
+    if not mir_index < mir_build_index < borrowck_index:
+        violations.append("boundary violation: crate order must be freak_mir < freak_mir_build < freak_borrowck")
+
     if violations:
         for violation in violations:
             print(violation)
@@ -9360,6 +9397,7 @@ def check_snapshot_inventories() -> None:
     if "@freak_llvm_word_substring(i64, i64, i64)" not in llvm_emitter_source:
         violations.append("LLVM substring declaration missing")
     mir_source = read_text(crate_path("freak_mir"))
+    mir_build_source = read_text(crate_path("freak_mir_build"))
     linear_snapshot_sources = {
         "lex": lex_source,
         "parse": read_text(crate_path("freak_parse")),
@@ -9421,14 +9459,20 @@ def check_snapshot_inventories() -> None:
     for handle_release_contract in (
         "v4_mir_snapshot_release_body_graph_arrays",
         "array_release(states)",
+    ):
+        if handle_release_contract not in mir_source:
+            violations.append(
+                f"MIR snapshot scratch release missing: {handle_release_contract}"
+            )
+    for handle_release_contract in (
         "array_release(v4_mir_loop_break_targets)",
         "array_release(v4_mir_loop_continue_targets)",
         "array_release(v4_mir_scope_spans)",
         "array_release(v4_mir_trust_me_honor_ranks)",
     ):
-        if handle_release_contract not in mir_source:
+        if handle_release_contract not in mir_build_source:
             violations.append(
-                f"MIR snapshot scratch release missing: {handle_release_contract}"
+                f"MIR builder scratch release missing: {handle_release_contract}"
             )
     query_invalidate_match = re.search(
         r"task v4_query_invalidate_dependents_at_generation\([^\n]*\) -> int \{(.*?)(?=\ntask |\Z)",
