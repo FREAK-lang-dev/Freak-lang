@@ -8653,12 +8653,17 @@ task v4_mir_seed_param_local(mir_id: int, body_id: int, param_name: word, param_
 task v4_mir_seed_signature_params(mir_id: int, body_id: int, ty_id: int, sig_id: int, item_span: word) -> void {
     pilot param_idx = 0
     pilot param_count = v4_ty_signature_param_count(ty_id, sig_id)
+    pilot no_span = V4_NO_SPAN
     repeat until param_idx >= param_count {
         pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_idx)
         if param_name != "" {
             pilot param_ty = v4_ty_signature_param_type(ty_id, sig_id, param_idx)
             pilot param_mode = v4_ty_signature_param_mode(ty_id, sig_id, param_idx)
-            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, param_mode, item_span, "this signature")
+            pilot param_span = v4_ty_signature_param_segment_span(ty_id, sig_id, param_idx)
+            if param_span == no_span {
+                param_span = item_span
+            }
+            v4_mir_seed_param_local(mir_id, body_id, param_name, param_ty, param_mode, param_span, "this signature")
         }
         param_idx += 1
     }
