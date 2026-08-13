@@ -1,382 +1,192 @@
--- COCKPIT: Layout Engine (Phase B)
--- Immediate-mode flex-like layout system.
---
--- Layout works via a cursor stack. Each frame starts with a root layout
--- context. Widgets consume space from the current context. `row` and
--- `column` push/pop layout contexts.
---
--- No widget trees. No retained state. Just a cursor that moves.
+-- COCKPIT V3 compatibility: allocation-free LIFO integer layout.
+-- One context is ten signed i64 fields in a preallocated ByteBuffer:
+-- x, y, width, height, cursor_x, cursor_y, direction, gap, count, cross_max.
 
-use std::ui::{Rect, Vec2}
+pilot cockpit_layout_vertical = 0
+pilot cockpit_layout_horizontal = 1
+pilot cockpit_layout_record_bytes = 80
+pilot cockpit_layout_max_depth = 32
 
--- ================================================================
---  Size hints — how a widget wants to be sized
--- ================================================================
+pilot cockpit_layout_error = 0
+pilot cockpit_layout_rect_x = 0
+pilot cockpit_layout_rect_y = 0
+pilot cockpit_layout_rect_w = 0
+pilot cockpit_layout_rect_h = 0
+pilot cockpit_layout_consumed_w = 0
+pilot cockpit_layout_consumed_h = 0
 
--- Size hint constants
-pilot size_auto     = 0   -- fit content
-pilot size_fill     = 1   -- fill remaining space
-pilot size_fixed    = 2   -- exact pixel value
-pilot size_fraction = 3   -- fraction of available space
-
-shape SizeHint {
-    kind:  int
-    value: num
+task cockpit_layout_capacity() -> int {
+    give back cockpit_layout_record_bytes * cockpit_layout_max_depth
 }
 
-impl SizeHint {
-    task auto_size() -> SizeHint {
-        give back SizeHint { kind: size_auto, value: 0.0 }
-    }
-
-    task fill() -> SizeHint {
-        give back SizeHint { kind: size_fill, value: 0.0 }
-    }
-
-    task fixed(px: num) -> SizeHint {
-        give back SizeHint { kind: size_fixed, value: px }
-    }
-
-    task fraction(f: num) -> SizeHint {
-        give back SizeHint { kind: size_fraction, value: f }
-    }
-
-    -- Resolve a size hint to actual pixels
-    task resolve(self, available: num, content: num) -> num {
-        if self.kind == size_auto {
-            give back content
-        }
-        if self.kind == size_fill {
-            give back available
-        }
-        if self.kind == size_fixed {
-            give back self.value
-        }
-        if self.kind == size_fraction {
-            give back available * self.value
-        }
-        give back content
-    }
+task cockpit_layout_release(layout: ByteBuffer) -> void {
+    layout.release()
 }
 
--- ================================================================
---  Layout direction
--- ================================================================
-
-pilot dir_vertical   = 0
-pilot dir_horizontal = 1
-
--- ================================================================
---  Layout context — one entry on the layout stack
--- ================================================================
-
-shape LayoutContext {
-    -- Bounding box for this context
-    x:      num
-    y:      num
-    max_w:  num
-    max_h:  num
-
-    -- Current cursor position within the context
-    cursor_x: num
-    cursor_y: num
-
-    -- Direction: vertical (column) or horizontal (row)
-    direction: int
-
-    -- Spacing between widgets
-    gap:     num
-
-    -- Padding inside the context
-    pad:     num
-
-    -- Track how many widgets placed (for gap calculation)
-    count:   int
-
-    -- Track maximum cross-axis size (for row: tallest widget, for column: widest)
-    cross_max: num
+task cockpit_layout_clear(layout: ByteBuffer) -> void {
+    if layout.status() != 0 { layout.clear_status() }
+    layout.clear()
+    cockpit_layout_error = 0
+    cockpit_layout_rect_x = 0
+    cockpit_layout_rect_y = 0
+    cockpit_layout_rect_w = 0
+    cockpit_layout_rect_h = 0
 }
 
-impl LayoutContext {
-    task new(x: num, y: num, w: num, h: num, dir: int, gap: num, pad: num) -> LayoutContext {
-        give back LayoutContext {
-            x:         x + pad,
-            y:         y + pad,
-            max_w:     w - pad * 2.0,
-            max_h:     h - pad * 2.0,
-            cursor_x:  x + pad,
-            cursor_y:  y + pad,
-            direction: dir,
-            gap:       gap,
-            pad:       pad,
-            count:     0,
-            cross_max: 0.0
-        }
-    }
-
-    -- Get the remaining width available for the next widget
-    task remaining_width(self) -> num {
-        if self.direction == dir_horizontal {
-            pilot used = self.cursor_x - self.x
-            give back self.max_w - used
-        }
-        give back self.max_w
-    }
-
-    -- Get the remaining height available for the next widget
-    task remaining_height(self) -> num {
-        if self.direction == dir_vertical {
-            pilot used = self.cursor_y - self.y
-            give back self.max_h - used
-        }
-        give back self.max_h
-    }
-
-    -- Allocate space for a widget and return its bounding rect.
-    -- Advances the cursor after allocation.
-    task allocate(self, w: num, h: num) -> Rect {
-        -- Add gap before non-first widgets
-        if self.count > 0 {
-            if self.direction == dir_horizontal {
-                self.cursor_x = self.cursor_x + self.gap
-            } else {
-                self.cursor_y = self.cursor_y + self.gap
-            }
-        }
-
-        pilot rect = Rect {
-            x: self.cursor_x,
-            y: self.cursor_y,
-            w: w,
-            h: h
-        }
-
-        -- Advance cursor
-        if self.direction == dir_horizontal {
-            self.cursor_x = self.cursor_x + w
-            if h > self.cross_max {
-                self.cross_max = h
-            }
-        } else {
-            self.cursor_y = self.cursor_y + h
-            if w > self.cross_max {
-                self.cross_max = w
-            }
-        }
-
-        self.count = self.count + 1
-        give back rect
-    }
-
-    -- Get the total size consumed by all widgets so far
-    task consumed_width(self) -> num {
-        if self.direction == dir_horizontal {
-            give back self.cursor_x - self.x
-        }
-        give back self.cross_max
-    }
-
-    task consumed_height(self) -> num {
-        if self.direction == dir_vertical {
-            give back self.cursor_y - self.y
-        }
-        give back self.cross_max
-    }
+task cockpit_layout_status(layout: ByteBuffer) -> int {
+    if layout.status() != 0 { give back layout.status() }
+    give back cockpit_layout_error
 }
 
--- ================================================================
---  Layout stack — manages nested layout contexts
--- ================================================================
-
--- Maximum nesting depth for layout contexts
-pilot MAX_LAYOUT_DEPTH = 32
-
-shape LayoutStack {
-    -- Flat arrays for the layout stack (since we can't have List<LayoutContext>
-    -- easily in the C backend, we use parallel arrays)
-    ctx_x:         Squad
-    ctx_y:         Squad
-    ctx_max_w:     Squad
-    ctx_max_h:     Squad
-    ctx_cursor_x:  Squad
-    ctx_cursor_y:  Squad
-    ctx_direction: Squad
-    ctx_gap:       Squad
-    ctx_pad:       Squad
-    ctx_count:     Squad
-    ctx_cross_max: Squad
-    depth:         int
+task cockpit_layout_depth(layout: ByteBuffer) -> int {
+    give back layout.length() / cockpit_layout_record_bytes
 }
 
-impl LayoutStack {
-    task new() -> LayoutStack {
-        give back LayoutStack {
-            ctx_x:         Squad::new(),
-            ctx_y:         Squad::new(),
-            ctx_max_w:     Squad::new(),
-            ctx_max_h:     Squad::new(),
-            ctx_cursor_x:  Squad::new(),
-            ctx_cursor_y:  Squad::new(),
-            ctx_direction: Squad::new(),
-            ctx_gap:       Squad::new(),
-            ctx_pad:       Squad::new(),
-            ctx_count:     Squad::new(),
-            ctx_cross_max: Squad::new(),
-            depth:         0
-        }
+task cockpit_layout_field(layout: ByteBuffer, field: int) -> int {
+    if layout.length() < cockpit_layout_record_bytes {
+        cockpit_layout_error = 1
+        give back 0
     }
-
-    -- Reset the stack to empty without reallocating any Squads.  Called
-    -- once per frame from UI.begin_frame.  Without this, every frame
-    -- allocates a fresh LayoutStack (11 Squads each) and the global
-    -- array pool runs dry in seconds.
-    task clear(self) -> void {
-        self.depth = 0
-    }
-
-    -- Push a new layout context.  Reuses Squad slots up to the current
-    -- size, only growing when depth exceeds the high-water mark — so
-    -- long-running apps converge to constant memory instead of leaking
-    -- a slot per push per frame.
-    task push(self, x: num, y: num, w: num, h: num, dir: int, gap: num, pad: num) -> void {
-        pilot px = x + pad
-        pilot py = y + pad
-        pilot pw = w - pad * 2.0
-        pilot ph = h - pad * 2.0
-
-        pilot d = self.depth
-        if d < self.ctx_x.size() {
-            self.ctx_x.set_num(d, px)
-            self.ctx_y.set_num(d, py)
-            self.ctx_max_w.set_num(d, pw)
-            self.ctx_max_h.set_num(d, ph)
-            self.ctx_cursor_x.set_num(d, px)
-            self.ctx_cursor_y.set_num(d, py)
-            self.ctx_direction.set_int(d, dir)
-            self.ctx_gap.set_num(d, gap)
-            self.ctx_pad.set_num(d, pad)
-            self.ctx_count.set_int(d, 0)
-            self.ctx_cross_max.set_num(d, 0.0)
-        } else {
-            self.ctx_x.add_num(px)
-            self.ctx_y.add_num(py)
-            self.ctx_max_w.add_num(pw)
-            self.ctx_max_h.add_num(ph)
-            self.ctx_cursor_x.add_num(px)
-            self.ctx_cursor_y.add_num(py)
-            self.ctx_direction.add_int(dir)
-            self.ctx_gap.add_num(gap)
-            self.ctx_pad.add_num(pad)
-            self.ctx_count.add_int(0)
-            self.ctx_cross_max.add_num(0.0)
-        }
-        self.depth = d + 1
-    }
-
-    -- Pop the top layout context, returning consumed size as (width, height)
-    task pop(self) -> Vec2 {
-        pilot i = self.depth - 1
-        pilot dir = self.ctx_direction.get_int(i)
-        pilot consumed_w = 0.0
-        pilot consumed_h = 0.0
-
-        if dir == dir_horizontal {
-            consumed_w = self.ctx_cursor_x.get_num(i) - self.ctx_x.get_num(i)
-            consumed_h = self.ctx_cross_max.get_num(i)
-        } else {
-            consumed_w = self.ctx_cross_max.get_num(i)
-            consumed_h = self.ctx_cursor_y.get_num(i) - self.ctx_y.get_num(i)
-        }
-
-        -- Add padding back
-        pilot pad = self.ctx_pad.get_num(i)
-        consumed_w = consumed_w + pad * 2.0
-        consumed_h = consumed_h + pad * 2.0
-
-        self.depth = self.depth - 1
-        -- Note: Squad doesn't support pop, but since we use depth counter, 
-        -- the old data just sits there.
-        give back Vec2 { x: consumed_w, y: consumed_h }
-    }
-
-    -- Get remaining width in current context
-    task remaining_width(self) -> num {
-        pilot i = self.depth - 1
-        if self.ctx_direction.get_int(i) == dir_horizontal {
-            pilot used = self.ctx_cursor_x.get_num(i) - self.ctx_x.get_num(i)
-            give back self.ctx_max_w.get_num(i) - used
-        }
-        give back self.ctx_max_w.get_num(i)
-    }
-
-    -- Get remaining height in current context
-    task remaining_height(self) -> num {
-        pilot i = self.depth - 1
-        if self.ctx_direction.get_int(i) == dir_vertical {
-            pilot used = self.ctx_cursor_y.get_num(i) - self.ctx_y.get_num(i)
-            give back self.ctx_max_h.get_num(i) - used
-        }
-        give back self.ctx_max_h.get_num(i)
-    }
-
-    -- Allocate a rect in the current context
-    task allocate(self, w: num, h: num) -> Rect {
-        pilot i = self.depth - 1
-
-        -- Add gap before non-first widgets
-        if self.ctx_count.get_int(i) > 0 {
-            if self.ctx_direction.get_int(i) == dir_horizontal {
-                pilot new_cx = self.ctx_cursor_x.get_num(i) + self.ctx_gap.get_num(i)
-                self.ctx_cursor_x.set_num(i, new_cx)
-            } else {
-                pilot new_cy = self.ctx_cursor_y.get_num(i) + self.ctx_gap.get_num(i)
-                self.ctx_cursor_y.set_num(i, new_cy)
-            }
-        }
-
-        pilot rect = Rect {
-            x: self.ctx_cursor_x.get_num(i),
-            y: self.ctx_cursor_y.get_num(i),
-            w: w,
-            h: h
-        }
-
-        -- Advance cursor
-        if self.ctx_direction.get_int(i) == dir_horizontal {
-            pilot new_cx = self.ctx_cursor_x.get_num(i) + w
-            self.ctx_cursor_x.set_num(i, new_cx)
-            if h > self.ctx_cross_max.get_num(i) {
-                self.ctx_cross_max.set_num(i, h)
-            }
-        } else {
-            pilot new_cy = self.ctx_cursor_y.get_num(i) + h
-            self.ctx_cursor_y.set_num(i, new_cy)
-            if w > self.ctx_cross_max.get_num(i) {
-                self.ctx_cross_max.set_num(i, w)
-            }
-        }
-
-        pilot new_count = self.ctx_count.get_int(i) + 1
-        self.ctx_count.set_int(i, new_count)
-        give back rect
-    }
-
-    -- Get current cursor position
-    task cursor(self) -> Vec2 {
-        pilot i = self.depth - 1
-        give back Vec2 {
-            x: self.ctx_cursor_x.get_num(i),
-            y: self.ctx_cursor_y.get_num(i)
-        }
-    }
-
-    -- Get the current context's direction
-    task current_direction(self) -> int {
-        give back self.ctx_direction.get_int(self.depth - 1)
-    }
-
-    -- Get the current context's available width
-    task current_width(self) -> num {
-        give back self.ctx_max_w.get_num(self.depth - 1)
-    }
+    pilot offset = layout.length() - cockpit_layout_record_bytes + field * 8
+    layout.seek(offset)
+    give back layout.read_int()
 }
+
+task cockpit_layout_append_context(layout: ByteBuffer, x: int, y: int, width: int, height: int, direction: int, gap: int) -> void {
+    if cockpit_layout_depth(layout) >= cockpit_layout_max_depth {
+        cockpit_layout_error = 2
+        give back
+    }
+    layout.write_int(x)
+    layout.write_int(y)
+    layout.write_int(width)
+    layout.write_int(height)
+    layout.write_int(x)
+    layout.write_int(y)
+    layout.write_int(direction)
+    layout.write_int(gap)
+    layout.write_int(0)
+    layout.write_int(0)
+}
+
+task cockpit_layout_begin_frame(layout: ByteBuffer, width: int, height: int, padding: int, gap: int) -> void {
+    cockpit_layout_clear(layout)
+    pilot inner_w = width - padding * 2
+    pilot inner_h = height - padding * 2
+    if inner_w < 0 { inner_w = 0 }
+    if inner_h < 0 { inner_h = 0 }
+    cockpit_layout_append_context(layout, padding, padding, inner_w, inner_h, cockpit_layout_vertical, gap)
+}
+
+task cockpit_layout_remaining_width(layout: ByteBuffer) -> int {
+    pilot direction = cockpit_layout_field(layout, 6)
+    pilot width = cockpit_layout_field(layout, 2)
+    if direction == cockpit_layout_horizontal {
+        pilot used = cockpit_layout_field(layout, 4) - cockpit_layout_field(layout, 0)
+        pilot remaining = width - used
+        if remaining < 0 { give back 0 }
+        give back remaining
+    }
+    give back width
+}
+
+task cockpit_layout_remaining_height(layout: ByteBuffer) -> int {
+    pilot direction = cockpit_layout_field(layout, 6)
+    pilot height = cockpit_layout_field(layout, 3)
+    if direction == cockpit_layout_vertical {
+        pilot used = cockpit_layout_field(layout, 5) - cockpit_layout_field(layout, 1)
+        pilot remaining = height - used
+        if remaining < 0 { give back 0 }
+        give back remaining
+    }
+    give back height
+}
+
+task cockpit_layout_replace_top(layout: ByteBuffer, x: int, y: int, width: int, height: int, cursor_x: int, cursor_y: int, direction: int, gap: int, count: int, cross_max: int) -> void {
+    pilot top = layout.length() - cockpit_layout_record_bytes
+    layout.truncate(top)
+    layout.write_int(x)
+    layout.write_int(y)
+    layout.write_int(width)
+    layout.write_int(height)
+    layout.write_int(cursor_x)
+    layout.write_int(cursor_y)
+    layout.write_int(direction)
+    layout.write_int(gap)
+    layout.write_int(count)
+    layout.write_int(cross_max)
+}
+
+task cockpit_layout_allocate(layout: ByteBuffer, width: int, height: int) -> void {
+    if cockpit_layout_depth(layout) <= 0 {
+        cockpit_layout_error = 1
+        give back
+    }
+    if width < 0 { width = 0 }
+    if height < 0 { height = 0 }
+    pilot x = cockpit_layout_field(layout, 0)
+    pilot y = cockpit_layout_field(layout, 1)
+    pilot max_w = cockpit_layout_field(layout, 2)
+    pilot max_h = cockpit_layout_field(layout, 3)
+    pilot cursor_x = cockpit_layout_field(layout, 4)
+    pilot cursor_y = cockpit_layout_field(layout, 5)
+    pilot direction = cockpit_layout_field(layout, 6)
+    pilot gap = cockpit_layout_field(layout, 7)
+    pilot count = cockpit_layout_field(layout, 8)
+    pilot cross_max = cockpit_layout_field(layout, 9)
+
+    if count > 0 {
+        if direction == cockpit_layout_horizontal { cursor_x += gap }
+        else { cursor_y += gap }
+    }
+    if width > max_w { width = max_w }
+    if height > max_h { height = max_h }
+    cockpit_layout_rect_x = cursor_x
+    cockpit_layout_rect_y = cursor_y
+    cockpit_layout_rect_w = width
+    cockpit_layout_rect_h = height
+
+    if direction == cockpit_layout_horizontal {
+        cursor_x += width
+        if height > cross_max { cross_max = height }
+    } else {
+        cursor_y += height
+        if width > cross_max { cross_max = width }
+    }
+    cockpit_layout_replace_top(layout, x, y, max_w, max_h, cursor_x, cursor_y, direction, gap, count + 1, cross_max)
+}
+
+task cockpit_layout_begin_row(layout: ByteBuffer, height: int, gap: int) -> void {
+    cockpit_layout_append_context(layout, cockpit_layout_field(layout, 4), cockpit_layout_field(layout, 5), cockpit_layout_remaining_width(layout), height, cockpit_layout_horizontal, gap)
+}
+
+task cockpit_layout_begin_column(layout: ByteBuffer, width: int, gap: int) -> void {
+    cockpit_layout_append_context(layout, cockpit_layout_field(layout, 4), cockpit_layout_field(layout, 5), width, cockpit_layout_remaining_height(layout), cockpit_layout_vertical, gap)
+}
+
+task cockpit_layout_end(layout: ByteBuffer) -> void {
+    if cockpit_layout_depth(layout) <= 1 {
+        cockpit_layout_error = 3
+        give back
+    }
+    pilot x = cockpit_layout_field(layout, 0)
+    pilot y = cockpit_layout_field(layout, 1)
+    pilot cursor_x = cockpit_layout_field(layout, 4)
+    pilot cursor_y = cockpit_layout_field(layout, 5)
+    pilot direction = cockpit_layout_field(layout, 6)
+    pilot cross_max = cockpit_layout_field(layout, 9)
+    if direction == cockpit_layout_horizontal {
+        cockpit_layout_consumed_w = cursor_x - x
+        cockpit_layout_consumed_h = cross_max
+    } else {
+        cockpit_layout_consumed_w = cross_max
+        cockpit_layout_consumed_h = cursor_y - y
+    }
+    layout.truncate(layout.length() - cockpit_layout_record_bytes)
+    cockpit_layout_allocate(layout, cockpit_layout_consumed_w, cockpit_layout_consumed_h)
+}
+
+task cockpit_layout_last_x() -> int { give back cockpit_layout_rect_x }
+task cockpit_layout_last_y() -> int { give back cockpit_layout_rect_y }
+task cockpit_layout_last_width() -> int { give back cockpit_layout_rect_w }
+task cockpit_layout_last_height() -> int { give back cockpit_layout_rect_h }

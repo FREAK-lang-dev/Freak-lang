@@ -1,477 +1,161 @@
--- COCKPIT: Core Widgets (Phase C)
--- Immediate-mode widgets: label, button, input, spacer, separator
---
--- Every widget follows the same pattern:
---   1. Measure content size
---   2. Allocate space from layout
---   3. Draw to canvas
---   4. Check input (for interactive widgets)
---   5. Return interaction result
+-- COCKPIT V3 compatibility: basic procedural immediate-mode widgets.
+-- Geometry and colors remain raw integers at the runtime boundary.
 
-use std::ui::{Canvas, Rect, Vec2, Color, Font, Event, mouse_left, event_mouse, event_key, event_char, key_backspace, key_enter, key_left, key_right, key_delete}
-
--- ================================================================
---  Widget style constants
--- ================================================================
-
--- Label styles
-pilot label_normal     = 0
-pilot label_heading    = 1
-pilot label_subheading = 2
-pilot label_display    = 3
-pilot label_mono       = 4
-pilot label_muted      = 5
-
--- Button styles
-pilot btn_normal   = 0
-pilot btn_primary  = 1
-pilot btn_danger   = 2
-pilot btn_operator = 3
-pilot btn_equals   = 4
-pilot btn_ghost    = 5
-
--- Tween-id namespace for cockpit-internal hover animations.  Any user
--- tween whose id collides with `HOVER_TWEEN_BASE + widget_count` would
--- ride the same channel; the offset is high enough to make collision
--- unlikely with realistic user-chosen ids.
-pilot HOVER_TWEEN_BASE = 100000
-
--- Linear interpolate between two colors.  `t` is clamped 0..1.
-task color_lerp(a: Color, b: Color, t: num) -> Color {
-    pilot tt = t
-    if tt < 0.0 { tt = 0.0 }
-    if tt > 1.0 { tt = 1.0 }
-    pilot ar = a.r.to_num()
-    pilot ag = a.g.to_num()
-    pilot ab = a.b.to_num()
-    pilot aa = a.a.to_num()
-    pilot dr = b.r.to_num() - ar
-    pilot dg = b.g.to_num() - ag
-    pilot db = b.b.to_num() - ab
-    pilot da = b.a.to_num() - aa
-    give back Color::rgba(
-        (ar + dr * tt).to_int(),
-        (ag + dg * tt).to_int(),
-        (ab + db * tt).to_int(),
-        (aa + da * tt).to_int()
-    )
+task cockpit_draw_fill(window: int, x: int, y: int, width: int, height: int, color: int) -> void {
+    ui::fill_rect(window, x, y, width, height, cockpit_color_r(color), cockpit_color_g(color), cockpit_color_b(color), cockpit_color_a(color))
 }
 
--- ================================================================
---  Label — display text, no interaction
--- ================================================================
-
--- Measure rendered text width via the platform (Win32 GetTextExtentPoint32).
--- Returns 0 before the window is open — measurement requires a live HDC.
-task measure_text_width(text: word, font_size: int) -> int {
-    give back ui::measure_text(text, font_size, 0, 0)
+task cockpit_draw_stroke(window: int, x: int, y: int, width: int, height: int, color: int, thickness: int) -> void {
+    ui::stroke_rect(window, x, y, width, height, cockpit_color_r(color), cockpit_color_g(color), cockpit_color_b(color), cockpit_color_a(color), thickness)
 }
 
--- Style-aware variant for bold/italic widgets (selected tabs, headings).
-task measure_text_styled(text: word, font_size: int, bold: bool, italic: bool) -> int {
-    pilot b = 0
-    if bold { b = 1 }
-    pilot i = 0
-    if italic { i = 1 }
-    give back ui::measure_text(text, font_size, b, i)
+task cockpit_draw_text(window: int, text: word, x: int, y: int, color: int, font_size: int, bold: bool) -> int {
+    give back ui::draw_text(window, text, x, y, cockpit_color_r(color), cockpit_color_g(color), cockpit_color_b(color), font_size, bold, false)
 }
 
-task label_sized(canvas: Canvas, text: word, rect: Rect, style: int,
-                 text_color: Color, muted_color: Color, font_size: int) -> void {
-    pilot color = text_color
-    pilot size = font_size
-    pilot bold = false
-    pilot italic = false
-
-    if style == label_heading {
-        size = 24
-        bold = true
-    }
-    if style == label_subheading {
-        size = 18
-        bold = true
-    }
-    if style == label_display {
-        size = 36
-        bold = true
-    }
-    if style == label_mono {
-        size = 13
-    }
-    if style == label_muted {
-        color = muted_color
-    }
-
-    canvas.draw_text(text, rect.x.to_int(), rect.y.to_int(), Font { size: size, bold: bold, italic: italic }, color)
+task cockpit_widget_spacer(layout: ByteBuffer, size: int) -> void {
+    cockpit_layout_allocate(layout, 0, size)
 }
 
--- Get height for a label style
-task label_height(style: int, base_size: int) -> int {
-    if style == label_heading    { give back 30 }
-    if style == label_subheading { give back 24 }
-    if style == label_display    { give back 44 }
-    give back base_size + 6
+task cockpit_widget_label(window: int, layout: ByteBuffer, theme: int, text: word) -> void {
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
+    pilot width = ui::measure_text(text, font_size, 0, 0)
+    cockpit_layout_allocate(layout, width, font_size + 8)
+    pilot ignored = cockpit_draw_text(window, text, cockpit_layout_last_x(), cockpit_layout_last_y() + 4, cockpit_theme_get(theme, cockpit_theme_text), font_size, false)
 }
 
--- ================================================================
---  Button — clickable rectangle, returns true on click
--- ================================================================
-
-shape ButtonResult {
-    clicked:  bool
-    hovered:  bool
+task cockpit_widget_heading(window: int, layout: ByteBuffer, theme: int, text: word) -> void {
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size) + 6
+    pilot width = ui::measure_text(text, font_size, 1, 0)
+    cockpit_layout_allocate(layout, width, font_size + 10)
+    pilot ignored = cockpit_draw_text(window, text, cockpit_layout_last_x(), cockpit_layout_last_y() + 4, cockpit_theme_get(theme, cockpit_theme_text), font_size, true)
 }
 
-task button_check(rect: Rect, mouse_x: int, mouse_y: int, mouse_down: bool, mouse_clicked: bool) -> ButtonResult {
-    pilot hovered = rect.contains(mouse_x.to_num(), mouse_y.to_num())
-    pilot clicked = hovered and mouse_clicked
-    give back ButtonResult { clicked: clicked, hovered: hovered }
+task cockpit_widget_button(window: int, layout: ByteBuffer, theme: int, text: word, width: int) -> bool {
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
+    if width <= 0 { width = ui::measure_text(text, font_size, 1, 0) + 24 }
+    pilot height = font_size + 18
+    cockpit_layout_allocate(layout, width, height)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    pilot hovered = cockpit_ui_pointer_inside(x, y, width, height)
+    pilot color = cockpit_theme_get(theme, cockpit_theme_surface)
+    if hovered { color = cockpit_theme_get(theme, cockpit_theme_accent_hover) }
+    cockpit_draw_fill(window, x, y, width, height, color)
+    cockpit_draw_stroke(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_border), 1)
+    pilot text_width = ui::measure_text(text, font_size, 1, 0)
+    pilot ignored = cockpit_draw_text(window, text, x + (width - text_width) / 2, y + 8, cockpit_theme_get(theme, cockpit_theme_text), font_size, true)
+    pilot widget_id = cockpit_ui_next_widget()
+    give back hovered and cockpit_ui_pointer_clicked()
 }
 
--- `hover_t` is a smoothly tweened 0.0..1.0 hover intensity from the UI
--- frame state.  The button blends between its resting background and
--- its hover background by hover_t, instead of the old discrete
--- "snap brighter on hover" behaviour.
-task button_draw(canvas: Canvas, text: word, rect: Rect, style: int, hover_t: num,
-                 theme_surface: Color, theme_accent: Color, theme_accent_hover: Color,
-                 theme_danger: Color, theme_text: Color, theme_border: Color,
-                 theme_radius: int, font_size: int) -> void {
-    -- Resting palette per style.
-    pilot bg_rest = theme_surface
-    pilot fg = theme_text
-    pilot border = theme_border
+task cockpit_widget_checkbox(window: int, layout: ByteBuffer, theme: int, text: word, checked: bool) -> bool {
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
+    pilot box = font_size + 4
+    pilot width = box + 8 + ui::measure_text(text, font_size, 0, 0)
+    cockpit_layout_allocate(layout, width, box + 4)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    pilot hovered = cockpit_ui_pointer_inside(x, y, width, box + 4)
+    cockpit_draw_fill(window, x, y + 2, box, box, cockpit_theme_get(theme, cockpit_theme_surface))
+    cockpit_draw_stroke(window, x, y + 2, box, box, cockpit_theme_get(theme, cockpit_theme_border), 1)
+    if checked {
+        cockpit_draw_fill(window, x + 4, y + 6, box - 8, box - 8, cockpit_theme_get(theme, cockpit_theme_accent))
+    }
+    pilot ignored = cockpit_draw_text(window, text, x + box + 8, y + 4, cockpit_theme_get(theme, cockpit_theme_text), font_size, false)
+    pilot widget_id = cockpit_ui_next_widget()
+    if hovered and cockpit_ui_pointer_clicked() { give back not checked }
+    give back checked
+}
 
-    if style == btn_primary {
-        bg_rest = theme_accent
-        fg = Color::rgb(255, 255, 255)
-        border = theme_accent
+task cockpit_widget_input(window: int, layout: ByteBuffer, theme: int, text: word, width: int) -> word {
+    pilot font_size = cockpit_theme_get(theme, cockpit_theme_font_size)
+    if width <= 0 { width = cockpit_layout_remaining_width(layout) }
+    pilot height = font_size + 18
+    cockpit_layout_allocate(layout, width, height)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    pilot widget_id = cockpit_ui_next_widget()
+    if cockpit_ui_pointer_clicked() and cockpit_ui_pointer_inside(x, y, width, height) {
+        cockpit_ui_focus_input(widget_id)
     }
-    if style == btn_danger {
-        bg_rest = theme_danger
-        fg = Color::rgb(255, 255, 255)
-        border = theme_danger
-    }
-    if style == btn_operator {
-        bg_rest = Color::rgb(
-            theme_accent.r / 3,
-            theme_accent.g / 3,
-            theme_accent.b / 3
-        )
-        fg = theme_accent
-        border = theme_accent
-    }
-    if style == btn_equals {
-        bg_rest = theme_accent
-        fg = Color::rgb(255, 255, 255)
-        border = theme_accent
-    }
-    if style == btn_ghost {
-        bg_rest = Color::rgba(0, 0, 0, 0)
-        border = Color::rgba(0, 0, 0, 0)
-    }
-
-    -- Hover target — different per style, matching the old discrete map.
-    pilot bg_hover = bg_rest
-    if style == btn_primary or style == btn_equals {
-        bg_hover = theme_accent_hover
-    } else {
-        if style != btn_ghost {
-            bg_hover = Color::rgb(
-                min_i(bg_rest.r + 15, 255),
-                min_i(bg_rest.g + 15, 255),
-                min_i(bg_rest.b + 15, 255)
-            )
+    pilot next_text = text
+    if cockpit_ui_input_is_focused(widget_id) {
+        if cockpit_ui_backspace_pressed() and next_text.length() > 0 {
+            next_text = next_text.substring(0, next_text.length() - 1)
         }
+        pilot character = cockpit_ui_character()
+        if character >= 32 { next_text = next_text + char_to_word(character) }
     }
-
-    pilot bg = color_lerp(bg_rest, bg_hover, hover_t)
-
-    -- Draw background
-    canvas.fill_rect(rect, bg)
-
-    -- Draw border
-    if style != btn_ghost {
-        canvas.stroke_rect(rect, border, 1)
-    }
-
-    -- Draw text centered
-    pilot text_w = measure_text_width(text, font_size)
-    pilot text_x = (rect.x + (rect.w - text_w.to_num()) / 2.0).to_int()
-    pilot text_y = (rect.y + (rect.h - font_size.to_num()) / 2.0).to_int()
-    canvas.draw_text(text, text_x, text_y, Font { size: font_size, bold: false, italic: false }, fg)
+    cockpit_draw_fill(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_surface))
+    pilot border = cockpit_theme_get(theme, cockpit_theme_border)
+    if cockpit_ui_input_is_focused(widget_id) { border = cockpit_theme_get(theme, cockpit_theme_accent) }
+    cockpit_draw_stroke(window, x, y, width, height, border, 1)
+    pilot ignored = cockpit_draw_text(window, next_text, x + 8, y + 8, cockpit_theme_get(theme, cockpit_theme_text), font_size, false)
+    give back next_text
 }
 
--- ================================================================
---  Input — text field
--- ================================================================
-
-shape InputState {
-    cursor_pos: int
-    focused:    bool
+task cockpit_widget_separator(window: int, layout: ByteBuffer, theme: int) -> void {
+    pilot width = cockpit_layout_remaining_width(layout)
+    cockpit_layout_allocate(layout, width, 1)
+    cockpit_draw_fill(window, cockpit_layout_last_x(), cockpit_layout_last_y(), width, 1, cockpit_theme_get(theme, cockpit_theme_border))
 }
 
-impl InputState {
-    task new() -> InputState {
-        give back InputState { cursor_pos: 0, focused: false }
+task cockpit_widget_progress(window: int, layout: ByteBuffer, theme: int, value: int, label: word) -> void {
+    if value < 0 { value = 0 }
+    if value > 1000 { value = 1000 }
+    pilot width = cockpit_layout_remaining_width(layout)
+    pilot height = cockpit_theme_get(theme, cockpit_theme_font_size) + 10
+    cockpit_layout_allocate(layout, width, height)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    cockpit_draw_fill(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_surface))
+    cockpit_draw_fill(window, x, y, width * value / 1000, height, cockpit_theme_get(theme, cockpit_theme_accent))
+    if label != "" {
+        pilot ignored = cockpit_draw_text(window, label, x + 6, y + 5, cockpit_theme_get(theme, cockpit_theme_text), cockpit_theme_get(theme, cockpit_theme_font_size), false)
     }
 }
 
-task input_draw(canvas: Canvas, value: word, rect: Rect, placeholder: word,
-                focused: bool, cursor_pos: int,
-                theme_bg: Color, theme_surface: Color, theme_border: Color,
-                theme_accent: Color, theme_text: Color, theme_muted: Color,
-                font_size: int) -> void {
-    -- Background
-    canvas.fill_rect(rect, theme_bg)
-
-    -- Border (accent if focused)
-    pilot border_color = theme_border
-    if focused {
-        border_color = theme_accent
+task cockpit_widget_tabs(window: int, layout: ByteBuffer, theme: int, selected: int, names: int) -> int {
+    pilot count = cockpit_words_length(names)
+    if count <= 0 { give back selected }
+    pilot width = cockpit_layout_remaining_width(layout)
+    pilot height = cockpit_theme_get(theme, cockpit_theme_font_size) + 18
+    cockpit_layout_allocate(layout, width, height)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    pilot tab_width = width / count
+    pilot index = 0
+    pilot next_selected = selected
+    repeat count times {
+        pilot color = cockpit_theme_get(theme, cockpit_theme_surface)
+        if index == selected { color = cockpit_theme_get(theme, cockpit_theme_accent) }
+        cockpit_draw_fill(window, x + index * tab_width, y, tab_width, height, color)
+        cockpit_draw_stroke(window, x + index * tab_width, y, tab_width, height, cockpit_theme_get(theme, cockpit_theme_border), 1)
+        pilot ignored = cockpit_draw_text(window, cockpit_words_get(names, index), x + index * tab_width + 6, y + 8, cockpit_theme_get(theme, cockpit_theme_text), cockpit_theme_get(theme, cockpit_theme_font_size), false)
+        if cockpit_ui_pointer_clicked() and cockpit_ui_pointer_inside(x + index * tab_width, y, tab_width, height) { next_selected = index }
+        index += 1
     }
-    canvas.stroke_rect(rect, border_color, 1)
+    pilot widget_id = cockpit_ui_next_widget()
+    give back next_selected
+}
 
-    -- Text or placeholder
-    pilot text_x = (rect.x + 8.0).to_int()
-    pilot text_y = (rect.y + (rect.h - font_size.to_num()) / 2.0).to_int()
-
-    if value.length() == 0 {
-        canvas.draw_text(placeholder, text_x, text_y,
-            Font { size: font_size, bold: false, italic: false }, theme_muted)
-    } else {
-        canvas.draw_text(value, text_x, text_y,
-            Font { size: font_size, bold: false, italic: false }, theme_text)
+task cockpit_widget_dropdown(window: int, layout: ByteBuffer, theme: int, selected: int, items: int) -> int {
+    pilot count = cockpit_words_length(items)
+    if count <= 0 { give back selected }
+    if selected < 0 or selected >= count { selected = 0 }
+    pilot width = cockpit_layout_remaining_width(layout)
+    pilot height = cockpit_theme_get(theme, cockpit_theme_font_size) + 18
+    cockpit_layout_allocate(layout, width, height)
+    pilot x = cockpit_layout_last_x()
+    pilot y = cockpit_layout_last_y()
+    cockpit_draw_fill(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_surface))
+    cockpit_draw_stroke(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_border), 1)
+    pilot ignored = cockpit_draw_text(window, cockpit_words_get(items, selected), x + 8, y + 8, cockpit_theme_get(theme, cockpit_theme_text), cockpit_theme_get(theme, cockpit_theme_font_size), false)
+    pilot widget_id = cockpit_ui_next_widget()
+    if cockpit_ui_pointer_clicked() and cockpit_ui_pointer_inside(x, y, width, height) {
+        selected += 1
+        if selected >= count { selected = 0 }
     }
-
-    -- Cursor (blinking would need frame counter, for now always show when focused)
-    if focused {
-        pilot cursor_x = text_x + measure_text_width(value.substring(0, cursor_pos), font_size)
-        canvas.fill_rect(Rect { x: cursor_x.to_num(), y: rect.y + 4.0, w: 2.0, h: rect.h - 8.0 }, theme_accent)
-    }
-}
-
--- ================================================================
---  Spacer — empty space
--- ================================================================
-
--- Spacer is handled purely in layout (allocate space, draw nothing)
-
--- ================================================================
---  Separator — horizontal or vertical line
--- ================================================================
-
-task separator_draw(canvas: Canvas, rect: Rect, color: Color) -> void {
-    pilot y = rect.y + rect.h / 2.0
-    canvas.draw_line(
-        Vec2 { x: rect.x, y: y },
-        Vec2 { x: rect.x + rect.w, y: y },
-        color, 1
-    )
-}
-
--- ================================================================
---  Dropdown — draw helpers
--- ================================================================
-
-task dropdown_draw(canvas: Canvas, items: Squad, selected: int, rect: Rect,
-                   is_open: bool, hover_index: int,
-                   theme_surface: Color, theme_bg2: Color, theme_border: Color,
-                   theme_accent: Color, theme_text: Color, theme_muted: Color,
-                   font_size: int, item_h: int) -> void {
-    -- Draw the closed dropdown button
-    canvas.fill_rect(rect, theme_surface)
-    canvas.stroke_rect(rect, theme_border, 1)
-
-    -- Selected text
-    pilot text_x = (rect.x + 8.0).to_int()
-    pilot text_y = (rect.y + (rect.h - font_size.to_num()) / 2.0).to_int()
-    if selected >= 0 and selected < items.size() {
-        canvas.draw_text(items.get(selected), text_x, text_y,
-            Font { size: font_size, bold: false, italic: false }, theme_text)
-    } else {
-        canvas.draw_text("(none)", text_x, text_y,
-            Font { size: font_size, bold: false, italic: false }, theme_muted)
-    }
-
-    -- Down arrow indicator
-    pilot arrow_x = (rect.x + rect.w - 20.0).to_int()
-    canvas.draw_text("v", arrow_x, text_y,
-        Font { size: font_size, bold: false, italic: false }, theme_muted)
-
-    -- If open, draw the option list overlay
-    if is_open {
-        pilot list_y = rect.y + rect.h
-        pilot list_h = (items.size() * item_h).to_num()
-
-        -- Background
-        pilot list_rect = Rect { x: rect.x, y: list_y, w: rect.w, h: list_h }
-        canvas.fill_rect(list_rect, theme_bg2)
-        canvas.stroke_rect(list_rect, theme_border, 1)
-
-        -- Items
-        pilot i = 0
-        repeat items.size() times {
-            pilot iy = list_y + (i * item_h).to_num()
-            pilot item_rect = Rect { x: rect.x, y: iy, w: rect.w, h: item_h.to_num() }
-
-            -- Highlight hovered item
-            if i == hover_index {
-                canvas.fill_rect(item_rect, theme_accent)
-                canvas.draw_text(items.get(i), (rect.x + 8.0).to_int(), (iy + (item_h - font_size).to_num() / 2.0).to_int(),
-                    Font { size: font_size, bold: false, italic: false },
-                    Color::rgb(255, 255, 255))
-            } else {
-                canvas.draw_text(items.get(i), (rect.x + 8.0).to_int(), (iy + (item_h - font_size).to_num() / 2.0).to_int(),
-                    Font { size: font_size, bold: false, italic: false }, theme_text)
-            }
-            i = i + 1
-        }
-    }
-}
-
--- ================================================================
---  Tabs — draw helpers
--- ================================================================
-
-task tabs_draw(canvas: Canvas, names: Squad, selected: int, rect: Rect,
-               hover_index: int,
-               theme_surface: Color, theme_bg: Color, theme_border: Color,
-               theme_accent: Color, theme_text: Color, theme_muted: Color,
-               font_size: int) -> void {
-    -- Draw tab bar background
-    canvas.fill_rect(rect, theme_bg)
-
-    -- Draw each tab
-    pilot tab_w = rect.w / names.size().to_num()
-    pilot i = 0
-    repeat names.size() times {
-        pilot tx = rect.x + i.to_num() * tab_w
-        pilot tab_rect = Rect { x: tx, y: rect.y, w: tab_w, h: rect.h }
-
-        -- Selected tab highlight
-        if i == selected {
-            canvas.fill_rect(tab_rect, theme_surface)
-            -- Accent underline
-            pilot underline = Rect { x: tx, y: rect.y + rect.h - 3.0, w: tab_w, h: 3.0 }
-            canvas.fill_rect(underline, theme_accent)
-        }
-
-        -- Hover highlight (non-selected)
-        if i == hover_index and i != selected {
-            pilot hover_bg = Color::rgb(
-                min_i(theme_bg.r + 15, 255),
-                min_i(theme_bg.g + 15, 255),
-                min_i(theme_bg.b + 15, 255)
-            )
-            canvas.fill_rect(tab_rect, hover_bg)
-        }
-
-        -- Tab text (selected tab is rendered bold; measure to match)
-        pilot text_w = measure_text_styled(names.get(i), font_size, i == selected, false).to_num()
-        pilot text_x = (tx + (tab_w - text_w) / 2.0).to_int()
-        pilot text_y = (rect.y + (rect.h - font_size.to_num()) / 2.0).to_int()
-        pilot text_color = theme_muted
-        if i == selected { text_color = theme_text }
-        canvas.draw_text(names.get(i), text_x, text_y,
-            Font { size: font_size, bold: i == selected, italic: false }, text_color)
-
-        i = i + 1
-    }
-
-    -- Bottom border
-    pilot bottom = Rect { x: rect.x, y: rect.y + rect.h - 1.0, w: rect.w, h: 1.0 }
-    canvas.fill_rect(bottom, theme_border)
-}
-
--- ================================================================
---  Progress bar — draw helper
--- ================================================================
-
-task progress_draw(canvas: Canvas, value: num, rect: Rect, label: word,
-                   theme_bg2: Color, theme_accent: Color, theme_text: Color,
-                   font_size: int) -> void {
-    -- Track background
-    canvas.fill_rect(rect, theme_bg2)
-
-    -- Fill
-    pilot clamped = value
-    if clamped < 0.0 { clamped = 0.0 }
-    if clamped > 1.0 { clamped = 1.0 }
-    pilot fill_w = rect.w * clamped
-    if fill_w > 0.0 {
-        pilot fill_rect = Rect { x: rect.x, y: rect.y, w: fill_w, h: rect.h }
-        canvas.fill_rect(fill_rect, theme_accent)
-    }
-
-    -- Label centered
-    if label.length() > 0 {
-        pilot text_w = measure_text_width(label, font_size).to_num()
-        pilot text_x = (rect.x + (rect.w - text_w) / 2.0).to_int()
-        pilot text_y = (rect.y + (rect.h - font_size.to_num()) / 2.0).to_int()
-        canvas.draw_text(label, text_x, text_y,
-            Font { size: font_size, bold: false, italic: false }, theme_text)
-    }
-}
-
--- ================================================================
---  Tooltip — draw helper
--- ================================================================
-
-task tooltip_draw(canvas: Canvas, text: word, anchor_x: int, anchor_y: int,
-                  theme_surface: Color, theme_border: Color, theme_text: Color,
-                  font_size: int) -> void {
-    pilot pad = 6
-    pilot text_w = measure_text_width(text, font_size) + pad * 2
-    pilot text_h = font_size + pad * 2
-
-    -- Position above the anchor point
-    pilot tx = anchor_x
-    pilot ty = anchor_y - text_h - 4
-
-    pilot bg_rect = Rect { x: tx.to_num(), y: ty.to_num(), w: text_w.to_num(), h: text_h.to_num() }
-    canvas.fill_rect(bg_rect, theme_surface)
-    canvas.stroke_rect(bg_rect, theme_border, 1)
-    canvas.draw_text(text, tx + pad, ty + pad,
-        Font { size: font_size, bold: false, italic: false }, theme_text)
-}
-
--- ================================================================
---  Modal overlay — draw helper
--- ================================================================
-
-task modal_overlay_draw(canvas: Canvas, win_w: int, win_h: int,
-                        panel_w: int, panel_h: int,
-                        theme_bg: Color, theme_surface: Color, theme_border: Color) -> Rect {
-    -- Darken background
-    pilot overlay = Rect { x: 0.0, y: 0.0, w: win_w.to_num(), h: win_h.to_num() }
-    canvas.fill_rect(overlay, Color::rgba(0, 0, 0, 160))
-
-    -- Centered panel
-    pilot px = (win_w - panel_w).to_num() / 2.0
-    pilot py = (win_h - panel_h).to_num() / 2.0
-    pilot panel = Rect { x: px, y: py, w: panel_w.to_num(), h: panel_h.to_num() }
-    canvas.fill_rect(panel, theme_surface)
-    canvas.stroke_rect(panel, theme_border, 1)
-
-    give back panel
-}
-
--- ================================================================
---  Helpers
--- ================================================================
-
-task min_i(a: int, b: int) -> int {
-    if a < b { give back a }
-    give back b
-}
-
-task max_i(a: int, b: int) -> int {
-    if a > b { give back a }
-    give back b
-}
-
-task clamp_f(v: num, lo: num, hi: num) -> num {
-    if v < lo { give back lo }
-    if v > hi { give back hi }
-    give back v
+    give back selected
 }

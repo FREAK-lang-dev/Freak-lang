@@ -1,67 +1,48 @@
-# COCKPIT
+# COCKPIT V3 compatibility façade
 
-COCKPIT is the preserved source preview for FREAK's immediate-mode UI
-framework. Its supported implementation belongs to Maverick / 00-Unit; the
-frozen V3 compiler does not provide a complete executable COCKPIT surface.
+COCKPIT includes a source-only façade that the shipping self-hosted V3
+compiler can check and transpile. It follows the primitives V3 actually ships:
+integer window handles, indexed `ui::event_*` accessors, raw integer geometry
+and colors, explicitly released array handles, and an opaque `ByteBuffer`
+layout stack.
 
-It is built on top of `std::ui` and gives you:
-- layout
-- widgets
-- themes
-- input handling
-- simple animation helpers
-
-No widget trees. No callbacks. No retained-mode ceremony. The source records
-the intended call-in-order design, but it is not a V3 release package.
-
-## Preserved design sketch
-
-The following shows the intended Maverick-facing API. It is kept as design
-evidence and is not expected to build on frozen V3:
+The façade is procedural and single-window. Construct long-lived state once,
+reuse it across frames, then release it explicitly:
 
 ```fk
-use std::ui::{Window, WindowConfig}
-use cockpit::{UI, Theme, label_heading}
+pilot window = cockpit_ui_open("Demo", 640, 480, true)
+pilot layout: ByteBuffer = ByteBuffer::with_capacity(cockpit_layout_capacity())
+pilot theme = cockpit_theme_dark()
 
-@protagonist
-task main() {
-    pilot win = Window::open(WindowConfig {
-        title: "COCKPIT Demo",
-        width: 640,
-        height: 480,
-        resizable: true,
-        vsync: true
-    })
-
-    pilot ui = UI::new(win, Theme::default())
-
-    repeat until ui.should_quit {
-        ui.begin_frame()
-        ui.label_styled("COCKPIT", label_heading)
-        ui.label("Immediate-mode UI for FREAK.")
-        ui.end_frame()
-    }
-
-    win.close()
+repeat 120 times {
+    cockpit_ui_begin_frame(window, layout, theme)
+    cockpit_widget_heading(window, layout, theme, "COCKPIT")
+    cockpit_widget_button(window, layout, theme, "Launch", 120)
+    cockpit_ui_end_frame(window)
 }
+
+cockpit_theme_release(theme)
+cockpit_layout_release(layout)
+cockpit_ui_close(window)
 ```
 
-## Preserved themes
+Available mechanics include owned integer/bool/word collections, nested row
+and column layout, themes, indexed event processing, labels, buttons,
+checkboxes, a basic text input, separators, progress bars, tabs, and a compact
+dropdown that cycles its selection when clicked.
 
-- `Theme::default()`
-- `Theme::light()`
-- `Theme::terminal()`
-- `Theme::alternative()`
-- `Theme::muvluv()`
+The basic input appends indexed character events but its backspace operation is
+byte-oriented; applications that require full Unicode grapheme editing should
+provide a dedicated text model above this floor.
 
-## Design examples
+The native UI implementation currently ships only for Windows. C and LLVM
+source transpilation remain useful portability contracts, but this package
+does not claim a native macOS or Linux window backend. Clipping, modal input
+capture, scrolling, retained widget trees, and popup dropdown guarantees are
+not part of this compatibility floor.
 
-- [`examples/showcase.fk`](./examples/showcase.fk)
-- [`examples/calculator.fk`](./examples/calculator.fk)
+Examples:
 
-Legacy note: older docs may still refer to this package as `freak-ui`. The official public name is now `cockpit`.
-
-V3 does retain a smaller `std::ui` floor for LLVM builds on Windows using the
-Win32/GDI runtime. That floor exposes indexed raw events and drawing calls; it
-does not provide COCKPIT's collection/widget requirements, a POSIX UI backend,
-or executable C-backend shape storage.
+- `examples/smoke.fk` — bounded 30-frame lifecycle smoke
+- `examples/showcase.fk` — the supported widget/layout surface
+- `examples/calculator.fk` — procedural calculator state

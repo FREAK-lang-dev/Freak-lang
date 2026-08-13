@@ -1,211 +1,64 @@
--- COCKPIT Widget Showcase — Phase ME + MF demo
--- Demonstrates all widgets: dropdown, tabs, progress, tooltip, modal,
--- scroll, checkbox, slider, input, and the animation system.
---
--- "Every widget has a story. This is all of them at once."
+-- COCKPIT V3 procedural showcase. Fixed-frame and single-window by design.
 
-use std::ui::{Window, WindowConfig, Canvas, Event}
-use cockpit::{UI, Theme, SizeHint,
-              btn_normal, btn_primary, btn_danger, btn_operator, btn_equals, btn_ghost,
-              label_normal, label_heading, label_subheading, label_display, label_mono, label_muted,
-              ease_linear, ease_in, ease_out, ease_in_out, ease_spring}
-
-@protagonist
 task main() {
-    pilot win = Window::open(WindowConfig {
-        title: "FREAK UI — Widget Showcase",
-        width: 720,
-        height: 600,
-        resizable: true,
-        vsync: true
-    })
-
-    pilot ui = UI::new(win, Theme::default())
-
-    -- Widget state
+    pilot window = cockpit_ui_open("FREAK COCKPIT V3", 720, 520, true)
+    if window == 0 { panic("COCKPIT window creation failed") }
+    pilot layout: ByteBuffer = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    pilot theme = cockpit_theme_alternative()
+    pilot tabs = cockpit_words_new()
+    cockpit_words_push(tabs, "Widgets")
+    cockpit_words_push(tabs, "Status")
+    pilot choices = cockpit_words_new()
+    cockpit_words_push(choices, "Alternative")
+    cockpit_words_push(choices, "Terminal")
+    cockpit_words_push(choices, "Light")
     pilot selected_tab = 0
-    pilot tab_names = ["Widgets", "Animation", "Theme"]
+    pilot selected_choice = 0
+    pilot enabled = true
+    pilot input_text = "FREAKING WORKS"
+    pilot progress = 0
 
-    pilot dropdown_value = 0
-    pilot dropdown_items = ["Option Alpha", "Option Beta", "Option Gamma", "Option Delta"]
-
-    pilot check_a = false
-    pilot check_b = true
-    pilot slider_val = 0.5
-    pilot input_text = ""
-    pilot progress_val = 0.0
-
-    pilot modal_visible = false
-    pilot theme_index = 0
-
-    -- Animation state
-    pilot anim_target = 0.0
-    pilot anim_bar = 0.0
-    pilot bounce_val = 0.0
-
-    repeat until ui.should_quit {
-        ui.begin_frame()
-
-        -- Title
-        ui.label_styled("FREAK UI Showcase", label_heading)
-        ui.separator()
-
-        -- Tab bar
-        selected_tab = ui.tabs(selected_tab, tab_names)
-
-        ui.spacer(4)
-
-        -- ================================
-        --  Tab 0: Widgets
-        -- ================================
+    repeat 240 times {
+        cockpit_ui_begin_frame(window, layout, theme)
+        if cockpit_ui_should_close() {
+            cockpit_words_release(choices)
+            cockpit_words_release(tabs)
+            cockpit_theme_release(theme)
+            cockpit_layout_release(layout)
+            cockpit_ui_close(window)
+            give back
+        }
+        cockpit_widget_heading(window, layout, theme, "COCKPIT V3")
+        cockpit_widget_label(window, layout, theme, "Procedural handles. Raw events. No retained tree.")
+        cockpit_widget_separator(window, layout, theme)
+        selected_tab = cockpit_widget_tabs(window, layout, theme, selected_tab, tabs)
+        cockpit_widget_spacer(layout, 8)
         if selected_tab == 0 {
-            ui.begin_row(12, 0)
-
-            -- Left column
-            ui.begin_column(8, 0)
-
-            ui.label_styled("Dropdown", label_subheading)
-            dropdown_value = ui.dropdown(dropdown_value, dropdown_items)
-            ui.spacer(8)
-
-            ui.label_styled("Input", label_subheading)
-            input_text = ui.input(input_text, "Type something...")
-            ui.spacer(8)
-
-            ui.label_styled("Checkboxes", label_subheading)
-            if ui.checkbox("Enable feature A", check_a) { check_a = not check_a }
-            if ui.checkbox("Enable feature B", check_b) { check_b = not check_b }
-
-            ui.end_column()
-
-            -- Right column
-            ui.begin_column(8, 0)
-
-            ui.label_styled("Slider", label_subheading)
-            slider_val = ui.slider(slider_val, 0.0, 1.0)
-            ui.spacer(4)
-
-            ui.label_styled("Progress", label_subheading)
-            progress_val = progress_val + 0.002
-            if progress_val > 1.0 { progress_val = 0.0 }
-            pilot pct_text = "" + (progress_val * 100.0) + "%"
-            ui.progress(progress_val, pct_text)
-            ui.spacer(8)
-
-            ui.label_styled("Buttons", label_subheading)
-            ui.begin_row(8, 0)
-            ui.button("Normal")
-            ui.button_primary("Primary")
-            if ui.button_styled("Open Modal", btn_danger, SizeHint::auto_size()) {
-                modal_visible = true
+            cockpit_row_begin(layout, 190, cockpit_theme_get(theme, cockpit_theme_gap))
+            cockpit_column_begin(layout, 310, cockpit_theme_get(theme, cockpit_theme_gap))
+            cockpit_widget_label(window, layout, theme, "Input")
+            input_text = cockpit_widget_input(window, layout, theme, input_text, 290)
+            enabled = cockpit_widget_checkbox(window, layout, theme, "Enable launch", enabled)
+            selected_choice = cockpit_widget_dropdown(window, layout, theme, selected_choice, choices)
+            cockpit_container_end(layout)
+            cockpit_column_begin(layout, 310, cockpit_theme_get(theme, cockpit_theme_gap))
+            cockpit_widget_label(window, layout, theme, "Progress")
+            cockpit_widget_progress(window, layout, theme, progress, word_from_int(progress / 10) + "%")
+            if cockpit_widget_button(window, layout, theme, "Advance", 130) {
+                progress += 100
+                if progress > 1000 { progress = 0 }
             }
-            ui.end_row()
-
-            ui.end_column()
-
-            ui.end_row()
-
-            -- Tooltip demo
-            ui.spacer(8)
-            ui.label("Hover over the progress bar for a tooltip.")
+            cockpit_container_end(layout)
+            cockpit_container_end(layout)
+        } else {
+            cockpit_widget_label(window, layout, theme, "Indexed event processing is active.")
+            cockpit_widget_progress(window, layout, theme, 1000, "READY")
         }
-
-        -- ================================
-        --  Tab 1: Animation
-        -- ================================
-        if selected_tab == 1 {
-            ui.label_styled("Animation System", label_subheading)
-            ui.label("Click buttons to trigger animated transitions.")
-            ui.spacer(8)
-
-            ui.begin_row(12, 0)
-            if ui.button("Animate to 0%") { anim_target = 0.0 }
-            if ui.button("Animate to 50%") { anim_target = 0.5 }
-            if ui.button("Animate to 100%") { anim_target = 1.0 }
-            ui.end_row()
-
-            ui.spacer(4)
-
-            -- Smoothly interpolate towards target
-            anim_bar = ui.animate(anim_bar, anim_target, 5.0)
-            ui.progress(anim_bar, "Animated")
-
-            ui.spacer(8)
-            ui.label_styled("Easing Comparison", label_subheading)
-
-            -- Show different easing curves side by side
-            pilot ease_target = anim_target
-
-            pilot v_linear = ui.tween(100, ease_target, 3.0, ease_linear)
-            ui.label("Linear")
-            ui.progress(v_linear, "")
-
-            pilot v_in = ui.tween(101, ease_target, 3.0, ease_in)
-            ui.label("Ease In")
-            ui.progress(v_in, "")
-
-            pilot v_out = ui.tween(102, ease_target, 3.0, ease_out)
-            ui.label("Ease Out")
-            ui.progress(v_out, "")
-
-            pilot v_inout = ui.tween(103, ease_target, 3.0, ease_in_out)
-            ui.label("Ease In/Out")
-            ui.progress(v_inout, "")
-
-            pilot v_spring = ui.tween(104, ease_target, 3.0, ease_spring)
-            ui.label("Spring")
-            ui.progress(v_spring, "")
-        }
-
-        -- ================================
-        --  Tab 2: Theme
-        -- ================================
-        if selected_tab == 2 {
-            ui.label_styled("Theme Selection", label_subheading)
-            ui.label("Choose a theme to see the UI transform.")
-            ui.spacer(8)
-
-            ui.begin_row(8, 0)
-            if ui.button("Default")     { ui.set_theme(Theme::default()) }
-            if ui.button("Light")       { ui.set_theme(Theme::light()) }
-            if ui.button("Terminal")    { ui.set_theme(Theme::terminal()) }
-            if ui.button("Alternative") { ui.set_theme(Theme::alternative()) }
-            if ui.button("Muv-Luv")     { ui.set_theme(Theme::muvluv()) }
-            ui.end_row()
-
-            ui.spacer(12)
-            ui.label("Current theme colors:")
-            ui.separator()
-
-            -- Show color swatches using progress bars as color indicators
-            ui.label_styled("Accent", label_mono)
-            ui.progress(1.0, "accent")
-            ui.label_styled("Danger", label_mono)
-            ui.progress(0.7, "danger")
-            ui.label_styled("Success", label_mono)
-            ui.progress(0.9, "success")
-        }
-
-        -- ================================
-        --  Modal overlay (drawn on top)
-        -- ================================
-        pilot modal_rect = ui.begin_modal(modal_visible, 400, 200)
-        if modal_visible {
-            ui.label_styled("Dialog", label_heading)
-            ui.label("This is a modal dialog.")
-            ui.label("It overlays everything else.")
-            ui.spacer_fill()
-            ui.begin_row(8, 0)
-            ui.spacer_fill()
-            if ui.button_primary("Close") {
-                modal_visible = false
-            }
-            ui.end_row()
-        }
-        ui.end_modal()
-
-        ui.end_frame()
+        cockpit_ui_end_frame(window)
     }
-
-    win.close()
+    cockpit_words_release(choices)
+    cockpit_words_release(tabs)
+    cockpit_theme_release(theme)
+    cockpit_layout_release(layout)
+    cockpit_ui_close(window)
 }

@@ -1,190 +1,74 @@
--- FREAK Calculator — COCKPIT reference implementation
--- The app that proves COCKPIT works.
---
--- "It was always going to be a calculator."
+-- COCKPIT V3 calculator with procedural state and fixed-frame cleanup.
 
-use std::ui::{Window, WindowConfig, Event, event_quit}
-use cockpit::{UI, Theme, SizeHint, btn_normal, btn_operator, btn_equals, label_display}
-
--- ================================================================
---  Calculator state
--- ================================================================
-
-shape CalcState {
-    display:   word
-    pending:   num
-    has_pending: bool
-    op:        int
-    fresh:     bool
+task cockpit_calculate(pending: num, current: num, operation: int) -> num {
+    if operation == 1 { give back pending + current }
+    if operation == 2 { give back pending - current }
+    if operation == 3 { give back pending * current }
+    if operation == 4 and current != 0.0 { give back pending / current }
+    give back current
 }
 
--- Operation constants (lowercase to avoid parser shape-literal ambiguity)
-fixed pilot op_none = 0
-fixed pilot op_add  = 1
-fixed pilot op_sub  = 2
-fixed pilot op_mul  = 3
-fixed pilot op_div  = 4
-
-impl CalcState {
-    task new() -> CalcState {
-        give back CalcState {
-            display:     "0",
-            pending:     0.0,
-            has_pending: false,
-            op:          op_none,
-            fresh:       false
-        }
-    }
-
-    task append_digit(self, digit: word) -> void {
-        if self.fresh or self.display == "0" {
-            self.display = digit
-            self.fresh = false
-        } else {
-            self.display = self.display + digit
-        }
-    }
-
-    task set_op(self, new_op: int) -> void {
-        self.pending = w_to_num(self.display)
-        self.has_pending = true
-        self.op = new_op
-        self.fresh = true
-    }
-
-    task clear(self) -> void {
-        self.display = "0"
-        self.pending = 0.0
-        self.has_pending = false
-        self.op = op_none
-        self.fresh = false
-    }
-
-    task negate(self) -> void {
-        pilot val = w_to_num(self.display) * -1.0
-        self.display = num_to_w(val)
-    }
-
-    task percent(self) -> void {
-        pilot val = w_to_num(self.display) / 100.0
-        self.display = num_to_w(val)
-    }
-
-    task calculate(self) -> void {
-        if not self.has_pending { give back }
-
-        pilot current = w_to_num(self.display)
-        pilot answer = 0.0
-
-        if self.op == op_add { answer = self.pending + current }
-        if self.op == op_sub { answer = self.pending - current }
-        if self.op == op_mul { answer = self.pending * current }
-        if self.op == op_div {
-            if current == 0.0 {
-                self.display = "Error"
-                self.has_pending = false
-                self.op = op_none
-                self.fresh = true
-                give back
-            }
-            answer = self.pending / current
-        }
-
-        self.display = num_to_w(answer)
-        self.has_pending = false
-        self.op = op_none
-        self.fresh = true
-    }
-}
-
--- ================================================================
---  Main
--- ================================================================
-
-@protagonist
 task main() {
-    pilot win = Window::open(WindowConfig { title: "FREAK Calculator", width: 320, height: 480, resizable: false, vsync: true })
+    pilot window = cockpit_ui_open("FREAK Calculator", 340, 470, false)
+    if window == 0 { panic("calculator window creation failed") }
+    pilot layout: ByteBuffer = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    pilot theme = cockpit_theme_dark()
+    pilot display = "0"
+    pilot pending = 0.0
+    pilot operation = 0
+    pilot fresh = true
 
-    pilot state = CalcState::new()
-    pilot ui = UI::new(win, Theme::alternative())
+    repeat 300 times {
+        cockpit_ui_begin_frame(window, layout, theme)
+        if cockpit_ui_should_close() {
+            cockpit_theme_release(theme)
+            cockpit_layout_release(layout)
+            cockpit_ui_close(window)
+            give back
+        }
+        cockpit_widget_heading(window, layout, theme, display)
+        cockpit_widget_separator(window, layout, theme)
+        cockpit_row_begin(layout, 48, 6)
+        if cockpit_widget_button(window, layout, theme, "C", 70) { display = "0" operation = 0 fresh = true }
+        if cockpit_widget_button(window, layout, theme, "/", 70) { pending = parse_num(display) operation = 4 fresh = true }
+        if cockpit_widget_button(window, layout, theme, "*", 70) { pending = parse_num(display) operation = 3 fresh = true }
+        if cockpit_widget_button(window, layout, theme, "-", 70) { pending = parse_num(display) operation = 2 fresh = true }
+        cockpit_container_end(layout)
 
-    pilot running = true
-    repeat 999999 times {
-        if not running { give back }
-
-        pilot events = ui.begin_frame()
-
-        -- Check for quit
-        pilot e = 0
-        repeat events.size() times {
-            pilot ev: Event = events.get(e)
-            if ev.kind == event_quit {
-                running = false
+        pilot digit = 7
+        repeat 3 times {
+            cockpit_row_begin(layout, 48, 6)
+            repeat 3 times {
+                pilot label = word_from_int(digit)
+                if cockpit_widget_button(window, layout, theme, label, 70) {
+                    if fresh or display == "0" { display = label }
+                    else { display = display + label }
+                    fresh = false
+                }
+                digit += 1
             }
-            e = e + 1
+            cockpit_widget_button(window, layout, theme, " ", 70)
+            cockpit_container_end(layout)
+            if digit == 10 { digit = 4 }
+            else if digit == 7 { digit = 1 }
         }
 
-        -- Display
-        ui.begin_column(8.0, 16.0)
-            ui.label_styled(state.display, label_display)
-            ui.spacer(8.0)
-
-            -- Row 1: C, +/-, %, /
-            ui.begin_row(8.0, 0.0)
-                if ui.button_styled("C", btn_operator, SizeHint::fraction(0.25)) { state.clear() }
-                if ui.button_styled("+/-", btn_operator, SizeHint::fraction(0.25)) { state.negate() }
-                if ui.button_styled("%", btn_operator, SizeHint::fraction(0.25)) { state.percent() }
-                if ui.button_styled("/", btn_operator, SizeHint::fraction(0.25)) { state.set_op(op_div) }
-            ui.end_row()
-
-            -- Row 2: 7, 8, 9, *
-            ui.begin_row(8.0, 0.0)
-                if ui.button_styled("7", btn_normal, SizeHint::fraction(0.25)) { state.append_digit("7") }
-                if ui.button_styled("8", btn_normal, SizeHint::fraction(0.25)) { state.append_digit("8") }
-                if ui.button_styled("9", btn_normal, SizeHint::fraction(0.25)) { state.append_digit("9") }
-                if ui.button_styled("*", btn_operator, SizeHint::fraction(0.25)) { state.set_op(op_mul) }
-            ui.end_row()
-
-            -- Row 3: 4, 5, 6, -
-            ui.begin_row(8.0, 0.0)
-                if ui.button_styled("4", btn_normal, SizeHint::fraction(0.25)) { state.append_digit("4") }
-                if ui.button_styled("5", btn_normal, SizeHint::fraction(0.25)) { state.append_digit("5") }
-                if ui.button_styled("6", btn_normal, SizeHint::fraction(0.25)) { state.append_digit("6") }
-                if ui.button_styled("-", btn_operator, SizeHint::fraction(0.25)) { state.set_op(op_sub) }
-            ui.end_row()
-
-            -- Row 4: 1, 2, 3, +
-            ui.begin_row(8.0, 0.0)
-                if ui.button_styled("1", btn_normal, SizeHint::fraction(0.25)) { state.append_digit("1") }
-                if ui.button_styled("2", btn_normal, SizeHint::fraction(0.25)) { state.append_digit("2") }
-                if ui.button_styled("3", btn_normal, SizeHint::fraction(0.25)) { state.append_digit("3") }
-                if ui.button_styled("+", btn_operator, SizeHint::fraction(0.25)) { state.set_op(op_add) }
-            ui.end_row()
-
-            -- Row 5: 0, ., =
-            ui.begin_row(8.0, 0.0)
-                if ui.button_styled("0", btn_normal, SizeHint::fraction(0.5)) { state.append_digit("0") }
-                if ui.button_styled(".", btn_normal, SizeHint::fraction(0.25)) { state.append_digit(".") }
-                if ui.button_styled("=", btn_equals, SizeHint::fraction(0.25)) { state.calculate() }
-            ui.end_row()
-
-        ui.end_column()
-
-        ui.end_frame()
+        cockpit_row_begin(layout, 48, 6)
+        if cockpit_widget_button(window, layout, theme, "0", 146) {
+            if fresh { display = "0" }
+            else { display = display + "0" }
+            fresh = false
+        }
+        if cockpit_widget_button(window, layout, theme, ".", 70) { display = display + "." fresh = false }
+        if cockpit_widget_button(window, layout, theme, "=", 70) {
+            display = format_num(cockpit_calculate(pending, parse_num(display), operation))
+            operation = 0
+            fresh = true
+        }
+        cockpit_container_end(layout)
+        cockpit_ui_end_frame(window)
     }
-
-    win.close()
-}
-
--- ================================================================
---  Helpers (renamed from w_to_num / num_to_w to dodge
---  collisions with the runtime symbols of the same name).
--- ================================================================
-
-task w_to_num(s: word) -> num {
-    give back parse_num(s)
-}
-
-task num_to_w(n: num) -> word {
-    give back format_num(n)
+    cockpit_theme_release(theme)
+    cockpit_layout_release(layout)
+    cockpit_ui_close(window)
 }
