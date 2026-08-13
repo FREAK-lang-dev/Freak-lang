@@ -190,6 +190,8 @@ task emit_c_borrowing_call(expr_id: word, func_name: word, args: word) -> void {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task c_map_call(val: word) -> word {
+    if val == "ByteBuffer::new" { give back "freak_byte_buffer_new" }
+    if val == "ByteBuffer::with_capacity" { give back "freak_byte_buffer_with_capacity" }
     if val == "say" { give back "freak_say" }
     if val == "ask" { give back "freak_ask" }
     if val == "word_from_int" { give back "freak_word_from_int" }
@@ -527,6 +529,20 @@ task emit_c_method(expr_id: word, val: word, left: word, right: word) -> void {
     pilot receiver_type = emt_expr_type_code(left)
     pilot method_args = left
     if right != "" { method_args = method_args + "," + right }
+    if receiver_semantic_type == "ByteBuffer" {
+        if emt_args_have_owned_word_temporary(method_args) {
+            emit_c_borrowing_call(expr_id, "freak_byte_buffer_" + val, method_args)
+            give back
+        }
+        emit("freak_byte_buffer_" + val + "(")
+        emit_expr(left)
+        if right != "" {
+            emit(", ")
+            emit_args(right, false)
+        }
+        emit(")")
+        give back
+    }
     if val == "length" {
         if emt_args_have_owned_word_temporary(method_args) {
             emit_c_borrowing_call(expr_id, "freak_word_length", method_args)

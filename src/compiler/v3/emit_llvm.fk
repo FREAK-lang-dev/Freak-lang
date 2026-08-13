@@ -268,6 +268,7 @@ task llvm_get_var_type(name: word) -> word {
 }
 
 task llvm_type_code(type_name: word) -> word {
+    if type_name == "q" or type_name == "ByteBuffer" { give back "q" }
     if type_name == "w" or type_name == "word" { give back "w" }
     if type_name == "n" or type_name == "num" or type_name == "float" { give back "n" }
     if type_name == "b" or type_name == "bool" { give back "b" }
@@ -401,7 +402,8 @@ task llvm_infer_expr_type(expr_id: word) -> word {
             if exact_ret.length() > 0 { give back exact_ret }
         }
         pilot recv_builtin_type = "int"
-        if recv_type.starts_with("w") { recv_builtin_type = "word" }
+        if recv_type.starts_with("q") { recv_builtin_type = "ByteBuffer" }
+        else if recv_type.starts_with("w") { recv_builtin_type = "word" }
         else if recv_type.starts_with("n") { recv_builtin_type = "num" }
         else if recv_type.starts_with("b") { recv_builtin_type = "bool" }
         pilot builtin_ret = tc_builtin_method_return_type(recv_builtin_type, val)
@@ -576,6 +578,8 @@ task llvm_is_num_expr(expr_id: word) -> bool {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task llvm_map_call_name(val: word) -> word {
+    if val == "ByteBuffer::new" { give back "@freak_llvm_byte_buffer_new" }
+    if val == "ByteBuffer::with_capacity" { give back "@freak_llvm_byte_buffer_with_capacity" }
     if val == "say" { give back "@freak_llvm_say" }
     if val == "ask" { give back "@freak_llvm_ask" }
     if val == "word_from_int" { give back "@freak_llvm_word_from_int" }
@@ -1281,6 +1285,23 @@ task llvm_emit_method(expr_id: word, val: word, left: word, right: word) -> word
             llvm_emit_line("    " + res_reg + " = call i64 " + exact_fname + "(i64 " + obj_reg + exact_args + ")")
         }
         give back res_reg
+    }
+    if recv_ty.starts_with("q") {
+        pilot args = ""
+        pilot arg_cleanup = ""
+        if right.length() > 0 {
+            args = ", " + llvm_emit_borrowed_args(right, "", 0)
+            arg_cleanup = llvm_last_borrowed_cleanup
+        }
+        pilot runtime_name = "@freak_llvm_byte_buffer_" + val
+        pilot byte_buffer_ret = tc_builtin_method_return_type("ByteBuffer", val)
+        if byte_buffer_ret == "void" {
+            llvm_emit_line("    call void " + runtime_name + "(i64 " + obj_reg + args + ")")
+            llvm_emit_line("    " + res_reg + " = add i64 0, 0")
+        } else {
+            llvm_emit_line("    " + res_reg + " = call i64 " + runtime_name + "(i64 " + obj_reg + args + ")")
+        }
+        give back llvm_finish_borrowed_method(expr_id, left, obj_reg, arg_cleanup, res_reg)
     }
     if val == "length" {
         llvm_emit_line("    " + res_reg + " = call i64 @freak_llvm_word_length(i64 " + obj_reg + ")")
@@ -2305,6 +2326,29 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_llvm_word_builder_append_int(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_builder_finish(i64)")
     llvm_emit_line("declare void @freak_llvm_word_builder_discard(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_new()")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_with_capacity(i64)")
+    llvm_emit_line("declare void @freak_llvm_byte_buffer_release(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_status(i64)")
+    llvm_emit_line("declare void @freak_llvm_byte_buffer_clear_status(i64)")
+    llvm_emit_line("declare void @freak_llvm_byte_buffer_reserve(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_capacity(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_length(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_position(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_remaining(i64)")
+    llvm_emit_line("declare void @freak_llvm_byte_buffer_clear(i64)")
+    llvm_emit_line("declare void @freak_llvm_byte_buffer_truncate(i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_byte_buffer_seek(i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_byte_buffer_write_byte(i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_byte_buffer_write_int(i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_byte_buffer_write_int_be(i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_byte_buffer_write_word(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_read_byte(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_read_int(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_read_int_be(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_read_word(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_slice(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_byte_buffer_to_word(i64)")
     llvm_emit_line("declare i64 @freak_llvm_tcp_connect(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_tcp_send(i64, i64)")
     llvm_emit_line("declare i64 @freak_llvm_tcp_recv(i64, i64)")
@@ -2313,6 +2357,7 @@ task llvm_emit_runtime_decls() -> void {
 
     llvm_declared_funcs = "|puts|printf|strlen|freak_llvm_word_from_int|freak_llvm_word_from_bool|freak_llvm_word_concat|freak_llvm_word_eq|freak_llvm_word_neq|freak_llvm_word_length|freak_llvm_word_checksum|freak_llvm_word_snapshot_escape|freak_llvm_word_snapshot_unescape|freak_llvm_word_snapshot_line_count|freak_llvm_word_snapshot_line|freak_llvm_word_snapshot_field_count|freak_llvm_word_snapshot_field_raw|freak_llvm_word_char_at|freak_llvm_word_substring|freak_llvm_word_contains|freak_llvm_word_starts_with|freak_llvm_word_ends_with|freak_llvm_word_to_upper|freak_llvm_word_to_lower|freak_llvm_word_trim|freak_llvm_word_replace|freak_llvm_word_to_int|freak_llvm_say|freak_llvm_print_str|freak_llvm_print_int|freak_llvm_print_newline|freak_llvm_ask|freak_llvm_process_args_count|freak_llvm_process_arg|freak_llvm_process_exit|freak_llvm_process_exec|freak_llvm_process_exec_capture|freak_llvm_panic|freak_llvm_shape_alloc|freak_llvm_shape_get|freak_llvm_shape_set|freak_llvm_setup_args|freak_llvm_word_from_num|freak_llvm_print_num|freak_llvm_int_to_num|freak_llvm_num_to_int|freak_llvm_ui_create_window|freak_llvm_ui_destroy_window|freak_llvm_ui_poll_events|freak_llvm_ui_begin_frame|freak_llvm_ui_end_frame|freak_llvm_ui_event_kind|freak_llvm_ui_event_key|freak_llvm_ui_event_pressed|freak_llvm_ui_event_character|freak_llvm_ui_event_mouse_x|freak_llvm_ui_event_mouse_y|freak_llvm_ui_event_button|freak_llvm_ui_clear|freak_llvm_ui_fill_rect|freak_llvm_ui_stroke_rect|freak_llvm_ui_fill_circle|freak_llvm_ui_draw_line|freak_llvm_ui_draw_text|freak_llvm_ui_measure_text|freak_llvm_math_sqrt|freak_llvm_math_pow|freak_llvm_math_sin|freak_llvm_math_cos|freak_llvm_math_tan|freak_llvm_math_floor|freak_llvm_math_ceil|freak_llvm_parse_num|freak_llvm_format_num|freak_llvm_array_new|freak_llvm_array_push|freak_llvm_array_get|freak_llvm_array_len|freak_llvm_array_set|freak_llvm_array_release|freak_word_compare|freak_llvm_tcp_connect|freak_llvm_tcp_send|freak_llvm_tcp_recv_all|freak_llvm_tcp_recv|freak_llvm_tcp_close|freak_llvm_time_now_ms|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_word_repeated|freak_llvm_word_join|freak_llvm_word_join_owned|freak_llvm_word_append_owned|freak_llvm_word_builder_new|freak_llvm_word_builder_with_capacity|freak_llvm_word_builder_reserve|freak_llvm_word_builder_capacity|freak_llvm_word_builder_length|freak_llvm_word_builder_clear|freak_llvm_word_builder_append|freak_llvm_word_builder_append_char|freak_llvm_word_builder_append_int|freak_llvm_word_builder_finish|freak_llvm_word_builder_discard|freak_llvm_array_push_owned|freak_llvm_array_set_owned|freak_llvm_array_release_owned|freak_llvm_fs_list_dir|freak_llvm_fs_make_dir|freak_llvm_process_env|freak_llvm_process_input|"
+    llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_byte_buffer_new|freak_llvm_byte_buffer_with_capacity|freak_llvm_byte_buffer_release|freak_llvm_byte_buffer_status|freak_llvm_byte_buffer_clear_status|freak_llvm_byte_buffer_reserve|freak_llvm_byte_buffer_capacity|freak_llvm_byte_buffer_length|freak_llvm_byte_buffer_position|freak_llvm_byte_buffer_remaining|freak_llvm_byte_buffer_clear|freak_llvm_byte_buffer_truncate|freak_llvm_byte_buffer_seek|freak_llvm_byte_buffer_write_byte|freak_llvm_byte_buffer_write_int|freak_llvm_byte_buffer_write_int_be|freak_llvm_byte_buffer_write_word|freak_llvm_byte_buffer_read_byte|freak_llvm_byte_buffer_read_int|freak_llvm_byte_buffer_read_int_be|freak_llvm_byte_buffer_read_word|freak_llvm_byte_buffer_slice|freak_llvm_byte_buffer_to_word|"
 }
 
 -- ===================== PROGRAM ASSEMBLY ==============================

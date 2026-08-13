@@ -247,6 +247,12 @@ static size_t freak_word_foundation_builder_growths = 0;
 static size_t freak_word_foundation_builder_copied_bytes = 0;
 static size_t freak_word_foundation_builder_finishes = 0;
 static size_t freak_word_foundation_builder_discards = 0;
+static size_t freak_word_foundation_byte_buffer_creations = 0;
+static size_t freak_word_foundation_byte_buffer_allocations = 0;
+static size_t freak_word_foundation_byte_buffer_growths = 0;
+static size_t freak_word_foundation_byte_buffer_copied_bytes = 0;
+static size_t freak_word_foundation_byte_buffer_releases = 0;
+static bool freak_word_foundation_byte_buffer_used = false;
 static bool freak_word_foundation_audit_registered = false;
 static bool freak_word_foundation_audit_emitted = false;
 
@@ -254,7 +260,7 @@ static void freak_word_foundation_audit_emit(void) {
     if (freak_word_foundation_audit_emitted) return;
     freak_word_foundation_audit_emitted = true;
     fprintf(stderr,
-            "FREAK_RUNTIME_STATS {\"schema\":\"freak-v3-runtime-stats-v1\",\"source\":\"freak-v3-runtime\",\"counters\":{\"word_repeat_calls\":%llu,\"word_repeat_allocations\":%llu,\"word_repeat_copied_bytes\":%llu,\"word_builder_creations\":%llu,\"word_builder_allocations\":%llu,\"word_builder_growths\":%llu,\"word_builder_copied_bytes\":%llu,\"word_builder_finishes\":%llu,\"word_builder_discards\":%llu}}\n",
+            "FREAK_RUNTIME_STATS {\"schema\":\"freak-v3-runtime-stats-v1\",\"source\":\"freak-v3-runtime\",\"counters\":{\"word_repeat_calls\":%llu,\"word_repeat_allocations\":%llu,\"word_repeat_copied_bytes\":%llu,\"word_builder_creations\":%llu,\"word_builder_allocations\":%llu,\"word_builder_growths\":%llu,\"word_builder_copied_bytes\":%llu,\"word_builder_finishes\":%llu,\"word_builder_discards\":%llu",
             (unsigned long long)freak_word_foundation_repeat_calls,
             (unsigned long long)freak_word_foundation_repeat_allocations,
             (unsigned long long)freak_word_foundation_repeat_copied_bytes,
@@ -264,6 +270,16 @@ static void freak_word_foundation_audit_emit(void) {
             (unsigned long long)freak_word_foundation_builder_copied_bytes,
             (unsigned long long)freak_word_foundation_builder_finishes,
             (unsigned long long)freak_word_foundation_builder_discards);
+    if (freak_word_foundation_byte_buffer_used) {
+        fprintf(stderr,
+                ",\"byte_buffer_creations\":%llu,\"byte_buffer_allocations\":%llu,\"byte_buffer_growths\":%llu,\"byte_buffer_copied_bytes\":%llu,\"byte_buffer_releases\":%llu",
+                (unsigned long long)freak_word_foundation_byte_buffer_creations,
+                (unsigned long long)freak_word_foundation_byte_buffer_allocations,
+                (unsigned long long)freak_word_foundation_byte_buffer_growths,
+                (unsigned long long)freak_word_foundation_byte_buffer_copied_bytes,
+                (unsigned long long)freak_word_foundation_byte_buffer_releases);
+    }
+    fprintf(stderr, "}}\n");
     fflush(stderr);
 }
 
@@ -310,6 +326,27 @@ static void freak_word_foundation_audit_builder_finish(void) {
 static void freak_word_foundation_audit_builder_discard(void) {
     freak_word_foundation_builder_discards += 1;
 }
+
+static void freak_word_foundation_audit_byte_buffer_create(void) {
+    freak_word_foundation_audit_ensure_registered();
+    freak_word_foundation_byte_buffer_used = true;
+    freak_word_foundation_byte_buffer_creations += 1;
+}
+
+static void freak_word_foundation_audit_byte_buffer_allocation(
+        size_t copied_bytes, bool growth) {
+    freak_word_foundation_byte_buffer_allocations += 1;
+    if (growth) freak_word_foundation_byte_buffer_growths += 1;
+    freak_word_foundation_byte_buffer_copied_bytes += copied_bytes;
+}
+
+static void freak_word_foundation_audit_byte_buffer_copy(size_t copied_bytes) {
+    freak_word_foundation_byte_buffer_copied_bytes += copied_bytes;
+}
+
+static void freak_word_foundation_audit_byte_buffer_release(void) {
+    freak_word_foundation_byte_buffer_releases += 1;
+}
 #else
 static void freak_word_foundation_audit_emit(void) {}
 static void freak_word_foundation_audit_repeat(size_t copied_bytes) {
@@ -326,6 +363,16 @@ static void freak_word_foundation_audit_builder_append(size_t copied_bytes) {
 }
 static void freak_word_foundation_audit_builder_finish(void) {}
 static void freak_word_foundation_audit_builder_discard(void) {}
+static void freak_word_foundation_audit_byte_buffer_create(void) {}
+static void freak_word_foundation_audit_byte_buffer_allocation(
+        size_t copied_bytes, bool growth) {
+    (void)copied_bytes;
+    (void)growth;
+}
+static void freak_word_foundation_audit_byte_buffer_copy(size_t copied_bytes) {
+    (void)copied_bytes;
+}
+static void freak_word_foundation_audit_byte_buffer_release(void) {}
 #endif
 
 #ifdef FREAK_C_RUNTIME_OWNERSHIP_AUDIT
@@ -2621,6 +2668,566 @@ int64_t freak_llvm_word_builder_finish(int64_t handle) {
 
 void freak_llvm_word_builder_discard(int64_t handle) {
     freak_word_builder_discard(handle);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Opaque byte buffers                                               */
+/* ------------------------------------------------------------------ */
+
+enum {
+    FREAK_BYTE_BUFFER_OK = FREAK_BYTE_BUFFER_STATUS_OK,
+    FREAK_BYTE_BUFFER_OOB = FREAK_BYTE_BUFFER_STATUS_OOB,
+    FREAK_BYTE_BUFFER_INVALID_ARGUMENT = FREAK_BYTE_BUFFER_STATUS_INVALID_ARGUMENT,
+    FREAK_BYTE_BUFFER_INVALID_UTF8 = FREAK_BYTE_BUFFER_STATUS_INVALID_UTF8
+};
+
+typedef struct {
+    uint8_t* data;
+    size_t length;
+    size_t capacity;
+    size_t cursor;
+    int64_t next_free;
+    uint32_t generation;
+    int status;
+    bool in_use;
+} freak_byte_buffer_record;
+
+static freak_byte_buffer_record* freak_byte_buffers = NULL;
+static int64_t freak_byte_buffer_count = 0;
+static int64_t freak_byte_buffer_table_capacity = 0;
+static int64_t freak_byte_buffer_free_head = -1;
+static size_t freak_byte_buffer_live_count = 0;
+
+#define FREAK_BYTE_BUFFER_DOMAIN_MASK UINT64_C(0xe000000000000000)
+#define FREAK_BYTE_BUFFER_HANDLE_DOMAIN UINT64_C(0x8000000000000000)
+#define FREAK_BYTE_BUFFER_GENERATION_MAX FREAK_HANDLE_GENERATION_MAX
+
+#if defined(FREAK_C_RUNTIME_OWNERSHIP_AUDIT) || defined(FREAK_RUNTIME_OWNERSHIP_AUDIT)
+static bool freak_byte_buffer_ownership_audit_registered = false;
+
+static void freak_byte_buffer_ownership_audit_at_exit(void) {
+    if (freak_byte_buffer_live_count != 0) {
+        freak_word_foundation_audit_emit();
+        fprintf(stderr,
+                "FREAK: ByteBuffer ownership audit found %llu live buffer(s)\n",
+                (unsigned long long)freak_byte_buffer_live_count);
+        fflush(stderr);
+        _Exit(90);
+    }
+}
+
+static void freak_byte_buffer_ownership_audit_ensure_registered(void) {
+    if (freak_byte_buffer_ownership_audit_registered) return;
+    if (atexit(freak_byte_buffer_ownership_audit_at_exit) != 0) {
+        fprintf(stderr, "FREAK: could not register ByteBuffer ownership audit\n");
+        exit(1);
+    }
+    freak_byte_buffer_ownership_audit_registered = true;
+}
+#else
+static void freak_byte_buffer_ownership_audit_ensure_registered(void) {}
+#endif
+
+static void freak_byte_buffer_fail(const char* message) {
+    freak_word_foundation_audit_emit();
+    fprintf(stderr, "FREAK: %s\n", message);
+    exit(1);
+}
+
+static int64_t freak_byte_buffer_make_handle(int64_t slot, uint32_t generation) {
+    return (int64_t)(
+        FREAK_BYTE_BUFFER_HANDLE_DOMAIN |
+        ((uint64_t)generation << 32) |
+        (uint64_t)(uint32_t)slot);
+}
+
+static int64_t freak_byte_buffer_slot_for_handle(int64_t handle) {
+    uint64_t raw = (uint64_t)handle;
+    if ((raw & FREAK_BYTE_BUFFER_DOMAIN_MASK) != FREAK_BYTE_BUFFER_HANDLE_DOMAIN) {
+        return -1;
+    }
+    int64_t slot = (int64_t)(uint32_t)(raw & UINT64_C(0xffffffff));
+    uint32_t generation = (uint32_t)(raw >> 32) & FREAK_BYTE_BUFFER_GENERATION_MAX;
+    if (slot < 0 || slot >= freak_byte_buffer_count) return -1;
+    freak_byte_buffer_record* buffer = &freak_byte_buffers[slot];
+    if (!buffer->in_use || buffer->generation != generation) return -1;
+    return slot;
+}
+
+static freak_byte_buffer_record* freak_byte_buffer_require(
+        int64_t handle, const char* operation) {
+    int64_t slot = freak_byte_buffer_slot_for_handle(handle);
+    if (slot < 0) {
+        fprintf(stderr,
+                "FREAK: invalid or stale ByteBuffer handle in %s\n",
+                operation);
+        exit(1);
+    }
+    return &freak_byte_buffers[slot];
+}
+
+static void freak_byte_buffer_reserve_handle(void) {
+    if (freak_byte_buffer_count < freak_byte_buffer_table_capacity) return;
+    int64_t old_capacity = freak_byte_buffer_table_capacity;
+    if (old_capacity > INT64_MAX / 2) {
+        freak_byte_buffer_fail("ByteBuffer handle table is too large");
+    }
+    int64_t new_capacity = old_capacity == 0 ? 64 : old_capacity * 2;
+    if (new_capacity <= old_capacity ||
+            (uint64_t)new_capacity > SIZE_MAX / sizeof(freak_byte_buffer_record)) {
+        freak_byte_buffer_fail("ByteBuffer handle table is too large");
+    }
+    freak_byte_buffer_record* grown = (freak_byte_buffer_record*)realloc(
+        freak_byte_buffers,
+        (size_t)new_capacity * sizeof(freak_byte_buffer_record));
+    if (!grown) {
+        freak_byte_buffer_fail("out of memory growing ByteBuffer handle table");
+    }
+    memset(
+        grown + old_capacity,
+        0,
+        (size_t)(new_capacity - old_capacity) * sizeof(freak_byte_buffer_record));
+    freak_byte_buffers = grown;
+    freak_byte_buffer_table_capacity = new_capacity;
+}
+
+static size_t freak_byte_buffer_size_limit(void) {
+    size_t limit = SIZE_MAX;
+    if (limit > (size_t)INT64_MAX) limit = (size_t)INT64_MAX;
+    return limit;
+}
+
+static void freak_byte_buffer_reserve_exact(
+        freak_byte_buffer_record* buffer, size_t min_capacity, bool growth) {
+    if (min_capacity <= buffer->capacity) return;
+    uint8_t* grown = (uint8_t*)realloc(buffer->data, min_capacity);
+    if (!grown) freak_byte_buffer_fail("out of memory growing ByteBuffer");
+    freak_word_foundation_audit_byte_buffer_allocation(buffer->length, growth);
+    buffer->data = grown;
+    buffer->capacity = min_capacity;
+}
+
+static size_t freak_byte_buffer_growth_capacity(size_t current, size_t required) {
+    size_t capacity = current == 0 ? 16 : current;
+    size_t limit = freak_byte_buffer_size_limit();
+    while (capacity < required) {
+        if (capacity > limit / 2) return required;
+        capacity *= 2;
+    }
+    return capacity;
+}
+
+static bool freak_byte_buffer_ensure_append(
+        freak_byte_buffer_record* buffer, size_t appended) {
+    size_t limit = freak_byte_buffer_size_limit();
+    if (buffer->length > limit || appended > limit - buffer->length) {
+        buffer->status = FREAK_BYTE_BUFFER_INVALID_ARGUMENT;
+        return false;
+    }
+    size_t required = buffer->length + appended;
+    if (required > buffer->capacity) {
+        freak_byte_buffer_reserve_exact(
+            buffer,
+            freak_byte_buffer_growth_capacity(buffer->capacity, required),
+            true);
+    }
+    return true;
+}
+
+static int64_t freak_byte_buffer_create_with_status(
+        int64_t min_capacity, int initial_status) {
+    int64_t slot = freak_byte_buffer_free_head;
+    if (slot >= 0) {
+        freak_byte_buffer_free_head = freak_byte_buffers[slot].next_free;
+        freak_byte_buffers[slot].generation += 1;
+    } else {
+        freak_byte_buffer_reserve_handle();
+        slot = freak_byte_buffer_count++;
+        if ((uint64_t)slot > UINT32_MAX) {
+            freak_byte_buffer_fail("ByteBuffer handle table exhausted");
+        }
+        freak_byte_buffers[slot].generation = 1;
+    }
+    freak_byte_buffer_record* buffer = &freak_byte_buffers[slot];
+    buffer->data = NULL;
+    buffer->length = 0;
+    buffer->capacity = 0;
+    buffer->cursor = 0;
+    buffer->next_free = -1;
+    buffer->status = initial_status;
+    buffer->in_use = true;
+    freak_word_foundation_audit_byte_buffer_create();
+    freak_byte_buffer_ownership_audit_ensure_registered();
+    freak_byte_buffer_live_count += 1;
+    if (min_capacity > 0) {
+        freak_byte_buffer_reserve_exact(buffer, (size_t)min_capacity, false);
+    }
+    return freak_byte_buffer_make_handle(slot, buffer->generation);
+}
+
+static void freak_byte_buffer_append_bytes(
+        freak_byte_buffer_record* buffer, const uint8_t* data, size_t length) {
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) return;
+    if (length > 0 && !data) {
+        buffer->status = FREAK_BYTE_BUFFER_INVALID_ARGUMENT;
+        return;
+    }
+    if (!freak_byte_buffer_ensure_append(buffer, length)) return;
+    if (length > 0) memcpy(buffer->data + buffer->length, data, length);
+    buffer->length += length;
+    freak_word_foundation_audit_byte_buffer_copy(length);
+}
+
+static bool freak_byte_buffer_utf8_valid(const uint8_t* data, size_t length) {
+    size_t i = 0;
+    while (i < length) {
+        uint8_t first = data[i++];
+        if (first == 0) return false;
+        if (first <= 0x7f) continue;
+        if (first >= 0xc2 && first <= 0xdf) {
+            if (i >= length || data[i] < 0x80 || data[i] > 0xbf) return false;
+            i += 1;
+            continue;
+        }
+        if (first >= 0xe0 && first <= 0xef) {
+            if (i + 1 >= length) return false;
+            uint8_t second = data[i];
+            uint8_t third = data[i + 1];
+            if (third < 0x80 || third > 0xbf) return false;
+            if (first == 0xe0) {
+                if (second < 0xa0 || second > 0xbf) return false;
+            } else if (first == 0xed) {
+                if (second < 0x80 || second > 0x9f) return false;
+            } else if (second < 0x80 || second > 0xbf) {
+                return false;
+            }
+            i += 2;
+            continue;
+        }
+        if (first >= 0xf0 && first <= 0xf4) {
+            if (i + 2 >= length) return false;
+            uint8_t second = data[i];
+            uint8_t third = data[i + 1];
+            uint8_t fourth = data[i + 2];
+            if (third < 0x80 || third > 0xbf || fourth < 0x80 || fourth > 0xbf) {
+                return false;
+            }
+            if (first == 0xf0) {
+                if (second < 0x90 || second > 0xbf) return false;
+            } else if (first == 0xf4) {
+                if (second < 0x80 || second > 0x8f) return false;
+            } else if (second < 0x80 || second > 0xbf) {
+                return false;
+            }
+            i += 3;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+static freak_word freak_byte_buffer_word_from_bytes(
+        freak_byte_buffer_record* buffer, const uint8_t* data, size_t length) {
+    if (!freak_byte_buffer_utf8_valid(data, length)) {
+        buffer->status = FREAK_BYTE_BUFFER_INVALID_UTF8;
+        return freak_word_lit("");
+    }
+    if (length == 0) return freak_word_lit("");
+    if (length == SIZE_MAX) freak_byte_buffer_fail("ByteBuffer word size overflow");
+    char* copy = (char*)malloc(length + 1);
+    if (!copy) freak_byte_buffer_fail("out of memory copying ByteBuffer word");
+    memcpy(copy, data, length);
+    copy[length] = '\0';
+    return freak_word_own(copy, length);
+}
+
+freak_byte_buffer_handle freak_byte_buffer_new(void) {
+    return freak_byte_buffer_create_with_status(0, FREAK_BYTE_BUFFER_OK);
+}
+
+freak_byte_buffer_handle freak_byte_buffer_with_capacity(int64_t min_capacity) {
+    if (min_capacity < 0 || (uint64_t)min_capacity > freak_byte_buffer_size_limit()) {
+        return freak_byte_buffer_create_with_status(
+            0, FREAK_BYTE_BUFFER_INVALID_ARGUMENT);
+    }
+    return freak_byte_buffer_create_with_status(min_capacity, FREAK_BYTE_BUFFER_OK);
+}
+
+void freak_byte_buffer_release(freak_byte_buffer_handle handle) {
+    int64_t slot = freak_byte_buffer_slot_for_handle(handle);
+    if (slot < 0) {
+        fprintf(stderr, "FREAK: invalid or stale ByteBuffer handle in release\n");
+        exit(1);
+    }
+    freak_byte_buffer_record* buffer = &freak_byte_buffers[slot];
+    free(buffer->data);
+    buffer->data = NULL;
+    buffer->length = 0;
+    buffer->capacity = 0;
+    buffer->cursor = 0;
+    buffer->status = FREAK_BYTE_BUFFER_OK;
+    buffer->in_use = false;
+    freak_byte_buffer_live_count -= 1;
+    freak_word_foundation_audit_byte_buffer_release();
+    if (buffer->generation >= FREAK_BYTE_BUFFER_GENERATION_MAX) {
+        buffer->next_free = -1;
+        return;
+    }
+    buffer->next_free = freak_byte_buffer_free_head;
+    freak_byte_buffer_free_head = slot;
+}
+
+int64_t freak_byte_buffer_status(freak_byte_buffer_handle handle) {
+    return freak_byte_buffer_require(handle, "status")->status;
+}
+
+void freak_byte_buffer_clear_status(freak_byte_buffer_handle handle) {
+    freak_byte_buffer_require(handle, "clear_status")->status = FREAK_BYTE_BUFFER_OK;
+}
+
+void freak_byte_buffer_reserve(freak_byte_buffer_handle handle, int64_t min_capacity) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "reserve");
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) return;
+    if (min_capacity < 0 || (uint64_t)min_capacity > freak_byte_buffer_size_limit()) {
+        buffer->status = FREAK_BYTE_BUFFER_INVALID_ARGUMENT;
+        return;
+    }
+    freak_byte_buffer_reserve_exact(buffer, (size_t)min_capacity, true);
+}
+
+int64_t freak_byte_buffer_capacity(freak_byte_buffer_handle handle) {
+    return (int64_t)freak_byte_buffer_require(handle, "capacity")->capacity;
+}
+
+int64_t freak_byte_buffer_length(freak_byte_buffer_handle handle) {
+    return (int64_t)freak_byte_buffer_require(handle, "length")->length;
+}
+
+int64_t freak_byte_buffer_position(freak_byte_buffer_handle handle) {
+    return (int64_t)freak_byte_buffer_require(handle, "position")->cursor;
+}
+
+int64_t freak_byte_buffer_remaining(freak_byte_buffer_handle handle) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "remaining");
+    return (int64_t)(buffer->length - buffer->cursor);
+}
+
+void freak_byte_buffer_clear(freak_byte_buffer_handle handle) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "clear");
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) return;
+    buffer->length = 0;
+    buffer->cursor = 0;
+}
+
+void freak_byte_buffer_truncate(freak_byte_buffer_handle handle, int64_t length) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "truncate");
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) return;
+    if (length < 0 || (uint64_t)length > freak_byte_buffer_size_limit()) {
+        buffer->status = FREAK_BYTE_BUFFER_INVALID_ARGUMENT;
+        return;
+    }
+    if ((uint64_t)length > (uint64_t)buffer->length) {
+        buffer->status = FREAK_BYTE_BUFFER_OOB;
+        return;
+    }
+    buffer->length = (size_t)length;
+    if (buffer->cursor > buffer->length) buffer->cursor = buffer->length;
+}
+
+void freak_byte_buffer_seek(freak_byte_buffer_handle handle, int64_t position) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "seek");
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) return;
+    if (position < 0 || (uint64_t)position > freak_byte_buffer_size_limit()) {
+        buffer->status = FREAK_BYTE_BUFFER_INVALID_ARGUMENT;
+        return;
+    }
+    if ((uint64_t)position > (uint64_t)buffer->length) {
+        buffer->status = FREAK_BYTE_BUFFER_OOB;
+        return;
+    }
+    buffer->cursor = (size_t)position;
+}
+
+void freak_byte_buffer_write_byte(freak_byte_buffer_handle handle, int64_t value) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "write_byte");
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) return;
+    if (value < 0 || value > 255) {
+        buffer->status = FREAK_BYTE_BUFFER_INVALID_ARGUMENT;
+        return;
+    }
+    uint8_t byte = (uint8_t)value;
+    freak_byte_buffer_append_bytes(buffer, &byte, 1);
+}
+
+static void freak_byte_buffer_write_integer(
+        int64_t handle, int64_t value, bool big_endian, const char* operation) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, operation);
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) return;
+    uint64_t raw = 0;
+    memcpy(&raw, &value, sizeof(raw));
+    uint8_t bytes[8];
+    for (size_t i = 0; i < 8; i += 1) {
+        size_t index = big_endian ? 7 - i : i;
+        bytes[index] = (uint8_t)(raw & UINT64_C(0xff));
+        raw >>= 8;
+    }
+    freak_byte_buffer_append_bytes(buffer, bytes, sizeof(bytes));
+}
+
+void freak_byte_buffer_write_int(freak_byte_buffer_handle handle, int64_t value) {
+    freak_byte_buffer_write_integer(handle, value, false, "write_int");
+}
+
+void freak_byte_buffer_write_int_be(freak_byte_buffer_handle handle, int64_t value) {
+    freak_byte_buffer_write_integer(handle, value, true, "write_int_be");
+}
+
+void freak_byte_buffer_write_word(freak_byte_buffer_handle handle, freak_word value) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "write_word");
+    freak_byte_buffer_append_bytes(buffer, (const uint8_t*)value.data, value.length);
+}
+
+int64_t freak_byte_buffer_read_byte(freak_byte_buffer_handle handle) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "read_byte");
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) return 0;
+    if (buffer->cursor >= buffer->length) {
+        buffer->status = FREAK_BYTE_BUFFER_OOB;
+        return 0;
+    }
+    return (int64_t)buffer->data[buffer->cursor++];
+}
+
+static int64_t freak_byte_buffer_read_integer(
+        int64_t handle, bool big_endian, const char* operation) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, operation);
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) return 0;
+    if (buffer->cursor > buffer->length || buffer->length - buffer->cursor < 8) {
+        buffer->status = FREAK_BYTE_BUFFER_OOB;
+        return 0;
+    }
+    uint64_t raw = 0;
+    for (size_t i = 0; i < 8; i += 1) {
+        size_t index = big_endian ? i : 7 - i;
+        raw = (raw << 8) | (uint64_t)buffer->data[buffer->cursor + index];
+    }
+    buffer->cursor += 8;
+    int64_t value = 0;
+    memcpy(&value, &raw, sizeof(value));
+    return value;
+}
+
+int64_t freak_byte_buffer_read_int(freak_byte_buffer_handle handle) {
+    return freak_byte_buffer_read_integer(handle, false, "read_int");
+}
+
+int64_t freak_byte_buffer_read_int_be(freak_byte_buffer_handle handle) {
+    return freak_byte_buffer_read_integer(handle, true, "read_int_be");
+}
+
+freak_word freak_byte_buffer_read_word(
+        freak_byte_buffer_handle handle, int64_t length) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "read_word");
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) return freak_word_lit("");
+    if (length < 0 || (uint64_t)length > freak_byte_buffer_size_limit()) {
+        buffer->status = FREAK_BYTE_BUFFER_INVALID_ARGUMENT;
+        return freak_word_lit("");
+    }
+    size_t requested = (size_t)length;
+    if (buffer->cursor > buffer->length || requested > buffer->length - buffer->cursor) {
+        buffer->status = FREAK_BYTE_BUFFER_OOB;
+        return freak_word_lit("");
+    }
+    freak_word result = freak_byte_buffer_word_from_bytes(
+        buffer,
+        requested > 0 ? buffer->data + buffer->cursor : NULL,
+        requested);
+    if (buffer->status == FREAK_BYTE_BUFFER_OK) buffer->cursor += requested;
+    return result;
+}
+
+freak_byte_buffer_handle freak_byte_buffer_slice(
+        freak_byte_buffer_handle handle, int64_t offset, int64_t length) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "slice");
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) {
+        return freak_byte_buffer_create_with_status(0, buffer->status);
+    }
+    if (offset < 0 || length < 0 ||
+            (uint64_t)offset > freak_byte_buffer_size_limit() ||
+            (uint64_t)length > freak_byte_buffer_size_limit()) {
+        buffer->status = FREAK_BYTE_BUFFER_INVALID_ARGUMENT;
+        return freak_byte_buffer_create_with_status(0, buffer->status);
+    }
+    size_t start = (size_t)offset;
+    size_t count = (size_t)length;
+    if (start > buffer->length || count > buffer->length - start) {
+        buffer->status = FREAK_BYTE_BUFFER_OOB;
+        return freak_byte_buffer_create_with_status(0, buffer->status);
+    }
+    int64_t result = freak_byte_buffer_create_with_status(length, FREAK_BYTE_BUFFER_OK);
+    freak_byte_buffer_record* slice = freak_byte_buffer_require(result, "slice result");
+    if (count > 0) memcpy(slice->data, buffer->data + start, count);
+    slice->length = count;
+    freak_word_foundation_audit_byte_buffer_copy(count);
+    return result;
+}
+
+freak_word freak_byte_buffer_to_word(freak_byte_buffer_handle handle) {
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "to_word");
+    if (buffer->status != FREAK_BYTE_BUFFER_OK) return freak_word_lit("");
+    return freak_byte_buffer_word_from_bytes(buffer, buffer->data, buffer->length);
+}
+
+int64_t freak_llvm_byte_buffer_new(void) { return freak_byte_buffer_new(); }
+int64_t freak_llvm_byte_buffer_with_capacity(int64_t capacity) {
+    return freak_byte_buffer_with_capacity(capacity);
+}
+void freak_llvm_byte_buffer_release(int64_t handle) { freak_byte_buffer_release(handle); }
+int64_t freak_llvm_byte_buffer_status(int64_t handle) { return freak_byte_buffer_status(handle); }
+void freak_llvm_byte_buffer_clear_status(int64_t handle) { freak_byte_buffer_clear_status(handle); }
+void freak_llvm_byte_buffer_reserve(int64_t handle, int64_t capacity) {
+    freak_byte_buffer_reserve(handle, capacity);
+}
+int64_t freak_llvm_byte_buffer_capacity(int64_t handle) { return freak_byte_buffer_capacity(handle); }
+int64_t freak_llvm_byte_buffer_length(int64_t handle) { return freak_byte_buffer_length(handle); }
+int64_t freak_llvm_byte_buffer_position(int64_t handle) { return freak_byte_buffer_position(handle); }
+int64_t freak_llvm_byte_buffer_remaining(int64_t handle) { return freak_byte_buffer_remaining(handle); }
+void freak_llvm_byte_buffer_clear(int64_t handle) { freak_byte_buffer_clear(handle); }
+void freak_llvm_byte_buffer_truncate(int64_t handle, int64_t length) {
+    freak_byte_buffer_truncate(handle, length);
+}
+void freak_llvm_byte_buffer_seek(int64_t handle, int64_t position) {
+    freak_byte_buffer_seek(handle, position);
+}
+void freak_llvm_byte_buffer_write_byte(int64_t handle, int64_t value) {
+    freak_byte_buffer_write_byte(handle, value);
+}
+void freak_llvm_byte_buffer_write_int(int64_t handle, int64_t value) {
+    freak_byte_buffer_write_int(handle, value);
+}
+void freak_llvm_byte_buffer_write_int_be(int64_t handle, int64_t value) {
+    freak_byte_buffer_write_int_be(handle, value);
+}
+void freak_llvm_byte_buffer_write_word(int64_t handle, int64_t value) {
+    const char* text = value ? (const char*)value : "";
+    freak_byte_buffer_record* buffer = freak_byte_buffer_require(handle, "write_word");
+    freak_byte_buffer_append_bytes(buffer, (const uint8_t*)text, strlen(text));
+}
+int64_t freak_llvm_byte_buffer_read_byte(int64_t handle) { return freak_byte_buffer_read_byte(handle); }
+int64_t freak_llvm_byte_buffer_read_int(int64_t handle) { return freak_byte_buffer_read_int(handle); }
+int64_t freak_llvm_byte_buffer_read_int_be(int64_t handle) { return freak_byte_buffer_read_int_be(handle); }
+int64_t freak_llvm_byte_buffer_read_word(int64_t handle, int64_t length) {
+    freak_word result = freak_byte_buffer_read_word(handle, length);
+    if (result.heap) return freak_llvm_word_adopt((int64_t)result.data);
+    return (int64_t)result.data;
+}
+int64_t freak_llvm_byte_buffer_slice(int64_t handle, int64_t offset, int64_t length) {
+    return freak_byte_buffer_slice(handle, offset, length);
+}
+int64_t freak_llvm_byte_buffer_to_word(int64_t handle) {
+    freak_word result = freak_byte_buffer_to_word(handle);
+    if (result.heap) return freak_llvm_word_adopt((int64_t)result.data);
+    return (int64_t)result.data;
 }
 
 /* ------------------------------------------------------------------ */

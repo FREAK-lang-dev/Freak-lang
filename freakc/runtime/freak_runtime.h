@@ -98,6 +98,65 @@ void freak_llvm_word_builder_append_int(int64_t handle, int64_t value);
 int64_t freak_llvm_word_builder_finish(int64_t handle);
 void freak_llvm_word_builder_discard(int64_t handle);
 
+/* Opaque generation-checked byte buffers.  The sign-bit handle domain keeps
+   buffers disjoint from arrays and word builders.  release consumes a handle;
+   bounds, argument, and UTF-8 failures are sticky until clear_status. */
+typedef int64_t freak_byte_buffer_handle;
+
+#define FREAK_BYTE_BUFFER_STATUS_OK 0
+#define FREAK_BYTE_BUFFER_STATUS_OOB 1
+#define FREAK_BYTE_BUFFER_STATUS_INVALID_ARGUMENT 2
+#define FREAK_BYTE_BUFFER_STATUS_INVALID_UTF8 3
+
+freak_byte_buffer_handle freak_byte_buffer_new(void);
+freak_byte_buffer_handle freak_byte_buffer_with_capacity(int64_t min_capacity);
+void freak_byte_buffer_release(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_status(freak_byte_buffer_handle handle);
+void freak_byte_buffer_clear_status(freak_byte_buffer_handle handle);
+void freak_byte_buffer_reserve(freak_byte_buffer_handle handle, int64_t min_capacity);
+int64_t freak_byte_buffer_capacity(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_length(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_position(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_remaining(freak_byte_buffer_handle handle);
+void freak_byte_buffer_clear(freak_byte_buffer_handle handle);
+void freak_byte_buffer_truncate(freak_byte_buffer_handle handle, int64_t length);
+void freak_byte_buffer_seek(freak_byte_buffer_handle handle, int64_t position);
+void freak_byte_buffer_write_byte(freak_byte_buffer_handle handle, int64_t value);
+void freak_byte_buffer_write_int(freak_byte_buffer_handle handle, int64_t value);
+void freak_byte_buffer_write_int_be(freak_byte_buffer_handle handle, int64_t value);
+void freak_byte_buffer_write_word(freak_byte_buffer_handle handle, freak_word value);
+int64_t freak_byte_buffer_read_byte(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_read_int(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_read_int_be(freak_byte_buffer_handle handle);
+freak_word freak_byte_buffer_read_word(freak_byte_buffer_handle handle, int64_t length);
+freak_byte_buffer_handle freak_byte_buffer_slice(
+    freak_byte_buffer_handle handle, int64_t offset, int64_t length);
+freak_word freak_byte_buffer_to_word(freak_byte_buffer_handle handle);
+
+int64_t freak_llvm_byte_buffer_new(void);
+int64_t freak_llvm_byte_buffer_with_capacity(int64_t min_capacity);
+void freak_llvm_byte_buffer_release(int64_t handle);
+int64_t freak_llvm_byte_buffer_status(int64_t handle);
+void freak_llvm_byte_buffer_clear_status(int64_t handle);
+void freak_llvm_byte_buffer_reserve(int64_t handle, int64_t min_capacity);
+int64_t freak_llvm_byte_buffer_capacity(int64_t handle);
+int64_t freak_llvm_byte_buffer_length(int64_t handle);
+int64_t freak_llvm_byte_buffer_position(int64_t handle);
+int64_t freak_llvm_byte_buffer_remaining(int64_t handle);
+void freak_llvm_byte_buffer_clear(int64_t handle);
+void freak_llvm_byte_buffer_truncate(int64_t handle, int64_t length);
+void freak_llvm_byte_buffer_seek(int64_t handle, int64_t position);
+void freak_llvm_byte_buffer_write_byte(int64_t handle, int64_t value);
+void freak_llvm_byte_buffer_write_int(int64_t handle, int64_t value);
+void freak_llvm_byte_buffer_write_int_be(int64_t handle, int64_t value);
+void freak_llvm_byte_buffer_write_word(int64_t handle, int64_t value);
+int64_t freak_llvm_byte_buffer_read_byte(int64_t handle);
+int64_t freak_llvm_byte_buffer_read_int(int64_t handle);
+int64_t freak_llvm_byte_buffer_read_int_be(int64_t handle);
+int64_t freak_llvm_byte_buffer_read_word(int64_t handle, int64_t length);
+int64_t freak_llvm_byte_buffer_slice(int64_t handle, int64_t offset, int64_t length);
+int64_t freak_llvm_byte_buffer_to_word(int64_t handle);
+
 /* Equality test (byte-wise). */
 bool freak_word_eq(freak_word a, freak_word b);
 

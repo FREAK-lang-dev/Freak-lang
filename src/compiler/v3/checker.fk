@@ -454,7 +454,7 @@ task tc_is_scalar(type_name: word) -> bool {
 }
 
 task tc_is_known_value_type(type_name: word) -> bool {
-    give back tc_is_scalar(type_name) or is_shape_name(type_name)
+    give back tc_is_scalar(type_name) or type_name == "ByteBuffer" or is_shape_name(type_name)
 }
 
 task tc_is_known_return_type(type_name: word) -> bool {
@@ -682,7 +682,7 @@ task tc_namespace_owner(name: word) -> word {
 -- user `shape math` (for example) from being accepted as nominal dispatch and
 -- then silently lowered to math::sqrt instead.
 task tc_reserved_builtin_namespace_owner(name: word) -> bool {
-    give back name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui" or name == "word_builder"
+    give back name == "ByteBuffer" or name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui" or name == "word_builder"
 }
 
 task tc_callable_is_instance(entry: int) -> bool {
@@ -729,6 +729,7 @@ task tc_task_return_shape(task_name: word) -> word {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    if name == "ByteBuffer::new" or name == "ByteBuffer::with_capacity" { give back "ByteBuffer" }
     if name == "word_from_int" or name == "word_from_bool" or name == "word_concat" or name == "word_join" or name == "char_to_word" { give back "word" }
     if name == "word_builder::finish" { give back "word" }
     if name == "format_num" or name == "ask" or name == "array_get" or name == "process::env" or name == "process::input" { give back "word" }
@@ -759,6 +760,8 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "ByteBuffer::new" { give back "" }
+    if name == "ByteBuffer::with_capacity" { give back "int" }
     if name == "say" { give back "scalar" }
     if name == "ask" { give back "word" }
     if name == "word_from_int" or name == "char_to_word" { give back "int" }
@@ -824,6 +827,14 @@ task tc_internal_runtime_source(source_file: word) -> bool {
 }
 
 task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
+    if receiver_type == "ByteBuffer" {
+        if name == "release" or name == "status" or name == "clear_status" or name == "reserve" { give back true }
+        if name == "capacity" or name == "length" or name == "position" or name == "remaining" { give back true }
+        if name == "clear" or name == "truncate" or name == "seek" or name == "write_byte" { give back true }
+        if name == "write_int" or name == "write_int_be" or name == "write_word" { give back true }
+        if name == "read_byte" or name == "read_int" or name == "read_int_be" or name == "read_word" { give back true }
+        if name == "slice" or name == "to_word" { give back true }
+    }
     if receiver_type == "word" {
         if name == "length" or name == "checksum" or name == "trim" { give back true }
         if name == "to_upper" or name == "to_lower" or name == "replace" { give back true }
@@ -843,6 +854,13 @@ task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
 
 task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
     if not tc_builtin_method_allowed(receiver_type, name) { give back "" }
+    if receiver_type == "ByteBuffer" {
+        if name == "slice" { give back "ByteBuffer" }
+        if name == "read_word" or name == "to_word" { give back "word" }
+        if name == "status" or name == "capacity" or name == "length" or name == "position" or name == "remaining" { give back "int" }
+        if name == "read_byte" or name == "read_int" or name == "read_int_be" { give back "int" }
+        give back "void"
+    }
     if name == "to_int" or name == "length" or name == "checksum" or name == "snapshot_line_count" or name == "snapshot_field_count" { give back "int" }
     if name == "contains" or name == "starts_with" or name == "ends_with" { give back "bool" }
     if name == "to_num" { give back "num" }
@@ -850,6 +868,13 @@ task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
 }
 
 task tc_builtin_method_params(receiver_type: word, name: word) -> word {
+    if receiver_type == "ByteBuffer" {
+        if name == "reserve" or name == "truncate" or name == "seek" or name == "write_byte" { give back "int" }
+        if name == "write_int" or name == "write_int_be" or name == "read_word" { give back "int" }
+        if name == "write_word" { give back "word" }
+        if name == "slice" { give back "int,int" }
+        give back ""
+    }
     if receiver_type == "word" {
         if name == "char_at" or name == "snapshot_line" or name == "snapshot_field_raw" { give back "int" }
         if name == "contains" or name == "starts_with" or name == "ends_with" { give back "word" }
@@ -873,6 +898,8 @@ task tc_arg_count(args: word) -> int {
 
 task tc_builtin_method_arity(name: word) -> int {
     if name == "char_at" or name == "contains" or name == "starts_with" or name == "ends_with" or name == "repeated" { give back 1 }
+    if name == "reserve" or name == "truncate" or name == "seek" or name == "write_byte" or name == "write_int" or name == "write_int_be" or name == "write_word" or name == "read_word" { give back 1 }
+    if name == "slice" { give back 2 }
     if name == "snapshot_line" or name == "snapshot_field_raw" { give back 1 }
     if name == "substring" or name == "replace" { give back 2 }
     give back 0
