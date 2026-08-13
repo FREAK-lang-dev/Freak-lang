@@ -27,6 +27,7 @@ from pathlib import Path
 
 
 SCHEMA = "freak.v4.campaign-probe.v1"
+PROCESS_GROUP_HELD_ENV = "FREAK_CAMPAIGN_PROCESS_GROUP_HELD"
 CRATE_ORDER = (
     "freak_span",
     "freak_diag",
@@ -274,11 +275,13 @@ def _posix_group_memory(group_id: int) -> int | None:
 
 
 def _terminate_process_tree(
-    process: subprocess.Popen[bytes], windows_job: WindowsJob | None
+    process: subprocess.Popen[bytes],
+    windows_job: WindowsJob | None,
+    owns_posix_process_group: bool,
 ) -> None:
     if windows_job is not None:
         windows_job.terminate()
-    else:
+    elif owns_posix_process_group:
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
@@ -286,6 +289,10 @@ def _terminate_process_tree(
     if process.poll() is None:
         process.kill()
     process.wait()
+
+
+def _owns_posix_process_group(on_windows: bool, inherit: bool) -> bool:
+    return not on_windows and not inherit
 
 
 def run_bounded(
@@ -296,6 +303,7 @@ def run_bounded(
     timeout_seconds: int = 60,
     memory_limit_mb: int = 512,
     output_limit_mb: int = 4,
+    inherit_posix_process_group: bool = False,
 ) -> BoundedResult:
     """Run one process tree with bounded time, memory, and captured output."""
 
@@ -308,6 +316,9 @@ def run_bounded(
         stdout_path = capture_root / "stdout.txt"
         stderr_path = capture_root / "stderr.txt"
         windows_job = WindowsJob(memory_limit) if sys.platform.startswith("win") else None
+        owns_posix_process_group = _owns_posix_process_group(
+            windows_job is not None, inherit_posix_process_group
+        )
         creationflags = 0x00000004 if windows_job is not None else 0
         with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
             try:
@@ -318,7 +329,7 @@ def run_bounded(
                     stdout=stdout_file,
                     stderr=stderr_file,
                     creationflags=creationflags,
-                    start_new_session=windows_job is None,
+                    start_new_session=owns_posix_process_group,
                 )
             except BaseException:
                 if windows_job is not None:
@@ -329,10 +340,17 @@ def run_bounded(
                     windows_job.assign(process)
                     windows_job.resume(process)
                 except BaseException:
-                    _terminate_process_tree(process, windows_job)
+                    _terminate_process_tree(process, windows_job, False)
                     windows_job.close()
                     raise
             try:
+                process_group_id = (
+                    None
+                    if windows_job is not None
+                    else process.pid
+                    if owns_posix_process_group
+                    else os.getpgrp()
+                )
                 started = time.monotonic()
                 peak_memory = 0
                 failure = ""
@@ -341,7 +359,7 @@ def run_bounded(
                     measured = (
                         windows_job.memory_bytes()
                         if windows_job is not None
-                        else _posix_group_memory(process.pid)
+                        else _posix_group_memory(process_group_id)
                     )
                     if measured is not None:
                         peak_memory = max(peak_memory, measured)
@@ -356,19 +374,23 @@ def run_bounded(
                     elif stdout_path.stat().st_size > output_limit or stderr_path.stat().st_size > output_limit:
                         failure = f"output limit exceeded: {output_limit_mb}MB per stream"
                     if failure:
-                        _terminate_process_tree(process, windows_job)
+                        _terminate_process_tree(
+                            process, windows_job, owns_posix_process_group
+                        )
                         break
                     time.sleep(0.05)
                 measured = (
                     windows_job.memory_bytes()
                     if windows_job is not None
-                    else _posix_group_memory(process.pid)
+                    else _posix_group_memory(process_group_id)
                 )
                 if measured is not None:
                     peak_memory = max(peak_memory, measured)
             finally:
-                if process.poll() is None:
-                    _terminate_process_tree(process, windows_job)
+                if process.poll() is None or owns_posix_process_group:
+                    _terminate_process_tree(
+                        process, windows_job, owns_posix_process_group
+                    )
                 if windows_job is not None:
                     windows_job.close()
 
@@ -584,6 +606,76 @@ def _compiler_environment(clang_path: str) -> tuple[dict[str, str], bool]:
     return _visual_studio_environment(environment), False
 
 
+def _inherits_campaign_process_group() -> bool:
+    return (
+        not sys.platform.startswith("win")
+        and os.environ.get(PROCESS_GROUP_HELD_ENV) == "1"
+    )
+
+
+def _posix_nested_process_group_self_test() -> None:
+    """Prove an outer bound observes and kills a nested bounded child tree."""
+
+    assert _owns_posix_process_group(False, False) is True
+    assert _owns_posix_process_group(False, True) is False
+    assert _owns_posix_process_group(True, False) is False
+    assert _owns_posix_process_group(True, True) is False
+    if sys.platform.startswith("win"):
+        return
+
+    with tempfile.TemporaryDirectory(prefix="freak-campaign-process-tree-") as temporary:
+        root = Path(temporary)
+        inner_pid_path = root / "inner.pid"
+        inner_code = "\n".join(
+            [
+                "import os",
+                "import time",
+                "from pathlib import Path",
+                f"Path({str(inner_pid_path)!r}).write_text(str(os.getpid()), encoding='ascii')",
+                "payload = bytearray(128 * 1024 * 1024)",
+                "time.sleep(30)",
+            ]
+        )
+        middle_code = "\n".join(
+            [
+                "import sys",
+                "from pathlib import Path",
+                f"sys.path.insert(0, {str(Path(__file__).resolve().parent)!r})",
+                "from campaign_probe import run_bounded",
+                "run_bounded(",
+                f"    [sys.executable, '-c', {inner_code!r}],",
+                f"    cwd=Path({str(root)!r}),",
+                "    timeout_seconds=30,",
+                "    memory_limit_mb=256,",
+                "    output_limit_mb=1,",
+                "    inherit_posix_process_group=True,",
+                ")",
+            ]
+        )
+        try:
+            run_bounded(
+                [sys.executable, "-c", middle_code],
+                cwd=root,
+                timeout_seconds=15,
+                memory_limit_mb=96,
+                output_limit_mb=1,
+            )
+        except RuntimeError as exc:
+            assert "memory limit exceeded" in str(exc), str(exc)
+        else:
+            raise AssertionError("outer process bound missed nested child memory")
+        assert inner_pid_path.is_file(), "nested process did not record its PID"
+        inner_pid = int(inner_pid_path.read_text(encoding="ascii"))
+        for _ in range(100):
+            try:
+                os.kill(inner_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("outer process bound left the nested child alive")
+
+
 def parse_probe_output(output: str) -> dict[str, object]:
     campaign_lines = [
         line for line in output.splitlines() if line.startswith("V4_CAMPAIGN|")
@@ -693,6 +785,7 @@ def probe_source(
             timeout_seconds=timeout_seconds,
             memory_limit_mb=memory_limit_mb,
             output_limit_mb=output_limit_mb,
+            inherit_posix_process_group=_inherits_campaign_process_group(),
         )
         if compiled.returncode != 0:
             raise RuntimeError(
@@ -710,6 +803,7 @@ def probe_source(
                 timeout_seconds=timeout_seconds,
                 memory_limit_mb=memory_limit_mb,
                 output_limit_mb=output_limit_mb,
+                inherit_posix_process_group=_inherits_campaign_process_group(),
             )
             for _ in range(2)
         ]
@@ -800,6 +894,7 @@ def self_test(
         assert "must all be positive" in str(exc)
     else:
         raise AssertionError("non-positive process limit was accepted")
+    _posix_nested_process_group_self_test()
 
     sources = {
         "opaque-positive.fk": (source.encode("utf-8"), True, "none"),

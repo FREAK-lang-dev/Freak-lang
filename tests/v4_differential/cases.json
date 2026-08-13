@@ -3,16 +3,23 @@
   "capabilities": {
     "v4_native": false
   },
-  "required_fixture_categories": [
-    "compatible_positive",
-    "intentional_difference",
-    "syntax_negative",
-    "type_negative"
+  "fixture_categories": [
+    {"name": "compatible", "phase": "frontend_bootstrap", "allow_empty": false},
+    {"name": "v4_extension", "phase": "frontend_bootstrap", "allow_empty": false},
+    {"name": "intentional_divergence", "phase": "semantic_expansion", "allow_empty": true},
+    {"name": "negative", "phase": "frontend_bootstrap", "allow_empty": false},
+    {"name": "ownership", "phase": "semantic_expansion", "allow_empty": true},
+    {"name": "closures", "phase": "semantic_expansion", "allow_empty": true},
+    {"name": "aggregates", "phase": "semantic_expansion", "allow_empty": true},
+    {"name": "routes", "phase": "semantic_expansion", "allow_empty": true},
+    {"name": "generics", "phase": "semantic_expansion", "allow_empty": true},
+    {"name": "control_flow", "phase": "native_runtime", "allow_empty": true},
+    {"name": "std_smoke", "phase": "native_runtime", "allow_empty": true}
   ],
   "cases": [
     {
       "id": "compatible-basic-task",
-      "fixture_category": "compatible_positive",
+      "fixture_category": "compatible",
       "relationship": "equal",
       "source": "compatible/basic_task.fk",
       "intentional_difference_reason": "",
@@ -29,7 +36,7 @@
     },
     {
       "id": "negative-missing-task-body",
-      "fixture_category": "syntax_negative",
+      "fixture_category": "negative",
       "relationship": "equal",
       "source": "negative/missing_task_body.fk",
       "intentional_difference_reason": "",
@@ -46,7 +53,7 @@
     },
     {
       "id": "negative-constant-type-mismatch",
-      "fixture_category": "type_negative",
+      "fixture_category": "negative",
       "relationship": "equal",
       "source": "negative/constant_type_mismatch.fk",
       "intentional_difference_reason": "",
@@ -63,7 +70,7 @@
     },
     {
       "id": "v4-extension-named-lifetime",
-      "fixture_category": "intentional_difference",
+      "fixture_category": "v4_extension",
       "relationship": "v4_extension",
       "source": "v4_extension/named_lifetime.fk",
       "intentional_difference_reason": "V4 accepts explicit named lifetime parameters and lend-qualified parameter and return types; shipping V3 rejects that syntax.",

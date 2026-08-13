@@ -17,10 +17,33 @@ from typing import Any
 
 
 SCHEMA = "freak.v4.differential.v1"
-FIXTURE_CATEGORIES = frozenset(
-    {"compatible_positive", "syntax_negative", "type_negative", "intentional_difference"}
+FIXTURE_CATEGORY_ORDER = (
+    "compatible",
+    "v4_extension",
+    "intentional_divergence",
+    "negative",
+    "ownership",
+    "closures",
+    "aggregates",
+    "routes",
+    "generics",
+    "control_flow",
+    "std_smoke",
 )
-REQUIRED_FIXTURE_CATEGORIES = tuple(sorted(FIXTURE_CATEGORIES))
+FIXTURE_CATEGORIES = frozenset(FIXTURE_CATEGORY_ORDER)
+CATEGORY_PHASE_BY_NAME = {
+    "compatible": "frontend_bootstrap",
+    "v4_extension": "frontend_bootstrap",
+    "intentional_divergence": "semantic_expansion",
+    "negative": "frontend_bootstrap",
+    "ownership": "semantic_expansion",
+    "closures": "semantic_expansion",
+    "aggregates": "semantic_expansion",
+    "routes": "semantic_expansion",
+    "generics": "semantic_expansion",
+    "control_flow": "native_runtime",
+    "std_smoke": "native_runtime",
+}
 RELATIONSHIPS = frozenset({"equal", "v3_only", "v4_extension", "intentional_divergence"})
 DIAGNOSTIC_CLASSES = frozenset(
     {"none", "lexical", "syntax", "hir", "resolve", "type", "ownership", "tool"}
@@ -58,6 +81,7 @@ if str(PROBE.parent) not in sys.path:
     sys.path.insert(0, str(PROBE.parent))
 from campaign_probe import (  # noqa: E402
     BoundedResult,
+    PROCESS_GROUP_HELD_ENV,
     run_bounded,
     stable_word_checksum,
     v4_host_mutex,
@@ -102,14 +126,24 @@ def _validate_side(value: object, context: str) -> dict[str, object]:
 
 
 def load_manifest(path: Path) -> dict[str, object]:
+    def reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ManifestError(f"manifest JSON duplicates key {key!r}")
+            result[key] = value
+        return result
+
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
+        document = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicates
+        )
     except (OSError, json.JSONDecodeError) as exc:
         raise ManifestError(f"could not read manifest: {exc}") from exc
     if not isinstance(document, dict):
         raise ManifestError("manifest root must be an object")
     _expect_keys(
-        document, {"schema", "capabilities", "required_fixture_categories", "cases"}, "manifest"
+        document, {"schema", "capabilities", "fixture_categories", "cases"}, "manifest"
     )
     if document["schema"] != SCHEMA:
         raise ManifestError(f"manifest schema must be {SCHEMA!r}")
@@ -121,11 +155,35 @@ def load_manifest(path: Path) -> dict[str, object]:
         raise ManifestError("capabilities.v4_native must be boolean")
     if capabilities["v4_native"] and not V4_NATIVE_AVAILABLE:
         raise ManifestError("v4_native was declared but this harness has no native V4 adapter")
-    required_categories = document["required_fixture_categories"]
-    if required_categories != list(REQUIRED_FIXTURE_CATEGORIES):
+    category_declarations = document["fixture_categories"]
+    if not isinstance(category_declarations, list):
+        raise ManifestError("fixture_categories must be an ordered list")
+    declared_categories: dict[str, dict[str, object]] = {}
+    declared_order: list[str] = []
+    for index, declaration in enumerate(category_declarations):
+        context = f"fixture_categories[{index}]"
+        if not isinstance(declaration, dict):
+            raise ManifestError(f"{context}: expected object")
+        _expect_keys(declaration, {"name", "phase", "allow_empty"}, context)
+        name = declaration["name"]
+        phase = declaration["phase"]
+        allow_empty = declaration["allow_empty"]
+        if not isinstance(name, str) or name not in FIXTURE_CATEGORIES:
+            raise ManifestError(f"{context}.name: unknown fixture category")
+        if name in declared_categories:
+            raise ManifestError(f"{context}.name: duplicate {name!r}")
+        if not isinstance(phase, str) or phase != CATEGORY_PHASE_BY_NAME[name]:
+            raise ManifestError(
+                f"{context}.phase: expected {CATEGORY_PHASE_BY_NAME[name]!r}"
+            )
+        if not isinstance(allow_empty, bool):
+            raise ManifestError(f"{context}.allow_empty: expected boolean")
+        declared_categories[name] = declaration
+        declared_order.append(name)
+    if declared_order != list(FIXTURE_CATEGORY_ORDER):
         raise ManifestError(
-            "required_fixture_categories must be the canonical complete list "
-            f"{list(REQUIRED_FIXTURE_CATEGORIES)!r}"
+            "fixture_categories must declare the canonical complete vocabulary in order "
+            f"{list(FIXTURE_CATEGORY_ORDER)!r}"
         )
     raw_cases = document["cases"]
     if not isinstance(raw_cases, list) or not raw_cases:
@@ -210,33 +268,35 @@ def load_manifest(path: Path) -> dict[str, object]:
             raise ManifestError(f"{context}: v4_extension expectations are inconsistent")
         if relationship == "intentional_divergence" and v3 == v4:
             raise ManifestError(f"{context}: intentional_divergence must differ")
-        if fixture_category == "compatible_positive" and not (
+        if fixture_category == "compatible" and not (
             relationship == "equal" and v3["accepted"] and v4["accepted"]
         ):
-            raise ManifestError(f"{context}: compatible_positive must be equal and accepted")
-        if fixture_category == "syntax_negative" and not (
-            relationship == "equal"
-            and not v3["accepted"]
-            and v3["diagnostic_class"] == "syntax"
+            raise ManifestError(f"{context}: compatible must be equal and accepted")
+        if fixture_category == "v4_extension" and relationship != "v4_extension":
+            raise ManifestError(f"{context}: v4_extension category requires v4_extension relationship")
+        if fixture_category == "intentional_divergence" and relationship != "intentional_divergence":
+            raise ManifestError(
+                f"{context}: intentional_divergence category requires matching relationship"
+            )
+        if fixture_category == "negative" and not (
+            relationship == "equal" and not v3["accepted"] and not v4["accepted"]
         ):
-            raise ManifestError(f"{context}: syntax_negative must equally reject as syntax")
-        if fixture_category == "type_negative" and not (
-            relationship == "equal"
-            and not v3["accepted"]
-            and v3["diagnostic_class"] == "type"
-        ):
-            raise ManifestError(f"{context}: type_negative must equally reject as type")
-        if fixture_category == "intentional_difference" and relationship == "equal":
-            raise ManifestError(f"{context}: intentional_difference requires a differing relationship")
+            raise ManifestError(f"{context}: negative must equally reject on both frontends")
         normalized = dict(raw_case)
         normalized["source_path"] = source_path
         normalized_cases.append(normalized)
     observed_categories = {str(case["fixture_category"]) for case in normalized_cases}
-    missing_categories = set(REQUIRED_FIXTURE_CATEGORIES) - observed_categories
-    if missing_categories:
-        raise ManifestError(
-            f"required fixture categories have no cases: {sorted(missing_categories)}"
-        )
+    for category in FIXTURE_CATEGORY_ORDER:
+        declaration = declared_categories[category]
+        populated = category in observed_categories
+        if not populated and declaration["allow_empty"] is not True:
+            raise ManifestError(
+                f"fixture category {category!r} has no cases and is not explicitly allow_empty"
+            )
+        if populated and declaration["allow_empty"] is not False:
+            raise ManifestError(
+                f"fixture category {category!r} has cases and must set allow_empty=false"
+            )
     discovered = {
         path.relative_to(CASES_ROOT).as_posix()
         for path in CASES_ROOT.rglob("*.fk")
@@ -440,6 +500,8 @@ def observe_v4(
         command.extend(["--clang", clang])
     environment = os.environ.copy()
     environment["FREAK_CAMPAIGN_MUTEX_HELD"] = "1"
+    if not sys.platform.startswith("win"):
+        environment[PROCESS_GROUP_HELD_ENV] = "1"
     with v4_host_mutex(timeout_seconds=timeout):
         result = run_bounded(
             command,
@@ -505,18 +567,39 @@ def self_test(manifest_path: Path) -> None:
         expect_manifest_rejection(rejected, "runtime schema requires")
 
         rejected = json.loads(json.dumps(original))
-        rejected["required_fixture_categories"] = []
-        expect_manifest_rejection(rejected, "canonical complete list")
+        rejected["fixture_categories"] = rejected["fixture_categories"][:-1]
+        expect_manifest_rejection(rejected, "canonical complete vocabulary")
+
+        rejected = json.loads(json.dumps(original))
+        rejected["fixture_categories"][0]["allow_empty"] = True
+        expect_manifest_rejection(rejected, "has cases and must set allow_empty=false")
+
+        rejected = json.loads(json.dumps(original))
+        rejected["fixture_categories"][0]["phase"] = "native_runtime"
+        expect_manifest_rejection(rejected, "phase: expected 'frontend_bootstrap'")
 
         rejected = json.loads(json.dumps(original))
         rejected["cases"] = [
-            case for case in rejected["cases"] if case["fixture_category"] != "type_negative"
+            case for case in rejected["cases"] if case["fixture_category"] != "v4_extension"
         ]
-        expect_manifest_rejection(rejected, "required fixture categories have no cases")
+        expect_manifest_rejection(rejected, "has no cases and is not explicitly allow_empty")
 
         rejected = json.loads(json.dumps(original))
         rejected["cases"][0]["relationship"] = "negative"
         expect_manifest_rejection(rejected, "unknown relationship")
+
+        duplicate_path = schema_root / "duplicate.json"
+        duplicate_path.write_text(
+            '{"schema":"first","schema":"second","capabilities":{},'
+            '"fixture_categories":[],"cases":[]}',
+            encoding="utf-8",
+        )
+        try:
+            load_manifest(duplicate_path)
+        except ManifestError as exc:
+            assert "duplicates key 'schema'" in str(exc)
+        else:
+            raise AssertionError("duplicate manifest JSON key was accepted")
 
         source = schema_root / "payload.fk"
         source.write_bytes(b"task main() {}\r\n")
@@ -555,7 +638,7 @@ def self_test(manifest_path: Path) -> None:
     assert _classify_v3(BoundedResult(("probe",), 1, "FAILED -- syntax errors found\n", "", 0)).diagnostic_class == "syntax"
     print(
         f"differential manifest self-test: PASS cases={len(document['cases'])} "
-        f"required-categories={len(REQUIRED_FIXTURE_CATEGORIES)}"
+        f"declared-categories={len(FIXTURE_CATEGORY_ORDER)}"
     )
 
 

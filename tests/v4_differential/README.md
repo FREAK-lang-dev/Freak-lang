@@ -32,13 +32,18 @@ phase summary must be stable across the two runs. Phase counts are not compared
 numerically between V3 and V4 because their representations differ.
 
 Fixture category and compiler relationship are separate strict fields. Every
-manifest must contain all four required fixture categories:
+manifest declares the complete ordered category vocabulary, including phased
+categories that do not have a fixture yet:
 
-- `compatible_positive`: both frontends accept.
-- `syntax_negative`: both reject with normalized syntax diagnostics.
-- `type_negative`: both reject with normalized type diagnostics.
-- `intentional_difference`: the manifest records why the expected outcomes
-  differ.
+- Frontend bootstrap: `compatible`, `v4_extension`, and `negative`.
+- Semantic expansion: `intentional_divergence`, `ownership`, `closures`,
+  `aggregates`, `routes`, and `generics`.
+- Native runtime: `control_flow` and `std_smoke`.
+
+An unpopulated phased category must explicitly set `allow_empty` to `true`;
+populated categories must set it to `false`. `compatible` accepts on both
+frontends, `negative` rejects on both (with the expected diagnostic class), and
+the two difference categories require their matching relationship.
 
 Relationships are `equal`, `v3_only`, `v4_extension`, or
 `intentional_divergence`. Every non-equal relationship requires a reason.
