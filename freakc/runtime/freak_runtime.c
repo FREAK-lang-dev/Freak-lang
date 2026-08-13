@@ -10,6 +10,7 @@
 #include <stdatomic.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 #include <time.h>
 #include <math.h>
 #include <sys/stat.h>
@@ -967,17 +968,155 @@ int64_t freak_pow_int(int64_t base, int64_t exp) {
 /*  std::time                                                         */
 /* ------------------------------------------------------------------ */
 
+static _Noreturn void freak_system_runtime_fail(const char* message) {
+    fprintf(stderr, "FREAK: %s\n", message);
+    exit(1);
+}
+
+static bool freak_system_utf8_valid(const char* text, size_t length) {
+    const uint8_t* data = (const uint8_t*)text;
+    size_t i = 0;
+    while (i < length) {
+        uint8_t first = data[i++];
+        if (first <= 0x7f) continue;
+        if (first >= 0xc2 && first <= 0xdf) {
+            if (i >= length || data[i] < 0x80 || data[i] > 0xbf) return false;
+            i += 1;
+            continue;
+        }
+        if (first >= 0xe0 && first <= 0xef) {
+            if (i + 1 >= length) return false;
+            uint8_t second = data[i];
+            uint8_t third = data[i + 1];
+            if (third < 0x80 || third > 0xbf) return false;
+            if (first == 0xe0) {
+                if (second < 0xa0 || second > 0xbf) return false;
+            } else if (first == 0xed) {
+                if (second < 0x80 || second > 0x9f) return false;
+            } else if (second < 0x80 || second > 0xbf) {
+                return false;
+            }
+            i += 2;
+            continue;
+        }
+        if (first >= 0xf0 && first <= 0xf4) {
+            if (i + 2 >= length) return false;
+            uint8_t second = data[i];
+            uint8_t third = data[i + 1];
+            uint8_t fourth = data[i + 2];
+            if (third < 0x80 || third > 0xbf || fourth < 0x80 || fourth > 0xbf) {
+                return false;
+            }
+            if (first == 0xf0) {
+                if (second < 0x90 || second > 0xbf) return false;
+            } else if (first == 0xf4) {
+                if (second < 0x80 || second > 0x8f) return false;
+            } else if (second < 0x80 || second > 0xbf) {
+                return false;
+            }
+            i += 3;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+#ifndef _WIN32
+static char* freak_system_copy_c_string(
+        freak_word value, const char* failure_message) {
+    if (value.length == SIZE_MAX) freak_system_runtime_fail(failure_message);
+    char* copy = (char*)malloc(value.length + 1);
+    if (!copy) freak_system_runtime_fail(failure_message);
+    if (value.length > 0) memcpy(copy, value.data, value.length);
+    copy[value.length] = '\0';
+    return copy;
+}
+#endif
+
+/* Compute floor(numerator * 1e9 / denominator) without ever forming the
+   potentially overflowing product.  QPC's remainder is smaller than its
+   frequency, so the quotient stays below one billion throughout. */
+static uint64_t freak_fraction_to_nanoseconds(
+        uint64_t numerator, uint64_t denominator) {
+    uint64_t quotient = 0;
+    uint64_t remainder = 0;
+    const uint64_t multiplier = UINT64_C(1000000000);
+    for (int bit = 29; bit >= 0; bit -= 1) {
+        if (remainder >= denominator - remainder) {
+            remainder -= denominator - remainder;
+            quotient = quotient * 2 + 1;
+        } else {
+            remainder *= 2;
+            quotient *= 2;
+        }
+        if ((multiplier & (UINT64_C(1) << bit)) != 0) {
+            if (remainder >= denominator - numerator) {
+                remainder -= denominator - numerator;
+                quotient += 1;
+            } else {
+                remainder += numerator;
+            }
+        }
+    }
+    return quotient;
+}
+
 int64_t freak_time_now_ms(void) {
 #ifdef _WIN32
     FILETIME ft;
     GetSystemTimeAsFileTime(&ft);
     uint64_t time_100ns = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
     /* Convert from 100ns intervals since Jan 1, 1601 to ms since Jan 1, 1970 */
-    return (int64_t)((time_100ns - 116444736000000000ULL) / 10000);
+    if (time_100ns < UINT64_C(116444736000000000)) {
+        freak_system_runtime_fail("wall clock predates the Unix epoch");
+    }
+    uint64_t epoch_ms =
+        (time_100ns - UINT64_C(116444736000000000)) / UINT64_C(10000);
+    if (epoch_ms > (uint64_t)INT64_MAX) {
+        freak_system_runtime_fail("wall clock milliseconds overflow int");
+    }
+    return (int64_t)epoch_ms;
 #else
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (int64_t)(tv.tv_sec) * 1000 + (int64_t)(tv.tv_usec) / 1000;
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        freak_system_runtime_fail("cannot read the wall clock");
+    }
+    if (ts.tv_sec < 0 || (uint64_t)ts.tv_sec > (uint64_t)INT64_MAX / 1000) {
+        freak_system_runtime_fail("wall clock milliseconds overflow int");
+    }
+    return (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
+#endif
+}
+
+int64_t freak_time_monotonic_ns(void) {
+#ifdef _WIN32
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
+    if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0 ||
+            !QueryPerformanceCounter(&counter) || counter.QuadPart < 0) {
+        freak_system_runtime_fail("cannot read the monotonic clock");
+    }
+    uint64_t raw = (uint64_t)counter.QuadPart;
+    uint64_t per_second = (uint64_t)frequency.QuadPart;
+    uint64_t seconds = raw / per_second;
+    uint64_t remainder = raw % per_second;
+    if (seconds > (uint64_t)INT64_MAX / UINT64_C(1000000000)) {
+        freak_system_runtime_fail("monotonic nanoseconds overflow int");
+    }
+    uint64_t result = seconds * UINT64_C(1000000000) +
+        freak_fraction_to_nanoseconds(remainder, per_second);
+    if (result > (uint64_t)INT64_MAX) {
+        freak_system_runtime_fail("monotonic nanoseconds overflow int");
+    }
+    return (int64_t)result;
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0 || ts.tv_sec < 0 ||
+            (uint64_t)ts.tv_sec > (uint64_t)INT64_MAX / UINT64_C(1000000000)) {
+        freak_system_runtime_fail("cannot read the monotonic clock");
+    }
+    return (int64_t)ts.tv_sec * INT64_C(1000000000) + (int64_t)ts.tv_nsec;
 #endif
 }
 
@@ -1436,9 +1575,9 @@ freak_process_handle freak_process_spawn(freak_word cmd, void* args) {
 
 uint64_t freak_process_pid(void) {
 #if defined(_WIN32)
-    return 0;
+    return (uint64_t)GetCurrentProcessId();
 #else
-    return (uint64_t)0;
+    return (uint64_t)getpid();
 #endif
 }
 
@@ -1465,16 +1604,181 @@ freak_maybe_word freak_process_env_var(freak_word name) {
 }
 
 void freak_process_set_env(freak_word name, freak_word val) {
-    (void)name;
-    (void)val;
-    /* Minimal cross-platform stub: no-op for now. */
+    if (name.length == SIZE_MAX || val.length == SIZE_MAX) {
+        freak_system_runtime_fail("environment variable is too large");
+    }
+    if (name.length == 0 || !name.data ||
+            memchr(name.data, '\0', name.length) != NULL ||
+            memchr(name.data, '=', name.length) != NULL) {
+        freak_system_runtime_fail("invalid environment variable name");
+    }
+    if ((val.length > 0 && !val.data) ||
+            (val.data && memchr(val.data, '\0', val.length) != NULL)) {
+        freak_system_runtime_fail("invalid environment variable value");
+    }
+    if (!freak_system_utf8_valid(name.data, name.length) ||
+            !freak_system_utf8_valid(val.data ? val.data : "", val.length)) {
+        freak_system_runtime_fail("environment variable is not valid UTF-8");
+    }
+#ifdef _WIN32
+    if (name.length > INT_MAX || val.length > INT_MAX) {
+        freak_system_runtime_fail("environment variable is too large");
+    }
+    int name_chars = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, name.data, (int)name.length, NULL, 0);
+    int value_chars = val.length == 0 ? 0 : MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, val.data, (int)val.length, NULL, 0);
+    if (name_chars <= 0 || (val.length > 0 && value_chars <= 0)) {
+        freak_system_runtime_fail("environment variable is not valid UTF-8");
+    }
+    if ((size_t)name_chars >= SIZE_MAX / sizeof(wchar_t) ||
+            (size_t)value_chars >= SIZE_MAX / sizeof(wchar_t)) {
+        freak_system_runtime_fail("environment variable is too large");
+    }
+    wchar_t* wide_name = (wchar_t*)malloc(
+        ((size_t)name_chars + 1) * sizeof(wchar_t));
+    wchar_t* wide_value = (wchar_t*)malloc(
+        ((size_t)value_chars + 1) * sizeof(wchar_t));
+    if (!wide_name || !wide_value) {
+        free(wide_name);
+        free(wide_value);
+        freak_system_runtime_fail("out of memory setting environment variable");
+    }
+    MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, name.data, (int)name.length,
+        wide_name, name_chars);
+    wide_name[name_chars] = L'\0';
+    if (value_chars > 0) {
+        MultiByteToWideChar(
+            CP_UTF8, MB_ERR_INVALID_CHARS, val.data, (int)val.length,
+            wide_value, value_chars);
+    }
+    wide_value[value_chars] = L'\0';
+    BOOL set = SetEnvironmentVariableW(wide_name, wide_value);
+    free(wide_name);
+    free(wide_value);
+    if (!set) freak_system_runtime_fail("cannot set environment variable");
+#else
+    char* name_copy = freak_system_copy_c_string(
+        name, "out of memory setting environment variable");
+    char* value_copy = freak_system_copy_c_string(
+        val, "out of memory setting environment variable");
+    int set_result = setenv(name_copy, value_copy, 1);
+    free(name_copy);
+    free(value_copy);
+    if (set_result != 0) {
+        freak_system_runtime_fail("cannot set environment variable");
+    }
+#endif
 }
 
 freak_word freak_process_env(freak_word name) {
-    const char* key = freak_word_to_cstr(name);
-    const char* val = key ? getenv(key) : NULL;
-    if (val) return freak_word_lit(val);
-    return freak_word_lit("");
+    if (name.length == SIZE_MAX) {
+        freak_system_runtime_fail("environment variable name is too large");
+    }
+    if (name.length == 0 || !name.data ||
+            memchr(name.data, '\0', name.length) != NULL ||
+            memchr(name.data, '=', name.length) != NULL) {
+        freak_system_runtime_fail("invalid environment variable name");
+    }
+    if (!freak_system_utf8_valid(name.data, name.length)) {
+        freak_system_runtime_fail("environment variable name is not valid UTF-8");
+    }
+#ifdef _WIN32
+    if (name.length > INT_MAX) {
+        freak_system_runtime_fail("environment variable name is too large");
+    }
+    int name_chars = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, name.data, (int)name.length, NULL, 0);
+    if (name_chars <= 0) {
+        freak_system_runtime_fail("environment variable name is not valid UTF-8");
+    }
+    if ((size_t)name_chars >= SIZE_MAX / sizeof(wchar_t)) {
+        freak_system_runtime_fail("environment variable name is too large");
+    }
+    wchar_t* wide_name = (wchar_t*)malloc(
+        ((size_t)name_chars + 1) * sizeof(wchar_t));
+    if (!wide_name) freak_system_runtime_fail("out of memory reading environment variable");
+    MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, name.data, (int)name.length,
+        wide_name, name_chars);
+    wide_name[name_chars] = L'\0';
+    for (;;) {
+        SetLastError(ERROR_SUCCESS);
+        DWORD required = GetEnvironmentVariableW(wide_name, NULL, 0);
+        if (required == 0) {
+            DWORD error = GetLastError();
+            free(wide_name);
+            if (error == ERROR_SUCCESS || error == ERROR_ENVVAR_NOT_FOUND) {
+                return freak_word_lit("");
+            }
+            freak_system_runtime_fail("cannot read environment variable");
+        }
+        if ((size_t)required > SIZE_MAX / sizeof(wchar_t)) {
+            free(wide_name);
+            freak_system_runtime_fail("environment variable is too large");
+        }
+        wchar_t* wide_value = (wchar_t*)malloc((size_t)required * sizeof(wchar_t));
+        if (!wide_value) {
+            free(wide_name);
+            freak_system_runtime_fail("out of memory reading environment variable");
+        }
+        SetLastError(ERROR_SUCCESS);
+        DWORD copied = GetEnvironmentVariableW(wide_name, wide_value, required);
+        if (copied >= required) {
+            free(wide_value);
+            continue;
+        }
+        if (copied == 0 && GetLastError() != ERROR_SUCCESS) {
+            DWORD error = GetLastError();
+            free(wide_value);
+            free(wide_name);
+            if (error == ERROR_ENVVAR_NOT_FOUND) return freak_word_lit("");
+            freak_system_runtime_fail("cannot read environment variable");
+        }
+        free(wide_name);
+        if (copied == 0) {
+            free(wide_value);
+            return freak_word_lit("");
+        }
+        if (copied > (DWORD)INT_MAX) {
+            free(wide_value);
+            freak_system_runtime_fail("environment variable is too large");
+        }
+        int utf8_bytes = WideCharToMultiByte(
+            CP_UTF8, WC_ERR_INVALID_CHARS, wide_value, (int)copied,
+            NULL, 0, NULL, NULL);
+        if (utf8_bytes <= 0) {
+            free(wide_value);
+            freak_system_runtime_fail("environment variable is not valid Unicode");
+        }
+        char* result = (char*)malloc((size_t)utf8_bytes + 1);
+        if (!result) {
+            free(wide_value);
+            freak_system_runtime_fail("out of memory reading environment variable");
+        }
+        WideCharToMultiByte(
+            CP_UTF8, WC_ERR_INVALID_CHARS, wide_value, (int)copied,
+            result, utf8_bytes, NULL, NULL);
+        free(wide_value);
+        result[utf8_bytes] = '\0';
+        return freak_word_own(result, (size_t)utf8_bytes);
+    }
+#else
+    char* name_copy = freak_system_copy_c_string(
+        name, "out of memory reading environment variable");
+    const char* value = getenv(name_copy);
+    free(name_copy);
+    if (!value || value[0] == '\0') return freak_word_lit("");
+    size_t length = strlen(value);
+    if (!freak_system_utf8_valid(value, length)) {
+        freak_system_runtime_fail("environment variable is not valid UTF-8");
+    }
+    char* copy = (char*)malloc(length + 1);
+    if (!copy) freak_system_runtime_fail("out of memory reading environment variable");
+    memcpy(copy, value, length + 1);
+    return freak_word_own(copy, length);
+#endif
 }
 
 void* freak_process_args(void) {

@@ -61,6 +61,7 @@ from .type_checker import (
     BYTE_BUFFER_METHOD_SIGNATURES,
     PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED,
     PYTHON_OWNED_WORD_UNSUPPORTED,
+    SYSTEM_RUNTIME_SIGNATURES,
     WORD_BUILDER_SIGNATURES,
     WORD_METHOD_SIGNATURES,
 )
@@ -1168,6 +1169,25 @@ class CEmitter:
             if fq_name.startswith("ByteBuffer::"):
                 raise EmitError(f"unknown ByteBuffer builtin '{fq_name}'")
 
+            system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq_name)
+            if system_signature is not None:
+                if len(expr.args) != len(system_signature.argument_types):
+                    raise EmitError(
+                        f"{fq_name} expects {len(system_signature.argument_types)} "
+                        f"argument(s), got {len(expr.args)}"
+                    )
+                for index, (argument, expected) in enumerate(
+                    zip(expr.args, system_signature.argument_types), start=1
+                ):
+                    actual_c_type = self._infer_c_type_of_expr(argument)
+                    expected_c_type = _word_builder_c_type(expected.name)
+                    if actual_c_type != expected_c_type:
+                        raise EmitError(
+                            f"call to '{fq_name}' argument {index} expects "
+                            f"{expected}, got {_word_builder_freak_type(actual_c_type)}"
+                        )
+                return f"{system_signature.c_name}({args_c})"
+
             word_builder_signature = WORD_BUILDER_SIGNATURES.get(fq_name)
             if word_builder_signature is not None:
                 if len(expr.args) != len(word_builder_signature.argument_types):
@@ -1191,11 +1211,8 @@ class CEmitter:
             process_map = {
                 "process::run": "freak_process_run",
                 "process::spawn": "freak_process_spawn",
-                "process::pid": "freak_process_pid",
                 "process::exit": "freak_process_exit",
-                "process::env": "freak_process_env",
                 "process::env_var": "freak_process_env_var",
-                "process::set_env": "freak_process_set_env",
                 "process::args": "freak_process_args",
                 "process::input": "freak_ask",
                 "process::exec": "freak_process_exec",
@@ -1669,7 +1686,6 @@ class CEmitter:
         if isinstance(expr, PathIdent):
             fq_name = "::".join(expr.parts)
             if fq_name in (
-                "process::pid",
                 "thread::current_id",
                 "thread::available_parallelism",
             ):
@@ -1682,6 +1698,10 @@ class CEmitter:
                 return "freak_word"
             if fq_name in BYTE_BUFFER_CONSTRUCTOR_SIGNATURES:
                 return "freak_byte_buffer_handle"
+            if fq_name in SYSTEM_RUNTIME_SIGNATURES:
+                return _word_builder_c_type(
+                    SYSTEM_RUNTIME_SIGNATURES[fq_name].return_type.name
+                )
             if fq_name in ("fs::read",):
                 return "freak_word"
             return "int64_t"
@@ -1747,21 +1767,21 @@ class CEmitter:
                     return ret
             if isinstance(expr.func, PathIdent):
                 fq = "::".join(expr.func.parts)
+                system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq)
+                if system_signature is not None:
+                    return _word_builder_c_type(system_signature.return_type.name)
                 word_builder_signature = WORD_BUILDER_SIGNATURES.get(fq)
                 if word_builder_signature is not None:
                     return _word_builder_c_type(word_builder_signature.return_type.name)
                 # std::process return types
                 _PROCESS_RET = {
-                    "process::pid": "uint64_t",
                     "process::exit": "void",
-                    "process::env": "freak_word",
                     "process::env_var": "freak_maybe_word",
                     "process::args": "void*",
                     "process::args_count": "int64_t",
                     "process::arg": "freak_word",
                     "process::run": "freak_process_output",
                     "process::spawn": "freak_process_handle",
-                    "process::set_env": "void",
                     "process::input": "freak_word",
                     "process::exec": "int64_t",
                     "process::exec_capture": "freak_word",

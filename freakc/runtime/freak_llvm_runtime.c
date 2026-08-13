@@ -10,7 +10,6 @@ extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replaceme
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifdef _WIN32
 #include <io.h>
-__declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 #else
 #include <unistd.h>
 #include <sys/time.h>
@@ -80,6 +79,21 @@ int64_t freak_llvm_process_env(int64_t name) {
     return freak_llvm_copy_word_result(
         freak_process_env(freak_word_lit((const char*)name))
     );
+}
+
+void freak_llvm_process_set_env(int64_t name, int64_t value) {
+    freak_process_set_env(
+        freak_word_lit((const char*)name),
+        freak_word_lit((const char*)value));
+}
+
+int64_t freak_llvm_process_pid(void) {
+    uint64_t pid = freak_process_pid();
+    if (pid > (uint64_t)INT64_MAX) {
+        fprintf(stderr, "FREAK: process ID overflows int\n");
+        exit(1);
+    }
+    return (int64_t)pid;
 }
 
 int64_t freak_llvm_process_input(void) {
@@ -154,13 +168,11 @@ int64_t freak_llvm_process_exec_capture(int64_t cmd_p) {
 
 /* ── Time ──────────────────────────────────────────── */
 int64_t freak_llvm_time_now_ms(void) {
-#ifdef _WIN32
-    return (int64_t)GetTickCount64();
-#else
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (int64_t)(tv.tv_sec * 1000LL + tv.tv_usec / 1000LL);
-#endif
+    return freak_time_now_ms();
+}
+
+int64_t freak_llvm_time_monotonic_ns(void) {
+    return freak_time_monotonic_ns();
 }
 
 /* ── Panic ──────────────────────────────────────────── */

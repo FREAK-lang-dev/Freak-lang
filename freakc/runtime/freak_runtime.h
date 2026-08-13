@@ -232,6 +232,7 @@ int64_t freak_pow_int(int64_t base, int64_t exp);
 /* ------------------------------------------------------------------ */
 
 int64_t freak_time_now_ms(void);
+int64_t freak_time_monotonic_ns(void);
 void    freak_time_sleep(int64_t ms);
 
 /* ------------------------------------------------------------------ */
@@ -368,6 +369,13 @@ freak_word freak_process_env(freak_word name);
 void* freak_process_args(void); /* TODO: list<word> */
 int64_t freak_process_args_count(void);
 freak_word freak_process_arg(int64_t index);
+
+/* LLVM universal-ABI bridges for the scalar V3 system surface. */
+int64_t freak_llvm_time_now_ms(void);
+int64_t freak_llvm_time_monotonic_ns(void);
+int64_t freak_llvm_process_pid(void);
+int64_t freak_llvm_process_env(int64_t name);
+void freak_llvm_process_set_env(int64_t name, int64_t value);
 
 /* Simple command execution */
 int64_t freak_process_exec(freak_word cmd);

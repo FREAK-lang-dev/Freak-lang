@@ -221,9 +221,12 @@ task c_map_call(val: word) -> word {
     if val == "process::exec" { give back "freak_process_exec" }
     if val == "process::exec_capture" { give back "freak_process_exec_capture" }
     if val == "process::env" { give back "freak_process_env" }
+    if val == "process::set_env" { give back "freak_process_set_env" }
+    if val == "process::pid" { give back "freak_process_pid" }
     if val == "process::arg" { give back "freak_process_arg" }
     if val == "process::args_count" { give back "freak_process_args_count" }
     if val == "time::now_ms" { give back "freak_time_now_ms" }
+    if val == "time::monotonic_ns" { give back "freak_time_monotonic_ns" }
     if val == "panic" { give back "freak_panic" }
     if val == "fs::read" { give back "freak_fs_read" }
     if val == "fs::write" { give back "freak_fs_write" }

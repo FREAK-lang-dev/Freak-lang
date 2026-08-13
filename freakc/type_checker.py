@@ -214,6 +214,21 @@ BYTE_BUFFER_METHOD_SIGNATURES: Dict[str, BuiltinSignature] = {
     ),
 }
 
+
+SYSTEM_RUNTIME_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "time::now_ms": BuiltinSignature("freak_time_now_ms", (), T_INT),
+    "time::monotonic_ns": BuiltinSignature(
+        "freak_time_monotonic_ns", (), T_INT
+    ),
+    "process::pid": BuiltinSignature("freak_process_pid", (), T_INT),
+    "process::env": BuiltinSignature(
+        "freak_process_env", (T_WORD,), T_WORD, returns_owned=True
+    ),
+    "process::set_env": BuiltinSignature(
+        "freak_process_set_env", (T_WORD, T_WORD), T_VOID
+    ),
+}
+
 PYTHON_OWNED_WORD_UNSUPPORTED = (
     "Python bootstrap does not support owned Word builders/repetition; "
     "use the native V3 compiler"
@@ -781,6 +796,26 @@ class TypeChecker:
                 self._error(f"unknown ByteBuffer builtin '{fq_name}'")
                 return T_UNKNOWN
 
+            system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq_name)
+            if system_signature is not None:
+                expected_arity = len(system_signature.argument_types)
+                actual_arity = len(argument_types)
+                if expected_arity != actual_arity:
+                    self._error(
+                        f"call to '{fq_name}' expects {expected_arity} "
+                        f"argument(s), got {actual_arity}"
+                    )
+                else:
+                    for index, (actual, expected) in enumerate(
+                        zip(argument_types, system_signature.argument_types), start=1
+                    ):
+                        if actual != T_UNKNOWN and actual != expected:
+                            self._error(
+                                f"call to '{fq_name}' argument {index} expects "
+                                f"{expected}, got {actual}"
+                            )
+                return system_signature.return_type
+
             word_builder_signature = WORD_BUILDER_SIGNATURES.get(fq_name)
             if word_builder_signature is not None:
                 expected_arity = len(word_builder_signature.argument_types)
@@ -807,10 +842,8 @@ class TypeChecker:
             process_builtins: Dict[str, Tuple[int, FreakType]] = {
                 "process::run": (2, T_UNKNOWN),
                 "process::spawn": (2, T_UNKNOWN),
-                "process::pid": (0, T_INT),
                 "process::exit": (1, T_VOID),
                 "process::env_var": (1, T_UNKNOWN),
-                "process::set_env": (2, T_VOID),
                 "process::args": (0, T_UNKNOWN),
                 "process::args_count": (0, T_INT),
                 "process::arg": (1, T_WORD),
@@ -881,6 +914,7 @@ __all__ = [
     "PYTHON_OWNED_WORD_UNSUPPORTED",
     "PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED",
     "T_BYTE_BUFFER",
+    "SYSTEM_RUNTIME_SIGNATURES",
     "TypeChecker",
     "WORD_BUILDER_SIGNATURES",
     "WORD_METHOD_SIGNATURES",
