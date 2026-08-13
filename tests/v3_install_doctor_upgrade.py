@@ -62,6 +62,7 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             "freakc/runtime/ui/win32_backend.c",
             "freakc/runtime/ui/freak_ui_platform.h",
             "freakc/runtime/freak_abi",
+            "freakc/runtime/freak_runtime_api",
             "std/freak_abi",
         }
     )
@@ -1456,7 +1457,7 @@ def check_doctor(
     assert Path(report["checks"]["stdlib"]["path"]).resolve() == (
         payload / "std"
     ).resolve()
-    assert report["checks"]["runtime"]["files_expected"] == 6
+    assert report["checks"]["runtime"]["files_expected"] == 7
     assert report["checks"]["stdlib"]["modules_found"] == 11
     assert report["checks"]["stdlib"]["modules_expected"] == 11
     assert report["checks"]["abi"] == {
@@ -1464,6 +1465,11 @@ def check_doctor(
         "expected": "freak-v3-abi-1",
         "runtime": "freak-v3-abi-1",
         "stdlib": "freak-v3-abi-1",
+    }
+    assert report["checks"]["runtime_api"] == {
+        "ok": True,
+        "expected": "freak-v3-runtime-api-1",
+        "runtime": "freak-v3-runtime-api-1",
     }
     assert report["checks"]["upgrade"]["pending"] is False
 
@@ -1484,6 +1490,42 @@ def check_doctor(
     assert not abi_source.with_suffix(".exe").exists()
     assert not abi_source.with_suffix("").exists()
     shutil.copy2(repo / "freakc" / "runtime" / "freak_abi", runtime_abi)
+
+    # Runtime layout compatibility and callable API capability are distinct.
+    # An older same-ABI payload must fail before either backend emits code.
+    runtime_api = payload / "runtime" / "freak_runtime_api"
+    runtime_api.unlink()
+    missing_api = run_cli(compiler, cwd, env, "doctor", "--json")
+    assert missing_api.returncode != 0, missing_api.stdout + missing_api.stderr
+    missing_api_report = json.loads(missing_api.stdout)
+    assert missing_api_report["checks"]["abi"]["ok"] is True
+    assert missing_api_report["checks"]["runtime_api"] == {
+        "ok": False,
+        "expected": "freak-v3-runtime-api-1",
+        "runtime": "missing",
+    }
+    for backend in ("--c", "--llvm"):
+        rejected_api_build = run_cli(
+            compiler, cwd, env, "build", str(abi_source), backend
+        )
+        assert rejected_api_build.returncode != 0, (
+            rejected_api_build.stdout + rejected_api_build.stderr
+        )
+        assert "runtime api mismatch" in rejected_api_build.stdout.lower()
+        assert not Path(str(abi_source) + (".c" if backend == "--c" else ".ll")).exists()
+        assert not abi_source.with_suffix(".exe").exists()
+        assert not abi_source.with_suffix("").exists()
+
+    runtime_api.write_text("freak-v3-runtime-api-999\n", encoding="utf-8")
+    mismatched_api = run_cli(compiler, cwd, env, "doctor", "--json")
+    assert mismatched_api.returncode != 0, (
+        mismatched_api.stdout + mismatched_api.stderr
+    )
+    mismatched_api_report = json.loads(mismatched_api.stdout)
+    assert mismatched_api_report["checks"]["runtime_api"]["runtime"] == (
+        "freak-v3-runtime-api-999"
+    )
+    shutil.copy2(repo / "freakc" / "runtime" / "freak_runtime_api", runtime_api)
 
     std_abi = payload / "std" / "freak_abi"
     std_abi.unlink()

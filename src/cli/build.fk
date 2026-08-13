@@ -1096,6 +1096,18 @@ task cli_payload_abi_ok(runtime_dir: word, std_dir: word) -> bool {
     give back runtime_abi == FREAK_V3_ABI and std_abi == FREAK_V3_ABI
 }
 
+task cli_payload_runtime_api_value(runtime_dir: word) -> word {
+    if runtime_dir == "" { give back "missing" }
+    if cli_payload_is_resolution_error(runtime_dir) { give back "resolution-error" }
+    pilot marker = runtime_dir + "/freak_runtime_api"
+    if not fs::exists(marker) { give back "missing" }
+    give back fs::read(marker).trim()
+}
+
+task cli_payload_runtime_api_ok(runtime_dir: word) -> bool {
+    give back cli_payload_runtime_api_value(runtime_dir) == FREAK_V3_RUNTIME_API
+}
+
 task cli_pending_upgrade_marker() -> word {
     if not cli_is_windows() { give back "" }
     pilot freak_home: word = process::env("FREAK_HOME")
@@ -1153,6 +1165,15 @@ task cli_build_environment_ready() -> bool {
         say C_DIM + "  Runtime reports: " + cli_payload_abi_value(runtime_dir) + C_RESET
         say C_DIM + "  Standard library reports: " + cli_payload_abi_value(std_dir) + C_RESET
         say C_DIM + "  Reinstall or run 'freak upgrade' so compiler, runtime, and stdlib agree." + C_RESET
+        say ""
+        give back false
+    }
+    if not cli_payload_runtime_api_ok(runtime_dir) {
+        say ""
+        say C_BRED + "  RUNTIME API MISMATCH" + C_RESET
+        say C_DIM + "  Compiler requires: " + FREAK_V3_RUNTIME_API + C_RESET
+        say C_DIM + "  Runtime reports: " + cli_payload_runtime_api_value(runtime_dir) + C_RESET
+        say C_DIM + "  Reinstall or run 'freak upgrade' so the runtime supports this compiler." + C_RESET
         say ""
         give back false
     }

@@ -1668,7 +1668,7 @@ def audit_conformance(paths: List[Path]) -> int:
         "run pipeline": (
             repo / "src" / "cli" / "run.fk",
             (
-                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v4"',
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v5"',
                 "task cli_run_fingerprint",
                 "task cli_run_clang_identity",
                 "task cli_run_linker_identity",
@@ -2080,6 +2080,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freakc/runtime/ui/win32_backend.c",
                 "freakc/runtime/ui/freak_ui_platform.h",
                 "freakc/runtime/freak_abi",
+                "freakc/runtime/freak_runtime_api",
                 "std/freak_abi",
             }
         )
@@ -2124,8 +2125,10 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "src" / "cli" / "doctor.fk",
             (
                 "modules_expected\\\": 11",
-                "files_expected\\\": 6",
+                "files_expected\\\": 7",
                 "FREAK_V3_ABI",
+                "FREAK_V3_RUNTIME_API",
+                "runtime_api",
                 "ABI mismatch",
                 "upgrade_pending",
                 "ui/window.fk",

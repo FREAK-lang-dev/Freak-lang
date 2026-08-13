@@ -5,6 +5,7 @@ freakc/runtime/freak_llvm_runtime.c|runtime/freak_llvm_runtime.c
 freakc/runtime/ui/win32_backend.c|runtime/ui/win32_backend.c
 freakc/runtime/ui/freak_ui_platform.h|runtime/ui/freak_ui_platform.h
 freakc/runtime/freak_abi|runtime/freak_abi
+freakc/runtime/freak_runtime_api|runtime/freak_runtime_api
 std/math.fk|std/math.fk
 std/math3d.fk|std/math3d.fk
 std/zip.fk|std/zip.fk
