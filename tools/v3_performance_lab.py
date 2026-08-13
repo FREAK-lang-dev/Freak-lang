@@ -101,21 +101,40 @@ _COMPILE_KEYS = {
 _COMPILE_OBSERVATION_KEYS = {
     "schema",
     "source_snapshot_sha256",
-    "recording_wrapper_sha256",
+    "recording_identity_sha256",
     "probe_invocations",
     "invocations",
+    "link_invocation_sha256",
     "optimization_flags",
     "lto_flags",
     "target_flags",
     "linker_flags",
     "runtime_plan",
+    "runtime_attempt_plan",
     "runtime_inputs",
+    "linked_runtime_inputs",
     "backend_artifact",
     "linker",
 }
-_ARTIFACT_KEYS = {"suffix", "bytes", "sha256", "content_zlib_base64"}
-_BINARY_KEYS = {"bytes", "sha256", "content_zlib_base64"}
+_ARTIFACT_KEYS = {"path", "suffix", "bytes", "sha256", "content_zlib_base64"}
+_BINARY_KEYS = {"path", "bytes", "sha256", "content_zlib_base64"}
 _RUNTIME_STATS_KEYS = {"schema", "source", "counters"}
+_RECORDING_IDENTITY_KEYS = {
+    "schema",
+    "kind",
+    "python_executable",
+    "recorder_path",
+    "wrapper_path",
+    "recorder_content_base64",
+    "recorder_sha256",
+    "wrapper_content_base64",
+    "wrapper_sha256",
+    "combined_sha256",
+}
+_RAW_INVOCATION_KEYS = {"argv", "cwd", "exit_code", "inputs", "output"}
+_INVOCATION_KEYS = _RAW_INVOCATION_KEYS | {"argv_sha256"}
+_OBSERVED_INPUT_KEYS = {"argument_index", "path", "bytes", "sha256"}
+_OBSERVED_OUTPUT_KEYS = {"path", "bytes", "sha256"}
 _RUNTIME_INPUT_NAMES = {
     "freak_runtime.c",
     "freak_llvm_runtime.c",
@@ -243,8 +262,12 @@ def _decode_zlib_bytes(value: Any, expected_size: int, context: str) -> bytes:
 def _strict_json(path: Path) -> Any:
     try:
         with path.open("r", encoding="utf-8") as stream:
-            return json.load(stream)
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            return json.load(
+                stream,
+                object_pairs_hook=_reject_duplicate_json_keys,
+                parse_constant=_reject_nonfinite_json_constant,
+            )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
         raise LabError(f"cannot read JSON {path}: {error}") from error
 
 
@@ -255,6 +278,10 @@ def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise ValueError(f"duplicate JSON key: {name}")
         result[name] = value
     return result
+
+
+def _reject_nonfinite_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON number: {value}")
 
 
 def _exact_keys(value: Mapping[str, Any], expected: set[str], context: str) -> None:
@@ -412,51 +439,137 @@ def _clean_environment(clang: Path | None = None) -> dict[str, str]:
     return environment
 
 
-def _write_recording_clang(work_dir: Path, real_clang: Path) -> tuple[Path, Path, str]:
-    recorder = work_dir / "record_clang.py"
-    log = work_dir / "clang-invocations.jsonl"
-    recorder_text = """#!/usr/bin/env python3
+def _recording_recorder_text() -> str:
+    return """#!/usr/bin/env python3
+import hashlib
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def observed_file(path, argument_index=None):
+    record = {
+        "path": str(path),
+        "bytes": path.stat().st_size,
+        "sha256": sha256_file(path),
+    }
+    if argument_index is not None:
+        record["argument_index"] = argument_index
+    return record
+
+
 arguments = sys.argv[1:]
+cwd = Path.cwd().resolve()
+output_indexes = [index for index, argument in enumerate(arguments) if argument == "-o"]
+output_index = output_indexes[0] if len(output_indexes) == 1 and output_indexes[0] + 1 < len(arguments) else None
+inputs = []
+for index, argument in enumerate(arguments):
+    if output_index is not None and index == output_index + 1:
+        continue
+    candidate = Path(argument)
+    if not candidate.is_absolute():
+        candidate = cwd / candidate
+    try:
+        candidate = candidate.resolve(strict=True)
+    except OSError:
+        continue
+    if candidate.is_file():
+        inputs.append(observed_file(candidate, index))
+
+completed = subprocess.run([os.environ["FREAK_PERF_REAL_CLANG"], *arguments])
+output = None
+if output_index is not None:
+    candidate = Path(arguments[output_index + 1])
+    if not candidate.is_absolute():
+        candidate = cwd / candidate
+    try:
+        candidate = candidate.resolve(strict=True)
+    except OSError:
+        candidate = None
+    if candidate is not None and candidate.is_file():
+        output = observed_file(candidate)
+
+record = {
+    "argv": arguments,
+    "cwd": str(cwd),
+    "exit_code": completed.returncode,
+    "inputs": inputs,
+    "output": output,
+}
 with Path(os.environ["FREAK_PERF_CLANG_LOG"]).open("a", encoding="utf-8") as stream:
-    stream.write(json.dumps(arguments, ensure_ascii=False) + "\\n")
-raise SystemExit(subprocess.run([os.environ["FREAK_PERF_REAL_CLANG"], *arguments]).returncode)
+    stream.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\\n")
+raise SystemExit(completed.returncode)
 """
-    recorder.write_text(recorder_text, encoding="utf-8", newline="\n")
+
+
+def _recording_wrapper_bytes(kind: str, python_executable: str, recorder_path: str, recorder_text: str) -> bytes:
+    if kind == "windows-cmd":
+        return f'@"{python_executable}" "{recorder_path}" %*\r\n'.encode("utf-8")
+    return f'#!{python_executable}\n{recorder_text.split(chr(10), 1)[1]}'.encode("utf-8")
+
+
+def _recording_identity_digest(identity: Mapping[str, Any]) -> str:
+    material = {name: identity[name] for name in sorted(identity) if name != "combined_sha256"}
+    return _json_sha256(material)
+
+
+def _write_recording_clang(work_dir: Path, real_clang: Path) -> tuple[Path, Path, dict[str, Any]]:
+    recorder = work_dir / "record_clang.py"
+    log = work_dir / "clang-invocations.jsonl"
+    recorder_text = _recording_recorder_text()
+    recorder_bytes = recorder_text.encode("utf-8")
+    recorder.write_bytes(recorder_bytes)
+    python_executable = str(Path(sys.executable).resolve(strict=True))
     if sys.platform == "win32":
+        kind = "windows-cmd"
         wrapper = work_dir / "record-clang.cmd"
-        wrapper.write_text(
-            f'@"{sys.executable}" "{recorder}" %*\n',
-            encoding="utf-8",
-            newline="\r\n",
-        )
     else:
+        kind = "posix-executable"
         wrapper = work_dir / "record-clang"
-        wrapper.write_text(
-            f'#!{sys.executable}\n{recorder_text.split(chr(10), 1)[1]}',
-            encoding="utf-8",
-            newline="\n",
-        )
+    wrapper_bytes = _recording_wrapper_bytes(kind, python_executable, str(recorder.resolve()), recorder_text)
+    wrapper.write_bytes(wrapper_bytes)
+    if kind == "posix-executable":
         wrapper.chmod(0o755)
-    return wrapper.resolve(), log.resolve(), _sha256_file(wrapper)
+    identity = {
+        "schema": "freak-v3-recording-wrapper-v1",
+        "kind": kind,
+        "python_executable": python_executable,
+        "recorder_path": str(recorder.resolve()),
+        "wrapper_path": str(wrapper.resolve()),
+        "recorder_content_base64": _encode_bytes(recorder_bytes),
+        "recorder_sha256": _sha256_bytes(recorder_bytes),
+        "wrapper_content_base64": _encode_bytes(wrapper_bytes),
+        "wrapper_sha256": _sha256_bytes(wrapper_bytes),
+    }
+    identity["combined_sha256"] = _recording_identity_digest(identity)
+    return wrapper.resolve(), log.resolve(), identity
 
 
-def _read_recording_log(path: Path) -> list[list[str]]:
+def _read_recording_log(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         raise LabError("recording Clang did not produce an invocation log")
-    invocations: list[list[str]] = []
+    invocations: list[dict[str, Any]] = []
     try:
         for index, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
-            value = json.loads(line)
-            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            value = json.loads(
+                line,
+                object_pairs_hook=_reject_duplicate_json_keys,
+                parse_constant=_reject_nonfinite_json_constant,
+            )
+            if not isinstance(value, dict) or set(value) != _RAW_INVOCATION_KEYS:
                 raise LabError(f"recording Clang invocation {index} is malformed")
             invocations.append(value)
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
         raise LabError(f"cannot read recording Clang log: {error}") from error
     return invocations
 
@@ -665,9 +778,140 @@ def _binary_path(source: Path) -> Path:
     return existing[0]
 
 
-def _invocation_record(arguments: Sequence[str]) -> dict[str, Any]:
-    values = list(arguments)
-    return {"argv": values, "argv_sha256": _json_sha256(values)}
+def _normalized_recorded_path(value: str, cwd: str) -> str:
+    path = Path(value)
+    if not path.is_absolute():
+        path = Path(cwd) / path
+    return str(path.resolve(strict=False))
+
+
+def _path_identity(value: str) -> str:
+    return os.path.normcase(os.path.normpath(value))
+
+
+def _validate_observed_file_record(
+    value: Any,
+    context: str,
+    *,
+    input_record: bool,
+) -> dict[str, Any]:
+    record = _require_dict(value, context)
+    _exact_keys(record, _OBSERVED_INPUT_KEYS if input_record else _OBSERVED_OUTPUT_KEYS, context)
+    path = _require_string(record.get("path"), f"{context}.path", nonempty=True)
+    if not Path(path).is_absolute():
+        raise LabError(f"{context}.path must be absolute")
+    _require_int(record.get("bytes"), f"{context}.bytes", minimum=0)
+    sha256 = _require_string(record.get("sha256"), f"{context}.sha256")
+    if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        raise LabError(f"{context}.sha256 is invalid")
+    if input_record:
+        _require_int(record.get("argument_index"), f"{context}.argument_index", minimum=0)
+    return record
+
+
+def _validate_invocation_payload(value: Any, context: str, *, stored: bool) -> dict[str, Any]:
+    record = _require_dict(value, context)
+    _exact_keys(record, _INVOCATION_KEYS if stored else _RAW_INVOCATION_KEYS, context)
+    arguments = _require_string_list(record.get("argv"), f"{context}.argv")
+    if stored and record.get("argv_sha256") != _json_sha256(arguments):
+        raise LabError(f"{context}.argv checksum is invalid")
+    cwd = _require_string(record.get("cwd"), f"{context}.cwd", nonempty=True)
+    if not Path(cwd).is_absolute():
+        raise LabError(f"{context}.cwd must be absolute")
+    _require_int(record.get("exit_code"), f"{context}.exit_code")
+    raw_inputs = _require_list(record.get("inputs"), f"{context}.inputs")
+    inputs: list[dict[str, Any]] = []
+    seen_indexes: set[int] = set()
+    seen_paths: set[str] = set()
+    for index, raw_input in enumerate(raw_inputs):
+        input_context = f"{context}.inputs[{index}]"
+        observed = _validate_observed_file_record(raw_input, input_context, input_record=True)
+        argument_index = observed["argument_index"]
+        if argument_index >= len(arguments):
+            raise LabError(f"{input_context}.argument_index is outside argv")
+        expected_path = _normalized_recorded_path(arguments[argument_index], cwd)
+        if _path_identity(expected_path) != _path_identity(observed["path"]):
+            raise LabError(f"{input_context}.path differs from argv")
+        path_key = _path_identity(observed["path"])
+        if argument_index in seen_indexes or path_key in seen_paths:
+            raise LabError(f"{context}.inputs contains a duplicate")
+        seen_indexes.add(argument_index)
+        seen_paths.add(path_key)
+        inputs.append(observed)
+
+    output_indexes = [index for index, argument in enumerate(arguments) if argument == "-o"]
+    output = record.get("output")
+    if output is None:
+        if record.get("exit_code") == 0 and len(output_indexes) == 1:
+            raise LabError(f"{context} successful output invocation lacks output evidence")
+    else:
+        observed_output = _validate_observed_file_record(output, f"{context}.output", input_record=False)
+        if len(output_indexes) != 1 or output_indexes[0] + 1 >= len(arguments):
+            raise LabError(f"{context} output evidence lacks one canonical -o argument")
+        expected_path = _normalized_recorded_path(arguments[output_indexes[0] + 1], cwd)
+        if _path_identity(expected_path) != _path_identity(observed_output["path"]):
+            raise LabError(f"{context}.output.path differs from -o")
+    return record
+
+
+def _invocation_record(value: Mapping[str, Any], context: str) -> dict[str, Any]:
+    raw = _validate_invocation_payload(value, context, stored=False)
+    return {**raw, "argv_sha256": _json_sha256(raw["argv"])}
+
+
+def _same_observed_file(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    return (
+        _path_identity(str(left["path"])) == _path_identity(str(right["path"]))
+        and left["bytes"] == right["bytes"]
+        and left["sha256"] == right["sha256"]
+    )
+
+
+def _pipeline_reaches(
+    invocations: Sequence[Mapping[str, Any]],
+    source: Mapping[str, Any],
+    destination: Mapping[str, Any],
+) -> bool:
+    reached: list[Mapping[str, Any]] = [source]
+    pending = [invocation for invocation in invocations if invocation["exit_code"] == 0 and invocation["output"]]
+    changed = True
+    while changed:
+        changed = False
+        remaining: list[Mapping[str, Any]] = []
+        for invocation in pending:
+            if any(
+                _same_observed_file(input_record, known)
+                for input_record in invocation["inputs"]
+                for known in reached
+            ):
+                output = invocation["output"]
+                if not any(_same_observed_file(output, known) for known in reached):
+                    reached.append(output)
+                    changed = True
+            else:
+                remaining.append(invocation)
+        pending = remaining
+    return any(_same_observed_file(destination, known) for known in reached)
+
+
+def _runtime_input_records(invocations: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    by_path: dict[str, dict[str, Any]] = {}
+    for invocation in invocations:
+        for observed in invocation["inputs"]:
+            name = Path(observed["path"]).name
+            if name not in _RUNTIME_INPUT_NAMES:
+                continue
+            item = {
+                "name": name,
+                "path": observed["path"],
+                "bytes": observed["bytes"],
+                "sha256": observed["sha256"],
+            }
+            key = _path_identity(observed["path"])
+            if key in by_path and by_path[key] != item:
+                raise LabError(f"recorded runtime input changed during build: {observed['path']}")
+            by_path[key] = item
+    return sorted(by_path.values(), key=lambda item: (item["name"], item["path"]))
 
 
 def _runtime_plan(runtime_names: set[str]) -> str:
@@ -704,6 +948,7 @@ def _is_linker_name(value: str) -> bool:
 def _linker_identity_from_trace(
     clang: Path,
     link_arguments: Sequence[str],
+    link_invocation_sha256: str,
     cwd: Path,
     environment: Mapping[str, str],
     timeout: float,
@@ -735,6 +980,7 @@ def _linker_identity_from_trace(
     linker = linker.resolve(strict=True)
     version = _run_bytes([str(linker), "--version"], cwd=cwd, environment=environment, timeout=timeout)
     return {
+        "link_invocation_sha256": link_invocation_sha256,
         "observed_path": linker_value,
         "path": str(linker),
         "sha256": _sha256_file(linker),
@@ -747,10 +993,16 @@ def _linker_identity_from_trace(
     }
 
 
+def _expected_linker_flags(profile: str) -> list[str]:
+    if profile != "+03":
+        return []
+    return ["-fuse-ld=ld"] if sys.platform == "darwin" else ["-fuse-ld=lld"]
+
+
 def _compile_observation(
     *,
     recording_log: Path,
-    recording_wrapper_sha256: str,
+    recording_identity_sha256: str,
     source_snapshot_sha256: str,
     real_clang: Path,
     lane_dir: Path,
@@ -759,14 +1011,27 @@ def _compile_observation(
     profile: str,
     target_argument: str | None,
     backend_artifact: Path,
+    binary: Path,
     timeout: float,
 ) -> dict[str, Any]:
     raw_invocations = _read_recording_log(recording_log)
-    build_invocations = [arguments for arguments in raw_invocations if "-o" in arguments]
-    probe_invocations = [arguments for arguments in raw_invocations if "-o" not in arguments]
+    invocations = [
+        _invocation_record(value, f"recorded Clang invocation {index}")
+        for index, value in enumerate(raw_invocations)
+    ]
+    build_invocations = [invocation for invocation in invocations if "-o" in invocation["argv"]]
+    probe_invocations = [invocation for invocation in invocations if "-o" not in invocation["argv"]]
     if not build_invocations:
         raise LabError("recording Clang observed no build invocation")
-    flattened = [argument for invocation in build_invocations for argument in invocation]
+    successful_links = [
+        invocation
+        for invocation in build_invocations
+        if invocation["exit_code"] == 0 and "-c" not in invocation["argv"]
+    ]
+    if len(successful_links) != 1:
+        raise LabError(f"recording Clang observed {len(successful_links)} successful link invocations")
+    successful_link = successful_links[0]
+    flattened = [argument for invocation in build_invocations for argument in invocation["argv"]]
     optimization_flags = sorted(set(argument for argument in flattened if re.fullmatch(r"-O[^/\\]*", argument)))
     lto_flags = sorted(set(argument for argument in flattened if argument.startswith("-flto")))
     target_flags = sorted(set(argument for argument in flattened if argument.startswith("--target=")))
@@ -783,56 +1048,74 @@ def _compile_observation(
         raise LabError(f"recorded target flags {target_flags} differ from request {expected_targets}")
     if any(argument in {"-Ofast", "-ffast-math", "-march=native"} for argument in flattened):
         raise LabError("recorded build used a forbidden unsafe optimization flag")
+    link_arguments = successful_link["argv"]
+    actual_linker_flags = sorted(set(argument for argument in link_arguments if argument.startswith("-fuse-ld=")))
+    if actual_linker_flags != _expected_linker_flags(profile):
+        raise LabError(f"successful link flags {actual_linker_flags} do not implement requested profile {profile}")
+    if profile == "+03" and "-flto=thin" not in link_arguments:
+        raise LabError("+03 successful link invocation omits ThinLTO")
 
     artifact_path = backend_artifact.resolve(strict=True)
-    recorded_paths: set[Path] = set()
-    for argument in flattened:
-        if argument.endswith((".c", ".ll")):
-            try:
-                recorded_paths.add(_resolve_recorded_path(argument, lane_dir, "recorded compiler input"))
-            except LabError:
-                continue
-    if artifact_path not in recorded_paths:
-        raise LabError("recorded Clang did not consume the generated backend artifact")
+    artifact_bytes = backend_artifact.read_bytes()
+    artifact_observation = {
+        "path": str(artifact_path),
+        "bytes": len(artifact_bytes),
+        "sha256": _sha256_bytes(artifact_bytes),
+    }
+    artifact_consumers = [
+        invocation
+        for invocation in build_invocations
+        if invocation["exit_code"] == 0
+        and any(_same_observed_file(observed, artifact_observation) for observed in invocation["inputs"])
+    ]
+    if not artifact_consumers:
+        raise LabError("no successful recorded Clang invocation consumed the generated backend artifact")
+    for invocation in artifact_consumers:
+        invocation_opt = sorted(set(argument for argument in invocation["argv"] if re.fullmatch(r"-O[^/\\]*", argument)))
+        if invocation_opt != [profile_spec["opt"]]:
+            raise LabError("backend artifact consumer does not implement the requested optimization")
+        if profile == "+03" and "-flto=thin" not in invocation["argv"]:
+            raise LabError("+03 backend artifact consumer omits ThinLTO")
 
-    runtime_inputs: list[dict[str, Any]] = []
-    seen_runtime_paths: set[Path] = set()
-    for argument in flattened:
-        if Path(argument).name not in _RUNTIME_INPUT_NAMES:
-            continue
-        runtime_path = _resolve_recorded_path(argument, lane_dir, "recorded runtime input")
-        if runtime_path in seen_runtime_paths:
-            continue
-        seen_runtime_paths.add(runtime_path)
-        runtime_inputs.append(
-            {
-                "name": runtime_path.name,
-                "path": str(runtime_path),
-                "bytes": runtime_path.stat().st_size,
-                "sha256": _sha256_file(runtime_path),
-            }
-        )
-    runtime_inputs.sort(key=lambda value: (value["name"], value["path"]))
-    runtime_names = {value["name"] for value in runtime_inputs}
+    binary_path = binary.resolve(strict=True)
+    binary_observation = {
+        "path": str(binary_path),
+        "bytes": binary.stat().st_size,
+        "sha256": _sha256_file(binary),
+    }
+    if successful_link["output"] is None or not _same_observed_file(successful_link["output"], binary_observation):
+        raise LabError("successful recorded link output differs from the executable binary")
+    if not _pipeline_reaches(build_invocations, artifact_observation, binary_observation):
+        raise LabError("generated backend artifact is not connected to the executable binary")
+
+    runtime_inputs = _runtime_input_records(build_invocations)
+    linked_runtime_inputs = _runtime_input_records([successful_link])
+    for item in runtime_inputs:
+        runtime_path = _resolve_exact_executable(item["path"], "recorded runtime input")
+        if item["bytes"] != runtime_path.stat().st_size or item["sha256"] != _sha256_file(runtime_path):
+            raise LabError(f"recorded runtime input changed during build: {runtime_path}")
+    runtime_names = {value["name"] for value in linked_runtime_inputs}
+    attempted_runtime_names = {value["name"] for value in runtime_inputs}
     plan = _runtime_plan(runtime_names)
-    if plan == "missing":
+    attempt_plan = _runtime_plan(attempted_runtime_names)
+    if plan == "missing" or attempt_plan == "missing":
         raise LabError("recorded build has no runtime source or object inputs")
-    if profile == "+03" and plan != "source":
+    if profile == "+03" and (plan != "source" or attempt_plan != "source"):
         raise LabError("+03 must link runtime sources in the LTO unit")
-    required_runtime = {"freak_runtime.c"} if plan in {"source", "bundle-source-fallback"} else {"freak_runtime.obj", "freak_runtime.o"}
+    required_runtime = {"freak_runtime.c"} if plan == "source" else {"freak_runtime.obj", "freak_runtime.o"}
     if not (runtime_names & required_runtime):
         raise LabError("recorded build omits the base runtime")
+    llvm_names = {"freak_llvm_runtime.c", "freak_llvm_runtime.o", "freak_llvm_runtime.obj"}
     if backend == "llvm":
-        llvm_names = {"freak_llvm_runtime.c", "freak_llvm_runtime.o", "freak_llvm_runtime.obj"}
         if not (runtime_names & llvm_names):
             raise LabError("recorded LLVM build omits the LLVM runtime")
+    elif runtime_names & llvm_names:
+        raise LabError("recorded C build unexpectedly links the LLVM runtime")
 
-    link_invocations = [arguments for arguments in build_invocations if "-c" not in arguments]
-    if not link_invocations:
-        raise LabError("recording Clang observed no link invocation")
     linker = _linker_identity_from_trace(
         real_clang,
-        link_invocations[-1],
+        link_arguments,
+        successful_link["argv_sha256"],
         lane_dir,
         environment,
         timeout,
@@ -840,20 +1123,24 @@ def _compile_observation(
     return {
         "schema": COMPILE_OBSERVATION_SCHEMA,
         "source_snapshot_sha256": source_snapshot_sha256,
-        "recording_wrapper_sha256": recording_wrapper_sha256,
-        "probe_invocations": [_invocation_record(arguments) for arguments in probe_invocations],
-        "invocations": [_invocation_record(arguments) for arguments in build_invocations],
+        "recording_identity_sha256": recording_identity_sha256,
+        "probe_invocations": probe_invocations,
+        "invocations": build_invocations,
+        "link_invocation_sha256": successful_link["argv_sha256"],
         "optimization_flags": optimization_flags,
         "lto_flags": lto_flags,
         "target_flags": target_flags,
         "linker_flags": linker_flags,
         "runtime_plan": plan,
+        "runtime_attempt_plan": attempt_plan,
         "runtime_inputs": runtime_inputs,
+        "linked_runtime_inputs": linked_runtime_inputs,
         "backend_artifact": {
+            "path": str(artifact_path),
             "suffix": backend_artifact.suffix,
-            "bytes": backend_artifact.stat().st_size,
-            "sha256": _sha256_file(backend_artifact),
-            "content_zlib_base64": _encode_zlib_bytes(backend_artifact.read_bytes()),
+            "bytes": len(artifact_bytes),
+            "sha256": _sha256_bytes(artifact_bytes),
+            "content_zlib_base64": _encode_zlib_bytes(artifact_bytes),
         },
         "linker": linker,
     }
@@ -898,7 +1185,7 @@ def _one_result(
     timeout: float,
     real_clang: Path,
     recording_log: Path,
-    recording_wrapper_sha256: str,
+    recording_identity_sha256: str,
 ) -> dict[str, Any]:
     mode = case["modes"][mode_name]
     source = manifest_dir / case["source"]
@@ -937,9 +1224,10 @@ def _one_result(
         raise LabError(
             f"build did not produce exactly the requested {backend} artifact for {case['id']}"
         )
+    binary = _binary_path(copied_source)
     compile_observation = _compile_observation(
         recording_log=recording_log,
-        recording_wrapper_sha256=recording_wrapper_sha256,
+        recording_identity_sha256=recording_identity_sha256,
         source_snapshot_sha256=case["source_sha256"],
         real_clang=real_clang,
         lane_dir=lane_dir,
@@ -948,17 +1236,35 @@ def _one_result(
         profile=profile,
         target_argument=target_argument,
         backend_artifact=backend_artifact,
+        binary=binary,
         timeout=timeout,
     )
-    binary = _binary_path(copied_source)
 
     run_command = [str(binary), *mode["arguments"]]
+    warmup_records: list[dict[str, Any]] = []
     for warmup_index in range(warmups):
+        warmup_start = time.perf_counter_ns()
         warmed = _run_bytes(run_command, cwd=lane_dir, environment=environment, timeout=timeout)
-        _, _, _, warmup_failures = _verify_completed(
+        warmup_ns = time.perf_counter_ns() - warmup_start
+        warmup_stdout, warmup_stderr, _, warmup_failures = _verify_completed(
             warmed,
             mode,
             f"warmup {warmup_index} for {case['id']}/{backend}/{profile}",
+        )
+        warmup_records.append(
+            {
+                "index": warmup_index,
+                "duration_ns": warmup_ns,
+                "exit_code": warmed.returncode,
+                "stdout": warmup_stdout,
+                "stdout_sha256": _sha256_text(warmup_stdout),
+                "stdout_raw_sha256": _sha256_bytes(warmed.stdout),
+                "stdout_raw_base64": _encode_bytes(warmed.stdout),
+                "stderr": warmup_stderr,
+                "stderr_sha256": _sha256_text(warmup_stderr),
+                "stderr_raw_sha256": _sha256_bytes(warmed.stderr),
+                "stderr_raw_base64": _encode_bytes(warmed.stderr),
+            }
         )
         if warmup_failures:
             raise LabError(
@@ -1013,6 +1319,14 @@ def _one_result(
             else RUNTIME_COUNTERS_UNAVAILABLE_REASON
         )
 
+    linked_output = next(
+        invocation["output"]
+        for invocation in compile_observation["invocations"]
+        if invocation["argv_sha256"] == compile_observation["link_invocation_sha256"]
+    )
+    if linked_output is None or linked_output["bytes"] != binary.stat().st_size or linked_output["sha256"] != _sha256_file(binary):
+        raise LabError(f"executed binary changed during samples for {case['id']}/{backend}/{profile}")
+    binary_bytes = binary.read_bytes()
     profile_spec = _PROFILE_SPECS[profile]
     return {
         "case": case["id"],
@@ -1045,11 +1359,16 @@ def _one_result(
             "observation": compile_observation,
         },
         "binary": {
-            "bytes": binary.stat().st_size,
-            "sha256": _sha256_file(binary),
-            "content_zlib_base64": _encode_zlib_bytes(binary.read_bytes()),
+            "path": str(binary.resolve(strict=True)),
+            "bytes": len(binary_bytes),
+            "sha256": _sha256_bytes(binary_bytes),
+            "content_zlib_base64": _encode_zlib_bytes(binary_bytes),
         },
-        "run": {"samples": run_samples, "median_ns": int(statistics.median(durations))},
+        "run": {
+            "warmups": warmup_records,
+            "samples": run_samples,
+            "median_ns": int(statistics.median(durations)),
+        },
         "peak_rss_bytes": None,
         "peak_rss_reason": RSS_UNAVAILABLE_REASON,
         "runtime_counters": runtime_counters,
@@ -1069,7 +1388,7 @@ def run_lab(args: argparse.Namespace) -> dict[str, Any]:
         work_dir = Path(temporary).resolve()
         snapshot_dir = work_dir / "source-snapshot"
         _snapshot_sources(manifest, manifest_path.parent, snapshot_dir)
-        wrapper, recording_log, recording_wrapper_sha256 = _write_recording_clang(work_dir, clang)
+        wrapper, recording_log, recording_identity = _write_recording_clang(work_dir, clang)
         environment = dict(identity_environment)
         environment["FREAK_CLANG"] = str(wrapper)
         environment["FREAK_PERF_REAL_CLANG"] = str(clang)
@@ -1113,7 +1432,7 @@ def run_lab(args: argparse.Namespace) -> dict[str, Any]:
                             timeout=args.timeout,
                             real_clang=clang,
                             recording_log=recording_log,
-                            recording_wrapper_sha256=recording_wrapper_sha256,
+                            recording_identity_sha256=recording_identity["combined_sha256"],
                         )
                     )
 
@@ -1128,6 +1447,7 @@ def run_lab(args: argparse.Namespace) -> dict[str, Any]:
             "schema": manifest["schema"],
             "sha256": _sha256_file(manifest_path),
         },
+        "recording": recording_identity,
         "compiler": compiler,
         "toolchain": toolchain,
         "host": _host_identity(),
@@ -1154,13 +1474,51 @@ def run_lab(args: argparse.Namespace) -> dict[str, Any]:
     return document
 
 
-def _validate_invocation_record(value: Any, context: str) -> list[str]:
-    record = _require_dict(value, context)
-    _exact_keys(record, {"argv", "argv_sha256"}, context)
-    arguments = _require_string_list(record.get("argv"), f"{context}.argv")
-    if record.get("argv_sha256") != _json_sha256(arguments):
-        raise LabError(f"{context}.argv checksum is invalid")
-    return arguments
+def _validate_invocation_record(value: Any, context: str) -> dict[str, Any]:
+    return _validate_invocation_payload(value, context, stored=True)
+
+
+def _validate_recording_identity(value: Any, context: str) -> dict[str, Any]:
+    identity = _require_dict(value, context)
+    _exact_keys(identity, _RECORDING_IDENTITY_KEYS, context)
+    if identity.get("schema") != "freak-v3-recording-wrapper-v1":
+        raise LabError(f"{context}.schema is unsupported")
+    expected_kind = "windows-cmd" if sys.platform == "win32" else "posix-executable"
+    if identity.get("kind") != expected_kind:
+        raise LabError(f"{context}.kind differs from the validation platform")
+    python_executable = _require_string(
+        identity.get("python_executable"),
+        f"{context}.python_executable",
+        nonempty=True,
+    )
+    if python_executable != str(Path(sys.executable).resolve(strict=True)):
+        raise LabError(f"{context}.python_executable differs from the validator")
+    recorder_path = _require_string(identity.get("recorder_path"), f"{context}.recorder_path", nonempty=True)
+    wrapper_path = _require_string(identity.get("wrapper_path"), f"{context}.wrapper_path", nonempty=True)
+    if not Path(recorder_path).is_absolute() or not Path(wrapper_path).is_absolute():
+        raise LabError(f"{context} paths must be absolute")
+    if Path(recorder_path).name != "record_clang.py":
+        raise LabError(f"{context}.recorder_path is not canonical")
+    expected_wrapper_name = "record-clang.cmd" if expected_kind == "windows-cmd" else "record-clang"
+    if Path(wrapper_path).name != expected_wrapper_name:
+        raise LabError(f"{context}.wrapper_path is not canonical")
+
+    recorder_bytes = _decode_bytes(identity.get("recorder_content_base64"), f"{context}.recorder_content_base64")
+    wrapper_bytes = _decode_bytes(identity.get("wrapper_content_base64"), f"{context}.wrapper_content_base64")
+    expected_recorder = _recording_recorder_text().encode("utf-8")
+    expected_wrapper = _recording_wrapper_bytes(
+        expected_kind,
+        python_executable,
+        recorder_path,
+        _recording_recorder_text(),
+    )
+    if recorder_bytes != expected_recorder or identity.get("recorder_sha256") != _sha256_bytes(recorder_bytes):
+        raise LabError(f"{context} recorder content is not canonical")
+    if wrapper_bytes != expected_wrapper or identity.get("wrapper_sha256") != _sha256_bytes(wrapper_bytes):
+        raise LabError(f"{context} wrapper content is not canonical")
+    if identity.get("combined_sha256") != _recording_identity_digest(identity):
+        raise LabError(f"{context}.combined_sha256 is invalid")
+    return identity
 
 
 def _validate_linker_identity(
@@ -1168,9 +1526,11 @@ def _validate_linker_identity(
     context: str,
     environment: Mapping[str, str],
     timeout: float,
+    expected_link_invocation_sha256: str,
 ) -> dict[str, Any]:
     linker = _require_dict(value, context)
     expected_keys = {
+        "link_invocation_sha256",
         "observed_path",
         "path",
         "sha256",
@@ -1182,6 +1542,8 @@ def _validate_linker_identity(
         "trace_sha256",
     }
     _exact_keys(linker, expected_keys, context)
+    if linker.get("link_invocation_sha256") != expected_link_invocation_sha256:
+        raise LabError(f"{context} trace is detached from the successful link invocation")
     observed_path = _require_string(linker.get("observed_path"), f"{context}.observed_path", nonempty=True)
     path = _resolve_exact_executable(_require_string(linker.get("path"), f"{context}.path"), "result linker")
     if linker.get("sha256") != _sha256_file(path) or linker.get("bytes") != path.stat().st_size:
@@ -1221,6 +1583,9 @@ def _validate_compile_observation(
     target_requested: str,
     source_name: str,
     source_sha256: str,
+    compile_source_path: str,
+    binary: Mapping[str, Any],
+    recording_identity_sha256: str,
     environment: Mapping[str, str],
     timeout: float,
 ) -> None:
@@ -1230,14 +1595,14 @@ def _validate_compile_observation(
         raise LabError(f"{context}.schema is invalid")
     if observation.get("source_snapshot_sha256") != source_sha256:
         raise LabError(f"{context}.source_snapshot_sha256 differs from the compiled source")
-    if not re.fullmatch(r"[0-9a-f]{64}", str(observation.get("recording_wrapper_sha256", ""))):
-        raise LabError(f"{context}.recording_wrapper_sha256 is invalid")
+    if observation.get("recording_identity_sha256") != recording_identity_sha256:
+        raise LabError(f"{context}.recording_identity_sha256 differs from the root recorder")
     probes = _require_list(observation.get("probe_invocations"), f"{context}.probe_invocations")
-    probe_arguments = [
+    probe_invocations = [
         _validate_invocation_record(value, f"{context}.probe_invocations[{index}]")
         for index, value in enumerate(probes)
     ]
-    if not any("--version" in arguments for arguments in probe_arguments):
+    if not any("--version" in invocation["argv"] and invocation["exit_code"] == 0 for invocation in probe_invocations):
         raise LabError(f"{context} lacks the CLI's Clang identity probe")
     raw_invocations = _require_list(observation.get("invocations"), f"{context}.invocations")
     invocations = [
@@ -1246,7 +1611,31 @@ def _validate_compile_observation(
     ]
     if not invocations:
         raise LabError(f"{context} has no build invocations")
-    flattened = [argument for invocation in invocations for argument in invocation]
+    successful_links = [
+        invocation
+        for invocation in invocations
+        if invocation["exit_code"] == 0 and "-c" not in invocation["argv"]
+    ]
+    if len(successful_links) != 1:
+        raise LabError(f"{context} must contain exactly one successful link invocation")
+    successful_link = successful_links[0]
+    if observation.get("link_invocation_sha256") != successful_link["argv_sha256"]:
+        raise LabError(f"{context}.link_invocation_sha256 does not select the successful link")
+    link_output = successful_link.get("output")
+    if link_output is None or not _same_observed_file(link_output, binary):
+        raise LabError(f"{context} successful link output differs from the executed binary")
+
+    source_path = Path(compile_source_path)
+    if not source_path.is_absolute() or source_path.name != Path(source_name).name:
+        raise LabError(f"{context} compile source path is not canonical")
+    expected_binary_paths = {
+        _path_identity(str(source_path.with_suffix(".exe").resolve(strict=False))),
+        _path_identity(str(source_path.with_suffix("").resolve(strict=False))),
+    }
+    if _path_identity(str(binary["path"])) not in expected_binary_paths:
+        raise LabError(f"{context} binary path is detached from the compile source")
+
+    flattened = [argument for invocation in invocations for argument in invocation["argv"]]
     derived_opt = sorted(set(argument for argument in flattened if re.fullmatch(r"-O[^/\\]*", argument)))
     derived_lto = sorted(set(argument for argument in flattened if argument.startswith("-flto")))
     derived_target = sorted(set(argument for argument in flattened if argument.startswith("--target=")))
@@ -1263,41 +1652,19 @@ def _validate_compile_observation(
         raise LabError(f"{context} linker flags are inconsistent")
     if any(argument in {"-Ofast", "-ffast-math", "-march=native"} for argument in flattened):
         raise LabError(f"{context} contains an unsafe optimization flag")
+    link_arguments = successful_link["argv"]
+    if sorted(set(argument for argument in link_arguments if argument.startswith("-fuse-ld="))) != _expected_linker_flags(profile):
+        raise LabError(f"{context} successful linker flags do not implement {profile}")
+    if profile == "+03" and "-flto=thin" not in link_arguments:
+        raise LabError(f"{context} successful link omits ThinLTO")
+
     expected_suffix = ".c" if backend == "c" else ".ll"
-    expected_artifact_name = source_name + expected_suffix
-    if not any(Path(argument).name == Path(expected_artifact_name).name for argument in flattened):
-        raise LabError(f"{context} does not consume the requested backend artifact")
-
-    raw_inputs = _require_list(observation.get("runtime_inputs"), f"{context}.runtime_inputs")
-    runtime_names: set[str] = set()
-    paths_seen: set[str] = set()
-    for index, raw_input in enumerate(raw_inputs):
-        item_context = f"{context}.runtime_inputs[{index}]"
-        item = _require_dict(raw_input, item_context)
-        _exact_keys(item, {"name", "path", "bytes", "sha256"}, item_context)
-        path = _resolve_exact_executable(_require_string(item.get("path"), f"{item_context}.path"), "runtime input")
-        if item.get("name") != path.name or path.name not in _RUNTIME_INPUT_NAMES:
-            raise LabError(f"{item_context} name is invalid")
-        if str(path) in paths_seen:
-            raise LabError(f"{context} repeats a runtime input")
-        paths_seen.add(str(path))
-        runtime_names.add(path.name)
-        if item.get("bytes") != path.stat().st_size or item.get("sha256") != _sha256_file(path):
-            raise LabError(f"{item_context} provenance is stale")
-    derived_plan = _runtime_plan(runtime_names)
-    if observation.get("runtime_plan") != derived_plan or derived_plan == "missing":
-        raise LabError(f"{context} runtime plan is invalid")
-    if profile == "+03" and derived_plan != "source":
-        raise LabError(f"{context} +03 runtime plan is not source-linked")
-    if not (runtime_names & {"freak_runtime.c", "freak_runtime.o", "freak_runtime.obj"}):
-        raise LabError(f"{context} omits the base runtime")
-    if backend == "llvm" and not (
-        runtime_names & {"freak_llvm_runtime.c", "freak_llvm_runtime.o", "freak_llvm_runtime.obj"}
-    ):
-        raise LabError(f"{context} omits the LLVM runtime")
-
     artifact = _require_dict(observation.get("backend_artifact"), f"{context}.backend_artifact")
     _exact_keys(artifact, _ARTIFACT_KEYS, f"{context}.backend_artifact")
+    expected_artifact_path = str(Path(compile_source_path + expected_suffix).resolve(strict=False))
+    artifact_path = _require_string(artifact.get("path"), f"{context}.backend_artifact.path", nonempty=True)
+    if _path_identity(artifact_path) != _path_identity(expected_artifact_path):
+        raise LabError(f"{context} backend artifact path is detached from the compile source")
     if artifact.get("suffix") != expected_suffix:
         raise LabError(f"{context} backend artifact suffix is invalid")
     artifact_size = _require_int(
@@ -1316,7 +1683,120 @@ def _validate_compile_observation(
         or artifact.get("sha256") != _sha256_bytes(artifact_bytes)
     ):
         raise LabError(f"{context} backend artifact provenance is invalid")
-    _validate_linker_identity(observation.get("linker"), f"{context}.linker", environment, timeout)
+    artifact_observation = {
+        "path": artifact_path,
+        "bytes": artifact_size,
+        "sha256": artifact["sha256"],
+    }
+    artifact_consumers = [
+        invocation
+        for invocation in invocations
+        if invocation["exit_code"] == 0
+        and any(_same_observed_file(observed, artifact_observation) for observed in invocation["inputs"])
+    ]
+    if not artifact_consumers:
+        raise LabError(f"{context} has no successful backend artifact consumer")
+    for invocation in artifact_consumers:
+        invocation_opt = sorted(set(argument for argument in invocation["argv"] if re.fullmatch(r"-O[^/\\]*", argument)))
+        if invocation_opt != [profile_spec["opt"]]:
+            raise LabError(f"{context} backend artifact consumer has the wrong optimization")
+        if profile == "+03" and "-flto=thin" not in invocation["argv"]:
+            raise LabError(f"{context} +03 backend artifact consumer omits ThinLTO")
+    if not _pipeline_reaches(invocations, artifact_observation, binary):
+        raise LabError(f"{context} backend artifact does not reach the executable binary")
+
+    def validate_runtime_items(raw_value: Any, item_context: str) -> list[dict[str, Any]]:
+        raw_items = _require_list(raw_value, item_context)
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for index, raw_item in enumerate(raw_items):
+            current = f"{item_context}[{index}]"
+            item = _require_dict(raw_item, current)
+            _exact_keys(item, {"name", "path", "bytes", "sha256"}, current)
+            path = _resolve_exact_executable(_require_string(item.get("path"), f"{current}.path"), "runtime input")
+            if item.get("name") != path.name or path.name not in _RUNTIME_INPUT_NAMES:
+                raise LabError(f"{current} name is invalid")
+            key = _path_identity(str(path))
+            if key in seen:
+                raise LabError(f"{item_context} repeats a runtime input")
+            seen.add(key)
+            if item.get("bytes") != path.stat().st_size or item.get("sha256") != _sha256_file(path):
+                raise LabError(f"{current} provenance is stale")
+            items.append(item)
+        if items != sorted(items, key=lambda item: (item["name"], item["path"])):
+            raise LabError(f"{item_context} is not canonically ordered")
+        return items
+
+    runtime_inputs = validate_runtime_items(observation.get("runtime_inputs"), f"{context}.runtime_inputs")
+    linked_runtime_inputs = validate_runtime_items(
+        observation.get("linked_runtime_inputs"),
+        f"{context}.linked_runtime_inputs",
+    )
+    if runtime_inputs != _runtime_input_records(invocations):
+        raise LabError(f"{context}.runtime_inputs are detached from invocation inputs")
+    if linked_runtime_inputs != _runtime_input_records([successful_link]):
+        raise LabError(f"{context}.linked_runtime_inputs are detached from the successful link")
+    runtime_names = {item["name"] for item in linked_runtime_inputs}
+    attempted_names = {item["name"] for item in runtime_inputs}
+    derived_plan = _runtime_plan(runtime_names)
+    derived_attempt_plan = _runtime_plan(attempted_names)
+    if observation.get("runtime_plan") != derived_plan or derived_plan not in {"source", "bundle"}:
+        raise LabError(f"{context} runtime plan is invalid")
+    if observation.get("runtime_attempt_plan") != derived_attempt_plan or derived_attempt_plan == "missing":
+        raise LabError(f"{context} runtime attempt plan is invalid")
+    if profile == "+03" and (derived_plan != "source" or derived_attempt_plan != "source"):
+        raise LabError(f"{context} +03 runtime plan is not source-linked")
+    required_base = {"freak_runtime.c"} if derived_plan == "source" else {"freak_runtime.o", "freak_runtime.obj"}
+    if not (runtime_names & required_base):
+        raise LabError(f"{context} omits the base runtime")
+    llvm_names = {"freak_llvm_runtime.c", "freak_llvm_runtime.o", "freak_llvm_runtime.obj"}
+    if backend == "llvm" and not (runtime_names & llvm_names):
+        raise LabError(f"{context} omits the LLVM runtime")
+    if backend == "c" and runtime_names & llvm_names:
+        raise LabError(f"{context} C backend unexpectedly links the LLVM runtime")
+
+    _validate_linker_identity(
+        observation.get("linker"),
+        f"{context}.linker",
+        environment,
+        timeout,
+        successful_link["argv_sha256"],
+    )
+
+
+def _validate_execution_record(
+    value: Any,
+    context: str,
+    index: int,
+    mode: Mapping[str, Any],
+) -> tuple[int, dict[str, Any] | None]:
+    record = _require_dict(value, context)
+    _exact_keys(record, _SAMPLE_KEYS, context)
+    if record.get("index") != index:
+        raise LabError(f"{context} index is not canonical")
+    duration = _require_int(record.get("duration_ns"), f"{context}.duration_ns", minimum=0)
+    if record.get("exit_code") != mode["expected_exit_code"]:
+        raise LabError(f"{context} exit code differs from manifest")
+    raw_stdout = _decode_bytes(record.get("stdout_raw_base64"), f"{context}.stdout_raw_base64")
+    raw_stderr = _decode_bytes(record.get("stderr_raw_base64"), f"{context}.stderr_raw_base64")
+    if record.get("stdout_raw_sha256") != _sha256_bytes(raw_stdout):
+        raise LabError(f"{context} raw stdout checksum is invalid")
+    if record.get("stderr_raw_sha256") != _sha256_bytes(raw_stderr):
+        raise LabError(f"{context} raw stderr checksum is invalid")
+    canonical_stdout = _canonical_output(raw_stdout, f"{context} stdout")
+    canonical_raw_stderr = _canonical_output(raw_stderr, f"{context} stderr")
+    canonical_stderr, counter, counter_failures = _strip_runtime_stats(canonical_raw_stderr)
+    if counter_failures:
+        raise LabError(f"{context} runtime stats are invalid: {counter_failures}")
+    for channel, text in (("stdout", canonical_stdout), ("stderr", canonical_stderr)):
+        checksum = record.get(f"{channel}_sha256")
+        if record.get(channel) != text:
+            raise LabError(f"{context} stored {channel} differs from raw bytes")
+        if text != mode[f"expected_{channel}"] or checksum != mode[f"expected_{channel}_sha256"]:
+            raise LabError(f"{context} {channel} differs from manifest")
+        if checksum != _sha256_text(text):
+            raise LabError(f"{context} {channel} checksum is invalid")
+    return duration, counter
 
 
 def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str, Any]:
@@ -1327,6 +1807,7 @@ def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str,
         "schema",
         "lab",
         "manifest",
+        "recording",
         "compiler",
         "toolchain",
         "host",
@@ -1353,6 +1834,7 @@ def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str,
     lab_path = Path(_require_string(lab_info.get("path"), "result.lab.path")).resolve(strict=True)
     if lab_info.get("sha256") != _sha256_file(lab_path):
         raise LabError("result lab hash is stale")
+    recording_identity = _validate_recording_identity(document["recording"], "result.recording")
 
     compiler = _require_dict(document["compiler"], "result.compiler")
     compiler_keys = {
@@ -1436,7 +1918,7 @@ def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str,
         "result.configuration.available_profiles",
     )
     samples = _require_int(configuration.get("samples"), "result.configuration.samples", minimum=1)
-    _require_int(configuration.get("warmups"), "result.configuration.warmups", minimum=0)
+    warmups = _require_int(configuration.get("warmups"), "result.configuration.warmups", minimum=0)
     if samples % 2 == 0:
         raise LabError("result sample count must be odd")
     if not cases or not backends or not profiles:
@@ -1539,19 +2021,11 @@ def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str,
             or compile_command[3:] != expected_tail
         ):
             raise LabError(f"{context} compile command differs from its result dimensions")
-        _validate_compile_observation(
-            compile_info.get("observation"),
-            context=f"{context}.compile.observation",
-            backend=combination[1],
-            profile=combination[2],
-            target_requested=requested_target,
-            source_name=case["source"],
-            source_sha256=case["source_sha256"],
-            environment=validation_environment,
-            timeout=validation_timeout,
-        )
         binary = _require_dict(result.get("binary"), f"{context}.binary")
         _exact_keys(binary, _BINARY_KEYS, f"{context}.binary")
+        binary_path = _require_string(binary.get("path"), f"{context}.binary.path", nonempty=True)
+        if not Path(binary_path).is_absolute():
+            raise LabError(f"{context}.binary.path must be absolute")
         binary_size = _require_int(binary.get("bytes"), f"{context}.binary.bytes", minimum=1)
         binary_bytes = _decode_zlib_bytes(
             binary.get("content_zlib_base64"),
@@ -1564,48 +2038,46 @@ def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str,
             or binary.get("sha256") != _sha256_bytes(binary_bytes)
         ):
             raise LabError(f"{context} binary provenance is invalid")
+        _validate_compile_observation(
+            compile_info.get("observation"),
+            context=f"{context}.compile.observation",
+            backend=combination[1],
+            profile=combination[2],
+            target_requested=requested_target,
+            source_name=case["source"],
+            source_sha256=case["source_sha256"],
+            compile_source_path=compile_command[2],
+            binary=binary,
+            recording_identity_sha256=recording_identity["combined_sha256"],
+            environment=validation_environment,
+            timeout=validation_timeout,
+        )
         run = _require_dict(result.get("run"), f"{context}.run")
-        _exact_keys(run, {"samples", "median_ns"}, f"{context}.run")
+        _exact_keys(run, {"warmups", "samples", "median_ns"}, f"{context}.run")
+        raw_warmups = _require_list(run.get("warmups"), f"{context}.run.warmups")
+        if len(raw_warmups) != warmups:
+            raise LabError(f"{context} has the wrong warmup count")
+        for warmup_index, raw_warmup in enumerate(raw_warmups):
+            _validate_execution_record(
+                raw_warmup,
+                f"{context}.run.warmups[{warmup_index}]",
+                warmup_index,
+                mode,
+            )
         raw_samples = _require_list(run.get("samples"), f"{context}.run.samples")
         if len(raw_samples) != samples:
             raise LabError(f"{context} has the wrong sample count")
         durations: list[int] = []
         observed_counters: list[dict[str, Any] | None] = []
         for sample_index, raw_sample in enumerate(raw_samples):
-            sample = _require_dict(raw_sample, f"{context}.run.samples[{sample_index}]")
-            _exact_keys(sample, _SAMPLE_KEYS, f"{context}.run.samples[{sample_index}]")
-            if sample.get("index") != sample_index:
-                raise LabError(f"{context} sample indexes are not canonical")
-            duration = _require_int(sample.get("duration_ns"), f"{context} sample duration", minimum=0)
+            duration, counter = _validate_execution_record(
+                raw_sample,
+                f"{context}.run.samples[{sample_index}]",
+                sample_index,
+                mode,
+            )
             durations.append(duration)
-            if sample.get("exit_code") != mode["expected_exit_code"]:
-                raise LabError(f"{context} sample exit code differs from manifest")
-            raw_stdout = _decode_bytes(
-                sample.get("stdout_raw_base64"),
-                f"{context}.run.samples[{sample_index}].stdout_raw_base64",
-            )
-            raw_stderr = _decode_bytes(
-                sample.get("stderr_raw_base64"),
-                f"{context}.run.samples[{sample_index}].stderr_raw_base64",
-            )
-            if sample.get("stdout_raw_sha256") != _sha256_bytes(raw_stdout):
-                raise LabError(f"{context} sample raw stdout checksum is invalid")
-            if sample.get("stderr_raw_sha256") != _sha256_bytes(raw_stderr):
-                raise LabError(f"{context} sample raw stderr checksum is invalid")
-            canonical_stdout = _canonical_output(raw_stdout, f"{context} sample stdout")
-            canonical_raw_stderr = _canonical_output(raw_stderr, f"{context} sample stderr")
-            canonical_stderr, counter, counter_failures = _strip_runtime_stats(canonical_raw_stderr)
-            if counter_failures:
-                raise LabError(f"{context} sample runtime stats are invalid: {counter_failures}")
             observed_counters.append(counter)
-            for channel, text in (("stdout", canonical_stdout), ("stderr", canonical_stderr)):
-                checksum = sample.get(f"{channel}_sha256")
-                if sample.get(channel) != text:
-                    raise LabError(f"{context} sample stored {channel} differs from raw bytes")
-                if text != mode[f"expected_{channel}"] or checksum != mode[f"expected_{channel}_sha256"]:
-                    raise LabError(f"{context} sample {channel} differs from manifest")
-                if checksum != _sha256_text(text):
-                    raise LabError(f"{context} sample {channel} checksum is invalid")
         if run.get("median_ns") != int(statistics.median(durations)):
             raise LabError(f"{context} median does not match raw samples")
         if result.get("peak_rss_bytes") is not None or result.get("peak_rss_reason") != RSS_UNAVAILABLE_REASON:

@@ -125,6 +125,18 @@ def _static_checks(temporary: Path) -> dict[str, Any]:
         "malformed manifest mode was accepted",
     )
 
+    duplicate_manifest = temporary / "duplicate-manifest"
+    shutil.copytree(MANIFEST.parent, duplicate_manifest)
+    duplicate_path = duplicate_manifest / "manifest.json"
+    duplicate_text = duplicate_path.read_text(encoding="utf-8")
+    duplicate_text = duplicate_text.replace(
+        '"schema": "freak-v3-performance-manifest-v1"',
+        '"schema": "freak-v3-performance-manifest-v1",\n  "schema": "freak-v3-performance-manifest-v1"',
+        1,
+    )
+    duplicate_path.write_text(duplicate_text, encoding="utf-8")
+    _expect_lab_error(lambda: LAB.load_manifest(duplicate_path), "duplicate manifest key was accepted")
+
     unbound = temporary / "unbound"
     shutil.copytree(MANIFEST.parent, unbound)
     (unbound / "unlisted.fk").write_text("task main() {}\n", encoding="utf-8")
@@ -174,6 +186,98 @@ def _mutate_recorded_optimization(document: dict[str, Any]) -> None:
     observation["optimization_flags"] = ["-O2"]
 
 
+def _replace_embedded_content(record: dict[str, Any], content: bytes) -> None:
+    record["bytes"] = len(content)
+    record["sha256"] = LAB._sha256_bytes(content)
+    record["content_zlib_base64"] = LAB._encode_zlib_bytes(content)
+
+
+def _mutate_link_output(document: dict[str, Any]) -> None:
+    observation = document["results"][0]["compile"]["observation"]
+    selected = observation["link_invocation_sha256"]
+    invocation = next(item for item in observation["invocations"] if item["argv_sha256"] == selected)
+    output_index = invocation["argv"].index("-o")
+    invocation["argv"][output_index + 1] = str(Path(invocation["cwd"]) / "detached-output.exe")
+    invocation["argv_sha256"] = LAB._json_sha256(invocation["argv"])
+    observation["link_invocation_sha256"] = invocation["argv_sha256"]
+    observation["linker"]["link_invocation_sha256"] = invocation["argv_sha256"]
+
+
+def _detach_link_runtime_input(document: dict[str, Any]) -> None:
+    observation = document["results"][0]["compile"]["observation"]
+    selected = observation["link_invocation_sha256"]
+    invocation = next(item for item in observation["invocations"] if item["argv_sha256"] == selected)
+    for index, input_record in enumerate(invocation["inputs"]):
+        if Path(input_record["path"]).name in LAB._RUNTIME_INPUT_NAMES:
+            del invocation["inputs"][index]
+            return
+    raise AssertionError("selected link invocation did not contain a runtime input")
+
+
+def _mutate_canonical_recorder(document: dict[str, Any]) -> None:
+    recording = document["recording"]
+    content = b"#!/usr/bin/env python3\nraise SystemExit(0)\n"
+    recording["recorder_content_base64"] = LAB._encode_bytes(content)
+    recording["recorder_sha256"] = LAB._sha256_bytes(content)
+    recording["combined_sha256"] = LAB._recording_identity_digest(recording)
+
+
+def _profile_matrix_checks(temporary: Path, cli: Path, clang: Path | None) -> None:
+    output = temporary / "profile-matrix.json"
+    command = [
+        sys.executable,
+        "-u",
+        str(TOOL),
+        "--cli",
+        str(cli),
+        "--manifest",
+        str(MANIFEST),
+        "--output",
+        str(output),
+        "--quick",
+        "--case",
+        "startup_empty",
+        "--backend",
+        "c",
+        "--samples",
+        "1",
+        "--warmups",
+        "1",
+    ]
+    if clang is not None:
+        command.extend(["--clang", str(clang)])
+    completed = subprocess.run(
+        command,
+        cwd=str(ROOT),
+        env=os.environ.copy(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=600,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            f"profile matrix failed with {completed.returncode}\n"
+            f"stdout:\n{completed.stdout.decode('utf-8', errors='replace')}\n"
+            f"stderr:\n{completed.stderr.decode('utf-8', errors='replace')}"
+        )
+    document = LAB.validate_output(output, cli_override=str(cli))
+    profiles = document["configuration"]["profiles"]
+    assert profiles == document["configuration"]["available_profiles"]
+    assert profiles[:4] == ["O0", "O1", "O2", "O3"]
+    assert {result["profile"] for result in document["results"]} == set(profiles)
+    for result in document["results"]:
+        observation = result["compile"]["observation"]
+        spec = LAB._PROFILE_SPECS[result["profile"]]
+        assert observation["optimization_flags"] == [spec["opt"]]
+        assert observation["lto_flags"] == spec["lto"]
+        assert observation["linker_flags"] == LAB._expected_linker_flags(result["profile"])
+        assert len(result["run"]["warmups"]) == 1
+        if result["profile"] == "+03":
+            assert observation["runtime_plan"] == "source"
+            assert observation["runtime_attempt_plan"] == "source"
+
+
 def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Path | None) -> None:
     before = {path.relative_to(MANIFEST.parent).as_posix(): _sha256(path) for path in MANIFEST.parent.rglob("*") if path.is_file()}
     output = temporary / "quick.json"
@@ -213,14 +317,14 @@ def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Pa
         env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
         timeout=600,
         check=False,
     )
     if completed.returncode != 0:
         raise AssertionError(
-            f"quick lab failed with {completed.returncode}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+            f"quick lab failed with {completed.returncode}\n"
+            f"stdout:\n{completed.stdout.decode('utf-8', errors='replace')}\n"
+            f"stderr:\n{completed.stderr.decode('utf-8', errors='replace')}"
         )
 
     document = LAB.validate_output(output, cli_override=str(cli))
@@ -228,6 +332,8 @@ def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Pa
     assert document["compiler"]["path"] == str(cli)
     assert document["compiler"]["sha256"] == _sha256(cli)
     assert document["compiler"]["version"]
+    assert document["recording"]["schema"] == "freak-v3-recording-wrapper-v1"
+    assert document["recording"]["combined_sha256"] == LAB._recording_identity_digest(document["recording"])
     assert document["configuration"]["mode"] == "quick"
     assert document["configuration"]["profiles"] == ["O0"]
     assert document["configuration"]["backends"] == ["c", "llvm"]
@@ -248,7 +354,17 @@ def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Pa
         assert observation["backend_artifact"]["suffix"] == (
             ".c" if result["backend"] == "c" else ".ll"
         )
-        assert observation["runtime_plan"] in {"source", "bundle", "bundle-source-fallback"}
+        assert observation["recording_identity_sha256"] == document["recording"]["combined_sha256"]
+        assert observation["runtime_plan"] in {"source", "bundle"}
+        assert observation["runtime_attempt_plan"] in {"source", "bundle", "bundle-source-fallback"}
+        assert observation["linked_runtime_inputs"]
+        link = next(
+            invocation
+            for invocation in observation["invocations"]
+            if invocation["argv_sha256"] == observation["link_invocation_sha256"]
+        )
+        assert link["exit_code"] == 0 and link["output"]["sha256"] == result["binary"]["sha256"]
+        assert result["run"]["warmups"] == []
         assert result["peak_rss_bytes"] is None and result["peak_rss_reason"]
         assert result["runtime_counters"] is None and result["runtime_counters_reason"]
     assert "must-not-leak" not in output.read_text(encoding="utf-8")
@@ -266,8 +382,39 @@ def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Pa
     _mutate_and_reject(
         temporary,
         document,
+        "recording-identity-hash",
+        lambda value: value["recording"].__setitem__("combined_sha256", "0" * 64),
+        cli,
+    )
+    _mutate_and_reject(
+        temporary,
+        document,
+        "recording-canonical-content",
+        _mutate_canonical_recorder,
+        cli,
+    )
+    _mutate_and_reject(
+        temporary,
+        document,
+        "warmup-count",
+        lambda value: value["configuration"].__setitem__("warmups", 999),
+        cli,
+    )
+    _mutate_and_reject(
+        temporary,
+        document,
         "compiler-hash",
         lambda value: value["compiler"].__setitem__("sha256", "0" * 64),
+        cli,
+    )
+    _mutate_and_reject(
+        temporary,
+        document,
+        "backend-artifact-recomputed",
+        lambda value: _replace_embedded_content(
+            value["results"][0]["compile"]["observation"]["backend_artifact"],
+            b"detached backend artifact",
+        ),
         cli,
     )
     _mutate_and_reject(
@@ -277,6 +424,33 @@ def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Pa
         lambda value: value["results"][0].__setitem__("unknown", True),
         cli,
     )
+    _mutate_and_reject(
+        temporary,
+        document,
+        "binary-recomputed",
+        lambda value: _replace_embedded_content(
+            value["results"][0]["binary"],
+            b"detached executable binary",
+        ),
+        cli,
+    )
+    _mutate_and_reject(temporary, document, "link-output", _mutate_link_output, cli)
+    _mutate_and_reject(temporary, document, "detached-link-runtime", _detach_link_runtime_input, cli)
+
+    duplicate_output = temporary / "reject-duplicate-nested-key.json"
+    duplicate_text = output.read_text(encoding="utf-8")
+    binary_path_text = json.dumps(document["results"][0]["binary"]["path"])
+    binary_start = duplicate_text.index('"binary": {')
+    path_start = duplicate_text.index(f'"path": {binary_path_text}', binary_start)
+    needle = f'"path": {binary_path_text}'
+    duplicate_text = duplicate_text[:path_start] + needle + ",\n        " + duplicate_text[path_start:]
+    duplicate_output.write_text(duplicate_text, encoding="utf-8")
+    _expect_lab_error(
+        lambda: LAB.validate_output(duplicate_output, cli_override=str(cli)),
+        "duplicate nested artifact key was accepted",
+    )
+
+    _profile_matrix_checks(temporary, cli, clang)
     _mutate_and_reject(
         temporary,
         document,
