@@ -400,10 +400,21 @@ the byte-stable MIR snapshot v5 protocol. `freak_mir_build` is the stateless
 construction policy layer over HIR and TY. It keeps only request-scoped loop,
 scope, and trust-lowering scratch and preserves `v4_mir_lower_ty` as the public
 driver entrypoint. Meiya, codegen, query, and snapshot code consume the
-representation directly. The editor's existing token-facing MIR helper calls
-resolve through `freak_mir_build` in this mechanical slice; moving those source
-views to their eventual semantic owner remains a separate tooling boundary
-slice and does not move editor facts or storage into the builder.
+representation directly; Meiya and LLVM own their TY-backed interpretation of
+stored call spellings through canonical TY queries and never call construction
+tasks. Return-loan source mapping remains Meiya-owned interpretation of
+Built-MIR plus TY facts; persisting that derived policy would require an
+explicitly versioned semantic/snapshot slice rather than this mechanical move.
+The builder still
+calls `freak_span`, `freak_diag`, `freak_lex`, and `freak_parse` directly while
+the remaining token-based lowering families move behind semantic HIR/TY facts.
+`check_v4.py` pins every direct span, diagnostic, lexer, parser, token-kind, and
+span-sentinel symbol in an exact shrinking allowlist: additions fail, and
+removals require the list to shrink in the same patch. The editor's existing
+token-facing MIR helper calls resolve through `freak_mir_build` in this
+mechanical slice; moving those source views to their eventual semantic owner
+remains a separate tooling boundary slice and does not move editor facts or
+storage into the builder.
 
 `freak_expand` is currently an identity-only architecture stage. Its internal
 ExpandedFile arena records an internal arena id, source file, forwarded parse

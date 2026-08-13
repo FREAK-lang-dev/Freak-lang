@@ -1038,6 +1038,22 @@ task v4_mir_find_local(mir_id: int, body_id: int, local_name: word) -> int {
     give back 0 - 1
 }
 
+task v4_mir_local_ty_for_name(mir_id: int, body_id: int, local_name: word) -> word {
+    pilot local_id = v4_mir_find_local(mir_id, body_id, local_name)
+    if local_id < 0 {
+        give back v4_ty_unknown
+    }
+    give back v4_mir_local_ty(mir_id, body_id, local_id)
+}
+
+task v4_mir_local_mode_for_name(mir_id: int, body_id: int, local_name: word) -> word {
+    pilot local_id = v4_mir_find_local(mir_id, body_id, local_name)
+    if local_id < 0 {
+        give back v4_ty_param_mode_value
+    }
+    give back v4_mir_local_mode(mir_id, body_id, local_id)
+}
+
 task v4_mir_find_local_visible_at(mir_id: int, body_id: int, local_name: word, offset: int) -> int {
     pilot local_idx = v4_mir_body_local_count(mir_id, body_id)
     repeat until local_idx <= 0 {

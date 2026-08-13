@@ -3186,19 +3186,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if v4_mir_combined_src is not None:
         mir_src = v4_mir_combined_src
         for needle in (
-            "v4_mir_rvalue_call_borrowed_source_signature_id",
-            "v4_mir_rvalue_call_borrowed_source_arg_for_signature",
-            "task v4_mir_rvalue_call_borrowed_source_arg_count(",
-            "task v4_mir_rvalue_call_borrowed_source_arg_at(",
             "v4_mir_call_result_type",
-            "task v4_mir_rvalue_call_return_lend_leaf_count(",
-            "task v4_mir_rvalue_call_return_lend_leaf_projection_at(",
-            "task v4_mir_rvalue_call_return_lend_leaf_route_guard_at(",
-            "task v4_mir_rvalue_call_borrowed_source_arg_count_for_leaf(",
-            "task v4_mir_rvalue_call_borrowed_source_payload_for_leaf(",
-            "task v4_mir_rvalue_call_borrowed_source_arg_at_for_leaf(",
-            "task v4_mir_rvalue_call_borrowed_source_projection_at_for_leaf(",
-            "task v4_mir_rvalue_call_borrowed_source_route_guard_at_for_leaf(",
             "task v4_mir_callback_type_contains_lend(",
             "task v4_mir_check_callback_call_args(",
             "task v4_mir_reject_aggregate_lend_child(",
@@ -3215,19 +3203,23 @@ def audit_conformance(paths: List[Path]) -> int:
         ):
             if needle not in mir_src:
                 contract_region_missing.append(f"freak_mir/freak_mir_build: {needle}")
-        # Frozen singular query retained only for compatibility. Set-valued MIR
-        # consumers must use the count/at API required above.
-        mir_singular_wrapper = "v4_mir_rvalue_call_borrowed_source_arg("
-        if mir_src.count(mir_singular_wrapper) != 1:
-            contract_region_missing.append(
-                "freak_mir/freak_mir_build compatibility wrapper must be declaration-only: "
-                "v4_mir_rvalue_call_borrowed_source_arg"
-            )
     else:
         contract_region_missing.append("freak_mir or freak_mir_build src/lib.fk missing")
     if v4_borrowck_lib_return.exists():
         borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
         for needle in (
+            "v4_mir_rvalue_call_borrowed_source_signature_id",
+            "v4_mir_rvalue_call_borrowed_source_arg_for_signature",
+            "task v4_mir_rvalue_call_borrowed_source_arg_count(",
+            "task v4_mir_rvalue_call_borrowed_source_arg_at(",
+            "task v4_mir_rvalue_call_return_lend_leaf_count(",
+            "task v4_mir_rvalue_call_return_lend_leaf_projection_at(",
+            "task v4_mir_rvalue_call_return_lend_leaf_route_guard_at(",
+            "task v4_mir_rvalue_call_borrowed_source_arg_count_for_leaf(",
+            "task v4_mir_rvalue_call_borrowed_source_payload_for_leaf(",
+            "task v4_mir_rvalue_call_borrowed_source_arg_at_for_leaf(",
+            "task v4_mir_rvalue_call_borrowed_source_projection_at_for_leaf(",
+            "task v4_mir_rvalue_call_borrowed_source_route_guard_at_for_leaf(",
             'v4_borrowck_provenance_known = "known"',
             "v4_borrowck_provenance_known_empty",
             'v4_borrowck_provenance_opaque = "opaque"',
@@ -3358,6 +3350,14 @@ def audit_conformance(paths: List[Path]) -> int:
         ):
             if needle not in borrowck_src:
                 contract_region_missing.append(f"freak_borrowck: {needle}")
+        # Frozen singular MIR-named query remains declaration-only for existing
+        # fixtures. Set-valued Meiya policy lives in this crate.
+        mir_singular_wrapper = "v4_mir_rvalue_call_borrowed_source_arg("
+        if borrowck_src.count(mir_singular_wrapper) != 1:
+            contract_region_missing.append(
+                "freak_borrowck MIR compatibility wrapper must be declaration-only: "
+                "v4_mir_rvalue_call_borrowed_source_arg"
+            )
         # Frozen singular origin query retained only for compatibility. The
         # provenance set is the authoritative borrowck contract.
         borrowck_singular_wrapper = "v4_borrowck_return_lend_origin("

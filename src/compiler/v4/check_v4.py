@@ -455,6 +455,96 @@ MACRO_IMPLEMENTATION_INTERNAL_MARKERS = [
     "v4_macro_runtime_",
 ]
 
+# The mechanical split leaves a bounded source-facing compatibility surface in
+# freak_mir_build. This is an exact, shrinking allowlist: additions and removals
+# both fail the boundary check until the list is deliberately reviewed.
+MIR_BUILD_TRANSITIONAL_DIRECT_DEPENDENCIES = {
+    "span": (
+        r"\bv4_span_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_span_end",
+                "v4_span_file",
+                "v4_span_new",
+                "v4_span_start",
+            }
+        ),
+    ),
+    "diagnostic": (
+        r"\bv4_diag_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_diag_error",
+                "v4_diag_new",
+                "v4_diag_part",
+                "v4_diag_warning",
+            }
+        ),
+    ),
+    "lexer": (
+        r"\bv4_lex_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_lex_is_bool_word",
+                "v4_lex_is_digit",
+                "v4_lex_is_ident_continue",
+                "v4_lex_is_ident_start",
+                "v4_lex_token_count",
+                "v4_lex_token_span",
+                "v4_lex_token_type",
+                "v4_lex_token_value",
+            }
+        ),
+    ),
+    "parser": (
+        r"\bv4_parse_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_parse_closure_close_pipe",
+                "v4_parse_node_span",
+                "v4_parse_stream_id",
+            }
+        ),
+    ),
+    "token kind": (
+        r"\bv4_tok_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_tok_bool",
+                "v4_tok_char",
+                "v4_tok_float",
+                "v4_tok_ident",
+                "v4_tok_int",
+                "v4_tok_keyword",
+                "v4_tok_lifetime",
+                "v4_tok_string",
+                "v4_tok_trivia",
+            }
+        ),
+    ),
+    "span sentinel": (r"\bV4_NO_SPAN\b", frozenset({"V4_NO_SPAN"})),
+}
+
+MIR_BORROWCK_COMPATIBILITY_QUERY_TASKS = frozenset(
+    {
+        "v4_mir_rvalue_call_borrowed_source_arg",
+        "v4_mir_rvalue_call_borrowed_source_arg_at",
+        "v4_mir_rvalue_call_borrowed_source_arg_at_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_arg_count",
+        "v4_mir_rvalue_call_borrowed_source_arg_count_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_arg_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_arg_for_signature",
+        "v4_mir_rvalue_call_borrowed_source_edge_at_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_payload_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_projection_at_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_route_guard_at_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_signature_id",
+        "v4_mir_rvalue_call_return_lend_leaf_count",
+        "v4_mir_rvalue_call_return_lend_leaf_projection_at",
+        "v4_mir_rvalue_call_return_lend_leaf_route_guard_at",
+    }
+)
+
 TOOLING_INTERFACE_ENDPOINTS = [
     "workspace/queryTelemetry",
     "workspace/queryGraph",
@@ -9058,6 +9148,76 @@ def check_crate_boundaries() -> None:
     borrowck_index = CRATE_ORDER.index("freak_borrowck")
     if not mir_index < mir_build_index < borrowck_index:
         violations.append("boundary violation: crate order must be freak_mir < freak_mir_build < freak_borrowck")
+
+    mir_build_text = read_text(crate_path("freak_mir_build"))
+    builder_tasks = frozenset(
+        re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", mir_build_text)
+    )
+    mir_build_bodies: dict[str, str] = {}
+    for builder_task in sorted(builder_tasks):
+        body = freak_task_body(mir_build_text, builder_task)
+        if body is None:
+            violations.append(
+                f"boundary violation: could not parse freak_mir_build task body {builder_task}"
+            )
+            continue
+        mir_build_bodies[builder_task] = re.sub(r"(?m)--.*$", "", body)
+
+    # These are the production post-build consumers. The editor's transitional
+    # source-view dependency is documented separately and intentionally allowed.
+    for consumer in ("freak_borrowck", "freak_codegen_llvm"):
+        consumer_text = read_text(crate_path(consumer))
+        consumer_tasks = re.findall(
+            r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", consumer_text
+        )
+        for consumer_task in consumer_tasks:
+            body = freak_task_body(consumer_text, consumer_task)
+            if body is None:
+                violations.append(
+                    f"boundary violation: could not parse {consumer} task body {consumer_task}"
+                )
+                continue
+            body_without_comments = re.sub(r"(?m)--.*$", "", body)
+            builder_calls = sorted(
+                task_name
+                for task_name in builder_tasks
+                if re.search(rf"\b{re.escape(task_name)}\s*\(", body_without_comments)
+            )
+            if builder_calls:
+                violations.append(
+                    f"boundary violation: {consumer}.{consumer_task} calls freak_mir_build tasks: "
+                    + ", ".join(builder_calls)
+                )
+
+    borrowck_text = read_text(crate_path("freak_borrowck"))
+    borrowck_tasks = frozenset(
+        re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", borrowck_text)
+    )
+    for task_name in sorted(MIR_BORROWCK_COMPATIBILITY_QUERY_TASKS):
+        if task_name in builder_tasks:
+            violations.append(
+                f"boundary violation: freak_mir_build still owns Meiya query {task_name}"
+            )
+        if task_name not in borrowck_tasks or freak_task_body(borrowck_text, task_name) is None:
+            violations.append(
+                f"boundary missing: freak_borrowck compatibility query {task_name}"
+            )
+
+    mir_build_call_surface = "\n".join(mir_build_bodies.values())
+    for family, (pattern, allowed) in MIR_BUILD_TRANSITIONAL_DIRECT_DEPENDENCIES.items():
+        observed = frozenset(re.findall(pattern, mir_build_call_surface))
+        if observed != allowed:
+            added = sorted(observed - allowed)
+            removed = sorted(allowed - observed)
+            details: list[str] = []
+            if added:
+                details.append("added=" + ",".join(added))
+            if removed:
+                details.append("removed=" + ",".join(removed))
+            violations.append(
+                f"boundary violation: freak_mir_build transitional {family} allowlist drift: "
+                + " ".join(details)
+            )
 
     if violations:
         for violation in violations:
