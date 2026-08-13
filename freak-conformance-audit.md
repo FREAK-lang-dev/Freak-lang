@@ -96,14 +96,14 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 |---|---|---|---|
 | `pilot x = value` declares variable, mutable by default | ✅ | ✅ | [freakc/parser.py:900-950](freakc/parser.py); confirmed by `tests/suite/test_variables.fk` |
 | `fixed pilot x = value` immutable | ✅ | ✅ | parsed and enforced |
-| Type annotation optional / inferred | ✅ | ✅ | The shipping checker infers unannotated literals. In V4, task-local `pilot` and `fixed pilot` annotations—including tuple and fixed-array annotations used by tuple/list destructuring—are normalized with exact spans into HIR snapshot v4 facts, exposed/canonicalized by TY, and consumed by MIR build without re-reading their type tokens. MIR build still uses body tokens for patterns, initializer boundaries, places, and CFG; six unrelated type-text callers remain guarded, backend representation is unchanged, and symbol-valued annotated locals retain the existing phantom-local-IR limitation. |
+| Type annotation optional / inferred | ✅ | ✅ | The shipping checker infers unannotated literals. In V4, task-local `pilot` and `fixed pilot` annotations—including tuple and fixed-array annotations used by tuple/list destructuring—are normalized with exact spans into HIR snapshot v5 facts, exposed/canonicalized by TY, and consumed by MIR build without re-reading their type tokens. MIR build still uses body tokens for patterns, initializer boundaries, places, and CFG; six unrelated type-text callers remain guarded, backend representation is unchanged, and symbol-valued annotated locals retain the existing phantom-local-IR limitation. |
 | `pilot mut x = ...` (Phase-1 BC) for explicit mutability under `--strict-borrow` | ✅ | 📖 | [src/compiler/v3/checker.fk](src/compiler/v3/checker.fk) — bible should mention this dual mode (default leak-everything vs `--strict-borrow`) |
 
 #### §1.2 Functions ([freak-full-bible.md:42-71](freak-full-bible.md))
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `task name(...) -> type { ... }` | ✅ | ✅ | core feature |
+| `task name(...) -> type { ... }` | ✅ | ✅ | Core feature. V4 stores ordinary top-level tasks as closed `explicit` / `implicit-block` / `arrow` HIR return-form facts; an explicit `-> T` carries normalized surface text and its exact span through HIR snapshot v5, and TY consumes that declared type/span without token reconstruction. Arrow inference, implicit block returns, impl/doctrine/extern signatures, MIR body lowering, and backend behavior retain their existing semantics and remain separately bounded. |
 | `give back` return keyword | ✅ | ✅ | |
 | `say` print keyword always available | ✅ | ✅ | |
 | String path interpolation `"{path}"` | ✅ | ✅ | Self-hosted V3 lowers resolved `IDENT(.IDENT)*` paths in every word-expression context on C and LLVM; non-path brace bodies remain literal. Executable evidence: [tests/v3_interpolation.py](tests/v3_interpolation.py) and [tests/v3_legacy_golden.py](tests/v3_legacy_golden.py). |

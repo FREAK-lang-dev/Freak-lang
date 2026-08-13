@@ -79,12 +79,20 @@ construction. Six unrelated `v4_ty_type_text` consumers remain allowlisted for
 method type arguments, raw-pointer instance methods, associated methods,
 shape/route constructor heads, and route-case expressions; the harness requires
 that exact set and prevents local declaration lowering from returning to it.
-Task parameter and return types, shape/route fields, const annotations,
-doctrine/extern types, the remaining MIR body families, and all other type
-families remain explicit follow-up slices. These boundaries change fact
-ownership, not language semantics or backend representation. Symbol-valued
-annotated locals still retain the pre-existing phantom-local-IR limitation
-described in the FFI section below.
+The third bounded boundary covers declared returns on ordinary top-level tasks.
+`freak_hir` stores one closed `explicit` / `implicit-block` / `arrow` record per
+task, including normalized surface type and exact contained span only for an
+explicit `-> T`; HIR snapshot v5 validates that vocabulary, task-only ownership,
+canonical spans, contiguous slots, and declared counts before restore. TY reads
+explicit return types and spans only through those HIR facts. Arrow inference,
+implicit block returns, and non-ordinary impl/doctrine/extern signatures remain
+separately named fallbacks and keep their existing semantics. Task parameter
+types, shape/route fields, const annotations, non-ordinary signatures, the
+remaining MIR body families, and all other type families remain explicit
+follow-up slices. These boundaries change fact ownership, not language
+semantics or backend representation. Symbol-valued annotated locals still
+retain the pre-existing phantom-local-IR limitation described in the FFI
+section below.
 Closures now form a complete first-pass frontend/query slice. The resilient
 parser records arrow and block forms as `ClosureExpr` trees and leaves
 `IncompleteNode` recovery facts for missing pipes, body markers, expressions,
@@ -510,7 +518,7 @@ unit-section|<section-name>|<escaped-checkpoint-identity>|<escaped-section-paylo
 end|freak-00-unit-snapshot-v3
 ```
 
-The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v4 validation requires canonical alias-target and local-annotation spans, exact child ownership/slot identity, and exact declared counts. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
+The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v5 validation requires canonical alias-target, local-annotation, and ordinary-task declared-return spans, exact child ownership/slot identity, a closed return-form vocabulary, and exact declared counts. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
 
 ### `workspace/unitSnapshotManifest`
 
