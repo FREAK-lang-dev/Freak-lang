@@ -76,11 +76,11 @@ compiler architecture or semantics.
 
 | Agent | Scope | Current task | Blockers | Tests added | ABI impact | Performance impact | Ready to integrate? |
 |---:|---|---|---|---|---|---|---|
-| 0 | Campaign command / integration | Pin base, establish ownership ledger, define first tranche | Discovery contracts pending | None yet | None | None | No |
-| 1 | Word performance | Audit `word.repeated` and WordBuilder contracts | API and ABI classification pending | None yet | Expected additive runtime API | Expected exact-allocation and builder gains | No |
-| 2 | Bytes / ByteBuffer | Audit current buffer ABI and production-hardening tranche | Bounds, error, ownership, and UTF-8 contracts pending | None yet | Expected additive runtime API; layout change not approved | Expected amortized growth and binary I/O gains | No |
-| 3 | Performance lab | Audit benchmark harness and result schema | Depends on deterministic counters and first primitives | None yet | None | Measurement only | No |
-| 4 | CLI / `+03` / LTO | Audit profile parsing, link flags, and freshness identity | Depends on benchmark lab for performance claims | None yet | None | Release-build policy only | No |
+| 0 | Campaign command / integration | Integrate reviewed milestones and own shared docs, audit, CI, and final gates | First implementation wave active | Campaign ledger | None | None | No |
+| 1 | Word performance | Implement `word.repeated` and opaque generation-checked `word_builder::*` | Write lane active from `81b7144`; owns the shared runtime/compiler hot paths first | `tests/v3_word_foundation.py` planned | Compatible additive runtime API | Exact repetition plus amortized construction | No |
+| 2 | Bytes / ByteBuffer | Contract frozen; wait for Agent 1 before taking shared runtime/compiler ownership | Serialized behind Agent 1 | V3-native ByteBuffer corpus planned | Compatible additive API; legacy struct layout stays frozen | Amortized buffer growth and binary I/O | No |
+| 3 | Performance lab | Implement the stable JSON lab and deterministic current-V3 core cases | Independent write lane active from `81b7144` | `tests/v3_performance_lab.py` planned | None | Measurement only | No |
+| 4 | CLI / `+03` / LTO | Implement canonical profiles, strict option parsing, source-runtime LTO, and cache identity | Independent write lane active from `81b7144` | `tests/v3_build_profiles.py` planned | None | Release-build policy only | No |
 | 5 | Allocation observability | Inventory existing audit counters and missing byte/builder metrics | Runtime instrumentation contract pending | None yet | Test-only/additive instrumentation expected | Enables deterministic regression gates | No |
 | 6 | System runtime | Audit filesystem/process/time/environment/random floor | First dependency-ordered slice pending | None yet | Additive runtime APIs expected | Unmeasured | No |
 | 7 | Networking floor | Waiting for ByteBuffer and system-runtime contracts | Agents 2 and 6 | None yet | Additive socket APIs expected | Unmeasured | No |
@@ -102,6 +102,28 @@ compiler architecture or semantics.
    evidence are in place.
 5. Run the preservation, negative, ownership, ABI, installer, release-shaped,
    and C/LLVM parity gates on the integrated head.
+
+## Frozen implementation details from discovery
+
+- `word.repeated` borrows its receiver, treats `count <= 0` or an empty pattern
+  as empty, returns independent owned storage for positive results, checks
+  `pattern_bytes * count + 1`, and copies only complete existing byte
+  sequences. It does not redefine V3 character indexing or normalization.
+- `word_builder::*` owns storage behind generation-checked integer handles.
+  `finish` transfers the accumulated buffer into an owned `word`; `discard`
+  releases it. Both consume the handle, and stale handles fail deterministically.
+- ByteBuffer will use a separate generation-checked handle pool with explicit
+  release and sticky status. It will not expose raw borrowed views, automatic
+  destruction, or the Python bootstrap's unsafe by-value buffer aliasing.
+- The first ByteBuffer surface is binary and bounds-oriented: reserve,
+  capacity/length/position/remaining, clear/truncate/seek, fixed-width
+  little/big-endian reads and writes, copying slices, and strict NUL-free UTF-8
+  conversion. List conversion waits for a stable native list ABI.
+- `time::now_ms` remains epoch wall time on both backends. A separately named
+  monotonic nanosecond clock will support elapsed-time measurements.
+- The benchmark lab records provenance, deterministic work/checksums, raw
+  samples, binary size, and nullable RSS/runtime counters. CI never gates on a
+  wall-clock threshold.
 
 ## Pinned baseline evidence
 
