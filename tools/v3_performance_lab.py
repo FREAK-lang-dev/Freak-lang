@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Deterministic, provenance-rich benchmark harness for the shipping V3 CLI."""
+"""Deterministic, provenance-rich benchmark harness for the shipping V3 CLI.
+
+``--validate-output`` checks schema closure, evidence consistency, and the live
+compiler/Clang/linker identities. Result JSON is intentionally not a digital
+signature and cannot authenticate a report that an attacker coherently
+reauthored in full.
+"""
 
 from __future__ import annotations
 
@@ -11,20 +17,34 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import statistics
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zlib
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 
-RESULT_SCHEMA = "freak-v3-performance-lab-v1"
+RESULT_SCHEMA = "freak-v3-performance-lab-v2"
 MANIFEST_SCHEMA = "freak-v3-performance-manifest-v1"
-COMPILE_OBSERVATION_SCHEMA = "freak-v3-compile-observation-v1"
+COMPILE_OBSERVATION_SCHEMA = "freak-v3-compile-observation-v2"
+RECORDING_SCHEMA = "freak-v3-recording-wrapper-v2"
+TRUST_MODEL_SCHEMA = "freak-v3-performance-trust-model-v1"
+TRUST_MODEL_SCOPE = "internal-consistency-and-live-toolchain-revalidation"
+TRUST_MODEL_LIMITATION = (
+    "detects malformed evidence, internal inconsistency, and live environment drift; "
+    "it is not a digital signature and cannot authenticate a report maliciously reauthored in full"
+)
+TRUST_MODEL_HELP = (
+    "Validation checks internal consistency and revalidates the live compiler, Clang, and linker. "
+    "Result JSON is not digitally signed and cannot prove historical execution after malicious "
+    "coherent reauthoring."
+)
 RUNTIME_STATS_PREFIX = "FREAK_RUNTIME_STATS "
 RUNTIME_STATS_SCHEMA = "freak-v3-runtime-stats-v1"
 RUNTIME_STATS_SOURCE = "freak-v3-runtime"
@@ -33,6 +53,13 @@ RUNTIME_COUNTERS_UNAVAILABLE_REASON = "runtime stats sentinel not emitted by thi
 DEFAULT_MANIFEST = Path(__file__).resolve().parents[1] / "benchmarks" / "v3" / "manifest.json"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 MAX_CONTENT_BYTES = 64 * 1024 * 1024
+MAX_COMPRESSED_CONTENT_BYTES = MAX_CONTENT_BYTES + 1024 * 1024
+MAX_CAPTURE_BYTES = 16 * 1024 * 1024
+MAX_RECORDING_LOG_BYTES = 16 * 1024 * 1024
+MAX_MANIFEST_JSON_BYTES = 4 * 1024 * 1024
+MAX_RESULT_JSON_BYTES = 256 * 1024 * 1024
+MAX_RECORDER_SOURCE_BYTES = 1024 * 1024
+MAX_SOURCE_BYTES = 4 * 1024 * 1024
 
 _ROOT_MANIFEST_KEYS = {"schema", "cases"}
 _CASE_KEYS = {"id", "category", "source", "source_sha256", "modes"}
@@ -87,6 +114,11 @@ _SAMPLE_KEYS = {
     "stderr_sha256",
     "stderr_raw_sha256",
     "stderr_raw_base64",
+    "command",
+    "command_sha256",
+    "executable_bytes",
+    "executable_sha256_before",
+    "executable_sha256_after",
 }
 _COMPILE_KEYS = {
     "duration_ns",
@@ -102,6 +134,8 @@ _COMPILE_OBSERVATION_KEYS = {
     "schema",
     "source_snapshot_sha256",
     "recording_identity_sha256",
+    "recording_before_sha256",
+    "recording_after_sha256",
     "probe_invocations",
     "invocations",
     "link_invocation_sha256",
@@ -123,6 +157,8 @@ _RECORDING_IDENTITY_KEYS = {
     "schema",
     "kind",
     "python_executable",
+    "python_sha256",
+    "python_bytes",
     "recorder_path",
     "wrapper_path",
     "recorder_content_base64",
@@ -132,7 +168,7 @@ _RECORDING_IDENTITY_KEYS = {
     "combined_sha256",
 }
 _RAW_INVOCATION_KEYS = {"argv", "cwd", "exit_code", "inputs", "output"}
-_INVOCATION_KEYS = _RAW_INVOCATION_KEYS | {"argv_sha256"}
+_INVOCATION_KEYS = _RAW_INVOCATION_KEYS | {"record_sha256"}
 _OBSERVED_INPUT_KEYS = {"argument_index", "path", "bytes", "sha256"}
 _OBSERVED_OUTPUT_KEYS = {"path", "bytes", "sha256"}
 _RUNTIME_INPUT_NAMES = {
@@ -184,6 +220,17 @@ class LabError(RuntimeError):
     """A deterministic input, provenance, build, or verification error."""
 
 
+def _read_bounded_file(path: Path, maximum: int, context: str) -> bytes:
+    try:
+        with path.open("rb") as stream:
+            value = stream.read(maximum + 1)
+    except (OSError, MemoryError) as error:
+        raise LabError(f"cannot read {context} {path}: {error}") from error
+    if len(value) > maximum:
+        raise LabError(f"{context} exceeds the {maximum}-byte bound: {path}")
+    return value
+
+
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -202,8 +249,8 @@ def _sha256_file(path: Path) -> str:
 
 def _canonical_source_bytes(path: Path) -> bytes:
     try:
-        text = path.read_bytes().decode("utf-8")
-    except (OSError, UnicodeError) as error:
+        text = _read_bounded_file(path, MAX_SOURCE_BYTES, "FREAK source").decode("utf-8")
+    except UnicodeError as error:
         raise LabError(f"cannot read FREAK source {path}: {error}") from error
     return text.replace("\r\n", "\n").encode("utf-8")
 
@@ -223,14 +270,24 @@ def _encode_bytes(value: bytes) -> str:
     return base64.b64encode(value).decode("ascii")
 
 
-def _decode_bytes(value: Any, context: str) -> bytes:
+def _decode_bytes(
+    value: Any,
+    context: str,
+    *,
+    maximum: int = MAX_CAPTURE_BYTES,
+) -> bytes:
     text = _require_string(value, context)
+    maximum_encoded = 4 * ((maximum + 2) // 3)
+    if len(text) > maximum_encoded:
+        raise LabError(f"{context} exceeds the decoded-size bound")
     try:
         decoded = base64.b64decode(text, validate=True)
     except (ValueError, binascii.Error) as error:
         raise LabError(f"{context} is not canonical base64") from error
     if _encode_bytes(decoded) != text:
         raise LabError(f"{context} is not canonical base64")
+    if len(decoded) > maximum:
+        raise LabError(f"{context} exceeds the decoded-size bound")
     return decoded
 
 
@@ -241,7 +298,7 @@ def _encode_zlib_bytes(value: bytes) -> str:
 def _decode_zlib_bytes(value: Any, expected_size: int, context: str) -> bytes:
     if expected_size < 1 or expected_size > MAX_CONTENT_BYTES:
         raise LabError(f"{context} uncompressed size is outside the lab bound")
-    compressed = _decode_bytes(value, context)
+    compressed = _decode_bytes(value, context, maximum=MAX_COMPRESSED_CONTENT_BYTES)
     decompressor = zlib.decompressobj()
     try:
         decoded = decompressor.decompress(compressed, expected_size + 1)
@@ -259,15 +316,17 @@ def _decode_zlib_bytes(value: Any, expected_size: int, context: str) -> bytes:
     return decoded
 
 
-def _strict_json(path: Path) -> Any:
+def _strict_json(path: Path, *, maximum: int) -> Any:
     try:
-        with path.open("r", encoding="utf-8") as stream:
-            return json.load(
-                stream,
-                object_pairs_hook=_reject_duplicate_json_keys,
-                parse_constant=_reject_nonfinite_json_constant,
-            )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+        text = _read_bounded_file(path, maximum, "JSON input").decode("utf-8")
+        return json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_nonfinite_json_constant,
+        )
+    except LabError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, RecursionError) as error:
         raise LabError(f"cannot read JSON {path}: {error}") from error
 
 
@@ -330,7 +389,7 @@ def load_manifest(path: Path) -> dict[str, Any]:
     """Load and fully validate a manifest and its source-tree closure."""
 
     path = path.resolve(strict=True)
-    root = _require_dict(_strict_json(path), "manifest")
+    root = _require_dict(_strict_json(path, maximum=MAX_MANIFEST_JSON_BYTES), "manifest")
     _exact_keys(root, _ROOT_MANIFEST_KEYS, "manifest")
     if root["schema"] != MANIFEST_SCHEMA:
         raise LabError(f"unsupported manifest schema: {root['schema']!r}")
@@ -515,7 +574,15 @@ raise SystemExit(completed.returncode)
 def _recording_wrapper_bytes(kind: str, python_executable: str, recorder_path: str, recorder_text: str) -> bytes:
     if kind == "windows-cmd":
         return f'@"{python_executable}" "{recorder_path}" %*\r\n'.encode("utf-8")
-    return f'#!{python_executable}\n{recorder_text.split(chr(10), 1)[1]}'.encode("utf-8")
+    if kind == "posix-sh":
+        return (
+            "#!/bin/sh\nexec "
+            + shlex.quote(python_executable)
+            + " "
+            + shlex.quote(recorder_path)
+            + ' "$@"\n'
+        ).encode("utf-8")
+    raise LabError(f"unknown recording wrapper kind: {kind}")
 
 
 def _recording_identity_digest(identity: Mapping[str, Any]) -> str:
@@ -534,16 +601,18 @@ def _write_recording_clang(work_dir: Path, real_clang: Path) -> tuple[Path, Path
         kind = "windows-cmd"
         wrapper = work_dir / "record-clang.cmd"
     else:
-        kind = "posix-executable"
+        kind = "posix-sh"
         wrapper = work_dir / "record-clang"
     wrapper_bytes = _recording_wrapper_bytes(kind, python_executable, str(recorder.resolve()), recorder_text)
     wrapper.write_bytes(wrapper_bytes)
-    if kind == "posix-executable":
+    if kind == "posix-sh":
         wrapper.chmod(0o755)
     identity = {
-        "schema": "freak-v3-recording-wrapper-v1",
+        "schema": RECORDING_SCHEMA,
         "kind": kind,
         "python_executable": python_executable,
+        "python_sha256": _sha256_file(Path(python_executable)),
+        "python_bytes": Path(python_executable).stat().st_size,
         "recorder_path": str(recorder.resolve()),
         "wrapper_path": str(wrapper.resolve()),
         "recorder_content_base64": _encode_bytes(recorder_bytes),
@@ -555,12 +624,38 @@ def _write_recording_clang(work_dir: Path, real_clang: Path) -> tuple[Path, Path
     return wrapper.resolve(), log.resolve(), identity
 
 
+def _rehash_recording_files(identity: Mapping[str, Any], context: str) -> str:
+    recorder = Path(str(identity["recorder_path"]))
+    wrapper = Path(str(identity["wrapper_path"]))
+    python_executable = Path(str(identity["python_executable"]))
+    try:
+        recorder_bytes = _read_bounded_file(recorder, MAX_RECORDER_SOURCE_BYTES, f"{context} recorder")
+        wrapper_bytes = _read_bounded_file(wrapper, MAX_RECORDER_SOURCE_BYTES, f"{context} wrapper")
+        python_sha256 = _sha256_file(python_executable)
+        python_bytes = python_executable.stat().st_size
+    except LabError:
+        raise
+    except OSError as error:
+        raise LabError(f"{context} recorder source is unavailable: {error}") from error
+    if (
+        identity["recorder_sha256"] != _sha256_bytes(recorder_bytes)
+        or identity["wrapper_sha256"] != _sha256_bytes(wrapper_bytes)
+        or identity["python_sha256"] != python_sha256
+        or identity["python_bytes"] != python_bytes
+        or identity["recorder_content_base64"] != _encode_bytes(recorder_bytes)
+        or identity["wrapper_content_base64"] != _encode_bytes(wrapper_bytes)
+    ):
+        raise LabError(f"{context} recorder source changed")
+    return _recording_identity_digest(identity)
+
+
 def _read_recording_log(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         raise LabError("recording Clang did not produce an invocation log")
     invocations: list[dict[str, Any]] = []
     try:
-        for index, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+        text = _read_bounded_file(path, MAX_RECORDING_LOG_BYTES, "recording Clang invocation log").decode("utf-8")
+        for index, line in enumerate(text.splitlines()):
             value = json.loads(
                 line,
                 object_pairs_hook=_reject_duplicate_json_keys,
@@ -569,6 +664,8 @@ def _read_recording_log(path: Path) -> list[dict[str, Any]]:
             if not isinstance(value, dict) or set(value) != _RAW_INVOCATION_KEYS:
                 raise LabError(f"recording Clang invocation {index} is malformed")
             invocations.append(value)
+    except LabError:
+        raise
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
         raise LabError(f"cannot read recording Clang log: {error}") from error
     return invocations
@@ -603,17 +700,79 @@ def _run_bytes(
     environment: Mapping[str, str],
     timeout: float,
 ) -> subprocess.CompletedProcess[bytes]:
+    process: subprocess.Popen[bytes] | None = None
+    stdout_buffer = bytearray()
+    stderr_buffer = bytearray()
+    overflow = threading.Event()
+    reader_errors: list[BaseException] = []
+
+    def capture(stream: Any, destination: bytearray) -> None:
+        try:
+            while True:
+                block = stream.read(64 * 1024)
+                if not block:
+                    return
+                remaining = MAX_CAPTURE_BYTES - len(destination)
+                if remaining > 0:
+                    destination.extend(block[:remaining])
+                if len(block) > remaining:
+                    overflow.set()
+        except BaseException as error:  # surfaced deterministically on the launcher thread
+            reader_errors.append(error)
+
     try:
-        return subprocess.run(
+        process = subprocess.Popen(
             list(command),
             cwd=str(cwd),
             env=dict(environment),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=timeout,
-            check=False,
         )
+        assert process.stdout is not None and process.stderr is not None
+        readers = [
+            threading.Thread(target=capture, args=(process.stdout, stdout_buffer), daemon=True),
+            threading.Thread(target=capture, args=(process.stderr, stderr_buffer), daemon=True),
+        ]
+        for reader in readers:
+            reader.start()
+        deadline = time.monotonic() + timeout
+        while process.poll() is None:
+            if overflow.is_set():
+                process.kill()
+                process.wait()
+                for reader in readers:
+                    reader.join(timeout=1.0)
+                raise LabError(
+                    f"command output exceeds the {MAX_CAPTURE_BYTES}-byte per-channel bound: {command!r}"
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                process.kill()
+                process.wait()
+                for reader in readers:
+                    reader.join(timeout=1.0)
+                raise subprocess.TimeoutExpired(list(command), timeout)
+            try:
+                process.wait(timeout=min(0.05, remaining))
+            except subprocess.TimeoutExpired:
+                pass
+        for reader in readers:
+            reader.join()
+        if overflow.is_set():
+            raise LabError(
+                f"command output exceeds the {MAX_CAPTURE_BYTES}-byte per-channel bound: {command!r}"
+            )
+        if reader_errors:
+            raise LabError(f"command output capture failed: {command!r}: {reader_errors[0]}")
+        return subprocess.CompletedProcess(
+            list(command),
+            process.returncode,
+            bytes(stdout_buffer),
+            bytes(stderr_buffer),
+        )
+    except LabError:
+        raise
     except (OSError, subprocess.TimeoutExpired) as error:
         raise LabError(f"command failed to execute: {command!r}: {error}") from error
 
@@ -813,8 +972,10 @@ def _validate_invocation_payload(value: Any, context: str, *, stored: bool) -> d
     record = _require_dict(value, context)
     _exact_keys(record, _INVOCATION_KEYS if stored else _RAW_INVOCATION_KEYS, context)
     arguments = _require_string_list(record.get("argv"), f"{context}.argv")
-    if stored and record.get("argv_sha256") != _json_sha256(arguments):
-        raise LabError(f"{context}.argv checksum is invalid")
+    if stored:
+        raw_record = {name: record[name] for name in _RAW_INVOCATION_KEYS}
+        if record.get("record_sha256") != _json_sha256(raw_record):
+            raise LabError(f"{context} full-record checksum is invalid")
     cwd = _require_string(record.get("cwd"), f"{context}.cwd", nonempty=True)
     if not Path(cwd).is_absolute():
         raise LabError(f"{context}.cwd must be absolute")
@@ -838,6 +999,8 @@ def _validate_invocation_payload(value: Any, context: str, *, stored: bool) -> d
         seen_indexes.add(argument_index)
         seen_paths.add(path_key)
         inputs.append(observed)
+    if [item["argument_index"] for item in inputs] != sorted(item["argument_index"] for item in inputs):
+        raise LabError(f"{context}.inputs are not ordered by argv position")
 
     output_indexes = [index for index, argument in enumerate(arguments) if argument == "-o"]
     output = record.get("output")
@@ -856,7 +1019,7 @@ def _validate_invocation_payload(value: Any, context: str, *, stored: bool) -> d
 
 def _invocation_record(value: Mapping[str, Any], context: str) -> dict[str, Any]:
     raw = _validate_invocation_payload(value, context, stored=False)
-    return {**raw, "argv_sha256": _json_sha256(raw["argv"])}
+    return {**raw, "record_sha256": _json_sha256(raw)}
 
 
 def _same_observed_file(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
@@ -953,7 +1116,14 @@ def _linker_identity_from_trace(
     environment: Mapping[str, str],
     timeout: float,
 ) -> dict[str, Any]:
-    trace = _run_bytes([str(clang), "-###", *link_arguments], cwd=cwd, environment=environment, timeout=timeout)
+    output_indexes = [index for index, argument in enumerate(link_arguments) if argument == "-o"]
+    if len(output_indexes) != 1 or output_indexes[0] + 1 >= len(link_arguments):
+        raise LabError("recorded link invocation lacks one canonical -o argument")
+    trace_arguments = list(link_arguments)
+    original_output = Path(trace_arguments[output_indexes[0] + 1])
+    suffix = original_output.suffix or (".exe" if sys.platform == "win32" else ".out")
+    trace_arguments[output_indexes[0] + 1] = f"freak-link-trace-output{suffix}"
+    trace = _run_bytes([str(clang), "-###", *trace_arguments], cwd=cwd, environment=environment, timeout=timeout)
     trace_bytes = trace.stdout + trace.stderr
     trace_text = _decode(trace_bytes, "Clang linker trace")
     candidates: list[str] = []
@@ -962,7 +1132,7 @@ def _linker_identity_from_trace(
         first = match.group(1) if match else (line.strip().split(" ", 1)[0] if line.strip() else "")
         if first and _is_linker_name(first):
             candidates.append(first)
-    if trace.returncode != 0 or not candidates:
+    if not candidates:
         raise LabError(
             f"Clang did not expose a linker for recorded invocation (exit={trace.returncode})\n{trace_text}"
         )
@@ -1003,6 +1173,8 @@ def _compile_observation(
     *,
     recording_log: Path,
     recording_identity_sha256: str,
+    recording_before_sha256: str,
+    recording_after_sha256: str,
     source_snapshot_sha256: str,
     real_clang: Path,
     lane_dir: Path,
@@ -1056,7 +1228,7 @@ def _compile_observation(
         raise LabError("+03 successful link invocation omits ThinLTO")
 
     artifact_path = backend_artifact.resolve(strict=True)
-    artifact_bytes = backend_artifact.read_bytes()
+    artifact_bytes = _read_bounded_file(backend_artifact, MAX_CONTENT_BYTES, "backend artifact")
     artifact_observation = {
         "path": str(artifact_path),
         "bytes": len(artifact_bytes),
@@ -1115,7 +1287,7 @@ def _compile_observation(
     linker = _linker_identity_from_trace(
         real_clang,
         link_arguments,
-        successful_link["argv_sha256"],
+        successful_link["record_sha256"],
         lane_dir,
         environment,
         timeout,
@@ -1124,9 +1296,11 @@ def _compile_observation(
         "schema": COMPILE_OBSERVATION_SCHEMA,
         "source_snapshot_sha256": source_snapshot_sha256,
         "recording_identity_sha256": recording_identity_sha256,
+        "recording_before_sha256": recording_before_sha256,
+        "recording_after_sha256": recording_after_sha256,
         "probe_invocations": probe_invocations,
         "invocations": build_invocations,
-        "link_invocation_sha256": successful_link["argv_sha256"],
+        "link_invocation_sha256": successful_link["record_sha256"],
         "optimization_flags": optimization_flags,
         "lto_flags": lto_flags,
         "target_flags": target_flags,
@@ -1185,7 +1359,7 @@ def _one_result(
     timeout: float,
     real_clang: Path,
     recording_log: Path,
-    recording_identity_sha256: str,
+    recording_identity: Mapping[str, Any],
 ) -> dict[str, Any]:
     mode = case["modes"][mode_name]
     source = manifest_dir / case["source"]
@@ -1205,10 +1379,12 @@ def _one_result(
     ]
     if target_argument:
         compile_command.append(f"--target={target_argument}")
+    recording_before_sha256 = _rehash_recording_files(recording_identity, "before build")
     recording_log.unlink(missing_ok=True)
     compile_start = time.perf_counter_ns()
     compiled = _run_bytes(compile_command, cwd=lane_dir, environment=environment, timeout=timeout)
     compile_ns = time.perf_counter_ns() - compile_start
+    recording_after_sha256 = _rehash_recording_files(recording_identity, "after build")
     if compiled.returncode != 0:
         stdout = _decode(compiled.stdout, "compiler stdout")
         stderr = _decode(compiled.stderr, "compiler stderr")
@@ -1227,7 +1403,9 @@ def _one_result(
     binary = _binary_path(copied_source)
     compile_observation = _compile_observation(
         recording_log=recording_log,
-        recording_identity_sha256=recording_identity_sha256,
+        recording_identity_sha256=recording_identity["combined_sha256"],
+        recording_before_sha256=recording_before_sha256,
+        recording_after_sha256=recording_after_sha256,
         source_snapshot_sha256=case["source_sha256"],
         real_clang=real_clang,
         lane_dir=lane_dir,
@@ -1241,11 +1419,33 @@ def _one_result(
     )
 
     run_command = [str(binary), *mode["arguments"]]
+    linked_output = next(
+        invocation["output"]
+        for invocation in compile_observation["invocations"]
+        if invocation["record_sha256"] == compile_observation["link_invocation_sha256"]
+    )
+    if linked_output is None:
+        raise LabError(f"successful link lacks output evidence for {case['id']}/{backend}/{profile}")
+
+    def verify_executable(stage: str) -> tuple[int, str]:
+        try:
+            size = binary.stat().st_size
+        except OSError as error:
+            raise LabError(f"executable is unavailable {stage}: {error}") from error
+        if size > MAX_CONTENT_BYTES:
+            raise LabError(f"executable exceeds the {MAX_CONTENT_BYTES}-byte lab bound {stage}")
+        digest = _sha256_file(binary)
+        if size != linked_output["bytes"] or digest != linked_output["sha256"]:
+            raise LabError(f"executable differs from the recorded link output {stage}")
+        return size, digest
+
     warmup_records: list[dict[str, Any]] = []
     for warmup_index in range(warmups):
+        executable_bytes, executable_before = verify_executable(f"before warmup {warmup_index}")
         warmup_start = time.perf_counter_ns()
         warmed = _run_bytes(run_command, cwd=lane_dir, environment=environment, timeout=timeout)
         warmup_ns = time.perf_counter_ns() - warmup_start
+        _, executable_after = verify_executable(f"after warmup {warmup_index}")
         warmup_stdout, warmup_stderr, _, warmup_failures = _verify_completed(
             warmed,
             mode,
@@ -1264,6 +1464,11 @@ def _one_result(
                 "stderr_sha256": _sha256_text(warmup_stderr),
                 "stderr_raw_sha256": _sha256_bytes(warmed.stderr),
                 "stderr_raw_base64": _encode_bytes(warmed.stderr),
+                "command": run_command,
+                "command_sha256": _json_sha256(run_command),
+                "executable_bytes": executable_bytes,
+                "executable_sha256_before": executable_before,
+                "executable_sha256_after": executable_after,
             }
         )
         if warmup_failures:
@@ -1276,9 +1481,11 @@ def _one_result(
     counters: list[dict[str, Any] | None] = []
     failures: list[str] = []
     for sample_index in range(samples):
+        executable_bytes, executable_before = verify_executable(f"before sample {sample_index}")
         run_start = time.perf_counter_ns()
         completed = _run_bytes(run_command, cwd=lane_dir, environment=environment, timeout=timeout)
         duration_ns = time.perf_counter_ns() - run_start
+        _, executable_after = verify_executable(f"after sample {sample_index}")
         stdout, stderr, counter, sample_failures = _verify_completed(
             completed,
             mode,
@@ -1300,6 +1507,11 @@ def _one_result(
                 "stderr_sha256": _sha256_text(stderr),
                 "stderr_raw_sha256": _sha256_bytes(completed.stderr),
                 "stderr_raw_base64": _encode_bytes(completed.stderr),
+                "command": run_command,
+                "command_sha256": _json_sha256(run_command),
+                "executable_bytes": executable_bytes,
+                "executable_sha256_before": executable_before,
+                "executable_sha256_after": executable_after,
             }
         )
 
@@ -1319,14 +1531,8 @@ def _one_result(
             else RUNTIME_COUNTERS_UNAVAILABLE_REASON
         )
 
-    linked_output = next(
-        invocation["output"]
-        for invocation in compile_observation["invocations"]
-        if invocation["argv_sha256"] == compile_observation["link_invocation_sha256"]
-    )
-    if linked_output is None or linked_output["bytes"] != binary.stat().st_size or linked_output["sha256"] != _sha256_file(binary):
-        raise LabError(f"executed binary changed during samples for {case['id']}/{backend}/{profile}")
-    binary_bytes = binary.read_bytes()
+    verify_executable("after all samples")
+    binary_bytes = _read_bounded_file(binary, MAX_CONTENT_BYTES, "binary")
     profile_spec = _PROFILE_SPECS[profile]
     return {
         "case": case["id"],
@@ -1432,12 +1638,17 @@ def run_lab(args: argparse.Namespace) -> dict[str, Any]:
                             timeout=args.timeout,
                             real_clang=clang,
                             recording_log=recording_log,
-                            recording_identity_sha256=recording_identity["combined_sha256"],
+                            recording_identity=recording_identity,
                         )
                     )
 
     document = {
         "schema": RESULT_SCHEMA,
+        "trust_model": {
+            "schema": TRUST_MODEL_SCHEMA,
+            "scope": TRUST_MODEL_SCOPE,
+            "limitation": TRUST_MODEL_LIMITATION,
+        },
         "lab": {
             "path": str(Path(__file__).resolve()),
             "sha256": _sha256_file(Path(__file__).resolve()),
@@ -1481,9 +1692,9 @@ def _validate_invocation_record(value: Any, context: str) -> dict[str, Any]:
 def _validate_recording_identity(value: Any, context: str) -> dict[str, Any]:
     identity = _require_dict(value, context)
     _exact_keys(identity, _RECORDING_IDENTITY_KEYS, context)
-    if identity.get("schema") != "freak-v3-recording-wrapper-v1":
+    if identity.get("schema") != RECORDING_SCHEMA:
         raise LabError(f"{context}.schema is unsupported")
-    expected_kind = "windows-cmd" if sys.platform == "win32" else "posix-executable"
+    expected_kind = "windows-cmd" if sys.platform == "win32" else "posix-sh"
     if identity.get("kind") != expected_kind:
         raise LabError(f"{context}.kind differs from the validation platform")
     python_executable = _require_string(
@@ -1493,6 +1704,12 @@ def _validate_recording_identity(value: Any, context: str) -> dict[str, Any]:
     )
     if python_executable != str(Path(sys.executable).resolve(strict=True)):
         raise LabError(f"{context}.python_executable differs from the validator")
+    python_path = Path(python_executable)
+    if (
+        identity.get("python_sha256") != _sha256_file(python_path)
+        or identity.get("python_bytes") != python_path.stat().st_size
+    ):
+        raise LabError(f"{context} Python executable identity is stale")
     recorder_path = _require_string(identity.get("recorder_path"), f"{context}.recorder_path", nonempty=True)
     wrapper_path = _require_string(identity.get("wrapper_path"), f"{context}.wrapper_path", nonempty=True)
     if not Path(recorder_path).is_absolute() or not Path(wrapper_path).is_absolute():
@@ -1503,8 +1720,16 @@ def _validate_recording_identity(value: Any, context: str) -> dict[str, Any]:
     if Path(wrapper_path).name != expected_wrapper_name:
         raise LabError(f"{context}.wrapper_path is not canonical")
 
-    recorder_bytes = _decode_bytes(identity.get("recorder_content_base64"), f"{context}.recorder_content_base64")
-    wrapper_bytes = _decode_bytes(identity.get("wrapper_content_base64"), f"{context}.wrapper_content_base64")
+    recorder_bytes = _decode_bytes(
+        identity.get("recorder_content_base64"),
+        f"{context}.recorder_content_base64",
+        maximum=MAX_RECORDER_SOURCE_BYTES,
+    )
+    wrapper_bytes = _decode_bytes(
+        identity.get("wrapper_content_base64"),
+        f"{context}.wrapper_content_base64",
+        maximum=MAX_RECORDER_SOURCE_BYTES,
+    )
     expected_recorder = _recording_recorder_text().encode("utf-8")
     expected_wrapper = _recording_wrapper_bytes(
         expected_kind,
@@ -1524,6 +1749,8 @@ def _validate_recording_identity(value: Any, context: str) -> dict[str, Any]:
 def _validate_linker_identity(
     value: Any,
     context: str,
+    clang: Path,
+    link_arguments: Sequence[str],
     environment: Mapping[str, str],
     timeout: float,
     expected_link_invocation_sha256: str,
@@ -1550,13 +1777,6 @@ def _validate_linker_identity(
         raise LabError(f"{context} provenance is stale")
     stdout = _decode_bytes(linker.get("version_stdout_base64"), f"{context}.version_stdout_base64")
     stderr = _decode_bytes(linker.get("version_stderr_base64"), f"{context}.version_stderr_base64")
-    version = _run_bytes([str(path), "--version"], cwd=path.parent, environment=environment, timeout=timeout)
-    if (
-        linker.get("version_exit_code") != version.returncode
-        or stdout != version.stdout
-        or stderr != version.stderr
-    ):
-        raise LabError(f"{context} live version identity differs")
     trace = _decode_bytes(linker.get("trace_raw_base64"), f"{context}.trace_raw_base64")
     if linker.get("trace_sha256") != _sha256_bytes(trace):
         raise LabError(f"{context} trace checksum is invalid")
@@ -1571,6 +1791,24 @@ def _validate_linker_identity(
             raise LabError(f"{context} observed and resolved linker paths differ")
     elif Path(observed_path).name.lower().removesuffix(".exe") != path.name.lower().removesuffix(".exe"):
         raise LabError(f"{context} observed and resolved linker names differ")
+    with tempfile.TemporaryDirectory(prefix="freak-v3-linker-revalidate-") as temporary:
+        live = _linker_identity_from_trace(
+            clang,
+            link_arguments,
+            expected_link_invocation_sha256,
+            Path(temporary).resolve(),
+            environment,
+            timeout,
+        )
+    if (
+        _path_identity(str(path)) != _path_identity(live["path"])
+        or linker.get("sha256") != live["sha256"]
+        or linker.get("bytes") != live["bytes"]
+        or linker.get("version_exit_code") != live["version_exit_code"]
+        or stdout != _decode_bytes(live["version_stdout_base64"], f"{context} live version stdout")
+        or stderr != _decode_bytes(live["version_stderr_base64"], f"{context} live version stderr")
+    ):
+        raise LabError(f"{context} differs from the linker derived by live Clang -###")
     return linker
 
 
@@ -1586,6 +1824,7 @@ def _validate_compile_observation(
     compile_source_path: str,
     binary: Mapping[str, Any],
     recording_identity_sha256: str,
+    clang: Path,
     environment: Mapping[str, str],
     timeout: float,
 ) -> None:
@@ -1597,6 +1836,11 @@ def _validate_compile_observation(
         raise LabError(f"{context}.source_snapshot_sha256 differs from the compiled source")
     if observation.get("recording_identity_sha256") != recording_identity_sha256:
         raise LabError(f"{context}.recording_identity_sha256 differs from the root recorder")
+    if (
+        observation.get("recording_before_sha256") != recording_identity_sha256
+        or observation.get("recording_after_sha256") != recording_identity_sha256
+    ):
+        raise LabError(f"{context} recorder source changed around the build")
     probes = _require_list(observation.get("probe_invocations"), f"{context}.probe_invocations")
     probe_invocations = [
         _validate_invocation_record(value, f"{context}.probe_invocations[{index}]")
@@ -1619,7 +1863,7 @@ def _validate_compile_observation(
     if len(successful_links) != 1:
         raise LabError(f"{context} must contain exactly one successful link invocation")
     successful_link = successful_links[0]
-    if observation.get("link_invocation_sha256") != successful_link["argv_sha256"]:
+    if observation.get("link_invocation_sha256") != successful_link["record_sha256"]:
         raise LabError(f"{context}.link_invocation_sha256 does not select the successful link")
     link_output = successful_link.get("output")
     if link_output is None or not _same_observed_file(link_output, binary):
@@ -1758,9 +2002,11 @@ def _validate_compile_observation(
     _validate_linker_identity(
         observation.get("linker"),
         f"{context}.linker",
+        clang,
+        successful_link["argv"],
         environment,
         timeout,
-        successful_link["argv_sha256"],
+        successful_link["record_sha256"],
     )
 
 
@@ -1769,6 +2015,7 @@ def _validate_execution_record(
     context: str,
     index: int,
     mode: Mapping[str, Any],
+    binary: Mapping[str, Any],
 ) -> tuple[int, dict[str, Any] | None]:
     record = _require_dict(value, context)
     _exact_keys(record, _SAMPLE_KEYS, context)
@@ -1777,6 +2024,16 @@ def _validate_execution_record(
     duration = _require_int(record.get("duration_ns"), f"{context}.duration_ns", minimum=0)
     if record.get("exit_code") != mode["expected_exit_code"]:
         raise LabError(f"{context} exit code differs from manifest")
+    command = _require_string_list(record.get("command"), f"{context}.command")
+    expected_command = [binary["path"], *mode["arguments"]]
+    if command != expected_command or record.get("command_sha256") != _json_sha256(command):
+        raise LabError(f"{context} execution command differs from the workload")
+    if (
+        record.get("executable_bytes") != binary["bytes"]
+        or record.get("executable_sha256_before") != binary["sha256"]
+        or record.get("executable_sha256_after") != binary["sha256"]
+    ):
+        raise LabError(f"{context} executable identity differs around execution")
     raw_stdout = _decode_bytes(record.get("stdout_raw_base64"), f"{context}.stdout_raw_base64")
     raw_stderr = _decode_bytes(record.get("stderr_raw_base64"), f"{context}.stderr_raw_base64")
     if record.get("stdout_raw_sha256") != _sha256_bytes(raw_stdout):
@@ -1802,9 +2059,13 @@ def _validate_execution_record(
 def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str, Any]:
     """Reject malformed, internally inconsistent, or stale lab output."""
 
-    document = _require_dict(_strict_json(path.resolve(strict=True)), "result")
+    document = _require_dict(
+        _strict_json(path.resolve(strict=True), maximum=MAX_RESULT_JSON_BYTES),
+        "result",
+    )
     required_root = {
         "schema",
+        "trust_model",
         "lab",
         "manifest",
         "recording",
@@ -1819,6 +2080,14 @@ def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str,
     _exact_keys(document, required_root, "result")
     if document["schema"] != RESULT_SCHEMA:
         raise LabError(f"unsupported result schema: {document['schema']!r}")
+    trust_model = _require_dict(document["trust_model"], "result.trust_model")
+    _exact_keys(trust_model, {"schema", "scope", "limitation"}, "result.trust_model")
+    if trust_model != {
+        "schema": TRUST_MODEL_SCHEMA,
+        "scope": TRUST_MODEL_SCOPE,
+        "limitation": TRUST_MODEL_LIMITATION,
+    }:
+        raise LabError("result trust model is invalid")
 
     manifest_info = _require_dict(document["manifest"], "result.manifest")
     _exact_keys(manifest_info, {"path", "schema", "sha256"}, "result.manifest")
@@ -2049,6 +2318,7 @@ def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str,
             compile_source_path=compile_command[2],
             binary=binary,
             recording_identity_sha256=recording_identity["combined_sha256"],
+            clang=clang_path,
             environment=validation_environment,
             timeout=validation_timeout,
         )
@@ -2063,6 +2333,7 @@ def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str,
                 f"{context}.run.warmups[{warmup_index}]",
                 warmup_index,
                 mode,
+                binary,
             )
         raw_samples = _require_list(run.get("samples"), f"{context}.run.samples")
         if len(raw_samples) != samples:
@@ -2075,6 +2346,7 @@ def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str,
                 f"{context}.run.samples[{sample_index}]",
                 sample_index,
                 mode,
+                binary,
             )
             durations.append(duration)
             observed_counters.append(counter)
@@ -2113,6 +2385,8 @@ def validate_output(path: Path, *, cli_override: str | None = None) -> dict[str,
 
 def _write_document(document: Mapping[str, Any], output: str) -> None:
     encoded = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    if len(encoded.encode("utf-8")) > MAX_RESULT_JSON_BYTES:
+        raise LabError(f"result JSON exceeds the {MAX_RESULT_JSON_BYTES}-byte bound")
     if output == "-":
         sys.stdout.write(encoded)
         return
@@ -2122,7 +2396,7 @@ def _write_document(document: Mapping[str, Any], output: str) -> None:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, epilog=TRUST_MODEL_HELP)
     parser.add_argument("--cli", help="exact FREAK CLI executable (required for benchmark runs)")
     parser.add_argument("--clang", help="exact Clang executable; defaults to clean PATH lookup")
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
