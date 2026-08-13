@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -152,6 +152,36 @@ task main() {
 }
 """
 
+BOOTSTRAP_BUILDER_PROGRAM = """task main() {
+    pilot builder = word_builder::with_capacity(4)
+    word_builder::reserve(builder, 16)
+    say word_builder::capacity(builder)
+    word_builder::append(builder, "py")
+    word_builder::append_char(builder, 33)
+    word_builder::append_int(builder, 0 - 7)
+    say word_builder::length(builder)
+    word_builder::clear(builder)
+    say word_builder::length(builder)
+    word_builder::append(builder, "done")
+    pilot finished_word = word_builder::finish(builder)
+    say finished_word
+
+    pilot discarded = word_builder::new()
+    word_builder::append(discarded, "unused")
+    word_builder::discard(discarded)
+}
+"""
+
+BOOTSTRAP_STALE_PROGRAM = """task main() {
+    pilot builder = word_builder::new()
+    pilot alias = builder
+    word_builder::append(builder, "owned")
+    pilot finished_word = word_builder::finish(builder)
+    say finished_word
+    say word_builder::length(alias)
+}
+"""
+
 RUNTIME_PROBE = r'''#include "freak_runtime.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -240,17 +270,87 @@ int main(int argc, char** argv) {
         (void)freak_llvm_word_builder_new();
         return (int)freak_llvm_word_builder_length(alias);
     }
+    if (strcmp(mode, "forged-c") == 0) {
+        (void)freak_word_builder_new();
+        int64_t forged = argc > 2 ? strtoll(argv[2], NULL, 10) : 0;
+        return (int)freak_word_builder_length(forged);
+    }
+    if (strcmp(mode, "forged-llvm") == 0) {
+        (void)freak_llvm_word_builder_new();
+        int64_t forged = argc > 2 ? strtoll(argv[2], NULL, 10) : 0;
+        return (int)freak_llvm_word_builder_length(forged);
+    }
     return check_utf8_and_ints();
 }
 '''
 
-AUDIT_RE = re.compile(
-    r"FREAK word foundation audit: repeat_calls=(\d+) "
-    r"repeat_allocations=(\d+) repeat_copied_bytes=(\d+) "
-    r"builder_creations=(\d+) builder_allocations=(\d+) "
-    r"builder_growths=(\d+) builder_copied_bytes=(\d+) "
-    r"builder_finishes=(\d+) builder_discards=(\d+)"
-)
+ZERO_COPY_PROBE = r'''#include "freak_runtime.c"
+#include <stdint.h>
+#include <stdio.h>
+
+static int check_c_finish_identity(void) {
+    int64_t handle = freak_word_builder_with_capacity(64);
+    int64_t slot = freak_word_builder_slot_for_handle(handle);
+    if (slot < 0) return 10;
+    char* allocation = freak_word_builders[slot].data;
+    freak_word_builder_append(handle, freak_word_lit("direct-c"));
+    if (freak_word_builders[slot].data != allocation) return 11;
+    freak_word value = freak_word_builder_finish(handle);
+    if (value.data != allocation || strcmp(value.data, "direct-c") != 0) return 12;
+    freak_word_release_owned(&value);
+    return 0;
+}
+
+static int check_llvm_finish_identity(void) {
+    int64_t handle = freak_llvm_word_builder_with_capacity(64);
+    int64_t slot = freak_word_builder_slot_for_handle(handle);
+    if (slot < 0) return 20;
+    char* allocation = freak_word_builders[slot].data;
+    freak_llvm_word_builder_append(handle, (int64_t)"direct-llvm");
+    if (freak_word_builders[slot].data != allocation) return 21;
+    int64_t value = freak_llvm_word_builder_finish(handle);
+    if ((char*)value != allocation || strcmp((const char*)value, "direct-llvm") != 0) return 22;
+    freak_llvm_word_release_replaced(value, 0);
+    return 0;
+}
+
+int main(void) {
+    int result = check_c_finish_identity();
+    if (result != 0) return result;
+    return check_llvm_finish_identity();
+}
+'''
+
+RUNTIME_STATS_PREFIX = "FREAK_RUNTIME_STATS "
+EXPECTED_RUNTIME_STATS = {
+    "schema": "freak-runtime-stats-v1",
+    "counters": {
+        "word_repeat": {
+            "calls": 6,
+            "allocations": 3,
+            "copied_bytes": 16,
+        },
+        "word_builder": {
+            "creations": 4,
+            "allocations": 4,
+            "growths": 3,
+            "copied_bytes": 48,
+            "finishes": 3,
+            "discards": 1,
+        },
+    },
+}
+
+
+def parse_runtime_stats(stderr: str) -> dict[str, object]:
+    sentinel_lines = [
+        line for line in stderr.splitlines() if line.startswith(RUNTIME_STATS_PREFIX)
+    ]
+    assert len(sentinel_lines) == 1, sentinel_lines
+    payload = sentinel_lines[0][len(RUNTIME_STATS_PREFIX) :]
+    parsed = json.loads(payload)
+    assert isinstance(parsed, dict), parsed
+    return parsed
 
 
 def run(
@@ -495,16 +595,19 @@ def main() -> int:
                 backend,
                 executed.stdout,
             )
-            audit_match = AUDIT_RE.search(executed.stderr)
-            assert audit_match, executed.stderr
-            stats = tuple(int(value) for value in audit_match.groups())
-            assert stats == (6, 3, 16, 4, 4, 3, 48, 3, 1), (backend, stats)
+            stats = parse_runtime_stats(executed.stderr)
+            assert stats == EXPECTED_RUNTIME_STATS, (backend, stats)
             assert "ownership audit found" not in executed.stderr
             assert "AddressSanitizer" not in executed.stderr
+            repeat_stats = stats["counters"]["word_repeat"]
+            builder_stats = stats["counters"]["word_builder"]
             print(
-                f"{backend}: repeat_calls={stats[0]} repeat_allocations={stats[1]} "
-                f"repeat_copied_bytes={stats[2]} builder_allocations={stats[4]} "
-                f"builder_growths={stats[5]} builder_copied_bytes={stats[6]}"
+                f"{backend}: repeat_calls={repeat_stats['calls']} "
+                f"repeat_allocations={repeat_stats['allocations']} "
+                f"repeat_copied_bytes={repeat_stats['copied_bytes']} "
+                f"builder_allocations={builder_stats['allocations']} "
+                f"builder_growths={builder_stats['growths']} "
+                f"builder_copied_bytes={builder_stats['copied_bytes']}"
             )
 
             for name, program, diagnostic in (
@@ -629,6 +732,85 @@ def main() -> int:
         )
         assert bootstrap_run.stdout.strip() == "yoyo", bootstrap_run.stdout
 
+        bootstrap_builder_source = root / "bootstrap_word_builder.fk"
+        bootstrap_builder_source.write_text(
+            BOOTSTRAP_BUILDER_PROGRAM, encoding="utf-8"
+        )
+        bootstrap_builder_binary = root / f"bootstrap_word_builder{executable_suffix}"
+        bootstrap_builder_build = run(
+            [
+                sys.executable,
+                "-m",
+                "freakc",
+                "build",
+                str(bootstrap_builder_source),
+                "--keep-c",
+                "-o",
+                str(bootstrap_builder_binary),
+            ],
+            repo,
+        )
+        assert bootstrap_builder_build.returncode == 0, (
+            bootstrap_builder_build.stdout + bootstrap_builder_build.stderr
+        )
+        bootstrap_builder_c = bootstrap_builder_source.with_suffix(".c").read_text(
+            encoding="utf-8"
+        )
+        for operation in (
+            "new",
+            "with_capacity",
+            "reserve",
+            "capacity",
+            "length",
+            "clear",
+            "append",
+            "append_char",
+            "append_int",
+            "finish",
+            "discard",
+        ):
+            assert f"freak_word_builder_{operation}(" in bootstrap_builder_c, operation
+        assert (
+            "freak_word finished_word = freak_word_builder_finish(builder);"
+            in bootstrap_builder_c
+        ), bootstrap_builder_c
+        assert "freak_word_from_int(freak_word_builder_finish" not in bootstrap_builder_c
+        bootstrap_builder_run = run([str(bootstrap_builder_binary)], root)
+        assert bootstrap_builder_run.returncode == 0, (
+            bootstrap_builder_run.stdout + bootstrap_builder_run.stderr
+        )
+        assert bootstrap_builder_run.stdout.strip().splitlines() == [
+            "16",
+            "5",
+            "0",
+            "done",
+        ], bootstrap_builder_run.stdout
+
+        bootstrap_stale_source = root / "bootstrap_word_builder_stale.fk"
+        bootstrap_stale_source.write_text(BOOTSTRAP_STALE_PROGRAM, encoding="utf-8")
+        bootstrap_stale_binary = root / f"bootstrap_word_builder_stale{executable_suffix}"
+        bootstrap_stale_build = run(
+            [
+                sys.executable,
+                "-m",
+                "freakc",
+                "build",
+                str(bootstrap_stale_source),
+                "-o",
+                str(bootstrap_stale_binary),
+            ],
+            repo,
+        )
+        assert bootstrap_stale_build.returncode == 0, (
+            bootstrap_stale_build.stdout + bootstrap_stale_build.stderr
+        )
+        bootstrap_stale_run = run([str(bootstrap_stale_binary)], root)
+        assert bootstrap_stale_run.returncode != 0, bootstrap_stale_run.stdout
+        assert (
+            "invalid or stale word builder handle in length"
+            in bootstrap_stale_run.stderr
+        ), bootstrap_stale_run.stderr
+
         runtime_probe = root / "word_foundation_runtime_probe.c"
         runtime_probe.write_text(RUNTIME_PROBE, encoding="utf-8")
         runtime_binary = root / f"word_foundation_runtime_probe{executable_suffix}"
@@ -670,6 +852,46 @@ def main() -> int:
                 "word builder append_char requires a non-NUL Unicode scalar"
                 in failed.stderr
             ), (scalar, failed.stderr)
+
+        for mode in ("forged-c", "forged-llvm"):
+            for forged in ("-1", "0", "4294967297", "8589934592"):
+                failed = run([str(runtime_binary), mode, forged], root)
+                assert failed.returncode != 0, (mode, forged)
+                assert (
+                    "invalid or stale word builder handle in length"
+                    in failed.stderr
+                ), (mode, forged, failed.stderr)
+
+        zero_copy_probe = root / "word_builder_zero_copy_probe.c"
+        zero_copy_probe.write_text(ZERO_COPY_PROBE, encoding="utf-8")
+        zero_copy_binary = root / f"word_builder_zero_copy_probe{executable_suffix}"
+        zero_copy_command = [
+            clang,
+            "-O1",
+            "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1",
+            "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1",
+            "-o",
+            str(zero_copy_binary),
+            str(zero_copy_probe),
+            "-I",
+            str(runtime_root),
+        ]
+        if sys.platform == "win32":
+            zero_copy_command.append("-lws2_32")
+        else:
+            zero_copy_command.extend(
+                ["-lm", "-fsanitize=address", "-fno-omit-frame-pointer"]
+            )
+        zero_copy_compiled = run(zero_copy_command, repo)
+        assert zero_copy_compiled.returncode == 0, (
+            zero_copy_compiled.stdout + zero_copy_compiled.stderr
+        )
+        zero_copy_run = run([str(zero_copy_binary)], root, sanitizer_env())
+        assert zero_copy_run.returncode == 0, (
+            zero_copy_run.stdout + zero_copy_run.stderr
+        )
+        assert "ownership audit found" not in zero_copy_run.stderr
+        assert "AddressSanitizer" not in zero_copy_run.stderr
 
     print("V3 word repetition and builder foundation: PASS")
     return 0

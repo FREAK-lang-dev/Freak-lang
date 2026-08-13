@@ -251,7 +251,7 @@ static bool freak_word_foundation_audit_registered = false;
 
 static void freak_word_foundation_audit_at_exit(void) {
     fprintf(stderr,
-            "FREAK word foundation audit: repeat_calls=%llu repeat_allocations=%llu repeat_copied_bytes=%llu builder_creations=%llu builder_allocations=%llu builder_growths=%llu builder_copied_bytes=%llu builder_finishes=%llu builder_discards=%llu\n",
+            "FREAK_RUNTIME_STATS {\"schema\":\"freak-runtime-stats-v1\",\"counters\":{\"word_repeat\":{\"calls\":%llu,\"allocations\":%llu,\"copied_bytes\":%llu},\"word_builder\":{\"creations\":%llu,\"allocations\":%llu,\"growths\":%llu,\"copied_bytes\":%llu,\"finishes\":%llu,\"discards\":%llu}}}\n",
             (unsigned long long)freak_word_foundation_repeat_calls,
             (unsigned long long)freak_word_foundation_repeat_allocations,
             (unsigned long long)freak_word_foundation_repeat_copied_bytes,

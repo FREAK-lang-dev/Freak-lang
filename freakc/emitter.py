@@ -67,6 +67,52 @@ class VarInfo:
     c_type: str
 
 
+@dataclass(frozen=True)
+class BuiltinCSignature:
+    c_name: str
+    return_type: str
+    argument_types: tuple[str, ...]
+    returns_owned: bool = False
+
+
+_WORD_BUILDER_C_ABI = {
+    "word_builder::new": BuiltinCSignature(
+        "freak_word_builder_new", "int64_t", ()
+    ),
+    "word_builder::with_capacity": BuiltinCSignature(
+        "freak_word_builder_with_capacity", "int64_t", ("int64_t",)
+    ),
+    "word_builder::reserve": BuiltinCSignature(
+        "freak_word_builder_reserve", "void", ("int64_t", "int64_t")
+    ),
+    "word_builder::capacity": BuiltinCSignature(
+        "freak_word_builder_capacity", "int64_t", ("int64_t",)
+    ),
+    "word_builder::length": BuiltinCSignature(
+        "freak_word_builder_length", "int64_t", ("int64_t",)
+    ),
+    "word_builder::clear": BuiltinCSignature(
+        "freak_word_builder_clear", "void", ("int64_t",)
+    ),
+    "word_builder::append": BuiltinCSignature(
+        "freak_word_builder_append", "void", ("int64_t", "freak_word")
+    ),
+    "word_builder::append_char": BuiltinCSignature(
+        "freak_word_builder_append_char", "void", ("int64_t", "int64_t")
+    ),
+    "word_builder::append_int": BuiltinCSignature(
+        "freak_word_builder_append_int", "void", ("int64_t", "int64_t")
+    ),
+    # finish consumes the handle and transfers its buffer into an owned word.
+    "word_builder::finish": BuiltinCSignature(
+        "freak_word_builder_finish", "freak_word", ("int64_t",), returns_owned=True
+    ),
+    "word_builder::discard": BuiltinCSignature(
+        "freak_word_builder_discard", "void", ("int64_t",)
+    ),
+}
+
+
 # C reserved words that cannot be used as variable names
 _C_RESERVED = {
     "auto",
@@ -1116,6 +1162,15 @@ class CEmitter:
         if isinstance(expr.func, PathIdent):
             fq_name = "::".join(expr.func.parts)
 
+            word_builder_signature = _WORD_BUILDER_C_ABI.get(fq_name)
+            if word_builder_signature is not None:
+                if len(expr.args) != len(word_builder_signature.argument_types):
+                    raise EmitError(
+                        f"{fq_name} expects {len(word_builder_signature.argument_types)} "
+                        f"argument(s), got {len(expr.args)}"
+                    )
+                return f"{word_builder_signature.c_name}({args_c})"
+
             # std::process mapping
             process_map = {
                 "process::run": "freak_process_run",
@@ -1661,6 +1716,9 @@ class CEmitter:
                     return ret
             if isinstance(expr.func, PathIdent):
                 fq = "::".join(expr.func.parts)
+                word_builder_signature = _WORD_BUILDER_C_ABI.get(fq)
+                if word_builder_signature is not None:
+                    return word_builder_signature.return_type
                 # std::process return types
                 _PROCESS_RET = {
                     "process::pid": "uint64_t",
