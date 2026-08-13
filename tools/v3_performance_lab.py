@@ -19,6 +19,7 @@ import platform
 import re
 import shlex
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -693,6 +694,145 @@ def _resolve_clang(value: str | None) -> Path:
     return Path(found).resolve(strict=True)
 
 
+class _WindowsJob:
+    """Own one Windows process tree and kill it when the job is closed."""
+
+    def __init__(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        class IoCounters(ctypes.Structure):
+            _fields_ = [
+                ("read_operations", ctypes.c_ulonglong),
+                ("write_operations", ctypes.c_ulonglong),
+                ("other_operations", ctypes.c_ulonglong),
+                ("read_bytes", ctypes.c_ulonglong),
+                ("write_bytes", ctypes.c_ulonglong),
+                ("other_bytes", ctypes.c_ulonglong),
+            ]
+
+        class BasicLimits(ctypes.Structure):
+            _fields_ = [
+                ("per_process_user_time", ctypes.c_longlong),
+                ("per_job_user_time", ctypes.c_longlong),
+                ("limit_flags", wintypes.DWORD),
+                ("minimum_working_set", ctypes.c_size_t),
+                ("maximum_working_set", ctypes.c_size_t),
+                ("active_process_limit", wintypes.DWORD),
+                ("affinity", ctypes.c_size_t),
+                ("priority_class", wintypes.DWORD),
+                ("scheduling_class", wintypes.DWORD),
+            ]
+
+        class ExtendedLimits(ctypes.Structure):
+            _fields_ = [
+                ("basic_limits", BasicLimits),
+                ("io_counters", IoCounters),
+                ("process_memory_limit", ctypes.c_size_t),
+                ("job_memory_limit", ctypes.c_size_t),
+                ("peak_process_memory", ctypes.c_size_t),
+                ("peak_job_memory", ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+        ]
+        kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        kernel32.TerminateJobObject.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        handle = kernel32.CreateJobObjectW(None, None)
+        if not handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        limits = ExtendedLimits()
+        limits.basic_limits.limit_flags = 0x00002000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel32.SetInformationJobObject(handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+            error = ctypes.WinError(ctypes.get_last_error())
+            kernel32.CloseHandle(handle)
+            raise error
+        self._ctypes = ctypes
+        self._wintypes = wintypes
+        self._kernel32 = kernel32
+        self._handle = handle
+
+    def assign(self, process: subprocess.Popen[bytes]) -> None:
+        process_handle = self._wintypes.HANDLE(int(process._handle))  # type: ignore[attr-defined]
+        if not self._kernel32.AssignProcessToJobObject(self._handle, process_handle):
+            raise self._ctypes.WinError(self._ctypes.get_last_error())
+
+    def terminate(self) -> None:
+        if self._handle and not self._kernel32.TerminateJobObject(self._handle, 1):
+            raise self._ctypes.WinError(self._ctypes.get_last_error())
+
+    def close(self) -> None:
+        if self._handle:
+            handle = self._handle
+            self._handle = None
+            if not self._kernel32.CloseHandle(handle):
+                raise self._ctypes.WinError(self._ctypes.get_last_error())
+
+
+def _terminate_process_tree(
+    process: subprocess.Popen[bytes],
+    windows_job: _WindowsJob | None,
+) -> list[str]:
+    """Terminate the whole launched tree and reap the direct child."""
+
+    errors: list[str] = []
+    if sys.platform == "win32":
+        if windows_job is not None:
+            try:
+                windows_job.terminate()
+            except OSError as error:
+                errors.append(f"cannot terminate Windows process job: {error}")
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError as error:
+            errors.append(f"cannot terminate POSIX process group {process.pid}: {error}")
+    if process.poll() is None:
+        try:
+            process.kill()
+        except OSError as error:
+            errors.append(f"cannot terminate direct process {process.pid}: {error}")
+    try:
+        process.wait(timeout=2.0)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        errors.append(f"cannot reap direct process {process.pid}: {error}")
+    return errors
+
+
+def _join_capture_threads(
+    readers: Sequence[threading.Thread],
+    streams: Sequence[Any],
+) -> list[str]:
+    """Bound reader shutdown after the process tree has been terminated."""
+
+    deadline = time.monotonic() + 2.0
+    for reader in readers:
+        reader.join(timeout=max(0.0, deadline - time.monotonic()))
+    errors = [f"capture reader {index} did not stop" for index, reader in enumerate(readers) if reader.is_alive()]
+    if not errors:
+        for stream in streams:
+            try:
+                stream.close()
+            except OSError as error:
+                errors.append(f"cannot close capture pipe: {error}")
+    return errors
+
+
 def _run_bytes(
     command: Sequence[str],
     *,
@@ -701,6 +841,9 @@ def _run_bytes(
     timeout: float,
 ) -> subprocess.CompletedProcess[bytes]:
     process: subprocess.Popen[bytes] | None = None
+    windows_job: _WindowsJob | None = None
+    readers: list[threading.Thread] = []
+    streams: list[Any] = []
     stdout_buffer = bytearray()
     stderr_buffer = bytearray()
     overflow = threading.Event()
@@ -708,8 +851,9 @@ def _run_bytes(
 
     def capture(stream: Any, destination: bytearray) -> None:
         try:
+            read_block = getattr(stream, "read1", stream.read)
             while True:
-                block = stream.read(64 * 1024)
+                block = read_block(64 * 1024)
                 if not block:
                     return
                 remaining = MAX_CAPTURE_BYTES - len(destination)
@@ -721,6 +865,12 @@ def _run_bytes(
             reader_errors.append(error)
 
     try:
+        popen_options: dict[str, Any] = {}
+        if sys.platform == "win32":
+            windows_job = _WindowsJob()
+            popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_options["start_new_session"] = True
         process = subprocess.Popen(
             list(command),
             cwd=str(cwd),
@@ -728,8 +878,12 @@ def _run_bytes(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            **popen_options,
         )
         assert process.stdout is not None and process.stderr is not None
+        streams = [process.stdout, process.stderr]
+        if windows_job is not None:
+            windows_job.assign(process)
         readers = [
             threading.Thread(target=capture, args=(process.stdout, stdout_buffer), daemon=True),
             threading.Thread(target=capture, args=(process.stderr, stderr_buffer), daemon=True),
@@ -737,28 +891,30 @@ def _run_bytes(
         for reader in readers:
             reader.start()
         deadline = time.monotonic() + timeout
+        terminal_error: BaseException | None = None
         while process.poll() is None:
             if overflow.is_set():
-                process.kill()
-                process.wait()
-                for reader in readers:
-                    reader.join(timeout=1.0)
-                raise LabError(
+                terminal_error = LabError(
                     f"command output exceeds the {MAX_CAPTURE_BYTES}-byte per-channel bound: {command!r}"
                 )
+                break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                process.kill()
-                process.wait()
-                for reader in readers:
-                    reader.join(timeout=1.0)
-                raise subprocess.TimeoutExpired(list(command), timeout)
+                terminal_error = subprocess.TimeoutExpired(list(command), timeout)
+                break
             try:
                 process.wait(timeout=min(0.05, remaining))
             except subprocess.TimeoutExpired:
                 pass
-        for reader in readers:
-            reader.join()
+        direct_returncode = process.poll()
+        cleanup_errors = _terminate_process_tree(process, windows_job)
+        cleanup_errors.extend(_join_capture_threads(readers, streams))
+        if terminal_error is not None:
+            if cleanup_errors:
+                raise LabError(f"{terminal_error}; cleanup failed: {'; '.join(cleanup_errors)}") from terminal_error
+            raise terminal_error
+        if cleanup_errors:
+            raise LabError(f"command process-tree cleanup failed: {'; '.join(cleanup_errors)}")
         if overflow.is_set():
             raise LabError(
                 f"command output exceeds the {MAX_CAPTURE_BYTES}-byte per-channel bound: {command!r}"
@@ -767,7 +923,7 @@ def _run_bytes(
             raise LabError(f"command output capture failed: {command!r}: {reader_errors[0]}")
         return subprocess.CompletedProcess(
             list(command),
-            process.returncode,
+            direct_returncode,
             bytes(stdout_buffer),
             bytes(stderr_buffer),
         )
@@ -775,6 +931,21 @@ def _run_bytes(
         raise
     except (OSError, subprocess.TimeoutExpired) as error:
         raise LabError(f"command failed to execute: {command!r}: {error}") from error
+    finally:
+        if process is not None and process.poll() is None:
+            _terminate_process_tree(process, windows_job)
+        if windows_job is not None:
+            try:
+                windows_job.close()
+            except OSError:
+                pass
+        if not any(reader.is_alive() for reader in readers):
+            for stream in streams:
+                if not stream.closed:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
 
 
 def _decode(value: bytes, context: str) -> str:

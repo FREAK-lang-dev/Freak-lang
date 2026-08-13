@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -38,16 +39,126 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _expect_lab_error(action: Callable[[], Any], message: str) -> None:
+def _expect_lab_error(
+    action: Callable[[], Any],
+    message: str,
+    expected_diagnostic: str | None = None,
+) -> str:
     try:
         action()
-    except LAB.LabError:
-        return
+    except LAB.LabError as error:
+        diagnostic = str(error)
+        if expected_diagnostic is not None and expected_diagnostic not in diagnostic:
+            raise AssertionError(
+                f"{message}: expected diagnostic {expected_diagnostic!r}, got {diagnostic!r}"
+            ) from error
+        return diagnostic
     raise AssertionError(message)
 
 
 def _write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _process_is_running(pid: int) -> bool:
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+        if not handle:
+            error = ctypes.get_last_error()
+            if error == 5:  # ERROR_ACCESS_DENIED still proves that the PID exists.
+                return True
+            if error == 87:  # ERROR_INVALID_PARAMETER for a PID that no longer exists.
+                return False
+            raise ctypes.WinError(error)
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) == 0x00000102  # WAIT_TIMEOUT
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _assert_descendant_stopped(pid_path: Path, context: str) -> None:
+    if not pid_path.is_file():
+        raise AssertionError(f"{context}: launcher did not publish the descendant PID")
+    pid = int(pid_path.read_text(encoding="ascii"))
+    deadline = time.monotonic() + 5.0
+    while _process_is_running(pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not _process_is_running(pid), f"{context}: descendant {pid} survived process-tree cleanup"
+
+
+def _descendant_launcher(pid_path: Path, action: str) -> list[str]:
+    child_code = "import time; time.sleep(60)"
+    launcher_code = (
+        "import subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+        "Path(sys.argv[1]).write_text(str(child.pid), encoding='ascii')\n"
+        f"{action}\n"
+    )
+    return [sys.executable, "-c", launcher_code, str(pid_path)]
+
+
+def _process_tree_checks(temporary: Path) -> None:
+    exit_pid = temporary / "exit-descendant.pid"
+    completed = LAB._run_bytes(
+        _descendant_launcher(exit_pid, "raise SystemExit(0)"),
+        cwd=temporary,
+        environment=os.environ,
+        timeout=5.0,
+    )
+    assert completed.returncode == 0
+    _assert_descendant_stopped(exit_pid, "normal launcher exit")
+
+    timeout_pid = temporary / "timeout-descendant.pid"
+    _expect_lab_error(
+        lambda: LAB._run_bytes(
+            _descendant_launcher(timeout_pid, "time.sleep(60)"),
+            cwd=temporary,
+            environment=os.environ,
+            timeout=1.0,
+        ),
+        "timed-out launcher left its process tree running",
+        "timed out after",
+    )
+    _assert_descendant_stopped(timeout_pid, "launcher timeout")
+
+    overflow_pid = temporary / "overflow-descendant.pid"
+    old_capture_bound = LAB.MAX_CAPTURE_BYTES
+    LAB.MAX_CAPTURE_BYTES = 32
+    try:
+        _expect_lab_error(
+            lambda: LAB._run_bytes(
+                _descendant_launcher(
+                    overflow_pid,
+                    "sys.stdout.write('x' * (128 * 1024)); sys.stdout.flush(); time.sleep(60)",
+                ),
+                cwd=temporary,
+                environment=os.environ,
+                timeout=5.0,
+            ),
+            "overflowing launcher left its process tree running",
+            "command output exceeds",
+        )
+    finally:
+        LAB.MAX_CAPTURE_BYTES = old_capture_bound
+    _assert_descendant_stopped(overflow_pid, "launcher output overflow")
 
 
 def _static_checks(temporary: Path) -> dict[str, Any]:
@@ -198,20 +309,7 @@ def _static_checks(temporary: Path) -> dict[str, Any]:
         "full invocation digest omitted output evidence",
     )
 
-    old_capture_bound = LAB.MAX_CAPTURE_BYTES
-    LAB.MAX_CAPTURE_BYTES = 32
-    try:
-        _expect_lab_error(
-            lambda: LAB._run_bytes(
-                [sys.executable, "-c", "import sys; sys.stdout.write('x' * 4096)"],
-                cwd=temporary,
-                environment=os.environ,
-                timeout=10.0,
-            ),
-            "oversized subprocess output was accepted",
-        )
-    finally:
-        LAB.MAX_CAPTURE_BYTES = old_capture_bound
+    _process_tree_checks(temporary)
     assert LAB._available_profiles("baseline help") == ["O0", "O1", "O2", "O3"]
     plus03_help = "profiles: \x1b[33m+03 — FINAL FORM\x1b[0m; LTO: --lto[=MODE]"
     assert LAB._available_profiles(plus03_help) == ["O0", "O1", "O2", "O3", "+03"]
@@ -229,6 +327,7 @@ def _mutate_and_reject(
     name: str,
     mutation: Callable[[dict[str, Any]], None],
     cli: Path,
+    expected_diagnostic: str | None = None,
 ) -> None:
     candidate = copy.deepcopy(document)
     mutation(candidate)
@@ -237,11 +336,13 @@ def _mutate_and_reject(
     _expect_lab_error(
         lambda: LAB.validate_output(path, cli_override=str(cli)),
         f"malformed/stale result mutation was accepted: {name}",
+        expected_diagnostic,
     )
 
 
 def _mutate_recorded_optimization(document: dict[str, Any]) -> None:
     observation = document["results"][0]["compile"]["observation"]
+    selected_link = _selected_link(document)
     changed = False
     for invocation in observation["invocations"]:
         invocation["argv"] = [
@@ -251,6 +352,8 @@ def _mutate_recorded_optimization(document: dict[str, Any]) -> None:
         changed = changed or "-O2" in invocation["argv"]
     assert changed
     observation["optimization_flags"] = ["-O2"]
+    observation["link_invocation_sha256"] = selected_link["record_sha256"]
+    observation["linker"]["link_invocation_sha256"] = selected_link["record_sha256"]
 
 
 def _replace_embedded_content(record: dict[str, Any], content: bytes) -> None:
@@ -281,10 +384,14 @@ def _mutate_link_output(document: dict[str, Any]) -> None:
 
 
 def _detach_link_runtime_input(document: dict[str, Any]) -> None:
+    observation = document["results"][0]["compile"]["observation"]
     invocation = _selected_link(document)
     for index, input_record in enumerate(invocation["inputs"]):
         if Path(input_record["path"]).name in LAB._RUNTIME_INPUT_NAMES:
             del invocation["inputs"][index]
+            _refresh_invocation_record(invocation)
+            observation["link_invocation_sha256"] = invocation["record_sha256"]
+            observation["linker"]["link_invocation_sha256"] = invocation["record_sha256"]
             return
     raise AssertionError("selected link invocation did not contain a runtime input")
 
@@ -624,7 +731,14 @@ def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Pa
         cli,
     )
     _mutate_and_reject(temporary, document, "link-output", _mutate_link_output, cli)
-    _mutate_and_reject(temporary, document, "detached-link-runtime", _detach_link_runtime_input, cli)
+    _mutate_and_reject(
+        temporary,
+        document,
+        "detached-link-runtime",
+        _detach_link_runtime_input,
+        cli,
+        "runtime_inputs are detached",
+    )
 
     duplicate_output = temporary / "reject-duplicate-nested-key.json"
     duplicate_text = output.read_text(encoding="utf-8")
@@ -707,6 +821,7 @@ def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Pa
         "ignored-optimization",
         _mutate_recorded_optimization,
         cli,
+        "optimization flags do not implement O0",
     )
     _mutate_and_reject(
         temporary,
