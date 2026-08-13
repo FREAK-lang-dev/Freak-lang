@@ -4,13 +4,57 @@
 -- Handles: freshness check, build when needed, then execute the binary.
 -- ===================================================================
 
-pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v5"
+pilot CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"
+pilot CLI_RUN_UNHASHABLE = "<unhashable>"
+
+task cli_run_valid_sha256(token: word) -> bool {
+    if token.length() != 64 { give back false }
+    pilot hi = 0
+    repeat until hi >= token.length() {
+        if not is_hex_digit(token.char_at(hi)) { give back false }
+        hi += 1
+    }
+    give back true
+}
+
+task cli_run_sha256_from_output(output: word) -> word {
+    pilot token = ""
+    pilot oi = 0
+    repeat until oi > output.length() {
+        pilot at_end = oi == output.length()
+        pilot ch = " "
+        if not at_end { ch = output.char_at(oi) }
+        if ch == " " or ch == "\t" or ch == "\r" or ch == "\n" {
+            if cli_run_valid_sha256(token) { give back token.to_lower() }
+            token = ""
+        } else {
+            token = token + ch
+        }
+        oi += 1
+    }
+    give back ""
+}
+
+task cli_run_file_sha256(path: word) -> word {
+    if path == "" or not fs::exists(path) { give back "" }
+    pilot output = ""
+    if cli_is_windows() {
+        output = process::exec_capture("certutil -hashfile " + cli_quote_cmd_path(path) + " SHA256 2>nul")
+    } else {
+        output = process::exec_capture("sha256sum " + cli_quote_cmd_path(path) + " 2>/dev/null")
+        if cli_run_sha256_from_output(output) == "" {
+            output = process::exec_capture("shasum -a 256 " + cli_quote_cmd_path(path) + " 2>/dev/null")
+        }
+    }
+    give back cli_run_sha256_from_output(output)
+}
 
 task cli_run_file_fingerprint(path: word) -> word {
     if path == "" { give back "<empty-path>:missing" }
     if not fs::exists(path) { give back path + ":missing" }
-    pilot contents: word = fs::read(path)
-    give back path + ":" + word_from_int(contents.length()) + ":" + word_from_int(contents.checksum())
+    pilot digest = cli_run_file_sha256(path)
+    if digest == "" { give back CLI_RUN_UNHASHABLE + ":" + path }
+    give back path + ":sha256=" + digest
 }
 
 task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word, lto: word, runtime_policy: word, runtime_stats: word, cross: word) -> word {
@@ -29,8 +73,7 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     pilot material = CLI_RUN_CACHE_SCHEMA
     material = material + "|cli=" + CLI_VERSION + "|compiler=" + FREAKC_VERSION
     material = material + "|self=" + cli_run_file_fingerprint(cli_executable_path())
-    material = material + "|source-path=" + src_file
-    material = material + "|source=" + word_from_int(source.length()) + ":" + word_from_int(source.checksum())
+    material = material + "|source=" + cli_run_file_fingerprint(src_file)
     material = material + "|std=" + word_from_int(std_source.length()) + ":" + word_from_int(std_source.checksum())
     material = material + "|target=" + target + "|profile=" + profile + "|clang-opt=" + opt + "|lto=" + lto
     material = material + "|runtime-policy=" + runtime_policy + "|runtime-stats=" + runtime_stats + "|cross=" + cross + "|strict=" + strict_label
@@ -54,73 +97,52 @@ task cli_run_fingerprint(src_file: word, target: word, profile: word, opt: word,
     material = material + "|std-abi=" + cli_run_file_fingerprint(std_dir + "/freak_abi")
     material = material + "|pending-upgrade=" + cli_run_file_fingerprint(pending_marker)
 
+    if material.contains(CLI_RUN_UNHASHABLE) { give back "" }
     give back word_from_int(material.checksum())
 }
 
-task cli_run_clang_identity(clang_cmd: word) -> word {
-    if clang_cmd == "" { give back "clang-command:missing" }
-    pilot clean_cmd = clang_cmd.replace("\"", "")
+task cli_run_resolve_program(command: word) -> word {
+    if command == "" { give back "" }
+    pilot clean_cmd = command.replace("\"", "")
     pilot resolved = ""
     if fs::exists(clean_cmd) {
         resolved = clean_cmd
+    } else if cli_is_windows() and fs::exists(clean_cmd + ".exe") {
+        resolved = clean_cmd + ".exe"
     } else if cli_is_windows() {
         resolved = cli_first_line(process::exec_capture("where " + cli_quote_cmd_path(clean_cmd) + " 2>nul"))
     } else {
         resolved = cli_first_line(process::exec_capture("command -v " + cli_quote_cmd_path(clean_cmd) + " 2>/dev/null"))
     }
+    give back resolved.trim()
+}
 
-    pilot digest_output = ""
-    if resolved != "" {
-        if cli_is_windows() {
-            digest_output = process::exec_capture("certutil -hashfile " + cli_quote_cmd_path(resolved) + " SHA256 2>nul")
-        } else {
-            digest_output = process::exec_capture("sha256sum " + cli_quote_cmd_path(resolved) + " 2>/dev/null")
-            if digest_output == "" {
-                digest_output = process::exec_capture("shasum -a 256 " + cli_quote_cmd_path(resolved) + " 2>/dev/null")
-            }
-        }
-    }
-    pilot digest = word_from_int(digest_output.length()) + ":" + word_from_int(digest_output.checksum())
-    if digest_output == "" and resolved != "" {
-        digest = cli_run_file_fingerprint(resolved)
-    }
+task cli_run_clang_identity(clang_cmd: word) -> word {
+    if clang_cmd == "" { give back CLI_RUN_UNHASHABLE + ":clang-command" }
+    pilot resolved = cli_run_resolve_program(clang_cmd)
+    if resolved == "" { give back CLI_RUN_UNHASHABLE + ":clang-resolution:" + clang_cmd }
+    pilot digest = cli_run_file_sha256(resolved)
+    if digest == "" { give back CLI_RUN_UNHASHABLE + ":clang-digest:" + resolved }
     give back "command=" + clang_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + cli_clang_version_line(clang_cmd)
 }
 
 task cli_run_linker_identity(clang_cmd: word, lto: word, cross: word) -> word {
     pilot clang_target = cli_clang_target_triple(clang_cmd, cross)
-    if clang_target == "" { give back "clang-target:missing|linker-command:missing" }
-    pilot linker_cmd = cli_selected_linker_command(clang_cmd, lto, clang_target)
-    if linker_cmd == "" { give back "linker-command:missing" }
-    pilot clean_cmd = linker_cmd.replace("\"", "")
-    pilot resolved = ""
-    if fs::exists(clean_cmd) {
-        resolved = clean_cmd
-    } else if cli_is_windows() {
-        resolved = cli_first_line(process::exec_capture("where " + cli_quote_cmd_path(clean_cmd) + " 2>nul"))
-    } else {
-        resolved = cli_first_line(process::exec_capture("command -v " + cli_quote_cmd_path(clean_cmd) + " 2>/dev/null"))
-    }
-
-    pilot digest_output = ""
-    if resolved != "" {
-        if cli_is_windows() {
-            digest_output = process::exec_capture("certutil -hashfile " + cli_quote_cmd_path(resolved) + " SHA256 2>nul")
-        } else {
-            digest_output = process::exec_capture("sha256sum " + cli_quote_cmd_path(resolved) + " 2>/dev/null")
-            if digest_output == "" {
-                digest_output = process::exec_capture("shasum -a 256 " + cli_quote_cmd_path(resolved) + " 2>/dev/null")
-            }
-        }
-    }
-    pilot digest = word_from_int(digest_output.length()) + ":" + word_from_int(digest_output.checksum())
-    if digest_output == "" and resolved != "" { digest = cli_run_file_fingerprint(resolved) }
+    if clang_target == "" { give back CLI_RUN_UNHASHABLE + ":clang-target" }
+    pilot linker_cmd = cli_selected_linker_command(clang_cmd, lto, cross)
+    if linker_cmd == "" { give back CLI_RUN_UNHASHABLE + ":linker-trace" }
+    pilot resolved = cli_run_resolve_program(linker_cmd)
+    if resolved == "" { give back CLI_RUN_UNHASHABLE + ":linker-resolution:" + linker_cmd }
+    pilot digest = cli_run_file_sha256(resolved)
+    if digest == "" { give back CLI_RUN_UNHASHABLE + ":linker-digest:" + resolved }
     pilot version = cli_first_line(process::exec_capture(cli_shell_command_prefix(linker_cmd) + " --version 2>&1"))
     give back "target=" + clang_target + "|command=" + linker_cmd + "|resolved=" + resolved + "|digest=" + digest + "|version=" + version
 }
 
 task cli_run_cache_record(fingerprint: word, binary: word) -> word {
-    give back fingerprint + "|artifact=" + cli_run_file_fingerprint(binary)
+    pilot artifact = cli_run_file_fingerprint(binary)
+    if artifact.contains(CLI_RUN_UNHASHABLE) { give back "" }
+    give back fingerprint + "|artifact=" + artifact
 }
 
 task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, runtime_policy: word, runtime_stats: word, cross: word) -> int {
@@ -134,9 +156,16 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
     pilot fingerprint = cli_run_fingerprint(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
     pilot cache_hit = false
 
+    if fingerprint == "" {
+        say ""
+        say "  " + C_BRED + SYM_CROSS + " RUN ABORTED" + C_RESET + " Build inputs or the selected toolchain could not be hashed."
+        say "  " + C_DIM + "Install a platform SHA-256 tool and verify Clang can report its linker with -###." + C_RESET
+        give back 1
+    }
+
     if fingerprint != "" and fs::exists(binary) and fs::exists(cache_file) {
         pilot expected_record = cli_run_cache_record(fingerprint, binary)
-        if fs::read(cache_file) == expected_record { cache_hit = true }
+        if expected_record != "" and fs::read(cache_file) == expected_record { cache_hit = true }
     }
 
     if cache_hit {
@@ -156,7 +185,13 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
             say "  " + C_DIM + "Run the command again after the files stop changing." + C_RESET
             give back 1
         }
-        fs::write(cache_file, cli_run_cache_record(confirmed, binary))
+        pilot confirmed_record = cli_run_cache_record(confirmed, binary)
+        if confirmed_record == "" {
+            say ""
+            say "  " + C_BRED + SYM_CROSS + " RUN ABORTED" + C_RESET + " The built executable could not be hashed."
+            give back 1
+        }
+        fs::write(cache_file, confirmed_record)
     }
 
     -- Revalidate both inputs and the output artifact immediately before
@@ -164,7 +199,7 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
     -- replaced binaries that appear after the initial cache decision.
     pilot launch_fingerprint = cli_run_fingerprint(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
     pilot launch_record = cli_run_cache_record(launch_fingerprint, binary)
-    if launch_fingerprint == "" or launch_fingerprint != fingerprint or not fs::exists(cache_file) or fs::read(cache_file) != launch_record {
+    if launch_fingerprint == "" or launch_record == "" or launch_fingerprint != fingerprint or not fs::exists(cache_file) or fs::read(cache_file) != launch_record {
         if fs::exists(cache_file) { fs::delete(cache_file) }
         say ""
         say "  " + C_BRED + SYM_CROSS + " RUN ABORTED" + C_RESET + " Build inputs or output changed before launch."

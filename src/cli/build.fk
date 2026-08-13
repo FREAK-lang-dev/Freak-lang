@@ -861,41 +861,85 @@ task cli_clang_target_triple(clang_cmd: word, cross: word) -> word {
     give back cli_first_line(process::exec_capture(clang_prefix + " -dumpmachine 2>&1")).trim()
 }
 
-task cli_linker_program_name(clang_target: word, lto: word) -> word {
-    pilot normalized_target = clang_target.to_lower()
-    pilot windows_programs = cli_is_windows()
-    pilot is_msvc = normalized_target.contains("msvc")
-    pilot is_windows_gnu = normalized_target.contains("mingw") or normalized_target.contains("windows-gnu") or normalized_target.contains("w64-windows")
-    pilot is_darwin = normalized_target.contains("apple") or normalized_target.contains("darwin")
-
-    if is_msvc {
-        if lto == "off" {
-            if windows_programs { give back "link.exe" }
-            give back "link"
+task cli_trace_command_token(line: word) -> word {
+    pilot clean_line = line.trim()
+    if clean_line == "" { give back "" }
+    pilot token = ""
+    pilot quoted = clean_line.char_at(0) == "\""
+    pilot ti = 0
+    if quoted { ti = 1 }
+    pilot finished = false
+    repeat until finished {
+        if ti >= clean_line.length() {
+            finished = true
+        } else {
+            pilot ch = clean_line.char_at(ti)
+            if quoted and ch == "\"" {
+                finished = true
+            } else if not quoted and (ch == " " or ch == "\t") {
+                finished = true
+            } else {
+                token = token + ch
+            }
         }
-        if windows_programs { give back "lld-link.exe" }
-        give back "lld-link"
+        ti += 1
     }
-    if is_darwin { give back "ld" }
-    if lto != "off" or is_windows_gnu or windows_programs {
-        if windows_programs { give back "ld.lld.exe" }
-        give back "ld.lld"
-    }
-    give back "ld"
+    -- Clang's Windows -### rendering escapes path separators for display.
+    give back token.replace("\\\\", "\\")
 }
 
-task cli_selected_linker_command(clang_cmd: word, lto: word, clang_target: word) -> word {
-    pilot linker_name = cli_linker_program_name(clang_target, lto)
-    pilot clean_clang = clang_cmd.replace("\"", "")
-    pilot clang_dir = cli_path_parent(clean_clang)
-    if clang_dir != "" {
-        pilot sibling_linker = clang_dir + "/" + linker_name
-        if fs::exists(sibling_linker) { give back cli_quote_cmd_path(sibling_linker) }
+task cli_trace_command_is_linker(command: word) -> bool {
+    if command == "" { give back false }
+    pilot normalized = command.replace("\\", "/").to_lower()
+    pilot leaf = cli_posix_path_leaf(normalized)
+    if leaf == "ld" or leaf == "ld.exe" or leaf == "link" or leaf == "link.exe" { give back true }
+    if leaf == "ld.lld" or leaf == "ld.lld.exe" or leaf == "lld-link" or leaf == "lld-link.exe" { give back true }
+    if leaf == "ld64" or leaf == "ld64.lld" or leaf == "mold" or leaf == "mold.exe" { give back true }
+    if leaf == "ld.bfd" or leaf == "ld.gold" or leaf.ends_with("-ld") or leaf.ends_with("-ld.exe") { give back true }
+    give back false
+}
+
+task cli_linker_command_from_trace(trace: word) -> word {
+    pilot line = ""
+    pilot ti = 0
+    repeat until ti > trace.length() {
+        pilot at_end = ti == trace.length()
+        pilot ch = "\n"
+        if not at_end { ch = trace.char_at(ti) }
+        if ch == "\n" or ch == "\r" {
+            pilot command = cli_trace_command_token(line)
+            if cli_trace_command_is_linker(command) {
+                if cli_is_windows() and not fs::exists(command) and fs::exists(command + ".exe") {
+                    command = command + ".exe"
+                }
+                give back cli_normalize_cmd_override(command)
+            }
+            line = ""
+        } else {
+            line = line + ch
+        }
+        ti += 1
+    }
+    give back ""
+}
+
+task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> word {
+    -- Ask the selected driver for the exact link command. Target-name guesses
+    -- are not sufficient: upstream Windows Clang, LLVM-MinGW, Apple Clang, and
+    -- distro Clang may select different linkers for the same broad family.
+    if clang_cmd == "" or not cli_cross_target_is_safe(cross) { give back "" }
+    pilot null_input = "/dev/null"
+    pilot null_output = "/dev/null"
+    if cli_is_windows() {
+        null_input = "nul"
+        null_output = "nul"
     }
     pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
-    pilot printed = cli_first_line(process::exec_capture(clang_prefix + " -print-prog-name=" + linker_name))
-    if printed != "" { give back cli_normalize_cmd_override(printed) }
-    give back linker_name
+    pilot trace_cmd = clang_prefix + " -### -x c " + null_input + " -o " + null_output
+    trace_cmd = trace_cmd + cli_lto_clang_flags(lto) + cli_lto_linker_flags(lto)
+    if cross != "" { trace_cmd = trace_cmd + " --target=" + cli_quote_cmd_path(cross) }
+    pilot trace = process::exec_capture(trace_cmd + " 2>&1")
+    give back cli_linker_command_from_trace(trace)
 }
 
 task cli_runtime_link_plan(runtime_dir: word, lto: word, cross: word) -> word {

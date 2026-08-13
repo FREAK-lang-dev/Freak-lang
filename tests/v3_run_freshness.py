@@ -106,7 +106,7 @@ def check_installer_contracts(repo: Path) -> None:
     ):
         assert needle in manifest_text, f"distribution manifest missing {needle}"
     for needle in (
-        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v5"',
+        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"',
         "task cli_run_clang_identity",
         "command -v ",
         "certutil -hashfile",
@@ -542,11 +542,15 @@ def main() -> int:
             percent_source_dir.mkdir()
             percent_source = percent_source_dir / "literal percent.fk"
             percent_source.write_text('say "SAFE_WINDOWS_PATH"\n', encoding="utf-8")
+            mock_linker = root / "ld.lld.exe"
+            shutil.copy2(freak, mock_linker)
             mock_clang = root / "mock-clang.cmd"
             mock_clang.write_text(
                 "@echo off\n"
                 "setlocal DisableDelayedExpansion\n"
                 'if "%~1"=="--version" (echo clang mock-version& exit /b 0)\n'
+                'if "%~1"=="-dumpmachine" (echo x86_64-w64-windows-gnu& exit /b 0)\n'
+                f'if "%~1"=="-###" (echo "{mock_linker}" "-out:nul"& exit /b 0)\n'
                 ":scan\n"
                 'if "%~1"=="" exit /b 2\n'
                 'if "%~1"=="-o" goto output\n'

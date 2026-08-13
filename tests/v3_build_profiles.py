@@ -76,7 +76,11 @@ if os.environ.get("FREAK_PROFILE_REJECT_LTO") == "1" and any(
 ):
     print("recording clang: LTO deliberately unsupported", file=sys.stderr)
     raise SystemExit(86)
-raise SystemExit(subprocess.run([os.environ["FREAK_PROFILE_REAL_CLANG"], *args]).returncode)
+delegate = [os.environ["FREAK_PROFILE_REAL_CLANG"]]
+linker_dir = os.environ.get("FREAK_PROFILE_LINKER_DIR")
+if linker_dir:
+    delegate.append(f"-B{linker_dir}")
+raise SystemExit(subprocess.run([*delegate, *args]).returncode)
 """,
         encoding="utf-8",
     )
@@ -108,6 +112,7 @@ def compile_entries(log: Path) -> list[list[str]]:
         for args in read_log(log)
         if "--version" not in args
         and "-dumpmachine" not in args
+        and "-###" not in args
         and not any("print-prog-name" in arg for arg in args)
     ]
 
@@ -154,10 +159,9 @@ def check_static_contract(repo: Path) -> None:
         'give back " -fuse-ld=lld"',
         'give back " -fuse-ld=ld"',
         "task cli_clang_target_triple",
-        "task cli_linker_program_name",
-        'give back "lld-link.exe"',
-        'give back "ld.lld.exe"',
-        'give back "link.exe"',
+        "task cli_linker_command_from_trace",
+        "task cli_selected_linker_command",
+        '" -### -x c "',
         'lto == "off" and runtime_obj_ext != ""',
         'profile_label = "+03 — FINAL FORM"',
         "No non-LTO fallback was attempted",
@@ -166,7 +170,9 @@ def check_static_contract(repo: Path) -> None:
     for forbidden in ("-Ofast", "-ffast-math", "-march=native"):
         assert forbidden not in build, f"unsafe optimization flag present: {forbidden}"
     for needle in (
-        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v5"',
+        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"',
+        "task cli_run_file_sha256",
+        'give back path + ":sha256=" + digest',
         '"|target=" + target + "|profile=" + profile + "|clang-opt=" + opt + "|lto=" + lto',
         '"|runtime-policy=" + runtime_policy + "|runtime-stats=" + runtime_stats',
         '"|linker=" + cli_run_linker_identity',
@@ -399,7 +405,7 @@ def check_cache_separation(
 
     assert_run_cache(freak, root, source, [], env, hit=False)
     assert_run_cache(freak, root, source, [], env, hit=True)
-    binary.write_bytes(binary.read_bytes() + b"stale-tail")
+    binary.write_bytes(binary.read_bytes() + b"\x00stale-tail")
     assert_run_cache(freak, root, source, [], env, hit=False)
     assert_run_cache(freak, root, source, ["--opt=3"], env, hit=False)
     assert_run_cache(freak, root, source, ["--opt=3"], env, hit=True)
@@ -412,20 +418,99 @@ def check_cache_separation(
     assert_run_cache(freak, root, source, ["+03", "--lto=full"], env, hit=False)
 
 
-def create_fake_linkers(root: Path, real_clang: str) -> dict[str, Path]:
-    names = {
-        "gnu": "ld.lld.exe" if sys.platform == "win32" else "ld.lld",
-        "msvc_off": "link.exe" if sys.platform == "win32" else "link",
-        "msvc_lto": "lld-link.exe" if sys.platform == "win32" else "lld-link",
+def is_linker_name(name: str) -> bool:
+    lower = name.lower()
+    exact = {
+        "ld",
+        "ld.exe",
+        "link",
+        "link.exe",
+        "ld.lld",
+        "ld.lld.exe",
+        "lld-link",
+        "lld-link.exe",
+        "ld64",
+        "ld64.lld",
+        "mold",
+        "mold.exe",
+        "ld.bfd",
+        "ld.gold",
     }
-    programs: dict[str, Path] = {}
-    for role, name in names.items():
-        destination = root / name
-        shutil.copy2(real_clang, destination)
-        if sys.platform != "win32":
-            destination.chmod(0o755)
-        programs[role] = destination
-    return programs
+    return lower in exact or lower.endswith("-ld") or lower.endswith("-ld.exe")
+
+
+def linker_from_trace(output: str) -> Path:
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith('"'):
+            end = line.find('"', 1)
+            if end < 0:
+                continue
+            token = line[1:end].replace("\\\\", "\\")
+        else:
+            token = line.split(maxsplit=1)[0]
+        candidate = Path(token)
+        if not is_linker_name(candidate.name):
+            continue
+        if sys.platform == "win32" and not candidate.exists():
+            executable = Path(str(candidate) + ".exe")
+            if executable.exists():
+                candidate = executable
+        assert candidate.is_file(), (candidate, output)
+        return candidate.resolve()
+    raise AssertionError(f"Clang -### did not expose a linker command:\n{output}")
+
+
+def trace_linker(
+    real_clang: str,
+    flags: list[str],
+    *,
+    linker_dir: Path | None = None,
+) -> Path:
+    command = [real_clang]
+    if linker_dir is not None:
+        command.append(f"-B{linker_dir}")
+    command.extend(["-###", "-x", "c", os.devnull, "-o", os.devnull, *flags])
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    return linker_from_trace(completed.stdout + completed.stderr)
+
+
+def controlled_linkers(root: Path, real_clang: str) -> tuple[Path, dict[str, Path]]:
+    linker_dir = root / "driver-selected-linkers"
+    linker_dir.mkdir()
+    lto_linker = "-fuse-ld=ld" if sys.platform == "darwin" else "-fuse-ld=lld"
+    scenarios = {
+        "off": [],
+        "thin": ["-flto=thin", lto_linker],
+    }
+    selected: dict[str, Path] = {}
+    for name, flags in scenarios.items():
+        actual = trace_linker(real_clang, flags)
+        destination = linker_dir / actual.name
+        if not destination.exists():
+            shutil.copy2(actual, destination)
+            if sys.platform != "win32":
+                destination.chmod(0o755)
+        traced = trace_linker(real_clang, flags, linker_dir=linker_dir)
+        assert traced == destination.resolve(), (
+            "Clang ignored the controlled linker search prefix",
+            flags,
+            traced,
+            destination,
+        )
+        selected[name] = destination
+    return linker_dir, selected
 
 
 def mutate_fake_linker(path: Path, marker: str) -> None:
@@ -442,23 +527,18 @@ def check_linker_identity_selection(
 ) -> None:
     source = root / "linker-cache.fk"
     source.write_text('say "CACHE_PROFILE_OK"\n', encoding="utf-8")
-    programs = create_fake_linkers(root, real_clang)
-    scenarios = (
-        ("x86_64-w64-windows-gnu", [], "gnu", "msvc_off"),
-        ("x86_64-pc-windows-msvc", [], "msvc_off", "gnu"),
-        ("x86_64-w64-windows-gnu", ["--lto=thin"], "gnu", "msvc_lto"),
-        ("x86_64-pc-windows-msvc", ["--lto=thin"], "msvc_lto", "gnu"),
-    )
+    linker_dir, programs = controlled_linkers(root, real_clang)
+    scenarios = (([], "off"), (["--lto=thin"], "thin"))
     controlled_env = env.copy()
-    for index, (target, flags, selected_role, unrelated_role) in enumerate(scenarios):
-        controlled_env["FREAK_PROFILE_FAKE_TARGET"] = target
+    controlled_env.pop("FREAK_PROFILE_FAKE_TARGET", None)
+    controlled_env["FREAK_PROFILE_LINKER_DIR"] = str(linker_dir)
+    for index, (flags, selected_role) in enumerate(scenarios):
+        log.unlink(missing_ok=True)
         assert_run_cache(freak, root, source, flags, controlled_env, hit=False)
-        assert_run_cache(freak, root, source, flags, controlled_env, hit=True)
-        mutate_fake_linker(programs[unrelated_role], f"unrelated-{index}")
         assert_run_cache(freak, root, source, flags, controlled_env, hit=True)
         mutate_fake_linker(programs[selected_role], f"selected-{index}")
         assert_run_cache(freak, root, source, flags, controlled_env, hit=False)
-    assert ["-dumpmachine"] in read_log(log), read_log(log)
+        assert any("-###" in args for args in read_log(log)), read_log(log)
 
 
 def clang_target(real_clang: str) -> str:
