@@ -1,0 +1,72 @@
+{
+  "schema": "freak.v4.differential.v1",
+  "capabilities": {
+    "v4_native": false
+  },
+  "cases": [
+    {
+      "id": "compatible-basic-task",
+      "taxonomy": "equal",
+      "source": "compatible/basic_task.fk",
+      "intentional_difference_reason": "",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": true, "diagnostic_class": "none"},
+        "v4": {"accepted": true, "diagnostic_class": "none"}
+      }
+    },
+    {
+      "id": "negative-missing-parameter",
+      "taxonomy": "negative",
+      "source": "negative/missing_parameter.fk",
+      "intentional_difference_reason": "",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": false, "diagnostic_class": "syntax"},
+        "v4": {"accepted": false, "diagnostic_class": "syntax"}
+      }
+    },
+    {
+      "id": "negative-constant-type-mismatch",
+      "taxonomy": "negative",
+      "source": "negative/constant_type_mismatch.fk",
+      "intentional_difference_reason": "",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": false, "diagnostic_class": "type"},
+        "v4": {"accepted": false, "diagnostic_class": "type"}
+      }
+    },
+    {
+      "id": "v4-extension-named-lifetime",
+      "taxonomy": "v4_extension",
+      "source": "v4_extension/named_lifetime.fk",
+      "intentional_difference_reason": "V4 accepts explicit named lifetime parameters and lend-qualified parameter and return types; shipping V3 rejects that syntax.",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": false, "diagnostic_class": "syntax"},
+        "v4": {"accepted": true, "diagnostic_class": "none"}
+      }
+    }
+  ]
+}
