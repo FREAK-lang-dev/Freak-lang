@@ -235,6 +235,45 @@ def _process_tree_checks(temporary: Path) -> None:
     _assert_descendant_stopped(overflow_pid, overflow_ready, "launcher output overflow")
 
     if sys.platform == "win32":
+        import ctypes
+        import msvcrt
+
+        sentinel_path = temporary / "must-not-inherit.handle"
+        sentinel_path.write_bytes(b"sentinel\n")
+        sentinel_fd = os.open(sentinel_path, os.O_RDONLY | os.O_BINARY)
+        os.set_inheritable(sentinel_fd, True)
+        sentinel_handle = msvcrt.get_osfhandle(sentinel_fd)
+        handle_probe = (
+            "import ctypes, sys\n"
+            "from ctypes import wintypes\n"
+            "kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)\n"
+            "kernel32.GetHandleInformation.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]\n"
+            "kernel32.GetHandleInformation.restype = wintypes.BOOL\n"
+            "flags = wintypes.DWORD()\n"
+            "ctypes.set_last_error(0)\n"
+            "inherited = kernel32.GetHandleInformation(wintypes.HANDLE(int(sys.argv[1])), ctypes.byref(flags))\n"
+            "if inherited:\n"
+            "    print('unrelated handle inherited', file=sys.stderr)\n"
+            "    raise SystemExit(91)\n"
+            "error = ctypes.get_last_error()\n"
+            "if error != 6:\n"
+            "    print(f'unexpected GetHandleInformation error {error}', file=sys.stderr)\n"
+            "    raise SystemExit(92)\n"
+            "print('unrelated handle excluded')\n"
+        )
+        try:
+            handle_result = LAB._run_bytes(
+                [sys.executable, "-c", handle_probe, str(sentinel_handle)],
+                cwd=temporary,
+                environment=os.environ,
+                timeout=5.0,
+            )
+        finally:
+            os.set_inheritable(sentinel_fd, False)
+            os.close(sentinel_fd)
+        assert handle_result.returncode == 0, handle_result.stdout + handle_result.stderr
+        assert handle_result.stdout.strip() == b"unrelated handle excluded", handle_result.stdout
+
         assignment_pid: list[int] = []
         original_assign = LAB._WindowsJob.assign
 
@@ -318,6 +357,81 @@ def _process_tree_checks(temporary: Path) -> None:
             "POSIX toolchain descendants must not detach",
         )
         _assert_descendant_stopped(detached_pid, detached_ready, "detached-boundary control")
+
+    def check_capture_start_failure(fail_at: int) -> None:
+        launched_pids: list[int] = []
+        original_start = LAB.threading.Thread.start
+        capture_starts = 0
+        original_create_descriptor: Any | None = None
+        original_popen: Any | None = None
+
+        if sys.platform == "win32":
+            original_create_descriptor = LAB._WindowsProcess.__dict__["create_suspended"]
+            original_create = LAB._WindowsProcess.create_suspended
+
+            def tracked_create(
+                cls: Any,
+                command: list[str],
+                cwd: Path,
+                environment: dict[str, str],
+            ) -> Any:
+                del cls
+                process = original_create(command, cwd, environment)
+                launched_pids.append(process.pid)
+                return process
+
+            LAB._WindowsProcess.create_suspended = classmethod(tracked_create)
+        else:
+            original_popen = LAB.subprocess.Popen
+
+            def tracked_popen(*args: Any, **kwargs: Any) -> Any:
+                process = original_popen(*args, **kwargs)
+                launched_pids.append(process.pid)
+                return process
+
+            LAB.subprocess.Popen = tracked_popen
+
+        def injected_start(reader: Any) -> None:
+            nonlocal capture_starts
+            if reader.name.startswith("freak-v3-capture-"):
+                capture_starts += 1
+                if capture_starts == fail_at:
+                    raise RuntimeError(f"injected capture reader start failure {fail_at}")
+            original_start(reader)
+
+        before_handles = _resource_handle_count()
+        LAB.threading.Thread.start = injected_start
+        try:
+            diagnostic = _expect_lab_error(
+                lambda: LAB._run_bytes(
+                    [sys.executable, "-c", "import time; time.sleep(60)"],
+                    cwd=temporary,
+                    environment=os.environ,
+                    timeout=5.0,
+                ),
+                f"capture reader {fail_at} start failure escaped cleanup",
+                f"cannot start capture reader {fail_at - 1}: "
+                f"injected capture reader start failure {fail_at}",
+            )
+        finally:
+            LAB.threading.Thread.start = original_start
+            if original_create_descriptor is not None:
+                LAB._WindowsProcess.create_suspended = original_create_descriptor
+            if original_popen is not None:
+                LAB.subprocess.Popen = original_popen
+        assert "cleanup failed" not in diagnostic, diagnostic
+        assert len(launched_pids) == 1, launched_pids
+        _assert_pid_stopped(launched_pids[0], f"capture reader {fail_at} start failure")
+        _assert_no_capture_threads(f"capture reader {fail_at} start failure")
+        after_handles = _resource_handle_count()
+        if before_handles is not None and after_handles is not None:
+            assert after_handles <= before_handles, (
+                f"capture reader {fail_at} start failure leaked handles/fds: "
+                f"{before_handles} -> {after_handles}"
+            )
+
+    check_capture_start_failure(1)
+    check_capture_start_failure(2)
 
     for _ in range(8):
         completed = LAB._run_bytes(

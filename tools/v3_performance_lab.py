@@ -938,6 +938,7 @@ class _WindowsProcess:
             startup.startup_info.h_std_input = inherited_handles[0]
             startup.startup_info.h_std_output = inherited_handles[1]
             startup.startup_info.h_std_error = inherited_handles[2]
+            startup.attribute_list = attribute_list
             command_line = ctypes.create_unicode_buffer(
                 subprocess.list2cmdline([os.fsdecode(argument) for argument in command])
             )
@@ -1100,10 +1101,12 @@ class _WindowsJob:
             raise error
         self._api = api
         self._handle = handle
+        self._assigned = False
 
     def assign(self, process: _WindowsProcess) -> None:
         if not self._api.kernel32.AssignProcessToJobObject(self._handle, process._process_handle):
             raise self._api.ctypes.WinError(self._api.ctypes.get_last_error())
+        self._assigned = True
 
     def terminate(self) -> None:
         if self._handle and not self._api.kernel32.TerminateJobObject(self._handle, 1):
@@ -1134,10 +1137,12 @@ def _terminate_process_tree(process: Any, windows_job: _WindowsJob | None) -> li
     """Terminate the launched Windows job or cooperative POSIX process group."""
 
     errors: list[str] = []
+    job_termination_requested = False
     if sys.platform == "win32":
-        if windows_job is not None:
+        if windows_job is not None and windows_job._assigned:
             try:
                 windows_job.terminate()
+                job_termination_requested = True
             except OSError as error:
                 errors.append(f"cannot terminate Windows process job: {error}")
     else:
@@ -1149,6 +1154,12 @@ def _terminate_process_tree(process: Any, windows_job: _WindowsJob | None) -> li
             pass
         except OSError as error:
             errors.append(f"cannot terminate POSIX process group {process.pid}: {error}")
+    if job_termination_requested:
+        try:
+            process.wait(timeout=2.0)
+            return errors
+        except (OSError, subprocess.TimeoutExpired) as error:
+            errors.append(f"cannot await Windows process job termination for {process.pid}: {error}")
     if process.poll() is None:
         try:
             process.kill()
@@ -1170,19 +1181,30 @@ def _join_capture_threads(
 
     errors: list[str] = []
     drain_deadline = time.monotonic() + 2.0
-    for reader in readers:
-        reader.join(timeout=max(0.0, drain_deadline - time.monotonic()))
-    readers_without_eof = [index for index, reader in enumerate(readers) if reader.is_alive()]
+    for index, reader in enumerate(readers):
+        if reader.ident is None:
+            continue
+        try:
+            reader.join(timeout=max(0.0, drain_deadline - time.monotonic()))
+        except BaseException as error:
+            errors.append(f"cannot join capture reader {index}: {error}")
+    readers_without_eof = [
+        index for index, reader in enumerate(readers) if reader.ident is not None and reader.is_alive()
+    ]
     shutdown.set()
-    for stream in streams:
+    for index, stream in enumerate(streams):
         try:
             stream.close()
-        except OSError as error:
-            errors.append(f"cannot close capture pipe: {error}")
+        except BaseException as error:
+            errors.append(f"cannot close capture pipe {index}: {error}")
     deadline = time.monotonic() + 2.0
-    for reader in readers:
-        if reader.is_alive():
+    for index, reader in enumerate(readers):
+        if reader.ident is None or not reader.is_alive():
+            continue
+        try:
             reader.join(timeout=max(0.0, deadline - time.monotonic()))
+        except BaseException as error:
+            errors.append(f"cannot finish joining capture reader {index}: {error}")
     for index in readers_without_eof:
         detail = f"capture reader {index} did not reach EOF after process containment cleanup"
         if sys.platform != "win32":
@@ -1256,7 +1278,7 @@ def _run_bytes(
             )
             assert process.stdout is not None and process.stderr is not None
             streams = [process.stdout, process.stderr]
-        readers = [
+        reader_candidates = [
             threading.Thread(
                 target=capture,
                 args=(streams[0], stdout_buffer),
@@ -1270,8 +1292,12 @@ def _run_bytes(
                 name="freak-v3-capture-stderr",
             ),
         ]
-        for reader in readers:
-            reader.start()
+        for index, reader in enumerate(reader_candidates):
+            try:
+                reader.start()
+            except (OSError, RuntimeError) as error:
+                raise LabError(f"cannot start capture reader {index}: {error}") from error
+            readers.append(reader)
         deadline = time.monotonic() + timeout
         while not _direct_process_exited_without_reaping(process):
             if overflow.is_set():
@@ -1288,17 +1314,29 @@ def _run_bytes(
         primary_error = error
     finally:
         if process is not None:
-            cleanup_errors.extend(_terminate_process_tree(process, windows_job))
-        cleanup_errors.extend(_join_capture_threads(readers, streams, capture_shutdown))
+            try:
+                cleanup_errors.extend(_terminate_process_tree(process, windows_job))
+            except BaseException as error:
+                cleanup_errors.append(f"unexpected process containment cleanup failure: {error}")
+        try:
+            cleanup_errors.extend(_join_capture_threads(readers, streams, capture_shutdown))
+        except BaseException as error:
+            cleanup_errors.append(f"unexpected capture cleanup failure: {error}")
+            capture_shutdown.set()
+            for index, stream in enumerate(streams):
+                try:
+                    stream.close()
+                except BaseException as close_error:
+                    cleanup_errors.append(f"cannot close capture pipe {index}: {close_error}")
         if windows_job is not None:
             try:
                 windows_job.close()
-            except OSError as error:
+            except BaseException as error:
                 cleanup_errors.append(f"cannot close Windows process job: {error}")
         if isinstance(process, _WindowsProcess):
             try:
                 process.close()
-            except OSError as error:
+            except BaseException as error:
                 cleanup_errors.append(f"cannot close Windows process handles: {error}")
 
     if primary_error is not None:
