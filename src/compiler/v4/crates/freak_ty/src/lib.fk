@@ -4243,7 +4243,7 @@ task v4_ty_find_matching_angle(stream_id: int, open_token: int, end_token: int) 
     give back 0 - 1
 }
 
-task v4_ty_signature_param_open_token(ty_id: int, sig_id: int) -> int {
+task v4_ty_nonordinary_signature_param_open_token_fallback(ty_id: int, sig_id: int) -> int {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     if stream_id < 0 {
         give back 0 - 1
@@ -4256,9 +4256,9 @@ task v4_ty_signature_param_open_token(ty_id: int, sig_id: int) -> int {
     give back v4_ty_find_token_value(stream_id, start_token, end_token, "(")
 }
 
-task v4_ty_signature_param_close_token(ty_id: int, sig_id: int) -> int {
+task v4_ty_nonordinary_signature_param_close_token_fallback(ty_id: int, sig_id: int) -> int {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot open_token = v4_ty_signature_param_open_token(ty_id, sig_id)
+    pilot open_token = v4_ty_nonordinary_signature_param_open_token_fallback(ty_id, sig_id)
     if stream_id < 0 or open_token < 0 {
         give back 0 - 1
     }
@@ -4376,11 +4376,18 @@ task v4_ty_signature_generic_count(ty_id: int, sig_id: int) -> int {
     give back v4_ty_param_count_from_tokens(stream_id, open_token, close_token)
 }
 
-task v4_ty_signature_param_count(ty_id: int, sig_id: int) -> int {
+task v4_ty_nonordinary_signature_param_count_fallback(ty_id: int, sig_id: int) -> int {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot open_token = v4_ty_signature_param_open_token(ty_id, sig_id)
-    pilot close_token = v4_ty_signature_param_close_token(ty_id, sig_id)
+    pilot open_token = v4_ty_nonordinary_signature_param_open_token_fallback(ty_id, sig_id)
+    pilot close_token = v4_ty_nonordinary_signature_param_close_token_fallback(ty_id, sig_id)
     give back v4_ty_param_count_from_tokens(stream_id, open_token, close_token)
+}
+
+task v4_ty_signature_param_count(ty_id: int, sig_id: int) -> int {
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        give back v4_hir_task_param_count(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
+    }
+    give back v4_ty_nonordinary_signature_param_count_fallback(ty_id, sig_id)
 }
 
 task v4_ty_is_variadic_param_surface(type_text: word) -> bool {
@@ -4414,10 +4421,10 @@ task v4_ty_param_count_from_tokens(stream_id: int, open_token: int, close_token:
     give back count
 }
 
-task v4_ty_signature_param_segment_start(ty_id: int, sig_id: int, param_id: int) -> int {
+task v4_ty_nonordinary_signature_param_segment_start_fallback(ty_id: int, sig_id: int, param_id: int) -> int {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot open_token = v4_ty_signature_param_open_token(ty_id, sig_id)
-    pilot close_token = v4_ty_signature_param_close_token(ty_id, sig_id)
+    pilot open_token = v4_ty_nonordinary_signature_param_open_token_fallback(ty_id, sig_id)
+    pilot close_token = v4_ty_nonordinary_signature_param_close_token_fallback(ty_id, sig_id)
     give back v4_ty_param_segment_start_from_tokens(stream_id, open_token, close_token, param_id)
 }
 
@@ -4451,10 +4458,10 @@ task v4_ty_param_segment_start_from_tokens(stream_id: int, open_token: int, clos
     give back 0 - 1
 }
 
-task v4_ty_signature_param_segment_end(ty_id: int, sig_id: int, param_id: int) -> int {
+task v4_ty_nonordinary_signature_param_segment_end_fallback(ty_id: int, sig_id: int, param_id: int) -> int {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
-    pilot close_token = v4_ty_signature_param_close_token(ty_id, sig_id)
+    pilot start_token = v4_ty_nonordinary_signature_param_segment_start_fallback(ty_id, sig_id, param_id)
+    pilot close_token = v4_ty_nonordinary_signature_param_close_token_fallback(ty_id, sig_id)
     give back v4_ty_param_segment_end_from_tokens(stream_id, start_token, close_token)
 }
 
@@ -4889,13 +4896,7 @@ task v4_ty_signature_lifetime_outlives_ids(ty_id: int, sig_id: int, longer_gener
 }
 
 task v4_ty_signature_is_ordinary_static_task(ty_id: int, sig_id: int) -> bool {
-    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) {
-        give back false
-    }
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig {
-        give back false
-    }
-    give back v4_ty_signature_extern_member_id(ty_id, sig_id) < 0
+    give back v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id)
 }
 
 task v4_ty_signature_lifetime_outlives(ty_id: int, sig_id: int, longer_name: word, shorter_name: word) -> bool {
@@ -4919,11 +4920,18 @@ task v4_ty_signature_lifetime_outlives(ty_id: int, sig_id: int, longer_name: wor
     give back v4_ty_signature_lifetime_outlives_ids(ty_id, sig_id, longer_generic_id, shorter_generic_id)
 }
 
-task v4_ty_signature_param_name(ty_id: int, sig_id: int, param_id: int) -> word {
+task v4_ty_nonordinary_signature_param_name_fallback(ty_id: int, sig_id: int, param_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
-    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    pilot start_token = v4_ty_nonordinary_signature_param_segment_start_fallback(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_nonordinary_signature_param_segment_end_fallback(ty_id, sig_id, param_id)
     give back v4_ty_param_name_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_signature_param_name(ty_id: int, sig_id: int, param_id: int) -> word {
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        give back v4_hir_task_param_name(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
+    }
+    give back v4_ty_nonordinary_signature_param_name_fallback(ty_id, sig_id, param_id)
 }
 
 task v4_ty_signature_param_index_for_name(ty_id: int, sig_id: int, wanted_name: word) -> int {
@@ -5027,29 +5035,50 @@ task v4_ty_param_contract_prefix(mode: word, lifetime_name: word) -> word {
     give back out
 }
 
-task v4_ty_signature_param_mode(ty_id: int, sig_id: int, param_id: int) -> word {
+task v4_ty_nonordinary_signature_param_mode_fallback(ty_id: int, sig_id: int, param_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
-    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    pilot start_token = v4_ty_nonordinary_signature_param_segment_start_fallback(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_nonordinary_signature_param_segment_end_fallback(ty_id, sig_id, param_id)
     give back v4_ty_param_mode_from_tokens(stream_id, start_token, end_token)
 }
 
-task v4_ty_signature_param_lifetime(ty_id: int, sig_id: int, param_id: int) -> word {
+task v4_ty_signature_param_mode(ty_id: int, sig_id: int, param_id: int) -> word {
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        give back v4_hir_task_param_mode(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
+    }
+    give back v4_ty_nonordinary_signature_param_mode_fallback(ty_id, sig_id, param_id)
+}
+
+task v4_ty_nonordinary_signature_param_lifetime_fallback(ty_id: int, sig_id: int, param_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
-    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    pilot start_token = v4_ty_nonordinary_signature_param_segment_start_fallback(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_nonordinary_signature_param_segment_end_fallback(ty_id, sig_id, param_id)
     give back v4_ty_param_lifetime_from_tokens(stream_id, start_token, end_token)
 }
 
-task v4_ty_signature_param_lifetime_span(ty_id: int, sig_id: int, param_id: int) -> word {
+task v4_ty_signature_param_lifetime(ty_id: int, sig_id: int, param_id: int) -> word {
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        give back v4_hir_task_param_lifetime(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
+    }
+    give back v4_ty_nonordinary_signature_param_lifetime_fallback(ty_id, sig_id, param_id)
+}
+
+task v4_ty_nonordinary_signature_param_lifetime_span_fallback(ty_id: int, sig_id: int, param_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
-    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    pilot start_token = v4_ty_nonordinary_signature_param_segment_start_fallback(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_nonordinary_signature_param_segment_end_fallback(ty_id, sig_id, param_id)
     pilot lifetime_token = v4_ty_param_lifetime_token_from_tokens(stream_id, start_token, end_token)
     if lifetime_token < 0 {
         give back V4_NO_SPAN
     }
     give back v4_ty_span_from_tokens(stream_id, lifetime_token, lifetime_token + 1)
+}
+
+task v4_ty_signature_param_lifetime_span(ty_id: int, sig_id: int, param_id: int) -> word {
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        give back v4_hir_task_param_lifetime_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
+    }
+    give back v4_ty_nonordinary_signature_param_lifetime_span_fallback(ty_id, sig_id, param_id)
 }
 
 task v4_ty_param_type_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
@@ -5068,21 +5097,26 @@ task v4_ty_param_type_span_from_tokens(stream_id: int, start_token: int, end_tok
     give back v4_ty_span_from_tokens(stream_id, type_start, end_token)
 }
 
-task v4_ty_signature_param_type(ty_id: int, sig_id: int, param_id: int) -> word {
+task v4_ty_nonordinary_signature_param_surface_type_fallback(ty_id: int, sig_id: int, param_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
-    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
-    if v4_ty_is_variadic_param_surface(v4_ty_param_type_from_tokens(stream_id, start_token, end_token)) {
-        give back v4_ty_unknown
-    }
-    give back v4_ty_canonical_type_in_signature(ty_id, sig_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
+    pilot start_token = v4_ty_nonordinary_signature_param_segment_start_fallback(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_nonordinary_signature_param_segment_end_fallback(ty_id, sig_id, param_id)
+    give back v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_signature_param_surface_type(ty_id: int, sig_id: int, param_id: int) -> word {
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
-    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
-    give back v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        give back v4_hir_task_param_surface_type(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
+    }
+    give back v4_ty_nonordinary_signature_param_surface_type_fallback(ty_id, sig_id, param_id)
+}
+
+task v4_ty_signature_param_type(ty_id: int, sig_id: int, param_id: int) -> word {
+    pilot surface_type = v4_ty_signature_param_surface_type(ty_id, sig_id, param_id)
+    if v4_ty_is_variadic_param_surface(surface_type) {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_canonical_type_in_signature(ty_id, sig_id, surface_type)
 }
 
 task v4_ty_signature_function_value_type(ty_id: int, sig_id: int) -> word {
@@ -5127,11 +5161,51 @@ task v4_ty_signature_function_value_type(ty_id: int, sig_id: int) -> word {
     give back out + return_surface
 }
 
-task v4_ty_signature_param_type_span(ty_id: int, sig_id: int, param_id: int) -> word {
+task v4_ty_nonordinary_signature_param_type_span_fallback(ty_id: int, sig_id: int, param_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
-    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
+    pilot start_token = v4_ty_nonordinary_signature_param_segment_start_fallback(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_nonordinary_signature_param_segment_end_fallback(ty_id, sig_id, param_id)
     give back v4_ty_param_type_span_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_signature_param_type_span(ty_id: int, sig_id: int, param_id: int) -> word {
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        give back v4_hir_task_param_type_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
+    }
+    give back v4_ty_nonordinary_signature_param_type_span_fallback(ty_id, sig_id, param_id)
+}
+
+task v4_ty_nonordinary_signature_param_segment_span_fallback(ty_id: int, sig_id: int, param_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_nonordinary_signature_param_segment_start_fallback(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_nonordinary_signature_param_segment_end_fallback(ty_id, sig_id, param_id)
+    give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_signature_param_segment_span(ty_id: int, sig_id: int, param_id: int) -> word {
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        give back v4_hir_task_param_segment_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
+    }
+    give back v4_ty_nonordinary_signature_param_segment_span_fallback(ty_id, sig_id, param_id)
+}
+
+task v4_ty_nonordinary_signature_param_name_span_fallback(ty_id: int, sig_id: int, param_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_nonordinary_signature_param_segment_start_fallback(ty_id, sig_id, param_id)
+    pilot end_token = v4_ty_nonordinary_signature_param_segment_end_fallback(ty_id, sig_id, param_id)
+    pilot param_name = v4_ty_nonordinary_signature_param_name_fallback(ty_id, sig_id, param_id)
+    pilot name_token = v4_ty_find_token_value(stream_id, start_token, end_token, param_name)
+    if stream_id < 0 or name_token < 0 or name_token >= end_token {
+        give back V4_NO_SPAN
+    }
+    give back v4_lex_token_span(stream_id, name_token)
+}
+
+task v4_ty_signature_param_name_span(ty_id: int, sig_id: int, param_id: int) -> word {
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        give back v4_hir_task_param_name_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), param_id)
+    }
+    give back v4_ty_nonordinary_signature_param_name_span_fallback(ty_id, sig_id, param_id)
 }
 
 task v4_ty_signature_param_is_variadic(ty_id: int, sig_id: int, param_id: int) -> bool {
@@ -5445,7 +5519,7 @@ task v4_ty_signature_is_ordinary_hir_task(ty_id: int, sig_id: int) -> bool {
     if hir_id < 0 or hir_item < 0 or hir_item >= v4_hir_item_count(hir_id) {
         give back false
     }
-    give back v4_hir_item_kind(hir_id, hir_item) == v4_hir_task
+    give back v4_hir_item_is_ordinary_task(hir_id, hir_item)
 }
 
 task v4_ty_ordinary_task_explicit_return_from_hir(hir_id: int, hir_item: int) -> word {
