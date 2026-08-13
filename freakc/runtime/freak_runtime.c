@@ -254,7 +254,7 @@ static void freak_word_foundation_audit_emit(void) {
     if (freak_word_foundation_audit_emitted) return;
     freak_word_foundation_audit_emitted = true;
     fprintf(stderr,
-            "FREAK_RUNTIME_STATS {\"schema\":\"freak-runtime-stats-v1\",\"counters\":{\"word_repeat\":{\"calls\":%llu,\"allocations\":%llu,\"copied_bytes\":%llu},\"word_builder\":{\"creations\":%llu,\"allocations\":%llu,\"growths\":%llu,\"copied_bytes\":%llu,\"finishes\":%llu,\"discards\":%llu}}}\n",
+            "FREAK_RUNTIME_STATS {\"schema\":\"freak-v3-runtime-stats-v1\",\"source\":\"freak-v3-runtime\",\"counters\":{\"word_repeat_calls\":%llu,\"word_repeat_allocations\":%llu,\"word_repeat_copied_bytes\":%llu,\"word_builder_creations\":%llu,\"word_builder_allocations\":%llu,\"word_builder_growths\":%llu,\"word_builder_copied_bytes\":%llu,\"word_builder_finishes\":%llu,\"word_builder_discards\":%llu}}\n",
             (unsigned long long)freak_word_foundation_repeat_calls,
             (unsigned long long)freak_word_foundation_repeat_allocations,
             (unsigned long long)freak_word_foundation_repeat_copied_bytes,
@@ -440,6 +440,10 @@ static char* freak_word_repeat_bytes(
 }
 
 freak_word freak_word_repeated(freak_word pattern, int64_t count) {
+    if (pattern.length > 0 && !pattern.data) {
+        fprintf(stderr, "FREAK: word repetition received invalid word data\n");
+        exit(1);
+    }
     size_t length = 0;
     char* buffer = freak_word_repeat_bytes(
         pattern.data ? pattern.data : "", pattern.length, count, &length);
@@ -2261,7 +2265,11 @@ static int64_t freak_word_builder_table_capacity = 0;
 static int64_t freak_word_builder_free_head = -1;
 static size_t freak_word_builder_live_count = 0;
 
-#define FREAK_WORD_BUILDER_GENERATION_MAX UINT32_C(0x7fffffff)
+#define FREAK_HANDLE_DOMAIN_MASK UINT64_C(0x6000000000000000)
+#define FREAK_HANDLE_GENERATION_MAX UINT32_C(0x1fffffff)
+#define FREAK_ARRAY_HANDLE_DOMAIN UINT64_C(0x0000000000000000)
+#define FREAK_WORD_BUILDER_HANDLE_DOMAIN UINT64_C(0x2000000000000000)
+#define FREAK_WORD_BUILDER_GENERATION_MAX FREAK_HANDLE_GENERATION_MAX
 
 #if defined(FREAK_C_RUNTIME_OWNERSHIP_AUDIT) || defined(FREAK_RUNTIME_OWNERSHIP_AUDIT)
 static bool freak_word_builder_ownership_audit_registered = false;
@@ -2295,14 +2303,20 @@ static void freak_word_builder_fail(const char* message) {
 }
 
 static int64_t freak_word_builder_make_handle(int64_t slot, uint32_t generation) {
-    return (int64_t)(((uint64_t)generation << 32) | (uint64_t)(uint32_t)slot);
+    return (int64_t)(
+        FREAK_WORD_BUILDER_HANDLE_DOMAIN |
+        ((uint64_t)generation << 32) |
+        (uint64_t)(uint32_t)slot);
 }
 
 static int64_t freak_word_builder_slot_for_handle(int64_t handle) {
     if (handle < 0) return -1;
     uint64_t raw = (uint64_t)handle;
+    if ((raw & FREAK_HANDLE_DOMAIN_MASK) != FREAK_WORD_BUILDER_HANDLE_DOMAIN) {
+        return -1;
+    }
     int64_t slot = (int64_t)(uint32_t)(raw & UINT64_C(0xffffffff));
-    uint32_t generation = (uint32_t)(raw >> 32);
+    uint32_t generation = (uint32_t)(raw >> 32) & FREAK_HANDLE_GENERATION_MAX;
     if (slot < 0 || slot >= freak_word_builder_count) return -1;
     freak_word_builder_record* builder = &freak_word_builders[slot];
     if (!builder->in_use || builder->generation != generation) return -1;
@@ -2632,17 +2646,21 @@ static int64_t freak_array_live_count = 0;
 #define FREAK_ARRAY_LIVE_LIMIT 0
 #endif
 
-#define FREAK_ARRAY_GENERATION_MAX UINT32_C(0x7fffffff)
+#define FREAK_ARRAY_GENERATION_MAX FREAK_HANDLE_GENERATION_MAX
 
 static int64_t freak_array_make_handle(int64_t slot, uint32_t generation) {
-    return (int64_t)(((uint64_t)generation << 32) | (uint64_t)(uint32_t)slot);
+    return (int64_t)(
+        FREAK_ARRAY_HANDLE_DOMAIN |
+        ((uint64_t)generation << 32) |
+        (uint64_t)(uint32_t)slot);
 }
 
 static int64_t freak_array_slot_for_handle(int64_t handle) {
     if (handle < 0) return -1;
     uint64_t raw = (uint64_t)handle;
+    if ((raw & FREAK_HANDLE_DOMAIN_MASK) != FREAK_ARRAY_HANDLE_DOMAIN) return -1;
     int64_t slot = (int64_t)(uint32_t)(raw & UINT64_C(0xffffffff));
-    uint32_t generation = (uint32_t)(raw >> 32);
+    uint32_t generation = (uint32_t)(raw >> 32) & FREAK_HANDLE_GENERATION_MAX;
     if (slot < 0 || slot >= freak_array_count) return -1;
     freak_dyn_array* array = &freak_arrays[slot];
     if (!array->in_use || array->generation != generation) return -1;

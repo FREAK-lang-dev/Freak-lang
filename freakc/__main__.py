@@ -351,6 +351,9 @@ def transpile(source: str, path: Path):
             has_errors = True
 
     # Emit C even if there are warnings (but not errors)
+    if has_errors:
+        return None, diag_msgs, uses_ui, True
+
     emitter = CEmitter()
     try:
         c_source = emitter.emit(program)
@@ -453,12 +456,12 @@ def cmd_run(path: Path, keep_c: bool = False, output: str = None,
             backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile → run."""
     source = path.read_text(encoding="utf-8")
-    c_source, diags, uses_ui, _ = transpile(source, path)
+    c_source, diags, uses_ui, has_errors = transpile(source, path)
 
     for d in diags:
         print(d, file=sys.stderr)
 
-    if c_source is None:
+    if has_errors or c_source is None:
         return 1
 
     # Write C output
@@ -510,12 +513,12 @@ def cmd_build(path: Path, keep_c: bool = False, output: str = None,
               backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile (no run)."""
     source = path.read_text(encoding="utf-8")
-    c_source, diags, uses_ui, _ = transpile(source, path)
+    c_source, diags, uses_ui, has_errors = transpile(source, path)
 
     for d in diags:
         print(d, file=sys.stderr)
 
-    if c_source is None:
+    if has_errors or c_source is None:
         return 1
 
     out_c = path.with_suffix(".c")

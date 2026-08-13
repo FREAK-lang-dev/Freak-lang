@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -210,7 +211,20 @@ BOOTSTRAP_BUILDER_NEGATIVE_CASES = (
     ("discard_type", 'word_builder::discard("bad")', "call to 'word_builder::discard' argument 1 expects int, got word"),
     ("new_return_type", 'word_builder::append(1, word_builder::new())', "call to 'word_builder::append' argument 2 expects word, got int"),
     ("finish_return_type", 'word_builder::append_int(word_builder::finish(1), 2)', "call to 'word_builder::append_int' argument 1 expects int, got word"),
+    ("repeated_arity", '"x".repeated()', "method 'repeated' expects 1 argument(s), got 0"),
+    ("repeated_extra_arity", '"x".repeated(1, 2)', "method 'repeated' expects 1 argument(s), got 2"),
+    ("repeated_type", '"x".repeated("bad")', "method 'repeated' argument 1 expects int, got word"),
 )
+
+PYTHON_OWNED_WORD_UNSUPPORTED = (
+    "Python bootstrap does not support owned Word builders/repetition; "
+    "use the native V3 compiler"
+)
+
+BOOTSTRAP_RESERVED_SHAPE_PROGRAM = """shape word_builder {}
+
+task main() {}
+"""
 
 RUNTIME_PROBE = r'''#include "freak_runtime.h"
 #include <stdint.h>
@@ -254,6 +268,15 @@ static int check_utf8_and_ints(void) {
     int64_t llvm_value = freak_llvm_word_builder_finish(llvm_builder);
     if (strcmp((const char*)llvm_value, "-9223372036854775808:9223372036854775807") != 0) return 13;
     freak_llvm_word_release_replaced(llvm_value, 0);
+
+    int64_t array = freak_array_new();
+    freak_array_push(array, freak_word_lit("one"));
+    int64_t domain_builder = freak_word_builder_new();
+    if (array == domain_builder) return 16;
+    if (freak_array_len(array) != 1) return 17;
+    if (freak_array_len(domain_builder) != 0) return 18;
+    freak_word_builder_discard(domain_builder);
+    freak_array_release(array);
     return 0;
 }
 
@@ -266,6 +289,11 @@ int main(int argc, char** argv) {
     }
     if (strcmp(mode, "repeat-llvm-overflow") == 0) {
         (void)freak_llvm_word_repeated((int64_t)"xx", INT64_MAX);
+        return 0;
+    }
+    if (strcmp(mode, "repeat-invalid-word") == 0) {
+        freak_word malformed = { NULL, 1, 1, false };
+        (void)freak_word_repeated(malformed, 2);
         return 0;
     }
     if (strcmp(mode, "builder-overflow") == 0) {
@@ -310,6 +338,16 @@ int main(int argc, char** argv) {
         int64_t forged = argc > 2 ? strtoll(argv[2], NULL, 10) : 0;
         return (int)freak_llvm_word_builder_length(forged);
     }
+    if (strcmp(mode, "array-as-builder-c") == 0) {
+        int64_t array = freak_array_new();
+        (void)freak_word_builder_new();
+        return (int)freak_word_builder_length(array);
+    }
+    if (strcmp(mode, "array-as-builder-llvm") == 0) {
+        int64_t array = freak_array_new();
+        (void)freak_llvm_word_builder_new();
+        return (int)freak_llvm_word_builder_length(array);
+    }
     return check_utf8_and_ints();
 }
 '''
@@ -353,40 +391,34 @@ int main(void) {
 
 RUNTIME_STATS_PREFIX = "FREAK_RUNTIME_STATS "
 EXPECTED_RUNTIME_STATS = {
-    "schema": "freak-runtime-stats-v1",
+    "schema": "freak-v3-runtime-stats-v1",
+    "source": "freak-v3-runtime",
     "counters": {
-        "word_repeat": {
-            "calls": 6,
-            "allocations": 3,
-            "copied_bytes": 16,
-        },
-        "word_builder": {
-            "creations": 4,
-            "allocations": 4,
-            "growths": 3,
-            "copied_bytes": 48,
-            "finishes": 3,
-            "discards": 1,
-        },
+        "word_repeat_calls": 6,
+        "word_repeat_allocations": 3,
+        "word_repeat_copied_bytes": 16,
+        "word_builder_creations": 4,
+        "word_builder_allocations": 4,
+        "word_builder_growths": 3,
+        "word_builder_copied_bytes": 48,
+        "word_builder_finishes": 3,
+        "word_builder_discards": 1,
     },
 }
 
 EXPECTED_LEAK_RUNTIME_STATS = {
-    "schema": "freak-runtime-stats-v1",
+    "schema": "freak-v3-runtime-stats-v1",
+    "source": "freak-v3-runtime",
     "counters": {
-        "word_repeat": {
-            "calls": 0,
-            "allocations": 0,
-            "copied_bytes": 0,
-        },
-        "word_builder": {
-            "creations": 1,
-            "allocations": 1,
-            "growths": 1,
-            "copied_bytes": 4,
-            "finishes": 0,
-            "discards": 0,
-        },
+        "word_repeat_calls": 0,
+        "word_repeat_allocations": 0,
+        "word_repeat_copied_bytes": 0,
+        "word_builder_creations": 1,
+        "word_builder_allocations": 1,
+        "word_builder_growths": 1,
+        "word_builder_copied_bytes": 4,
+        "word_builder_finishes": 0,
+        "word_builder_discards": 0,
     },
 }
 
@@ -399,6 +431,17 @@ def parse_runtime_stats(stderr: str) -> dict[str, object]:
     payload = sentinel_lines[0][len(RUNTIME_STATS_PREFIX) :]
     parsed = json.loads(payload)
     assert isinstance(parsed, dict), parsed
+    assert set(parsed) == {"schema", "source", "counters"}, parsed
+    assert parsed["schema"] == "freak-v3-runtime-stats-v1", parsed
+    assert parsed["source"] == "freak-v3-runtime", parsed
+    counters = parsed["counters"]
+    assert isinstance(counters, dict) and counters, counters
+    for name, value in counters.items():
+        assert isinstance(name, str) and re.fullmatch(r"[a-z][a-z0-9_]*", name), name
+        assert isinstance(value, int) and not isinstance(value, bool) and value >= 0, (
+            name,
+            value,
+        )
     return parsed
 
 
@@ -648,15 +691,14 @@ def main() -> int:
             assert stats == EXPECTED_RUNTIME_STATS, (backend, stats)
             assert "ownership audit found" not in executed.stderr
             assert "AddressSanitizer" not in executed.stderr
-            repeat_stats = stats["counters"]["word_repeat"]
-            builder_stats = stats["counters"]["word_builder"]
+            counters = stats["counters"]
             print(
-                f"{backend}: repeat_calls={repeat_stats['calls']} "
-                f"repeat_allocations={repeat_stats['allocations']} "
-                f"repeat_copied_bytes={repeat_stats['copied_bytes']} "
-                f"builder_allocations={builder_stats['allocations']} "
-                f"builder_growths={builder_stats['growths']} "
-                f"builder_copied_bytes={builder_stats['copied_bytes']}"
+                f"{backend}: repeat_calls={counters['word_repeat_calls']} "
+                f"repeat_allocations={counters['word_repeat_allocations']} "
+                f"repeat_copied_bytes={counters['word_repeat_copied_bytes']} "
+                f"builder_allocations={counters['word_builder_allocations']} "
+                f"builder_growths={counters['word_builder_growths']} "
+                f"builder_copied_bytes={counters['word_builder_copied_bytes']}"
             )
 
             for name, program, diagnostic in (
@@ -753,123 +795,29 @@ def main() -> int:
         assert not Path(str(negative) + ".c").exists()
         assert not Path(str(negative) + ".ll").exists()
 
-        bootstrap_source = root / "bootstrap_string_repeat.fk"
-        bootstrap_source.write_text(
-            "task string_repeat(s: word, count: int) -> word {\n"
-            "    give back s.repeated(count)\n"
-            "}\n"
-            "task main() { say string_repeat(\"yo\", 2) }\n",
-            encoding="utf-8",
+        bootstrap_rejections = (
+            (
+                "string_repeat",
+                "task string_repeat(s: word, count: int) -> word {\n"
+                "    give back s.repeated(count)\n"
+                "}\n"
+                "task main() { say string_repeat(\"yo\", 2) }\n",
+                PYTHON_OWNED_WORD_UNSUPPORTED,
+            ),
+            ("word_builder", BOOTSTRAP_BUILDER_PROGRAM, PYTHON_OWNED_WORD_UNSUPPORTED),
+            ("word_builder_stale", BOOTSTRAP_STALE_PROGRAM, PYTHON_OWNED_WORD_UNSUPPORTED),
+            (
+                "word_builder_shape",
+                BOOTSTRAP_RESERVED_SHAPE_PROGRAM,
+                "conflicts with a compiler builtin namespace",
+            ),
         )
-        bootstrap_binary = root / f"bootstrap_string_repeat{executable_suffix}"
-        bootstrap_build = run(
-            [
-                sys.executable,
-                "-m",
-                "freakc",
-                "build",
-                str(bootstrap_source),
-                "-o",
-                str(bootstrap_binary),
-            ],
-            repo,
-        )
-        assert bootstrap_build.returncode == 0, (
-            bootstrap_build.stdout + bootstrap_build.stderr
-        )
-        bootstrap_run = run([str(bootstrap_binary)], root)
-        assert bootstrap_run.returncode == 0, (
-            bootstrap_run.stdout + bootstrap_run.stderr
-        )
-        assert bootstrap_run.stdout.strip() == "yoyo", bootstrap_run.stdout
-
-        bootstrap_builder_source = root / "bootstrap_word_builder.fk"
-        bootstrap_builder_source.write_text(
-            BOOTSTRAP_BUILDER_PROGRAM, encoding="utf-8"
-        )
-        bootstrap_builder_binary = root / f"bootstrap_word_builder{executable_suffix}"
-        bootstrap_builder_build = run(
-            [
-                sys.executable,
-                "-m",
-                "freakc",
-                "build",
-                str(bootstrap_builder_source),
-                "--keep-c",
-                "-o",
-                str(bootstrap_builder_binary),
-            ],
-            repo,
-        )
-        assert bootstrap_builder_build.returncode == 0, (
-            bootstrap_builder_build.stdout + bootstrap_builder_build.stderr
-        )
-        bootstrap_builder_c = bootstrap_builder_source.with_suffix(".c").read_text(
-            encoding="utf-8"
-        )
-        for operation in (
-            "new",
-            "with_capacity",
-            "reserve",
-            "capacity",
-            "length",
-            "clear",
-            "append",
-            "append_char",
-            "append_int",
-            "finish",
-            "discard",
-        ):
-            assert f"freak_word_builder_{operation}(" in bootstrap_builder_c, operation
-        assert (
-            "freak_word finished_word = freak_word_builder_finish(builder);"
-            in bootstrap_builder_c
-        ), bootstrap_builder_c
-        assert "freak_word_from_int(freak_word_builder_finish" not in bootstrap_builder_c
-        bootstrap_builder_run = run([str(bootstrap_builder_binary)], root)
-        assert bootstrap_builder_run.returncode == 0, (
-            bootstrap_builder_run.stdout + bootstrap_builder_run.stderr
-        )
-        assert bootstrap_builder_run.stdout.strip().splitlines() == [
-            "16",
-            "5",
-            "0",
-            "done",
-        ], bootstrap_builder_run.stdout
-
-        bootstrap_stale_source = root / "bootstrap_word_builder_stale.fk"
-        bootstrap_stale_source.write_text(BOOTSTRAP_STALE_PROGRAM, encoding="utf-8")
-        bootstrap_stale_binary = root / f"bootstrap_word_builder_stale{executable_suffix}"
-        bootstrap_stale_build = run(
-            [
-                sys.executable,
-                "-m",
-                "freakc",
-                "build",
-                str(bootstrap_stale_source),
-                "-o",
-                str(bootstrap_stale_binary),
-            ],
-            repo,
-        )
-        assert bootstrap_stale_build.returncode == 0, (
-            bootstrap_stale_build.stdout + bootstrap_stale_build.stderr
-        )
-        bootstrap_stale_run = run([str(bootstrap_stale_binary)], root)
-        assert bootstrap_stale_run.returncode != 0, bootstrap_stale_run.stdout
-        assert (
-            "invalid or stale word builder handle in length"
-            in bootstrap_stale_run.stderr
-        ), bootstrap_stale_run.stderr
-
-        for case_name, expression, diagnostic in BOOTSTRAP_BUILDER_NEGATIVE_CASES:
-            case_source = root / f"bootstrap_word_builder_{case_name}.fk"
-            case_source.write_text(
-                "task main() {\n    " + expression + "\n}\n", encoding="utf-8"
-            )
+        for case_name, program, diagnostic in bootstrap_rejections:
+            case_source = root / f"bootstrap_{case_name}.fk"
+            case_source.write_text(program, encoding="utf-8")
             case_c = case_source.with_suffix(".c")
-            case_binary = root / f"bootstrap_word_builder_{case_name}{executable_suffix}"
-            for command in ("check", "build"):
+            case_binary = root / f"bootstrap_{case_name}{executable_suffix}"
+            for command in ("check", "build", "run"):
                 case_c.unlink(missing_ok=True)
                 case_binary.unlink(missing_ok=True)
                 command_line = [
@@ -879,7 +827,41 @@ def main() -> int:
                     command,
                     str(case_source),
                 ]
-                if command == "build":
+                if command in ("build", "run"):
+                    command_line.extend(["-o", str(case_binary)])
+                rejected = run(command_line, repo)
+                rejected_output = rejected.stdout + rejected.stderr
+                assert rejected.returncode != 0, (
+                    case_name,
+                    command,
+                    rejected_output,
+                )
+                assert diagnostic in rejected_output, (
+                    case_name,
+                    command,
+                    rejected_output,
+                )
+                assert not case_c.exists(), (case_name, command, case_c)
+                assert not case_binary.exists(), (case_name, command, case_binary)
+
+        for case_name, expression, diagnostic in BOOTSTRAP_BUILDER_NEGATIVE_CASES:
+            case_source = root / f"bootstrap_word_builder_{case_name}.fk"
+            case_source.write_text(
+                "task main() {\n    " + expression + "\n}\n", encoding="utf-8"
+            )
+            case_c = case_source.with_suffix(".c")
+            case_binary = root / f"bootstrap_word_builder_{case_name}{executable_suffix}"
+            for command in ("check", "build", "run"):
+                case_c.unlink(missing_ok=True)
+                case_binary.unlink(missing_ok=True)
+                command_line = [
+                    sys.executable,
+                    "-m",
+                    "freakc",
+                    command,
+                    str(case_source),
+                ]
+                if command in ("build", "run"):
                     command_line.extend(["-o", str(case_binary)])
                 rejected = run(command_line, repo)
                 rejected_output = rejected.stdout + rejected.stderr
@@ -922,10 +904,13 @@ def main() -> int:
         for mode, diagnostic in (
             ("repeat-c-overflow", "word repetition size overflow"),
             ("repeat-llvm-overflow", "word repetition size overflow"),
+            ("repeat-invalid-word", "word repetition received invalid word data"),
             ("builder-overflow", "word builder size overflow"),
             ("negative-capacity", "word builder capacity must be non-negative"),
             ("stale-c", "invalid or stale word builder handle in length"),
             ("stale-llvm", "invalid or stale word builder handle in length"),
+            ("array-as-builder-c", "invalid or stale word builder handle in length"),
+            ("array-as-builder-llvm", "invalid or stale word builder handle in length"),
         ):
             failed = run([str(runtime_binary), mode], root)
             assert failed.returncode != 0, mode
@@ -939,7 +924,15 @@ def main() -> int:
             ), (scalar, failed.stderr)
 
         for mode in ("forged-c", "forged-llvm"):
-            for forged in ("-1", "0", "4294967297", "8589934592"):
+            for forged in (
+                "-1",
+                "0",
+                "4294967296",
+                "4294967297",
+                "8589934592",
+                "2305843013508661249",
+                "2305843017803628544",
+            ):
                 failed = run([str(runtime_binary), mode, forged], root)
                 assert failed.returncode != 0, (mode, forged)
                 assert (

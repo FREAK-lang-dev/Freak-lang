@@ -56,7 +56,11 @@ from .parser import (
     UseImport,
     WhenExpr,
 )
-from .type_checker import WORD_BUILDER_SIGNATURES
+from .type_checker import (
+    PYTHON_OWNED_WORD_UNSUPPORTED,
+    WORD_BUILDER_SIGNATURES,
+    WORD_METHOD_SIGNATURES,
+)
 
 
 class EmitError(Exception):
@@ -1155,7 +1159,7 @@ class CEmitter:
                             f"call to '{fq_name}' argument {index} expects "
                             f"{expected}, got {_word_builder_freak_type(actual_c_type)}"
                         )
-                return f"{word_builder_signature.c_name}({args_c})"
+                raise EmitError(PYTHON_OWNED_WORD_UNSUPPORTED)
 
             # std::process mapping
             process_map = {
@@ -1303,6 +1307,26 @@ class CEmitter:
             return f"{c_func}(&{obj_c})"
 
         # Built-in word methods -> freak_word_* functions
+        word_method_signature = WORD_METHOD_SIGNATURES.get(expr.method)
+        if obj_type == "freak_word" and word_method_signature is not None:
+            if len(expr.args) != len(word_method_signature.argument_types):
+                raise EmitError(
+                    f"method '{expr.method}' expects "
+                    f"{len(word_method_signature.argument_types)} argument(s), "
+                    f"got {len(expr.args)}"
+                )
+            for index, (argument, expected) in enumerate(
+                zip(expr.args, word_method_signature.argument_types), start=1
+            ):
+                actual_c_type = self._infer_c_type_of_expr(argument)
+                expected_c_type = _word_builder_c_type(expected.name)
+                if actual_c_type != expected_c_type:
+                    raise EmitError(
+                        f"method '{expr.method}' argument {index} expects "
+                        f"{expected}, got {_word_builder_freak_type(actual_c_type)}"
+                    )
+            raise EmitError(PYTHON_OWNED_WORD_UNSUPPORTED)
+
         WORD_METHODS = {
             "length": ("freak_word_length", 0, False),
             "to_upper": ("freak_word_to_upper", 0, False),
@@ -1323,7 +1347,6 @@ class CEmitter:
             "to_int": ("freak_word_to_int", 0, False),
             "to_num": ("freak_word_to_num", 0, False),
             "substring": ("freak_word_substring", 2, False),
-            "repeated": ("freak_word_repeated", 1, False),
         }
         if obj_type == "freak_word" and expr.method in WORD_METHODS:
             c_func, _, _ = WORD_METHODS[expr.method]

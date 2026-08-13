@@ -170,6 +170,17 @@ WORD_BUILDER_SIGNATURES: Dict[str, BuiltinSignature] = {
     ),
 }
 
+WORD_METHOD_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "repeated": BuiltinSignature(
+        "freak_word_repeated", (T_INT,), T_WORD, returns_owned=True
+    ),
+}
+
+PYTHON_OWNED_WORD_UNSUPPORTED = (
+    "Python bootstrap does not support owned Word builders/repetition; "
+    "use the native V3 compiler"
+)
+
 
 class Scope:
     def __init__(self, parent: Optional["Scope"] = None) -> None:
@@ -245,7 +256,7 @@ class TypeChecker:
             if isinstance(stmt, TaskDecl):
                 self._register_task(stmt)
             elif isinstance(stmt, ShapeDecl):
-                self.shapes[stmt.name] = stmt
+                self._register_shape(stmt)
             elif isinstance(stmt, ImplBlock):
                 for m in stmt.methods:
                     self._register_method(stmt.target_type, m)
@@ -254,7 +265,7 @@ class TypeChecker:
                 if isinstance(stmt.target, TaskDecl):
                     self._register_task(stmt.target)
                 elif isinstance(stmt.target, ShapeDecl):
-                    self.shapes[stmt.target.name] = stmt.target
+                    self._register_shape(stmt.target)
 
         # Second pass: check all statements
         for stmt in program.statements:
@@ -263,6 +274,14 @@ class TypeChecker:
         return self.diagnostics
 
     # --- Registration (first pass) ---
+
+    def _register_shape(self, shape: ShapeDecl) -> None:
+        if shape.name == "word_builder":
+            self._error(
+                "Shape name 'word_builder' conflicts with a compiler builtin namespace"
+            )
+            return
+        self.shapes[shape.name] = shape
 
     def _register_task(self, td: TaskDecl) -> None:
         params = []
@@ -574,9 +593,32 @@ class TypeChecker:
         if isinstance(expr, Call):
             return self._check_call(expr)
         if isinstance(expr, MethodCall):
-            self._check_expr(expr.obj)
-            for a in expr.args:
-                self._check_expr(a)
+            object_type = self._check_expr(expr.obj)
+            argument_types = [self._check_expr(a) for a in expr.args]
+            signature = (
+                WORD_METHOD_SIGNATURES.get(expr.method)
+                if object_type == T_WORD
+                else None
+            )
+            if signature is not None:
+                expected_arity = len(signature.argument_types)
+                actual_arity = len(argument_types)
+                if expected_arity != actual_arity:
+                    self._error(
+                        f"method '{expr.method}' expects {expected_arity} "
+                        f"argument(s), got {actual_arity}"
+                    )
+                else:
+                    for index, (actual, expected) in enumerate(
+                        zip(argument_types, signature.argument_types), start=1
+                    ):
+                        if actual != T_UNKNOWN and actual != expected:
+                            self._error(
+                                f"method '{expr.method}' argument {index} expects "
+                                f"{expected}, got {actual}"
+                            )
+                self._error(PYTHON_OWNED_WORD_UNSUPPORTED)
+                return signature.return_type
             return T_UNKNOWN
         if isinstance(expr, FieldAccess):
             self._check_expr(expr.obj)
@@ -667,6 +709,7 @@ class TypeChecker:
                                 f"call to '{fq_name}' argument {index} expects "
                                 f"{expected}, got {actual}"
                             )
+                self._error(PYTHON_OWNED_WORD_UNSUPPORTED)
                 return word_builder_signature.return_type
 
             # std::process built-ins
@@ -749,6 +792,8 @@ __all__ = [
     "BuiltinSignature",
     "Diagnostic",
     "FreakType",
+    "PYTHON_OWNED_WORD_UNSUPPORTED",
     "TypeChecker",
     "WORD_BUILDER_SIGNATURES",
+    "WORD_METHOD_SIGNATURES",
 ]
