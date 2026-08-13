@@ -46,6 +46,23 @@ task bc_classify_rhs(expr_id: int) -> word {
     if k == EXPR_INT   { give back "copy" }
     if k == EXPR_FLOAT { give back "copy" }
     if k == EXPR_BOOL  { give back "copy" }
+    if k == EXPR_IDENT {
+        pilot source_symbol = bc_lookup_idx(array_get(ast_expr_vals, expr_id))
+        if source_symbol >= 0 and array_get(bc_sym_kinds, source_symbol) == "byte_buffer" {
+            give back "byte_buffer"
+        }
+    }
+    if k == EXPR_CALL {
+        pilot call_name: word = array_get(ast_expr_vals, expr_id)
+        if call_name == "ByteBuffer::new" or call_name == "ByteBuffer::with_capacity" {
+            give back "byte_buffer"
+        }
+        if tc_task_return_type(call_name) == "ByteBuffer" { give back "byte_buffer" }
+    }
+    if k == EXPR_METHOD and array_get(ast_expr_vals, expr_id) == "slice" {
+        pilot receiver = word_to_int(array_get(ast_expr_lefts, expr_id))
+        if bc_expr_is_byte_buffer(receiver) { give back "byte_buffer" }
+    }
     -- EXPR_STR, EXPR_IDENT (of unknown type), EXPR_CALL, EXPR_METHOD,
     -- EXPR_FIELD, EXPR_INDEX, EXPR_BINOP, EXPR_UNARYOP all default to owned.
     -- That over-reports, but Phase 1 errs on the safe side for moves.
@@ -55,9 +72,28 @@ task bc_classify_rhs(expr_id: int) -> word {
 task bc_classify_binding(type_ann: word, expr_id: int) -> word {
     if type_ann != "" {
         if bc_is_copy_type(type_ann) { give back "copy" }
+        if type_ann == "ByteBuffer" { give back "byte_buffer" }
         give back "owned"
     }
     give back bc_classify_rhs(expr_id)
+}
+
+task bc_expr_is_byte_buffer(expr_id: int) -> bool {
+    if expr_id < 0 { give back false }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    pilot val: word = array_get(ast_expr_vals, expr_id)
+    if kind == EXPR_IDENT {
+        pilot symbol = bc_lookup_idx(val)
+        give back symbol >= 0 and array_get(bc_sym_kinds, symbol) == "byte_buffer"
+    }
+    if kind == EXPR_CALL {
+        if val == "ByteBuffer::new" or val == "ByteBuffer::with_capacity" { give back true }
+        give back tc_task_return_type(val) == "ByteBuffer"
+    }
+    if kind == EXPR_METHOD and val == "slice" {
+        give back bc_expr_is_byte_buffer(word_to_int(array_get(ast_expr_lefts, expr_id)))
+    }
+    give back false
 }
 
 -- ---------- Symbol-table helpers ------------------------------------
@@ -172,7 +208,7 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
             bc_err_use_after_move(name, use_line)
             give back
         }
-        if consume and kind == "owned" {
+        if consume and kind != "copy" {
             array_set(bc_sym_state, idx, "moved")
         }
         give back
@@ -204,7 +240,12 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
         -- ast_expr_rights = comma-separated arg expr ids.
         pilot recv: word = array_get(ast_expr_lefts, expr_id)
         pilot margs: word = array_get(ast_expr_rights, expr_id)
-        bc_walk_expr(word_to_int(recv), false, use_line)
+        pilot method_name: word = array_get(ast_expr_vals, expr_id)
+        pilot consume_receiver = false
+        if method_name == "release" and bc_expr_is_byte_buffer(word_to_int(recv)) {
+            consume_receiver = true
+        }
+        bc_walk_expr(word_to_int(recv), consume_receiver, use_line)
         bc_walk_call_args(margs, use_line)
         give back
     }
@@ -424,6 +465,7 @@ task bc_register_task_params(params: word, line: int) -> void {
             if cur_name != "" {
                 pilot k: word = "owned"
                 if bc_is_copy_type(cur_type) { k = "copy" }
+                else if cur_type == "ByteBuffer" { k = "byte_buffer" }
                 bc_push_sym(cur_name, k, "1", line)
             }
             cur_name = ""
@@ -439,6 +481,7 @@ task bc_register_task_params(params: word, line: int) -> void {
     if cur_name != "" {
         pilot k2: word = "owned"
         if bc_is_copy_type(cur_type) { k2 = "copy" }
+        else if cur_type == "ByteBuffer" { k2 = "byte_buffer" }
         bc_push_sym(cur_name, k2, "1", line)
     }
 }

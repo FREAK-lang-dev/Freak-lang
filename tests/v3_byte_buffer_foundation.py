@@ -131,6 +131,41 @@ DOUBLE_RELEASE_PROGRAM = """task main() {
 }
 """
 
+STRICT_BORROW_OK_PROGRAM = """task main() {
+    pilot buffer: ByteBuffer = ByteBuffer::new()
+    buffer.write_byte(65)
+    say buffer.length()
+    buffer.seek(0)
+    say buffer.read_byte()
+    say buffer.status()
+    buffer.release()
+}
+"""
+
+STRICT_USE_AFTER_RELEASE_PROGRAM = """task main() {
+    pilot buffer = ByteBuffer::new()
+    buffer.release()
+    say buffer.status()
+}
+"""
+
+STRICT_DOUBLE_RELEASE_PROGRAM = """task main() {
+    pilot buffer: ByteBuffer = ByteBuffer::new()
+    buffer.release()
+    buffer.release()
+}
+"""
+
+STRICT_ALIAS_AFTER_RELEASE_PROGRAM = """task main() {
+    pilot buffer = ByteBuffer::new()
+    pilot alias = buffer
+    alias.release()
+    say alias.length()
+}
+"""
+
+BYTES_FIXTURE_STDOUT = ["5", "Hello", "0", "1", "5", "ell", "bytes module OK"]
+
 RUNTIME_PROBE = r'''#include "freak_runtime.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -163,6 +198,25 @@ static void expect_invalid_utf8(const uint8_t* bytes, size_t length) {
     expect(freak_byte_buffer_status(buffer) == 3, "invalid UTF-8 read status");
     expect(freak_byte_buffer_position(buffer) == 0, "invalid UTF-8 read keeps cursor");
     freak_byte_buffer_release(buffer);
+}
+
+static void check_table_growth_slice(void) {
+    freak_byte_buffer_handle handles[64];
+    handles[0] = freak_byte_buffer_new();
+    freak_byte_buffer_write_word(handles[0], freak_word_lit("abc"));
+    for (size_t i = 1; i < 64; i += 1) {
+        handles[i] = freak_byte_buffer_new();
+    }
+    /* All 64 table slots are now live. slice() must grow/move the table and
+       then re-resolve its source record before copying. */
+    freak_byte_buffer_handle slice = freak_byte_buffer_slice(handles[0], 1, 2);
+    freak_word word = freak_byte_buffer_to_word(slice);
+    expect(word.length == 2 && memcmp(word.data, "bc", 2) == 0, "slice across table realloc");
+    freak_word_release_owned(&word);
+    freak_byte_buffer_release(slice);
+    for (size_t i = 0; i < 64; i += 1) {
+        freak_byte_buffer_release(handles[i]);
+    }
 }
 
 static int normal(void) {
@@ -238,6 +292,8 @@ static int normal(void) {
     expect(valid_word.length == 4 && valid_word.heap, "valid UTF-8 copied word");
     freak_word_release_owned(&valid_word);
     freak_byte_buffer_release(valid);
+
+    check_table_growth_slice();
 
     puts("runtime-ok");
     return 0;
@@ -332,7 +388,14 @@ def compile_generated(
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def assert_stats(stderr: str) -> None:
+def assert_stats(
+    stderr: str,
+    *,
+    creations: int,
+    minimum_allocations: int,
+    minimum_growths: int,
+    minimum_copied_bytes: int,
+) -> None:
     stats = foundation.parse_runtime_stats(stderr)
     counters = stats["counters"]
     byte_names = {
@@ -343,7 +406,12 @@ def assert_stats(stderr: str) -> None:
         "byte_buffer_releases",
     }
     assert byte_names <= set(counters), counters
-    assert counters["byte_buffer_creations"] == counters["byte_buffer_releases"], counters
+    assert counters["byte_buffer_creations"] == creations, counters
+    assert counters["byte_buffer_releases"] == creations, counters
+    assert counters["byte_buffer_allocations"] >= minimum_allocations, counters
+    assert counters["byte_buffer_growths"] >= minimum_growths, counters
+    assert counters["byte_buffer_copied_bytes"] >= minimum_copied_bytes, counters
+    assert counters["byte_buffer_allocations"] >= counters["byte_buffer_growths"], counters
 
 
 def main() -> int:
@@ -408,7 +476,41 @@ def main() -> int:
                 executed.stdout,
             )
             assert "ownership audit found" not in executed.stderr, executed.stderr
-            assert_stats(executed.stderr)
+            assert_stats(
+                executed.stderr,
+                creations=5,
+                minimum_allocations=4,
+                minimum_growths=2,
+                minimum_copied_bytes=25,
+            )
+
+            fixture_source = root / f"bytes_fixture_{backend}.fk"
+            shutil.copyfile(repo / "tests" / "bytes.fk", fixture_source)
+            fixture_generated, _ = foundation.transpile(
+                freak=freak, repo=repo, source=fixture_source, backend=backend
+            )
+            fixture_binary = root / f"bytes_fixture_{backend}{suffix}"
+            compile_generated(
+                compiler,
+                repo,
+                runtime,
+                fixture_generated,
+                fixture_binary,
+                backend,
+            )
+            fixture_run = run([str(fixture_binary)], root)
+            assert fixture_run.returncode == 0, fixture_run.stdout + fixture_run.stderr
+            assert fixture_run.stdout.strip().splitlines() == BYTES_FIXTURE_STDOUT, (
+                backend,
+                fixture_run.stdout,
+            )
+            assert_stats(
+                fixture_run.stderr,
+                creations=2,
+                minimum_allocations=3,
+                minimum_growths=1,
+                minimum_copied_bytes=8,
+            )
 
             for name, program in (
                 ("stale", STALE_PROGRAM),
@@ -454,6 +556,30 @@ def main() -> int:
         reserved_output = reserved.stdout + reserved.stderr
         assert reserved.returncode != 0, reserved_output
         assert "conflicts with a compiler builtin namespace" in reserved_output
+
+        strict_ok = root / "byte_buffer_strict_ok.fk"
+        strict_ok.write_text(STRICT_BORROW_OK_PROGRAM, encoding="utf-8")
+        strict_checked = run(
+            [str(freak), "check", str(strict_ok), "--strict-borrow"], repo
+        )
+        assert strict_checked.returncode == 0, strict_checked.stdout + strict_checked.stderr
+
+        for name, program, binding in (
+            ("use_after_release", STRICT_USE_AFTER_RELEASE_PROGRAM, "buffer"),
+            ("double_release", STRICT_DOUBLE_RELEASE_PROGRAM, "buffer"),
+            ("alias_after_release", STRICT_ALIAS_AFTER_RELEASE_PROGRAM, "alias"),
+        ):
+            strict_failure = root / f"byte_buffer_strict_{name}.fk"
+            strict_failure.write_text(program, encoding="utf-8")
+            strict_rejected = run(
+                [str(freak), "check", str(strict_failure), "--strict-borrow"], repo
+            )
+            strict_output = strict_rejected.stdout + strict_rejected.stderr
+            assert strict_rejected.returncode != 0, (name, strict_output)
+            assert "You gave this away" in strict_output, (name, strict_output)
+            assert f"'{binding}'" in strict_output, (name, strict_output)
+            assert not Path(str(strict_failure) + ".c").exists()
+            assert not Path(str(strict_failure) + ".ll").exists()
 
         bootstrap = root / "bootstrap_byte_buffer.fk"
         bootstrap.write_text(BOOTSTRAP_PROGRAM, encoding="utf-8")
@@ -547,6 +673,7 @@ def main() -> int:
             "-O1",
             "-DFREAK_WORD_FOUNDATION_AUDIT=1",
             "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1",
+            "-DFREAK_BYTE_BUFFER_FORCE_TABLE_MOVE=1",
             "-o",
             str(runtime_binary),
             str(runtime_probe),
@@ -563,7 +690,13 @@ def main() -> int:
         executed = run([str(runtime_binary)], root)
         assert executed.returncode == 0, executed.stdout + executed.stderr
         assert executed.stdout.strip() == "runtime-ok", executed.stdout
-        assert_stats(executed.stderr)
+        assert_stats(
+            executed.stderr,
+            creations=87,
+            minimum_allocations=24,
+            minimum_growths=21,
+            minimum_copied_bytes=77,
+        )
 
         for case in (
             "forged",

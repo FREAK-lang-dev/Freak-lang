@@ -2777,9 +2777,22 @@ static void freak_byte_buffer_reserve_handle(void) {
             (uint64_t)new_capacity > SIZE_MAX / sizeof(freak_byte_buffer_record)) {
         freak_byte_buffer_fail("ByteBuffer handle table is too large");
     }
-    freak_byte_buffer_record* grown = (freak_byte_buffer_record*)realloc(
+    freak_byte_buffer_record* grown = NULL;
+#ifdef FREAK_BYTE_BUFFER_FORCE_TABLE_MOVE
+    grown = (freak_byte_buffer_record*)malloc(
+        (size_t)new_capacity * sizeof(freak_byte_buffer_record));
+    if (grown && old_capacity > 0) {
+        memcpy(
+            grown,
+            freak_byte_buffers,
+            (size_t)old_capacity * sizeof(freak_byte_buffer_record));
+        free(freak_byte_buffers);
+    }
+#else
+    grown = (freak_byte_buffer_record*)realloc(
         freak_byte_buffers,
         (size_t)new_capacity * sizeof(freak_byte_buffer_record));
+#endif
     if (!grown) {
         freak_byte_buffer_fail("out of memory growing ByteBuffer handle table");
     }
@@ -3165,6 +3178,9 @@ freak_byte_buffer_handle freak_byte_buffer_slice(
         return freak_byte_buffer_create_with_status(0, buffer->status);
     }
     int64_t result = freak_byte_buffer_create_with_status(length, FREAK_BYTE_BUFFER_OK);
+    /* Creating the result may realloc the handle table. Re-resolve both
+       records before dereferencing either table entry. */
+    buffer = freak_byte_buffer_require(handle, "slice source");
     freak_byte_buffer_record* slice = freak_byte_buffer_require(result, "slice result");
     if (count > 0) memcpy(slice->data, buffer->data + start, count);
     slice->length = count;
