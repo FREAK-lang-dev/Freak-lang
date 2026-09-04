@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -9365,8 +9366,11 @@ def freak_matching_brace(source: str, open_index: int, limit: int) -> int | None
     return None
 
 
+@lru_cache(maxsize=1)
 def freak_mask_line_comments(source: str) -> str:
     """Mask comments without changing offsets or quoted literal contents."""
+    # Boundary checks inspect hundreds of tasks per crate. Retain only the
+    # active immutable source/mask pair, never one copy per task or revision.
     chars = list(source)
     index = 0
     while index < len(source):
@@ -9481,6 +9485,7 @@ def check_alias_hir_boundary() -> None:
         "done\n"
         "doctrine Final\n"
     )
+    freak_mask_line_comments.cache_clear()
     brace_body = freak_task_body(extractor_sample, "brace_sample")
     arrow_body = freak_task_body(extractor_sample, "arrow_sample")
     multiline_brace_body = freak_task_body(extractor_sample, "multiline_brace_sample")
@@ -9490,6 +9495,18 @@ def check_alias_hir_boundary() -> None:
         violations.append("alias HIR guard task extractor trusts signature comments")
     if freak_task_body(extractor_sample, "unknown_sample") is not None:
         violations.append("alias HIR guard task extractor accepts an unknown body form")
+    cache_info = freak_mask_line_comments.cache_info()
+    if cache_info.misses != 1 or cache_info.hits != 5 or cache_info.maxsize != 1 or cache_info.currsize != 1:
+        violations.append("task extractor must mask the shared source once with bounded retention")
+    edited_sample = extractor_sample.replace("v4_parse_inside", "v4_parse_changed")
+    edited_body = freak_task_body(edited_sample, "brace_sample")
+    if edited_body is None or "v4_parse_changed" not in edited_body or "v4_parse_inside" in edited_body:
+        violations.append("task extractor reused stale masked source after an edit")
+    if freak_task_body(extractor_sample, "brace_sample") != brace_body:
+        violations.append("task extractor changed its result after cache eviction")
+    cache_info = freak_mask_line_comments.cache_info()
+    if cache_info.misses != 3 or cache_info.currsize != 1:
+        violations.append("task extractor retains more than the active source revision")
     if brace_body is None or "v4_parse_inside" not in brace_body or "v4_parse_outside" in brace_body or "pilot close" not in brace_body or "pilot quote" not in brace_body or "lend 'a" not in brace_body or "say" not in brace_body:
         violations.append("alias HIR guard task extractor leaks past brace task")
     if arrow_body is None or arrow_body.strip() != "1":
