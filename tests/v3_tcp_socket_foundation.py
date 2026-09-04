@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 import shutil
 import socket
@@ -12,6 +13,7 @@ import sys
 import tempfile
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import v3_byte_buffer_foundation as byte_foundation
 import v3_word_foundation as foundation
@@ -317,14 +319,17 @@ def bounded_readline(
     def read() -> None:
         try:
             result.append(process.stdout.readline())
-        except BaseException as error:  # Surface reader failures on the caller thread.
+        except BaseException as error:
+            # Transport every worker failure to the caller, including cancellation;
+            # narrowing to Exception would strand SystemExit/KeyboardInterrupt here.
             failure.append(error)
 
     reader = threading.Thread(target=read, daemon=True)
     reader.start()
     reader.join(timeout)
     assert not reader.is_alive(), "server readiness line exceeded its deadline"
-    assert not failure, failure
+    if failure:
+        raise failure[0]
     assert result, "server readiness reader returned no result"
     return result[0]
 
@@ -394,8 +399,13 @@ def exercise_managed_listener_exclusive(binary: Path, root: Path) -> None:
             try:
                 challenger.bind(("127.0.0.1", port))
                 rebound = True
-            except OSError:
-                pass
+            except OSError as error:
+                # Exclusive Windows listeners may reject reuse with WSAEACCES;
+                # POSIX reports EADDRINUSE. Other socket errors are not proof.
+                expected_errors = {errno.EADDRINUSE}
+                if sys.platform == "win32":
+                    expected_errors.update((errno.EACCES, errno.WSAEADDRINUSE, errno.WSAEACCES))
+                assert error.errno in expected_errors, error
             assert not rebound, "managed listener allowed a second bind to its live port"
         finally:
             challenger.close()
@@ -488,6 +498,21 @@ def exercise_failure_statuses(binary: Path, root: Path) -> None:
     )
 
 
+def check_readiness_reader_failures() -> None:
+    """Reader exceptions must reach the caller unchanged, including cancellation."""
+    for expected in (OSError("read failed"), SystemExit(17), KeyboardInterrupt()):
+        class FailedStream:
+            def readline(self) -> str:
+                raise expected
+
+        try:
+            bounded_readline(SimpleNamespace(stdout=FailedStream()))
+        except type(expected) as actual:
+            assert actual is expected, (actual, expected)
+        else:
+            raise AssertionError("readiness reader swallowed its failure")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("freak", nargs="?", type=Path,
@@ -495,6 +520,7 @@ def main() -> int:
     parser.add_argument("--runtime-root", type=Path,
                         help="runtime payload to compile; defaults to repository")
     args = parser.parse_args()
+    check_readiness_reader_failures()
     repo = Path(__file__).resolve().parents[1]
     runtime = (args.runtime_root or repo / "freakc" / "runtime").resolve()
     assert (runtime / "freak_runtime.c").is_file(), runtime

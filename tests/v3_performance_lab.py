@@ -63,8 +63,9 @@ def _write_json(path: Path, value: Any) -> None:
 
 def _process_is_running(pid: int) -> bool:
     if sys.platform == "win32":
-        import ctypes
-        from ctypes import wintypes
+        import ctypes.wintypes
+
+        wintypes = ctypes.wintypes
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -145,8 +146,9 @@ def _descendant_launcher(
 
 def _resource_handle_count() -> int | None:
     if sys.platform == "win32":
-        import ctypes
-        from ctypes import wintypes
+        import ctypes.wintypes
+
+        wintypes = ctypes.wintypes
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.GetCurrentProcess.restype = wintypes.HANDLE
