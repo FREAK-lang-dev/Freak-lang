@@ -233,6 +233,47 @@ def main() -> int:
             assert binary.read_bytes() == cached_binary
             assert sidecar.read_bytes() == cached_sidecar
 
+        # Cold build/run must reject an older same-ABI runtime before emitting
+        # either backend. Keep the warm artifact beside it to also prove that
+        # a rejected cold operation cannot invalidate unrelated cache entries.
+        cold_source = source_dir / "runtime-api-cold.fk"
+        cold_source.write_text('say "COLD_API_EXECUTED"\n', encoding="utf-8")
+        cold_binary = cold_source.with_suffix(
+            ".exe" if sys.platform == "win32" else ""
+        )
+        cold_outputs = (
+            Path(str(cold_source) + ".c"),
+            Path(str(cold_source) + ".ll"),
+            cold_binary,
+            Path(str(cold_binary) + ".freak-run-cache"),
+        )
+        try:
+            for marker_value in (None, "freak-v3-runtime-api-1\n"):
+                if marker_value is None:
+                    runtime_api.unlink()
+                else:
+                    runtime_api.write_text(marker_value, encoding="utf-8")
+                for backend in ("--c", "--llvm"):
+                    for operation in ("build", "run"):
+                        rejected = subprocess.run(
+                            [str(freak), operation, cold_source.name, backend],
+                            cwd=source_dir, env=env, capture_output=True,
+                            text=True, errors="replace", timeout=120, check=False,
+                        )
+                        output = ANSI.sub("", rejected.stdout + rejected.stderr)
+                        assert rejected.returncode != 0, output
+                        assert "runtime api mismatch" in output.lower(), output
+                        assert "COLD_API_EXECUTED" not in output, output
+                        assert not any(path.exists() for path in cold_outputs), (
+                            operation, backend, cold_outputs, output
+                        )
+                        assert binary.read_bytes() == cached_binary
+                        assert sidecar.read_bytes() == cached_sidecar
+        finally:
+            shutil.copy2(
+                repo / "freakc" / "runtime" / "freak_runtime_api", runtime_api
+            )
+
         # Build invalidation is ordered proof-first. If the cache proof cannot
         # be removed, the old executable is preserved; if only the executable
         # is undeletable, its proof is already gone before the build rejects.
