@@ -628,6 +628,8 @@ task llvm_map_call_name(val: word) -> word {
     if val == "ui::destroy_window" { give back "@freak_llvm_ui_destroy_window" }
     if val == "ui::poll_events" { give back "@freak_llvm_ui_poll_events" }
     if val == "ui::begin_frame" { give back "@freak_llvm_ui_begin_frame" }
+    if val == "ui::set_clip" { give back "@freak_llvm_ui_set_clip" }
+    if val == "ui::reset_clip" { give back "@freak_llvm_ui_reset_clip" }
     if val == "ui::end_frame" { give back "@freak_llvm_ui_end_frame" }
     if val == "ui::event_kind" { give back "@freak_llvm_ui_event_kind" }
     if val == "ui::event_key" { give back "@freak_llvm_ui_event_key" }
@@ -697,6 +699,7 @@ task llvm_is_void_call(val: word) -> bool {
     if val == "tcp::close" or val == "tcp_close" { give back true }
     if val == "tcp::socket_set_timeout" or val == "tcp::socket_close" { give back true }
     if val == "ui::destroy_window" or val == "ui::begin_frame" or val == "ui::end_frame" { give back true }
+    if val == "ui::set_clip" or val == "ui::reset_clip" { give back true }
     if val == "ui::clear" or val == "ui::fill_rect" or val == "ui::stroke_rect" { give back true }
     if val == "ui::fill_circle" or val == "ui::draw_line" { give back true }
     give back false
@@ -2290,6 +2293,8 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare void @freak_llvm_ui_destroy_window(i64)")
     llvm_emit_line("declare i64 @freak_llvm_ui_poll_events(i64)")
     llvm_emit_line("declare void @freak_llvm_ui_begin_frame(i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_set_clip(i64, i64, i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_ui_reset_clip(i64)")
     llvm_emit_line("declare void @freak_llvm_ui_end_frame(i64)")
     llvm_emit_line("declare i64 @freak_llvm_ui_event_kind(i64)")
     llvm_emit_line("declare i64 @freak_llvm_ui_event_key(i64)")
@@ -2388,6 +2393,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_word_repeated|freak_llvm_word_join|freak_llvm_word_join_owned|freak_llvm_word_append_owned|freak_llvm_word_builder_new|freak_llvm_word_builder_with_capacity|freak_llvm_word_builder_reserve|freak_llvm_word_builder_capacity|freak_llvm_word_builder_length|freak_llvm_word_builder_clear|freak_llvm_word_builder_append|freak_llvm_word_builder_append_char|freak_llvm_word_builder_append_int|freak_llvm_word_builder_finish|freak_llvm_word_builder_discard|freak_llvm_array_push_owned|freak_llvm_array_set_owned|freak_llvm_array_release_owned|freak_llvm_fs_list_dir|freak_llvm_fs_make_dir|freak_llvm_process_env|freak_llvm_process_set_env|freak_llvm_process_pid|freak_llvm_process_input|freak_llvm_time_monotonic_ns|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_byte_buffer_new|freak_llvm_byte_buffer_with_capacity|freak_llvm_byte_buffer_release|freak_llvm_byte_buffer_status|freak_llvm_byte_buffer_clear_status|freak_llvm_byte_buffer_reserve|freak_llvm_byte_buffer_capacity|freak_llvm_byte_buffer_length|freak_llvm_byte_buffer_position|freak_llvm_byte_buffer_remaining|freak_llvm_byte_buffer_clear|freak_llvm_byte_buffer_truncate|freak_llvm_byte_buffer_seek|freak_llvm_byte_buffer_write_byte|freak_llvm_byte_buffer_write_int|freak_llvm_byte_buffer_write_int_be|freak_llvm_byte_buffer_write_word|freak_llvm_byte_buffer_read_byte|freak_llvm_byte_buffer_read_int|freak_llvm_byte_buffer_read_int_be|freak_llvm_byte_buffer_read_word|freak_llvm_byte_buffer_slice|freak_llvm_byte_buffer_to_word|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_tcp_socket_connect|freak_llvm_tcp_socket_listen|freak_llvm_tcp_socket_accept|freak_llvm_tcp_socket_status|freak_llvm_tcp_socket_eof|freak_llvm_tcp_socket_local_port|freak_llvm_tcp_socket_send|freak_llvm_tcp_socket_send_all|freak_llvm_tcp_socket_receive|freak_llvm_tcp_socket_set_timeout|freak_llvm_tcp_socket_close|"
+    llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_ui_set_clip|freak_llvm_ui_reset_clip|"
 }
 
 -- ===================== PROGRAM ASSEMBLY ==============================

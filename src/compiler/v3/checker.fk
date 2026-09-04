@@ -800,6 +800,7 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "tcp::socket_set_timeout" or name == "tcp::socket_close" { give back "void" }
     if name == "ui::destroy_window" or name == "ui::begin_frame" or name == "ui::end_frame" or name == "ui::clear" { give back "void" }
     if name == "ui::fill_rect" or name == "ui::stroke_rect" or name == "ui::fill_circle" or name == "ui::draw_line" { give back "void" }
+    if name == "ui::set_clip" or name == "ui::reset_clip" { give back "void" }
     give back ""
 }
 
@@ -858,6 +859,8 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "ui::event_scroll_dy" or name == "ui::event_width" or name == "ui::event_height" or name == "ui::event_gained" { give back "int" }
     if name == "ui::get_width" or name == "ui::get_height" { give back "int" }
     if name == "ui::clear" { give back "int,int,int,int,int" }
+    if name == "ui::set_clip" { give back "int,int,int,int,int" }
+    if name == "ui::reset_clip" { give back "int" }
     -- Raw UI runtime geometry is pixel-addressed i64. Higher-level num-based
     -- Rect/Vec2 wrappers must convert explicitly before crossing this ABI.
     if name == "ui::fill_rect" { give back "int,int,int,int,int,int,int,int,int" }

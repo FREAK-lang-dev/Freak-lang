@@ -248,6 +248,8 @@ task c_map_call(val: word) -> word {
     if val == "ui::create_window" { give back "freak_ui_create_window_word" }
     if val == "ui::destroy_window" { give back "freak_ui_destroy_window" }
     if val == "ui::begin_frame" { give back "freak_ui_begin_frame" }
+    if val == "ui::set_clip" { give back "freak_ui_set_clip" }
+    if val == "ui::reset_clip" { give back "freak_ui_reset_clip" }
     if val == "ui::end_frame" { give back "freak_ui_end_frame" }
     if val == "ui::poll_events" { give back "freak_ui_poll_events" }
     if val == "ui::clear" { give back "freak_ui_clear" }

@@ -403,6 +403,12 @@ void freak_llvm_ui_begin_frame(int64_t handle) {
 void freak_llvm_ui_end_frame(int64_t handle) {
     freak_ui_end_frame(handle);
 }
+void freak_llvm_ui_set_clip(int64_t handle, int64_t x, int64_t y, int64_t w, int64_t h) {
+    freak_ui_set_clip(handle, x, y, w, h);
+}
+void freak_llvm_ui_reset_clip(int64_t handle) {
+    freak_ui_reset_clip(handle);
+}
 int64_t freak_llvm_ui_event_kind(int64_t idx)      { return freak_ui_event_kind(idx); }
 int64_t freak_llvm_ui_event_key(int64_t idx)       { return freak_ui_event_key(idx); }
 int64_t freak_llvm_ui_event_pressed(int64_t idx)   { return freak_ui_event_pressed(idx); }

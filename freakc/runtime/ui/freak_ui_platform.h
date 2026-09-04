@@ -128,7 +128,9 @@ typedef struct {
 /*  Window lifecycle                                                   */
 /* ------------------------------------------------------------------ */
 
-/* Create a native window. Returns an opaque handle (0 on failure). */
+/* Create a native window. Returns a nonreused opaque handle (0 on failure).
+   The handle is not an OS window identifier. A second live window is rejected
+   by the current singleton backend. */
 int64_t freak_ui_create_window(const char* title, int64_t width, int64_t height, int64_t resizable);
 
 /* Destroy the window and free resources. */
@@ -172,6 +174,11 @@ int64_t freak_ui_event_gained(int64_t index);
 
 void freak_ui_begin_frame(int64_t handle);
 void freak_ui_end_frame(int64_t handle);
+/* Replace the current half-open drawing clip, intersected with client bounds.
+   Nonpositive extents are empty. Invalid/stale handles are ignored.
+   reset_clip and begin_frame restore full client bounds; nesting is caller-owned. */
+void freak_ui_set_clip(int64_t handle, int64_t x, int64_t y, int64_t width, int64_t height);
+void freak_ui_reset_clip(int64_t handle);
 
 /* ------------------------------------------------------------------ */
 /*  Drawing — pixel buffer operations                                  */

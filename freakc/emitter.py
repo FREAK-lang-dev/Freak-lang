@@ -63,6 +63,7 @@ from .type_checker import (
     PYTHON_OWNED_WORD_UNSUPPORTED,
     PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED,
     SYSTEM_RUNTIME_SIGNATURES,
+    UI_CLIP_SIGNATURES,
     TCP_SOCKET_SIGNATURES,
     WORD_BUILDER_SIGNATURES,
     WORD_METHOD_SIGNATURES,
@@ -1172,7 +1173,7 @@ class CEmitter:
             if fq_name.startswith("ByteBuffer::"):
                 raise EmitError(f"unknown ByteBuffer builtin '{fq_name}'")
 
-            system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq_name)
+            system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq_name) or UI_CLIP_SIGNATURES.get(fq_name)
             if system_signature is not None:
                 if len(expr.args) != len(system_signature.argument_types):
                     raise EmitError(
@@ -1728,6 +1729,8 @@ class CEmitter:
                 return "freak_word"
             if fq_name in BYTE_BUFFER_CONSTRUCTOR_SIGNATURES:
                 return "freak_byte_buffer_handle"
+            if fq_name in UI_CLIP_SIGNATURES:
+                return "void"
             if fq_name in SYSTEM_RUNTIME_SIGNATURES:
                 return _word_builder_c_type(
                     SYSTEM_RUNTIME_SIGNATURES[fq_name].return_type.name
@@ -1800,7 +1803,7 @@ class CEmitter:
                     return ret
             if isinstance(expr.func, PathIdent):
                 fq = "::".join(expr.func.parts)
-                system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq)
+                system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq) or UI_CLIP_SIGNATURES.get(fq)
                 if system_signature is not None:
                     return _word_builder_c_type(system_signature.return_type.name)
                 word_builder_signature = WORD_BUILDER_SIGNATURES.get(fq)

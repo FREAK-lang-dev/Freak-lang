@@ -214,6 +214,11 @@ BYTE_BUFFER_METHOD_SIGNATURES: Dict[str, BuiltinSignature] = {
     ),
 }
 
+UI_CLIP_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "ui::set_clip": BuiltinSignature("freak_ui_set_clip", (T_INT,) * 5, T_VOID),
+    "ui::reset_clip": BuiltinSignature("freak_ui_reset_clip", (T_INT,), T_VOID),
+}
+
 SYSTEM_RUNTIME_SIGNATURES: Dict[str, BuiltinSignature] = {
     "time::now_ms": BuiltinSignature("freak_time_now_ms", (), T_INT),
     "time::monotonic_ns": BuiltinSignature(
@@ -836,7 +841,7 @@ class TypeChecker:
                 self._error(f"unknown ByteBuffer builtin '{fq_name}'")
                 return T_UNKNOWN
 
-            system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq_name)
+            system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq_name) or UI_CLIP_SIGNATURES.get(fq_name)
             if system_signature is not None:
                 expected_arity = len(system_signature.argument_types)
                 actual_arity = len(argument_types)
@@ -986,6 +991,7 @@ __all__ = [
     "PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED",
     "T_BYTE_BUFFER",
     "SYSTEM_RUNTIME_SIGNATURES",
+    "UI_CLIP_SIGNATURES",
     "TCP_SOCKET_SIGNATURES",
     "TypeChecker",
     "WORD_BUILDER_SIGNATURES",

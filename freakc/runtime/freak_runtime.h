@@ -584,6 +584,10 @@ int64_t freak_ui_event_gained(int64_t index);
 /* Phase MA: Frame control */
 void freak_ui_begin_frame(int64_t handle);
 void freak_ui_end_frame(int64_t handle);
+void freak_ui_set_clip(int64_t handle, int64_t x, int64_t y, int64_t width, int64_t height);
+void freak_ui_reset_clip(int64_t handle);
+void freak_llvm_ui_set_clip(int64_t handle, int64_t x, int64_t y, int64_t width, int64_t height);
+void freak_llvm_ui_reset_clip(int64_t handle);
 
 /* Phase MA: Drawing */
 void freak_ui_clear(int64_t handle, int64_t r, int64_t g, int64_t b, int64_t a);
