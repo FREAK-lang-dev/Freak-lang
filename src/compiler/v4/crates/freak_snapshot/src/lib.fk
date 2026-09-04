@@ -3025,7 +3025,17 @@ task v4_unit_snapshot_restore_parent_context(payload: word) -> bool {
         if parent_id == 2 { section_name = "expand" }
         if parent_id == 3 { section_name = "hir" }
         if parent_id == 4 { section_name = "resolve" }
-        pilot restore_result = v4_unit_snapshot_restore_section_result(payload, section_name)
+        -- Validation swaps parent arenas only. Component publication wrappers
+        -- would dirty live queries during both the target probe and rollback.
+        pilot section_payload = v4_unit_snapshot_section_payload(payload, section_name)
+        pilot restore_result = ""
+        if section_name == "expand" {
+            restore_result = v4_expand_snapshot_restore(section_payload)
+        } else if section_name == "hir" {
+            restore_result = v4_hir_snapshot_restore(section_payload)
+        } else {
+            restore_result = v4_unit_snapshot_restore_section_payload(section_name, section_payload)
+        }
         if v4_unit_snapshot_section_restore_ok(section_name, restore_result) == 0 { give back false }
         parent_id += 1
     }
