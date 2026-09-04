@@ -316,6 +316,62 @@ task main() {
 
 REPLAY_STDOUT = ["true", "xab", "x", "é", "0", "xy", "unfocused", "35", "false", "50", "100", "24", "0", "false", "true", "true", "false", "true", "0", "32", "2", "32", "0", "0", "1", "0", "15"]
 
+CALCULATOR_HARNESS = r'''
+pilot calculator_test_frame = 0
+task cockpit_ui_begin_frame(window: int, layout: ByteBuffer, theme: int) -> void {
+    calculator_test_frame += 1
+    calculator_actual_begin_frame(window, layout, theme)
+}
+task cockpit_widget_heading(window: int, layout: ByteBuffer, theme: int, text: word) -> void {
+    say text
+    calculator_actual_heading(window, layout, theme, text)
+}
+task cockpit_widget_button(window: int, layout: ByteBuffer, theme: int, text: word, width: int) -> bool {
+    pilot ignored = calculator_actual_button(window, layout, theme, text, width)
+    if calculator_test_frame == 1 { give back text == "8" }
+    if calculator_test_frame == 2 { give back text == "/" }
+    if calculator_test_frame == 3 { give back text == "0" }
+    if calculator_test_frame == 4 or calculator_test_frame == 6 or calculator_test_frame == 11 { give back text == "=" }
+    if calculator_test_frame == 5 or calculator_test_frame == 9 { give back text == "+" }
+    if calculator_test_frame == 7 { give back text == "C" }
+    if calculator_test_frame == 8 { give back text == "2" }
+    if calculator_test_frame == 10 { give back text == "3" }
+    give back false
+}
+task cockpit_ui_end_frame(window: int) -> void {
+    calculator_actual_end_frame(window)
+    if calculator_test_frame >= 12 { cockpit_ui_request_close() }
+}
+'''
+
+
+def check_calculator_example(freak: Path, compiler: str, repo: Path, runtime: Path,
+                             root: Path, source_paths: list[Path], package: Path) -> None:
+    # Drive the actual example's main loop. Only buttons/frame timing and the
+    # rendered heading are instrumented; arithmetic/state logic is not copied.
+    text = "\n".join(path.read_text(encoding="utf-8") for path in source_paths)
+    for original, replacement in (
+        ("cockpit_ui_begin_frame", "calculator_actual_begin_frame"),
+        ("cockpit_widget_heading", "calculator_actual_heading"),
+        ("cockpit_widget_button", "calculator_actual_button"),
+        ("cockpit_ui_end_frame", "calculator_actual_end_frame"),
+    ):
+        assert text.count("task " + original + "(") == 1
+        text = text.replace("task " + original + "(", "task " + replacement + "(")
+    example = (package / "examples/calculator.fk").read_text(encoding="utf-8")
+    source = root / "calculator_interaction.fk"
+    source.write_text(FAKE_UI + "\n" + text.replace("ui::", "fake_ui_") + example + CALCULATOR_HARNESS,
+                      encoding="utf-8")
+    expected = ["0", "8", "8", "0", "Error", "Error", "Error", "0", "2", "2", "3", "5"]
+    for backend in ("c", "llvm"):
+        generated, _ = foundation.transpile(freak=freak, repo=repo, source=source, backend=backend)
+        binary = root / f"calculator_interaction_{backend}{'.exe' if sys.platform == 'win32' else ''}"
+        byte_foundation.compile_generated(compiler, repo, runtime, generated, binary, backend)
+        executed = run([str(binary)], root, timeout=20)
+        assert executed.returncode == 0, (backend, executed.stdout, executed.stderr)
+        assert executed.stdout.strip().splitlines() == expected, (backend, executed.stdout)
+        assert "ownership audit found" not in executed.stderr, executed.stderr
+
 
 def run(
     command: list[str], cwd: Path, *, timeout: int = 300
@@ -440,6 +496,7 @@ def main() -> int:
     parser.add_argument("freak", nargs="?", type=Path)
     parser.add_argument("--runtime-root", type=Path)
     parser.add_argument("--replay-only", action="store_true", help="run package event/layout logic with injected platform calls")
+    parser.add_argument("--calculator-only", action="store_true", help="drive the actual calculator example through division error and clear recovery")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     package = repo / "packages" / "cockpit"
@@ -458,6 +515,12 @@ def main() -> int:
         freak = args.freak.resolve() if args.freak else foundation.build_fresh_cli(
             clang=compiler, repo=repo, root=root, runtime_root=runtime
         )
+
+        check_calculator_example(freak, compiler, repo, runtime, root, source_paths, package)
+        if args.calculator_only:
+            assert package_artifacts(package) == artifacts_before
+            print("PASS actual calculator C/LLVM: visible division Error, stable error controls, clear and addition recovery")
+            return 0
 
         replay_source = root / "cockpit_replay.fk"
         replay_source.write_text(FAKE_UI + "\n" + "\n".join(path.read_text(encoding="utf-8").replace("ui::", "fake_ui_") for path in source_paths) + REPLAY_PROGRAM, encoding="utf-8")

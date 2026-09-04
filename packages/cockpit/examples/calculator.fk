@@ -1,11 +1,14 @@
 -- COCKPIT V3 calculator. Close the native window to exit.
 
-task cockpit_calculate(pending: num, current: num, operation: int) -> num {
-    if operation == 1 { give back pending + current }
-    if operation == 2 { give back pending - current }
-    if operation == 3 { give back pending * current }
-    if operation == 4 and current != 0.0 { give back pending / current }
-    give back current
+task cockpit_calculate(pending: num, current: num, operation: int) -> word {
+    if operation == 1 { give back format_num(pending + current) }
+    if operation == 2 { give back format_num(pending - current) }
+    if operation == 3 { give back format_num(pending * current) }
+    if operation == 4 {
+        if current == 0.0 { give back "Error" }
+        give back format_num(pending / current)
+    }
+    give back format_num(current)
 }
 
 task main() {
@@ -29,10 +32,10 @@ task main() {
         cockpit_widget_heading(window, layout, theme, display)
         cockpit_widget_separator(window, layout, theme)
         cockpit_row_begin(layout, 48, 6)
-        if cockpit_widget_button(window, layout, theme, "C", 70) { display = "0" operation = 0 fresh = true }
-        if cockpit_widget_button(window, layout, theme, "/", 70) { pending = parse_num(display) operation = 4 fresh = true }
-        if cockpit_widget_button(window, layout, theme, "*", 70) { pending = parse_num(display) operation = 3 fresh = true }
-        if cockpit_widget_button(window, layout, theme, "-", 70) { pending = parse_num(display) operation = 2 fresh = true }
+        if cockpit_widget_button(window, layout, theme, "C", 70) { display = "0" pending = 0.0 operation = 0 fresh = true }
+        if cockpit_widget_button(window, layout, theme, "/", 70) and display != "Error" { pending = parse_num(display) operation = 4 fresh = true }
+        if cockpit_widget_button(window, layout, theme, "*", 70) and display != "Error" { pending = parse_num(display) operation = 3 fresh = true }
+        if cockpit_widget_button(window, layout, theme, "-", 70) and display != "Error" { pending = parse_num(display) operation = 2 fresh = true }
         cockpit_container_end(layout)
 
         pilot digit = 7
@@ -48,7 +51,7 @@ task main() {
                 digit += 1
             }
             if digit == 10 {
-                if cockpit_widget_button(window, layout, theme, "+", 70) { pending = parse_num(display) operation = 1 fresh = true }
+                if cockpit_widget_button(window, layout, theme, "+", 70) and display != "Error" { pending = parse_num(display) operation = 1 fresh = true }
             } else { cockpit_widget_spacer(layout, 0) }
             cockpit_container_end(layout)
             if digit == 10 { digit = 4 }
@@ -66,8 +69,8 @@ task main() {
             if not display.contains(".") { display = display + "." }
             fresh = false
         }
-        if cockpit_widget_button(window, layout, theme, "=", 70) {
-            display = format_num(cockpit_calculate(pending, parse_num(display), operation))
+        if cockpit_widget_button(window, layout, theme, "=", 70) and display != "Error" {
+            display = cockpit_calculate(pending, parse_num(display), operation)
             operation = 0
             fresh = true
         }
