@@ -453,7 +453,14 @@ Record serializers must collect complete records in a temporary word array and f
 
 Source validation records canonical IDs and paths while it performs the forward envelope scan. It must not reparse every earlier source line to detect duplicates. Manifest, diff-detail, and health serializers use the same join contract, while source diffs index source lines once before comparing paths. The `unit_snapshot_multisource_resource_smoke.fk` fixture exercises 192 source records through validate, manifest, diff, and health under a 64 MB process-tree ceiling.
 
-HIR validation and restore index physical lines in one forward scan. Owner and
+HIR validation and restore index physical lines with `word.snapshot_lines()`:
+the native C and LLVM implementations scan bytes and copy records linearly,
+without per-byte `char_at` or per-record substring length rescans. The returned
+scratch array owns the line words; `array_release` releases both. Empty input
+produces an empty array, while blank/trailing lines and carriage returns are
+preserved. Allocation failure returns a negative handle without partial data;
+restore acquires the index before changing its live arena. The V3-to-LLVM native
+pipeline regression runs the production HIR index helper. Owner and
 child slots use bounded arrays sized from observed records, never untrusted
 maximum IDs or declared counts. Duplicate, gapped, noncanonical, and orphan
 slots fail validation before restore; wire order may place children before

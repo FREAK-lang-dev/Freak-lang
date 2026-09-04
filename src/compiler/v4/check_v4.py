@@ -9246,6 +9246,10 @@ def check_alias_hir_boundary() -> None:
     ty_source = read_text(crate_path("freak_ty"))
     violations: list[str] = []
 
+    index_body = freak_task_body(hir_source, "v4_hir_snapshot_index_lines")
+    if index_body is None or index_body.strip() != "give back payload.snapshot_lines()":
+        violations.append("HIR snapshot line index must use the native single-pass splitter")
+
     extractor_sample = (
         "task brace_sample() -> void {\n"
         "    say \"{safe}\"\n"
@@ -10502,6 +10506,43 @@ int main(void) {
     print(f"LLVM runtime primitives: compile={compile_mode} output_bytes={len(output)}")
 
 
+def check_native_snapshot_lines(clang: str) -> None:
+    """Fault-inject and measure both production snapshot splitter backends."""
+    source_path = ROOT / "tests" / "native_snapshot_lines.c"
+    suffix = ".exe" if sys.platform.startswith("win") else ""
+    exe_path = RUNTIME_BUILD_ROOT / f"native_snapshot_lines{suffix}"
+    stamp_path = RUNTIME_BUILD_ROOT / "native_snapshot_lines.sha256"
+    build_key = hash_text(
+        "v4-native-snapshot-lines-v1", clang, read_text(source_path),
+        *(read_text(RUNTIME_ROOT / name) for name in (
+            "freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c",
+        )),
+    )
+    compiled_now = not (
+        exe_path.exists() and stamp_path.exists()
+        and read_text(stamp_path).strip() == build_key
+    )
+    if compiled_now:
+        linked = run_with_heartbeat(
+            [clang, "-O1", str(source_path), "-o", str(exe_path),
+             "-lws2_32" if sys.platform.startswith("win") else "-lm"],
+            label="native snapshot lines compile", memory_limit_mb=1024,
+        )
+        if linked.returncode != 0:
+            raise RuntimeError("Native snapshot line test compile failed\n" +
+                               (linked.stdout + linked.stderr)[-4000:])
+    executed = run_with_heartbeat(
+        [str(exe_path)], label="native snapshot lines execute",
+        timeout_seconds=30, memory_limit_mb=64,
+    )
+    if executed.returncode != 0 or "native_snapshot_lines PASS" not in executed.stdout.splitlines():
+        raise RuntimeError("Native snapshot line test failed\n" +
+                           (executed.stdout + executed.stderr)[-4000:])
+    if compiled_now:
+        stamp_path.write_text(build_key, encoding="utf-8")
+    print(executed.stdout.strip())
+
+
 def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
     suffix = ".exe" if sys.platform.startswith("win") else ""
     compiler_source_path = RUNTIME_BUILD_ROOT / "v3_llvm_substring_compiler.fk"
@@ -10529,7 +10570,49 @@ def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
         )
     ]
     compiler_source = "\n".join(read_text(path) for path in v3_sources)
-    fixture_source = 'say "Alternative".substring(3, 5)\n'
+    index_body = freak_task_body(
+        read_text(crate_path("freak_hir")), "v4_hir_snapshot_index_lines"
+    )
+    if index_body is None:
+        raise RuntimeError("V3 LLVM line-index regression cannot extract the HIR helper")
+    fixture_source = (
+        "task v4_hir_snapshot_index_lines(payload: word) -> int {\n"
+        + index_body
+        + "\n}\n"
+        + r'''
+say "Alternative".substring(3, 5)
+pilot empty_lines = v4_hir_snapshot_index_lines("")
+pilot empty_ok = empty_lines >= 0 and array_len(empty_lines) == 0
+array_release(empty_lines)
+pilot lines = v4_hir_snapshot_index_lines("\nA\r\n\n")
+pilot first: word = array_get(lines, 0)
+pilot middle: word = array_get(lines, 1)
+pilot blank: word = array_get(lines, 2)
+pilot trailing: word = array_get(lines, 3)
+pilot small_ok = lines >= 0 and array_len(lines) == 4 and first == "" and middle == "A\r" and blank == "" and trailing == ""
+array_release(lines)
+pilot parts = array_new()
+pilot row: word = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789----"
+pilot i = 0
+repeat until i >= 8192 {
+    array_push(parts, row)
+    array_push(parts, "\n")
+    i += 1
+}
+pilot payload: word = word_join(parts)
+pilot large = v4_hir_snapshot_index_lines(payload)
+pilot large_first: word = array_get(large, 0)
+pilot large_last: word = array_get(large, 8191)
+pilot large_trailing: word = array_get(large, 8192)
+pilot large_ok = large >= 0 and array_len(large) == 8193 and large_first == row and large_last == row and large_trailing == ""
+array_release(large)
+if empty_ok and small_ok and large_ok {
+    say "llvm-hir-line-index=ok"
+} else {
+    say "llvm-hir-line-index=failed"
+}
+'''
+    )
     bootstrap_c = read_text(bootstrap_c_path)
     runtime_source = read_text(runtime_c)
     llvm_runtime_source = read_text(llvm_runtime_c)
@@ -10657,7 +10740,7 @@ def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
         timeout_seconds=30,
         memory_limit_mb=64,
     )
-    if executed.returncode != 0 or executed.stdout.splitlines() != ["ernat"]:
+    if executed.returncode != 0 or executed.stdout.splitlines() != ["ernat", "llvm-hir-line-index=ok"]:
         raise RuntimeError(
             "V3 LLVM substring pipeline execution failed\n"
             + (executed.stdout + executed.stderr)[-4000:]
@@ -10685,6 +10768,7 @@ def check_executable_smokes(
     include_arg = f"-I{RUNTIME_ROOT}"
     check_process_tree_guard()
     check_llvm_runtime_primitives(clang, include_arg)
+    check_native_snapshot_lines(clang)
     check_v3_llvm_substring_pipeline(clang, include_arg)
 
     for smoke in smokes:
