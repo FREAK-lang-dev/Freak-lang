@@ -789,6 +789,9 @@ def main() -> int:
             for label, script in (
                 ("word repetition and builder", "v3_word_foundation.py"),
                 ("managed ByteBuffer", "v3_byte_buffer_foundation.py"),
+                ("system runtime", "v3_system_runtime_foundation.py"),
+                ("managed TCP sockets", "v3_tcp_socket_foundation.py"),
+                ("HTTP server Ordnance", "v3_http_server_ordnance.py"),
             )
         )
         hostile_cwd = root / "hostile-repo-shaped-cwd"
