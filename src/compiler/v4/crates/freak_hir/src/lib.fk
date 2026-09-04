@@ -50,9 +50,12 @@ task v4_hir_init() -> void {
     }
 }
 
-task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
+-- File slots own their eight child arrays. Logical snapshot truncation keeps
+-- high-water slots reachable; reusing a slot must release its previous children.
+-- Fresh slots allocate once, without immediately overwriting those handles.
+task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
     v4_hir_init()
-    pilot hir_id = v4_hir_file_len
+    pilot reused: bool = hir_id < array_len(v4_hir_files)
     repeat until array_len(v4_hir_files) > hir_id {
         array_push(v4_hir_files, "0")
         array_push(v4_hir_expansions, "0")
@@ -65,16 +68,32 @@ task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
         array_push(v4_hir_alias_target_spans, word_from_int(array_new()))
         array_push(v4_hir_diags, word_from_int(array_new()))
     }
+    if reused {
+        array_release(v4_hir_kinds_handle(hir_id))
+        array_release(v4_hir_names_handle(hir_id))
+        array_release(v4_hir_defs_handle(hir_id))
+        array_release(v4_hir_spans_handle(hir_id))
+        array_release(v4_hir_parse_nodes_handle(hir_id))
+        array_release(v4_hir_alias_target_types_handle(hir_id))
+        array_release(v4_hir_alias_target_spans_handle(hir_id))
+        array_release(v4_hir_diags_handle(hir_id))
+        array_set(v4_hir_item_kinds, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_item_names, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_item_defs, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_item_spans, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_item_parse_nodes, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_alias_target_types, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_alias_target_spans, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
+    }
     array_set(v4_hir_files, hir_id, word_from_int(file_id))
     array_set(v4_hir_expansions, hir_id, word_from_int(expansion_id))
-    array_set(v4_hir_item_kinds, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_names, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_defs, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_spans, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_parse_nodes, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_alias_target_types, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_alias_target_spans, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
+}
+
+task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
+    v4_hir_init()
+    pilot hir_id = v4_hir_file_len
+    v4_hir_prepare_file_slot(hir_id, file_id, expansion_id)
     v4_hir_file_len = hir_id + 1
     give back hir_id
 }
@@ -1121,30 +1140,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
 }
 
 task v4_hir_restore_file_slot(hir_id: int, file_id: int, expansion_id: int) -> int {
-    v4_hir_init()
-    repeat until array_len(v4_hir_files) > hir_id {
-        array_push(v4_hir_files, "0")
-        array_push(v4_hir_expansions, "0")
-        array_push(v4_hir_item_kinds, word_from_int(array_new()))
-        array_push(v4_hir_item_names, word_from_int(array_new()))
-        array_push(v4_hir_item_defs, word_from_int(array_new()))
-        array_push(v4_hir_item_spans, word_from_int(array_new()))
-        array_push(v4_hir_item_parse_nodes, word_from_int(array_new()))
-        array_push(v4_hir_alias_target_types, word_from_int(array_new()))
-        array_push(v4_hir_alias_target_spans, word_from_int(array_new()))
-        array_push(v4_hir_diags, word_from_int(array_new()))
-    }
-
-    array_set(v4_hir_files, hir_id, word_from_int(file_id))
-    array_set(v4_hir_expansions, hir_id, word_from_int(expansion_id))
-    array_set(v4_hir_item_kinds, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_names, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_defs, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_spans, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_parse_nodes, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_alias_target_types, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_alias_target_spans, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
+    v4_hir_prepare_file_slot(hir_id, file_id, expansion_id)
     if hir_id >= v4_hir_file_len {
         v4_hir_file_len = hir_id + 1
     }

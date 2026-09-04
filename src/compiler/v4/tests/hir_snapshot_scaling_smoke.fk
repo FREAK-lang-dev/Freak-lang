@@ -15,7 +15,7 @@ task v4_hir_scaling_payload(files: int, items_per_file: int) -> word {
         pilot child = items_per_file - 1
         repeat until child < 0 {
             array_push(parts, "\nhir-item|" + word_from_int(owner) + "|" + word_from_int(child))
-            array_push(parts, "|alias|Alias|def|" + source_file + "@0:20|0|int|" + source_file + "@5:8")
+            array_push(parts, "|Alias|Alias|def|" + source_file + "@0:20|0|int|" + source_file + "@5:8")
             child -= 1
         }
         array_push(parts, "\nhir-diag|" + word_from_int(owner) + "|1|second")
@@ -59,6 +59,60 @@ task v4_hir_scaling_rejects_atomically(payload: word, before: word) -> bool {
     pilot validation = v4_hir_snapshot_validate(payload)
     pilot restoration = v4_hir_snapshot_restore(payload)
     give back validation.starts_with("hir-snapshot-import ok=0 ") and restoration.starts_with("hir-snapshot-restore ok=0 ") and v4_hir_snapshot() == before
+}
+
+task v4_hir_scaling_children_empty(hir_id: int) -> bool {
+    give back array_len(v4_hir_kinds_handle(hir_id)) == 0 and array_len(v4_hir_names_handle(hir_id)) == 0 and array_len(v4_hir_defs_handle(hir_id)) == 0 and array_len(v4_hir_spans_handle(hir_id)) == 0 and array_len(v4_hir_parse_nodes_handle(hir_id)) == 0 and array_len(v4_hir_alias_target_types_handle(hir_id)) == 0 and array_len(v4_hir_alias_target_spans_handle(hir_id)) == 0 and array_len(v4_hir_diags_handle(hir_id)) == 0
+}
+
+task v4_hir_scaling_fill_children(hir_id: int) -> void {
+    pilot item = v4_hir_add_item(hir_id, v4_hir_alias, "Old", "73@0:20", 0)
+    array_set(v4_hir_alias_target_types_handle(hir_id), item, "int")
+    array_set(v4_hir_alias_target_spans_handle(hir_id), item, "73@5:8")
+    v4_hir_add_diag(hir_id, "old diagnostic")
+}
+
+task v4_hir_scaling_file_slots(sample: word, before: word) -> void {
+    pilot capacity_before = v4_hir_scaling_capacity()
+    pilot fresh = v4_hir_file_new(73, 0)
+    pilot capacity_fresh = v4_hir_scaling_capacity()
+    pilot empty_children: bool = v4_hir_scaling_children_empty(fresh)
+    v4_hir_scaling_fill_children(fresh)
+    pilot restored: bool = true
+    pilot truncated: bool = true
+    pilot iteration = 0
+    repeat until iteration >= 96 {
+        pilot restoration = v4_hir_snapshot_restore(sample)
+        if restoration.starts_with("hir-snapshot-restore ok=1 ") == false or v4_hir_snapshot() != before {
+            restored = false
+        }
+        if v4_hir_file_count() != 2 or v4_hir_file_exists(2) {
+            truncated = false
+        }
+        -- Slot 2 remains owned at the high-water mark and must be reset once.
+        pilot reused = v4_hir_file_new(73, 0)
+        if reused != fresh or v4_hir_scaling_children_empty(reused) == false {
+            empty_children = false
+        }
+        v4_hir_scaling_fill_children(reused)
+        v4_hir_begin_snapshot_restore()
+        pilot first = v4_hir_file_new(73, 0)
+        if first != 0 or v4_hir_file_count() != 1 or v4_hir_scaling_children_empty(first) == false {
+            empty_children = false
+        }
+        v4_hir_scaling_fill_children(first)
+        iteration += 1
+    }
+    pilot final_restore = v4_hir_snapshot_restore(sample)
+    if final_restore.starts_with("hir-snapshot-restore ok=1 ") == false or v4_hir_snapshot() != before {
+        restored = false
+    }
+    pilot capacity_after = v4_hir_scaling_capacity()
+    say "hir-scaling-fresh-slot-eight-handles=" + word_from_bool(capacity_before - capacity_fresh == 8)
+    say "hir-scaling-reused-children-empty=" + word_from_bool(empty_children)
+    say "hir-scaling-restore-repeated=" + word_from_bool(restored)
+    say "hir-scaling-truncated-slots-hidden=" + word_from_bool(truncated)
+    say "hir-scaling-file-slot-capacity-stable=" + word_from_bool(capacity_after == capacity_fresh)
 }
 
 task v4_hir_snapshot_scaling_run() -> void {
@@ -112,6 +166,7 @@ task v4_hir_snapshot_scaling_run() -> void {
     say "hir-scaling-capacity-bounded=" + word_from_bool(capacity_before > 0 and capacity_before < 1024)
     say "hir-scaling-capacity-stable=" + word_from_bool(capacity_before == capacity_after)
     say "hir-scaling-live-unchanged=" + word_from_bool(v4_hir_snapshot() == before)
+    v4_hir_scaling_file_slots(sample, before)
 }
 
 v4_hir_snapshot_scaling_run()
