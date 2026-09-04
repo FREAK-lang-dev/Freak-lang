@@ -205,10 +205,12 @@ the request remain future work and are not silently pulled into this campaign.
   installer/upgrade/freshness and release-shaped checks on the final integrated SHA.
 - [ ] Complete lead self-review and independent review of that immutable SHA;
   disposition all actionable findings.
-- [ ] Push the topic branch and open the requested **ready, non-draft PR**.
+- [x] Push the topic branch and open the requested **ready, non-draft PR**:
+  [PR #99](https://github.com/FREAK-lang-dev/Freak-lang/pull/99).
   The user's explicit non-draft request overrides the default draft workflow;
   it does not waive correctness or merge gates.
-- [ ] Set occasional comment/CI monitoring; remain quiet on unchanged state.
+- [x] Set hourly comment/CI monitoring attached to this task; remain quiet on
+  unchanged state. Monitor: `review-and-deliver-freak-v3-pr-99`.
 - [ ] Address comments and CI failures, refresh review evidence after changes,
   and merge only once all applicable gates pass.
 - [ ] Publish an agreed new version after practical tests and merge.
@@ -334,7 +336,7 @@ the request remain future work and are not silently pulled into this campaign.
 ## Integration and review checkpoint: 2026-09-05
 
 This newer checkpoint supersedes the in-flight assignments in the lane matrix.
-The full campaign remains active and incomplete; a non-draft PR is requested
+The full campaign remains active and incomplete. PR #99 is open non-draft
 for external review, not as an assertion that the merge gates have passed.
 
 - Integrated UI clipping `52e0a71` and COCKPIT correction `d0c0df7`.
