@@ -248,9 +248,14 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
         if method_name == "release" and bc_expr_is_byte_buffer(word_to_int(recv)) {
             consume_receiver = true
         }
+        pilot borrow_args: bool = bc_expr_is_byte_buffer(word_to_int(recv)) and tc_builtin_method_allowed("ByteBuffer", method_name)
+        pilot borrowed_receiver: int = 0 - 1
+        if borrow_args and not consume_receiver {
+            borrowed_receiver = bc_live_borrow_ident(word_to_int(recv))
+        }
         bc_walk_expr(word_to_int(recv), consume_receiver, use_line)
-        pilot borrow_args = bc_expr_is_byte_buffer(word_to_int(recv)) and tc_builtin_method_allowed("ByteBuffer", method_name)
         bc_walk_call_args(margs, use_line, borrow_args, false)
+        bc_check_borrow_alive(borrowed_receiver, use_line)
         give back
     }
 
@@ -275,11 +280,37 @@ task bc_builtin_consumes_handle(name: word) -> bool {
     give back name == "word_builder::finish" or name == "word_builder::discard" or name == "word_join" or name == "array_release" or name == "tcp::socket_close" or name == "tcp::close" or name == "tcp_close" or name == "ui::destroy_window"
 }
 
+-- Remember only direct, currently-live borrowed identifiers. Nested expressions
+-- are evaluated by the ordinary walk exactly once, never by this validation.
+task bc_live_borrow_ident(expr_id: int) -> int {
+    if expr_id < 0 { give back 0 - 1 }
+    if array_get(ast_expr_kinds, expr_id) != EXPR_IDENT { give back 0 - 1 }
+    pilot symbol: int = bc_lookup_idx(array_get(ast_expr_vals, expr_id))
+    if symbol < 0 { give back 0 - 1 }
+    if array_get(bc_sym_state, symbol) != "live" { give back 0 - 1 }
+    give back symbol
+}
+
+task bc_check_borrow_alive(symbol: int, use_line: int) -> void {
+    if symbol < 0 { give back }
+    if array_get(bc_sym_state, symbol) == "moved" {
+        bc_err_use_after_move(array_get(bc_sym_names, symbol), use_line)
+    }
+}
+
 task bc_walk_call_args(args: word, use_line: int, borrow_args: bool, consume_first: bool) -> void {
+    pilot borrowed_symbols: word = ""
     pilot index = 0
     repeat tc_arg_count(args) times {
         pilot arg = tc_arg_at(args, index)
         pilot consumes_handle = consume_first and index == 0
+        if borrow_args and not consumes_handle {
+            pilot borrowed: int = bc_live_borrow_ident(arg)
+            if borrowed >= 0 {
+                if borrowed_symbols != "" { borrowed_symbols = borrowed_symbols + "," }
+                borrowed_symbols = borrowed_symbols + word_from_int(borrowed)
+            }
+        }
         bc_walk_expr(arg, not borrow_args or consumes_handle, use_line)
         -- Legacy handles expose int signatures. Explicitly annotated int
         -- bindings are also dead after a consuming builtin call.
@@ -287,6 +318,13 @@ task bc_walk_call_args(args: word, use_line: int, borrow_args: bool, consume_fir
             pilot symbol = bc_lookup_idx(array_get(ast_expr_vals, arg))
             if symbol >= 0 { array_set(bc_sym_state, symbol, "moved") }
         }
+        index += 1
+    }
+    -- Later argument calls can consume an earlier borrowed handle before the
+    -- outer call begins. Recheck its state without evaluating arguments again.
+    index = 0
+    repeat tc_arg_count(borrowed_symbols) times {
+        bc_check_borrow_alive(tc_arg_at(borrowed_symbols, index), use_line)
         index += 1
     }
 }

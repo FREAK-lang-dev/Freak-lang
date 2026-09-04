@@ -72,6 +72,28 @@ SOCKET = '''task main() {
 }
 '''
 
+NESTED = '''task main() {
+    pilot outer = word_builder::new()
+    pilot inner = word_builder::new()
+    word_builder::append(inner, "i")
+    word_builder::append(outer, word_builder::finish(inner))
+    word_builder::reserve(outer, word_builder::capacity(outer) + word_builder::length(outer))
+    pilot text = "x"
+    word_builder::append(outer, word_concat(text, text))
+    if text != "x" { process::exit(2) }
+    if word_builder::finish(outer) != "ixx" { process::exit(3) }
+    pilot buffer = ByteBuffer::new()
+    buffer.write_word("a")
+    buffer.write_word(buffer.to_word())
+    pilot other: int = word_builder::new()
+    word_builder::append(other, "b")
+    buffer.write_word(word_builder::finish(other))
+    if buffer.to_word() != "aab" { process::exit(4) }
+    buffer.release()
+    say "nested-ok"
+}
+'''
+
 NEGATIVE = {
     "builder_finish_twice": 'pilot b = word_builder::new()\nword_builder::finish(b)\nword_builder::finish(b)',
     "builder_after_discard": 'pilot b = word_builder::new()\nword_builder::discard(b)\nword_builder::length(b)',
@@ -84,6 +106,10 @@ NEGATIVE = {
     "array_after_join": 'pilot a: int = array_new()\narray_push(a, "x")\npilot joined = word_join(a)\narray_release(a)',
     "unknown_user_call_moves": 'pilot b = word_builder::new()\nconsume_handle(b)\nword_builder::length(b)',
     "nested_finish_consumes": 'pilot outer = word_builder::new()\npilot inner = word_builder::new()\nword_builder::append(outer, word_builder::finish(inner))\nword_builder::discard(inner)',
+    "nested_finish_same": 'pilot b = word_builder::new()\nword_builder::append(b, word_builder::finish(b))',
+    "nested_finish_same_typed": 'pilot b: int = word_builder::new()\nword_builder::append(b, word_builder::finish(b))',
+    "nested_join_same": 'pilot a = array_new()\narray_push(a, word_join(a))',
+    "nested_release_receiver": 'pilot b = ByteBuffer::new()\nb.write_word(drain_buffer(b))',
     "typed_legacy_close": 'pilot socket: int = 0\ntcp::close(socket)\ntcp::close(socket)',
     "typed_window_destroy": 'pilot window: int = 0\nui::destroy_window(window)\nui::get_width(window)',
 }
@@ -96,17 +122,25 @@ def invoke(command: list[str], repo: Path) -> subprocess.CompletedProcess[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("cli", type=Path)
+    parser.add_argument("cli", nargs="?", type=Path,
+                        help="exact-source CLI; omit for checked-in-seed/stage1/stage2/full-CLI bootstrap")
     parser.add_argument("--runtime-root", type=Path)
     parser.add_argument("--clang", default=shutil.which("clang"))
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     runtime = (args.runtime_root or repo / "freakc/runtime").resolve()
-    cli = str(args.cli.resolve(strict=True))
     assert args.clang, "Clang is required"
     with tempfile.TemporaryDirectory(prefix="freak-strict-handles-") as directory:
         root = Path(directory)
-        for name, program, expected in (("builder", BUILDER, "builder-ok"), ("socket", SOCKET, "socket-ok")):
+        if args.cli is None:
+            print("Bootstrapping checked-in seed -> stage1 -> stage2 -> full CLI", flush=True)
+            cli = str(foundation.build_fresh_cli(clang=args.clang, repo=repo,
+                                                root=root, runtime_root=runtime))
+            print("PASS checked-in-seed bootstrap", flush=True)
+        else:
+            cli = str(args.cli.resolve(strict=True))
+        for name, program, expected in (("builder", BUILDER, "builder-ok"), ("socket", SOCKET, "socket-ok"),
+                                        ("nested", NESTED, "nested-ok")):
             source = root / f"{name}.fk"
             source.write_text(program, encoding="utf-8")
             checked = invoke([cli, "check", str(source), "--strict-borrow"], repo)
@@ -125,15 +159,24 @@ def main() -> int:
                 if name == "builder":
                     assert counters["word_builder_creations"] == 16, counters
                     assert counters["word_builder_finishes"] == counters["word_builder_discards"] == 8, counters
-                else:
+                elif name == "socket":
                     assert counters["byte_buffer_creations"] == counters["byte_buffer_releases"] == 8, counters
+                else:
+                    assert counters["word_builder_creations"] == counters["word_builder_finishes"] == 3, counters
+                    assert counters["byte_buffer_creations"] == counters["byte_buffer_releases"] == 1, counters
                 print(f"PASS strict {name} {backend}", flush=True)
         for name, body in NEGATIVE.items():
             source = root / f"{name}.fk"
-            source.write_text("task consume_handle(handle: int) -> void {}\ntask main() {\n" + body + "\n}\n", encoding="utf-8")
+            source.write_text("task consume_handle(handle: int) -> void {}\n"
+                              "task drain_buffer(value: ByteBuffer) -> word { value.release() give back \"x\" }\n"
+                              "task main() {\n" + body + "\n}\n", encoding="utf-8")
             for backend in ("c", "llvm"):
                 checked = invoke([cli, "transpile", str(source), f"--{backend}", "--strict-borrow"], repo)
                 assert checked.returncode != 0 and "Shirogane. You gave this away" in checked.stdout + checked.stderr, (name, backend, checked.stdout, checked.stderr)
+                assert not Path(str(source) + (".c" if backend == "c" else ".ll")).exists(), (name, backend)
+                if name in ("builder_after_discard", "buffer_after_release", "nested_finish_same",
+                            "nested_finish_same_typed", "nested_join_same", "nested_release_receiver"):
+                    assert (checked.stdout + checked.stderr).count("Shirogane. You gave this away") == 1, (name, backend, checked.stdout, checked.stderr)
         for name, should_pass in (("borrow_word_move", False), ("borrow_move_basic", False),
                                   ("borrow_immut_reassign", False), ("borrow_mut_reassign", True),
                                   ("borrow_copy_primitive", True)):
