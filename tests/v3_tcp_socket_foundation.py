@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import socket
@@ -180,13 +181,15 @@ LEAK_PROGRAM = r'''task main() {
 
 BOOTSTRAP_PROGRAM = r'''task main() {
     pilot invalid = tcp::socket_connect("", 80)
-    say tcp::socket_status(invalid)
+    if tcp::socket_status(invalid) != 1 { process::exit(2) }
     tcp::socket_close(invalid)
     pilot listener = tcp::socket_listen("127.0.0.1", 0, 1)
-    say tcp::socket_status(listener)
-    say tcp::socket_local_port(listener) > 0
+    if tcp::socket_status(listener) != 0 { process::exit(3) }
+    if tcp::socket_local_port(listener) <= 0 { process::exit(4) }
     tcp::socket_set_timeout(listener, 0, 0)
+    if tcp::socket_status(listener) != 0 { process::exit(5) }
     tcp::socket_close(listener)
+    say "bootstrap-tcp-ok"
 }
 '''
 
@@ -486,8 +489,16 @@ def exercise_failure_statuses(binary: Path, root: Path) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("freak", nargs="?", type=Path,
+                        help="existing exact-source CLI; omit to reconstruct")
+    parser.add_argument("--runtime-root", type=Path,
+                        help="runtime payload to compile; defaults to repository")
+    args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
-    runtime = repo / "freakc" / "runtime"
+    runtime = (args.runtime_root or repo / "freakc" / "runtime").resolve()
+    assert (runtime / "freak_runtime.c").is_file(), runtime
+    assert (runtime / "freak_llvm_runtime.c").is_file(), runtime
     compiler = os.environ.get("FREAK_CLANG") or shutil.which("clang")
     assert compiler, "Clang is required for the C and LLVM networking matrix"
     compiler_identity = run([compiler, "--version"], repo, timeout=30)
@@ -498,9 +509,10 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-tcp-socket-") as temporary:
         root = Path(temporary)
-        freak = foundation.build_fresh_cli(
+        freak = args.freak.resolve() if args.freak else foundation.build_fresh_cli(
             clang=compiler, repo=repo, root=root, runtime_root=runtime
         )
+        assert freak.is_file(), freak
 
         for backend in ("c", "llvm"):
             binaries: dict[str, Path] = {}
@@ -592,14 +604,22 @@ def main() -> int:
         bootstrap = root / "bootstrap_tcp_socket.fk"
         bootstrap.write_text(BOOTSTRAP_PROGRAM, encoding="utf-8")
         bootstrap_binary = root / f"bootstrap_tcp_socket{'.exe' if sys.platform == 'win32' else ''}"
-        built = run(
-            [sys.executable, "-m", "freakc", "build", str(bootstrap), "-o", str(bootstrap_binary)],
-            repo,
+        # Exercise bootstrap emission against the selected installed runtime
+        # too: its build command otherwise hardcodes the repository payload.
+        sys.path.insert(0, str(repo))
+        from freakc.__main__ import transpile as bootstrap_transpile
+        bootstrap_c, diagnostics, _, has_errors = bootstrap_transpile(
+            BOOTSTRAP_PROGRAM, bootstrap
         )
-        assert built.returncode == 0, built.stdout + built.stderr
+        assert not has_errors and bootstrap_c is not None, diagnostics
+        bootstrap_generated = bootstrap.with_suffix(".c")
+        bootstrap_generated.write_text(bootstrap_c, encoding="utf-8")
+        byte_foundation.compile_generated(
+            compiler, repo, runtime, bootstrap_generated, bootstrap_binary, "c"
+        )
         bootstrap_run = run([str(bootstrap_binary)], root)
         assert bootstrap_run.returncode == 0, bootstrap_run.stdout + bootstrap_run.stderr
-        assert bootstrap_run.stdout.strip().splitlines() == ["1", "0", "true"]
+        assert bootstrap_run.stdout.strip() == "bootstrap-tcp-ok"
 
         forgery_source = root / "tcp_socket_forgery.c"
         forgery_source.write_text(RUNTIME_FORGERY_PROBE, encoding="utf-8")

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import socket
@@ -79,7 +80,7 @@ def bounded_readline(
 
 def exercise(binary: Path, root: Path) -> None:
     process = subprocess.Popen(
-        [str(binary), "0", "4"],
+        [str(binary), "0", "5"],
         cwd=root,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -101,6 +102,44 @@ def exercise(binary: Path, root: Path) -> None:
                 pass
         slow_elapsed = time.monotonic() - slow_started
         assert slow_elapsed < 5, slow_elapsed
+
+        # Keep the next header active more frequently than the 250ms idle
+        # timeout. Only the total header deadline should terminate it.
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as trickle:
+            trickle.settimeout(5)
+            trickle.sendall(b"GET /hello HTTP/1.1\r\nX-Trickle: ")
+            stop = threading.Event()
+            sent: list[float] = []
+
+            def send_trickle() -> None:
+                while not stop.wait(0.05):
+                    try:
+                        trickle.sendall(b"x")
+                        sent.append(time.monotonic())
+                    except OSError:
+                        return
+
+            writer = threading.Thread(target=send_trickle, daemon=True)
+            trickle_started = time.monotonic()
+            writer.start()
+            response = bytearray()
+            try:
+                while True:
+                    try:
+                        chunk = trickle.recv(4096)
+                    except ConnectionResetError:
+                        break
+                    if not chunk:
+                        break
+                    response.extend(chunk)
+            finally:
+                stop.set()
+                writer.join(timeout=1)
+            trickle_elapsed = time.monotonic() - trickle_started
+            assert not writer.is_alive()
+            assert len(sent) >= 10, sent
+            assert 1.0 < trickle_elapsed < 4.0, trickle_elapsed
+            assert response.startswith(b"HTTP/1.1 400 Bad Request\r\n"), response
 
         # The timed-out client must not poison the sequential server. A complete
         # request immediately afterward still receives the normal response.
@@ -137,8 +176,16 @@ def exercise(binary: Path, root: Path) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("freak", nargs="?", type=Path,
+                        help="existing exact-source CLI; omit to reconstruct")
+    parser.add_argument("--runtime-root", type=Path,
+                        help="runtime payload to compile; defaults to repository")
+    args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
-    runtime = repo / "freakc" / "runtime"
+    runtime = (args.runtime_root or repo / "freakc" / "runtime").resolve()
+    assert (runtime / "freak_runtime.c").is_file(), runtime
+    assert (runtime / "freak_llvm_runtime.c").is_file(), runtime
     package = repo / "packages" / "http-server"
     source = package / "src" / "main.fk"
     compiler = os.environ.get("FREAK_CLANG") or shutil.which("clang")
@@ -159,9 +206,10 @@ def main() -> int:
         root = Path(temporary)
         temporary_source = root / "http_server_main.fk"
         shutil.copyfile(source, temporary_source)
-        freak = foundation.build_fresh_cli(
+        freak = args.freak.resolve() if args.freak else foundation.build_fresh_cli(
             clang=compiler, repo=repo, root=root, runtime_root=runtime
         )
+        assert freak.is_file(), freak
         for backend in ("c", "llvm"):
             generated, generated_text = foundation.transpile(
                 freak=freak, repo=repo, source=temporary_source, backend=backend

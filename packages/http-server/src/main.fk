@@ -34,8 +34,23 @@ task main() {
         pilot request_text = ""
         pilot headers_complete = false
         pilot bad_request = false
+        pilot header_start = time::monotonic_ns()
+        if header_start < 0 { bad_request = true }
         repeat until headers_complete or bad_request {
-            pilot received = tcp::socket_receive(client, request, 4096)
+            -- Bound the whole header, including clients that keep sending
+            -- before each individual receive timeout expires.
+            pilot header_now = time::monotonic_ns()
+            if header_now < header_start or header_now - header_start >= 2000000000 {
+                bad_request = true
+            }
+            pilot received = 0
+            if not bad_request {
+                received = tcp::socket_receive(client, request, 4096)
+                header_now = time::monotonic_ns()
+                if header_now < header_start or header_now - header_start >= 2000000000 {
+                    bad_request = true
+                }
+            }
             if received > 0 {
                 if request.length() > 65536 {
                     bad_request = true
