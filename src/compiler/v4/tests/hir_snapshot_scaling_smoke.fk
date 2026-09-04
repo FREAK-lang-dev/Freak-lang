@@ -61,6 +61,36 @@ task v4_hir_scaling_rejects_atomically(payload: word, before: word) -> bool {
     give back validation.starts_with("hir-snapshot-import ok=0 ") and restoration.starts_with("hir-snapshot-restore ok=0 ") and v4_hir_snapshot() == before
 }
 
+task v4_hir_scaling_index_exhaustion(payload: word, before: word) -> void {
+    pilot handles = array_new()
+    pilot available = 0
+    pilot exhausted: bool = false
+    pilot generation_before = v4_session_semantic_restore_generation()
+    repeat until exhausted or available >= 2048 {
+        pilot handle = array_new()
+        array_push(handle, "alive")
+        if array_len(handle) != 1 {
+            exhausted = true
+        } else {
+            array_push(handles, word_from_int(handle))
+            available += 1
+        }
+    }
+    pilot validation = v4_hir_snapshot_validate(payload)
+    pilot restoration = v4_hir_snapshot_restore(payload)
+    pilot unchanged_generation: bool = v4_session_semantic_restore_generation() == generation_before
+    pilot slot = 0
+    repeat until slot >= array_len(handles) {
+        array_release(word_to_int(array_get(handles, slot)))
+        slot += 1
+    }
+    array_release(handles)
+    say "hir-scaling-index-exhaustion-validation=" + word_from_bool(exhausted and validation == "hir-snapshot-import ok=0 reason=line-index-resource-exhausted")
+    say "hir-scaling-index-exhaustion-restore=" + word_from_bool(restoration.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and restoration.contains("line-index-resource-exhausted"))
+    say "hir-scaling-index-exhaustion-atomic=" + word_from_bool(unchanged_generation and v4_hir_snapshot() == before)
+    say "hir-scaling-index-exhaustion-recovery=" + word_from_bool(v4_hir_snapshot_validate(payload).starts_with("hir-snapshot-import ok=1 "))
+}
+
 task v4_hir_scaling_children_empty(hir_id: int) -> bool {
     give back array_len(v4_hir_kinds_handle(hir_id)) == 0 and array_len(v4_hir_names_handle(hir_id)) == 0 and array_len(v4_hir_defs_handle(hir_id)) == 0 and array_len(v4_hir_spans_handle(hir_id)) == 0 and array_len(v4_hir_parse_nodes_handle(hir_id)) == 0 and array_len(v4_hir_alias_target_types_handle(hir_id)) == 0 and array_len(v4_hir_alias_target_spans_handle(hir_id)) == 0 and array_len(v4_hir_diags_handle(hir_id)) == 0
 }
@@ -132,6 +162,19 @@ task v4_hir_snapshot_scaling_run() -> void {
     say "hir-scaling-huge-owner=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|1|", "\nhir|9223372036854775807|"), before))
     say "hir-scaling-overflow-owner=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|1|", "\nhir|18446744073709551616|"), before))
     say "hir-scaling-noncanonical-owner=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|1|", "\nhir|01|"), before))
+    say "hir-scaling-source-garbage=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|0|1|0|2|2", "\nhir|0|garbage|0|2|2"), before))
+    say "hir-scaling-source-negative=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|0|1|0|2|2", "\nhir|0|-1|0|2|2"), before))
+    say "hir-scaling-source-noncanonical=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|0|1|0|2|2", "\nhir|0|01|0|2|2"), before))
+    say "hir-scaling-source-overflow=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|0|1|0|2|2", "\nhir|0|9223372036854775808|0|2|2"), before))
+    say "hir-scaling-expansion-garbage=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|0|1|0|2|2", "\nhir|0|1|garbage|2|2"), before))
+    say "hir-scaling-expansion-negative=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|0|1|0|2|2", "\nhir|0|1|-1|2|2"), before))
+    say "hir-scaling-expansion-noncanonical=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|0|1|0|2|2", "\nhir|0|1|00|2|2"), before))
+    say "hir-scaling-expansion-overflow=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|0|1|0|2|2", "\nhir|0|1|9223372036854775808|2|2"), before))
+    pilot empty_owner = "hir-snapshot|format=freak-hir-snapshot-v3|files=1|items=0|alias-targets=0|diagnostics=0\nhir|0|garbage|garbage|0|0\nend|freak-hir-snapshot-v3"
+    say "hir-scaling-childless-owner-identities=" + word_from_bool(v4_hir_scaling_rejects_atomically(empty_owner, before))
+    pilot max_owner = sample.replace("\nhir|0|1|0|2|2", "\nhir|0|9223372036854775807|9223372036854775807|2|2")
+    max_owner = max_owner.replace("|1@", "|9223372036854775807@")
+    say "hir-scaling-canonical-parent-identity=" + word_from_bool(v4_hir_snapshot_validate(max_owner).starts_with("hir-snapshot-import ok=1 "))
     say "hir-scaling-duplicate-item=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("hir-item|0|1|", "hir-item|0|0|"), before))
     say "hir-scaling-gapped-item=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("hir-item|0|1|", "hir-item|0|2|"), before))
     say "hir-scaling-huge-item=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("hir-item|0|1|", "hir-item|0|9223372036854775807|"), before))
@@ -166,6 +209,7 @@ task v4_hir_snapshot_scaling_run() -> void {
     say "hir-scaling-capacity-bounded=" + word_from_bool(capacity_before > 0 and capacity_before < 1024)
     say "hir-scaling-capacity-stable=" + word_from_bool(capacity_before == capacity_after)
     say "hir-scaling-live-unchanged=" + word_from_bool(v4_hir_snapshot() == before)
+    v4_hir_scaling_index_exhaustion(sample, before)
     v4_hir_scaling_file_slots(sample, before)
 }
 

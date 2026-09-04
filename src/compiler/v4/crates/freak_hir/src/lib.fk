@@ -874,24 +874,11 @@ task v4_hir_snapshot_alias_target_is_valid(line: word) -> bool {
 
 -- Index physical lines once. Repeated line(payload, ordinal) calls scan from
 -- byte zero and must not be nested inside owner/child validation loops.
--- The caller owns the returned scratch array, including blank/trailing lines.
+-- Native splitting avoids LLVM char_at/substring length rescans as well.
+-- The caller owns the returned scratch array and its blank/trailing line words.
+-- A negative handle reports allocation failure without publishing partial data.
 task v4_hir_snapshot_index_lines(payload: word) -> int {
-    pilot records = array_new()
-    pilot start = 0
-    pilot pos = 0
-    pilot size = payload.length()
-    if size == 0 {
-        give back records
-    }
-    repeat until pos >= size {
-        if payload.char_at(pos) == "\n" {
-            array_push(records, v4_slice(payload, start, pos))
-            start = pos + 1
-        }
-        pos += 1
-    }
-    array_push(records, v4_slice(payload, start, size))
-    give back records
+    give back payload.snapshot_lines()
 }
 
 -- Conversion is canonical and bounded before any array access/allocation.
@@ -942,7 +929,12 @@ task v4_hir_snapshot_slots_are_valid(records: int, files: int, items: int, diagn
             pilot item_count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), items + 1)
             pilot diag_count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 5), diagnostics + 1)
             pilot source_file = v4_hir_snapshot_field_raw(line, 2)
-            if owner < 0 or item_count < 0 or diag_count < 0 or source_file == "" {
+            pilot source_id = v4_nonnegative_int_range(source_file, 0, source_file.length())
+            pilot expansion_word = v4_hir_snapshot_field_raw(line, 3)
+            pilot expansion_id = v4_nonnegative_int_range(expansion_word, 0, expansion_word.length())
+            -- These identities may refer to detached snapshot parents, but
+            -- restore must not coerce malformed text into a different slot.
+            if owner < 0 or item_count < 0 or diag_count < 0 or source_id < 0 or word_from_int(source_id) != source_file or expansion_id < 0 or word_from_int(expansion_id) != expansion_word {
                 valid = false
             } else {
                 pilot previous_file: word = array_get(owner_files, owner)
@@ -1052,6 +1044,9 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
 
 task v4_hir_snapshot_validate(payload: word) -> word {
     pilot records = v4_hir_snapshot_index_lines(payload)
+    if records < 0 {
+        give back "hir-snapshot-import ok=0 reason=line-index-resource-exhausted"
+    }
     pilot lines = array_len(records)
     pilot files = 0
     pilot items = 0
@@ -1238,13 +1233,16 @@ task v4_hir_snapshot_restore(payload: word) -> word {
         give back "hir-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    pilot records = v4_hir_snapshot_index_lines(payload)
+    if records < 0 {
+        give back "hir-snapshot-restore ok=0 reason=line-index-resource-exhausted"
+    }
     pilot restored_files = 0
     pilot restored_items = 0
     pilot restored_diagnostics = 0
     pilot skipped_other = 0
     v4_hir_begin_snapshot_restore()
 
-    pilot records = v4_hir_snapshot_index_lines(payload)
     pilot line_id = 0
     pilot line_count = array_len(records)
     repeat until line_id >= line_count {
