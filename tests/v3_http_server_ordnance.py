@@ -20,6 +20,39 @@ import v3_word_foundation as foundation
 
 
 SUCCESS_BODY = b'{"message":"FREAKING WORKS"}'
+MALFORMED_FIELDS = (
+    b"not-a-header\r\n",
+    b": empty name\r\n",
+    b"Host : localhost\r\n",
+    b"Bad Name: value\r\n",
+    b"Bad@Name: value\r\n",
+    b"Bad\xc3\xa9: value\r\n",
+    b"X-Test: control\x01value\r\n",
+    b"X-Test: delete\x7fvalue\r\n",
+    b"X-Test: folded\r\n continuation\r\n",
+    b"X-Test: folded\r\n\tcontinuation\r\n",
+    b"X-Test: bare\nline\r\n",
+    b"X-Test: bare\rline\r\n",
+)
+VALID_FIELDS = (
+    b"X-Empty:\r\n",
+    b"!#$%&'*+-.^_`|~: punctuation\r\n",
+    b"X-Test:\t value:with:colons \t\r\nX-Test: repeated\r\n",
+)
+
+
+def assert_response(response: bytes, status: bytes, expected_body: bytes) -> None:
+    headers, body = response.split(b"\r\n\r\n", 1)
+    lines = headers.split(b"\r\n")
+    assert lines[0] == status, response
+    lengths = []
+    for line in lines[1:]:
+        name, colon, value = line.partition(b":")
+        assert colon and name, line
+        if name.lower() == b"content-length":
+            lengths.append(int(value.strip()))
+    assert lengths == [len(body)], (lengths, len(body), response)
+    assert body == expected_body, body
 
 
 def run(
@@ -84,7 +117,7 @@ def bounded_readline(
 
 def exercise(binary: Path, root: Path) -> None:
     process = subprocess.Popen(
-        [str(binary), "0", "5"],
+        [str(binary), "0", str(5 + len(MALFORMED_FIELDS) + len(VALID_FIELDS))],
         cwd=root,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -161,10 +194,19 @@ def exercise(binary: Path, root: Path) -> None:
         assert b"Content-Length: 28" in headers
         assert b"Connection: close" in headers
         assert body == SUCCESS_BODY, body
+        assert_response(success, b"HTTP/1.1 200 OK", SUCCESS_BODY)
 
         malformed = request(port, [b"POST /hello HTTP/1.1\r\n\r\n"])
         assert malformed.startswith(b"HTTP/1.1 400 Bad Request\r\n"), malformed
         assert malformed.endswith(b"bad request"), malformed
+
+        for field in MALFORMED_FIELDS:
+            malformed = request(port, [b"GET /hello HTTP/1.1\r\nHost: localhost\r\n", field, b"\r\n"])
+            assert_response(malformed, b"HTTP/1.1 400 Bad Request", b"bad request")
+        # Rejected field syntax must not poison later valid connections.
+        for field in VALID_FIELDS:
+            valid = request(port, [b"GET /hello HTTP/1.1\r\nHost: localhost\r\n", field, b"\r\n"])
+            assert_response(valid, b"HTTP/1.1 200 OK", SUCCESS_BODY)
 
         oversize = request(port, [b"X" * 65537, b"\r\n\r\n"])
         assert oversize.startswith(b"HTTP/1.1 400 Bad Request\r\n"), oversize

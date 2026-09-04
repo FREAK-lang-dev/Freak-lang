@@ -1,3 +1,47 @@
+-- RFC 9112 section 5: validate field lines as bytes, with no obs-fold or
+-- whitespace before the colon. This is bounded syntax validation, not a
+-- general HTTP field-value/message-body implementation.
+task ordnance_field_name_byte(byte: int) -> bool {
+    if byte < 33 or byte > 126 { give back false }
+    if byte >= 48 and byte <= 57 { give back true }
+    if byte >= 65 and byte <= 90 { give back true }
+    if byte >= 97 and byte <= 122 { give back true }
+    give back "!#$%&'*+-.^_`|~".contains(char_to_word(byte))
+}
+
+task ordnance_headers_valid(request: ByteBuffer) -> bool {
+    if request.status() != 0 or request.length() > 65536 { give back false }
+    request.seek("GET /hello HTTP/1.1\r\n".length())
+    repeat until request.remaining() <= 0 {
+        pilot byte = request.read_byte()
+        if byte == 13 {
+            if request.remaining() <= 0 { give back false }
+            give back request.read_byte() == 10
+        }
+        pilot name_length = 0
+        repeat until byte == 58 {
+            if not ordnance_field_name_byte(byte) { give back false }
+            name_length += 1
+            if request.remaining() <= 0 { give back false }
+            byte = request.read_byte()
+        }
+        if name_length == 0 { give back false }
+        pilot line_complete = false
+        repeat until line_complete {
+            if request.remaining() <= 0 { give back false }
+            byte = request.read_byte()
+            if byte == 13 {
+                if request.remaining() <= 0 { give back false }
+                if request.read_byte() != 10 { give back false }
+                line_complete = true
+            } else if (byte < 32 and byte != 9) or byte == 127 {
+                give back false
+            }
+        }
+    }
+    give back false
+}
+
 task main() {
     pilot port = 0
     pilot connection_limit = 1
@@ -70,7 +114,7 @@ task main() {
         }
 
         pilot response: ByteBuffer = ByteBuffer::with_capacity(160)
-        if headers_complete and not bad_request and request_text.starts_with("GET /hello HTTP/1.1\r\n") {
+        if headers_complete and not bad_request and request_text.starts_with("GET /hello HTTP/1.1\r\n") and ordnance_headers_valid(request) {
             response.write_word("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 28\r\nConnection: close\r\n\r\n{\"message\":\"FREAKING WORKS\"}")
         } else {
             response.write_word("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: 11\r\nConnection: close\r\n\r\nbad request")
