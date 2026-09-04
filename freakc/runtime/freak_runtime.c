@@ -379,37 +379,57 @@ static void freak_word_foundation_audit_byte_buffer_release(void) {}
 #ifdef FREAK_C_RUNTIME_OWNERSHIP_AUDIT
 static size_t freak_c_owned_word_count = 0;
 static bool freak_c_ownership_audit_registered = false;
+static atomic_flag freak_c_ownership_audit_lock = ATOMIC_FLAG_INIT;
+
+static void freak_c_ownership_audit_lock_acquire(void) {
+    while (atomic_flag_test_and_set_explicit(
+            &freak_c_ownership_audit_lock, memory_order_acquire)) {
+    }
+}
+
+static void freak_c_ownership_audit_lock_release(void) {
+    atomic_flag_clear_explicit(&freak_c_ownership_audit_lock, memory_order_release);
+}
 
 static void freak_c_ownership_audit_at_exit(void) {
-    if (freak_c_owned_word_count != 0) {
+    freak_c_ownership_audit_lock_acquire();
+    size_t outstanding = freak_c_owned_word_count;
+    freak_c_ownership_audit_lock_release();
+    if (outstanding != 0) {
         freak_word_foundation_audit_emit();
         fprintf(stderr,
                 "FREAK: C ownership audit found %llu unreleased word allocation(s)\n",
-                (unsigned long long)freak_c_owned_word_count);
+                (unsigned long long)outstanding);
         fflush(stderr);
         _Exit(87);
     }
 }
 
 static void freak_c_ownership_audit_acquire(void) {
+    freak_c_ownership_audit_lock_acquire();
     if (!freak_c_ownership_audit_registered) {
         if (atexit(freak_c_ownership_audit_at_exit) != 0) {
+            freak_c_ownership_audit_lock_release();
             fprintf(stderr, "FREAK: could not register C ownership audit\n");
             exit(1);
         }
         freak_c_ownership_audit_registered = true;
     }
     freak_c_owned_word_count += 1;
+    freak_c_ownership_audit_lock_release();
 }
 
 static void freak_c_ownership_audit_release(void) {
+    freak_c_ownership_audit_lock_acquire();
     if (freak_c_owned_word_count == 0) {
+        freak_c_ownership_audit_lock_release();
         freak_word_foundation_audit_emit();
         fprintf(stderr, "FREAK: C ownership audit observed an untracked release\n");
         fflush(stderr);
         _Exit(88);
     }
     freak_c_owned_word_count -= 1;
+    freak_c_ownership_audit_lock_release();
 }
 #else
 static void freak_c_ownership_audit_acquire(void) {}
@@ -1027,6 +1047,16 @@ static bool freak_system_utf8_valid(const char* text, size_t length) {
    being replaced by another FREAK runtime call. */
 static atomic_flag freak_process_environment_lock = ATOMIC_FLAG_INIT;
 
+/* Test-only barriers let a probe stop after acquiring the environment value
+   and before copying it, while a writer is poised to acquire the same lock. */
+#ifdef FREAK_SYSTEM_RUNTIME_TEST_HOOKS
+extern void freak_system_test_snapshot_hook(void);
+extern void freak_system_test_writer_hook(void);
+#else
+#define freak_system_test_snapshot_hook() ((void)0)
+#define freak_system_test_writer_hook() ((void)0)
+#endif
+
 static void freak_process_environment_acquire(void) {
     while (atomic_flag_test_and_set_explicit(
             &freak_process_environment_lock, memory_order_acquire)) {
@@ -1106,11 +1136,9 @@ static uint64_t freak_fraction_to_nanoseconds(
     return quotient;
 }
 
-int64_t freak_time_now_ms(void) {
-#ifdef _WIN32
-    FILETIME ft;
-    GetSystemTimeAsFileTime(&ft);
-    uint64_t time_100ns = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+/* Keep conversion separate from sampling so all boundary inputs can be
+   exercised without changing the host clock. These are private, not ABI. */
+static int64_t freak_time_from_filetime(uint64_t time_100ns) {
     /* Convert from 100ns intervals since Jan 1, 1601 to ms since Jan 1, 1970 */
     if (time_100ns < UINT64_C(116444736000000000)) {
         freak_system_runtime_fail("wall clock predates the Unix epoch");
@@ -1121,40 +1149,14 @@ int64_t freak_time_now_ms(void) {
         freak_system_runtime_fail("wall clock milliseconds overflow int");
     }
     return (int64_t)epoch_ms;
-#else
-    struct timespec ts;
-    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
-        freak_system_runtime_fail("cannot read the wall clock");
-    }
-    if (ts.tv_sec < 0) {
-        freak_system_runtime_fail("wall clock predates the Unix epoch");
-    }
-    if (ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000L) {
-        freak_system_runtime_fail("invalid wall clock value");
-    }
-    uint64_t seconds = (uint64_t)ts.tv_sec;
-    if (seconds > (uint64_t)INT64_MAX / UINT64_C(1000)) {
-        freak_system_runtime_fail("wall clock milliseconds overflow int");
-    }
-    uint64_t milliseconds = seconds * UINT64_C(1000);
-    uint64_t fraction = (uint64_t)ts.tv_nsec / UINT64_C(1000000);
-    if (milliseconds > (uint64_t)INT64_MAX - fraction) {
-        freak_system_runtime_fail("wall clock milliseconds overflow int");
-    }
-    return (int64_t)(milliseconds + fraction);
-#endif
 }
 
-int64_t freak_time_monotonic_ns(void) {
-#ifdef _WIN32
-    LARGE_INTEGER frequency;
-    LARGE_INTEGER counter;
-    if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0 ||
-            !QueryPerformanceCounter(&counter) || counter.QuadPart < 0) {
+static int64_t freak_time_from_counter(int64_t counter, int64_t frequency) {
+    if (frequency <= 0 || counter < 0) {
         freak_system_runtime_fail("cannot read the monotonic clock");
     }
-    uint64_t raw = (uint64_t)counter.QuadPart;
-    uint64_t per_second = (uint64_t)frequency.QuadPart;
+    uint64_t raw = (uint64_t)counter;
+    uint64_t per_second = (uint64_t)frequency;
     uint64_t seconds = raw / per_second;
     uint64_t remainder = raw % per_second;
     if (seconds > (uint64_t)INT64_MAX / UINT64_C(1000000000)) {
@@ -1166,24 +1168,60 @@ int64_t freak_time_monotonic_ns(void) {
         freak_system_runtime_fail("monotonic nanoseconds overflow int");
     }
     return (int64_t)result;
+}
+
+static int64_t freak_time_from_timespec(int64_t seconds_raw, int64_t nanos, bool wall) {
+    if (wall && seconds_raw < 0) {
+        freak_system_runtime_fail("wall clock predates the Unix epoch");
+    }
+    if (seconds_raw < 0 || nanos < 0 || nanos >= INT64_C(1000000000)) {
+        freak_system_runtime_fail(wall ? "invalid wall clock value" :
+                                  "invalid monotonic clock value");
+    }
+    uint64_t scale = wall ? UINT64_C(1000) : UINT64_C(1000000000);
+    const char* overflow = wall ? "wall clock milliseconds overflow int" :
+                                 "monotonic nanoseconds overflow int";
+    uint64_t seconds = (uint64_t)seconds_raw;
+    if (seconds > (uint64_t)INT64_MAX / scale) {
+        freak_system_runtime_fail(overflow);
+    }
+    uint64_t units = seconds * scale;
+    uint64_t fraction = wall ? (uint64_t)nanos / UINT64_C(1000000) : (uint64_t)nanos;
+    if (units > (uint64_t)INT64_MAX - fraction) {
+        freak_system_runtime_fail(overflow);
+    }
+    return (int64_t)(units + fraction);
+}
+
+int64_t freak_time_now_ms(void) {
+#ifdef _WIN32
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    return freak_time_from_filetime(
+        ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime);
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        freak_system_runtime_fail("cannot read the wall clock");
+    }
+    return freak_time_from_timespec(ts.tv_sec, ts.tv_nsec, true);
+#endif
+}
+
+int64_t freak_time_monotonic_ns(void) {
+#ifdef _WIN32
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
+    if (!QueryPerformanceFrequency(&frequency) || !QueryPerformanceCounter(&counter)) {
+        freak_system_runtime_fail("cannot read the monotonic clock");
+    }
+    return freak_time_from_counter(counter.QuadPart, frequency.QuadPart);
 #else
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
         freak_system_runtime_fail("cannot read the monotonic clock");
     }
-    if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000L) {
-        freak_system_runtime_fail("invalid monotonic clock value");
-    }
-    uint64_t seconds = (uint64_t)ts.tv_sec;
-    if (seconds > (uint64_t)INT64_MAX / UINT64_C(1000000000)) {
-        freak_system_runtime_fail("monotonic nanoseconds overflow int");
-    }
-    uint64_t nanoseconds = seconds * UINT64_C(1000000000);
-    uint64_t fraction = (uint64_t)ts.tv_nsec;
-    if (nanoseconds > (uint64_t)INT64_MAX - fraction) {
-        freak_system_runtime_fail("monotonic nanoseconds overflow int");
-    }
-    return (int64_t)(nanoseconds + fraction);
+    return freak_time_from_timespec(ts.tv_sec, ts.tv_nsec, false);
 #endif
 }
 
@@ -1733,6 +1771,7 @@ static bool freak_process_environment_snapshot(
             free(wide_value);
             freak_system_runtime_fail("environment variable is too large");
         }
+        freak_system_test_snapshot_hook();
         int utf8_bytes = WideCharToMultiByte(
             CP_UTF8, WC_ERR_INVALID_CHARS, wide_value, (int)copied,
             NULL, 0, NULL, NULL);
@@ -1765,6 +1804,7 @@ static bool freak_process_environment_snapshot(
         free(name_copy);
         return false;
     }
+    freak_system_test_snapshot_hook();
     size_t length = strlen(value);
     if (!freak_system_utf8_valid(value, length)) {
         freak_system_runtime_fail("environment variable is not valid UTF-8");
@@ -1799,6 +1839,7 @@ void freak_process_set_env(freak_word name, freak_word value) {
 #ifdef _WIN32
     wchar_t* wide_name = freak_process_environment_to_wide(name);
     wchar_t* wide_value = freak_process_environment_to_wide(value);
+    freak_system_test_writer_hook();
     freak_process_environment_acquire();
     BOOL set_result = SetEnvironmentVariableW(wide_name, wide_value);
     freak_process_environment_release();
@@ -1810,6 +1851,7 @@ void freak_process_set_env(freak_word name, freak_word value) {
         name, "out of memory setting environment variable");
     char* value_copy = freak_system_copy_c_string(
         value, "out of memory setting environment variable");
+    freak_system_test_writer_hook();
     freak_process_environment_acquire();
     int set_result = setenv(name_copy, value_copy, 1);
     freak_process_environment_release();

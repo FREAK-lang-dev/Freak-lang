@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -79,7 +80,8 @@ NEGATIVE_DIAGNOSTICS = (
     "call to 'process::set_env' argument 2 expects word, got int",
 )
 
-RUNTIME_PROBE = r'''#include "freak_runtime.h"
+RUNTIME_PROBE = r'''#define FREAK_SYSTEM_RUNTIME_TEST_HOOKS 1
+#include "freak_runtime.c"
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -113,6 +115,29 @@ static const char* stress_name = "FREAK_V3_SYSTEM_CONCURRENT";
 static atomic_int stress_failed = 0;
 static atomic_int stress_ready = 0;
 static atomic_int stress_go = 0;
+static atomic_int barrier_enabled = 0;
+static atomic_int barrier_snapshot_ready = 0;
+static atomic_int barrier_writer_ready = 0;
+static atomic_int barrier_allow_write = 0;
+static atomic_int barrier_writer_done = 0;
+
+void freak_system_test_snapshot_hook(void) {
+    if (!atomic_load(&barrier_enabled)) return;
+    atomic_store(&barrier_snapshot_ready, 1);
+    while (!atomic_load(&barrier_writer_ready)) {}
+    /* The writer is suspended immediately before its lock acquisition. This
+       observes the reader's actual lock, with no timing/scheduling assumption. */
+    expect(atomic_flag_test_and_set(&freak_process_environment_lock),
+           "snapshot must hold environment lock before copying");
+    expect(!atomic_load(&barrier_writer_done), "writer has not changed snapshot");
+    atomic_store(&barrier_allow_write, 1);
+}
+
+void freak_system_test_writer_hook(void) {
+    if (!atomic_load(&barrier_enabled)) return;
+    atomic_store(&barrier_writer_ready, 1);
+    while (!atomic_load(&barrier_allow_write)) {}
+}
 
 static void stress_wait_for_start(void) {
     atomic_fetch_add(&stress_ready, 1);
@@ -135,6 +160,12 @@ static int stress_value_valid(freak_word value) {
 
 static void stress_writer_body(void) {
     freak_word name = freak_word_lit(stress_name);
+    if (atomic_load(&barrier_enabled)) {
+        while (!atomic_load(&barrier_snapshot_ready)) {}
+        freak_process_set_env(name, freak_word_lit("writer-A-λ"));
+        atomic_store(&barrier_writer_done, 1);
+        return;
+    }
     stress_wait_for_start();
     for (int i = 0; i < 4000; i += 1) {
         freak_process_set_env(
@@ -191,30 +222,67 @@ static void run_environment_stress(void) {
 #ifdef _WIN32
     HANDLE writer = CreateThread(NULL, 0, stress_writer, NULL, 0, NULL);
     HANDLE reader = CreateThread(NULL, 0, stress_reader, NULL, 0, NULL);
-    expect(writer != NULL && reader != NULL, "create environment stress threads");
-    while (atomic_load(&stress_ready) != 2) {
+    HANDLE second_reader = CreateThread(NULL, 0, stress_reader, NULL, 0, NULL);
+    expect(writer != NULL && reader != NULL && second_reader != NULL,
+           "create environment stress threads");
+    while (atomic_load(&stress_ready) != 3) {
     }
     atomic_store(&stress_go, 1);
     expect(WaitForSingleObject(writer, INFINITE) == WAIT_OBJECT_0,
            "join environment writer");
     expect(WaitForSingleObject(reader, INFINITE) == WAIT_OBJECT_0,
            "join environment reader");
+    expect(WaitForSingleObject(second_reader, INFINITE) == WAIT_OBJECT_0,
+           "join second environment reader");
     CloseHandle(writer);
     CloseHandle(reader);
+    CloseHandle(second_reader);
 #else
     pthread_t writer;
     pthread_t reader;
+    pthread_t second_reader;
     expect(pthread_create(&writer, NULL, stress_writer, NULL) == 0,
            "create environment writer");
     expect(pthread_create(&reader, NULL, stress_reader, NULL) == 0,
            "create environment reader");
-    while (atomic_load(&stress_ready) != 2) {
+    expect(pthread_create(&second_reader, NULL, stress_reader, NULL) == 0,
+           "create second environment reader");
+    while (atomic_load(&stress_ready) != 3) {
     }
     atomic_store(&stress_go, 1);
     expect(pthread_join(writer, NULL) == 0, "join environment writer");
     expect(pthread_join(reader, NULL) == 0, "join environment reader");
+    expect(pthread_join(second_reader, NULL) == 0, "join second environment reader");
 #endif
     expect(atomic_load(&stress_failed) == 0, "serialized environment snapshots");
+}
+
+static int run_environment_barrier(void) {
+    freak_word name = freak_word_lit(stress_name);
+    freak_process_set_env(name, freak_word_lit("initial"));
+    atomic_store(&barrier_enabled, 1);
+#ifdef _WIN32
+    HANDLE writer = CreateThread(NULL, 0, stress_writer, NULL, 0, NULL);
+    expect(writer != NULL, "create barrier writer");
+#else
+    pthread_t writer;
+    expect(pthread_create(&writer, NULL, stress_writer, NULL) == 0,
+           "create barrier writer");
+#endif
+    freak_word captured = freak_process_env(name);
+#ifdef _WIN32
+    expect(WaitForSingleObject(writer, INFINITE) == WAIT_OBJECT_0,
+           "join barrier writer");
+    CloseHandle(writer);
+#else
+    expect(pthread_join(writer, NULL) == 0, "join barrier writer");
+#endif
+    expect(atomic_load(&barrier_writer_done), "writer completes after copy");
+    expect(captured.length == 7 && memcmp(captured.data, "initial", 7) == 0,
+           "captured bytes survive concurrent overwrite");
+    freak_word_release_owned(&captured);
+    puts("barrier-ok");
+    return 0;
 }
 
 static int normal(void) {
@@ -281,6 +349,31 @@ static int normal(void) {
 
 int main(int argc, char** argv) {
     if (argc == 1) return normal();
+    if (strcmp(argv[1], "lock-probe") == 0) return run_environment_barrier();
+    if (strcmp(argv[1], "audit-race") == 0) {
+        run_environment_stress();
+        puts("audit-race-ok");
+        return 0;
+    }
+    if (strcmp(argv[1], "audit-leak") == 0) {
+        freak_process_set_env(freak_word_lit(stress_name), freak_word_lit("owned"));
+        (void)freak_process_env(freak_word_lit(stress_name));
+        return 0;
+    }
+    if (strcmp(argv[1], "timespec") == 0 && argc == 5) {
+        printf("%lld\n", (long long)freak_time_from_timespec(
+            strtoll(argv[2], NULL, 10), strtoll(argv[3], NULL, 10), atoi(argv[4])));
+        return 0;
+    }
+    if (strcmp(argv[1], "counter") == 0 && argc == 4) {
+        printf("%lld\n", (long long)freak_time_from_counter(
+            strtoll(argv[2], NULL, 10), strtoll(argv[3], NULL, 10)));
+        return 0;
+    }
+    if (strcmp(argv[1], "filetime") == 0 && argc == 3) {
+        printf("%lld\n", (long long)freak_time_from_filetime(strtoull(argv[2], NULL, 10)));
+        return 0;
+    }
     if (strcmp(argv[1], "empty-name") == 0) {
         freak_process_env(freak_word_lit(""));
     } else if (strcmp(argv[1], "equals-name") == 0) {
@@ -413,15 +506,25 @@ def execute_with_pid(binary: Path, cwd: Path, env: dict[str, str]) -> tuple[subp
 
 
 def main() -> int:
-    repo = Path(__file__).resolve().parents[1]
-    runtime = repo / "freakc" / "runtime"
-    compiler = (
-        os.environ.get("FREAK_CLANG")
-        or (shutil.which("gcc") if sys.platform == "win32" else None)
-        or shutil.which("clang")
-        or shutil.which("cc")
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "freak", nargs="?", type=Path,
+        help="existing exact-source CLI (omit to reconstruct one outside the repo)",
     )
-    assert compiler, "a C/LLVM compiler is required"
+    parser.add_argument(
+        "--runtime-root", type=Path,
+        help="runtime payload to compile (defaults to the repository runtime)",
+    )
+    args = parser.parse_args()
+    repo = Path(__file__).resolve().parents[1]
+    runtime = (
+        args.runtime_root.resolve() if args.runtime_root is not None
+        else (repo / "freakc" / "runtime").resolve()
+    )
+    assert (runtime / "freak_runtime.c").is_file(), runtime
+    assert (runtime / "freak_llvm_runtime.c").is_file(), runtime
+    compiler = os.environ.get("FREAK_CLANG") or shutil.which("clang")
+    assert compiler, "Clang is required for the C/LLVM system regression"
     suffix = ".exe" if sys.platform == "win32" else ""
     test_env = os.environ.copy()
     test_env[CAPTURE_NAME] = INITIAL_VALUE
@@ -429,9 +532,15 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-system-runtime-") as temporary:
         root = Path(temporary)
-        freak = foundation.build_fresh_cli(
-            clang=compiler, repo=repo, root=root, runtime_root=runtime
+        freak = (
+            args.freak.resolve() if args.freak is not None
+            else foundation.build_fresh_cli(
+                clang=compiler, repo=repo, root=root, runtime_root=runtime
+            )
         )
+        assert freak.is_file(), freak
+        print(f"system runtime CLI: {freak}", flush=True)
+        print(f"system runtime payload: {runtime}", flush=True)
         shutil.copytree(runtime, root / "runtime")
         shutil.copytree(repo / "std", root / "std")
         cli_env = os.environ.copy()
@@ -483,6 +592,8 @@ def main() -> int:
                 assert not Path(str(negative) + ".c").exists()
                 assert not Path(str(negative) + ".ll").exists()
 
+        # Supplemental repository-bootstrap checks. Native generation and all
+        # audited runtime probes above/below use the explicitly selected payload.
         bootstrap_source = root / "system_runtime_bootstrap.fk"
         bootstrap_source.write_text(BOOTSTRAP_PROGRAM, encoding="utf-8")
         bootstrap_binary = root / f"system_runtime_bootstrap{suffix}"
@@ -550,22 +661,26 @@ def main() -> int:
         assert audited.returncode == 0, audited.stdout + audited.stderr
         assert "ownership audit found" not in audited.stderr, audited.stderr
 
-        env_rejection = root / "bootstrap_env_rejection.fk"
-        env_rejection.write_text(BOOTSTRAP_ENV_REJECTION, encoding="utf-8")
-        for action in ("check", "build", "run"):
-            output = root / f"bootstrap-env-rejection-{action}{suffix}"
-            command = [sys.executable, "-m", "freakc", action, str(env_rejection)]
-            if action in ("build", "run"):
-                command.extend(["-o", str(output)])
-            rejected = run(command, repo, env=bootstrap_env)
-            combined = rejected.stdout + rejected.stderr
-            assert rejected.returncode != 0, (action, combined)
-            assert (
-                "Python bootstrap does not support owned process::env results"
-                in combined
-            ), combined
-            assert not output.exists(), output
-            assert not env_rejection.with_suffix(".c").exists()
+        for api in ("env", "env_var"):
+            env_rejection = root / f"bootstrap_{api}_rejection.fk"
+            env_rejection.write_text(
+                BOOTSTRAP_ENV_REJECTION.replace("process::env(", f"process::{api}("),
+                encoding="utf-8",
+            )
+            for action in ("check", "build", "run"):
+                output = root / f"bootstrap-{api}-rejection-{action}{suffix}"
+                command = [sys.executable, "-m", "freakc", action, str(env_rejection)]
+                if action in ("build", "run"):
+                    command.extend(["-o", str(output)])
+                rejected = run(command, repo, env=bootstrap_env)
+                combined = rejected.stdout + rejected.stderr
+                assert rejected.returncode != 0, (api, action, combined)
+                assert (
+                    f"Python bootstrap does not support owned process::{api} results"
+                    in combined
+                ), combined
+                assert not output.exists(), output
+                assert not env_rejection.with_suffix(".c").exists()
 
         for action in ("check", "build", "run"):
             output = root / f"bootstrap-negative-{action}{suffix}"
@@ -606,7 +721,6 @@ def main() -> int:
             "-o",
             str(probe_binary),
             str(probe_source),
-            str(runtime / "freak_runtime.c"),
             "-I",
             str(runtime),
         ]
@@ -622,6 +736,89 @@ def main() -> int:
         assert normal.returncode == 0, normal.stdout + normal.stderr
         assert normal.stdout.strip() == "runtime-ok", normal.stdout
         assert "ownership audit found" not in normal.stderr, normal.stderr
+        race = run([str(probe_binary), "audit-race"], root, timeout=30)
+        assert race.returncode == 0, race.stdout + race.stderr
+        assert race.stdout.strip() == "audit-race-ok", race.stdout
+        leak = run([str(probe_binary), "audit-leak"], root, timeout=30)
+        assert leak.returncode == 87, leak.stdout + leak.stderr
+        assert "C ownership audit found 1 unreleased word allocation(s)" in leak.stderr
+        barrier = run([str(probe_binary), "lock-probe"], root, timeout=30)
+        assert barrier.returncode == 0, barrier.stdout + barrier.stderr
+        assert barrier.stdout.strip() == "barrier-ok", barrier.stdout
+
+        # Negative control: remove only the snapshot acquisitions, retaining the
+        # writer's lock and all probe assertions. The barrier must detect this.
+        runtime_text = (runtime / "freak_runtime.c").read_text(encoding="utf-8")
+        snapshot_start = runtime_text.index("static bool freak_process_environment_snapshot(")
+        snapshot_end = runtime_text.index("freak_maybe_word freak_process_env_var(", snapshot_start)
+        snapshot_text = runtime_text[snapshot_start:snapshot_end]
+        assert snapshot_text.count("freak_process_environment_acquire();") == 2
+        mutant_text = (
+            runtime_text[:snapshot_start]
+            + snapshot_text.replace("freak_process_environment_acquire();", "/* missing lock */")
+            + runtime_text[snapshot_end:]
+        )
+        (root / "mutant_runtime.c").write_text(mutant_text, encoding="utf-8")
+        mutant_source = root / "system_runtime_mutant.c"
+        mutant_source.write_text(
+            RUNTIME_PROBE.replace('#include "freak_runtime.c"', '#include "mutant_runtime.c"'),
+            encoding="utf-8",
+        )
+        mutant_binary = root / f"system_runtime_mutant{suffix}"
+        mutant_command = [
+            str(mutant_binary) if arg == str(probe_binary) else
+            str(mutant_source) if arg == str(probe_source) else arg
+            for arg in command
+        ]
+        mutant_compile = run(mutant_command, repo)
+        assert mutant_compile.returncode == 0, mutant_compile.stdout + mutant_compile.stderr
+        mutant = run([str(mutant_binary), "lock-probe"], root, timeout=30)
+        assert mutant.returncode == 2, mutant.stdout + mutant.stderr
+        assert "snapshot must hold environment lock before copying" in mutant.stderr
+
+        # Invoke the exact private conversion functions used by the OS samplers.
+        # All platforms exercise POSIX and Windows conversion arithmetic.
+        max_int = (1 << 63) - 1
+        epoch = 116_444_736_000_000_000
+        for args, expected in (
+            (("timespec", 0, 0, 1), 0),
+            (("timespec", 1, 999_999, 1), 1000),
+            (("timespec", max_int // 1000, 807_999_999, 1), max_int),
+            (("timespec", 0, 999_999_999, 0), 999_999_999),
+            (("timespec", max_int // 1_000_000_000, 854_775_807, 0), max_int),
+            (("filetime", epoch), 0),
+            (("filetime", epoch + 9999), 0),
+            (("filetime", epoch + 10000), 1),
+            (("filetime", (1 << 64) - 1), (((1 << 64) - 1) - epoch) // 10000),
+            (("counter", 0, 1), 0),
+            (("counter", 1, 3), 333_333_333),
+            (("counter", max_int - 1, max_int), 999_999_999),
+            (("counter", max_int, 1_000_000_000), max_int),
+        ):
+            sampled = run([str(probe_binary), *map(str, args)], root, timeout=30)
+            assert sampled.returncode == 0, (args, sampled.stderr)
+            assert sampled.stdout.strip() == str(expected), (args, sampled.stdout, expected)
+        for args, diagnostic in (
+            (("timespec", -1, 0, 1), "predates the Unix epoch"),
+            (("timespec", 0, -1, 1), "invalid wall clock value"),
+            (("timespec", 0, 1_000_000_000, 1), "invalid wall clock value"),
+            (("timespec", max_int // 1000 + 1, 0, 1), "milliseconds overflow int"),
+            (("timespec", max_int // 1000, 808_000_000, 1), "milliseconds overflow int"),
+            (("timespec", -1, 0, 0), "invalid monotonic clock value"),
+            (("timespec", 0, -1, 0), "invalid monotonic clock value"),
+            (("timespec", 0, 1_000_000_000, 0), "invalid monotonic clock value"),
+            (("timespec", max_int // 1_000_000_000 + 1, 0, 0), "nanoseconds overflow int"),
+            (("timespec", max_int // 1_000_000_000, 854_775_808, 0), "nanoseconds overflow int"),
+            (("filetime", epoch - 1), "predates the Unix epoch"),
+            (("counter", -1, 1), "cannot read the monotonic clock"),
+            (("counter", 0, 0), "cannot read the monotonic clock"),
+            (("counter", 0, -1), "cannot read the monotonic clock"),
+            (("counter", max_int, 1), "nanoseconds overflow int"),
+            (("counter", 92_233_720_369, 10), "nanoseconds overflow int"),
+        ):
+            sampled = run([str(probe_binary), *map(str, args)], root, timeout=30)
+            assert sampled.returncode != 0, args
+            assert diagnostic in sampled.stderr, (args, sampled.stderr)
         for case, diagnostic in (
             ("empty-name", "invalid environment variable name"),
             ("equals-name", "invalid environment variable name"),

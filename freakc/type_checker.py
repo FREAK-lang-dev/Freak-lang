@@ -905,6 +905,10 @@ class TypeChecker:
                 return word_builder_signature.return_type
 
             # std::process built-ins
+            if fq_name == "process::env_var":
+                self._error(PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED.replace(
+                    "process::env results", "process::env_var results"
+                ))
             process_builtins: Dict[str, Tuple[int, FreakType]] = {
                 "process::run": (2, T_UNKNOWN),
                 "process::spawn": (2, T_UNKNOWN),

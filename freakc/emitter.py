@@ -1234,6 +1234,10 @@ class CEmitter:
                 raise EmitError(PYTHON_OWNED_WORD_UNSUPPORTED)
 
             # std::process mapping
+            if fq_name == "process::env_var":
+                raise EmitError(PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED.replace(
+                    "process::env results", "process::env_var results"
+                ))
             process_map = {
                 "process::run": "freak_process_run",
                 "process::spawn": "freak_process_spawn",
