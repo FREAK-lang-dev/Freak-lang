@@ -1157,7 +1157,16 @@ task cli_payload_std_api_value(std_dir: word) -> word {
     if cli_payload_is_resolution_error(std_dir) { give back "resolution-error" }
     pilot marker = std_dir + "/freak_std_api"
     if not fs::exists(marker) { give back "missing" }
-    give back fs::read(marker).trim()
+    -- fs::read aborts the process on read errors, which would prevent Doctor
+    -- from emitting JSON or reaching repair for a damaged selected payload.
+    -- Read through a nonfatal operation; never fall back to another payload.
+    if cli_is_windows() { marker = marker.replace("/", "\\") }
+    pilot quoted = cli_quote_cmd_path(marker)
+    pilot command = "if [ -f " + quoted + " ] && [ -r " + quoted + " ]; then cat " + quoted + " 2>/dev/null; fi"
+    if cli_is_windows() { command = "type " + quoted + " 2>nul" }
+    pilot contents = process::exec_capture(command)
+    if contents == "" { give back "unreadable" }
+    give back contents.trim()
 }
 
 task cli_payload_std_api_ok(std_dir: word) -> bool {

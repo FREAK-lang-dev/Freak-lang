@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,55 @@ import sys
 import tempfile
 
 import v3_word_foundation as foundation
+
+
+@contextmanager
+def damaged_marker(marker: Path, kind: str):
+    """Own and restore a nonregular or genuinely unreadable marker fixture."""
+    saved = marker.read_bytes()
+    original_mode = marker.stat().st_mode
+    handle = None
+    if kind == "directory":
+        marker.unlink()
+        marker.mkdir()
+    elif sys.platform == "win32":
+        import ctypes.wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateFileW.argtypes = [ctypes.wintypes.LPCWSTR, ctypes.wintypes.DWORD,
+                                       ctypes.wintypes.DWORD, ctypes.c_void_p,
+                                       ctypes.wintypes.DWORD, ctypes.wintypes.DWORD,
+                                       ctypes.wintypes.HANDLE]
+        kernel32.CreateFileW.restype = ctypes.wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [ctypes.wintypes.HANDLE]
+        kernel32.CloseHandle.restype = ctypes.wintypes.BOOL
+        # Deny readers while allowing replacement by the mocked repair. The
+        # handle remains on the old file after repair unlinks/replaces its name.
+        handle = kernel32.CreateFileW(str(marker), 0x80000000, 0x2 | 0x4, None, 3, 0, None)
+        assert handle != ctypes.c_void_p(-1).value, ctypes.WinError(ctypes.get_last_error())
+    else:
+        marker.chmod(0)
+    try:
+        if kind != "directory":
+            try:
+                marker.read_bytes()
+            except OSError:
+                pass  # Required positive control: this process cannot read it.
+            else:
+                assert sys.platform != "win32", "share lock did not deny reads"
+                print("SKIP unreadable marker: privileged POSIX user bypasses file permissions")
+                yield False
+                return
+        yield True
+    finally:
+        if handle is not None:
+            assert kernel32.CloseHandle(handle), ctypes.WinError(ctypes.get_last_error())
+        if marker.is_dir():
+            marker.rmdir()
+        elif marker.exists():
+            marker.chmod(original_mode)
+        marker.write_bytes(saved)
+        marker.chmod(original_mode)
 
 
 def main() -> int:
@@ -27,19 +77,36 @@ def main() -> int:
         root = Path(temporary)
         freak = args.freak.resolve() if args.freak else foundation.build_fresh_cli(
             clang=clang, repo=repo, root=root, runtime_root=runtime)
-        payload = root / "selected payload"
+        payload_name = "selected %FREAK_STD_DECOY% & quote ' payload"
+        if sys.platform != "win32":
+            # POSIX paths additionally exercise Unicode and shell substitution.
+            # Windows narrow filesystem APIs currently reject non-ASCII roots
+            # before this marker reader, at the existing ABI gate.
+            payload_name += " Ω $(touch FREAK_STD_INJECTED)"
+        payload = root / payload_name
         shutil.copytree(runtime, payload / "runtime")
         shutil.copytree(repo / "std", payload / "std")
         marker = payload / "std/freak_std_api"
         expected = marker.read_bytes()
         expected_text = expected.decode("utf-8").strip()
         env = os.environ.copy()
-        env.update(FREAK_HOME=str(payload), FREAK_CLANG=clang, NO_COLOR="1")
+        env.update(FREAK_HOME=str(payload), FREAK_CLANG=clang, NO_COLOR="1",
+                   FREAK_STD_DECOY="must-not-expand-to-another-payload")
 
         def invoke(*arguments: str) -> subprocess.CompletedProcess[str]:
-            return subprocess.run([str(freak), *arguments], cwd=root, env=env,
-                                  capture_output=True, text=True, encoding="utf-8",
-                                  errors="replace", timeout=240)
+            result = subprocess.run([str(freak), *arguments], cwd=root, env=env,
+                                    capture_output=True, text=True, encoding="utf-8",
+                                    errors="replace", timeout=240)
+            assert not (root / "FREAK_STD_INJECTED").exists(), "payload path reached shell execution"
+            return result
+
+        fix = root / ("fix.ps1" if sys.platform == "win32" else "fix.sh")
+        no_op_repair = ("param([switch]$Upgrade,[switch]$SkipDeps)\nexit 0\n"
+                        if sys.platform == "win32" else "#!/bin/sh\nexit 0\n")
+        fix.write_text(no_op_repair, encoding="utf-8")
+        if sys.platform != "win32":
+            fix.chmod(0o755)
+        env["FREAK_UPGRADE_SCRIPT"] = str(fix)
 
         for backend in ("--c", "--llvm"):
             warm = root / f"warm{backend}.fk"
@@ -86,17 +153,52 @@ def main() -> int:
                 recovered = invoke("run", str(warm), backend)
                 assert recovered.returncode == 0 and "run cache hit" in recovered.stdout, recovered.stdout + recovered.stderr
                 assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in (binary, proof)] == saved
+            for kind in ("directory", "unreadable"):
+                with damaged_marker(marker, kind) as active:
+                    if not active:
+                        continue
+                    report = invoke("doctor", "--json")
+                    assert report.returncode != 0, report.stdout + report.stderr
+                    document = json.loads(report.stdout)
+                    assert document["checks"]["stdlib_api"] == {
+                        "ok": False, "expected": expected_text, "stdlib": "unreadable",
+                    }, document
+                    for operation in ("build", "run"):
+                        rejected = invoke(operation, str(cold), backend)
+                        output = rejected.stdout + rejected.stderr
+                        assert rejected.returncode != 0 and "stdlib api mismatch" in output.lower(), output
+                        assert "STD_API_COLD_EXECUTED" not in output, output
+                        assert list(root.glob(cold.name + ".*")) == []
+                        assert not cold.with_suffix(".exe" if sys.platform == "win32" else "").exists()
+                    rejected = invoke("run", str(warm), backend)
+                    output = rejected.stdout + rejected.stderr
+                    assert rejected.returncode != 0 and "stdlib api mismatch" in output.lower(), output
+                    assert "STD_API_EXECUTED" not in output and "run cache hit" not in output, output
+                    assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in (binary, proof)] == saved
+                    for doctor_arguments in (("doctor",), ("doctor", "--fix")):
+                        rejected = invoke(*doctor_arguments)
+                        output = rejected.stdout + rejected.stderr
+                        assert rejected.returncode != 0 and "Stdlib API mismatch" in output, output
+                        assert "compile, link, and execution work" not in output, output
+                        if "--fix" in doctor_arguments:
+                            assert "Repairing the compiler/runtime/stdlib payload" in output, output
+                recovered = invoke("run", str(warm), backend)
+                assert recovered.returncode == 0 and "run cache hit" in recovered.stdout, recovered.stdout + recovered.stderr
+                assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in (binary, proof)] == saved
         print("PASS C/LLVM cold build/run and warm-cache std API rejection/recovery; layout ABI unchanged")
 
         # Doctor --fix must detect an incompatible present marker as well as
         # a missing file, invoke the existing upgrade route, and re-read it.
-        fix = root / ("fix.ps1" if sys.platform == "win32" else "fix.sh")
         if sys.platform == "win32":
             fix.write_text("param([switch]$Upgrade,[switch]$SkipDeps)\n"
-                           "[IO.File]::WriteAllText((Join-Path $env:FREAK_HOME 'std/freak_std_api'), "
+                           "$marker = Join-Path $env:FREAK_HOME 'std/freak_std_api'\n"
+                           "Remove-Item -LiteralPath $marker -Force -ErrorAction Stop\n"
+                           "[IO.File]::WriteAllText($marker, "
                            f"'{expected_text}')\nexit 0\n", encoding="utf-8")
         else:
             fix.write_text("#!/bin/sh\nset -eu\n"
+                           'marker="$FREAK_HOME/std/freak_std_api"\n'
+                           'if [ -d "$marker" ]; then rmdir "$marker"; else rm -f "$marker"; fi\n'
                            f"printf '%s\\n' '{expected_text}' > \"$FREAK_HOME/std/freak_std_api\"\n",
                            encoding="utf-8")
             fix.chmod(0o755)
@@ -112,6 +214,21 @@ def main() -> int:
         assert report.returncode == 0, report.stdout + report.stderr
         assert json.loads(report.stdout)["checks"]["stdlib_api"]["ok"] is True
         print("PASS Doctor std API repair and full pipeline recovery")
+
+        for kind in ("directory", "unreadable"):
+            with damaged_marker(marker, kind) as active:
+                if not active:
+                    continue
+                fixed = invoke("doctor", "--fix")
+                output = fixed.stdout + fixed.stderr
+                assert fixed.returncode == 0, output
+                assert "Repairing the compiler/runtime/stdlib payload" in output, output
+                assert "compile, link, and execution work" in output, output
+                assert marker.read_text(encoding="utf-8").strip() == expected_text
+                report = invoke("doctor", "--json")
+                assert report.returncode == 0, report.stdout + report.stderr
+                assert json.loads(report.stdout)["checks"]["stdlib_api"]["ok"] is True
+        print("PASS nonregular/unreadable marker repair and hostile literal payload paths")
 
         marker.write_text("freak-v3-std-api-0\n", encoding="utf-8")
         fix.write_text("param([switch]$Upgrade,[switch]$SkipDeps)\nexit 0\n"
