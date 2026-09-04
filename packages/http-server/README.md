@@ -20,6 +20,7 @@ connections to accept. The server prints `ORDNANCE_READY <port>` before it
 starts accepting clients.
 
 Each client has a 250-ms send/receive idle timeout and a two-second total
-header budget measured with the monotonic clock. Idle and trickling headers
-receive 400 before the server continues to the next connection. This bounded
+header budget measured with the monotonic clock. An idle receive timeout closes
+the connection; a header that exceeds the total budget receives 400 if the
+socket is still writable. The server then continues to the next connection. This bounded
 sequential example is an acceptance fixture, not a concurrent production server.

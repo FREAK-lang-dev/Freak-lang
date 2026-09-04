@@ -1886,7 +1886,7 @@ socket.receive(max)       -- promise<result<List<tiny>, NetError>>
 
 **V3 platform campaign implementation:** synchronous managed handles under
 `tcp::socket_*` provide connect/listen/accept/send/receive/close, status,
-local-port lookup, timeouts and TCP no-delay. ByteBuffer carries binary I/O;
+local-port lookup and timeouts. ByteBuffer carries binary I/O;
 callers handle partial transfers and release both socket and buffer handles.
 This additive runtime floor does not implement the async types above. HTTP is
 an Ordnance consumer (`packages/http-server`), not a runtime framework. Windows
