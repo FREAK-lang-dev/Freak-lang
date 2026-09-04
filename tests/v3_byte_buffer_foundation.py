@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -415,22 +416,30 @@ def assert_stats(
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("freak", nargs="?", type=Path)
+    parser.add_argument("--runtime-root", type=Path)
+    args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
-    runtime = repo / "freakc" / "runtime"
-    compiler = (
-        os.environ.get("FREAK_CLANG")
-        or (shutil.which("gcc") if sys.platform == "win32" else None)
-        or shutil.which("clang")
-        or shutil.which("cc")
+    runtime = (
+        args.runtime_root.resolve()
+        if args.runtime_root is not None
+        else repo / "freakc" / "runtime"
     )
-    assert compiler, "a C/LLVM compiler is required"
+    compiler = os.environ.get("FREAK_CLANG") or shutil.which("clang")
+    assert compiler, "Clang is required for C/LLVM parity"
     suffix = ".exe" if sys.platform == "win32" else ""
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-byte-buffer-") as temporary:
         root = Path(temporary)
-        freak = foundation.build_fresh_cli(
-            clang=compiler, repo=repo, root=root, runtime_root=runtime
+        freak = (
+            args.freak.resolve()
+            if args.freak is not None
+            else foundation.build_fresh_cli(
+                clang=compiler, repo=repo, root=root, runtime_root=runtime
+            )
         )
+        assert freak.is_file(), freak
 
         for backend in ("c", "llvm"):
             source = root / f"byte_buffer_{backend}.fk"

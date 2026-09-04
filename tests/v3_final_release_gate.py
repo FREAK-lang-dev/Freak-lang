@@ -776,6 +776,21 @@ def main() -> int:
                 1200,
             ),
         )
+        children += tuple(
+            (
+                label,
+                [
+                    python, "-u", str(repo / "tests" / script),
+                    str(installed_freak), "--runtime-root",
+                    str(install_home / "runtime"),
+                ],
+                1200,
+            )
+            for label, script in (
+                ("word repetition and builder", "v3_word_foundation.py"),
+                ("managed ByteBuffer", "v3_byte_buffer_foundation.py"),
+            )
+        )
         hostile_cwd = root / "hostile-repo-shaped-cwd"
         for label, command, timeout in children:
             run_child_gate(

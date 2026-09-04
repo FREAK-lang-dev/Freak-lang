@@ -201,6 +201,14 @@ jobs:
         shell: bash
         run: python -u tests/v3_run_freshness.py ./build/freak$EXT
 
+      - name: Test - V3 build profiles and LTO
+        shell: bash
+        run: python -u tests/v3_build_profiles.py ./build/freak$EXT
+
+      - name: Test - V3 performance lab executable evidence
+        shell: bash
+        run: python -u tests/v3_performance_lab.py ./build/freak$EXT
+
       - name: Test - V3 install, doctor, and upgrade
         shell: bash
         run: python -u tests/v3_install_doctor_upgrade.py ./build/freak$EXT
