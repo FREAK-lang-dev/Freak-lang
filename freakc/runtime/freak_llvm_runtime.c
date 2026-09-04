@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 #include "freak_runtime.h"
 extern int64_t freak_llvm_word_adopt(int64_t pointer);
 extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
@@ -47,44 +48,26 @@ static int64_t freak_llvm_normalize_process_status(int status) {
    tasks in std/runtime.fk. They call the libc wrappers below. */
 
 /* libc wrappers — take/return i64 (FREAK's universal ABI) */
-static int64_t freak_llvm_copy_word_result(freak_word value) {
-    if (value.length == SIZE_MAX) {
-        freak_word_release_owned(&value);
-        fprintf(stderr, "FREAK: word bridge size overflow\n");
-        exit(1);
-    }
-    char* copy = (char*)malloc(value.length + 1);
-    if (!copy) {
-        freak_word_release_owned(&value);
-        fprintf(stderr, "FREAK: out of memory\n");
-        exit(1);
-    }
-    if (value.length > 0) memcpy(copy, value.data, value.length);
-    copy[value.length] = '\0';
-    freak_word_release_owned(&value);
-    return freak_llvm_word_adopt((int64_t)copy);
-}
-
 int64_t freak_llvm_fs_list_dir(int64_t path) {
-    return freak_llvm_copy_word_result(
-        freak_fs_list_dir(freak_word_lit((const char*)path))
+    return freak_llvm_word_take(
+        freak_fs_list_dir(freak_llvm_word_view(path))
     );
 }
 
 void freak_llvm_fs_make_dir(int64_t path) {
-    freak_fs_make_dir(freak_word_lit((const char*)path));
+    freak_fs_make_dir(freak_llvm_word_view(path));
 }
 
 int64_t freak_llvm_process_env(int64_t name) {
-    return freak_llvm_copy_word_result(
-        freak_process_env(freak_word_lit((const char*)name))
+    return freak_llvm_word_take(
+        freak_process_env(freak_llvm_word_view(name))
     );
 }
 
 void freak_llvm_process_set_env(int64_t name, int64_t value) {
     freak_process_set_env(
-        freak_word_lit((const char*)name),
-        freak_word_lit((const char*)value));
+        freak_llvm_word_view(name),
+        freak_llvm_word_view(value));
 }
 
 int64_t freak_llvm_process_pid(void) {
@@ -97,7 +80,7 @@ int64_t freak_llvm_process_pid(void) {
 }
 
 int64_t freak_llvm_process_input(void) {
-    return freak_llvm_copy_word_result(freak_process_input());
+    return freak_llvm_word_take(freak_process_input());
 }
 
 int64_t freak_fopen(int64_t path, int64_t mode) {
@@ -163,7 +146,7 @@ int64_t freak_llvm_process_exec_capture(int64_t cmd_p) {
 #else
     pclose(fp);
 #endif
-    return freak_llvm_word_adopt((int64_t)buf);
+    return freak_llvm_word_adopt_sized((int64_t)buf, len);
 }
 
 /* ── Time ──────────────────────────────────────────── */
@@ -324,8 +307,7 @@ static int64_t freak_llvm_word_join_impl(int64_t handle, bool release_elements) 
     freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
     size_t total = 0;
     for (int64_t index = 0; index < a->length; index++) {
-        const char* part = (const char*)a->data[index];
-        size_t part_length = part ? strlen(part) : 0;
+        size_t part_length = freak_llvm_word_size(a->data[index]);
         if (part_length > SIZE_MAX - total - 1) {
             fprintf(stderr, "FREAK: joined word is too large\n");
             exit(1);
@@ -341,7 +323,7 @@ static int64_t freak_llvm_word_join_impl(int64_t handle, bool release_elements) 
     size_t offset = 0;
     for (int64_t index = 0; index < a->length; index++) {
         const char* part = (const char*)a->data[index];
-        size_t part_length = part ? strlen(part) : 0;
+        size_t part_length = freak_llvm_word_size(a->data[index]);
         if (part_length > 0) {
             memcpy(joined + offset, part, part_length);
             offset += part_length;
@@ -353,7 +335,7 @@ static int64_t freak_llvm_word_join_impl(int64_t handle, bool release_elements) 
     } else {
         freak_llvm_array_release(handle);
     }
-    return freak_llvm_word_adopt((int64_t)joined);
+    return freak_llvm_word_adopt_sized((int64_t)joined, total);
 }
 
 int64_t freak_llvm_word_join(int64_t handle) {
@@ -388,7 +370,7 @@ static inline int64_t double_to_i64(double d) {
 #ifdef FREAK_HAS_UI
 #include "freak_runtime.h"
 int64_t freak_llvm_ui_create_window(int64_t title, int64_t w, int64_t h, int64_t flags) {
-    freak_word t = freak_word_lit((const char*)title);
+    freak_word t = freak_llvm_word_view(title);
     return freak_ui_create_window_word(t, w, h, flags);
 }
 void freak_llvm_ui_destroy_window(int64_t handle) {
@@ -439,11 +421,11 @@ void freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int6
     freak_ui_draw_line(h, x1, y1, x2, y2, r, g, b, a, thickness);
 }
 int64_t freak_llvm_ui_draw_text(int64_t h, int64_t text, int64_t x, int64_t y, int64_t r, int64_t g, int64_t b, int64_t size, int64_t bold, int64_t italic) {
-    freak_word t = freak_word_lit((const char*)text);
+    freak_word t = freak_llvm_word_view(text);
     return freak_ui_draw_text_word(h, t, x, y, r, g, b, size, bold, italic);
 }
 int64_t freak_llvm_ui_measure_text(int64_t text, int64_t size, int64_t bold, int64_t italic) {
-    freak_word t = freak_word_lit((const char*)text);
+    freak_word t = freak_llvm_word_view(text);
     return freak_ui_measure_text_word(t, size, bold, italic);
 }
 #else /* !FREAK_HAS_UI — no-op stubs so non-UI builds still link */
@@ -502,7 +484,7 @@ int64_t freak_llvm_char_to_word(int64_t code) {
         len = 4;
     }
     buf[len] = '\0';
-    return freak_llvm_word_adopt((int64_t)buf);
+    return freak_llvm_word_adopt_sized((int64_t)buf, len);
 }
 
 /* ── Math bridge (LLVM i64-bitcast-double → real <math.h>) ─ */
@@ -602,7 +584,9 @@ int64_t freak_llvm_tcp_connect(int64_t host_ptr, int64_t port) {
 /* freak_tcp_send(fd, data_ptr) -> bytes sent (or -1) */
 int64_t freak_llvm_tcp_send(int64_t fd, int64_t data_ptr) {
     char* data = (char*)data_ptr;
-    int len = (int)strlen(data);
+    size_t length = freak_llvm_word_size(data_ptr);
+    if (length > INT_MAX) return -1;
+    int len = (int)length;
 #ifdef _WIN32
     return (int64_t)send((SOCKET)fd, data, len, 0);
 #else
@@ -623,7 +607,7 @@ int64_t freak_llvm_tcp_recv(int64_t fd, int64_t max_bytes) {
 #endif
     if (n <= 0) { free(buf); return (int64_t)""; }
     buf[n] = '\0';
-    return freak_llvm_word_adopt((int64_t)buf);
+    return freak_llvm_word_adopt_sized((int64_t)buf, (size_t)n);
 }
 
 /* freak_tcp_recv_all(fd, max_bytes) -> read until connection closes */
@@ -643,7 +627,7 @@ int64_t freak_llvm_tcp_recv_all(int64_t fd, int64_t max_bytes) {
         total += n;
     }
     buf[total] = '\0';
-    return freak_llvm_word_adopt((int64_t)buf);
+    return freak_llvm_word_adopt_sized((int64_t)buf, (size_t)total);
 }
 
 /* freak_tcp_close(fd) -> void */

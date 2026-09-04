@@ -46,6 +46,20 @@ freak_word freak_word_lit(const char* s);
 /* Construct from a heap-allocated buffer (takes ownership). */
 freak_word freak_word_own(char* s, size_t len);
 
+/* Private representation bridge: the LLVM ABI remains an integer pointer.
+   Runtime-owned values retain their byte length in the existing registry;
+   unknown foreign pointers keep the legacy NUL-terminated interpretation. */
+int64_t freak_llvm_word_adopt(int64_t pointer);
+/* Adopts a heap buffer with at least length + 1 bytes and a final terminator.
+   Embedded terminators are data. A repeated adoption must preserve length;
+   invalid lengths/conflicting metadata are fatal, like allocation failure. */
+int64_t freak_llvm_word_adopt_sized(int64_t pointer, size_t length);
+size_t freak_llvm_word_size(int64_t pointer);
+freak_word freak_llvm_word_view(int64_t pointer);
+/* Consumes the C owner bookkeeping when heap=true; borrowed results must be
+   C strings or the runtime's static char_at byte words. */
+int64_t freak_llvm_word_take(freak_word value);
+
 /* Concatenate two words — allocates. */
 freak_word freak_word_concat(freak_word a, freak_word b);
 freak_word freak_word_concat_consuming(freak_word a, freak_word b, bool release_a, bool release_b);
