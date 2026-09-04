@@ -314,6 +314,17 @@ def find_c_compiler() -> str | None:
 
 
 def transpile(source: str, path: Path):
+    """Compatible three-value API: (C source or None, diagnostics, uses_ui).
+
+    Existing callers, including the V4 harness, rely on this tuple shape.
+    Errors remain fail-closed; callers needing structured severity can use
+    transpile_checked instead of inspecting rendered diagnostic text.
+    """
+    c_source, diagnostics, uses_ui, _ = transpile_checked(source, path)
+    return c_source, diagnostics, uses_ui
+
+
+def transpile_checked(source: str, path: Path):
     """Parse + type-check + emit C.
 
     Returns (c_source, diagnostics, uses_ui, has_errors). Diagnostics are
@@ -456,7 +467,7 @@ def cmd_run(path: Path, keep_c: bool = False, output: str = None,
             backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile → run."""
     source = path.read_text(encoding="utf-8")
-    c_source, diags, uses_ui, has_errors = transpile(source, path)
+    c_source, diags, uses_ui, has_errors = transpile_checked(source, path)
 
     for d in diags:
         print(d, file=sys.stderr)
@@ -513,7 +524,7 @@ def cmd_build(path: Path, keep_c: bool = False, output: str = None,
               backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile (no run)."""
     source = path.read_text(encoding="utf-8")
-    c_source, diags, uses_ui, has_errors = transpile(source, path)
+    c_source, diags, uses_ui, has_errors = transpile_checked(source, path)
 
     for d in diags:
         print(d, file=sys.stderr)
@@ -558,7 +569,7 @@ def cmd_build(path: Path, keep_c: bool = False, output: str = None,
 def cmd_check(path: Path) -> int:
     """Type-check only (no compilation)."""
     source = path.read_text(encoding="utf-8")
-    _, diags, _, has_errors = transpile(source, path)
+    _, diags, _, has_errors = transpile_checked(source, path)
 
     if not diags:
         print(_green(f"✓ {path.name}: No issues found"))

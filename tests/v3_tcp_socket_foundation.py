@@ -633,7 +633,7 @@ def main() -> int:
         # Exercise bootstrap emission against the selected installed runtime
         # too: its build command otherwise hardcodes the repository payload.
         sys.path.insert(0, str(repo))
-        from freakc.__main__ import transpile as bootstrap_transpile
+        from freakc.__main__ import transpile_checked as bootstrap_transpile
         bootstrap_c, diagnostics, _, has_errors = bootstrap_transpile(
             BOOTSTRAP_PROGRAM, bootstrap
         )

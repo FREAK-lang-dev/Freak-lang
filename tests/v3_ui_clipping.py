@@ -213,7 +213,7 @@ def main() -> int:
                 assert executed.returncode == 0, executed.stdout + executed.stderr
                 assert executed.stdout.strip() == "clip-ok", executed.stdout
         sys.path.insert(0, str(repo))
-        from freakc.__main__ import transpile as bootstrap_transpile
+        from freakc.__main__ import transpile_checked as bootstrap_transpile
 
         bootstrap_c, diagnostics, uses_ui, has_errors = bootstrap_transpile(
             PROGRAM, root / "bootstrap_clip.fk")

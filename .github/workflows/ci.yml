@@ -35,6 +35,10 @@ jobs:
         shell: bash
         run: python -u tests/v3_installer_hash.py
 
+      - name: Bootstrap pipeline API compatibility
+        shell: bash
+        run: python -u tests/v3_bootstrap_pipeline_contract.py
+
       - name: Install Clang (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang lld
