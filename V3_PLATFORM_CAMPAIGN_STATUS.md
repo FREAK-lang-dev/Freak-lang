@@ -81,19 +81,20 @@ compiler architecture or semantics.
 | 2 | Bytes / ByteBuffer | Managed buffer integrated through `22bde2d`; complete width inventory next | u16/u32/u64 requirements not yet all demonstrated | `tests/v3_byte_buffer_foundation.py` | Additive handles; legacy struct unchanged | Growth/copy counters | Foundation integrated |
 | 3 | Performance lab | Lab v2 and process containment integrated through `a252bb6` | Remaining benchmark categories and final CI registration | `tests/v3_performance_lab.py` | None | Measurement, no broad speed claim | Foundation integrated |
 | 4 | CLI / `+03` / LTO | Profiles and provenance cache v6 integrated | Final installed-payload/platform gates | `tests/v3_build_profiles.py`, freshness | None | O3/ThinLTO source-runtime builds | Foundation integrated |
-| 5 | Allocation observability | Word/builder/buffer counters exist; audit broader allocation coverage | System audit concurrency correction and remaining resource classes | Word and buffer deterministic counter fixtures | Test-controlled instrumentation | Enables work-based gates | Partial |
-| 6 | System runtime | Scalar APIs integrated at `dcdc0f0`; worker correcting ownership/thread/clock tests | Bootstrap env_var ownership, concurrent audit state, clock edges; process/fs/random still pending | `tests/v3_system_runtime_foundation.py` | Additive APIs | Unmeasured | Corrections required |
-| 7 | Networking floor | Managed TCP integrated at `6ccc2a5`; worker correcting HTTP/Win32/tests | Exclusive bind, host length guard, slow-client timeout, audit positive control | TCP and HTTP Ordnance tests | Additive socket handles; API marker 2 | Unmeasured | Corrections required |
-| 8 | COCKPIT V3 | Compatibility facade integrated at `38d2e3c`; independent review active | Close signal, event loss, nested layout; remaining widgets and actual native run | `tests/v3_cockpit_compat.py` | Uses existing UI/buffer mechanisms | Unmeasured | Corrections required |
-| 9 | ABI / preservation | API marker updated at `b735fc0`; strengthen old-payload tests | Final gate must consume actual installed CLI/runtime; all new gates need registration | Doctor/install/freshness plus lane tests | Frozen ABI 1, additive capability 2 | Gate only | Pending final evidence |
+| 5 | Allocation observability | Word/builder/buffer counters and synchronized C owned-word audit exist | Remaining resource classes; bootstrap numeric-print ownership gap discovered | Word/buffer counters and two-reader audit/leak controls | Test-controlled instrumentation | Enables work-based gates | Partial |
+| 6 | System runtime | Corrections integrated at `eac885c`; focused gate and independent review clean | Structured process/fs/random and Linux execution still pending | `tests/v3_system_runtime_foundation.py` | Additive APIs | Unmeasured | Scalar slice integrated |
+| 7 | Networking floor | Corrections integrated through `6f6e09c`; integrated HTTP gate passed | Independent networking correction review and Linux/graph acceptance pending; TCP no-delay not implemented | TCP/HTTP, exclusive bind, oversized host, idle/trickle, exact leak control | Additive socket handles; API marker 2 | Unmeasured | Correction integrated; review pending |
+| 8 | COCKPIT V3 | Worker correcting facade and completing widgets; separate clipping worker active | Ordered input/layout/close fixes, clipping mechanism, actual native run | `tests/v3_cockpit_compat.py` | Additive UI clipping planned; no language redesign | Unmeasured | Work active |
+| 9 | ABI / preservation | Cold/warm API-1 rejection passed; installed foundation gates registered through `7816f1f` | Full installed archive and platform CI execution pending; COCKPIT registration awaits its correction | Doctor/install/freshness plus lane tests | Frozen ABI 1, additive capability 2 | Gate only | Pending final evidence |
 | 10 | Hangar / Ordnance | Existing loader/install paths inspected; graph implementation pending | Structured process mechanism; immutable graph/native declaration contract | No new graph acceptance yet | Compiler remains registry-independent | Unmeasured | No |
 | 11 | Stdlib boundary | HTTP and COCKPIT remain packages; full std/novelty audit pending | Manifest/import graph work | No import-side-effect regression yet | Classification only | None | No |
 
 Current write ownership: the lead owns integration documentation, capability
-markers, audit guards, workflows, and final gates. The `system_correction`
-worker owns system-only changes in `v3-system-runtime-foundation` from
-`0e92ce5`; `network_correction` owns TCP/HTTP changes in
-`v3-networking-foundation` from `85728d2`. After completing its read-only review
+markers, audit guards, workflows, and final gates. The system and network
+correction worktrees are clean committed handoffs. `system_correction` now owns
+UI clipping runtime/compiler mechanism work in `v3-ui-clipping` from
+`eac885c`. `network_correction` is an independent read-only system/docs/gate
+reviewer, never an independent reviewer of its networking code. After its review
 at `38d2e3c`, `cockpit_review` was explicitly reassigned as the COCKPIT worker
 in `v3-cockpit-compat` from `920da97`; it cannot independently review its fixes.
 Workers hand off commits; the lead resolves overlapping runtime and
@@ -231,7 +232,7 @@ the request remain future work and are not silently pulled into this campaign.
   bytes/peak live bytes/copies/append/growth coverage with low production overhead.
 - [ ] Complete leak/stress fixtures for collections, filesystem and networking
   buffers alongside concat, replacement, interpolation, builder and repetition.
-- [ ] Verify concurrent environment snapshots cannot race ownership audit state.
+- [x] Verify concurrent environment snapshots cannot race C ownership audit state.
 
 ### Binary foundation
 
@@ -263,7 +264,7 @@ the request remain future work and are not silently pulled into this campaign.
 
 - [x] Add separate epoch wall clock and monotonic nanosecond clock plus PID,
   copied environment lookup and environment mutation.
-- [ ] Close bootstrap owned-environment rejection and clock boundary findings.
+- [x] Close bootstrap owned-environment rejection and clock boundary findings.
 - [ ] Strengthen filesystem rename/copy/metadata/size/canonical/temp/directory
   operations, explicit errors, hostile paths and Unicode path tests.
 - [ ] Implement structured process spawn/wait/status/stdout/stderr/stdin/
@@ -271,8 +272,9 @@ the request remain future work and are not silently pulled into this campaign.
 - [ ] Complete environment/path join/absolute/separator/executable path helpers.
 - [ ] Separate pseudo-random values from OS secure random bytes and test failures.
 - [x] Add managed TCP connect/listen/accept/send/receive/close/status/options floor.
-- [ ] Close Windows binding, oversized host and slow-client review findings;
-  verify repeated/large/partial traffic and exact leaked-socket audit control.
+- [x] Implement Windows binding, oversized host and slow-client corrections;
+  focused repeated/large/partial traffic and exact leaked-socket audit tests pass.
+- [ ] Independently review those networking corrections on the integrated tree.
 - [ ] Document and test C length-bearing versus LLVM NUL-terminated word
   boundaries without claiming identical behavior for non-equivalent raw inputs.
 - [ ] Run real clean-project Hangar net/http/json HTTP-200 JSON acceptance on
@@ -303,3 +305,26 @@ the request remain future work and are not silently pulled into this campaign.
   novelty packages; imports must not run showcase programs.
 - [ ] Keep broader TLS/GPU/Android/additional platform/package roadmap work in
   the explicitly requested future list rather than expanding the current sprint.
+
+## Verification recorded on 2026-09-04
+
+- Fresh compiler reconstructed from `b735fc0` passed the full updated
+  `tests/v3_run_freshness.py`: missing/API-1 cold C/LLVM build/run rejection,
+  warm-cache rejection/recovery and the existing freshness/installer checks.
+  A separately archived exact `962055a` runtime/std payload (API-1, ABI-1)
+  also rejected all four cold operations before creating artifacts.
+- The selected-runtime ByteBuffer gate passed using that compiler and a copied
+  integration runtime payload. This proves the new arguments are executable;
+  it is not a substitute for the final installed archive gate.
+- System corrections `a00ecef..eac885c` passed the integrated default gate with
+  a newly reconstructed CLI. Independent reviewer `network_correction` returned
+  CLEAN, with a separate 200,000-case arithmetic oracle. Review excludes its
+  authored networking code and does not claim Linux execution.
+- Integrated HTTP acceptance passed with the selected CLI/runtime interface,
+  including idle/trickle clients followed by successful JSON responses.
+- CI now invokes live profile/LTO and performance-lab checks. The final
+  release-shaped gate passes its installed CLI/runtime to WordBuilder,
+  ByteBuffer, system, TCP and HTTP tests. These registrations still await a
+  complete final gate run and remote platform matrix.
+- Python syntax, conformance audit and release-version invariant checks passed.
+  No campaign PR, merge, or new tag has been created yet.
