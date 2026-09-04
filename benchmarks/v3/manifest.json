@@ -8,8 +8,14 @@
       "source_sha256": "c8ef750c6d991e41868456eddcad693cbbf9eea83fe62e6e500e4f2511893f8b",
       "modes": {
         "default": {
-          "arguments": ["10000000"],
-          "parameters": {"iterations": 10000000},
+          "arguments": [
+            "10000000"
+          ],
+          "parameters": {
+            "iterations": 10000000,
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
           "expected_exit_code": 0,
           "expected_stdout": "994650007\n",
           "expected_stdout_sha256": "2e2e2761453ae09a5d3e6b7b8d3d207d5f5fa05067819b872bb36479df1c3306",
@@ -17,8 +23,14 @@
           "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         "quick": {
-          "arguments": ["10000"],
-          "parameters": {"iterations": 10000},
+          "arguments": [
+            "10000"
+          ],
+          "parameters": {
+            "iterations": 10000,
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
           "expected_exit_code": 0,
           "expected_stdout": "49995000\n",
           "expected_stdout_sha256": "d6075389cdb7a8f518e688411a7c63544210fcef63d52dc47068a46cef0d92ab",
@@ -34,8 +46,14 @@
       "source_sha256": "ad7acc088f698cd192c98103dfe01fe73bce706d3d6ac96f8900847b0d87304a",
       "modes": {
         "default": {
-          "arguments": ["1000000"],
-          "parameters": {"iterations": 1000000},
+          "arguments": [
+            "1000000"
+          ],
+          "parameters": {
+            "iterations": 1000000,
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
           "expected_exit_code": 0,
           "expected_stdout": "1000000\n5019702865342455845\n",
           "expected_stdout_sha256": "bfa21a6289cc8d117f23403589d701940ae092ec80b7cd97311744492ef6e818",
@@ -43,8 +61,14 @@
           "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         "quick": {
-          "arguments": ["1000"],
-          "parameters": {"iterations": 1000},
+          "arguments": [
+            "1000"
+          ],
+          "parameters": {
+            "iterations": 1000,
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
           "expected_exit_code": 0,
           "expected_stdout": "1000\n7038512523413607109\n",
           "expected_stdout_sha256": "0421214e7961e2de1c22784207bd6905f955b7b36584dae0abb1b81c390333da",
@@ -61,7 +85,10 @@
       "modes": {
         "default": {
           "arguments": [],
-          "parameters": {},
+          "parameters": {
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
           "expected_exit_code": 0,
           "expected_stdout": "",
           "expected_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -70,7 +97,10 @@
         },
         "quick": {
           "arguments": [],
-          "parameters": {},
+          "parameters": {
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
           "expected_exit_code": 0,
           "expected_stdout": "",
           "expected_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -87,7 +117,10 @@
       "modes": {
         "default": {
           "arguments": [],
-          "parameters": {},
+          "parameters": {
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
           "expected_exit_code": 0,
           "expected_stdout": "FREAK_PERF_HELLO_V1\n",
           "expected_stdout_sha256": "7f45fa006b61ae72aec5661b140d85703ef17fbb6d0f49828ab0c41e607186dd",
@@ -96,10 +129,417 @@
         },
         "quick": {
           "arguments": [],
-          "parameters": {},
+          "parameters": {
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
           "expected_exit_code": 0,
           "expected_stdout": "FREAK_PERF_HELLO_V1\n",
           "expected_stdout_sha256": "7f45fa006b61ae72aec5661b140d85703ef17fbb6d0f49828ab0c41e607186dd",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "word_dynamic_append_100m",
+      "category": "words",
+      "source": "word_dynamic_append_100m.fk",
+      "source_sha256": "15cfca3d40e2b345f9aecfcb06bfc7cbdc17887f103bae5571f6a0b9563a820b",
+      "modes": {
+        "default": {
+          "arguments": [
+            "100000000"
+          ],
+          "parameters": {
+            "bytes": 100000000,
+            "comparison_class": "same-work",
+            "construction_calls": 100000000,
+            "checksum_algorithm": "fnv1a64-low63",
+            "verification_bytes": 100000000,
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "100000000\n6013327376115300133\n",
+          "expected_stdout_sha256": "535f2724ebd54c8ba661371f385ac7c5d96cfdef443e4ceb9ff0765793f4140b",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "4096"
+          ],
+          "parameters": {
+            "bytes": 4096,
+            "comparison_class": "same-work",
+            "construction_calls": 4096,
+            "checksum_algorithm": "fnv1a64-low63",
+            "verification_bytes": 4096,
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "4096\n3958854572854174501\n",
+          "expected_stdout_sha256": "caa6e8b86738808b37445c08171626a1439a42c7d27dae2e44fa5be8a932bdde",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "word_repeated_100m",
+      "category": "words",
+      "source": "word_repeated_100m.fk",
+      "source_sha256": "293004841190df4ce4411aa5312eb7a3efab0d6e8a7b5ad7c7e0dd5553201e40",
+      "modes": {
+        "default": {
+          "arguments": [
+            "100000000"
+          ],
+          "parameters": {
+            "bytes": 100000000,
+            "comparison_class": "idiomatic-fast",
+            "construction_calls": 1,
+            "checksum_algorithm": "fnv1a64-low63",
+            "verification_bytes": 100000000,
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "100000000\n6013327376115300133\n",
+          "expected_stdout_sha256": "535f2724ebd54c8ba661371f385ac7c5d96cfdef443e4ceb9ff0765793f4140b",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "4096"
+          ],
+          "parameters": {
+            "bytes": 4096,
+            "comparison_class": "idiomatic-fast",
+            "construction_calls": 1,
+            "checksum_algorithm": "fnv1a64-low63",
+            "verification_bytes": 4096,
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "4096\n3958854572854174501\n",
+          "expected_stdout_sha256": "caa6e8b86738808b37445c08171626a1439a42c7d27dae2e44fa5be8a932bdde",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "word_builder_known_capacity",
+      "category": "words",
+      "source": "word_builder_known_capacity.fk",
+      "source_sha256": "ce8ab4502e99b943a3f0fc7ff6175af3770941e528d10e14a9497d3b9e539b05",
+      "modes": {
+        "default": {
+          "arguments": [
+            "100000000"
+          ],
+          "parameters": {
+            "bytes": 100000000,
+            "comparison_class": "idiomatic-fast",
+            "construction_calls": 100000000,
+            "checksum_algorithm": "fnv1a64-low63",
+            "verification_bytes": 100000000,
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "100000000\n6013327376115300133\n",
+          "expected_stdout_sha256": "535f2724ebd54c8ba661371f385ac7c5d96cfdef443e4ceb9ff0765793f4140b",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "4096"
+          ],
+          "parameters": {
+            "bytes": 4096,
+            "comparison_class": "idiomatic-fast",
+            "construction_calls": 4096,
+            "checksum_algorithm": "fnv1a64-low63",
+            "verification_bytes": 4096,
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "4096\n3958854572854174501\n",
+          "expected_stdout_sha256": "caa6e8b86738808b37445c08171626a1439a42c7d27dae2e44fa5be8a932bdde",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "word_builder_unknown_capacity",
+      "category": "words",
+      "source": "word_builder_unknown_capacity.fk",
+      "source_sha256": "9dea6fe9e0493fc8f8b782c3a7a5fb1e473f5bd24244b9ee67ad5e8fb5241eef",
+      "modes": {
+        "default": {
+          "arguments": [
+            "100000000"
+          ],
+          "parameters": {
+            "bytes": 100000000,
+            "comparison_class": "idiomatic-fast",
+            "construction_calls": 100000000,
+            "checksum_algorithm": "fnv1a64-low63",
+            "verification_bytes": 100000000,
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "100000000\n6013327376115300133\n",
+          "expected_stdout_sha256": "535f2724ebd54c8ba661371f385ac7c5d96cfdef443e4ceb9ff0765793f4140b",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "4096"
+          ],
+          "parameters": {
+            "bytes": 4096,
+            "comparison_class": "idiomatic-fast",
+            "construction_calls": 4096,
+            "checksum_algorithm": "fnv1a64-low63",
+            "verification_bytes": 4096,
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "4096\n3958854572854174501\n",
+          "expected_stdout_sha256": "caa6e8b86738808b37445c08171626a1439a42c7d27dae2e44fa5be8a932bdde",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "bytes_write_100m",
+      "category": "bytes",
+      "source": "bytes_write_100m.fk",
+      "source_sha256": "47915a35da6587e02e2ba544e9a39717fc6836d55f3292289286dc4761d3df12",
+      "modes": {
+        "default": {
+          "arguments": [
+            "100000000"
+          ],
+          "parameters": {
+            "bytes": 100000000,
+            "comparison_class": "same-work",
+            "write_calls": 100000000,
+            "read_calls": 100000000,
+            "checksum_algorithm": "ordered-polynomial-131-mod-1000000007",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "100000000\n355950708\n100000000\n0\n",
+          "expected_stdout_sha256": "5a0c14265dac52b8b3d0e27da539f5f3c836b04a15b5c77b8d9f1194229def6d",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "4096"
+          ],
+          "parameters": {
+            "bytes": 4096,
+            "comparison_class": "same-work",
+            "write_calls": 4096,
+            "read_calls": 4096,
+            "checksum_algorithm": "ordered-polynomial-131-mod-1000000007",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "4096\n262914479\n4096\n0\n",
+          "expected_stdout_sha256": "dca8d77e43609e8d7814c9acc8df7cebf23ab6aed688b59fe9a85f063822cf2a",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "bytes_copy_1gb",
+      "category": "bytes",
+      "source": "bytes_copy_1gb.fk",
+      "source_sha256": "517ba53361f70375787558fc7d7dea940a21b03be9cedf33475a752f5f49c723",
+      "modes": {
+        "default": {
+          "arguments": [
+            "1000000000"
+          ],
+          "parameters": {
+            "bytes": 1000000000,
+            "comparison_class": "idiomatic-fast",
+            "copy_calls": 1,
+            "copy_bytes": 1000000000,
+            "checksum_algorithm": "fnv1a64-low63",
+            "verification_bytes": 1000000000,
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "1000000000\n0\n15648848027658085\n",
+          "expected_stdout_sha256": "a9bd511cbdf736acc343d77fd7b72f16d7f4515ad34a9d29a19f66c8b911d6ae",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "65536"
+          ],
+          "parameters": {
+            "bytes": 65536,
+            "comparison_class": "idiomatic-fast",
+            "copy_calls": 1,
+            "copy_bytes": 65536,
+            "checksum_algorithm": "fnv1a64-low63",
+            "verification_bytes": 65536,
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "65536\n0\n4906968496736355109\n",
+          "expected_stdout_sha256": "9c2070ba992a8a88a442af4185b0d754e90ea95a4d40de44a607d5a3478e9647",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "bytes_sequential_write",
+      "category": "bytes",
+      "source": "bytes_sequential_write.fk",
+      "source_sha256": "d3735c137c3f8f0bc23e8cef20d9f78f45074831827a137f19b57495d15efe40",
+      "modes": {
+        "default": {
+          "arguments": [
+            "100000000"
+          ],
+          "parameters": {
+            "bytes": 100000000,
+            "comparison_class": "same-work",
+            "write_calls": 12500000,
+            "read_calls": 12500000,
+            "read_passes": 1,
+            "checksum_algorithm": "int64-sum-modulo-pattern65521",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "100000000\n409129896945\n100000000\n0\n",
+          "expected_stdout_sha256": "0f625ca0e4fe163bff314fce55ffa1f76894180e8ed811418b7e78dc2058f55b",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "4096"
+          ],
+          "parameters": {
+            "bytes": 4096,
+            "comparison_class": "same-work",
+            "write_calls": 512,
+            "read_calls": 512,
+            "read_passes": 1,
+            "checksum_algorithm": "int64-sum-modulo-pattern65521",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "4096\n130816\n4096\n0\n",
+          "expected_stdout_sha256": "9d52154ae403900d0a08ef764ad016bc00a73a3d798550ba39d898b8bf697840",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "bytes_sequential_read",
+      "category": "bytes",
+      "source": "bytes_sequential_read.fk",
+      "source_sha256": "de24ab4f991dd24ef2e4c80aeb7c56228c0706d0a4b1135914c25a77c03ef0f7",
+      "modes": {
+        "default": {
+          "arguments": [
+            "100000000"
+          ],
+          "parameters": {
+            "bytes": 100000000,
+            "comparison_class": "same-work",
+            "write_calls": 12500000,
+            "read_calls": 50000000,
+            "read_passes": 4,
+            "checksum_algorithm": "int64-sum-modulo-pattern65521",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "100000000\n1636519587780\n100000000\n0\n",
+          "expected_stdout_sha256": "579dbbb4ef669308bcbe6f5023025a6cf4262ebd9a6675ac304754246002df0a",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "4096"
+          ],
+          "parameters": {
+            "bytes": 4096,
+            "comparison_class": "same-work",
+            "write_calls": 512,
+            "read_calls": 2048,
+            "read_passes": 4,
+            "checksum_algorithm": "int64-sum-modulo-pattern65521",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "4096\n523264\n4096\n0\n",
+          "expected_stdout_sha256": "3c3ba3f507fa50b7115d24ef3f92b15da86f9e568605bfc3cdca98a92daa7fd8",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "bytes_endian_roundtrip",
+      "category": "bytes",
+      "source": "bytes_endian_roundtrip.fk",
+      "source_sha256": "bbc2a8ff2e8cf20f5eb4d78a5d1d79b95392effd3f2f8d3d5a9f05fbb6c2ba88",
+      "modes": {
+        "default": {
+          "arguments": [
+            "1000000"
+          ],
+          "parameters": {
+            "records": 1000000,
+            "bytes": 16000000,
+            "comparison_class": "same-work",
+            "write_calls": 2000000,
+            "read_calls": 2000000,
+            "checksum_algorithm": "sum-of-verified-signed-le-be-pairs",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "16000000\n1000000000000\n16000000\n0\n",
+          "expected_stdout_sha256": "e156a3c5bef1f81ff60bb397de9ae7646b868417c2acd99cfe4f098846af9be6",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "256"
+          ],
+          "parameters": {
+            "records": 256,
+            "bytes": 4096,
+            "comparison_class": "same-work",
+            "write_calls": 512,
+            "read_calls": 512,
+            "checksum_algorithm": "sum-of-verified-signed-le-be-pairs",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "4096\n65536\n4096\n0\n",
+          "expected_stdout_sha256": "0d362d16e93a08ba6fcefbc9488c07431883aa3eb6cad009ab98748e6f06cd8e",
           "expected_stderr": "",
           "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         }

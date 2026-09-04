@@ -472,6 +472,97 @@ def _process_tree_checks(temporary: Path) -> None:
         )
 
 
+def _foundation_workload_checks(manifest: dict[str, Any]) -> None:
+    """Pin workload sizes and independently derive quick content oracles."""
+    cases = {case["id"]: case for case in manifest["cases"]}
+    idiomatic = {"word_repeated_100m", "word_builder_known_capacity",
+                 "word_builder_unknown_capacity", "bytes_copy_1gb"}
+    algorithms = {
+        **{name: "fnv1a64-low63" for name in idiomatic | {"word_dynamic_append_100m"}},
+        "bytes_write_100m": "ordered-polynomial-131-mod-1000000007",
+        "bytes_sequential_read": "int64-sum-modulo-pattern65521",
+        "bytes_sequential_write": "int64-sum-modulo-pattern65521",
+        "bytes_endian_roundtrip": "sum-of-verified-signed-le-be-pairs",
+    }
+    for case in cases.values():
+        for mode in case["modes"].values():
+            assert mode["parameters"]["comparison_class"] == (
+                "idiomatic-fast" if case["id"] in idiomatic else "same-work"
+            )
+            if case["id"] in algorithms:
+                assert mode["parameters"]["checksum_algorithm"] == algorithms[case["id"]]
+            assert mode["parameters"]["timing_scope"] == "whole-process-including-setup-and-verification"
+
+    def fnv(pattern: bytes, count: int) -> int:
+        value = 14695981039346656037
+        for index in range(count):
+            value = ((value ^ pattern[index % len(pattern)]) * 1099511628211) & ((1 << 64) - 1)
+        return value & ((1 << 63) - 1)
+
+    word_cases = (
+        "word_dynamic_append_100m", "word_repeated_100m",
+        "word_builder_known_capacity", "word_builder_unknown_capacity",
+    )
+    for name in word_cases:
+        case = cases[name]
+        assert case["modes"]["default"]["arguments"] == ["100000000"]
+        assert case["modes"]["default"]["expected_stdout"] == "100000000\n6013327376115300133\n"
+        quick = case["modes"]["quick"]
+        assert quick["arguments"] == ["4096"]
+        assert quick["expected_stdout"] == f"4096\n{fnv(b'x', 4096)}\n"
+        for mode in case["modes"].values():
+            count = int(mode["arguments"][0])
+            assert mode["parameters"]["bytes"] == count
+            assert mode["parameters"]["verification_bytes"] == count
+            assert mode["parameters"]["construction_calls"] == (
+                1 if name == "word_repeated_100m" else count
+            )
+
+    copied = cases["bytes_copy_1gb"]
+    assert copied["modes"]["default"]["arguments"] == ["1000000000"]
+    assert copied["modes"]["default"]["expected_stdout"] == "1000000000\n0\n15648848027658085\n"
+    assert copied["modes"]["quick"]["arguments"] == ["65536"]
+    assert copied["modes"]["quick"]["expected_stdout"] == f"65536\n0\n{fnv(b'FREAK0123456789!', 65536)}\n"
+    for mode in copied["modes"].values():
+        count = int(mode["arguments"][0])
+        assert mode["parameters"]["bytes"] == mode["parameters"]["copy_bytes"] == count
+        assert mode["parameters"]["verification_bytes"] == count
+        assert mode["parameters"]["copy_calls"] == 1
+
+    byte_write = cases["bytes_write_100m"]
+    assert byte_write["modes"]["default"]["arguments"] == ["100000000"]
+    assert byte_write["modes"]["default"]["expected_stdout"] == "100000000\n355950708\n100000000\n0\n"
+    checksum = 0
+    for index in range(4096):
+        checksum = (checksum * 131 + index % 256) % 1000000007
+    assert byte_write["modes"]["quick"]["arguments"] == ["4096"]
+    assert byte_write["modes"]["quick"]["expected_stdout"] == f"4096\n{checksum}\n4096\n0\n"
+    for mode in byte_write["modes"].values():
+        count = int(mode["arguments"][0])
+        assert mode["parameters"]["bytes"] == count
+        assert mode["parameters"]["read_calls"] == mode["parameters"]["write_calls"] == count
+
+    for name, passes in (("bytes_sequential_write", 1), ("bytes_sequential_read", 4)):
+        for mode_name, mode in cases[name]["modes"].items():
+            count = 4096 if mode_name == "quick" else 100000000
+            assert mode["arguments"] == [str(count)]
+            quotient, remainder = divmod(count // 8, 65521)
+            checksum = (quotient * 65521 * 65520 // 2 + remainder * (remainder - 1) // 2) * passes
+            assert mode["expected_stdout"] == f"{count}\n{checksum}\n{count}\n0\n"
+            assert mode["parameters"]["bytes"] == count
+            assert mode["parameters"]["read_calls"] == count // 8 * passes
+            assert mode["parameters"]["write_calls"] == count // 8
+            assert mode["parameters"]["read_passes"] == passes
+
+    for mode_name, mode in cases["bytes_endian_roundtrip"]["modes"].items():
+        records = 256 if mode_name == "quick" else 1000000
+        assert mode["arguments"] == [str(records)]
+        assert mode["expected_stdout"] == f"{records * 16}\n{records ** 2}\n{records * 16}\n0\n"
+        assert mode["parameters"]["records"] == records
+        assert mode["parameters"]["bytes"] == records * 16
+        assert mode["parameters"]["read_calls"] == mode["parameters"]["write_calls"] == records * 2
+
+
 def _static_checks(temporary: Path) -> dict[str, Any]:
     manifest = LAB.load_manifest(MANIFEST)
     assert manifest["schema"] == LAB.MANIFEST_SCHEMA
@@ -480,7 +571,17 @@ def _static_checks(temporary: Path) -> dict[str, Any]:
         "word_dynamic_append",
         "startup_empty",
         "compile_hello",
+        "word_dynamic_append_100m",
+        "word_repeated_100m",
+        "word_builder_known_capacity",
+        "word_builder_unknown_capacity",
+        "bytes_write_100m",
+        "bytes_copy_1gb",
+        "bytes_sequential_write",
+        "bytes_sequential_read",
+        "bytes_endian_roundtrip",
     ]
+    _foundation_workload_checks(manifest)
 
     crlf = temporary / "crlf"
     shutil.copytree(MANIFEST.parent, crlf)

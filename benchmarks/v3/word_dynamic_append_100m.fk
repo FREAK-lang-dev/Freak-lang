@@ -1,0 +1,12 @@
+task main() {
+    pilot mut iterations: int = 100000000
+    if process::args_count() > 1 {
+        iterations = word_to_int(process::arg(1))
+    }
+    if iterations <= 0 or iterations > 100000000 { process::exit(2) }
+    pilot mut text: word = ""
+    repeat iterations times { text = text + "x" }
+    say text.length()
+    say text.checksum()
+    text = ""
+}

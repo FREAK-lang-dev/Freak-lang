@@ -1,0 +1,19 @@
+task main() {
+    pilot mut count: int = 100000000
+    if process::args_count() > 1 { count = word_to_int(process::arg(1)) }
+    if count <= 0 or count > 100000000 or count % 8 != 0 { process::exit(2) }
+    pilot buffer = ByteBuffer::with_capacity(count)
+    pilot mut index = 0
+    repeat until index >= count / 8 {
+        buffer.write_int(index % 65521)
+        index += 1
+    }
+    say buffer.length()
+    buffer.seek(0)
+    pilot mut checksum = 0
+    repeat count / 8 times { checksum += buffer.read_int() }
+    say checksum
+    say buffer.position()
+    say buffer.status()
+    buffer.release()
+}
