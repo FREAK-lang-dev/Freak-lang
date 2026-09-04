@@ -95,6 +95,104 @@ task fake_ui_measure_text(text: word, size: int, bold: int, italic: int) -> int 
 '''
 
 REPLAY_PROGRAM = r'''
+task replay_focus_order(window: int, layout: ByteBuffer, theme: int) -> void {
+    pilot previous = 0
+    repeat 2 times {
+        cockpit_ui_focus_input(previous)
+        cockpit_ui_begin_events()
+        cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+        cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
+        pilot target_y = 45
+        if previous == 1 { target_y = 10 }
+        replay_click(10, target_y)
+        cockpit_ui_feed_event(3, 0, 121, 0, 0, 0, 0, 0)
+        pilot first = cockpit_widget_input(window, layout, theme, "A", 100)
+        pilot second = cockpit_widget_input(window, layout, theme, "B", 100)
+        if previous == 0 {
+            if first != "Ax" or second != "By" { cockpit_fail("focus first to second ordering") }
+        } else {
+            if first != "Ay" or second != "Bx" { cockpit_fail("focus second to first ordering") }
+        }
+        if cockpit_ui_focused_input != 1 - previous { cockpit_fail("final focus order") }
+        cockpit_ui_begin_events()
+        cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+        cockpit_ui_feed_event(2, 41, 0, 0, 1, 0, 0, 0)
+        first = cockpit_widget_input(window, layout, theme, first, 100)
+        second = cockpit_widget_input(window, layout, theme, second, 100)
+        if previous == 0 {
+            if first != "Ax" or second != "B" { cockpit_fail("persisted second focus") }
+        } else {
+            if first != "A" or second != "Bx" { cockpit_fail("persisted first focus") }
+        }
+        previous += 1
+    }
+    cockpit_ui_focus_input(0)
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    replay_click(10, 45)
+    cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
+    replay_click(10, 10)
+    cockpit_ui_feed_event(3, 0, 121, 0, 0, 0, 0, 0)
+    replay_click(150, 150)
+    cockpit_ui_feed_event(3, 0, 122, 0, 0, 0, 0, 0)
+    if cockpit_widget_input(window, layout, theme, "A", 100) != "Ay" { cockpit_fail("multiple focus clicks first") }
+    if cockpit_widget_input(window, layout, theme, "B", 100) != "Bx" { cockpit_fail("multiple focus clicks second") }
+    if cockpit_ui_focused_input != 0 - 1 { cockpit_fail("outside click clears focus") }
+    cockpit_ui_focus_input(0)
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    replay_click(10, 45)
+    cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
+    cockpit_clip_push(window, 0, 0, 100, 32)
+    if cockpit_widget_input(window, layout, theme, "A", 100) != "A" { cockpit_fail("clipped click retained old focus") }
+    if cockpit_widget_input(window, layout, theme, "B", 100) != "B" { cockpit_fail("clipped input received text") }
+    cockpit_clip_pop(window)
+    cockpit_ui_focus_input(0)
+    cockpit_ui_begin_events()
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+    replay_click(10, 10)
+    cockpit_ui_feed_event(3, 0, 120, 0, 0, 0, 0, 0)
+    cockpit_modal_open()
+    if not cockpit_modal_begin(window, layout, theme, 320, 240) { cockpit_fail("modal begin failed") }
+    if cockpit_widget_input(window, layout, theme, "M", 100) != "M" { cockpit_fail("modal inherited opening edits") }
+    cockpit_modal_end(window, layout)
+    cockpit_modal_close()
+}
+
+task replay_failed_panels(window: int, layout: ByteBuffer, theme: int) -> void {
+    pilot wrapper = 0
+    repeat 3 times {
+        cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+        repeat 31 times { cockpit_layout_append_context(layout, 1, 2, 100, 100, 0, 3) }
+        pilot snapshot = layout.slice(0, layout.length())
+        cockpit_clip_push(window, 2, 3, 120, 130)
+        pilot clip_depth = cockpit_ui_clip_depth
+        if wrapper == 0 {
+            cockpit_panel_begin(window, layout, theme, 90, 80)
+            cockpit_panel_end(window, layout)
+        } else if wrapper == 1 {
+            if cockpit_scroll_begin(window, layout, theme, 90, 80, 400, 17) != 17 { cockpit_fail("failed scroll changed offset") }
+            cockpit_scroll_end(window, layout)
+        } else {
+            cockpit_modal_open()
+            if cockpit_modal_begin(window, layout, theme, 90, 80) { cockpit_fail("failed modal reported success") }
+            cockpit_modal_end(window, layout)
+            if cockpit_ui_modal_scope { cockpit_fail("failed modal changed scope") }
+            cockpit_modal_close()
+        }
+        if cockpit_layout_depth(layout) != 32 or cockpit_layout_status(layout) != 2 { cockpit_fail("failed panel unwound parent") }
+        if cockpit_ui_clip_depth != clip_depth { cockpit_fail("failed panel changed clip") }
+        layout.seek(0)
+        repeat snapshot.length() times {
+            if layout.read_byte() != snapshot.read_byte() { cockpit_fail("failed panel mutated parent") }
+        }
+        snapshot.release()
+        cockpit_clip_pop(window)
+        wrapper += 1
+    }
+    cockpit_layout_begin_frame(layout, 200, 200, 0, 0)
+}
+
 task replay_click(x: int, y: int) -> void {
     cockpit_ui_feed_event(4, 0, 0, 1, 0, x, y, 0)
     cockpit_ui_feed_event(4, 0, 0, 1, 1, x, y, 0)
@@ -103,6 +201,9 @@ task main() {
     pilot window = cockpit_ui_open("Replay", 320, 240, true)
     pilot theme = cockpit_theme_dark()
     pilot layout = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    replay_focus_order(window, layout, theme)
+    replay_failed_panels(window, layout, theme)
+    cockpit_ui_focus_input(0 - 1)
     fake_poll_count = 0 - 1
     cockpit_ui_begin_frame(window, layout, theme)
     say cockpit_ui_should_close()
@@ -260,15 +361,20 @@ def compile_native_ui(compiler: str, runtime: Path, generated: Path, binary: Pat
 
 def native_window_close(binary: Path) -> None:
     """Exercise only the visible window owned by this exact child process."""
-    import ctypes
-    from ctypes import wintypes
+    import ctypes.wintypes
+
+    wintypes = ctypes.wintypes
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
     user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
     user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32.PostMessageW.restype = wintypes.BOOL
     child = subprocess.Popen([str(binary)], cwd=binary.parent, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     try:
         found = []

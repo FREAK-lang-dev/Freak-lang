@@ -16,6 +16,7 @@ pilot cockpit_ui_character_value = 0
 pilot cockpit_ui_backspace_value = false
 pilot cockpit_ui_widget_counter = 0
 pilot cockpit_ui_focused_input = -1
+pilot cockpit_ui_initial_focus = -1
 pilot cockpit_ui_edits = 0
 pilot cockpit_ui_edit_count = 0
 pilot cockpit_ui_scroll_value = 0
@@ -94,7 +95,8 @@ task cockpit_clip_contains(x: int, y: int) -> bool {
 task cockpit_ui_reset() -> void {
     if cockpit_ui_edits != 0 { array_release(cockpit_ui_edits) }
     cockpit_ui_edits = array_new()
-    repeat 256 times { array_push(cockpit_ui_edits, "0") }
+    -- Ordered records: edit (or -2 for a focus click), x, y.
+    repeat 768 times { array_push(cockpit_ui_edits, "0") }
     if cockpit_ui_clip_stack != 0 { array_release(cockpit_ui_clip_stack) }
     cockpit_ui_clip_stack = array_new()
     repeat 128 times { array_push(cockpit_ui_clip_stack, "0") }
@@ -112,6 +114,7 @@ task cockpit_ui_reset() -> void {
 }
 
 task cockpit_ui_begin_events() -> void {
+    cockpit_ui_initial_focus = cockpit_ui_focused_input
     cockpit_ui_mouse_clicked_value = false
     cockpit_ui_character_value = 0
     cockpit_ui_backspace_value = false
@@ -139,6 +142,8 @@ task cockpit_ui_feed_event(kind: int, key: int, character: int, button: int, pre
                     cockpit_ui_mouse_clicked_value = true
                     cockpit_ui_click_x = x
                     cockpit_ui_click_y = y
+                    cockpit_ui_queue_edit(0 - 2, x, y)
+                    cockpit_ui_focused_input = 0 - 1
                 }
                 cockpit_ui_mouse_down_value = true
             } else { cockpit_ui_mouse_down_value = false }
@@ -152,9 +157,17 @@ task cockpit_ui_feed_event(kind: int, key: int, character: int, button: int, pre
     if edit != 0 and cockpit_ui_edit_count < 256 {
         if edit == 0 - 1 { cockpit_ui_backspace_value = true }
         else { cockpit_ui_character_value = edit }
-        array_set(cockpit_ui_edits, cockpit_ui_edit_count, word_from_int(edit))
-        cockpit_ui_edit_count += 1
+        cockpit_ui_queue_edit(edit, 0, 0)
     }
+}
+
+task cockpit_ui_queue_edit(edit: int, x: int, y: int) -> void {
+    if cockpit_ui_edit_count >= 256 { give back }
+    pilot offset = cockpit_ui_edit_count * 3
+    cockpit_values_set_int(cockpit_ui_edits, offset, edit)
+    cockpit_values_set_int(cockpit_ui_edits, offset + 1, x)
+    cockpit_values_set_int(cockpit_ui_edits, offset + 2, y)
+    cockpit_ui_edit_count += 1
 }
 
 task cockpit_ui_input_allowed() -> bool {
@@ -185,12 +198,36 @@ task cockpit_ui_edit_text(text: word) -> word {
     pilot next_text = text
     pilot index = 0
     repeat cockpit_ui_edit_count times {
-        pilot edit = word_to_int(array_get(cockpit_ui_edits, index))
+        pilot edit = cockpit_values_get_int(cockpit_ui_edits, index * 3)
         if edit == 0 - 1 { next_text = cockpit_ui_delete_scalar(next_text) }
-        else { next_text = next_text + char_to_word(edit) }
+        else if edit >= 32 { next_text = next_text + char_to_word(edit) }
         index += 1
     }
     cockpit_ui_edit_count = 0
+    give back next_text
+}
+
+-- Each input replays the same timeline against its own current geometry.
+-- Never consume another input's edits or use widget visitation order as time.
+task cockpit_ui_edit_input(text: word, widget_id: int, x: int, y: int, width: int, height: int) -> word {
+    if not cockpit_ui_input_allowed() { give back text }
+    pilot focused = cockpit_ui_initial_focus == widget_id
+    pilot next_text = text
+    pilot index = 0
+    repeat cockpit_ui_edit_count times {
+        pilot offset = index * 3
+        pilot edit = cockpit_values_get_int(cockpit_ui_edits, offset)
+        if edit == 0 - 2 {
+            pilot click_x = cockpit_values_get_int(cockpit_ui_edits, offset + 1)
+            pilot click_y = cockpit_values_get_int(cockpit_ui_edits, offset + 2)
+            focused = cockpit_clip_contains(click_x, click_y) and click_x >= x and click_x < x + width and click_y >= y and click_y < y + height
+        } else if focused {
+            if edit == 0 - 1 { next_text = cockpit_ui_delete_scalar(next_text) }
+            else { next_text = next_text + char_to_word(edit) }
+        }
+        index += 1
+    }
+    if focused { cockpit_ui_focused_input = widget_id }
     give back next_text
 }
 
@@ -254,6 +291,7 @@ task cockpit_ui_next_widget() -> int {
 
 task cockpit_ui_focus_input(widget_id: int) -> void {
     cockpit_ui_focused_input = widget_id
+    cockpit_ui_initial_focus = widget_id
 }
 
 task cockpit_ui_input_is_focused(widget_id: int) -> bool {

@@ -91,13 +91,7 @@ task cockpit_widget_input(window: int, layout: ByteBuffer, theme: int, text: wor
     pilot x = cockpit_layout_last_x()
     pilot y = cockpit_layout_last_y()
     pilot widget_id = cockpit_ui_next_widget()
-    if cockpit_ui_clicked_inside(x, y, width, height) {
-        cockpit_ui_focus_input(widget_id)
-    }
-    pilot next_text = text
-    if cockpit_ui_input_allowed() and cockpit_ui_input_is_focused(widget_id) {
-        next_text = cockpit_ui_edit_text(next_text)
-    }
+    pilot next_text = cockpit_ui_edit_input(text, widget_id, x, y, width, height)
     cockpit_draw_fill(window, x, y, width, height, cockpit_theme_get(theme, cockpit_theme_surface))
     pilot border = cockpit_theme_get(theme, cockpit_theme_border)
     if cockpit_ui_input_is_focused(widget_id) { border = cockpit_theme_get(theme, cockpit_theme_accent) }
@@ -264,6 +258,7 @@ task cockpit_widget_slider(window: int, layout: ByteBuffer, theme: int, value: i
 pilot cockpit_slider_drag = -1
 
 task cockpit_panel_begin(window: int, layout: ByteBuffer, theme: int, width: int, height: int) -> void {
+    if not cockpit_panel_can_begin(layout) { give back }
     cockpit_layout_allocate(layout, width, height)
     pilot x = cockpit_layout_last_x()
     pilot y = cockpit_layout_last_y()
@@ -275,14 +270,29 @@ task cockpit_panel_begin(window: int, layout: ByteBuffer, theme: int, width: int
 }
 
 task cockpit_panel_end(window: int, layout: ByteBuffer) -> void {
+    if cockpit_layout_status(layout) != 0 { give back }
     -- Parent already reserved the panel rectangle; do not allocate it twice.
     if cockpit_layout_depth(layout) <= 1 { cockpit_fail("COCKPIT panel stack underflow") }
     layout.truncate(layout.length() - cockpit_layout_record_bytes)
     cockpit_clip_pop(window)
 }
 
+task cockpit_panel_can_begin(layout: ByteBuffer) -> bool {
+    if cockpit_layout_status(layout) != 0 { give back false }
+    if cockpit_layout_depth(layout) <= 0 {
+        cockpit_layout_error = 1
+        give back false
+    }
+    if cockpit_layout_depth(layout) >= cockpit_layout_max_depth {
+        cockpit_layout_error = 2
+        give back false
+    }
+    give back true
+}
+
 task cockpit_scroll_begin(window: int, layout: ByteBuffer, theme: int, width: int, height: int, content_height: int, offset: int) -> int {
     cockpit_panel_begin(window, layout, theme, width, height)
+    if cockpit_layout_status(layout) != 0 { give back offset }
     pilot x = cockpit_layout_field(layout, 0)
     pilot y = cockpit_layout_field(layout, 1)
     pilot inner_w = cockpit_layout_field(layout, 2)
@@ -321,11 +331,15 @@ task cockpit_modal_open() -> void {
     cockpit_ui_modal_active = true
     cockpit_ui_popup_widget = 0 - 1
     cockpit_ui_focused_input = 0 - 1
+    cockpit_ui_initial_focus = 0 - 1
+    -- The event that opened this modal belongs to the previous input scope.
+    cockpit_ui_edit_count = 0
     cockpit_ui_mouse_clicked_value = false
 }
 
 task cockpit_modal_begin(window: int, layout: ByteBuffer, theme: int, width: int, height: int) -> bool {
     if not cockpit_ui_modal_active { give back false }
+    if not cockpit_panel_can_begin(layout) { give back false }
     cockpit_ui_modal_scope = true
     pilot screen_w = ui::get_width(window)
     pilot screen_h = ui::get_height(window)
@@ -341,6 +355,7 @@ task cockpit_modal_begin(window: int, layout: ByteBuffer, theme: int, width: int
 }
 
 task cockpit_modal_end(window: int, layout: ByteBuffer) -> void {
+    if cockpit_layout_status(layout) != 0 { give back }
     cockpit_panel_end(window, layout)
     cockpit_ui_modal_scope = false
 }
