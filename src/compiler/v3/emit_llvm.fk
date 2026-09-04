@@ -692,6 +692,7 @@ task llvm_is_void_call(val: word) -> bool {
     if val == "say" or val == "panic" { give back true }
     if val == "fs::write" or val == "fs::append" or val == "fs::make_dir" { give back true }
     if val == "process::exit" { give back true }
+    if val == "process::set_env" { give back true }
     if val == "array_push" or val == "array_set" or val == "array_release" { give back true }
     if val == "word_builder::reserve" or val == "word_builder::clear" or val == "word_builder::append" { give back true }
     if val == "word_builder::append_char" or val == "word_builder::append_int" or val == "word_builder::discard" { give back true }

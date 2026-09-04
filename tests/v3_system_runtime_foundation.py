@@ -572,6 +572,9 @@ def main() -> int:
             )
             for symbol in expected_symbols:
                 assert symbol in generated_text, (backend, symbol)
+            if backend == "llvm":
+                assert "call void @freak_llvm_process_set_env(" in generated_text
+                assert "call i64 @freak_llvm_process_set_env(" not in generated_text
             binary = root / f"system_runtime_{backend}{suffix}"
             compile_generated(compiler, repo, runtime, generated, binary, backend)
             executed, pid, start_ms, end_ms = execute_with_pid(binary, root, test_env)
