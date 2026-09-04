@@ -59,6 +59,7 @@ RUNNER_PEAK_RETAINED_BYTES = 0
 C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
 C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
+        "hir_snapshot_scaling_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     }
@@ -726,6 +727,7 @@ EXECUTABLE_SMOKES = [
             "macro-api-format=freak-macro-api-contract-v1",
             "macro-api-version=1.0",
             "macro-api-version-supported=true",
+            "macro-api-older-minor-context-supported=true",
             "macro-api-future-version-rejected=true",
             "macro-api-unknown-capabilities-rejected=true",
             "macro-api-host-unavailable=true",
@@ -773,6 +775,7 @@ EXECUTABLE_SMOKES = [
             "macro-api-builder-open-capability-denied=true",
             "macro-api-builder-cannot-execute=true",
             "macro-api-builder-add-unsupported=true",
+            "macro-api-builder-foreign-span-invalid=true",
             "macro-api-noncanonical-result-rejected=true",
             "macro-api-builder-finish-unsupported=true",
             "macro-api-builder-deterministic=true",
@@ -1912,6 +1915,70 @@ EXECUTABLE_SMOKES = [
             "error|workspace/hirSnapshotRestore|-32602|",
             "query-snapshot-restore ok=1",
             "query-confirm ok=1 path=hir-snapshot.fk",
+        ],
+    },
+    {
+        "name": "HIR snapshot scaling and resource bounds",
+        "fixture": "hir_snapshot_scaling_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "hir-scaling-baseline-restored=true",
+            "hir-scaling-64-aliases=true",
+            "hir-scaling-512-aliases=true",
+            "hir-scaling-64-owners=true",
+            "hir-scaling-duplicate-owner=true",
+            "hir-scaling-sparse-owner=true",
+            "hir-scaling-huge-owner=true",
+            "hir-scaling-overflow-owner=true",
+            "hir-scaling-noncanonical-owner=true",
+            "hir-scaling-duplicate-item=true",
+            "hir-scaling-gapped-item=true",
+            "hir-scaling-huge-item=true",
+            "hir-scaling-noncanonical-item=true",
+            "hir-scaling-orphan-item=true",
+            "hir-scaling-duplicate-diag=true",
+            "hir-scaling-gapped-diag=true",
+            "hir-scaling-huge-diag=true",
+            "hir-scaling-noncanonical-diag=true",
+            "hir-scaling-orphan-diag=true",
+            "hir-scaling-huge-item-count=true",
+            "hir-scaling-huge-diag-count=true",
+            "hir-scaling-noncanonical-count=true",
+            "hir-scaling-count-mismatch=true",
+            "hir-scaling-cross-owner-span=true",
+            "hir-scaling-empty=true",
+            "hir-scaling-empty-line-count=true",
+            "hir-scaling-trailing-newline=true",
+            "hir-scaling-repeated=true",
+            "hir-scaling-capacity-bounded=true",
+            "hir-scaling-capacity-stable=true",
+            "hir-scaling-live-unchanged=true",
+            "hir-scaling-fresh-slot-eight-handles=true",
+            "hir-scaling-reused-children-empty=true",
+            "hir-scaling-restore-repeated=true",
+            "hir-scaling-truncated-slots-hidden=true",
+            "hir-scaling-file-slot-capacity-stable=true",
+        ],
+    },
+    {
+        "name": "unit snapshot validation query purity",
+        "fixture": "unit_snapshot_validation_query_purity_smoke.fk",
+        "expect": [
+            "validation-query-baseline-restored=true",
+            "validation-query-foreign-context-required=true",
+            "validation-query-foreign-accepted=true",
+            "validation-query-snapshot-unchanged=true",
+            "validation-query-generation-unchanged=true",
+            "validation-query-dirty-unchanged=true",
+            "validation-query-invalidations-unchanged=true",
+            "validation-query-telemetry-unchanged=true",
+            "validation-query-parent-snapshots-restored=true",
+            "validation-query-accepted-provenance-stable=true",
+            "validation-query-repeat-stable=true",
+            "validation-query-repeated-provenance-stable=true",
+            "validation-query-rejected-context-stable=true",
+            "validation-query-rejected-provenance-stable=true",
+            "validation-query-real-restore-refreshes-provenance=true",
         ],
     },
     {
@@ -9284,10 +9351,44 @@ def freak_matching_brace(source: str, open_index: int, limit: int) -> int | None
     return None
 
 
+def freak_mask_line_comments(source: str) -> str:
+    """Mask comments without changing offsets or quoted literal contents."""
+    chars = list(source)
+    index = 0
+    while index < len(source):
+        if source[index] == '"':
+            index += 1
+            while index < len(source):
+                if source[index] == "\\":
+                    index += 2
+                elif source[index] == '"':
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+        char_length = freak_char_literal_length(source, index, len(source))
+        if char_length:
+            index += char_length
+            continue
+        if source.startswith("--", index):
+            while index < len(source) and source[index] not in "\r\n":
+                chars[index] = " "
+                index += 1
+            continue
+        index += 1
+    return "".join(chars)
+
+
 def freak_task_body(source: str, task_name: str) -> str | None:
+    source = freak_mask_line_comments(source)
     match = re.search(rf"(?m)^task[ \t]+{re.escape(task_name)}[ \t]*\(", source)
     if match is None:
         return None
+
+    next_task = re.search(r"(?m)^task[ \t]+", source[match.end() :])
+    if next_task is not None:
+        source = source[: match.end() + next_task.start()]
 
     signature_end = source.find("\n", match.start())
     if signature_end < 0:
@@ -9323,7 +9424,7 @@ def freak_task_body(source: str, task_name: str) -> str | None:
     if done_match is not None:
         body_start = signature_end + 1
         return source[body_start : body_start + done_match.start()]
-    return ""
+    return None
 
 
 def check_alias_hir_boundary() -> None:
@@ -9348,6 +9449,14 @@ def check_alias_hir_boundary() -> None:
         "pilot local = v4_parse_multiline_inside\n"
         "}\n"
         "pilot multiline_later = v4_parse_multiline_outside\n"
+        "task commented_sample() -> void -- => { misleading markers\n"
+        "-- { another => misleading marker\n"
+        "{\n"
+        "pilot local = v4_parse_commented_inside\n"
+        "say \"-- literal stays\"\n"
+        "}\n"
+        "task unknown_sample() -> void\n"
+        "unsupported_form\n"
         "task done_sample() -> void\n"
         "fixed pilot local = 1\n"
         "    say \"safe\"\n"
@@ -9358,6 +9467,11 @@ def check_alias_hir_boundary() -> None:
     arrow_body = freak_task_body(extractor_sample, "arrow_sample")
     multiline_brace_body = freak_task_body(extractor_sample, "multiline_brace_sample")
     done_body = freak_task_body(extractor_sample, "done_sample")
+    commented_body = freak_task_body(extractor_sample, "commented_sample")
+    if commented_body is None or "v4_parse_commented_inside" not in commented_body or '"-- literal stays"' not in commented_body:
+        violations.append("alias HIR guard task extractor trusts signature comments")
+    if freak_task_body(extractor_sample, "unknown_sample") is not None:
+        violations.append("alias HIR guard task extractor accepts an unknown body form")
     if brace_body is None or "v4_parse_inside" not in brace_body or "v4_parse_outside" in brace_body or "pilot close" not in brace_body or "pilot quote" not in brace_body or "lend 'a" not in brace_body or "say" not in brace_body:
         violations.append("alias HIR guard task extractor leaks past brace task")
     if arrow_body is None or arrow_body.strip() != "1":
@@ -9651,6 +9765,7 @@ def check_snapshot_inventories() -> None:
                     f"query invalidation scratch release missing: {handle_release_contract}"
                 )
     for resource_fixture in (
+        "hir_snapshot_scaling_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     ):
@@ -9662,6 +9777,7 @@ def check_snapshot_inventories() -> None:
         violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
+            "hir_snapshot_scaling_smoke.fk",
             "mir_snapshot_resource_smoke.fk",
             "query_invalidation_resource_smoke.fk",
         }

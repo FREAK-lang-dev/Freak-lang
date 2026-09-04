@@ -248,7 +248,14 @@ task v4_macro_context_valid(context: word) -> bool {
     if not v4_macro_api_version_supported(major, minor) or not v4_macro_api_capabilities_valid(capabilities) or not v4_expansion_id_valid(expansion_id) {
         give back false
     }
-    give back v4_macro_context_new(expansion_id, capabilities) == context
+    -- Canonicalize the supported version carried by this record. Repacking
+    -- through context_new would silently require the newest host minor.
+    pilot canonical = v4_macro_api_pack_field(v4_macro_tag_context)
+    canonical = canonical + v4_macro_api_pack_field(word_from_int(major))
+    canonical = canonical + v4_macro_api_pack_field(word_from_int(minor))
+    canonical = canonical + v4_macro_api_pack_field(word_from_int(capabilities))
+    canonical = canonical + v4_macro_api_pack_field(expansion_id)
+    give back canonical == context
 }
 
 task v4_macro_context_capabilities(context: word) -> int {
@@ -559,6 +566,11 @@ task v4_macro_builder_can_execute(builder: word) -> bool {
 task v4_macro_builder_add_node(builder: word, node_kind: word, span_view: word) -> word {
     if not v4_macro_builder_valid(builder) or node_kind == "" or not v4_macro_span_view_valid(span_view) {
         give back v4_macro_api_result_new(v4_macro_result_invalid, "builder-add-node", "invalid builder contract")
+    }
+    pilot context = v4_macro_api_field(builder, 1)
+    pilot source_id = v4_expansion_id_source(v4_macro_context_expansion(context))
+    if v4_macro_source_view_id(v4_macro_span_view_source(span_view)) != source_id {
+        give back v4_macro_api_result_new(v4_macro_result_invalid, "builder-add-node", "node span must belong to the builder expansion source")
     }
     give back v4_macro_api_result_new(v4_macro_result_unsupported, "builder-add-node", "syntax builder execution is not implemented")
 }
