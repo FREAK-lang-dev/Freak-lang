@@ -221,6 +221,60 @@ int64_t freak_llvm_array_new(void) {
     if (!freak_llvm_arrays[h].data) { fprintf(stderr, "FREAK: OOM\n"); exit(1); }
     return freak_llvm_array_make_handle(h, freak_llvm_arrays[h].generation);
 }
+
+int64_t freak_llvm_word_snapshot_lines(int64_t source) {
+    if (freak_llvm_array_free_head < 0 && freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS) return -1;
+    const char* text = (const char*)source;
+    /* The LLVM ABI is NUL-terminated: obtain its length exactly once, then
+       scan/copy bounded ranges. Adoption also uses the known range length. */
+    size_t length = text ? strlen(text) : 0;
+    size_t count = length ? 1 : 0;
+    for (size_t i = 0; i < length; ++i) {
+        if (text[i] == '\n') {
+            if (count == SIZE_MAX) return -1;
+            ++count;
+        }
+    }
+    size_t capacity = count ? count : 1;
+    if (capacity > INT64_MAX || capacity > SIZE_MAX / sizeof(int64_t)) return -1;
+    int64_t* lines = (int64_t*)malloc(capacity * sizeof(*lines));
+    if (!lines) return -1;
+    size_t used = 0, start = 0;
+    for (size_t i = 0; count != 0; ++i) {
+        if (i == length || text[i] == '\n') {
+            size_t part_length = i - start;
+            if (part_length == SIZE_MAX) goto fail;
+            char* part = (char*)malloc(part_length + 1);
+            if (!part) goto fail;
+            if (part_length) memcpy(part, text + start, part_length);
+            part[part_length] = '\0';
+            int64_t adopted = freak_llvm_word_try_adopt_sized((int64_t)part, part_length);
+            if (!adopted) { free(part); goto fail; }
+            lines[used++] = adopted;
+            if (i == length) break;
+            start = i + 1;
+        }
+    }
+    int64_t slot = freak_llvm_array_free_head;
+    if (slot >= 0) {
+        freak_llvm_array_free_head = freak_llvm_arrays[slot].next_free;
+        freak_llvm_arrays[slot].generation += 1;
+    } else {
+        slot = freak_llvm_array_count++;
+        freak_llvm_arrays[slot].generation = 1;
+    }
+    freak_llvm_arrays[slot].data = lines;
+    freak_llvm_arrays[slot].length = (int64_t)used;
+    freak_llvm_arrays[slot].capacity = (int64_t)capacity;
+    freak_llvm_arrays[slot].next_free = -1;
+    freak_llvm_arrays[slot].in_use = true;
+    return freak_llvm_array_make_handle(slot, freak_llvm_arrays[slot].generation);
+fail:
+    for (size_t i = 0; i < used; ++i) freak_llvm_word_release_replaced(lines[i], 0);
+    free(lines);
+    return -1;
+}
+
 void freak_llvm_array_push(int64_t handle, int64_t item) {
     int64_t slot = freak_llvm_array_slot_for_handle(handle);
     if (slot < 0) return;
