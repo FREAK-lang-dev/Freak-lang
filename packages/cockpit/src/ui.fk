@@ -16,44 +16,210 @@ pilot cockpit_ui_character_value = 0
 pilot cockpit_ui_backspace_value = false
 pilot cockpit_ui_widget_counter = 0
 pilot cockpit_ui_focused_input = -1
+pilot cockpit_ui_edits = 0
+pilot cockpit_ui_edit_count = 0
+pilot cockpit_ui_scroll_value = 0
+pilot cockpit_ui_click_x = 0
+pilot cockpit_ui_click_y = 0
+pilot cockpit_ui_modal_active = false
+pilot cockpit_ui_modal_scope = false
+pilot cockpit_ui_popup_widget = -1
+pilot cockpit_ui_popup_scope = false
+pilot cockpit_ui_clip_stack = 0
+pilot cockpit_ui_clip_depth = 0
+
+task cockpit_fail(message: word) -> void {
+    say message
+    process::exit(1)
+}
+
+task cockpit_clip_push(window: int, x: int, y: int, width: int, height: int) -> void {
+    if cockpit_ui_clip_depth >= 32 { cockpit_fail("COCKPIT clip stack exhausted") }
+    pilot screen_w = ui::get_width(window)
+    pilot screen_h = ui::get_height(window)
+    if width < 0 { width = 0 }
+    if height < 0 { height = 0 }
+    if x < 0 { width += x x = 0 }
+    if y < 0 { height += y y = 0 }
+    if x > screen_w { x = screen_w width = 0 }
+    if y > screen_h { y = screen_h height = 0 }
+    if width > screen_w - x { width = screen_w - x }
+    if height > screen_h - y { height = screen_h - y }
+    if width < 0 { width = 0 }
+    if height < 0 { height = 0 }
+    pilot right = x + width
+    pilot bottom = y + height
+    if cockpit_ui_clip_depth > 0 {
+        pilot top = (cockpit_ui_clip_depth - 1) * 4
+        pilot px = cockpit_values_get_int(cockpit_ui_clip_stack, top)
+        pilot py = cockpit_values_get_int(cockpit_ui_clip_stack, top + 1)
+        pilot pr = cockpit_values_get_int(cockpit_ui_clip_stack, top + 2)
+        pilot pb = cockpit_values_get_int(cockpit_ui_clip_stack, top + 3)
+        if x < px { x = px }
+        if y < py { y = py }
+        if right > pr { right = pr }
+        if bottom > pb { bottom = pb }
+    }
+    if right < x { right = x }
+    if bottom < y { bottom = y }
+    pilot offset = cockpit_ui_clip_depth * 4
+    cockpit_values_set_int(cockpit_ui_clip_stack, offset, x)
+    cockpit_values_set_int(cockpit_ui_clip_stack, offset + 1, y)
+    cockpit_values_set_int(cockpit_ui_clip_stack, offset + 2, right)
+    cockpit_values_set_int(cockpit_ui_clip_stack, offset + 3, bottom)
+    cockpit_ui_clip_depth += 1
+    ui::set_clip(window, x, y, right - x, bottom - y)
+}
+
+task cockpit_clip_pop(window: int) -> void {
+    if cockpit_ui_clip_depth <= 0 { cockpit_fail("COCKPIT clip stack underflow") }
+    cockpit_ui_clip_depth -= 1
+    if cockpit_ui_clip_depth == 0 { ui::reset_clip(window) }
+    else {
+        pilot offset = (cockpit_ui_clip_depth - 1) * 4
+        pilot x = cockpit_values_get_int(cockpit_ui_clip_stack, offset)
+        pilot y = cockpit_values_get_int(cockpit_ui_clip_stack, offset + 1)
+        ui::set_clip(window, x, y, cockpit_values_get_int(cockpit_ui_clip_stack, offset + 2) - x, cockpit_values_get_int(cockpit_ui_clip_stack, offset + 3) - y)
+    }
+}
+
+task cockpit_clip_contains(x: int, y: int) -> bool {
+    if cockpit_ui_clip_depth == 0 { give back true }
+    pilot offset = (cockpit_ui_clip_depth - 1) * 4
+    give back x >= cockpit_values_get_int(cockpit_ui_clip_stack, offset) and y >= cockpit_values_get_int(cockpit_ui_clip_stack, offset + 1) and x < cockpit_values_get_int(cockpit_ui_clip_stack, offset + 2) and y < cockpit_values_get_int(cockpit_ui_clip_stack, offset + 3)
+}
+
+-- The platform currently queues 64 events. The replay budget is 256.
+-- Allocate storage once per window, preserving every delivered text edit.
+task cockpit_ui_reset() -> void {
+    if cockpit_ui_edits != 0 { array_release(cockpit_ui_edits) }
+    cockpit_ui_edits = array_new()
+    repeat 256 times { array_push(cockpit_ui_edits, "0") }
+    if cockpit_ui_clip_stack != 0 { array_release(cockpit_ui_clip_stack) }
+    cockpit_ui_clip_stack = array_new()
+    repeat 128 times { array_push(cockpit_ui_clip_stack, "0") }
+    cockpit_ui_clip_depth = 0
+    cockpit_ui_quit = false
+    cockpit_ui_mouse_down_value = false
+    cockpit_ui_focused_input = -1
+    cockpit_ui_modal_active = false
+    cockpit_ui_modal_scope = false
+    cockpit_ui_popup_scope = false
+    cockpit_ui_popup_widget = -1
+    cockpit_popup_result_widget = 0 - 1
+    cockpit_slider_drag = 0 - 1
+    cockpit_ui_begin_events()
+}
+
+task cockpit_ui_begin_events() -> void {
+    cockpit_ui_mouse_clicked_value = false
+    cockpit_ui_character_value = 0
+    cockpit_ui_backspace_value = false
+    cockpit_ui_edit_count = 0
+    cockpit_ui_scroll_value = 0
+    cockpit_ui_widget_counter = 0
+    cockpit_ui_modal_scope = false
+}
+
+task cockpit_ui_poll_result(count: int) -> void {
+    if count < 0 { cockpit_ui_quit = true }
+}
+
+-- Public event reducer also permits deterministic event replay without an OS window.
+task cockpit_ui_feed_event(kind: int, key: int, character: int, button: int, pressed: int, x: int, y: int, scroll: int) -> void {
+    if kind == cockpit_event_quit { cockpit_ui_quit = true }
+    if kind == 7 and pressed == 0 { cockpit_ui_mouse_down_value = false }
+    if kind == 5 { cockpit_ui_scroll_value += scroll }
+    if kind == cockpit_event_mouse {
+        cockpit_ui_mouse_x_value = x
+        cockpit_ui_mouse_y_value = y
+        if button == cockpit_mouse_left {
+            if pressed != 0 {
+                if not cockpit_ui_mouse_down_value {
+                    cockpit_ui_mouse_clicked_value = true
+                    cockpit_ui_click_x = x
+                    cockpit_ui_click_y = y
+                }
+                cockpit_ui_mouse_down_value = true
+            } else { cockpit_ui_mouse_down_value = false }
+        }
+    }
+    pilot edit = 0
+    if kind == cockpit_event_char and character >= 32 and character <= 1114111 {
+        if character < 55296 or character > 57343 { edit = character }
+    }
+    if kind == cockpit_event_key and key == cockpit_key_backspace and pressed != 0 { edit = 0 - 1 }
+    if edit != 0 and cockpit_ui_edit_count < 256 {
+        if edit == 0 - 1 { cockpit_ui_backspace_value = true }
+        else { cockpit_ui_character_value = edit }
+        array_set(cockpit_ui_edits, cockpit_ui_edit_count, word_from_int(edit))
+        cockpit_ui_edit_count += 1
+    }
+}
+
+task cockpit_ui_input_allowed() -> bool {
+    give back (not cockpit_ui_modal_active or cockpit_ui_modal_scope or cockpit_ui_popup_scope) and (cockpit_ui_popup_widget < 0 or cockpit_ui_popup_scope)
+}
+
+task cockpit_ui_clicked_inside(x: int, y: int, width: int, height: int) -> bool {
+    give back cockpit_ui_input_allowed() and cockpit_ui_mouse_clicked_value and cockpit_clip_contains(cockpit_ui_click_x, cockpit_ui_click_y) and cockpit_ui_click_x >= x and cockpit_ui_click_x < x + width and cockpit_ui_click_y >= y and cockpit_ui_click_y < y + height
+}
+
+task cockpit_ui_delete_scalar(text: word) -> word {
+    if text.length() == 0 { give back text }
+    pilot bytes = ByteBuffer::new()
+    bytes.write_word(text)
+    pilot offset = bytes.length() - 1
+    pilot searching = true
+    repeat until not searching {
+        bytes.seek(offset)
+        pilot byte = bytes.read_byte()
+        if byte >= 128 and byte < 192 and offset > 0 { offset -= 1 }
+        else { searching = false }
+    }
+    bytes.release()
+    give back text.substring(0, offset)
+}
+
+task cockpit_ui_edit_text(text: word) -> word {
+    pilot next_text = text
+    pilot index = 0
+    repeat cockpit_ui_edit_count times {
+        pilot edit = word_to_int(array_get(cockpit_ui_edits, index))
+        if edit == 0 - 1 { next_text = cockpit_ui_delete_scalar(next_text) }
+        else { next_text = next_text + char_to_word(edit) }
+        index += 1
+    }
+    cockpit_ui_edit_count = 0
+    give back next_text
+}
 
 task cockpit_ui_open(title: word, width: int, height: int, resizable: bool) -> int {
     pilot resize_flag = 0
     if resizable { resize_flag = 1 }
-    cockpit_ui_quit = false
-    give back ui::create_window(title, width, height, resize_flag)
+    pilot window = ui::create_window(title, width, height, resize_flag)
+    if window == 0 { give back 0 }
+    cockpit_ui_reset()
+    give back window
 }
 
 task cockpit_ui_close(window: int) -> void {
     ui::destroy_window(window)
+    if cockpit_ui_edits != 0 { array_release(cockpit_ui_edits) cockpit_ui_edits = 0 }
+    if cockpit_ui_clip_stack != 0 { array_release(cockpit_ui_clip_stack) cockpit_ui_clip_stack = 0 }
 }
 
 task cockpit_ui_begin_frame(window: int, layout: ByteBuffer, theme: int) -> void {
-    cockpit_ui_mouse_clicked_value = false
-    cockpit_ui_character_value = 0
-    cockpit_ui_backspace_value = false
-    cockpit_ui_widget_counter = 0
+    cockpit_ui_clip_depth = 0
+    cockpit_ui_begin_events()
     pilot event_count = ui::poll_events(window)
+    cockpit_ui_poll_result(event_count)
     pilot index = 0
     repeat event_count times {
         pilot kind = ui::event_kind(index)
-        if kind == cockpit_event_quit { cockpit_ui_quit = true }
-        if kind == cockpit_event_mouse {
-            cockpit_ui_mouse_x_value = ui::event_mouse_x(index)
-            cockpit_ui_mouse_y_value = ui::event_mouse_y(index)
-            if ui::event_button(index) == cockpit_mouse_left {
-                if ui::event_pressed(index) != 0 {
-                    if not cockpit_ui_mouse_down_value { cockpit_ui_mouse_clicked_value = true }
-                    cockpit_ui_mouse_down_value = true
-                } else {
-                    cockpit_ui_mouse_down_value = false
-                }
-            }
-        }
-        if kind == cockpit_event_char { cockpit_ui_character_value = ui::event_character(index) }
-        if kind == cockpit_event_key and ui::event_key(index) == cockpit_key_backspace and ui::event_pressed(index) != 0 {
-            cockpit_ui_backspace_value = true
-        }
+        pilot pressed = ui::event_pressed(index)
+        if kind == 7 { pressed = ui::event_gained(index) }
+        cockpit_ui_feed_event(kind, ui::event_key(index), ui::event_character(index), ui::event_button(index), pressed, ui::event_mouse_x(index), ui::event_mouse_y(index), ui::event_scroll_dy(index))
         index += 1
     }
     ui::begin_frame(window)
@@ -63,13 +229,16 @@ task cockpit_ui_begin_frame(window: int, layout: ByteBuffer, theme: int) -> void
 }
 
 task cockpit_ui_end_frame(window: int) -> void {
+    if cockpit_ui_clip_depth != 0 { cockpit_fail("COCKPIT unclosed clipped container") }
+    cockpit_popup_draw(window)
     ui::end_frame(window)
 }
 
 task cockpit_ui_should_close() -> bool { give back cockpit_ui_quit }
+task cockpit_ui_request_close() -> void { cockpit_ui_quit = true }
 task cockpit_ui_pointer_x() -> int { give back cockpit_ui_mouse_x_value }
 task cockpit_ui_pointer_y() -> int { give back cockpit_ui_mouse_y_value }
-task cockpit_ui_pointer_clicked() -> bool { give back cockpit_ui_mouse_clicked_value }
+task cockpit_ui_pointer_clicked() -> bool { give back cockpit_ui_input_allowed() and cockpit_ui_mouse_clicked_value }
 task cockpit_ui_character() -> int { give back cockpit_ui_character_value }
 task cockpit_ui_backspace_pressed() -> bool { give back cockpit_ui_backspace_value }
 

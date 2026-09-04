@@ -1,4 +1,4 @@
--- COCKPIT V3 calculator with procedural state and fixed-frame cleanup.
+-- COCKPIT V3 calculator. Close the native window to exit.
 
 task cockpit_calculate(pending: num, current: num, operation: int) -> num {
     if operation == 1 { give back pending + current }
@@ -10,7 +10,7 @@ task cockpit_calculate(pending: num, current: num, operation: int) -> num {
 
 task main() {
     pilot window = cockpit_ui_open("FREAK Calculator", 340, 470, false)
-    if window == 0 { panic("calculator window creation failed") }
+    if window == 0 { cockpit_fail("calculator window creation failed") }
     pilot layout: ByteBuffer = ByteBuffer::with_capacity(cockpit_layout_capacity())
     pilot theme = cockpit_theme_dark()
     pilot display = "0"
@@ -18,7 +18,7 @@ task main() {
     pilot operation = 0
     pilot fresh = true
 
-    repeat 300 times {
+    repeat until cockpit_ui_should_close() {
         cockpit_ui_begin_frame(window, layout, theme)
         if cockpit_ui_should_close() {
             cockpit_theme_release(theme)
@@ -47,7 +47,9 @@ task main() {
                 }
                 digit += 1
             }
-            cockpit_widget_button(window, layout, theme, " ", 70)
+            if digit == 10 {
+                if cockpit_widget_button(window, layout, theme, "+", 70) { pending = parse_num(display) operation = 1 fresh = true }
+            } else { cockpit_widget_spacer(layout, 0) }
             cockpit_container_end(layout)
             if digit == 10 { digit = 4 }
             else if digit == 7 { digit = 1 }
@@ -59,7 +61,11 @@ task main() {
             else { display = display + "0" }
             fresh = false
         }
-        if cockpit_widget_button(window, layout, theme, ".", 70) { display = display + "." fresh = false }
+        if cockpit_widget_button(window, layout, theme, ".", 70) {
+            if fresh { display = "0" }
+            if not display.contains(".") { display = display + "." }
+            fresh = false
+        }
         if cockpit_widget_button(window, layout, theme, "=", 70) {
             display = format_num(cockpit_calculate(pending, parse_num(display), operation))
             operation = 0

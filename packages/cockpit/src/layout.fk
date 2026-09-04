@@ -53,6 +53,9 @@ task cockpit_layout_field(layout: ByteBuffer, field: int) -> int {
 }
 
 task cockpit_layout_append_context(layout: ByteBuffer, x: int, y: int, width: int, height: int, direction: int, gap: int) -> void {
+    if width < 0 { width = 0 }
+    if height < 0 { height = 0 }
+    if gap < 0 { gap = 0 }
     if cockpit_layout_depth(layout) >= cockpit_layout_max_depth {
         cockpit_layout_error = 2
         give back
@@ -118,6 +121,7 @@ task cockpit_layout_replace_top(layout: ByteBuffer, x: int, y: int, width: int, 
 }
 
 task cockpit_layout_allocate(layout: ByteBuffer, width: int, height: int) -> void {
+    if cockpit_layout_error != 0 { give back }
     if cockpit_layout_depth(layout) <= 0 {
         cockpit_layout_error = 1
         give back
@@ -139,8 +143,12 @@ task cockpit_layout_allocate(layout: ByteBuffer, width: int, height: int) -> voi
         if direction == cockpit_layout_horizontal { cursor_x += gap }
         else { cursor_y += gap }
     }
-    if width > max_w { width = max_w }
-    if height > max_h { height = max_h }
+    pilot available_w = x + max_w - cursor_x
+    pilot available_h = y + max_h - cursor_y
+    if available_w < 0 { available_w = 0 }
+    if available_h < 0 { available_h = 0 }
+    if width > available_w { width = available_w }
+    if height > available_h { height = available_h }
     cockpit_layout_rect_x = cursor_x
     cockpit_layout_rect_y = cursor_y
     cockpit_layout_rect_w = width
@@ -157,14 +165,33 @@ task cockpit_layout_allocate(layout: ByteBuffer, width: int, height: int) -> voi
 }
 
 task cockpit_layout_begin_row(layout: ByteBuffer, height: int, gap: int) -> void {
-    cockpit_layout_append_context(layout, cockpit_layout_field(layout, 4), cockpit_layout_field(layout, 5), cockpit_layout_remaining_width(layout), height, cockpit_layout_horizontal, gap)
+    cockpit_layout_begin_child(layout, cockpit_layout_remaining_width(layout), height, cockpit_layout_horizontal, gap)
 }
 
 task cockpit_layout_begin_column(layout: ByteBuffer, width: int, gap: int) -> void {
-    cockpit_layout_append_context(layout, cockpit_layout_field(layout, 4), cockpit_layout_field(layout, 5), width, cockpit_layout_remaining_height(layout), cockpit_layout_vertical, gap)
+    cockpit_layout_begin_child(layout, width, cockpit_layout_remaining_height(layout), cockpit_layout_vertical, gap)
+}
+
+task cockpit_layout_begin_child(layout: ByteBuffer, width: int, height: int, direction: int, gap: int) -> void {
+    if cockpit_layout_error != 0 { give back }
+    pilot x = cockpit_layout_field(layout, 4)
+    pilot y = cockpit_layout_field(layout, 5)
+    pilot available_w = cockpit_layout_remaining_width(layout)
+    pilot available_h = cockpit_layout_remaining_height(layout)
+    if cockpit_layout_field(layout, 8) > 0 {
+        pilot parent_gap = cockpit_layout_field(layout, 7)
+        if cockpit_layout_field(layout, 6) == cockpit_layout_horizontal { x += parent_gap available_w -= parent_gap }
+        else { y += parent_gap available_h -= parent_gap }
+    }
+    if width > available_w { width = available_w }
+    if height > available_h { height = available_h }
+    if width < 0 { width = 0 }
+    if height < 0 { height = 0 }
+    cockpit_layout_append_context(layout, x, y, width, height, direction, gap)
 }
 
 task cockpit_layout_end(layout: ByteBuffer) -> void {
+    if cockpit_layout_error != 0 { give back }
     if cockpit_layout_depth(layout) <= 1 {
         cockpit_layout_error = 3
         give back
