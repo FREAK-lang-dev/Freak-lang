@@ -3049,12 +3049,31 @@ task v4_unit_snapshot_ty_context_matches(payload: word) -> bool {
     }
 
     pilot rollback_payload = v4_unit_snapshot()
+    -- The serialized components intentionally omit host provenance generations.
+    -- Preserve that live metadata separately for this validation transaction;
+    -- actual component/unit restores must still issue fresh identities.
+    pilot rollback_generation = v4_session_semantic_restore_generation()
+    pilot rollback_expansion_count = v4_expand_file_count()
+    pilot rollback_expansion_generations = ""
+    pilot expansion_slot = 0
+    repeat until expansion_slot >= rollback_expansion_count {
+        rollback_expansion_generations = rollback_expansion_generations + "|" + word_from_int(v4_expand_generation(expansion_slot))
+        expansion_slot += 1
+    }
     pilot target_context_ok = v4_unit_snapshot_restore_parent_context(payload)
     pilot target_ty_ok = false
     if target_context_ok {
         target_ty_ok = v4_ty_snapshot_validate(ty_payload).starts_with("ty-snapshot-import ok=1")
     }
     pilot rollback_ok = v4_unit_snapshot_restore_parent_context(rollback_payload)
+    if rollback_ok {
+        expansion_slot = 0
+        repeat until expansion_slot >= rollback_expansion_count {
+            array_set(v4_expand_generations, expansion_slot, v4_unit_snapshot_field_raw(rollback_expansion_generations, expansion_slot + 1))
+            expansion_slot += 1
+        }
+        v4_session_semantic_restore_generation_value = rollback_generation
+    }
     give back target_context_ok and target_ty_ok and rollback_ok
 }
 
