@@ -58,6 +58,7 @@ RUNNER_PEAK_RETAINED_BYTES = 0
 C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
 C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
+        "hir_snapshot_scaling_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     }
@@ -605,6 +606,7 @@ EXECUTABLE_SMOKES = [
             "macro-api-format=freak-macro-api-contract-v1",
             "macro-api-version=1.0",
             "macro-api-version-supported=true",
+            "macro-api-older-minor-context-supported=true",
             "macro-api-future-version-rejected=true",
             "macro-api-unknown-capabilities-rejected=true",
             "macro-api-host-unavailable=true",
@@ -652,6 +654,7 @@ EXECUTABLE_SMOKES = [
             "macro-api-builder-open-capability-denied=true",
             "macro-api-builder-cannot-execute=true",
             "macro-api-builder-add-unsupported=true",
+            "macro-api-builder-foreign-span-invalid=true",
             "macro-api-noncanonical-result-rejected=true",
             "macro-api-builder-finish-unsupported=true",
             "macro-api-builder-deterministic=true",
@@ -1791,6 +1794,70 @@ EXECUTABLE_SMOKES = [
             "error|workspace/hirSnapshotRestore|-32602|",
             "query-snapshot-restore ok=1",
             "query-confirm ok=1 path=hir-snapshot.fk",
+        ],
+    },
+    {
+        "name": "HIR snapshot scaling and resource bounds",
+        "fixture": "hir_snapshot_scaling_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "hir-scaling-baseline-restored=true",
+            "hir-scaling-64-aliases=true",
+            "hir-scaling-512-aliases=true",
+            "hir-scaling-64-owners=true",
+            "hir-scaling-duplicate-owner=true",
+            "hir-scaling-sparse-owner=true",
+            "hir-scaling-huge-owner=true",
+            "hir-scaling-overflow-owner=true",
+            "hir-scaling-noncanonical-owner=true",
+            "hir-scaling-duplicate-item=true",
+            "hir-scaling-gapped-item=true",
+            "hir-scaling-huge-item=true",
+            "hir-scaling-noncanonical-item=true",
+            "hir-scaling-orphan-item=true",
+            "hir-scaling-duplicate-diag=true",
+            "hir-scaling-gapped-diag=true",
+            "hir-scaling-huge-diag=true",
+            "hir-scaling-noncanonical-diag=true",
+            "hir-scaling-orphan-diag=true",
+            "hir-scaling-huge-item-count=true",
+            "hir-scaling-huge-diag-count=true",
+            "hir-scaling-noncanonical-count=true",
+            "hir-scaling-count-mismatch=true",
+            "hir-scaling-cross-owner-span=true",
+            "hir-scaling-empty=true",
+            "hir-scaling-empty-line-count=true",
+            "hir-scaling-trailing-newline=true",
+            "hir-scaling-repeated=true",
+            "hir-scaling-capacity-bounded=true",
+            "hir-scaling-capacity-stable=true",
+            "hir-scaling-live-unchanged=true",
+            "hir-scaling-fresh-slot-eight-handles=true",
+            "hir-scaling-reused-children-empty=true",
+            "hir-scaling-restore-repeated=true",
+            "hir-scaling-truncated-slots-hidden=true",
+            "hir-scaling-file-slot-capacity-stable=true",
+        ],
+    },
+    {
+        "name": "unit snapshot validation query purity",
+        "fixture": "unit_snapshot_validation_query_purity_smoke.fk",
+        "expect": [
+            "validation-query-baseline-restored=true",
+            "validation-query-foreign-context-required=true",
+            "validation-query-foreign-accepted=true",
+            "validation-query-snapshot-unchanged=true",
+            "validation-query-generation-unchanged=true",
+            "validation-query-dirty-unchanged=true",
+            "validation-query-invalidations-unchanged=true",
+            "validation-query-telemetry-unchanged=true",
+            "validation-query-parent-snapshots-restored=true",
+            "validation-query-accepted-provenance-stable=true",
+            "validation-query-repeat-stable=true",
+            "validation-query-repeated-provenance-stable=true",
+            "validation-query-rejected-context-stable=true",
+            "validation-query-rejected-provenance-stable=true",
+            "validation-query-real-restore-refreshes-provenance=true",
         ],
     },
     {
@@ -9494,6 +9561,7 @@ def check_snapshot_inventories() -> None:
                     f"query invalidation scratch release missing: {handle_release_contract}"
                 )
     for resource_fixture in (
+        "hir_snapshot_scaling_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     ):
@@ -9505,6 +9573,7 @@ def check_snapshot_inventories() -> None:
         violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
+            "hir_snapshot_scaling_smoke.fk",
             "mir_snapshot_resource_smoke.fk",
             "query_invalidation_resource_smoke.fk",
         }
