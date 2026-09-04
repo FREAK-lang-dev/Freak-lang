@@ -173,6 +173,7 @@ def main() -> int:
             (runtime / "freak_llvm_runtime.o").write_bytes(b"stale object\n")
         (std / "math.fk").write_text("-- freshness std v1\n", encoding="utf-8")
         shutil.copy2(repo / "std" / "freak_abi", std / "freak_abi")
+        shutil.copy2(repo / "std" / "freak_std_api", std / "freak_std_api")
 
         isolated_home = root / "home"
         isolated_appdata = root / "appdata"

@@ -235,6 +235,7 @@ task cli_doctor_std_missing(std_dir: word) -> word {
     if not fs::exists(std_dir + "/runtime.fk") { missing = cli_doctor_append_missing(missing, "runtime.fk") }
     if not fs::exists(std_dir + "/ui/window.fk") { missing = cli_doctor_append_missing(missing, "ui/window.fk") }
     if not fs::exists(std_dir + "/freak_abi") { missing = cli_doctor_append_missing(missing, "freak_abi") }
+    if not fs::exists(std_dir + "/freak_std_api") { missing = cli_doctor_append_missing(missing, "freak_std_api") }
     give back missing
 }
 
@@ -285,10 +286,12 @@ task cli_doctor_json() -> int {
     pilot abi_ok = runtime_abi == FREAK_V3_ABI and std_abi == FREAK_V3_ABI
     pilot runtime_api = cli_payload_runtime_api_value(rt_dir)
     pilot runtime_api_ok = runtime_api == FREAK_V3_RUNTIME_API
+    pilot std_api = cli_payload_std_api_value(std_dir)
+    pilot std_api_ok = std_api == FREAK_V3_STD_API
     pilot pending_marker = cli_pending_upgrade_marker()
     pilot upgrade_pending = pending_marker != ""
 
-    pilot all_ok = clang_ok and runtime_ok and std_ok and abi_ok and runtime_api_ok and not upgrade_pending and cli_doctor_retained_probe_path == ""
+    pilot all_ok = clang_ok and runtime_ok and std_ok and abi_ok and runtime_api_ok and std_api_ok and not upgrade_pending and cli_doctor_retained_probe_path == ""
     pilot status = "issues"
     if all_ok { status = "ok" }
 
@@ -338,6 +341,11 @@ task cli_doctor_json() -> int {
     say "      \"ok\": " + cli_doctor_json_bool(runtime_api_ok) + ","
     say "      \"expected\": \"" + cli_doctor_json_escape(FREAK_V3_RUNTIME_API) + "\","
     say "      \"runtime\": \"" + cli_doctor_json_escape(runtime_api) + "\""
+    say "    },"
+    say "    \"stdlib_api\": {"
+    say "      \"ok\": " + cli_doctor_json_bool(std_api_ok) + ","
+    say "      \"expected\": \"" + cli_doctor_json_escape(FREAK_V3_STD_API) + "\","
+    say "      \"stdlib\": \"" + cli_doctor_json_escape(std_api) + "\""
     say "    },"
     say "    \"upgrade\": {"
     say "      \"pending\": " + cli_doctor_json_bool(upgrade_pending) + ","
@@ -537,7 +545,8 @@ task cli_doctor(fix_mode: bool) -> int {
     pilot std_missing = cli_doctor_std_missing(std_dir)
     pilot abi_ok = cli_payload_abi_ok(rt_dir, std_dir)
     pilot runtime_api_ok = cli_payload_runtime_api_ok(rt_dir)
-    if fix_mode and (runtime_missing != "" or std_missing != "" or not abi_ok or not runtime_api_ok) {
+    pilot std_api_ok = cli_payload_std_api_ok(std_dir)
+    if fix_mode and (runtime_missing != "" or std_missing != "" or not abi_ok or not runtime_api_ok or not std_api_ok) {
         say "  " + C_DIM + "Repairing the compiler/runtime/stdlib payload as one unit..." + C_RESET
         pilot repair_res = hangar_install_freak()
         if repair_res == 0 {
@@ -547,6 +556,7 @@ task cli_doctor(fix_mode: bool) -> int {
             std_missing = cli_doctor_std_missing(std_dir)
             abi_ok = cli_payload_abi_ok(rt_dir, std_dir)
             runtime_api_ok = cli_payload_runtime_api_ok(rt_dir)
+            std_api_ok = cli_payload_std_api_ok(std_dir)
             pending_marker = cli_pending_upgrade_marker()
         } else {
             say "  " + C_BRED + SYM_CROSS + C_RESET + " Distribution repair failed."
@@ -568,6 +578,15 @@ task cli_doctor(fix_mode: bool) -> int {
         say "  " + C_BRED + SYM_CROSS + C_RESET + " Runtime API mismatch"
         say "        " + C_DIM + "compiler=" + FREAK_V3_RUNTIME_API + C_RESET
         say "        " + C_DIM + "runtime=" + cli_payload_runtime_api_value(rt_dir) + C_RESET
+        say "        " + C_DIM + "Reinstall or run freak upgrade as one distribution unit." + C_RESET
+        say ""
+        all_ok = false
+    }
+
+    if not std_api_ok {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " Stdlib API mismatch"
+        say "        " + C_DIM + "compiler=" + FREAK_V3_STD_API + C_RESET
+        say "        " + C_DIM + "stdlib=" + cli_payload_std_api_value(std_dir) + C_RESET
         say "        " + C_DIM + "Reinstall or run freak upgrade as one distribution unit." + C_RESET
         say ""
         all_ok = false
@@ -618,7 +637,7 @@ task cli_doctor(fix_mode: bool) -> int {
     -- Re-read the durable marker at each decision boundary.
     pending_marker = cli_pending_upgrade_marker()
     pilot pipeline_ok = false
-    if clang_ok and runtime_missing == "" and std_missing == "" and abi_ok and runtime_api_ok and pending_marker == "" {
+    if clang_ok and runtime_missing == "" and std_missing == "" and abi_ok and runtime_api_ok and std_api_ok and pending_marker == "" {
         pilot test_src = "say \"FREAK doctor test\""
         pilot test_probe = cli_doctor_temp_stem("freak-doctor-pipeline-probe-")
         if test_probe == "" {

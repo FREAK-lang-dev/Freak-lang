@@ -795,6 +795,7 @@ def main() -> int:
                 ("UI clipping mechanisms", "v3_ui_clipping.py"),
                 ("COCKPIT widgets and native lifecycle", "v3_cockpit_compat.py"),
                 ("Ordnance import hygiene", "v3_ordnance_import_hygiene.py"),
+                ("standard-library capability", "v3_std_capability.py"),
             )
         )
         hostile_cwd = root / "hostile-repo-shaped-cwd"

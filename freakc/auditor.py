@@ -2086,6 +2086,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freakc/runtime/freak_abi",
                 "freakc/runtime/freak_runtime_api",
                 "std/freak_abi",
+                "std/freak_std_api",
             }
         )
         for missing_source in sorted(expected_sources - manifest_sources):

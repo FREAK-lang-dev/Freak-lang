@@ -11,6 +11,7 @@ pilot FREAKC_VERSION = FREAK_VERSION
 pilot FREAKC_CODENAME = "Maverick"
 pilot FREAK_V3_ABI = "freak-v3-abi-1"
 pilot FREAK_V3_RUNTIME_API = "freak-v3-runtime-api-2"
+pilot FREAK_V3_STD_API = "freak-v3-std-api-1"
 
 -- ===================== TOKENS ======================================
 pilot TOK_EOF = "0"

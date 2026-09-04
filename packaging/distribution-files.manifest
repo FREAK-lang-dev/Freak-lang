@@ -18,3 +18,4 @@ std/version.fk|std/version.fk
 std/runtime.fk|std/runtime.fk
 std/ui/window.fk|std/ui/window.fk
 std/freak_abi|std/freak_abi
+std/freak_std_api|std/freak_std_api

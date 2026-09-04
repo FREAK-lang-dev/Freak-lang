@@ -64,6 +64,7 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             "freakc/runtime/freak_abi",
             "freakc/runtime/freak_runtime_api",
             "std/freak_abi",
+            "std/freak_std_api",
         }
     )
     assert actual_sources == expected_sources, (
@@ -82,7 +83,7 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             runtime_destinations.append(relative)
         else:
             relative = destination.removeprefix("std/")
-            if destination != "std/freak_abi":
+            if destination not in ("std/freak_abi", "std/freak_std_api"):
                 std_destinations.append(relative)
         assert f'"{relative}"' in doctor_text, (
             f"doctor inventory does not cover manifest destination {destination}"

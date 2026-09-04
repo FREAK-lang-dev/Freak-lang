@@ -49,6 +49,12 @@ compiler architecture or semantics.
   carry the separate monotonic `freak-v3-runtime-api-2` capability marker. A
   compiler requiring a newer capability must reject an older same-ABI payload
   before emission/linking.
+- Standard-library source helpers carry `std/freak_std_api`, currently
+  `freak-v3-std-api-1`, independently of the frozen layout ABI. Build/run and
+  Doctor require an exact capability match; missing or incompatible std
+  payloads cannot bypass a runtime repair by supplying older source helpers.
+  Doctor reports this as `checks.stdlib_api` and repairs the distribution
+  through the existing single staged-upgrade route.
 - Runtime metrics are compile-time/test controlled and emit one versioned JSON
   record. Default production builds incur no large instrumentation overhead.
 
