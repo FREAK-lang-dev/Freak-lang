@@ -9087,10 +9087,44 @@ def freak_matching_brace(source: str, open_index: int, limit: int) -> int | None
     return None
 
 
+def freak_mask_line_comments(source: str) -> str:
+    """Mask comments without changing offsets or quoted literal contents."""
+    chars = list(source)
+    index = 0
+    while index < len(source):
+        if source[index] == '"':
+            index += 1
+            while index < len(source):
+                if source[index] == "\\":
+                    index += 2
+                elif source[index] == '"':
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+        char_length = freak_char_literal_length(source, index, len(source))
+        if char_length:
+            index += char_length
+            continue
+        if source.startswith("--", index):
+            while index < len(source) and source[index] not in "\r\n":
+                chars[index] = " "
+                index += 1
+            continue
+        index += 1
+    return "".join(chars)
+
+
 def freak_task_body(source: str, task_name: str) -> str | None:
+    source = freak_mask_line_comments(source)
     match = re.search(rf"(?m)^task[ \t]+{re.escape(task_name)}[ \t]*\(", source)
     if match is None:
         return None
+
+    next_task = re.search(r"(?m)^task[ \t]+", source[match.end() :])
+    if next_task is not None:
+        source = source[: match.end() + next_task.start()]
 
     signature_end = source.find("\n", match.start())
     if signature_end < 0:
@@ -9126,7 +9160,7 @@ def freak_task_body(source: str, task_name: str) -> str | None:
     if done_match is not None:
         body_start = signature_end + 1
         return source[body_start : body_start + done_match.start()]
-    return ""
+    return None
 
 
 def check_alias_hir_boundary() -> None:
@@ -9151,6 +9185,14 @@ def check_alias_hir_boundary() -> None:
         "pilot local = v4_parse_multiline_inside\n"
         "}\n"
         "pilot multiline_later = v4_parse_multiline_outside\n"
+        "task commented_sample() -> void -- => { misleading markers\n"
+        "-- { another => misleading marker\n"
+        "{\n"
+        "pilot local = v4_parse_commented_inside\n"
+        "say \"-- literal stays\"\n"
+        "}\n"
+        "task unknown_sample() -> void\n"
+        "unsupported_form\n"
         "task done_sample() -> void\n"
         "fixed pilot local = 1\n"
         "    say \"safe\"\n"
@@ -9161,6 +9203,11 @@ def check_alias_hir_boundary() -> None:
     arrow_body = freak_task_body(extractor_sample, "arrow_sample")
     multiline_brace_body = freak_task_body(extractor_sample, "multiline_brace_sample")
     done_body = freak_task_body(extractor_sample, "done_sample")
+    commented_body = freak_task_body(extractor_sample, "commented_sample")
+    if commented_body is None or "v4_parse_commented_inside" not in commented_body or '"-- literal stays"' not in commented_body:
+        violations.append("alias HIR guard task extractor trusts signature comments")
+    if freak_task_body(extractor_sample, "unknown_sample") is not None:
+        violations.append("alias HIR guard task extractor accepts an unknown body form")
     if brace_body is None or "v4_parse_inside" not in brace_body or "v4_parse_outside" in brace_body or "pilot close" not in brace_body or "pilot quote" not in brace_body or "lend 'a" not in brace_body or "say" not in brace_body:
         violations.append("alias HIR guard task extractor leaks past brace task")
     if arrow_body is None or arrow_body.strip() != "1":
