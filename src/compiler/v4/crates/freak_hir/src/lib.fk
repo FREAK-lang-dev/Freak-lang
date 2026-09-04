@@ -925,12 +925,15 @@ task v4_hir_snapshot_slots_are_valid(records: int, files: int, items: int, diagn
             pilot source_file = v4_hir_snapshot_field_raw(line, 2)
             if owner < 0 or item_count < 0 or diag_count < 0 or source_file == "" {
                 valid = false
-            } else if array_get(owner_files, owner) != "" {
-                valid = false
             } else {
-                array_set(owner_files, owner, source_file)
-                array_set(owner_items, owner, word_from_int(item_count))
-                array_set(owner_diags, owner, word_from_int(diag_count))
+                pilot previous_file: word = array_get(owner_files, owner)
+                if previous_file != "" {
+                    valid = false
+                } else {
+                    array_set(owner_files, owner, source_file)
+                    array_set(owner_items, owner, word_from_int(item_count))
+                    array_set(owner_diags, owner, word_from_int(diag_count))
+                }
             }
         }
         line_id += 1
@@ -944,7 +947,8 @@ task v4_hir_snapshot_slots_are_valid(records: int, files: int, items: int, diagn
     repeat until slot >= files or valid == false {
         pilot item_count = word_to_int(array_get(owner_items, slot))
         pilot diag_count = word_to_int(array_get(owner_diags, slot))
-        if array_get(owner_files, slot) == "" or item_count > items - item_total or diag_count > diagnostics - diag_total {
+        pilot source_file: word = array_get(owner_files, slot)
+        if source_file == "" or item_count > items - item_total or diag_count > diagnostics - diag_total {
             valid = false
         } else {
             array_set(item_offsets, slot, word_from_int(item_total))
@@ -966,9 +970,11 @@ task v4_hir_snapshot_slots_are_valid(records: int, files: int, items: int, diagn
             pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
             if owner < 0 {
                 valid = false
-            } else if array_get(owner_files, owner) == no_file {
-                valid = false
             } else {
+                pilot source_file: word = array_get(owner_files, owner)
+                if source_file == no_file {
+                    valid = false
+                }
                 pilot counts = owner_items
                 pilot offsets = item_offsets
                 pilot seen = item_seen
@@ -982,14 +988,14 @@ task v4_hir_snapshot_slots_are_valid(records: int, files: int, items: int, diagn
                     valid = false
                 } else {
                     pilot child_slot = word_to_int(array_get(offsets, owner)) + child
-                    if array_get(seen, child_slot) != "0" {
+                    pilot previous_child: word = array_get(seen, child_slot)
+                    if previous_child != "0" {
                         valid = false
                     } else {
                         array_set(seen, child_slot, "1")
                     }
                 }
                 if kind == "hir-item" and v4_hir_snapshot_field(line, 8) != "" {
-                    pilot source_file: word = array_get(owner_files, owner)
                     if v4_span_file(v4_hir_snapshot_field(line, 6)) != source_file or v4_span_file(v4_hir_snapshot_field(line, 9)) != source_file {
                         valid = false
                     }
