@@ -31,6 +31,10 @@ jobs:
         shell: bash
         run: python -u tools/release_version.py check
 
+      - name: Installer module-independent SHA-256
+        shell: bash
+        run: python -u tests/v3_installer_hash.py
+
       - name: Install Clang (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang lld
