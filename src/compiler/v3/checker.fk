@@ -231,7 +231,10 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
     if k == EXPR_CALL {
         -- ast_expr_lefts holds a string of comma-separated arg expr ids.
         pilot args: word = array_get(ast_expr_lefts, expr_id)
-        bc_walk_call_args(args, use_line)
+        pilot call_name = array_get(ast_expr_vals, expr_id)
+        -- Runtime builtins borrow inputs except explicit disposal/transfer.
+        -- Ordinary user calls retain the existing Phase-1 move policy.
+        bc_walk_call_args(args, use_line, tc_builtin_call_type(call_name) != "", bc_builtin_consumes_handle(call_name))
         give back
     }
 
@@ -246,7 +249,8 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
             consume_receiver = true
         }
         bc_walk_expr(word_to_int(recv), consume_receiver, use_line)
-        bc_walk_call_args(margs, use_line)
+        pilot borrow_args = bc_expr_is_byte_buffer(word_to_int(recv)) and tc_builtin_method_allowed("ByteBuffer", method_name)
+        bc_walk_call_args(margs, use_line, borrow_args, false)
         give back
     }
 
@@ -267,23 +271,24 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
     }
 }
 
--- Parse a comma-separated list of expr ids and walk each as a consumed arg.
-task bc_walk_call_args(args: word, use_line: int) -> void {
-    if args == "" { give back }
-    pilot cur: word = ""
-    pilot i = 0
-    pilot n = args.length()
-    repeat n times {
-        pilot c: word = args.char_at(i)
-        if c == "," {
-            if cur != "" { bc_walk_expr(word_to_int(cur), true, use_line) }
-            cur = ""
-        } else {
-            cur = cur + c
+task bc_builtin_consumes_handle(name: word) -> bool {
+    give back name == "word_builder::finish" or name == "word_builder::discard" or name == "array_release" or name == "tcp::socket_close" or name == "tcp::close" or name == "tcp_close" or name == "ui::destroy_window"
+}
+
+task bc_walk_call_args(args: word, use_line: int, borrow_args: bool, consume_first: bool) -> void {
+    pilot index = 0
+    repeat tc_arg_count(args) times {
+        pilot arg = tc_arg_at(args, index)
+        pilot consumes_handle = consume_first and index == 0
+        bc_walk_expr(arg, not borrow_args or consumes_handle, use_line)
+        -- Legacy handles expose int signatures. Explicitly annotated int
+        -- bindings are also dead after a consuming builtin call.
+        if consumes_handle and array_get(ast_expr_kinds, arg) == EXPR_IDENT {
+            pilot symbol = bc_lookup_idx(array_get(ast_expr_vals, arg))
+            if symbol >= 0 { array_set(bc_sym_state, symbol, "moved") }
         }
-        i += 1
+        index += 1
     }
-    if cur != "" { bc_walk_expr(word_to_int(cur), true, use_line) }
 }
 
 -- ---------- Statement walk ------------------------------------------
