@@ -306,7 +306,7 @@ the request remain future work and are not silently pulled into this campaign.
 - [ ] Audit std/runtime versus domain-specific Ordnance ownership, including
   novelty packages; imports must not run showcase programs.
 - [x] Move muvluv's historical BETA showcase into `examples/`; keep the library
-  declaration-only and prove a C/LLVM consumer emits no unsolicited output.
+  declaration-only and prove an LLVM consumer emits no unsolicited output.
 - [ ] Keep broader TLS/GPU/Android/additional platform/package roadmap work in
   the explicitly requested future list rather than expanding the current sprint.
 
@@ -345,7 +345,7 @@ for external review, not as an assertion that the merge gates have passed.
   COCKPIT's worker tested ordered events and all four native examples on both
   backends. Its independent integrated review is pending.
 - Integrated muvluv import hygiene `0b13f29`: historical showcase preserved,
-  declaration-only library, silent C/LLVM consumer passed. This is not proof
+  declaration-only library, silent LLVM consumer passed. This is not proof
   that Hangar's pending immutable package graph works. Independent review pending.
 - Integrated benchmark expansion `ba19161`: 13 Word/ByteBuffer/startup/CPU cases,
   with all 26 quick O0 C/LLVM results verified. Full 100M/1GB executions remain
@@ -376,3 +376,18 @@ for external review, not as an assertion that the merge gates have passed.
   additive runtime capability requirements for the new helpers, and rerun
   exact-head practical/installed/platform gates. Remote `v0.14.1` still exists;
   it must not be overwritten. The replacement-version choice remains pending.
+
+### Follow-up gate evidence
+
+- The first macOS V4-fast CI failure was a V3 conformance guard requiring the
+  obsolete `Get-FileHash` spelling, before V4 execution. Fixed at `c1d1c3d`;
+  conformance and module-disabled hash tests pass locally. No V4 implementation
+  was changed. Remote current-head validation remains required.
+- Clipping and COCKPIT gates both passed against the integrated runtime using
+  the clipping-enabled compiler. COCKPIT exercised injected C/LLVM events and
+  all four actual Windows example lifecycles. An independent reviewer is
+  investigating a possible two-input focus-switch case not covered by that gate.
+- The installed release gate now registers clipping, COCKPIT and muvluv
+  import-hygiene children with its selected runtime. UI pixels and native
+  windows execute on Windows; other platforms retain lowering/replay coverage.
+  Muvluv's test is LLVM-only; earlier C/LLVM wording was incorrect and corrected.

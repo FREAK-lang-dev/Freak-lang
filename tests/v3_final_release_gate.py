@@ -792,6 +792,9 @@ def main() -> int:
                 ("system runtime", "v3_system_runtime_foundation.py"),
                 ("managed TCP sockets", "v3_tcp_socket_foundation.py"),
                 ("HTTP server Ordnance", "v3_http_server_ordnance.py"),
+                ("UI clipping mechanisms", "v3_ui_clipping.py"),
+                ("COCKPIT widgets and native lifecycle", "v3_cockpit_compat.py"),
+                ("Ordnance import hygiene", "v3_ordnance_import_hygiene.py"),
             )
         )
         hostile_cwd = root / "hostile-repo-shaped-cwd"
