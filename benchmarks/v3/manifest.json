@@ -5,7 +5,7 @@
       "id": "cpu_integer_10m",
       "category": "runtime",
       "source": "cpu_integer_10m.fk",
-      "source_sha256": "c8ef750c6d991e41868456eddcad693cbbf9eea83fe62e6e500e4f2511893f8b",
+      "source_sha256": "0162fc5d684c1eaa58c8e5c096dba6ca2992481dd1da42f1514a1cab17733e01",
       "modes": {
         "default": {
           "arguments": [
@@ -43,7 +43,7 @@
       "id": "word_dynamic_append",
       "category": "runtime",
       "source": "word_dynamic_append.fk",
-      "source_sha256": "ad7acc088f698cd192c98103dfe01fe73bce706d3d6ac96f8900847b0d87304a",
+      "source_sha256": "2a9d0e12a79fd4d5bc52f3cb02921cf82ca9db4b746b2aa2cf04f719e5165c86",
       "modes": {
         "default": {
           "arguments": [

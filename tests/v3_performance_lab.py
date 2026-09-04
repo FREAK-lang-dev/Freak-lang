@@ -17,6 +17,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -566,6 +567,7 @@ def _foundation_workload_checks(manifest: dict[str, Any]) -> None:
 
 
 def _static_checks(temporary: Path) -> dict[str, Any]:
+    _linker_identity_timeout_checks()
     manifest = LAB.load_manifest(MANIFEST)
     assert manifest["schema"] == LAB.MANIFEST_SCHEMA
     assert [case["id"] for case in manifest["cases"]] == [
@@ -854,6 +856,7 @@ def _substitute_linker_identity(document: dict[str, Any]) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
+        timeout=5.0,
     )
     trace = f'"{clang}" fabricated linker trace\n'.encode("utf-8")
     linker.update(
@@ -869,6 +872,23 @@ def _substitute_linker_identity(document: dict[str, Any]) -> None:
             "trace_sha256": LAB._sha256_bytes(trace),
         }
     )
+
+
+def _linker_identity_timeout_checks() -> None:
+    document = {"toolchain": {"path": "mock-clang"},
+                "results": [{"compile": {"observation": {"linker": {}}}}]}
+    with patch.object(subprocess, "run", side_effect=subprocess.TimeoutExpired(
+            ["mock-clang", "--version"], 5.0)) as probe:
+        try:
+            _substitute_linker_identity(document)
+        except subprocess.TimeoutExpired:
+            pass
+        else:
+            raise AssertionError("timed-out version probe was silently accepted")
+        probe.assert_called_once_with(["mock-clang", "--version"],
+                                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE, check=False, timeout=5.0)
+    assert document["results"][0]["compile"]["observation"]["linker"] == {}
 
 
 def _profile_matrix_checks(temporary: Path, cli: Path, clang: Path | None) -> None:
