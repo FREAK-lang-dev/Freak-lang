@@ -237,6 +237,13 @@ int64_t freak_word_checksum(freak_word w);
 freak_word freak_word_snapshot_escape(freak_word w);
 freak_word freak_word_snapshot_unescape(freak_word w);
 int64_t freak_word_snapshot_line_count(freak_word w);
+/* Owned word-array handle, or -1 on allocation/handle exhaustion. Empty input
+   has no records; LF separates records, preserving blank/trailing lines and CR.
+   Source is borrowed. Release with freak_array_release_owned (language array_release). */
+int64_t freak_word_snapshot_lines(freak_word w);
+int64_t freak_llvm_word_snapshot_lines(int64_t source);
+/* Internal bridge: known-length adoption; failure leaves pointer caller-owned. */
+int64_t freak_llvm_word_try_adopt_sized(int64_t pointer, size_t length);
 freak_word freak_word_snapshot_line(freak_word w, int64_t wanted);
 int64_t freak_word_snapshot_field_count(freak_word w);
 freak_word freak_word_snapshot_field_raw(freak_word w, int64_t wanted);
