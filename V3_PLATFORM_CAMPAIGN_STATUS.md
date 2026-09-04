@@ -185,7 +185,7 @@ approve its own changes.
 
 ## Full requested to-do list and work record
 
-Updated 2026-09-04. Checked items below describe landed implementation or
+Updated 2026-09-05. Checked items below describe landed implementation or
 recorded focused evidence, not a claim that final CI/review/release gates pass.
 Unchecked items preserve the original campaign scope. Future-work sections in
 the request remain future work and are not silently pulled into this campaign.
@@ -284,13 +284,13 @@ the request remain future work and are not silently pulled into this campaign.
 
 - [x] Replace unsupported Squad/window-poll assumptions with buffer storage and
   indexed std::ui events; add initial widgets and calculator/showcase sources.
-- [ ] Fix close handling, ordered input, Unicode deletion, nested layout gaps,
+- [x] Fix close handling, ordered input, Unicode deletion, nested layout gaps,
   allocated rectangle bounds, missing calculator addition and Clang selection.
-- [ ] Finish button/label/checkbox/input/slider/panel/scrolling/dropdown/tooltip/
+- [x] Finish button/label/checkbox/input/slider/panel/scrolling/dropdown/tooltip/
   modal/layout stack on frozen UI mechanisms.
-- [ ] Deliver usable calculator, settings and widget showcase examples with
+- [x] Deliver usable calculator, settings and widget showcase examples with
   bounded smoke mode separate from normal interactive operation.
-- [ ] Run injected-event C/LLVM tests and a real bounded Windows window lifecycle.
+- [x] Run injected-event C/LLVM tests and a real bounded Windows window lifecycle.
 - [ ] Inventory required clipboard/title/sizing/DPI/clipping/keyboard/image
   mechanisms; add compatible primitives only where the requested UI needs them.
 - [ ] Define canonical Ordnance manifests, stable locks, transitive closure,
@@ -303,6 +303,8 @@ the request remain future work and are not silently pulled into this campaign.
   acceptance, keeping registry/download/SemVer logic outside the compiler.
 - [ ] Audit std/runtime versus domain-specific Ordnance ownership, including
   novelty packages; imports must not run showcase programs.
+- [x] Move muvluv's historical BETA showcase into `examples/`; keep the library
+  declaration-only and prove a C/LLVM consumer emits no unsolicited output.
 - [ ] Keep broader TLS/GPU/Android/additional platform/package roadmap work in
   the explicitly requested future list rather than expanding the current sprint.
 
@@ -328,3 +330,47 @@ the request remain future work and are not silently pulled into this campaign.
   complete final gate run and remote platform matrix.
 - Python syntax, conformance audit and release-version invariant checks passed.
   No campaign PR, merge, or new tag has been created yet.
+
+## Integration and review checkpoint: 2026-09-05
+
+This newer checkpoint supersedes the in-flight assignments in the lane matrix.
+The full campaign remains active and incomplete; a non-draft PR is requested
+for external review, not as an assertion that the merge gates have passed.
+
+- Integrated UI clipping `52e0a71` and COCKPIT correction `d0c0df7`.
+  Clipping received an independent clean review of original `fb918e3`, including
+  C/LLVM pixel probes, bounds/reset/resize/stale handles and GDI resource counts.
+  COCKPIT's worker tested ordered events and all four native examples on both
+  backends. Its independent integrated review is pending.
+- Integrated muvluv import hygiene `0b13f29`: historical showcase preserved,
+  declaration-only library, silent C/LLVM consumer passed. This is not proof
+  that Hangar's pending immutable package graph works. Independent review pending.
+- Integrated benchmark expansion `ba19161`: 13 Word/ByteBuffer/startup/CPU cases,
+  with all 26 quick O0 C/LLVM results verified. Full 100M/1GB executions remain
+  unrun because of limited host memory. Whole-process timings include setup
+  and verification; no isolated-kernel or full-size performance claim is made.
+- The installed archive gate at `2c04250` passed discovery, ABI rejection,
+  golden/negative/ownership/concat/WordBuilder/ByteBuffer/system/TCP/HTTP checks,
+  then failed its final upgrade. This is a failed overall gate, not a pass.
+  The failure reproduces when a native launcher passes PowerShell 7 module
+  paths into Windows PowerShell and `Get-FileHash` cannot autoload. A streaming
+  .NET SHA-256 repair is committed at `3c00408`. Module-disabled known-hash,
+  binary/literal-path/closed-handle tests and existing downloaded-checksum
+  checks pass. The targeted exact-archive rollback/upgrade transaction also
+  passed, including deferred replacement and cleanup retries. The complete
+  installed gate still needs rerunning on the final integrated head.
+- Independent networking review found a release-blocking source parity defect:
+  `"127.0.0.1" + char_to_word(0)` has length 10 and is rejected on C, but
+  LLVM truncates it to length 9 and connects. Raw explicit-length ABI checks
+  do not close this defect. `system_correction` now owns a length-preserving
+  runtime repair in `v3-word-length-parity`, based on `ba19161`, with no new
+  ownership/type architecture and no global NUL-free-word restriction.
+- `network_correction` is a read-only reviewer of COCKPIT/muvluv;
+  `cockpit_review` is a read-only benchmark reviewer. Neither reviews its own
+  authored changes. The lead owns installer repair, capability markers,
+  documentation, CI, delivery and final integration checks.
+- Before merge: close the NUL defect and all review findings, complete the
+  remaining original subsystem requirements, register UI/package gates, advance
+  additive runtime capability requirements for the new helpers, and rerun
+  exact-head practical/installed/platform gates. Remote `v0.14.1` still exists;
+  it must not be overwritten. The replacement-version choice remains pending.
