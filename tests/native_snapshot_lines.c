@@ -101,7 +101,7 @@ static const char* line(int64_t handle, int64_t index, int llvm) {
 }
 static void release(int64_t handle, int llvm) {
     if (llvm) freak_llvm_array_release_owned(handle);
-    else freak_array_release_owned(handle);
+    else freak_array_release(handle); /* Actual Python bootstrap lowering. */
 }
 static void check_case(const char* source, const char** expected, size_t count, int llvm) {
     char* owned_source = malloc(strlen(source) + 1);
@@ -121,6 +121,67 @@ static void check_case(const char* source, const char** expected, size_t count, 
     assert(line_count(replacement, llvm) == 1 && strcmp(line(replacement, 0, llvm), "alive") == 0);
     release(replacement, llvm);
 }
+
+static void check_c_snapshot_array_ownership(void) {
+    size_t baseline = live_allocations;
+    for (int owned_release = 0; owned_release <= 1; ++owned_release) {
+        int64_t h = split("a\nb", 0);
+        assert(h >= 0 && freak_arrays[freak_array_slot_for_handle(h)].owns_elements);
+        freak_array_set(h, 0, freak_array_get(h, 0)); /* self alias */
+        freak_array_set(h, 1, freak_array_get(h, 0)); /* sibling alias */
+        freak_array_push(h, freak_array_get(h, 0)); /* alias across capacity growth */
+        assert(freak_array_len(h) == 3);
+        for (int64_t i = 0; i < 3; ++i) {
+            assert(strcmp(freak_array_get(h, i).data, "a") == 0);
+            for (int64_t j = 0; j < i; ++j) {
+                assert(freak_array_get(h, i).data != freak_array_get(h, j).data);
+            }
+        }
+        freak_word external = freak_word_from_int(123);
+        freak_array_push(h, external);
+        freak_array_set(h, 0, external);
+        freak_word_release_owned(&external);
+        assert(strcmp(freak_array_get(h, 0).data, "123") == 0);
+        assert(strcmp(freak_array_get(h, 3).data, "123") == 0);
+        freak_array_push_owned(h, freak_word_from_int(7));
+        freak_array_set_owned(h, 0, freak_word_from_int(8));
+        assert(strcmp(freak_array_get(h, 0).data, "8") == 0);
+        assert(strcmp(freak_array_get(h, 4).data, "7") == 0);
+        if (owned_release) freak_array_release_owned(h);
+        else freak_array_release(h);
+        freak_array_release(h);
+        freak_array_release_owned(h);
+        assert(live_allocations == baseline);
+    }
+    for (int owned_join = 0; owned_join <= 1; ++owned_join) {
+        int64_t h = split("a\n\nb\r\n", 0);
+        freak_word joined = owned_join ? freak_word_join_owned(h) : freak_word_join(h);
+        assert(strcmp(joined.data, "ab\r") == 0 && freak_array_len(h) == 0);
+        freak_word_release_owned(&joined);
+        assert(live_allocations == baseline);
+    }
+    int64_t empty = split("", 0);
+    freak_array_push(empty, freak_word_lit("literal"));
+    assert(strcmp(freak_array_get(empty, 0).data, "literal") == 0);
+    int64_t old_slot = freak_array_slot_for_handle(empty);
+    freak_array_release(empty);
+    int64_t borrowed = freak_array_new();
+    assert(freak_array_slot_for_handle(borrowed) == old_slot && borrowed != empty);
+    assert(!freak_arrays[old_slot].owns_elements);
+    freak_word external = freak_word_from_int(42);
+    freak_array_push(borrowed, external);
+    freak_array_set(borrowed, 0, external);
+    assert(freak_array_get(borrowed, 0).data == external.data);
+    freak_array_release(borrowed); /* Legacy borrowed words must remain alive. */
+    assert(strcmp(external.data, "42") == 0);
+    freak_word_release_owned(&external);
+    int64_t transferred = freak_array_new();
+    freak_array_push_owned(transferred, freak_word_from_int(99));
+    freak_array_release_owned(transferred);
+    assert(live_allocations == baseline);
+    puts("snapshot_lines C ordinary/owned release, mutation, join and reuse PASS");
+}
+
 int main(void) {
     /* The first C table allocation must fail without publishing a handle. */
     fail_after = 0;
@@ -148,6 +209,7 @@ int main(void) {
     assert(null_llvm >= 0 && freak_llvm_array_len(null_llvm) == 0);
     freak_array_release_owned(null_c);
     freak_llvm_array_release_owned(null_llvm);
+    check_c_snapshot_array_ownership();
     for (int llvm = 0; llvm <= 1; ++llvm) {
         check_case("", NULL, 0, llvm);
         check_case("x", singleton, 1, llvm);

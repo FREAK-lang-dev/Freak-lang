@@ -239,7 +239,11 @@ freak_word freak_word_snapshot_unescape(freak_word w);
 int64_t freak_word_snapshot_line_count(freak_word w);
 /* Owned word-array handle, or -1 on allocation/handle exhaustion. Empty input
    has no records; LF separates records, preserving blank/trailing lines and CR.
-   Source is borrowed. Release with freak_array_release_owned (language array_release). */
+   Source is borrowed. C snapshot arrays carry an element-ownership marker:
+   both ordinary and owned release free their elements exactly once, ordinary
+   push/set clone borrowed inputs, and owned push/set transfer inputs. This also
+   supports the Python bootstrap's ordinary array_release lowering. LLVM uses
+   its existing owned-array release lowering. */
 int64_t freak_word_snapshot_lines(freak_word w);
 int64_t freak_llvm_word_snapshot_lines(int64_t source);
 /* Internal bridge: known-length adoption; failure leaves pointer caller-owned. */
@@ -365,7 +369,8 @@ freak_result_word_word freak_bytes_to_word(const freak_byte_buffer* b);
 /* Creates a new dynamic array, returns a handle (int64_t). */
 int64_t freak_array_new(void);
 
-/* Push a word onto the array. */
+/* Push a word onto the array. Ordinary push borrows, except snapshot-created
+   arrays clone the input. Owned push always transfers ownership. */
 void freak_array_push(int64_t handle, freak_word item);
 void freak_array_push_owned(int64_t handle, freak_word item);
 
@@ -375,12 +380,15 @@ freak_word freak_array_get(int64_t handle, int64_t index);
 /* Get current length of the array. */
 int64_t freak_array_len(int64_t handle);
 
-/* Set item at index. Panics if out of bounds. */
+/* Set item at index. Panics if out of bounds. Ordinary set borrows, except
+   snapshot-created arrays clone the input and release the replaced element.
+   Owned set always transfers ownership and releases the replaced element. */
 void freak_array_set(int64_t handle, int64_t index, freak_word item);
 void freak_array_set_owned(int64_t handle, int64_t index, freak_word item);
 
 /* Release an array slot so a later array_new call can reuse it with a new
-   generation-tagged handle. Stale handles remain invalid. */
+   generation-tagged handle. Stale handles remain invalid. Ordinary release
+   frees elements only for snapshot-created arrays; owned release always does. */
 void freak_array_release(int64_t handle);
 void freak_array_release_owned(int64_t handle);
 

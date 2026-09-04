@@ -2114,6 +2114,7 @@ typedef struct {
     int64_t next_free;
     uint32_t generation;
     bool in_use;
+    bool owns_elements; /* snapshot_lines arrays also own through ordinary C APIs */
 } freak_dyn_array;
 
 static freak_dyn_array* freak_arrays = NULL;
@@ -2198,6 +2199,7 @@ int64_t freak_array_new(void) {
     freak_arrays[h].capacity = 64;
     freak_arrays[h].next_free = -1;
     freak_arrays[h].in_use = true;
+    freak_arrays[h].owns_elements = false;
     freak_arrays[h].data = (freak_word*)malloc(64 * sizeof(freak_word));
     if (!freak_arrays[h].data) {
         fprintf(stderr, "FREAK: out of memory for array\n");
@@ -2251,6 +2253,7 @@ int64_t freak_word_snapshot_lines(freak_word w) {
     freak_arrays[slot].capacity = (int64_t)capacity;
     freak_arrays[slot].next_free = -1;
     freak_arrays[slot].in_use = true;
+    freak_arrays[slot].owns_elements = true;
     freak_array_live_count += 1;
     return freak_array_make_handle(slot, freak_arrays[slot].generation);
 fail:
@@ -2285,7 +2288,7 @@ static void freak_array_reserve_elements(freak_dyn_array* array) {
     array->capacity = new_capacity;
 }
 
-void freak_array_push(int64_t handle, freak_word item) {
+static void freak_array_push_transferred(int64_t handle, freak_word item) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) return;
     freak_dyn_array* a = &freak_arrays[slot];
@@ -2295,12 +2298,21 @@ void freak_array_push(int64_t handle, freak_word item) {
     a->data[a->length++] = item;
 }
 
+void freak_array_push(int64_t handle, freak_word item) {
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    /* Ordinary inputs are borrowed; snapshot arrays need an independent copy.
+       Clone before growth so array_get aliases remain safe across realloc. */
+    if (freak_arrays[slot].owns_elements) item = freak_word_clone(item);
+    freak_array_push_transferred(handle, item);
+}
+
 void freak_array_push_owned(int64_t handle, freak_word item) {
     if (freak_array_slot_for_handle(handle) < 0) {
         freak_word_release_owned(&item);
         return;
     }
-    freak_array_push(handle, item);
+    freak_array_push_transferred(handle, item);
 }
 
 freak_word freak_array_get(int64_t handle, int64_t index) {
@@ -2326,7 +2338,12 @@ void freak_array_set(int64_t handle, int64_t index, freak_word item) {
                 (long long)index, (long long)a->length);
         exit(1);
     }
-    a->data[index] = item;
+    if (a->owns_elements) {
+        /* Clone before releasing the old value, including same-array aliases. */
+        freak_word_replace_owned(&a->data[index], freak_word_clone(item));
+    } else {
+        a->data[index] = item;
+    }
 }
 
 void freak_array_set_owned(int64_t handle, int64_t index, freak_word item) {
@@ -2348,11 +2365,15 @@ void freak_array_release(int64_t handle) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) return;
     freak_dyn_array* a = &freak_arrays[slot];
+    if (a->owns_elements) {
+        for (int64_t i = 0; i < a->length; ++i) freak_word_release_owned(&a->data[i]);
+    }
     free(a->data);
     a->data = NULL;
     a->length = 0;
     a->capacity = 0;
     a->in_use = false;
+    a->owns_elements = false;
     freak_array_live_count -= 1;
     if (a->generation >= FREAK_ARRAY_GENERATION_MAX) {
         a->next_free = -1;
@@ -2366,8 +2387,8 @@ void freak_array_release_owned(int64_t handle) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) return;
     freak_dyn_array* a = &freak_arrays[slot];
-    for (int64_t i = 0; i < a->length; ++i) {
-        freak_word_release_owned(&a->data[i]);
+    if (!a->owns_elements) {
+        for (int64_t i = 0; i < a->length; ++i) freak_word_release_owned(&a->data[i]);
     }
     freak_array_release(handle);
 }
