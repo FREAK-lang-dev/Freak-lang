@@ -18,3 +18,8 @@ Compile `src/main.fk` directly with the V3 CLI. The first optional argument is
 the port (`0` selects an ephemeral port); the second is the number of
 connections to accept. The server prints `ORDNANCE_READY <port>` before it
 starts accepting clients.
+
+Each client has a 250-ms send/receive idle timeout and a two-second total
+header budget measured with the monotonic clock. Idle and trickling headers
+receive 400 before the server continues to the next connection. This bounded
+sequential example is an acceptance fixture, not a concurrent production server.
