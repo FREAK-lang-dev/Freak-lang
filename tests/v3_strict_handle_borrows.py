@@ -81,6 +81,7 @@ NEGATIVE = {
     "buffer_after_release": 'pilot b = ByteBuffer::new()\nb.release()\nb.length()',
     "released_send_payload": 'pilot s: int = 0\npilot b = ByteBuffer::new()\nb.release()\ntcp::socket_send_all(s, b, 0, 0)',
     "array_double_release": 'pilot a: int = array_new()\narray_release(a)\narray_release(a)',
+    "array_after_join": 'pilot a: int = array_new()\narray_push(a, "x")\npilot joined = word_join(a)\narray_release(a)',
     "unknown_user_call_moves": 'pilot b = word_builder::new()\nconsume_handle(b)\nword_builder::length(b)',
     "nested_finish_consumes": 'pilot outer = word_builder::new()\npilot inner = word_builder::new()\nword_builder::append(outer, word_builder::finish(inner))\nword_builder::discard(inner)',
     "typed_legacy_close": 'pilot socket: int = 0\ntcp::close(socket)\ntcp::close(socket)',

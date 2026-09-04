@@ -231,7 +231,7 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
     if k == EXPR_CALL {
         -- ast_expr_lefts holds a string of comma-separated arg expr ids.
         pilot args: word = array_get(ast_expr_lefts, expr_id)
-        pilot call_name = array_get(ast_expr_vals, expr_id)
+        pilot call_name: word = array_get(ast_expr_vals, expr_id)
         -- Runtime builtins borrow inputs except explicit disposal/transfer.
         -- Ordinary user calls retain the existing Phase-1 move policy.
         bc_walk_call_args(args, use_line, tc_builtin_call_type(call_name) != "", bc_builtin_consumes_handle(call_name))
@@ -272,7 +272,7 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
 }
 
 task bc_builtin_consumes_handle(name: word) -> bool {
-    give back name == "word_builder::finish" or name == "word_builder::discard" or name == "array_release" or name == "tcp::socket_close" or name == "tcp::close" or name == "tcp_close" or name == "ui::destroy_window"
+    give back name == "word_builder::finish" or name == "word_builder::discard" or name == "word_join" or name == "array_release" or name == "tcp::socket_close" or name == "tcp::close" or name == "tcp_close" or name == "ui::destroy_window"
 }
 
 task bc_walk_call_args(args: word, use_line: int, borrow_args: bool, consume_first: bool) -> void {
