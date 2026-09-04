@@ -942,7 +942,12 @@ task v4_hir_snapshot_slots_are_valid(records: int, files: int, items: int, diagn
             pilot item_count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), items + 1)
             pilot diag_count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 5), diagnostics + 1)
             pilot source_file = v4_hir_snapshot_field_raw(line, 2)
-            if owner < 0 or item_count < 0 or diag_count < 0 or source_file == "" {
+            pilot source_id = v4_nonnegative_int_range(source_file, 0, source_file.length())
+            pilot expansion_word = v4_hir_snapshot_field_raw(line, 3)
+            pilot expansion_id = v4_nonnegative_int_range(expansion_word, 0, expansion_word.length())
+            -- These identities may refer to detached snapshot parents, but
+            -- restore must not coerce malformed text into a different slot.
+            if owner < 0 or item_count < 0 or diag_count < 0 or source_id < 0 or word_from_int(source_id) != source_file or expansion_id < 0 or word_from_int(expansion_id) != expansion_word {
                 valid = false
             } else {
                 pilot previous_file: word = array_get(owner_files, owner)
