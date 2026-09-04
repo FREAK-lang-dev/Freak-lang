@@ -9,6 +9,8 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 import v3_byte_buffer_foundation as byte_foundation
@@ -35,6 +37,7 @@ def run(
 
 def request(port: int, fragments: list[bytes]) -> bytes:
     with socket.create_connection(("127.0.0.1", port), timeout=5) as client:
+        client.settimeout(5)
         for fragment in fragments:
             try:
                 client.sendall(fragment)
@@ -52,9 +55,31 @@ def request(port: int, fragments: list[bytes]) -> bytes:
         return bytes(response)
 
 
+def bounded_readline(
+    process: subprocess.Popen[str], *, timeout: float = 10.0
+) -> str:
+    assert process.stdout is not None
+    result: list[str] = []
+    failure: list[BaseException] = []
+
+    def read() -> None:
+        try:
+            result.append(process.stdout.readline())
+        except BaseException as error:
+            failure.append(error)
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    reader.join(timeout)
+    assert not reader.is_alive(), "HTTP server readiness line exceeded its deadline"
+    assert not failure, failure
+    assert result, "HTTP server readiness reader returned no result"
+    return result[0]
+
+
 def exercise(binary: Path, root: Path) -> None:
     process = subprocess.Popen(
-        [str(binary), "0", "3"],
+        [str(binary), "0", "4"],
         cwd=root,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -63,12 +88,22 @@ def exercise(binary: Path, root: Path) -> None:
         errors="replace",
     )
     try:
-        assert process.stdout is not None
-        ready = process.stdout.readline().strip()
+        ready = bounded_readline(process).strip()
         assert ready.startswith("ORDNANCE_READY "), ready
         port = int(ready.split()[1])
         assert 0 < port <= 65535
 
+        slow_started = time.monotonic()
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as slow:
+            slow.settimeout(5)
+            slow.sendall(b"GET /hello HTTP/1.1\r\nHost: slow")
+            while slow.recv(4096):
+                pass
+        slow_elapsed = time.monotonic() - slow_started
+        assert slow_elapsed < 5, slow_elapsed
+
+        # The timed-out client must not poison the sequential server. A complete
+        # request immediately afterward still receives the normal response.
         success = request(
             port,
             [
@@ -106,13 +141,13 @@ def main() -> int:
     runtime = repo / "freakc" / "runtime"
     package = repo / "packages" / "http-server"
     source = package / "src" / "main.fk"
-    compiler = (
-        os.environ.get("FREAK_CLANG")
-        or shutil.which("gcc")
-        or shutil.which("clang")
-        or shutil.which("cc")
+    compiler = os.environ.get("FREAK_CLANG") or shutil.which("clang")
+    assert compiler, "Clang is required for the C and LLVM HTTP matrix"
+    compiler_identity = run([compiler, "--version"], repo, timeout=30)
+    assert compiler_identity.returncode == 0, compiler_identity.stderr
+    assert "clang" in (compiler_identity.stdout + compiler_identity.stderr).lower(), (
+        "FREAK_CLANG must name a Clang-compatible driver"
     )
-    assert compiler, "a C/LLVM compiler is required"
     assert source.is_file()
     manifest = (package / "hangar.toml").read_text(encoding="utf-8")
     assert 'name = "http-server"' in manifest
@@ -122,12 +157,14 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-http-server-") as temporary:
         root = Path(temporary)
+        temporary_source = root / "http_server_main.fk"
+        shutil.copyfile(source, temporary_source)
         freak = foundation.build_fresh_cli(
             clang=compiler, repo=repo, root=root, runtime_root=runtime
         )
         for backend in ("c", "llvm"):
             generated, generated_text = foundation.transpile(
-                freak=freak, repo=repo, source=source, backend=backend
+                freak=freak, repo=repo, source=temporary_source, backend=backend
             )
             prefix = "freak_tcp_socket_" if backend == "c" else "@freak_llvm_tcp_socket_"
             for operation in (
@@ -146,6 +183,13 @@ def main() -> int:
                 compiler, repo, runtime, generated, binary, backend
             )
             exercise(binary, root)
+
+    generated_residue = [
+        path
+        for suffix in (".c", ".ll", ".obj", ".o", ".exe")
+        for path in package.rglob(f"*{suffix}")
+    ]
+    assert generated_residue == [], generated_residue
 
     print("v3 HTTP server ordnance tests passed")
     return 0

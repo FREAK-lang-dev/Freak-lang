@@ -4063,9 +4063,9 @@ static void freak_tcp_socket_set_error(
 }
 
 static char* freak_tcp_socket_host_copy(freak_word host) {
+    if (host.length == SIZE_MAX) return NULL;
     if (host.length > 0 && !host.data) return NULL;
     if (host.length > 0 && memchr(host.data, '\0', host.length) != NULL) return NULL;
-    if (host.length == SIZE_MAX) return NULL;
     char* copy = (char*)malloc(host.length + 1);
     if (!copy) freak_tcp_socket_fail("out of memory copying TCP host");
     if (host.length > 0) memcpy(copy, host.data, host.length);
@@ -4202,10 +4202,20 @@ freak_tcp_socket_handle freak_tcp_socket_listen(
             address->ai_family, address->ai_socktype, address->ai_protocol);
         if (native_socket == FREAK_INVALID_NATIVE_SOCKET) continue;
         opened = true;
+#ifdef _WIN32
+        int exclusive = 1;
+        if (setsockopt(
+                native_socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                (const char*)&exclusive, (int)sizeof(exclusive)) != 0) {
+            freak_tcp_socket_native_close(native_socket);
+            continue;
+        }
+#else
         int reuse = 1;
         (void)setsockopt(
             native_socket, SOL_SOCKET, SO_REUSEADDR,
             (const char*)&reuse, (socklen_t)sizeof(reuse));
+#endif
         freak_tcp_socket_configure_no_sigpipe(native_socket);
         if (bind(native_socket, address->ai_addr, (int)address->ai_addrlen) != 0) {
             freak_tcp_socket_native_close(native_socket);
@@ -4487,6 +4497,9 @@ void freak_tcp_socket_close(freak_tcp_socket_handle handle) {
     freak_tcp_socket_free_head = slot;
 }
 
+/* The frozen LLVM word ABI is a NUL-terminated pointer. Bytes beyond that
+ * terminator are not part of the value; source NUL hex escapes are rejected by
+ * the V3 lexer. Length-bearing C words are validated by host_copy above. */
 int64_t freak_llvm_tcp_socket_connect(int64_t host, int64_t port) {
     return freak_tcp_socket_connect(freak_word_lit(host ? (const char*)host : ""), port);
 }

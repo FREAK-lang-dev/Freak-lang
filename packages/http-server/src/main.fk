@@ -26,6 +26,9 @@ task main() {
             tcp::socket_close(listener)
             process::exit(4)
         }
+        -- Keep one idle or abandoned request from monopolizing this
+        -- intentionally sequential acceptance server.
+        tcp::socket_set_timeout(client, 250, 250)
 
         pilot request: ByteBuffer = ByteBuffer::with_capacity(4096)
         pilot request_text = ""

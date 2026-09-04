@@ -171,6 +171,13 @@ GENERATION_PROGRAM = r'''task main() {
 '''
 
 
+LEAK_PROGRAM = r'''task main() {
+    pilot leaked = tcp::socket_listen("127.0.0.1", 0, 1)
+    say tcp::socket_status(leaked)
+}
+'''
+
+
 BOOTSTRAP_PROGRAM = r'''task main() {
     pilot invalid = tcp::socket_connect("", 80)
     say tcp::socket_status(invalid)
@@ -200,6 +207,48 @@ RUNTIME_FORGERY_PROBE = r'''#include "freak_runtime.h"
 int main(void) {
     freak_byte_buffer_handle buffer = freak_byte_buffer_new();
     (void)freak_tcp_socket_status(buffer);
+    return 0;
+}
+'''
+
+
+RUNTIME_HOST_SIZE_PROBE = r'''#include "freak_runtime.h"
+#include <stdint.h>
+
+static freak_word hostile_host(void) {
+    freak_word host;
+    host.data = (const char*)(uintptr_t)1;
+    host.length = SIZE_MAX;
+    host.char_count = 0;
+    host.heap = false;
+    return host;
+}
+
+int main(void) {
+    freak_tcp_socket_handle connected = freak_tcp_socket_connect(hostile_host(), 80);
+    if (freak_tcp_socket_status(connected) != FREAK_TCP_SOCKET_STATUS_INVALID_ARGUMENT) {
+        return 2;
+    }
+    freak_tcp_socket_close(connected);
+
+    freak_tcp_socket_handle listener = freak_tcp_socket_listen(hostile_host(), 0, 1);
+    if (freak_tcp_socket_status(listener) != FREAK_TCP_SOCKET_STATUS_INVALID_ARGUMENT) {
+        return 3;
+    }
+    freak_tcp_socket_close(listener);
+
+    const char embedded[] = "127.0.0.1\0.invalid";
+    freak_word nul_host = {embedded, sizeof(embedded) - 1, 0, false};
+    connected = freak_tcp_socket_connect(nul_host, 80);
+    if (freak_tcp_socket_status(connected) != FREAK_TCP_SOCKET_STATUS_INVALID_ARGUMENT) {
+        return 4;
+    }
+    freak_tcp_socket_close(connected);
+    listener = freak_tcp_socket_listen(nul_host, 0, 1);
+    if (freak_tcp_socket_status(listener) != FREAK_TCP_SOCKET_STATUS_INVALID_ARGUMENT) {
+        return 5;
+    }
+    freak_tcp_socket_close(listener);
     return 0;
 }
 '''
@@ -255,6 +304,28 @@ def loopback_listener() -> tuple[socket.socket, int]:
     return listener, listener.getsockname()[1]
 
 
+def bounded_readline(
+    process: subprocess.Popen[str], *, timeout: float = 10.0
+) -> str:
+    assert process.stdout is not None
+    result: list[str] = []
+    failure: list[BaseException] = []
+
+    def read() -> None:
+        try:
+            result.append(process.stdout.readline())
+        except BaseException as error:  # Surface reader failures on the caller thread.
+            failure.append(error)
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    reader.join(timeout)
+    assert not reader.is_alive(), "server readiness line exceeded its deadline"
+    assert not failure, failure
+    assert result, "server readiness reader returned no result"
+    return result[0]
+
+
 def exercise_server(binary: Path, root: Path, payloads: list[bytes]) -> None:
     process = subprocess.Popen(
         [str(binary), str(len(payloads[0])), str(len(payloads))],
@@ -266,8 +337,7 @@ def exercise_server(binary: Path, root: Path, payloads: list[bytes]) -> None:
         errors="replace",
     )
     try:
-        assert process.stdout is not None
-        ready = process.stdout.readline().strip()
+        ready = bounded_readline(process).strip()
         assert ready.startswith("READY "), ready
         port = int(ready.split()[1])
         echoed: list[bytes] = []
@@ -291,6 +361,48 @@ def exercise_server(binary: Path, root: Path, payloads: list[bytes]) -> None:
         for payload in payloads:
             expected_lines.extend([str(len(payload)), str(payload[0]), str(len(payload))])
         assert lines == expected_lines, (lines, expected_lines)
+        assert "ownership audit found" not in stderr, stderr
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
+def exercise_managed_listener_exclusive(binary: Path, root: Path) -> None:
+    """A managed listener must prevent a raw SO_REUSEADDR bind to its port."""
+    process = subprocess.Popen(
+        [str(binary), "1", "1"],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    try:
+        ready = bounded_readline(process).strip()
+        assert ready.startswith("READY "), ready
+        port = int(ready.split()[1])
+
+        challenger = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            challenger.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            rebound = False
+            try:
+                challenger.bind(("127.0.0.1", port))
+                rebound = True
+            except OSError:
+                pass
+            assert not rebound, "managed listener allowed a second bind to its live port"
+        finally:
+            challenger.close()
+
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as client:
+            client.sendall(b"Z")
+            assert client.recv(1) == b"Z"
+        stdout_tail, stderr = process.communicate(timeout=20)
+        assert process.returncode == 0, stdout_tail + stderr
+        assert stdout_tail.strip().splitlines() == ["1", "90", "1"], stdout_tail
         assert "ownership audit found" not in stderr, stderr
     finally:
         if process.poll() is None:
@@ -354,8 +466,9 @@ def exercise_failure_statuses(binary: Path, root: Path) -> None:
     unused.close()
 
     occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-        occupied.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    # Raw reuse listener first, then managed listener: the managed endpoint
+    # must refuse to hijack a live port even if the incumbent allows reuse.
+    occupied.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     occupied.bind(("127.0.0.1", 0))
     occupied.listen(1)
     occupied_port = occupied.getsockname()[1]
@@ -375,13 +488,13 @@ def exercise_failure_statuses(binary: Path, root: Path) -> None:
 def main() -> int:
     repo = Path(__file__).resolve().parents[1]
     runtime = repo / "freakc" / "runtime"
-    compiler = (
-        os.environ.get("FREAK_CLANG")
-        or shutil.which("gcc")
-        or shutil.which("clang")
-        or shutil.which("cc")
+    compiler = os.environ.get("FREAK_CLANG") or shutil.which("clang")
+    assert compiler, "Clang is required for the C and LLVM networking matrix"
+    compiler_identity = run([compiler, "--version"], repo, timeout=30)
+    assert compiler_identity.returncode == 0, compiler_identity.stderr
+    assert "clang" in (compiler_identity.stdout + compiler_identity.stderr).lower(), (
+        "FREAK_CLANG must name a Clang-compatible driver"
     )
-    assert compiler, "a C/LLVM compiler is required"
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-tcp-socket-") as temporary:
         root = Path(temporary)
@@ -401,6 +514,7 @@ def main() -> int:
                 ("stale", STALE_PROGRAM),
                 ("double_close", DOUBLE_CLOSE_PROGRAM),
                 ("generation", GENERATION_PROGRAM),
+                ("leak", LEAK_PROGRAM),
             ):
                 binary, generated = compile_source(
                     freak, compiler, repo, runtime, root, name, program, backend
@@ -411,6 +525,7 @@ def main() -> int:
 
             payload = bytes((index * 37) & 255 for index in range(32768))
             exercise_server(binaries["server"], root, [payload, payload, payload])
+            exercise_managed_listener_exclusive(binaries["server"], root)
             exercise_client(binaries["client"], root)
 
             status = run([str(binaries["status"])], root)
@@ -430,6 +545,18 @@ def main() -> int:
                 assert failed.returncode != 0, (backend, name)
                 assert "invalid or stale TCP socket handle" in failed.stderr, failed.stderr
 
+            leaked = run([str(binaries["leak"])], root)
+            assert leaked.stdout.strip() == "0", (backend, leaked.stdout, leaked.stderr)
+            assert leaked.returncode == 89, (backend, leaked.returncode, leaked.stderr)
+            leak_diagnostics = [
+                line
+                for line in leaked.stderr.splitlines()
+                if line.startswith("FREAK: TCP socket ownership audit")
+            ]
+            assert leak_diagnostics == [
+                "FREAK: TCP socket ownership audit found 1 live socket(s)"
+            ], (backend, leaked.stderr)
+
         negative = root / "tcp_socket_negative.fk"
         negative.write_text(NEGATIVE_PROGRAM, encoding="utf-8")
         rejected = run([str(freak), "check", str(negative)], repo)
@@ -442,6 +569,25 @@ def main() -> int:
             "unknown callable 'tcp::socket_nope'",
         ):
             assert diagnostic in output, (diagnostic, output)
+
+        # LLVM words carry a NUL-terminated pointer, not a pointer/length pair.
+        # Bytes after its terminator are not part of that ABI value. Prove the
+        # source path rejects an embedded-NUL host before either backend emits
+        # code; the raw C length-bearing boundary is covered separately below.
+        for operation in ("connect", "listen"):
+            nul_source = root / f"nul_host_{operation}.fk"
+            arguments = "80" if operation == "connect" else "0, 1"
+            nul_source.write_text(
+                'task main() { pilot endpoint = tcp::socket_' + operation
+                + '("127.0.0.1\\x00.invalid", ' + arguments + ') }\n',
+                encoding="utf-8",
+            )
+            for flag, suffix in (("--c", ".c"), ("--llvm", ".ll")):
+                rejected_nul = run([str(freak), "transpile", str(nul_source), flag], repo)
+                output = rejected_nul.stdout + rejected_nul.stderr
+                assert rejected_nul.returncode != 0, output
+                assert "embedded NUL escape is not supported" in output, output
+                assert not Path(str(nul_source) + suffix).exists()
 
         bootstrap = root / "bootstrap_tcp_socket.fk"
         bootstrap.write_text(BOOTSTRAP_PROGRAM, encoding="utf-8")
@@ -477,6 +623,32 @@ def main() -> int:
         forged = run([str(forgery_binary)], root)
         assert forged.returncode != 0
         assert "invalid or stale TCP socket handle" in forged.stderr, forged.stderr
+
+        host_size_source = root / "tcp_socket_host_size.c"
+        host_size_source.write_text(RUNTIME_HOST_SIZE_PROBE, encoding="utf-8")
+        host_size_binary = root / f"tcp_socket_host_size{'.exe' if sys.platform == 'win32' else ''}"
+        host_size_command = [
+            compiler,
+            "-O1",
+            "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1",
+            "-o",
+            str(host_size_binary),
+            str(host_size_source),
+            str(runtime / "freak_runtime.c"),
+            "-I",
+            str(runtime),
+        ]
+        if sys.platform == "win32":
+            host_size_command.append("-lws2_32")
+        else:
+            host_size_command.append("-lm")
+        host_size_compiled = run(host_size_command, repo)
+        assert host_size_compiled.returncode == 0, (
+            host_size_compiled.stdout + host_size_compiled.stderr
+        )
+        host_size = run([str(host_size_binary)], root)
+        assert host_size.returncode == 0, host_size.stdout + host_size.stderr
+        assert "ownership audit found" not in host_size.stderr, host_size.stderr
 
     print("v3 TCP socket foundation tests passed")
     return 0
