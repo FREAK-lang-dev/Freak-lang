@@ -76,18 +76,29 @@ compiler architecture or semantics.
 
 | Agent | Scope | Current task | Blockers | Tests added | ABI impact | Performance impact | Ready to integrate? |
 |---:|---|---|---|---|---|---|---|
-| 0 | Campaign command / integration | Integrate reviewed milestones and own shared docs, audit, CI, and final gates | First implementation wave active | Campaign ledger | None | None | No |
-| 1 | Word performance | Implement `word.repeated` and opaque generation-checked `word_builder::*` | Write lane active from `81b7144`; owns the shared runtime/compiler hot paths first | `tests/v3_word_foundation.py` planned | Compatible additive runtime API | Exact repetition plus amortized construction | No |
-| 2 | Bytes / ByteBuffer | Contract frozen; wait for Agent 1 before taking shared runtime/compiler ownership | Serialized behind Agent 1 | V3-native ByteBuffer corpus planned | Compatible additive API; legacy struct layout stays frozen | Amortized buffer growth and binary I/O | No |
-| 3 | Performance lab | Implement the stable JSON lab and deterministic current-V3 core cases | Independent write lane active from `81b7144` | `tests/v3_performance_lab.py` planned | None | Measurement only | No |
-| 4 | CLI / `+03` / LTO | Implement canonical profiles, strict option parsing, source-runtime LTO, and cache identity | Independent write lane active from `81b7144` | `tests/v3_build_profiles.py` planned | None | Release-build policy only | No |
-| 5 | Allocation observability | Inventory existing audit counters and missing byte/builder metrics | Runtime instrumentation contract pending | None yet | Test-only/additive instrumentation expected | Enables deterministic regression gates | No |
-| 6 | System runtime | Audit filesystem/process/time/environment/random floor | First dependency-ordered slice pending | None yet | Additive runtime APIs expected | Unmeasured | No |
-| 7 | Networking floor | Waiting for ByteBuffer and system-runtime contracts | Agents 2 and 6 | None yet | Additive socket APIs expected | Unmeasured | No |
-| 8 | COCKPIT V3 | Waiting for mechanism inventory and buffer foundation | V3 `std::ui` and V3-compatible storage audit pending | None yet | No compiler ABI change intended | Unmeasured | No |
-| 9 | ABI / preservation | Define classification and final cross-backend gates for first tranche | Implementation contracts pending | None yet | Guardian; no ownership of feature ABI | Gate only | No |
-| 10 | Hangar / Ordnance | Waiting for runtime and native-package foundation inventory | Networking/native declaration design pending | None yet | No compiler ABI change intended | Unmeasured | No |
-| 11 | Stdlib boundary | Classify proposals as runtime/std versus Ordnance | Proposals pending | None yet | Classification only | None | No |
+| 0 | Campaign command / integration | Integrate corrections; register gates; maintain delivery evidence | Full campaign incomplete | Ledger and capability rejection coverage | API marker 2; layout ABI 1 | None | Integration active |
+| 1 | Word performance | Repetition and builder integrated through `d81a432`; common-operation audit remains | Final campaign review and full workload evidence | `tests/v3_word_foundation.py` | Additive API | Exact repetition and amortized construction counters | Foundation integrated |
+| 2 | Bytes / ByteBuffer | Managed buffer integrated through `22bde2d`; complete width inventory next | u16/u32/u64 requirements not yet all demonstrated | `tests/v3_byte_buffer_foundation.py` | Additive handles; legacy struct unchanged | Growth/copy counters | Foundation integrated |
+| 3 | Performance lab | Lab v2 and process containment integrated through `a252bb6` | Remaining benchmark categories and final CI registration | `tests/v3_performance_lab.py` | None | Measurement, no broad speed claim | Foundation integrated |
+| 4 | CLI / `+03` / LTO | Profiles and provenance cache v6 integrated | Final installed-payload/platform gates | `tests/v3_build_profiles.py`, freshness | None | O3/ThinLTO source-runtime builds | Foundation integrated |
+| 5 | Allocation observability | Word/builder/buffer counters exist; audit broader allocation coverage | System audit concurrency correction and remaining resource classes | Word and buffer deterministic counter fixtures | Test-controlled instrumentation | Enables work-based gates | Partial |
+| 6 | System runtime | Scalar APIs integrated at `dcdc0f0`; worker correcting ownership/thread/clock tests | Bootstrap env_var ownership, concurrent audit state, clock edges; process/fs/random still pending | `tests/v3_system_runtime_foundation.py` | Additive APIs | Unmeasured | Corrections required |
+| 7 | Networking floor | Managed TCP integrated at `6ccc2a5`; worker correcting HTTP/Win32/tests | Exclusive bind, host length guard, slow-client timeout, audit positive control | TCP and HTTP Ordnance tests | Additive socket handles; API marker 2 | Unmeasured | Corrections required |
+| 8 | COCKPIT V3 | Compatibility facade integrated at `38d2e3c`; independent review active | Close signal, event loss, nested layout; remaining widgets and actual native run | `tests/v3_cockpit_compat.py` | Uses existing UI/buffer mechanisms | Unmeasured | Corrections required |
+| 9 | ABI / preservation | API marker updated at `b735fc0`; strengthen old-payload tests | Final gate must consume actual installed CLI/runtime; all new gates need registration | Doctor/install/freshness plus lane tests | Frozen ABI 1, additive capability 2 | Gate only | Pending final evidence |
+| 10 | Hangar / Ordnance | Existing loader/install paths inspected; graph implementation pending | Structured process mechanism; immutable graph/native declaration contract | No new graph acceptance yet | Compiler remains registry-independent | Unmeasured | No |
+| 11 | Stdlib boundary | HTTP and COCKPIT remain packages; full std/novelty audit pending | Manifest/import graph work | No import-side-effect regression yet | Classification only | None | No |
+
+Current write ownership: the lead owns integration documentation, capability
+markers, audit guards, workflows, and final gates. The `system_correction`
+worker owns system-only changes in `v3-system-runtime-foundation` from
+`0e92ce5`; `network_correction` owns TCP/HTTP changes in
+`v3-networking-foundation` from `85728d2`. After completing its read-only review
+at `38d2e3c`, `cockpit_review` was explicitly reassigned as the COCKPIT worker
+in `v3-cockpit-compat` from `920da97`; it cannot independently review its fixes.
+Workers hand off commits; the lead resolves overlapping runtime and
+bootstrap hunks in the integration worktree. No worker may independently
+approve its own changes.
 
 ## First tranche dependency order
 
@@ -153,13 +164,13 @@ compiler architecture or semantics.
 
 ## Campaign-wide acceptance ledger
 
-- [ ] Exact repeated-word operation exists and is tested.
-- [ ] High-performance general word construction exists.
+- [x] Exact repeated-word operation exists and has focused C/LLVM tests.
+- [x] General word construction exists with deterministic growth tests.
 - [ ] ByteBuffer is production-grade.
 - [ ] Allocation and deterministic work counters exist.
-- [ ] Permanent performance lab exists.
-- [ ] `+03` exists as a FREAK optimization profile.
-- [ ] LTO/ThinLTO can be tested for release builds.
+- [x] Permanent performance lab exists; full category completion remains below.
+- [x] `+03` exists as a FREAK optimization profile.
+- [x] LTO/ThinLTO can be tested; final release-platform evidence remains pending.
 - [ ] Filesystem/process/time/environment primitives are stronger.
 - [ ] Networking floor supports a real HTTP server Ordnance.
 - [ ] COCKPIT runs on the real V3 `std::ui` surface.
@@ -170,3 +181,125 @@ compiler architecture or semantics.
 - [ ] Frozen ABI remains intact unless an explicitly approved revision exists.
 - [ ] Preservation and negative corpora remain intentional.
 - [ ] V3 remains recognizably V3.
+
+## Full requested to-do list and work record
+
+Updated 2026-09-04. Checked items below describe landed implementation or
+recorded focused evidence, not a claim that final CI/review/release gates pass.
+Unchecked items preserve the original campaign scope. Future-work sections in
+the request remain future work and are not silently pulled into this campaign.
+
+### Command, stability, and delivery
+
+- [x] Isolate the campaign from unrelated V4 work at the pinned base above.
+- [x] Classify additive runtime APIs separately from frozen layout ABI.
+- [x] Keep ordinary `word += word` rejected; approval has not been requested or granted.
+- [x] Integrate Word, ByteBuffer, performance lab, profiles, scalar systems,
+  managed TCP, and initial COCKPIT slices with their focused test programs.
+- [ ] Complete every remaining subsystem requirement below.
+- [ ] Update bible, conformance audit, public usage and ownership documentation
+  from executable behavior; guard appropriate contracts in the auditor.
+- [ ] Register all new executable gates in CI and the final installed-payload gate.
+- [ ] Run final preservation, negative, golden, C/LLVM, ownership, ABI,
+  installer/upgrade/freshness and release-shaped checks on the final integrated SHA.
+- [ ] Complete lead self-review and independent review of that immutable SHA;
+  disposition all actionable findings.
+- [ ] Push the topic branch and open the requested **ready, non-draft PR**.
+  The user's explicit non-draft request overrides the default draft workflow;
+  it does not waive correctness or merge gates.
+- [ ] Set occasional comment/CI monitoring; remain quiet on unchanged state.
+- [ ] Address comments and CI failures, refresh review evidence after changes,
+  and merge only once all applicable gates pass.
+- [ ] Publish an agreed new version after practical tests and merge.
+  Remote `v0.14.1` already exists at the campaign base (reverified 2026-09-04);
+  do not move that tag. A replacement version choice is pending with the user.
+- [ ] Deliver the PR/merge/tag links and the completed-versus-pending checklist.
+
+### Word and memory
+
+- [x] Implement exact repeated construction with checked size, explicit
+  nonpositive-count behavior, UTF-8 byte preservation and owned return values.
+- [x] Implement generation-checked builder new/with_capacity/reserve/capacity/
+  length/clear/append/append_char/append_int/finish/discard and explicit lifetime.
+- [ ] Audit builder valid-byte append requirements against the final API.
+- [ ] Audit and optimize avoidable allocations in join, replace, split, find,
+  count, trim, starts_with, ends_with, substring, interpolation and conversions.
+- [ ] Record 1M/100M dynamic append and exact repetition comparison evidence;
+  distinguish same algorithm from idiomatic fast construction.
+- [x] Add deterministic repetition/builder/buffer work counters and ownership probes.
+- [ ] Complete allocations/frees/outstanding/reallocations/allocated and freed
+  bytes/peak live bytes/copies/append/growth coverage with low production overhead.
+- [ ] Complete leak/stress fixtures for collections, filesystem and networking
+  buffers alongside concat, replacement, interpolation, builder and repetition.
+- [ ] Verify concurrent environment snapshots cannot race ownership audit state.
+
+### Binary foundation
+
+- [x] Implement managed ByteBuffer lifetime, capacity/cursor operations, sticky
+  status, bounds checking, copying slices and validated NUL-free UTF-8 conversion.
+- [x] Correct release validation and slice behavior across handle-table growth.
+- [ ] Complete and test explicit u16/u32/u64 LE/BE reads and writes, binary
+  writes, seek/remaining/truncate and justified signed/float encodings.
+- [ ] Record large-buffer and growth-complexity evidence as well as endian,
+  malformed-text, bounds, lifetime and cross-backend coverage.
+- [x] Investigate views: copied slices retain explicit ownership; borrowed views
+  are not introduced without a safe lifetime contract in existing V3 semantics.
+
+### Performance lab and build profiles
+
+- [x] Implement machine-readable benchmark metadata/results and deterministic
+  checksums/work counts with compiler/profile/toolchain/linker provenance.
+- [x] Harden benchmark subprocess containment, bounded output and timing evidence.
+- [x] Implement strict O0-O3/+03 and LTO option parsing, source-runtime LTO,
+  semantics-preserving defaults and cache schema v6 invalidation.
+- [ ] Complete requested words, bytes, collections, JSON, filesystem, process,
+  startup, TCP echo, HTTP plaintext and HTTP JSON benchmark categories.
+- [ ] Complete requested timing/throughput/RSS/allocation/copy/binary-size/compile
+  measurements; unavailable platform measurements must be explicit.
+- [ ] Verify one core command and deterministic regression gates in CI across
+  O0/O1/O2/O3/+03, with full/ThinLTO evidence where supported.
+
+### System runtime and networking
+
+- [x] Add separate epoch wall clock and monotonic nanosecond clock plus PID,
+  copied environment lookup and environment mutation.
+- [ ] Close bootstrap owned-environment rejection and clock boundary findings.
+- [ ] Strengthen filesystem rename/copy/metadata/size/canonical/temp/directory
+  operations, explicit errors, hostile paths and Unicode path tests.
+- [ ] Implement structured process spawn/wait/status/stdout/stderr/stdin/
+  environment/cwd mechanisms without shell argument interpolation.
+- [ ] Complete environment/path join/absolute/separator/executable path helpers.
+- [ ] Separate pseudo-random values from OS secure random bytes and test failures.
+- [x] Add managed TCP connect/listen/accept/send/receive/close/status/options floor.
+- [ ] Close Windows binding, oversized host and slow-client review findings;
+  verify repeated/large/partial traffic and exact leaked-socket audit control.
+- [ ] Document and test C length-bearing versus LLVM NUL-terminated word
+  boundaries without claiming identical behavior for non-equivalent raw inputs.
+- [ ] Run real clean-project Hangar net/http/json HTTP-200 JSON acceptance on
+  Windows and Linux; TLS remains outside the first milestone.
+
+### COCKPIT and package ecosystem
+
+- [x] Replace unsupported Squad/window-poll assumptions with buffer storage and
+  indexed std::ui events; add initial widgets and calculator/showcase sources.
+- [ ] Fix close handling, ordered input, Unicode deletion, nested layout gaps,
+  allocated rectangle bounds, missing calculator addition and Clang selection.
+- [ ] Finish button/label/checkbox/input/slider/panel/scrolling/dropdown/tooltip/
+  modal/layout stack on frozen UI mechanisms.
+- [ ] Deliver usable calculator, settings and widget showcase examples with
+  bounded smoke mode separate from normal interactive operation.
+- [ ] Run injected-event C/LLVM tests and a real bounded Windows window lifecycle.
+- [ ] Inventory required clipboard/title/sizing/DPI/clipping/keyboard/image
+  mechanisms; add compatible primitives only where the requested UI needs them.
+- [ ] Define canonical Ordnance manifests, stable locks, transitive closure,
+  deterministic source roots/build order and immutable compiler graph input.
+- [ ] Implement integrity-checked fetch/cache and declarative native sources,
+  headers/objects/libraries/platform linkage without install-time scripts.
+- [ ] Replace unsafe/fail-open legacy package fetching and source loading;
+  test hostile paths, corrupt inputs and atomic failure recovery.
+- [ ] Complete clean init/add/resolve/lock/fetch/native-build/FREAK-build/link/run
+  acceptance, keeping registry/download/SemVer logic outside the compiler.
+- [ ] Audit std/runtime versus domain-specific Ordnance ownership, including
+  novelty packages; imports must not run showcase programs.
+- [ ] Keep broader TLS/GPU/Android/additional platform/package roadmap work in
+  the explicitly requested future list rather than expanding the current sprint.
