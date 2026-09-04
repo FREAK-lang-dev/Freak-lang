@@ -212,6 +212,7 @@ def main() -> int:
         for marker_value in (
             None,
             "freak-v3-runtime-api-1\n",
+            "freak-v3-runtime-api-2\n",
             "freak-v3-runtime-api-999\n",
         ):
             if marker_value is None:
@@ -249,7 +250,7 @@ def main() -> int:
             Path(str(cold_binary) + ".freak-run-cache"),
         )
         try:
-            for marker_value in (None, "freak-v3-runtime-api-1\n"):
+            for marker_value in (None, "freak-v3-runtime-api-1\n", "freak-v3-runtime-api-2\n"):
                 if marker_value is None:
                     runtime_api.unlink()
                 else:

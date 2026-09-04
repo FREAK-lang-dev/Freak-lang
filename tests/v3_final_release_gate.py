@@ -788,6 +788,8 @@ def main() -> int:
             )
             for label, script in (
                 ("word repetition and builder", "v3_word_foundation.py"),
+                ("Word embedded-NUL parity", "v3_word_length_parity.py"),
+                ("strict builtin handle borrows", "v3_strict_handle_borrows.py"),
                 ("managed ByteBuffer", "v3_byte_buffer_foundation.py"),
                 ("system runtime", "v3_system_runtime_foundation.py"),
                 ("managed TCP sockets", "v3_tcp_socket_foundation.py"),

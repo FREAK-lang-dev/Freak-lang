@@ -46,7 +46,7 @@ compiler architecture or semantics.
   clearly when unsupported rather than silently degrading to packaged O2
   objects.
 - Runtime layout/signature ABI remains `freak-v3-abi-1`. Additive runtime APIs
-  carry the separate monotonic `freak-v3-runtime-api-2` capability marker. A
+  carry the separate monotonic `freak-v3-runtime-api-3` capability marker. A
   compiler requiring a newer capability must reject an older same-ABI payload
   before emission/linking.
 - Standard-library source helpers carry `std/freak_std_api`, currently
@@ -397,3 +397,57 @@ for external review, not as an assertion that the merge gates have passed.
   import-hygiene children with its selected runtime. UI pixels and native
   windows execute on Windows; other platforms retain lowering/replay coverage.
   Muvluv's test is LLVM-only; earlier C/LLVM wording was incorrect and corrected.
+
+### Review-repair checkpoint: 2026-09-05
+
+This checkpoint supersedes earlier in-flight ownership and repair statements.
+
+- [x] Restore the shared bootstrap `transpile` three-value API; the structured
+  four-value API is now `transpile_checked` (`a577726`). Focused success,
+  parse/type/emission-error and warning cases passed; independent review clean.
+  No V4 source or harness changes were required.
+- [x] Replace stale UI preservation assertions and root documentation with the
+  actual procedural COCKPIT boundary (`25a2a02`). Native UI floor test passed;
+  independent review clean. Final platform CI is still pending.
+- [x] Fix ordered text-focus replay and failed container pushes (`e5ee8fd`).
+  Independent event permutations and native C/LLVM lifecycle tests passed.
+- [x] Integrate embedded-NUL Word lengths (`ad33837`, original `4dd3ba4`).
+  Registry, transforms, builders, files/input/capture, socket/env validation and
+  ownership tests passed on C and LLVM. Independent all-byte transfer/clone/
+  forced-moving append probes passed. Unknown foreign pointers retain their
+  historical C-string interpretation; the public layout ABI remains 1.
+- [x] Rebuild from the checked-in bootstrap seed with runtime capability 3.
+  Explicit checker annotation repairs the seed-inference failure (`153e8e8`).
+  API-1/API-2 cold/warm rejection and cache recovery passed, as did integrated
+  Word parity and strict-handle baseline tests. New helpers require API 3 and
+  standard-library capability 1; an old payload must not reach a linker error.
+- [x] Emit `process::set_env` with a void LLVM call (`05b0afc`). Full system
+  runtime gate and an explicit emitted-signature assertion passed.
+- [ ] Finish strict-borrow review repair: basic builtin borrowing and consuming
+  `word_join` are implemented, but nested consumers can invalidate an outer
+  borrowed argument/ByteBuffer receiver. `system_correction` owns that isolated
+  checker/test correction; it cannot independently approve its own patch.
+- [ ] Finish damaged standard-library marker handling: a directory or unreadable
+  marker currently aborts before Doctor JSON/repair. `network_correction` owns
+  the isolated recoverable marker-reader and regression; lead reviews it.
+- [ ] Finish calculator division-by-zero and malformed HTTP-field handling.
+  `cockpit_review` owns these isolated package/test corrections. The claimed
+  HTTP Content-Length defect was rejected with byte evidence: the body is
+  exactly 28 bytes, matching the current header; do not change it to 27.
+- [ ] Disposition remaining external comments, including benchmark argument
+  bounds, cross-target `+03` guidance, the linker identity probe timeout, UI
+  symbol documentation and review nitpicks. Reproduce each against current code.
+- [ ] Push the coherent reviewed repair set, inspect all new current-head CI and
+  review results, and rerun the complete final installed archive gate. The PR
+  remains non-draft for review, not merge-ready. Hourly monitoring is active.
+- [ ] Complete the original campaign requirements still unchecked above,
+  including wider ByteBuffer APIs, remaining benchmark/resource/system work and
+  immutable Hangar/native-package end-to-end delivery. These are not waived by
+  opening a PR. No merge or release tag has been created.
+
+PR91 overlap is recorded, not imported: reviewed head `12c4352e8598c7eff9f0d9441314232d0383c3b6`
+adds recoverable Word registry reservation and owned snapshot arrays. Any later
+integration must retain dynamic-NUL lengths in its LLVM splitter, check reserve
+failure before bucket access, preserve caller ownership on failed adoption,
+and carry the snapshot-array ownership/reuse changes atomically. It requires
+fresh integrated tests and independent review; no local V4 checks were run here.
