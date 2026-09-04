@@ -3054,10 +3054,12 @@ task v4_unit_snapshot_ty_context_matches(payload: word) -> bool {
     -- actual component/unit restores must still issue fresh identities.
     pilot rollback_generation = v4_session_semantic_restore_generation()
     pilot rollback_expansion_count = v4_expand_file_count()
-    pilot rollback_expansion_generations = ""
+    -- Request-scoped scratch stores only active slots and is released at the
+    -- common exit, including failed target probes or failed rollback.
+    pilot rollback_expansion_generations = array_new()
     pilot expansion_slot = 0
     repeat until expansion_slot >= rollback_expansion_count {
-        rollback_expansion_generations = rollback_expansion_generations + "|" + word_from_int(v4_expand_generation(expansion_slot))
+        array_push(rollback_expansion_generations, word_from_int(v4_expand_generation(expansion_slot)))
         expansion_slot += 1
     }
     pilot target_context_ok = v4_unit_snapshot_restore_parent_context(payload)
@@ -3069,11 +3071,13 @@ task v4_unit_snapshot_ty_context_matches(payload: word) -> bool {
     if rollback_ok {
         expansion_slot = 0
         repeat until expansion_slot >= rollback_expansion_count {
-            array_set(v4_expand_generations, expansion_slot, v4_unit_snapshot_field_raw(rollback_expansion_generations, expansion_slot + 1))
+            pilot slot_generation: word = array_get(rollback_expansion_generations, expansion_slot)
+            array_set(v4_expand_generations, expansion_slot, slot_generation)
             expansion_slot += 1
         }
         v4_session_semantic_restore_generation_value = rollback_generation
     }
+    array_release(rollback_expansion_generations)
     give back target_context_ok and target_ty_ok and rollback_ok
 }
 
