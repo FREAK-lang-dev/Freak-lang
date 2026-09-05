@@ -673,3 +673,29 @@ statements above. Historical test results remain tied to their recorded heads.
 - [ ] Recheck fresh CI and reviews after publishing the scoped linker-test fix.
   Duplicate linker-prefix report `3940401461` matches this correction, but its
   real-platform validation remains pending. All other open review gates remain.
+
+### CI platform repair checkpoint (`a63b9b3` and follow-up)
+
+- [x] Confirm all V4 jobs and the complete Ubuntu shipping job passed at
+  `a63b9b3` (runs `33964531919` and `33964531927`). macOS also passed build
+  profiles and performance-lab execution; Windows selected the intended
+  controlled MSVC linker before exposing its missing adjacent PDB DLLs.
+- [x] Complete the explicitly coordinated local `a63b9b3` build-profile and
+  performance-lab gates with the exact retained CLI and pinned LLVM-MinGW.
+  Session 56957 ended with both suites passing, `CHECK_EXIT=0` and mutex release.
+  This does not substitute for Windows CI's distinct MSVC toolchain.
+- [x] Integrate the independently reviewed MSVC fixture correction (`922b614`):
+  copy matching adjacent PDB/object/runtime helpers from the selected linker
+  directory. Eight pure helper tests pass; selection and cache assertions remain.
+- [x] Integrate POSIX marker transport normalization (`a94719d`): strip only
+  `od` formatting whitespace after a successful read, preserving fail-closed
+  framing and the 4096-byte decoded limit. Six source/model tests pass and are
+  registered in CI. They are not actual shell or rebuilt-CLI execution evidence.
+- [ ] Obtain fresh all-platform CI for these corrections. macOS previously
+  failed the actual inclusive 4096-byte std-marker case near the end of the
+  release-shaped gate; Windows previously failed loading `mspdbcore.dll`.
+  A fresh CLI is required for the changed POSIX reader.
+- [ ] Triage and disposition new review reports `3940496144` (discarded owned
+  resource expressions) and `3940496147` (LLVM adoption length on 32-bit targets),
+  plus refreshed worker-exception transport reports. These remain review work,
+  not evidence that the original campaign or release gates are complete.

@@ -215,6 +215,7 @@ jobs:
           python -B -u tests/test_v3_build_profiles_helpers.py
           python -B -u tests/test_v3_performance_process_state.py
           python -B -u tests/test_v3_performance_platform_helpers.py
+          python -B -u tests/v3_std_marker_transport.py
 
       - name: Test - V3 build profiles and LTO
         shell: bash
