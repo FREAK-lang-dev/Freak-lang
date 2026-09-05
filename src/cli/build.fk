@@ -1152,6 +1152,73 @@ task cli_payload_runtime_api_ok(runtime_dir: word) -> bool {
     give back cli_payload_runtime_api_value(runtime_dir) == FREAK_V3_RUNTIME_API
 }
 
+-- Marker transport is ASCII hex, never raw process output: Windows text-mode
+-- capture treats Ctrl-Z as EOF. Bound both the binary read and decoded marker
+-- to 4096 bytes, and require a complete success frame before trusting any byte.
+task cli_std_marker_path_hex(path: word) -> word {
+    pilot bytes = ByteBuffer::new()
+    bytes.write_word(path)
+    bytes.seek(0)
+    pilot digits = "0123456789abcdef"
+    pilot encoded = ""
+    repeat until bytes.remaining() == 0 {
+        pilot value = bytes.read_byte()
+        encoded = encoded + digits.char_at(value / 16) + digits.char_at(value % 16)
+    }
+    bytes.release()
+    give back encoded
+}
+
+task cli_std_marker_hex_digit(ch: word) -> int {
+    pilot digits = "0123456789abcdef"
+    pilot lower = ch.to_lower()
+    pilot i = 0
+    repeat until i >= 16 {
+        if digits.char_at(i) == lower { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task cli_std_marker_decode(frame: word) -> word {
+    if frame == "" or frame == "FREAK_STD_UNREADABLE" { give back "unreadable" }
+    if frame.length() > 16432 { give back "oversized-marker" }
+    if not frame.starts_with("FREAK_STD_HEX:") or not frame.ends_with(":END") { give back "invalid-marker" }
+    pilot contents = ""
+    pilot high = 0 - 1
+    pilot count = 0
+    pilot invalid = false
+    pilot i = 14
+    repeat until i >= frame.length() - 4 {
+        pilot ch = frame.char_at(i)
+        if ch != " " and ch != "\t" and ch != "\r" and ch != "\n" {
+            pilot digit = cli_std_marker_hex_digit(ch)
+            if digit < 0 { give back "invalid-marker" }
+            if high < 0 {
+                high = digit
+            } else {
+                pilot value = high * 16 + digit
+                high = 0 - 1
+                count += 1
+                if count > 4096 { give back "oversized-marker" }
+                if (value < 32 and value != 9 and value != 10 and value != 13) or value > 126 {
+                    invalid = true
+                } else {
+                    contents = contents + char_to_word(value)
+                }
+            }
+        } else if high >= 0 { give back "invalid-marker" }
+        i += 1
+    }
+    if high >= 0 or invalid { give back "invalid-marker" }
+    if count == 0 { give back "unreadable" }
+    contents = contents.trim()
+    -- Only edge whitespace is accepted. Interior controls are not valid
+    -- capability tokens and must never reach Doctor's JSON diagnostics.
+    if contents.contains("\t") or contents.contains("\r") or contents.contains("\n") { give back "invalid-marker" }
+    give back contents
+}
+
 task cli_payload_std_api_value(std_dir: word) -> word {
     if std_dir == "" { give back "missing" }
     if cli_payload_is_resolution_error(std_dir) { give back "resolution-error" }
@@ -1160,13 +1227,17 @@ task cli_payload_std_api_value(std_dir: word) -> word {
     -- fs::read aborts the process on read errors, which would prevent Doctor
     -- from emitting JSON or reaching repair for a damaged selected payload.
     -- Read through a nonfatal operation; never fall back to another payload.
-    if cli_is_windows() { marker = marker.replace("/", "\\") }
     pilot quoted = cli_quote_cmd_path(marker)
-    pilot command = "if [ -f " + quoted + " ] && [ -r " + quoted + " ]; then cat " + quoted + " 2>/dev/null; fi"
-    if cli_is_windows() { command = "type " + quoted + " 2>nul" }
-    pilot contents = process::exec_capture(command)
-    if contents == "" { give back "unreadable" }
-    give back contents.trim()
+    pilot command = "if [ -f " + quoted + " ] && [ -r " + quoted + " ]; then bytes=$(LC_ALL=C od -An -v -tx1 -N 4097 2>/dev/null < " + quoted + ") && printf 'FREAK_STD_HEX:%s:END' \"$bytes\"; fi"
+    if cli_is_windows() {
+        -- Encode the path independently so %, &, quotes and apostrophes never
+        -- become shell/PowerShell syntax. A bounded stream also avoids a
+        -- size-check/ReadAllBytes race with a concurrently growing marker.
+        pilot path_hex = cli_std_marker_path_hex(marker.replace("/", "\\"))
+        pilot script = "$h='" + path_hex + "';$pbytes=New-Object byte[] ($h.Length/2);for($i=0;$i -lt $pbytes.Length;$i++){$pbytes[$i]=[Convert]::ToByte($h.Substring($i*2,2),16)};$p=[Text.Encoding]::UTF8.GetString($pbytes);try{$s=[IO.File]::OpenRead($p);try{$b=New-Object byte[] 4097;$n=0;while($n -lt 4097){$r=$s.Read($b,$n,4097-$n);if($r -eq 0){break};$n+=$r}}finally{$s.Dispose()};[Console]::Write('FREAK_STD_HEX:'+([BitConverter]::ToString($b,0,$n).Replace('-',''))+':END')}catch{[Console]::Write('FREAK_STD_UNREADABLE')}"
+        command = "powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"" + script + "\" 2>nul"
+    }
+    give back cli_std_marker_decode(process::exec_capture(command))
 }
 
 task cli_payload_std_api_ok(std_dir: word) -> bool {

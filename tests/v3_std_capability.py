@@ -64,6 +64,55 @@ def damaged_marker(marker: Path, kind: str):
         marker.chmod(original_mode)
 
 
+def check_marker_decoder(repo: Path, root: Path, invoke) -> None:
+    """Exercise the actual reader's decoder, including failed transport frames."""
+    implementation = (repo / "src/cli/build.fk").read_text(encoding="utf-8")
+    helpers = implementation[implementation.index("task cli_std_marker_path_hex("):
+                             implementation.index("task cli_payload_std_api_value(")]
+    token = b"freak-v3-std-api-1"
+    frame = lambda data: "FREAK_STD_HEX:" + data.hex() + ":END"
+    cases = [
+        (frame(token), token.decode()),
+        (frame(b" \t" + token + b"\r\n"), token.decode()),
+        (frame(b""), "unreadable"),
+        ("", "unreadable"),
+        ("FREAK_STD_UNREADABLE", "unreadable"),
+        (frame(token)[:-1], "invalid-marker"),
+        (frame(token) + "extra", "invalid-marker"),
+        ("FREAK_STD_HEX:6:END", "invalid-marker"),
+        ("FREAK_STD_HEX:6 1:END", "invalid-marker"),
+        ("FREAK_STD_HEX:GG:END", "invalid-marker"),
+        ("FREAK_STD_HEX:61 \n62\t43:END", "abC"),
+        (frame(token + b"\tinside"), "invalid-marker"),
+        (frame(token + b"\ninside"), "invalid-marker"),
+        (frame(b"x" * 4096), "x" * 4096),
+        (frame(b"x" * 4097), "oversized-marker"),
+        (frame(b"x" * 8210), "oversized-marker"),
+    ]
+    # Every byte is classified after transport decoding, not just the byte
+    # patterns that triggered the original Windows Ctrl-Z regression.
+    for byte in range(256):
+        data = token + bytes([byte]) + b"end"
+        expected = data.decode("ascii") if 32 <= byte <= 126 else "invalid-marker"
+        cases.append((frame(data), expected))
+    program = helpers + "\ntask main() {\n"
+    for encoded, _ in cases:
+        program += "say cli_std_marker_decode(" + json.dumps(encoded) + ")\n"
+    program += 'say cli_std_marker_path_hex("path %HOME% & quote \' ")\n}\n'
+    source = root / "marker_decoder.fk"
+    source.write_text(program, encoding="utf-8")
+    for backend in ("--c", "--llvm"):
+        built = invoke("build", str(source), backend)
+        assert built.returncode == 0, built.stdout + built.stderr
+        binary = source.with_suffix(".exe" if sys.platform == "win32" else "")
+        run = subprocess.run([str(binary)], cwd=root, capture_output=True,
+                             text=True, encoding="utf-8", timeout=30)
+        assert run.returncode == 0, run.stdout + run.stderr
+        assert run.stdout.splitlines() == [value for _, value in cases] + [
+            b"path %HOME% & quote ' ".hex()], run.stdout + run.stderr
+    print("PASS C/LLVM exact marker decoder: framing, all 256 bytes, path encoding, 4096-byte bound")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("freak", nargs="?", type=Path)
@@ -108,6 +157,7 @@ def main() -> int:
             fix.chmod(0o755)
         env["FREAK_UPGRADE_SCRIPT"] = str(fix)
 
+        check_marker_decoder(repo, root, invoke)
         for backend in ("--c", "--llvm"):
             warm = root / f"warm{backend}.fk"
             cold = root / f"cold{backend}.fk"
@@ -185,6 +235,47 @@ def main() -> int:
                 recovered = invoke("run", str(warm), backend)
                 assert recovered.returncode == 0 and "run cache hit" in recovered.stdout, recovered.stdout + recovered.stderr
                 assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in (binary, proof)] == saved
+            token = expected_text.encode("ascii")
+            malformed = []
+            for control in (b"\x00", b"\x01", b"\x1a", b"\x1f", b"\x7f", b"\xff"):
+                for position in (0, len(token) // 2, len(token)):
+                    malformed.append((token[:position] + control + token[position:], "invalid-marker"))
+            malformed.extend([(b"", "unreadable"),
+                              (token + b" " * (4097 - len(token)), "oversized-marker"),
+                              (token + b"\x1a" + b"x" * (1024 * 1024), "oversized-marker")])
+            for data, diagnostic in malformed:
+                marker.write_bytes(data)
+                report = invoke("doctor", "--json")
+                assert report.returncode != 0, report.stdout + report.stderr
+                document = json.loads(report.stdout)
+                assert document["checks"]["stdlib_api"] == {
+                    "ok": False, "expected": expected_text, "stdlib": diagnostic,
+                }, document
+                for operation in ("build", "run"):
+                    rejected = invoke(operation, str(cold), backend)
+                    output = rejected.stdout + rejected.stderr
+                    assert rejected.returncode != 0 and "stdlib api mismatch" in output.lower(), output
+                    assert "STD_API_COLD_EXECUTED" not in output, output
+                    assert list(root.glob(cold.name + ".*")) == []
+                    assert not cold.with_suffix(".exe" if sys.platform == "win32" else "").exists()
+                rejected = invoke("run", str(warm), backend)
+                output = rejected.stdout + rejected.stderr
+                assert rejected.returncode != 0 and "stdlib api mismatch" in output.lower(), output
+                assert "STD_API_EXECUTED" not in output and "run cache hit" not in output, output
+                ineffective = invoke("doctor", "--fix")
+                output = ineffective.stdout + ineffective.stderr
+                assert ineffective.returncode != 0 and "Stdlib API mismatch" in output, output
+                assert "Repairing the compiler/runtime/stdlib payload" in output, output
+                assert "compile, link, and execution work" not in output, output
+                assert marker.read_bytes() == data
+                assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in (binary, proof)] == saved
+            # The limit is inclusive; ordinary edge whitespace remains valid.
+            marker.write_bytes(token + b" " * (4096 - len(token)))
+            recovered = invoke("run", str(warm), backend)
+            assert recovered.returncode == 0 and "run cache hit" in recovered.stdout, recovered.stdout + recovered.stderr
+            assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in (binary, proof)] == saved
+            marker.write_bytes(expected)
+            print(f"PASS {backend} binary marker rejection/JSON/no-op repair/cache preservation")
         print("PASS C/LLVM cold build/run and warm-cache std API rejection/recovery; layout ABI unchanged")
 
         # Doctor --fix must detect an incompatible present marker as well as
