@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -125,7 +126,7 @@ def main() -> int:
     parser.add_argument("cli", nargs="?", type=Path,
                         help="exact-source CLI; omit for checked-in-seed/stage1/stage2/full-CLI bootstrap")
     parser.add_argument("--runtime-root", type=Path)
-    parser.add_argument("--clang", default=shutil.which("clang"))
+    parser.add_argument("--clang", default=os.environ.get("FREAK_CLANG") or shutil.which("clang"))
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     runtime = (args.runtime_root or repo / "freakc/runtime").resolve()
