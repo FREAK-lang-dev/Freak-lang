@@ -94,6 +94,19 @@ class WindowsJob:
                 "ReadTransferCount", "WriteTransferCount", "OtherTransferCount",
             )]
 
+        class BasicAccounting(ctypes.Structure):
+            _fields_ = [
+                (name, ctypes.c_int64) for name in (
+                    "TotalUserTime", "TotalKernelTime", "ThisPeriodTotalUserTime",
+                    "ThisPeriodTotalKernelTime",
+                )
+            ] + [
+                (name, wintypes.DWORD) for name in (
+                    "TotalPageFaultCount", "TotalProcesses", "ActiveProcesses",
+                    "TotalTerminatedProcesses",
+                )
+            ]
+
         class ExtendedLimits(ctypes.Structure):
             _fields_ = [
                 ("BasicLimitInformation", BasicLimits),
@@ -107,6 +120,7 @@ class WindowsJob:
         self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         self.ntdll = ctypes.WinDLL("ntdll")
         self.info_type = ExtendedLimits
+        self.accounting_type = BasicAccounting
         self.kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
         self.kernel32.CreateJobObjectW.restype = wintypes.HANDLE
         self.kernel32.SetInformationJobObject.argtypes = [
@@ -127,6 +141,8 @@ class WindowsJob:
         self.kernel32.TerminateJobObject.restype = wintypes.BOOL
         self.kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         self.kernel32.CloseHandle.restype = wintypes.BOOL
+        self.kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        self.kernel32.WaitForSingleObject.restype = wintypes.DWORD
         self.ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
         self.ntdll.NtResumeProcess.restype = ctypes.c_long
         self.ntdll.RtlNtStatusToDosError.argtypes = [ctypes.c_long]
@@ -168,10 +184,36 @@ class WindowsJob:
         if self.handle:
             self.kernel32.TerminateJobObject(self.handle, 1)
 
+    def wait_process(self, process: subprocess.Popen[bytes]) -> None:
+        # kill() can cache an exit code during asynchronous job termination.
+        # Popen.wait() then short-circuits before Windows releases file handles.
+        wait = self.kernel32.WaitForSingleObject(process._handle, 5000)
+        if wait == 0xFFFFFFFF:
+            raise ctypes.WinError(ctypes.get_last_error())
+        if wait != 0:
+            raise RuntimeError("owned Windows process did not signal termination within 5s")
+
     def close(self) -> None:
         if self.handle:
-            self.kernel32.CloseHandle(self.handle)
-            self.handle = None
+            try:
+                # Kill-on-close is asynchronous. Wait for this owned job's
+                # descendants before deleting capture files or their cwd.
+                self.terminate()
+                deadline = time.monotonic() + 5
+                while True:
+                    info = self.accounting_type()
+                    if not self.kernel32.QueryInformationJobObject(
+                        self.handle, 1, ctypes.byref(info), ctypes.sizeof(info), None
+                    ):
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    if info.ActiveProcesses == 0:
+                        break
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("owned Windows process job did not terminate within 5s")
+                    time.sleep(0.01)
+            finally:
+                self.kernel32.CloseHandle(self.handle)
+                self.handle = None
 
 
 @contextmanager
@@ -288,11 +330,24 @@ def _terminate_process_tree(
             pass
     if process.poll() is None:
         process.kill()
+    if windows_job is not None:
+        windows_job.wait_process(process)
     process.wait()
 
 
 def _owns_posix_process_group(on_windows: bool, inherit: bool) -> bool:
     return not on_windows and not inherit
+
+
+def _read_capture_bytes(path: Path, maximum: int, *, tail: bool = False) -> bytes:
+    """Never allocate an entire capture after its producer exceeds a limit."""
+    if maximum < 0:
+        raise ValueError("capture read bound must be nonnegative")
+    with path.open("rb") as captured:
+        if tail:
+            captured.seek(0, os.SEEK_END)
+            captured.seek(max(0, captured.tell() - maximum))
+        return captured.read(maximum)
 
 
 def run_bounded(
@@ -392,17 +447,28 @@ def run_bounded(
                         process, windows_job, owns_posix_process_group
                     )
                 if windows_job is not None:
-                    windows_job.close()
+                    try:
+                        windows_job.close()
+                    finally:
+                        windows_job.wait_process(process)
 
-        stdout_bytes = stdout_path.read_bytes()
-        stderr_bytes = stderr_path.read_bytes()
-        if len(stdout_bytes) > output_limit or len(stderr_bytes) > output_limit:
+        if stdout_path.stat().st_size > output_limit or stderr_path.stat().st_size > output_limit:
             failure = failure or f"output limit exceeded: {output_limit_mb}MB per stream"
+        stdout_bytes = b""
+        stderr_bytes = b""
+        if not failure:
+            # The extra byte detects growth after stat without an unbounded read.
+            stdout_bytes = _read_capture_bytes(stdout_path, output_limit + 1)
+            stderr_bytes = _read_capture_bytes(stderr_path, output_limit + 1)
+            if len(stdout_bytes) > output_limit or len(stderr_bytes) > output_limit:
+                failure = f"output limit exceeded: {output_limit_mb}MB per stream"
         if failure:
+            stdout_tail = _read_capture_bytes(stdout_path, 2000, tail=True)
+            stderr_tail = _read_capture_bytes(stderr_path, 2000, tail=True)
             raise RuntimeError(
                 f"{' '.join(command)}: {failure}\n"
-                f"stdout-tail={stdout_bytes[-2000:].decode('utf-8', errors='replace')}\n"
-                f"stderr-tail={stderr_bytes[-2000:].decode('utf-8', errors='replace')}"
+                f"stdout-tail={stdout_tail.decode('utf-8', errors='replace')}\n"
+                f"stderr-tail={stderr_tail.decode('utf-8', errors='replace')}"
             )
         return BoundedResult(
             command=tuple(command),

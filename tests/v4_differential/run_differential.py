@@ -85,6 +85,7 @@ from campaign_probe import (  # noqa: E402
     run_bounded,
     stable_word_checksum,
     v4_host_mutex,
+    _read_capture_bytes,
 )
 
 
@@ -424,6 +425,7 @@ def _classify_v3(result: BoundedResult) -> CompilerObservation:
     error_lines = sum(
         1 for line in output.splitlines() if line.strip().lower().startswith(("error:", "fatal:"))
     )
+    fatal_lines = any(line.strip().lower().startswith("fatal:") for line in output.splitlines())
     # Bind acceptance to the shipping CLI's completed check protocol, not an
     # exit status or words quoted in diagnostics. Both glyph and ASCII modes
     # have the same phase order and terminal contract (src/cli/main.fk).
@@ -441,7 +443,9 @@ def _classify_v3(result: BoundedResult) -> CompilerObservation:
             events.append(phase.group(1))
         elif terminal is not None:
             events.append(terminal.group(1) or "passed")
-    if result.returncode == 1 and events == [*phase_names, "type/borrow"]:
+    if fatal_lines:
+        diagnostic_class = "tool"
+    elif result.returncode == 1 and events == [*phase_names, "type/borrow"]:
         diagnostic_class = "type"
     elif result.returncode == 1 and events == [*phase_names[:2], "syntax"]:
         diagnostic_class = "syntax"
@@ -686,6 +690,29 @@ def self_test(manifest_path: Path) -> None:
     for code, stdout, stderr in rejected_protocols:
         observation = classify(code, stdout, stderr)
         assert not observation.accepted and observation.diagnostic_class == "tool", observation
+    for rejected_output in (syntax_failed, type_failed):
+        assert classify(1, rejected_output, "fatal: allocation failed\n").diagnostic_class == "tool"
+        assert classify(1, rejected_output + "fatal: allocation failed\n").diagnostic_class == "tool"
+
+    # A fast producer may overshoot the poll limit. Success and failure reads
+    # must remain bounded even when captures are much larger than that limit.
+    with tempfile.TemporaryDirectory(prefix="freak-capture-bound-test-") as temporary:
+        capture = Path(temporary) / "large.bin"
+        with capture.open("wb") as stream:
+            stream.write(b"first")
+            stream.seek(16 * 1024 * 1024)
+            stream.write(b"last")
+        assert _read_capture_bytes(capture, 5) == b"first"
+        assert _read_capture_bytes(capture, 4, tail=True) == b"last"
+        assert _read_capture_bytes(capture, 0) == b""
+        command = [sys.executable, "-c", "import os; os.write(1, b'x' * (2 * 1024 * 1024)); os.write(2, b'capture-end')"]
+        try:
+            run_bounded(command, cwd=Path(temporary), output_limit_mb=1, memory_limit_mb=128)
+        except RuntimeError as exc:
+            assert "output limit exceeded" in str(exc), str(exc)
+            assert len(str(exc)) < 5000, "output-limit diagnostics retained the full capture"
+        else:
+            raise AssertionError("oversized process output was accepted")
     print(
         f"differential manifest self-test: PASS cases={len(document['cases'])} "
         f"declared-categories={len(FIXTURE_CATEGORY_ORDER)}"
