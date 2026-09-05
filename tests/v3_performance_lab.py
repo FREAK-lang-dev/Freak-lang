@@ -93,6 +93,31 @@ def _process_is_running(pid: int) -> bool:
         return False
     except PermissionError:
         return True
+    if sys.platform.startswith("linux"):
+        # kill(pid, 0) also succeeds for an exited, unreaped child. A zombie
+        # cannot execute or escape containment; waiting for an unrelated PID 1
+        # to reap it makes the oracle fail spuriously in Linux containers.
+        try:
+            with open(f"/proc/{pid}/stat", "rb") as status_file:
+                status = status_file.read(4097)
+        except OSError:
+            # Includes exit/reap races and restricted or unavailable procfs.
+            # Keep the successful kill probe authoritative until the next poll.
+            return True
+        if len(status) > 4096 or not status.endswith(b"\n"):
+            return True
+        prefix = f"{pid} (".encode("ascii")
+        name, separator, fields = status.rpartition(b") ")
+        # comm is unescaped and may itself contain spaces, ')' or newlines.
+        # Only the final delimiter precedes the state and numeric stat fields.
+        # Require fields through starttime, not a truncated state-only record.
+        values = fields.split()
+        if (separator and name.startswith(prefix) and len(values) >= 20
+                and values[0] == b"Z"
+                and all(value.removeprefix(b"-").isdigit() for value in values[1:])):
+            return False
+    # Other POSIX hosts retain the conservative kill-only oracle: no procfs
+    # assumption and no additional external ps process in every polling step.
     return True
 
 
