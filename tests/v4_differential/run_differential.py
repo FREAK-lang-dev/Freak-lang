@@ -420,22 +420,38 @@ def _validate_v4_probe_payload(payload: dict[str, object], source_path: Path) ->
 
 
 def _classify_v3(result: BoundedResult) -> CompilerObservation:
-    output = _strip_ansi(result.stdout + result.stderr)
-    lowered = output.lower()
+    output = _strip_ansi(result.stdout + "\n" + result.stderr)
     error_lines = sum(
         1 for line in output.splitlines() if line.strip().lower().startswith(("error:", "fatal:"))
     )
-    if "type/borrow errors found" in lowered:
+    # Bind acceptance to the shipping CLI's completed check protocol, not an
+    # exit status or words quoted in diagnostics. Both glyph and ASCII modes
+    # have the same phase order and terminal contract (src/cli/main.fk).
+    phase_names = ("Lexing", "Parsing", "Type checking")
+    phase_pattern = re.compile(r"\s*(?:\u2713|OK)\s+(Lexing|Parsing|Type checking) \([0-9]+ms\)\s*")
+    terminal_pattern = re.compile(
+        r"\s*(?:\u2728|\*) PASSED -- no type errors found\s*"
+        r"|\s*(?:\u2717|X) FAILED -- (syntax|type/borrow) errors found\s*"
+    )
+    events: list[str] = []
+    for line in _strip_ansi(result.stdout).splitlines():
+        phase = phase_pattern.fullmatch(line)
+        terminal = terminal_pattern.fullmatch(line)
+        if phase is not None:
+            events.append(phase.group(1))
+        elif terminal is not None:
+            events.append(terminal.group(1) or "passed")
+    if result.returncode == 1 and events == [*phase_names, "type/borrow"]:
         diagnostic_class = "type"
-    elif "syntax errors found" in lowered or error_lines > 0:
+    elif result.returncode == 1 and events == [*phase_names[:2], "syntax"]:
         diagnostic_class = "syntax"
-    elif result.returncode != 0:
-        diagnostic_class = "tool"
-    else:
+    elif result.returncode == 0 and events == [*phase_names, "passed"] and error_lines == 0:
         diagnostic_class = "none"
+    else:
+        diagnostic_class = "tool"
     phases = []
-    for marker in ("Lexing", "Parsing", "Type checking"):
-        phases.append(f"{marker.lower().replace(' ', '-')}={'seen' if marker in output else 'missing'}")
+    for marker in phase_names:
+        phases.append(f"{marker.lower().replace(' ', '-')}={'seen' if marker in events else 'missing'}")
     summary = "V3_PHASE|" + "|".join(phases) + f"|diagnostic-class={diagnostic_class}"
     return CompilerObservation(
         accepted=diagnostic_class == "none",
@@ -634,8 +650,42 @@ def self_test(manifest_path: Path) -> None:
             assert "digest" in str(exc)
         else:
             raise AssertionError("forged probe source digest was accepted")
-    assert _classify_v3(BoundedResult(("probe",), 0, "Lexing\nParsing\nType checking\n", "", 0)).accepted
-    assert _classify_v3(BoundedResult(("probe",), 1, "FAILED -- syntax errors found\n", "", 0)).diagnostic_class == "syntax"
+    stages = "  OK  Lexing (0ms)\n  OK  Parsing (1ms)\n"
+    typed = stages + "  OK  Type checking (2ms)\n"
+    passed = typed + "  * PASSED -- no type errors found\n"
+    syntax_failed = stages + "  X FAILED -- syntax errors found\n"
+    type_failed = typed + "  X FAILED -- type/borrow errors found\n"
+
+    def classify(code: int, stdout: str, stderr: str = "") -> CompilerObservation:
+        return _classify_v3(BoundedResult(("probe",), code, stdout, stderr, 0))
+
+    assert classify(0, passed).accepted
+    glyph_passed = passed.replace("OK", "\u2713").replace("* PASSED", "\u2728 PASSED")
+    assert classify(0, "\x1b[32m" + glyph_passed.replace("\n", "\r\n") + "\x1b[0m").accepted
+    assert classify(1, syntax_failed).diagnostic_class == "syntax"
+    assert classify(1, type_failed, "error: genuine type mismatch\n").diagnostic_class == "type"
+    rejected_protocols = [
+        (0, "", ""),
+        (0, "Lexing\nParsing\nType checking\n", ""),
+        (0, typed, ""),
+        (0, "  * PASSED -- no type errors found\n", ""),
+        (0, passed + passed, ""),
+        (0, passed.replace("Lexing", "Parsing", 1), ""),
+        (0, passed.replace("Lexing", "Type checking", 1), ""),
+        (0, passed, "fatal: compiler failed after reporting success\n"),
+        (0, "", passed),
+        (1, passed, ""),
+        (0, syntax_failed, ""),
+        (2, syntax_failed, ""),
+        (1, "X FAILED -- syntax errors found\n", ""),
+        (1, stages + "X FAILED -- type/borrow errors found\n", ""),
+        (1, typed + "X FAILED -- syntax errors found\n", ""),
+        (1, "error: missing compiler executable\n", ""),
+        (1, "fatal: could not read source file\n", ""),
+    ]
+    for code, stdout, stderr in rejected_protocols:
+        observation = classify(code, stdout, stderr)
+        assert not observation.accepted and observation.diagnostic_class == "tool", observation
     print(
         f"differential manifest self-test: PASS cases={len(document['cases'])} "
         f"declared-categories={len(FIXTURE_CATEGORY_ORDER)}"

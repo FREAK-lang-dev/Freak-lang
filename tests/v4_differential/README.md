@@ -30,6 +30,11 @@ word checksum; the adapter binds those to the exact requested UTF-8 bytes.
 Each compiler runs twice. Acceptance, normalized diagnostic class, and its own
 phase summary must be stable across the two runs. Phase counts are not compared
 numerically between V3 and V4 because their representations differ.
+V3 observations require the shipping `check` command's ordered completed-phase
+markers and matching terminal success or syntax/type failure, with a consistent
+exit status. Empty/no-op output, incomplete or duplicated phases, and generic
+tool failures never count as successful compilation or expected syntax errors.
+Both glyph and ASCII CLI output modes are accepted; timings are not compared.
 
 Fixture category and compiler relationship are separate strict fields. Every
 manifest declares the complete ordered category vocabulary, including phased
