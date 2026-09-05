@@ -453,6 +453,21 @@ Record serializers must collect complete records in a temporary word array and f
 
 Source validation records canonical IDs and paths while it performs the forward envelope scan. It must not reparse every earlier source line to detect duplicates. Manifest, diff-detail, and health serializers use the same join contract, while source diffs index source lines once before comparing paths. The `unit_snapshot_multisource_resource_smoke.fk` fixture exercises 192 source records through validate, manifest, diff, and health under a 64 MB process-tree ceiling.
 
+HIR validation and restore index physical lines with `word.snapshot_lines()`:
+the native C and LLVM implementations scan bytes and copy records linearly,
+without per-byte `char_at` or per-record substring length rescans. The returned
+scratch array owns the line words; `array_release` releases both. Empty input
+produces an empty array, while blank/trailing lines and carriage returns are
+preserved. Allocation failure returns a negative handle without partial data;
+restore acquires the index before changing its live arena. The V3-to-LLVM native
+pipeline regression runs the production HIR index helper. Owner and
+child slots use bounded arrays sized from observed records, never untrusted
+maximum IDs or declared counts. Duplicate, gapped, noncanonical, and orphan
+slots fail validation before restore; wire order may place children before
+owners. `hir_snapshot_scaling_smoke.fk` covers 64/512 aliases, 64 owners,
+malformed records, and repeated scratch-capacity checks under a 1,024-handle
+limit and 64 MB process-tree ceiling.
+
 Temporary graph, worklist, seen-set, and serializer arrays are request-scoped resources. Every path that allocates one must either consume it with `word_join` or release it with `array_release`, including failure exits. `mir_snapshot_resource_smoke.fk` repeatedly validates accepted and cyclic MIR graphs, and `query_invalidation_resource_smoke.fk` combines 96 `didChange` requests with 600 direct dependency invalidations. These C-backed resource fixtures are compiled with a test-only 1,024-live-handle limit matching the LLVM runtime pool; the production C runtime remains dynamically sized. Each fixture measures all remaining handle capacity before and after its workload and ends with a fresh-array probe under a 64 MB ceiling, so even one leaked handle fails instead of hiding behind low RSS or spare C table capacity.
 
 Executable smoke runs report peak process-tree memory and have a 512 MB default ceiling. Every snapshot-named fixture uses a tighter 128 MB ceiling, and generated-C compilation is capped at 1 GB. Windows children start suspended, are assigned to a kill-on-close Job Object with an aggregate commit limit, and resume only after assignment, making that ceiling OS-enforced for the complete tree. POSIX runs use a fresh process group with group-wide RSS and swap monitoring; this is a sampled ceiling rather than a hard kernel allocation limit on hosts without an available cgroup controller. Stdout and stderr are drained by bounded readers with an 8 MB ceiling per stream, so a noisy descendant cannot move the same failure into Python's memory or a giant log file. Crossing a monitored ceiling terminates the entire process tree and fails the gate before sustained growth can expand the host pagefile.
@@ -472,7 +487,7 @@ unit-section|<section-name>|<escaped-checkpoint-identity>|<escaped-section-paylo
 end|freak-00-unit-snapshot-v3
 ```
 
-The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion-component restore dirties cached expansion queries and their transitive dependents before reuse, while HIR v3 validation requires canonical alias target spans and an exact declared alias-target count. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
+The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v3 validation requires canonical alias target spans and exact declared counts. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
 
 ### `workspace/unitSnapshotManifest`
 
@@ -486,6 +501,14 @@ end|freak-00-unit-manifest-v1
 ```
 
 Use this endpoint for import validation when a caller does not want to mutate compiler state. Validation can run in a fresh process: TY records receive detached structural validation, then `freak_snapshot` installs only the serialized source/lex/parse/expand/HIR/resolve context, runs strict TY linkage checks, and rolls the parent arenas back before returning. There is no public `workspace/unitSnapshotImport` endpoint yet; validation-only imports are modeled as manifest or health requests.
+
+Temporary parent-context probes use raw component restores, not publication
+wrappers. They preserve live query bytes, generations, dirtiness, invalidation
+counters, and telemetry, and restore the semantic/per-slot expansion generations
+alongside the parent arenas. Existing public expansion IDs therefore remain
+valid after accepted, rejected, or repeated validation. Actual component and
+full-unit restores still refresh provenance identities. The
+`unit_snapshot_validation_query_purity_smoke.fk` fixture guards both behaviors.
 
 ### `workspace/unitSnapshotDiff`
 
@@ -586,7 +609,9 @@ Span views are canonical and bounded by their source metadata. Structured
 diagnostics preserve their own length-prefixed fields; conversion to the
 bootstrap pipe-delimited compiler diagnostic fails closed when a field cannot
 be represented without corruption. A diagnostic span must name the same source
-as its expansion identity in both construction and validation.
+as its expansion identity in both construction and validation. Builder node
+spans must likewise belong to the builder context's expansion source; a valid
+span from a different source is an invalid contract, not an unsupported one.
 Node views require their AST and span handles to name the exact same immutable
 source view, including revision. Expansion identities use canonical numeric
 fields and carry the owning ExpandedFile slot's semantic restore generation so
@@ -596,7 +621,9 @@ The bootstrap exposes no macro host and executes no built-in or third-party
 macro. Diagnostic submission and builder operations return deterministic
 `unsupported` results without mutating compiler state. The major API version is
 an exact compatibility boundary; hosts may accept only supported minor versions
-within that major. Future expansion code consumes these public identities, while
+within that major. Canonical contexts retain their encoded supported minor
+version rather than requiring the host's newest minor. Future expansion code
+consumes these public identities, while
 dependency guards reject parser/query/TY/MIR/backend internals in the API crate
 and reserved macro implementation internals in later compiler crates.
 

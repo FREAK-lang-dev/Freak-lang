@@ -30,6 +30,7 @@ pilot v4_hir_item_parse_nodes = 0
 pilot v4_hir_alias_target_types = 0
 pilot v4_hir_alias_target_spans = 0
 pilot v4_hir_diags = 0
+pilot v4_hir_file_len = 0
 pilot v4_hir_ready = 0
 
 task v4_hir_init() -> void {
@@ -44,23 +45,56 @@ task v4_hir_init() -> void {
         v4_hir_alias_target_types = array_new()
         v4_hir_alias_target_spans = array_new()
         v4_hir_diags = array_new()
+        v4_hir_file_len = 0
         v4_hir_ready = 1
     }
 }
 
+-- File slots own their eight child arrays. Logical snapshot truncation keeps
+-- high-water slots reachable; reusing a slot must release its previous children.
+-- Fresh slots allocate once, without immediately overwriting those handles.
+task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
+    v4_hir_init()
+    pilot reused: bool = hir_id < array_len(v4_hir_files)
+    repeat until array_len(v4_hir_files) > hir_id {
+        array_push(v4_hir_files, "0")
+        array_push(v4_hir_expansions, "0")
+        array_push(v4_hir_item_kinds, word_from_int(array_new()))
+        array_push(v4_hir_item_names, word_from_int(array_new()))
+        array_push(v4_hir_item_defs, word_from_int(array_new()))
+        array_push(v4_hir_item_spans, word_from_int(array_new()))
+        array_push(v4_hir_item_parse_nodes, word_from_int(array_new()))
+        array_push(v4_hir_alias_target_types, word_from_int(array_new()))
+        array_push(v4_hir_alias_target_spans, word_from_int(array_new()))
+        array_push(v4_hir_diags, word_from_int(array_new()))
+    }
+    if reused {
+        array_release(v4_hir_kinds_handle(hir_id))
+        array_release(v4_hir_names_handle(hir_id))
+        array_release(v4_hir_defs_handle(hir_id))
+        array_release(v4_hir_spans_handle(hir_id))
+        array_release(v4_hir_parse_nodes_handle(hir_id))
+        array_release(v4_hir_alias_target_types_handle(hir_id))
+        array_release(v4_hir_alias_target_spans_handle(hir_id))
+        array_release(v4_hir_diags_handle(hir_id))
+        array_set(v4_hir_item_kinds, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_item_names, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_item_defs, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_item_spans, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_item_parse_nodes, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_alias_target_types, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_alias_target_spans, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
+    }
+    array_set(v4_hir_files, hir_id, word_from_int(file_id))
+    array_set(v4_hir_expansions, hir_id, word_from_int(expansion_id))
+}
+
 task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
-    pilot hir_id = array_len(v4_hir_files)
-    array_push(v4_hir_files, word_from_int(file_id))
-    array_push(v4_hir_expansions, word_from_int(expansion_id))
-    array_push(v4_hir_item_kinds, word_from_int(array_new()))
-    array_push(v4_hir_item_names, word_from_int(array_new()))
-    array_push(v4_hir_item_defs, word_from_int(array_new()))
-    array_push(v4_hir_item_spans, word_from_int(array_new()))
-    array_push(v4_hir_item_parse_nodes, word_from_int(array_new()))
-    array_push(v4_hir_alias_target_types, word_from_int(array_new()))
-    array_push(v4_hir_alias_target_spans, word_from_int(array_new()))
-    array_push(v4_hir_diags, word_from_int(array_new()))
+    pilot hir_id = v4_hir_file_len
+    v4_hir_prepare_file_slot(hir_id, file_id, expansion_id)
+    v4_hir_file_len = hir_id + 1
     give back hir_id
 }
 
@@ -112,7 +146,7 @@ task v4_hir_tree_id(hir_id: int) -> int {
 
 task v4_hir_file_count() -> int {
     v4_hir_init()
-    give back array_len(v4_hir_files)
+    give back v4_hir_file_len
 }
 
 task v4_hir_file_exists(hir_id: int) -> bool {
@@ -120,7 +154,7 @@ task v4_hir_file_exists(hir_id: int) -> bool {
     if hir_id < 0 {
         give back false
     }
-    if hir_id >= array_len(v4_hir_files) {
+    if hir_id >= v4_hir_file_len {
         give back false
     }
     give back true
@@ -822,13 +856,175 @@ task v4_hir_snapshot_alias_target_is_valid(line: word) -> bool {
     if alias_target_span == no_span {
         give back false
     }
+    pilot item_span = v4_hir_snapshot_field(line, 6)
+    pilot item_file = v4_span_file(item_span)
+    pilot item_start = v4_span_start(item_span)
+    pilot item_end = v4_span_end(item_span)
     pilot span_file = v4_span_file(alias_target_span)
     pilot span_start = v4_span_start(alias_target_span)
     pilot span_end = v4_span_end(alias_target_span)
-    if span_file == no_file or span_end < span_start {
+    if item_span == no_span or item_file == no_file or item_end < item_start or v4_span_new(item_file, item_start, item_end) != item_span {
+        give back false
+    }
+    if span_file == no_file or span_end <= span_start or span_file != item_file or span_start < item_start or span_end > item_end {
         give back false
     }
     give back v4_span_new(span_file, span_start, span_end) == alias_target_span
+}
+
+-- Index physical lines once. Repeated line(payload, ordinal) calls scan from
+-- byte zero and must not be nested inside owner/child validation loops.
+-- Native splitting avoids LLVM char_at/substring length rescans as well.
+-- The caller owns the returned scratch array and its blank/trailing line words.
+-- A negative handle reports allocation failure without publishing partial data.
+task v4_hir_snapshot_index_lines(payload: word) -> int {
+    give back payload.snapshot_lines()
+}
+
+-- Conversion is canonical and bounded before any array access/allocation.
+-- The bound comes from observed records, never an untrusted maximum ID.
+task v4_hir_snapshot_bounded_id(raw: word, limit: int) -> int {
+    pilot id = v4_nonnegative_int_range(raw, 0, raw.length())
+    if id < 0 or id >= limit or word_from_int(id) != raw {
+        give back 0 - 1
+    }
+    give back id
+}
+
+task v4_hir_snapshot_slots_are_valid(records: int, files: int, items: int, diagnostics: int) -> bool {
+    pilot no_file = V4_NO_FILE
+    pilot owner_files = array_new()
+    pilot owner_items = array_new()
+    pilot owner_diags = array_new()
+    pilot item_offsets = array_new()
+    pilot diag_offsets = array_new()
+    pilot item_seen = array_new()
+    pilot diag_seen = array_new()
+    pilot valid: bool = true
+    pilot slot = 0
+    repeat until slot >= files {
+        array_push(owner_files, "")
+        array_push(owner_items, "0")
+        array_push(owner_diags, "0")
+        array_push(item_offsets, "0")
+        array_push(diag_offsets, "0")
+        slot += 1
+    }
+    slot = 0
+    repeat until slot >= items {
+        array_push(item_seen, "0")
+        slot += 1
+    }
+    slot = 0
+    repeat until slot >= diagnostics {
+        array_push(diag_seen, "0")
+        slot += 1
+    }
+
+    pilot line_id = 0
+    repeat until line_id >= array_len(records) or valid == false {
+        pilot line: word = array_get(records, line_id)
+        if v4_hir_snapshot_field_raw(line, 0) == "hir" {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            pilot item_count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), items + 1)
+            pilot diag_count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 5), diagnostics + 1)
+            pilot source_file = v4_hir_snapshot_field_raw(line, 2)
+            pilot source_id = v4_nonnegative_int_range(source_file, 0, source_file.length())
+            pilot expansion_word = v4_hir_snapshot_field_raw(line, 3)
+            pilot expansion_id = v4_nonnegative_int_range(expansion_word, 0, expansion_word.length())
+            -- These identities may refer to detached snapshot parents, but
+            -- restore must not coerce malformed text into a different slot.
+            if owner < 0 or item_count < 0 or diag_count < 0 or source_id < 0 or word_from_int(source_id) != source_file or expansion_id < 0 or word_from_int(expansion_id) != expansion_word {
+                valid = false
+            } else {
+                pilot previous_file: word = array_get(owner_files, owner)
+                if previous_file != "" {
+                    valid = false
+                } else {
+                    array_set(owner_files, owner, source_file)
+                    array_set(owner_items, owner, word_from_int(item_count))
+                    array_set(owner_diags, owner, word_from_int(diag_count))
+                }
+            }
+        }
+        line_id += 1
+    }
+
+    -- Prefix offsets give every owner's dense child IDs disjoint bounded slots.
+    -- Subtraction bounds the addition even on hostile declared counts.
+    pilot item_total = 0
+    pilot diag_total = 0
+    slot = 0
+    repeat until slot >= files or valid == false {
+        pilot item_count = word_to_int(array_get(owner_items, slot))
+        pilot diag_count = word_to_int(array_get(owner_diags, slot))
+        pilot source_file: word = array_get(owner_files, slot)
+        if source_file == "" or item_count > items - item_total or diag_count > diagnostics - diag_total {
+            valid = false
+        } else {
+            array_set(item_offsets, slot, word_from_int(item_total))
+            array_set(diag_offsets, slot, word_from_int(diag_total))
+            item_total += item_count
+            diag_total += diag_count
+        }
+        slot += 1
+    }
+    if item_total != items or diag_total != diagnostics {
+        valid = false
+    }
+
+    line_id = 0
+    repeat until line_id >= array_len(records) or valid == false {
+        pilot line: word = array_get(records, line_id)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if kind == "hir-item" or kind == "hir-diag" {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            if owner < 0 {
+                valid = false
+            } else {
+                pilot source_file: word = array_get(owner_files, owner)
+                if source_file == no_file {
+                    valid = false
+                }
+                pilot counts = owner_items
+                pilot offsets = item_offsets
+                pilot seen = item_seen
+                if kind == "hir-diag" {
+                    counts = owner_diags
+                    offsets = diag_offsets
+                    seen = diag_seen
+                }
+                pilot child = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(counts, owner)))
+                if child < 0 {
+                    valid = false
+                } else {
+                    pilot child_slot = word_to_int(array_get(offsets, owner)) + child
+                    pilot previous_child: word = array_get(seen, child_slot)
+                    if previous_child != "0" {
+                        valid = false
+                    } else {
+                        array_set(seen, child_slot, "1")
+                    }
+                }
+                if kind == "hir-item" and v4_hir_snapshot_field(line, 8) != "" {
+                    if v4_span_file(v4_hir_snapshot_field(line, 6)) != source_file or v4_span_file(v4_hir_snapshot_field(line, 9)) != source_file {
+                        valid = false
+                    }
+                }
+            }
+        }
+        line_id += 1
+    }
+    -- Exact record totals plus bounded unique slots prove no gap remains.
+    -- One release path covers success and every malformed-input exit.
+    array_release(diag_seen)
+    array_release(item_seen)
+    array_release(diag_offsets)
+    array_release(item_offsets)
+    array_release(owner_diags)
+    array_release(owner_items)
+    array_release(owner_files)
+    give back valid
 }
 
 task v4_hir_snapshot_record_is_valid(line: word) -> bool {
@@ -847,7 +1043,11 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
 }
 
 task v4_hir_snapshot_validate(payload: word) -> word {
-    pilot lines = v4_hir_snapshot_line_count(payload)
+    pilot records = v4_hir_snapshot_index_lines(payload)
+    if records < 0 {
+        give back "hir-snapshot-import ok=0 reason=line-index-resource-exhausted"
+    }
+    pilot lines = array_len(records)
     pilot files = 0
     pilot items = 0
     pilot alias_targets = 0
@@ -856,11 +1056,14 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     pilot saw_header = 0
     pilot saw_end = 0
     pilot format = ""
+    pilot declared_files = ""
+    pilot declared_items = ""
     pilot declared_alias_targets = ""
+    pilot declared_diagnostics = ""
 
     pilot line_id = 0
     repeat until line_id >= lines {
-        pilot line = v4_hir_snapshot_line(payload, line_id)
+        pilot line: word = array_get(records, line_id)
         if line != "" {
             pilot kind = v4_hir_snapshot_field_raw(line, 0)
             if v4_hir_snapshot_record_is_valid(line) == false {
@@ -868,7 +1071,10 @@ task v4_hir_snapshot_validate(payload: word) -> word {
             } else if kind == "hir-snapshot" {
                 saw_header += 1
                 format = v4_hir_snapshot_key_value(line, "format")
+                declared_files = v4_hir_snapshot_key_value(line, "files")
+                declared_items = v4_hir_snapshot_key_value(line, "items")
                 declared_alias_targets = v4_hir_snapshot_key_value(line, "alias-targets")
+                declared_diagnostics = v4_hir_snapshot_key_value(line, "diagnostics")
                 if format != v4_hir_snapshot_format {
                     malformed += 1
                 }
@@ -891,6 +1097,11 @@ task v4_hir_snapshot_validate(payload: word) -> word {
         line_id += 1
     }
 
+    if malformed == 0 and v4_hir_snapshot_slots_are_valid(records, files, items, diagnostics) == false {
+        malformed += 1
+    }
+    array_release(records)
+
     pilot import_ok = 1
     if saw_header != 1 {
         import_ok = 0
@@ -899,6 +1110,9 @@ task v4_hir_snapshot_validate(payload: word) -> word {
         import_ok = 0
     }
     if malformed > 0 {
+        import_ok = 0
+    }
+    if declared_files != word_from_int(files) or declared_items != word_from_int(items) or declared_diagnostics != word_from_int(diagnostics) {
         import_ok = 0
     }
     if declared_alias_targets != word_from_int(alias_targets) {
@@ -921,30 +1135,10 @@ task v4_hir_snapshot_validate(payload: word) -> word {
 }
 
 task v4_hir_restore_file_slot(hir_id: int, file_id: int, expansion_id: int) -> int {
-    v4_hir_init()
-    repeat until array_len(v4_hir_files) > hir_id {
-        array_push(v4_hir_files, "0")
-        array_push(v4_hir_expansions, "0")
-        array_push(v4_hir_item_kinds, word_from_int(array_new()))
-        array_push(v4_hir_item_names, word_from_int(array_new()))
-        array_push(v4_hir_item_defs, word_from_int(array_new()))
-        array_push(v4_hir_item_spans, word_from_int(array_new()))
-        array_push(v4_hir_item_parse_nodes, word_from_int(array_new()))
-        array_push(v4_hir_alias_target_types, word_from_int(array_new()))
-        array_push(v4_hir_alias_target_spans, word_from_int(array_new()))
-        array_push(v4_hir_diags, word_from_int(array_new()))
+    v4_hir_prepare_file_slot(hir_id, file_id, expansion_id)
+    if hir_id >= v4_hir_file_len {
+        v4_hir_file_len = hir_id + 1
     }
-
-    array_set(v4_hir_files, hir_id, word_from_int(file_id))
-    array_set(v4_hir_expansions, hir_id, word_from_int(expansion_id))
-    array_set(v4_hir_item_kinds, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_names, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_defs, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_spans, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_item_parse_nodes, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_alias_target_types, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_alias_target_spans, hir_id, word_from_int(array_new()))
-    array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
     give back hir_id
 }
 
@@ -1028,35 +1222,57 @@ task v4_hir_snapshot_restore_diag_line(line: word) -> int {
     give back v4_hir_restore_diag_slot(hir_id, diag_id, diag)
 }
 
+task v4_hir_begin_snapshot_restore() -> void {
+    v4_hir_init()
+    v4_hir_file_len = 0
+}
+
 task v4_hir_snapshot_restore(payload: word) -> word {
     pilot validation = v4_hir_snapshot_validate(payload)
     if validation.starts_with("hir-snapshot-import ok=1") == false {
         give back "hir-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    pilot records = v4_hir_snapshot_index_lines(payload)
+    if records < 0 {
+        give back "hir-snapshot-restore ok=0 reason=line-index-resource-exhausted"
+    }
     pilot restored_files = 0
     pilot restored_items = 0
     pilot restored_diagnostics = 0
     pilot skipped_other = 0
+    v4_hir_begin_snapshot_restore()
+
     pilot line_id = 0
-    pilot line_count = v4_hir_snapshot_line_count(payload)
+    pilot line_count = array_len(records)
     repeat until line_id >= line_count {
-        pilot line = v4_hir_snapshot_line(payload, line_id)
+        pilot line: word = array_get(records, line_id)
         if line != "" {
             pilot kind = v4_hir_snapshot_field_raw(line, 0)
             if kind == "hir" {
                 restored_files += v4_hir_snapshot_restore_file_line(line)
-            } else if kind == "hir-item" {
-                restored_items += v4_hir_snapshot_restore_item_line(line)
-            } else if kind == "hir-diag" {
-                restored_diagnostics += v4_hir_snapshot_restore_diag_line(line)
-            } else if kind != "hir-snapshot" and kind != "end" {
+            } else if kind != "hir-item" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
         line_id += 1
     }
 
+    line_id = 0
+    repeat until line_id >= line_count {
+        pilot line: word = array_get(records, line_id)
+        if line != "" {
+            pilot kind = v4_hir_snapshot_field_raw(line, 0)
+            if kind == "hir-item" {
+                restored_items += v4_hir_snapshot_restore_item_line(line)
+            } else if kind == "hir-diag" {
+                restored_diagnostics += v4_hir_snapshot_restore_diag_line(line)
+            }
+        }
+        line_id += 1
+    }
+
+    array_release(records)
     pilot out = "hir-snapshot-restore ok=1"
     out = out + " files=" + word_from_int(restored_files)
     out = out + " items=" + word_from_int(restored_items)
