@@ -128,6 +128,9 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
         profile = "o" + opt
     }
     if cross != "" and lto != "off" {
+        if plus03_seen {
+            give back cli_flag_error("+03 is not supported with --target")
+        }
         give back cli_flag_error("LTO is not supported with --target; use --lto=off")
     }
 

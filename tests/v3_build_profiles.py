@@ -206,6 +206,9 @@ def assert_invalid_preserves_artifacts(
         expected[artifact] = payload
     code, output = invoke(freak, root, [command, str(source), *flags], env)
     assert code != 0, output
+    if "+03" in flags and any(flag.startswith("--target=") for flag in flags):
+        assert "+03 is not supported with --target" in output, output
+        assert "use --lto=off" not in output, output
     for artifact, payload in expected.items():
         assert artifact.read_bytes() == payload, (
             f"invalid flags mutated {artifact} for {command} {' '.join(flags)}\n{output}"
