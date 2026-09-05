@@ -1,0 +1,134 @@
+-- V4 canonical release-target contract smoke fixture.
+-- Verification prepends freak_target before this file.
+
+task v4_target_smoke_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+-- Every malformed frame must fail before exposing even an intact early field.
+task v4_target_smoke_record_rejected(record: word) -> bool {
+    if v4_target_spec_valid(record) or v4_target_spec_decode(record) != "" or v4_target_spec_encode(record) != "" {
+        give back false
+    }
+    pilot field_id = 0
+    repeat until field_id >= 17 {
+        if v4_target_spec_value(record, field_id) != "" { give back false }
+        field_id += 1
+    }
+    if v4_target_spec_triple(record) != "" or v4_target_spec_pointer_width(record) != 0 - 1 {
+        give back false
+    }
+    if v4_target_spec_arch(record) != "" or v4_target_spec_os(record) != "" or v4_target_spec_environment(record) != "" {
+        give back false
+    }
+    if v4_target_spec_endianness(record) != "" or v4_target_spec_c_data_model(record) != "" or v4_target_spec_object_format(record) != "" {
+        give back false
+    }
+    if v4_target_spec_calling_conventions(record) != "" or v4_target_spec_executable_prefix(record) != "" or v4_target_spec_executable_suffix(record) != "" {
+        give back false
+    }
+    if v4_target_spec_object_prefix(record) != "" or v4_target_spec_object_suffix(record) != "" or v4_target_spec_link_policy(record) != "" or v4_target_spec_entry_policy(record) != "" {
+        give back false
+    }
+    if v4_target_release_name(record) != "" or v4_target_executable_name(record, "maverick") != "" or v4_target_object_name(record, "maverick") != "" {
+        give back false
+    }
+    if v4_target_calling_convention_supported(record, v4_target_cc_c) or v4_target_calling_convention_supported(record, v4_target_cc_cdecl) or v4_target_calling_convention_supported(record, v4_target_cc_system) {
+        give back false
+    }
+    if v4_target_calling_convention_supported(record, v4_target_cc_sysv64) or v4_target_calling_convention_supported(record, v4_target_cc_win64) or v4_target_calling_convention_supported(record, v4_target_cc_vectorcall) {
+        give back false
+    }
+    give back v4_target_spec_summary(record) == "target-invalid"
+}
+
+-- Keep framing canonical when testing an unsupported tag or format value.
+task v4_target_smoke_replace_field(record: word, wanted: int, value: word) -> word {
+    pilot out = ""
+    pilot field_id = 0
+    repeat until field_id >= 17 {
+        pilot field = v4_target_field(record, field_id)
+        if field_id == wanted { field = value }
+        out = out + v4_target_pack_field(field)
+        field_id += 1
+    }
+    give back out
+}
+
+pilot v4_target_smoke_linux_x64 = v4_target_spec_new(v4_target_triple_linux_x86_64)
+pilot v4_target_smoke_linux_arm64 = v4_target_spec_new(v4_target_triple_linux_aarch64)
+pilot v4_target_smoke_macos_arm64 = v4_target_spec_new(v4_target_triple_macos_aarch64)
+pilot v4_target_smoke_windows_x64 = v4_target_spec_new(v4_target_triple_windows_x86_64)
+
+pilot v4_target_smoke_noncanonical_frame = "0" + v4_target_smoke_linux_x64
+pilot v4_target_smoke_noncanonical_pointer = ""
+v4_target_smoke_noncanonical_pointer = v4_target_pack_field(v4_target_tag_spec) + v4_target_pack_field(v4_target_wire_format) + v4_target_pack_field(v4_target_triple_linux_x86_64) + v4_target_pack_field(v4_target_arch_x86_64) + v4_target_pack_field(v4_target_os_linux) + v4_target_pack_field(v4_target_environment_gnu) + v4_target_pack_field("064") + v4_target_pack_field(v4_target_endian_little) + v4_target_pack_field(v4_target_c_data_model_lp64) + v4_target_pack_field(v4_target_object_format_elf) + v4_target_pack_field("C,cdecl,system,sysv64") + v4_target_pack_field("") + v4_target_pack_field("") + v4_target_pack_field("") + v4_target_pack_field(".o") + v4_target_pack_field(v4_target_link_clang_gnu) + v4_target_pack_field(v4_target_entry_posix_main)
+
+pilot v4_target_smoke_tag_frame = v4_target_pack_field(v4_target_tag_spec)
+pilot v4_target_smoke_tail = v4_target_slice(v4_target_smoke_linux_x64, v4_target_smoke_tag_frame.length(), v4_target_smoke_linux_x64.length())
+pilot v4_target_smoke_last_frame = v4_target_pack_field(v4_target_entry_posix_main)
+pilot v4_target_smoke_before_last = v4_target_slice(v4_target_smoke_linux_x64, 0, v4_target_smoke_linux_x64.length() - v4_target_smoke_last_frame.length())
+pilot v4_target_smoke_truncated_field = v4_target_slice(v4_target_smoke_linux_x64, 0, v4_target_smoke_linux_x64.length() - 1)
+pilot v4_target_smoke_missing_first_delimiter = word_from_int(v4_target_tag_spec.length()) + v4_target_tag_spec + v4_target_smoke_tail
+pilot v4_target_smoke_missing_last_delimiter = v4_target_smoke_before_last + word_from_int(v4_target_entry_posix_main.length()) + v4_target_entry_posix_main
+pilot v4_target_smoke_overflow_length = "9223372036854775808:" + v4_target_tag_spec + v4_target_smoke_tail
+pilot v4_target_smoke_huge_length = "18446744073709551616:" + v4_target_tag_spec + v4_target_smoke_tail
+pilot v4_target_smoke_extra_field = v4_target_smoke_linux_x64 + v4_target_pack_field("extra")
+pilot v4_target_smoke_duplicate_field = v4_target_smoke_linux_x64 + v4_target_smoke_last_frame
+pilot v4_target_smoke_unknown_tag = v4_target_smoke_replace_field(v4_target_smoke_linux_x64, 0, "UnknownTargetSpec")
+pilot v4_target_smoke_unknown_format = v4_target_smoke_replace_field(v4_target_smoke_linux_x64, 1, "freak-target-spec-v999")
+
+pilot v4_target_smoke_oversize_no_colon = "x"
+pilot v4_target_smoke_oversize_zero_prefix = "0"
+pilot v4_target_smoke_oversize_empty_fields = "0:"
+repeat 12 times {
+    v4_target_smoke_oversize_no_colon = v4_target_smoke_oversize_no_colon + v4_target_smoke_oversize_no_colon
+    v4_target_smoke_oversize_zero_prefix = v4_target_smoke_oversize_zero_prefix + v4_target_smoke_oversize_zero_prefix
+    v4_target_smoke_oversize_empty_fields = v4_target_smoke_oversize_empty_fields + v4_target_smoke_oversize_empty_fields
+}
+v4_target_smoke_oversize_zero_prefix = v4_target_smoke_oversize_zero_prefix + ":" + v4_target_smoke_linux_x64
+pilot v4_target_smoke_budget_boundary = v4_target_smoke_oversize_no_colon.substring(0, v4_target_record_max_bytes)
+
+say "target-count=" + word_from_int(v4_target_spec_count())
+say "target-linux-x64-summary=" + v4_target_spec_summary(v4_target_smoke_linux_x64)
+say "target-linux-arm64-summary=" + v4_target_spec_summary(v4_target_smoke_linux_arm64)
+say "target-macos-arm64-summary=" + v4_target_spec_summary(v4_target_smoke_macos_arm64)
+say "target-windows-x64-summary=" + v4_target_spec_summary(v4_target_smoke_windows_x64)
+
+say "target-all-valid=" + v4_target_smoke_bool(v4_target_spec_valid(v4_target_smoke_linux_x64) and v4_target_spec_valid(v4_target_smoke_linux_arm64) and v4_target_spec_valid(v4_target_smoke_macos_arm64) and v4_target_spec_valid(v4_target_smoke_windows_x64))
+say "target-index-stable=" + v4_target_smoke_bool(v4_target_spec_at(0) == v4_target_smoke_linux_x64 and v4_target_spec_at(1) == v4_target_smoke_linux_arm64 and v4_target_spec_at(2) == v4_target_smoke_macos_arm64 and v4_target_spec_at(3) == v4_target_smoke_windows_x64 and v4_target_spec_at(4) == "")
+say "target-release-names=" + v4_target_release_name(v4_target_smoke_linux_x64) + "," + v4_target_release_name(v4_target_smoke_linux_arm64) + "," + v4_target_release_name(v4_target_smoke_macos_arm64) + "," + v4_target_release_name(v4_target_smoke_windows_x64)
+say "target-c-models=" + v4_target_spec_c_data_model(v4_target_smoke_linux_x64) + "," + v4_target_spec_c_data_model(v4_target_smoke_linux_arm64) + "," + v4_target_spec_c_data_model(v4_target_smoke_macos_arm64) + "," + v4_target_spec_c_data_model(v4_target_smoke_windows_x64)
+say "target-lp64-vs-llp64=" + v4_target_smoke_bool(v4_target_spec_c_data_model(v4_target_smoke_linux_x64) == v4_target_c_data_model_lp64 and v4_target_spec_c_data_model(v4_target_smoke_linux_arm64) == v4_target_c_data_model_lp64 and v4_target_spec_c_data_model(v4_target_smoke_macos_arm64) == v4_target_c_data_model_lp64 and v4_target_spec_c_data_model(v4_target_smoke_windows_x64) == v4_target_c_data_model_llp64)
+say "target-pointer-widths=" + word_from_int(v4_target_spec_pointer_width(v4_target_smoke_linux_x64)) + "," + word_from_int(v4_target_spec_pointer_width(v4_target_smoke_linux_arm64)) + "," + word_from_int(v4_target_spec_pointer_width(v4_target_smoke_macos_arm64)) + "," + word_from_int(v4_target_spec_pointer_width(v4_target_smoke_windows_x64))
+say "target-endianness=" + v4_target_spec_endianness(v4_target_smoke_linux_x64) + "," + v4_target_spec_endianness(v4_target_smoke_linux_arm64) + "," + v4_target_spec_endianness(v4_target_smoke_macos_arm64) + "," + v4_target_spec_endianness(v4_target_smoke_windows_x64)
+say "target-object-formats=" + v4_target_spec_object_format(v4_target_smoke_linux_x64) + "," + v4_target_spec_object_format(v4_target_smoke_linux_arm64) + "," + v4_target_spec_object_format(v4_target_smoke_macos_arm64) + "," + v4_target_spec_object_format(v4_target_smoke_windows_x64)
+say "target-artifact-names=" + v4_target_executable_name(v4_target_smoke_linux_x64, "maverick") + "," + v4_target_object_name(v4_target_smoke_linux_x64, "maverick") + "," + v4_target_executable_name(v4_target_smoke_windows_x64, "maverick") + "," + v4_target_object_name(v4_target_smoke_windows_x64, "maverick")
+say "target-link-policies=" + v4_target_spec_link_policy(v4_target_smoke_linux_x64) + "," + v4_target_spec_link_policy(v4_target_smoke_macos_arm64) + "," + v4_target_spec_link_policy(v4_target_smoke_windows_x64)
+say "target-entry-policies=" + v4_target_spec_entry_policy(v4_target_smoke_linux_x64) + "," + v4_target_spec_entry_policy(v4_target_smoke_macos_arm64) + "," + v4_target_spec_entry_policy(v4_target_smoke_windows_x64)
+
+say "target-linux-x64-conventions=" + v4_target_smoke_bool(v4_target_calling_convention_supported(v4_target_smoke_linux_x64, v4_target_cc_c) and v4_target_calling_convention_supported(v4_target_smoke_linux_x64, v4_target_cc_cdecl) and v4_target_calling_convention_supported(v4_target_smoke_linux_x64, v4_target_cc_system) and v4_target_calling_convention_supported(v4_target_smoke_linux_x64, v4_target_cc_sysv64))
+say "target-arm64-rejects-x64-conventions=" + v4_target_smoke_bool(not v4_target_calling_convention_supported(v4_target_smoke_linux_arm64, v4_target_cc_sysv64) and not v4_target_calling_convention_supported(v4_target_smoke_macos_arm64, v4_target_cc_win64) and not v4_target_calling_convention_supported(v4_target_smoke_macos_arm64, v4_target_cc_vectorcall))
+say "target-windows-x64-conventions=" + v4_target_smoke_bool(v4_target_calling_convention_supported(v4_target_smoke_windows_x64, v4_target_cc_c) and v4_target_calling_convention_supported(v4_target_smoke_windows_x64, v4_target_cc_win64) and v4_target_calling_convention_supported(v4_target_smoke_windows_x64, v4_target_cc_vectorcall) and not v4_target_calling_convention_supported(v4_target_smoke_windows_x64, v4_target_cc_sysv64))
+say "target-legacy-x86-conventions-rejected=" + v4_target_smoke_bool(not v4_target_calling_convention_supported(v4_target_smoke_linux_x64, "stdcall") and not v4_target_calling_convention_supported(v4_target_smoke_windows_x64, "stdcall") and not v4_target_calling_convention_supported(v4_target_smoke_windows_x64, "fastcall") and not v4_target_calling_convention_supported(v4_target_smoke_windows_x64, "thiscall"))
+say "target-unknown-convention-rejected=" + v4_target_smoke_bool(not v4_target_calling_convention_supported(v4_target_smoke_linux_x64, "rust-call") and not v4_target_calling_convention_supported(v4_target_smoke_windows_x64, "CDECL"))
+say "target-round-trip=" + v4_target_smoke_bool(v4_target_spec_decode(v4_target_spec_encode(v4_target_smoke_linux_x64)) == v4_target_smoke_linux_x64 and v4_target_spec_decode(v4_target_spec_encode(v4_target_smoke_linux_arm64)) == v4_target_smoke_linux_arm64 and v4_target_spec_decode(v4_target_spec_encode(v4_target_smoke_macos_arm64)) == v4_target_smoke_macos_arm64 and v4_target_spec_decode(v4_target_spec_encode(v4_target_smoke_windows_x64)) == v4_target_smoke_windows_x64)
+say "target-aliases-rejected=" + v4_target_smoke_bool(v4_target_spec_new("linux-x64") == "" and v4_target_spec_new("amd64-unknown-linux-gnu") == "" and v4_target_spec_new("X86_64-UNKNOWN-LINUX-GNU") == "")
+say "target-unknown-triple-rejected=" + v4_target_smoke_bool(v4_target_spec_new("wasm32-unknown-unknown") == "" and v4_target_normalize_triple("host") == "")
+say "target-invalid-records-rejected=" + v4_target_smoke_bool(not v4_target_spec_valid(v4_target_smoke_noncanonical_frame) and not v4_target_spec_valid(v4_target_smoke_noncanonical_pointer) and v4_target_spec_decode(v4_target_smoke_noncanonical_frame) == "" and v4_target_spec_decode(v4_target_smoke_noncanonical_pointer) == "")
+say "target-malformed-controls=" + v4_target_smoke_bool(v4_target_smoke_replace_field(v4_target_smoke_linux_x64, 0, v4_target_tag_spec) == v4_target_smoke_linux_x64 and v4_target_smoke_replace_field(v4_target_smoke_linux_x64, 1, v4_target_wire_format) == v4_target_smoke_linux_x64 and not v4_target_smoke_record_rejected(v4_target_smoke_linux_x64))
+say "target-truncated-fields-rejected=" + v4_target_smoke_bool(v4_target_smoke_record_rejected(v4_target_smoke_truncated_field) and v4_target_smoke_record_rejected(v4_target_smoke_before_last))
+say "target-missing-delimiters-rejected=" + v4_target_smoke_bool(v4_target_smoke_record_rejected(v4_target_smoke_missing_first_delimiter) and v4_target_smoke_record_rejected(v4_target_smoke_missing_last_delimiter))
+say "target-overflowing-lengths-rejected=" + v4_target_smoke_bool(v4_target_smoke_record_rejected(v4_target_smoke_overflow_length) and v4_target_smoke_record_rejected(v4_target_smoke_huge_length))
+say "target-extra-field-rejected=" + v4_target_smoke_bool(v4_target_field_count(v4_target_smoke_extra_field) == 18 and v4_target_smoke_record_rejected(v4_target_smoke_extra_field))
+say "target-duplicate-field-rejected=" + v4_target_smoke_bool(v4_target_field_count(v4_target_smoke_duplicate_field) == 18 and v4_target_smoke_record_rejected(v4_target_smoke_duplicate_field))
+say "target-unknown-tag-rejected=" + v4_target_smoke_bool(v4_target_field_count(v4_target_smoke_unknown_tag) == 17 and v4_target_smoke_record_rejected(v4_target_smoke_unknown_tag))
+say "target-unknown-format-rejected=" + v4_target_smoke_bool(v4_target_field_count(v4_target_smoke_unknown_format) == 17 and v4_target_smoke_record_rejected(v4_target_smoke_unknown_format))
+say "target-canonical-records-within-budget=" + v4_target_smoke_bool(v4_target_smoke_linux_x64.length() <= v4_target_record_max_bytes and v4_target_smoke_linux_arm64.length() <= v4_target_record_max_bytes and v4_target_smoke_macos_arm64.length() <= v4_target_record_max_bytes and v4_target_smoke_windows_x64.length() <= v4_target_record_max_bytes)
+say "target-oversize-no-colon-rejected=" + v4_target_smoke_bool(v4_target_smoke_record_rejected(v4_target_smoke_oversize_no_colon) and v4_target_field_count(v4_target_smoke_oversize_no_colon) == 0 - 1 and v4_target_field(v4_target_smoke_oversize_no_colon, 0) == "")
+say "target-oversize-zero-prefix-rejected=" + v4_target_smoke_bool(v4_target_smoke_record_rejected(v4_target_smoke_oversize_zero_prefix) and v4_target_field_count(v4_target_smoke_oversize_zero_prefix) == 0 - 1 and v4_target_field(v4_target_smoke_oversize_zero_prefix, 0) == "")
+say "target-oversize-empty-fields-rejected=" + v4_target_smoke_bool(v4_target_smoke_record_rejected(v4_target_smoke_oversize_empty_fields) and v4_target_field_count(v4_target_smoke_oversize_empty_fields) == 0 - 1 and v4_target_field(v4_target_smoke_oversize_empty_fields, 0) == "")
+say "target-budget-boundary-rejected=" + v4_target_smoke_bool(v4_target_smoke_record_rejected(v4_target_smoke_budget_boundary) and v4_target_smoke_record_rejected(v4_target_smoke_budget_boundary + "x"))
+say "target-invalid-accessors-fail-closed=" + v4_target_smoke_bool(v4_target_spec_triple("") == "" and v4_target_spec_pointer_width("") == 0 - 1 and v4_target_executable_name("", "maverick") == "" and v4_target_object_name(v4_target_smoke_linux_x64, "") == "")
+say "target-summary-deterministic=" + v4_target_smoke_bool(v4_target_spec_summary(v4_target_smoke_linux_x64) == v4_target_spec_summary(v4_target_spec_new(v4_target_triple_linux_x86_64)) and v4_target_spec_summary("") == "target-invalid")

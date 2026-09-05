@@ -369,6 +369,7 @@ crates/
   freak_arena/     append-only word arenas for early compiler storage
   freak_intern/    string interning table
   freak_session/   source database and revision tracking
+  freak_target/    canonical release-target identity and policy metadata
   freak_lex/       lossless token streams with trivia and diagnostics
   freak_parse/     resilient top-level syntax tree and recovery nodes
   freak_expand/    identity ExpandedFile/provenance forwarding into HIR
@@ -389,10 +390,22 @@ crates/
 Current FREAK compilation still works best with concatenated source files, so these crates use globally unique `v4_` names and a dependency order that can be flattened by a later bootstrap script:
 
 ```text
-freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_mir_build -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
+freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> freak_session -> freak_target -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_mir_build -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
 ```
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
+
+`freak_target` is the host-independent authority for the four current release
+target identities and their canonical metadata: architecture, OS/environment,
+pointer width, endianness, C data model, object format, symbolic link/entry
+policies, artifact suffixes, and the deliberately conservative
+calling-convention acceptance matrix. It does not probe the host or toolchain,
+calculate physical type layout, lower function ABI signatures, or select LLVM
+calling-convention spellings. Those later subsystems must consume this target
+identity rather than create parallel target tables.
+The v1 record admission budget is 512 bytes, larger than every canonical
+record. Validation and raw framed-field readers reject oversized input before
+parsing, bounding bootstrap word-scanning work on malformed records.
 
 `freak_mir` owns the persistent Built-MIR representation: stable file/body and
 node identities, CFG/local/place/rvalue storage, validation, diagnostics, and
