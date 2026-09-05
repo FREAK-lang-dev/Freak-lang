@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -76,11 +77,15 @@ if os.environ.get("FREAK_PROFILE_REJECT_LTO") == "1" and any(
 ):
     print("recording clang: LTO deliberately unsupported", file=sys.stderr)
     raise SystemExit(86)
-delegate = [os.environ["FREAK_PROFILE_REAL_CLANG"]]
-linker_dir = os.environ.get("FREAK_PROFILE_LINKER_DIR")
-if linker_dir:
-    delegate.append(f"-B{linker_dir}")
-raise SystemExit(subprocess.run([*delegate, *args]).returncode)
+delegate = [os.environ["FREAK_PROFILE_REAL_CLANG"], *args]
+override = os.environ.get("FREAK_PROFILE_LINKER_OVERRIDE")
+if override:
+    delegate.append(override)
+delegate_env = os.environ.copy()
+origin = os.environ.get("FREAK_PROFILE_LINKER_ORIGIN")
+if origin:
+    delegate_env["PATH"] = origin + os.pathsep + delegate_env.get("PATH", "")
+raise SystemExit(subprocess.run(delegate, env=delegate_env).returncode)
 """,
         encoding="utf-8",
     )
@@ -462,7 +467,9 @@ def linker_from_trace(output: str) -> Path:
             if executable.exists():
                 candidate = executable
         assert candidate.is_file(), (candidate, output)
-        return candidate.resolve()
+        # Preserve the driver's lexical alias: /usr/bin/ld may resolve to
+        # x86_64-linux-gnu-ld.bfd, and LLVM multicall tools use argv[0].
+        return candidate.absolute()
     raise AssertionError(f"Clang -### did not expose a linker command:\n{output}")
 
 
@@ -470,14 +477,19 @@ def trace_linker(
     real_clang: str,
     flags: list[str],
     *,
-    linker_dir: Path | None = None,
+    linker_path: Path | None = None,
+    original_dir: Path | None = None,
 ) -> Path:
     command = [real_clang]
-    if linker_dir is not None:
-        command.append(f"-B{linker_dir}")
     command.extend(["-###", "-x", "c", os.devnull, "-o", os.devnull, *flags])
+    if linker_path is not None:
+        command.append(linker_override_argument(linker_path))
+    child_env = os.environ.copy()
+    if original_dir is not None:
+        child_env["PATH"] = str(original_dir) + os.pathsep + child_env.get("PATH", "")
     completed = subprocess.run(
         command,
+        env=child_env,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -489,7 +501,16 @@ def trace_linker(
     return linker_from_trace(completed.stdout + completed.stderr)
 
 
-def controlled_linkers(root: Path, real_clang: str) -> tuple[Path, dict[str, Path]]:
+def linker_override_argument(path: Path) -> str:
+    # Generic ToolChain::GetLinkerPath preserves -fuse-ld's flavor while
+    # --ld-path chooses the executable. MSVC's linker implementation bypasses
+    # that helper and requires an absolute -fuse-ld path to bypass VS discovery.
+    # Keep this argument last in both discovery and the recording driver.
+    msvc = sys.platform == "win32" and path.name.lower() in {"link.exe", "lld-link.exe"}
+    return ("-fuse-ld=" if msvc else "--ld-path=") + str(path.absolute())
+
+
+def controlled_linkers(root: Path, real_clang: str) -> dict[str, tuple[Path, Path]]:
     linker_dir = root / "driver-selected-linkers"
     linker_dir.mkdir()
     lto_linker = "-fuse-ld=ld" if sys.platform == "darwin" else "-fuse-ld=lld"
@@ -497,28 +518,48 @@ def controlled_linkers(root: Path, real_clang: str) -> tuple[Path, dict[str, Pat
         "off": [],
         "thin": ["-flto=thin", lto_linker],
     }
-    selected: dict[str, Path] = {}
+    selected: dict[str, tuple[Path, Path]] = {}
     for name, flags in scenarios.items():
         actual = trace_linker(real_clang, flags)
-        destination = linker_dir / actual.name
-        if not destination.exists():
+        # Separate roles even when both use the same basename (Apple ld).
+        role_dir = linker_dir / name
+        role_dir.mkdir()
+        destination = role_dir / actual.name
+        if sys.platform == "win32":
             shutil.copy2(actual, destination)
-            if sys.platform != "win32":
-                destination.chmod(0o755)
-        traced = trace_linker(real_clang, flags, linker_dir=linker_dir)
-        assert traced == destination.resolve(), (
-            "Clang ignored the controlled linker search prefix",
+        else:
+            # Do not relocate Xcode ld: its @rpath/libtapi dependency belongs
+            # beside the original executable. The wrapper is the selected,
+            # mutable cache identity but forwards every argument unchanged.
+            destination.write_text(
+                f'#!/bin/sh\nexec {shlex.quote(str(actual))} "$@"\n', encoding="utf-8"
+            )
+            destination.chmod(0o755)
+        traced = trace_linker(real_clang, flags, linker_path=destination,
+                              original_dir=actual.parent)
+        assert traced == destination.absolute(), (
+            "Clang ignored the controlled linker executable override",
             flags,
             traced,
             destination,
         )
-        selected[name] = destination
-    return linker_dir, selected
+        selected[name] = (destination, actual)
+    return selected
 
 
 def mutate_fake_linker(path: Path, marker: str) -> None:
     with path.open("ab") as stream:
-        stream.write(f"\nFREAK-LINKER-{marker}\n".encode())
+        prefix = "" if sys.platform == "win32" else "# "
+        stream.write(f"\n{prefix}FREAK-LINKER-{marker}\n".encode())
+
+
+def linker_version_identity(path: Path, env: dict[str, str]) -> tuple[int, bytes, bytes]:
+    completed = subprocess.run([str(path), "--version"], env=env,
+                               capture_output=True, timeout=30, check=False)
+    # Some native linkers report an unsupported-option error for --version.
+    # Preserve that exact observable result too; byte mutation, not a changed
+    # version response, must be what invalidates the warm cache below.
+    return completed.returncode, completed.stdout, completed.stderr
 
 
 def check_linker_identity_selection(
@@ -530,16 +571,28 @@ def check_linker_identity_selection(
 ) -> None:
     source = root / "linker-cache.fk"
     source.write_text('say "CACHE_PROFILE_OK"\n', encoding="utf-8")
-    linker_dir, programs = controlled_linkers(root, real_clang)
+    programs = controlled_linkers(root, real_clang)
     scenarios = (([], "off"), (["--lto=thin"], "thin"))
     controlled_env = env.copy()
     controlled_env.pop("FREAK_PROFILE_FAKE_TARGET", None)
-    controlled_env["FREAK_PROFILE_LINKER_DIR"] = str(linker_dir)
     for index, (flags, selected_role) in enumerate(scenarios):
+        selected, original = programs[selected_role]
+        controlled_env["FREAK_PROFILE_LINKER_OVERRIDE"] = linker_override_argument(selected)
+        controlled_env["FREAK_PROFILE_LINKER_ORIGIN"] = str(original.parent)
+        # CLI fingerprints execute the selected linker directly for version
+        # text too, outside the recording driver. Keep Windows companion DLLs
+        # and tools reachable for both that path and real link invocations.
+        controlled_env["PATH"] = str(original.parent) + os.pathsep + env.get("PATH", "")
         log.unlink(missing_ok=True)
         assert_run_cache(freak, root, source, flags, controlled_env, hit=False)
         assert_run_cache(freak, root, source, flags, controlled_env, hit=True)
-        mutate_fake_linker(programs[selected_role], f"selected-{index}")
+        previous_bytes = selected.read_bytes()
+        previous_version = linker_version_identity(selected, controlled_env)
+        mutate_fake_linker(selected, f"selected-{index}")
+        assert selected.read_bytes() != previous_bytes, "selected linker mutation was ineffective"
+        assert linker_version_identity(selected, controlled_env) == previous_version, (
+            "linker fixture mutation changed its version response instead of only its bytes", selected
+        )
         assert_run_cache(freak, root, source, flags, controlled_env, hit=False)
         assert any("-###" in args for args in read_log(log)), read_log(log)
 
