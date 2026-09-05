@@ -1980,6 +1980,10 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-annotation-parent-span=true",
             "hir-scaling-annotation-cross-file=true",
             "hir-scaling-annotation-capacity-stable=true",
+            "hir-scaling-512-annotation-lookups=true",
+            "hir-scaling-nested-annotation-exact-start=true",
+            "hir-scaling-interior-offset-no-annotation=true",
+            "hir-scaling-lookup-state-restored=true",
             "hir-scaling-reused-children-empty=true",
             "hir-scaling-restore-repeated=true",
             "hir-scaling-truncated-slots-hidden=true",
@@ -9656,6 +9660,12 @@ def check_mir_local_annotation_boundary() -> None:
         violations.append("local annotation snapshot requires bounded indexed ownership validation")
     elif any(call in slots_body for call in ("v4_hir_snapshot_line(", "v4_hir_snapshot_line_count(", "v4_hir_snapshot_file_for_hir(")):
         violations.append("local annotation ownership validation must not rescan payload lines")
+
+    lookup_body = freak_task_body(hir_source, "v4_hir_local_annotation_at_offset")
+    if lookup_body is None or "offset == v4_span_start(stmt_span)" not in lookup_body:
+        violations.append("local annotation lookup must match exact declaration starts")
+    elif any(call in lookup_body for call in ("v4_hir_local_annotation_count(", "v4_hir_local_annotation_record_id(", "v4_hir_local_annotation_stmt_span(")):
+        violations.append("local annotation lookup must scan records directly without nested ordinal rescans")
 
     for marker in (
         'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v4"',

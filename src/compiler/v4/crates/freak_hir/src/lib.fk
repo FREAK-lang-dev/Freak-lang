@@ -534,14 +534,21 @@ task v4_hir_local_annotation_type_span(hir_id: int, item_id: int, annotation_id:
 }
 
 task v4_hir_local_annotation_at_offset(hir_id: int, item_id: int, offset: int) -> int {
+    if item_id < 0 or offset < 0 { give back 0 - 1 }
     pilot annotation_id = 0
-    pilot annotation_count = v4_hir_local_annotation_count(hir_id, item_id)
-    repeat until annotation_id >= annotation_count {
-        pilot stmt_span = v4_hir_local_annotation_stmt_span(hir_id, item_id, annotation_id)
-        if offset >= v4_span_start(stmt_span) and offset < v4_span_end(stmt_span) {
-            give back annotation_id
+    pilot record_id = 0
+    pilot record_count = v4_hir_local_annotation_record_count(hir_id)
+    repeat until record_id >= record_count {
+        if word_to_int(array_get(v4_hir_local_annotation_items_handle(hir_id), record_id)) == item_id {
+            pilot stmt_span: word = array_get(v4_hir_local_annotation_stmt_spans_handle(hir_id), record_id)
+            -- Consumers identify the declaration by its pilot-token start.
+            -- A containing outer initializer must not supply a nested type.
+            if offset == v4_span_start(stmt_span) {
+                give back annotation_id
+            }
+            annotation_id += 1
         }
-        annotation_id += 1
+        record_id += 1
     }
     give back 0 - 1
 }

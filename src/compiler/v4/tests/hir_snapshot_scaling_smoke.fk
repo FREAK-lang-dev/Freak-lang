@@ -80,6 +80,39 @@ task v4_hir_scaling_annotation_checks(before: word) -> void {
     say "hir-scaling-annotation-capacity-stable=" + word_from_bool(repeated and v4_hir_scaling_capacity() == capacity_before)
 }
 
+-- Storage lookup exercise, separate from wire validation: all production
+-- consumers pass a declaration start. Query every slot, not only the first.
+task v4_hir_scaling_annotation_lookup(sample: word, before: word) -> void {
+    pilot record = 0
+    repeat until record >= 512 {
+        pilot start = 1000 + record * 100
+        pilot stmt_span = v4_span_new("1", start, start + 50)
+        pilot type_span = v4_span_new("1", start + 10, start + 13)
+        v4_hir_add_local_annotation(0, 0, stmt_span, "int", type_span)
+        -- Interleave another owner so returned IDs must be per owner.
+        v4_hir_add_local_annotation(0, 1, stmt_span, "word", type_span)
+        record += 1
+    }
+    pilot correct: bool = true
+    record = 0
+    repeat until record >= 512 {
+        pilot start = 1000 + record * 100
+        if v4_hir_local_annotation_at_offset(0, 0, start) != record or v4_hir_local_annotation_at_offset(0, 1, start) != record {
+            correct = false
+        }
+        record += 1
+    }
+    say "hir-scaling-512-annotation-lookups=" + word_from_bool(correct)
+    v4_hir_add_local_annotation(0, 0, "1@10:100", "word", "1@12:16")
+    v4_hir_add_local_annotation(0, 0, "1@30:50", "bool", "1@32:36")
+    pilot outer = v4_hir_local_annotation_at_offset(0, 0, 10)
+    pilot inner = v4_hir_local_annotation_at_offset(0, 0, 30)
+    say "hir-scaling-nested-annotation-exact-start=" + word_from_bool(outer == 512 and inner == 513 and v4_hir_local_annotation_type(0, 0, inner) == "bool")
+    say "hir-scaling-interior-offset-no-annotation=" + word_from_bool(v4_hir_local_annotation_at_offset(0, 0, 31) < 0 and v4_hir_local_annotation_at_offset(0, 0, 70) < 0)
+    pilot restoration = v4_hir_snapshot_restore(sample)
+    say "hir-scaling-lookup-state-restored=" + word_from_bool(restoration.starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == before)
+}
+
 task v4_hir_scaling_capacity() -> int {
     pilot handles = array_new()
     pilot available = 0
@@ -264,6 +297,7 @@ task v4_hir_snapshot_scaling_run() -> void {
     v4_hir_scaling_index_exhaustion(sample, before)
     v4_hir_scaling_annotation_checks(before)
     v4_hir_scaling_file_slots(sample, before)
+    v4_hir_scaling_annotation_lookup(sample, before)
 }
 
 v4_hir_snapshot_scaling_run()
