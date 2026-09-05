@@ -45,10 +45,10 @@ task cli_doctor_find_clang_command() -> word {
 }
 
 task cli_doctor_temp_stem(prefix: word) -> word {
-    pilot windir: word = process::env("WINDIR")
+    pilot is_win = cli_is_windows()
     pilot temp_dir: word = process::env("TMPDIR")
     pilot probe_nonce: word = ""
-    if windir != "" {
+    if is_win {
         temp_dir = process::env("TEMP")
         if temp_dir == "" { temp_dir = process::env("TMP") }
         probe_nonce = process::exec_capture("echo %RANDOM% 2>nul").trim()
@@ -108,17 +108,17 @@ task cli_doctor_remove_temp_parent(probe_path: word) -> bool {
 
 task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     if clang_cmd == "" { give back false }
-    pilot windir: word = process::env("WINDIR")
+    pilot is_win = cli_is_windows()
     pilot probe_stem = cli_doctor_temp_stem("freak-doctor-clang-probe-")
     if probe_stem == "" { give back false }
     pilot probe_source = probe_stem + ".c"
     pilot probe_binary = probe_stem
-    if windir != "" { probe_binary = probe_binary + ".exe" }
+    if is_win { probe_binary = probe_binary + ".exe" }
     pilot probe_text = "#include <stdio.h>\nint main(void) { return 0; }\n"
     fs::write(probe_source, probe_text)
     pilot probe_exit = 1
     pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
-    if windir != "" {
+    if is_win {
         probe_exit = process::exec(clang_prefix + " -x c " + cli_quote_cmd_path(probe_source) + " -o " + cli_quote_cmd_path(probe_binary) + " >nul 2>nul")
     } else {
         probe_exit = process::exec(clang_prefix + " -x c " + cli_quote_cmd_path(probe_source) + " -o " + cli_quote_cmd_path(probe_binary) + " >/dev/null 2>/dev/null")
@@ -126,7 +126,7 @@ task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     pilot probe_run_exit = 1
     if probe_exit == 0 and fs::exists(probe_binary) {
         pilot probe_command = cli_shell_command_prefix(cli_quote_cmd_path(probe_binary))
-        if windir != "" {
+        if is_win {
             probe_run_exit = process::exec(probe_command + " >nul 2>nul")
         } else {
             probe_run_exit = process::exec(probe_command + " >/dev/null 2>/dev/null")
@@ -239,8 +239,7 @@ task cli_doctor_json() -> int {
     cli_doctor_retained_probe_path = ""
     pilot os_tag = "unix"
     pilot is_win = false
-    pilot windir_env: word = process::env("WINDIR")
-    if windir_env != "" {
+    if cli_is_windows() {
         os_tag = "windows"
         is_win = true
     } else {
@@ -359,12 +358,12 @@ task cli_install_clang(os_tag: word) -> int {
             if wg_res == 0 { give back 0 }
         }
         if process::exec("where scoop >nul 2>nul") == 0 {
-            pilot scoop_res = process::exec("scoop install llvm-mingw")
+            pilot scoop_res = process::exec("scoop install mingw-mstorsjo-llvm-ucrt")
             if scoop_res == 0 { give back 0 }
         }
         say "  " + C_BYELLOW + "  Auto-install failed. Install manually:" + C_RESET
         say "    " + C_CYAN + "winget install --id MartinStorsjo.LLVM-MinGW.UCRT -e" + C_RESET
-        say "    " + C_CYAN + "scoop install llvm-mingw" + C_RESET
+        say "    " + C_CYAN + "scoop install mingw-mstorsjo-llvm-ucrt" + C_RESET
         say "    https://github.com/mstorsjo/llvm-mingw/releases"
         give back 1
     } else if os_tag == "linux" {
@@ -417,8 +416,7 @@ task cli_doctor(fix_mode: bool) -> int {
     -- Detect OS
     pilot os_tag = "unix"
     pilot is_win = false
-    pilot windir_env: word = process::env("WINDIR")
-    if windir_env != "" {
+    if cli_is_windows() {
         os_tag = "windows"
         is_win = true
     } else {

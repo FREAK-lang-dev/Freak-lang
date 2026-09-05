@@ -32,14 +32,14 @@ PROGRAM = """task main() {
 def run(command: list[str], cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     """
     Execute a command and capture its standard output and error streams.
-    
+
     Parameters:
-    	command (list[str]): Command and arguments to execute.
-    	cwd (Path): Working directory for the subprocess.
-    	env (dict[str, str]): Environment variables for the subprocess.
-    
+        command (list[str]): Command and arguments to execute.
+        cwd (Path): Working directory for the subprocess.
+        env (dict[str, str]): Environment variables for the subprocess.
+
     Returns:
-    	subprocess.CompletedProcess[str]: The completed process result, including its exit status and captured text streams.
+        subprocess.CompletedProcess[str]: The completed process result, including its exit status and captured text streams.
     """
     return subprocess.run(
         command,
@@ -56,12 +56,12 @@ def run(command: list[str], cwd: Path, env: dict[str, str]) -> subprocess.Comple
 
 def output(result: subprocess.CompletedProcess[str]) -> str:
     """Combine a completed subprocess's standard output and standard error.
-    
+
     Parameters:
-    	result (subprocess.CompletedProcess[str]): The completed subprocess result.
-    
+        result (subprocess.CompletedProcess[str]): The completed subprocess result.
+
     Returns:
-    	str: The concatenated standard output and standard error.
+        str: The concatenated standard output and standard error.
     """
     return result.stdout + result.stderr
 
@@ -69,9 +69,9 @@ def output(result: subprocess.CompletedProcess[str]) -> str:
 def main() -> int:
     """
     Validate the frozen V3 `std::ui` surface and generated backend output for a Freak executable.
-    
+
     Returns:
-    	int: Zero after all validations pass.
+        int: Zero after all validations pass.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)

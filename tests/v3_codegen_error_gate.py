@@ -21,33 +21,33 @@ NEGATIVE_CORPUS_SCHEMA = "freak-v3-negative-corpus-v1"
 
 def derived_binary(source: Path) -> Path:
     """Derive the platform-specific executable path for a source file.
-    
+
     Parameters:
-    	source (Path): The source file path.
-    
+        source (Path): The source file path.
+
     Returns:
-    	Path: The source path with an executable suffix on Windows and no suffix elsewhere.
+        Path: The source path with an executable suffix on Windows and no suffix elsewhere.
     """
     return source.with_suffix(".exe" if sys.platform == "win32" else "")
 
 
 def run_cache(binary: Path) -> Path:
     """Derive the cache path associated with an executable.
-    
+
     Parameters:
-    	binary (Path): Path to the executable.
-    
+        binary (Path): Path to the executable.
+
     Returns:
-    	Path to the executable's run cache.
+        Path to the executable's run cache.
     """
     return Path(str(binary) + ".freak-run-cache")
 
 
 def seed_stale_outputs(*paths: Path) -> None:
     """Create stale output files containing the test sentinel value.
-    
+
     Parameters:
-    	paths (Path): Output paths to seed; duplicate paths are written once.
+        paths (Path): Output paths to seed; duplicate paths are written once.
     """
     for path in dict.fromkeys(paths):
         path.write_text(SENTINEL, encoding="utf-8")
@@ -56,10 +56,10 @@ def seed_stale_outputs(*paths: Path) -> None:
 def assert_outputs_absent(paths: tuple[Path, ...], label: str) -> None:
     """
     Assert that none of the specified output paths exist.
-    
+
     Parameters:
-    	paths (tuple[Path, ...]): Output paths to verify.
-    	label (str): Label included in the failure message.
+        paths (tuple[Path, ...]): Output paths to verify.
+        label (str): Label included in the failure message.
     """
     leftovers = [path for path in dict.fromkeys(paths) if path.exists()]
     assert not leftovers, f"{label}: stale output survived: {leftovers}"
@@ -68,10 +68,10 @@ def assert_outputs_absent(paths: tuple[Path, ...], label: str) -> None:
 def assert_outputs_preserved(paths: tuple[Path, ...], label: str) -> None:
     """
     Assert that each specified output retains the sentinel content.
-    
+
     Parameters:
-    	paths (tuple[Path, ...]): Output paths to verify.
-    	label (str): Context included in the assertion message.
+        paths (tuple[Path, ...]): Output paths to verify.
+        label (str): Context included in the assertion message.
     """
     for path in dict.fromkeys(paths):
         assert path.read_text(encoding="utf-8") == SENTINEL, (
@@ -82,7 +82,7 @@ def assert_outputs_preserved(paths: tuple[Path, ...], label: str) -> None:
 def assert_unreadable_diagnostic(output: str, label: str) -> None:
     """
     Verify that command output contains an accepted unreadable-input diagnostic.
-    
+
     Parameters:
         output (str): Command output to inspect.
         label (str): Label identifying the command or test case.
@@ -111,12 +111,12 @@ class NegativeCase:
 def load_negative_corpus(repo: Path) -> list[NegativeCase]:
     """
     Load and validate the V3 negative-test corpus manifest.
-    
+
     Parameters:
-    	repo (Path): Repository root containing the negative-test corpus.
-    
+        repo (Path): Repository root containing the negative-test corpus.
+
     Returns:
-    	list[NegativeCase]: Validated negative test cases described by the manifest.
+        list[NegativeCase]: Validated negative test cases described by the manifest.
     """
     corpus = repo / "tests" / "v3_legacy" / "negative"
     manifest_path = corpus / "manifest.json"
@@ -181,16 +181,16 @@ def load_negative_corpus(repo: Path) -> list[NegativeCase]:
 def task_body(source: str, task_name: str) -> str:
     """
     Extract the source text for a named task.
-    
+
     Parameters:
-    	source (str): FREAK source code containing the task.
-    	task_name (str): Name of the task to extract.
-    
+        source (str): FREAK source code containing the task.
+        task_name (str): Name of the task to extract.
+
     Returns:
-    	str: The task declaration and body through the next task declaration or the end of the source.
-    
+        str: The task declaration and body through the next task declaration or the end of the source.
+
     Raises:
-    	ValueError: If the named task is not present in the source.
+        ValueError: If the named task is not present in the source.
     """
     start = source.index(f"task {task_name}")
     next_task = source.find("\ntask ", start + 1)
@@ -200,13 +200,20 @@ def task_body(source: str, task_name: str) -> str:
 def assert_builtin_signature_parity(repo: Path) -> None:
     """
     Verify that builtin mappings, type and parameter signatures, and reserved namespaces remain consistent across compiler stages.
-    
+
     Parameters:
         repo (Path): Repository root containing the compiler source files.
     """
     c_source = (repo / "src/compiler/v3/emit_c.fk").read_text(encoding="utf-8")
     llvm_source = (repo / "src/compiler/v3/emit_llvm.fk").read_text(encoding="utf-8")
     checker_source = (repo / "src/compiler/v3/checker.fk").read_text(encoding="utf-8")
+    globals_source = (repo / "src/compiler/v3/globals.fk").read_text(encoding="utf-8")
+    runtime_header = (repo / "freakc/runtime/freak_runtime.h").read_text(encoding="utf-8")
+    runtime_c = (repo / "freakc/runtime/freak_runtime.c").read_text(encoding="utf-8")
+    llvm_runtime_c = (repo / "freakc/runtime/freak_llvm_runtime.c").read_text(
+        encoding="utf-8"
+    )
+    compiler_main = (repo / "src/compiler/v3/main.fk").read_text(encoding="utf-8")
     c_mapped = set(
         re.findall(r'val == "([^"]+)"', task_body(c_source, "c_map_call"))
     )
@@ -214,10 +221,26 @@ def assert_builtin_signature_parity(repo: Path) -> None:
         re.findall(r'val == "([^"]+)"', task_body(llvm_source, "llvm_map_call_name"))
     )
     mapped = c_mapped | llvm_mapped
+    removed_internal_symbols = {"freak_internal_delete_file_checked"}
+    assert removed_internal_symbols.isdisjoint(mapped)
     classified = set(
         re.findall(
             r'name == "([^"]+)"', task_body(checker_source, "tc_builtin_call_type")
         )
+    )
+    assert removed_internal_symbols.isdisjoint(classified)
+    assert "freak_internal_delete_file_checked" not in globals_source
+    assert "freak_internal_delete_file_checked" not in llvm_source
+    assert "freak_llvm_fs_delete_checked" not in llvm_source
+    assert "freak_internal_delete_file_checked" not in runtime_header
+    assert "freak_internal_delete_file_checked" not in runtime_c
+    assert "freak_llvm_fs_delete_checked" not in llvm_runtime_c
+    assert "--compiler-internal" not in compiler_main
+    assert "bool freak_fs_delete(freak_word path);" in runtime_header
+    assert "bool freak_fs_delete(freak_word path)" in runtime_c
+    assert (
+        'if name == "fs::exists" or name == "fs::delete" { give back "bool" }'
+        in checker_source
     )
     signature_classified = set(
         re.findall(
@@ -298,12 +321,12 @@ def assert_checker_callable_index(repo: Path) -> None:
 
 def assert_parser_required_token_contract(repo: Path) -> None:
     """Verify that required parser tokens use the standard identifier parser and delimiter diagnostics preserve opener context.
-    
+
     Parameters:
-    	repo (Path): Repository root containing the V3 parser source.
-    
+        repo (Path): Repository root containing the V3 parser source.
+
     Raises:
-    	AssertionError: If a required token context bypasses the standard parser or a delimiter context lacks opener provenance.
+        AssertionError: If a required token context bypasses the standard parser or a delimiter context lacks opener provenance.
     """
     parser = (repo / "src/compiler/v3/parser.fk").read_text(encoding="utf-8")
     required_contexts = (
@@ -367,11 +390,11 @@ def run(
 ) -> subprocess.CompletedProcess[str]:
     """
     Run the V3 command-line tool for a source file and capture its completed result.
-    
+
     Parameters:
         env (dict[str, str] | None): Environment variables for the subprocess.
         timeout (int): Maximum time in seconds allowed for the subprocess.
-    
+
     Returns:
         subprocess.CompletedProcess[str]: The captured subprocess result.
     """
@@ -392,7 +415,7 @@ def run(
 def assert_rejected(result: subprocess.CompletedProcess[str], label: str) -> None:
     """
     Verify that a rejected compilation fails before code generation.
-    
+
     Parameters:
         label (str): Context label included in assertion messages.
     """
@@ -410,10 +433,10 @@ def assert_check_rejected(
 ) -> None:
     """
     Verify that a check command rejects invalid input and reports an error.
-    
+
     Parameters:
-    	result (subprocess.CompletedProcess[str]): Completed check-command result.
-    	label (str): Label used to identify the test in assertion messages.
+        result (subprocess.CompletedProcess[str]): Completed check-command result.
+        label (str): Label used to identify the test in assertion messages.
     """
     output = result.stdout + result.stderr
     assert result.returncode != 0, f"{label}: check accepted invalid input\n{output}"
@@ -456,15 +479,15 @@ def run_direct_compiler(
 ) -> subprocess.CompletedProcess[str]:
     """
     Run the direct compiler with captured text output.
-    
+
     Parameters:
-    	compiler (Path): Path to the compiler executable.
-    	repo (Path): Working directory for the compiler process.
-    	*args (str): Arguments passed to the compiler.
-    	timeout (int): Maximum execution time in seconds.
-    
+        compiler (Path): Path to the compiler executable.
+        repo (Path): Working directory for the compiler process.
+        *args (str): Arguments passed to the compiler.
+        timeout (int): Maximum execution time in seconds.
+
     Returns:
-    	subprocess.CompletedProcess[str]: The completed compiler process result.
+        subprocess.CompletedProcess[str]: The completed compiler process result.
     """
     return subprocess.run(
         [str(compiler), *args],
@@ -481,9 +504,9 @@ def run_direct_compiler(
 def main() -> int:
     """
     Run the V3 compiler diagnostic and code-generation regression suite.
-    
+
     Returns:
-    	int: Zero when all checks pass.
+        int: Zero when all checks pass.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
@@ -736,6 +759,79 @@ def main() -> int:
                 f"{backend} blocked cleanup removed the directory: {blocked_artifact}"
             )
             blocked_artifact.rmdir()
+
+        if os.name != "nt":
+            dangling_root = tmp_path / "dangling-artifact-targets"
+            dangling_root.mkdir()
+            for backend, flag, suffix in (
+                ("LLVM", "--llvm", ".ll"),
+                ("C", "--c", ".c"),
+            ):
+                dangling_artifact = Path(str(blocked_cleanup) + suffix)
+                outside_target = dangling_root / f"outside-{backend.lower()}{suffix}"
+                dangling_artifact.symlink_to(outside_target)
+                dangling_result = run(
+                    freak, repo, blocked_cleanup, "transpile", flag, timeout=10
+                )
+                dangling_output = dangling_result.stdout + dangling_result.stderr
+                assert dangling_result.returncode == 0, dangling_output
+                assert not dangling_artifact.is_symlink(), dangling_artifact
+                assert dangling_artifact.is_file(), dangling_artifact
+                assert not outside_target.exists(), outside_target
+                dangling_artifact.unlink()
+
+                if direct_compiler is not None:
+                    dangling_artifact.symlink_to(outside_target)
+                    direct_dangling = run_direct_compiler(
+                        direct_compiler,
+                        repo,
+                        str(blocked_cleanup),
+                        flag,
+                    )
+                    direct_output = direct_dangling.stdout + direct_dangling.stderr
+                    assert direct_dangling.returncode == 0, direct_output
+                    assert not dangling_artifact.is_symlink(), dangling_artifact
+                    assert dangling_artifact.is_file(), dangling_artifact
+                    assert not outside_target.exists(), outside_target
+                    dangling_artifact.unlink()
+
+            protected_root = tmp_path / "protected-dangling-artifacts"
+            protected_root.mkdir()
+            protected_source = protected_root / "protected.fk"
+            protected_source.write_text('say "never redirected"\n', encoding="utf-8")
+            for backend, flag, suffix in (
+                ("LLVM", "--llvm", ".ll"),
+                ("C", "--c", ".c"),
+            ):
+                protected_artifact = Path(str(protected_source) + suffix)
+                outside_target = dangling_root / f"protected-{backend.lower()}{suffix}"
+                protected_artifact.symlink_to(outside_target)
+                protected_root.chmod(0o500)
+                try:
+                    protected_result = run(
+                        freak, repo, protected_source, "transpile", flag, timeout=10
+                    )
+                    protected_output = protected_result.stdout + protected_result.stderr
+                    assert protected_result.returncode != 0, protected_output
+                    assert "untrusted stale artifact" in protected_output.lower()
+                    assert protected_artifact.is_symlink(), protected_artifact
+                    assert not outside_target.exists(), outside_target
+
+                    if direct_compiler is not None:
+                        direct_protected = run_direct_compiler(
+                            direct_compiler,
+                            repo,
+                            str(protected_source),
+                            flag,
+                        )
+                        direct_output = direct_protected.stdout + direct_protected.stderr
+                        assert direct_protected.returncode != 0, direct_output
+                        assert "untrusted stale artifact" in direct_output.lower()
+                        assert protected_artifact.is_symlink(), protected_artifact
+                        assert not outside_target.exists(), outside_target
+                finally:
+                    protected_root.chmod(0o700)
+                    protected_artifact.unlink(missing_ok=True)
 
         blocked_binary = derived_binary(blocked_cleanup)
         blocked_binary.mkdir()
@@ -1001,6 +1097,102 @@ def main() -> int:
                     f"direct {backend} semantic positive transpile failed\n"
                     + direct_semantic.stdout
                     + direct_semantic.stderr
+                )
+
+        internal_collision = tmp_path / "internal_checked_delete_collision.fk"
+        collision_sentinel = tmp_path / "internal-bridge-must-not-delete.txt"
+        collision_path = str(collision_sentinel).replace("\\", "/")
+        internal_collision.write_text(
+            "task freak_internal_delete_file_checked(path: word) -> bool { give back false }\n"
+            "task main() {\n"
+            f'    if freak_internal_delete_file_checked("{collision_path}") {{\n'
+            '        say "runtime bridge called"\n'
+            "    } else {\n"
+            '        say "user task called"\n'
+            "    }\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        collision_binary = derived_binary(internal_collision)
+        for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+            collision_sentinel.write_text("preserve me\n", encoding="utf-8")
+            collision_build = run(
+                freak, repo, internal_collision, "build", flag, timeout=60
+            )
+            assert collision_build.returncode == 0, (
+                collision_build.stdout + collision_build.stderr
+            )
+            collision_run = subprocess.run(
+                [str(collision_binary)],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                check=False,
+            )
+            assert collision_run.returncode == 0, collision_run.stderr
+            assert collision_run.stdout == "user task called\n", (
+                f"{backend} remapped a user task to the internal runtime bridge\n"
+                + collision_run.stdout
+                + collision_run.stderr
+            )
+            assert collision_sentinel.read_text(encoding="utf-8") == "preserve me\n"
+
+        forged_aggregate = tmp_path / "freakc_cli.fk"
+        forged_aggregate.write_text(
+            "-- pilot FREAKC_VERSION\n"
+            "-- task emit_llvm_program()\n"
+            "-- task freakc_cli_main()\n"
+            "extern task freak_internal_delete_file_checked(path: word) -> bool\n"
+            'task main() { freak_internal_delete_file_checked("must-not-map") }\n',
+            encoding="utf-8",
+        )
+        forged_check = run(
+            freak, repo, forged_aggregate, "check", "--compiler-internal"
+        )
+        assert_check_rejected(forged_check, "forged compiler aggregate check")
+        assert "conflicts with a compiler builtin" in (
+            forged_check.stdout + forged_check.stderr
+        ).lower()
+        for backend, flag, suffix in (
+            ("LLVM", "--llvm", ".ll"),
+            ("C", "--c", ".c"),
+        ):
+            forged_artifact = Path(str(forged_aggregate) + suffix)
+            forged_artifact.write_text(SENTINEL, encoding="utf-8")
+            forged_emit = run(
+                freak,
+                repo,
+                forged_aggregate,
+                "transpile",
+                flag,
+                "--compiler-internal",
+                timeout=10,
+            )
+            assert_rejected(forged_emit, f"{backend} forged compiler aggregate")
+            assert "conflicts with a compiler builtin" in (
+                forged_emit.stdout + forged_emit.stderr
+            ).lower()
+            assert_outputs_absent(
+                (forged_artifact,), f"{backend} forged compiler aggregate"
+            )
+            if direct_compiler is not None:
+                forged_artifact.write_text(SENTINEL, encoding="utf-8")
+                forged_direct = run_direct_compiler(
+                    direct_compiler,
+                    repo,
+                    str(forged_aggregate),
+                    flag,
+                    "--compiler-internal",
+                )
+                forged_output = forged_direct.stdout + forged_direct.stderr
+                assert forged_direct.returncode != 0, forged_output
+                assert "conflicts with a compiler builtin" in forged_output.lower()
+                assert_outputs_absent(
+                    (forged_artifact,),
+                    f"direct {backend} forged compiler aggregate",
                 )
 
         # Shipping std/ui uses associated impl tasks (no `self`) for these
@@ -1447,6 +1639,7 @@ def main() -> int:
 
         builtin_marker = tmp_path / "builtin-wrapper-marker.txt"
         builtin_marker.write_text("marker", encoding="utf-8")
+        builtin_deletable = tmp_path / "builtin-wrapper-deletable.txt"
         builtin_directory = tmp_path / "builtin-wrapper-directory"
         builtin_wrappers = tmp_path / "builtin_wrappers.fk"
         builtin_wrappers.write_text(
@@ -1462,6 +1655,10 @@ def main() -> int:
             "    letter = \"released\"\n"
             f"    say fs::exists(\"{builtin_marker.as_posix()}\").to_word()\n"
             f"    say fs::exists(\"{(tmp_path / 'builtin-wrapper-missing').as_posix()}\").to_word()\n"
+            f"    fs::write(\"{builtin_deletable.as_posix()}\", \"delete me\")\n"
+            f"    say fs::delete(\"{builtin_deletable.as_posix()}\").to_word()\n"
+            f"    say fs::exists(\"{builtin_deletable.as_posix()}\").to_word()\n"
+            f"    say fs::delete(\"{builtin_deletable.as_posix()}\").to_word()\n"
             f"    fs::make_dir(\"{builtin_directory.as_posix()}\")\n"
             f"    say fs::exists(\"{builtin_directory.as_posix()}\").to_word()\n"
             f"    fs::delete(\"{builtin_directory.as_posix()}\")\n"
@@ -1495,7 +1692,7 @@ def main() -> int:
             assert wrapper_run.returncode == 0, wrapper_run.stdout + wrapper_run.stderr
             wrapper_lines = wrapper_run.stdout.strip().splitlines()
             assert wrapper_lines == [
-                "ok", "true", "A", "true", "false", "true", "true"
+                "ok", "true", "A", "true", "false", "true", "false", "true", "true", "true"
             ], (
                 f"{backend} builtin wrapper output mismatch: {wrapper_lines!r}\n"
                 f"stderr: {wrapper_run.stderr}"

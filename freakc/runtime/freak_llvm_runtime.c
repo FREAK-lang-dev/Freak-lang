@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <errno.h>
 #include "freak_runtime.h"
 extern int64_t freak_llvm_word_adopt(int64_t pointer);
 extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
@@ -115,14 +116,15 @@ int64_t freak_calloc(int64_t count, int64_t size) {
 /**
  * Removes the file at the specified path.
  * @param path Null-terminated path to the file.
- * @returns Zero on success or a platform-specific error code on failure.
+ * @returns 1 if removed or already absent; 0 on another removal error.
  */
 int64_t freak_remove(int64_t path) {
 #ifdef _WIN32
-    return (int64_t)_unlink((const char*)path);
+    int result = _unlink((const char*)path);
 #else
-    return (int64_t)unlink((const char*)path);
+    int result = unlink((const char*)path);
 #endif
+    return result == 0 || errno == ENOENT;
 }
 
 /* ── Process ────────────────────────────────────────── */
@@ -230,6 +232,60 @@ int64_t freak_llvm_array_new(void) {
     if (!freak_llvm_arrays[h].data) { fprintf(stderr, "FREAK: OOM\n"); exit(1); }
     return freak_llvm_array_make_handle(h, freak_llvm_arrays[h].generation);
 }
+
+int64_t freak_llvm_word_snapshot_lines(int64_t source) {
+    if (freak_llvm_array_free_head < 0 && freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS) return -1;
+    const char* text = (const char*)source;
+    /* The LLVM ABI is NUL-terminated: obtain its length exactly once, then
+       scan/copy bounded ranges. Adoption also uses the known range length. */
+    size_t length = text ? strlen(text) : 0;
+    size_t count = length ? 1 : 0;
+    for (size_t i = 0; i < length; ++i) {
+        if (text[i] == '\n') {
+            if (count == SIZE_MAX) return -1;
+            ++count;
+        }
+    }
+    size_t capacity = count ? count : 1;
+    if (capacity > INT64_MAX || capacity > SIZE_MAX / sizeof(int64_t)) return -1;
+    int64_t* lines = (int64_t*)malloc(capacity * sizeof(*lines));
+    if (!lines) return -1;
+    size_t used = 0, start = 0;
+    for (size_t i = 0; count != 0; ++i) {
+        if (i == length || text[i] == '\n') {
+            size_t part_length = i - start;
+            if (part_length == SIZE_MAX) goto fail;
+            char* part = (char*)malloc(part_length + 1);
+            if (!part) goto fail;
+            if (part_length) memcpy(part, text + start, part_length);
+            part[part_length] = '\0';
+            int64_t adopted = freak_llvm_word_try_adopt_sized((int64_t)part, part_length);
+            if (!adopted) { free(part); goto fail; }
+            lines[used++] = adopted;
+            if (i == length) break;
+            start = i + 1;
+        }
+    }
+    int64_t slot = freak_llvm_array_free_head;
+    if (slot >= 0) {
+        freak_llvm_array_free_head = freak_llvm_arrays[slot].next_free;
+        freak_llvm_arrays[slot].generation += 1;
+    } else {
+        slot = freak_llvm_array_count++;
+        freak_llvm_arrays[slot].generation = 1;
+    }
+    freak_llvm_arrays[slot].data = lines;
+    freak_llvm_arrays[slot].length = (int64_t)used;
+    freak_llvm_arrays[slot].capacity = (int64_t)capacity;
+    freak_llvm_arrays[slot].next_free = -1;
+    freak_llvm_arrays[slot].in_use = true;
+    return freak_llvm_array_make_handle(slot, freak_llvm_arrays[slot].generation);
+fail:
+    for (size_t i = 0; i < used; ++i) freak_llvm_word_release_replaced(lines[i], 0);
+    free(lines);
+    return -1;
+}
+
 void freak_llvm_array_push(int64_t handle, int64_t item) {
     int64_t slot = freak_llvm_array_slot_for_handle(handle);
     if (slot < 0) return;
@@ -507,7 +563,7 @@ void    freak_llvm_ui_begin_frame(int64_t h)  { }
 void    freak_llvm_ui_end_frame(int64_t h)    { }
 void    freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) { }
 /**
- * Fills a rectangle in a UI window.
+ * No-op when FREAK_HAS_UI is disabled. Fills a rectangle in a UI window.
  * @param h UI window handle.
  * @param x Horizontal position.
  * @param y Vertical position.
@@ -520,7 +576,7 @@ void    freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t 
  */
 void    freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) { }
 /**
- * Draws a stroked rectangle in the specified color and line thickness.
+ * No-op when FREAK_HAS_UI is disabled. Draws a stroked rectangle in the specified color and line thickness.
  * @param h Window or drawing context handle.
  * @param x Horizontal position of the rectangle.
  * @param y Vertical position of the rectangle.
@@ -534,7 +590,7 @@ void    freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int6
  */
 void    freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) { }
 /**
- * Draws a colored line in a window.
+ * No-op when FREAK_HAS_UI is disabled. Draws a colored line in a window.
  * @param h Window handle.
  * @param x1 Starting x-coordinate.
  * @param y1 Starting y-coordinate.
@@ -557,16 +613,16 @@ int64_t freak_llvm_int_to_num(int64_t i) {
     return double_to_i64((double)i);
 }
 /**
- * Converts an integer bit pattern to its integer representation through the runtime numeric format.
- * @param n Integer value to convert.
- * @returns Converted integer value.
+ * Decodes a packed double and converts its numeric value to an integer.
+ * @param n IEEE-754 double bits carried in the universal integer ABI.
+ * @returns The numeric value truncated toward zero when representable.
  */
 int64_t freak_llvm_num_to_int(int64_t n) {
     return (int64_t)i64_to_double(n);
 }
 /**
- * Formats an integer's bitcast floating-point value as a runtime word.
- * @param n Integer whose bitcast floating-point value is formatted.
+ * Formats a packed double value as a runtime word.
+ * @param n IEEE-754 double bits carried in the universal integer ABI.
  * @returns An owned runtime word containing the formatted value.
  */
 int64_t freak_llvm_word_from_num(int64_t n) {
@@ -618,16 +674,16 @@ int64_t freak_llvm_math_floor(int64_t x) { return double_to_i64(floor(i64_to_dou
 int64_t freak_llvm_math_ceil(int64_t x)  { return double_to_i64(ceil(i64_to_double(x))); }
 
 /**
- * Parses a null-terminated numeric string into an integer value.
+ * Parses a null-terminated numeric string as a double.
  * @param w Pointer to the null-terminated numeric string.
- * @returns The parsed numeric value converted to an integer.
+ * @returns Parsed double bits packed into the universal integer ABI.
  */
 int64_t freak_llvm_parse_num(int64_t w) {
     return double_to_i64(strtod((const char*)w, NULL));
 }
 /**
- * Formats an integer's bitcast double value as a decimal string.
- * @param n Integer value whose bitcast double representation is formatted.
+ * Formats a packed double value as a decimal string.
+ * @param n IEEE-754 double bits carried in the universal integer ABI.
  * @return Newly allocated, owned word containing the formatted number.
  */
 int64_t freak_llvm_format_num(int64_t n) {

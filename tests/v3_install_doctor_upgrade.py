@@ -93,7 +93,7 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
 def check_static_contracts(repo: Path) -> None:
     """
     Validate static contracts across installers, release and CI workflows, compiler CLI sources, and repository attributes.
-    
+
     Parameters:
         repo (Path): Repository root containing the files and scripts to validate.
     """
@@ -150,7 +150,8 @@ def check_static_contracts(repo: Path) -> None:
     )
     for needle in (
         "MartinStorsjo.LLVM-MinGW.UCRT",
-        "scoop.cmd install llvm-mingw",
+        "scoop.cmd install mingw-mstorsjo-llvm-ucrt",
+        "scoop\\apps\\mingw-mstorsjo-llvm-ucrt\\current\\bin\\clang.exe",
         "Test-ClangToolchain",
         "& $binary",
         "FREAK_INSTALL_ARCHIVE",
@@ -251,7 +252,7 @@ def check_static_contracts(repo: Path) -> None:
     for needle in (
         "modules_expected\\\": 11",
         "ui/window.fk",
-        "scoop install llvm-mingw",
+        "scoop install mingw-mstorsjo-llvm-ucrt",
         "FREAK_DOCTOR_INSTALL_COMMAND",
         'process::env("TMPDIR")',
         'pilot probe_nonce: word = ""',
@@ -281,6 +282,7 @@ def check_static_contracts(repo: Path) -> None:
         "task cli_windows_cwd_is_shell_fallback(cwd: word) -> bool",
         "PAYLOAD RESOLUTION FAILED",
         "if not fs::exists(absolute) { give back \"\" }",
+        "/scoop/apps/mingw-mstorsjo-llvm-ucrt/current/bin/clang.exe",
     ):
         assert needle in build_text, f"executable discovery missing {needle}"
     assert build_text.count(
@@ -635,12 +637,12 @@ def check_offline_installer(
 ) -> None:
     """
     Validate offline installation, transactional upgrade, recovery, locking, and dependency behavior across platforms.
-    
+
     Parameters:
-    	repo (Path): Repository containing the installer scripts and distribution files.
-    	root (Path): Temporary directory for installation fixtures and test state.
-    	archive (Path): Locally generated distribution archive to install.
-    	entries (list[tuple[str, str]]): Manifest source and destination pairs used to verify installed files.
+        repo (Path): Repository containing the installer scripts and distribution files.
+        root (Path): Temporary directory for installation fixtures and test state.
+        archive (Path): Locally generated distribution archive to install.
+        entries (list[tuple[str, str]]): Manifest source and destination pairs used to verify installed files.
     """
     install_root = root / "installed"
     (install_root / "std").mkdir(parents=True)
@@ -1433,12 +1435,12 @@ def check_doctor(
 ) -> None:
     """
     Validate compiler diagnostics, payload discovery, ABI compatibility, toolchain probing, repair behavior, and upgrade-state handling across supported installation layouts and platforms.
-    
+
     Parameters:
-    	repo (Path): Repository containing the compiler, runtime, standard library, and manifest sources.
-    	root (Path): Temporary directory used for test installations, fixtures, and probe artifacts.
-    	compiler (Path): Path to the compiler executable used to run Doctor and build commands.
-    	entries (list[tuple[str, str]]): Manifest source and destination pairs used to populate test payloads.
+        repo (Path): Repository containing the compiler, runtime, standard library, and manifest sources.
+        root (Path): Temporary directory used for test installations, fixtures, and probe artifacts.
+        compiler (Path): Path to the compiler executable used to run Doctor and build commands.
+        entries (list[tuple[str, str]]): Manifest source and destination pairs used to populate test payloads.
     """
     repo_compiler = compiler.resolve()
     assert repo_compiler.parent.parent == repo.resolve(), (
@@ -2109,8 +2111,60 @@ def check_doctor(
         )
         assert fallback.returncode != 0, fallback.stdout + fallback.stderr
         fallback_report = json.loads(fallback.stdout)
+        assert fallback_report["platform"]["os"] == "windows"
         assert fallback_report["checks"]["runtime"]["path"] == ""
         assert fallback_report["checks"]["stdlib"]["path"] == ""
+
+        # Every Windows caller must share the same WINDIR-or-SystemRoot
+        # classification. Exercise the public upgrade route with WINDIR absent
+        # and a controlled local PowerShell installer so no network is used.
+        system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
+        assert system_root, "Windows regression requires SystemRoot or WINDIR"
+        systemroot_doctor_env = env.copy()
+        systemroot_doctor_env.pop("WINDIR", None)
+        systemroot_doctor_env["SystemRoot"] = system_root
+        systemroot_doctor = run_cli(
+            compiler, shadow_cwd, systemroot_doctor_env, "doctor", "--json"
+        )
+        assert systemroot_doctor.returncode == 0, (
+            systemroot_doctor.stdout + systemroot_doctor.stderr
+        )
+        systemroot_report = json.loads(systemroot_doctor.stdout)
+        assert systemroot_report["status"] == "ok"
+        assert systemroot_report["platform"] == {"os": "windows", "windows": True}
+        assert systemroot_report["checks"]["clang"]["ok"] is True
+        assert systemroot_report["checks"]["clang"]["cleanup_retained"] == ""
+
+        systemroot_appdata = root / "doctor-systemroot-only-appdata"
+        systemroot_marker = root / "doctor-systemroot-only-upgrade.txt"
+        systemroot_script = root / "doctor-systemroot-only-upgrade.ps1"
+        systemroot_script.write_text(
+            "param([switch]$Upgrade, [switch]$SkipDeps)\n"
+            "$value = $env:FREAK_HOME + '|' + $Upgrade + '|' + $SkipDeps\n"
+            "Set-Content -LiteralPath $env:FREAK_SYSTEMROOT_UPGRADE_MARKER "
+            "-Value $value -Encoding UTF8\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        systemroot_env = repo_env.copy()
+        systemroot_env.pop("WINDIR", None)
+        systemroot_env.pop("FREAK_HOME", None)
+        systemroot_env["SystemRoot"] = system_root
+        systemroot_env["APPDATA"] = str(systemroot_appdata)
+        systemroot_env["FREAK_UPGRADE_SCRIPT"] = str(systemroot_script)
+        systemroot_env["FREAK_SYSTEMROOT_UPGRADE_MARKER"] = str(systemroot_marker)
+        systemroot_upgrade = run_cli(
+            compiler, shadow_cwd, systemroot_env, "upgrade"
+        )
+        assert systemroot_upgrade.returncode == 0, (
+            systemroot_upgrade.stdout + systemroot_upgrade.stderr
+        )
+        expected_systemroot_home = systemroot_appdata / "freak"
+        marker_text = systemroot_marker.read_text(encoding="utf-8-sig").strip()
+        assert marker_text.replace("\\", "/").lower() == (
+            f"{expected_systemroot_home.as_posix()}|true|true".lower()
+        ), marker_text
+        assert not (expected_systemroot_home / ".freak-upgrade-launch.ps1").exists()
 
         # Exercise the real UNC behavior when the runner exposes its temporary
         # drive through the standard localhost administrative share. Hardened

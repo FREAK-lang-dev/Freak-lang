@@ -263,9 +263,9 @@ def main() -> int:
     # Determine paths
     """
     Run the FREAK Lite/Python Bootstrap regression test suite.
-    
+
     Returns:
-    	int: `1` if any tests fail or encounter errors, otherwise `0`.
+        int: `1` if any tests fail or encounter errors, otherwise `0`.
     """
     suite_dir = Path(__file__).resolve().parent
     repo_root = suite_dir.parent.parent  # tests/suite -> tests -> repo root

@@ -28,15 +28,15 @@ def run(
 ) -> subprocess.CompletedProcess[str]:
     """
     Run a subprocess with captured, decoded output.
-    
+
     Parameters:
-    	command (list[str]): Command and arguments to execute.
-    	cwd (Path): Working directory for the subprocess.
-    	env (dict[str, str]): Environment variables for the subprocess.
-    	timeout (int): Maximum execution time in seconds.
-    
+        command (list[str]): Command and arguments to execute.
+        cwd (Path): Working directory for the subprocess.
+        env (dict[str, str]): Environment variables for the subprocess.
+        timeout (int): Maximum execution time in seconds.
+
     Returns:
-    	subprocess.CompletedProcess[str]: Completed process details, including standard output, standard error, and return code.
+        subprocess.CompletedProcess[str]: Completed process details, including standard output, standard error, and return code.
     """
     return subprocess.run(
         command,
@@ -54,12 +54,12 @@ def run(
 def show_output(result: subprocess.CompletedProcess[str]) -> str:
     """
     Combine a completed subprocess's standard output and standard error.
-    
+
     Parameters:
-    	result (subprocess.CompletedProcess[str]): The completed subprocess result.
-    
+        result (subprocess.CompletedProcess[str]): The completed subprocess result.
+
     Returns:
-    	str: The concatenated standard output and standard error.
+        str: The concatenated standard output and standard error.
     """
     return (result.stdout or "") + (result.stderr or "")
 
@@ -67,10 +67,10 @@ def show_output(result: subprocess.CompletedProcess[str]) -> str:
 def require_ok(result: subprocess.CompletedProcess[str], label: str) -> None:
     """
     Assert that a subprocess completed successfully.
-    
+
     Parameters:
-    	result (subprocess.CompletedProcess[str]): The completed subprocess result to check.
-    	label (str): A descriptive label used in failure messages.
+        result (subprocess.CompletedProcess[str]): The completed subprocess result to check.
+        label (str): A descriptive label used in failure messages.
     """
     assert result.returncode == 0, (
         f"{label} failed ({result.returncode})\n{show_output(result)}"
@@ -80,9 +80,9 @@ def require_ok(result: subprocess.CompletedProcess[str], label: str) -> None:
 def manifest_entries(repo: Path) -> list[tuple[Path, str]]:
     """
     Parse and validate the distribution manifest.
-    
+
     Returns:
-    	list[tuple[Path, str]]: Source file paths and their archive destinations.
+        list[tuple[Path, str]]: Source file paths and their archive destinations.
     """
     manifest = repo / "packaging" / "distribution-files.manifest"
     entries: list[tuple[Path, str]] = []
@@ -120,14 +120,14 @@ def manifest_entries(repo: Path) -> list[tuple[Path, str]]:
 def compile_windows_runtime_objects(repo: Path, destination: Path, env: dict[str, str]) -> None:
     """
     Compile the Windows runtime C sources into optimized object files.
-    
+
     Parameters:
-    	repo (Path): Repository root containing the runtime sources.
-    	destination (Path): Directory where the compiled object files are written.
-    	env (dict[str, str]): Environment variables used to select the Clang executable.
-    
+        repo (Path): Repository root containing the runtime sources.
+        destination (Path): Directory where the compiled object files are written.
+        env (dict[str, str]): Environment variables used to select the Clang executable.
+
     Raises:
-    	AssertionError: If Clang is unavailable or compilation fails.
+        AssertionError: If Clang is unavailable or compilation fails.
     """
     configured = env.get("FREAK_CLANG", "clang")
     clang = shutil.which(configured)
@@ -180,7 +180,7 @@ def create_release_archive(
 ) -> Path:
     """
     Create a platform-specific release archive containing the compiler payload.
-    
+
     Parameters:
         repo (Path): Repository root containing packaging files and Windows runtime sources.
         root (Path): Directory used for staging the payload and writing the archive.
@@ -188,7 +188,7 @@ def create_release_archive(
         hangar (Path): Path to the Hangar executable.
         entries (list[tuple[Path, str]]): Distribution files and their destination paths within the archive.
         env (dict[str, str]): Environment variables used when compiling Windows runtime objects.
-    
+
     Returns:
         Path: The created release archive.
     """
@@ -230,12 +230,12 @@ def create_release_archive(
 def normalized_archive_member(raw_name: str) -> str:
     """
     Normalize an archive member path and verify that it is safe for use.
-    
+
     Parameters:
-    	raw_name (str): The archive member path to normalize.
-    
+        raw_name (str): The archive member path to normalize.
+
     Returns:
-    	str: The normalized relative path.
+        str: The normalized relative path.
     """
     name = raw_name.replace("\\", "/")
     while name.startswith("./"):
@@ -250,12 +250,12 @@ def normalized_archive_member(raw_name: str) -> str:
 def archive_files(archive: Path) -> tuple[dict[str, bytes], set[str]]:
     """
     Read a ZIP or gzip-compressed tar archive and collect its files and directories.
-    
+
     Parameters:
-    	archive (Path): Archive to inspect.
-    
+        archive (Path): Archive to inspect.
+
     Returns:
-    	tuple[dict[str, bytes], set[str]]: File contents keyed by normalized path and the set of normalized directory paths.
+        tuple[dict[str, bytes], set[str]]: File contents keyed by normalized path and the set of normalized directory paths.
     """
     files: dict[str, bytes] = {}
     directories: set[str] = set()
@@ -294,12 +294,12 @@ def archive_files(archive: Path) -> tuple[dict[str, bytes], set[str]]:
 def expected_archive_directories(files: set[str]) -> set[str]:
     """
     Compute the directory paths implied by archive file paths.
-    
+
     Parameters:
-    	files (set[str]): Archive file paths whose parent directories should be derived.
-    
+        files (set[str]): Archive file paths whose parent directories should be derived.
+
     Returns:
-    	set[str]: Directory paths required to contain the specified files.
+        set[str]: Directory paths required to contain the specified files.
     """
     result: set[str] = set()
     for name in files:
@@ -314,7 +314,7 @@ def assert_archive_directory_closure(
 ) -> None:
     """
     Ensure every archive directory is implied by a file path.
-    
+
     Parameters:
         directories (set[str]): Directory paths present in the archive.
         files (set[str]): File paths present in the archive.
@@ -357,14 +357,14 @@ def assert_archive_contract(
 ) -> dict[str, bytes]:
     """
     Validate that a release archive contains exactly the expected payload and byte contents.
-    
+
     Parameters:
-    	archive (Path): Release archive to validate.
-    	entries (list[tuple[Path, str]]): Source files and their archive destinations.
-    	repo (Path): Repository containing the current distribution manifest.
-    
+        archive (Path): Release archive to validate.
+        entries (list[tuple[Path, str]]): Source files and their archive destinations.
+        repo (Path): Repository containing the current distribution manifest.
+
     Returns:
-    	dict[str, bytes]: Archive file paths mapped to their contents.
+        dict[str, bytes]: Archive file paths mapped to their contents.
     """
     extension = ".exe" if sys.platform == "win32" else ""
     expected = {
@@ -399,12 +399,12 @@ def assert_archive_contract(
 def installer_command(repo: Path) -> list[str]:
     """
     Select the platform-specific installer command for the repository.
-    
+
     Parameters:
-    	repo (Path): Repository containing the installer script.
-    
+        repo (Path): Repository containing the installer script.
+
     Returns:
-    	list[str]: Command and arguments for running the installer with dependency installation disabled.
+        list[str]: Command and arguments for running the installer with dependency installation disabled.
     """
     if sys.platform == "win32":
         return [
@@ -424,15 +424,15 @@ def install_archive(
 ) -> tuple[Path, dict[str, str]]:
     """
     Install the specified release archive into an isolated installation directory.
-    
+
     Parameters:
-    	repo (Path): Repository containing the platform-specific installer.
-    	root (Path): Temporary root directory for the installation.
-    	archive (Path): Release archive to install.
-    	env (dict[str, str]): Base environment variables for the installer.
-    
+        repo (Path): Repository containing the platform-specific installer.
+        root (Path): Temporary root directory for the installation.
+        archive (Path): Release archive to install.
+        env (dict[str, str]): Base environment variables for the installer.
+
     Returns:
-    	tuple[Path, dict[str, str]]: The installation directory and environment used for installation.
+        tuple[Path, dict[str, str]]: The installation directory and environment used for installation.
     """
     install_home = root / "installed"
     install_env = env.copy()
@@ -459,14 +459,14 @@ def assert_installed_payload(
 ) -> tuple[Path, Path]:
     """
     Verify that the installed payload exactly matches the archive contents.
-    
+
     Parameters:
-    	archive_files_by_name (dict[str, bytes]): Archive files keyed by their paths.
-    	install_home (Path): Root directory of the installed payload.
-    	entries (list[tuple[Path, str]]): Distribution manifest entries and their installation destinations.
-    
+        archive_files_by_name (dict[str, bytes]): Archive files keyed by their paths.
+        install_home (Path): Root directory of the installed payload.
+        entries (list[tuple[Path, str]]): Distribution manifest entries and their installation destinations.
+
     Returns:
-    	tuple[Path, Path]: Paths to the installed `freak` and `hangar` executables.
+        tuple[Path, Path]: Paths to the installed `freak` and `hangar` executables.
     """
     extension = ".exe" if sys.platform == "win32" else ""
     freak = install_home / "bin" / f"freak{extension}"
@@ -502,11 +502,11 @@ def assert_installed_payload(
 def isolated_runtime_env(root: Path, inherited: dict[str, str]) -> dict[str, str]:
     """
     Create an isolated environment for runtime discovery tests.
-    
+
     Parameters:
         root (Path): Directory in which to create empty user and system locations.
         inherited (dict[str, str]): Base environment variables to copy and modify.
-    
+
     Returns:
         dict[str, str]: Environment variables with isolated user locations, color output disabled, and `FREAK_HOME` removed.
     """
@@ -531,7 +531,7 @@ def assert_exact_installed_discovery(
     """
     Verify that installed runtime and standard-library discovery uses the installation
     directory when invoked from a repository-shaped working directory.
-    
+
     Parameters:
         freak (Path): Path to the installed compiler executable.
         hangar (Path): Path to the installed Hangar executable.
@@ -628,10 +628,10 @@ def assert_installed_abi_mismatch(
 def payload_fingerprint(root: Path) -> dict[str, str]:
     """
     Create a recursive fingerprint of the payload rooted at a directory.
-    
+
     Parameters:
         root (Path): Directory whose contents should be fingerprinted.
-    
+
     Returns:
         dict[str, str]: Mapping of relative paths to directory markers, symlink
         targets, SHA-256 file digests, or special-file type markers.
@@ -641,7 +641,7 @@ def payload_fingerprint(root: Path) -> dict[str, str]:
     def visit(directory: Path, prefix: str = "") -> None:
         """
         Record a recursive fingerprint of a directory's entries.
-        
+
         Parameters:
             directory (Path): Directory whose contents are recorded.
             prefix (str): Relative path prefix for entries in the directory.
@@ -666,12 +666,12 @@ def payload_fingerprint(root: Path) -> dict[str, str]:
 def archive_payload_fingerprint(files: dict[str, bytes]) -> dict[str, str]:
     """
     Build an expected payload fingerprint from archive file contents.
-    
+
     Parameters:
-    	files (dict[str, bytes]): Archive members and their byte contents, rooted under ``freak/``.
-    
+        files (dict[str, bytes]): Archive members and their byte contents, rooted under ``freak/``.
+
     Returns:
-    	dict[str, str]: Relative payload paths mapped to directory markers or SHA-256 file fingerprints.
+        dict[str, str]: Relative payload paths mapped to directory markers or SHA-256 file fingerprints.
     """
     result: dict[str, str] = {}
     for archive_name, data in sorted(files.items()):
@@ -697,7 +697,7 @@ def assert_exact_archive_upgrade(
 ) -> None:
     """
     Validate exact-archive upgrade rollback, replacement, cleanup, and post-upgrade health.
-    
+
     Parameters:
         archive_payload (dict[str, bytes]): Expected archive files and their contents.
         entries (list[tuple[Path, str]]): Distribution manifest entries used to verify the installed payload.
@@ -825,14 +825,14 @@ def run_child_gate(
 ) -> None:
     """
     Run a subordinate acceptance-gate command and report its successful completion.
-    
+
     Parameters:
-    	label (str): Name used to identify the component in status messages.
-    	command (list[str]): Command and arguments to execute.
-    	repo (Path): Repository path associated with the gate.
-    	cwd (Path): Working directory for the command.
-    	env (dict[str, str]): Environment variables for the command.
-    	timeout (int): Maximum execution time in seconds.
+        label (str): Name used to identify the component in status messages.
+        command (list[str]): Command and arguments to execute.
+        repo (Path): Repository path associated with the gate.
+        cwd (Path): Working directory for the command.
+        env (dict[str, str]): Environment variables for the command.
+        timeout (int): Maximum execution time in seconds.
     """
     result = run(command, cwd, env, timeout=timeout)
     require_ok(result, label)
@@ -845,11 +845,11 @@ def run_child_gate(
 def main() -> int:
     """
     Run the complete V3 final release acceptance gate.
-    
+
     Validates the release archive, installed payload, runtime discovery, ABI compatibility, compiler acceptance suites, and upgrade behavior. Accepts either compiler and Hangar binaries for local archive creation or a prebuilt archive with its standalone binaries, and optionally records the archive SHA-256.
-    
+
     Returns:
-    	int: 0 after all acceptance checks pass.
+        int: 0 after all acceptance checks pass.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", nargs="?", type=Path)

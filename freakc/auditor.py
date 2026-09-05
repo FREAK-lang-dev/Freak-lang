@@ -1500,13 +1500,16 @@ def _explicit_strict_smoke_errors(
 
 def audit_conformance(paths: List[Path]) -> int:
     """
-    Verify repository conformance with the v0.13.x baseline and promoted V4 contracts.
-    
+    Verify the selected v0.13.x baseline and promoted V4 contracts.
+
+    Each audited claim requires code, files, or executable smoke evidence.
+    Unpromoted V4 contracts remain outside this explicitly scoped gate.
+
     Parameters:
-    	paths (List[Path]): Paths used to locate the repository root.
-    
+        paths (List[Path]): Paths used to locate the repository root.
+
     Returns:
-    	int: `1` if the repository cannot be located or any conformance contract fails, `0` otherwise.
+        int: `1` if the repository cannot be located or any conformance contract fails, `0` otherwise.
     """
     import sys as _sys
 

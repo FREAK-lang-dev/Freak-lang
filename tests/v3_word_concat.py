@@ -122,14 +122,14 @@ AUDIT_RE = re.compile(
 def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     """
     Run a subprocess with captured text output and a 180-second timeout.
-    
+
     Parameters:
-    	command (list[str]): Command and arguments to execute.
-    	cwd (Path): Working directory for the subprocess.
-    	env (dict[str, str] | None): Optional environment variables for the subprocess.
-    
+        command (list[str]): Command and arguments to execute.
+        cwd (Path): Working directory for the subprocess.
+        env (dict[str, str] | None): Optional environment variables for the subprocess.
+
     Returns:
-    	subprocess.CompletedProcess[str]: The completed subprocess result, including its exit status and captured output.
+        subprocess.CompletedProcess[str]: The completed subprocess result, including its exit status and captured output.
     """
     return subprocess.run(
         command,
@@ -146,12 +146,12 @@ def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> sub
 def stable_checksum(data: bytes) -> int:
     """
     Compute a deterministic checksum for byte data.
-    
+
     Parameters:
-    	data (bytes): The data to checksum.
-    
+        data (bytes): The data to checksum.
+
     Returns:
-    	int: A non-negative 63-bit checksum value.
+        int: A non-negative 63-bit checksum value.
     """
     value = 14695981039346656037
     for byte in data:
@@ -163,12 +163,12 @@ def stable_checksum(data: bytes) -> int:
 def sanitizer_env(*, detect_leaks: bool = True) -> dict[str, str]:
     """
     Create an environment configured for sanitizer error handling.
-    
+
     Parameters:
-    	detect_leaks (bool): Whether to enable leak detection on Linux.
-    
+        detect_leaks (bool): Whether to enable leak detection on Linux.
+
     Returns:
-    	dict[str, str]: A copy of the process environment with sanitizer options configured.
+        dict[str, str]: A copy of the process environment with sanitizer options configured.
     """
     env = os.environ.copy()
     env.pop("ASAN_OPTIONS", None)
@@ -194,7 +194,7 @@ def compile_generated(
 ) -> None:
     """
     Compile generated C or LLVM code into an executable with the selected runtime and build options.
-    
+
     Parameters:
         clang (str): Path to the Clang compiler.
         repo (Path): Working directory for the compilation command.
@@ -234,9 +234,9 @@ def compile_generated(
 def main() -> int:
     """
     Run the V3 word concatenation regression tests for the C and LLVM backends.
-    
+
     Returns:
-    	int: Zero when all regression checks pass.
+        int: Zero when all regression checks pass.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
@@ -425,7 +425,19 @@ def main() -> int:
                     audit=True,
                     force_move=True,
                 )
-                extra_run = run([str(extra_binary)], root, sanitizer_env())
+                # V3 has no shape-object release ABI yet. The field-scaling
+                # fixture owns and clears its word slot, but the surrounding
+                # shape allocation is intentionally unreleasable. Keep ASan's
+                # memory-error checks while disabling only that known LSan
+                # boundary, just like the field correctness fixture below.
+                scaling_detect_leaks = not (
+                    backend == "llvm" and scaling_name == "field"
+                )
+                extra_run = run(
+                    [str(extra_binary)],
+                    root,
+                    sanitizer_env(detect_leaks=scaling_detect_leaks),
+                )
                 assert extra_run.returncode == 0, extra_run.stdout + extra_run.stderr
                 assert extra_run.stdout.strip().splitlines() == expected_stdout, (
                     extra_run.stdout

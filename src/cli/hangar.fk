@@ -937,7 +937,7 @@ task hangar_install_freak() -> int {
     -- installer own manifests, staging, rollback, dependency policy, and
     -- Windows deferred replacement. Immutable v0.14.0 clients predate this
     -- path; their migration limitations are documented below and in README.
-    pilot is_win = process::env("WINDIR") != ""
+    pilot is_win = cli_is_windows()
     pilot freak_home: word = process::env("FREAK_HOME")
     if freak_home == "" {
         if is_win {

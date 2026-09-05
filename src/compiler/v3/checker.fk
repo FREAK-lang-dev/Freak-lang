@@ -733,7 +733,7 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "format_num" or name == "ask" or name == "array_get" or name == "process::env" or name == "process::input" { give back "word" }
     if name == "fs::read" or name == "fs::list_dir" or name == "process::arg" or name == "process::exec_capture" { give back "word" }
     if name == "tcp::recv" or name == "tcp_recv" or name == "tcp::recv_all" or name == "tcp_recv_all" { give back "word" }
-    if name == "fs::exists" { give back "bool" }
+    if name == "fs::exists" or name == "fs::delete" { give back "bool" }
     if name == "array_new" or name == "array_len" or name == "process::args_count" or name == "process::exec" { give back "int" }
     if name == "word_to_int" or name == "time::now_ms" or name == "tcp::connect" or name == "tcp_connect" or name == "tcp::send" or name == "tcp_send" { give back "int" }
     if name == "ui::create_window" or name == "ui::poll_events" or name == "ui::draw_text" or name == "ui::measure_text" { give back "int" }
@@ -743,7 +743,7 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "ui::get_width" or name == "ui::get_height" { give back "int" }
     if name == "math::sqrt" or name == "math::pow" or name == "math::sin" or name == "math::cos" { give back "num" }
     if name == "math::tan" or name == "math::floor" or name == "math::ceil" or name == "parse_num" { give back "num" }
-    if name == "say" or name == "panic" or name == "fs::write" or name == "fs::append" or name == "fs::delete" or name == "fs::make_dir" { give back "void" }
+    if name == "say" or name == "panic" or name == "fs::write" or name == "fs::append" or name == "fs::make_dir" { give back "void" }
     if name == "array_push" or name == "array_set" or name == "array_release" or name == "process::exit" { give back "void" }
     if name == "tcp::close" or name == "tcp_close" { give back "void" }
     if name == "ui::destroy_window" or name == "ui::begin_frame" or name == "ui::end_frame" or name == "ui::clear" { give back "void" }
@@ -821,6 +821,7 @@ task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
         if name == "to_int" or name == "to_num" { give back true }
         if name == "snapshot_escape" or name == "snapshot_unescape" { give back true }
         if name == "snapshot_line_count" or name == "snapshot_line" { give back true }
+        if name == "snapshot_lines" { give back true }
         if name == "snapshot_field_count" or name == "snapshot_field_raw" { give back true }
     }
     if receiver_type == "int" and (name == "to_num" or name == "to_word") { give back true }
@@ -831,6 +832,7 @@ task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
 
 task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
     if not tc_builtin_method_allowed(receiver_type, name) { give back "" }
+    if name == "snapshot_lines" { give back "int" }
     if name == "to_int" or name == "length" or name == "checksum" or name == "snapshot_line_count" or name == "snapshot_field_count" { give back "int" }
     if name == "contains" or name == "starts_with" or name == "ends_with" { give back "bool" }
     if name == "to_num" { give back "num" }
@@ -2155,6 +2157,9 @@ task tc_run_program() -> void {
         pilot callable_name: word = array_get(ast_stmt_names, sid)
         if top_kind == STMT_EXTERN and array_get(ast_stmt_names, sid).starts_with("__freak_") {
             tc_diag_reserved_extern(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+        }
+        if top_kind == STMT_EXTERN and callable_name == "freak_internal_delete_file_checked" {
+            tc_diag_builtin_callable(callable_name, word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
         }
         if (top_kind == STMT_TASK or top_kind == STMT_EXTERN) and tc_reserved_builtin_call(array_get(ast_stmt_names, sid)) {
             tc_diag_builtin_callable(array_get(ast_stmt_names, sid), word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))

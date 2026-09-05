@@ -58,6 +58,7 @@ RUNNER_PEAK_RETAINED_BYTES = 0
 C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
 C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
+        "hir_snapshot_scaling_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     }
@@ -285,6 +286,8 @@ CRATE_BOUNDARY_REQUIRED = {
         ("invalidation report", "task v4_unit_invalidation_report(path: word) -> word {"),
         ("restore confirm coordination", "task v4_driver_confirm_restored_document(path: word) -> word {"),
         ("MIR restore coordination", "task v4_mir_snapshot_restore(payload: word) -> word {"),
+        ("expansion restore query coordination", "task v4_expand_snapshot_restore_with_queries(payload: word) -> word {"),
+        ("HIR restore query coordination", "task v4_hir_snapshot_restore_with_queries(payload: word) -> word {"),
     ],
     "freak_lsp": [
         (
@@ -603,15 +606,21 @@ EXECUTABLE_SMOKES = [
             "macro-api-format=freak-macro-api-contract-v1",
             "macro-api-version=1.0",
             "macro-api-version-supported=true",
+            "macro-api-older-minor-context-supported=true",
             "macro-api-future-version-rejected=true",
             "macro-api-unknown-capabilities-rejected=true",
             "macro-api-host-unavailable=true",
             "macro-api-effects-denied=true",
             "macro-api-context-valid=true",
+            "macro-api-noncanonical-context-rejected=true",
+            "macro-api-noncanonical-context-framing-rejected=true",
             "macro-api-context-capabilities=true",
             "macro-api-expansion-owned=true",
             "macro-api-noncanonical-expansion-rejected=true",
+            "macro-api-noncanonical-expansion-framing-rejected=true",
             "macro-api-provenance-owned=true",
+            "macro-api-noncanonical-provenance-rejected=true",
+            "macro-api-noncanonical-provenance-framing-rejected=true",
             "macro-api-cross-source-provenance-rejected=true",
             "macro-api-reversed-provenance-rejected=true",
             "macro-api-malformed-span-rejected=true",
@@ -620,21 +629,37 @@ EXECUTABLE_SMOKES = [
             "macro-api-expand-bridge-id=true",
             "macro-api-expand-bridge-provenance=true",
             "macro-api-source-view-readonly=true",
+            "macro-api-noncanonical-source-view-rejected=true",
+            "macro-api-noncanonical-source-view-framing-rejected=true",
             "macro-api-ast-view-readonly=true",
+            "macro-api-noncanonical-ast-view-rejected=true",
             "macro-api-span-view-readonly=true",
+            "macro-api-noncanonical-span-view-rejected=true",
             "macro-api-node-view-readonly=true",
+            "macro-api-noncanonical-node-view-rejected=true",
             "macro-api-mixed-revision-node-rejected=true",
+            "macro-api-cross-source-node-provenance-rejected=true",
             "macro-api-diagnostic-structured=true",
+            "macro-api-noncanonical-diagnostic-rejected=true",
+            "macro-api-noncanonical-diagnostic-framing-rejected=true",
             "macro-api-cross-source-diagnostic-rejected=true",
             "macro-api-diagnostic-adapter-fails-closed=true",
             "macro-api-diagnostic-help-adapter-fails-closed=true",
             "macro-api-diagnostic-span-adapter-fails-closed=true",
             "macro-api-diagnostic-submit-unsupported=true",
+            "macro-api-capability-denied=true",
+            "macro-api-mismatched-expansion-invalid=true",
             "macro-api-builder-valid=true",
+            "macro-api-noncanonical-builder-rejected=true",
+            "macro-api-builder-open-capability-denied=true",
             "macro-api-builder-cannot-execute=true",
             "macro-api-builder-add-unsupported=true",
+            "macro-api-builder-foreign-span-invalid=true",
+            "macro-api-noncanonical-result-rejected=true",
             "macro-api-builder-finish-unsupported=true",
             "macro-api-builder-deterministic=true",
+            "macro-api-builder-add-invalid=true",
+            "macro-api-builder-finish-invalid=true",
             "macro-api-compiler-state-unchanged=true",
         ],
         "expect": [],
@@ -931,6 +956,7 @@ EXECUTABLE_SMOKES = [
             "expand-component-restore-truncated=true",
             "expand-component-restore-query-recomputed=true",
             "expand-unit-restore-truncated=true",
+            "expand-named-section-restore-query-recomputed=true",
             "expand-lsp-missing-payload=true",
             "expand-query-recomputed=true",
             "expand-contract-restore-generation=true",
@@ -1768,6 +1794,84 @@ EXECUTABLE_SMOKES = [
             "error|workspace/hirSnapshotRestore|-32602|",
             "query-snapshot-restore ok=1",
             "query-confirm ok=1 path=hir-snapshot.fk",
+        ],
+    },
+    {
+        "name": "HIR snapshot scaling and resource bounds",
+        "fixture": "hir_snapshot_scaling_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "hir-scaling-baseline-restored=true",
+            "hir-scaling-64-aliases=true",
+            "hir-scaling-512-aliases=true",
+            "hir-scaling-64-owners=true",
+            "hir-scaling-duplicate-owner=true",
+            "hir-scaling-sparse-owner=true",
+            "hir-scaling-huge-owner=true",
+            "hir-scaling-overflow-owner=true",
+            "hir-scaling-noncanonical-owner=true",
+            "hir-scaling-source-garbage=true",
+            "hir-scaling-source-negative=true",
+            "hir-scaling-source-noncanonical=true",
+            "hir-scaling-source-overflow=true",
+            "hir-scaling-expansion-garbage=true",
+            "hir-scaling-expansion-negative=true",
+            "hir-scaling-expansion-noncanonical=true",
+            "hir-scaling-expansion-overflow=true",
+            "hir-scaling-childless-owner-identities=true",
+            "hir-scaling-canonical-parent-identity=true",
+            "hir-scaling-duplicate-item=true",
+            "hir-scaling-gapped-item=true",
+            "hir-scaling-huge-item=true",
+            "hir-scaling-noncanonical-item=true",
+            "hir-scaling-orphan-item=true",
+            "hir-scaling-duplicate-diag=true",
+            "hir-scaling-gapped-diag=true",
+            "hir-scaling-huge-diag=true",
+            "hir-scaling-noncanonical-diag=true",
+            "hir-scaling-orphan-diag=true",
+            "hir-scaling-huge-item-count=true",
+            "hir-scaling-huge-diag-count=true",
+            "hir-scaling-noncanonical-count=true",
+            "hir-scaling-count-mismatch=true",
+            "hir-scaling-cross-owner-span=true",
+            "hir-scaling-empty=true",
+            "hir-scaling-empty-line-count=true",
+            "hir-scaling-trailing-newline=true",
+            "hir-scaling-repeated=true",
+            "hir-scaling-capacity-bounded=true",
+            "hir-scaling-capacity-stable=true",
+            "hir-scaling-live-unchanged=true",
+            "hir-scaling-index-exhaustion-validation=true",
+            "hir-scaling-index-exhaustion-restore=true",
+            "hir-scaling-index-exhaustion-atomic=true",
+            "hir-scaling-index-exhaustion-recovery=true",
+            "hir-scaling-fresh-slot-eight-handles=true",
+            "hir-scaling-reused-children-empty=true",
+            "hir-scaling-restore-repeated=true",
+            "hir-scaling-truncated-slots-hidden=true",
+            "hir-scaling-file-slot-capacity-stable=true",
+        ],
+    },
+    {
+        "name": "unit snapshot validation query purity",
+        "fixture": "unit_snapshot_validation_query_purity_smoke.fk",
+        "expect": [
+            "validation-query-baseline-restored=true",
+            "validation-query-foreign-context-required=true",
+            "validation-query-foreign-accepted=true",
+            "validation-query-snapshot-unchanged=true",
+            "validation-query-generation-unchanged=true",
+            "validation-query-dirty-unchanged=true",
+            "validation-query-invalidations-unchanged=true",
+            "validation-query-telemetry-unchanged=true",
+            "validation-query-parent-snapshots-restored=true",
+            "validation-query-accepted-provenance-stable=true",
+            "validation-query-repeat-stable=true",
+            "validation-query-repeated-provenance-stable=true",
+            "validation-query-rejected-context-stable=true",
+            "validation-query-rejected-provenance-stable=true",
+            "validation-query-real-restore-refreshes-provenance=true",
         ],
     },
     {
@@ -7207,6 +7311,8 @@ EXECUTABLE_SMOKES = [
         "fixture": "alias_hir_boundary_smoke.fk",
         "expect": [
             "alias-hir-boundary-parse-diagnostics=0",
+            "alias-hir-boundary-terminator-excluded=true",
+            "alias-hir-boundary-incomplete-sentinel=true",
             "alias-hir-boundary-expanded-matrix-target=[[num;4];4]",
             "alias-hir-boundary-expanded-matrix-span=0@33:46",
             "alias-hir-boundary-expanded-borrowed-target=lend mut 'a Score",
@@ -7229,7 +7335,21 @@ EXECUTABLE_SMOKES = [
             "alias-hir-boundary-diag-span=0@68:85",
             "alias-hir-boundary-malformed-snapshot-rejected=true",
             "alias-hir-boundary-declared-alias-count-rejected=true",
+            "alias-hir-boundary-foreign-span-rejected=true",
+            "alias-hir-boundary-out-of-item-span-rejected=true",
+            "alias-hir-boundary-zero-span-rejected=true",
+            "alias-hir-boundary-duplicate-slot-rejected=true",
+            "alias-hir-boundary-reordered-child-roundtrip=true",
+            "alias-hir-boundary-smaller-validation-accepted=true",
+            "alias-hir-boundary-smaller-restore-ok=true",
+            "alias-hir-boundary-smaller-live-files=1",
+            "alias-hir-boundary-smaller-snapshot-canonical=true",
+            "alias-hir-boundary-smaller-restore-truncates=true",
+            "alias-hir-boundary-smaller-next-allocation-fresh=true",
+            "alias-hir-boundary-component-restore-query-recomputed=true",
+            "alias-hir-boundary-named-restore-query-recomputed=true",
             "hir-snapshot-restore ok=1",
+            "alias-hir-boundary-incomplete-roundtrip=true",
             "alias-hir-boundary-restored-matrix-target=[[num;4];4]",
             "alias-hir-boundary-restored-matrix-span=0@33:46",
         ],
@@ -8991,15 +9111,137 @@ def check_crate_boundaries() -> None:
     print(f"boundary rules: {', '.join(boundary_crates)}")
 
 
+def freak_char_literal_length(source: str, index: int, limit: int) -> int:
+    if index + 2 >= limit or source[index] != "'":
+        return 0
+    value = source[index + 1]
+    if value == "\\":
+        if index + 3 < limit and source[index + 2] in "nrt0'\"\\" and source[index + 3] == "'":
+            return 4
+        return 0
+    if value != "\n" and source[index + 2] == "'":
+        return 3
+    return 0
+
+
+def freak_matching_brace(source: str, open_index: int, limit: int) -> int | None:
+    depth = 0
+    literal_quote: str | None = None
+    escaped = False
+    in_comment = False
+    index = open_index
+    while index < limit:
+        char = source[index]
+        if in_comment:
+            if char == "\n":
+                in_comment = False
+            index += 1
+            continue
+        if literal_quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == literal_quote:
+                literal_quote = None
+            index += 1
+            continue
+        if char == '"':
+            literal_quote = char
+            index += 1
+            continue
+        char_literal_length = freak_char_literal_length(source, index, limit)
+        if char_literal_length > 0:
+            index += char_literal_length
+            continue
+        if char == "-" and index + 1 < limit and source[index + 1] == "-":
+            in_comment = True
+            index += 2
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def freak_mask_line_comments(source: str) -> str:
+    """Mask comments without changing offsets or quoted literal contents."""
+    chars = list(source)
+    index = 0
+    while index < len(source):
+        if source[index] == '"':
+            index += 1
+            while index < len(source):
+                if source[index] == "\\":
+                    index += 2
+                elif source[index] == '"':
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+        char_length = freak_char_literal_length(source, index, len(source))
+        if char_length:
+            index += char_length
+            continue
+        if source.startswith("--", index):
+            while index < len(source) and source[index] not in "\r\n":
+                chars[index] = " "
+                index += 1
+            continue
+        index += 1
+    return "".join(chars)
+
+
 def freak_task_body(source: str, task_name: str) -> str | None:
-    match = re.search(
-        rf"task {re.escape(task_name)}\([^\n]*\) -> [^\n]+ \{{(.*?)(?=\ntask |\Z)",
-        source,
-        re.DOTALL,
-    )
+    source = freak_mask_line_comments(source)
+    match = re.search(rf"(?m)^task[ \t]+{re.escape(task_name)}[ \t]*\(", source)
     if match is None:
         return None
-    return match.group(1)
+
+    next_task = re.search(r"(?m)^task[ \t]+", source[match.end() :])
+    if next_task is not None:
+        source = source[: match.end() + next_task.start()]
+
+    signature_end = source.find("\n", match.start())
+    if signature_end < 0:
+        signature_end = len(source)
+    signature = source[match.start() : signature_end]
+
+    arrow_index = signature.find("=>")
+    brace_index = signature.find("{")
+    if arrow_index >= 0 and (brace_index < 0 or arrow_index < brace_index):
+        return signature[arrow_index + 2 :]
+    if brace_index >= 0:
+        open_index = match.start() + brace_index
+        close_index = freak_matching_brace(source, open_index, len(source))
+        if close_index is None:
+            return None
+        return source[open_index + 1 : close_index]
+
+    marker_index = signature_end + 1
+    while marker_index < len(source) and source[marker_index] in " \t\r\n":
+        marker_index += 1
+    if source.startswith("=>", marker_index):
+        arrow_end = source.find("\n", marker_index)
+        if arrow_end < 0:
+            arrow_end = len(source)
+        return source[marker_index + 2 : arrow_end]
+    if marker_index < len(source) and source[marker_index] == "{":
+        close_index = freak_matching_brace(source, marker_index, len(source))
+        if close_index is None:
+            return None
+        return source[marker_index + 1 : close_index]
+
+    done_match = re.search(r"(?m)^done[ \t]*$", source[signature_end + 1 :])
+    if done_match is not None:
+        body_start = signature_end + 1
+        return source[body_start : body_start + done_match.start()]
+    return None
 
 
 def check_alias_hir_boundary() -> None:
@@ -9007,6 +9249,58 @@ def check_alias_hir_boundary() -> None:
     hir_source = read_text(crate_path("freak_hir"))
     ty_source = read_text(crate_path("freak_ty"))
     violations: list[str] = []
+
+    index_body = freak_task_body(hir_source, "v4_hir_snapshot_index_lines")
+    if index_body is None or index_body.strip() != "give back payload.snapshot_lines()":
+        violations.append("HIR snapshot line index must use the native single-pass splitter")
+
+    extractor_sample = (
+        "task brace_sample() -> void {\n"
+        "    say \"{safe}\"\n"
+        "pilot close: char = '}'\n"
+        "pilot quote: char = '\\''\n"
+        "pilot loan: lend 'a word = value\n"
+        "pilot local = v4_parse_inside\n"
+        "}\n"
+        "pilot later = v4_parse_outside\n"
+        "task arrow_sample() => 1\n"
+        "shape Later\n"
+        "task multiline_brace_sample() -> void\n"
+        "{\n"
+        "pilot local = v4_parse_multiline_inside\n"
+        "}\n"
+        "pilot multiline_later = v4_parse_multiline_outside\n"
+        "task commented_sample() -> void -- => { misleading markers\n"
+        "-- { another => misleading marker\n"
+        "{\n"
+        "pilot local = v4_parse_commented_inside\n"
+        "say \"-- literal stays\"\n"
+        "}\n"
+        "task unknown_sample() -> void\n"
+        "unsupported_form\n"
+        "task done_sample() -> void\n"
+        "fixed pilot local = 1\n"
+        "    say \"safe\"\n"
+        "done\n"
+        "doctrine Final\n"
+    )
+    brace_body = freak_task_body(extractor_sample, "brace_sample")
+    arrow_body = freak_task_body(extractor_sample, "arrow_sample")
+    multiline_brace_body = freak_task_body(extractor_sample, "multiline_brace_sample")
+    done_body = freak_task_body(extractor_sample, "done_sample")
+    commented_body = freak_task_body(extractor_sample, "commented_sample")
+    if commented_body is None or "v4_parse_commented_inside" not in commented_body or '"-- literal stays"' not in commented_body:
+        violations.append("alias HIR guard task extractor trusts signature comments")
+    if freak_task_body(extractor_sample, "unknown_sample") is not None:
+        violations.append("alias HIR guard task extractor accepts an unknown body form")
+    if brace_body is None or "v4_parse_inside" not in brace_body or "v4_parse_outside" in brace_body or "pilot close" not in brace_body or "pilot quote" not in brace_body or "lend 'a" not in brace_body or "say" not in brace_body:
+        violations.append("alias HIR guard task extractor leaks past brace task")
+    if arrow_body is None or arrow_body.strip() != "1":
+        violations.append("alias HIR guard task extractor misses arrow task")
+    if multiline_brace_body is None or "v4_parse_multiline_inside" not in multiline_brace_body or "v4_parse_multiline_outside" in multiline_brace_body:
+        violations.append("alias HIR guard task extractor leaks past multiline brace task")
+    if done_body is None or "fixed pilot local" not in done_body or "say \"safe\"" not in done_body or "doctrine Final" in done_body:
+        violations.append("alias HIR guard task extractor leaks past done task")
 
     for task_name in ("v4_expand_alias_target", "v4_expand_alias_target_span"):
         if freak_task_body(expand_source, task_name) is None:
@@ -9285,6 +9579,7 @@ def check_snapshot_inventories() -> None:
                     f"query invalidation scratch release missing: {handle_release_contract}"
                 )
     for resource_fixture in (
+        "hir_snapshot_scaling_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     ):
@@ -9296,6 +9591,7 @@ def check_snapshot_inventories() -> None:
         violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
+            "hir_snapshot_scaling_smoke.fk",
             "mir_snapshot_resource_smoke.fk",
             "query_invalidation_resource_smoke.fk",
         }
@@ -10214,6 +10510,43 @@ int main(void) {
     print(f"LLVM runtime primitives: compile={compile_mode} output_bytes={len(output)}")
 
 
+def check_native_snapshot_lines(clang: str) -> None:
+    """Fault-inject and measure both production snapshot splitter backends."""
+    source_path = ROOT / "tests" / "native_snapshot_lines.c"
+    suffix = ".exe" if sys.platform.startswith("win") else ""
+    exe_path = RUNTIME_BUILD_ROOT / f"native_snapshot_lines{suffix}"
+    stamp_path = RUNTIME_BUILD_ROOT / "native_snapshot_lines.sha256"
+    build_key = hash_text(
+        "v4-native-snapshot-lines-v1", clang, read_text(source_path),
+        *(read_text(RUNTIME_ROOT / name) for name in (
+            "freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c",
+        )),
+    )
+    compiled_now = not (
+        exe_path.exists() and stamp_path.exists()
+        and read_text(stamp_path).strip() == build_key
+    )
+    if compiled_now:
+        linked = run_with_heartbeat(
+            [clang, "-O1", str(source_path), "-o", str(exe_path),
+             "-lws2_32" if sys.platform.startswith("win") else "-lm"],
+            label="native snapshot lines compile", memory_limit_mb=1024,
+        )
+        if linked.returncode != 0:
+            raise RuntimeError("Native snapshot line test compile failed\n" +
+                               (linked.stdout + linked.stderr)[-4000:])
+    executed = run_with_heartbeat(
+        [str(exe_path)], label="native snapshot lines execute",
+        timeout_seconds=30, memory_limit_mb=64,
+    )
+    if executed.returncode != 0 or "native_snapshot_lines PASS" not in executed.stdout.splitlines():
+        raise RuntimeError("Native snapshot line test failed\n" +
+                           (executed.stdout + executed.stderr)[-4000:])
+    if compiled_now:
+        stamp_path.write_text(build_key, encoding="utf-8")
+    print(executed.stdout.strip())
+
+
 def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
     suffix = ".exe" if sys.platform.startswith("win") else ""
     compiler_source_path = RUNTIME_BUILD_ROOT / "v3_llvm_substring_compiler.fk"
@@ -10241,7 +10574,49 @@ def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
         )
     ]
     compiler_source = "\n".join(read_text(path) for path in v3_sources)
-    fixture_source = 'say "Alternative".substring(3, 5)\n'
+    index_body = freak_task_body(
+        read_text(crate_path("freak_hir")), "v4_hir_snapshot_index_lines"
+    )
+    if index_body is None:
+        raise RuntimeError("V3 LLVM line-index regression cannot extract the HIR helper")
+    fixture_source = (
+        "task v4_hir_snapshot_index_lines(payload: word) -> int {\n"
+        + index_body
+        + "\n}\n"
+        + r'''
+say "Alternative".substring(3, 5)
+pilot empty_lines = v4_hir_snapshot_index_lines("")
+pilot empty_ok = empty_lines >= 0 and array_len(empty_lines) == 0
+array_release(empty_lines)
+pilot lines = v4_hir_snapshot_index_lines("\nA\r\n\n")
+pilot first: word = array_get(lines, 0)
+pilot middle: word = array_get(lines, 1)
+pilot blank: word = array_get(lines, 2)
+pilot trailing: word = array_get(lines, 3)
+pilot small_ok = lines >= 0 and array_len(lines) == 4 and first == "" and middle == "A\r" and blank == "" and trailing == ""
+array_release(lines)
+pilot parts = array_new()
+pilot row: word = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789----"
+pilot i = 0
+repeat until i >= 8192 {
+    array_push(parts, row)
+    array_push(parts, "\n")
+    i += 1
+}
+pilot payload: word = word_join(parts)
+pilot large = v4_hir_snapshot_index_lines(payload)
+pilot large_first: word = array_get(large, 0)
+pilot large_last: word = array_get(large, 8191)
+pilot large_trailing: word = array_get(large, 8192)
+pilot large_ok = large >= 0 and array_len(large) == 8193 and large_first == row and large_last == row and large_trailing == ""
+array_release(large)
+if empty_ok and small_ok and large_ok {
+    say "llvm-hir-line-index=ok"
+} else {
+    say "llvm-hir-line-index=failed"
+}
+'''
+    )
     bootstrap_c = read_text(bootstrap_c_path)
     runtime_source = read_text(runtime_c)
     llvm_runtime_source = read_text(llvm_runtime_c)
@@ -10369,7 +10744,7 @@ def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
         timeout_seconds=30,
         memory_limit_mb=64,
     )
-    if executed.returncode != 0 or executed.stdout.splitlines() != ["ernat"]:
+    if executed.returncode != 0 or executed.stdout.splitlines() != ["ernat", "llvm-hir-line-index=ok"]:
         raise RuntimeError(
             "V3 LLVM substring pipeline execution failed\n"
             + (executed.stdout + executed.stderr)[-4000:]
@@ -10397,6 +10772,7 @@ def check_executable_smokes(
     include_arg = f"-I{RUNTIME_ROOT}"
     check_process_tree_guard()
     check_llvm_runtime_primitives(clang, include_arg)
+    check_native_snapshot_lines(clang)
     check_v3_llvm_substring_pipeline(clang, include_arg)
 
     for smoke in smokes:

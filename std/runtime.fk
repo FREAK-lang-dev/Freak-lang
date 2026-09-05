@@ -69,6 +69,6 @@ task llvm_fs_exists(path_p: int) -> int {
 }
 
 -- ── fs::delete — delete a file ───────────────────────
-task llvm_fs_delete(path_p: int) -> void {
-    freak_remove(path_p)
+task llvm_fs_delete(path_p: int) -> int {
+    give back freak_remove(path_p)
 }

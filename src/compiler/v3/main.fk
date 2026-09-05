@@ -66,8 +66,13 @@ task freakc_v3_main() -> void {
     if not input_file.ends_with(".fk") {
         say "Error: source path must end in .fk; neighboring outputs were preserved."
         process::exit(1)
-    } else if fs::exists(selected_output) {
-        fs::delete(selected_output)
+    } else {
+        -- Delete unconditionally so a dangling output symlink, which
+        -- fs::exists cannot observe, is unlinked before the emitter writes.
+        if not fs::delete(selected_output) {
+            say "Error: untrusted stale artifact could not be removed: " + selected_output
+            process::exit(1)
+        }
         if fs::exists(selected_output) {
             say "Error: untrusted stale artifact could not be removed: " + selected_output
             process::exit(1)
@@ -87,7 +92,6 @@ task freakc_v3_main() -> void {
     diagnostic_source = src
     source_map_reset()
     source_map_register(input_file, src)
-
     say "[1/4] Lexing..."
     tokenize(src)
 

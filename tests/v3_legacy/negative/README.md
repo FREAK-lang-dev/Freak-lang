@@ -27,7 +27,10 @@ drawing calls. Shape operator-doctrine
 syntax remains fail-closed because V3 does not lower those operators; call the
 proven instance method explicitly. Shape constructors remain declaration-order
 dependent, and compiler-internal `shape::alloc/get/set` spellings are not
-source builtins.
+source builtins. V3 `fs::delete(path)` is the public file-only deletion API on
+both backends: it returns `true` after a successful unlink or when the file was
+already absent, and `false` on an unlink failure. Compiler/CLI derived-artifact
+cleanup checks that result and fails closed.
 
 `manifest.json` is the inventory and diagnostic oracle. Its schema is
 `freak-v3-negative-corpus-v1`. Each entry records a unique case name, failure
