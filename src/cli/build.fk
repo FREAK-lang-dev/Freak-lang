@@ -1228,7 +1228,11 @@ task cli_payload_std_api_value(std_dir: word) -> word {
     -- from emitting JSON or reaching repair for a damaged selected payload.
     -- Read through a nonfatal operation; never fall back to another payload.
     pilot quoted = cli_quote_cmd_path(marker)
-    pilot command = "if [ -f " + quoted + " ] && [ -r " + quoted + " ]; then bytes=$(LC_ALL=C od -An -v -tx1 -N 4097 2>/dev/null < " + quoted + ") && printf 'FREAK_STD_HEX:%s:END' \"$bytes\"; fi"
+    -- BSD od can pad hex columns beyond the frame-size bound. Remove only
+    -- formatting whitespace after od succeeds; encoded marker bytes (including
+    -- controls) remain hex pairs. Keep od outside the pipe so errors cannot be
+    -- hidden by a successful tr, and emit the success frame only after both.
+    pilot command = "if [ -f " + quoted + " ] && [ -r " + quoted + " ]; then bytes=$(LC_ALL=C od -An -v -tx1 -N 4097 2>/dev/null < " + quoted + ") && bytes=$(printf '%s' \"$bytes\" | LC_ALL=C tr -d '[:space:]') && printf 'FREAK_STD_HEX:%s:END' \"$bytes\"; fi"
     if cli_is_windows() {
         -- Encode the path independently so %, &, quotes and apostrophes never
         -- become shell/PowerShell syntax. A bounded stream also avoids a
