@@ -538,6 +538,7 @@ completion remain open.
 | Prelude (`say`, `panic`, basic types) | ✅ | ✅ | |
 | String methods (`length`, `bytes`, `split`, etc.) | ✅ | ✅ | [std/string.fk](std/string.fk) |
 | V3 `word.repeated` and `word_builder::*` | ✅ | V3 campaign | Native C/LLVM exact construction, checked size, explicit builder consumption and deterministic ownership/work tests in `tests/v3_word_foundation.py`; Python owned-return emission rejected. This does not approve `word += word` or establish every common-operation optimization. |
+| V3 runtime-owned Word byte lengths | ✅ | V3 campaign | Existing LLVM ownership registry preserves explicit lengths, including dynamic NULs, through tested constructors/transforms/I/O and socket/environment validation. `tests/v3_word_length_parity.py` covers C/LLVM parity and ownership. Unknown foreign pointers remain C strings; ByteBuffer text and builder character restrictions are unchanged. Requires runtime API 3 and std API 1, not a layout ABI revision. |
 | `std::math` (abs, min, max, clamp, pow, sqrt, gcd, lcm, factorial, fibonacci, sin, cos, etc.) | ✅ | ✅ | |
 | `std::math3d` | ✅ | ✅ | [std/math3d.fk](std/math3d.fk) |
 | Numeric methods (`int::checked_add`, etc.) | ⚠️ | 📖 V4 | partial; many overflow-safe variants missing |

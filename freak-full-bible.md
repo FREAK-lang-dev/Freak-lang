@@ -1769,6 +1769,15 @@ returns owned storage. The nominal builder example above remains the broader
 API direction, not an executable V3 shape contract. Python bootstrap emission
 rejects these owned-return operations. `word += word` remains rejected in V3.
 
+Runtime-owned LLVM words retain their explicit byte length in the existing
+ownership registry without changing the integer-pointer ABI. Embedded NUL bytes
+produced at runtime survive cloning, construction, byte-indexed transforms and
+the tested I/O bridges; the static NUL byte returned by `char_at` remains a
+borrowed length-one value. Unknown foreign pointers retain the legacy C-string
+interpretation. This does not relax ByteBuffer's NUL-free text conversion or
+the builder's `append_char(0)` restriction. `tests/v3_word_length_parity.py`
+records the supported producer/consumer and ownership coverage.
+
 ### 7.3 std::num
 
 ```
@@ -1891,9 +1900,10 @@ callers handle partial transfers and release both socket and buffer handles.
 This additive runtime floor does not implement the async types above. HTTP is
 an Ordnance consumer (`packages/http-server`), not a runtime framework. Windows
 loopback C/LLVM tests exist; Linux campaign execution remains pending. The
-frozen LLVM word ABI is NUL-terminated, whereas raw C words carry lengths;
-bytes beyond an LLVM terminator are not equivalent raw input to a C word with
-a longer explicit length.
+frozen LLVM word ABI remains an integer pointer, but runtime-owned words retain
+their explicit byte lengths. Socket host validation therefore rejects runtime
+embedded NULs on both C and LLVM instead of connecting to a truncated prefix.
+Unknown foreign pointers still use their historical NUL-terminated length.
 
 ### 7.9 std::time
 
