@@ -42,6 +42,8 @@ class ControlledLinkerHelpers(unittest.TestCase):
                 actuals = {role: origin / name for role, name in zip(("off", "thin"), names)}
                 for actual in actuals.values():
                     actual.write_bytes(b"original linker bytes")
+                companion = origin / "mspdbcore.dll"
+                companion.write_bytes(b"same SDK PDB helper")
                 calls = []
 
                 def trace(_clang, flags, *, linker_path=None, original_dir=None):
@@ -79,9 +81,67 @@ class ControlledLinkerHelpers(unittest.TestCase):
                         self.assertEqual(actual.read_bytes(), original_bytes)
                         if platform != "win32":
                             self.assertTrue(controlled.read_text().endswith("# FREAK-LINKER-unit\n"))
+                        copied_companion = controlled.parent / companion.name
+                        if platform == "win32" and role == "off":
+                            self.assertEqual(copied_companion.read_bytes(), companion.read_bytes())
+                        else:
+                            self.assertFalse(copied_companion.exists())
                     self.assertEqual(len(calls), 4)
                     thin_flags = calls[2][3]
                     self.assertIn("-fuse-ld=ld" if platform == "darwin" else "-fuse-ld=lld", thin_flags)
+
+    def test_msvc_companions_are_bounded_to_selected_bin_and_matching_families(self):
+        origin = self.root / "selected SDK bin"
+        origin.mkdir()
+        private = self.root / "private bin"
+        private.mkdir()
+        actual = origin / "link.exe"
+        actual.write_bytes(b"real selected linker")
+        selected = private / actual.name
+        selected.write_bytes(actual.read_bytes())
+        wanted = ("mspdbcore.dll", "mspdb140.dll", "msobj140.dll", "mspdbsrv.exe",
+                  "MSPDBST.DLL", "vcruntime140.dll", "vcruntime140_1.dll",
+                  "msvcp140.dll", "concrt140.dll")
+        excluded = ("cl.exe", "c1.dll", "c1xx.dll", "c2.dll", "other.dll",
+                    "mspdbcore.dll.bak", "mspdbcmf.exe", "notes.txt")
+        for name in (*wanted, *excluded):
+            (origin / name).write_bytes(("selected-version:" + name).encode())
+        nested = origin / "another-target"
+        nested.mkdir()
+        (nested / "mspdb999.dll").write_bytes(b"wrong architecture/version")
+        (origin / "msobj_directory.dll").mkdir()
+        # A similarly named DLL elsewhere must never be searched or copied.
+        (self.root / "mspdb999.dll").write_bytes(b"wrong external version")
+        profiles.stage_msvc_linker_dependencies(actual, selected)
+        self.assertEqual({path.name for path in private.iterdir()}, {"link.exe", *wanted})
+        before = {name: (private / name).read_bytes() for name in wanted}
+        for name in wanted:
+            self.assertEqual(before[name], (origin / name).read_bytes())
+        with patch.object(sys, "platform", "win32"):
+            profiles.mutate_fake_linker(selected, "dll-test")
+        self.assertNotEqual(selected.read_bytes(), actual.read_bytes())
+        for name in wanted:
+            self.assertEqual((private / name).read_bytes(), before[name])
+            self.assertEqual((origin / name).read_bytes(), before[name])
+
+    def test_absent_companions_are_not_fabricated_and_copy_errors_propagate(self):
+        origin = self.root / "bin"
+        origin.mkdir()
+        actual = origin / "link.exe"
+        actual.write_bytes(b"linker")
+        private = self.root / "private"
+        private.mkdir()
+        destination = private / actual.name
+        with patch.object(profiles.shutil, "copy2") as copy:
+            profiles.stage_msvc_linker_dependencies(actual, destination)
+            copy.assert_not_called()
+        self.assertEqual(list(private.iterdir()), [])
+        companion = origin / "mspdbcore.dll"
+        companion.write_bytes(b"PDB")
+        with patch.object(profiles.shutil, "copy2", side_effect=PermissionError("fixture")) as copy:
+            with self.assertRaises(PermissionError):
+                profiles.stage_msvc_linker_dependencies(actual, destination)
+            copy.assert_called_once_with(companion, private / companion.name)
 
     def test_ignored_override_still_fails(self):
         for platform, name in (("linux", "ld"), ("darwin", "ld"), ("win32", "link.exe")):

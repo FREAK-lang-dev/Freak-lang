@@ -516,6 +516,20 @@ def linker_override_arguments(path: Path) -> list[str]:
     return ["--ld-path=" + str(path.absolute())]
 
 
+def stage_msvc_linker_dependencies(actual: Path, destination: Path) -> None:
+    # MSVC loads PDB helpers relative to link.exe; PATH alone is insufficient.
+    # Preserve the matching PDB/object/runtime set from this exact tool bin,
+    # including the PDB server, without copying compiler DLLs or walking SDKs.
+    families = ("mspdb", "msobj", "vcruntime", "msvcp", "concrt")
+    for companion in actual.parent.iterdir():
+        name = companion.name.lower()
+        wanted = name == "mspdbsrv.exe" or (
+            name.endswith(".dll") and name.startswith(families)
+        )
+        if wanted and companion.is_file():
+            shutil.copy2(companion, destination.parent / companion.name)
+
+
 def controlled_linkers(root: Path, real_clang: str) -> dict[str, tuple[Path, Path]]:
     linker_dir = root / "driver-selected-linkers"
     linker_dir.mkdir()
@@ -533,6 +547,8 @@ def controlled_linkers(root: Path, real_clang: str) -> dict[str, tuple[Path, Pat
         destination = role_dir / actual.name
         if sys.platform == "win32":
             shutil.copy2(actual, destination)
+            if actual.name.lower() == "link.exe":
+                stage_msvc_linker_dependencies(actual, destination)
         else:
             # Do not relocate Xcode ld: its @rpath/libtapi dependency belongs
             # beside the original executable. The wrapper is the selected,
