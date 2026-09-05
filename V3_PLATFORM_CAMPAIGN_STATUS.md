@@ -545,3 +545,26 @@ statements above. Historical test results remain tied to their recorded heads.
   strict borrowing, benchmark bounds, ByteBuffer, system, TCP/HTTP, UI clipping,
   COCKPIT and import hygiene. Final marker and exact-archive upgrade completion
   remain pending. No overall gate pass, merge or release is claimed.
+
+### Completed checkpoint validation
+
+- [x] Complete the Windows installed release-shaped gate for the `dc309a3`
+  compiler/runtime/archive checkpoint: all registered children, malformed-marker
+  recovery, exact-archive rollback and public upgrade routing passed; terminal
+  `V3 FINAL RELEASE GATE: PASS` (session 28416). This is checkpoint evidence,
+  not completion of the original campaign or a Linux/macOS release claim.
+- [x] Validate `e5b7264` cleanup from the exact committed embedded C source,
+  without importing or invoking the V4 runner. Acquired `Global\\FreakCheckV4`,
+  compiled/executed normal and both ownership-audit modes, observed exact
+  `llvm-runtime-primitives=ok` with empty stderr, `CHECK_EXIT=0`, then released
+  the mutex. Independent source review is clean. The earlier uncoordinated
+  diagnostic is not used as gate evidence.
+- [x] Validate and independently review `ad4044a` target diagnostic/artifact
+  preservation repair. Full Windows freshness and installer cleanup passed.
+- [x] Close the ByteBuffer declaration-registry P2 through independent source
+  review of `f609143`; all 13 registry/declaration names agree, and author
+  execution covers extern deduplication/linking plus conflict diagnostics.
+- [ ] Integrate that reviewed ByteBuffer/Python-builder slice with capability,
+  documentation and gate updates; rerun applicable checks after integration.
+- [ ] Obtain successful fresh current-head CI and completed refreshed reviews
+  before any merge. The existing release tag remains unchanged.
