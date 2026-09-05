@@ -1582,13 +1582,11 @@ static size_t freak_llvm_owned_bucket(void* pointer, size_t bucket_count) {
     return (size_t)(value & (uint64_t)(bucket_count - 1));
 }
 
-static void freak_llvm_owned_resize(size_t new_bucket_count) {
+static bool freak_llvm_owned_resize(size_t new_bucket_count) {
+    if (new_bucket_count > SIZE_MAX / sizeof(*freak_llvm_owned_buckets)) return false;
     freak_llvm_owned_word** resized = (freak_llvm_owned_word**)calloc(
         new_bucket_count, sizeof(*resized));
-    if (!resized) {
-        fprintf(stderr, "FREAK: out of memory growing the owned-word registry\n");
-        exit(1);
-    }
+    if (!resized) return false;
     for (size_t bucket = 0; bucket < freak_llvm_owned_bucket_count; bucket++) {
         freak_llvm_owned_word* current = freak_llvm_owned_buckets[bucket];
         while (current) {
@@ -1602,14 +1600,17 @@ static void freak_llvm_owned_resize(size_t new_bucket_count) {
     free(freak_llvm_owned_buckets);
     freak_llvm_owned_buckets = resized;
     freak_llvm_owned_bucket_count = new_bucket_count;
+    return true;
 }
 
-static void freak_llvm_owned_ensure_capacity(void) {
+static bool freak_llvm_owned_ensure_capacity(void) {
     if (freak_llvm_owned_bucket_count == 0) {
-        freak_llvm_owned_resize(64);
-    } else if ((freak_llvm_owned_count + 1) * 4 >= freak_llvm_owned_bucket_count * 3) {
-        freak_llvm_owned_resize(freak_llvm_owned_bucket_count * 2);
+        return freak_llvm_owned_resize(64);
+    } else if (freak_llvm_owned_count >= freak_llvm_owned_bucket_count - freak_llvm_owned_bucket_count / 4 - 1) {
+        if (freak_llvm_owned_bucket_count > SIZE_MAX / 2) return false;
+        return freak_llvm_owned_resize(freak_llvm_owned_bucket_count * 2);
     }
+    return true;
 }
 
 static freak_llvm_owned_word* freak_llvm_owned_find(
@@ -1654,8 +1655,9 @@ static void freak_llvm_ownership_audit_at_exit(void) {
 }
 #endif
 
-int64_t freak_llvm_word_adopt(int64_t pointer) {
+int64_t freak_llvm_word_try_adopt_sized(int64_t pointer, size_t length) {
     if (!pointer) return pointer;
+    if (length == SIZE_MAX) return 0;
 #ifdef FREAK_RUNTIME_OWNERSHIP_AUDIT
     if (!freak_llvm_ownership_audit_registered) {
         if (atexit(freak_llvm_ownership_audit_at_exit) != 0) {
@@ -1665,21 +1667,29 @@ int64_t freak_llvm_word_adopt(int64_t pointer) {
         freak_llvm_ownership_audit_registered = true;
     }
 #endif
-    freak_llvm_owned_ensure_capacity();
+    if (!freak_llvm_owned_ensure_capacity()) return 0;
     size_t bucket = freak_llvm_owned_bucket((void*)pointer, freak_llvm_owned_bucket_count);
     if (freak_llvm_owned_find((void*)pointer, NULL)) return pointer;
     freak_llvm_owned_word* owned = (freak_llvm_owned_word*)malloc(sizeof(*owned));
-    if (!owned) {
-        fprintf(stderr, "FREAK: out of memory tracking an owned word\n");
-        exit(1);
-    }
+    if (!owned) return 0;
     owned->pointer = (void*)pointer;
-    owned->length = strlen((const char*)pointer);
+    owned->length = length;
     owned->capacity = owned->length + 1;
     owned->next = freak_llvm_owned_buckets[bucket];
     freak_llvm_owned_buckets[bucket] = owned;
     freak_llvm_owned_count += 1;
     return pointer;
+}
+
+int64_t freak_llvm_word_adopt(int64_t pointer) {
+    if (!pointer) return pointer;
+    if (freak_llvm_owned_find((void*)pointer, NULL)) return pointer;
+    int64_t adopted = freak_llvm_word_try_adopt_sized(pointer, strlen((const char*)pointer));
+    if (!adopted) {
+        fprintf(stderr, "FREAK: out of memory tracking an owned word\n");
+        exit(1);
+    }
+    return adopted;
 }
 
 int64_t freak_llvm_word_clone(int64_t source) {
@@ -2104,6 +2114,7 @@ typedef struct {
     int64_t next_free;
     uint32_t generation;
     bool in_use;
+    bool owns_elements; /* snapshot_lines arrays also own through ordinary C APIs */
 } freak_dyn_array;
 
 static freak_dyn_array* freak_arrays = NULL;
@@ -2133,30 +2144,25 @@ static int64_t freak_array_slot_for_handle(int64_t handle) {
     return slot;
 }
 
-static void freak_array_reserve_handle(void) {
+static bool freak_array_reserve_handle(void) {
     if (freak_array_count < freak_array_capacity) {
-        return;
+        return true;
     }
 
     int64_t old_capacity = freak_array_capacity;
     if (old_capacity > INT64_MAX / 2) {
-        fprintf(stderr, "FREAK: array handle table is too large\n");
-        exit(1);
+        return false;
     }
     int64_t new_capacity = old_capacity == 0 ? 256 : old_capacity * 2;
     if (new_capacity <= old_capacity || (uint64_t)new_capacity > SIZE_MAX / sizeof(freak_dyn_array)) {
-        fprintf(stderr, "FREAK: array handle table is too large\n");
-        exit(1);
+        return false;
     }
 
     freak_dyn_array* grown = (freak_dyn_array*)realloc(
         freak_arrays,
         (size_t)new_capacity * sizeof(freak_dyn_array)
     );
-    if (!grown) {
-        fprintf(stderr, "FREAK: out of memory growing array handle table\n");
-        exit(1);
-    }
+    if (!grown) return false;
 
     memset(
         grown + old_capacity,
@@ -2165,6 +2171,7 @@ static void freak_array_reserve_handle(void) {
     );
     freak_arrays = grown;
     freak_array_capacity = new_capacity;
+    return true;
 }
 
 int64_t freak_array_new(void) {
@@ -2177,7 +2184,10 @@ int64_t freak_array_new(void) {
         freak_array_free_head = freak_arrays[h].next_free;
         freak_arrays[h].generation += 1;
     } else {
-        freak_array_reserve_handle();
+        if (!freak_array_reserve_handle()) {
+            fprintf(stderr, "FREAK: could not grow array handle table\n");
+            exit(1);
+        }
         h = freak_array_count++;
         if ((uint64_t)h > UINT32_MAX) {
             fprintf(stderr, "FREAK: array handle table exhausted\n");
@@ -2189,6 +2199,7 @@ int64_t freak_array_new(void) {
     freak_arrays[h].capacity = 64;
     freak_arrays[h].next_free = -1;
     freak_arrays[h].in_use = true;
+    freak_arrays[h].owns_elements = false;
     freak_arrays[h].data = (freak_word*)malloc(64 * sizeof(freak_word));
     if (!freak_arrays[h].data) {
         fprintf(stderr, "FREAK: out of memory for array\n");
@@ -2196,6 +2207,59 @@ int64_t freak_array_new(void) {
     }
     freak_array_live_count += 1;
     return freak_array_make_handle(h, freak_arrays[h].generation);
+}
+
+int64_t freak_word_snapshot_lines(freak_word w) {
+    if (FREAK_ARRAY_LIVE_LIMIT > 0 && freak_array_live_count >= FREAK_ARRAY_LIVE_LIMIT) return -1;
+    if (freak_array_free_head < 0 &&
+        ((uint64_t)freak_array_count > UINT32_MAX || !freak_array_reserve_handle())) return -1;
+    size_t length = w.data ? w.length : 0;
+    size_t count = length ? 1 : 0;
+    for (size_t i = 0; i < length; ++i) {
+        if (w.data[i] == '\n') {
+            if (count == SIZE_MAX) return -1;
+            ++count;
+        }
+    }
+    size_t capacity = count ? count : 1;
+    if (capacity > INT64_MAX || capacity > SIZE_MAX / sizeof(freak_word)) return -1;
+    freak_word* lines = (freak_word*)malloc(capacity * sizeof(*lines));
+    if (!lines) return -1;
+    size_t used = 0, start = 0;
+    for (size_t i = 0; count != 0; ++i) {
+        if (i == length || w.data[i] == '\n') {
+            size_t part_length = i - start;
+            if (part_length == SIZE_MAX) goto fail;
+            char* part = (char*)malloc(part_length + 1);
+            if (!part) goto fail;
+            if (part_length) memcpy(part, w.data + start, part_length);
+            part[part_length] = '\0';
+            lines[used++] = freak_word_own(part, part_length);
+            if (i == length) break;
+            start = i + 1;
+        }
+    }
+    /* Publish only a complete array. No source pointers escape this function. */
+    int64_t slot = freak_array_free_head;
+    if (slot >= 0) {
+        freak_array_free_head = freak_arrays[slot].next_free;
+        freak_arrays[slot].generation += 1;
+    } else {
+        slot = freak_array_count++;
+        freak_arrays[slot].generation = 1;
+    }
+    freak_arrays[slot].data = lines;
+    freak_arrays[slot].length = (int64_t)used;
+    freak_arrays[slot].capacity = (int64_t)capacity;
+    freak_arrays[slot].next_free = -1;
+    freak_arrays[slot].in_use = true;
+    freak_arrays[slot].owns_elements = true;
+    freak_array_live_count += 1;
+    return freak_array_make_handle(slot, freak_arrays[slot].generation);
+fail:
+    for (size_t i = 0; i < used; ++i) freak_word_release_owned(&lines[i]);
+    free(lines);
+    return -1;
 }
 
 static void freak_array_reserve_elements(freak_dyn_array* array) {
@@ -2224,7 +2288,7 @@ static void freak_array_reserve_elements(freak_dyn_array* array) {
     array->capacity = new_capacity;
 }
 
-void freak_array_push(int64_t handle, freak_word item) {
+static void freak_array_push_transferred(int64_t handle, freak_word item) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) return;
     freak_dyn_array* a = &freak_arrays[slot];
@@ -2234,12 +2298,21 @@ void freak_array_push(int64_t handle, freak_word item) {
     a->data[a->length++] = item;
 }
 
+void freak_array_push(int64_t handle, freak_word item) {
+    int64_t slot = freak_array_slot_for_handle(handle);
+    if (slot < 0) return;
+    /* Ordinary inputs are borrowed; snapshot arrays need an independent copy.
+       Clone before growth so array_get aliases remain safe across realloc. */
+    if (freak_arrays[slot].owns_elements) item = freak_word_clone(item);
+    freak_array_push_transferred(handle, item);
+}
+
 void freak_array_push_owned(int64_t handle, freak_word item) {
     if (freak_array_slot_for_handle(handle) < 0) {
         freak_word_release_owned(&item);
         return;
     }
-    freak_array_push(handle, item);
+    freak_array_push_transferred(handle, item);
 }
 
 freak_word freak_array_get(int64_t handle, int64_t index) {
@@ -2265,7 +2338,12 @@ void freak_array_set(int64_t handle, int64_t index, freak_word item) {
                 (long long)index, (long long)a->length);
         exit(1);
     }
-    a->data[index] = item;
+    if (a->owns_elements) {
+        /* Clone before releasing the old value, including same-array aliases. */
+        freak_word_replace_owned(&a->data[index], freak_word_clone(item));
+    } else {
+        a->data[index] = item;
+    }
 }
 
 void freak_array_set_owned(int64_t handle, int64_t index, freak_word item) {
@@ -2287,11 +2365,15 @@ void freak_array_release(int64_t handle) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) return;
     freak_dyn_array* a = &freak_arrays[slot];
+    if (a->owns_elements) {
+        for (int64_t i = 0; i < a->length; ++i) freak_word_release_owned(&a->data[i]);
+    }
     free(a->data);
     a->data = NULL;
     a->length = 0;
     a->capacity = 0;
     a->in_use = false;
+    a->owns_elements = false;
     freak_array_live_count -= 1;
     if (a->generation >= FREAK_ARRAY_GENERATION_MAX) {
         a->next_free = -1;
@@ -2305,8 +2387,8 @@ void freak_array_release_owned(int64_t handle) {
     int64_t slot = freak_array_slot_for_handle(handle);
     if (slot < 0) return;
     freak_dyn_array* a = &freak_arrays[slot];
-    for (int64_t i = 0; i < a->length; ++i) {
-        freak_word_release_owned(&a->data[i]);
+    if (!a->owns_elements) {
+        for (int64_t i = 0; i < a->length; ++i) freak_word_release_owned(&a->data[i]);
     }
     freak_array_release(handle);
 }

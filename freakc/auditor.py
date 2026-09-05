@@ -2892,8 +2892,8 @@ def audit_conformance(paths: List[Path]) -> int:
             'pilot out = "hir-task-return"',
             '"task-returns"',
             "task v4_hir_snapshot_task_return_is_valid(",
-            "task v4_hir_snapshot_task_return_owner_is_valid(",
-            "task v4_hir_snapshot_task_return_slots_are_valid(",
+            "task v4_hir_snapshot_task_return_slots_are_valid(records: int, files: int, items: int, returns: int)",
+            'kind == v4_hir_task and seen != "1"',
         ):
             if needle not in hir_src:
                 task_return_boundary_missing.append(f"freak_hir: {needle}")
@@ -2925,6 +2925,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:",
             "task return boundary guard self-test: helper-indirected fallback rejected",
             "check_task_return_hir_boundary()",
+            "task return snapshot must not rescan payload or parent records",
+            '"hir-scaling-return-missing-all=true"',
+            '"hir-scaling-512-task-returns=true"',
         ):
             if needle not in harness_src:
                 task_return_boundary_missing.append(f"check_v4.py: {needle}")

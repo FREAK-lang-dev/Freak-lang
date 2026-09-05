@@ -36,6 +36,8 @@ pilot v4_expand_contract_restore_generation_unique = false
 pilot v4_expand_contract_unit_restore = ""
 pilot v4_expand_contract_unit_truncated = false
 pilot v4_expand_contract_named_seed = 0
+pilot v4_expand_contract_named_public_before = ""
+pilot v4_expand_contract_named_public_after = ""
 pilot v4_expand_contract_named_restore = 0
 pilot v4_expand_contract_named_truncated = false
 pilot v4_expand_contract_named_reintroduced = 0
@@ -86,12 +88,14 @@ v4_expand_contract_restore_generation_unique = v4_expansion_id_valid(v4_expand_c
 v4_expand_contract_unit_restore = v4_unit_snapshot_restore(v4_expand_contract_before)
 v4_expand_contract_unit_truncated = v4_expand_contract_unit_restore.starts_with("00-unit-snapshot-restore ok=1 ") and v4_expand_file_count() == 1 and v4_expand_file_exists(v4_expand_contract_reintroduced) == false and v4_expand_snapshot() == v4_expand_contract_component
 v4_expand_contract_named_seed = v4_expand_text_cached(v4_expand_contract_path, v4_expand_contract_changed)
+v4_expand_contract_named_public_before = v4_expand_contract_expansion_id(v4_expand_contract_named_seed)
 v4_hir_text_cached(v4_expand_contract_path, v4_expand_contract_changed)
 v4_expand_contract_named_restore = v4_unit_snapshot_restore_named_section(v4_expand_contract_before, "expand")
 v4_expand_contract_named_truncated = v4_expand_contract_named_restore == 1 and v4_expand_file_count() == 1 and v4_expand_file_exists(v4_expand_contract_named_seed) == false
 v4_expand_contract_named_reintroduced = v4_expand_text_cached(v4_expand_contract_path, v4_expand_contract_changed)
 v4_expand_contract_named_hir_reintroduced = v4_hir_text_cached(v4_expand_contract_path, v4_expand_contract_changed)
-v4_expand_contract_named_query_recomputed = v4_expand_contract_named_truncated and v4_expand_file_exists(v4_expand_contract_named_reintroduced) and v4_hir_expansion_id(v4_expand_contract_named_hir_reintroduced) == v4_expand_contract_named_reintroduced
+v4_expand_contract_named_public_after = v4_expand_contract_expansion_id(v4_expand_contract_named_reintroduced)
+v4_expand_contract_named_query_recomputed = v4_expand_contract_named_truncated and v4_expand_file_exists(v4_expand_contract_named_reintroduced) and v4_hir_expansion_id(v4_expand_contract_named_hir_reintroduced) == v4_expand_contract_named_reintroduced and v4_expand_contract_named_public_after != v4_expand_contract_named_public_before and v4_expansion_id_generation(v4_expand_contract_named_public_after) > v4_expansion_id_generation(v4_expand_contract_named_public_before) and not v4_expand_contract_expansion_matches(v4_expand_contract_named_reintroduced, v4_expand_contract_named_public_before) and v4_expand_contract_expansion_matches(v4_expand_contract_named_reintroduced, v4_expand_contract_named_public_after)
 v4_expand_contract_lsp_missing = v4_lsp_handle_request("workspace/expandSnapshotRestore", v4_expand_contract_path, 0)
 
 say "expand-unit-diff=" + word_from_bool(v4_expand_contract_diff.starts_with("00-unit-diff|format=freak-00-unit-snapshot-diff-v1|ok=1") and v4_expand_contract_diff.contains("expand-invalidations-added=1") and v4_expand_contract_diff.contains("section-diff|name=expand|state=changed"))
