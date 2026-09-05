@@ -451,3 +451,33 @@ integration must retain dynamic-NUL lengths in its LLVM splitter, check reserve
 failure before bucket access, preserve caller ownership on failed adoption,
 and carry the snapshot-array ownership/reuse changes atomically. It requires
 fresh integrated tests and independent review; no local V4 checks were run here.
+
+### Latest handoff and remaining blockers
+
+- Nested direct-handle revalidation is integrated at `4af12a8`; full seed
+  bootstrap and 17 negative C/LLVM cases passed. The integrated gate also
+  passed with the configured `FREAK_CLANG` while PATH selected a different
+  compiler. Broader derived-borrow behavior is not approved by that evidence;
+  an additional candidate remains unverified and no clean full ownership
+  review is claimed.
+- Calculator recovery (`3d8f3d4`) and malformed HTTP-field validation (`753c2c5`)
+  passed independent lead source review and actual C/LLVM package tests.
+  CodeRabbit withdrew its incorrect 27-byte response-length finding after
+  the exact 28-byte evidence was posted; that thread is resolved.
+- The first recoverable std-marker reader (`886ecfe`) is NOT accepted as final:
+  independent review proved Windows text capture truncates Ctrl-Z plus a
+  malformed suffix into the expected capability. A bounded complete-byte
+  reader with safe diagnostics is being prepared in the isolated
+  `v3-marker-byte-validation` lane. Its completed review and tests are required
+  before this repair batch is pushed. Control-byte Doctor JSON handling is
+  covered by that scoped marker repair, not claimed fixed globally.
+- Benchmark bounds and the version-probe deadline have a committed worker
+  handoff (`3d9f8c7`) with focused tests; independent review/integration pending.
+- Root profile-diagnostic, configured-Clang, C-symbol documentation and
+  length-aware conformance-guard corrections are verified locally and under
+  independent review. The full current-head installed/platform gate remains
+  pending. Older terminal passes are not substitutes for that gate.
+- PR #99 is still non-draft at remote `c1d1c3d`; its failing CI is unchanged
+  until the coherent repair batch is pushed. Existing `v0.14.1` still points
+  to `db2afbb839c283c7cfe4d74a4ea9d08057a21c9d`. No merge, version bump or tag
+  mutation occurred, and the replacement version is still a user choice.
