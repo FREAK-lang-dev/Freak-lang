@@ -209,6 +209,13 @@ jobs:
         shell: bash
         run: python -u tests/v3_run_freshness.py ./build/freak$EXT
 
+      - name: Test - V3 platform helper regressions
+        shell: bash
+        run: |
+          python -B -u tests/test_v3_build_profiles_helpers.py
+          python -B -u tests/test_v3_performance_process_state.py
+          python -B -u tests/test_v3_performance_platform_helpers.py
+
       - name: Test - V3 build profiles and LTO
         shell: bash
         run: python -u tests/v3_build_profiles.py ./build/freak$EXT
