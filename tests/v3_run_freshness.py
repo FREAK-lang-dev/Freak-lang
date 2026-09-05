@@ -635,27 +635,38 @@ def main() -> int:
             assert_run(code, output, "SAFE_PATH", cache_hit=False)
             assert not path_sentinel.exists(), "source path executed shell substitution"
 
-            target_sentinel = source_dir / "FREAK_TARGET_INJECTED"
-            malicious_target = (
-                "x86_64-unknown-linux-gnu;touch${IFS}FREAK_TARGET_INJECTED"
-            )
-            rejected_target = subprocess.run(
-                [
-                    str(freak), "build", str(source_arg), "--c",
-                    f"--target={malicious_target}",
-                ],
-                cwd=source_dir,
-                env=env,
-                capture_output=True,
-                text=True,
-                errors="replace",
-                timeout=120,
-                check=False,
-            )
-            target_output = ANSI.sub("", rejected_target.stdout + rejected_target.stderr)
-            assert rejected_target.returncode != 0, target_output
-            assert "invalid target triple" in target_output, target_output
-            assert not target_sentinel.exists(), "target triple executed shell syntax"
+        # Flag validation now rejects this before the backend's defensive
+        # target check. Exercise that early rejection on every platform and
+        # preserve both existing artifacts and the freshness proof.
+        target_sentinel = source_dir / "FREAK_TARGET_INJECTED"
+        malicious_target = (
+            "x86_64-unknown-linux-gnu;touch${IFS}FREAK_TARGET_INJECTED"
+        )
+        target_paths = (binary, sidecar, Path(str(source) + ".c"),
+                        Path(str(source) + ".ll"))
+        target_before = {path: (path.read_bytes(), path.stat().st_mtime_ns)
+                         if path.exists() else None for path in target_paths}
+        rejected_target = subprocess.run(
+            [
+                str(freak), "build", str(source_arg), "--c",
+                f"--target={malicious_target}",
+            ],
+            cwd=source_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=120,
+            check=False,
+        )
+        target_output = ANSI.sub("", rejected_target.stdout + rejected_target.stderr)
+        assert rejected_target.returncode != 0, target_output
+        assert "--target requires a safe target triple" in target_output, target_output
+        assert not target_sentinel.exists(), "target triple executed shell syntax"
+        assert target_before == {
+            path: (path.read_bytes(), path.stat().st_mtime_ns)
+            if path.exists() else None for path in target_paths
+        }, "invalid target changed generated artifacts or freshness proof"
 
         # A failed rebuild must invalidate both the freshness proof and the old
         # executable. Remove the staged runtime, change source, and verify the

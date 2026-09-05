@@ -504,12 +504,44 @@ statements above. Historical test results remain tied to their recorded heads.
   Doctor JSON and repair tests passed; independent C/LLVM decoder tests covered
   all 256 byte classes, complete framing, path encoding and 4096/4097 boundaries.
   Native POSIX transport execution remains a CI requirement.
-- [ ] Verify the combined marker/merge head and push the reviewed repair batch;
-  confirm GitHub no longer reports conflicts and inspect fresh CI/reviews.
-- [ ] Disposition the fixed external review threads with pushed commit evidence.
+- [x] Verify the combined marker/merge head and push `dc309a3`; GitHub confirms
+  mergeable, non-draft, and fresh CI. Full C/LLVM Word/snapshot, strict-handle,
+  std-marker/Doctor repair/cache, bootstrap tuple and conformance/version gates
+  passed. The full installed archive gate remains in progress, not passed.
+- [x] Post pushed-commit evidence and resolve 17 fixed external review threads,
+  plus a duplicate exception-transport report. The original strict-borrow
+  thread remains open for broader ownership review; refreshed automated reviews
+  are requested and still need disposition on their reviewed heads.
 - [ ] Complete the isolated explicit u16/u32/u64 LE/BE and bulk-copy ByteBuffer
   slice, then integrate after tests and independent review. Preserve the existing
   signed-int representation for u64 bit patterns and the frozen layout ABI.
 - [ ] Finish remaining campaign requirements and final installed/platform gates
   before merge. The existing `v0.14.1` tag is unchanged; a new version choice
   remains pending, and no release is authorized by a passing intermediate test.
+
+### Fresh CI follow-up at `dc309a3`
+
+- Linux/macOS V4 fast jobs passed. Runtime jobs fail in the standalone LLVM
+  primitive fixture: raw `free` bypasses registered Word ownership cleanup.
+  Approved isolated harness exception `e5b7264` replaces both raw frees with
+  registered release and adds its prototype, preserving every assertion and
+  cache invalidation. Independent source review is clean. Original/repaired
+  diagnostic probes reproduced failure/success, including ownership audits;
+  those ran before the additional mutex requirement arrived and are not counted
+  as serialized gate evidence. Exact-source revalidation waits for the shared
+  `Global\\FreakCheckV4` lock. No V4 runner is launched from this lane.
+- Linux/macOS V3 CI reached freshness and failed an obsolete diagnostic string:
+  early flag parsing now rejects the unsafe target before backend validation.
+  The test now expects the actual early diagnostic on every platform and also
+  verifies artifact/cache bytes and mtimes are unchanged. The full Windows
+  freshness/installer-cleanup gate passed with the fresh merged CLI.
+- ByteBuffer follow-up is committed in its isolated lane: `f128fcd` widths and
+  copy, `cda31c6` Python unknown-builder diagnostics, `f609143` LLVM extern
+  declaration deduplication. Author C/LLVM/Python and prior foundation gates
+  passed. Independent exhaustive u16, seeded u32/u64 and 13,090 copy-range
+  probes passed; the identified declaration-registry P2 is corrected and its
+  final delta review is pending. Root capability/docs/CI integration is pending.
+- Full installed checkpoint gate has passed through ownership/concat, Word,
+  strict borrowing, benchmark bounds, ByteBuffer, system, TCP/HTTP, UI clipping,
+  COCKPIT and import hygiene. Final marker and exact-archive upgrade completion
+  remain pending. No overall gate pass, merge or release is claimed.
