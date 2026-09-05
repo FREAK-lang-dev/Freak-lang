@@ -2361,7 +2361,9 @@ task v4_hir_snapshot_task_return_slots_are_valid(records: int, files: int, items
                     pilot record_slot = word_to_int(array_get(return_offsets, owner)) + record_id
                     pilot item_slot = word_to_int(array_get(item_offsets, owner)) + item_id
                     pilot kind: word = array_get(item_kinds, item_slot)
-                    if array_get(return_seen, record_slot) != "0" or array_get(item_return_seen, item_slot) != "0" or kind != v4_hir_task {
+                    pilot record_seen: word = array_get(return_seen, record_slot)
+                    pilot task_seen: word = array_get(item_return_seen, item_slot)
+                    if record_seen != "0" or task_seen != "0" or kind != v4_hir_task {
                         valid = false
                     } else {
                         array_set(return_seen, record_slot, "1")
