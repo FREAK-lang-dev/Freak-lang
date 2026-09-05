@@ -187,6 +187,25 @@ def main() -> int:
                                "word_repeat_copied_bytes": 9, "word_builder_copied_bytes": 4,
                                "word_builder_finishes": 1, "byte_buffer_copied_bytes": 3}.items():
                 assert stats[0][key] == count, (key, stats)
+            # Main's snapshot-array ownership must compose with binary Word
+            # lengths, including cleanup of a temporary source after splitting.
+            snapshots = '''task main() {
+                pilot zero = char_to_word(0)
+                pilot lines = ("a" + zero + "b\\n" + zero + "\\n").snapshot_lines()
+                say array_len(lines)
+                say array_get(lines, 0).length()
+                say array_get(lines, 0) == "a" + zero + "b"
+                say array_get(lines, 1) == zero
+                say array_get(lines, 2).length()
+                pilot joined = word_join(lines)
+                say joined.length()
+                say joined == "a" + zero + "b" + zero
+                pilot empty = "".snapshot_lines()
+                say array_len(empty)
+                array_release(empty)
+            }'''
+            run(build("binary_snapshots", snapshots, backend),
+                expected=b"3\n3\ntrue\ntrue\n0\n4\ntrue\n0\n")
             producers = '''task main() {
                 pilot value = fs::read(process::arg(1))
                 say value.length()

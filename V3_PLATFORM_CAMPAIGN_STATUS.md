@@ -482,3 +482,34 @@ fresh integrated tests and independent review; no local V4 checks were run here.
   until the coherent repair batch is pushed. Existing `v0.14.1` still points
   to `db2afbb839c283c7cfe4d74a4ea9d08057a21c9d`. No merge, version bump or tag
   mutation occurred, and the replacement version is still a user choice.
+
+### Conflict-resolution and continued implementation checkpoint
+
+This checkpoint supersedes the older in-flight marker and PR91 integration
+statements above. Historical test results remain tied to their recorded heads.
+
+- [x] Merge current `origin/main` (`25ecabdd1b7930b9d28f93bbf65f026ab7bf66ed`)
+  into the campaign branch at `cfb60df`. Preserve PR91's recoverable registry
+  allocation and owned snapshot-array lifecycle together with the campaign's
+  embedded-NUL Word lengths and ByteBuffer signatures. V4 files match the
+  incoming main tree exactly; no local V4 checks or paused-lane edits occurred.
+- [x] Self-review and independently review that merge. Independent registry
+  allocation/resize/node-failure probes, duplicate/conflicting metadata checks,
+  and the full native snapshot fixture passed. Added native regression coverage
+  for registered binary lines, static NUL, independent source lifetime and
+  leak-free join/release. Fresh checked-in-seed compiler and full CLI build passed.
+- [x] Integrate the complete-byte std-marker repair at `c72ecab` (original
+  `1d93842789d21bf5b0a1d314ef2630cf68c00024`). Bounded raw-byte transports replace
+  the rejected text-mode reader. Author end-to-end malformed/unreadable marker,
+  Doctor JSON and repair tests passed; independent C/LLVM decoder tests covered
+  all 256 byte classes, complete framing, path encoding and 4096/4097 boundaries.
+  Native POSIX transport execution remains a CI requirement.
+- [ ] Verify the combined marker/merge head and push the reviewed repair batch;
+  confirm GitHub no longer reports conflicts and inspect fresh CI/reviews.
+- [ ] Disposition the fixed external review threads with pushed commit evidence.
+- [ ] Complete the isolated explicit u16/u32/u64 LE/BE and bulk-copy ByteBuffer
+  slice, then integrate after tests and independent review. Preserve the existing
+  signed-int representation for u64 bit patterns and the frozen layout ABI.
+- [ ] Finish remaining campaign requirements and final installed/platform gates
+  before merge. The existing `v0.14.1` tag is unchanged; a new version choice
+  remains pending, and no release is authorized by a passing intermediate test.
