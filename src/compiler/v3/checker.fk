@@ -943,6 +943,7 @@ task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
         if name == "to_int" or name == "to_num" { give back true }
         if name == "snapshot_escape" or name == "snapshot_unescape" { give back true }
         if name == "snapshot_line_count" or name == "snapshot_line" { give back true }
+        if name == "snapshot_lines" { give back true }
         if name == "snapshot_field_count" or name == "snapshot_field_raw" { give back true }
         if name == "repeated" { give back true }
     }
@@ -961,6 +962,7 @@ task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
         if name == "read_byte" or name == "read_int" or name == "read_int_be" { give back "int" }
         give back "void"
     }
+    if name == "snapshot_lines" { give back "int" }
     if name == "to_int" or name == "length" or name == "checksum" or name == "snapshot_line_count" or name == "snapshot_field_count" { give back "int" }
     if name == "contains" or name == "starts_with" or name == "ends_with" { give back "bool" }
     if name == "to_num" { give back "num" }

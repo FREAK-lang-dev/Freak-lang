@@ -41,6 +41,141 @@ task v4_alias_hir_boundary_snapshot_variant(payload: word, corrupt_alias_span: b
     give back out
 }
 
+task v4_alias_hir_boundary_snapshot_alias_span_variant(payload: word, replacement_span: word) -> word {
+    pilot out = ""
+    pilot replaced = 0
+    pilot line_id = 0
+    pilot line_count = v4_hir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        if v4_hir_snapshot_field_raw(line, 0) == "hir-item" and replaced == 0 and v4_hir_snapshot_field(line, 8) != "" {
+            pilot rebuilt = "hir-item"
+            pilot field_id = 1
+            repeat until field_id >= 9 {
+                rebuilt = rebuilt + "|" + v4_hir_snapshot_field_raw(line, field_id)
+                field_id += 1
+            }
+            line = rebuilt + "|" + v4_hir_snapshot_escape(replacement_span)
+            replaced = 1
+        }
+        if line_id > 0 {
+            out = out + "\n"
+        }
+        out = out + line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_alias_hir_boundary_duplicate_alias_slot_variant(payload: word) -> word {
+    pilot out = ""
+    pilot first_alias_line = ""
+    pilot first_alias_hir = ""
+    pilot replaced = 0
+    pilot line_id = 0
+    pilot line_count = v4_hir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        if v4_hir_snapshot_field_raw(line, 0) == "hir-item" and v4_hir_snapshot_field(line, 8) != "" {
+            if first_alias_line == "" {
+                first_alias_line = line
+                first_alias_hir = v4_hir_snapshot_field_raw(line, 1)
+            } else if replaced == 0 and v4_hir_snapshot_field_raw(line, 1) == first_alias_hir {
+                line = first_alias_line
+                replaced = 1
+            }
+        }
+        if line_id > 0 {
+            out = out + "\n"
+        }
+        out = out + line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_alias_hir_boundary_reordered_alias_child_variant(payload: word) -> word {
+    pilot moved_line = ""
+    pilot moved_owner = ""
+    pilot line_id = 0
+    pilot line_count = v4_hir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        if moved_line == "" and v4_hir_snapshot_field_raw(line, 0) == "hir-item" and v4_hir_snapshot_field(line, 8) != "" {
+            moved_line = line
+            moved_owner = v4_hir_snapshot_field_raw(line, 1)
+        }
+        line_id += 1
+    }
+
+    pilot out = ""
+    pilot emitted = 0
+    line_id = 0
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if moved_line != "" and kind == "hir" and v4_hir_snapshot_field_raw(line, 1) == moved_owner {
+            if emitted > 0 {
+                out = out + "\n"
+            }
+            out = out + moved_line
+            emitted += 1
+        }
+        if line != moved_line {
+            if emitted > 0 {
+                out = out + "\n"
+            }
+            out = out + line
+            emitted += 1
+        }
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_alias_hir_boundary_first_file_snapshot(payload: word) -> word {
+    pilot owner = "0"
+    pilot owner_line = ""
+    pilot alias_targets = 0
+    pilot line_id = 0
+    pilot line_count = v4_hir_snapshot_line_count(payload)
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if kind == "hir" and v4_hir_snapshot_field_raw(line, 1) == owner {
+            owner_line = line
+        } else if kind == "hir-item" and v4_hir_snapshot_field_raw(line, 1) == owner and v4_hir_snapshot_field(line, 8) != "" {
+            alias_targets += 1
+        }
+        line_id += 1
+    }
+
+    pilot out = "hir-snapshot|format=" + v4_hir_snapshot_format
+    out = out + "|files=1"
+    out = out + "|items=" + v4_hir_snapshot_field_raw(owner_line, 4)
+    out = out + "|alias-targets=" + word_from_int(alias_targets)
+    out = out + "|diagnostics=" + v4_hir_snapshot_field_raw(owner_line, 5)
+    line_id = 0
+    repeat until line_id >= line_count {
+        pilot line = v4_hir_snapshot_line(payload, line_id)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        pilot include = false
+        if kind == "hir" and v4_hir_snapshot_field_raw(line, 1) == owner {
+            include = true
+        } else if kind == "hir-item" and v4_hir_snapshot_field_raw(line, 1) == owner {
+            include = true
+        } else if kind == "hir-diag" and v4_hir_snapshot_field_raw(line, 1) == owner {
+            include = true
+        }
+        if include {
+            out = out + "\n" + line
+        }
+        line_id += 1
+    }
+    out = out + "\nend|" + v4_hir_snapshot_format
+    give back out
+}
+
 task v4_alias_hir_boundary_source() -> word {
     pilot src = "alias Score = int\n"
     src = src + "alias Matrix = [[num; 4]; 4]\n"
@@ -54,6 +189,19 @@ pilot v4_alias_hir_boundary_tree = v4_parse_stream(0, v4_alias_hir_boundary_stre
 pilot v4_alias_hir_boundary_hir = v4_hir_lower_tree(0, v4_alias_hir_boundary_tree)
 pilot v4_alias_hir_boundary_resolve = v4_resolve_lower_hir(0, v4_alias_hir_boundary_hir)
 pilot v4_alias_hir_boundary_ty = v4_ty_lower_resolve(0, v4_alias_hir_boundary_resolve)
+
+pilot v4_alias_hir_boundary_terminated_src = "alias Terminated = [num; 4];\n"
+pilot v4_alias_hir_boundary_terminated_stream = v4_lex_text(1, v4_alias_hir_boundary_terminated_src)
+pilot v4_alias_hir_boundary_terminated_tree = v4_parse_stream(1, v4_alias_hir_boundary_terminated_stream)
+pilot v4_alias_hir_boundary_terminated_hir = v4_hir_lower_tree(1, v4_alias_hir_boundary_terminated_tree)
+pilot v4_alias_hir_boundary_terminated_target = v4_hir_alias_target(v4_alias_hir_boundary_terminated_hir, 0)
+pilot v4_alias_hir_boundary_terminated_span = v4_hir_alias_target_span(v4_alias_hir_boundary_terminated_hir, 0)
+
+pilot v4_alias_hir_boundary_incomplete_src = "alias Missing\nalias Empty =\n"
+pilot v4_alias_hir_boundary_incomplete_stream = v4_lex_text(2, v4_alias_hir_boundary_incomplete_src)
+pilot v4_alias_hir_boundary_incomplete_tree = v4_parse_stream(2, v4_alias_hir_boundary_incomplete_stream)
+pilot v4_alias_hir_boundary_incomplete_hir = v4_hir_lower_tree(2, v4_alias_hir_boundary_incomplete_tree)
+pilot v4_alias_hir_boundary_incomplete_pairs: bool = v4_hir_alias_target(v4_alias_hir_boundary_incomplete_hir, 0) == "" and v4_hir_alias_target_span(v4_alias_hir_boundary_incomplete_hir, 0) == V4_NO_SPAN and v4_hir_alias_target(v4_alias_hir_boundary_incomplete_hir, 1) == "" and v4_hir_alias_target_span(v4_alias_hir_boundary_incomplete_hir, 1) == V4_NO_SPAN
 
 pilot v4_alias_hir_boundary_score_def = v4_resolve_def_for_name(v4_alias_hir_boundary_resolve, "Score")
 pilot v4_alias_hir_boundary_matrix_def = v4_resolve_def_for_name(v4_alias_hir_boundary_resolve, "Matrix")
@@ -77,6 +225,8 @@ pilot v4_alias_hir_boundary_matrix_ty_type = v4_ty_alias_target_type_for_sig(v4_
 pilot v4_alias_hir_boundary_borrowed_ty_type = v4_ty_alias_target_type_for_sig(v4_alias_hir_boundary_ty, v4_alias_hir_boundary_borrowed_sig)
 
 say "alias-hir-boundary-parse-diagnostics=" + word_from_int(v4_parse_diag_count(v4_alias_hir_boundary_tree))
+say "alias-hir-boundary-terminator-excluded=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_terminated_target == "[num;4]" and v4_span_start(v4_alias_hir_boundary_terminated_span) == 19 and v4_span_end(v4_alias_hir_boundary_terminated_span) == 27)
+say "alias-hir-boundary-incomplete-sentinel=" + v4_alias_hir_boundary_bool(v4_parse_diag_count(v4_alias_hir_boundary_incomplete_tree) == 2 and v4_alias_hir_boundary_incomplete_pairs)
 say "alias-hir-boundary-expanded-matrix-target=" + v4_alias_hir_boundary_matrix_expanded_type
 say "alias-hir-boundary-expanded-matrix-span=" + v4_expand_alias_target_span(v4_alias_hir_boundary_expansion, v4_alias_hir_boundary_matrix_node)
 say "alias-hir-boundary-expanded-borrowed-target=" + v4_alias_hir_boundary_borrowed_expanded_type
@@ -109,8 +259,79 @@ pilot v4_alias_hir_boundary_bad_count_snapshot = v4_alias_hir_boundary_snapshot_
 pilot v4_alias_hir_boundary_bad_count_validation = v4_hir_snapshot_validate(v4_alias_hir_boundary_bad_count_snapshot)
 pilot v4_alias_hir_boundary_bad_count_restore = v4_hir_snapshot_restore(v4_alias_hir_boundary_bad_count_snapshot)
 pilot v4_alias_hir_boundary_bad_count_atomic: bool = v4_hir_snapshot() == v4_alias_hir_boundary_snapshot
+pilot v4_alias_hir_boundary_score_item_span = v4_hir_item_span(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_score_item)
+pilot v4_alias_hir_boundary_foreign_span = v4_span_new(word_from_int(99), v4_span_start(v4_alias_hir_boundary_score_item_span), v4_span_end(v4_alias_hir_boundary_score_item_span))
+pilot v4_alias_hir_boundary_foreign_snapshot = v4_alias_hir_boundary_snapshot_alias_span_variant(v4_alias_hir_boundary_snapshot, v4_alias_hir_boundary_foreign_span)
+pilot v4_alias_hir_boundary_foreign_validation = v4_hir_snapshot_validate(v4_alias_hir_boundary_foreign_snapshot)
+pilot v4_alias_hir_boundary_foreign_restore = v4_hir_snapshot_restore(v4_alias_hir_boundary_foreign_snapshot)
+pilot v4_alias_hir_boundary_foreign_atomic: bool = v4_hir_snapshot() == v4_alias_hir_boundary_snapshot
+pilot v4_alias_hir_boundary_outside_span = v4_span_new(v4_span_file(v4_alias_hir_boundary_score_item_span), v4_span_start(v4_alias_hir_boundary_score_item_span), v4_span_end(v4_alias_hir_boundary_score_item_span) + 1)
+pilot v4_alias_hir_boundary_outside_snapshot = v4_alias_hir_boundary_snapshot_alias_span_variant(v4_alias_hir_boundary_snapshot, v4_alias_hir_boundary_outside_span)
+pilot v4_alias_hir_boundary_outside_validation = v4_hir_snapshot_validate(v4_alias_hir_boundary_outside_snapshot)
+pilot v4_alias_hir_boundary_outside_restore = v4_hir_snapshot_restore(v4_alias_hir_boundary_outside_snapshot)
+pilot v4_alias_hir_boundary_outside_atomic: bool = v4_hir_snapshot() == v4_alias_hir_boundary_snapshot
+pilot v4_alias_hir_boundary_zero_span = v4_span_new(v4_span_file(v4_alias_hir_boundary_score_item_span), v4_span_start(v4_alias_hir_boundary_score_item_span), v4_span_start(v4_alias_hir_boundary_score_item_span))
+pilot v4_alias_hir_boundary_zero_snapshot = v4_alias_hir_boundary_snapshot_alias_span_variant(v4_alias_hir_boundary_snapshot, v4_alias_hir_boundary_zero_span)
+pilot v4_alias_hir_boundary_zero_validation = v4_hir_snapshot_validate(v4_alias_hir_boundary_zero_snapshot)
+pilot v4_alias_hir_boundary_zero_restore = v4_hir_snapshot_restore(v4_alias_hir_boundary_zero_snapshot)
+pilot v4_alias_hir_boundary_zero_atomic: bool = v4_hir_snapshot() == v4_alias_hir_boundary_snapshot
+pilot v4_alias_hir_boundary_duplicate_snapshot = v4_alias_hir_boundary_duplicate_alias_slot_variant(v4_alias_hir_boundary_snapshot)
+pilot v4_alias_hir_boundary_duplicate_validation = v4_hir_snapshot_validate(v4_alias_hir_boundary_duplicate_snapshot)
+pilot v4_alias_hir_boundary_duplicate_restore = v4_hir_snapshot_restore(v4_alias_hir_boundary_duplicate_snapshot)
+pilot v4_alias_hir_boundary_duplicate_atomic: bool = v4_hir_snapshot() == v4_alias_hir_boundary_snapshot
 say "alias-hir-boundary-malformed-snapshot-rejected=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_bad_span_validation.starts_with("hir-snapshot-import ok=0 ") and v4_alias_hir_boundary_bad_span_restore.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_alias_hir_boundary_bad_span_atomic)
 say "alias-hir-boundary-declared-alias-count-rejected=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_bad_count_validation.starts_with("hir-snapshot-import ok=0 ") and v4_alias_hir_boundary_bad_count_restore.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_alias_hir_boundary_bad_count_atomic)
-say v4_hir_snapshot_restore(v4_alias_hir_boundary_snapshot)
+say "alias-hir-boundary-foreign-span-rejected=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_foreign_validation.starts_with("hir-snapshot-import ok=0 ") and v4_alias_hir_boundary_foreign_restore.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_alias_hir_boundary_foreign_atomic)
+say "alias-hir-boundary-out-of-item-span-rejected=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_outside_validation.starts_with("hir-snapshot-import ok=0 ") and v4_alias_hir_boundary_outside_restore.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_alias_hir_boundary_outside_atomic)
+say "alias-hir-boundary-zero-span-rejected=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_zero_validation.starts_with("hir-snapshot-import ok=0 ") and v4_alias_hir_boundary_zero_restore.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_alias_hir_boundary_zero_atomic)
+say "alias-hir-boundary-duplicate-slot-rejected=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_duplicate_validation.starts_with("hir-snapshot-import ok=0 ") and v4_alias_hir_boundary_duplicate_restore.starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_alias_hir_boundary_duplicate_atomic)
+pilot v4_alias_hir_boundary_reordered_snapshot = v4_alias_hir_boundary_reordered_alias_child_variant(v4_alias_hir_boundary_snapshot)
+pilot v4_alias_hir_boundary_reordered_validation = v4_hir_snapshot_validate(v4_alias_hir_boundary_reordered_snapshot)
+pilot v4_alias_hir_boundary_reordered_restore = v4_hir_snapshot_restore(v4_alias_hir_boundary_reordered_snapshot)
+pilot v4_alias_hir_boundary_reordered_roundtrip: bool = v4_alias_hir_boundary_reordered_validation.starts_with("hir-snapshot-import ok=1 ") and v4_alias_hir_boundary_reordered_restore.starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == v4_alias_hir_boundary_snapshot
+say "alias-hir-boundary-reordered-child-roundtrip=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_reordered_roundtrip)
+pilot v4_alias_hir_boundary_smaller_snapshot = v4_alias_hir_boundary_first_file_snapshot(v4_alias_hir_boundary_snapshot)
+pilot v4_alias_hir_boundary_smaller_validation = v4_hir_snapshot_validate(v4_alias_hir_boundary_smaller_snapshot)
+pilot v4_alias_hir_boundary_smaller_restore = v4_hir_snapshot_restore(v4_alias_hir_boundary_smaller_snapshot)
+pilot v4_alias_hir_boundary_smaller_live_files = v4_hir_file_count()
+pilot v4_alias_hir_boundary_smaller_snapshot_canonical: bool = v4_hir_snapshot() == v4_alias_hir_boundary_smaller_snapshot
+pilot v4_alias_hir_boundary_smaller_truncates: bool = v4_alias_hir_boundary_smaller_validation.starts_with("hir-snapshot-import ok=1 ") and v4_alias_hir_boundary_smaller_restore.starts_with("hir-snapshot-restore ok=1 ") and v4_alias_hir_boundary_smaller_live_files == 1 and v4_alias_hir_boundary_smaller_snapshot_canonical
+say "alias-hir-boundary-smaller-validation-accepted=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_smaller_validation.starts_with("hir-snapshot-import ok=1 "))
+say "alias-hir-boundary-smaller-restore-ok=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_smaller_restore.starts_with("hir-snapshot-restore ok=1 "))
+say "alias-hir-boundary-smaller-live-files=" + word_from_int(v4_alias_hir_boundary_smaller_live_files)
+say "alias-hir-boundary-smaller-snapshot-canonical=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_smaller_snapshot_canonical)
+say "alias-hir-boundary-smaller-restore-truncates=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_smaller_truncates)
+pilot v4_alias_hir_boundary_reused_hir = v4_hir_file_new(77, 0)
+pilot v4_alias_hir_boundary_reused_hir_fresh: bool = v4_alias_hir_boundary_reused_hir == 1 and v4_hir_file_count() == 2 and v4_hir_file_id(v4_alias_hir_boundary_reused_hir) == 77 and v4_hir_item_count(v4_alias_hir_boundary_reused_hir) == 0 and v4_hir_diag_count(v4_alias_hir_boundary_reused_hir) == 0
+say "alias-hir-boundary-smaller-next-allocation-fresh=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_reused_hir_fresh)
+pilot v4_alias_hir_boundary_restore = v4_hir_snapshot_restore(v4_alias_hir_boundary_snapshot)
+say v4_alias_hir_boundary_restore
+say "alias-hir-boundary-incomplete-roundtrip=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_restore.starts_with("hir-snapshot-restore ok=1 ") and v4_hir_alias_target(v4_alias_hir_boundary_incomplete_hir, 0) == "" and v4_hir_alias_target_span(v4_alias_hir_boundary_incomplete_hir, 0) == V4_NO_SPAN and v4_hir_alias_target(v4_alias_hir_boundary_incomplete_hir, 1) == "" and v4_hir_alias_target_span(v4_alias_hir_boundary_incomplete_hir, 1) == V4_NO_SPAN)
 say "alias-hir-boundary-restored-matrix-target=" + v4_hir_alias_target(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_matrix_item)
 say "alias-hir-boundary-restored-matrix-span=" + v4_hir_alias_target_span(v4_alias_hir_boundary_hir, v4_alias_hir_boundary_matrix_item)
+
+pilot v4_alias_hir_boundary_query_a_path = "alias-query-a.fk"
+pilot v4_alias_hir_boundary_query_b_path = "alias-query-b.fk"
+pilot v4_alias_hir_boundary_query_c_path = "alias-query-c.fk"
+pilot v4_alias_hir_boundary_query_d_path = "alias-query-d.fk"
+pilot v4_alias_hir_boundary_query_a_text = "alias QueryA = int\n"
+pilot v4_alias_hir_boundary_query_b_text = "alias QueryB = word\n"
+pilot v4_alias_hir_boundary_query_c_text = "alias QueryC = num\n"
+pilot v4_alias_hir_boundary_query_d_text = "alias QueryD = bool\n"
+pilot v4_alias_hir_boundary_query_a_hir = v4_hir_text_cached(v4_alias_hir_boundary_query_a_path, v4_alias_hir_boundary_query_a_text)
+pilot v4_alias_hir_boundary_query_component = v4_hir_snapshot()
+pilot v4_alias_hir_boundary_query_unit = v4_unit_snapshot()
+pilot v4_alias_hir_boundary_query_component_files = v4_hir_file_count()
+pilot v4_alias_hir_boundary_query_b_hir = v4_hir_text_cached(v4_alias_hir_boundary_query_b_path, v4_alias_hir_boundary_query_b_text)
+pilot v4_alias_hir_boundary_query_lsp_restore = v4_lsp_hir_snapshot_restore_text(v4_alias_hir_boundary_query_component)
+pilot v4_alias_hir_boundary_query_lsp_truncated: bool = v4_alias_hir_boundary_query_lsp_restore.starts_with("ok|workspace/hirSnapshotRestore\nhir-snapshot-restore ok=1 ") and v4_alias_hir_boundary_query_lsp_restore.contains("query-invalidations=") and v4_hir_file_count() == v4_alias_hir_boundary_query_component_files and v4_hir_file_exists(v4_alias_hir_boundary_query_b_hir) == false
+pilot v4_alias_hir_boundary_query_c_hir = v4_hir_text_cached(v4_alias_hir_boundary_query_c_path, v4_alias_hir_boundary_query_c_text)
+pilot v4_alias_hir_boundary_query_b_reintroduced = v4_hir_text_cached(v4_alias_hir_boundary_query_b_path, v4_alias_hir_boundary_query_b_text)
+pilot v4_alias_hir_boundary_query_lsp_safe: bool = v4_alias_hir_boundary_query_lsp_truncated and v4_alias_hir_boundary_query_c_hir == v4_alias_hir_boundary_query_b_hir and v4_alias_hir_boundary_query_b_reintroduced != v4_alias_hir_boundary_query_c_hir and v4_hir_file_id(v4_alias_hir_boundary_query_c_hir) == v4_source_find(v4_alias_hir_boundary_query_c_path) and v4_hir_file_id(v4_alias_hir_boundary_query_b_reintroduced) == v4_source_find(v4_alias_hir_boundary_query_b_path)
+pilot v4_alias_hir_boundary_query_named_restore = v4_unit_snapshot_restore_named_section(v4_alias_hir_boundary_query_unit, "hir")
+pilot v4_alias_hir_boundary_query_named_truncated: bool = v4_alias_hir_boundary_query_named_restore == 1 and v4_hir_file_count() == v4_alias_hir_boundary_query_component_files and v4_hir_file_exists(v4_alias_hir_boundary_query_b_reintroduced) == false
+pilot v4_alias_hir_boundary_query_d_hir = v4_hir_text_cached(v4_alias_hir_boundary_query_d_path, v4_alias_hir_boundary_query_d_text)
+pilot v4_alias_hir_boundary_query_b_named_reintroduced = v4_hir_text_cached(v4_alias_hir_boundary_query_b_path, v4_alias_hir_boundary_query_b_text)
+pilot v4_alias_hir_boundary_query_named_safe: bool = v4_alias_hir_boundary_query_named_truncated and v4_alias_hir_boundary_query_d_hir == v4_alias_hir_boundary_query_c_hir and v4_alias_hir_boundary_query_b_named_reintroduced != v4_alias_hir_boundary_query_d_hir and v4_hir_file_id(v4_alias_hir_boundary_query_d_hir) == v4_source_find(v4_alias_hir_boundary_query_d_path) and v4_hir_file_id(v4_alias_hir_boundary_query_b_named_reintroduced) == v4_source_find(v4_alias_hir_boundary_query_b_path)
+say "alias-hir-boundary-component-restore-query-recomputed=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_query_lsp_safe)
+say "alias-hir-boundary-named-restore-query-recomputed=" + v4_alias_hir_boundary_bool(v4_alias_hir_boundary_query_named_safe)
