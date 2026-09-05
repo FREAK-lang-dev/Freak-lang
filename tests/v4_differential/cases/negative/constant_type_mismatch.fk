@@ -1,0 +1,5 @@
+fixed pilot ANSWER: int = true
+
+task main() -> int {
+    give back 0
+}

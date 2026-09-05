@@ -1,0 +1,3 @@
+task identity<'a>(lend 'a value: int) -> lend 'a int {
+    give back value
+}
