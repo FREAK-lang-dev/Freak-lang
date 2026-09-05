@@ -9247,7 +9247,7 @@ def check_crate_boundaries() -> None:
 
     # These are the production post-build consumers. The editor's transitional
     # source-view dependency is documented separately and intentionally allowed.
-    for consumer in ("freak_borrowck", "freak_codegen_llvm"):
+    for consumer in ("freak_borrowck", "freak_codegen_llvm", "freak_query", "freak_snapshot"):
         consumer_text = read_text(crate_path(consumer))
         consumer_tasks = re.findall(
             r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", consumer_text
