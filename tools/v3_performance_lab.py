@@ -1133,6 +1133,33 @@ def _direct_process_exited_without_reaping(process: Any) -> bool:
     return status is not None and status.si_pid != 0
 
 
+def _darwin_exited_group_is_singleton(process: Any) -> bool:
+    """Prove that a pinned, exited leader is the group's only remaining PID.
+
+    Darwin killpg returns EPERM for a zombie-only group. Never infer this from
+    direct-child exit alone: a live descendant may instead be unkillable.
+    libproc includes zombies and returns a PID count. Two slots distinguish a
+    complete singleton from a full/truncated result, without unbounded storage.
+    Any uncertainty retains the original containment error.
+    """
+    if sys.platform != "darwin":
+        return False
+    try:
+        if not _direct_process_exited_without_reaping(process):
+            return False
+        import ctypes
+
+        library = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        query = library.proc_listpgrppids
+        query.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+        query.restype = ctypes.c_int
+        members = (ctypes.c_int * 2)()
+        count = query(process.pid, members, ctypes.sizeof(members))
+        return count == 1 and members[0] == process.pid
+    except (OSError, AttributeError, LabError):
+        return False
+
+
 def _terminate_process_tree(process: Any, windows_job: _WindowsJob | None) -> list[str]:
     """Terminate the launched Windows job or cooperative POSIX process group."""
 
@@ -1152,6 +1179,9 @@ def _terminate_process_tree(process: Any, windows_job: _WindowsJob | None) -> li
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        except PermissionError as error:
+            if not _darwin_exited_group_is_singleton(process):
+                errors.append(f"cannot terminate POSIX process group {process.pid}: {error}")
         except OSError as error:
             errors.append(f"cannot terminate POSIX process group {process.pid}: {error}")
     if job_termination_requested:
@@ -1693,6 +1723,21 @@ def _is_linker_name(value: str) -> bool:
     )
 
 
+def _resolve_observed_linker(value: str, environment: Mapping[str, str]) -> Path:
+    """Use the same alias resolution for recorded and revalidated linkers."""
+    linker = Path(value)
+    if not linker.is_absolute():
+        found = shutil.which(value, path=environment.get("PATH"))
+        if not found:
+            raise LabError(f"observed linker is not resolvable: {value}")
+        linker = Path(found)
+    elif sys.platform == "win32" and not linker.is_file() and not str(linker).lower().endswith(".exe"):
+        executable = Path(str(linker) + ".exe")
+        if executable.is_file():
+            linker = executable
+    return _resolve_exact_executable(str(linker), "observed linker")
+
+
 def _linker_identity_from_trace(
     clang: Path,
     link_arguments: Sequence[str],
@@ -1722,17 +1767,7 @@ def _linker_identity_from_trace(
             f"Clang did not expose a linker for recorded invocation (exit={trace.returncode})\n{trace_text}"
         )
     linker_value = candidates[-1]
-    linker = Path(linker_value)
-    if not linker.is_absolute():
-        found = shutil.which(linker_value, path=environment.get("PATH"))
-        if not found:
-            raise LabError(f"observed linker is not resolvable: {linker_value}")
-        linker = Path(found)
-    elif sys.platform == "win32" and not linker.is_file() and not str(linker).lower().endswith(".exe"):
-        executable = Path(str(linker) + ".exe")
-        if executable.is_file():
-            linker = executable
-    linker = linker.resolve(strict=True)
+    linker = _resolve_observed_linker(linker_value, environment)
     version = _run_bytes([str(linker), "--version"], cwd=cwd, environment=environment, timeout=timeout)
     return {
         "link_invocation_sha256": link_invocation_sha256,
@@ -2367,15 +2402,9 @@ def _validate_linker_identity(
         raise LabError(f"{context} trace checksum is invalid")
     if observed_path.encode("utf-8") not in trace and Path(observed_path).name.encode("utf-8") not in trace:
         raise LabError(f"{context} trace does not name the recorded linker")
-    observed = Path(observed_path)
-    if observed.is_absolute():
-        normalized = str(observed)
-        if sys.platform == "win32" and not normalized.lower().endswith(".exe"):
-            normalized += ".exe"
-        if os.path.normcase(os.path.normpath(normalized)) != os.path.normcase(os.path.normpath(str(path))):
-            raise LabError(f"{context} observed and resolved linker paths differ")
-    elif Path(observed_path).name.lower().removesuffix(".exe") != path.name.lower().removesuffix(".exe"):
-        raise LabError(f"{context} observed and resolved linker names differ")
+    observed = _resolve_observed_linker(observed_path, environment)
+    if _path_identity(str(observed)) != _path_identity(str(path)):
+        raise LabError(f"{context} observed and resolved linker paths differ")
     with tempfile.TemporaryDirectory(prefix="freak-v3-linker-revalidate-") as temporary:
         live = _linker_identity_from_trace(
             clang,
