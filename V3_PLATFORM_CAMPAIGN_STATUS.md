@@ -568,3 +568,25 @@ statements above. Historical test results remain tied to their recorded heads.
   documentation and gate updates; rerun applicable checks after integration.
 - [ ] Obtain successful fresh current-head CI and completed refreshed reviews
   before any merge. The existing release tag remains unchanged.
+
+### Latest review queue and main synchronization
+
+- [x] Normally merge newly landed, reviewed main `5a93263` (PR92) at `a192ab4`.
+  Independent merge review confirms exact incoming V4 crate blobs, the retained
+  cleanup-only primitive fixture delta, unchanged V3 runtime/compiler/CLI/tests,
+  and preservation of both incoming MIR guards and campaign auditor guards.
+  Conformance/version checks pass; the extracted cleanup source still matches
+  its serialized-tested hash. No unpublished PR92 follow-up was imported.
+- [ ] Fix refreshed P1: C task-return lowering for `ByteBuffer` and strict
+  consumption of semantically typed ByteBuffer fields. Prepared in the isolated
+  width lane; existing Phase-1 full-parent ownership remains the contract.
+- [ ] Fix refreshed P1: bounded nonfatal runtime API marker diagnostics and
+  repair, equivalent to the completed std-marker protection. Isolated lane:
+  `v3-runtime-marker-recovery`; only build helper and new regression are owned.
+- [ ] Fix refreshed P2: exactly one valid Host field for the supported HTTP/1.1
+  request surface. Isolated lane: `v3-http-host-validation`; parser, package
+  documentation and acceptance tests only.
+- [ ] Validate those prepared corrections after the shared compiler-check slot
+  is available, independently review and integrate their immutable commits.
+  Current local Windows installed-checkpoint success does not waive these new
+  findings or the original unfinished campaign requirements.
