@@ -590,3 +590,39 @@ statements above. Historical test results remain tied to their recorded heads.
   is available, independently review and integrate their immutable commits.
   Current local Windows installed-checkpoint success does not waive these new
   findings or the original unfinished campaign requirements.
+
+### Babysitting checkpoint: current remote head `c0603fc`
+
+- [x] Recheck live PR99: non-draft and mergeable against current main; merge
+  remains blocked by CI and unresolved review findings. No merge or tag change.
+- [x] Confirm the freshness/installer-cleanup correction passes on Windows,
+  Linux and macOS CI. All three shipping jobs subsequently fail in the
+  controlled-linker portion of `v3_build_profiles.py` (run `33961735490`).
+- [ ] Repair that test's platform assumptions without dropping the selected
+  linker identity/cache invalidation oracle: Linux loses the driver-selected
+  alias when resolving its path; relocated Apple `ld` loses its `libtapi`
+  dependency; MSVC-target Clang ignores the test's `-B` linker override.
+  Source-only correction is assigned; these are not infrastructure reruns.
+- [x] Complete the first serialized ByteBuffer return/field validation slot:
+  exact-source fresh CLI build, return/extern/typed-field tests, widths/copy,
+  strict-handle and foundation gates all pass (session 53870, `CHECK_EXIT=0`,
+  shared mutex released). Commit `dd27b4d` preserves those tested source blobs.
+  This is not a checked-in-seed bootstrap or C shape-execution claim.
+- [ ] Independently review `dd27b4d`, then validate the separate prepared
+  typed-field owner revalidation delta. It rejects a later argument consuming
+  the owner of an earlier borrowed ByteBuffer field without re-evaluating the
+  field expression. Four compile-only negatives and valid controls are prepared.
+- [ ] Fix the newly confirmed strict-borrow `STMT_WHEN` omission: executable
+  arms currently bypass consumption tracking. A bounded arm-traversal and
+  conservative post-arm state-merge design is assigned; implementation and
+  C/LLVM regressions remain pending.
+- [ ] Validate runtime-marker preparation `cab556c` and HTTP Host preparation
+  `bb9571c`, then independently review and integrate. Their source/static checks
+  pass, but native/platform success is not claimed.
+- [ ] Obtain the next explicit shared compiler/native validation lease before
+  running any queued native checks. Source-only preparation continues while
+  the coordinator owns its V4 validation slot. Current-head V4 runtime jobs
+  are green, but remaining fast jobs and every shipping job must also pass.
+- [ ] Complete the remaining original campaign requirements, current-head
+  reviews, installed practical tests and all-platform CI before merge. Existing
+  `v0.14.1` still points to `db2afbb`; replacement version choice remains pending.
