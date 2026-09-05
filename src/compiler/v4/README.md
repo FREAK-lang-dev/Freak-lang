@@ -403,6 +403,9 @@ calling-convention acceptance matrix. It does not probe the host or toolchain,
 calculate physical type layout, lower function ABI signatures, or select LLVM
 calling-convention spellings. Those later subsystems must consume this target
 identity rather than create parallel target tables.
+The v1 record admission budget is 512 bytes, larger than every canonical
+record. Validation and raw framed-field readers reject oversized input before
+parsing, bounding bootstrap word-scanning work on malformed records.
 
 `freak_mir` owns the persistent Built-MIR representation: stable file/body and
 node identities, CFG/local/place/rvalue storage, validation, diagnostics, and

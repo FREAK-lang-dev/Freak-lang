@@ -79,6 +79,17 @@ pilot v4_target_smoke_duplicate_field = v4_target_smoke_linux_x64 + v4_target_sm
 pilot v4_target_smoke_unknown_tag = v4_target_smoke_replace_field(v4_target_smoke_linux_x64, 0, "UnknownTargetSpec")
 pilot v4_target_smoke_unknown_format = v4_target_smoke_replace_field(v4_target_smoke_linux_x64, 1, "freak-target-spec-v999")
 
+pilot v4_target_smoke_oversize_no_colon = "x"
+pilot v4_target_smoke_oversize_zero_prefix = "0"
+pilot v4_target_smoke_oversize_empty_fields = "0:"
+repeat 12 times {
+    v4_target_smoke_oversize_no_colon = v4_target_smoke_oversize_no_colon + v4_target_smoke_oversize_no_colon
+    v4_target_smoke_oversize_zero_prefix = v4_target_smoke_oversize_zero_prefix + v4_target_smoke_oversize_zero_prefix
+    v4_target_smoke_oversize_empty_fields = v4_target_smoke_oversize_empty_fields + v4_target_smoke_oversize_empty_fields
+}
+v4_target_smoke_oversize_zero_prefix = v4_target_smoke_oversize_zero_prefix + ":" + v4_target_smoke_linux_x64
+pilot v4_target_smoke_budget_boundary = v4_target_smoke_oversize_no_colon.substring(0, v4_target_record_max_bytes)
+
 say "target-count=" + word_from_int(v4_target_spec_count())
 say "target-linux-x64-summary=" + v4_target_spec_summary(v4_target_smoke_linux_x64)
 say "target-linux-arm64-summary=" + v4_target_spec_summary(v4_target_smoke_linux_arm64)
@@ -114,5 +125,10 @@ say "target-extra-field-rejected=" + v4_target_smoke_bool(v4_target_field_count(
 say "target-duplicate-field-rejected=" + v4_target_smoke_bool(v4_target_field_count(v4_target_smoke_duplicate_field) == 18 and v4_target_smoke_record_rejected(v4_target_smoke_duplicate_field))
 say "target-unknown-tag-rejected=" + v4_target_smoke_bool(v4_target_field_count(v4_target_smoke_unknown_tag) == 17 and v4_target_smoke_record_rejected(v4_target_smoke_unknown_tag))
 say "target-unknown-format-rejected=" + v4_target_smoke_bool(v4_target_field_count(v4_target_smoke_unknown_format) == 17 and v4_target_smoke_record_rejected(v4_target_smoke_unknown_format))
+say "target-canonical-records-within-budget=" + v4_target_smoke_bool(v4_target_smoke_linux_x64.length() <= v4_target_record_max_bytes and v4_target_smoke_linux_arm64.length() <= v4_target_record_max_bytes and v4_target_smoke_macos_arm64.length() <= v4_target_record_max_bytes and v4_target_smoke_windows_x64.length() <= v4_target_record_max_bytes)
+say "target-oversize-no-colon-rejected=" + v4_target_smoke_bool(v4_target_smoke_record_rejected(v4_target_smoke_oversize_no_colon) and v4_target_field_count(v4_target_smoke_oversize_no_colon) == 0 - 1 and v4_target_field(v4_target_smoke_oversize_no_colon, 0) == "")
+say "target-oversize-zero-prefix-rejected=" + v4_target_smoke_bool(v4_target_smoke_record_rejected(v4_target_smoke_oversize_zero_prefix) and v4_target_field_count(v4_target_smoke_oversize_zero_prefix) == 0 - 1 and v4_target_field(v4_target_smoke_oversize_zero_prefix, 0) == "")
+say "target-oversize-empty-fields-rejected=" + v4_target_smoke_bool(v4_target_smoke_record_rejected(v4_target_smoke_oversize_empty_fields) and v4_target_field_count(v4_target_smoke_oversize_empty_fields) == 0 - 1 and v4_target_field(v4_target_smoke_oversize_empty_fields, 0) == "")
+say "target-budget-boundary-rejected=" + v4_target_smoke_bool(v4_target_smoke_record_rejected(v4_target_smoke_budget_boundary) and v4_target_smoke_record_rejected(v4_target_smoke_budget_boundary + "x"))
 say "target-invalid-accessors-fail-closed=" + v4_target_smoke_bool(v4_target_spec_triple("") == "" and v4_target_spec_pointer_width("") == 0 - 1 and v4_target_executable_name("", "maverick") == "" and v4_target_object_name(v4_target_smoke_linux_x64, "") == "")
 say "target-summary-deterministic=" + v4_target_smoke_bool(v4_target_spec_summary(v4_target_smoke_linux_x64) == v4_target_spec_summary(v4_target_spec_new(v4_target_triple_linux_x86_64)) and v4_target_spec_summary("") == "target-invalid")

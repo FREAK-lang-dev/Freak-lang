@@ -761,6 +761,11 @@ EXECUTABLE_SMOKES = [
             "target-duplicate-field-rejected=true",
             "target-unknown-tag-rejected=true",
             "target-unknown-format-rejected=true",
+            "target-canonical-records-within-budget=true",
+            "target-oversize-no-colon-rejected=true",
+            "target-oversize-zero-prefix-rejected=true",
+            "target-oversize-empty-fields-rejected=true",
+            "target-budget-boundary-rejected=true",
             "target-invalid-accessors-fail-closed=true",
             "target-summary-deterministic=true",
         ],
@@ -9248,6 +9253,22 @@ def check_crate_boundaries() -> None:
     )
     contents = {name: read_text(crate_path(name)) for name in boundary_crates}
     violations: list[str] = []
+
+    target_text = read_text(crate_path("freak_target"))
+    if not re.search(r"(?m)^pilot v4_target_record_max_bytes = 512\s*$", target_text):
+        violations.append("boundary missing: freak_target fixed v1 record budget")
+    for task_name, argument, rejected in (
+        ("v4_target_spec_valid", "target_spec", "false"),
+        ("v4_target_field_count", "record", "0 - 1"),
+        ("v4_target_field", "record", '\"\"'),
+    ):
+        target_body = freak_task_body(target_text, task_name)
+        first_guard = (
+            f"if {argument}.length() > v4_target_record_max_bytes "
+            f"{{ give back {rejected} }}"
+        )
+        if target_body is None or not re.sub(r"\s+", " ", target_body).strip().startswith(first_guard):
+            violations.append(f"boundary missing: freak_target {task_name} pre-parse record budget")
 
     for crate, checks in CRATE_BOUNDARY_REQUIRED.items():
         text = contents[crate]
