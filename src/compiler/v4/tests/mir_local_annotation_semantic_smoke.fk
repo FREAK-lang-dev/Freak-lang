@@ -42,6 +42,7 @@ task v4_local_annotation_snapshot_variant(payload: word, mode: word) -> word {
             line = line + "|items=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "items")
             line = line + "|alias-targets=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "alias-targets")
             line = line + "|local-annotations=" + word_from_int(word_to_int(v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "local-annotations")) + 1)
+            line = line + "|task-returns=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "task-returns")
             line = line + "|diagnostics=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "diagnostics")
         } else if kind == "hir-item" and mode == "owner-kind" and changed == 0 and v4_hir_snapshot_field_raw(line, 1) == wanted_hir and v4_hir_snapshot_field_raw(line, 2) == wanted_item {
             pilot rebuilt = "hir-item"
@@ -191,9 +192,9 @@ say "local-annotation-restored-fixed=" + v4_hir_local_annotation_type(v4_local_a
 
 pilot v4_local_annotation_before_bad_files = v4_hir_file_count()
 pilot v4_local_annotation_before_bad_count = v4_hir_local_annotation_count(v4_local_annotation_hir, v4_local_annotation_item)
-pilot v4_local_annotation_bad_snapshot = "hir-snapshot|format=freak-hir-snapshot-v4|files=0|items=0|alias-targets=0|local-annotations=1|diagnostics=0\n"
+pilot v4_local_annotation_bad_snapshot = "hir-snapshot|format=freak-hir-snapshot-v5|files=0|items=0|alias-targets=0|local-annotations=1|task-returns=0|diagnostics=0\n"
 v4_local_annotation_bad_snapshot = v4_local_annotation_bad_snapshot + "hir-local-annotation|0|0|0|" + v4_hir_snapshot_escape(V4_NO_SPAN) + "|int|" + v4_hir_snapshot_escape(V4_NO_SPAN) + "\n"
-v4_local_annotation_bad_snapshot = v4_local_annotation_bad_snapshot + "end|freak-hir-snapshot-v4"
+v4_local_annotation_bad_snapshot = v4_local_annotation_bad_snapshot + "end|freak-hir-snapshot-v5"
 pilot v4_local_annotation_bad_restore = v4_hir_snapshot_restore(v4_local_annotation_bad_snapshot)
 say "local-annotation-malformed-restore-rejected=" + v4_local_annotation_bool(v4_local_annotation_bad_restore.starts_with("hir-snapshot-restore ok=0"))
 say "local-annotation-malformed-restore-atomic=" + v4_local_annotation_bool(v4_hir_file_count() == v4_local_annotation_before_bad_files and v4_hir_local_annotation_count(v4_local_annotation_hir, v4_local_annotation_item) == v4_local_annotation_before_bad_count)
@@ -204,6 +205,8 @@ pilot v4_local_annotation_schema_modes = array_new()
 array_push(v4_local_annotation_schema_modes, "noncanonical")
 array_push(v4_local_annotation_schema_modes, "duplicate-slot")
 array_push(v4_local_annotation_schema_modes, "owner-kind")
+-- This is broad schema rejection; the Impl-to-Shape scaling case isolates
+-- annotation ownership without a task-return record influencing the verdict.
 array_push(v4_local_annotation_schema_modes, "out-of-owner")
 array_push(v4_local_annotation_schema_modes, "empty-span")
 array_push(v4_local_annotation_schema_modes, "count")
