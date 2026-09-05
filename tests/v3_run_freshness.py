@@ -127,6 +127,11 @@ def check_installer_contracts(repo: Path) -> None:
 
 
 def main() -> int:
+    """Run regression tests for cache freshness, runtime integrity, installer contracts, and shell safety.
+
+    Returns:
+        int: Zero when all regression checks pass.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
     args = parser.parse_args()

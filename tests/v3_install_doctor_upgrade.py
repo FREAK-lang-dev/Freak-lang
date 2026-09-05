@@ -91,6 +91,12 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
 
 
 def check_static_contracts(repo: Path) -> None:
+    """
+    Validate static contracts across installers, release and CI workflows, compiler CLI sources, and repository attributes.
+
+    Parameters:
+        repo (Path): Repository root containing the files and scripts to validate.
+    """
     shell_text = (repo / "install.sh").read_text(encoding="utf-8")
     ps_text = (repo / "install.ps1").read_text(encoding="utf-8")
     release_text = (repo / ".github" / "workflows" / "release.yml").read_text(
@@ -629,6 +635,15 @@ def check_downloaded_archive_checksum(repo: Path, root: Path, archive: Path) -> 
 def check_offline_installer(
     repo: Path, root: Path, archive: Path, entries: list[tuple[str, str]]
 ) -> None:
+    """
+    Validate offline installation, transactional upgrade, recovery, locking, and dependency behavior across platforms.
+
+    Parameters:
+        repo (Path): Repository containing the installer scripts and distribution files.
+        root (Path): Temporary directory for installation fixtures and test state.
+        archive (Path): Locally generated distribution archive to install.
+        entries (list[tuple[str, str]]): Manifest source and destination pairs used to verify installed files.
+    """
     install_root = root / "installed"
     (install_root / "std").mkdir(parents=True)
     (install_root / "std" / "retired.fk").write_text("stale", encoding="utf-8")
@@ -1418,6 +1433,15 @@ def populate_payload(
 def check_doctor(
     repo: Path, root: Path, compiler: Path, entries: list[tuple[str, str]]
 ) -> None:
+    """
+    Validate compiler diagnostics, payload discovery, ABI compatibility, toolchain probing, repair behavior, and upgrade-state handling across supported installation layouts and platforms.
+
+    Parameters:
+        repo (Path): Repository containing the compiler, runtime, standard library, and manifest sources.
+        root (Path): Temporary directory used for test installations, fixtures, and probe artifacts.
+        compiler (Path): Path to the compiler executable used to run Doctor and build commands.
+        entries (list[tuple[str, str]]): Manifest source and destination pairs used to populate test payloads.
+    """
     repo_compiler = compiler.resolve()
     assert repo_compiler.parent.parent == repo.resolve(), (
         "doctor discovery regression requires the real checkout compiler"

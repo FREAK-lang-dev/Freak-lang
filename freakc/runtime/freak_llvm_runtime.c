@@ -104,9 +104,20 @@ int64_t freak_fread(int64_t buf, int64_t size, int64_t count, int64_t file) {
 int64_t freak_fwrite(int64_t buf, int64_t size, int64_t count, int64_t file) {
     return (int64_t)fwrite((const void*)buf, (size_t)size, (size_t)count, (FILE*)file);
 }
+/**
+ * Allocates zero-initialized memory for an array of elements.
+ * @param count Number of elements to allocate.
+ * @param size Size of each element in bytes.
+ * @returns Address of the allocated memory, or zero if allocation fails.
+ */
 int64_t freak_calloc(int64_t count, int64_t size) {
     return (int64_t)calloc((size_t)count, (size_t)size);
 }
+/**
+ * Removes the file at the specified path.
+ * @param path Null-terminated path to the file.
+ * @returns 1 if removed or already absent; 0 on another removal error.
+ */
 int64_t freak_remove(int64_t path) {
 #ifdef _WIN32
     int result = _unlink((const char*)path);
@@ -462,18 +473,81 @@ int64_t freak_llvm_ui_get_height(int64_t handle)   { return freak_ui_get_height(
 void freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) {
     freak_ui_clear(h, r, g, b, a);
 }
+/**
+ * Fills a rectangle in a UI window.
+ * @param h Window handle.
+ * @param x Horizontal position.
+ * @param y Vertical position.
+ * @param w Rectangle width.
+ * @param hh Rectangle height.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ */
 void freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) {
     freak_ui_fill_rect(h, x, y, w, hh, r, g, b, a);
 }
+/**
+ * Draws a rectangle outline with the specified color and stroke thickness.
+ * @param h Window or rendering context handle.
+ * @param x Horizontal position of the rectangle.
+ * @param y Vertical position of the rectangle.
+ * @param w Rectangle width.
+ * @param hh Rectangle height.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ * @param thickness Stroke thickness.
+ */
 void freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {
     freak_ui_stroke_rect(h, x, y, w, hh, r, g, b, a, thickness);
 }
+/**
+ * Draws a filled circle in a UI window.
+ * @param h UI window handle.
+ * @param cx Circle center x-coordinate.
+ * @param cy Circle center y-coordinate.
+ * @param radius Circle radius.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ */
 void freak_llvm_ui_fill_circle(int64_t h, int64_t cx, int64_t cy, int64_t radius, int64_t r, int64_t g, int64_t b, int64_t a) {
     freak_ui_fill_circle(h, cx, cy, radius, r, g, b, a);
 }
+/**
+ * Draws a colored line in a UI window.
+ * @param h Window handle.
+ * @param x1 Starting x-coordinate.
+ * @param y1 Starting y-coordinate.
+ * @param x2 Ending x-coordinate.
+ * @param y2 Ending y-coordinate.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ * @param thickness Line thickness.
+ */
 void freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {
     freak_ui_draw_line(h, x1, y1, x2, y2, r, g, b, a, thickness);
 }
+/**
+ * Draws text in a window using the specified position, color, size, and style.
+ * @param h Window handle.
+ * @param text Null-terminated text to draw.
+ * @param x Horizontal position.
+ * @param y Vertical position.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param size Text size.
+ * @param bold Nonzero to draw bold text.
+ * @param italic Nonzero to draw italic text.
+ * @returns Result of the text drawing operation.
+ */
 int64_t freak_llvm_ui_draw_text(int64_t h, int64_t text, int64_t x, int64_t y, int64_t r, int64_t g, int64_t b, int64_t size, int64_t bold, int64_t italic) {
     freak_word t = freak_word_lit((const char*)text);
     return freak_ui_draw_text_word(h, t, x, y, r, g, b, size, bold, italic);
@@ -488,8 +562,46 @@ int64_t freak_llvm_ui_poll_events(int64_t h)  { return 0; }
 void    freak_llvm_ui_begin_frame(int64_t h)  { }
 void    freak_llvm_ui_end_frame(int64_t h)    { }
 void    freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) { }
+/**
+ * No-op when FREAK_HAS_UI is disabled. Fills a rectangle in a UI window.
+ * @param h UI window handle.
+ * @param x Horizontal position.
+ * @param y Vertical position.
+ * @param w Rectangle width.
+ * @param hh Rectangle height.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ */
 void    freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) { }
+/**
+ * No-op when FREAK_HAS_UI is disabled. Draws a stroked rectangle in the specified color and line thickness.
+ * @param h Window or drawing context handle.
+ * @param x Horizontal position of the rectangle.
+ * @param y Vertical position of the rectangle.
+ * @param w Rectangle width.
+ * @param hh Rectangle height.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ * @param thickness Stroke thickness.
+ */
 void    freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) { }
+/**
+ * No-op when FREAK_HAS_UI is disabled. Draws a colored line in a window.
+ * @param h Window handle.
+ * @param x1 Starting x-coordinate.
+ * @param y1 Starting y-coordinate.
+ * @param x2 Ending x-coordinate.
+ * @param y2 Ending y-coordinate.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ * @param thickness Line thickness.
+ */
 void    freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) { }
 #endif /* FREAK_HAS_UI */
 
@@ -500,9 +612,19 @@ void    freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, i
 int64_t freak_llvm_int_to_num(int64_t i) {
     return double_to_i64((double)i);
 }
+/**
+ * Decodes a packed double and converts its numeric value to an integer.
+ * @param n IEEE-754 double bits carried in the universal integer ABI.
+ * @returns The numeric value truncated toward zero when representable.
+ */
 int64_t freak_llvm_num_to_int(int64_t n) {
     return (int64_t)i64_to_double(n);
 }
+/**
+ * Formats a packed double value as a runtime word.
+ * @param n IEEE-754 double bits carried in the universal integer ABI.
+ * @returns An owned runtime word containing the formatted value.
+ */
 int64_t freak_llvm_word_from_num(int64_t n) {
     char* buf = (char*)malloc(64);
     if (!buf) {
@@ -551,10 +673,19 @@ int64_t freak_llvm_math_tan(int64_t x)   { return double_to_i64(tan(i64_to_doubl
 int64_t freak_llvm_math_floor(int64_t x) { return double_to_i64(floor(i64_to_double(x))); }
 int64_t freak_llvm_math_ceil(int64_t x)  { return double_to_i64(ceil(i64_to_double(x))); }
 
-/* ── parse_num / format_num (self-contained) ───────── */
+/**
+ * Parses a null-terminated numeric string as a double.
+ * @param w Pointer to the null-terminated numeric string.
+ * @returns Parsed double bits packed into the universal integer ABI.
+ */
 int64_t freak_llvm_parse_num(int64_t w) {
     return double_to_i64(strtod((const char*)w, NULL));
 }
+/**
+ * Formats a packed double value as a decimal string.
+ * @param n IEEE-754 double bits carried in the universal integer ABI.
+ * @return Newly allocated, owned word containing the formatted number.
+ */
 int64_t freak_llvm_format_num(int64_t n) {
     char* buf = (char*)malloc(64);
     if (!buf) {

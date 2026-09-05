@@ -67,6 +67,9 @@ static size_t freak_concat_audit_growths = 0;
 static size_t freak_concat_audit_copied_bytes = 0;
 static bool freak_concat_audit_registered = false;
 
+/**
+ * Reports string concatenation audit statistics at process exit.
+ */
 static void freak_concat_audit_at_exit(void) {
     fprintf(stderr,
             "FREAK concat audit: concat_calls=%llu append_calls=%llu allocations=%llu growths=%llu copied_bytes=%llu\n",
@@ -77,6 +80,11 @@ static void freak_concat_audit_at_exit(void) {
             (unsigned long long)freak_concat_audit_copied_bytes);
 }
 
+/**
+ * Registers the concatenation audit cleanup handler.
+ *
+ * Terminates the process if the handler cannot be registered.
+ */
 static void freak_concat_audit_ensure_registered(void) {
     if (freak_concat_audit_registered) return;
     if (atexit(freak_concat_audit_at_exit) != 0) {
@@ -99,6 +107,9 @@ static void freak_concat_audit_append(size_t copied_bytes) {
     freak_concat_audit_copied_bytes += copied_bytes;
 }
 
+/**
+ * Records concatenation growth, allocation, and copied-byte audit counts.
+ */
 static void freak_concat_audit_growth(size_t copied_bytes, bool allocated) {
     freak_concat_audit_growths += 1;
     if (allocated) freak_concat_audit_allocations += 1;
@@ -134,6 +145,11 @@ static size_t freak_c_append_bucket(void* pointer, size_t bucket_count) {
     return (size_t)(value & (uint64_t)(bucket_count - 1));
 }
 
+/**
+ * Resizes the concatenation append-buffer registry and reassigns registered buffers to the new buckets.
+ *
+ * @param new_bucket_count Number of buckets in the resized registry.
+ */
 static void freak_c_append_resize(size_t new_bucket_count) {
     freak_c_append_buffer** resized = (freak_c_append_buffer**)calloc(
         new_bucket_count, sizeof(*resized));
@@ -156,6 +172,9 @@ static void freak_c_append_resize(size_t new_bucket_count) {
     freak_c_append_bucket_count = new_bucket_count;
 }
 
+/**
+ * Ensures that the append-tracking table has capacity for another entry.
+ */
 static void freak_c_append_ensure_capacity(void) {
     if (freak_c_append_bucket_count == 0) {
         freak_c_append_resize(64);
@@ -164,6 +183,12 @@ static void freak_c_append_ensure_capacity(void) {
     }
 }
 
+/**
+ * Finds the append-buffer record associated with a pointer.
+ *
+ * @param pointer Pointer to the append buffer.
+ * @return The associated append-buffer record, or NULL if no record exists.
+ */
 static freak_c_append_buffer* freak_c_append_find(void* pointer) {
     if (!pointer || freak_c_append_bucket_count == 0) return NULL;
     size_t bucket = freak_c_append_bucket(pointer, freak_c_append_bucket_count);
@@ -175,6 +200,13 @@ static freak_c_append_buffer* freak_c_append_find(void* pointer) {
     return NULL;
 }
 
+/**
+ * Records an append buffer and its capacity for capacity tracking.
+ *
+ * @param pointer Buffer pointer to track.
+ * @param capacity Buffer capacity in bytes.
+ * @return The newly created tracking record.
+ */
 static freak_c_append_buffer* freak_c_append_track(void* pointer, size_t capacity) {
     freak_c_append_ensure_capacity();
     freak_c_append_buffer* tracked = (freak_c_append_buffer*)malloc(sizeof(*tracked));
@@ -191,6 +223,12 @@ static freak_c_append_buffer* freak_c_append_track(void* pointer, size_t capacit
     return tracked;
 }
 
+/**
+ * Updates the tracked pointer and its registry placement.
+ *
+ * @param tracked Append buffer whose pointer is being updated.
+ * @param pointer New pointer value to track.
+ */
 static void freak_c_append_repoint(freak_c_append_buffer* tracked, void* pointer) {
     if (!tracked || tracked->pointer == pointer) return;
     size_t old_bucket = freak_c_append_bucket(tracked->pointer, freak_c_append_bucket_count);
@@ -203,6 +241,11 @@ static void freak_c_append_repoint(freak_c_append_buffer* tracked, void* pointer
     freak_c_append_buckets[new_bucket] = tracked;
 }
 
+/**
+ * Removes an append buffer from tracking.
+ *
+ * @param pointer Buffer pointer to remove from the tracking registry.
+ */
 static void freak_c_append_untrack(void* pointer) {
     if (!pointer || freak_c_append_bucket_count == 0) return;
     size_t bucket = freak_c_append_bucket(pointer, freak_c_append_bucket_count);
@@ -219,6 +262,11 @@ static void freak_c_append_untrack(void* pointer) {
     }
 }
 
+/**
+ * Calculates a buffer capacity that accommodates the required size.
+ * @param required Minimum capacity needed.
+ * @returns A capacity greater than or equal to required.
+ */
 static size_t freak_word_append_capacity(size_t required) {
     size_t capacity = 16;
     while (capacity < required) {
@@ -228,6 +276,14 @@ static size_t freak_word_append_capacity(size_t required) {
     return capacity;
 }
 
+/**
+ * Calculates the allocation size required to concatenate two strings.
+ *
+ * @param left_length Length of the left string.
+ * @param right_length Length of the right string.
+ * @param operation Operation name used in the overflow diagnostic.
+ * @return Combined string length including the null terminator.
+ */
 static size_t freak_word_concat_required(
         size_t left_length, size_t right_length, const char* operation) {
     if (left_length == SIZE_MAX || right_length > SIZE_MAX - 1 - left_length) {
@@ -241,6 +297,10 @@ static size_t freak_word_concat_required(
 static size_t freak_c_owned_word_count = 0;
 static bool freak_c_ownership_audit_registered = false;
 
+/**
+ * Reports unreleased C-owned word allocations at process exit and terminates
+ * with status 87 when any remain.
+ */
 static void freak_c_ownership_audit_at_exit(void) {
     if (freak_c_owned_word_count != 0) {
         fprintf(stderr,
@@ -262,6 +322,9 @@ static void freak_c_ownership_audit_acquire(void) {
     freak_c_owned_word_count += 1;
 }
 
+/**
+ * Records release of a C-owned word; fails if no allocation is tracked.
+ */
 static void freak_c_ownership_audit_release(void) {
     if (freak_c_owned_word_count == 0) {
         fprintf(stderr, "FREAK: C ownership audit observed an untracked release\n");
@@ -275,6 +338,11 @@ static void freak_c_ownership_audit_acquire(void) {}
 static void freak_c_ownership_audit_release(void) {}
 #endif
 
+/**
+ * Creates a non-owning word from a null-terminated string literal.
+ * @param s Null-terminated string to represent.
+ * @returns A word referencing `s` without taking ownership.
+ */
 freak_word freak_word_lit(const char* s) {
     size_t len = strlen(s);
     freak_word w;
@@ -285,6 +353,12 @@ freak_word freak_word_lit(const char* s) {
     return w;
 }
 
+/**
+ * Creates an owned word from a character buffer.
+ * @param s Character buffer to associate with the word.
+ * @param len Number of bytes in the character buffer.
+ * @return An owned word containing the buffer and its length.
+ */
 freak_word freak_word_own(char* s, size_t len) {
     freak_word w;
     w.data       = s;
@@ -295,6 +369,13 @@ freak_word freak_word_own(char* s, size_t len) {
     return w;
 }
 
+/**
+ * Concatenates two words into a newly allocated owned word.
+ *
+ * @param a The first word.
+ * @param b The second word.
+ * @return A word containing the contents of `a` followed by `b`.
+ */
 freak_word freak_word_concat(freak_word a, freak_word b) {
     size_t required = freak_word_concat_required(
         a.length, b.length, "word concatenation");
@@ -308,6 +389,13 @@ freak_word freak_word_concat(freak_word a, freak_word b) {
     return freak_word_own(buf, total);
 }
 
+/**
+ * Appends a word to an owned word and updates the destination in place.
+ *
+ * @param slot Destination word to extend; if NULL, the suffix is discarded.
+ * @param suffix Word to append.
+ * @param release_suffix Whether to release the suffix after appending.
+ */
 void freak_word_append_owned(freak_word* slot, freak_word suffix, bool release_suffix) {
     if (!slot) {
         if (release_suffix) freak_word_release_owned(&suffix);
@@ -375,6 +463,14 @@ void freak_word_append_owned(freak_word* slot, freak_word suffix, bool release_s
     if (release_suffix && !same_input) freak_word_release_owned(&suffix);
 }
 
+/**
+ * Concatenates two words and releases owned inputs according to the supplied flags.
+ * @param a First word.
+ * @param b Second word.
+ * @param release_a Whether to release the first word after use.
+ * @param release_b Whether to release the second word after use.
+ * @return The concatenated word.
+ */
 freak_word freak_word_concat_consuming(freak_word a, freak_word b, bool release_a, bool release_b) {
     if (release_a) {
         freak_word_append_owned(&a, b, release_b);
@@ -394,6 +490,11 @@ freak_word freak_word_clone(freak_word source) {
     return freak_word_own(buf, source.length);
 }
 
+/**
+ * Replaces a word with an owned replacement, releasing the previous buffer when necessary.
+ * @param slot Word to update.
+ * @param replacement Word to assign.
+ */
 void freak_word_replace_owned(freak_word* slot, freak_word replacement) {
     if (!slot) return;
     if (slot->heap && slot->data && slot->data != replacement.data) {
@@ -404,6 +505,10 @@ void freak_word_replace_owned(freak_word* slot, freak_word replacement) {
     *slot = replacement;
 }
 
+/**
+ * Releases the heap-owned data in a word and resets it to an empty value.
+ * @param slot Word to release.
+ */
 void freak_word_release_owned(freak_word* slot) {
     if (!slot) return;
     if (slot->heap && slot->data) {
@@ -662,6 +767,12 @@ void freak_fs_append(freak_word path, freak_word content) {
     fclose(f);
 }
 
+/**
+ * Checks whether a filesystem path exists.
+ *
+ * @param path Path to check.
+ * @return `true` if the path exists, `false` otherwise.
+ */
 bool freak_fs_exists(freak_word path) {
     const char* p = freak_word_to_cstr(path);
 #ifdef _WIN32
@@ -671,14 +782,24 @@ bool freak_fs_exists(freak_word path) {
 #endif
 }
 
-/* Universal-ABI bridge used by the pure-FREAK LLVM runtime task. Unlike an
-   fopen probe, access/_access also recognizes directories, which is required
-   by fail-closed stale-artifact checks. */
+/**
+ * Checks whether a filesystem path exists.
+ * Universal-ABI bridge for the pure-FREAK LLVM runtime. access/_access also
+ * recognizes directories, preserving fail-closed stale-artifact checks.
+ * @param path Null-terminated path string encoded as an integer.
+ * @return 1 if the path exists, 0 otherwise.
+ */
 int64_t freak_path_exists(int64_t path) {
     const char* value = (const char*)(intptr_t)path;
     return freak_fs_exists(freak_word_lit(value)) ? 1 : 0;
 }
 
+/**
+ * Deletes the file at the specified path.
+ *
+ * @param path Path of the file to delete.
+ * @return true if removed or already absent; false on another removal error.
+ */
 bool freak_fs_delete(freak_word path) {
     const char* p = freak_word_to_cstr(path);
 #ifdef _WIN32
@@ -1161,10 +1282,21 @@ double freak_word_to_num(freak_word w) {
     return strtod(w.data, NULL);
 }
 
+/**
+ * Parses a word as a floating-point number.
+ *
+ * @param w Word containing the numeric representation.
+ * @return The parsed floating-point value.
+ */
 double freak_parse_num(freak_word w) {
     return strtod(w.data, NULL);
 }
 
+/**
+ * Formats a floating-point number as a heap-owned word.
+ * @param n Number to format.
+ * @return The formatted number.
+ */
 freak_word freak_format_num(double n) {
     char* buf = (char*)malloc(64);
     if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
@@ -1613,6 +1745,12 @@ static bool freak_llvm_owned_ensure_capacity(void) {
     return true;
 }
 
+/**
+ * Finds the tracked LLVM-owned word associated with a pointer.
+ * @param pointer Pointer to the tracked word data.
+ * @param link_out Receives the link pointing to the matching registry entry, or NULL when no entry is found.
+ * @return The matching owned-word record, or NULL if the pointer is not tracked.
+ */
 static freak_llvm_owned_word* freak_llvm_owned_find(
         void* pointer, freak_llvm_owned_word*** link_out) {
     if (link_out) *link_out = NULL;
@@ -1629,6 +1767,13 @@ static freak_llvm_owned_word* freak_llvm_owned_find(
     return NULL;
 }
 
+/**
+ * Updates an owned LLVM word's pointer and reindexes it in the ownership registry.
+ *
+ * @param owned Owned word entry to update.
+ * @param old_link Optional registry link pointing to the entry's previous position.
+ * @param pointer New pointer associated with the entry.
+ */
 static void freak_llvm_owned_repoint(
         freak_llvm_owned_word* owned,
         freak_llvm_owned_word** old_link,
@@ -1644,6 +1789,11 @@ static void freak_llvm_owned_repoint(
 #ifdef FREAK_RUNTIME_OWNERSHIP_AUDIT
 static bool freak_llvm_ownership_audit_registered = false;
 
+/**
+ * Verifies that all LLVM-owned word allocations were released at process exit.
+ *
+ * Terminates the process with status 86 if unreleased allocations remain.
+ */
 static void freak_llvm_ownership_audit_at_exit(void) {
     if (freak_llvm_owned_count != 0) {
         fprintf(stderr,
@@ -1681,6 +1831,12 @@ int64_t freak_llvm_word_try_adopt_sized(int64_t pointer, size_t length) {
     return pointer;
 }
 
+/**
+ * Registers a null-terminated string pointer as an owned LLVM word.
+ *
+ * @param pointer Pointer to the string to register.
+ * @return The registered pointer, or zero when `pointer` is zero.
+ */
 int64_t freak_llvm_word_adopt(int64_t pointer) {
     if (!pointer) return pointer;
     if (freak_llvm_owned_find((void*)pointer, NULL)) return pointer;
@@ -1705,6 +1861,12 @@ int64_t freak_llvm_word_clone(int64_t source) {
     return freak_llvm_word_adopt((int64_t)clone);
 }
 
+/**
+ * Releases an adopted LLVM word when it is replaced by a different word.
+ * Literal, static, foreign, and already-unregistered pointers are ignored.
+ * @param previous Pointer to the word being replaced.
+ * @param replacement Pointer to the replacement word.
+ */
 void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement) {
     if (!previous || previous == replacement) return;
     /* Literal/static/foreign pointers are deliberately absent from this
@@ -1725,6 +1887,13 @@ void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement) {
     }
 }
 
+/**
+ * Appends an LLVM-owned string to a previous string.
+ * @param previous String to extend, or zero for an empty string.
+ * @param suffix String to append, or zero for an empty string.
+ * @param release_suffix Whether to release the suffix after appending.
+ * @return Pointer to the resulting null-terminated string.
+ */
 int64_t freak_llvm_word_append_owned(int64_t previous, int64_t suffix, int64_t release_suffix) {
     const char* previous_text = previous ? (const char*)previous : "";
     const char* suffix_text = suffix ? (const char*)suffix : "";
@@ -1792,6 +1961,12 @@ int64_t freak_llvm_word_append_owned(int64_t previous, int64_t suffix, int64_t r
     return (int64_t)buffer;
 }
 
+/**
+ * Creates an owned LLVM word containing the decimal representation of an integer.
+ *
+ * @param n Integer to convert.
+ * @return Owned word containing the decimal representation of `n`.
+ */
 int64_t freak_llvm_word_from_int(int64_t n) {
     char* buf = (char*)malloc(32);
     snprintf(buf, 32, "%lld", (long long)n);
@@ -1802,6 +1977,13 @@ int64_t freak_llvm_word_from_bool(int64_t b) {
     return (int64_t)(b ? "true" : "false");
 }
 
+/**
+ * Concatenates two LLVM string values into a newly owned string.
+ *
+ * @param a First string value; null is treated as an empty string.
+ * @param b Second string value; null is treated as an empty string.
+ * @return Newly owned concatenation of the two strings.
+ */
 int64_t freak_llvm_word_concat(int64_t a, int64_t b) {
     const char* sa = (const char*)a;
     const char* sb = (const char*)b;
