@@ -651,3 +651,25 @@ statements above. Historical test results remain tied to their recorded heads.
 - [x] Return the compiler/native slot to the coordinator after all agreed
   ByteBuffer checks terminated. No further native checks may start without a
   new explicit handoff; HTTP, marker and platform gates were not run in this slot.
+
+### Reviewed CI correction and refreshed ownership queue
+
+- [x] Independently review `eb58fbe`: both projection-owner P2s are corrected
+  within the documented scope, and committed blobs match the serialized-tested
+  candidate. `when` and generic call/index-derived borrow boundaries remain.
+- [x] Integrate linker-test correction `ed68141` as `8a7f81e`; the five pure
+  helper tests pass again in the integration worktree. Linux/macOS/MSVC execution
+  remains a fresh CI requirement, not a local native-test claim.
+- [x] Confirm all V4 jobs passed on remote checkpoint `c0603fc`. This evidence
+  belongs to that head and does not replace fresh CI after the next push.
+- [ ] Validate the frozen `when` candidate: 16 positive and 29 negative
+  compile-only fixtures are prepared for both C and LLVM, not yet executed.
+- [ ] Address refreshed P1 `3940401454`: explicit `int` annotations can erase
+  builder/socket ownership identity, allowing aliases to outlive consumption.
+  Source-only design is assigned; ordinary integer Copy behavior must remain.
+- [ ] Address refreshed P2 `3940401457`: the performance acceptance gate treats
+  unreaped POSIX zombies as live descendants. A scoped source/mock correction is
+  assigned; actual containment behavior and assertions must not be weakened.
+- [ ] Recheck fresh CI and reviews after publishing the scoped linker-test fix.
+  Duplicate linker-prefix report `3940401461` matches this correction, but its
+  real-platform validation remains pending. All other open review gates remain.
