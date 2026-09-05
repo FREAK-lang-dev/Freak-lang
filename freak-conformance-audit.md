@@ -537,6 +537,8 @@ completion remain open.
 |---|---|---|---|
 | Prelude (`say`, `panic`, basic types) | ✅ | ✅ | |
 | String methods (`length`, `bytes`, `split`, etc.) | ✅ | ✅ | [std/string.fk](std/string.fk) |
+| V3 `word.repeated` and `word_builder::*` | ✅ | V3 campaign | Native C/LLVM exact construction, checked size, explicit builder consumption and deterministic ownership/work tests in `tests/v3_word_foundation.py`; Python owned-return emission rejected. This does not approve `word += word` or establish every common-operation optimization. |
+| V3 runtime-owned Word byte lengths | ✅ | V3 campaign | Existing LLVM ownership registry preserves explicit lengths, including dynamic NULs, through tested constructors/transforms/I/O and socket/environment validation. `tests/v3_word_length_parity.py` covers C/LLVM parity and ownership. Unknown foreign pointers remain C strings; ByteBuffer text and builder character restrictions are unchanged. Requires runtime API 3 and std API 1, not a layout ABI revision. |
 | `std::math` (abs, min, max, clamp, pow, sqrt, gcd, lcm, factorial, fibonacci, sin, cos, etc.) | ✅ | ✅ | |
 | `std::math3d` | ✅ | ✅ | [std/math3d.fk](std/math3d.fk) |
 | Numeric methods (`int::checked_add`, etc.) | ⚠️ | 📖 V4 | partial; many overflow-safe variants missing |
@@ -547,9 +549,11 @@ completion remain open.
 | `say_err(msg)` stderr | ❌ | 📖 V4 | not in runtime |
 | `fs::read`, `fs::write`, `fs::append`, `fs::exists`, `fs::delete` | ✅ | ✅ | C/LLVM runtimes; V3 `fs::delete` is file-only and returns checked success/already-absent status |
 | `TcpSocket::connect` async | ❌ | 📖 V4 | no promise type |
+| V3 managed `tcp::socket_*` | ⚠️ | V3 campaign | Synchronous binary socket floor with status/options and explicit close; Windows C/LLVM TCP and HTTP fixtures pass, including exclusive bind and bounded idle/trickle headers. Linux and clean Hangar graph acceptance remain pending. |
 | `time::sleep`, duration literals | ⚠️ | 📖 V4 | sleep works; literals like `500.milliseconds` not parsed |
+| V3 scalar time/PID/environment | ⚠️ | V3 campaign | Separate epoch milliseconds and monotonic nanoseconds; PID and owned UTF-8 environment snapshots/mutation. C/LLVM probes cover clock edges, lock behavior and concurrent C ownership audit. Python owned `env`/`env_var` results reject; structured process/fs/random campaign work and Linux execution remain pending. |
 | `random::rand`, `random::seed` | ⚠️ | 📖 V4 | runtime present, FREAK API unclear |
-| `process::run`, `process::exit` | ✅ | ✅ | runtime |
+| `process::run`, `process::exit` | ⚠️ | Partial | Exit is implemented; legacy process helpers do not prove structured argv/capture/stdin/cwd/environment support. Native structured process campaign acceptance remains pending. |
 | `process::exec_capture` | ✅ | ✅ | runtime |
 | `thread::spawn`, `Atomic<T>` | ❌ | 📖 V4 | std::thread Planned per CLAUDE.md |
 | `std::anime` (mood/power/etc.) | ❌ | 📖 V4 | depends on §2 types |
@@ -559,7 +563,7 @@ completion remain open.
 | `std::ffi` C boundary types | ⚠️ | 📖 V4 | V4 normalizes core scalar aliases (`c_int`, `c_size`, `c_double`, `wchar`, etc.) through TY/codegen; target-width fidelity and the broader std::ffi surface still expand |
 | `std::http` (HTTP/1.1 client) | ✅ | ✅ | [std/http.fk](std/http.fk) |
 | `std::json` | ✅ | ✅ | [std/json.fk](std/json.fk) |
-| `std::bytes` ByteBuffer | ✅ | ✅ | runtime |
+| `std::bytes` ByteBuffer | ⚠️ | V3 campaign | Native managed handles, explicit release/status, checked growth/cursor/copy, signed 64-bit LE/BE and validated NUL-free UTF-8 conversion have C/LLVM regression coverage. Full unsigned widths, list conversion and borrowed views are not complete; the legacy by-value C struct is not the native managed contract. |
 | `std::ui` (window, indexed events, raw drawing) | ⚠️ | 📖 V3 boundary | Frozen V3 executes the low-level Win32/GDI floor only through LLVM on Windows. `Window.poll`/owned event lists, POSIX native UI, executable C UI shapes, and COCKPIT widgets/themes are not shipped V3 surfaces; COCKPIT remains a Maverick source preview. |
 | `std::version` (semver) | ✅ | ✅ | [std/version.fk](std/version.fk) |
 | `std::algorithm` | ✅ | ✅ | [std/algorithm.fk](std/algorithm.fk) |

@@ -713,7 +713,13 @@ def main() -> int:
     assert "fc /b \"%~1\" \"%~2\"" in windows_build_script
     assert windows_build_script.count("-lws2_32") >= 4
     runtime_source = (runtime_root / "freak_runtime.c").read_text(encoding="utf-8")
-    assert runtime_source.count("word replacement size overflow") >= 4
+    # LLVM now uses the length-aware C implementation, including both overflow
+    # guards, instead of maintaining a second C-string replacement algorithm.
+    assert runtime_source.count("word replacement size overflow") >= 2
+    llvm_replace = runtime_source.split("int64_t freak_llvm_word_replace(", 1)[1].split("\n}", 1)[0]
+    assert "freak_llvm_word_take(freak_word_replace(" in llvm_replace
+    assert "freak_llvm_word_view(a), freak_llvm_word_view(b), freak_llvm_word_view(c)" in llvm_replace
+    assert "freak_llvm_word_size(b) == 0) return freak_llvm_word_clone(a)" in llvm_replace
     assert runtime_source.count("(SIZE_MAX -") >= 2
     assert runtime_source.count("freak_word_replace_owned(&result") >= 4
     assert "return freak_word_own(buf, (size_t)n);" in runtime_source

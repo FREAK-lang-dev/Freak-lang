@@ -1,0 +1,46 @@
+-- A settings window with explicit state, popup selection, and a confirmation modal.
+task main() {
+    pilot window = cockpit_ui_open("FREAK Settings", 520, 430, true)
+    if window == 0 { cockpit_fail("settings window creation failed") }
+    pilot layout: ByteBuffer = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    pilot theme = cockpit_theme_dark()
+    pilot choices = cockpit_words_new()
+    cockpit_words_push(choices, "Dark")
+    cockpit_words_push(choices, "Light")
+    cockpit_words_push(choices, "Terminal")
+    pilot selected = 0
+    pilot previous = 0
+    pilot enabled = true
+    pilot volume = 50
+    pilot name = "Pilot"
+    repeat until cockpit_ui_should_close() {
+        cockpit_ui_begin_frame(window, layout, theme)
+        if not cockpit_ui_should_close() {
+            cockpit_widget_heading(window, layout, theme, "Settings")
+            cockpit_widget_label(window, layout, theme, "Pilot name")
+            name = cockpit_widget_input(window, layout, theme, name, 360)
+            enabled = cockpit_widget_checkbox(window, layout, theme, "Enable notifications", enabled)
+            cockpit_widget_label(window, layout, theme, "Volume: " + word_from_int(volume))
+            volume = cockpit_widget_slider(window, layout, theme, volume, 0, 100, 360)
+            selected = cockpit_widget_dropdown(window, layout, theme, selected, choices)
+            if cockpit_widget_button(window, layout, theme, "Apply", 120) { cockpit_modal_open() }
+            if cockpit_modal_begin(window, layout, theme, 300, 130) {
+                cockpit_widget_label(window, layout, theme, "Settings applied for this session.")
+                if cockpit_widget_button(window, layout, theme, "OK", 100) { cockpit_modal_close() }
+                cockpit_modal_end(window, layout)
+            }
+            cockpit_ui_end_frame(window)
+            if selected != previous {
+                cockpit_theme_release(theme)
+                if selected == 0 { theme = cockpit_theme_dark() }
+                if selected == 1 { theme = cockpit_theme_light() }
+                if selected == 2 { theme = cockpit_theme_terminal() }
+                previous = selected
+            }
+        }
+    }
+    cockpit_words_release(choices)
+    cockpit_theme_release(theme)
+    cockpit_layout_release(layout)
+    cockpit_ui_close(window)
+}

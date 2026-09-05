@@ -776,6 +776,31 @@ def main() -> int:
                 1200,
             ),
         )
+        children += tuple(
+            (
+                label,
+                [
+                    python, "-u", str(repo / "tests" / script),
+                    str(installed_freak), "--runtime-root",
+                    str(install_home / "runtime"),
+                ],
+                1200,
+            )
+            for label, script in (
+                ("word repetition and builder", "v3_word_foundation.py"),
+                ("Word embedded-NUL parity", "v3_word_length_parity.py"),
+                ("strict builtin handle borrows", "v3_strict_handle_borrows.py"),
+                ("bounded benchmark inputs", "v3_benchmark_bounds.py"),
+                ("managed ByteBuffer", "v3_byte_buffer_foundation.py"),
+                ("system runtime", "v3_system_runtime_foundation.py"),
+                ("managed TCP sockets", "v3_tcp_socket_foundation.py"),
+                ("HTTP server Ordnance", "v3_http_server_ordnance.py"),
+                ("UI clipping mechanisms", "v3_ui_clipping.py"),
+                ("COCKPIT widgets and native lifecycle", "v3_cockpit_compat.py"),
+                ("Ordnance import hygiene", "v3_ordnance_import_hygiene.py"),
+                ("standard-library capability", "v3_std_capability.py"),
+            )
+        )
         hostile_cwd = root / "hostile-repo-shaped-cwd"
         for label, command, timeout in children:
             run_child_gate(

@@ -1,183 +1,64 @@
--- COCKPIT: Theme System (Phase D)
--- Five built-in themes, each with a mood. Custom themes supported.
---
--- "Every UI has a feeling. We just made it explicit."
+-- COCKPIT V3 compatibility: themes are explicitly owned scalar arrays.
 
-use std::ui::{Color, Font}
+pilot cockpit_theme_bg = 0
+pilot cockpit_theme_surface = 1
+pilot cockpit_theme_border = 2
+pilot cockpit_theme_text = 3
+pilot cockpit_theme_muted = 4
+pilot cockpit_theme_accent = 5
+pilot cockpit_theme_accent_hover = 6
+pilot cockpit_theme_danger = 7
+pilot cockpit_theme_success = 8
+pilot cockpit_theme_font_size = 9
+pilot cockpit_theme_padding = 10
+pilot cockpit_theme_gap = 11
 
--- ================================================================
---  Theme shape
--- ================================================================
-
-shape Theme {
-    name:       word
-    bg:         Color
-    bg2:        Color
-    surface:    Color
-    border:     Color
-    text:       Color
-    text_muted: Color
-    accent:     Color
-    accent_hover: Color
-    danger:     Color
-    success:    Color
-    font_size:  int
-    font_bold:  bool
-    mono_size:  int
-    radius:     int
-    padding:    int
-    gap:        int
-    shadow:     bool
+task cockpit_color_rgba(red: int, green: int, blue: int, alpha: int) -> int {
+    give back red + green * 256 + blue * 65536 + alpha * 16777216
 }
 
-impl Theme {
-    -- Clean dark theme. Professional. Ready.
-    task default() -> Theme {
-        give back Theme {
-            name:         "default",
-            bg:           Color::rgb(22, 22, 30),
-            bg2:          Color::rgb(30, 30, 42),
-            surface:      Color::rgb(38, 38, 54),
-            border:       Color::rgb(58, 58, 78),
-            text:         Color::rgb(230, 230, 240),
-            text_muted:   Color::rgb(128, 128, 160),
-            accent:       Color::rgb(100, 140, 255),
-            accent_hover: Color::rgb(130, 165, 255),
-            danger:       Color::rgb(255, 80, 80),
-            success:      Color::rgb(80, 200, 120),
-            font_size:    14,
-            font_bold:    false,
-            mono_size:    13,
-            radius:       6,
-            padding:      12,
-            gap:          8,
-            shadow:       true
-        }
-    }
+task cockpit_color_r(color: int) -> int { give back color % 256 }
+task cockpit_color_g(color: int) -> int { give back (color / 256) % 256 }
+task cockpit_color_b(color: int) -> int { give back (color / 65536) % 256 }
+task cockpit_color_a(color: int) -> int { give back (color / 16777216) % 256 }
 
-    -- Clean light theme. Calm. Readable.
-    task light() -> Theme {
-        give back Theme {
-            name:         "light",
-            bg:           Color::rgb(245, 245, 248),
-            bg2:          Color::rgb(235, 235, 240),
-            surface:      Color::rgb(255, 255, 255),
-            border:       Color::rgb(210, 210, 220),
-            text:         Color::rgb(30, 30, 40),
-            text_muted:   Color::rgb(120, 120, 140),
-            accent:       Color::rgb(60, 100, 220),
-            accent_hover: Color::rgb(80, 120, 240),
-            danger:       Color::rgb(220, 50, 50),
-            success:      Color::rgb(40, 160, 80),
-            font_size:    14,
-            font_bold:    false,
-            mono_size:    13,
-            radius:       6,
-            padding:      12,
-            gap:          8,
-            shadow:       true
-        }
-    }
-
-    -- Green on black. Pure hacker energy.
-    task terminal() -> Theme {
-        give back Theme {
-            name:         "terminal",
-            bg:           Color::rgb(0, 0, 0),
-            bg2:          Color::rgb(10, 10, 10),
-            surface:      Color::rgb(15, 15, 15),
-            border:       Color::rgb(0, 80, 0),
-            text:         Color::rgb(0, 220, 0),
-            text_muted:   Color::rgb(0, 140, 0),
-            accent:       Color::rgb(0, 255, 0),
-            accent_hover: Color::rgb(80, 255, 80),
-            danger:       Color::rgb(255, 0, 0),
-            success:      Color::rgb(0, 255, 0),
-            font_size:    13,
-            font_bold:    false,
-            mono_size:    13,
-            radius:       0,
-            padding:      8,
-            gap:          4,
-            shadow:       false
-        }
-    }
-
-    -- Deep navy and pink. Beautiful. Dangerous.
-    task alternative() -> Theme {
-        give back Theme {
-            name:         "alternative",
-            bg:           Color::rgb(12, 15, 35),
-            bg2:          Color::rgb(18, 22, 48),
-            surface:      Color::rgb(25, 30, 60),
-            border:       Color::rgb(60, 50, 100),
-            text:         Color::rgb(220, 220, 240),
-            text_muted:   Color::rgb(140, 130, 180),
-            accent:       Color::rgb(255, 45, 120),
-            accent_hover: Color::rgb(255, 80, 150),
-            danger:       Color::rgb(255, 60, 60),
-            success:      Color::rgb(60, 220, 160),
-            font_size:    14,
-            font_bold:    false,
-            mono_size:    13,
-            radius:       8,
-            padding:      14,
-            gap:          10,
-            shadow:       true
-        }
-    }
-
-    -- Blood red and black. You know what you've done.
-    task muvluv() -> Theme {
-        give back Theme {
-            name:         "muvluv",
-            bg:           Color::rgb(10, 0, 0),
-            bg2:          Color::rgb(20, 5, 5),
-            surface:      Color::rgb(30, 8, 8),
-            border:       Color::rgb(100, 20, 20),
-            text:         Color::rgb(220, 200, 200),
-            text_muted:   Color::rgb(150, 100, 100),
-            accent:       Color::rgb(200, 20, 20),
-            accent_hover: Color::rgb(240, 50, 50),
-            danger:       Color::rgb(255, 0, 0),
-            success:      Color::rgb(180, 180, 60),
-            font_size:    14,
-            font_bold:    false,
-            mono_size:    13,
-            radius:       2,
-            padding:      10,
-            gap:          6,
-            shadow:       true
-        }
-    }
-
-    -- Create a theme with a custom accent color
-    task with_accent(self, color: Color) -> Theme {
-        give back Theme {
-            name:         self.name,
-            bg:           self.bg,
-            bg2:          self.bg2,
-            surface:      self.surface,
-            border:       self.border,
-            text:         self.text,
-            text_muted:   self.text_muted,
-            accent:       color,
-            accent_hover: Color::rgb(min(color.r + 30, 255), min(color.g + 30, 255), min(color.b + 30, 255)),
-            danger:       self.danger,
-            success:      self.success,
-            font_size:    self.font_size,
-            font_bold:    self.font_bold,
-            mono_size:    self.mono_size,
-            radius:       self.radius,
-            padding:      self.padding,
-            gap:          self.gap,
-            shadow:       self.shadow
-        }
-    }
+task cockpit_theme_make(bg: int, surface: int, border: int, text: int, muted: int, accent: int, accent_hover: int, danger: int, success: int, font_size: int, padding: int, gap: int) -> int {
+    pilot theme = cockpit_values_new()
+    cockpit_values_push_int(theme, bg)
+    cockpit_values_push_int(theme, surface)
+    cockpit_values_push_int(theme, border)
+    cockpit_values_push_int(theme, text)
+    cockpit_values_push_int(theme, muted)
+    cockpit_values_push_int(theme, accent)
+    cockpit_values_push_int(theme, accent_hover)
+    cockpit_values_push_int(theme, danger)
+    cockpit_values_push_int(theme, success)
+    cockpit_values_push_int(theme, font_size)
+    cockpit_values_push_int(theme, padding)
+    cockpit_values_push_int(theme, gap)
+    give back theme
 }
 
--- Helper
-task min(a: int, b: int) -> int {
-    if a < b { give back a }
-    give back b
+task cockpit_theme_dark() -> int {
+    give back cockpit_theme_make(cockpit_color_rgba(22, 22, 30, 255), cockpit_color_rgba(38, 38, 54, 255), cockpit_color_rgba(58, 58, 78, 255), cockpit_color_rgba(230, 230, 240, 255), cockpit_color_rgba(128, 128, 160, 255), cockpit_color_rgba(100, 140, 255, 255), cockpit_color_rgba(130, 165, 255, 255), cockpit_color_rgba(255, 80, 80, 255), cockpit_color_rgba(80, 200, 120, 255), 14, 12, 8)
+}
+
+task cockpit_theme_light() -> int {
+    give back cockpit_theme_make(cockpit_color_rgba(245, 245, 248, 255), cockpit_color_rgba(255, 255, 255, 255), cockpit_color_rgba(210, 210, 220, 255), cockpit_color_rgba(30, 30, 40, 255), cockpit_color_rgba(120, 120, 140, 255), cockpit_color_rgba(60, 100, 220, 255), cockpit_color_rgba(80, 120, 240, 255), cockpit_color_rgba(220, 50, 50, 255), cockpit_color_rgba(40, 160, 80, 255), 14, 12, 8)
+}
+
+task cockpit_theme_terminal() -> int {
+    give back cockpit_theme_make(cockpit_color_rgba(0, 0, 0, 255), cockpit_color_rgba(15, 15, 15, 255), cockpit_color_rgba(0, 80, 0, 255), cockpit_color_rgba(0, 220, 0, 255), cockpit_color_rgba(0, 140, 0, 255), cockpit_color_rgba(0, 255, 0, 255), cockpit_color_rgba(80, 255, 80, 255), cockpit_color_rgba(255, 0, 0, 255), cockpit_color_rgba(0, 255, 0, 255), 13, 8, 4)
+}
+
+task cockpit_theme_alternative() -> int {
+    give back cockpit_theme_make(cockpit_color_rgba(12, 15, 35, 255), cockpit_color_rgba(25, 30, 60, 255), cockpit_color_rgba(60, 50, 100, 255), cockpit_color_rgba(220, 220, 240, 255), cockpit_color_rgba(140, 130, 180, 255), cockpit_color_rgba(255, 45, 120, 255), cockpit_color_rgba(255, 80, 150, 255), cockpit_color_rgba(255, 60, 60, 255), cockpit_color_rgba(60, 220, 160, 255), 14, 14, 10)
+}
+
+task cockpit_theme_get(theme: int, field: int) -> int {
+    give back cockpit_values_get_int(theme, field)
+}
+
+task cockpit_theme_release(theme: int) -> void {
+    cockpit_values_release(theme)
 }

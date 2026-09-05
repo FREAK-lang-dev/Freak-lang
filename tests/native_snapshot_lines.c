@@ -182,6 +182,46 @@ static void check_c_snapshot_array_ownership(void) {
     puts("snapshot_lines C ordinary/owned release, mutation, join and reuse PASS");
 }
 
+static void check_registered_binary_lines(void) {
+    const char bytes[] = {'a', 0, 'b', '\n', 'c', '\n', 0};
+    char* data = probe_malloc(sizeof(bytes));
+    assert(data);
+    memcpy(data, bytes, sizeof(bytes));
+    int64_t source = freak_llvm_word_adopt_sized((int64_t)data, 6);
+    size_t owned = freak_llvm_owned_count;
+    size_t baseline = live_allocations;
+    fail_after = 0;
+    assert(freak_llvm_word_try_adopt_sized(source, 6) == source);
+    assert(freak_llvm_word_try_adopt_sized(source, 1) == 0);
+    fail_after = -1;
+    assert(freak_llvm_owned_count == owned && freak_llvm_word_size(source) == 6);
+    assert(freak_llvm_word_try_adopt_sized(0, 1) == 0);
+    int64_t zero = freak_llvm_word_char_at(source, 1);
+    strlen_calls = 0;
+    int64_t lines = freak_llvm_word_snapshot_lines(source);
+    assert(lines >= 0 && freak_llvm_array_len(lines) == 3);
+    assert(strlen_calls == 0);
+    freak_llvm_word_release_replaced(source, 0);
+    int64_t first = freak_llvm_array_get(lines, 0);
+    assert(freak_llvm_word_size(first) == 3 && memcmp((void*)first, bytes, 3) == 0);
+    assert(freak_llvm_word_size(freak_llvm_array_get(lines, 1)) == 1);
+    assert(freak_llvm_word_size(freak_llvm_array_get(lines, 2)) == 0);
+    int64_t joined = freak_llvm_word_join_owned(lines);
+    const char expected[] = {'a', 0, 'b', 'c'};
+    assert(freak_llvm_word_size(joined) == sizeof(expected));
+    assert(memcmp((void*)joined, expected, sizeof(expected)) == 0);
+    freak_llvm_word_release_replaced(joined, 0);
+    strlen_calls = 0;
+    lines = freak_llvm_word_snapshot_lines(zero);
+    assert(lines >= 0 && freak_llvm_array_len(lines) == 1 && strlen_calls == 0);
+    first = freak_llvm_array_get(lines, 0);
+    assert(freak_llvm_word_size(first) == 1 && *(char*)first == 0);
+    freak_llvm_array_release_owned(lines);
+    assert(freak_llvm_word_size(zero) == 1);
+    assert(freak_llvm_owned_count == owned - 1 && live_allocations == baseline - 2);
+    puts("snapshot_lines registered binary lengths and static NUL PASS");
+}
+
 int main(void) {
     /* The first C table allocation must fail without publishing a handle. */
     fail_after = 0;
@@ -210,6 +250,7 @@ int main(void) {
     freak_array_release_owned(null_c);
     freak_llvm_array_release_owned(null_llvm);
     check_c_snapshot_array_ownership();
+    check_registered_binary_lines();
     for (int llvm = 0; llvm <= 1; ++llvm) {
         check_case("", NULL, 0, llvm);
         check_case("x", singleton, 1, llvm);

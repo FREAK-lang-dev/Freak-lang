@@ -10644,6 +10644,7 @@ int64_t freak_llvm_array_len(int64_t handle);
 void freak_llvm_array_release(int64_t handle);
 int64_t freak_llvm_word_join(int64_t handle);
 int64_t freak_llvm_word_substring(int64_t value, int64_t start, int64_t length);
+void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
 
 int main(void) {
     for (int64_t index = 0; index < 1100; index++) {
@@ -10651,7 +10652,7 @@ int main(void) {
         freak_llvm_array_push(handle, (int64_t)(intptr_t)"reused");
         int64_t joined = freak_llvm_word_join(handle);
         if (strcmp((const char*)(intptr_t)joined, "reused") != 0) return 10;
-        free((void*)(intptr_t)joined);
+        freak_llvm_word_release_replaced(joined, 0);
     }
 
     int64_t released = freak_llvm_array_new();
@@ -10670,7 +10671,7 @@ int main(void) {
         (int64_t)(intptr_t)"Alternative", 3, 5
     );
     if (strcmp((const char*)(intptr_t)sliced, "ernat") != 0) return 16;
-    free((void*)(intptr_t)sliced);
+    freak_llvm_word_release_replaced(sliced, 0);
     puts("llvm-runtime-primitives=ok");
     return 0;
 }

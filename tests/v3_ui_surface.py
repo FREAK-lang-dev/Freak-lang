@@ -79,9 +79,11 @@ def main() -> int:
     cockpit_readme = (repo / "packages" / "cockpit" / "README.md").read_text(
         encoding="utf-8"
     )
-    assert "COCKPIT — Maverick Source Preview" in readme
-    assert "not a supported package on the frozen V3 compiler" in readme
-    assert "not a V3 release package" in cockpit_readme
+    assert "COCKPIT — V3 Procedural UI" in readme
+    assert "immutable Hangar graph delivery remains pending" in readme
+    assert "COCKPIT for V3" in cockpit_readme
+    assert "indexed `ui::event_*`" in cockpit_readme
+    assert "does not claim a native macOS or Linux window backend" in cockpit_readme
 
     env = os.environ.copy()
     env.pop("FREAK_HOME", None)

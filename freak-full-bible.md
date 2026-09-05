@@ -1757,6 +1757,27 @@ b.push(name)
 pilot result: word = b.build()
 ```
 
+**V3 platform campaign implementation:** `pattern.repeated(count: int)` returns
+an owned word containing complete copies of the pattern's UTF-8 byte sequence.
+An empty pattern or nonpositive count returns empty; nonempty output uses one
+checked exact allocation, and unrepresentable sizes fail before copying. This
+does not change V3's existing byte-indexed word operations. General construction
+uses the procedural `word_builder::new/with_capacity/reserve/capacity/length/
+clear/append/append_char/append_int/finish/discard` surface. Builder handles are
+generation-checked and explicitly consumed by `finish` or `discard`; `finish`
+returns owned storage. The nominal builder example above remains the broader
+API direction, not an executable V3 shape contract. Python bootstrap emission
+rejects these owned-return operations. `word += word` remains rejected in V3.
+
+Runtime-owned LLVM words retain their explicit byte length in the existing
+ownership registry without changing the integer-pointer ABI. Embedded NUL bytes
+produced at runtime survive cloning, construction, byte-indexed transforms and
+the tested I/O bridges; the static NUL byte returned by `char_at` remains a
+borrowed length-one value. Unknown foreign pointers retain the legacy C-string
+interpretation. This does not relax ByteBuffer's NUL-free text conversion or
+the builder's `append_char(0)` restriction. `tests/v3_word_length_parity.py`
+records the supported producer/consumer and ownership coverage.
+
 ### 7.3 std::num
 
 ```
@@ -1872,6 +1893,18 @@ socket.send(bytes)        -- promise<result<void, NetError>>
 socket.receive(max)       -- promise<result<List<tiny>, NetError>>
 ```
 
+**V3 platform campaign implementation:** synchronous managed handles under
+`tcp::socket_*` provide connect/listen/accept/send/receive/close, status,
+local-port lookup and timeouts. ByteBuffer carries binary I/O;
+callers handle partial transfers and release both socket and buffer handles.
+This additive runtime floor does not implement the async types above. HTTP is
+an Ordnance consumer (`packages/http-server`), not a runtime framework. Windows
+loopback C/LLVM tests exist; Linux campaign execution remains pending. The
+frozen LLVM word ABI remains an integer pointer, but runtime-owned words retain
+their explicit byte lengths. Socket host validation therefore rejects runtime
+embedded NULs on both C and LLVM instead of connecting to a truncated prefix.
+Unknown foreign pointers still use their historical NUL-terminated length.
+
 ### 7.9 std::time
 
 ```
@@ -1886,6 +1919,13 @@ start.since(other)       -- Duration
 -- Duration literals
 500.milliseconds / 2.seconds / 1.minute / 1.hour
 ```
+
+**V3 scalar clock contract:** `time::now_ms() -> int` is Unix-epoch wall time;
+`time::monotonic_ns() -> int` is a separate monotonic nanosecond reading for
+elapsed measurements. Wall-clock values are not duration measurements. Invalid
+platform samples, pre-epoch wall time and values outside V3's signed `int`
+range fail explicitly. Both C and LLVM lower to the same runtime conversions.
+This does not introduce duration literals or the `Instant` API above into V3.
 
 ### 7.10 std::math
 
@@ -1935,6 +1975,19 @@ process::args()                 -- List<word>
 > `process::args_count()` with `process::arg(index)` in V3. The `List<word>`
 > signature above remains the normative V4 API.
 
+**V3 platform campaign scalar additions:** `process::pid() -> int`,
+`process::env(name: word) -> word` and
+`process::set_env(name: word, value: word)` use native system operations.
+Environment lookup returns an independent owned UTF-8 copy; missing and empty
+values both return empty on this scalar API. Mutating the environment does not
+change a previously returned copy. Names/values are validated before platform
+calls, and runtime lookups/mutations share a lock during snapshot creation.
+This lock cannot synchronize foreign code that directly mutates the process
+environment. The Python bootstrap rejects `process::env` and
+`process::env_var` owned results because it lacks their cleanup path. Structured
+spawn/capture/cwd/environment handles remain campaign work; legacy shell
+helpers are not evidence that the structured APIs above are complete.
+
 ### 7.13 std::thread
 
 ```
@@ -1967,6 +2020,21 @@ buf.seek(pos) / buf.position() / buf.length()
 buf.to_list()     -- List<tiny>
 buf.to_word()     -- result<word, word>
 ```
+
+**V3 platform campaign implementation:** the native `ByteBuffer` surface uses
+generation-checked handles with explicit `release()`, sticky `status()` and
+`clear_status()`. Constructors are `new()` and `with_capacity(int)`. Supported
+operations include reserve/capacity/length/position/remaining, clear/truncate/
+seek, write/read byte, signed 64-bit write/read (`*_int` little-endian and
+`*_int_be` big-endian), write/read word, independent copying `slice(start,len)`
+and `to_word()`. Failed bounds/text operations report status and do not expose
+out-of-bounds storage. Text conversion validates UTF-8 and rejects embedded
+NUL. Returned words own their storage; copied handle values alias the same
+resource, so release occurs once and stale handles fail explicitly. The old
+by-value C struct layout remains preserved for ABI compatibility but is not
+the native managed representation. Native list conversion, all unsigned-width
+endian APIs and borrowed views are not claimed by this implementation. The
+`maybe`/`result` and list-returning signatures above remain broader API targets.
 
 ### 7.15 std::anime (always available)
 

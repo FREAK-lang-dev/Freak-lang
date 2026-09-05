@@ -62,7 +62,9 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             "freakc/runtime/ui/win32_backend.c",
             "freakc/runtime/ui/freak_ui_platform.h",
             "freakc/runtime/freak_abi",
+            "freakc/runtime/freak_runtime_api",
             "std/freak_abi",
+            "std/freak_std_api",
         }
     )
     assert actual_sources == expected_sources, (
@@ -81,7 +83,7 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             runtime_destinations.append(relative)
         else:
             relative = destination.removeprefix("std/")
-            if destination != "std/freak_abi":
+            if destination not in ("std/freak_abi", "std/freak_std_api"):
                 std_destinations.append(relative)
         assert f'"{relative}"' in doctor_text, (
             f"doctor inventory does not cover manifest destination {destination}"
@@ -155,7 +157,8 @@ def check_static_contracts(repo: Path) -> None:
         "freak-sha256=",
         "expectedHashes",
         "Get-Process -Id",
-        "Get-FileHash",
+        "Get-FreakFileSha256",
+        "[System.Security.Cryptography.SHA256]::Create()",
         ".freak-backup-",
         "FREAK_INSTALL_TEST_FAIL_APPLY",
         "distribution-files.manifest",
@@ -1456,7 +1459,7 @@ def check_doctor(
     assert Path(report["checks"]["stdlib"]["path"]).resolve() == (
         payload / "std"
     ).resolve()
-    assert report["checks"]["runtime"]["files_expected"] == 6
+    assert report["checks"]["runtime"]["files_expected"] == 7
     assert report["checks"]["stdlib"]["modules_found"] == 11
     assert report["checks"]["stdlib"]["modules_expected"] == 11
     assert report["checks"]["abi"] == {
@@ -1464,6 +1467,11 @@ def check_doctor(
         "expected": "freak-v3-abi-1",
         "runtime": "freak-v3-abi-1",
         "stdlib": "freak-v3-abi-1",
+    }
+    assert report["checks"]["runtime_api"] == {
+        "ok": True,
+        "expected": "freak-v3-runtime-api-3",
+        "runtime": "freak-v3-runtime-api-3",
     }
     assert report["checks"]["upgrade"]["pending"] is False
 
@@ -1484,6 +1492,130 @@ def check_doctor(
     assert not abi_source.with_suffix(".exe").exists()
     assert not abi_source.with_suffix("").exists()
     shutil.copy2(repo / "freakc" / "runtime" / "freak_abi", runtime_abi)
+
+    # Runtime layout compatibility and callable API capability are distinct.
+    # An older same-ABI payload must fail before either backend emits code.
+    runtime_api = payload / "runtime" / "freak_runtime_api"
+    runtime_api.unlink()
+    missing_api = run_cli(compiler, cwd, env, "doctor", "--json")
+    assert missing_api.returncode != 0, missing_api.stdout + missing_api.stderr
+    missing_api_report = json.loads(missing_api.stdout)
+    assert missing_api_report["checks"]["abi"]["ok"] is True
+    assert missing_api_report["checks"]["runtime_api"] == {
+        "ok": False,
+        "expected": "freak-v3-runtime-api-3",
+        "runtime": "missing",
+    }
+    missing_api_human = run_cli(compiler, cwd, env, "doctor")
+    assert missing_api_human.returncode != 0, (
+        missing_api_human.stdout + missing_api_human.stderr
+    )
+    assert "Runtime API mismatch" in missing_api_human.stdout
+    assert "runtime=missing" in missing_api_human.stdout
+    assert "skipped (fix clang/payload/ABI/pending upgrade first)" in (
+        missing_api_human.stdout
+    )
+    assert "compile, link, and execution work" not in missing_api_human.stdout
+    assert not list(probe_temp.glob("freak-doctor-*-probe-*"))
+    for backend in ("--c", "--llvm"):
+        rejected_api_build = run_cli(
+            compiler, cwd, env, "build", str(abi_source), backend
+        )
+        assert rejected_api_build.returncode != 0, (
+            rejected_api_build.stdout + rejected_api_build.stderr
+        )
+        assert "runtime api mismatch" in rejected_api_build.stdout.lower()
+        assert not Path(str(abi_source) + (".c" if backend == "--c" else ".ll")).exists()
+        assert not abi_source.with_suffix(".exe").exists()
+        assert not abi_source.with_suffix("").exists()
+
+    # Doctor --fix must use the controlled upgrade protocol, re-read the
+    # repaired marker, and preserve the Windows deferred-replacement gate.
+    fix_sentinel = root / "doctor-runtime-api-fix.txt"
+    if sys.platform == "win32":
+        fix_script = root / "doctor-runtime-api-fix.ps1"
+        fix_script.write_text(
+            "param([switch]$Upgrade,[switch]$SkipDeps)\n"
+            "$runtime = Join-Path $env:FREAK_HOME 'runtime'\n"
+            "$marker = Join-Path $runtime 'freak_runtime_api'\n"
+            "[IO.File]::WriteAllText($marker, \"freak-v3-runtime-api-3`n\")\n"
+            "[IO.File]::WriteAllText($env:FREAK_DOCTOR_RUNTIME_API_FIX_SENTINEL, "
+            "\"$Upgrade|$SkipDeps|$env:FREAK_RELEASE_TAG|$env:FREAK_INSTALL_UPGRADE\")\n"
+            "$bin = Join-Path $env:FREAK_HOME 'bin'\n"
+            "[IO.Directory]::CreateDirectory($bin) | Out-Null\n"
+            "$pending = Join-Path $bin '.freak-upgrade-pending'\n"
+            "[IO.File]::WriteAllText($pending, 'fixture|wait-pid=fixture')\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+    else:
+        fix_script = root / "doctor-runtime-api-fix.sh"
+        fix_script.write_text(
+            "#!/usr/bin/env bash\nset -e\n"
+            "printf 'freak-v3-runtime-api-3\\n' > "
+            '"$FREAK_HOME/runtime/freak_runtime_api"\n'
+            "printf '%s|%s|%s' \"$FREAK_RELEASE_TAG\" \"$FREAK_HOME\" \"$*\" > "
+            '"$FREAK_DOCTOR_RUNTIME_API_FIX_SENTINEL"\n',
+            encoding="utf-8",
+        )
+        fix_script.chmod(0o755)
+
+    fix_env = env.copy()
+    fix_env["FREAK_UPGRADE_SCRIPT"] = str(fix_script)
+    fix_env["FREAK_DOCTOR_RUNTIME_API_FIX_SENTINEL"] = str(fix_sentinel)
+    fixed_api = run_cli(compiler, cwd, fix_env, "doctor", "--fix")
+    assert fix_sentinel.is_file(), fixed_api.stdout + fixed_api.stderr
+    assert "Repairing the compiler/runtime/stdlib payload" in fixed_api.stdout
+    assert "Upgrade payload staged successfully" in fixed_api.stdout
+    assert runtime_api.read_text(encoding="utf-8").strip() == (
+        "freak-v3-runtime-api-3"
+    )
+    fix_record = fix_sentinel.read_text(encoding="utf-8")
+    if sys.platform == "win32":
+        assert fix_record == "True|True|local|1", fix_record
+        pending_after_fix = payload / "bin" / ".freak-upgrade-pending"
+        assert fixed_api.returncode != 0, fixed_api.stdout + fixed_api.stderr
+        assert pending_after_fix.is_file(), fixed_api.stdout
+        pending_report_result = run_cli(compiler, cwd, env, "doctor", "--json")
+        assert pending_report_result.returncode != 0
+        pending_report = json.loads(pending_report_result.stdout)
+        assert pending_report["checks"]["runtime_api"]["ok"] is True
+        assert pending_report["checks"]["upgrade"]["pending"] is True
+        assert "skipped (fix clang/payload/ABI/pending upgrade first)" in (
+            fixed_api.stdout
+        )
+        assert "compile, link, and execution work" not in fixed_api.stdout
+        pending_after_fix.unlink()
+    else:
+        assert fix_record == (
+            f"local|{payload}|--upgrade --without-deps"
+        ), fix_record
+        assert fixed_api.returncode == 0, fixed_api.stdout + fixed_api.stderr
+        assert "compile, link, and execution work" in fixed_api.stdout
+        assert "skipped (fix clang/payload/ABI/pending upgrade first)" not in (
+            fixed_api.stdout
+        )
+    assert not list(probe_temp.glob("freak-doctor-*-probe-*"))
+
+    repaired_api = run_cli(compiler, cwd, env, "doctor", "--json")
+    assert repaired_api.returncode == 0, repaired_api.stdout + repaired_api.stderr
+    repaired_api_report = json.loads(repaired_api.stdout)
+    assert repaired_api_report["checks"]["runtime_api"] == {
+        "ok": True,
+        "expected": "freak-v3-runtime-api-3",
+        "runtime": "freak-v3-runtime-api-3",
+    }
+
+    runtime_api.write_text("freak-v3-runtime-api-999\n", encoding="utf-8")
+    mismatched_api = run_cli(compiler, cwd, env, "doctor", "--json")
+    assert mismatched_api.returncode != 0, (
+        mismatched_api.stdout + mismatched_api.stderr
+    )
+    mismatched_api_report = json.loads(mismatched_api.stdout)
+    assert mismatched_api_report["checks"]["runtime_api"]["runtime"] == (
+        "freak-v3-runtime-api-999"
+    )
+    shutil.copy2(repo / "freakc" / "runtime" / "freak_runtime_api", runtime_api)
 
     std_abi = payload / "std" / "freak_abi"
     std_abi.unlink()

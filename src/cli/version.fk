@@ -283,7 +283,9 @@ task cli_show_help() -> void {
     say cli_box_sep(45)
     say cli_box_mid("  " + C_BYELLOW + "--llvm" + C_RESET + "            " + C_DIM + "LLVM IR backend (default)" + C_RESET, 45)
     say cli_box_mid("  " + C_BYELLOW + "--c" + C_RESET + "               " + C_DIM + "C backend" + C_RESET, 45)
-    say cli_box_mid("  " + C_BYELLOW + "--opt=N" + C_RESET + "           " + C_DIM + "Optimization 0-3 (default: 2)" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "--opt=0..3" + C_RESET + "        " + C_DIM + "Clang optimization (default: 2)" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "+03" + C_RESET + "               " + C_DIM + "+03 — FINAL FORM" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "--lto[=MODE]" + C_RESET + "      " + C_DIM + "thin, full, or off" + C_RESET, 45)
     say cli_box_mid("  " + C_BYELLOW + "--target=TRIPLE" + C_RESET + "   " + C_DIM + "Cross-compile target" + C_RESET, 45)
     say cli_box_bot(45)
     say ""
