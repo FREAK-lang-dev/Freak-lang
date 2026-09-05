@@ -67,9 +67,24 @@ semantic slices: alias target type text and its exact source span are normalized
 once at the expanded-AST-to-HIR boundary, stored and snapshotted by `freak_hir`,
 and consumed by `freak_ty` without reconstructing the declaration from token
 ranges. A harness guard rejects any return of alias-target token scraping in TY.
+The next bounded boundary covers task-local declaration annotations. `freak_hir`
+stores each `pilot` / task-local `fixed pilot` statement span, normalized surface
+type, and exact type span; `freak_ty` exposes and canonicalizes those semantic
+facts; and `freak_mir_build` consumes them in `v4_mir_lower_pilot_stmt` without
+calling `v4_ty_type_text` (directly or through
+`v4_mir_compact_type_text`) to rediscover the declared type. This includes
+tuple and fixed-array annotations used by tuple/list destructuring. MIR build
+still reads body tokens for patterns, initializer boundaries, places, and CFG
+construction. Six unrelated `v4_ty_type_text` consumers remain allowlisted for
+method type arguments, raw-pointer instance methods, associated methods,
+shape/route constructor heads, and route-case expressions; the harness requires
+that exact set and prevents local declaration lowering from returning to it.
 Task parameter and return types, shape/route fields, const annotations,
-doctrine/extern types, MIR body syntax, and all other type families remain
-explicit follow-up slices; this boundary changes ownership, not alias semantics.
+doctrine/extern types, the remaining MIR body families, and all other type
+families remain explicit follow-up slices. These boundaries change fact
+ownership, not language semantics or backend representation. Symbol-valued
+annotated locals still retain the pre-existing phantom-local-IR limitation
+described in the FFI section below.
 Closures now form a complete first-pass frontend/query slice. The resilient
 parser records arrow and block forms as `ClosureExpr` trees and leaves
 `IncompleteNode` recovery facts for missing pipes, body markers, expressions,
@@ -487,9 +502,12 @@ pipeline regression runs the production HIR index helper. Owner and
 child slots use bounded arrays sized from observed records, never untrusted
 maximum IDs or declared counts. Duplicate, gapped, noncanonical, and orphan
 slots fail validation before restore; wire order may place children before
-owners. `hir_snapshot_scaling_smoke.fk` covers 64/512 aliases, 64 owners,
-malformed records, and repeated scratch-capacity checks under a 1,024-handle
-limit and 64 MB process-tree ceiling.
+owners. Local annotations use the same physical index with bounded owner/item
+metadata and dense per-owner annotation slots; parent span bounds are decoded
+once rather than reparsed for every annotation. File-slot reset owns and reuses
+all twelve child arrays. `hir_snapshot_scaling_smoke.fk` covers 64/512 aliases,
+512 annotations, 64 owners, malformed records, and repeated scratch-capacity
+checks under a 1,024-handle limit and 64 MB process-tree ceiling.
 
 Temporary graph, worklist, seen-set, and serializer arrays are request-scoped resources. Every path that allocates one must either consume it with `word_join` or release it with `array_release`, including failure exits. `mir_snapshot_resource_smoke.fk` repeatedly validates accepted and cyclic MIR graphs, and `query_invalidation_resource_smoke.fk` combines 96 `didChange` requests with 600 direct dependency invalidations. These C-backed resource fixtures are compiled with a test-only 1,024-live-handle limit matching the LLVM runtime pool; the production C runtime remains dynamically sized. Each fixture measures all remaining handle capacity before and after its workload and ends with a fresh-array probe under a 64 MB ceiling, so even one leaked handle fails instead of hiding behind low RSS or spare C table capacity.
 
@@ -510,7 +528,7 @@ unit-section|<section-name>|<escaped-checkpoint-identity>|<escaped-section-paylo
 end|freak-00-unit-snapshot-v3
 ```
 
-The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v3 validation requires canonical alias target spans and exact declared counts. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
+The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v4 validation requires canonical alias-target and local-annotation spans, exact child ownership/slot identity, and exact declared counts. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
 
 ### `workspace/unitSnapshotManifest`
 

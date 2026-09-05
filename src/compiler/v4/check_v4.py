@@ -1968,7 +1968,22 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-eight-handles=true",
+            "hir-scaling-fresh-slot-twelve-handles=true",
+            "hir-scaling-512-annotations=true",
+            "hir-scaling-64-annotation-owners=true",
+            "hir-scaling-annotation-duplicate=true",
+            "hir-scaling-annotation-gap=true",
+            "hir-scaling-annotation-huge-id=true",
+            "hir-scaling-annotation-overflow-id=true",
+            "hir-scaling-annotation-orphan=true",
+            "hir-scaling-annotation-owner-kind=true",
+            "hir-scaling-annotation-parent-span=true",
+            "hir-scaling-annotation-cross-file=true",
+            "hir-scaling-annotation-capacity-stable=true",
+            "hir-scaling-512-annotation-lookups=true",
+            "hir-scaling-nested-annotation-exact-start=true",
+            "hir-scaling-interior-offset-no-annotation=true",
+            "hir-scaling-lookup-state-restored=true",
             "hir-scaling-reused-children-empty=true",
             "hir-scaling-restore-repeated=true",
             "hir-scaling-truncated-slots-hidden=true",
@@ -9120,6 +9135,46 @@ EXECUTABLE_SMOKES = [
             "bad-else-if-help=got int",
         ],
     },
+    {
+        "name": "MIR local annotation semantic lowering",
+        "fixture": "mir_local_annotation_semantic_smoke.fk",
+        "expect": [
+            "local-annotation-hir-count=4",
+            "local-annotation-ty-count=4",
+            "local-annotation-fixed-id=0",
+            "local-annotation-fixed-surface=char",
+            "local-annotation-fixed-type=char",
+            "local-annotation-fixed-type-source=char",
+            "local-annotation-fixed-stmt-span-stable=true",
+            "local-annotation-tuple-surface=(int,word)",
+            "local-annotation-tuple-type=(int,word)",
+            "local-annotation-board-surface=[int;2]",
+            "local-annotation-list-surface=[int;2]",
+            "local-annotation-mir-mark=char",
+            "local-annotation-mir-left=int",
+            "local-annotation-mir-label=word",
+            "local-annotation-mir-board=[int;2]",
+            "local-annotation-mir-front=int",
+            "local-annotation-mir-diagnostics=0",
+            "local-annotation-borrow-status=clean",
+            "local-annotation-borrow-diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v4 files=1 items=1 alias-targets=0 local-annotations=4 diagnostics=0",
+            "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 diagnostics=0 skipped-other=0 live-files=1",
+            "local-annotation-restored-count=4",
+            "local-annotation-restored-fixed=char",
+            "local-annotation-malformed-restore-rejected=true",
+            "local-annotation-malformed-restore-atomic=true",
+            "local-annotation-schema-variants-rejected=true",
+            "local-annotation-schema-variants-atomic=true",
+            "local-annotation-bad-hir-count=1",
+            "local-annotation-bad-surface=maybe<int,word>",
+            "local-annotation-bad-type-source=maybe<int,word>",
+            "local-annotation-bad-diagnostics=1",
+            "local-annotation-bad-message=invalid local annotation type",
+            "local-annotation-bad-help=Meiya lifetime debt: maybe expects 1 generic arguments in local declaration hold but received 2",
+            "local-annotation-bad-stmt-span-stable=true",
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:
@@ -9247,7 +9302,7 @@ def check_crate_boundaries() -> None:
 
     # These are the production post-build consumers. The editor's transitional
     # source-view dependency is documented separately and intentionally allowed.
-    for consumer in ("freak_borrowck", "freak_codegen_llvm"):
+    for consumer in ("freak_borrowck", "freak_codegen_llvm", "freak_query", "freak_snapshot"):
         consumer_text = read_text(crate_path(consumer))
         consumer_tasks = re.findall(
             r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", consumer_text
@@ -9445,6 +9500,15 @@ def freak_task_body(source: str, task_name: str) -> str | None:
     return None
 
 
+def freak_tasks_containing(source: str, needle: str) -> set[str]:
+    task_names = set(re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", source))
+    return {
+        task_name
+        for task_name in task_names
+        if needle in (freak_task_body(source, task_name) or "")
+    }
+
+
 def check_alias_hir_boundary() -> None:
     expand_source = read_text(crate_path("freak_expand"))
     hir_source = read_text(crate_path("freak_hir"))
@@ -9521,7 +9585,6 @@ def check_alias_hir_boundary() -> None:
             violations.append(f"alias expansion accessor missing: {task_name}")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v3"',
         "pilot v4_hir_alias_target_types = 0",
         "pilot v4_hir_alias_target_spans = 0",
         "v4_hir_lower_alias_target_type",
@@ -9584,6 +9647,138 @@ def check_alias_hir_boundary() -> None:
         raise SystemExit(1)
 
     print("no syntax past HIR: alias target type and span")
+
+
+def check_mir_local_annotation_boundary() -> None:
+    hir_source = read_text(crate_path("freak_hir"))
+    ty_source = read_text(crate_path("freak_ty"))
+    mir_build_source = read_text(crate_path("freak_mir_build"))
+    violations: list[str] = []
+
+    slots_body = freak_task_body(hir_source, "v4_hir_snapshot_local_annotation_slots_are_valid")
+    if slots_body is None:
+        violations.append("local annotation snapshot requires bounded indexed ownership validation")
+    elif any(call in slots_body for call in ("v4_hir_snapshot_line(", "v4_hir_snapshot_line_count(", "v4_hir_snapshot_file_for_hir(")):
+        violations.append("local annotation ownership validation must not rescan payload lines")
+
+    lookup_body = freak_task_body(hir_source, "v4_hir_local_annotation_at_offset")
+    if lookup_body is None or "offset == v4_span_start(stmt_span)" not in lookup_body:
+        violations.append("local annotation lookup must match exact declaration starts")
+    elif any(call in lookup_body for call in ("v4_hir_local_annotation_count(", "v4_hir_local_annotation_record_id(", "v4_hir_local_annotation_stmt_span(")):
+        violations.append("local annotation lookup must scan records directly without nested ordinal rescans")
+
+    for marker in (
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v4"',
+        "pilot v4_hir_local_annotation_items = 0",
+        "pilot v4_hir_local_annotation_stmt_spans = 0",
+        "pilot v4_hir_local_annotation_types = 0",
+        "pilot v4_hir_local_annotation_type_spans = 0",
+        '"hir-local-annotation"',
+        '"local-annotations"',
+    ):
+        if marker not in hir_source:
+            violations.append(f"local annotation HIR boundary missing: {marker}")
+
+    ty_contracts = {
+        "v4_ty_signature_local_annotation_hir_id": "v4_ty_signature_hir_id",
+        "v4_ty_signature_local_annotation_count": "v4_hir_local_annotation_count",
+        "v4_ty_signature_local_annotation_at_offset": "v4_hir_local_annotation_at_offset",
+        "v4_ty_signature_local_annotation_stmt_span": "v4_hir_local_annotation_stmt_span",
+        "v4_ty_signature_local_annotation_surface_type": "v4_hir_local_annotation_type",
+        "v4_ty_signature_local_annotation_type_span": "v4_hir_local_annotation_type_span",
+        "v4_ty_signature_local_annotation_type": "v4_ty_signature_local_annotation_surface_type",
+    }
+    for task_name, required in ty_contracts.items():
+        body = freak_task_body(ty_source, task_name)
+        if body is None:
+            violations.append(f"local annotation TY accessor missing: {task_name}")
+            continue
+        if required not in body:
+            violations.append(f"local annotation TY accessor bypasses semantic facts: {task_name}")
+        for forbidden in (
+            "v4_parse_",
+            "v4_lex_",
+            "v4_expand_",
+            "_token",
+            "v4_ty_type_text",
+            "v4_ty_span_from_tokens",
+        ):
+            if forbidden in body:
+                violations.append(
+                    f"local annotation TY accessor reconstructs syntax: {task_name} uses {forbidden}"
+                )
+
+    hir_storage_accessors = (
+        "v4_hir_local_annotation_record_id",
+        "v4_hir_local_annotation_count",
+        "v4_hir_local_annotation_stmt_span",
+        "v4_hir_local_annotation_type",
+        "v4_hir_local_annotation_type_span",
+        "v4_hir_local_annotation_at_offset",
+    )
+    for task_name in hir_storage_accessors:
+        body = freak_task_body(hir_source, task_name)
+        if body is None:
+            violations.append(f"local annotation HIR storage accessor missing: {task_name}")
+            continue
+        for forbidden in (
+            "v4_parse_",
+            "v4_lex_",
+            "v4_expand_",
+            "_token",
+            "v4_hir_local_annotation_type_text",
+        ):
+            if forbidden in body:
+                violations.append(
+                    f"local annotation HIR storage accessor reconstructs syntax: {task_name} uses {forbidden}"
+                )
+
+    lower_task = "v4_mir_lower_pilot_stmt"
+    lower_body = freak_task_body(mir_build_source, lower_task)
+    if lower_body is None:
+        violations.append(f"local annotation MIR builder lowerer missing: {lower_task}")
+    else:
+        for required in (
+            "v4_ty_signature_local_annotation_at_offset",
+            "v4_ty_signature_local_annotation_type",
+        ):
+            if required not in lower_body:
+                violations.append(f"local annotation MIR builder lowerer bypasses TY: {required}")
+        for forbidden in ("v4_ty_type_text", "v4_mir_compact_type_text"):
+            if forbidden in lower_body:
+                violations.append(
+                    f"local annotation MIR builder lowerer reconstructs type text: uses {forbidden}"
+                )
+
+    allowed_type_text_tasks = {
+        "v4_mir_reject_method_type_args",
+        "v4_mir_try_lower_builtin_raw_pointer_instance_method",
+        "v4_mir_try_lower_associated_method_call",
+        "v4_mir_shape_ctor_name",
+        "v4_mir_constructor_head_name",
+        "v4_mir_try_lower_route_case_expr",
+    }
+    actual_type_text_tasks = freak_tasks_containing(mir_build_source, "v4_ty_type_text(")
+    if actual_type_text_tasks != allowed_type_text_tasks:
+        missing = sorted(allowed_type_text_tasks - actual_type_text_tasks)
+        extra = sorted(actual_type_text_tasks - allowed_type_text_tasks)
+        if missing:
+            violations.append(
+                "local annotation MIR builder type-text allowlist missing expected tasks: "
+                + ", ".join(missing)
+            )
+        if extra:
+            violations.append(
+                "local annotation MIR builder type-text allowlist gained tasks: "
+                + ", ".join(extra)
+            )
+
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+
+    print("semantic MIR local annotations: TY facts, six-task builder type-text allowlist")
 
 
 def check_tooling_interfaces() -> None:
@@ -11132,6 +11327,7 @@ def main(argv: list[str] | None = None) -> int:
     check_smoke_inventory(fixtures)
     check_crate_boundaries()
     check_alias_hir_boundary()
+    check_mir_local_annotation_boundary()
     check_tooling_interfaces()
     check_snapshot_inventories()
     base_source = check_flattened_crates()

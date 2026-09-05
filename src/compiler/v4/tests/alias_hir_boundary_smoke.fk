@@ -21,6 +21,7 @@ task v4_alias_hir_boundary_snapshot_variant(payload: word, corrupt_alias_span: b
             line = line + "|files=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "files")
             line = line + "|items=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "items")
             line = line + "|alias-targets=" + word_from_int(declared_alias_targets)
+            line = line + "|local-annotations=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "local-annotations")
             line = line + "|diagnostics=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "diagnostics")
         } else if kind == "hir-item" and corrupt_alias_span and corrupted == 0 and v4_hir_snapshot_field(line, 8) != "" {
             pilot rebuilt = "hir-item"
@@ -154,6 +155,7 @@ task v4_alias_hir_boundary_first_file_snapshot(payload: word) -> word {
     out = out + "|files=1"
     out = out + "|items=" + v4_hir_snapshot_field_raw(owner_line, 4)
     out = out + "|alias-targets=" + word_from_int(alias_targets)
+    out = out + "|local-annotations=0"
     out = out + "|diagnostics=" + v4_hir_snapshot_field_raw(owner_line, 5)
     line_id = 0
     repeat until line_id >= line_count {

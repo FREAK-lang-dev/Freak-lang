@@ -4,9 +4,10 @@
 
 task v4_hir_scaling_payload(files: int, items_per_file: int) -> word {
     pilot parts = array_new()
-    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v3|files=" + word_from_int(files))
+    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v4|files=" + word_from_int(files))
     array_push(parts, "|items=" + word_from_int(files * items_per_file))
     array_push(parts, "|alias-targets=" + word_from_int(files * items_per_file))
+    array_push(parts, "|local-annotations=0")
     array_push(parts, "|diagnostics=" + word_from_int(files * 2))
     -- Reverse IDs and place children before parents: wire order is unrestricted.
     pilot owner = files - 1
@@ -28,8 +29,88 @@ task v4_hir_scaling_payload(files: int, items_per_file: int) -> word {
         array_push(parts, "|0|" + word_from_int(items_per_file) + "|2")
         owner -= 1
     }
-    array_push(parts, "\nend|freak-hir-snapshot-v3")
+    array_push(parts, "\nend|freak-hir-snapshot-v4")
     give back word_join(parts)
+}
+
+task v4_hir_scaling_annotations(files: int, per_file: int) -> word {
+    pilot parts = array_new()
+    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v4|files=" + word_from_int(files))
+    array_push(parts, "|items=" + word_from_int(files) + "|alias-targets=0|local-annotations=" + word_from_int(files * per_file) + "|diagnostics=0")
+    pilot owner = files - 1
+    repeat until owner < 0 {
+        pilot source_file = word_from_int(owner + 1)
+        pilot annotation = per_file - 1
+        repeat until annotation < 0 {
+            array_push(parts, "\nhir-local-annotation|" + word_from_int(owner) + "|" + word_from_int(annotation) + "|0|")
+            array_push(parts, source_file + "@10:20|int|" + source_file + "@12:15")
+            annotation -= 1
+        }
+        array_push(parts, "\nhir-item|" + word_from_int(owner) + "|0|Task|main|def|" + source_file + "@0:100|0||" + V4_NO_SPAN)
+        array_push(parts, "\nhir|" + word_from_int(owner) + "|" + source_file + "|0|1|0")
+        owner -= 1
+    }
+    array_push(parts, "\nend|freak-hir-snapshot-v4")
+    give back word_join(parts)
+}
+
+task v4_hir_scaling_annotation_checks(before: word) -> void {
+    pilot large = v4_hir_scaling_annotations(1, 512)
+    pilot multi = v4_hir_scaling_annotations(64, 8)
+    pilot sample = v4_hir_scaling_annotations(2, 2)
+    pilot capacity_before = v4_hir_scaling_capacity()
+    say "hir-scaling-512-annotations=" + word_from_bool(v4_hir_snapshot_validate(large).starts_with("hir-snapshot-import ok=1 "))
+    say "hir-scaling-64-annotation-owners=" + word_from_bool(v4_hir_snapshot_validate(multi).starts_with("hir-snapshot-import ok=1 "))
+    say "hir-scaling-annotation-duplicate=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("hir-local-annotation|0|1|", "hir-local-annotation|0|0|"), before))
+    say "hir-scaling-annotation-gap=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("hir-local-annotation|0|1|", "hir-local-annotation|0|2|"), before))
+    say "hir-scaling-annotation-huge-id=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("hir-local-annotation|0|1|", "hir-local-annotation|0|9223372036854775807|"), before))
+    say "hir-scaling-annotation-overflow-id=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("hir-local-annotation|0|1|", "hir-local-annotation|0|18446744073709551616|"), before))
+    say "hir-scaling-annotation-orphan=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("hir-local-annotation|0|", "hir-local-annotation|2|"), before))
+    say "hir-scaling-annotation-owner-kind=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("|Task|", "|Shape|"), before))
+    say "hir-scaling-annotation-parent-span=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("@0:100", "@11:19"), before))
+    say "hir-scaling-annotation-cross-file=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("|1@10:20|int|1@12:15", "|3@10:20|int|3@12:15"), before))
+    pilot repeated: bool = true
+    pilot iteration = 0
+    repeat until iteration >= 32 {
+        if v4_hir_snapshot_validate(sample).starts_with("hir-snapshot-import ok=1 ") == false {
+            repeated = false
+        }
+        iteration += 1
+    }
+    say "hir-scaling-annotation-capacity-stable=" + word_from_bool(repeated and v4_hir_scaling_capacity() == capacity_before)
+}
+
+-- Storage lookup exercise, separate from wire validation: all production
+-- consumers pass a declaration start. Query every slot, not only the first.
+task v4_hir_scaling_annotation_lookup(sample: word, before: word) -> void {
+    pilot record = 0
+    repeat until record >= 512 {
+        pilot start = 1000 + record * 100
+        pilot stmt_span = v4_span_new("1", start, start + 50)
+        pilot type_span = v4_span_new("1", start + 10, start + 13)
+        v4_hir_add_local_annotation(0, 0, stmt_span, "int", type_span)
+        -- Interleave another owner so returned IDs must be per owner.
+        v4_hir_add_local_annotation(0, 1, stmt_span, "word", type_span)
+        record += 1
+    }
+    pilot correct: bool = true
+    record = 0
+    repeat until record >= 512 {
+        pilot start = 1000 + record * 100
+        if v4_hir_local_annotation_at_offset(0, 0, start) != record or v4_hir_local_annotation_at_offset(0, 1, start) != record {
+            correct = false
+        }
+        record += 1
+    }
+    say "hir-scaling-512-annotation-lookups=" + word_from_bool(correct)
+    v4_hir_add_local_annotation(0, 0, "1@10:100", "word", "1@12:16")
+    v4_hir_add_local_annotation(0, 0, "1@30:50", "bool", "1@32:36")
+    pilot outer = v4_hir_local_annotation_at_offset(0, 0, 10)
+    pilot inner = v4_hir_local_annotation_at_offset(0, 0, 30)
+    say "hir-scaling-nested-annotation-exact-start=" + word_from_bool(outer == 512 and inner == 513 and v4_hir_local_annotation_type(0, 0, inner) == "bool")
+    say "hir-scaling-interior-offset-no-annotation=" + word_from_bool(v4_hir_local_annotation_at_offset(0, 0, 31) < 0 and v4_hir_local_annotation_at_offset(0, 0, 70) < 0)
+    pilot restoration = v4_hir_snapshot_restore(sample)
+    say "hir-scaling-lookup-state-restored=" + word_from_bool(restoration.starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == before)
 }
 
 task v4_hir_scaling_capacity() -> int {
@@ -92,6 +173,9 @@ task v4_hir_scaling_index_exhaustion(payload: word, before: word) -> void {
 }
 
 task v4_hir_scaling_children_empty(hir_id: int) -> bool {
+    if array_len(v4_hir_local_annotation_items_handle(hir_id)) != 0 or array_len(v4_hir_local_annotation_stmt_spans_handle(hir_id)) != 0 or array_len(v4_hir_local_annotation_types_handle(hir_id)) != 0 or array_len(v4_hir_local_annotation_type_spans_handle(hir_id)) != 0 {
+        give back false
+    }
     give back array_len(v4_hir_kinds_handle(hir_id)) == 0 and array_len(v4_hir_names_handle(hir_id)) == 0 and array_len(v4_hir_defs_handle(hir_id)) == 0 and array_len(v4_hir_spans_handle(hir_id)) == 0 and array_len(v4_hir_parse_nodes_handle(hir_id)) == 0 and array_len(v4_hir_alias_target_types_handle(hir_id)) == 0 and array_len(v4_hir_alias_target_spans_handle(hir_id)) == 0 and array_len(v4_hir_diags_handle(hir_id)) == 0
 }
 
@@ -100,6 +184,7 @@ task v4_hir_scaling_fill_children(hir_id: int) -> void {
     array_set(v4_hir_alias_target_types_handle(hir_id), item, "int")
     array_set(v4_hir_alias_target_spans_handle(hir_id), item, "73@5:8")
     v4_hir_add_diag(hir_id, "old diagnostic")
+    v4_hir_add_local_annotation(hir_id, item, "73@1:15", "int", "73@5:8")
 }
 
 task v4_hir_scaling_file_slots(sample: word, before: word) -> void {
@@ -138,7 +223,7 @@ task v4_hir_scaling_file_slots(sample: word, before: word) -> void {
         restored = false
     }
     pilot capacity_after = v4_hir_scaling_capacity()
-    say "hir-scaling-fresh-slot-eight-handles=" + word_from_bool(capacity_before - capacity_fresh == 8)
+    say "hir-scaling-fresh-slot-twelve-handles=" + word_from_bool(capacity_before - capacity_fresh == 12)
     say "hir-scaling-reused-children-empty=" + word_from_bool(empty_children)
     say "hir-scaling-restore-repeated=" + word_from_bool(restored)
     say "hir-scaling-truncated-slots-hidden=" + word_from_bool(truncated)
@@ -170,7 +255,7 @@ task v4_hir_snapshot_scaling_run() -> void {
     say "hir-scaling-expansion-negative=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|0|1|0|2|2", "\nhir|0|1|-1|2|2"), before))
     say "hir-scaling-expansion-noncanonical=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|0|1|0|2|2", "\nhir|0|1|00|2|2"), before))
     say "hir-scaling-expansion-overflow=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("\nhir|0|1|0|2|2", "\nhir|0|1|9223372036854775808|2|2"), before))
-    pilot empty_owner = "hir-snapshot|format=freak-hir-snapshot-v3|files=1|items=0|alias-targets=0|diagnostics=0\nhir|0|garbage|garbage|0|0\nend|freak-hir-snapshot-v3"
+    pilot empty_owner = "hir-snapshot|format=freak-hir-snapshot-v4|files=1|items=0|alias-targets=0|local-annotations=0|diagnostics=0\nhir|0|garbage|garbage|0|0\nend|freak-hir-snapshot-v4"
     say "hir-scaling-childless-owner-identities=" + word_from_bool(v4_hir_scaling_rejects_atomically(empty_owner, before))
     pilot max_owner = sample.replace("\nhir|0|1|0|2|2", "\nhir|0|9223372036854775807|9223372036854775807|2|2")
     max_owner = max_owner.replace("|1@", "|9223372036854775807@")
@@ -210,7 +295,9 @@ task v4_hir_snapshot_scaling_run() -> void {
     say "hir-scaling-capacity-stable=" + word_from_bool(capacity_before == capacity_after)
     say "hir-scaling-live-unchanged=" + word_from_bool(v4_hir_snapshot() == before)
     v4_hir_scaling_index_exhaustion(sample, before)
+    v4_hir_scaling_annotation_checks(before)
     v4_hir_scaling_file_slots(sample, before)
+    v4_hir_scaling_annotation_lookup(sample, before)
 }
 
 v4_hir_snapshot_scaling_run()
