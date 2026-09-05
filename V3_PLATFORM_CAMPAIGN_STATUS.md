@@ -471,11 +471,12 @@ fresh integrated tests and independent review; no local V4 checks were run here.
   `v3-marker-byte-validation` lane. Its completed review and tests are required
   before this repair batch is pushed. Control-byte Doctor JSON handling is
   covered by that scoped marker repair, not claimed fixed globally.
-- Benchmark bounds and the version-probe deadline have a committed worker
-  handoff (`3d9f8c7`) with focused tests; independent review/integration pending.
-- Root profile-diagnostic, configured-Clang, C-symbol documentation and
-  length-aware conformance-guard corrections are verified locally and under
-  independent review. The full current-head installed/platform gate remains
+- Benchmark bounds and the version-probe deadline are integrated at `0618935`
+  (worker `3d9f8c7`), with clean independent review, C/LLVM focused checks and
+  a real hung-version-probe timeout. Installed gate registration is `20f4ba9`.
+- Root profile-diagnostic (`2168157`), configured-Clang/C-symbol documentation
+  (`ccc783d`) and length-aware conformance guards/docs (`de3f481`) are verified
+  locally and independently reviewed clean. The full current-head installed/platform gate remains
   pending. Older terminal passes are not substitutes for that gate.
 - PR #99 is still non-draft at remote `c1d1c3d`; its failing CI is unchanged
   until the coherent repair batch is pushed. Existing `v0.14.1` still points
