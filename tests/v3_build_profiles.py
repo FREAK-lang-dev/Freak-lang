@@ -80,7 +80,7 @@ if os.environ.get("FREAK_PROFILE_REJECT_LTO") == "1" and any(
 delegate = [os.environ["FREAK_PROFILE_REAL_CLANG"], *args]
 override = os.environ.get("FREAK_PROFILE_LINKER_OVERRIDE")
 if override:
-    delegate.append(override)
+    delegate.extend(json.loads(override))
 delegate_env = os.environ.copy()
 origin = os.environ.get("FREAK_PROFILE_LINKER_ORIGIN")
 if origin:
@@ -483,7 +483,7 @@ def trace_linker(
     command = [real_clang]
     command.extend(["-###", "-x", "c", os.devnull, "-o", os.devnull, *flags])
     if linker_path is not None:
-        command.append(linker_override_argument(linker_path))
+        command.extend(linker_override_arguments(linker_path))
     child_env = os.environ.copy()
     if original_dir is not None:
         child_env["PATH"] = str(original_dir) + os.pathsep + child_env.get("PATH", "")
@@ -501,13 +501,19 @@ def trace_linker(
     return linker_from_trace(completed.stdout + completed.stderr)
 
 
-def linker_override_argument(path: Path) -> str:
+def linker_override_arguments(path: Path) -> list[str]:
     # Generic ToolChain::GetLinkerPath preserves -fuse-ld's flavor while
     # --ld-path chooses the executable. MSVC's linker implementation bypasses
-    # that helper and requires an absolute -fuse-ld path to bypass VS discovery.
-    # Keep this argument last in both discovery and the recording driver.
+    # that helper: LLVM 20 GetProgramPath expects a basename, not an absolute
+    # -fuse-ld path. Its -B directory scan precedes target-prefixed/PATH lookup.
+    # link.exe bypasses the special "link" VS-discovery branch; lld-link keeps
+    # the LLD-specific argument branch (Windows can_execute adds .exe).
+    # Keep these arguments last in both discovery and the recording driver.
     msvc = sys.platform == "win32" and path.name.lower() in {"link.exe", "lld-link.exe"}
-    return ("-fuse-ld=" if msvc else "--ld-path=") + str(path.absolute())
+    if msvc:
+        name = "lld-link" if path.name.lower() == "lld-link.exe" else "link.exe"
+        return ["-B" + str(path.absolute().parent), "-fuse-ld=" + name]
+    return ["--ld-path=" + str(path.absolute())]
 
 
 def controlled_linkers(root: Path, real_clang: str) -> dict[str, tuple[Path, Path]]:
@@ -577,7 +583,7 @@ def check_linker_identity_selection(
     controlled_env.pop("FREAK_PROFILE_FAKE_TARGET", None)
     for index, (flags, selected_role) in enumerate(scenarios):
         selected, original = programs[selected_role]
-        controlled_env["FREAK_PROFILE_LINKER_OVERRIDE"] = linker_override_argument(selected)
+        controlled_env["FREAK_PROFILE_LINKER_OVERRIDE"] = json.dumps(linker_override_arguments(selected))
         controlled_env["FREAK_PROFILE_LINKER_ORIGIN"] = str(original.parent)
         # CLI fingerprints execute the selected linker directly for version
         # text too, outside the recording driver. Keep Windows companion DLLs

@@ -61,9 +61,13 @@ class ControlledLinkerHelpers(unittest.TestCase):
                         self.assertEqual(controlled.name, actual.name)
                         original_bytes = actual.read_bytes()
                         previous = controlled.read_bytes()
-                        override = profiles.linker_override_argument(controlled)
-                        prefix = "-fuse-ld=" if platform == "win32" else "--ld-path="
-                        self.assertEqual(override, prefix + str(controlled.absolute()))
+                        overrides = profiles.linker_override_arguments(controlled)
+                        if platform == "win32":
+                            name = "link.exe" if role == "off" else "lld-link"
+                            self.assertEqual(overrides, ["-B" + str(controlled.absolute().parent),
+                                                         "-fuse-ld=" + name])
+                        else:
+                            self.assertEqual(overrides, ["--ld-path=" + str(controlled.absolute())])
                         if platform == "win32":
                             self.assertEqual(previous, original_bytes)
                         else:
@@ -80,11 +84,35 @@ class ControlledLinkerHelpers(unittest.TestCase):
                     self.assertIn("-fuse-ld=ld" if platform == "darwin" else "-fuse-ld=lld", thin_flags)
 
     def test_ignored_override_still_fails(self):
-        actual = self.root / "ld"
-        actual.write_bytes(b"original")
-        with patch.object(sys, "platform", "linux"), patch.object(profiles, "trace_linker", return_value=actual):
-            with self.assertRaisesRegex(AssertionError, "ignored the controlled linker"):
-                profiles.controlled_linkers(self.root, "unused-clang")
+        for platform, name in (("linux", "ld"), ("darwin", "ld"), ("win32", "link.exe")):
+            with self.subTest(platform=platform):
+                case = self.root / platform
+                case.mkdir()
+                actual = case / name
+                actual.write_bytes(b"original")
+                with patch.object(sys, "platform", platform), patch.object(profiles, "trace_linker", return_value=actual):
+                    with self.assertRaisesRegex(AssertionError, "ignored the controlled linker"):
+                        profiles.controlled_linkers(case, "unused-clang")
+
+    def test_windows_uses_basenames_and_keeps_lld_flavor(self):
+        private = self.root / "private tools with spaces"
+        private.mkdir()
+        with patch.object(sys, "platform", "win32"):
+            for name, flavor in (("link.exe", "link.exe"), ("lld-link.exe", "lld-link")):
+                with self.subTest(name=name):
+                    selected = private / name
+                    selected.write_bytes(b"never executed")
+                    overrides = profiles.linker_override_arguments(selected)
+                    self.assertEqual(overrides, ["-B" + str(private.absolute()), "-fuse-ld=" + flavor])
+                    self.assertNotEqual(flavor, "link")  # Avoid VS's special discovery branch.
+                    self.assertEqual(Path(flavor).name, flavor)  # Never an absolute -fuse-ld path.
+                    traced = selected.with_suffix("") if name == "lld-link.exe" else selected
+                    self.assertEqual(profiles.linker_from_trace(f'"{traced}" "-out:unused"\n'),
+                                     selected.absolute())
+            # MinGW uses generic GetLinkerPath, not the MSVC basename protocol.
+            mingw = private / "ld.lld.exe"
+            self.assertEqual(profiles.linker_override_arguments(mingw),
+                             ["--ld-path=" + str(mingw.absolute())])
 
     def test_version_identity_keeps_error_status_and_both_streams(self):
         linker = self.root / "ld"
@@ -97,9 +125,10 @@ class ControlledLinkerHelpers(unittest.TestCase):
         self.assertEqual(launch.call_args.kwargs["env"], environment)
         self.assertEqual(launch.call_args.kwargs["timeout"], 30)
 
-    def test_trace_and_recorder_pass_exact_same_final_override(self):
+    def test_trace_and_recorder_pass_exact_same_final_overrides(self):
         for platform, name in (("linux", "ld.lld"), ("darwin", "ld"),
-                               ("win32", "link.exe"), ("win32", "ld.lld.exe")):
+                               ("win32", "link.exe"), ("win32", "lld-link.exe"),
+                               ("win32", "ld.lld.exe")):
             with self.subTest(platform=platform, name=name):
                 case = self.root / (platform + name)
                 case.mkdir()
@@ -111,28 +140,28 @@ class ControlledLinkerHelpers(unittest.TestCase):
                 origin = case / "original tools"
                 origin.mkdir()
                 with patch.object(sys, "platform", platform):
-                    override = profiles.linker_override_argument(selected)
+                    overrides = profiles.linker_override_arguments(selected)
                     result = subprocess.CompletedProcess([], 0, f'"{selected}" "-o" "unused"\n', "")
                     with patch.object(subprocess, "run", return_value=result) as launch:
                         self.assertEqual(profiles.trace_linker(str(real_clang), flags, linker_path=selected,
                                                               original_dir=origin), selected.absolute())
                     trace_args = launch.call_args.args[0]
-                    self.assertEqual(trace_args[-1], override)
-                    self.assertEqual(trace_args[-3:-1], flags)
+                    self.assertEqual(trace_args[-len(overrides):], overrides)
+                    self.assertEqual(trace_args[-len(overrides)-2:-len(overrides)], flags)
                     self.assertTrue(launch.call_args.kwargs["env"]["PATH"].startswith(str(origin) + os.pathsep))
                     self.assertEqual(launch.call_args.kwargs["timeout"], 30)
                     _, log = profiles.write_recorder(case, str(real_clang))
                     recorder = case / "record_clang.py"
                     environment = {"FREAK_PROFILE_REAL_CLANG": str(real_clang),
                                    "FREAK_PROFILE_CLANG_LOG": str(log),
-                                   "FREAK_PROFILE_LINKER_OVERRIDE": override,
+                                   "FREAK_PROFILE_LINKER_OVERRIDE": json.dumps(overrides),
                                    "FREAK_PROFILE_LINKER_ORIGIN": str(origin), "PATH": "preserved-path"}
                     args = ["input with spaces.c", *flags]
                     with patch.dict(os.environ, environment, clear=True), patch.object(sys, "argv", [str(recorder), *args]), patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as launch:
                         with self.assertRaises(SystemExit) as stopped:
                             runpy.run_path(str(recorder), run_name="__main__")
                     self.assertEqual(stopped.exception.code, 0)
-                    self.assertEqual(launch.call_args.args[0], [str(real_clang), *args, override])
+                    self.assertEqual(launch.call_args.args[0], [str(real_clang), *args, *overrides])
                     self.assertEqual(launch.call_args.kwargs["env"]["PATH"], str(origin) + os.pathsep + "preserved-path")
                     self.assertEqual(json.loads(log.read_text()), args)
 
