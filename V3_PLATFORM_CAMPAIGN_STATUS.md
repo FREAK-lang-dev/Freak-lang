@@ -626,3 +626,28 @@ statements above. Historical test results remain tied to their recorded heads.
 - [ ] Complete the remaining original campaign requirements, current-head
   reviews, installed practical tests and all-platform CI before merge. Existing
   `v0.14.1` still points to `db2afbb`; replacement version choice remains pending.
+
+### Second ByteBuffer correction validation
+
+- [x] Investigate the independent `dd27b4d` review: extracting a nested shape
+  could leave two live roots reaching the same ByteBuffer. Include declared
+  shape projections in the existing conservative full-parent move rule.
+- [x] Commit the cohesive projection-owner correction at `eb58fbe` after a
+  fresh exact-source CLI build and all four agreed regression gates passed:
+  return/field ownership, widths/copy, strict handles and ByteBuffer foundation.
+  C/LLVM compile-only negatives cover later-argument root consumption and nested
+  shape extraction/call/return transfers, with valid observation/transfer controls.
+  Session 85606 ended with `CHECK_EXIT=0` and mutex release; exact checker/test
+  blobs were unchanged before and after. No checked-in-seed bootstrap or C shape
+  execution is claimed by this slot.
+- [ ] Complete independent immutable review of `eb58fbe` before integration;
+  the broader strict-borrow finding remains open until `when` is corrected too.
+- [x] Prepare linker-test portability correction `ed68141`; five pure mocked
+  helper tests pass, including a root rerun. Independent source review found no
+  actionable issue. Original linker roles and miss/hit/byte-invalidation oracles
+  remain covered; real Linux/macOS/MSVC execution is still pending.
+- [ ] Prepare `when` target/arm traversal with isolated arm state and a
+  conservative post-arm join. Source-only work is assigned as a separate delta.
+- [x] Return the compiler/native slot to the coordinator after all agreed
+  ByteBuffer checks terminated. No further native checks may start without a
+  new explicit handoff; HTTP, marker and platform gates were not run in this slot.
