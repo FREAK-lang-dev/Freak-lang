@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import gc
 import hashlib
 import importlib.util
 import json
@@ -171,6 +172,11 @@ def _descendant_launcher(
 
 
 def _resource_handle_count() -> int | None:
+    # Expected failures can leave traceback cycles retaining Thread/Event locks.
+    # Older Windows CPython implements those locks with kernel semaphores.
+    # Compare live resources after collection, not the GC scheduler's timing.
+    # Explicit launcher/pipe closure is checked separately before this snapshot.
+    gc.collect()
     if sys.platform == "win32":
         import ctypes.wintypes
 
@@ -213,6 +219,15 @@ def _process_tree_checks(temporary: Path) -> None:
     assert captured.stdout == expected_capture and captured.stderr == b""
     _assert_no_capture_threads("capture drain warmup")
     baseline_handles = _resource_handle_count()
+    # Collection must not hide an actually live descriptor. Keep a strong
+    # reference until after the strict resource-count positive control.
+    control_fd = os.open(os.devnull, os.O_RDONLY)
+    try:
+        control_handles = _resource_handle_count()
+        if baseline_handles is not None and control_handles is not None:
+            assert control_handles > baseline_handles, "resource counter missed a live descriptor"
+    finally:
+        os.close(control_fd)
 
     exit_pid = temporary / "exit-descendant.pid"
     exit_ready = temporary / "exit-descendant.ready"
@@ -411,6 +426,7 @@ def _process_tree_checks(temporary: Path) -> None:
 
     def check_capture_start_failure(fail_at: int) -> None:
         launched_pids: list[int] = []
+        launched_processes: list[Any] = []
         original_start = LAB.threading.Thread.start
         capture_starts = 0
         original_create_descriptor: Any | None = None
@@ -429,6 +445,7 @@ def _process_tree_checks(temporary: Path) -> None:
                 del cls
                 process = original_create(command, cwd, environment)
                 launched_pids.append(process.pid)
+                launched_processes.append(process)
                 return process
 
             LAB._WindowsProcess.create_suspended = classmethod(tracked_create)
@@ -438,6 +455,7 @@ def _process_tree_checks(temporary: Path) -> None:
             def tracked_popen(*args: Any, **kwargs: Any) -> Any:
                 process = original_popen(*args, **kwargs)
                 launched_pids.append(process.pid)
+                launched_processes.append(process)
                 return process
 
             LAB.subprocess.Popen = tracked_popen
@@ -472,6 +490,14 @@ def _process_tree_checks(temporary: Path) -> None:
                 LAB.subprocess.Popen = original_popen
         assert "cleanup failed" not in diagnostic, diagnostic
         assert len(launched_pids) == 1, launched_pids
+        assert len(launched_processes) == 1
+        process = launched_processes[0]
+        # Prove explicit cleanup before collection can finalize Python wrappers.
+        assert process.stdout.closed and process.stderr.closed, "capture pipes were not closed"
+        if sys.platform == "win32":
+            assert process._process_handle is None and process._thread_handle is None, (
+                "launcher process/thread handles were not explicitly closed"
+            )
         _assert_pid_stopped(launched_pids[0], f"capture reader {fail_at} start failure")
         _assert_no_capture_threads(f"capture reader {fail_at} start failure")
         after_handles = _resource_handle_count()

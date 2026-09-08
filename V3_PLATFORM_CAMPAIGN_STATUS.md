@@ -699,3 +699,25 @@ statements above. Historical test results remain tied to their recorded heads.
   resource expressions) and `3940496147` (LLVM adoption length on 32-bit targets),
   plus refreshed worker-exception transport reports. These remain review work,
   not evidence that the original campaign or release gates are complete.
+
+### Windows capture-resource oracle follow-up
+
+- [x] Verify complete Linux and macOS shipping CI and the V4 matrix on
+  `c447c24` (shipping run `33965742817`). Windows controlled-linker tests pass;
+  the next failure is the performance capture-start resource-count assertion.
+- [x] Reproduce that failure on Windows Python 3.11.16: first-reader failure
+  reports 183 to 187 handles. Under the coordinated diagnostic lease, both
+  first/second reader failures retain four GC-managed handles: warmed baseline
+  180, uncollected 184, collected 180. Explicit process/thread/pipe closure and
+  child termination pass. A retained descriptor still increases the collected
+  count to 181. Launcher 23600 ended with `CHECK_EXIT=0` and mutex release.
+- [x] Prepare deterministic live-resource snapshots after cyclic collection,
+  with separate pre-collection explicit closure assertions and a live-descriptor
+  positive control. The strict no-increase threshold is unchanged.
+- [ ] Independently review and execute the corrected Python-only static gate
+  on Python 3.11 and 3.13, then obtain fresh hosted CI. No new compiler/runtime
+  success is claimed from these process-only diagnostics.
+- [ ] Triage refreshed review reports: loop-backedge consumption (`3940654138`),
+  native raw-NUL source rejection (`3940654141`), Windows character decoding
+  (`3940654145`), and CodeRabbit's owning-array borrowed-copy report in review
+  `5121263533`. Earlier open findings and campaign requirements remain pending.
