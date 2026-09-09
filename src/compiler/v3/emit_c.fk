@@ -190,6 +190,8 @@ task emit_c_borrowing_call(expr_id: word, func_name: word, args: word) -> void {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task c_map_call(val: word) -> word {
+    if val == "ByteBuffer::new" { give back "freak_byte_buffer_new" }
+    if val == "ByteBuffer::with_capacity" { give back "freak_byte_buffer_with_capacity" }
     if val == "say" { give back "freak_say" }
     if val == "ask" { give back "freak_ask" }
     if val == "word_from_int" { give back "freak_word_from_int" }
@@ -204,13 +206,27 @@ task c_map_call(val: word) -> word {
     if val == "array_len" { give back "freak_array_len" }
     if val == "array_release" { give back "freak_array_release_owned" }
     if val == "word_join" { give back "freak_word_join_owned" }
+    if val == "word_builder::new" { give back "freak_word_builder_new" }
+    if val == "word_builder::with_capacity" { give back "freak_word_builder_with_capacity" }
+    if val == "word_builder::reserve" { give back "freak_word_builder_reserve" }
+    if val == "word_builder::capacity" { give back "freak_word_builder_capacity" }
+    if val == "word_builder::length" { give back "freak_word_builder_length" }
+    if val == "word_builder::clear" { give back "freak_word_builder_clear" }
+    if val == "word_builder::append" { give back "freak_word_builder_append" }
+    if val == "word_builder::append_char" { give back "freak_word_builder_append_char" }
+    if val == "word_builder::append_int" { give back "freak_word_builder_append_int" }
+    if val == "word_builder::finish" { give back "freak_word_builder_finish" }
+    if val == "word_builder::discard" { give back "freak_word_builder_discard" }
     if val == "process::exit" { give back "freak_process_exit" }
     if val == "process::exec" { give back "freak_process_exec" }
     if val == "process::exec_capture" { give back "freak_process_exec_capture" }
     if val == "process::env" { give back "freak_process_env" }
+    if val == "process::set_env" { give back "freak_process_set_env" }
+    if val == "process::pid" { give back "freak_process_pid" }
     if val == "process::arg" { give back "freak_process_arg" }
     if val == "process::args_count" { give back "freak_process_args_count" }
     if val == "time::now_ms" { give back "freak_time_now_ms" }
+    if val == "time::monotonic_ns" { give back "freak_time_monotonic_ns" }
     if val == "panic" { give back "freak_panic" }
     if val == "fs::read" { give back "freak_fs_read" }
     if val == "fs::write" { give back "freak_fs_write" }
@@ -232,6 +248,8 @@ task c_map_call(val: word) -> word {
     if val == "ui::create_window" { give back "freak_ui_create_window_word" }
     if val == "ui::destroy_window" { give back "freak_ui_destroy_window" }
     if val == "ui::begin_frame" { give back "freak_ui_begin_frame" }
+    if val == "ui::set_clip" { give back "freak_ui_set_clip" }
+    if val == "ui::reset_clip" { give back "freak_ui_reset_clip" }
     if val == "ui::end_frame" { give back "freak_ui_end_frame" }
     if val == "ui::poll_events" { give back "freak_ui_poll_events" }
     if val == "ui::clear" { give back "freak_ui_clear" }
@@ -260,6 +278,17 @@ task c_map_call(val: word) -> word {
     if val == "tcp::recv" { give back "freak_tcp_recv" }
     if val == "tcp::recv_all" { give back "freak_tcp_recv_all" }
     if val == "tcp::close" { give back "freak_tcp_close" }
+    if val == "tcp::socket_connect" { give back "freak_tcp_socket_connect" }
+    if val == "tcp::socket_listen" { give back "freak_tcp_socket_listen" }
+    if val == "tcp::socket_accept" { give back "freak_tcp_socket_accept" }
+    if val == "tcp::socket_status" { give back "freak_tcp_socket_status" }
+    if val == "tcp::socket_eof" { give back "freak_tcp_socket_eof" }
+    if val == "tcp::socket_local_port" { give back "freak_tcp_socket_local_port" }
+    if val == "tcp::socket_send" { give back "freak_tcp_socket_send" }
+    if val == "tcp::socket_send_all" { give back "freak_tcp_socket_send_all" }
+    if val == "tcp::socket_receive" { give back "freak_tcp_socket_receive" }
+    if val == "tcp::socket_set_timeout" { give back "freak_tcp_socket_set_timeout" }
+    if val == "tcp::socket_close" { give back "freak_tcp_socket_close" }
     if val == "tcp_connect" { give back "freak_tcp_connect" }
     if val == "tcp_send" { give back "freak_tcp_send" }
     if val == "tcp_recv" { give back "freak_tcp_recv" }
@@ -516,6 +545,20 @@ task emit_c_method(expr_id: word, val: word, left: word, right: word) -> void {
     pilot receiver_type = emt_expr_type_code(left)
     pilot method_args = left
     if right != "" { method_args = method_args + "," + right }
+    if receiver_semantic_type == "ByteBuffer" {
+        if emt_args_have_owned_word_temporary(method_args) {
+            emit_c_borrowing_call(expr_id, "freak_byte_buffer_" + val, method_args)
+            give back
+        }
+        emit("freak_byte_buffer_" + val + "(")
+        emit_expr(left)
+        if right != "" {
+            emit(", ")
+            emit_args(right, false)
+        }
+        emit(")")
+        give back
+    }
     if val == "length" {
         if emt_args_have_owned_word_temporary(method_args) {
             emit_c_borrowing_call(expr_id, "freak_word_length", method_args)

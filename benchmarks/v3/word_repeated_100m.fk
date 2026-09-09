@@ -1,0 +1,8 @@
+task main() {
+    pilot mut count: int = 100000000
+    if process::args_count() > 1 { count = word_to_int(process::arg(1)) }
+    if count <= 0 or count > 100000000 { process::exit(2) }
+    pilot text = "x".repeated(count)
+    say text.length()
+    say text.checksum()
+}

@@ -836,6 +836,120 @@ task cli_clang_command_works(clang_cmd: word) -> bool {
     give back false
 }
 
+task cli_is_macos() -> bool {
+    if cli_is_windows() { give back false }
+    give back cli_first_line(process::exec_capture("uname -s 2>/dev/null")) == "Darwin"
+}
+
+task cli_lto_clang_flags(lto: word) -> word {
+    if lto == "thin" { give back " -flto=thin" }
+    if lto == "full" { give back " -flto=full" }
+    give back ""
+}
+
+task cli_lto_linker_flags(lto: word) -> word {
+    if lto == "off" { give back "" }
+    if cli_is_macos() { give back " -fuse-ld=ld" }
+    -- Use LLVM's linker when emitting LLVM bitcode. Apple Clang's native
+    -- linker supports LTO directly; Windows and ELF hosts select LLD.
+    give back " -fuse-ld=lld"
+}
+
+task cli_clang_target_triple(clang_cmd: word, cross: word) -> word {
+    if cross != "" { give back cross }
+    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
+    give back cli_first_line(process::exec_capture(clang_prefix + " -dumpmachine 2>&1")).trim()
+}
+
+task cli_trace_command_token(line: word) -> word {
+    pilot clean_line = line.trim()
+    if clean_line == "" { give back "" }
+    pilot token = ""
+    pilot quoted = clean_line.char_at(0) == "\""
+    pilot ti = 0
+    if quoted { ti = 1 }
+    pilot finished = false
+    repeat until finished {
+        if ti >= clean_line.length() {
+            finished = true
+        } else {
+            pilot ch = clean_line.char_at(ti)
+            if quoted and ch == "\"" {
+                finished = true
+            } else if not quoted and (ch == " " or ch == "\t") {
+                finished = true
+            } else {
+                token = token + ch
+            }
+        }
+        ti += 1
+    }
+    -- Clang's Windows -### rendering escapes path separators for display.
+    give back token.replace("\\\\", "\\")
+}
+
+task cli_trace_command_is_linker(command: word) -> bool {
+    if command == "" { give back false }
+    pilot normalized = command.replace("\\", "/").to_lower()
+    pilot leaf = cli_posix_path_leaf(normalized)
+    if leaf == "ld" or leaf == "ld.exe" or leaf == "link" or leaf == "link.exe" { give back true }
+    if leaf == "ld.lld" or leaf == "ld.lld.exe" or leaf == "lld-link" or leaf == "lld-link.exe" { give back true }
+    if leaf == "ld64" or leaf == "ld64.lld" or leaf == "mold" or leaf == "mold.exe" { give back true }
+    if leaf == "ld.bfd" or leaf == "ld.gold" or leaf.ends_with("-ld") or leaf.ends_with("-ld.exe") { give back true }
+    give back false
+}
+
+task cli_linker_command_from_trace(trace: word) -> word {
+    pilot line = ""
+    pilot ti = 0
+    repeat until ti > trace.length() {
+        pilot at_end = ti == trace.length()
+        pilot ch = "\n"
+        if not at_end { ch = trace.char_at(ti) }
+        if ch == "\n" or ch == "\r" {
+            pilot command = cli_trace_command_token(line)
+            if cli_trace_command_is_linker(command) {
+                if cli_is_windows() and not fs::exists(command) and fs::exists(command + ".exe") {
+                    command = command + ".exe"
+                }
+                give back cli_normalize_cmd_override(command)
+            }
+            line = ""
+        } else {
+            line = line + ch
+        }
+        ti += 1
+    }
+    give back ""
+}
+
+task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> word {
+    -- Ask the selected driver for the exact link command. Target-name guesses
+    -- are not sufficient: upstream Windows Clang, LLVM-MinGW, Apple Clang, and
+    -- distro Clang may select different linkers for the same broad family.
+    if clang_cmd == "" or not cli_cross_target_is_safe(cross) { give back "" }
+    pilot null_input = "/dev/null"
+    pilot null_output = "/dev/null"
+    if cli_is_windows() {
+        null_input = "nul"
+        null_output = "nul"
+    }
+    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
+    pilot trace_cmd = clang_prefix + " -### -x c " + null_input + " -o " + null_output
+    trace_cmd = trace_cmd + cli_lto_clang_flags(lto) + cli_lto_linker_flags(lto)
+    if cross != "" { trace_cmd = trace_cmd + " --target=" + cli_quote_cmd_path(cross) }
+    pilot trace = process::exec_capture(trace_cmd + " 2>&1")
+    give back cli_linker_command_from_trace(trace)
+}
+
+task cli_runtime_link_plan(runtime_dir: word, lto: word, cross: word) -> word {
+    pilot runtime_obj_ext = cli_precompiled_runtime_extension(runtime_dir)
+    if cli_is_windows() and cross == "" and lto == "off" and runtime_obj_ext != "" {
+        give back "bundle"
+    }
+    give back "source"
+}
+
 task cli_precompiled_runtime_extension(runtime_dir: word) -> word {
     -- Current Windows archives use .obj. Accept the older COFF .o spelling so
     -- v0.14 installations can take the same driver-linked fast path.
@@ -852,7 +966,7 @@ task cli_has_precompiled_runtime(runtime_dir: word) -> bool {
     give back cli_precompiled_runtime_extension(runtime_dir) != ""
 }
 
-task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: word, cross: word) -> word {
+task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: word, lto: word, cross: word) -> word {
     -- Compile the transpiled .c or .ll file into a native binary.
     -- Returns the output binary path, or "" on error.
 
@@ -881,7 +995,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     -- only for a native Windows build and keep final CRT/SDK selection under
     -- the same Clang driver that links source fallback builds. POSIX and cross
     -- builds continue through sources; raw ld.lld linking stays disabled.
-    pilot use_bundle = is_win and cross == "" and runtime_obj_ext != ""
+    pilot use_bundle = cli_runtime_link_plan(runtime_dir, lto, cross) == "bundle"
 
     if not cli_cross_target_is_safe(cross) {
         say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- invalid target triple" + C_RESET
@@ -947,6 +1061,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
     pilot cmd = clang_prefix + " -g -o " + cli_quote_cmd_path(out_bin) + " " + cli_quote_cmd_path(transpiled_file) + " " + runtime_file
     cmd = cmd + " -I" + cli_quote_cmd_path(runtime_dir) + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
+    cmd = cmd + cli_lto_clang_flags(lto) + cli_lto_linker_flags(lto)
 
     if not is_win {
         cmd = cmd + " -lm"
@@ -975,6 +1090,10 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     if exit_code != 0 {
         say ""
         say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- clang compilation error" + C_RESET
+        if lto != "off" {
+            say C_BRED + "  LTO BUILD FAILED" + C_RESET + C_RED + " -- selected Clang/linker rejected " + lto + " LTO" + C_RESET
+            say C_DIM + "  No non-LTO fallback was attempted. Use --lto=off explicitly or repair the LLVM linker." + C_RESET
+        }
         say ""
         say C_DIM + "  Make sure clang is installed and in your PATH:" + C_RESET
         say "    Windows: " + C_CYAN + "winget install --id MartinStorsjo.LLVM-MinGW.UCRT -e" + C_RESET
@@ -1019,6 +1138,114 @@ task cli_payload_abi_ok(runtime_dir: word, std_dir: word) -> bool {
     pilot runtime_abi = cli_payload_abi_value(runtime_dir)
     pilot std_abi = cli_payload_abi_value(std_dir)
     give back runtime_abi == FREAK_V3_ABI and std_abi == FREAK_V3_ABI
+}
+
+task cli_payload_runtime_api_value(runtime_dir: word) -> word {
+    if runtime_dir == "" { give back "missing" }
+    if cli_payload_is_resolution_error(runtime_dir) { give back "resolution-error" }
+    pilot marker = runtime_dir + "/freak_runtime_api"
+    if not fs::exists(marker) { give back "missing" }
+    give back fs::read(marker).trim()
+}
+
+task cli_payload_runtime_api_ok(runtime_dir: word) -> bool {
+    give back cli_payload_runtime_api_value(runtime_dir) == FREAK_V3_RUNTIME_API
+}
+
+-- Marker transport is ASCII hex, never raw process output: Windows text-mode
+-- capture treats Ctrl-Z as EOF. Bound both the binary read and decoded marker
+-- to 4096 bytes, and require a complete success frame before trusting any byte.
+task cli_std_marker_path_hex(path: word) -> word {
+    pilot bytes = ByteBuffer::new()
+    bytes.write_word(path)
+    bytes.seek(0)
+    pilot digits = "0123456789abcdef"
+    pilot encoded = ""
+    repeat until bytes.remaining() == 0 {
+        pilot value = bytes.read_byte()
+        encoded = encoded + digits.char_at(value / 16) + digits.char_at(value % 16)
+    }
+    bytes.release()
+    give back encoded
+}
+
+task cli_std_marker_hex_digit(ch: word) -> int {
+    pilot digits = "0123456789abcdef"
+    pilot lower = ch.to_lower()
+    pilot i = 0
+    repeat until i >= 16 {
+        if digits.char_at(i) == lower { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task cli_std_marker_decode(frame: word) -> word {
+    if frame == "" or frame == "FREAK_STD_UNREADABLE" { give back "unreadable" }
+    if frame.length() > 16432 { give back "oversized-marker" }
+    if not frame.starts_with("FREAK_STD_HEX:") or not frame.ends_with(":END") { give back "invalid-marker" }
+    pilot contents = ""
+    pilot high = 0 - 1
+    pilot count = 0
+    pilot invalid = false
+    pilot i = 14
+    repeat until i >= frame.length() - 4 {
+        pilot ch = frame.char_at(i)
+        if ch != " " and ch != "\t" and ch != "\r" and ch != "\n" {
+            pilot digit = cli_std_marker_hex_digit(ch)
+            if digit < 0 { give back "invalid-marker" }
+            if high < 0 {
+                high = digit
+            } else {
+                pilot value = high * 16 + digit
+                high = 0 - 1
+                count += 1
+                if count > 4096 { give back "oversized-marker" }
+                if (value < 32 and value != 9 and value != 10 and value != 13) or value > 126 {
+                    invalid = true
+                } else {
+                    contents = contents + char_to_word(value)
+                }
+            }
+        } else if high >= 0 { give back "invalid-marker" }
+        i += 1
+    }
+    if high >= 0 or invalid { give back "invalid-marker" }
+    if count == 0 { give back "unreadable" }
+    contents = contents.trim()
+    -- Only edge whitespace is accepted. Interior controls are not valid
+    -- capability tokens and must never reach Doctor's JSON diagnostics.
+    if contents.contains("\t") or contents.contains("\r") or contents.contains("\n") { give back "invalid-marker" }
+    give back contents
+}
+
+task cli_payload_std_api_value(std_dir: word) -> word {
+    if std_dir == "" { give back "missing" }
+    if cli_payload_is_resolution_error(std_dir) { give back "resolution-error" }
+    pilot marker = std_dir + "/freak_std_api"
+    if not fs::exists(marker) { give back "missing" }
+    -- fs::read aborts the process on read errors, which would prevent Doctor
+    -- from emitting JSON or reaching repair for a damaged selected payload.
+    -- Read through a nonfatal operation; never fall back to another payload.
+    pilot quoted = cli_quote_cmd_path(marker)
+    -- BSD od can pad hex columns beyond the frame-size bound. Remove only
+    -- formatting whitespace after od succeeds; encoded marker bytes (including
+    -- controls) remain hex pairs. Keep od outside the pipe so errors cannot be
+    -- hidden by a successful tr, and emit the success frame only after both.
+    pilot command = "if [ -f " + quoted + " ] && [ -r " + quoted + " ]; then bytes=$(LC_ALL=C od -An -v -tx1 -N 4097 2>/dev/null < " + quoted + ") && bytes=$(printf '%s' \"$bytes\" | LC_ALL=C tr -d '[:space:]') && printf 'FREAK_STD_HEX:%s:END' \"$bytes\"; fi"
+    if cli_is_windows() {
+        -- Encode the path independently so %, &, quotes and apostrophes never
+        -- become shell/PowerShell syntax. A bounded stream also avoids a
+        -- size-check/ReadAllBytes race with a concurrently growing marker.
+        pilot path_hex = cli_std_marker_path_hex(marker.replace("/", "\\"))
+        pilot script = "$h='" + path_hex + "';$pbytes=New-Object byte[] ($h.Length/2);for($i=0;$i -lt $pbytes.Length;$i++){$pbytes[$i]=[Convert]::ToByte($h.Substring($i*2,2),16)};$p=[Text.Encoding]::UTF8.GetString($pbytes);try{$s=[IO.File]::OpenRead($p);try{$b=New-Object byte[] 4097;$n=0;while($n -lt 4097){$r=$s.Read($b,$n,4097-$n);if($r -eq 0){break};$n+=$r}}finally{$s.Dispose()};[Console]::Write('FREAK_STD_HEX:'+([BitConverter]::ToString($b,0,$n).Replace('-',''))+':END')}catch{[Console]::Write('FREAK_STD_UNREADABLE')}"
+        command = "powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"" + script + "\" 2>nul"
+    }
+    give back cli_std_marker_decode(process::exec_capture(command))
+}
+
+task cli_payload_std_api_ok(std_dir: word) -> bool {
+    give back cli_payload_std_api_value(std_dir) == FREAK_V3_STD_API
 }
 
 task cli_pending_upgrade_marker() -> word {
@@ -1078,6 +1305,24 @@ task cli_build_environment_ready() -> bool {
         say C_DIM + "  Runtime reports: " + cli_payload_abi_value(runtime_dir) + C_RESET
         say C_DIM + "  Standard library reports: " + cli_payload_abi_value(std_dir) + C_RESET
         say C_DIM + "  Reinstall or run 'freak upgrade' so compiler, runtime, and stdlib agree." + C_RESET
+        say ""
+        give back false
+    }
+    if not cli_payload_runtime_api_ok(runtime_dir) {
+        say ""
+        say C_BRED + "  RUNTIME API MISMATCH" + C_RESET
+        say C_DIM + "  Compiler requires: " + FREAK_V3_RUNTIME_API + C_RESET
+        say C_DIM + "  Runtime reports: " + cli_payload_runtime_api_value(runtime_dir) + C_RESET
+        say C_DIM + "  Reinstall or run 'freak upgrade' so the runtime supports this compiler." + C_RESET
+        say ""
+        give back false
+    }
+    if not cli_payload_std_api_ok(std_dir) {
+        say ""
+        say C_BRED + "  STDLIB API MISMATCH" + C_RESET
+        say C_DIM + "  Compiler requires: " + FREAK_V3_STD_API + C_RESET
+        say C_DIM + "  Standard library reports: " + cli_payload_std_api_value(std_dir) + C_RESET
+        say C_DIM + "  Reinstall or run 'freak upgrade' so the standard library supports this compiler." + C_RESET
         say ""
         give back false
     }
@@ -1181,7 +1426,7 @@ task cli_load_std(source: word, target: word) -> word {
     give back std_src
 }
 
-task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
+task cli_build_profile(src_file: word, target: word, profile: word, opt: word, lto: word, runtime_policy: word, runtime_stats: word, cross: word) -> word {
     -- Full build pipeline: read source, transpile, compile.
     -- Returns the output binary path, or "" on error.
     cli_build_start_ms = time::now_ms()
@@ -1204,10 +1449,15 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     -- Build header with box
     pilot backend_label = "LLVM IR"
     if target == "c" { backend_label = "C" }
+    pilot profile_label = "O" + opt
+    if profile == "plus03" { profile_label = "+03 — FINAL FORM" }
     say ""
     say cli_box_top(45)
     say cli_box_mid(" " + C_G1 + SYM_BOLT + " FREAK" + C_RESET + "  " + C_BWHITE + src_file + C_RESET, 45)
-    say cli_box_mid(" " + C_DIM + "  Backend: " + C_RESET + C_BCYAN + backend_label + C_RESET + C_DIM + "  Opt: -O" + opt + C_RESET, 45)
+    say cli_box_mid(" " + C_DIM + "  Backend: " + C_RESET + C_BCYAN + backend_label + C_RESET + C_DIM + "  Profile: " + profile_label + C_RESET, 45)
+    if lto != "off" {
+        say cli_box_mid(" " + C_DIM + "  LTO: " + lto + "  Runtime: " + runtime_policy + C_RESET, 45)
+    }
     say cli_box_bot(45)
     say ""
 
@@ -1237,7 +1487,7 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     }
 
     cli_step_start()
-    pilot binary: word = cli_build_binary(transpiled, src_file, target, opt, cross)
+    pilot binary: word = cli_build_binary(transpiled, src_file, target, opt, lto, cross)
     if binary == "" {
         say ""
         say "  " + C_BRED + SYM_SKULL + " BUILD FAILED" + C_RESET
@@ -1262,4 +1512,10 @@ task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
     say ""
 
     give back binary
+}
+
+task cli_build(src_file: word, target: word, opt: word, cross: word) -> word {
+    -- Compatibility entry point for internal probes such as `freak doctor`.
+    -- Public build/run commands always pass the complete canonical profile.
+    give back cli_build_profile(src_file, target, "o" + opt, opt, "off", "default", "off", cross)
 }

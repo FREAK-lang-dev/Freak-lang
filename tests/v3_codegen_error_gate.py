@@ -1023,9 +1023,11 @@ def main() -> int:
             'task main() { freak_internal_delete_file_checked("must-not-map") }\n',
             encoding="utf-8",
         )
-        forged_check = run(
-            freak, repo, forged_aggregate, "check", "--compiler-internal"
-        )
+        # There is deliberately no source-selectable compiler-internal mode.
+        # The forged aggregate must be rejected from ordinary project-source
+        # provenance, without relying on an unknown flag that the CLI used to
+        # ignore.
+        forged_check = run(freak, repo, forged_aggregate, "check")
         assert_check_rejected(forged_check, "forged compiler aggregate check")
         assert "conflicts with a compiler builtin" in (
             forged_check.stdout + forged_check.stderr
@@ -1042,7 +1044,6 @@ def main() -> int:
                 forged_aggregate,
                 "transpile",
                 flag,
-                "--compiler-internal",
                 timeout=10,
             )
             assert_rejected(forged_emit, f"{backend} forged compiler aggregate")
@@ -1059,7 +1060,6 @@ def main() -> int:
                     repo,
                     str(forged_aggregate),
                     flag,
-                    "--compiler-internal",
                 )
                 forged_output = forged_direct.stdout + forged_direct.stderr
                 assert forged_direct.returncode != 0, forged_output

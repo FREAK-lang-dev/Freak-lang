@@ -1,0 +1,309 @@
+-- ===================================================================
+-- freak_target - canonical V4 release-target contracts
+-- ===================================================================
+-- Target records are explicit compiler inputs. This crate performs no
+-- host, environment, filesystem, source, layout, ABI-classification, or
+-- backend probing. Unknown triples and calling conventions fail closed.
+
+pilot v4_target_wire_format = "freak-target-spec-v1"
+pilot v4_target_tag_spec = "TargetSpec"
+-- The four canonical v1 records fit within this fixed admission budget.
+-- Bound framed input before loops: bootstrap LLVM word access may scan bytes.
+pilot v4_target_record_max_bytes = 512
+
+pilot v4_target_triple_linux_x86_64 = "x86_64-unknown-linux-gnu"
+pilot v4_target_triple_linux_aarch64 = "aarch64-unknown-linux-gnu"
+pilot v4_target_triple_macos_aarch64 = "aarch64-apple-darwin"
+pilot v4_target_triple_windows_x86_64 = "x86_64-w64-windows-gnu"
+
+pilot v4_target_arch_x86_64 = "x86_64"
+pilot v4_target_arch_aarch64 = "aarch64"
+
+pilot v4_target_os_linux = "linux"
+pilot v4_target_os_macos = "macos"
+pilot v4_target_os_windows = "windows"
+
+pilot v4_target_environment_gnu = "gnu"
+pilot v4_target_environment_darwin = "darwin"
+
+pilot v4_target_endian_little = "little"
+
+pilot v4_target_c_data_model_lp64 = "lp64"
+pilot v4_target_c_data_model_llp64 = "llp64"
+
+pilot v4_target_object_format_elf = "elf"
+pilot v4_target_object_format_macho = "mach-o"
+pilot v4_target_object_format_coff = "coff"
+
+pilot v4_target_cc_c = "C"
+pilot v4_target_cc_cdecl = "cdecl"
+pilot v4_target_cc_system = "system"
+pilot v4_target_cc_sysv64 = "sysv64"
+pilot v4_target_cc_win64 = "win64"
+pilot v4_target_cc_vectorcall = "vectorcall"
+
+pilot v4_target_link_clang_gnu = "clang-driver-gnu"
+pilot v4_target_link_clang_darwin = "clang-driver-darwin"
+pilot v4_target_link_clang_ucrt = "clang-driver-ucrt"
+
+pilot v4_target_entry_posix_main = "posix-main"
+pilot v4_target_entry_darwin_main = "darwin-main"
+pilot v4_target_entry_ucrt_main = "ucrt-main"
+
+task v4_target_pack_field(field: word) -> word {
+    give back word_from_int(field.length()) + ":" + field
+}
+
+task v4_target_decimal_digit(ch: word) -> int {
+    if ch == "0" { give back 0 }
+    if ch == "1" { give back 1 }
+    if ch == "2" { give back 2 }
+    if ch == "3" { give back 3 }
+    if ch == "4" { give back 4 }
+    if ch == "5" { give back 5 }
+    if ch == "6" { give back 6 }
+    if ch == "7" { give back 7 }
+    if ch == "8" { give back 8 }
+    if ch == "9" { give back 9 }
+    give back 0 - 1
+}
+
+task v4_target_slice(text: word, start_pos: int, end_pos: int) -> word {
+    pilot start = start_pos
+    if start < 0 { start = 0 }
+    pilot limit = end_pos
+    if limit > text.length() { limit = text.length() }
+    if limit <= start { give back "" }
+    give back text.substring(start, limit - start)
+}
+
+task v4_target_index_of_from(text: word, needle: word, start_pos: int) -> int {
+    pilot i = start_pos
+    repeat until i >= text.length() {
+        if text.char_at(i) == needle { give back i }
+        i += 1
+    }
+    give back 0 - 1
+}
+
+task v4_target_nonnegative_int_range(text: word, start_pos: int, end_pos: int) -> int {
+    if start_pos < 0 or end_pos > text.length() or start_pos >= end_pos {
+        give back 0 - 1
+    }
+    pilot value = 0
+    pilot i = start_pos
+    repeat until i >= end_pos {
+        pilot digit = v4_target_decimal_digit(text.char_at(i))
+        if digit < 0 { give back 0 - 1 }
+        if value > 922337203685477580 { give back 0 - 1 }
+        if value == 922337203685477580 and digit > 7 { give back 0 - 1 }
+        value = value * 10 + digit
+        i += 1
+    }
+    give back value
+}
+
+task v4_target_field_count(record: word) -> int {
+    if record.length() > v4_target_record_max_bytes { give back 0 - 1 }
+    pilot count = 0
+    pilot cursor = 0
+    repeat until cursor >= record.length() {
+        pilot colon = v4_target_index_of_from(record, ":", cursor)
+        if colon < cursor { give back 0 - 1 }
+        pilot field_len = v4_target_nonnegative_int_range(record, cursor, colon)
+        if field_len < 0 { give back 0 - 1 }
+        pilot field_start = colon + 1
+        if field_len > record.length() - field_start { give back 0 - 1 }
+        cursor = field_start + field_len
+        count += 1
+    }
+    if cursor != record.length() { give back 0 - 1 }
+    give back count
+}
+
+task v4_target_field(record: word, wanted: int) -> word {
+    if record.length() > v4_target_record_max_bytes { give back "" }
+    if wanted < 0 { give back "" }
+    pilot field_id = 0
+    pilot cursor = 0
+    repeat until cursor >= record.length() {
+        pilot colon = v4_target_index_of_from(record, ":", cursor)
+        if colon < cursor { give back "" }
+        pilot field_len = v4_target_nonnegative_int_range(record, cursor, colon)
+        if field_len < 0 { give back "" }
+        pilot field_start = colon + 1
+        if field_len > record.length() - field_start { give back "" }
+        pilot field_end = field_start + field_len
+        if field_id == wanted {
+            give back v4_target_slice(record, field_start, field_end)
+        }
+        cursor = field_end
+        field_id += 1
+    }
+    give back ""
+}
+
+-- Raw encoder used by the four canonical constructors and validation tests.
+-- Consumers should call v4_target_spec_new rather than construct records.
+task v4_target_spec_record(triple: word, arch: word, os: word, environment: word, pointer_width: int, endianness: word, c_data_model: word, object_format: word, calling_conventions: word, executable_prefix: word, executable_suffix: word, object_prefix: word, object_suffix: word, link_policy: word, entry_policy: word) -> word {
+    pilot record = v4_target_pack_field(v4_target_tag_spec)
+    record = record + v4_target_pack_field(v4_target_wire_format)
+    record = record + v4_target_pack_field(triple)
+    record = record + v4_target_pack_field(arch)
+    record = record + v4_target_pack_field(os)
+    record = record + v4_target_pack_field(environment)
+    record = record + v4_target_pack_field(word_from_int(pointer_width))
+    record = record + v4_target_pack_field(endianness)
+    record = record + v4_target_pack_field(c_data_model)
+    record = record + v4_target_pack_field(object_format)
+    record = record + v4_target_pack_field(calling_conventions)
+    record = record + v4_target_pack_field(executable_prefix)
+    record = record + v4_target_pack_field(executable_suffix)
+    record = record + v4_target_pack_field(object_prefix)
+    record = record + v4_target_pack_field(object_suffix)
+    record = record + v4_target_pack_field(link_policy)
+    give back record + v4_target_pack_field(entry_policy)
+}
+
+task v4_target_normalize_triple(triple: word) -> word {
+    if triple == v4_target_triple_linux_x86_64 { give back triple }
+    if triple == v4_target_triple_linux_aarch64 { give back triple }
+    if triple == v4_target_triple_macos_aarch64 { give back triple }
+    if triple == v4_target_triple_windows_x86_64 { give back triple }
+    -- Release slugs, architecture aliases, case variants, and unknown
+    -- triples are deliberately not guessed by the target authority.
+    give back ""
+}
+
+task v4_target_spec_new(triple: word) -> word {
+    pilot canonical = v4_target_normalize_triple(triple)
+    if canonical == v4_target_triple_linux_x86_64 {
+        give back v4_target_spec_record(canonical, v4_target_arch_x86_64, v4_target_os_linux, v4_target_environment_gnu, 64, v4_target_endian_little, v4_target_c_data_model_lp64, v4_target_object_format_elf, "C,cdecl,system,sysv64", "", "", "", ".o", v4_target_link_clang_gnu, v4_target_entry_posix_main)
+    }
+    if canonical == v4_target_triple_linux_aarch64 {
+        give back v4_target_spec_record(canonical, v4_target_arch_aarch64, v4_target_os_linux, v4_target_environment_gnu, 64, v4_target_endian_little, v4_target_c_data_model_lp64, v4_target_object_format_elf, "C,cdecl,system", "", "", "", ".o", v4_target_link_clang_gnu, v4_target_entry_posix_main)
+    }
+    if canonical == v4_target_triple_macos_aarch64 {
+        give back v4_target_spec_record(canonical, v4_target_arch_aarch64, v4_target_os_macos, v4_target_environment_darwin, 64, v4_target_endian_little, v4_target_c_data_model_lp64, v4_target_object_format_macho, "C,cdecl,system", "", "", "", ".o", v4_target_link_clang_darwin, v4_target_entry_darwin_main)
+    }
+    if canonical == v4_target_triple_windows_x86_64 {
+        give back v4_target_spec_record(canonical, v4_target_arch_x86_64, v4_target_os_windows, v4_target_environment_gnu, 64, v4_target_endian_little, v4_target_c_data_model_llp64, v4_target_object_format_coff, "C,cdecl,system,win64,vectorcall", "", ".exe", "", ".obj", v4_target_link_clang_ucrt, v4_target_entry_ucrt_main)
+    }
+    give back ""
+}
+
+task v4_target_spec_valid(target_spec: word) -> bool {
+    if target_spec.length() > v4_target_record_max_bytes { give back false }
+    if v4_target_field_count(target_spec) != 17 { give back false }
+    if v4_target_field(target_spec, 0) != v4_target_tag_spec { give back false }
+    if v4_target_field(target_spec, 1) != v4_target_wire_format { give back false }
+    pilot canonical = v4_target_spec_new(v4_target_field(target_spec, 2))
+    give back canonical != "" and canonical == target_spec
+}
+
+task v4_target_spec_encode(target_spec: word) -> word {
+    if not v4_target_spec_valid(target_spec) { give back "" }
+    give back target_spec
+}
+
+task v4_target_spec_decode(record: word) -> word {
+    if not v4_target_spec_valid(record) { give back "" }
+    give back record
+}
+
+task v4_target_spec_count() -> int {
+    give back 4
+}
+
+task v4_target_spec_at(target_id: int) -> word {
+    if target_id == 0 { give back v4_target_spec_new(v4_target_triple_linux_x86_64) }
+    if target_id == 1 { give back v4_target_spec_new(v4_target_triple_linux_aarch64) }
+    if target_id == 2 { give back v4_target_spec_new(v4_target_triple_macos_aarch64) }
+    if target_id == 3 { give back v4_target_spec_new(v4_target_triple_windows_x86_64) }
+    give back ""
+}
+
+task v4_target_spec_value(target_spec: word, field_id: int) -> word {
+    if not v4_target_spec_valid(target_spec) { give back "" }
+    give back v4_target_field(target_spec, field_id)
+}
+
+task v4_target_spec_triple(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 2) }
+task v4_target_spec_arch(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 3) }
+task v4_target_spec_os(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 4) }
+task v4_target_spec_environment(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 5) }
+task v4_target_spec_endianness(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 7) }
+task v4_target_spec_c_data_model(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 8) }
+task v4_target_spec_object_format(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 9) }
+task v4_target_spec_calling_conventions(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 10) }
+task v4_target_spec_executable_prefix(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 11) }
+task v4_target_spec_executable_suffix(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 12) }
+task v4_target_spec_object_prefix(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 13) }
+task v4_target_spec_object_suffix(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 14) }
+task v4_target_spec_link_policy(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 15) }
+task v4_target_spec_entry_policy(target_spec: word) -> word { give back v4_target_spec_value(target_spec, 16) }
+
+task v4_target_spec_pointer_width(target_spec: word) -> int {
+    pilot field = v4_target_spec_value(target_spec, 6)
+    if field == "" { give back 0 - 1 }
+    give back v4_target_nonnegative_int_range(field, 0, field.length())
+}
+
+task v4_target_release_name(target_spec: word) -> word {
+    pilot triple = v4_target_spec_triple(target_spec)
+    if triple == v4_target_triple_linux_x86_64 { give back "linux-x64" }
+    if triple == v4_target_triple_linux_aarch64 { give back "linux-arm64" }
+    if triple == v4_target_triple_macos_aarch64 { give back "macos-arm64" }
+    if triple == v4_target_triple_windows_x86_64 { give back "windows-x64" }
+    give back ""
+}
+
+task v4_target_executable_name(target_spec: word, stem: word) -> word {
+    if not v4_target_spec_valid(target_spec) or stem == "" { give back "" }
+    give back v4_target_spec_executable_prefix(target_spec) + stem + v4_target_spec_executable_suffix(target_spec)
+}
+
+task v4_target_object_name(target_spec: word, stem: word) -> word {
+    if not v4_target_spec_valid(target_spec) or stem == "" { give back "" }
+    give back v4_target_spec_object_prefix(target_spec) + stem + v4_target_spec_object_suffix(target_spec)
+}
+
+task v4_target_calling_convention_supported(target_spec: word, calling_convention: word) -> bool {
+    if not v4_target_spec_valid(target_spec) { give back false }
+    pilot triple = v4_target_spec_triple(target_spec)
+    if calling_convention == v4_target_cc_c or calling_convention == v4_target_cc_cdecl or calling_convention == v4_target_cc_system {
+        give back true
+    }
+    if triple == v4_target_triple_linux_x86_64 {
+        give back calling_convention == v4_target_cc_sysv64
+    }
+    if triple == v4_target_triple_windows_x86_64 {
+        give back calling_convention == v4_target_cc_win64 or calling_convention == v4_target_cc_vectorcall
+    }
+    give back false
+}
+
+task v4_target_summary_empty(value: word) -> word {
+    if value == "" { give back "<none>" }
+    give back value
+}
+
+task v4_target_spec_summary(target_spec: word) -> word {
+    if not v4_target_spec_valid(target_spec) { give back "target-invalid" }
+    pilot summary = "target triple=" + v4_target_spec_triple(target_spec)
+    summary = summary + " release=" + v4_target_release_name(target_spec)
+    summary = summary + " arch=" + v4_target_spec_arch(target_spec)
+    summary = summary + " os=" + v4_target_spec_os(target_spec)
+    summary = summary + " env=" + v4_target_spec_environment(target_spec)
+    summary = summary + " pointer=" + word_from_int(v4_target_spec_pointer_width(target_spec))
+    summary = summary + " endian=" + v4_target_spec_endianness(target_spec)
+    summary = summary + " c-model=" + v4_target_spec_c_data_model(target_spec)
+    summary = summary + " object=" + v4_target_spec_object_format(target_spec)
+    summary = summary + " ccs=" + v4_target_spec_calling_conventions(target_spec)
+    summary = summary + " exe-prefix=" + v4_target_summary_empty(v4_target_spec_executable_prefix(target_spec))
+    summary = summary + " exe-suffix=" + v4_target_summary_empty(v4_target_spec_executable_suffix(target_spec))
+    summary = summary + " object-prefix=" + v4_target_summary_empty(v4_target_spec_object_prefix(target_spec))
+    summary = summary + " object-suffix=" + v4_target_spec_object_suffix(target_spec)
+    summary = summary + " link=" + v4_target_spec_link_policy(target_spec)
+    give back summary + " entry=" + v4_target_spec_entry_policy(target_spec)
+}
