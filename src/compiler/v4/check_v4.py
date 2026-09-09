@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -22,6 +23,7 @@ CRATE_ORDER = [
     "freak_arena",
     "freak_intern",
     "freak_session",
+    "freak_target",
     "freak_lex",
     "freak_parse",
     "freak_expand",
@@ -29,6 +31,7 @@ CRATE_ORDER = [
     "freak_resolve",
     "freak_ty",
     "freak_mir",
+    "freak_mir_build",
     "freak_borrowck",
     "freak_codegen_llvm",
     "freak_query",
@@ -244,6 +247,17 @@ CRATE_BOUNDARY_REQUIRED = {
         ("expanded lowering", "task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {"),
         ("compatibility path expands first", "pilot expansion_id = v4_expand_identity(file_id, tree_id)"),
     ],
+    "freak_mir": [
+        ("representation ownership comment", "-- freak_mir - persistent V4 Built-MIR representation"),
+        ("explicit-scope local primitive", "task v4_mir_add_local_at_scope("),
+        ("snapshot v5 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v5"'),
+    ],
+    "freak_mir_build": [
+        ("construction ownership comment", "-- freak_mir_build - stateless V4 HIR+TY to Built-MIR construction"),
+        ("builder scratch initialization", "task v4_mir_build_init() -> void {"),
+        ("public MIR lowering entrypoint", "task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {"),
+        ("scope-aware local wrapper", "task v4_mir_add_local("),
+    ],
     "freak_driver": [
         ("driver ownership comment", "-- freak_driver - early V4 driver facade"),
         ("core diagnostics query", "task v4_diagnostics_text_cached(path: word, text: word) -> int {"),
@@ -340,6 +354,25 @@ CRATE_BOUNDARY_FORBIDDEN = {
     "freak_hir": [
         ("direct parse access", "v4_parse_"),
     ],
+    "freak_mir": [
+        ("lexer access", "v4_lex_"),
+        ("parser access", "v4_parse_"),
+        ("HIR access", "v4_hir_"),
+        ("resolve access", "v4_resolve_"),
+        ("token type reconstruction", "v4_ty_type_text"),
+        ("source lowering definition", "task v4_mir_lower_"),
+    ],
+    "freak_mir_build": [
+        ("persistent file arena", "pilot v4_mir_files ="),
+        ("persistent body arenas", "pilot v4_mir_body_"),
+        ("persistent diagnostic arena", "pilot v4_mir_diags ="),
+        ("snapshot implementation", "task v4_mir_snapshot_"),
+        ("restore implementation", "task v4_mir_restore_"),
+        ("query ownership", "task v4_query_"),
+        ("driver ownership", "task v4_driver_"),
+        ("borrow-check ownership", "task v4_borrowck_"),
+        ("codegen ownership", "task v4_codegen_"),
+    ],
     "freak_driver": [
         ("semantic fact arena", "pilot v4_editor_sem_paths = 0"),
         ("hover fact arena", "pilot v4_editor_hover_paths = 0"),
@@ -424,6 +457,96 @@ MACRO_IMPLEMENTATION_INTERNAL_MARKERS = [
     "v4_macro_host_",
     "v4_macro_runtime_",
 ]
+
+# The mechanical split leaves a bounded source-facing compatibility surface in
+# freak_mir_build. This is an exact, shrinking allowlist: additions and removals
+# both fail the boundary check until the list is deliberately reviewed.
+MIR_BUILD_TRANSITIONAL_DIRECT_DEPENDENCIES = {
+    "span": (
+        r"\bv4_span_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_span_end",
+                "v4_span_file",
+                "v4_span_new",
+                "v4_span_start",
+            }
+        ),
+    ),
+    "diagnostic": (
+        r"\bv4_diag_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_diag_error",
+                "v4_diag_new",
+                "v4_diag_part",
+                "v4_diag_warning",
+            }
+        ),
+    ),
+    "lexer": (
+        r"\bv4_lex_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_lex_is_bool_word",
+                "v4_lex_is_digit",
+                "v4_lex_is_ident_continue",
+                "v4_lex_is_ident_start",
+                "v4_lex_token_count",
+                "v4_lex_token_span",
+                "v4_lex_token_type",
+                "v4_lex_token_value",
+            }
+        ),
+    ),
+    "parser": (
+        r"\bv4_parse_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_parse_closure_close_pipe",
+                "v4_parse_node_span",
+                "v4_parse_stream_id",
+            }
+        ),
+    ),
+    "token kind": (
+        r"\bv4_tok_[A-Za-z0-9_]+\b",
+        frozenset(
+            {
+                "v4_tok_bool",
+                "v4_tok_char",
+                "v4_tok_float",
+                "v4_tok_ident",
+                "v4_tok_int",
+                "v4_tok_keyword",
+                "v4_tok_lifetime",
+                "v4_tok_string",
+                "v4_tok_trivia",
+            }
+        ),
+    ),
+    "span sentinel": (r"\bV4_NO_SPAN\b", frozenset({"V4_NO_SPAN"})),
+}
+
+MIR_BORROWCK_COMPATIBILITY_QUERY_TASKS = frozenset(
+    {
+        "v4_mir_rvalue_call_borrowed_source_arg",
+        "v4_mir_rvalue_call_borrowed_source_arg_at",
+        "v4_mir_rvalue_call_borrowed_source_arg_at_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_arg_count",
+        "v4_mir_rvalue_call_borrowed_source_arg_count_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_arg_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_arg_for_signature",
+        "v4_mir_rvalue_call_borrowed_source_edge_at_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_payload_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_projection_at_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_route_guard_at_for_leaf",
+        "v4_mir_rvalue_call_borrowed_source_signature_id",
+        "v4_mir_rvalue_call_return_lend_leaf_count",
+        "v4_mir_rvalue_call_return_lend_leaf_projection_at",
+        "v4_mir_rvalue_call_return_lend_leaf_route_guard_at",
+    }
+)
 
 TOOLING_INTERFACE_ENDPOINTS = [
     "workspace/queryTelemetry",
@@ -599,6 +722,55 @@ INVALIDATION_FAMILY_FIELDS = [
 ]
 
 EXECUTABLE_SMOKES = [
+    {
+        "name": "target contract",
+        "fixture": "target_contract_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect_exact": [
+            "target-count=4",
+            "target-linux-x64-summary=target triple=x86_64-unknown-linux-gnu release=linux-x64 arch=x86_64 os=linux env=gnu pointer=64 endian=little c-model=lp64 object=elf ccs=C,cdecl,system,sysv64 exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-gnu entry=posix-main",
+            "target-linux-arm64-summary=target triple=aarch64-unknown-linux-gnu release=linux-arm64 arch=aarch64 os=linux env=gnu pointer=64 endian=little c-model=lp64 object=elf ccs=C,cdecl,system exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-gnu entry=posix-main",
+            "target-macos-arm64-summary=target triple=aarch64-apple-darwin release=macos-arm64 arch=aarch64 os=macos env=darwin pointer=64 endian=little c-model=lp64 object=mach-o ccs=C,cdecl,system exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-darwin entry=darwin-main",
+            "target-windows-x64-summary=target triple=x86_64-w64-windows-gnu release=windows-x64 arch=x86_64 os=windows env=gnu pointer=64 endian=little c-model=llp64 object=coff ccs=C,cdecl,system,win64,vectorcall exe-prefix=<none> exe-suffix=.exe object-prefix=<none> object-suffix=.obj link=clang-driver-ucrt entry=ucrt-main",
+            "target-all-valid=true",
+            "target-index-stable=true",
+            "target-release-names=linux-x64,linux-arm64,macos-arm64,windows-x64",
+            "target-c-models=lp64,lp64,lp64,llp64",
+            "target-lp64-vs-llp64=true",
+            "target-pointer-widths=64,64,64,64",
+            "target-endianness=little,little,little,little",
+            "target-object-formats=elf,elf,mach-o,coff",
+            "target-artifact-names=maverick,maverick.o,maverick.exe,maverick.obj",
+            "target-link-policies=clang-driver-gnu,clang-driver-darwin,clang-driver-ucrt",
+            "target-entry-policies=posix-main,darwin-main,ucrt-main",
+            "target-linux-x64-conventions=true",
+            "target-arm64-rejects-x64-conventions=true",
+            "target-windows-x64-conventions=true",
+            "target-legacy-x86-conventions-rejected=true",
+            "target-unknown-convention-rejected=true",
+            "target-round-trip=true",
+            "target-aliases-rejected=true",
+            "target-unknown-triple-rejected=true",
+            "target-invalid-records-rejected=true",
+            "target-malformed-controls=true",
+            "target-truncated-fields-rejected=true",
+            "target-missing-delimiters-rejected=true",
+            "target-overflowing-lengths-rejected=true",
+            "target-extra-field-rejected=true",
+            "target-duplicate-field-rejected=true",
+            "target-unknown-tag-rejected=true",
+            "target-unknown-format-rejected=true",
+            "target-canonical-records-within-budget=true",
+            "target-oversize-no-colon-rejected=true",
+            "target-oversize-zero-prefix-rejected=true",
+            "target-oversize-empty-fields-rejected=true",
+            "target-budget-boundary-rejected=true",
+            "target-invalid-accessors-fail-closed=true",
+            "target-summary-deterministic=true",
+        ],
+        "expect": [],
+    },
     {
         "name": "macro API contract",
         "fixture": "macro_api_contract_smoke.fk",
@@ -9082,6 +9254,22 @@ def check_crate_boundaries() -> None:
     contents = {name: read_text(crate_path(name)) for name in boundary_crates}
     violations: list[str] = []
 
+    target_text = read_text(crate_path("freak_target"))
+    if not re.search(r"(?m)^pilot v4_target_record_max_bytes = 512\s*$", target_text):
+        violations.append("boundary missing: freak_target fixed v1 record budget")
+    for task_name, argument, rejected in (
+        ("v4_target_spec_valid", "target_spec", "false"),
+        ("v4_target_field_count", "record", "0 - 1"),
+        ("v4_target_field", "record", '\"\"'),
+    ):
+        target_body = freak_task_body(target_text, task_name)
+        first_guard = (
+            f"if {argument}.length() > v4_target_record_max_bytes "
+            f"{{ give back {rejected} }}"
+        )
+        if target_body is None or not re.sub(r"\s+", " ", target_body).strip().startswith(first_guard):
+            violations.append(f"boundary missing: freak_target {task_name} pre-parse record budget")
+
     for crate, checks in CRATE_BOUNDARY_REQUIRED.items():
         text = contents[crate]
         for label, needle in checks:
@@ -9102,6 +9290,82 @@ def check_crate_boundaries() -> None:
                 violations.append(
                     f"boundary violation: {crate} depends on macro implementation internal {marker}"
                 )
+
+    mir_index = CRATE_ORDER.index("freak_mir")
+    mir_build_index = CRATE_ORDER.index("freak_mir_build")
+    borrowck_index = CRATE_ORDER.index("freak_borrowck")
+    if not mir_index < mir_build_index < borrowck_index:
+        violations.append("boundary violation: crate order must be freak_mir < freak_mir_build < freak_borrowck")
+
+    mir_build_text = read_text(crate_path("freak_mir_build"))
+    builder_tasks = frozenset(
+        re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", mir_build_text)
+    )
+    mir_build_bodies: dict[str, str] = {}
+    for builder_task in sorted(builder_tasks):
+        body = freak_task_body(mir_build_text, builder_task)
+        if body is None:
+            violations.append(
+                f"boundary violation: could not parse freak_mir_build task body {builder_task}"
+            )
+            continue
+        mir_build_bodies[builder_task] = re.sub(r"(?m)--.*$", "", body)
+
+    # These are the production post-build consumers. The editor's transitional
+    # source-view dependency is documented separately and intentionally allowed.
+    for consumer in ("freak_borrowck", "freak_codegen_llvm", "freak_query", "freak_snapshot"):
+        consumer_text = read_text(crate_path(consumer))
+        consumer_tasks = re.findall(
+            r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", consumer_text
+        )
+        for consumer_task in consumer_tasks:
+            body = freak_task_body(consumer_text, consumer_task)
+            if body is None:
+                violations.append(
+                    f"boundary violation: could not parse {consumer} task body {consumer_task}"
+                )
+                continue
+            body_without_comments = re.sub(r"(?m)--.*$", "", body)
+            builder_calls = sorted(
+                task_name
+                for task_name in builder_tasks
+                if re.search(rf"\b{re.escape(task_name)}\s*\(", body_without_comments)
+            )
+            if builder_calls:
+                violations.append(
+                    f"boundary violation: {consumer}.{consumer_task} calls freak_mir_build tasks: "
+                    + ", ".join(builder_calls)
+                )
+
+    borrowck_text = read_text(crate_path("freak_borrowck"))
+    borrowck_tasks = frozenset(
+        re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", borrowck_text)
+    )
+    for task_name in sorted(MIR_BORROWCK_COMPATIBILITY_QUERY_TASKS):
+        if task_name in builder_tasks:
+            violations.append(
+                f"boundary violation: freak_mir_build still owns Meiya query {task_name}"
+            )
+        if task_name not in borrowck_tasks or freak_task_body(borrowck_text, task_name) is None:
+            violations.append(
+                f"boundary missing: freak_borrowck compatibility query {task_name}"
+            )
+
+    mir_build_call_surface = "\n".join(mir_build_bodies.values())
+    for family, (pattern, allowed) in MIR_BUILD_TRANSITIONAL_DIRECT_DEPENDENCIES.items():
+        observed = frozenset(re.findall(pattern, mir_build_call_surface))
+        if observed != allowed:
+            added = sorted(observed - allowed)
+            removed = sorted(allowed - observed)
+            details: list[str] = []
+            if added:
+                details.append("added=" + ",".join(added))
+            if removed:
+                details.append("removed=" + ",".join(removed))
+            violations.append(
+                f"boundary violation: freak_mir_build transitional {family} allowlist drift: "
+                + " ".join(details)
+            )
 
     if violations:
         for violation in violations:
@@ -9168,8 +9432,11 @@ def freak_matching_brace(source: str, open_index: int, limit: int) -> int | None
     return None
 
 
+@lru_cache(maxsize=1)
 def freak_mask_line_comments(source: str) -> str:
     """Mask comments without changing offsets or quoted literal contents."""
+    # Boundary checks inspect hundreds of tasks per crate. Retain only the
+    # active immutable source/mask pair, never one copy per task or revision.
     chars = list(source)
     index = 0
     while index < len(source):
@@ -9284,6 +9551,7 @@ def check_alias_hir_boundary() -> None:
         "done\n"
         "doctrine Final\n"
     )
+    freak_mask_line_comments.cache_clear()
     brace_body = freak_task_body(extractor_sample, "brace_sample")
     arrow_body = freak_task_body(extractor_sample, "arrow_sample")
     multiline_brace_body = freak_task_body(extractor_sample, "multiline_brace_sample")
@@ -9293,6 +9561,18 @@ def check_alias_hir_boundary() -> None:
         violations.append("alias HIR guard task extractor trusts signature comments")
     if freak_task_body(extractor_sample, "unknown_sample") is not None:
         violations.append("alias HIR guard task extractor accepts an unknown body form")
+    cache_info = freak_mask_line_comments.cache_info()
+    if cache_info.misses != 1 or cache_info.hits != 5 or cache_info.maxsize != 1 or cache_info.currsize != 1:
+        violations.append("task extractor must mask the shared source once with bounded retention")
+    edited_sample = extractor_sample.replace("v4_parse_inside", "v4_parse_changed")
+    edited_body = freak_task_body(edited_sample, "brace_sample")
+    if edited_body is None or "v4_parse_changed" not in edited_body or "v4_parse_inside" in edited_body:
+        violations.append("task extractor reused stale masked source after an edit")
+    if freak_task_body(extractor_sample, "brace_sample") != brace_body:
+        violations.append("task extractor changed its result after cache eviction")
+    cache_info = freak_mask_line_comments.cache_info()
+    if cache_info.misses != 3 or cache_info.currsize != 1:
+        violations.append("task extractor retains more than the active source revision")
     if brace_body is None or "v4_parse_inside" not in brace_body or "v4_parse_outside" in brace_body or "pilot close" not in brace_body or "pilot quote" not in brace_body or "lend 'a" not in brace_body or "say" not in brace_body:
         violations.append("alias HIR guard task extractor leaks past brace task")
     if arrow_body is None or arrow_body.strip() != "1":
@@ -9492,6 +9772,7 @@ def check_snapshot_inventories() -> None:
     if "@freak_llvm_word_substring(i64, i64, i64)" not in llvm_emitter_source:
         violations.append("LLVM substring declaration missing")
     mir_source = read_text(crate_path("freak_mir"))
+    mir_build_source = read_text(crate_path("freak_mir_build"))
     linear_snapshot_sources = {
         "lex": lex_source,
         "parse": read_text(crate_path("freak_parse")),
@@ -9553,14 +9834,20 @@ def check_snapshot_inventories() -> None:
     for handle_release_contract in (
         "v4_mir_snapshot_release_body_graph_arrays",
         "array_release(states)",
+    ):
+        if handle_release_contract not in mir_source:
+            violations.append(
+                f"MIR snapshot scratch release missing: {handle_release_contract}"
+            )
+    for handle_release_contract in (
         "array_release(v4_mir_loop_break_targets)",
         "array_release(v4_mir_loop_continue_targets)",
         "array_release(v4_mir_scope_spans)",
         "array_release(v4_mir_trust_me_honor_ranks)",
     ):
-        if handle_release_contract not in mir_source:
+        if handle_release_contract not in mir_build_source:
             violations.append(
-                f"MIR snapshot scratch release missing: {handle_release_contract}"
+                f"MIR builder scratch release missing: {handle_release_contract}"
             )
     query_invalidate_match = re.search(
         r"task v4_query_invalidate_dependents_at_generation\([^\n]*\) -> int \{(.*?)(?=\ntask |\Z)",
@@ -10423,6 +10710,7 @@ int64_t freak_llvm_array_len(int64_t handle);
 void freak_llvm_array_release(int64_t handle);
 int64_t freak_llvm_word_join(int64_t handle);
 int64_t freak_llvm_word_substring(int64_t value, int64_t start, int64_t length);
+void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
 
 int main(void) {
     for (int64_t index = 0; index < 1100; index++) {
@@ -10430,7 +10718,7 @@ int main(void) {
         freak_llvm_array_push(handle, (int64_t)(intptr_t)"reused");
         int64_t joined = freak_llvm_word_join(handle);
         if (strcmp((const char*)(intptr_t)joined, "reused") != 0) return 10;
-        free((void*)(intptr_t)joined);
+        freak_llvm_word_release_replaced(joined, 0);
     }
 
     int64_t released = freak_llvm_array_new();
@@ -10449,7 +10737,7 @@ int main(void) {
         (int64_t)(intptr_t)"Alternative", 3, 5
     );
     if (strcmp((const char*)(intptr_t)sliced, "ernat") != 0) return 16;
-    free((void*)(intptr_t)sliced);
+    freak_llvm_word_release_replaced(sliced, 0);
     puts("llvm-runtime-primitives=ok");
     return 0;
 }

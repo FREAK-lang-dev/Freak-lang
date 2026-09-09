@@ -225,6 +225,11 @@ impl Event {
 --   freak_ui_event_key(index) -> key
 --   ... etc for each event field
 --   freak_ui_begin_frame(handle)
+--   freak_ui_set_clip(handle, x, y, width, height)
+--   freak_ui_reset_clip(handle)
+-- Clip rectangles use half-open client pixels, apply to every drawing operation,
+-- and are replaced (not stacked). Nonpositive extents are empty; begin_frame
+-- resets to full client bounds. Packages own nesting and rectangle intersection.
 --   freak_ui_end_frame(handle)
 --   freak_ui_clear(handle, r, g, b, a)
 --   freak_ui_fill_rect(handle, x, y, w, h, r, g, b, a)

@@ -1668,9 +1668,11 @@ def audit_conformance(paths: List[Path]) -> int:
         "run pipeline": (
             repo / "src" / "cli" / "run.fk",
             (
-                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v3"',
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"',
                 "task cli_run_fingerprint",
                 "task cli_run_clang_identity",
+                "task cli_run_linker_identity",
+                "task cli_run_file_sha256",
                 "certutil -hashfile",
                 "sha256sum ",
                 "task cli_run_cache_record",
@@ -1691,7 +1693,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 "untrusted stale artifact could not be removed",
                 "task cli_cross_target_is_safe",
                 "invalid target triple",
-                'pilot use_bundle = is_win and cross == "" and runtime_obj_ext != ""',
+                "task cli_runtime_link_plan",
+                "task cli_selected_linker_command",
+                'cli_is_windows() and cross == "" and lto == "off" and runtime_obj_ext != ""',
                 "Linking packaged Windows runtime objects",
                 "POSIX double quotes still expand",
             ),
@@ -1783,10 +1787,13 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freak_word_join_owned",
                 "freak_char_to_word",
                 "if (old_s.length == 0) return freak_word_clone(w);",
-                "while (*start && isspace((unsigned char)*start))",
+                "while (start < w.length && isspace((unsigned char)w.data[start]))",
+                "freak_llvm_word_take(freak_word_trim(freak_llvm_word_view(a)))",
                 "word replacement size overflow",
                 "(SIZE_MAX - w.length) / growth",
-                "(SIZE_MAX - source_len) / growth",
+                "return freak_llvm_word_take(freak_word_replace(",
+                "freak_llvm_word_view(a), freak_llvm_word_view(b), freak_llvm_word_view(c)",
+                "int64_t freak_llvm_word_adopt_sized(int64_t pointer, size_t length)",
             ),
         ),
         "C word temporary ownership": (
@@ -1842,7 +1849,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 ".freak-backup-",
                 ".freak-upgrade-pending",
                 ".freak-binary-backup",
-                "Get-FileHash",
+                "Get-FreakFileSha256",
+                "[System.Security.Cryptography.SHA256]::Create()",
+                "$hashFunctionDefinition = ${function:Get-FreakFileSha256}.ToString()",
                 "previous payload was restored",
                 "distribution-files.manifest",
             ),
@@ -2078,7 +2087,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freakc/runtime/ui/win32_backend.c",
                 "freakc/runtime/ui/freak_ui_platform.h",
                 "freakc/runtime/freak_abi",
+                "freakc/runtime/freak_runtime_api",
                 "std/freak_abi",
+                "std/freak_std_api",
             }
         )
         for missing_source in sorted(expected_sources - manifest_sources):
@@ -2122,8 +2133,10 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "src" / "cli" / "doctor.fk",
             (
                 "modules_expected\\\": 11",
-                "files_expected\\\": 6",
+                "files_expected\\\": 7",
                 "FREAK_V3_ABI",
+                "FREAK_V3_RUNTIME_API",
+                "runtime_api",
                 "ABI mismatch",
                 "upgrade_pending",
                 "ui/window.fk",
@@ -2254,21 +2267,37 @@ def audit_conformance(paths: List[Path]) -> int:
     # Bible §16.4 permits .is_null() checks outside trust-me; V4 lowers them
     # to LLVM icmp eq ptr %p, null. Lock in the MIR opcode + codegen path +
     # smoke fixture so regressions surface immediately.
-    v4_mir_lib_isn = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_mir_representation_lib = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+    v4_mir_build_lib = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir_build" / "src" / "lib.fk"
+    v4_mir_representation_src = (
+        v4_mir_representation_lib.read_text(encoding="utf-8")
+        if v4_mir_representation_lib.exists()
+        else None
+    )
+    v4_mir_build_src = (
+        v4_mir_build_lib.read_text(encoding="utf-8")
+        if v4_mir_build_lib.exists()
+        else None
+    )
+    v4_mir_combined_src = (
+        v4_mir_representation_src + "\n" + v4_mir_build_src
+        if v4_mir_representation_src is not None and v4_mir_build_src is not None
+        else None
+    )
     v4_codegen_lib_isn = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
     v4_isn_smoke = repo / "src" / "compiler" / "v4" / "tests" / "raw_pointer_is_null_smoke.fk"
     v4_check_harness_isn = repo / "src" / "compiler" / "v4" / "check_v4.py"
     isn_missing: List[str] = []
-    if v4_mir_lib_isn.exists():
-        mir_src = v4_mir_lib_isn.read_text(encoding="utf-8")
+    if v4_mir_combined_src is not None:
+        mir_src = v4_mir_combined_src
         for needle in (
             "v4_mir_unary_ptr_is_null",
             "is_null takes no arguments",
         ):
             if needle not in mir_src:
-                isn_missing.append(f"freak_mir: {needle}")
+                isn_missing.append(f"freak_mir/freak_mir_build: {needle}")
     else:
-        isn_missing.append("freak_mir/src/lib.fk missing")
+        isn_missing.append("freak_mir or freak_mir_build src/lib.fk missing")
     if v4_codegen_lib_isn.exists():
         cg_src = v4_codegen_lib_isn.read_text(encoding="utf-8")
         if "icmp eq ptr" not in cg_src:
@@ -2295,7 +2324,6 @@ def audit_conformance(paths: List[Path]) -> int:
     # Bible §16.4 gates raw-pointer dereferencing on `trust me` blocks. V4 now
     # parses the honor ladder, validates known ranks, and uses that rank for
     # first-pass raw-pointer read/write/offset/cast gates.
-    v4_mir_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     v4_codegen_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
     v4_ty_lib_tm = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
     v4_trust_me_smoke = repo / "src" / "compiler" / "v4" / "tests" / "trust_me_block_smoke.fk"
@@ -2305,8 +2333,8 @@ def audit_conformance(paths: List[Path]) -> int:
     v4_raw_offset_cast_smoke = repo / "src" / "compiler" / "v4" / "tests" / "raw_pointer_offset_cast_smoke.fk"
     v4_check_harness_tm = repo / "src" / "compiler" / "v4" / "check_v4.py"
     tm_missing: List[str] = []
-    if v4_mir_lib_tm.exists():
-        mir_src = v4_mir_lib_tm.read_text(encoding="utf-8")
+    if v4_mir_combined_src is not None:
+        mir_src = v4_mir_combined_src
         for needle in (
             "v4_mir_lower_trust_me_stmt",
             "trust me block needs me keyword",
@@ -2342,9 +2370,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_mir_is_generic_instance_method_call_shape",
         ):
             if needle not in mir_src:
-                tm_missing.append(f"freak_mir: {needle}")
+                tm_missing.append(f"freak_mir/freak_mir_build: {needle}")
     else:
-        tm_missing.append("freak_mir/src/lib.fk missing")
+        tm_missing.append("freak_mir or freak_mir_build src/lib.fk missing")
     if v4_ty_lib_tm.exists():
         ty_src = v4_ty_lib_tm.read_text(encoding="utf-8")
         if "v4_ty_is_mutable_raw_pointer_type" not in ty_src:
@@ -2425,7 +2453,6 @@ def audit_conformance(paths: List[Path]) -> int:
     # runtime, tuple/fixed-array layout, or production backend completeness.
     semantic_core_missing: List[str] = []
     v4_ty_lib_sc = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
-    v4_mir_lib_sc = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     v4_editor_lib_sc = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
     v4_codegen_lib_sc = repo / "src" / "compiler" / "v4" / "crates" / "freak_codegen_llvm" / "src" / "lib.fk"
     v4_check_harness_sc = repo / "src" / "compiler" / "v4" / "check_v4.py"
@@ -2462,8 +2489,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 semantic_core_missing.append(f"freak_ty: {needle}")
     else:
         semantic_core_missing.append("freak_ty/src/lib.fk missing")
-    if v4_mir_lib_sc.exists():
-        mir_src = v4_mir_lib_sc.read_text(encoding="utf-8")
+    if v4_mir_combined_src is not None:
+        mir_src = v4_mir_combined_src
         for needle in (
             "v4_mir_check_call_args",
             "v4_mir_check_callback_call_args",
@@ -2485,9 +2512,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_mir_fixed_array_slot_count",
         ):
             if needle not in mir_src:
-                semantic_core_missing.append(f"freak_mir: {needle}")
+                semantic_core_missing.append(f"freak_mir/freak_mir_build: {needle}")
     else:
-        semantic_core_missing.append("freak_mir/src/lib.fk missing")
+        semantic_core_missing.append("freak_mir or freak_mir_build src/lib.fk missing")
     if v4_editor_lib_sc.exists():
         editor_src = v4_editor_lib_sc.read_text(encoding="utf-8")
         for needle in (
@@ -2630,6 +2657,12 @@ def audit_conformance(paths: List[Path]) -> int:
                 'pilot v4_mir_rvalue_capture_borrow_mut = "CaptureBorrowMut"',
                 'pilot v4_mir_rvalue_capture_copy = "CaptureCopy"',
                 'pilot v4_mir_rvalue_capture_move = "CaptureMove"',
+            ),
+        ),
+        (
+            repo / "src" / "compiler" / "v4" / "crates" / "freak_mir_build" / "src" / "lib.fk",
+            "freak_mir_build",
+            (
                 "task v4_mir_try_lower_closure_expr(",
                 "task v4_mir_closure_local_decl_name_token(",
                 "task v4_mir_closure_identifier_is_member_name(",
@@ -2794,7 +2827,6 @@ def audit_conformance(paths: List[Path]) -> int:
     # in extern blocks. Lock in the validator + smoke fixture + EXECUTABLE_SMOKES
     # entry so the surface cannot silently regress.
     v4_ty_lib_unw = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
-    v4_mir_lib_unw = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     v4_unwinder_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_unwinder_smoke.fk"
     v4_allow_unwinder_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_allow_unwinder_smoke.fk"
     v4_unwinder_call_site_smoke = repo / "src" / "compiler" / "v4" / "tests" / "extern_unwinder_call_site_smoke.fk"
@@ -2814,16 +2846,16 @@ def audit_conformance(paths: List[Path]) -> int:
                 unw_missing.append(f"freak_ty: {needle}")
     else:
         unw_missing.append("freak_ty/src/lib.fk missing")
-    if v4_mir_lib_unw.exists():
-        mir_src = v4_mir_lib_unw.read_text(encoding="utf-8")
+    if v4_mir_combined_src is not None:
+        mir_src = v4_mir_combined_src
         for needle in (
             "v4_mir_warn_unwinder_call_site",
             "v4_mir_add_type_warning",
         ):
             if needle not in mir_src:
-                unw_missing.append(f"freak_mir: {needle}")
+                unw_missing.append(f"freak_mir/freak_mir_build: {needle}")
     else:
-        unw_missing.append("freak_mir/src/lib.fk missing")
+        unw_missing.append("freak_mir or freak_mir_build src/lib.fk missing")
     if not v4_unwinder_smoke.exists():
         unw_missing.append("smoke fixture: extern_unwinder_smoke.fk")
     if not v4_allow_unwinder_smoke.exists():
@@ -2853,7 +2885,6 @@ def audit_conformance(paths: List[Path]) -> int:
     # outlives the return region. Require the set-valued TY/MIR/Meiya contract,
     # editor lifetime resolution, and executable source-set fixtures.
     v4_ty_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
-    v4_mir_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     v4_borrowck_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_borrowck" / "src" / "lib.fk"
     v4_editor_lib_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
     v4_runtime_c_return = repo / "freakc" / "runtime" / "freak_runtime.c"
@@ -3165,22 +3196,10 @@ def audit_conformance(paths: List[Path]) -> int:
             )
     else:
         contract_region_missing.append("freak_ty/src/lib.fk missing")
-    if v4_mir_lib_return.exists():
-        mir_src = v4_mir_lib_return.read_text(encoding="utf-8")
+    if v4_mir_combined_src is not None:
+        mir_src = v4_mir_combined_src
         for needle in (
-            "v4_mir_rvalue_call_borrowed_source_signature_id",
-            "v4_mir_rvalue_call_borrowed_source_arg_for_signature",
-            "task v4_mir_rvalue_call_borrowed_source_arg_count(",
-            "task v4_mir_rvalue_call_borrowed_source_arg_at(",
             "v4_mir_call_result_type",
-            "task v4_mir_rvalue_call_return_lend_leaf_count(",
-            "task v4_mir_rvalue_call_return_lend_leaf_projection_at(",
-            "task v4_mir_rvalue_call_return_lend_leaf_route_guard_at(",
-            "task v4_mir_rvalue_call_borrowed_source_arg_count_for_leaf(",
-            "task v4_mir_rvalue_call_borrowed_source_payload_for_leaf(",
-            "task v4_mir_rvalue_call_borrowed_source_arg_at_for_leaf(",
-            "task v4_mir_rvalue_call_borrowed_source_projection_at_for_leaf(",
-            "task v4_mir_rvalue_call_borrowed_source_route_guard_at_for_leaf(",
             "task v4_mir_callback_type_contains_lend(",
             "task v4_mir_check_callback_call_args(",
             "task v4_mir_reject_aggregate_lend_child(",
@@ -3196,20 +3215,24 @@ def audit_conformance(paths: List[Path]) -> int:
             "Meiya cannot forward borrowed values through an FFI callback yet",
         ):
             if needle not in mir_src:
-                contract_region_missing.append(f"freak_mir: {needle}")
-        # Frozen singular query retained only for compatibility. Set-valued MIR
-        # consumers must use the count/at API required above.
-        mir_singular_wrapper = "v4_mir_rvalue_call_borrowed_source_arg("
-        if mir_src.count(mir_singular_wrapper) != 1:
-            contract_region_missing.append(
-                "freak_mir compatibility wrapper must be declaration-only: "
-                "v4_mir_rvalue_call_borrowed_source_arg"
-            )
+                contract_region_missing.append(f"freak_mir/freak_mir_build: {needle}")
     else:
-        contract_region_missing.append("freak_mir/src/lib.fk missing")
+        contract_region_missing.append("freak_mir or freak_mir_build src/lib.fk missing")
     if v4_borrowck_lib_return.exists():
         borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
         for needle in (
+            "v4_mir_rvalue_call_borrowed_source_signature_id",
+            "v4_mir_rvalue_call_borrowed_source_arg_for_signature",
+            "task v4_mir_rvalue_call_borrowed_source_arg_count(",
+            "task v4_mir_rvalue_call_borrowed_source_arg_at(",
+            "task v4_mir_rvalue_call_return_lend_leaf_count(",
+            "task v4_mir_rvalue_call_return_lend_leaf_projection_at(",
+            "task v4_mir_rvalue_call_return_lend_leaf_route_guard_at(",
+            "task v4_mir_rvalue_call_borrowed_source_arg_count_for_leaf(",
+            "task v4_mir_rvalue_call_borrowed_source_payload_for_leaf(",
+            "task v4_mir_rvalue_call_borrowed_source_arg_at_for_leaf(",
+            "task v4_mir_rvalue_call_borrowed_source_projection_at_for_leaf(",
+            "task v4_mir_rvalue_call_borrowed_source_route_guard_at_for_leaf(",
             'v4_borrowck_provenance_known = "known"',
             "v4_borrowck_provenance_known_empty",
             'v4_borrowck_provenance_opaque = "opaque"',
@@ -3340,6 +3363,14 @@ def audit_conformance(paths: List[Path]) -> int:
         ):
             if needle not in borrowck_src:
                 contract_region_missing.append(f"freak_borrowck: {needle}")
+        # Frozen singular MIR-named query remains declaration-only for existing
+        # fixtures. Set-valued Meiya policy lives in this crate.
+        mir_singular_wrapper = "v4_mir_rvalue_call_borrowed_source_arg("
+        if borrowck_src.count(mir_singular_wrapper) != 1:
+            contract_region_missing.append(
+                "freak_borrowck MIR compatibility wrapper must be declaration-only: "
+                "v4_mir_rvalue_call_borrowed_source_arg"
+            )
         # Frozen singular origin query retained only for compatibility. The
         # provenance set is the authoritative borrowck contract.
         borrowck_singular_wrapper = "v4_borrowck_return_lend_origin("
@@ -5722,10 +5753,10 @@ def audit_conformance(paths: List[Path]) -> int:
                 drop_flag_missing.append(f"freak_borrowck: {needle}")
     else:
         drop_flag_missing.append("freak_borrowck/src/lib.fk missing")
-    if v4_mir_lib_return.exists():
-        mir_src = v4_mir_lib_return.read_text(encoding="utf-8")
+    if v4_mir_build_src is not None:
+        mir_src = v4_mir_build_src
         if mir_src.count("pilot loop_entry_block = v4_mir_add_block") < 2:
-            drop_flag_missing.append("freak_mir: repeat/training loop preheaders")
+            drop_flag_missing.append("freak_mir_build: repeat/training loop preheaders")
         for needle in (
             "count_block, condition_block",
             "body_tail, condition_block",
@@ -5733,9 +5764,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "body_tail, loop_header",
         ):
             if needle not in mir_src:
-                drop_flag_missing.append(f"freak_mir: loop split {needle}")
+                drop_flag_missing.append(f"freak_mir_build: loop split {needle}")
     else:
-        drop_flag_missing.append("freak_mir/src/lib.fk missing")
+        drop_flag_missing.append("freak_mir_build/src/lib.fk missing")
     if v4_drop_order_smoke.exists():
         smoke_src = v4_drop_order_smoke.read_text(encoding="utf-8")
         for needle in (
@@ -5821,7 +5852,6 @@ def audit_conformance(paths: List[Path]) -> int:
     # Check 13: V4 Shared/Weak ownership surface
     shared_weak_missing: List[str] = []
     v4_shared_smoke = repo / "src" / "compiler" / "v4" / "tests" / "shared_weak_smoke.fk"
-    v4_mir_lib_shared = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     if v4_borrowck_lib_return.exists():
         borrowck_src = v4_borrowck_lib_return.read_text(encoding="utf-8")
         for needle in (
@@ -5834,8 +5864,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 shared_weak_missing.append(f"freak_borrowck: {needle}")
     else:
         shared_weak_missing.append("freak_borrowck/src/lib.fk missing")
-    if v4_mir_lib_shared.exists():
-        mir_src = v4_mir_lib_shared.read_text(encoding="utf-8")
+    if v4_mir_combined_src is not None:
+        mir_src = v4_mir_combined_src
         for needle in (
             "v4_mir_try_lower_builtin_shared_instance_method",
             "v4_mir_try_lower_builtin_shared_associated_method",
@@ -5844,9 +5874,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_ty_shared_mut_type",
         ):
             if needle not in mir_src:
-                shared_weak_missing.append(f"freak_mir: {needle}")
+                shared_weak_missing.append(f"freak_mir/freak_mir_build: {needle}")
     else:
-        shared_weak_missing.append("freak_mir/src/lib.fk missing")
+        shared_weak_missing.append("freak_mir or freak_mir_build src/lib.fk missing")
     if v4_shared_smoke.exists():
         smoke_src = v4_shared_smoke.read_text(encoding="utf-8")
         for needle in (
@@ -5920,7 +5950,7 @@ def audit_conformance(paths: List[Path]) -> int:
         / "query_invalidation_resource_smoke.fk"
     )
     v4_mir_snapshot_lib = (
-        repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
+        v4_mir_representation_lib
     )
     v4_query_resource_lib = (
         repo / "src" / "compiler" / "v4" / "crates" / "freak_query" / "src" / "lib.fk"
@@ -6010,13 +6040,20 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "v4_mir_snapshot_release_body_graph_arrays",
             "array_release(states)",
-            "array_release(v4_mir_loop_break_targets)",
-            "array_release(v4_mir_scope_spans)",
         ):
             if needle not in mir_snapshot_src:
                 unit_snapshot_integrity_missing.append(f"freak_mir: {needle}")
     else:
         unit_snapshot_integrity_missing.append("freak_mir/src/lib.fk missing")
+    if v4_mir_build_src is not None:
+        for needle in (
+            "array_release(v4_mir_loop_break_targets)",
+            "array_release(v4_mir_scope_spans)",
+        ):
+            if needle not in v4_mir_build_src:
+                unit_snapshot_integrity_missing.append(f"freak_mir_build: {needle}")
+    else:
+        unit_snapshot_integrity_missing.append("freak_mir_build/src/lib.fk missing")
     if v4_query_resource_lib.exists():
         query_resource_src = v4_query_resource_lib.read_text(encoding="utf-8")
         for needle in ("array_release(seen)", "array_release(work)"):
@@ -6076,10 +6113,9 @@ def audit_conformance(paths: List[Path]) -> int:
     # Check 15: V4 training arc growth checks
     growth_missing: List[str] = []
     v4_growth_smoke = repo / "src" / "compiler" / "v4" / "tests" / "mir_loop_desugar_smoke.fk"
-    v4_mir_lib_growth = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     v4_check_harness_growth = repo / "src" / "compiler" / "v4" / "check_v4.py"
-    if v4_mir_lib_growth.exists():
-        mir_src = v4_mir_lib_growth.read_text(encoding="utf-8")
+    if v4_mir_build_src is not None:
+        mir_src = v4_mir_build_src
         for needle in (
             "v4_mir_condition_subject_place",
             "v4_mir_condition_place_prefix_end",
@@ -6090,9 +6126,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_mir_growth_place_prefix_matches(lhs_text, wanted)",
         ):
             if needle not in mir_src:
-                growth_missing.append(f"freak_mir: {needle}")
+                growth_missing.append(f"freak_mir_build: {needle}")
     else:
-        growth_missing.append("freak_mir/src/lib.fk missing")
+        growth_missing.append("freak_mir_build/src/lib.fk missing")
     if v4_growth_smoke.exists():
         smoke_src = v4_growth_smoke.read_text(encoding="utf-8")
         for needle in (
@@ -6197,7 +6233,6 @@ def audit_conformance(paths: List[Path]) -> int:
     dyn_doctrine_missing: List[str] = []
     v4_lex_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_lex" / "src" / "lib.fk"
     v4_ty_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
-    v4_mir_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_mir" / "src" / "lib.fk"
     v4_borrowck_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_borrowck" / "src" / "lib.fk"
     v4_editor_dyn = repo / "src" / "compiler" / "v4" / "crates" / "freak_editor" / "src" / "lib.fk"
     v4_dyn_ty_smoke = repo / "src" / "compiler" / "v4" / "tests" / "dyn_doctrine_ty_smoke.fk"
@@ -6228,8 +6263,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 dyn_doctrine_missing.append(f"freak_ty: {needle}")
     else:
         dyn_doctrine_missing.append("freak_ty/src/lib.fk missing")
-    if v4_mir_dyn.exists():
-        mir_src = v4_mir_dyn.read_text(encoding="utf-8")
+    if v4_mir_combined_src is not None:
+        mir_src = v4_mir_combined_src
         for needle in (
             "task v4_mir_find_dyn_method_ref",
             "v4_ty_is_dyn_type(type_text)",
@@ -6237,9 +6272,9 @@ def audit_conformance(paths: List[Path]) -> int:
             "v4_mir_find_dyn_method_ref(mir_id, receiver_ty, method_name, true)",
         ):
             if needle not in mir_src:
-                dyn_doctrine_missing.append(f"freak_mir: {needle}")
+                dyn_doctrine_missing.append(f"freak_mir/freak_mir_build: {needle}")
     else:
-        dyn_doctrine_missing.append("freak_mir/src/lib.fk missing")
+        dyn_doctrine_missing.append("freak_mir or freak_mir_build src/lib.fk missing")
     if v4_borrowck_dyn.exists():
         borrowck_src = v4_borrowck_dyn.read_text(encoding="utf-8")
         for needle in (

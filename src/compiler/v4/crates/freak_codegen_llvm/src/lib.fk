@@ -736,8 +736,8 @@ task v4_codegen_llvm_variadic_arg_promoted_type(mir_id: int, body_id: int, call_
     }
 
     pilot call_name = v4_mir_rvalue_op(mir_id, body_id, call_rvalue_id)
-    pilot sig_id = v4_mir_signature_id_for_name(mir_id, call_name)
     pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, call_name)
     if sig_id < 0 {
         pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_id, call_rvalue_id)
         if target_rvalue >= 0 {
@@ -882,7 +882,7 @@ task v4_codegen_llvm_call_instruction(mir_id: int, body_id: int, rvalue_id: int,
     pilot call_cc = v4_codegen_llvm_calling_convention(call_abi)
     pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
     pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot call_sig = v4_mir_signature_id_for_name(mir_id, call_name)
+    pilot call_sig = v4_ty_task_signature_id_for_name(ty_id, call_name)
     pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_id, rvalue_id)
     pilot call_symbol_name = call_name
     pilot call_symbol = ""
@@ -1073,7 +1073,7 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                     pilot call_abi = v4_mir_rvalue_abi(mir_id, body_idx, rvalue_idx)
                     pilot call_cc = v4_codegen_llvm_calling_convention(call_abi)
                     pilot call_return = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_idx, rvalue_idx))
-                    pilot call_sig = v4_mir_signature_id_for_name(mir_id, call_name)
+                    pilot call_sig = v4_ty_task_signature_id_for_name(v4_mir_ty_id(mir_id), call_name)
                     pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_idx, rvalue_idx)
                     pilot call_symbol_name = call_name
                     pilot call_link = ""

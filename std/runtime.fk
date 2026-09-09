@@ -19,6 +19,7 @@ extern task freak_fread(buf: int, size: int, count: int, file: int) -> int
 extern task freak_fwrite(buf: int, size: int, count: int, file: int) -> int
 extern task freak_calloc(count: int, size: int) -> int
 extern task freak_llvm_word_adopt(pointer: int) -> int
+extern task freak_llvm_word_adopt_sized(pointer: int, length: int) -> int
 extern task freak_remove(path: int) -> int
 extern task freak_path_exists(path: int) -> int
 extern task freak_llvm_word_length(s: int) -> int
@@ -34,9 +35,9 @@ task llvm_fs_read(path_p: int) -> int {
     pilot sz = freak_ftell(f)
     freak_fseek(f, 0, 0)
     pilot buf = freak_calloc(sz + 1, 1)
-    freak_fread(buf, 1, sz, f)
+    pilot count = freak_fread(buf, 1, sz, f)
     freak_fclose(f)
-    give back freak_llvm_word_adopt(buf)
+    give back freak_llvm_word_adopt_sized(buf, count)
 }
 
 -- ── fs::write — write string to file (overwrite) ────

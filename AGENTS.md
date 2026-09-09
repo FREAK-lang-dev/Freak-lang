@@ -445,7 +445,8 @@ V4 crate order is defined in `src/compiler/v4/check_v4.py`. Core boundaries:
 | `freak_hir` | desugared high-level forms |
 | `freak_resolve` | names, scopes, and definition identity |
 | `freak_ty` | inference, type contracts, and type diagnostics |
-| `freak_mir` | CFG lowering, places, drops, and MIR diagnostics |
+| `freak_mir` | Built-MIR representation, places, drops, diagnostics, and snapshots |
+| `freak_mir_build` | HIR/TY-to-Built-MIR construction and CFG lowering |
 | `freak_borrowck` | Meiya loans, moves, lifetimes, and ownership analysis |
 | `freak_codegen_llvm` | LLVM lowering and backend contracts |
 | `freak_query` | memoized storage and invalidation graph mechanics |
