@@ -4773,6 +4773,8 @@ static void freak_v3_drop(int64_t kind, int64_t value) {
     } else if (kind == FREAK_V3_SHAPE && value) freak_v3_shape_release(value);
 }
 static void freak_v3_release(int64_t handle, bool shape) {
+    /* A consumed compiler binding is cleared to zero before scope cleanup. */
+    if (!handle) return;
     freak_v3_container *p = freak_v3_object(handle, shape);
     if (--p->refs) return;
     /* Iterative destruction also handles deeply nested owned shapes without

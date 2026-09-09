@@ -20,6 +20,7 @@ PROGRAM = r'''
 #include <string.h>
 #include <math.h>
 int main(int argc, char **argv) {
+ freak_v3_array_release(0); freak_v3_shape_release(0);
  int64_t a=freak_v3_array_new(FREAK_V3_INT);
  if(argc>1) {
   if(!strcmp(argv[1],"retain-c-word")) { freak_word source=freak_word_concat(freak_word_lit("re"),freak_word_lit("tained")); int64_t w=freak_v3_array_filled_word(1,source); freak_word_release_owned(&source); assert(freak_v3_live_words()==1); (void)w; return 0; }
