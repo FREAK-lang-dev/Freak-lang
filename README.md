@@ -256,22 +256,24 @@ Dependencies live in `hangar_modules/`. The layout is deliberately minimal.
 
 ---
 
-## COCKPIT — Maverick Source Preview
+## COCKPIT — V3 Procedural UI
 
-`packages/cockpit/` preserves the design and source of FREAK's intended
-immediate-mode UI framework: layout, widgets, themes, input handling, and
-animation helpers. It is not a supported package on the frozen V3 compiler and
-the included examples are design fixtures, not copy-and-run V3 programs.
+[`packages/cockpit/`](packages/cockpit/README.md) provides a procedural
+immediate-mode UI on the existing V3 compiler: layout, widgets, themes and
+ordered input handling. It uses explicit-lifetime array/ByteBuffer handles and
+indexed `ui::event_*` accessors, not `Squad` or a fictional `Window.poll()` API.
+Calculator, settings and showcase examples run until close; a separate bounded
+smoke and injected-event tests cover repeatable checks. Follow the package's
+source-assembly instructions; immutable Hangar graph delivery remains pending.
 
-The smaller `std::ui` floor is partial in V3. Native execution is supported
-only by the LLVM backend on Windows through the Win32/GDI runtime. V3 exposes
-the raw indexed event queue (`ui::poll_events` plus `ui::event_*`) and basic
-drawing calls; it has no owned event-list ABI, no macOS/Linux native UI
-backend, and no C-backend shape storage for executable UI programs.
-
-COCKPIT's supported implementation belongs to Maverick / 00-Unit. The source
-preview remains in-tree to preserve the intended API and architectural history
-without claiming a release surface that V3 cannot execute.
+The thin `std::ui` mechanism supplies the Win32/GDI window, indexed event queue,
+integer drawing calls and rectangular clipping. The procedural COCKPIT path
+has C and LLVM native Windows lifecycle coverage. It does not claim a native
+macOS/Linux window backend, an owned event-list ABI, or C-backend shape storage;
+the shape-based `Window`/`Canvas` convenience floor remains LLVM-only for
+native execution. Widget order, bounded event queues and explicit cleanup
+remain part of the package contract. No new compiler ownership or UI semantics
+are introduced.
 
 ---
 

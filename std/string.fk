@@ -6,13 +6,7 @@
 -- ===================================================================
 
 task string_repeat(s: word, count: int) -> word {
-    pilot out = ""
-    pilot i = 0
-    repeat count times {
-        out = out + s
-        i += 1
-    }
-    give back out
+    give back s.repeated(count)
 }
 
 task string_pad_left(s: word, width: int, pad_char: word) -> word {
