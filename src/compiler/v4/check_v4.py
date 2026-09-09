@@ -23,6 +23,7 @@ CRATE_ORDER = [
     "freak_arena",
     "freak_intern",
     "freak_session",
+    "freak_target",
     "freak_lex",
     "freak_parse",
     "freak_expand",
@@ -721,6 +722,55 @@ INVALIDATION_FAMILY_FIELDS = [
 ]
 
 EXECUTABLE_SMOKES = [
+    {
+        "name": "target contract",
+        "fixture": "target_contract_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect_exact": [
+            "target-count=4",
+            "target-linux-x64-summary=target triple=x86_64-unknown-linux-gnu release=linux-x64 arch=x86_64 os=linux env=gnu pointer=64 endian=little c-model=lp64 object=elf ccs=C,cdecl,system,sysv64 exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-gnu entry=posix-main",
+            "target-linux-arm64-summary=target triple=aarch64-unknown-linux-gnu release=linux-arm64 arch=aarch64 os=linux env=gnu pointer=64 endian=little c-model=lp64 object=elf ccs=C,cdecl,system exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-gnu entry=posix-main",
+            "target-macos-arm64-summary=target triple=aarch64-apple-darwin release=macos-arm64 arch=aarch64 os=macos env=darwin pointer=64 endian=little c-model=lp64 object=mach-o ccs=C,cdecl,system exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-darwin entry=darwin-main",
+            "target-windows-x64-summary=target triple=x86_64-w64-windows-gnu release=windows-x64 arch=x86_64 os=windows env=gnu pointer=64 endian=little c-model=llp64 object=coff ccs=C,cdecl,system,win64,vectorcall exe-prefix=<none> exe-suffix=.exe object-prefix=<none> object-suffix=.obj link=clang-driver-ucrt entry=ucrt-main",
+            "target-all-valid=true",
+            "target-index-stable=true",
+            "target-release-names=linux-x64,linux-arm64,macos-arm64,windows-x64",
+            "target-c-models=lp64,lp64,lp64,llp64",
+            "target-lp64-vs-llp64=true",
+            "target-pointer-widths=64,64,64,64",
+            "target-endianness=little,little,little,little",
+            "target-object-formats=elf,elf,mach-o,coff",
+            "target-artifact-names=maverick,maverick.o,maverick.exe,maverick.obj",
+            "target-link-policies=clang-driver-gnu,clang-driver-darwin,clang-driver-ucrt",
+            "target-entry-policies=posix-main,darwin-main,ucrt-main",
+            "target-linux-x64-conventions=true",
+            "target-arm64-rejects-x64-conventions=true",
+            "target-windows-x64-conventions=true",
+            "target-legacy-x86-conventions-rejected=true",
+            "target-unknown-convention-rejected=true",
+            "target-round-trip=true",
+            "target-aliases-rejected=true",
+            "target-unknown-triple-rejected=true",
+            "target-invalid-records-rejected=true",
+            "target-malformed-controls=true",
+            "target-truncated-fields-rejected=true",
+            "target-missing-delimiters-rejected=true",
+            "target-overflowing-lengths-rejected=true",
+            "target-extra-field-rejected=true",
+            "target-duplicate-field-rejected=true",
+            "target-unknown-tag-rejected=true",
+            "target-unknown-format-rejected=true",
+            "target-canonical-records-within-budget=true",
+            "target-oversize-no-colon-rejected=true",
+            "target-oversize-zero-prefix-rejected=true",
+            "target-oversize-empty-fields-rejected=true",
+            "target-budget-boundary-rejected=true",
+            "target-invalid-accessors-fail-closed=true",
+            "target-summary-deterministic=true",
+        ],
+        "expect": [],
+    },
     {
         "name": "macro API contract",
         "fixture": "macro_api_contract_smoke.fk",
@@ -9204,6 +9254,22 @@ def check_crate_boundaries() -> None:
     contents = {name: read_text(crate_path(name)) for name in boundary_crates}
     violations: list[str] = []
 
+    target_text = read_text(crate_path("freak_target"))
+    if not re.search(r"(?m)^pilot v4_target_record_max_bytes = 512\s*$", target_text):
+        violations.append("boundary missing: freak_target fixed v1 record budget")
+    for task_name, argument, rejected in (
+        ("v4_target_spec_valid", "target_spec", "false"),
+        ("v4_target_field_count", "record", "0 - 1"),
+        ("v4_target_field", "record", '\"\"'),
+    ):
+        target_body = freak_task_body(target_text, task_name)
+        first_guard = (
+            f"if {argument}.length() > v4_target_record_max_bytes "
+            f"{{ give back {rejected} }}"
+        )
+        if target_body is None or not re.sub(r"\s+", " ", target_body).strip().startswith(first_guard):
+            violations.append(f"boundary missing: freak_target {task_name} pre-parse record budget")
+
     for crate, checks in CRATE_BOUNDARY_REQUIRED.items():
         text = contents[crate]
         for label, needle in checks:
@@ -9247,7 +9313,7 @@ def check_crate_boundaries() -> None:
 
     # These are the production post-build consumers. The editor's transitional
     # source-view dependency is documented separately and intentionally allowed.
-    for consumer in ("freak_borrowck", "freak_codegen_llvm"):
+    for consumer in ("freak_borrowck", "freak_codegen_llvm", "freak_query", "freak_snapshot"):
         consumer_text = read_text(crate_path(consumer))
         consumer_tasks = re.findall(
             r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", consumer_text
