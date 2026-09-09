@@ -47,6 +47,29 @@ int64_t array_review_list_first(int64_t items, int64_t ignored) {
 '''
 
 POSITIVE = {
+    "associated_owned_results": (WATCH + '''shape Token { value: num }
+impl Token {
+    task make(value: num) -> Token { give back Token { value: value } }
+    task read(self) -> num { give back self.value }
+    task values(value: num) -> List<num> { give back List::filled(value, 3) }
+    task label() -> word { give back "owned" + " factory" }
+    task announce() -> void { say "factory" }
+}
+task main() {
+    array_review_watch_exit()
+    pilot token = Token::make(7)
+    say token.read().to_int()
+    say token.read().to_int()
+    pilot mut values = Token::values(2)
+    values[1] = token.read()
+    for each value in values { say value.to_int() }
+    pilot shapes = [Token::make(9), Token::make(11)]
+    for each shape_value in shapes { say shape_value.read().to_int() }
+    pilot label = Token::label()
+    say label
+    Token::announce()
+}
+''', ["7", "7", "2", "7", "2", "9", "11", "owned factory", "factory", CLEAN], False),
     "filled_word_snapshot": (WATCH + '''pilot mut seed: word = "old" + " value"
 task count() -> int {
     seed = "new value"

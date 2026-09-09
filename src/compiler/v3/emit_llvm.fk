@@ -295,6 +295,10 @@ task llvm_register_task(name: word, ret_type: word) -> void {
 }
 
 task llvm_get_task_ret_type(name: word) -> word {
+    -- Source-associated names retain the checker's impl provenance. Their
+    -- registry spelling uses underscores, but callers still use Owner::task.
+    pilot associated_entry = tc_associated_callable_entry(name)
+    if associated_entry >= 0 { give back llvm_type_code(array_get(tc_callable_returns, associated_entry)) }
     pilot nlen = llvm_task_reg_names.length()
     pilot i = 0
     pilot cur_name = ""
@@ -755,6 +759,7 @@ task llvm_param_type_at(params: word, wanted: int) -> word {
 
 task llvm_callable_param_types(name: word) -> word {
     pilot entry = tc_callable_entry(name)
+    if entry < 0 { entry = tc_associated_callable_entry(name) }
     if entry >= 0 { give back array_get(tc_callable_params, entry) }
     give back ""
 }

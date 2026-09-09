@@ -124,3 +124,16 @@ numeric literals, container covariance or temporary-root indexed writes.
 The existing V3 numeric compound-assignment domain is preserved. Native extern
 implementations remain responsible for the owned return convention. No V4
 compiler checks or implementation changes were made.
+
+## Cross-platform verification follow-up
+
+PR #102 at `e95e73b`: Linux and macOS CI passed. Windows passed the array and
+ownership gates but exposed a real regression in the existing UI smoke: LLVM
+associated factory calls lost their semantic return type, so a subsequent method
+could release an unretained caller-owned shape. Associated callable lookup now
+uses the checker's impl provenance for return and parameter types. The new
+cross-platform regression reproduces the old failure and covers repeated shape
+methods, owned shape/list/word factory results, numeric coercion and void calls.
+Fresh compiler/CLI reconstruction and all 26 C/LLVM review contracts pass;
+the exact Windows UI smoke now passes (launcher session 58768). Conformance and
+release invariants pass. Current-head CI remains required for final delivery.
