@@ -1619,18 +1619,20 @@ def main() -> int:
             "7",
         ]
 
-        nominal_c = run(freak, repo, nominal_methods, "transpile", "--c")
+        nominal_c = run(freak, repo, nominal_methods, "build", "--c")
         assert nominal_c.returncode == 0, nominal_c.stdout + nominal_c.stderr
         nominal_c_text = nominal_methods.with_suffix(".fk.c").read_text(encoding="utf-8")
         assert "__freak_user_PrimitiveNamed_to_word(" in nominal_c_text
-        assert re.search(
-            r"__freak_user_consume_number\(freak_llvm_shape_get\(__freak_local_\d+, 1\)\)",
-            nominal_c_text,
+        assert "__freak_user_consume_number(__freak_call_arg_0)" in nominal_c_text
+        assert "int64_t __freak_index = 1;" in nominal_c_text
+        assert "int64_t __freak_value = freak_v3_shape_get(__freak_recv, __freak_index)" in nominal_c_text
+        assert "freak_word_clone(freak_v3_shape_get(" not in nominal_c_text
+        nominal_c_executed = subprocess.run(
+            [str(derived_binary(nominal_methods))], cwd=tmp_path,
+            capture_output=True, text=True, timeout=30,
         )
-        assert not re.search(
-            r"__freak_user_consume_number\(freak_word_clone\(freak_llvm_shape_get",
-            nominal_c_text,
-        )
+        assert nominal_c_executed.returncode == 0, nominal_c_executed.stdout + nominal_c_executed.stderr
+        assert nominal_c_executed.stdout.strip().splitlines() == ["shape", "77", "nominal", "7"]
 
         unknown_method_receiver = tmp_path / "unknown_receiver_method.fk"
         unknown_method_receiver.write_text(
