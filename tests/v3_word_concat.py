@@ -40,7 +40,7 @@ FIELD_SCALING_PROGRAM = f"""shape Box {{
     value: word
 }}
 
-task main() {{
+task work() {{
     pilot box: Box = Box {{ value: "s" }}
     repeat {APPENDS} times {{
         box.value = box.value + "x"
@@ -48,6 +48,16 @@ task main() {{
     say box.value.length()
     say box.value.checksum()
     box.value = ""
+}}
+
+extern task freak_v3_live_arrays() -> int
+extern task freak_v3_live_shapes() -> int
+extern task freak_v3_live_words() -> int
+task main() {{
+    work()
+    say freak_v3_live_arrays()
+    say freak_v3_live_shapes()
+    say freak_v3_live_words()
 }}
 """
 
@@ -62,13 +72,23 @@ task make_suffix() -> word {
     give back "heap" + "suffix"
 }
 
-task main() {
+task work() {
     pilot box: Box = Box { value: "seed" }
     box.value = box.value + "12345678901"
     box.value = box.value + make_suffix()
     say box.value
     say suffix_calls
     box.value = ""
+}
+
+extern task freak_v3_live_arrays() -> int
+extern task freak_v3_live_shapes() -> int
+extern task freak_v3_live_words() -> int
+task main() {
+    work()
+    say freak_v3_live_arrays()
+    say freak_v3_live_shapes()
+    say freak_v3_live_words()
 }
 """
 
@@ -140,15 +160,12 @@ def stable_checksum(data: bytes) -> int:
     return value & ((1 << 63) - 1)
 
 
-def sanitizer_env(*, detect_leaks: bool = True) -> dict[str, str]:
+def sanitizer_env() -> dict[str, str]:
     env = os.environ.copy()
     env.pop("ASAN_OPTIONS", None)
     env.pop("LSAN_OPTIONS", None)
     if sys.platform.startswith("linux"):
-        if detect_leaks:
-            env["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1:exitcode=86"
-        else:
-            env["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=0"
+        env["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1:exitcode=86"
     return env
 
 
@@ -377,23 +394,11 @@ def main() -> int:
                     audit=True,
                     force_move=True,
                 )
-                # V3 has no shape-object release ABI yet. The field-scaling
-                # fixture owns and clears its word slot, but the surrounding
-                # shape allocation is intentionally unreleasable. Keep ASan's
-                # memory-error checks while disabling only that known LSan
-                # boundary, just like the field correctness fixture below.
-                scaling_detect_leaks = not (
-                    backend == "llvm" and scaling_name == "field"
-                )
-                extra_run = run(
-                    [str(extra_binary)],
-                    root,
-                    sanitizer_env(detect_leaks=scaling_detect_leaks),
-                )
+                # Shape ownership is now executable: never suppress leak checks.
+                extra_run = run([str(extra_binary)], root, sanitizer_env())
                 assert extra_run.returncode == 0, extra_run.stdout + extra_run.stderr
-                assert extra_run.stdout.strip().splitlines() == expected_stdout, (
-                    extra_run.stdout
-                )
+                extra_expected = expected_stdout + (["0", "0", "0"] if scaling_name == "field" else [])
+                assert extra_run.stdout.strip().splitlines() == extra_expected, extra_run.stdout
                 match = AUDIT_RE.search(extra_run.stderr)
                 assert match, extra_run.stderr
                 stats = tuple(int(value) for value in match.groups())
@@ -410,53 +415,53 @@ def main() -> int:
                     f"growths={stats[3]} copied_bytes={stats[4]}"
                 )
 
+            field_source = root / f"field_owned_suffix_{backend}.fk"
+            field_source.write_text(FIELD_CORRECTNESS_PROGRAM, encoding="utf-8")
+            field_transpiled = run(
+                [str(freak), "transpile", str(field_source), flag], repo
+            )
+            assert field_transpiled.returncode == 0, (
+                field_transpiled.stdout + field_transpiled.stderr
+            )
+            field_generated = Path(str(field_source) + suffix)
+            field_text = field_generated.read_text(encoding="utf-8")
             if backend == "llvm":
-                field_source = root / "field_owned_suffix_llvm.fk"
-                field_source.write_text(FIELD_CORRECTNESS_PROGRAM, encoding="utf-8")
-                field_transpiled = run(
-                    [str(freak), "transpile", str(field_source), "--llvm"], repo
+                assert field_text.count("call i64 @freak_llvm_word_append_owned") == 2, (
+                    "LLVM field correctness case lost a direct append path"
                 )
-                assert field_transpiled.returncode == 0, (
-                    field_transpiled.stdout + field_transpiled.stderr
-                )
-                field_generated = Path(str(field_source) + ".ll")
-                field_text = field_generated.read_text(encoding="utf-8")
-                assert field_text.count(
-                    "call i64 @freak_llvm_word_append_owned"
-                ) == 2, "LLVM field correctness case lost a direct append path"
-                field_binary = root / (
-                    "field_owned_suffix.exe"
-                    if sys.platform == "win32"
-                    else "field_owned_suffix"
-                )
-                compile_generated(
-                    clang=clang,
-                    repo=repo,
-                    runtime_root=runtime_root,
-                    generated=field_generated,
-                    backend="llvm",
-                    binary=field_binary,
-                    audit=True,
-                    force_move=True,
-                )
-                # V3 has no shape-object release ABI yet. Keep ASan's memory-error
-                # checks for this field-lowering fixture, but do not ask LSan to
-                # treat that separately documented shape boundary as a word leak.
-                field_run = run(
-                    [str(field_binary)], root, sanitizer_env(detect_leaks=False)
-                )
-                assert field_run.returncode == 0, field_run.stdout + field_run.stderr
-                assert field_run.stdout.strip().splitlines() == [
-                    "seed12345678901heapsuffix",
-                    "1",
-                ], field_run.stdout
-                match = AUDIT_RE.search(field_run.stderr)
-                assert match, field_run.stderr
-                field_stats = tuple(int(value) for value in match.groups())
-                assert field_stats[:4] == (1, 2, 3, 2), field_stats
-                assert "ownership audit found" not in field_run.stderr
-                assert "AddressSanitizer" not in field_run.stderr
-
+            else:
+                assert field_text.count("freak_word_concat_consuming(__freak_concat_left, __freak_concat_right, true, true)") == 2
+                assert "freak_v3_shape_set_word" in field_text
+            field_binary = root / (
+                f"field_owned_suffix_{backend}.exe"
+                if sys.platform == "win32"
+                else f"field_owned_suffix_{backend}"
+            )
+            compile_generated(
+                clang=clang,
+                repo=repo,
+                runtime_root=runtime_root,
+                generated=field_generated,
+                backend=backend,
+                binary=field_binary,
+                audit=True,
+                force_move=True,
+            )
+            field_run = run([str(field_binary)], root, sanitizer_env())
+            assert field_run.returncode == 0, field_run.stdout + field_run.stderr
+            assert field_run.stdout.strip().splitlines() == [
+                "seed12345678901heapsuffix",
+                "1", "0", "0", "0",
+            ], field_run.stdout
+            match = AUDIT_RE.search(field_run.stderr)
+            assert match, field_run.stderr
+            field_stats = tuple(int(value) for value in match.groups())
+            # C consumes three staged concatenations; LLVM retains two direct
+            # field append calls plus the suffix task's ordinary concatenation.
+            expected_field_prefix = {"c": (0, 3, 3, 3), "llvm": (1, 2, 3, 2)}[backend]
+            assert field_stats[:4] == expected_field_prefix, field_stats
+            assert "ownership audit found" not in field_run.stderr
+            assert "AddressSanitizer" not in field_run.stderr
         overflow_source = root / "concat_overflow.c"
         overflow_source.write_text(OVERFLOW_PROBE, encoding="utf-8")
         overflow_binary = root / (
