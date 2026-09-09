@@ -222,6 +222,49 @@ task emit_c_foreach(id: word, name: word, receiver: word, body: word) -> void {
     emt_loop_word_cleanup_base = saved_loop
 }
 
+-- Extern arguments borrow the values passed to them. Snapshot managed
+-- arguments before later argument effects, then release caller-owned snapshots.
+task c_args_have_handles(args: word) -> bool {
+    pilot j = 0
+    repeat tc_arg_count(args) times {
+        if c_handle_type(emt_expr_type_code(word_from_int(tc_arg_at(args, j)))) { give back true }
+        j += 1
+    }
+    give back false
+}
+
+task emit_c_extern_call(id: word, symbol: word, args: word) -> void {
+    emit("({ ")
+    pilot j = 0
+    repeat tc_arg_count(args) times {
+        emit_c_value_decl(word_from_int(tc_arg_at(args, j)), "__freak_extern_arg_" + word_from_int(j))
+        j += 1
+    }
+    pilot code = emt_expr_type_code(id)
+    pilot is_void = tc_expr_type(word_to_int(id)) == "void"
+    if not is_void { emit(c_value_type(code) + " __freak_result = ") }
+    emit(symbol + "(")
+    j = 0
+    repeat tc_arg_count(args) times {
+        if j > 0 { emit(", ") }
+        emit("__freak_extern_arg_" + word_from_int(j))
+        j += 1
+    }
+    emit_line(");")
+    j = 0
+    repeat tc_arg_count(args) times {
+        pilot arg = word_from_int(tc_arg_at(args, j))
+        pilot arg_name = "__freak_extern_arg_" + word_from_int(j)
+        if emt_expr_type_code(arg) == "w" {
+            if code == "w" { emit("if (" + arg_name + ".data != __freak_result.data) ") }
+            emit_line("freak_word_release_owned(&" + arg_name + ");")
+        }
+        j += 1
+    }
+    if is_void { emit("((void)0); })") }
+    else { emit("__freak_result; })") }
+}
+
 task emit_c_user_call(id: word, symbol: word, args: word) -> void {
     emit("({ ")
     pilot j = 0
@@ -698,6 +741,7 @@ task emit_c_call(expr_id: word, val: word, left: word) -> void {
 
     -- Extern function (no freak_ prefix)
     if emt_is_extern(val) {
+        if c_args_have_handles(left) { emit_c_extern_call(expr_id, c_safe_ident(val), left) give back }
         if left != "" and emt_args_have_owned_word_temporary(left) {
             emit_c_borrowing_call(expr_id, c_safe_ident(val), left)
             give back
