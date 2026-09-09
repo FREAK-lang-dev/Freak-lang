@@ -31,6 +31,15 @@ READING = '''shape Reading {
 '''
 
 POSITIVE = {
+    "explicit_parameter_release": (COUNTERS + '''task dispose(items: List<word>) {
+    array_release(items)
+}
+task work() {
+    pilot items = ["caller" + " retains"]
+    dispose(items)
+    say items[0]
+}
+''' + CHECK_ZERO, ["caller retains", "0", "0", "0"]),
     "filled_owned": (COUNTERS + READING + '''task work() {
     pilot mut words = List::filled("held" + " word", 3)
     words[1] = "changed"
