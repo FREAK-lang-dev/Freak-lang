@@ -201,6 +201,11 @@ say "task-return-ty-canonical=" + v4_ty_signature_return_type(v4_task_return_ty,
 say "task-return-ty-display=" + v4_ty_signature_of(v4_task_return_ty, v4_task_return_keep_def)
 say "task-return-mir-expected=" + v4_mir_expected_return_type(v4_task_return_mir, v4_task_return_keep_body)
 say "task-return-mir-diagnostics=" + word_from_int(v4_mir_diag_count(v4_task_return_mir))
+pilot v4_task_return_mir_diag_id = 0
+repeat until v4_task_return_mir_diag_id >= v4_mir_diag_count(v4_task_return_mir) {
+    say "task-return-mir-diagnostic=" + v4_mir_diag(v4_task_return_mir, v4_task_return_mir_diag_id)
+    v4_task_return_mir_diag_id += 1
+}
 say "task-return-borrow-status=" + v4_borrowck_result_status(v4_task_return_borrow, v4_task_return_keep_result)
 say v4_ty_snapshot_summary()
 
