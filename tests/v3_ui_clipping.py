@@ -245,10 +245,12 @@ int main(void) {
                            str(runtime / "freak_llvm_runtime.c"), "-I", str(runtime),
                            "-o", str(root / "unavailable_clip"),
                            *( ["-lws2_32"] if sys.platform == "win32" else ["-lm"] )], repo)
-        assert unavailable.returncode != 0, unavailable.stdout
+        # MSVC link.exe writes unresolved-symbol diagnostics to stdout.
+        unavailable_output = unavailable.stdout + unavailable.stderr
+        assert unavailable.returncode != 0, unavailable_output
         for symbol in ("freak_ui_set_clip", "freak_ui_reset_clip",
                        "freak_llvm_ui_set_clip", "freak_llvm_ui_reset_clip"):
-            assert symbol in unavailable.stderr, unavailable.stderr
+            assert symbol in unavailable_output, unavailable_output
         for call, diagnostic in (
             ("ui::set_clip(0, 1, 2, 3)", "expects 5 argument(s), got 4"),
             ('ui::set_clip(0, 1, 2, "wide", 4)', "argument 4 expects int, got word"),
