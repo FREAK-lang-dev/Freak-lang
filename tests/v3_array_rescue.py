@@ -15,6 +15,45 @@ import time
 
 
 CASES = {
+    "owned_shapes": ('''extern task freak_v3_live_arrays() -> int
+extern task freak_v3_live_shapes() -> int
+extern task freak_v3_live_words() -> int
+shape Reading {
+    label: word
+    value: num
+    ready: bool
+}
+task work() {
+    pilot mut values = [Reading { label: "first" + " reading", value: 1.5, ready: true }, Reading { label: "second", value: 2.5, ready: false }]
+    pilot saved = values[0]
+    values[0] = Reading { label: "replacement", value: 4.5, ready: true }
+    say saved.label
+    say saved.value
+    for each value in values {
+        say value.label
+        say value.value
+        say value.ready
+    }
+}
+task main() {
+    work()
+    say freak_v3_live_arrays()
+    say freak_v3_live_shapes()
+    say freak_v3_live_words()
+}
+''', ["first reading", "1.5", "replacement", "4.5", "true", "second", "2.5", "false", "0", "0", "0"]),
+    "single_evaluation": ('''pilot mut calls = 0
+task index() -> int {
+    calls += 1
+    give back 0
+}
+task main() {
+    pilot mut values = [3]
+    values[index()] += 4
+    say calls
+    say values[0]
+}
+''', ["1", "7"]),
     "requested": ('''pilot mut values = [1, 2, 3, 4]
 values[2] = 99
 say values[0]

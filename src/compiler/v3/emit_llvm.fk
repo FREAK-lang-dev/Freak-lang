@@ -789,11 +789,11 @@ task llvm_v3_temporary(expr_id: word) -> bool {
 }
 
 task llvm_v3_retain(reg: word, vtype: word) -> word {
-    pilot result = next_reg()
+    pilot array_result = next_reg()
     pilot helper = "freak_v3_shape_retain"
     if vtype.starts_with("a:") { helper = "freak_v3_array_retain" }
-    llvm_emit_line("    " + result + " = call i64 @" + helper + "(i64 " + reg + ")")
-    give back result
+    llvm_emit_line("    " + array_result + " = call i64 @" + helper + "(i64 " + reg + ")")
+    give back array_result
 }
 
 task llvm_v3_release(reg: word, vtype: word) -> void {
@@ -1089,20 +1089,20 @@ task llvm_emit_call(expr_id: word, val: word, left: word) -> word {
                 give back "0"
             }
             if val == "array_len" {
-                pilot result = next_reg()
-                llvm_emit_line("    " + result + " = call i64 @freak_v3_array_len(i64 " + receiver + ")")
+                pilot array_result = next_reg()
+                llvm_emit_line("    " + array_result + " = call i64 @freak_v3_array_len(i64 " + receiver + ")")
                 llvm_v3_cleanup_temp(receiver_id, receiver)
-                give back result
+                give back array_result
             }
             if not llvm_v3_temporary(receiver_id) { receiver = llvm_v3_retain(receiver, receiver_type) }
             pilot arg_id = word_from_int(tc_arg_at(left, 1))
             pilot arg = llvm_emit_expr(arg_id)
             if val == "array_get" {
-                pilot result = next_reg()
-                llvm_emit_line("    " + result + " = call i64 @freak_v3_array_get(i64 " + receiver + ", i64 " + arg + ")")
-                result = llvm_v3_preserve_element(result, "w")
+                pilot array_result = next_reg()
+                llvm_emit_line("    " + array_result + " = call i64 @freak_v3_array_get(i64 " + receiver + ", i64 " + arg + ")")
+                array_result = llvm_v3_preserve_element(array_result, "w")
                 llvm_v3_release(receiver, receiver_type)
-                give back result
+                give back array_result
             }
             if val == "array_push" {
                 llvm_emit_line("    call void @freak_v3_array_push(i64 " + receiver + ", i64 " + arg + ")")
@@ -1122,10 +1122,10 @@ task llvm_emit_call(expr_id: word, val: word, left: word) -> word {
         pilot count_id = word_from_int(tc_arg_at(left, 1))
         pilot value = llvm_emit_expr(item_id)
         pilot count_reg = llvm_emit_expr(count_id)
-        pilot result = next_reg()
-        llvm_emit_line("    " + result + " = call i64 @freak_v3_array_filled(i64 " + llvm_v3_kind(llvm_infer_expr_type(item_id)) + ", i64 " + count_reg + ", i64 " + value + ")")
+        pilot array_result = next_reg()
+        llvm_emit_line("    " + array_result + " = call i64 @freak_v3_array_filled(i64 " + llvm_v3_kind(llvm_infer_expr_type(item_id)) + ", i64 " + count_reg + ", i64 " + value + ")")
         llvm_v3_cleanup_temp(item_id, value)
-        give back result
+        give back array_result
     }
     -- Shape constructors have their own ownership-aware argument lowering.
     if val.starts_with("shape::ctor::") { give back llvm_emit_shape_ctor(val, left) }
