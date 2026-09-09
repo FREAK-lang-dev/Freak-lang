@@ -2109,9 +2109,11 @@ task llvm_emit_stmt_assign(eid: word) -> void {
         pilot field_name: word = array_get(ast_expr_vals, lhs_idx)
         pilot recv_id: word = array_get(ast_expr_lefts, lhs_idx)
         pilot recv_reg = llvm_emit_expr(recv_id)
+        pilot recv_type = llvm_infer_expr_type(recv_id)
+        if not llvm_v3_temporary(recv_id) { recv_reg = llvm_v3_retain(recv_reg, recv_type) }
 
         pilot fidx = llvm_infer_field_index(recv_id, field_name)
-        if fidx < 0 { give back }
+        if fidx < 0 { llvm_v3_release(recv_reg, recv_type) give back }
 
         pilot fidx_w = word_from_int(fidx)
         pilot field_type = llvm_infer_field_type(recv_id, field_name)
@@ -2146,6 +2148,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
                             pilot appended_field = next_reg()
                             llvm_emit_line("    " + appended_field + " = call i64 @freak_llvm_word_append_owned(i64 " + previous_field + ", i64 " + suffix_reg + ", i64 " + release_suffix + ")")
                             llvm_emit_line("    call void @freak_v3_shape_set_owned(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + appended_field + ")")
+                            llvm_v3_release(recv_reg, recv_type)
                             give back
                         }
                     }
@@ -2160,7 +2163,7 @@ task llvm_emit_stmt_assign(eid: word) -> void {
             if field_type.starts_with("n") { stored_field = llvm_coerce_num_bits(rhs_reg, rhs_w) }
             llvm_emit_line("    call void @freak_v3_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + stored_field + ")")
             llvm_v3_cleanup_temp(rhs_w, rhs_reg)
-            llvm_v3_cleanup_temp(recv_id, recv_reg)
+            llvm_v3_release(recv_reg, recv_type)
             give back
         }
 
@@ -2183,6 +2186,8 @@ task llvm_emit_stmt_assign(eid: word) -> void {
             if name_w == "%=" { llvm_emit_line("    " + op_reg + " = srem i64 " + cur_reg + ", " + rhs_reg) }
         }
         llvm_emit_line("    call void @freak_v3_shape_set(i64 " + recv_reg + ", i64 " + fidx_w + ", i64 " + op_reg + ")")
+        llvm_v3_cleanup_temp(rhs_w, rhs_reg)
+        llvm_v3_release(recv_reg, recv_type)
         give back
     }
 
@@ -2788,6 +2793,9 @@ task emit_llvm_program() -> void {
         llvm_var_names = ""
         llvm_var_types = ""
         llvm_var_reg_map = ""
+        llvm_word_local_slots = ""
+        llvm_current_word_params = ""
+        llvm_loop_word_cleanup_prefix = ""
         llvm_cur_func_is_void = true
         pilot init_dbg = llvm_dbg_begin_func("__freak_generated_init_globals", 1)
         llvm_emit_line("define void @__freak_generated_init_globals()" + init_dbg + " {")
@@ -2815,6 +2823,9 @@ task emit_llvm_program() -> void {
         llvm_var_names = ""
         llvm_var_types = ""
         llvm_var_reg_map = ""
+        llvm_word_local_slots = ""
+        llvm_current_word_params = ""
+        llvm_loop_word_cleanup_prefix = ""
         llvm_cur_func_is_void = true
         pilot main_dbg = llvm_dbg_begin_func("__freak_generated_top_level", 1)
         llvm_emit_line("define void @__freak_generated_top_level()" + main_dbg + " {")
