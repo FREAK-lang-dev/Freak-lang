@@ -79,12 +79,20 @@ construction. Six unrelated `v4_ty_type_text` consumers remain allowlisted for
 method type arguments, raw-pointer instance methods, associated methods,
 shape/route constructor heads, and route-case expressions; the harness requires
 that exact set and prevents local declaration lowering from returning to it.
-Task parameter and return types, shape/route fields, const annotations,
-doctrine/extern types, the remaining MIR body families, and all other type
-families remain explicit follow-up slices. These boundaries change fact
-ownership, not language semantics or backend representation. Symbol-valued
-annotated locals still retain the pre-existing phantom-local-IR limitation
-described in the FFI section below.
+The third bounded boundary covers declared returns on ordinary top-level tasks.
+`freak_hir` stores one closed `explicit` / `implicit-block` / `arrow` record per
+task, including normalized surface type and exact contained span only for an
+explicit `-> T`; HIR snapshot v5 validates that vocabulary, task-only ownership,
+canonical spans, contiguous slots, and declared counts before restore. TY reads
+explicit return types and spans only through those HIR facts. Arrow inference,
+implicit block returns, and non-ordinary impl/doctrine/extern signatures remain
+separately named fallbacks and keep their existing semantics. Task parameter
+types, shape/route fields, const annotations, non-ordinary signatures, the
+remaining MIR body families, and all other type families remain explicit
+follow-up slices. These boundaries change fact ownership, not language
+semantics or backend representation. Symbol-valued annotated locals still
+retain the pre-existing phantom-local-IR limitation described in the FFI
+section below.
 Closures now form a complete first-pass frontend/query slice. The resilient
 parser records arrow and block forms as `ClosureExpr` trees and leaves
 `IncompleteNode` recovery facts for missing pipes, body markers, expressions,
@@ -518,8 +526,10 @@ slots fail validation before restore; wire order may place children before
 owners. Local annotations use the same physical index with bounded owner/item
 metadata and dense per-owner annotation slots; parent span bounds are decoded
 once rather than reparsed for every annotation. File-slot reset owns and reuses
-all twelve child arrays. `hir_snapshot_scaling_smoke.fk` covers 64/512 aliases,
-512 annotations, 64 owners, malformed records, and repeated scratch-capacity
+all sixteen child arrays. Task returns also use bounded owner/item indexes
+and require exactly one fact per ordinary Task, including when the payload
+declares zero returns. `hir_snapshot_scaling_smoke.fk` covers 64/512 aliases,
+512 annotations, 512 task returns, 64 owners, malformed records, and repeated scratch-capacity
 checks under a 1,024-handle limit and 64 MB process-tree ceiling.
 
 Temporary graph, worklist, seen-set, and serializer arrays are request-scoped resources. Every path that allocates one must either consume it with `word_join` or release it with `array_release`, including failure exits. `mir_snapshot_resource_smoke.fk` repeatedly validates accepted and cyclic MIR graphs, and `query_invalidation_resource_smoke.fk` combines 96 `didChange` requests with 600 direct dependency invalidations. These C-backed resource fixtures are compiled with a test-only 1,024-live-handle limit matching the LLVM runtime pool; the production C runtime remains dynamically sized. Each fixture measures all remaining handle capacity before and after its workload and ends with a fresh-array probe under a 64 MB ceiling, so even one leaked handle fails instead of hiding behind low RSS or spare C table capacity.
@@ -541,7 +551,7 @@ unit-section|<section-name>|<escaped-checkpoint-identity>|<escaped-section-paylo
 end|freak-00-unit-snapshot-v3
 ```
 
-The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v4 validation requires canonical alias-target and local-annotation spans, exact child ownership/slot identity, and exact declared counts. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
+The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v5 validation requires canonical alias-target, local-annotation, and ordinary-task declared-return spans, exact child ownership/slot identity, a closed return-form vocabulary, and exact declared counts. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
 
 ### `workspace/unitSnapshotManifest`
 

@@ -5436,23 +5436,95 @@ task v4_ty_task_return_span_from_tokens(stream_id: int, start_token: int, end_to
     give back V4_NO_SPAN
 }
 
-task v4_ty_signature_return_span(ty_id: int, sig_id: int) -> word {
+task v4_ty_signature_is_ordinary_hir_task(ty_id: int, sig_id: int) -> bool {
+    if sig_id < 0 or sig_id >= v4_ty_signature_count(ty_id) or v4_ty_signature_kind(ty_id, sig_id) != v4_ty_task_sig or v4_ty_signature_extern_member_id(ty_id, sig_id) >= 0 {
+        give back false
+    }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if hir_id < 0 or hir_item < 0 or hir_item >= v4_hir_item_count(hir_id) {
+        give back false
+    }
+    give back v4_hir_item_kind(hir_id, hir_item) == v4_hir_task
+}
+
+task v4_ty_ordinary_task_explicit_return_from_hir(hir_id: int, hir_item: int) -> word {
+    if hir_id < 0 or hir_item < 0 or v4_hir_task_return_form(hir_id, hir_item) != v4_hir_task_return_explicit {
+        give back v4_ty_unknown
+    }
+    pilot return_ty = v4_hir_task_return_type(hir_id, hir_item)
+    if return_ty == "" {
+        give back v4_ty_unknown
+    }
+    give back return_ty
+}
+
+task v4_ty_ordinary_task_explicit_return_span_from_hir(hir_id: int, hir_item: int) -> word {
+    if hir_id < 0 or hir_item < 0 or v4_hir_task_return_form(hir_id, hir_item) != v4_hir_task_return_explicit {
+        give back V4_NO_SPAN
+    }
+    give back v4_hir_task_return_span(hir_id, hir_item)
+}
+
+task v4_ty_ordinary_task_arrow_return_fallback(hir_id: int, hir_item: int) -> word {
+    pilot stream_id = v4_hir_item_stream_id(hir_id)
+    pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
+    pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
+    pilot fat_arrow = v4_ty_find_token_value(stream_id, start_token, end_token, "=>")
+    if fat_arrow < 0 {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_infer_arrow_expr_return(stream_id, fat_arrow + 1, end_token)
+}
+
+task v4_ty_nonordinary_signature_return_fallback(ty_id: int, sig_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back v4_ty_unknown
+    }
+    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_nonordinary_signature_return_span_fallback(ty_id: int, sig_id: int) -> word {
     pilot stream_id = v4_ty_signature_stream_id(ty_id)
     pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
     pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
     give back v4_ty_task_return_span_from_tokens(stream_id, start_token, end_token)
 }
 
+task v4_ty_nonordinary_hir_item_return_fallback(hir_id: int, hir_item: int) -> word {
+    pilot stream_id = v4_hir_item_stream_id(hir_id)
+    pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
+    pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
+    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
+}
+
+task v4_ty_signature_return_span(ty_id: int, sig_id: int) -> word {
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        give back v4_ty_ordinary_task_explicit_return_span_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
+    }
+    give back v4_ty_nonordinary_signature_return_span_fallback(ty_id, sig_id)
+}
+
 task v4_ty_task_return_from_hir(hir_id: int, hir_item: int) -> word {
     if hir_item < 0 {
         give back v4_ty_unknown
     }
-
-    pilot tree_id = v4_hir_tree_id(hir_id)
-    pilot stream_id = v4_parse_stream_id(tree_id)
-    pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
-    pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
-    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
+    pilot form = v4_hir_task_return_form(hir_id, hir_item)
+    if form == v4_hir_task_return_explicit {
+        give back v4_ty_ordinary_task_explicit_return_from_hir(hir_id, hir_item)
+    }
+    if form == v4_hir_task_return_arrow {
+        give back v4_ty_ordinary_task_arrow_return_fallback(hir_id, hir_item)
+    }
+    if form == "" {
+        give back v4_ty_nonordinary_hir_item_return_fallback(hir_id, hir_item)
+    }
+    -- Implicit block tasks have no declared return fact. TY keeps its current
+    -- conservative unknown fallback until block return inference owns it.
+    give back v4_ty_unknown
 }
 
 task v4_ty_const_signature_id_for_name(ty_id: int, const_name: word) -> int {
@@ -9305,13 +9377,10 @@ task v4_ty_signature_borrowed_return_source_param(ty_id: int, sig_id: int) -> in
 }
 
 task v4_ty_signature_return_surface_type(ty_id: int, sig_id: int) -> word {
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
-    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
-    if stream_id < 0 or start_token < 0 or end_token <= start_token {
-        give back v4_ty_unknown
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        give back v4_ty_task_return_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
     }
-    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
+    give back v4_ty_nonordinary_signature_return_fallback(ty_id, sig_id)
 }
 
 task v4_ty_shape_signature_id_for_name(ty_id: int, shape_name: word) -> int {
