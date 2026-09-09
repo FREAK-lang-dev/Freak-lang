@@ -886,9 +886,42 @@ task emit_c_field(val: word, left: word) -> void {
     emit_c_container_get(left, left, word_from_int(fidx), code, true)
 }
 
+task c_expr_has_projection(id: int) -> bool {
+    if id < 0 { give back false }
+    pilot kind: word = array_get(ast_expr_kinds, id)
+    if kind == EXPR_INDEX or kind == EXPR_FIELD { give back true }
+    pilot left: word = array_get(ast_expr_lefts, id)
+    pilot right: word = array_get(ast_expr_rights, id)
+    if kind == EXPR_BINOP { give back c_expr_has_projection(word_to_int(left)) or c_expr_has_projection(word_to_int(right)) }
+    if kind == EXPR_UNARYOP { give back c_expr_has_projection(word_to_int(left)) }
+    if kind == EXPR_METHOD {
+        if c_expr_has_projection(word_to_int(left)) { give back true }
+        pilot j = 0
+        repeat tc_arg_count(right) times {
+            if c_expr_has_projection(tc_arg_at(right, j)) { give back true }
+            j += 1
+        }
+    }
+    if kind == EXPR_CALL or kind == EXPR_ARRAY_LIT {
+        pilot j = 0
+        repeat tc_arg_count(left) times {
+            if c_expr_has_projection(tc_arg_at(left, j)) { give back true }
+            j += 1
+        }
+    }
+    give back false
+}
+
 task emit_c_binop(expr_id: word, val: word, left: word, right: word) -> void {
     if val == "+" {
         if emt_expr_type_code(left) == "w" or emt_expr_type_code(right) == "w" {
+            if c_expr_has_projection(word_to_int(left)) or c_expr_has_projection(word_to_int(right)) {
+                emit("({ ")
+                emit_c_value_decl(left, "__freak_concat_left")
+                emit_c_value_decl(right, "__freak_concat_right")
+                emit("freak_word_concat_consuming(__freak_concat_left, __freak_concat_right, true, true); })")
+                give back
+            }
             emit("freak_word_concat_consuming(")
             emit_expr(left)
             emit(", ")
