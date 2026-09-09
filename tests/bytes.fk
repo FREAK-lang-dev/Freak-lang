@@ -1,41 +1,28 @@
--- Test: std::bytes ByteBuffer
+-- Test: current explicit-release/sticky-status std::bytes contract
 
--- Create a new empty buffer
-pilot buf = ByteBuffer::new()
+task main() {
+    pilot buf: ByteBuffer = ByteBuffer::with_capacity(4)
+    buf.write_word("Hello")
+    say buf.length()
 
--- Write some bytes
-buf.write_byte(72)   -- 'H'
-buf.write_byte(101)  -- 'e'
-buf.write_byte(108)  -- 'l'
-buf.write_byte(108)  -- 'l'
-buf.write_byte(111)  -- 'o'
+    buf.seek(0)
+    say buf.read_word(5)
+    say buf.status()
 
-say "Wrote 5 bytes to buffer"
+    -- Bounds errors are sticky until explicitly cleared.
+    buf.seek(99)
+    say buf.status()
+    buf.seek(1)
+    say buf.position()
+    buf.clear_status()
+    buf.seek(1)
 
--- Check the length
-pilot len = buf.length()
-say "Buffer length OK"
+    -- Slices own independent copies and must be released separately.
+    pilot middle: ByteBuffer = buf.slice(1, 3)
+    buf.clear()
+    say middle.to_word()
+    middle.release()
+    buf.release()
 
--- Write an integer (little-endian 8 bytes)
-buf.write_int(9001)
-say "Wrote int to buffer"
-
--- Write a word (UTF-8 bytes, no null terminator)
-buf.write_word(" FREAK")
-say "Wrote word to buffer"
-
--- Seek back to start and read a byte
-buf.seek(0)
-pilot maybe_byte = buf.read_byte()
-check maybe_byte {
-    got b -> say "Read first byte OK"
-    nobody -> say "Read failed"
+    say "bytes module OK"
 }
-
--- Convert buffer to word (interpret bytes as UTF-8)
-check result buf.to_word() {
-    ok(w) -> say "Buffer to word OK"
-    err(e) -> say "Buffer to word failed"
-}
-
-say "bytes module OK"

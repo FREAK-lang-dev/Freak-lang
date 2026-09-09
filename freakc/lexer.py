@@ -175,6 +175,21 @@ class Lexer:
         self.column = 1
 
     def tokenize(self) -> List[Token]:
+        nul_index = self.source.find("\0")
+        if nul_index != -1:
+            prefix = self.source[:nul_index]
+            line = prefix.count("\n") + 1
+            previous_newline = prefix.rfind("\n")
+            column = (
+                nul_index + 1
+                if previous_newline == -1
+                else nul_index - previous_newline
+            )
+            raise LexerError(
+                f"NUL byte in source is not supported at line {line}, column {column}",
+                line=line,
+                column=column,
+            )
         while not self._is_at_end():
             self.start = self.current
             self._scan_token()

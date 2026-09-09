@@ -106,7 +106,7 @@ def check_installer_contracts(repo: Path) -> None:
     ):
         assert needle in manifest_text, f"distribution manifest missing {needle}"
     for needle in (
-        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v3"',
+        'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"',
         "task cli_run_clang_identity",
         "command -v ",
         "certutil -hashfile",
@@ -157,6 +157,10 @@ def main() -> int:
             shutil.copy2(repo / "freakc" / "runtime" / name, runtime / name)
         runtime_abi = runtime / "freak_abi"
         shutil.copy2(repo / "freakc" / "runtime" / "freak_abi", runtime_abi)
+        runtime_api = runtime / "freak_runtime_api"
+        shutil.copy2(
+            repo / "freakc" / "runtime" / "freak_runtime_api", runtime_api
+        )
         if sys.platform == "win32":
             runtime_ui = runtime / "ui"
             runtime_ui.mkdir()
@@ -169,6 +173,7 @@ def main() -> int:
             (runtime / "freak_llvm_runtime.o").write_bytes(b"stale object\n")
         (std / "math.fk").write_text("-- freshness std v1\n", encoding="utf-8")
         shutil.copy2(repo / "std" / "freak_abi", std / "freak_abi")
+        shutil.copy2(repo / "std" / "freak_std_api", std / "freak_std_api")
 
         isolated_home = root / "home"
         isolated_appdata = root / "appdata"
@@ -197,6 +202,79 @@ def main() -> int:
         code, output = invoke(freak, source_dir, source_arg, "--c", env)
         assert_run(code, output, "CACHE_A", cache_hit=True)
         assert binary.stat().st_mtime_ns == first_mtime
+
+        # Runtime API capability gates apply before the warm-cache fast path.
+        # A missing or incompatible marker must not launch or mutate the cached
+        # executable/proof, and restoring the exact marker must recover the
+        # same cache entry without rebuilding.
+        cached_binary = binary.read_bytes()
+        cached_sidecar = sidecar.read_bytes()
+        for marker_value in (
+            None,
+            "freak-v3-runtime-api-1\n",
+            "freak-v3-runtime-api-2\n",
+            "freak-v3-runtime-api-999\n",
+        ):
+            if marker_value is None:
+                runtime_api.unlink()
+            else:
+                runtime_api.write_text(marker_value, encoding="utf-8")
+            code, output = invoke(freak, source_dir, source_arg, "--c", env)
+            assert code != 0, output
+            assert "runtime api mismatch" in output.lower(), output
+            assert "CACHE_A" not in output, output
+            assert binary.read_bytes() == cached_binary
+            assert sidecar.read_bytes() == cached_sidecar
+
+            shutil.copy2(
+                repo / "freakc" / "runtime" / "freak_runtime_api", runtime_api
+            )
+            code, output = invoke(freak, source_dir, source_arg, "--c", env)
+            assert_run(code, output, "CACHE_A", cache_hit=True)
+            assert binary.stat().st_mtime_ns == first_mtime
+            assert binary.read_bytes() == cached_binary
+            assert sidecar.read_bytes() == cached_sidecar
+
+        # Cold build/run must reject an older same-ABI runtime before emitting
+        # either backend. Keep the warm artifact beside it to also prove that
+        # a rejected cold operation cannot invalidate unrelated cache entries.
+        cold_source = source_dir / "runtime-api-cold.fk"
+        cold_source.write_text('say "COLD_API_EXECUTED"\n', encoding="utf-8")
+        cold_binary = cold_source.with_suffix(
+            ".exe" if sys.platform == "win32" else ""
+        )
+        cold_outputs = (
+            Path(str(cold_source) + ".c"),
+            Path(str(cold_source) + ".ll"),
+            cold_binary,
+            Path(str(cold_binary) + ".freak-run-cache"),
+        )
+        try:
+            for marker_value in (None, "freak-v3-runtime-api-1\n", "freak-v3-runtime-api-2\n"):
+                if marker_value is None:
+                    runtime_api.unlink()
+                else:
+                    runtime_api.write_text(marker_value, encoding="utf-8")
+                for backend in ("--c", "--llvm"):
+                    for operation in ("build", "run"):
+                        rejected = subprocess.run(
+                            [str(freak), operation, cold_source.name, backend],
+                            cwd=source_dir, env=env, capture_output=True,
+                            text=True, errors="replace", timeout=120, check=False,
+                        )
+                        output = ANSI.sub("", rejected.stdout + rejected.stderr)
+                        assert rejected.returncode != 0, output
+                        assert "runtime api mismatch" in output.lower(), output
+                        assert "COLD_API_EXECUTED" not in output, output
+                        assert not any(path.exists() for path in cold_outputs), (
+                            operation, backend, cold_outputs, output
+                        )
+                        assert binary.read_bytes() == cached_binary
+                        assert sidecar.read_bytes() == cached_sidecar
+        finally:
+            shutil.copy2(
+                repo / "freakc" / "runtime" / "freak_runtime_api", runtime_api
+            )
 
         # Build invalidation is ordered proof-first. If the cache proof cannot
         # be removed, the old executable is preserved; if only the executable
@@ -511,11 +589,15 @@ def main() -> int:
             percent_source_dir.mkdir()
             percent_source = percent_source_dir / "literal percent.fk"
             percent_source.write_text('say "SAFE_WINDOWS_PATH"\n', encoding="utf-8")
+            mock_linker = root / "ld.lld.exe"
+            shutil.copy2(freak, mock_linker)
             mock_clang = root / "mock-clang.cmd"
             mock_clang.write_text(
                 "@echo off\n"
                 "setlocal DisableDelayedExpansion\n"
                 'if "%~1"=="--version" (echo clang mock-version& exit /b 0)\n'
+                'if "%~1"=="-dumpmachine" (echo x86_64-w64-windows-gnu& exit /b 0)\n'
+                f'if "%~1"=="-###" (echo "{mock_linker}" "-out:nul"& exit /b 0)\n'
                 ":scan\n"
                 'if "%~1"=="" exit /b 2\n'
                 'if "%~1"=="-o" goto output\n'
@@ -553,27 +635,38 @@ def main() -> int:
             assert_run(code, output, "SAFE_PATH", cache_hit=False)
             assert not path_sentinel.exists(), "source path executed shell substitution"
 
-            target_sentinel = source_dir / "FREAK_TARGET_INJECTED"
-            malicious_target = (
-                "x86_64-unknown-linux-gnu;touch${IFS}FREAK_TARGET_INJECTED"
-            )
-            rejected_target = subprocess.run(
-                [
-                    str(freak), "build", str(source_arg), "--c",
-                    f"--target={malicious_target}",
-                ],
-                cwd=source_dir,
-                env=env,
-                capture_output=True,
-                text=True,
-                errors="replace",
-                timeout=120,
-                check=False,
-            )
-            target_output = ANSI.sub("", rejected_target.stdout + rejected_target.stderr)
-            assert rejected_target.returncode != 0, target_output
-            assert "invalid target triple" in target_output, target_output
-            assert not target_sentinel.exists(), "target triple executed shell syntax"
+        # Flag validation now rejects this before the backend's defensive
+        # target check. Exercise that early rejection on every platform and
+        # preserve both existing artifacts and the freshness proof.
+        target_sentinel = source_dir / "FREAK_TARGET_INJECTED"
+        malicious_target = (
+            "x86_64-unknown-linux-gnu;touch${IFS}FREAK_TARGET_INJECTED"
+        )
+        target_paths = (binary, sidecar, Path(str(source) + ".c"),
+                        Path(str(source) + ".ll"))
+        target_before = {path: (path.read_bytes(), path.stat().st_mtime_ns)
+                         if path.exists() else None for path in target_paths}
+        rejected_target = subprocess.run(
+            [
+                str(freak), "build", str(source_arg), "--c",
+                f"--target={malicious_target}",
+            ],
+            cwd=source_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=120,
+            check=False,
+        )
+        target_output = ANSI.sub("", rejected_target.stdout + rejected_target.stderr)
+        assert rejected_target.returncode != 0, target_output
+        assert "--target requires a safe target triple" in target_output, target_output
+        assert not target_sentinel.exists(), "target triple executed shell syntax"
+        assert target_before == {
+            path: (path.read_bytes(), path.stat().st_mtime_ns)
+            if path.exists() else None for path in target_paths
+        }, "invalid target changed generated artifacts or freshness proof"
 
         # A failed rebuild must invalidate both the freshness proof and the old
         # executable. Remove the staged runtime, change source, and verify the

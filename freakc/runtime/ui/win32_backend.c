@@ -17,12 +17,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <limits.h>
 
 /* ------------------------------------------------------------------ */
 /*  Internal state                                                     */
 /* ------------------------------------------------------------------ */
 
 typedef struct {
+    int64_t handle;     /* Never reused; HWND remains private. */
     HWND hwnd;
     HDC  mem_dc;        /* Off-screen DC for pixel buffer */
     HBITMAP hbm;        /* DIBSection bitmap */
@@ -32,6 +34,10 @@ typedef struct {
     int resizable;
     bool quit_requested;
     bool focused;
+    bool clip_active;
+    bool gdi_clip_ready;
+    int64_t clip_x, clip_y, clip_w, clip_h;
+    RECT clip;         /* Effective half-open client/pixel bounds. */
 
     /* GDI drawing state — we overlay GDI text on top of the pixel buffer */
     HDC gdi_dc;         /* Second off-screen DC for GDI drawing */
@@ -44,6 +50,78 @@ typedef struct {
 
 /* Single window for now (matches the plan's Phase A scope) */
 static freak_ui_window* g_win = NULL;
+static int64_t g_last_handle = 0;
+
+static bool valid_window(int64_t handle) {
+    return g_win && handle > 0 && handle == g_win->handle && g_win->hwnd;
+}
+
+static int64_t extent_end(int64_t start, int64_t length) {
+    return start > INT64_MAX - length ? INT64_MAX : start + length;
+}
+
+static RECT client_rect(int64_t x, int64_t y, int64_t width, int64_t height) {
+    RECT rect = {0, 0, 0, 0};
+    if (!g_win || width <= 0 || height <= 0) return rect;
+    int64_t right = extent_end(x, width), bottom = extent_end(y, height);
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (right > g_win->width) right = g_win->width;
+    if (bottom > g_win->height) bottom = g_win->height;
+    if (x >= right || y >= bottom) return rect;
+    rect.left = (LONG)x; rect.top = (LONG)y;
+    rect.right = (LONG)right; rect.bottom = (LONG)bottom;
+    return rect;
+}
+
+static void apply_clip(void) {
+    if (!g_win) return;
+    g_win->clip = g_win->clip_active ?
+        client_rect(g_win->clip_x, g_win->clip_y, g_win->clip_w, g_win->clip_h) :
+        client_rect(0, 0, g_win->width, g_win->height);
+    g_win->gdi_clip_ready = false;
+    if (!g_win->mem_dc) return;
+    GdiFlush();
+    if (SelectClipRgn(g_win->mem_dc, NULL) == ERROR) return;
+    RECT r = g_win->clip;
+    g_win->gdi_clip_ready = IntersectClipRect(
+        g_win->mem_dc, r.left, r.top, r.right, r.bottom) != ERROR;
+}
+
+static bool resize_buffer(HWND hwnd, int width, int height) {
+    if (width <= 0 || height <= 0 ||
+        (size_t)width > SIZE_MAX / sizeof(uint32_t) / (size_t)height) return false;
+    HDC dc = GetDC(hwnd);
+    if (!dc) return false;
+    HDC next_dc = CreateCompatibleDC(dc);
+    BITMAPINFO bmi = {0};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = width;
+    bmi.bmiHeader.biHeight = -height;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    uint32_t* next_pixels = NULL;
+    HBITMAP next_bitmap = next_dc ? CreateDIBSection(
+        dc, &bmi, DIB_RGB_COLORS, (void**)&next_pixels, NULL, 0) : NULL;
+    ReleaseDC(hwnd, dc);
+    if (!next_dc || !next_bitmap || !next_pixels ||
+        !SelectObject(next_dc, next_bitmap)) {
+        if (next_dc) DeleteDC(next_dc);
+        if (next_bitmap) DeleteObject(next_bitmap);
+        return false;
+    }
+    GdiFlush();
+    if (g_win->mem_dc) DeleteDC(g_win->mem_dc);
+    if (g_win->hbm) DeleteObject(g_win->hbm);
+    g_win->mem_dc = next_dc;
+    g_win->hbm = next_bitmap;
+    g_win->pixels = next_pixels;
+    g_win->width = width;
+    g_win->height = height;
+    apply_clip();
+    return true;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Event buffering                                                    */
@@ -103,7 +181,7 @@ static LRESULT CALLBACK FreakWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return 0;
 
         case WM_DESTROY:
-            PostQuitMessage(0);
+            g_win->quit_requested = true;
             return 0;
 
         case WM_KEYDOWN:
@@ -190,28 +268,12 @@ static LRESULT CALLBACK FreakWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             if (wParam != SIZE_MINIMIZED) {
                 int new_w = LOWORD(lParam);
                 int new_h = HIWORD(lParam);
-                if (new_w > 0 && new_h > 0 && (new_w != g_win->width || new_h != g_win->height)) {
-                    g_win->width = new_w;
-                    g_win->height = new_h;
-
-                    /* Recreate pixel buffer for new size */
-                    HDC hdc = GetDC(hwnd);
-                    if (g_win->hbm) DeleteObject(g_win->hbm);
-                    if (g_win->mem_dc) DeleteDC(g_win->mem_dc);
-
-                    g_win->mem_dc = CreateCompatibleDC(hdc);
-                    BITMAPINFO bmi = {0};
-                    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-                    bmi.bmiHeader.biWidth = new_w;
-                    bmi.bmiHeader.biHeight = -new_h; /* top-down */
-                    bmi.bmiHeader.biPlanes = 1;
-                    bmi.bmiHeader.biBitCount = 32;
-                    bmi.bmiHeader.biCompression = BI_RGB;
-                    g_win->hbm = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS,
-                                                  (void**)&g_win->pixels, NULL, 0);
-                    SelectObject(g_win->mem_dc, g_win->hbm);
-                    ReleaseDC(hwnd, hdc);
-
+                if (g_win->hwnd && new_w > 0 && new_h > 0 &&
+                    (new_w != g_win->width || new_h != g_win->height)) {
+                    if (!resize_buffer(hwnd, new_w, new_h)) {
+                        g_win->quit_requested = true;
+                        return 0;
+                    }
                     ev.kind = FREAK_UI_EVENT_RESIZE;
                     ev.width = new_w;
                     ev.height = new_h;
@@ -245,10 +307,13 @@ static LRESULT CALLBACK FreakWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 /* ------------------------------------------------------------------ */
 
 int64_t freak_ui_create_window(const char* title, int64_t width, int64_t height, int64_t resizable) {
+    if (g_win || g_last_handle == INT64_MAX || width <= 0 || height <= 0 ||
+        width > INT_MAX || height > INT_MAX) return 0;
     if (!title) title = "FREAK UI";
 
     g_win = (freak_ui_window*)calloc(1, sizeof(freak_ui_window));
     if (!g_win) return 0;
+    g_win->handle = ++g_last_handle;
 
     g_win->width = (int)width;
     g_win->height = (int)height;
@@ -284,53 +349,44 @@ int64_t freak_ui_create_window(const char* title, int64_t width, int64_t height,
         return 0;
     }
 
-    /* Create off-screen pixel buffer (DIBSection) */
-    HDC hdc = GetDC(g_win->hwnd);
-    g_win->mem_dc = CreateCompatibleDC(hdc);
-
-    BITMAPINFO bmi = {0};
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = g_win->width;
-    bmi.bmiHeader.biHeight = -g_win->height; /* top-down */
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
-
-    g_win->hbm = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS,
-                                  (void**)&g_win->pixels, NULL, 0);
-    SelectObject(g_win->mem_dc, g_win->hbm);
-    ReleaseDC(g_win->hwnd, hdc);
+    RECT client;
+    if (!GetClientRect(g_win->hwnd, &client) ||
+        !resize_buffer(g_win->hwnd, client.right, client.bottom)) {
+        freak_ui_destroy_window(g_win->handle);
+        return 0;
+    }
 
     /* Do NOT show the window yet — let the caller decide with show_window */
     g_win->focused = false;
 
-    return (int64_t)(intptr_t)g_win->hwnd;
+    return g_win->handle;
 }
 
 void freak_ui_destroy_window(int64_t handle) {
-    if (!g_win) return;
-    if (g_win->hbm) DeleteObject(g_win->hbm);
+    if (!valid_window(handle)) return;
+    GdiFlush();
     if (g_win->mem_dc) DeleteDC(g_win->mem_dc);
+    if (g_win->hbm) DeleteObject(g_win->hbm);
     if (g_win->hwnd) DestroyWindow(g_win->hwnd);
     free(g_win);
     g_win = NULL;
 }
 
 void freak_ui_show_window(int64_t handle) {
-    if (!g_win || !g_win->hwnd) return;
+    if (!valid_window(handle)) return;
     ShowWindow(g_win->hwnd, SW_SHOW);
     UpdateWindow(g_win->hwnd);
     g_win->focused = true;
 }
 
 void freak_ui_set_title(int64_t handle, const char* title) {
-    if (!g_win || !g_win->hwnd) return;
+    if (!valid_window(handle)) return;
     if (!title) title = "";
     SetWindowTextA(g_win->hwnd, title);
 }
 
 int64_t freak_ui_window_should_close(int64_t handle) {
-    if (!g_win) return 1;
+    if (!valid_window(handle)) return 1;
     return g_win->quit_requested ? 1 : 0;
 }
 
@@ -339,7 +395,7 @@ int64_t freak_ui_window_should_close(int64_t handle) {
 /* ------------------------------------------------------------------ */
 
 int64_t freak_ui_poll_events(int64_t handle) {
-    if (!g_win) return -1;
+    if (!valid_window(handle)) return -1;
 
     g_win->event_count = 0;
 
@@ -415,6 +471,8 @@ int64_t freak_ui_event_gained(int64_t index) {
 /* ------------------------------------------------------------------ */
 
 void freak_ui_begin_frame(int64_t handle) {
+    if (!valid_window(handle)) return;
+    freak_ui_reset_clip(handle);
     /* Auto-show the window on first frame if not yet visible */
     if (g_win && g_win->hwnd && !IsWindowVisible(g_win->hwnd)) {
         ShowWindow(g_win->hwnd, SW_SHOW);
@@ -424,7 +482,7 @@ void freak_ui_begin_frame(int64_t handle) {
 }
 
 void freak_ui_end_frame(int64_t handle) {
-    if (!g_win || !g_win->hwnd || !g_win->mem_dc) return;
+    if (!valid_window(handle) || !g_win->mem_dc) return;
 
     HDC hdc = GetDC(g_win->hwnd);
     BitBlt(hdc, 0, 0, g_win->width, g_win->height, g_win->mem_dc, 0, 0, SRCCOPY);
@@ -441,7 +499,23 @@ void freak_ui_end_frame(int64_t handle) {
 static inline void set_pixel(int x, int y, uint32_t color) {
     if (!g_win || !g_win->pixels) return;
     if (x < 0 || x >= g_win->width || y < 0 || y >= g_win->height) return;
-    g_win->pixels[y * g_win->width + x] = color;
+    if (x < g_win->clip.left || x >= g_win->clip.right ||
+        y < g_win->clip.top || y >= g_win->clip.bottom) return;
+    g_win->pixels[(size_t)y * g_win->width + x] = color;
+}
+
+void freak_ui_set_clip(int64_t handle, int64_t x, int64_t y, int64_t width, int64_t height) {
+    if (!valid_window(handle)) return;
+    g_win->clip_active = true;
+    g_win->clip_x = x; g_win->clip_y = y;
+    g_win->clip_w = width; g_win->clip_h = height;
+    apply_clip();
+}
+
+void freak_ui_reset_clip(int64_t handle) {
+    if (!valid_window(handle)) return;
+    g_win->clip_active = false;
+    apply_clip();
 }
 
 static inline uint32_t make_bgr(int64_t r, int64_t g, int64_t b) {
@@ -449,52 +523,47 @@ static inline uint32_t make_bgr(int64_t r, int64_t g, int64_t b) {
 }
 
 void freak_ui_clear(int64_t handle, int64_t r, int64_t g, int64_t b, int64_t a) {
-    if (!g_win || !g_win->pixels) return;
-    uint32_t color = make_bgr(r, g, b);
-    int total = g_win->width * g_win->height;
-    uint32_t* p = g_win->pixels;
-    for (int i = 0; i < total; i++) {
-        p[i] = color;
-    }
+    if (!valid_window(handle)) return;
+    freak_ui_fill_rect(handle, 0, 0, g_win->width, g_win->height, r, g, b, a);
 }
 
 void freak_ui_fill_rect(int64_t handle, int64_t x, int64_t y, int64_t w, int64_t h,
                         int64_t r, int64_t g, int64_t b, int64_t a) {
-    if (!g_win || !g_win->pixels) return;
-
-    int ix = (int)x, iy = (int)y, iw = (int)w, ih = (int)h;
-    if (ix < 0) { iw += ix; ix = 0; }
-    if (iy < 0) { ih += iy; iy = 0; }
-    if (ix + iw > g_win->width) iw = g_win->width - ix;
-    if (iy + ih > g_win->height) ih = g_win->height - iy;
-    if (iw <= 0 || ih <= 0) return;
+    if (!valid_window(handle) || !g_win->pixels) return;
+    RECT requested = client_rect(x, y, w, h), visible;
+    if (!IntersectRect(&visible, &requested, &g_win->clip)) return;
+    GdiFlush();
 
     uint32_t color = make_bgr(r, g, b);
     uint32_t* p = g_win->pixels;
-    for (int row = iy; row < iy + ih; row++) {
-        for (int col = ix; col < ix + iw; col++) {
-            p[row * g_win->width + col] = color;
+    for (int row = visible.top; row < visible.bottom; row++) {
+        for (int col = visible.left; col < visible.right; col++) {
+            p[(size_t)row * g_win->width + col] = color;
         }
     }
 }
 
 void freak_ui_stroke_rect(int64_t handle, int64_t x, int64_t y, int64_t w, int64_t h,
                           int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {
-    int t = (int)thickness;
+    if (!valid_window(handle) || w <= 0 || h <= 0) return;
+    int64_t t = thickness;
     if (t < 1) t = 1;
+    int64_t horizontal = t < h ? t : h;
+    int64_t vertical = t < w ? t : w;
     /* Top */
-    freak_ui_fill_rect(handle, x, y, w, t, r, g, b, a);
+    freak_ui_fill_rect(handle, x, y, w, horizontal, r, g, b, a);
     /* Bottom */
-    freak_ui_fill_rect(handle, x, y + h - t, w, t, r, g, b, a);
+    freak_ui_fill_rect(handle, x, extent_end(y, h - horizontal), w, horizontal, r, g, b, a);
     /* Left */
-    freak_ui_fill_rect(handle, x, y, t, h, r, g, b, a);
+    freak_ui_fill_rect(handle, x, y, vertical, h, r, g, b, a);
     /* Right */
-    freak_ui_fill_rect(handle, x + w - t, y, t, h, r, g, b, a);
+    freak_ui_fill_rect(handle, extent_end(x, w - vertical), y, vertical, h, r, g, b, a);
 }
 
 void freak_ui_fill_circle(int64_t handle, int64_t cx, int64_t cy, int64_t radius,
                           int64_t r, int64_t g, int64_t b, int64_t a) {
-    if (!g_win || !g_win->pixels) return;
+    if (!valid_window(handle) || !g_win->pixels) return;
+    GdiFlush();
 
     int rad = (int)radius;
     uint32_t color = make_bgr(r, g, b);
@@ -511,7 +580,8 @@ void freak_ui_fill_circle(int64_t handle, int64_t cx, int64_t cy, int64_t radius
 
 void freak_ui_draw_line(int64_t handle, int64_t x1, int64_t y1, int64_t x2, int64_t y2,
                         int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {
-    if (!g_win || !g_win->pixels) return;
+    if (!valid_window(handle) || !g_win->pixels) return;
+    GdiFlush();
 
     /* Bresenham's line algorithm */
     int ix1 = (int)x1, iy1 = (int)y1, ix2 = (int)x2, iy2 = (int)y2;
@@ -564,7 +634,7 @@ static HFONT create_font(int64_t font_size, int64_t bold, int64_t italic) {
 int64_t freak_ui_draw_text(int64_t handle, const char* text, int64_t x, int64_t y,
                            int64_t r, int64_t g, int64_t b, int64_t font_size,
                            int64_t bold, int64_t italic) {
-    if (!g_win || !g_win->mem_dc || !text) return 0;
+    if (!valid_window(handle) || !g_win->mem_dc || !text) return 0;
 
     HFONT font = create_font(font_size, bold, italic);
     HFONT old_font = (HFONT)SelectObject(g_win->mem_dc, font);
@@ -575,7 +645,11 @@ int64_t freak_ui_draw_text(int64_t handle, const char* text, int64_t x, int64_t 
     int len = (int)strlen(text);
     SIZE sz;
     GetTextExtentPoint32A(g_win->mem_dc, text, len, &sz);
-    TextOutA(g_win->mem_dc, (int)x, (int)y, text, len);
+    if (g_win->gdi_clip_ready && x >= INT_MIN && x <= INT_MAX &&
+        y >= INT_MIN && y <= INT_MAX) {
+        TextOutA(g_win->mem_dc, (int)x, (int)y, text, len);
+        GdiFlush();
+    }
 
     SelectObject(g_win->mem_dc, old_font);
     DeleteObject(font);
@@ -609,11 +683,11 @@ int64_t freak_ui_measure_text(const char* text, int64_t font_size, int64_t bold,
 /* ------------------------------------------------------------------ */
 
 int64_t freak_ui_get_width(int64_t handle) {
-    return g_win ? (int64_t)g_win->width : 0;
+    return valid_window(handle) ? (int64_t)g_win->width : 0;
 }
 
 int64_t freak_ui_get_height(int64_t handle) {
-    return g_win ? (int64_t)g_win->height : 0;
+    return valid_window(handle) ? (int64_t)g_win->height : 0;
 }
 
 /* ------------------------------------------------------------------ */

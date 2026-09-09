@@ -46,6 +46,23 @@ task bc_classify_rhs(expr_id: int) -> word {
     if k == EXPR_INT   { give back "copy" }
     if k == EXPR_FLOAT { give back "copy" }
     if k == EXPR_BOOL  { give back "copy" }
+    if k == EXPR_IDENT {
+        pilot source_symbol = bc_lookup_idx(array_get(ast_expr_vals, expr_id))
+        if source_symbol >= 0 and array_get(bc_sym_kinds, source_symbol) == "byte_buffer" {
+            give back "byte_buffer"
+        }
+    }
+    if k == EXPR_CALL {
+        pilot call_name: word = array_get(ast_expr_vals, expr_id)
+        if call_name == "ByteBuffer::new" or call_name == "ByteBuffer::with_capacity" {
+            give back "byte_buffer"
+        }
+        if tc_task_return_type(call_name) == "ByteBuffer" { give back "byte_buffer" }
+    }
+    if k == EXPR_METHOD and array_get(ast_expr_vals, expr_id) == "slice" {
+        pilot receiver = word_to_int(array_get(ast_expr_lefts, expr_id))
+        if bc_expr_is_byte_buffer(receiver) { give back "byte_buffer" }
+    }
     -- EXPR_STR, EXPR_IDENT (of unknown type), EXPR_CALL, EXPR_METHOD,
     -- EXPR_FIELD, EXPR_INDEX, EXPR_BINOP, EXPR_UNARYOP all default to owned.
     -- That over-reports, but Phase 1 errs on the safe side for moves.
@@ -55,9 +72,28 @@ task bc_classify_rhs(expr_id: int) -> word {
 task bc_classify_binding(type_ann: word, expr_id: int) -> word {
     if type_ann != "" {
         if bc_is_copy_type(type_ann) { give back "copy" }
+        if type_ann == "ByteBuffer" { give back "byte_buffer" }
         give back "owned"
     }
     give back bc_classify_rhs(expr_id)
+}
+
+task bc_expr_is_byte_buffer(expr_id: int) -> bool {
+    if expr_id < 0 { give back false }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    pilot val: word = array_get(ast_expr_vals, expr_id)
+    if kind == EXPR_IDENT {
+        pilot symbol = bc_lookup_idx(val)
+        give back symbol >= 0 and array_get(bc_sym_kinds, symbol) == "byte_buffer"
+    }
+    if kind == EXPR_CALL {
+        if val == "ByteBuffer::new" or val == "ByteBuffer::with_capacity" { give back true }
+        give back tc_task_return_type(val) == "ByteBuffer"
+    }
+    if kind == EXPR_METHOD and val == "slice" {
+        give back bc_expr_is_byte_buffer(word_to_int(array_get(ast_expr_lefts, expr_id)))
+    }
+    give back false
 }
 
 -- ---------- Symbol-table helpers ------------------------------------
@@ -172,7 +208,7 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
             bc_err_use_after_move(name, use_line)
             give back
         }
-        if consume and kind == "owned" {
+        if consume and kind != "copy" {
             array_set(bc_sym_state, idx, "moved")
         }
         give back
@@ -195,7 +231,10 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
     if k == EXPR_CALL {
         -- ast_expr_lefts holds a string of comma-separated arg expr ids.
         pilot args: word = array_get(ast_expr_lefts, expr_id)
-        bc_walk_call_args(args, use_line)
+        pilot call_name: word = array_get(ast_expr_vals, expr_id)
+        -- Runtime builtins borrow inputs except explicit disposal/transfer.
+        -- Ordinary user calls retain the existing Phase-1 move policy.
+        bc_walk_call_args(args, use_line, tc_builtin_call_type(call_name) != "", bc_builtin_consumes_handle(call_name))
         give back
     }
 
@@ -204,8 +243,19 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
         -- ast_expr_rights = comma-separated arg expr ids.
         pilot recv: word = array_get(ast_expr_lefts, expr_id)
         pilot margs: word = array_get(ast_expr_rights, expr_id)
-        bc_walk_expr(word_to_int(recv), false, use_line)
-        bc_walk_call_args(margs, use_line)
+        pilot method_name: word = array_get(ast_expr_vals, expr_id)
+        pilot consume_receiver = false
+        if method_name == "release" and bc_expr_is_byte_buffer(word_to_int(recv)) {
+            consume_receiver = true
+        }
+        pilot borrow_args: bool = bc_expr_is_byte_buffer(word_to_int(recv)) and tc_builtin_method_allowed("ByteBuffer", method_name)
+        pilot borrowed_receiver: int = 0 - 1
+        if borrow_args and not consume_receiver {
+            borrowed_receiver = bc_live_borrow_ident(word_to_int(recv))
+        }
+        bc_walk_expr(word_to_int(recv), consume_receiver, use_line)
+        bc_walk_call_args(margs, use_line, borrow_args, false)
+        bc_check_borrow_alive(borrowed_receiver, use_line)
         give back
     }
 
@@ -226,23 +276,57 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
     }
 }
 
--- Parse a comma-separated list of expr ids and walk each as a consumed arg.
-task bc_walk_call_args(args: word, use_line: int) -> void {
-    if args == "" { give back }
-    pilot cur: word = ""
-    pilot i = 0
-    pilot n = args.length()
-    repeat n times {
-        pilot c: word = args.char_at(i)
-        if c == "," {
-            if cur != "" { bc_walk_expr(word_to_int(cur), true, use_line) }
-            cur = ""
-        } else {
-            cur = cur + c
-        }
-        i += 1
+task bc_builtin_consumes_handle(name: word) -> bool {
+    give back name == "word_builder::finish" or name == "word_builder::discard" or name == "word_join" or name == "array_release" or name == "tcp::socket_close" or name == "tcp::close" or name == "tcp_close" or name == "ui::destroy_window"
+}
+
+-- Remember only direct, currently-live borrowed identifiers. Nested expressions
+-- are evaluated by the ordinary walk exactly once, never by this validation.
+task bc_live_borrow_ident(expr_id: int) -> int {
+    if expr_id < 0 { give back 0 - 1 }
+    if array_get(ast_expr_kinds, expr_id) != EXPR_IDENT { give back 0 - 1 }
+    pilot symbol: int = bc_lookup_idx(array_get(ast_expr_vals, expr_id))
+    if symbol < 0 { give back 0 - 1 }
+    if array_get(bc_sym_state, symbol) != "live" { give back 0 - 1 }
+    give back symbol
+}
+
+task bc_check_borrow_alive(symbol: int, use_line: int) -> void {
+    if symbol < 0 { give back }
+    if array_get(bc_sym_state, symbol) == "moved" {
+        bc_err_use_after_move(array_get(bc_sym_names, symbol), use_line)
     }
-    if cur != "" { bc_walk_expr(word_to_int(cur), true, use_line) }
+}
+
+task bc_walk_call_args(args: word, use_line: int, borrow_args: bool, consume_first: bool) -> void {
+    pilot borrowed_symbols: word = ""
+    pilot index = 0
+    repeat tc_arg_count(args) times {
+        pilot arg = tc_arg_at(args, index)
+        pilot consumes_handle = consume_first and index == 0
+        if borrow_args and not consumes_handle {
+            pilot borrowed: int = bc_live_borrow_ident(arg)
+            if borrowed >= 0 {
+                if borrowed_symbols != "" { borrowed_symbols = borrowed_symbols + "," }
+                borrowed_symbols = borrowed_symbols + word_from_int(borrowed)
+            }
+        }
+        bc_walk_expr(arg, not borrow_args or consumes_handle, use_line)
+        -- Legacy handles expose int signatures. Explicitly annotated int
+        -- bindings are also dead after a consuming builtin call.
+        if consumes_handle and array_get(ast_expr_kinds, arg) == EXPR_IDENT {
+            pilot symbol = bc_lookup_idx(array_get(ast_expr_vals, arg))
+            if symbol >= 0 { array_set(bc_sym_state, symbol, "moved") }
+        }
+        index += 1
+    }
+    -- Later argument calls can consume an earlier borrowed handle before the
+    -- outer call begins. Recheck its state without evaluating arguments again.
+    index = 0
+    repeat tc_arg_count(borrowed_symbols) times {
+        bc_check_borrow_alive(tc_arg_at(borrowed_symbols, index), use_line)
+        index += 1
+    }
 }
 
 -- ---------- Statement walk ------------------------------------------
@@ -424,6 +508,7 @@ task bc_register_task_params(params: word, line: int) -> void {
             if cur_name != "" {
                 pilot k: word = "owned"
                 if bc_is_copy_type(cur_type) { k = "copy" }
+                else if cur_type == "ByteBuffer" { k = "byte_buffer" }
                 bc_push_sym(cur_name, k, "1", line)
             }
             cur_name = ""
@@ -439,6 +524,7 @@ task bc_register_task_params(params: word, line: int) -> void {
     if cur_name != "" {
         pilot k2: word = "owned"
         if bc_is_copy_type(cur_type) { k2 = "copy" }
+        else if cur_type == "ByteBuffer" { k2 = "byte_buffer" }
         bc_push_sym(cur_name, k2, "1", line)
     }
 }
@@ -454,7 +540,7 @@ task tc_is_scalar(type_name: word) -> bool {
 }
 
 task tc_is_known_value_type(type_name: word) -> bool {
-    give back tc_is_scalar(type_name) or is_shape_name(type_name)
+    give back tc_is_scalar(type_name) or type_name == "ByteBuffer" or is_shape_name(type_name)
 }
 
 task tc_is_known_return_type(type_name: word) -> bool {
@@ -682,7 +768,7 @@ task tc_namespace_owner(name: word) -> word {
 -- user `shape math` (for example) from being accepted as nominal dispatch and
 -- then silently lowered to math::sqrt instead.
 task tc_reserved_builtin_namespace_owner(name: word) -> bool {
-    give back name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui"
+    give back name == "ByteBuffer" or name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui" or name == "word_builder"
 }
 
 task tc_callable_is_instance(entry: int) -> bool {
@@ -729,13 +815,19 @@ task tc_task_return_shape(task_name: word) -> word {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    if name == "ByteBuffer::new" or name == "ByteBuffer::with_capacity" { give back "ByteBuffer" }
     if name == "word_from_int" or name == "word_from_bool" or name == "word_concat" or name == "word_join" or name == "char_to_word" { give back "word" }
+    if name == "word_builder::finish" { give back "word" }
     if name == "format_num" or name == "ask" or name == "array_get" or name == "process::env" or name == "process::input" { give back "word" }
     if name == "fs::read" or name == "fs::list_dir" or name == "process::arg" or name == "process::exec_capture" { give back "word" }
     if name == "tcp::recv" or name == "tcp_recv" or name == "tcp::recv_all" or name == "tcp_recv_all" { give back "word" }
     if name == "fs::exists" or name == "fs::delete" { give back "bool" }
+    if name == "tcp::socket_eof" { give back "bool" }
     if name == "array_new" or name == "array_len" or name == "process::args_count" or name == "process::exec" { give back "int" }
-    if name == "word_to_int" or name == "time::now_ms" or name == "tcp::connect" or name == "tcp_connect" or name == "tcp::send" or name == "tcp_send" { give back "int" }
+    if name == "word_builder::new" or name == "word_builder::with_capacity" or name == "word_builder::capacity" or name == "word_builder::length" { give back "int" }
+    if name == "word_to_int" or name == "time::now_ms" or name == "time::monotonic_ns" or name == "process::pid" or name == "tcp::connect" or name == "tcp_connect" or name == "tcp::send" or name == "tcp_send" { give back "int" }
+    if name == "tcp::socket_connect" or name == "tcp::socket_listen" or name == "tcp::socket_accept" { give back "int" }
+    if name == "tcp::socket_status" or name == "tcp::socket_local_port" or name == "tcp::socket_send" or name == "tcp::socket_send_all" or name == "tcp::socket_receive" { give back "int" }
     if name == "ui::create_window" or name == "ui::poll_events" or name == "ui::draw_text" or name == "ui::measure_text" { give back "int" }
     if name == "ui::event_kind" or name == "ui::event_key" or name == "ui::event_pressed" or name == "ui::event_character" { give back "int" }
     if name == "ui::event_mouse_x" or name == "ui::event_mouse_y" or name == "ui::event_button" or name == "ui::event_repeat" { give back "int" }
@@ -744,10 +836,14 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "math::sqrt" or name == "math::pow" or name == "math::sin" or name == "math::cos" { give back "num" }
     if name == "math::tan" or name == "math::floor" or name == "math::ceil" or name == "parse_num" { give back "num" }
     if name == "say" or name == "panic" or name == "fs::write" or name == "fs::append" or name == "fs::make_dir" { give back "void" }
-    if name == "array_push" or name == "array_set" or name == "array_release" or name == "process::exit" { give back "void" }
+    if name == "array_push" or name == "array_set" or name == "array_release" or name == "process::exit" or name == "process::set_env" { give back "void" }
+    if name == "word_builder::reserve" or name == "word_builder::clear" or name == "word_builder::append" { give back "void" }
+    if name == "word_builder::append_char" or name == "word_builder::append_int" or name == "word_builder::discard" { give back "void" }
     if name == "tcp::close" or name == "tcp_close" { give back "void" }
+    if name == "tcp::socket_set_timeout" or name == "tcp::socket_close" { give back "void" }
     if name == "ui::destroy_window" or name == "ui::begin_frame" or name == "ui::end_frame" or name == "ui::clear" { give back "void" }
     if name == "ui::fill_rect" or name == "ui::stroke_rect" or name == "ui::fill_circle" or name == "ui::draw_line" { give back "void" }
+    if name == "ui::set_clip" or name == "ui::reset_clip" { give back "void" }
     give back ""
 }
 
@@ -755,6 +851,8 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "ByteBuffer::new" { give back "" }
+    if name == "ByteBuffer::with_capacity" { give back "int" }
     if name == "say" { give back "scalar" }
     if name == "ask" { give back "word" }
     if name == "word_from_int" or name == "char_to_word" { give back "int" }
@@ -769,11 +867,19 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "array_get" { give back "int,int" }
     if name == "array_set" { give back "int,int,word" }
     if name == "array_len" or name == "array_release" { give back "int" }
+    if name == "word_builder::new" { give back "" }
+    if name == "word_builder::with_capacity" { give back "int" }
+    if name == "word_builder::reserve" { give back "int,int" }
+    if name == "word_builder::capacity" or name == "word_builder::length" or name == "word_builder::clear" { give back "int" }
+    if name == "word_builder::append" { give back "int,word" }
+    if name == "word_builder::append_char" or name == "word_builder::append_int" { give back "int,int" }
+    if name == "word_builder::finish" or name == "word_builder::discard" { give back "int" }
     if name == "process::exit" { give back "int" }
     if name == "process::exec" or name == "process::exec_capture" or name == "process::env" { give back "word" }
     if name == "process::arg" { give back "int" }
-    if name == "process::args_count" or name == "process::input" { give back "" }
-    if name == "time::now_ms" { give back "" }
+    if name == "process::args_count" or name == "process::input" or name == "process::pid" { give back "" }
+    if name == "process::set_env" { give back "word,word" }
+    if name == "time::now_ms" or name == "time::monotonic_ns" { give back "" }
     if name == "panic" { give back "word" }
     if name == "fs::read" or name == "fs::exists" or name == "fs::delete" or name == "fs::list_dir" or name == "fs::make_dir" { give back "word" }
     if name == "fs::write" or name == "fs::append" { give back "word,word" }
@@ -783,6 +889,12 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "tcp::send" or name == "tcp_send" { give back "int,word" }
     if name == "tcp::recv" or name == "tcp_recv" or name == "tcp::recv_all" or name == "tcp_recv_all" { give back "int,int" }
     if name == "tcp::close" or name == "tcp_close" { give back "int" }
+    if name == "tcp::socket_connect" { give back "word,int" }
+    if name == "tcp::socket_listen" { give back "word,int,int" }
+    if name == "tcp::socket_accept" or name == "tcp::socket_status" or name == "tcp::socket_eof" or name == "tcp::socket_local_port" or name == "tcp::socket_close" { give back "int" }
+    if name == "tcp::socket_send" or name == "tcp::socket_send_all" { give back "int,ByteBuffer,int,int" }
+    if name == "tcp::socket_receive" { give back "int,ByteBuffer,int" }
+    if name == "tcp::socket_set_timeout" { give back "int,int,int" }
     if name == "ui::create_window" { give back "word,int,int,int" }
     if name == "ui::destroy_window" or name == "ui::poll_events" or name == "ui::begin_frame" or name == "ui::end_frame" { give back "int" }
     if name == "ui::event_kind" or name == "ui::event_key" or name == "ui::event_pressed" or name == "ui::event_character" { give back "int" }
@@ -790,6 +902,8 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "ui::event_scroll_dy" or name == "ui::event_width" or name == "ui::event_height" or name == "ui::event_gained" { give back "int" }
     if name == "ui::get_width" or name == "ui::get_height" { give back "int" }
     if name == "ui::clear" { give back "int,int,int,int,int" }
+    if name == "ui::set_clip" { give back "int,int,int,int,int" }
+    if name == "ui::reset_clip" { give back "int" }
     -- Raw UI runtime geometry is pixel-addressed i64. Higher-level num-based
     -- Rect/Vec2 wrappers must convert explicitly before crossing this ABI.
     if name == "ui::fill_rect" { give back "int,int,int,int,int,int,int,int,int" }
@@ -813,6 +927,14 @@ task tc_internal_runtime_source(source_file: word) -> bool {
 }
 
 task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
+    if receiver_type == "ByteBuffer" {
+        if name == "release" or name == "status" or name == "clear_status" or name == "reserve" { give back true }
+        if name == "capacity" or name == "length" or name == "position" or name == "remaining" { give back true }
+        if name == "clear" or name == "truncate" or name == "seek" or name == "write_byte" { give back true }
+        if name == "write_int" or name == "write_int_be" or name == "write_word" { give back true }
+        if name == "read_byte" or name == "read_int" or name == "read_int_be" or name == "read_word" { give back true }
+        if name == "slice" or name == "to_word" { give back true }
+    }
     if receiver_type == "word" {
         if name == "length" or name == "checksum" or name == "trim" { give back true }
         if name == "to_upper" or name == "to_lower" or name == "replace" { give back true }
@@ -823,6 +945,7 @@ task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
         if name == "snapshot_line_count" or name == "snapshot_line" { give back true }
         if name == "snapshot_lines" { give back true }
         if name == "snapshot_field_count" or name == "snapshot_field_raw" { give back true }
+        if name == "repeated" { give back true }
     }
     if receiver_type == "int" and (name == "to_num" or name == "to_word") { give back true }
     if receiver_type == "num" and (name == "to_int" or name == "to_word") { give back true }
@@ -832,6 +955,13 @@ task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
 
 task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
     if not tc_builtin_method_allowed(receiver_type, name) { give back "" }
+    if receiver_type == "ByteBuffer" {
+        if name == "slice" { give back "ByteBuffer" }
+        if name == "read_word" or name == "to_word" { give back "word" }
+        if name == "status" or name == "capacity" or name == "length" or name == "position" or name == "remaining" { give back "int" }
+        if name == "read_byte" or name == "read_int" or name == "read_int_be" { give back "int" }
+        give back "void"
+    }
     if name == "snapshot_lines" { give back "int" }
     if name == "to_int" or name == "length" or name == "checksum" or name == "snapshot_line_count" or name == "snapshot_field_count" { give back "int" }
     if name == "contains" or name == "starts_with" or name == "ends_with" { give back "bool" }
@@ -840,11 +970,19 @@ task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
 }
 
 task tc_builtin_method_params(receiver_type: word, name: word) -> word {
+    if receiver_type == "ByteBuffer" {
+        if name == "reserve" or name == "truncate" or name == "seek" or name == "write_byte" { give back "int" }
+        if name == "write_int" or name == "write_int_be" or name == "read_word" { give back "int" }
+        if name == "write_word" { give back "word" }
+        if name == "slice" { give back "int,int" }
+        give back ""
+    }
     if receiver_type == "word" {
         if name == "char_at" or name == "snapshot_line" or name == "snapshot_field_raw" { give back "int" }
         if name == "contains" or name == "starts_with" or name == "ends_with" { give back "word" }
         if name == "substring" { give back "int,int" }
         if name == "replace" { give back "word,word" }
+        if name == "repeated" { give back "int" }
     }
     give back ""
 }
@@ -861,7 +999,9 @@ task tc_arg_count(args: word) -> int {
 }
 
 task tc_builtin_method_arity(name: word) -> int {
-    if name == "char_at" or name == "contains" or name == "starts_with" or name == "ends_with" { give back 1 }
+    if name == "char_at" or name == "contains" or name == "starts_with" or name == "ends_with" or name == "repeated" { give back 1 }
+    if name == "reserve" or name == "truncate" or name == "seek" or name == "write_byte" or name == "write_int" or name == "write_int_be" or name == "write_word" or name == "read_word" { give back 1 }
+    if name == "slice" { give back 2 }
     if name == "snapshot_line" or name == "snapshot_field_raw" { give back 1 }
     if name == "substring" or name == "replace" { give back 2 }
     give back 0
