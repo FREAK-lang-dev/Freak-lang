@@ -137,6 +137,9 @@ def execute_case(compiler: Path, repo: Path, root: Path, backend: str,
                "-I", str(runtime), "-o", str(binary)]
     if backend == "llvm":
         command.append(str(runtime / "freak_llvm_runtime.c"))
+        command.append("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1")
+    else:
+        command.append("-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
     if sys.platform == "win32":
         command += ["-D_CRT_SECURE_NO_WARNINGS", "-lws2_32"]
     else:

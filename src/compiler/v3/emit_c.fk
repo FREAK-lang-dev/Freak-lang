@@ -723,7 +723,8 @@ task emit_c_interp(expr_id: word, segments: word) -> void {
 task emit_c_call(expr_id: word, val: word, left: word) -> void {
     if val == "List::filled" { emit_c_filled(expr_id, left) give back }
     if val.starts_with("shape::ctor::") { emit_c_shape_ctor(val.replace("shape::ctor::", ""), left) give back }
-    if val.starts_with("array_") and tc_is_list(tc_expr_type(tc_arg_at(left, 0))) { emit_c_legacy_list_call(expr_id, val, left) give back }
+    pilot legacy_array_call = val == "array_get" or val == "array_set" or val == "array_push" or val == "array_len" or val == "array_release"
+    if legacy_array_call and tc_is_list(tc_expr_type(tc_arg_at(left, 0))) { emit_c_legacy_list_call(expr_id, val, left) give back }
 
     -- Known builtin mapping
     pilot mapped = c_map_call(val)

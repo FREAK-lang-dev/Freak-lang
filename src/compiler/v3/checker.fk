@@ -238,6 +238,11 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
         give back
     }
 
+    if k == EXPR_ARRAY_LIT {
+        bc_walk_call_args(array_get(ast_expr_lefts, expr_id), use_line)
+        give back
+    }
+
     if k == EXPR_METHOD {
         -- Receiver + args. ast_expr_lefts = receiver expr id (as word).
         -- ast_expr_rights = comma-separated arg expr ids.
@@ -422,7 +427,9 @@ task bc_walk_stmt(stmt_id: int) -> void {
     if kind == STMT_FOREACH {
         bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
         bc_enter_scope()
-        bc_push_sym(array_get(ast_stmt_names, stmt_id), "copy", "0", line)
+        pilot binder_kind = "owned"
+        if bc_is_copy_type(array_get(ast_stmt_extras, stmt_id)) { binder_kind = "copy" }
+        bc_push_sym(array_get(ast_stmt_names, stmt_id), binder_kind, "0", line)
         bc_walk_block(array_get(ast_stmt_bodies, stmt_id))
         bc_leave_scope()
         give back
@@ -2333,6 +2340,8 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot receiver_type = tc_expr_type(receiver_id)
         pilot element_type = tc_list_element(receiver_type)
         if element_type == "" or element_type == "?" { tc_diag("for each requires a list with a known element type", line, source_file) }
+        -- Preserve the resolved binder type for the subsequent Phase-1 pass.
+        array_set(ast_stmt_extras, stmt_id, element_type)
         pilot saved_count = tc_local_count
         pilot saved_scope = tc_local_scope_start
         tc_local_scope_start = tc_local_count

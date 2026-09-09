@@ -18,7 +18,7 @@ ROW = '''shape Row {
     value: int
 }
 '''
-WATCH = '''extern task array_review_watch_exit()
+WATCH = '''extern task array_review_watch_exit() -> void
 '''
 CLEAN = "review-clean arrays=0 shapes=0 words=0"
 HELPER = r'''
@@ -84,15 +84,15 @@ task main() {
     say box.label
 }
 ''', ["old!", CLEAN], False),
-    "shape_word_compound_snapshot": (WATCH + ROW + '''pilot mut box = Row { label: "old" + "", value: 1 }
+    "list_word_assignment_snapshot": (WATCH + '''pilot mut words = ["old" + ""]
 task suffix() -> word {
-    box.label = "new"
+    words[0] = "new"
     give back "!"
 }
 task main() {
     array_review_watch_exit()
-    box.label += suffix()
-    say box.label
+    words[0] = words[0] + suffix()
+    say words[0]
 }
 ''', ["old!", CLEAN], False),
     "shape_numeric_compound_snapshot": (WATCH + ROW + '''pilot mut box = Row { label: "label", value: 1 }
