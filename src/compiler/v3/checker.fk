@@ -1628,6 +1628,9 @@ task tc_validate_shape_signature(stmt_id: int) -> void {
     repeat field_count times {
         pilot field_name = tc_param_name_at(fields, i)
         pilot field_type = tc_param_type_at(fields, i)
+        if tc_is_list(field_type) {
+            tc_diag("V3 owned shape fields do not yet support List values", line, source_file)
+        }
         if not tc_is_known_value_type(field_type) {
             tc_diag("field '" + field_name + "' of shape '" + shape_name + "' has unknown or non-value type '" + field_type + "'", line, source_file)
         }

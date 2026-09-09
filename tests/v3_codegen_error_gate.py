@@ -198,8 +198,9 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     assert classified - llvm_mapped == set()
     assert signature_classified == classified
     builtin_params = task_body(checker_source, "tc_builtin_call_params")
-    assert 'name == "array_push" { give back "int,word" }' in builtin_params
-    assert 'name == "array_set" { give back "int,int,word" }' in builtin_params
+    assert 'name == "array_push" { give back "word-array,word" }' in builtin_params
+    assert 'name == "array_set" { give back "word-array,int,word" }' in builtin_params
+    assert 'destination == "word-array" { give back source == "int" or source == "List<word>" }' in task_body(checker_source, "tc_type_assignable")
 
     canonical_namespace_owners = {
         name.split("::", 1)[0] for name in classified if "::" in name
@@ -210,7 +211,7 @@ def assert_builtin_signature_parity(repo: Path) -> None:
     reserved_namespace_owners = set(
         re.findall(r'name == "([^"]+)"', reserved_owner_body)
     )
-    assert reserved_namespace_owners == canonical_namespace_owners | {"shape"}, (
+    assert reserved_namespace_owners == canonical_namespace_owners | {"shape", "List"}, (
         "reserved shape namespace owners drifted from compiler builtins: "
         f"reserved={sorted(reserved_namespace_owners)}, "
         f"canonical={sorted(canonical_namespace_owners)}"
@@ -274,9 +275,11 @@ def assert_parser_required_token_contract(repo: Path) -> None:
         "task return type",
     )
     for context in required_contexts:
-        assert f'parser_take_ident("{context}")' in parser, (
-            f"required parser token bypasses parser_take_ident: {context}"
+        reader = "parser_take_type" if context.endswith(" type") else "parser_take_ident"
+        assert f'{reader}("{context}")' in parser, (
+            f"required parser token bypasses {reader}: {context}"
         )
+    assert "parser_take_ident(context)" in task_body(parser, "parser_take_type")
 
     delimiter_contexts = (
         "shape constructor",
