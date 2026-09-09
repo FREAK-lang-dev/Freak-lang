@@ -89,6 +89,10 @@ CLI in the integration checkout; no installed compiler is used as evidence.
   distribution closure/isolation checks pass.
 - `tests/v3_interpolation.py`: native expression/ownership contracts pass.
 - `tests/v3_word_ownership.py`: passes, including native C numeric shape fields.
+- `tests/v3_word_concat.py`: existing local/global C/LLVM and LLVM field scaling
+  pass (8192 appends, 11 allocation/growth events, 24551 copied bytes). Native
+  C/LLVM field correctness now verifies zero live containers/words after scope
+  exit; Linux leak checking remains enabled. Launcher session: 93129.
 - `tests/v3_codegen_error_gate.py`: passes, including native C nominal arrays
   and shapes, artifact rejection, and diagnostic contracts.
 - `tests/v3_fixed_point.py`: clean self-host reconstruction passes at `824b8dd`,
@@ -98,8 +102,8 @@ CLI in the integration checkout; no installed compiler is used as evidence.
   wiring guard. This static audit is separate from native execution evidence.
 
 Local machine reports are in `C:/tmp/freak-array-evidence/`; CI uploads its own
-per-platform benchmark report. Word concatenation scaling and current-head CI
-are still pending at this checkpoint.
+per-platform benchmark report. Current-head cross-platform CI remains pending
+at this checkpoint; all required local gates have passed.
 
 ## Review disposition
 
