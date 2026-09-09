@@ -19,10 +19,11 @@
       "name": "shapes_methods",
       "source": "03_shapes_methods.fk",
       "stdout": "03_shapes_methods.stdout",
-      "backends": ["llvm"],
+      "backends": ["c", "llvm"],
       "generated_contains": {
+        "c": ["freak_v3_shape_new", "__freak_user_Point_area"],
         "llvm": [
-          "call i64 @freak_llvm_shape_alloc",
+          "call i64 @freak_v3_shape_new",
           "@__freak_user_Point_area"
         ]
       }
@@ -48,7 +49,7 @@
       "name": "shape_interpolation",
       "source": "06_shape_interpolation.fk",
       "stdout": "06_shape_interpolation.stdout",
-      "backends": ["llvm"],
+      "backends": ["c", "llvm"],
       "generated_contains": {
         "llvm": [
           "@__freak_user_Hero_summary",

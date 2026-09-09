@@ -91,20 +91,31 @@ def main() -> None:
             command += ["-fsanitize=address", "-g"]
         command += ["-lws2_32"] if os.name == "nt" else ["-lm"]
         subprocess.run(command, check=True, timeout=120)
+        runtime_env = os.environ.copy()
+        if args.sanitize and os.name == "nt":
+            resource = subprocess.run([clang, "-print-resource-dir"], check=True,
+                                      capture_output=True, text=True, timeout=10)
+            resource_dir = Path(resource.stdout.strip())
+            # MSVC-target LLVM installs its ASan DLL below the resource dir;
+            # LLVM-MinGW normally provides it beside clang. Use this compiler's
+            # runtime, without depending on another LLVM installation on PATH.
+            dll_dirs = {str(Path(clang).resolve().parent)}
+            dll_dirs.update(str(path.parent) for path in resource_dir.rglob("clang_rt.asan_dynamic-*.dll"))
+            runtime_env["PATH"] = os.pathsep.join(sorted(dll_dirs)) + os.pathsep + runtime_env.get("PATH", "")
         started = time.perf_counter()
-        result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
-        assert result.returncode == 0, result.stdout + result.stderr
+        result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, env=runtime_env)
+        assert result.returncode == 0, f"runtime exit {result.returncode}: {result.stdout}{result.stderr}"
         assert "typed-runtime-ok" in result.stdout, result.stdout
         print(result.stdout.strip(), f"elapsed={time.perf_counter()-started:.3f}s")
         expected = {"negative": "out of bounds", "equal": "out of bounds",
                     "huge": "too large", "stale": "released container",
                     "cycle": "cyclic owned shape", "cycle2": "cyclic owned shape"}
         for case, diagnostic in expected.items():
-            result = subprocess.run([str(binary), case], capture_output=True, text=True, timeout=10)
+            result = subprocess.run([str(binary), case], capture_output=True, text=True, timeout=10, env=runtime_env)
             assert result.returncode == 1, (case, result.returncode, result.stderr)
             assert diagnostic in result.stderr, (case, result.stderr)
         for case, code in (("retain-c-word", 87), ("retain-llvm-word", 86)):
-            result = subprocess.run([str(binary), case], capture_output=True, text=True, timeout=10)
+            result = subprocess.run([str(binary), case], capture_output=True, text=True, timeout=10, env=runtime_env)
             assert result.returncode == code, (case, result.returncode, result.stderr)
             assert "unreleased word allocation(s)" in result.stderr, result.stderr
         print("6 negative controls passed; both actual-allocation retention controls passed")

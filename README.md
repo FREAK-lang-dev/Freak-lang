@@ -447,7 +447,7 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 |---|---|
 | Self-hosting compiler | ✅ Complete |
 | LLVM IR backend (default) | ✅ Complete |
-| C backend (`--c`) | ⚠️ Portability target — scalar/control/word paths are executable; V3 shape storage is LLVM-only |
+| C backend (`--c`) | ⚠️ Portability target — scalar/control/word, typed lists, and owned shapes execute on C and LLVM; native UI parity remains separate |
 | Native CLI (`freak build`/`run`/`check`/`transpile`) | ✅ Complete; `freak test` is a source-checkout Python shim |
 | Hangar package manager | ✅ Complete |
 | Cross-compilation (`--target=`) | ✅ Complete |
@@ -457,7 +457,7 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 | Phase-1 borrow checker (`--strict-borrow`) | ✅ Complete |
 | Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | 🧰 Source-checkout Python tools; not embedded in release archives |
 | `std::fs`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
-| `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` waits for a real list ABI |
+| `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` remains unimplemented |
 | COCKPIT UI framework | 📐 Source preview; supported implementation moves to Maverick |
 | LLVM JIT mode + DWARF debug info | 🚧 In progress |
 | V4 self-hosting compiler (variants, full BC, mood/prob/power, squadron concurrency, FFI surface, error voices) | 🔜 Roadmapped |

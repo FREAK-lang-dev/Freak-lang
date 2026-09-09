@@ -872,10 +872,11 @@ def main() -> int:
                         assert "freak_word_replace_owned" in generated_text, case_name
                     if case_name == "strict":
                         assert re.search(r"freak_word_clone\(__freak_local_\d+\)", generated_text)
-                        assert re.search(r"__freak_user_identity\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
-                        assert re.search(r"__freak_user_observe\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
-                        assert "__freak_user_observe(freak_word_concat_consuming(" in generated_text
-                        assert re.search(r"__freak_user_observe_shadow\(freak_word_clone\(__freak_local_\d+\)\)", generated_text)
+                        assert re.search(r"freak_word __freak_call_arg_0 = freak_word_clone\(__freak_local_\d+\);", generated_text)
+                        assert "__freak_user_identity(__freak_call_arg_0)" in generated_text
+                        assert "__freak_user_observe(__freak_call_arg_0)" in generated_text
+                        assert "freak_word __freak_call_arg_0 = freak_word_concat_consuming(" in generated_text
+                        assert "__freak_user_observe_shadow(__freak_call_arg_0)" in generated_text
                         assert re.search(r"__freak_global_\d+ = freak_word_clone\(__freak_global_\d+\)", generated_text)
                         assert "freak_word_release_owned(&__freak_param_0)" in generated_text
                     elif case_name == "aggregate":
@@ -883,11 +884,13 @@ def main() -> int:
                         assert re.search(r"freak_array_set_owned\(__freak_local_\d+, 0, freak_word_concat_consuming\(", generated_text)
                         assert re.search(r"freak_array_release_owned\(__freak_local_\d+\)", generated_text)
                         assert re.search(r"freak_word_join_owned\(__freak_local_\d+\)", generated_text)
-                        assert re.search(r"\(\{ int64_t __freak_array_\d+ = freak_array_new\(\);", generated_text)
-                        assert re.search(r"freak_array_push_owned\(__freak_array_\d+, freak_word_concat_consuming\(", generated_text)
+                        assert "int64_t __freak_list = freak_v3_array_new(FREAK_V3_C_WORD)" in generated_text
+                        assert "freak_v3_array_push_word(__freak_list, __freak_element)" in generated_text
+                        assert "freak_word_release_owned(&__freak_element)" in generated_text
                         assert "freak_array_get" in generated_text
                     elif case_name == "global_call":
-                        assert re.search(r"__freak_user_observe\(freak_word_clone\(__freak_global_\d+\)\)", generated_text)
+                        assert re.search(r"freak_word __freak_call_arg_0 = freak_word_clone\(__freak_global_\d+\);", generated_text)
+                        assert "__freak_user_observe(__freak_call_arg_0)" in generated_text
                     elif case_name == "global_return":
                         assert re.search(r"__freak_return_value = freak_word_clone\(__freak_global_\d+\)", generated_text)
                     elif case_name == "return_shadow":
@@ -926,8 +929,9 @@ def main() -> int:
                         assert "return (int)__freak_native_main_result;" in generated_text
                     elif case_name == "numeric_shape":
                         assert "extern double echo_num(double" in generated_text
-                        assert "freak_llvm_shape_get" in generated_text
-                        assert "freak_llvm_shape_set" in generated_text
+                        assert "freak_v3_shape_get" in generated_text
+                        assert "freak_v3_shape_set" in generated_text
+                        assert "freak_v3_bits_num" in generated_text
                     elif case_name == "numeric_unary":
                         assert "freak_format_num" in generated_text
                     elif case_name == "short_circuit":
@@ -982,7 +986,7 @@ def main() -> int:
                         assert generated_text.count("sitofp i64") >= 4
                         assert "call i64 @echo_num" in generated_text
                         assert "call i64 @__freak_user_Gauge_plus" in generated_text
-                        assert generated_text.count("call void @freak_llvm_shape_set") >= 5
+                        assert generated_text.count("call void @freak_v3_shape_set") + generated_text.count("call void @freak_v3_shape_init") >= 5
                         assert "fadd double" in generated_text
                         assert "fmul double" in generated_text
                         assert "fsub double" in generated_text
@@ -1024,18 +1028,19 @@ def main() -> int:
                         assert "sitofp i64 1 to double" in generated_text
                         assert "%when_target_v" not in generated_text
 
-                if case_name in {"numeric_shape", "ui_abi"} and backend == "c":
+                if case_name == "ui_abi" and backend == "c":
                     continue
 
                 binary = root / (f"replace_owned_{case_name}_{backend}.exe" if sys.platform == "win32" else f"replace_owned_{case_name}_{backend}")
                 clang = os.environ.get("FREAK_CLANG") or shutil.which("clang")
                 assert clang, "clang is required for the ownership regression"
                 command = [clang, "-g", "-O1", "-o", str(binary), str(generated)]
-                if case_name == "numeric_shape" and backend == "llvm":
+                if case_name == "numeric_shape":
                     extern_probe = root / "extern_numeric_probe.c"
                     extern_probe.write_text(
                         "#include <stdint.h>\n"
-                        "int64_t echo_num(int64_t value) { return value; }\n",
+                        + ("int64_t echo_num(int64_t value) { return value; }\n" if backend == "llvm"
+                           else "double echo_num(double value) { return value; }\n"),
                         encoding="utf-8",
                     )
                     command.append(str(extern_probe))
