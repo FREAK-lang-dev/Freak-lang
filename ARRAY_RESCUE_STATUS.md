@@ -41,8 +41,8 @@ serialized broad compiler gates, bounded execution with recorded session IDs.
 ## Baseline observations
 
 Original main checkout contains unrelated untracked artifacts and is untouched.
-The C index emitter currently emits `.data[index]` while array literals produce
-integer runtime handles. Baseline reproduction and remaining findings pending.
+The baseline C index emitter emits `.data[index]` while array literals produce
+integer runtime handles. The integrated backends now use the typed runtime ABI.
 
 Fresh seed -> current-source compiler reconstruction succeeded under Visual
 Studio Developer PowerShell with Clang. The supplied sample fails in parsing
@@ -88,12 +88,18 @@ CLI in the integration checkout; no installed compiler is used as evidence.
 - `tests/v3_legacy_golden.py`: six unchanged output cases, twelve C/LLVM runs,
   distribution closure/isolation checks pass.
 - `tests/v3_interpolation.py`: native expression/ownership contracts pass.
+- `tests/v3_word_ownership.py`: passes, including native C numeric shape fields.
+- `tests/v3_codegen_error_gate.py`: passes, including native C nominal arrays
+  and shapes, artifact rejection, and diagnostic contracts.
+- `tests/v3_fixed_point.py`: clean self-host reconstruction passes at `824b8dd`,
+  generation 2 equals generation 3 (`a4b8b687f75ba735c993d7c3933e4e81eac3ec9b3fb0d0fac59e53489c0f5b2d`).
+  Recorded launcher session: 80809; tracked inputs remained unchanged.
 - `python -u -m freakc audit-conformance`: passes, including new V3 array
   wiring guard. This static audit is separate from native execution evidence.
 
 Local machine reports are in `C:/tmp/freak-array-evidence/`; CI uploads its own
-per-platform benchmark report. Broad word ownership, codegen diagnostic gate,
-self-host fixed point, final review and CI are still pending at this checkpoint.
+per-platform benchmark report. Word concatenation scaling and current-head CI
+are still pending at this checkpoint.
 
 ## Review disposition
 
@@ -105,8 +111,9 @@ container temporaries. A C prefix-dispatch defect and null cleanup after
 explicit release were also fixed with executable regressions.
 
 Independent runtime review at `1551b78` found no actionable issue; runtime
-implementation is unchanged since that review. Runtime tests later gained
-Windows sanitizer DLL discovery, which requires a final test-harness review.
+implementation is unchanged since that review. Independent docs/tests/CI review
+at `dab26e2`, including Windows sanitizer DLL discovery, reports no actionable
+finding; the reviewer also accepted the native C codegen-gate delta in `824b8dd`.
 
 Conservative boundaries: no nested lists, List-valued shape fields, typed empty
 numeric literals, container covariance or temporary-root indexed writes.
