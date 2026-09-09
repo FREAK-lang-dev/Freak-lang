@@ -1044,13 +1044,17 @@ def _live_checks(temporary: Path, manifest: dict[str, Any], cli: Path, clang: Pa
     environment["CFLAGS"] = "-Ofast must-not-leak"
     environment["LDFLAGS"] = "-fuse-ld=must-not-leak"
     environment["FREAK_UNRELATED_TEST_POISON"] = "must-not-leak"
+    # The original four-case C/LLVM matrix had a 600-second aggregate budget.
+    # Scale that budget with the manifest; each lab command still has its own
+    # 120-second timeout, including process-tree cleanup on failure.
+    matrix_timeout = 150 * len(manifest["cases"])
     completed = subprocess.run(
         command,
         cwd=str(ROOT),
         env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        timeout=600,
+        timeout=matrix_timeout,
         check=False,
     )
     if completed.returncode != 0:
