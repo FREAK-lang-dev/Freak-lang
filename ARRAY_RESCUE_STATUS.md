@@ -1,8 +1,11 @@
 # Operation Array Rescue
 
-State: scoped -> active -> integrating -> verifying.
+State: scoped -> active -> integrating -> verifying -> integrating (main sync).
 Base: `0cd5404fed18ab8f38b7229cf8eb6cbfa2895940`.
+New base after rebase: `3fa1638` (V3 runtime and platform campaign).
 Integration: `fix/v3-array-rescue`, `C:/tmp/freak-v3-array-rescue`.
+Conflict repair: `teriri/pr102-conflict-repair`
+(`C:/Users/TeRiRi/.codex/worktrees/pr102-conflict-repair`).
 
 ## Contract and exit gates
 
@@ -137,3 +140,61 @@ methods, owned shape/list/word factory results, numeric coercion and void calls.
 Fresh compiler/CLI reconstruction and all 26 C/LLVM review contracts pass;
 the exact Windows UI smoke now passes (launcher session 58768). Conformance and
 release invariants pass. Current-head CI remains required for final delivery.
+
+## Main-sync conflict repair (at user request)
+
+`origin/main` advanced to `3fa1638` while the PR was verifying, so GitHub
+reported the PR as conflicting. The branch was rebased onto `3fa1638` (22
+commits replayed, no content dropped: the rebased diff is the same 27 files,
+2728 insertions, 372 deletions). Prior pinned SHAs in this ledger and in PR
+comments still exist as the pre-rebase history; evidence below is on the new
+head and supersedes head-bound claims only.
+
+Textual conflicts (all resolved as unions, both sides preserved):
+
+- `checker.fk` `tc_is_known_value_type`: array-rescue List-element rule kept,
+  platform-campaign `ByteBuffer` rule kept.
+- `checker.fk` `tc_reserved_builtin_namespace_owner`: `List` kept,
+  `ByteBuffer` and `word_builder` kept.
+- `checker.fk` `tc_builtin_call_params`: legacy `array_*` keeps the
+  array-rescue `word-array` signatures (`int` stays assignable to `word-array`);
+  `word_builder::*` entries kept.
+- `checker.fk` `tc_builtin_method_allowed`: `List.length` kept, `ByteBuffer`
+  method table kept.
+- `emit_llvm.fk` `llvm_type_code`: `List<T>`/`a:` mapping kept, `ByteBuffer`
+  `q` mapping kept.
+- `emit_llvm.fk` method dispatch: `length` on `a:` receivers kept, `q`
+  (ByteBuffer) dispatch kept.
+
+Semantic break found by the fixed-point gate (not visible textually): the
+platform campaign changed `bc_walk_call_args` from 2 to 4 parameters
+(`borrow_args`, `consume_first`); the array-rescue `EXPR_ARRAY_LIT` site still
+used the old form and the merged tree did not compile. Ported with
+`(false, false)`, which reproduces the original consume-all policy exactly
+(copy-typed elements are unaffected since only non-copy bindings move).
+A full task-signature inventory confirms this was the only changed existing
+signature on either side (platform: 1 changed, array-rescue: 0 changed).
+
+Verification on the rebased head (repair worktree, llvm-mingw toolchain):
+
+- `tests/v3_fixed_point.py`: PASS, generation 2 == generation 3.
+- `tests/v3_array_rescue.py`: PASS (14 native executions, C + LLVM).
+- `tests/v3_array_torture.py`: PASS (82 contracts).
+- `tests/v3_array_review_regressions.py`: PASS (26 contracts).
+- `tests/v3_array_benchmarks.py`: PASS, 1M-element checksums verified on both
+  backends (Windows medians ~0.12s LLVM / ~0.12s C; host measurements, not
+  portable guarantees).
+- `tests/v3_codegen_error_gate.py`, `tests/v3_word_ownership.py`,
+  `tests/v3_word_concat.py`, `tests/v3_word_foundation.py`,
+  `tests/v3_word_length_parity.py`, `tests/v3_byte_buffer_foundation.py`,
+  `tests/v3_interpolation.py`, `tests/v3_legacy_golden.py`: all PASS.
+- `python -u -m freakc audit-conformance`: PASS (incl. V3 typed-array guard).
+- `python -u tools/release_version.py check`: 0.14.1 invariant holds.
+- `git diff --check`: clean; locally rebuilt `build/` artifacts restored, so
+  no binary churn is pushed.
+
+The standing "no merge authorized" note is superseded by the user's explicit
+rebase-merge request. Merge gate for the new head: branch mergeable after
+push; required strict CI (`build-and-test` on Linux/macOS/Windows) must run
+green on the new head before the rebase-merge completes; independent-review
+delta (this repair + arity port) is recorded here and in the PR comment.
