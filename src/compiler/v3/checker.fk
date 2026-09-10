@@ -239,7 +239,9 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
     }
 
     if k == EXPR_ARRAY_LIT {
-        bc_walk_call_args(array_get(ast_expr_lefts, expr_id), use_line)
+        -- Array elements are moved into owned storage: keep the original
+        -- consume-all policy through the borrow/consume call-args walk.
+        bc_walk_call_args(array_get(ast_expr_lefts, expr_id), use_line, false, false)
         give back
     }
 
