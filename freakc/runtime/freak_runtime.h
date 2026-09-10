@@ -40,6 +40,42 @@ freak_word freak_arg(int64_t index);
 
 #define FREAK_WORD_EMPTY { 0 }
 
+/* V3 typed containers. Scalars occupy one 64-bit slot, including num bits.
+   Reads borrow; push/set clone words and retain shapes. Release each owned
+   handle once; retain before copying a handle into another owning binding.
+   Legacy array_* remains the compiler's independent word-container ABI. */
+enum { FREAK_V3_INT = 0, FREAK_V3_NUM = 1, FREAK_V3_WORD = 2,
+       FREAK_V3_SHAPE = 3, FREAK_V3_C_WORD = 4 };
+int64_t freak_v3_array_new(int64_t kind);
+int64_t freak_v3_array_filled(int64_t kind, int64_t count, int64_t value);
+void freak_v3_array_push(int64_t handle, int64_t value);
+int64_t freak_v3_array_get(int64_t handle, int64_t index);
+void freak_v3_array_set(int64_t handle, int64_t index, int64_t value);
+int64_t freak_v3_array_len(int64_t handle);
+int64_t freak_v3_array_retain(int64_t handle);
+void freak_v3_array_release(int64_t handle);
+void freak_v3_array_push_word(int64_t handle, freak_word value);
+freak_word freak_v3_array_get_word(int64_t handle, int64_t index);
+void freak_v3_array_set_word(int64_t handle, int64_t index, freak_word value);
+int64_t freak_v3_array_filled_word(int64_t count, freak_word value);
+int64_t freak_v3_num_bits(double value);
+double freak_v3_bits_num(int64_t value);
+int64_t freak_v3_shape_new(int64_t fields);
+void freak_v3_shape_init(int64_t handle, int64_t index, int64_t kind, int64_t value);
+int64_t freak_v3_shape_get(int64_t handle, int64_t index);
+void freak_v3_shape_set(int64_t handle, int64_t index, int64_t value);
+int64_t freak_v3_shape_take(int64_t handle, int64_t index);
+void freak_v3_shape_set_owned(int64_t handle, int64_t index, int64_t value);
+int64_t freak_v3_shape_retain(int64_t handle);
+void freak_v3_shape_release(int64_t handle);
+void freak_v3_shape_init_word(int64_t handle, int64_t index, freak_word value);
+freak_word freak_v3_shape_get_word(int64_t handle, int64_t index);
+void freak_v3_shape_set_word(int64_t handle, int64_t index, freak_word value);
+/* Deterministic ownership oracles; counts exclude retained registry capacity. */
+int64_t freak_v3_live_arrays(void);
+int64_t freak_v3_live_shapes(void);
+int64_t freak_v3_live_words(void);
+
 /* Construct from a C string literal (no copy, points into rodata). */
 freak_word freak_word_lit(const char* s);
 

@@ -260,7 +260,7 @@ impl Window {
         ui::destroy_window(self.handle)
     }
 
-    -- V3 has no list ABI for an owned event collection. Poll with
+    -- The frozen UI surface exposes indexed events. Poll with
     -- ui::poll_events(handle), then read each event through ui::event_*(index).
 }
 

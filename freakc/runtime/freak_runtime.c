@@ -4661,3 +4661,291 @@ void freak_tcp_close(int64_t fd) {
     close((int)fd);
 #endif
 }
+
+/* Typed V3 arrays and shapes use a separate generation-checked registry.
+   Keeping the legacy compiler containers untouched is deliberate. */
+typedef struct {
+    int64_t *data;
+    unsigned char *kinds;
+    int64_t length, capacity, refs, next_free;
+    uint32_t generation;
+    uint64_t visit;
+    unsigned char kind;
+    bool live, shape;
+} freak_v3_container;
+static freak_v3_container *freak_v3_objects;
+static int64_t freak_v3_count, freak_v3_capacity, freak_v3_free = -1;
+static int64_t freak_v3_arrays_live, freak_v3_shapes_live, freak_v3_words_live;
+static uint64_t freak_v3_visit;
+
+static void freak_v3_fail(const char *message) {
+    fprintf(stderr, "FREAK: %s\n", message);
+    exit(1);
+}
+static void *freak_v3_alloc(size_t count, size_t size) {
+    if (size && count > SIZE_MAX / size) freak_v3_fail("container capacity is too large");
+    void *p = calloc(count ? count : 1, size);
+    if (!p) freak_v3_fail("out of memory allocating container");
+    return p;
+}
+static void freak_v3_kind(int64_t kind) {
+    if (kind < FREAK_V3_INT || kind > FREAK_V3_C_WORD) freak_v3_fail("invalid array element kind");
+}
+static freak_v3_container *freak_v3_object(int64_t handle, bool shape) {
+    uint64_t raw = (uint64_t)handle;
+    uint32_t slot = (uint32_t)raw;
+    uint32_t generation = (uint32_t)(raw >> 32);
+    if (handle <= 0 || slot >= (uint64_t)freak_v3_count)
+        freak_v3_fail("invalid or released container handle");
+    freak_v3_container *p = &freak_v3_objects[slot];
+    if (!p->live || p->generation != generation || p->shape != shape)
+        freak_v3_fail("invalid or released container handle");
+    return p;
+}
+static void freak_v3_index(freak_v3_container *p, int64_t index) {
+    if (index < 0 || index >= p->length) {
+        fprintf(stderr, "FREAK: %s index %lld out of bounds (len %lld)\n",
+                p->shape ? "shape field" : "array", (long long)index, (long long)p->length);
+        exit(1);
+    }
+}
+static int64_t freak_v3_new(bool shape, int64_t kind, int64_t count) {
+    freak_v3_kind(kind);
+    if (count < 0 || (uint64_t)count > SIZE_MAX / sizeof(int64_t))
+        freak_v3_fail("container length is negative or too large");
+    int64_t slot = freak_v3_free;
+    if (slot < 0) {
+        if ((uint64_t)freak_v3_count >= UINT32_MAX) freak_v3_fail("too many container handles");
+        if (freak_v3_count == freak_v3_capacity) {
+            int64_t cap = freak_v3_capacity ? freak_v3_capacity * 2 : 64;
+            if ((uint64_t)cap > UINT32_MAX) cap = UINT32_MAX;
+            if ((uint64_t)cap > SIZE_MAX / sizeof(freak_v3_container))
+                freak_v3_fail("container registry is too large");
+            void *grown = realloc(freak_v3_objects, (size_t)cap * sizeof(freak_v3_container));
+            if (!grown) freak_v3_fail("out of memory growing container registry");
+            freak_v3_objects = grown;
+            memset(freak_v3_objects + freak_v3_capacity, 0,
+                   (size_t)(cap - freak_v3_capacity) * sizeof(freak_v3_container));
+            freak_v3_capacity = cap;
+        }
+        slot = freak_v3_count++;
+    } else freak_v3_free = freak_v3_objects[slot].next_free;
+    freak_v3_container *p = &freak_v3_objects[slot];
+    p->generation++;
+    p->shape = shape; p->kind = (unsigned char)kind; p->refs = 1; p->live = true;
+    p->length = count; p->capacity = count ? count : 8; p->next_free = -1;
+    p->data = freak_v3_alloc((size_t)p->capacity, sizeof(int64_t));
+    p->kinds = shape ? freak_v3_alloc((size_t)count, 1) : NULL;
+    if (shape) {
+        memset(p->kinds, 255, (size_t)count);
+        freak_v3_shapes_live++;
+    } else freak_v3_arrays_live++;
+    return (int64_t)(((uint64_t)p->generation << 32) | (uint32_t)slot);
+}
+int64_t freak_v3_array_new(int64_t kind) { return freak_v3_new(false, kind, 0); }
+int64_t freak_v3_shape_new(int64_t fields) { return freak_v3_new(true, 0, fields); }
+static int64_t freak_v3_retain(int64_t handle, bool shape) {
+    freak_v3_container *p = freak_v3_object(handle, shape);
+    if (p->refs == INT64_MAX) freak_v3_fail("container reference count overflow");
+    p->refs++;
+    return handle;
+}
+int64_t freak_v3_array_retain(int64_t h) { return freak_v3_retain(h, false); }
+int64_t freak_v3_shape_retain(int64_t h) { return freak_v3_retain(h, true); }
+static int64_t freak_v3_copy(int64_t kind, int64_t value) {
+    if (kind == FREAK_V3_WORD && value) {
+        value = freak_llvm_word_clone(value);
+        freak_v3_words_live++;
+    } else if (kind == FREAK_V3_C_WORD && value) {
+        freak_word *copy = freak_v3_alloc(1, sizeof(freak_word));
+        *copy = freak_word_clone(*(freak_word *)(intptr_t)value);
+        value = (int64_t)(intptr_t)copy;
+        freak_v3_words_live++;
+    } else if (kind == FREAK_V3_SHAPE && value) freak_v3_shape_retain(value);
+    return value;
+}
+static void freak_v3_drop(int64_t kind, int64_t value) {
+    if (kind == FREAK_V3_WORD && value) {
+        freak_llvm_word_release_replaced(value, 0); freak_v3_words_live--;
+    } else if (kind == FREAK_V3_C_WORD && value) {
+        freak_word *p = (freak_word *)(intptr_t)value;
+        freak_word_release_owned(p); free(p); freak_v3_words_live--;
+    } else if (kind == FREAK_V3_SHAPE && value) freak_v3_shape_release(value);
+}
+static void freak_v3_release(int64_t handle, bool shape) {
+    /* A consumed compiler binding is cleared to zero before scope cleanup. */
+    if (!handle) return;
+    freak_v3_container *p = freak_v3_object(handle, shape);
+    if (--p->refs) return;
+    /* Iterative destruction also handles deeply nested owned shapes without
+       depending on the native call-stack limit. The registry cannot grow. */
+    int64_t local[64], *pending = local;
+    size_t used = 1, capacity = 64;
+    local[0] = (int64_t)(uint32_t)handle;
+    while (used) {
+        int64_t slot = pending[--used];
+        p = &freak_v3_objects[slot];
+        for (int64_t i = 0; i < p->length; i++) {
+            int64_t kind = p->shape ? p->kinds[i] : p->kind;
+            int64_t value = p->data[i];
+            if (kind == FREAK_V3_SHAPE && value) {
+                freak_v3_container *child = freak_v3_object(value, true);
+                if (--child->refs) continue;
+                if (used == capacity) {
+                    if (capacity > SIZE_MAX / sizeof(int64_t) / 2)
+                        freak_v3_fail("shape destruction queue is too large");
+                    capacity *= 2;
+                    int64_t *grown = freak_v3_alloc(capacity, sizeof(int64_t));
+                    memcpy(grown, pending, used * sizeof(int64_t));
+                    if (pending != local) free(pending);
+                    pending = grown;
+                }
+                pending[used++] = (int64_t)(uint32_t)value;
+            } else freak_v3_drop(kind, value);
+        }
+        free(p->data); free(p->kinds);
+        p->data = NULL; p->kinds = NULL; p->live = false; p->length = p->capacity = 0;
+        if (p->shape) freak_v3_shapes_live--; else freak_v3_arrays_live--;
+        /* Retire generations instead of wrapping stale handles into validity. */
+        if (p->generation < UINT32_C(0x7fffffff)) {
+            p->next_free = freak_v3_free;
+            freak_v3_free = slot;
+        }
+    }
+    if (pending != local) free(pending);
+}
+void freak_v3_array_release(int64_t h) { freak_v3_release(h, false); }
+void freak_v3_shape_release(int64_t h) { freak_v3_release(h, true); }
+int64_t freak_v3_array_len(int64_t h) { return freak_v3_object(h, false)->length; }
+int64_t freak_v3_array_get(int64_t h, int64_t i) {
+    freak_v3_container *p = freak_v3_object(h, false); freak_v3_index(p, i);
+    return p->data[i];
+}
+void freak_v3_array_push(int64_t h, int64_t value) {
+    freak_v3_container *p = freak_v3_object(h, false);
+    if (p->length == p->capacity) {
+        if (p->capacity > INT64_MAX / 2 || (uint64_t)p->capacity > SIZE_MAX / sizeof(int64_t) / 2)
+            freak_v3_fail("array capacity is too large");
+        int64_t cap = p->capacity * 2;
+        void *grown = realloc(p->data, (size_t)cap * sizeof(int64_t));
+        if (!grown) freak_v3_fail("out of memory growing array");
+        p->data = grown; p->capacity = cap;
+    }
+    p->data[p->length++] = freak_v3_copy(p->kind, value);
+}
+void freak_v3_array_set(int64_t h, int64_t i, int64_t value) {
+    freak_v3_container *p = freak_v3_object(h, false); freak_v3_index(p, i);
+    int64_t copy = freak_v3_copy(p->kind, value);
+    freak_v3_drop(p->kind, p->data[i]); p->data[i] = copy;
+}
+int64_t freak_v3_array_filled(int64_t kind, int64_t count, int64_t value) {
+    int64_t h = freak_v3_new(false, kind, count);
+    freak_v3_container *p = freak_v3_object(h, false);
+    for (int64_t i = 0; i < count; i++) p->data[i] = freak_v3_copy(kind, value);
+    return h;
+}
+/* Reject cycles before a shape takes ownership. Refcounts then reclaim every
+   reachable owned field; traversal is confined to shape-valued mutation. */
+static void freak_v3_no_cycle(int64_t owner, int64_t value) {
+    if (!value) return;
+    if (++freak_v3_visit == 0) {
+        for (int64_t i = 0; i < freak_v3_count; i++) freak_v3_objects[i].visit = 0;
+        freak_v3_visit = 1;
+    }
+    size_t used = 1, next = 0, capacity = 16;
+    int64_t *seen = freak_v3_alloc(capacity, sizeof(int64_t)); seen[0] = value;
+    freak_v3_object(value, true)->visit = freak_v3_visit;
+    while (next < used) {
+        int64_t current = seen[next++];
+        if (current == owner) { free(seen); freak_v3_fail("cyclic owned shape assignment"); }
+        freak_v3_container *p = freak_v3_object(current, true);
+        for (int64_t i = 0; i < p->length; i++) {
+            if (p->kinds[i] != FREAK_V3_SHAPE || !p->data[i]) continue;
+            int64_t child = p->data[i];
+            freak_v3_container *child_object = freak_v3_object(child, true);
+            if (child_object->visit == freak_v3_visit) continue;
+            child_object->visit = freak_v3_visit;
+            if (used == capacity) {
+                if (capacity > SIZE_MAX / sizeof(int64_t) / 2) freak_v3_fail("shape graph is too large");
+                capacity *= 2;
+                void *grown = realloc(seen, capacity * sizeof(int64_t));
+                if (!grown) freak_v3_fail("out of memory checking shape ownership");
+                seen = grown;
+            }
+            seen[used++] = child;
+        }
+    }
+    free(seen);
+}
+static freak_v3_container *freak_v3_field(int64_t h, int64_t i) {
+    freak_v3_container *p = freak_v3_object(h, true); freak_v3_index(p, i);
+    if (p->kinds[i] == 255) freak_v3_fail("uninitialized shape field");
+    return p;
+}
+void freak_v3_shape_init(int64_t h, int64_t i, int64_t kind, int64_t value) {
+    freak_v3_kind(kind);
+    freak_v3_container *p = freak_v3_object(h, true); freak_v3_index(p, i);
+    if (p->kinds[i] != 255) freak_v3_fail("shape field initialized twice");
+    if (kind == FREAK_V3_SHAPE) freak_v3_no_cycle(h, value);
+    p->data[i] = freak_v3_copy(kind, value); p->kinds[i] = (unsigned char)kind;
+}
+int64_t freak_v3_shape_get(int64_t h, int64_t i) { return freak_v3_field(h, i)->data[i]; }
+void freak_v3_shape_set(int64_t h, int64_t i, int64_t value) {
+    freak_v3_container *p = freak_v3_field(h, i); int64_t kind = p->kinds[i];
+    if (kind == FREAK_V3_SHAPE) freak_v3_no_cycle(h, value);
+    int64_t copy = freak_v3_copy(kind, value);
+    freak_v3_drop(kind, p->data[i]); p->data[i] = copy;
+}
+int64_t freak_v3_shape_take(int64_t h, int64_t i) {
+    freak_v3_container *p = freak_v3_field(h, i); int64_t value = p->data[i]; p->data[i] = 0;
+    if (value && (p->kinds[i] == FREAK_V3_WORD || p->kinds[i] == FREAK_V3_C_WORD)) freak_v3_words_live--;
+    return value;
+}
+void freak_v3_shape_set_owned(int64_t h, int64_t i, int64_t value) {
+    freak_v3_container *p = freak_v3_field(h, i); int64_t kind = p->kinds[i];
+    if (kind == FREAK_V3_SHAPE) freak_v3_no_cycle(h, value);
+    if (p->data[i] == value) {
+        if (kind == FREAK_V3_SHAPE && value) freak_v3_shape_release(value);
+        return;
+    }
+    freak_v3_drop(kind, p->data[i]); p->data[i] = value;
+    if (value && (kind == FREAK_V3_WORD || kind == FREAK_V3_C_WORD)) freak_v3_words_live++;
+}
+static void freak_v3_word_kind(freak_v3_container *p, int64_t kind) {
+    (void)p;
+    if (kind != FREAK_V3_C_WORD) freak_v3_fail("C word adapter used with a different element kind");
+}
+void freak_v3_array_push_word(int64_t h, freak_word v) {
+    freak_v3_container *p = freak_v3_object(h, false); freak_v3_word_kind(p, p->kind);
+    freak_v3_array_push(h, (int64_t)(intptr_t)&v);
+}
+freak_word freak_v3_array_get_word(int64_t h, int64_t i) {
+    freak_v3_container *p = freak_v3_object(h, false); freak_v3_word_kind(p, p->kind);
+    int64_t v = freak_v3_array_get(h, i);
+    freak_word result = v ? *(freak_word *)(intptr_t)v : freak_word_lit("");
+    return result;
+}
+void freak_v3_array_set_word(int64_t h, int64_t i, freak_word v) {
+    freak_v3_container *p = freak_v3_object(h, false); freak_v3_word_kind(p, p->kind);
+    freak_v3_array_set(h, i, (int64_t)(intptr_t)&v);
+}
+int64_t freak_v3_array_filled_word(int64_t n, freak_word v) {
+    return freak_v3_array_filled(FREAK_V3_C_WORD, n, (int64_t)(intptr_t)&v);
+}
+void freak_v3_shape_init_word(int64_t h, int64_t i, freak_word v) {
+    freak_v3_shape_init(h, i, FREAK_V3_C_WORD, (int64_t)(intptr_t)&v);
+}
+freak_word freak_v3_shape_get_word(int64_t h, int64_t i) {
+    freak_v3_container *p = freak_v3_field(h, i); freak_v3_word_kind(p, p->kinds[i]);
+    int64_t v = p->data[i]; freak_word result = v ? *(freak_word *)(intptr_t)v : freak_word_lit("");
+    return result;
+}
+void freak_v3_shape_set_word(int64_t h, int64_t i, freak_word v) {
+    freak_v3_container *p = freak_v3_field(h, i); freak_v3_word_kind(p, p->kinds[i]);
+    freak_v3_shape_set(h, i, (int64_t)(intptr_t)&v);
+}
+int64_t freak_v3_num_bits(double value) { int64_t bits; memcpy(&bits, &value, sizeof(bits)); return bits; }
+double freak_v3_bits_num(int64_t value) { double number; memcpy(&number, &value, sizeof(number)); return number; }
+int64_t freak_v3_live_arrays(void) { return freak_v3_arrays_live; }
+int64_t freak_v3_live_shapes(void) { return freak_v3_shapes_live; }
+int64_t freak_v3_live_words(void) { return freak_v3_words_live; }

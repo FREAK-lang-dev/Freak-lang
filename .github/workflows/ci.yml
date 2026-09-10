@@ -127,6 +127,23 @@ jobs:
         shell: bash
         run: python -u tests/v3_word_ownership.py ./build/freak$EXT
 
+      - name: V3 typed arrays and owned runtime
+        shell: bash
+        run: |
+          python -u tests/v3_array_runtime.py --sanitize
+          python -u tests/v3_array_rescue.py ./build/freakc_v3_stage2$EXT
+          python -u tests/v3_array_torture.py ./build/freakc_v3_stage2$EXT
+          python -u tests/v3_array_review_regressions.py ./build/freakc_v3_stage2$EXT
+          python -u tests/v3_array_benchmarks.py ./build/freakc_v3_stage2$EXT --output array-benchmarks.json
+
+      - name: Preserve V3 array performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: array-benchmarks-${{ matrix.os }}
+          path: array-benchmarks.json
+          if-no-files-found: ignore
+
       - name: V3 repeated word concat scaling
         shell: bash
         run: python -u tests/v3_word_concat.py ./build/freak$EXT
