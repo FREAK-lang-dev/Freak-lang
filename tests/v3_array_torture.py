@@ -213,7 +213,6 @@ NEGATIVE = {
     "filled_num_count": ('pilot values = List::filled(0, 2.5)\n', "expects int"),
     "filled_bool_count": ('pilot values = List::filled(0, true)\n', "expects int"),
     "filled_missing_count": ('pilot values = List::filled(0)\n', "expects 2"),
-    "empty_numeric_annotation": ('pilot values: List<int> = []\n', "List<word>"),
     "list_widening": ('pilot values: List<num> = [1, 2]\n', "List<int>"),
     "non_list_iteration": ('for each item in 3 { say item }\n', "for each requires a list"),
 }

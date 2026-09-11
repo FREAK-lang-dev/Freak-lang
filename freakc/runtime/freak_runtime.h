@@ -47,16 +47,22 @@ freak_word freak_arg(int64_t index);
 enum { FREAK_V3_INT = 0, FREAK_V3_NUM = 1, FREAK_V3_WORD = 2,
        FREAK_V3_SHAPE = 3, FREAK_V3_C_WORD = 4 };
 int64_t freak_v3_array_new(int64_t kind);
+int64_t freak_v3_array_with_capacity(int64_t kind, int64_t capacity);
 int64_t freak_v3_array_filled(int64_t kind, int64_t count, int64_t value);
 void freak_v3_array_push(int64_t handle, int64_t value);
 int64_t freak_v3_array_get(int64_t handle, int64_t index);
 void freak_v3_array_set(int64_t handle, int64_t index, int64_t value);
 int64_t freak_v3_array_len(int64_t handle);
+int64_t freak_v3_array_capacity(int64_t handle);
+void freak_v3_array_reserve(int64_t handle, int64_t min_capacity);
+void freak_v3_array_clear(int64_t handle);
+int64_t freak_v3_array_pop(int64_t handle);
 int64_t freak_v3_array_retain(int64_t handle);
 void freak_v3_array_release(int64_t handle);
 void freak_v3_array_push_word(int64_t handle, freak_word value);
 freak_word freak_v3_array_get_word(int64_t handle, int64_t index);
 void freak_v3_array_set_word(int64_t handle, int64_t index, freak_word value);
+freak_word freak_v3_array_pop_word(int64_t handle);
 int64_t freak_v3_array_filled_word(int64_t count, freak_word value);
 int64_t freak_v3_num_bits(double value);
 double freak_v3_bits_num(int64_t value);
@@ -457,6 +463,26 @@ int64_t freak_word_compare(freak_word a, freak_word b);
 double  freak_word_to_num(freak_word w);
 double  freak_parse_num(freak_word w);
 freak_word freak_format_num(double n);
+
+/* Checked word parsing. Strict full-input conversions with a sticky status
+   channel mirroring the ByteBuffer status/clear_status contract: a failure
+   keeps the first code until parse_clear_status runs; success leaves the
+   channel unchanged. Legacy to_int/to_num/parse_num stay lenient. Empty
+   input, sign-only text, invalid digits, junk suffixes (including
+   whitespace), malformed exponents, and out-of-range magnitudes fail.
+   parse_int accepts optional sign plus decimal digits; parse_num accepts
+   optional sign, digits with an optional fraction, and an optional decimal
+   exponent. Success leaves the status channel unchanged, so it reads
+   FREAK_PARSE_STATUS_OK (0) only when no earlier failure is still pending. */
+#define FREAK_PARSE_STATUS_OK 0
+#define FREAK_PARSE_STATUS_INVALID 1
+#define FREAK_PARSE_STATUS_OUT_OF_RANGE 2
+int64_t freak_parse_status(void);
+void freak_parse_clear_status(void);
+int64_t freak_word_parse_int(freak_word w);
+double freak_word_parse_num(freak_word w);
+int64_t freak_llvm_word_parse_int(int64_t source);
+int64_t freak_llvm_word_parse_num(int64_t source);
 
 /* ------------------------------------------------------------------ */
 /*  std::process                                                      */

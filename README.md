@@ -441,11 +441,16 @@ Both backends produce native binaries via Clang. The LLVM IR path supports cross
 
 ## Project Status
 
-FREAK is under active development. The compiler is **self-hosting** — FREAK compiles itself.
+FREAK's shipping compiler is the **self-hosted V3** — FREAK compiles itself
+and emits native binaries. V3 is **actively hardened, not stable**: it ships
+and compiles real programs, but its diagnostics, edge-case semantics, and
+platform parity are still being tightened, and breaking fixes can land in any
+release. Pin a version and read `freak-conformance-audit.md` before depending
+on sharp edges.
 
 | Milestone | Status |
 |---|---|
-| Self-hosting compiler | ✅ Complete |
+| Self-hosting compiler (V3) | ⚠️ Shipping self-hosted — actively hardened, not stable |
 | LLVM IR backend (default) | ✅ Complete |
 | C backend (`--c`) | ⚠️ Portability target — scalar/control/word, typed lists, and owned shapes execute on C and LLVM; native UI parity remains separate |
 | Native CLI (`freak build`/`run`/`check`/`transpile`) | ✅ Complete; `freak test` is a source-checkout Python shim |

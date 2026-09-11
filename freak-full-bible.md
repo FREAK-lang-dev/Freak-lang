@@ -653,8 +653,19 @@ Rules:
 **Shipping V3 dynamic lists:** literals infer `List<T>` for `int`, `num`,
 `bool`, `word`, and concrete owned shapes. Mixed numeric elements widen to
 `num`; incompatible elements are diagnosed. V3 implements checked indexing,
-indexed assignment through a `pilot mut` root, `.length()`,
-`List::filled(value, count)`, and `for each item in values` on LLVM and C.
+indexed assignment through a `pilot mut` root, `.length()`, `.capacity()`,
+`.reserve(n)`, `.clear()`, `.push(value)`, `.pop()`,
+`List::filled(value, count)`, `List::new()`, `List::with_capacity(n)`, and
+`for each item in values` on LLVM and C. A context-typed empty literal
+(`pilot mut xs: List<num> = []`) and the `List::new()` /
+`List::with_capacity(n)` constructors take their element type from a
+`List<T>` pilot annotation; an unannotated empty literal defaults to
+`List<word>`, while an unannotated `List::new()` / `List::with_capacity(n)`
+is rejected as uninferred. Mutating methods (`.push()`, `.pop()`,
+`.clear()`, `.reserve()`) require the same `pilot mut` root as indexed
+assignment. Popped words and shapes transfer ownership to the caller and
+cleared elements release owned storage, so native word/shape counters
+return to zero on ordinary exits.
 The fill value and count each evaluate once, in that order. Iteration evaluates
 and retains its collection once, reads each element in order, and releases
 owned iteration values on ordinary and early exits. Indexed owned reads remain
@@ -664,12 +675,12 @@ shared ownership or lifetime syntax.
 
 V3 uses contiguous 64-bit numeric/bool slots and retains bounds checks in
 optimized builds. Owned words and nested concrete shapes are cleaned on
-replacement and scope exit. Its current conservative boundaries are explicit:
-an empty literal is `List<word>`; typed container covariance, nested lists,
+replacement, pop, clear, and scope exit. Its current conservative boundaries are explicit:
+unannotated empty literals remain `List<word>`; typed container covariance, nested lists,
 List-valued shape fields, and indexed writes through temporary call results
 are rejected. Fixed arrays/repeat literals and general collection generics
 remain their separately tracked V4 contracts. See
-`tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, and the million-element
+`tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, `tests/v3_list_methods.py`, and the million-element
 `examples/array_math.fk` workload for executable V3 evidence.
 
 Block-bodied tasks do not have implicit tail returns. `give back` is
@@ -1800,6 +1811,24 @@ interpretation. This does not relax ByteBuffer's NUL-free text conversion or
 the builder's `append_char(0)` restriction. `tests/v3_word_length_parity.py`
 records the supported producer/consumer and ownership coverage.
 
+**V3 checked parsing implementation:** `"42".parse_int()` and
+`"3.14".parse_num()` are strict full-input conversions that report through
+the sticky `parse_status()` / `parse_clear_status()` channel instead of the
+broader `maybe`/`result` API direction above, which remains a V4 contract.
+`parse_status()` returns `0` on success, `1` for invalid input (empty text,
+sign-only text, invalid digits, junk suffixes including whitespace,
+malformed exponents), and `2` for out-of-range magnitudes (int
+overflow/underflow, num overflow/underflow to infinity or zero). Failures
+keep the first code until `parse_clear_status()` runs, mirroring the
+ByteBuffer `status()` / `clear_status()` convention; successful parses leave
+the channel unchanged. The legacy `"...".to_int()`, `"...".to_num()`, and
+`parse_num()` entry points stay lenient and never touch the channel.
+`tests/v3_checked_parsing.py` guards malformed, boundary min-max,
+junk-suffix, and overflow cases with C/LLVM parity and no-leak runs.
+Subnormal `parse_num()` inputs follow the host libc: whether a subnormal
+result reports status `2` via `ERANGE` varies by platform, so only
+whitespace handling and normal-range boundaries are pinned cross-platform.
+
 ### 7.3 std::num
 
 ```
@@ -2688,6 +2717,56 @@ freak timeline-diff           -- show causality divergence between timelines
 | death flag (tier 3-4)   | Hayase    | Doesn't know. That's the worst part.     |
 | isekai scope violation  | Sumika    | "You can't bring that with you."         |
 | causality divergence    | 00-Unit   | No emotion. Just facts. Somehow worse.   |
+
+### V3 diagnostic codes foundation (additive, checker-unwired)
+
+> Status: foundation data + deterministic presentation only. No existing
+> diagnostic message changed; the checker, emitters, parser, globals, and
+> CLI flag parsing are untouched by this lane. Voice routing stays 🔜 V4;
+> what lands here is the stable numbering, the data packs, and the
+> off-by-default selector the lead wires at integration.
+
+Stable codes live in `src/diagnostics/codes.json` (schema
+`freak.v3.diagnostic-codes.v1`). Codes are never renamed, renumbered, or
+repurposed; new conditions get new codes:
+
+| Code | Condition | Default speaker hint |
+|---|---|---|
+| E0001 | Unknown binding | MEIYA |
+| E0002 | Type mismatch | YUUKO |
+| E0003 | Use after move | MEIYA |
+| E0004 | Immutable reassignment | MEIYA |
+| E0005 | Invalid call | YUUKO |
+| E0006 | Index out of bounds | FREAK |
+| E0007 | Numeric parse failure | YUUKO |
+| E0008 | Numeric overflow | LLVM |
+| E0009 | Allocation failure | MINISTRY |
+| E0010 | Unsupported target | LINKER |
+
+Optional cast packs are data only (JSON, no code execution) under
+`src/diagnostics/packs/`: FREAK, YUUKO, MEIYA, HANGAR, COCKPIT, MINISTRY,
+LLVM, LINKER, plus PLATFORM voices (`windows`/`linux`/`macos` in
+`platform.json`). Exact-invalid-source easter eggs live in
+`src/diagnostics/easter_eggs.json` and fire only on byte-exact match of a
+registered invalid source after a failed check — never for valid sources or
+near-misses. Resource companion lines live in
+`src/diagnostics/resources.json` (E0009, normal mode only).
+
+`src/diagnostics/selector.py` picks one line deterministically: SHA-256
+over compiler version + code + file + line + column + source + speaker
+(NUL-joined), index = digest mod pack line count, so the same input always
+yields the same line. Presentation modes: `off` returns the canonical
+diagnostic byte-identical; `minimal` appends `[CODE] line`; `normal`
+appends `[CODE SPEAKER] line` (plus one deterministic resource line for
+E0009). Executable proof: `python -u tests/v3_diagnostic_codes.py`.
+
+Integration hook (deferred, lead-owned): the lead wires an opt-in
+`--diagnostic-cast=<off|minimal|normal>` CLI flag (default `off`) at the
+CLI dispatch boundary at integration time; the checker and emitters keep
+emitting canonical diagnostics unchanged and pass (compiler version, code,
+file, line, column, source, speaker) to `selector.render()` as a
+post-pass presentation step only. No checker/CLI flag-parsing edits ship
+from this lane.
 
 ---
 
