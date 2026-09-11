@@ -1942,7 +1942,7 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "README.md",
             (
                 "C backend (`--c`) | ⚠️ Portability target",
-                "V3 shape storage is LLVM-only",
+                "typed lists, and owned shapes execute on C and LLVM",
             ),
         ),
     }
@@ -6578,6 +6578,24 @@ def audit_conformance(paths: List[Path]) -> int:
     )
     if type_recursion_missing:
         failures.append("V4 direct type-recursion guard regressed: " + "; ".join(type_recursion_missing))
+    # Static wiring guard; executable array evidence belongs to the native gates.
+    array_missing: List[str] = []
+    array_sources = {
+        "src/compiler/v3/checker.fk": ("tc_is_list", "tc_list_element", "indexed assignment requires a mutable list binding"),
+        "src/compiler/v3/emit_c.fk": ("emit_c_list_literal", "freak_v3_array_get", "STMT_FOREACH"),
+        "src/compiler/v3/emit_llvm.fk": ("@freak_v3_array_get", "@freak_v3_array_set", "STMT_FOREACH"),
+        "freakc/runtime/freak_runtime.c": ("freak_v3_index", "out of bounds", "freak_v3_no_cycle"),
+        "freak-full-bible.md": ("Shipping V3 dynamic lists", "retains bounds checks"),
+        ".github/workflows/ci.yml": tuple(f"tests/v3_array_{name}.py" for name in ("runtime", "rescue", "torture", "review_regressions", "benchmarks")),
+    }
+    for relative, needles in array_sources.items():
+        source = repo / relative
+        source_text = source.read_text(encoding="utf-8") if source.exists() else ""
+        array_missing.extend(f"{relative}: {needle}" for needle in needles if needle not in source_text)
+    add("V3 typed arrays", not array_missing, "checked storage + native ownership/parity/performance gates wired" if not array_missing else f"{len(array_missing)} gap(s)")
+    if array_missing:
+        failures.append("V3 typed array contract regressed: " + "; ".join(array_missing))
+
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")

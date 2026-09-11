@@ -8,8 +8,8 @@
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
 **V3 process ABI boundary (2026-08-10):** the shipping compiler rejects
-`process::args()` until it can return the bible-required `List<word>` through a
-real list ABI. V3 callers use `process::args_count()` and
+`process::args()`; its conversion to the bible-required `List<word>` remains
+unimplemented even with typed list storage available. V3 callers use `process::args_count()` and
 `process::arg(index)`; raw `argv` is no longer exposed as an integer handle.
 
 **V4 expansion and macro-contract bootstrap checkpoint (2026-08-09):** Maverick now routes every bootstrap frontend query through `parse -> expand -> HIR`. The identity-only `freak_expand` stage forwards syntax unchanged while recording stable ExpandedFile identity and deterministic provenance; its query, invalidation, component snapshot, 00-Unit v3 restore/manifest/diff/health, LSP wrappers, and architecture guards are executable. `freak_macro_api` now separately owns versioned, capability-limited `MacroContext`, read-only view, structured diagnostic, public `ExpansionId`, generated-node provenance, and deterministic non-executing builder contracts. This is an architecture-only checkpoint with no language-semantic change: user-defined syntax rewriting, hygiene, gensyms, third-party execution, and macro hosts remain absent, and the Alternative-4 annotation/macro boundary is unchanged.
@@ -151,10 +151,10 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Method calls `instance.method()` | ✅ | ✅ | |
 | `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | V4 lowers concrete impl UFCS calls like `Pilot::boost(ship, bonus: 3)`, generic-owner `Box<int>::take(box)`, and doctrine-bound calls like `T::score(value, bonus: 2)` into MIR with receiver/value arguments plus arity and receiver-type diagnostics. Doctrine-bound static calls such as `T::baseline()` carry instantiated doctrine arguments through editor facts; body generics outrank same-named global aliases, and overlapping bound methods produce an ambiguity diagnostic instead of declaration-order dispatch. Production backend parity still expands |
 
-The shipping V3 LLVM path owns the executable shape/impl status in this table.
-The C portability emitter now keeps receiver-qualified field indexes, ownership,
-and nominal method symbols, but packaged C shape storage remains incomplete and
-is covered as a transpilation contract rather than claimed runtime parity.
+The V3 LLVM and C paths execute concrete shape construction, fields, methods,
+and owned word/nested-shape cleanup. The typed storage runtime is shared;
+`tests/v3_array_rescue.py` and `tests/v3_word_ownership.py` exercise native
+parity. This does not claim native C UI support or general collection fields.
 
 #### §1.6 Doctrines (Traits)
 
@@ -237,7 +237,7 @@ is covered as a transpilation contract rather than claimed runtime parity.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `[1, 2, 3]` becomes `List<int>` | ✅ | ✅ | |
+| `[1, 2, 3]` becomes `List<int>` | ✅ | ✅ | V3 LLVM/C checked indexing, mutable indexed assignment, length, iteration and `List::filled`; int/num/bool/word/concrete owned shape elements. `tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, `tests/v3_array_review_regressions.py`, `tests/v3_array_runtime.py` and `tests/v3_array_benchmarks.py` guard native behavior and million-element scaling. Empty literals remain List<word>; nested lists, List-valued shape fields, temporary-root indexed writes and container covariance are diagnosed. |
 | `[1, 2, 3]: [int; 3]` fixed array | ⚠️ | 📖 V4 | V4 lowers typed fixed-array literals; stack layout and deeper const semantics still expand |
 | `[0; 100]` repeat-fill literal | ⚠️ | 📖 V4 | V4 lowers repeat-fill with literal and integer const arithmetic counts, including root-const inference/diagnostics; broader const-eval still expands |
 | Number suffixes: `42u`, `3.14f`, `42t`, `999b` | ⚠️ | 📖 V4 | V4 lex/type layers carry suffixes; broader const-evaluation surface still expands |

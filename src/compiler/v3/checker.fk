@@ -238,6 +238,13 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
         give back
     }
 
+    if k == EXPR_ARRAY_LIT {
+        -- Array elements are moved into owned storage: keep the original
+        -- consume-all policy through the borrow/consume call-args walk.
+        bc_walk_call_args(array_get(ast_expr_lefts, expr_id), use_line, false, false)
+        give back
+    }
+
     if k == EXPR_METHOD {
         -- Receiver + args. ast_expr_lefts = receiver expr id (as word).
         -- ast_expr_rights = comma-separated arg expr ids.
@@ -419,6 +426,16 @@ task bc_walk_stmt(stmt_id: int) -> void {
         give back
     }
 
+    if kind == STMT_FOREACH {
+        bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
+        bc_enter_scope()
+        pilot binder_kind = "owned"
+        if bc_is_copy_type(array_get(ast_stmt_extras, stmt_id)) { binder_kind = "copy" }
+        bc_push_sym(array_get(ast_stmt_names, stmt_id), binder_kind, "0", line)
+        bc_walk_block(array_get(ast_stmt_bodies, stmt_id))
+        bc_leave_scope()
+        give back
+    }
     if kind == STMT_REPEAT {
         pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
         pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
@@ -539,7 +556,20 @@ task tc_is_scalar(type_name: word) -> bool {
     give back tc_is_numeric(type_name) or type_name == "bool" or type_name == "word"
 }
 
+task tc_list_element(type_name: word) -> word {
+    if type_name.starts_with("List<") and type_name.ends_with(">") {
+        give back type_name.substring(5, type_name.length() - 6)
+    }
+    give back ""
+}
+
+task tc_is_list(type_name: word) -> bool {
+    give back tc_list_element(type_name) != ""
+}
+
 task tc_is_known_value_type(type_name: word) -> bool {
+    pilot element = tc_list_element(type_name)
+    if element != "" { give back tc_is_scalar(element) or is_shape_name(element) }
     give back tc_is_scalar(type_name) or type_name == "ByteBuffer" or is_shape_name(type_name)
 }
 
@@ -553,6 +583,7 @@ task tc_is_known_return_type(type_name: word) -> bool {
 task tc_type_assignable(destination: word, source: word) -> bool {
     if destination == "any" { give back source != "" and source != "void" }
     if destination == "scalar" { give back tc_is_scalar(source) }
+    if destination == "word-array" { give back source == "int" or source == "List<word>" }
     if destination == source and destination != "" { give back true }
     if destination == "num" and source == "int" { give back true }
     give back false
@@ -618,6 +649,9 @@ task tc_arg_at(args: word, wanted: int) -> int {
 }
 
 task tc_set_global(name: word, shape_name: word) -> void {
+    if tc_global_mut == 0 { tc_global_mut = array_new() }
+    if tc_global_count < array_len(tc_global_mut) { array_set(tc_global_mut, tc_global_count, "1") }
+    else { array_push(tc_global_mut, "1") }
     if tc_global_count < array_len(tc_global_names) {
         array_set(tc_global_names, tc_global_count, name)
         array_set(tc_global_types, tc_global_count, shape_name)
@@ -629,6 +663,9 @@ task tc_set_global(name: word, shape_name: word) -> void {
 }
 
 task tc_set_local(name: word, shape_name: word) -> void {
+    if tc_local_mut == 0 { tc_local_mut = array_new() }
+    if tc_local_count < array_len(tc_local_mut) { array_set(tc_local_mut, tc_local_count, "1") }
+    else { array_push(tc_local_mut, "1") }
     if tc_local_count < array_len(tc_local_names) {
         array_set(tc_local_names, tc_local_count, name)
         array_set(tc_local_types, tc_local_count, shape_name)
@@ -768,7 +805,7 @@ task tc_namespace_owner(name: word) -> word {
 -- user `shape math` (for example) from being accepted as nominal dispatch and
 -- then silently lowered to math::sqrt instead.
 task tc_reserved_builtin_namespace_owner(name: word) -> bool {
-    give back name == "ByteBuffer" or name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui" or name == "word_builder"
+    give back name == "ByteBuffer" or name == "List" or name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui" or name == "word_builder"
 }
 
 task tc_callable_is_instance(entry: int) -> bool {
@@ -863,10 +900,10 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "format_num" { give back "num" }
     if name == "parse_num" { give back "word" }
     if name == "array_new" { give back "" }
-    if name == "array_push" { give back "int,word" }
-    if name == "array_get" { give back "int,int" }
-    if name == "array_set" { give back "int,int,word" }
-    if name == "array_len" or name == "array_release" { give back "int" }
+    if name == "array_push" { give back "word-array,word" }
+    if name == "array_get" { give back "word-array,int" }
+    if name == "array_set" { give back "word-array,int,word" }
+    if name == "array_len" or name == "array_release" { give back "word-array" }
     if name == "word_builder::new" { give back "" }
     if name == "word_builder::with_capacity" { give back "int" }
     if name == "word_builder::reserve" { give back "int,int" }
@@ -919,7 +956,7 @@ task tc_internal_runtime_task_name(name: word) -> bool {
 }
 
 task tc_reserved_builtin_call(name: word) -> bool {
-    give back tc_builtin_call_type(name) != "" or name == "process::args"
+    give back tc_builtin_call_type(name) != "" or name == "process::args" or name == "List::filled"
 }
 
 task tc_internal_runtime_source(source_file: word) -> bool {
@@ -927,6 +964,7 @@ task tc_internal_runtime_source(source_file: word) -> bool {
 }
 
 task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
+    if tc_is_list(receiver_type) and name == "length" { give back true }
     if receiver_type == "ByteBuffer" {
         if name == "release" or name == "status" or name == "clear_status" or name == "reserve" { give back true }
         if name == "capacity" or name == "length" or name == "position" or name == "remaining" { give back true }
@@ -1029,6 +1067,7 @@ task tc_expr_type(expr_id: int) -> word {
     if kind == EXPR_STR or kind == EXPR_INTERP { give back "word" }
     if kind == EXPR_IDENT { give back tc_lookup_type(val) }
     if kind == EXPR_CALL {
+        if val == "List::filled" { give back "List<" + tc_expr_type(tc_arg_at(array_get(ast_expr_lefts, expr_id), 0)) + ">" }
         if val.starts_with("shape::ctor::") { give back val.replace("shape::ctor::", "") }
         pilot ret = tc_task_return_type(val)
         if ret != "" { give back ret }
@@ -1065,10 +1104,23 @@ task tc_expr_type(expr_id: int) -> word {
         give back tc_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)))
     }
     if kind == EXPR_INDEX {
-        if tc_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id))) == "word" { give back "word" }
-        give back ""
+        pilot receiver_type = tc_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)))
+        if receiver_type == "word" { give back "word" }
+        give back tc_list_element(receiver_type)
     }
-    if kind == EXPR_ARRAY_LIT { give back "int" }
+    if kind == EXPR_ARRAY_LIT {
+        pilot elements: word = array_get(ast_expr_lefts, expr_id)
+        pilot element_type = "?"
+        pilot i = 0
+        repeat tc_arg_count(elements) times {
+            pilot item_type = tc_expr_type(tc_arg_at(elements, i))
+            if element_type == "?" { element_type = item_type }
+            else if element_type == "int" and item_type == "num" { element_type = "num" }
+            i += 1
+        }
+        if element_type == "?" { element_type = "word" }
+        give back "List<" + element_type + ">"
+    }
     give back ""
 }
 
@@ -1376,6 +1428,13 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         }
         give back
     }
+    if kind == EXPR_CALL and val == "List::filled" {
+        tc_validate_args(left, line)
+        tc_validate_type_args("List::filled", left, "any,int", line, source_file)
+        pilot element = tc_expr_type(tc_arg_at(left, 0))
+        if not tc_is_scalar(element) and not is_shape_name(element) { tc_diag("unsupported list element type '" + element + "'", line, source_file) }
+        give back
+    }
     if kind == EXPR_CALL {
         tc_validate_args(left, line)
         if val.starts_with("shape::ctor::") {
@@ -1429,8 +1488,9 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         repeat item_count times {
             pilot item_id = tc_arg_at(left, item_index)
             pilot item_type = tc_expr_type(item_id)
-            if item_type != "" and item_type != "word" {
-                tc_diag("array element must have type word, got " + item_type, tc_expr_diag_line(item_id, line), tc_expr_diag_file(item_id, source_file))
+            pilot element_type = tc_list_element(tc_expr_type(expr_id))
+            if item_type != "" and (not tc_type_assignable(element_type, item_type) or (not tc_is_scalar(item_type) and not is_shape_name(item_type))) {
+                tc_diag("list element expects " + element_type + ", got " + item_type, tc_expr_diag_line(item_id, line), tc_expr_diag_file(item_id, source_file))
             }
             item_index += 1
         }
@@ -1457,8 +1517,8 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         tc_validate_expr(index_id, line)
         pilot base_type = tc_expr_type(base_id)
         pilot index_type = tc_expr_type(index_id)
-        if base_type != "" and base_type != "word" { tc_diag("indexing is supported only on word values in V3", tc_expr_diag_line(base_id, line), tc_expr_diag_file(base_id, source_file)) }
-        if index_type != "" and index_type != "int" { tc_diag("word index must have type int, got " + index_type, tc_expr_diag_line(index_id, line), tc_expr_diag_file(index_id, source_file)) }
+        if base_type != "" and base_type != "word" and not tc_is_list(base_type) { tc_diag("indexing requires a List or word value", tc_expr_diag_line(base_id, line), tc_expr_diag_file(base_id, source_file)) }
+        if index_type != "" and index_type != "int" { tc_diag("index must have type int, got " + index_type, tc_expr_diag_line(index_id, line), tc_expr_diag_file(index_id, source_file)) }
     }
 }
 
@@ -1577,6 +1637,9 @@ task tc_validate_shape_signature(stmt_id: int) -> void {
     repeat field_count times {
         pilot field_name = tc_param_name_at(fields, i)
         pilot field_type = tc_param_type_at(fields, i)
+        if tc_is_list(field_type) {
+            tc_diag("V3 owned shape fields do not yet support List values", line, source_file)
+        }
         if not tc_is_known_value_type(field_type) {
             tc_diag("field '" + field_name + "' of shape '" + shape_name + "' has unknown or non-value type '" + field_type + "'", line, source_file)
         }
@@ -1742,11 +1805,33 @@ task tc_validate_task_body(block: word) -> void {
     tc_validate_block_scoped(block, false)
 }
 
+-- Only list mutation gets the new always-on root mutability contract.
+-- Existing scalar and shape mutation retain V3's established policy.
+task tc_list_root_mutable(expr_id: int) -> bool {
+    if expr_id < 0 { give back false }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    if kind == EXPR_FIELD or kind == EXPR_INDEX { give back tc_list_root_mutable(word_to_int(array_get(ast_expr_lefts, expr_id))) }
+    if kind != EXPR_IDENT { give back false }
+    pilot name: word = array_get(ast_expr_vals, expr_id)
+    pilot i = tc_local_count - 1
+    repeat until i < 0 {
+        if array_get(tc_local_names, i) == name { give back array_get(tc_local_mut, i) == "1" }
+        i -= 1
+    }
+    i = tc_global_count - 1
+    repeat until i < 0 {
+        if array_get(tc_global_names, i) == name { give back array_get(tc_global_mut, i) == "1" }
+        i -= 1
+    }
+    give back false
+}
+
 task tc_expr_is_lvalue(expr_id: int) -> bool {
     if expr_id < 0 { give back false }
     pilot kind: word = array_get(ast_expr_kinds, expr_id)
     if kind == EXPR_IDENT { give back tc_has_binding(array_get(ast_expr_vals, expr_id)) }
     if kind == EXPR_FIELD { give back tc_expr_type(expr_id) != "" }
+    if kind == EXPR_INDEX { give back tc_is_list(tc_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)))) }
     give back false
 }
 
@@ -1831,6 +1916,7 @@ task tc_dependency_expr_type(expr_id: int, local_names: int, local_types: int, l
         give back tc_dependency_global_type(val)
     }
     if kind == EXPR_CALL {
+        if val == "List::filled" { give back "List<" + tc_dependency_expr_type(tc_arg_at(array_get(ast_expr_lefts, expr_id), 0), local_names, local_types, local_count) + ">" }
         if val.starts_with("shape::ctor::") { give back val.replace("shape::ctor::", "") }
         pilot ret = tc_task_return_type(val)
         if ret != "" { give back ret }
@@ -1863,10 +1949,23 @@ task tc_dependency_expr_type(expr_id: int, local_names: int, local_types: int, l
         give back tc_dependency_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)), local_names, local_types, local_count)
     }
     if kind == EXPR_INDEX {
-        if tc_dependency_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)), local_names, local_types, local_count) == "word" { give back "word" }
-        give back ""
+        pilot receiver_type = tc_dependency_expr_type(word_to_int(array_get(ast_expr_lefts, expr_id)), local_names, local_types, local_count)
+        if receiver_type == "word" { give back "word" }
+        give back tc_list_element(receiver_type)
     }
-    if kind == EXPR_ARRAY_LIT { give back "int" }
+    if kind == EXPR_ARRAY_LIT {
+        pilot elements: word = array_get(ast_expr_lefts, expr_id)
+        pilot element_type = "?"
+        pilot i = 0
+        repeat tc_arg_count(elements) times {
+            pilot item_type = tc_dependency_expr_type(tc_arg_at(elements, i), local_names, local_types, local_count)
+            if element_type == "?" { element_type = item_type }
+            else if element_type == "int" and item_type == "num" { element_type = "num" }
+            i += 1
+        }
+        if element_type == "?" { element_type = "word" }
+        give back "List<" + element_type + ">"
+    }
     give back ""
 }
 
@@ -1989,6 +2088,14 @@ task tc_dependency_walk_stmt(stmt_id: int, local_names: int, local_types: int, l
         tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
         tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
         tc_dependency_walk_block(array_get(ast_stmt_else_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
+        give back local_count
+    }
+    if kind == STMT_FOREACH {
+        pilot receiver_id = word_to_int(expr)
+        tc_dependency_walk_expr(receiver_id, local_names, local_types, local_count, global_index, global_name, visited)
+        pilot element_type = tc_list_element(tc_dependency_expr_type(receiver_id, local_names, local_types, local_count))
+        pilot body_count = tc_dependency_set_local(local_names, local_types, local_count, array_get(ast_stmt_names, stmt_id), element_type)
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, body_count, global_index, global_name, visited)
         give back local_count
     }
     if kind == STMT_REPEAT {
@@ -2156,6 +2263,7 @@ task tc_validate_stmt(stmt_id: int) -> void {
         if binding_type == "" { tc_diag("cannot infer a value type for binding '" + binding_name + "'", tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file)) }
         if value_type == "void" { tc_diag("binding initializer cannot have type void", tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file)) }
         tc_set_local(binding_name, binding_type)
+        array_set(tc_local_mut, tc_local_count - 1, array_get(ast_pilot_is_mut, stmt_id))
         give back
     }
     if kind == STMT_ASSIGN {
@@ -2164,8 +2272,11 @@ task tc_validate_stmt(stmt_id: int) -> void {
         tc_validate_expr(left_id, line)
         tc_validate_expr(right_id, line)
         if not tc_expr_is_lvalue(left_id) {
-            tc_diag("assignment target is not an assignable binding or shape field", line, source_file)
+            tc_diag("assignment target is not an assignable binding, shape field, or list element", line, source_file)
             give back
+        }
+        if array_get(ast_expr_kinds, left_id) == EXPR_INDEX and not tc_list_root_mutable(left_id) {
+            tc_diag("indexed assignment requires a mutable list binding; declare it with pilot mut", line, source_file)
         }
         pilot left_type = tc_expr_type(left_id)
         pilot right_type = tc_expr_type(right_id)
@@ -2223,6 +2334,26 @@ task tc_validate_stmt(stmt_id: int) -> void {
         if condition_type != "" and condition_type != "bool" { tc_diag("if condition must have type bool, got " + condition_type, tc_expr_diag_line(condition_id, line), tc_expr_diag_file(condition_id, source_file)) }
         tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
         tc_validate_block(array_get(ast_stmt_else_bodies, stmt_id))
+        give back
+    }
+    if kind == STMT_FOREACH {
+        pilot receiver_id = word_to_int(expr)
+        tc_validate_expr(receiver_id, line)
+        pilot receiver_type = tc_expr_type(receiver_id)
+        pilot element_type = tc_list_element(receiver_type)
+        if element_type == "" or element_type == "?" { tc_diag("for each requires a list with a known element type", line, source_file) }
+        -- Preserve the resolved binder type for the subsequent Phase-1 pass.
+        array_set(ast_stmt_extras, stmt_id, element_type)
+        pilot saved_count = tc_local_count
+        pilot saved_scope = tc_local_scope_start
+        tc_local_scope_start = tc_local_count
+        tc_set_local(array_get(ast_stmt_names, stmt_id), element_type)
+        array_set(tc_local_mut, tc_local_count - 1, "0")
+        tc_loop_depth += 1
+        tc_validate_task_body(array_get(ast_stmt_bodies, stmt_id))
+        tc_loop_depth -= 1
+        tc_local_count = saved_count
+        tc_local_scope_start = saved_scope
         give back
     }
     if kind == STMT_REPEAT {
@@ -2341,6 +2472,7 @@ task tc_run_program() -> void {
                 tc_diag("duplicate top-level binding '" + global_name + "'", word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
             } else {
                 tc_set_global(global_name, binding_type)
+                array_set(tc_global_mut, tc_global_count - 1, array_get(ast_pilot_is_mut, sid))
             }
         }
         i += 1
