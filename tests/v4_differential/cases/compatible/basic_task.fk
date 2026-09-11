@@ -1,0 +1,7 @@
+task double(value: int) -> int {
+    give back value * 2
+}
+
+task main() -> int {
+    give back double(21)
+}
