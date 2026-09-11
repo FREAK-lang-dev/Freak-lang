@@ -335,7 +335,20 @@ EMITTER_CASES: dict[str, tuple[str, list[str]]] = {
         'task main() {\n    say greet()\n    pilot g = greet()\n    say g\n}\n',
         ["hi", "hi"],
     ),
+    "loop_concat_accumulator": (
+        'task acc(text: word) -> word {\n    pilot out = ""\n    pilot i = 0\n    repeat until i >= text.length() {\n        out = out + "z"\n        i += 1\n    }\n    give back out\n}\n'
+        'task main() {\n    say acc("abcdef")\n}\n',
+        ["zzzzzz"],
+    ),
+    "giveback_comparison": (
+        'task same(a: word, b: word) -> bool {\n    give back a == b\n}\n'
+        'task main() {\n    if same("x", "x") { say "true" } else { say "false" }\n'
+        '    if same("x", "y") { say "true" } else { say "false" }\n}\n',
+        ["true", "false"],
+    ),
 }
+
+EMITTER_CASES_NO_RELEASE = frozenset({"giveback_comparison"})
 
 
 def run(
@@ -542,7 +555,10 @@ def execute_emitter_case(repo: Path, root: Path, name: str) -> dict:
     c_source, diags, _, has_errors = transpile_checked(source, path)
     assert not has_errors, (name, diags)
     assert c_source, (name, "no C emitted")
-    assert "freak_word_release_owned" in c_source, (name, c_source)
+    # Ownership-free cases (e.g. bool give-back temps) legitimately emit no
+    # releases; every other emitter case must exercise the release paths.
+    if name not in EMITTER_CASES_NO_RELEASE:
+        assert "freak_word_release_owned" in c_source, (name, c_source)
     generated = root / f"emitter_{name}.c"
     generated.write_text(c_source, encoding="utf-8")
     runtime = repo / "freakc" / "runtime"

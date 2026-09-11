@@ -199,6 +199,7 @@ class CEmitter:
         self._temp_counter: int = 0
         self._closure_captures: Set[str] = set()  # names accessed as __env->name
         self._owned_word_locals: List[str] = []  # sanitized freak_word locals holding owned storage
+        self._current_task_ret_c: str = ""  # declared C return type of the task being emitted
         self._includes: Set[str] = set()  # extra #include from use imports
         self._uses_ui: bool = False  # tracks if use std::ui is present
         self._in_main: bool = False  # True when emitting inside freak_main
@@ -218,6 +219,7 @@ class CEmitter:
         self._lambda_defs = []
         self._temp_counter = 0
         self._owned_word_locals = []
+        self._current_task_ret_c = ""
         self._includes = set()
         self._uses_ui = False
 
@@ -469,6 +471,12 @@ class CEmitter:
         sig = self._task_forward_decl(td)
         self._func_defs.append(f"{sig} {{")
 
+        # Remember the declared C return type so give-back can name a
+        # correctly typed temp for the return value (expression inference
+        # is best-effort and wrong for some call shapes).
+        saved_ret = self._current_task_ret_c
+        self._current_task_ret_c = self._resolve_task_return_type(td)
+
         # Register function parameters in vars so interpolation & type inference works
         saved_vars = dict(self.vars)
         for p in td.params:
@@ -487,6 +495,7 @@ class CEmitter:
 
         # Restore vars (exit function scope)
         self.vars = saved_vars
+        self._current_task_ret_c = saved_ret
         self._func_defs.append("}")
         self._func_defs.append("")
 
@@ -646,13 +655,19 @@ class CEmitter:
                 )
 
     def _emit_scoped_body(self, stmts, target: List[str]) -> None:
-        """Emit a statement list, releasing owned locals declared inside it."""
-        depth = len(self._owned_word_locals)
+        """Emit a statement list, releasing owned locals declared inside it.
+
+        Only names DECLARED in this body (absent from vars on entry) are
+        released here. Reassigning an outer local inside the body must not
+        free it at block end: the value escapes the block.
+        """
+        outer_vars = set(self.vars)
         for s in stmts:
             self._emit_statement(s, target)
-        for name in self._owned_word_locals[depth:]:
-            target.append(f"{self._ind()}freak_word_release_owned(&{name});")
-        del self._owned_word_locals[depth:]
+        for name in list(self._owned_word_locals):
+            if name not in outer_vars:
+                target.append(f"{self._ind()}freak_word_release_owned(&{name});")
+                self._owned_word_locals.remove(name)
 
     def _emit_say_owned(self, c_expr: str, target: List[str]) -> None:
         """Say an owned word, then release the temporary."""
@@ -733,13 +748,19 @@ class CEmitter:
         else:
             # Evaluate the return expression BEFORE releasing locals: cleanup
             # nulls owned slots, so reading them afterwards (e.g. through a
-            # concatenation) would observe the released value.
+            # concatenation) would observe the released value. The temp is
+            # typed from the task's declared return (not expression
+            # inference, which is best-effort); without a declared
+            # non-void return, keep the direct form.
             c = self._expr_to_c(stmt.value)
-            ret_c = self._infer_c_type_of_expr(stmt.value)
-            tmp = self._next_temp("__freak_return_value")
-            target.append(f"{self._ind()}{ret_c} {tmp} = {c};")
-            self._emit_owned_word_cleanup(target)
-            target.append(f"{self._ind()}return {tmp};")
+            if self._current_task_ret_c not in ("", "void"):
+                tmp = self._next_temp("__freak_return_value")
+                target.append(f"{self._ind()}{self._current_task_ret_c} {tmp} = {c};")
+                self._emit_owned_word_cleanup(target)
+                target.append(f"{self._ind()}return {tmp};")
+            else:
+                self._emit_owned_word_cleanup(target)
+                target.append(f"{self._ind()}return {c};")
 
     def _emit_if(self, stmt: IfExpr, target: List[str]) -> None:
         cond = self._expr_to_c(stmt.condition)
@@ -867,17 +888,28 @@ class CEmitter:
             name = _sanitize_name(stmt.target.name)
             info = self.vars.get(stmt.target.name)
             if info is not None and info.c_type == "freak_word":
-                if name in self._owned_word_locals:
-                    # Reassignment drops the previous owned buffer first.
+                if isinstance(stmt.value, Ident) and _sanitize_name(stmt.value.name) == name:
+                    # Self-assignment keeps its buffer; nothing to do.
+                    target.append(f"{self._ind()}{lhs} {stmt.op} {rhs};")
+                    return
+                rhs_c = rhs
+                if ((name in self._owned_word_locals) or self._is_owned_word_temporary(stmt.value)) and not isinstance(stmt.value, Ident):
+                    # Reassignment drops the previous buffer, but the RHS is
+                    # evaluated into a temp FIRST: it may read this very local
+                    # (e.g. src = src + suffix in a loop, where emit-time
+                    # tracking cannot see prior iterations) and cleanup nulls
+                    # the slot the right-hand side still needs to copy.
+                    # Releasing an untracked literal/borrowed slot is a safe
+                    # no-op (release is heap-guarded).
+                    rhs_tmp = self._next_temp("__freak_reassign")
+                    target.append(
+                        f"{self._ind()}{info.c_type} {rhs_tmp} = {rhs_c};"
+                    )
                     target.append(
                         f"{self._ind()}freak_word_release_owned(&{name});"
                     )
-                rhs_c = rhs
+                    rhs_c = rhs_tmp
                 if isinstance(stmt.value, Ident):
-                    if _sanitize_name(stmt.value.name) == name:
-                        # Self-assignment keeps its buffer; nothing to do.
-                        target.append(f"{self._ind()}{lhs} {stmt.op} {rhs_c};")
-                        return
                     source_info = self.vars.get(stmt.value.name)
                     if source_info is not None and source_info.c_type == "freak_word":
                         # Word-to-word copies alias; clone to keep one owner.
@@ -1672,6 +1704,8 @@ class CEmitter:
         # returns inside cannot release the enclosing scope's storage.
         saved_owned = list(self._owned_word_locals)
         self._owned_word_locals = []
+        saved_ret = self._current_task_ret_c
+        self._current_task_ret_c = ""
 
         if isinstance(expr.body, Block):
             self._emit_scoped_body(expr.body.statements, self._lambda_defs)
@@ -1683,6 +1717,7 @@ class CEmitter:
         self.vars = saved_vars
         self._closure_captures = saved_captures
         self._owned_word_locals = saved_owned
+        self._current_task_ret_c = saved_ret
 
         self._lambda_defs.append("}")
         self._lambda_defs.append("")
