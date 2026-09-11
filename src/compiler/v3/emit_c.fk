@@ -538,6 +538,8 @@ task c_map_call(val: word) -> word {
     if val == "math::floor" { give back "freak_math_floor" }
     if val == "math::ceil" { give back "freak_math_ceil" }
     if val == "parse_num" { give back "freak_parse_num" }
+    if val == "parse_status" { give back "freak_parse_status" }
+    if val == "parse_clear_status" { give back "freak_parse_clear_status" }
     if val == "format_num" { give back "freak_format_num" }
     if val == "ui::create_window" { give back "freak_ui_create_window_word" }
     if val == "ui::destroy_window" { give back "freak_ui_destroy_window" }
@@ -905,6 +907,28 @@ task emit_c_method(expr_id: word, val: word, left: word, right: word) -> void {
         if receiver_type == "d" { emit("freak_format_num(") }
         else if receiver_type == "b" { emit("freak_word_from_bool(") }
         else { emit("freak_word_from_int(") }
+        emit_expr(left)
+        emit(")")
+        give back
+    }
+    -- Checked word parsing. Legacy to_int/to_num above stay lenient; these
+    -- strict entry points report through the sticky parse status channel.
+    if val == "parse_int" {
+        if emt_args_have_owned_word_temporary(method_args) {
+            emit_c_borrowing_call(expr_id, "freak_word_parse_int", method_args)
+            give back
+        }
+        emit("freak_word_parse_int(")
+        emit_expr(left)
+        emit(")")
+        give back
+    }
+    if val == "parse_num" {
+        if emt_args_have_owned_word_temporary(method_args) {
+            emit_c_borrowing_call(expr_id, "freak_word_parse_num", method_args)
+            give back
+        }
+        emit("freak_word_parse_num(")
         emit_expr(left)
         emit(")")
         give back

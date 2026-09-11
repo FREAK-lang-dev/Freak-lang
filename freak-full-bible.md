@@ -1811,6 +1811,21 @@ interpretation. This does not relax ByteBuffer's NUL-free text conversion or
 the builder's `append_char(0)` restriction. `tests/v3_word_length_parity.py`
 records the supported producer/consumer and ownership coverage.
 
+**V3 checked parsing implementation:** `"42".parse_int()` and
+`"3.14".parse_num()` are strict full-input conversions that report through
+the sticky `parse_status()` / `parse_clear_status()` channel instead of the
+broader `maybe`/`result` API direction above, which remains a V4 contract.
+`parse_status()` returns `0` on success, `1` for invalid input (empty text,
+sign-only text, invalid digits, junk suffixes including whitespace,
+malformed exponents), and `2` for out-of-range magnitudes (int
+overflow/underflow, num overflow/underflow to infinity or zero). Failures
+keep the first code until `parse_clear_status()` runs, mirroring the
+ByteBuffer `status()` / `clear_status()` convention; successful parses leave
+the channel unchanged. The legacy `"...".to_int()`, `"...".to_num()`, and
+`parse_num()` entry points stay lenient and never touch the channel.
+`tests/v3_checked_parsing.py` guards malformed, boundary min-max,
+junk-suffix, and overflow cases with C/LLVM parity and no-leak runs.
+
 ### 7.3 std::num
 
 ```

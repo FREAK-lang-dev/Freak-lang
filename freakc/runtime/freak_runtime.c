@@ -1584,6 +1584,119 @@ int64_t freak_word_to_int(freak_word w) {
     return strtoll(w.data, NULL, 10);
 }
 
+static int64_t freak_parse_status_value = FREAK_PARSE_STATUS_OK;
+
+static void freak_parse_fail(int64_t code) {
+    /* Sticky like ByteBuffer status: the first failure wins until cleared. */
+    if (freak_parse_status_value == FREAK_PARSE_STATUS_OK) {
+        freak_parse_status_value = code;
+    }
+}
+
+int64_t freak_parse_status(void) {
+    return freak_parse_status_value;
+}
+
+void freak_parse_clear_status(void) {
+    freak_parse_status_value = FREAK_PARSE_STATUS_OK;
+}
+
+int64_t freak_word_parse_int(freak_word w) {
+    const char* text = w.data ? w.data : "";
+    size_t length = w.data ? w.length : 0;
+    size_t i = 0;
+    bool negative = false;
+    if (i < length && (text[i] == '+' || text[i] == '-')) {
+        negative = (text[i] == '-');
+        i += 1;
+    }
+    if (i >= length) {
+        /* Empty input or sign-only text. */
+        freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+        return 0;
+    }
+    uint64_t acc = 0;
+    uint64_t limit = negative ? ((uint64_t)INT64_MAX + 1u) : (uint64_t)INT64_MAX;
+    size_t digits = 0;
+    for (; i < length; i += 1) {
+        char c = text[i];
+        if (c < '0' || c > '9') {
+            freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+            return 0;
+        }
+        unsigned digit = (unsigned)(c - '0');
+        if (acc > (limit - digit) / 10u) {
+            freak_parse_fail(FREAK_PARSE_STATUS_OUT_OF_RANGE);
+            return 0;
+        }
+        acc = acc * 10u + digit;
+        digits += 1;
+    }
+    if (digits == 0) {
+        freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+        return 0;
+    }
+    if (negative) {
+        if (acc == (uint64_t)INT64_MAX + 1u) return INT64_MIN;
+        return -(int64_t)acc;
+    }
+    return (int64_t)acc;
+}
+
+double freak_word_parse_num(freak_word w) {
+    const char* text = w.data ? w.data : "";
+    size_t length = w.data ? w.length : 0;
+    size_t i = 0;
+    if (i < length && (text[i] == '+' || text[i] == '-')) i += 1;
+    size_t int_digits = 0;
+    while (i < length && text[i] >= '0' && text[i] <= '9') { i += 1; int_digits += 1; }
+    size_t frac_digits = 0;
+    if (i < length && text[i] == '.') {
+        i += 1;
+        while (i < length && text[i] >= '0' && text[i] <= '9') { i += 1; frac_digits += 1; }
+    }
+    if (int_digits == 0 && frac_digits == 0) {
+        freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+        return 0.0;
+    }
+    if (i < length && (text[i] == 'e' || text[i] == 'E')) {
+        size_t j = i + 1;
+        if (j < length && (text[j] == '+' || text[j] == '-')) j += 1;
+        size_t exp_digits = 0;
+        while (j < length && text[j] >= '0' && text[j] <= '9') { j += 1; exp_digits += 1; }
+        if (exp_digits == 0) {
+            freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+            return 0.0;
+        }
+        i = j;
+    }
+    if (i != length) {
+        freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+        return 0.0;
+    }
+    /* The strict scan above already rejected whitespace, junk suffixes, and
+       embedded NULs, so a bounded copy converts exactly what was checked. */
+    char* buf = (char*)malloc(length + 1);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    if (length > 0) memcpy(buf, text, length);
+    buf[length] = '\0';
+    errno = 0;
+    char* end = NULL;
+    double value = strtod(buf, &end);
+    bool converted = (end != buf && *end == '\0');
+    int convert_errno = errno;
+    free(buf);
+    if (!converted) {
+        freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+        return 0.0;
+    }
+    if (convert_errno == ERANGE) {
+        freak_parse_fail(FREAK_PARSE_STATUS_OUT_OF_RANGE);
+        return 0.0;
+    }
+    return value;
+}
+
 int64_t freak_word_compare(freak_word a, freak_word b) {
     int r = strcmp(a.data, b.data);
     if (r < 0) return -1;

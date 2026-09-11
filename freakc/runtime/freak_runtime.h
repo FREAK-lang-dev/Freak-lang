@@ -464,6 +464,25 @@ double  freak_word_to_num(freak_word w);
 double  freak_parse_num(freak_word w);
 freak_word freak_format_num(double n);
 
+/* Checked word parsing. Strict full-input conversions with a sticky status
+   channel mirroring the ByteBuffer status/clear_status contract: a failure
+   keeps the first code until parse_clear_status runs; success leaves the
+   channel unchanged. Legacy to_int/to_num/parse_num stay lenient. Empty
+   input, sign-only text, invalid digits, junk suffixes (including
+   whitespace), malformed exponents, and out-of-range magnitudes fail.
+   parse_int accepts optional sign plus decimal digits; parse_num accepts
+   optional sign, digits with an optional fraction, and an optional decimal
+   exponent. Both report FREAK_PARSE_STATUS_OK (0) on success. */
+#define FREAK_PARSE_STATUS_OK 0
+#define FREAK_PARSE_STATUS_INVALID 1
+#define FREAK_PARSE_STATUS_OUT_OF_RANGE 2
+int64_t freak_parse_status(void);
+void freak_parse_clear_status(void);
+int64_t freak_word_parse_int(freak_word w);
+double freak_word_parse_num(freak_word w);
+int64_t freak_llvm_word_parse_int(int64_t source);
+int64_t freak_llvm_word_parse_num(int64_t source);
+
 /* ------------------------------------------------------------------ */
 /*  std::process                                                      */
 /* ------------------------------------------------------------------ */

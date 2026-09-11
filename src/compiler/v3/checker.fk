@@ -872,6 +872,8 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "ui::get_width" or name == "ui::get_height" { give back "int" }
     if name == "math::sqrt" or name == "math::pow" or name == "math::sin" or name == "math::cos" { give back "num" }
     if name == "math::tan" or name == "math::floor" or name == "math::ceil" or name == "parse_num" { give back "num" }
+    if name == "parse_status" { give back "int" }
+    if name == "parse_clear_status" { give back "void" }
     if name == "say" or name == "panic" or name == "fs::write" or name == "fs::append" or name == "fs::make_dir" { give back "void" }
     if name == "array_push" or name == "array_set" or name == "array_release" or name == "process::exit" or name == "process::set_env" { give back "void" }
     if name == "word_builder::reserve" or name == "word_builder::clear" or name == "word_builder::append" { give back "void" }
@@ -899,6 +901,7 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "word_join" { give back "int" }
     if name == "format_num" { give back "num" }
     if name == "parse_num" { give back "word" }
+    if name == "parse_status" or name == "parse_clear_status" { give back "" }
     if name == "array_new" { give back "" }
     if name == "array_push" { give back "word-array,word" }
     if name == "array_get" { give back "word-array,int" }
@@ -979,6 +982,7 @@ task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
         if name == "char_at" or name == "substring" or name == "contains" { give back true }
         if name == "starts_with" or name == "ends_with" { give back true }
         if name == "to_int" or name == "to_num" { give back true }
+        if name == "parse_int" or name == "parse_num" { give back true }
         if name == "snapshot_escape" or name == "snapshot_unescape" { give back true }
         if name == "snapshot_line_count" or name == "snapshot_line" { give back true }
         if name == "snapshot_lines" { give back true }
@@ -1006,9 +1010,9 @@ task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
         give back "void"
     }
     if name == "snapshot_lines" { give back "int" }
-    if name == "to_int" or name == "length" or name == "checksum" or name == "snapshot_line_count" or name == "snapshot_field_count" { give back "int" }
+    if name == "to_int" or name == "parse_int" or name == "length" or name == "checksum" or name == "snapshot_line_count" or name == "snapshot_field_count" { give back "int" }
     if name == "contains" or name == "starts_with" or name == "ends_with" { give back "bool" }
-    if name == "to_num" { give back "num" }
+    if name == "to_num" or name == "parse_num" { give back "num" }
     give back "word"
 }
 
