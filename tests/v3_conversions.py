@@ -64,10 +64,66 @@ POSITIVE = {
     say format_num(2.5)
 }
 ''', ["42", "false", "2.5"]),
+    "word_plus_assign": ('''task main() {
+    pilot mut s = "ha"
+    s += "ha"
+    s += "!"
+    say s
+    say s.length()
+}
+''', ["haha!", "5"]),
+    "word_plus_self": ('''task main() {
+    pilot mut s = "ab"
+    s += s
+    say s
+}
+''', ["abab"]),
+    "word_plus_temp": ('''task main() {
+    pilot mut s = "n="
+    pilot n = 42
+    s += n.to_word()
+    say s
+}
+''', ["n=42"]),
+    "word_plus_loop": ('''task main() {
+    pilot mut s = ""
+    pilot mut i = 0
+    repeat 5 times {
+        s += i.to_word()
+        i += 1
+    }
+    say s
+}
+''', ["01234"]),
+    "word_plus_global": ('''pilot mut g = "g"
+task main() {
+    g += "x"
+    say g
+}
+''', ["gx"]),
+    "word_plus_field": ('''shape Box {
+    label: word
+}
+task main() {
+    pilot mut b = Box { label: "a" }
+    b.label += "b"
+    say b.label
+}
+''', ["ab"]),
+    "word_plus_list_elem": ('''task main() {
+    pilot mut ws: List<word> = List::new()
+    ws.push("a")
+    ws[0] += "b"
+    say ws[0]
+}
+''', ["ab"]),
 }
 
 NEGATIVE = {
     "int_to_int_rejected": ('task main() {\n    pilot i = 7\n    say i.to_int()\n}\n', "has no method"),
+    "word_minus_rejected": ('task main() {\n    pilot mut s = "a"\n    s -= "b"\n}\n', "does not accept word and word"),
+    "int_plus_word_rejected": ('task main() {\n    pilot mut i = 1\n    i += "x"\n}\n', "does not accept"),
+    "word_plus_int_rejected": ('task main() {\n    pilot mut s = "a"\n    s += 1\n}\n', "does not accept"),
 }
 
 

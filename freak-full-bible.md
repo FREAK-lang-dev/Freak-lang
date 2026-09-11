@@ -1844,11 +1844,19 @@ int::checked_add(a, b)   -- maybe<int>, overflow-safe
 **V3 conversion implementation:** `int.to_word()`, `num.to_word()`, and
 `bool.to_word()` are implemented with C/LLVM parity, as are the `int <->
 num` cross conversions. The legacy `word_from_int()`,
-`word_from_bool()`, and `format_num()` aliases remain and agree with the
+`word_from_int()`, `word_from_bool()`, and `format_num()` aliases remain and agree with the
 methods. The rest of this section (`abs`, `sign`, `clamp`, `pow`, `sqrt`,
 `floor`, `ceil`, `round`, `to_word_fmt`, the `is_` predicates, and the
 overflow-safe variants) remains planned. `tests/v3_conversions.py` pins
 the implemented surface.
+
+**V3 word `+=` implementation:** `text += other` appends through the
+checked ownership contract with C/LLVM parity: mutable locals grow in
+place, globals go through concat plus replace, and shape fields and list
+elements reuse the existing compound-projection paths. Self-append
+(`s += s`) and owned temporaries (`s += n.to_word()`) are sound; other
+compound operators on words remain rejected. `tests/v3_conversions.py`
+pins the value, ownership-audit, and rejection coverage.
 
 ### 7.4 std::collections
 

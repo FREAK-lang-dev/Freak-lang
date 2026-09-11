@@ -2388,6 +2388,27 @@ task llvm_emit_stmt_assign(eid: word) -> void {
     }
     pilot reg = llvm_emit_expr(rhs_w)
     pilot stored_reg = reg
+    if target_type.starts_with("w") and name_w == "+=" {
+        -- Word `+=` on a plain variable. `reg` already holds the single RHS
+        -- evaluation: locals grow in place, globals go through concat plus
+        -- replace, mirroring the C backend and the `=` append fast path.
+        pilot word_prev = next_reg()
+        llvm_emit_line("    " + word_prev + " = load i64, i64* " + var_ptr)
+        if llvm_is_global(var_name_expr) {
+            pilot word_concat = next_reg()
+            llvm_emit_line("    " + word_concat + " = call i64 @freak_llvm_word_concat(i64 " + word_prev + ", i64 " + reg + ")")
+            llvm_v3_cleanup_temp(rhs_w, reg)
+            llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + word_prev + ", i64 " + word_concat + ")")
+            llvm_emit_line("    store i64 " + word_concat + ", i64* " + var_ptr)
+            give back
+        }
+        pilot word_release_suffix = "0"
+        if llvm_word_expr_is_owned_temporary(rhs_w) { word_release_suffix = "1" }
+        pilot word_appended = next_reg()
+        llvm_emit_line("    " + word_appended + " = call i64 @freak_llvm_word_append_owned(i64 " + word_prev + ", i64 " + reg + ", i64 " + word_release_suffix + ")")
+        llvm_emit_line("    store i64 " + word_appended + ", i64* " + var_ptr)
+        give back
+    }
     if name_w == "=" {
         if llvm_v3_owned_type(target_type) {
             if not llvm_v3_temporary(rhs_w) { stored_reg = llvm_v3_retain(reg, target_type) }
