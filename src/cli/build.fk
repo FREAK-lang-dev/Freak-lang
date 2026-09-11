@@ -727,6 +727,56 @@ task cli_quote_cmd_path(path: word) -> word {
     give back "'" + posix_escaped + "'"
 }
 
+task cli_resolve_target_alias(value: word) -> word {
+    if value == "linux-x64" { give back "x86_64-unknown-linux-gnu" }
+    if value == "linux-arm64" { give back "aarch64-unknown-linux-gnu" }
+    if value == "windows-x64" { give back "x86_64-w64-windows-gnu" }
+    if value == "macos-arm64" { give back "aarch64-apple-darwin" }
+    give back value
+}
+
+task cli_target_alias_of(triple: word) -> word {
+    if triple == "x86_64-unknown-linux-gnu" { give back "linux-x64" }
+    if triple == "aarch64-unknown-linux-gnu" { give back "linux-arm64" }
+    if triple == "x86_64-w64-windows-gnu" { give back "windows-x64" }
+    if triple == "aarch64-apple-darwin" { give back "macos-arm64" }
+    give back ""
+}
+
+task cli_target_normalize_arch(triple: word) -> word {
+    -- Apple toolchains report arm64 while the canonical triple uses aarch64.
+    give back triple.replace("arm64", "aarch64")
+}
+
+task cli_canonical_target_triple(triple: word) -> word {
+    give back cli_target_normalize_arch(triple)
+}
+
+task cli_canonical_target_is_supported(triple: word) -> bool {
+    pilot canonical = cli_canonical_target_triple(triple)
+    if canonical == "x86_64-unknown-linux-gnu" { give back true }
+    if canonical == "aarch64-unknown-linux-gnu" { give back true }
+    if canonical == "x86_64-w64-windows-gnu" { give back true }
+    if canonical == "aarch64-apple-darwin" { give back true }
+    give back false
+}
+
+task cli_host_native_triple() -> word {
+    pilot clang_cmd = cli_find_clang_command()
+    if clang_cmd == "" { give back "" }
+    give back cli_clang_target_triple(clang_cmd, "")
+}
+
+task cli_host_can_execute_target(cross: word) -> bool {
+    -- freak run only launches binaries the host toolchain can execute.
+    -- freak build stays the cross-compile path and accepts any safe triple.
+    if cross == "" { give back true }
+    pilot resolved = cli_canonical_target_triple(cli_resolve_target_alias(cross))
+    pilot native = cli_host_native_triple()
+    if native == "" { give back false }
+    give back cli_canonical_target_triple(native) == resolved
+}
+
 task cli_cross_target_is_safe(target: word) -> bool {
     if target == "" { give back true }
     pilot allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
