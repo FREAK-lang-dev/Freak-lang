@@ -1385,16 +1385,18 @@ task emit_stmt(eid: word) -> void {
             if emt_get_var_type(lhs_name) == "w" {
                 pilot rhs_owned = emt_word_expr_is_owned_temporary(rhs_w)
                 if emt_active_binding_is_global(lhs_name) {
-                    emit("{ freak_word __freak_add_rhs = ")
+                    emit("{ freak_word __freak_add_old = freak_word_clone(")
+                    emit_expr(expr_id_w)
+                    emit_line(");")
+                    emit("freak_word __freak_add_rhs = ")
                     emit_expr(rhs_w)
                     emit_line(";")
-                    emit("freak_word __freak_add_new = freak_word_concat(")
-                    emit_expr(expr_id_w)
-                    emit_line(", __freak_add_rhs);")
+                    emit_line("freak_word __freak_add_new = freak_word_concat(__freak_add_old, __freak_add_rhs);")
                     if rhs_owned { emit_line("freak_word_release_owned(&__freak_add_rhs);") }
                     emit("freak_word_replace_owned(&")
                     emit_expr(expr_id_w)
-                    emit_line(", __freak_add_new); }")
+                    emit_line(", __freak_add_new);")
+                    emit_line("freak_word_release_owned(&__freak_add_old); }")
                     give back
                 }
                 emit_expr(expr_id_w)

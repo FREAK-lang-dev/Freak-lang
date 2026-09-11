@@ -147,7 +147,7 @@ NEGATIVE_PROGRAM = """shape word_builder {}
 
 task main() {
     pilot mut value: word = "x"
-    value += "y"
+    value -= "y"
     say "x".repeated("three")
     word_builder::append(1, 2)
 }
@@ -789,7 +789,7 @@ def main() -> int:
         negative_output = checked.stdout + checked.stderr
         assert checked.returncode != 0, negative_output
         assert "conflicts with a compiler builtin namespace" in negative_output
-        assert "assignment operator '+=' does not accept word and word" in negative_output
+        assert "assignment operator '-=' does not accept word and word" in negative_output
         assert "method 'repeated' argument 1 expects int, got word" in negative_output
         assert "call to 'word_builder::append' argument 2 expects word, got int" in negative_output
         assert not Path(str(negative) + ".c").exists()

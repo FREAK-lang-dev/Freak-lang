@@ -224,6 +224,11 @@ Your mission has begun.
 
 ```rust
 task dot(a: List<num>, b: List<num>) -> num {
+    if a.length() != b.length() {
+        say "dot needs equal-length lists"
+        give back 0.0
+    }
+
     pilot mut total: num = 0.0
     pilot mut i: int = 0
 

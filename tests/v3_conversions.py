@@ -101,6 +101,16 @@ task main() {
     say g
 }
 ''', ["gx"]),
+    "word_plus_mutating_rhs": ('''pilot mut g = "a"
+task set_g(x: word) -> word {
+    g = x
+    give back "-suffix"
+}
+task main() {
+    g += set_g("b")
+    say g
+}
+''', ["a-suffix"]),
     "word_plus_field": ('''shape Box {
     label: word
 }
