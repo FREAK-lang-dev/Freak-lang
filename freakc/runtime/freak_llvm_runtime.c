@@ -681,6 +681,15 @@ int64_t freak_llvm_math_ceil(int64_t x)  { return double_to_i64(ceil(i64_to_doub
 int64_t freak_llvm_parse_num(int64_t w) {
     return double_to_i64(strtod((const char*)w, NULL));
 }
+/* Checked word parsing shares the strict C core (sticky parse status lives
+   in freak_runtime.c, which always links beside this file). Views carry the
+   registry length, so embedded NULs fail as invalid digits, not truncation. */
+int64_t freak_llvm_word_parse_int(int64_t w) {
+    return freak_word_parse_int(freak_llvm_word_view(w));
+}
+int64_t freak_llvm_word_parse_num(int64_t w) {
+    return double_to_i64(freak_word_parse_num(freak_llvm_word_view(w)));
+}
 /**
  * Formats a packed double value as a decimal string.
  * @param n IEEE-754 double bits carried in the universal integer ABI.

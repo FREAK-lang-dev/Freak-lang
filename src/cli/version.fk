@@ -269,7 +269,7 @@ task cli_show_help() -> void {
     say cli_box_mid("  " + C_G3 + "check" + C_RESET + "     <file.fk>         " + C_DIM + "Type-check only" + C_RESET, 45)
     say cli_box_mid("  " + C_G4 + "transpile" + C_RESET + " <file.fk> [opts]  " + C_DIM + "Emit .c or .ll" + C_RESET, 45)
     say cli_box_mid("  " + C_G5 + "hangar" + C_RESET + "    <cmd>              " + C_DIM + "Package manager" + C_RESET, 45)
-    say cli_box_mid("  " + C_G6 + "doctor" + C_RESET + "    [--fix|--json]       " + C_DIM + "Check setup, report" + C_RESET, 45)
+    say cli_box_mid("  " + C_G6 + "doctor" + C_RESET + "    [--fix|--json|--target=T]" + C_DIM + " Check setup" + C_RESET, 45)
     say cli_box_mid("  " + C_G1 + "test" + C_RESET + "                          " + C_DIM + "Run regression suite" + C_RESET, 45)
     say cli_box_mid("  " + C_G2 + "audit-*" + C_RESET + "                       " + C_DIM + "audit-conformance/science/trust/miracles" + C_RESET, 45)
     say cli_box_mid("  " + C_G1 + "upgrade" + C_RESET + "                      " + C_DIM + "Download latest FREAK" + C_RESET, 45)
@@ -286,14 +286,17 @@ task cli_show_help() -> void {
     say cli_box_mid("  " + C_BYELLOW + "--opt=0..3" + C_RESET + "        " + C_DIM + "Clang optimization (default: 2)" + C_RESET, 45)
     say cli_box_mid("  " + C_BYELLOW + "+03" + C_RESET + "               " + C_DIM + "+03 — FINAL FORM" + C_RESET, 45)
     say cli_box_mid("  " + C_BYELLOW + "--lto[=MODE]" + C_RESET + "      " + C_DIM + "thin, full, or off" + C_RESET, 45)
-    say cli_box_mid("  " + C_BYELLOW + "--target=TRIPLE" + C_RESET + "   " + C_DIM + "Cross-compile target" + C_RESET, 45)
+    say cli_box_mid("  " + C_BYELLOW + "--target=ALIAS|TRIPLE" + C_RESET + " " + C_DIM + "linux-x64, linux-arm64," + C_RESET, 45)
+    say cli_box_mid("  " + C_DIM + "windows-x64, macos-arm64; raw triples pass through" + C_RESET, 45)
     say cli_box_bot(45)
     say ""
 
     say "  " + C_DIM + "EXAMPLES" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " hello.fk"
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak run" + C_RESET + " hello.fk " + C_BYELLOW + "--c --opt=3" + C_RESET
-    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--target=x86_64-linux-gnu" + C_RESET
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--target=x86_64-unknown-linux-gnu" + C_RESET
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--target=linux-x64" + C_RESET
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak doctor" + C_RESET + " --target=windows-x64"
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak hangar" + C_RESET + " init my-project"
     say ""
     say "  " + C_DIM + C_ITALIC + cli_random_quote(42) + C_RESET

@@ -727,6 +727,102 @@ task cli_quote_cmd_path(path: word) -> word {
     give back "'" + posix_escaped + "'"
 }
 
+task cli_resolve_target_alias(value: word) -> word {
+    if value == "linux-x64" { give back "x86_64-unknown-linux-gnu" }
+    if value == "linux-arm64" { give back "aarch64-unknown-linux-gnu" }
+    if value == "windows-x64" { give back "x86_64-w64-windows-gnu" }
+    if value == "macos-arm64" { give back "aarch64-apple-darwin" }
+    give back value
+}
+
+task cli_target_alias_of(triple: word) -> word {
+    if triple == "x86_64-unknown-linux-gnu" { give back "linux-x64" }
+    if triple == "aarch64-unknown-linux-gnu" { give back "linux-arm64" }
+    if triple == "x86_64-w64-windows-gnu" { give back "windows-x64" }
+    if triple == "aarch64-apple-darwin" { give back "macos-arm64" }
+    give back ""
+}
+
+task cli_target_arch_family(triple: word) -> word {
+    -- First dash-separated field, normalized across vendor spellings.
+    pilot field = ""
+    pilot i = 0
+    repeat until i >= triple.length() {
+        pilot c = triple.char_at(i)
+        if c == "-" { give back cli_arch_family_name(field) }
+        field = field + c
+        i += 1
+    }
+    give back cli_arch_family_name(field)
+}
+
+task cli_arch_family_name(arch: word) -> word {
+    if arch == "arm64" { give back "aarch64" }
+    if arch == "amd64" { give back "x86_64" }
+    give back arch
+}
+
+task cli_target_os_family(triple: word) -> word {
+    -- Android first: its triples also contain "linux".
+    if triple.contains("android") { give back "android" }
+    if triple.contains("linux") { give back "linux" }
+    if triple.contains("darwin") or triple.contains("macos") or triple.contains("macosx") { give back "darwin" }
+    if triple.contains("windows") or triple.contains("msvc") or triple.contains("mingw") or triple.contains("w64") { give back "windows" }
+    give back ""
+}
+
+task cli_target_normalize_arch(triple: word) -> word {
+    -- Apple toolchains report arm64 while the canonical triple uses aarch64.
+    give back triple.replace("arm64", "aarch64")
+}
+
+task cli_canonical_target_triple(triple: word) -> word {
+    give back cli_target_normalize_arch(triple)
+}
+
+task cli_canonical_target_is_supported(triple: word) -> bool {
+    pilot canonical = cli_canonical_target_triple(triple)
+    if canonical == "x86_64-unknown-linux-gnu" { give back true }
+    if canonical == "aarch64-unknown-linux-gnu" { give back true }
+    if canonical == "x86_64-w64-windows-gnu" { give back true }
+    if canonical == "aarch64-apple-darwin" { give back true }
+    give back false
+}
+
+task cli_host_native_triple() -> word {
+    pilot clang_cmd = cli_find_clang_command()
+    if clang_cmd == "" { give back "" }
+    give back cli_clang_target_triple(clang_cmd, "")
+}
+
+task cli_link_is_windows(cross: word) -> bool {
+    -- Link inputs (-lm vs -lws2_32 and the Win32 UI backend) must follow
+    -- the TARGET os, not the host: a native build links for the host while
+    -- a cross build links for the requested triple.
+    if cross != "" {
+        pilot wanted = cli_target_os_family(cli_canonical_target_triple(cli_resolve_target_alias(cross)))
+        if wanted != "" { give back wanted == "windows" }
+    }
+    give back cli_is_windows()
+}
+
+task cli_host_can_execute_target(cross: word) -> bool {
+    -- freak run only launches binaries the host toolchain can execute.
+    -- freak build stays the cross-compile path and accepts any safe triple.
+    -- Runnability is an arch/OS-family question: stock toolchains report
+    -- vendor- and version-specific triples (x86_64-pc-linux-gnu,
+    -- arm64-apple-macosx14.0.0, x86_64-pc-windows-msvc) that never equal the
+    -- canonical alias triples byte-for-byte.
+    if cross == "" { give back true }
+    pilot resolved = cli_canonical_target_triple(cli_resolve_target_alias(cross))
+    pilot native = cli_host_native_triple()
+    if native == "" { give back false }
+    if cli_target_arch_family(resolved) != cli_target_arch_family(native) { give back false }
+    pilot wanted_os = cli_target_os_family(resolved)
+    if wanted_os == "" { give back false }
+    give back wanted_os == cli_target_os_family(native)
+}
+
 task cli_cross_target_is_safe(target: word) -> bool {
     if target == "" { give back true }
     pilot allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
@@ -944,7 +1040,7 @@ task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> wor
 
 task cli_runtime_link_plan(runtime_dir: word, lto: word, cross: word) -> word {
     pilot runtime_obj_ext = cli_precompiled_runtime_extension(runtime_dir)
-    if cli_is_windows() and cross == "" and lto == "off" and runtime_obj_ext != "" {
+    if cli_link_is_windows(cross) and cross == "" and lto == "off" and runtime_obj_ext != "" {
         give back "bundle"
     }
     give back "source"
@@ -989,7 +1085,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     -- Determine output binary name
     pilot out_bin = cli_binary_path(src_file)
 
-    pilot is_win = cli_is_windows()
+    pilot is_win = cli_link_is_windows(cross)
     pilot runtime_obj_ext = cli_precompiled_runtime_extension(runtime_dir)
     -- Packaged COFF objects are native to the Windows distribution. Use them
     -- only for a native Windows build and keep final CRT/SDK selection under

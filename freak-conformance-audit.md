@@ -237,7 +237,7 @@ parity. This does not claim native C UI support or general collection fields.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `[1, 2, 3]` becomes `List<int>` | ✅ | ✅ | V3 LLVM/C checked indexing, mutable indexed assignment, length, iteration and `List::filled`; int/num/bool/word/concrete owned shape elements. `tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, `tests/v3_array_review_regressions.py`, `tests/v3_array_runtime.py` and `tests/v3_array_benchmarks.py` guard native behavior and million-element scaling. Empty literals remain List<word>; nested lists, List-valued shape fields, temporary-root indexed writes and container covariance are diagnosed. |
+| `[1, 2, 3]` becomes `List<int>` | ✅ | ✅ | V3 LLVM/C checked indexing, mutable indexed assignment, length, capacity, reserve, clear, push, pop, iteration and `List::filled`/`List::new`/`List::with_capacity`; int/num/bool/word/concrete owned shape elements with context-typed empty (`pilot mut xs: List<num> = []`) and owned word/shape pop/clear cleanup. `tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, `tests/v3_list_methods.py`, `tests/v3_array_review_regressions.py`, `tests/v3_array_runtime.py` and `tests/v3_array_benchmarks.py` guard native behavior and million-element scaling. Unannotated empty literals remain List<word>; nested lists, List-valued shape fields, temporary-root indexed writes and container covariance are diagnosed. |
 | `[1, 2, 3]: [int; 3]` fixed array | ⚠️ | 📖 V4 | V4 lowers typed fixed-array literals; stack layout and deeper const semantics still expand |
 | `[0; 100]` repeat-fill literal | ⚠️ | 📖 V4 | V4 lowers repeat-fill with literal and integer const arithmetic counts, including root-const inference/diagnostics; broader const-eval still expands |
 | Number suffixes: `42u`, `3.14f`, `42t`, `999b` | ⚠️ | 📖 V4 | V4 lex/type layers carry suffixes; broader const-evaluation surface still expands |
@@ -539,10 +539,11 @@ completion remain open.
 | String methods (`length`, `bytes`, `split`, etc.) | ✅ | ✅ | [std/string.fk](std/string.fk) |
 | V3 `word.repeated` and `word_builder::*` | ✅ | V3 campaign | Native C/LLVM exact construction, checked size, explicit builder consumption and deterministic ownership/work tests in `tests/v3_word_foundation.py`; Python owned-return emission rejected. This does not approve `word += word` or establish every common-operation optimization. |
 | V3 runtime-owned Word byte lengths | ✅ | V3 campaign | Existing LLVM ownership registry preserves explicit lengths, including dynamic NULs, through tested constructors/transforms/I/O and socket/environment validation. `tests/v3_word_length_parity.py` covers C/LLVM parity and ownership. Unknown foreign pointers remain C strings; ByteBuffer text and builder character restrictions are unchanged. Requires runtime API 3 and std API 1, not a layout ABI revision. |
+| V3 checked word parsing (`parse_int`/`parse_num` + `parse_status`) | ✅ | V3 campaign | Strict full-input word methods with a sticky status channel (`0` ok, `1` invalid, `2` out of range) mirroring ByteBuffer `status()`/`clear_status()`; first failure wins until `parse_clear_status()`. `tests/v3_checked_parsing.py` covers malformed, boundary min-max, junk-suffix, and overflow cases with C/LLVM parity, owned-receiver cleanup, checker negatives, and Python bootstrap `format_num` ownership fixtures. Legacy `to_int`/`to_num`/`parse_num` stay lenient and never touch the channel. |
 | `std::math` (abs, min, max, clamp, pow, sqrt, gcd, lcm, factorial, fibonacci, sin, cos, etc.) | ✅ | ✅ | |
 | `std::math3d` | ✅ | ✅ | [std/math3d.fk](std/math3d.fk) |
 | Numeric methods (`int::checked_add`, etc.) | ⚠️ | 📖 V4 | partial; many overflow-safe variants missing |
-| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | List works; Map basic; Set NOT IMPLEMENTED |
+| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | V3 List covers literals, `List::filled`/`List::new`/`List::with_capacity`, checked indexing, mutable indexed assignment, `length`/`capacity`/`reserve`/`clear`/`push`/`pop`, iteration, and owned word/shape cleanup (`tests/v3_list_methods.py` C/LLVM parity); Map basic; Set NOT IMPLEMENTED |
 | `Lineup<T>` FIFO queue | ❌ | 📖 V4 | not in stdlib |
 | `.filter` / `.collect` lazy iterators | ❌ | 📖 V4 | List has eager methods only |
 | `ask(prompt)` stdin | ✅ | ✅ | runtime |
@@ -702,6 +703,23 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | Mana | syntax errors | ❌ | 📖 V4 |
 | Hayase | death-flag tier 3-4 | ❌ | 📖 V4 |
 | 00-Unit | causality divergence | ❌ | 📖 V4 |
+
+V3 diagnostic-code foundation (additive, checker-unwired): stable codes
+E0001 unknown binding, E0002 type mismatch, E0003 use after move, E0004
+immutable reassignment, E0005 invalid call, E0006 index out of bounds,
+E0007 numeric parse failure, E0008 numeric overflow, E0009 allocation
+failure, E0010 unsupported target live in `src/diagnostics/codes.json`
+and are never renamed/renumbered/repurposed. Optional cast packs
+(FREAK/YUUKO/MEIYA/HANGAR/COCKPIT/MINISTRY/LLVM/LINKER/PLATFORM voices,
+exact-invalid-source easter eggs, resource lines) are data-only JSON under
+`src/diagnostics/`; `selector.py` adds deterministic SHA-256 selection
+(version + code + file + line + column + source + speaker, mod pack count)
+with `off` (canonical byte-identical) / `minimal` / `normal` modes.
+Proof: `python -u tests/v3_diagnostic_codes.py` (13 checks). No existing
+diagnostic message changed; checker/emitter/parser/globals/CLI parsing
+untouched. Verdict stays 📖 V4 for routing; the `--diagnostic-cast`
+flag wiring is deferred to the lead at integration (hook: default `off`,
+post-pass `render()` presentation step only).
 
 ---
 

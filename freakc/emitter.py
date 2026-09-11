@@ -183,6 +183,7 @@ class CEmitter:
     }
 
     def __init__(self) -> None:
+        """Initialize the emitter and its per-program generation state."""
         self.indent: int = 0
         self.vars: Dict[str, VarInfo] = {}
         self.shapes: Dict[str, ShapeDecl] = {}
@@ -203,6 +204,7 @@ class CEmitter:
         self._in_main: bool = False  # True when emitting inside freak_main
 
     def emit(self, program: Program) -> str:
+        """Emit a complete C translation unit for ``program``."""
         self.indent = 0
         self.vars = {}
         self.shapes = {}
@@ -466,6 +468,7 @@ class CEmitter:
         return f"{prefix}{ret} freak_{td.name}({params_str})"
 
     def _emit_task_def(self, td: TaskDecl) -> None:
+        """Emit the C definition for a top-level FREAK task."""
         sig = self._task_forward_decl(td)
         self._func_defs.append(f"{sig} {{")
 
@@ -511,6 +514,7 @@ class CEmitter:
         return f"{ret} {type_name}_{td.name}({params_str})"
 
     def _emit_impl_method_def(self, type_name: str, td: TaskDecl) -> None:
+        """Emit the C definition for one implementation method."""
         sig = self._impl_method_signature(type_name, td)
         self._func_defs.append(f"{sig} {{")
 
@@ -545,6 +549,7 @@ class CEmitter:
         return "    " * self.indent
 
     def _emit_statement(self, stmt, target: List[str]) -> None:
+        """Dispatch a statement node to its C lowering routine."""
         if isinstance(stmt, PilotDecl):
             self._emit_pilot_decl(stmt, target)
         elif isinstance(stmt, SayStmt):
@@ -592,6 +597,7 @@ class CEmitter:
             raise EmitError(f"Unsupported statement: {stmt!r}")
 
     def _emit_pilot_decl(self, decl: PilotDecl, target: List[str]) -> None:
+        """Lower a local pilot declaration and register its inferred type."""
         name = _sanitize_name(decl.name)
         c_type = self._infer_c_type(decl.value, decl.type_ann)
         init = self._expr_to_c(decl.value)
@@ -635,6 +641,7 @@ class CEmitter:
             target.append(f"{self._ind()}return {c};")
 
     def _emit_if(self, stmt: IfExpr, target: List[str]) -> None:
+        """Lower an if/otherwise statement and its scoped branches."""
         cond = self._expr_to_c(stmt.condition)
         target.append(f"{self._ind()}if ({cond}) {{")
         self.indent += 1
@@ -660,6 +667,7 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_when(self, stmt: WhenExpr, target: List[str]) -> None:
+        """Lower a when expression into typed C branch dispatch."""
         subject_c = self._expr_to_c(stmt.subject)
         subject_type = self._infer_c_type_of_expr(stmt.subject)
 
@@ -713,6 +721,7 @@ class CEmitter:
             target.append(f"{self._ind()}}}")
 
     def _emit_for_each(self, stmt: ForEach, target: List[str]) -> None:
+        """Lower a collection iteration with a scoped loop variable."""
         # for each item in iterable -> C for loop
         iterable_c = self._expr_to_c(stmt.iterable)
         idx = self._next_temp("__i")
@@ -731,6 +740,7 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_repeat_times(self, stmt: RepeatTimes, target: List[str]) -> None:
+        """Lower a counted repeat loop."""
         count_c = self._expr_to_c(stmt.count)
         idx = self._next_temp("__rep")
         target.append(
@@ -743,6 +753,7 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_repeat_until(self, stmt: RepeatUntil, target: List[str]) -> None:
+        """Lower a repeat-until loop."""
         cond_c = self._expr_to_c(stmt.condition)
         target.append(f"{self._ind()}while (!({cond_c})) {{")
         self.indent += 1
@@ -752,6 +763,7 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_training_arc(self, stmt: TrainingArc, target: List[str]) -> None:
+        """Lower a bounded training-arc loop."""
         cond_c = self._expr_to_c(stmt.condition)
         max_c = self._expr_to_c(stmt.max_sessions)
         arc_var = self._next_temp("__arc")
@@ -1335,6 +1347,7 @@ class CEmitter:
         return f"{func_c}({args_c})"
 
     def _emit_method_call(self, expr: MethodCall) -> str:
+        """Lower a built-in or user-defined method call to C."""
         obj_c = self._expr_to_c(expr.obj)
         args_c = ", ".join(self._expr_to_c(a) for a in expr.args)
 
@@ -1417,6 +1430,8 @@ class CEmitter:
             "snapshot_field_raw": ("freak_word_snapshot_field_raw", 1, False),
             "to_int": ("freak_word_to_int", 0, False),
             "to_num": ("freak_word_to_num", 0, False),
+            "parse_int": ("freak_word_parse_int", 0, False),
+            "parse_num": ("freak_word_parse_num", 0, False),
             "substring": ("freak_word_substring", 2, False),
         }
         if obj_type == "freak_word" and expr.method in WORD_METHODS:
@@ -1456,8 +1471,13 @@ class CEmitter:
             if obj_c in hints:
                 base_type = hints[obj_c]
 
-        # Generic method call: try type_method pattern
-        ref = obj_c if is_ptr else f"&{obj_c}"
+        # Generic method call: try type_method pattern.
+        # Builtin freak_word methods take the struct by value; only user
+        # shapes take a pointer receiver.
+        if base_type == "freak_word":
+            ref = obj_c
+        else:
+            ref = obj_c if is_ptr else f"&{obj_c}"
         if args_c:
             return f"{base_type}_{expr.method}({ref}, {args_c})"
         return f"{base_type}_{expr.method}({ref})"
@@ -1962,6 +1982,8 @@ class CEmitter:
                 "snapshot_field_count": "int64_t",
                 "to_int": "int64_t",
                 "to_num": "double",
+                "parse_int": "int64_t",
+                "parse_num": "double",
                 "to_upper": "freak_word",
                 "to_lower": "freak_word",
                 "trim": "freak_word",
