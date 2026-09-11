@@ -2689,6 +2689,56 @@ freak timeline-diff           -- show causality divergence between timelines
 | isekai scope violation  | Sumika    | "You can't bring that with you."         |
 | causality divergence    | 00-Unit   | No emotion. Just facts. Somehow worse.   |
 
+### V3 diagnostic codes foundation (additive, checker-unwired)
+
+> Status: foundation data + deterministic presentation only. No existing
+> diagnostic message changed; the checker, emitters, parser, globals, and
+> CLI flag parsing are untouched by this lane. Voice routing stays 🔜 V4;
+> what lands here is the stable numbering, the data packs, and the
+> off-by-default selector the lead wires at integration.
+
+Stable codes live in `src/diagnostics/codes.json` (schema
+`freak.v3.diagnostic-codes.v1`). Codes are never renamed, renumbered, or
+repurposed; new conditions get new codes:
+
+| Code | Condition | Default speaker hint |
+|---|---|---|
+| E0001 | Unknown binding | MEIYA |
+| E0002 | Type mismatch | YUUKO |
+| E0003 | Use after move | MEIYA |
+| E0004 | Immutable reassignment | MEIYA |
+| E0005 | Invalid call | YUUKO |
+| E0006 | Index out of bounds | FREAK |
+| E0007 | Numeric parse failure | YUUKO |
+| E0008 | Numeric overflow | LLVM |
+| E0009 | Allocation failure | MINISTRY |
+| E0010 | Unsupported target | LINKER |
+
+Optional cast packs are data only (JSON, no code execution) under
+`src/diagnostics/packs/`: FREAK, YUUKO, MEIYA, HANGAR, COCKPIT, MINISTRY,
+LLVM, LINKER, plus PLATFORM voices (`windows`/`linux`/`macos` in
+`platform.json`). Exact-invalid-source easter eggs live in
+`src/diagnostics/easter_eggs.json` and fire only on byte-exact match of a
+registered invalid source after a failed check — never for valid sources or
+near-misses. Resource companion lines live in
+`src/diagnostics/resources.json` (E0009, normal mode only).
+
+`src/diagnostics/selector.py` picks one line deterministically: SHA-256
+over compiler version + code + file + line + column + source + speaker
+(NUL-joined), index = digest mod pack line count, so the same input always
+yields the same line. Presentation modes: `off` returns the canonical
+diagnostic byte-identical; `minimal` appends `[CODE] line`; `normal`
+appends `[CODE SPEAKER] line` (plus one deterministic resource line for
+E0009). Executable proof: `python -u tests/v3_diagnostic_codes.py`.
+
+Integration hook (deferred, lead-owned): the lead wires an opt-in
+`--diagnostic-cast=<off|minimal|normal>` CLI flag (default `off`) at the
+CLI dispatch boundary at integration time; the checker and emitters keep
+emitting canonical diagnostics unchanged and pass (compiler version, code,
+file, line, column, source, speaker) to `selector.render()` as a
+post-pass presentation step only. No checker/CLI flag-parsing edits ship
+from this lane.
+
 ---
 
 ## SECTION 15: COMPLETE SYNTAX CHEATSHEET
