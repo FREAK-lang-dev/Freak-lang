@@ -309,8 +309,8 @@ EMITTER_CASES: dict[str, tuple[str, list[str]]] = {
         ["9.25", "done"],
     ),
     "checked_parse_bootstrap": (
-        'task main() {\n    say "42".parse_int()\n    say parse_status()\n    say "12a".parse_int()\n    say parse_status()\n    parse_clear_status()\n    say "1e3".parse_num()\n    say parse_status()\n}\n',
-        ["42", "0", "0", "1", "1000", "0"],
+        'task main() {\n    say "42".parse_int()\n    say parse_status()\n    say "12a".parse_int()\n    say parse_status()\n    parse_clear_status()\n    say "1e3".parse_num()\n    say parse_status()\n    say "3.5".parse_num()\n    say parse_status()\n}\n',
+        ["42", "0", "0", "1", "1000", "0", "3.5", "0"],
     ),
     "giveback_composite": (
         'task make() -> word {\n    pilot w = format_num(1.5)\n    give back w + "!"\n}\n'
@@ -551,7 +551,7 @@ def execute_negative(
 
 
 def execute_emitter_case(repo: Path, root: Path, name: str) -> dict:
-    """Compile and run one bootstrap-emitter ownership regression."""
+    """Compile and run one bootstrap-emitter behavioral regression."""
     from freakc.__main__ import transpile_checked
 
     source, expected = EMITTER_CASES[name]

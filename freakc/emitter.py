@@ -1430,6 +1430,8 @@ class CEmitter:
             "snapshot_field_raw": ("freak_word_snapshot_field_raw", 1, False),
             "to_int": ("freak_word_to_int", 0, False),
             "to_num": ("freak_word_to_num", 0, False),
+            "parse_int": ("freak_word_parse_int", 0, False),
+            "parse_num": ("freak_word_parse_num", 0, False),
             "substring": ("freak_word_substring", 2, False),
         }
         if obj_type == "freak_word" and expr.method in WORD_METHODS:
@@ -1980,6 +1982,8 @@ class CEmitter:
                 "snapshot_field_count": "int64_t",
                 "to_int": "int64_t",
                 "to_num": "double",
+                "parse_int": "int64_t",
+                "parse_num": "double",
                 "to_upper": "freak_word",
                 "to_lower": "freak_word",
                 "trim": "freak_word",
