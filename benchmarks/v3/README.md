@@ -31,6 +31,10 @@ allocator, compiler and operating-system headroom. A decimal GB means
 | bytes_sequential_write | 100,000,000 bytes in signed int64 records | 4,096 | same-work |
 | bytes_sequential_read | four reads of 100,000,000 bytes in int64 records | 4 × 4,096 | same-work |
 | bytes_endian_roundtrip | 1,000,000 signed LE/BE pairs, 16 MB | 256 pairs | same-work |
+| list_int_fill_sum_1m | 1,000,000 pushes, indexed + iterated sums | 1,000 | same-work |
+| list_num_dot_1m | 1,000,000-element dot product | 1,000 | same-work |
+| list_bool_mask_1m | 1,000,000 pushes, mask count | 1,000 | same-work |
+| list_word_churn_1m | 1,000,000 pushes, pop-all length sum | 1,000 | same-work |
 
 The original CPU, startup and compile fixtures remain registered. The manifest
 is the authority for arguments, source hashes, exact output and mode metadata.

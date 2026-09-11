@@ -6,6 +6,21 @@
 
 <!-- Match the PR title prefix, e.g. compiler / std::fs / cli / runtime / ci / docs -->
 
+## Scope
+
+- [ ] V3
+- [ ] V4
+- [ ] Both
+- [ ] Neither (tooling/docs/CI only)
+
+## Semantic impact
+
+- Language semantics changed?
+- Runtime ABI changed?
+- C backend impact?
+- LLVM backend impact?
+- Ownership/drop behavior impact?
+
 ## Checklist
 
 - [ ] One concern per PR (no mixing a fix with a feature)
@@ -14,6 +29,8 @@
 - [ ] `freak-full-bible.md` updated if this changes language semantics
 - [ ] CI is green on Linux, macOS, and Windows
 - [ ] Branch is short-lived and rebased on current `main`
+- [ ] No unrelated files in the diff
+- [ ] `git diff --check` clean
 
 ## Notes for reviewers
 

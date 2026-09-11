@@ -193,6 +193,32 @@ task cli_flex() -> void {
     say ""
 }
 
+-- ── About / Pioneers (optional, non-intrusive) ──────────
+task cli_about() -> void {
+    cli_show_banner()
+    say "  FREAK is a compiled, statically typed, memory-safe systems language."
+    say "  Shipping compiler: self-hosted V3 (LLVM IR + C backends)."
+    say ""
+    say "  " + C_DIM + "Full history: docs/history/pioneers.md" + C_RESET
+    say "  " + C_DIM + "Try: freak about --pioneers" + C_RESET
+    say ""
+}
+
+task cli_pioneers() -> void {
+    say ""
+    say "  " + C_G1 + "Generation 0 — Python bootstrap (FREAK Lite)" + C_RESET
+    say "  Proved the language could exist. Still the audit runner."
+    say ""
+    say "  " + C_G2 + "Generation 1 — V3 self-hosted compiler" + C_RESET
+    say "  FREAK learned to compile itself. Shipping; actively hardened."
+    say ""
+    say "  " + C_G3 + "Generation 2 — V4 Maverick / 00-Unit (in progress)" + C_RESET
+    say "  The modular rewrite. Not yet a V3 replacement."
+    say ""
+    say "  " + C_DIM + "docs/history/pioneers.md" + C_RESET
+    say ""
+}
+
 -- ── Init Command ─────────────────────────────────────
 task cli_init(project_name: word) -> void {
     say ""
@@ -285,6 +311,16 @@ task freakc_cli_main() -> void {
     -- Flex easter egg
     if subcmd == "flex" {
         cli_flex()
+        give back
+    }
+
+    -- About / pioneers (optional, non-intrusive)
+    if subcmd == "about" {
+        if args_cnt >= 3 and process::arg(2) == "--pioneers" {
+            cli_pioneers()
+        } else {
+            cli_about()
+        }
         give back
     }
 
