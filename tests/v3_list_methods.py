@@ -172,6 +172,8 @@ NEGATIVE = {
     "with_capacity_wrong_type": ('pilot mut xs: List<int> = List::with_capacity("big")\n', "expects int"),
     "uninferred_new": ('pilot xs = List::new()\n', "cannot infer"),
     "uninferred_with_capacity": ('pilot xs = List::with_capacity(4)\n', "cannot infer"),
+    "unannotated_new_arg": ('task take(xs: List<int>) -> int {\n    give back xs[0]\n}\ntask main() {\n    say take(List::new())\n}\n', "unresolved type"),
+    "unannotated_new_return": ('task gen() -> List<int> {\n    give back List::new()\n}\ntask main() {\n    pilot xs = gen()\n    say xs.length()\n}\n', "no known type"),
     "unknown_list_method": ('pilot mut xs = [1]\nxs.insert(0, 2)\n', "has no method"),
 }
 

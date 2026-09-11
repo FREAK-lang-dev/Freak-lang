@@ -743,6 +743,34 @@ task cli_target_alias_of(triple: word) -> word {
     give back ""
 }
 
+task cli_target_arch_family(triple: word) -> word {
+    -- First dash-separated field, normalized across vendor spellings.
+    pilot field = ""
+    pilot i = 0
+    repeat until i >= triple.length() {
+        pilot c = triple.char_at(i)
+        if c == "-" { give back cli_arch_family_name(field) }
+        field = field + c
+        i += 1
+    }
+    give back cli_arch_family_name(field)
+}
+
+task cli_arch_family_name(arch: word) -> word {
+    if arch == "arm64" { give back "aarch64" }
+    if arch == "amd64" { give back "x86_64" }
+    give back arch
+}
+
+task cli_target_os_family(triple: word) -> word {
+    -- Android first: its triples also contain "linux".
+    if triple.contains("android") { give back "android" }
+    if triple.contains("linux") { give back "linux" }
+    if triple.contains("darwin") or triple.contains("macos") or triple.contains("macosx") { give back "darwin" }
+    if triple.contains("windows") or triple.contains("msvc") or triple.contains("mingw") or triple.contains("w64") { give back "windows" }
+    give back ""
+}
+
 task cli_target_normalize_arch(triple: word) -> word {
     -- Apple toolchains report arm64 while the canonical triple uses aarch64.
     give back triple.replace("arm64", "aarch64")
@@ -770,11 +798,18 @@ task cli_host_native_triple() -> word {
 task cli_host_can_execute_target(cross: word) -> bool {
     -- freak run only launches binaries the host toolchain can execute.
     -- freak build stays the cross-compile path and accepts any safe triple.
+    -- Runnability is an arch/OS-family question: stock toolchains report
+    -- vendor- and version-specific triples (x86_64-pc-linux-gnu,
+    -- arm64-apple-macosx14.0.0, x86_64-pc-windows-msvc) that never equal the
+    -- canonical alias triples byte-for-byte.
     if cross == "" { give back true }
     pilot resolved = cli_canonical_target_triple(cli_resolve_target_alias(cross))
     pilot native = cli_host_native_triple()
     if native == "" { give back false }
-    give back cli_canonical_target_triple(native) == resolved
+    if cli_target_arch_family(resolved) != cli_target_arch_family(native) { give back false }
+    pilot wanted_os = cli_target_os_family(resolved)
+    if wanted_os == "" { give back false }
+    give back wanted_os == cli_target_os_family(native)
 }
 
 task cli_cross_target_is_safe(target: word) -> bool {

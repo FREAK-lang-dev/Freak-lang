@@ -227,5 +227,46 @@ class PacksAreData(unittest.TestCase):
                 self.assertNotIn(fragment, text)
 
 
+class PlatformVoices(unittest.TestCase):
+    KWARGS = dict(
+        version="0.14.1", code="E0010", file="main.fk",
+        line=1, column=1, source="pilot x = 1", speaker="PLATFORM",
+    )
+
+    def test_platform_subset_is_deterministic(self):
+        first = selector.select_line(**self.KWARGS, platform="linux")
+        for _ in range(50):
+            self.assertEqual(selector.select_line(**self.KWARGS, platform="linux"), first)
+
+    def test_platform_line_comes_from_subset(self):
+        payload = json.loads((PACKS_DIR / "platform.json").read_text(encoding="utf-8"))
+        for platform in ("linux", "macos", "windows"):
+            line = selector.select_line(**self.KWARGS, platform=platform)
+            self.assertIn(line, payload["platforms"][platform])
+
+    def test_unknown_platform_falls_back_to_top_level(self):
+        pack = selector.load_pack("PLATFORM")
+        line = selector.select_line(**self.KWARGS, platform="plan9")
+        self.assertIn(line, pack["lines"])
+
+    def test_render_passes_platform_through(self):
+        out = selector.render("boom", mode="normal", platform="linux", **self.KWARGS)
+        payload = json.loads((PACKS_DIR / "platform.json").read_text(encoding="utf-8"))
+        self.assertTrue(
+            any(owned in out for owned in payload["platforms"]["linux"])
+            or "[E0010 PLATFORM]" in out,
+            out,
+        )
+
+    def test_empty_resources_raise(self):
+        real = selector.load_resources
+        selector.load_resources = lambda: []
+        try:
+            with self.assertRaises(ValueError):
+                selector.select_resource("0.14.1", "E0009", "a.fk", 1, 1, "x")
+        finally:
+            selector.load_resources = real
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

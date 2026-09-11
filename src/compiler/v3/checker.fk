@@ -2354,7 +2354,9 @@ task tc_validate_stmt(stmt_id: int) -> void {
             tc_diag("task '" + tc_current_task_name + "' must give back " + tc_current_return_type, line, source_file)
         } else {
             pilot actual_return = tc_expr_type(return_id)
-            if actual_return != "" and not tc_type_assignable(tc_current_return_type, actual_return) {
+            if actual_return == "" {
+                tc_diag("task '" + tc_current_task_name + "' gives back a value with no known type; construct it with elements or annotate the binding", tc_expr_diag_line(return_id, line), tc_expr_diag_file(return_id, source_file))
+            } else if not tc_type_assignable(tc_current_return_type, actual_return) {
                 tc_diag("task '" + tc_current_task_name + "' must give back " + tc_current_return_type + ", got " + actual_return, tc_expr_diag_line(return_id, line), tc_expr_diag_file(return_id, source_file))
             }
         }

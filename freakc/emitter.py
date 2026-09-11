@@ -600,7 +600,25 @@ class CEmitter:
     def _is_owned_word_temporary(self, expr) -> bool:
         """True when evaluating `expr` yields a fresh owned freak_word."""
         if isinstance(expr, Call) and isinstance(expr.func, Ident):
-            return expr.func.name in self._OWNED_WORD_TEMPORARY_CALLS
+            if expr.func.name in self._OWNED_WORD_TEMPORARY_CALLS:
+                return True
+            # User tasks annotated `-> word` transfer ownership to the
+            # caller under the owned-return convention. Release is
+            # heap-guarded, so a borrowed literal result stays safe.
+            if self.func_sigs.get(expr.func.name) == "freak_word":
+                return True
+            return False
+        if isinstance(expr, BinOp):
+            # Word concatenation allocates fresh storage via
+            # freak_word_concat; the result has exactly one owner.
+            if expr.op == "+":
+                side_types = {
+                    self._infer_c_type_of_expr(expr.left),
+                    self._infer_c_type_of_expr(expr.right),
+                }
+                if "freak_word" in side_types:
+                    return True
+            return False
         if isinstance(expr, MethodCall) and expr.method == "to_word":
             # int/double conversions allocate; bool converts to a literal.
             return self._infer_c_type_of_expr(expr.obj) in ("int64_t", "double")
@@ -699,11 +717,13 @@ class CEmitter:
         # A returned owned local transfers to the caller; every other tracked
         # local is released first (release is idempotent, so scope-end
         # cleanup after an early return stays a safe no-op).
-        skip = ""
         if stmt.value is not None and isinstance(stmt.value, Ident):
             candidate = _sanitize_name(stmt.value.name)
             if candidate in self._owned_word_locals:
-                skip = candidate
+                self._emit_owned_word_cleanup(target, skip=candidate)
+                c = self._expr_to_c(stmt.value)
+                target.append(f"{self._ind()}return {c};")
+                return
         if stmt.value is None:
             self._emit_owned_word_cleanup(target)
             if self._in_main:
@@ -711,9 +731,15 @@ class CEmitter:
             else:
                 target.append(f"{self._ind()}return;")
         else:
-            self._emit_owned_word_cleanup(target, skip=skip)
+            # Evaluate the return expression BEFORE releasing locals: cleanup
+            # nulls owned slots, so reading them afterwards (e.g. through a
+            # concatenation) would observe the released value.
             c = self._expr_to_c(stmt.value)
-            target.append(f"{self._ind()}return {c};")
+            ret_c = self._infer_c_type_of_expr(stmt.value)
+            tmp = self._next_temp("__freak_return_value")
+            target.append(f"{self._ind()}{ret_c} {tmp} = {c};")
+            self._emit_owned_word_cleanup(target)
+            target.append(f"{self._ind()}return {tmp};")
 
     def _emit_if(self, stmt: IfExpr, target: List[str]) -> None:
         cond = self._expr_to_c(stmt.condition)

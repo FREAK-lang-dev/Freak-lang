@@ -1825,6 +1825,9 @@ the channel unchanged. The legacy `"...".to_int()`, `"...".to_num()`, and
 `parse_num()` entry points stay lenient and never touch the channel.
 `tests/v3_checked_parsing.py` guards malformed, boundary min-max,
 junk-suffix, and overflow cases with C/LLVM parity and no-leak runs.
+Subnormal `parse_num()` inputs follow the host libc: whether a subnormal
+result reports status `2` via `ERANGE` varies by platform, so only
+whitespace handling and normal-range boundaries are pinned cross-platform.
 
 ### 7.3 std::num
 

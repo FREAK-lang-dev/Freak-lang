@@ -52,6 +52,28 @@ def normalize(triple: str) -> str:
     return triple.replace("arm64", "aarch64")
 
 
+def arch_family(triple: str) -> str:
+    first = triple.split("-")[0] if triple else ""
+    return {"arm64": "aarch64", "amd64": "x86_64"}.get(first, first)
+
+
+def os_family(triple: str) -> str:
+    low = triple.lower()
+    if "android" in low:
+        return "android"
+    if "linux" in low:
+        return "linux"
+    if "darwin" in low or "macos" in low or "macosx" in low:
+        return "darwin"
+    if "windows" in low or "msvc" in low or "mingw" in low or "w64" in low:
+        return "windows"
+    return ""
+
+
+def same_host(triple: str, native: str) -> bool:
+    return arch_family(triple) == arch_family(native) and os_family(triple) == os_family(native)
+
+
 def native_triple(env: dict[str, str]) -> str:
     configured = env.get("FREAK_CLANG", "clang")
     candidates = [configured, "clang"]
@@ -185,7 +207,7 @@ def check_native_alias_build(
     freak: Path, root: Path, env: dict[str, str], native: str
 ) -> None:
     alias = next(
-        (name for name, triple in ALIASES.items() if normalize(triple) == normalize(native)),
+        (name for name, triple in ALIASES.items() if same_host(triple, native)),
         None,
     )
     assert alias is not None, f"native triple {native} has no test alias"
@@ -206,6 +228,23 @@ def check_native_alias_build(
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "ALIAS_NATIVE_OK" in completed.stdout, completed.stdout
+
+
+def check_native_alias_run(
+    freak: Path, root: Path, env: dict[str, str], native: str
+) -> None:
+    # P1-2 live proof: a native alias must execute via freak run, not refuse.
+    alias = next(
+        (name for name, triple in ALIASES.items() if same_host(triple, native)),
+        None,
+    )
+    assert alias is not None, f"native triple {native} has no test alias"
+    source = root / "alias-native.fk"
+    assert source.is_file(), "alias-native.fk missing (build check runs first)"
+    code, output = invoke(freak, root, ["run", str(source), f"--target={alias}"], env)
+    assert code == 0, output
+    assert "ALIAS_NATIVE_OK" in output, output
+    assert "FOREIGN TARGET" not in output, output
 
 
 def check_foreign_run_refusal(
@@ -237,7 +276,7 @@ def check_foreign_run_refusal(
             assert artifact.read_bytes() == payload, (
                 f"foreign run mutated {artifact} for {flag}\n{output}"
             )
-    assert normalize(native) != normalize(foreign), (native, foreign)
+    assert not same_host(foreign, native), (native, foreign)
 
 
 def check_help_text(freak: Path, root: Path, env: dict[str, str]) -> None:
@@ -260,17 +299,27 @@ def main() -> int:
     check_static_contract(repo)
     env = os.environ.copy()
     native = native_triple(env)
+    # A truly foreign target differs in OS family (family matching now lets
+    # same-host aliases execute, so byte-inequality is no longer foreign).
     foreign = next(
-        triple
-        for triple in ALIASES.values()
-        if normalize(triple) != normalize(native)
+        (triple for triple in ALIASES.values() if os_family(triple) != os_family(native)),
+        None,
     )
+    if foreign is None:
+        foreign = next(
+            (triple for triple in ALIASES.values() if arch_family(triple) != arch_family(native)),
+            None,
+        )
+    if foreign is None:
+        foreign = next(triple for triple in ALIASES.values() if triple != native)
+    assert foreign is not None, "no foreign test target available"
     with tempfile.TemporaryDirectory(prefix="freak-w4-target-aliases-") as tmp:
         root = Path(tmp)
         check_doctor_alias_mapping(freak, root, env)
         check_raw_passthrough(freak, root, env, native)
         check_doctor_bogus_target(freak, root, env)
         check_native_alias_build(freak, root, env, native)
+        check_native_alias_run(freak, root, env, native)
         check_foreign_run_refusal(freak, root, env, native, foreign)
         check_help_text(freak, root, env)
     print(f"V3 target aliases: OK (native={native} foreign={foreign})")

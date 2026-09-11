@@ -81,6 +81,21 @@ def load_pack(speaker: str) -> Dict[str, list]:
     return {"speaker": payload.get("speaker", key), "lines": list(payload.get("lines", []))}
 
 
+@lru_cache(maxsize=64)
+def _pack_platforms(speaker: str) -> Dict[str, list]:
+    """Per-OS voice lines for packs that carry a platforms map (else {})."""
+    key = str(speaker or _FALLBACK_SPEAKER).lower()
+    path = PACKS_DIR / (key + ".json")
+    if not path.exists():
+        return {}
+    payload = _read_json(path)
+    platforms = payload.get("platforms", {})
+    if not isinstance(platforms, dict):
+        return {}
+    return {str(name).lower(): list(lines) for name, lines in platforms.items()
+            if isinstance(lines, list) and lines}
+
+
 @lru_cache(maxsize=1)
 def load_easter_eggs() -> List[dict]:
     return list(_read_json(EASTER_EGGS_PATH).get("eggs", []))
@@ -114,8 +129,19 @@ def select_index(version: str, code: str, file: str, line: int, column: int, sou
     return int(digest_hex(version, code, file, line, column, source, speaker), 16) % count
 
 
-def select_line(version: str, code: str, file: str, line: int, column: int, source: str, speaker: str) -> str:
-    """Deterministically pick one cast line from the speaker pack."""
+def select_line(version: str, code: str, file: str, line: int, column: int, source: str, speaker: str, platform: Optional[str] = None) -> str:
+    """Deterministically pick one cast line from the speaker pack.
+
+    ``platform`` (e.g. "linux") selects from that pack's per-OS voice map
+    when present; unknown or absent platforms fall back to the top-level
+    lines. The 7-field digest key is unchanged, so default selections are
+    unaffected.
+    """
+    if platform is not None:
+        subset = _pack_platforms(speaker).get(str(platform).lower(), [])
+        if subset:
+            digest = digest_hex(version, code, file, line, column, source, speaker)
+            return subset[int(digest, 16) % len(subset)]
     pack = load_pack(speaker)
     return pack["lines"][select_index(version, code, file, line, column, source, speaker)]
 
@@ -139,6 +165,8 @@ def select_easter_egg(source: str, code: Optional[str] = None) -> Optional[str]:
 
 def select_resource(version: str, code: str, file: str, line: int, column: int, source: str) -> str:
     lines = load_resources()
+    if not lines:
+        raise ValueError("resource pack has no lines")
     key = "\0".join([str(version), str(code).upper(), str(file), str(int(line)), str(int(column)), str(source), "RESOURCES"])
     return lines[int(hashlib.sha256(key.encode("utf-8")).hexdigest(), 16) % len(lines)]
 
@@ -161,6 +189,7 @@ def render(
     column: int = 0,
     source: str = "",
     speaker: str = "FREAK",
+    platform: Optional[str] = None,
 ) -> str:
     """Present a canonical diagnostic with an optional cast line.
 
@@ -177,7 +206,7 @@ def render(
         return canonical
     code = str(code).upper()
     egg = select_easter_egg(source, code)
-    cast = egg if egg is not None else select_line(version, code, file, line, column, source, speaker)
+    cast = egg if egg is not None else select_line(version, code, file, line, column, source, speaker, platform)
     tag = code if mode == "minimal" else "%s %s" % (code, str(speaker).upper())
     out = "%s\n[%s] %s" % (canonical, tag, cast)
     if mode == "normal" and code == "E0009":

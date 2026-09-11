@@ -294,7 +294,7 @@ task cli_show_help() -> void {
     say "  " + C_DIM + "EXAMPLES" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " hello.fk"
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak run" + C_RESET + " hello.fk " + C_BYELLOW + "--c --opt=3" + C_RESET
-    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--target=x86_64-linux-gnu" + C_RESET
+    say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--target=x86_64-unknown-linux-gnu" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak build" + C_RESET + " game.fk " + C_BYELLOW + "--target=linux-x64" + C_RESET
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak doctor" + C_RESET + " --target=windows-x64"
     say "  " + C_DIM + "  $ " + C_RESET + C_BWHITE + "freak hangar" + C_RESET + " init my-project"

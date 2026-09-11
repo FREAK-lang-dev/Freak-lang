@@ -247,6 +247,20 @@ CASES: dict[str, tuple[str, list[str]]] = {
 """,
         ["7", "0", "42", "0", "3.5", "0", "0", "0"],
     ),
+    "surrounding_whitespace": (
+        """task main() {
+    say "\\t42\\t".parse_int()
+    say parse_status()
+    say "\\n-7\\n".parse_int()
+    say parse_status()
+    say "\\t3.5\\n".parse_num()
+    say parse_status()
+    say "4 2".parse_int()
+    say parse_status()
+}
+""",
+        ["0", "1", "0", "1", "0", "1", "0", "1"],
+    ),
 }
 
 NEGATIVES: tuple[tuple[str, str, str], ...] = (
@@ -297,6 +311,29 @@ EMITTER_CASES: dict[str, tuple[str, list[str]]] = {
     "checked_parse_bootstrap": (
         'task main() {\n    say "42".parse_int()\n    say parse_status()\n    say "12a".parse_int()\n    say parse_status()\n    parse_clear_status()\n    say "1e3".parse_num()\n    say parse_status()\n}\n',
         ["42", "0", "0", "1", "1000", "0"],
+    ),
+    "giveback_composite": (
+        'task make() -> word {\n    pilot w = format_num(1.5)\n    give back w + "!"\n}\n'
+        'task main() {\n    say make()\n}\n',
+        ["1.5!"],
+    ),
+    "giveback_transfer": (
+        'task make() -> word {\n    pilot w = format_num(2.5)\n    give back w\n}\n'
+        'task main() {\n    say make()\n}\n',
+        ["2.5"],
+    ),
+    "say_concat_temporary": (
+        'task main() {\n    say "a" + "b"\n}\n',
+        ["ab"],
+    ),
+    "pilot_concat_temporary": (
+        'task main() {\n    pilot w = "a" + "b"\n    say w\n}\n',
+        ["ab"],
+    ),
+    "user_word_result": (
+        'task greet() -> word {\n    give back "hi"\n}\n'
+        'task main() {\n    say greet()\n    pilot g = greet()\n    say g\n}\n',
+        ["hi", "hi"],
     ),
 }
 

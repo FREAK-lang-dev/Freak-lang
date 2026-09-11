@@ -881,7 +881,9 @@ task cli_doctor_target_report(raw: word, triple: word, json_mode: bool) -> int {
     say ""
     say cli_box_top(50)
     if all_ok {
-        say cli_box_mid(" " + C_BGREEN + SYM_SPARK + " TARGET READY" + C_RESET + C_DIM + "  " + triple + C_RESET, 50)
+        say cli_box_mid(" " + C_BGREEN + SYM_SPARK + " TARGET DRIVER READY" + C_RESET + C_DIM + "  " + triple + C_RESET, 50)
+        say cli_box_mid("  Driver acceptance only; cross-link still needs" + C_RESET, 50)
+        say cli_box_mid("  its sysroot (see Sysroot line above)" + C_RESET, 50)
     } else {
         say cli_box_mid(" " + C_BRED + SYM_CROSS + " TARGET ISSUES FOUND" + C_RESET + C_DIM + "  " + triple + C_RESET, 50)
     }
