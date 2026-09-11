@@ -45,6 +45,7 @@ CONTENT_MARKERS = (
 
 
 def check_syntax(errors: list[str]) -> None:
+    """Append syntax errors found in contributor-maintained Python trees."""
     for base in SYNTAX_DIRS:
         if not base.is_dir():
             errors.append(f"missing source dir: {base.relative_to(ROOT)}")
@@ -57,12 +58,14 @@ def check_syntax(errors: list[str]) -> None:
 
 
 def check_required_files(errors: list[str]) -> None:
+    """Append errors for missing contributor-contract files."""
     for name in REQUIRED_FILES:
         if not (ROOT / name).is_file():
             errors.append(f"missing required file: {name}")
 
 
 def check_content_markers(errors: list[str]) -> None:
+    """Append errors for missing stable contributor documentation markers."""
     for name, marker in CONTENT_MARKERS:
         path = ROOT / name
         if not path.is_file():
@@ -72,6 +75,7 @@ def check_content_markers(errors: list[str]) -> None:
 
 
 def main() -> int:
+    """Run contributor structure checks and return a process status."""
     errors: list[str] = []
     check_syntax(errors)
     check_required_files(errors)

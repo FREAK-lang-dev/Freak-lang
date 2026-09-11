@@ -45,6 +45,7 @@ _EXEC_MARKERS = ("__import__", "eval(", "exec(", "os.system", "subprocess", "com
 
 
 def _load_selector():
+    """Load the diagnostic selector directly from the source checkout."""
     spec = importlib.util.spec_from_file_location(
         "v3_diagnostic_selector", DIAG_DIR / "selector.py"
     )
@@ -59,6 +60,7 @@ selector = _load_selector()
 
 class CodeStability(unittest.TestCase):
     def test_exact_code_table(self):
+        """Keep the initial diagnostic code table exactly stable."""
         payload = json.loads((DIAG_DIR / "codes.json").read_text(encoding="utf-8"))
         codes = payload["codes"]
         self.assertEqual(
@@ -71,6 +73,7 @@ class CodeStability(unittest.TestCase):
         self.assertFalse(selector.is_known_code("E9999"))
 
     def test_table_reload_is_stable(self):
+        """Return identical code data across repeated reads and cached loads."""
         first = (DIAG_DIR / "codes.json").read_bytes()
         second = (DIAG_DIR / "codes.json").read_bytes()
         self.assertEqual(first, second)
@@ -84,11 +87,13 @@ class Determinism(unittest.TestCase):
     )
 
     def test_same_input_same_line(self):
+        """Select the same voice line for repeated identical inputs."""
         first = selector.select_line(**self.KWARGS)
         for _ in range(100):
             self.assertEqual(selector.select_line(**self.KWARGS), first)
 
     def test_every_key_field_participates(self):
+        """Make every documented selection field influence the digest."""
         base = selector.digest_hex(**self.KWARGS)
         mutations = dict(
             version="0.14.2", code="E0003", file="other.fk",
@@ -104,6 +109,7 @@ class Determinism(unittest.TestCase):
         self.assertEqual(len(seen), len(mutations) + 1)
 
     def test_index_matches_digest_mod_count(self):
+        """Derive the selected line index directly from the stable digest."""
         pack = selector.load_pack("YUUKO")
         digest = selector.digest_hex(**self.KWARGS)
         self.assertEqual(
@@ -122,6 +128,7 @@ class PresentationModes(unittest.TestCase):
     )
 
     def test_off_leaves_canonical_byte_identical(self):
+        """Preserve canonical diagnostics exactly when presentation is off."""
         for canonical in self.CANONICALS:
             out = selector.render(
                 canonical, mode="off", version="0.14.1", code="E0002",
@@ -132,6 +139,7 @@ class PresentationModes(unittest.TestCase):
             self.assertEqual(out.encode("utf-8"), canonical.encode("utf-8"))
 
     def test_minimal_and_normal_keep_canonical_verbatim(self):
+        """Append cast text without altering the canonical diagnostic."""
         canonical = "type error: expected num, got word (line 7)"
         minimal = selector.render(canonical, mode="minimal", **Determinism.KWARGS)
         normal = selector.render(canonical, mode="normal", **Determinism.KWARGS)
@@ -139,12 +147,48 @@ class PresentationModes(unittest.TestCase):
             self.assertTrue(out.startswith(canonical + "\n" + tag + " "))
 
     def test_bad_mode_rejected(self):
+        """Reject unsupported diagnostic presentation modes."""
         with self.assertRaises(ValueError):
             selector.render("x", mode="verbose")
+
+    def test_off_mode_performs_no_data_lookups(self):
+        real_egg = selector.select_easter_egg
+        real_line = selector.select_line
+        real_resource = selector.select_resource
+
+        def unexpected(*_args, **_kwargs):
+            raise AssertionError("off mode must not consult presentation data")
+
+        selector.select_easter_egg = unexpected
+        selector.select_line = unexpected
+        selector.select_resource = unexpected
+        try:
+            self.assertEqual(
+                selector.render("canonical\nbytes", mode="off", code="E0009"),
+                "canonical\nbytes",
+            )
+        finally:
+            selector.select_easter_egg = real_egg
+            selector.select_line = real_line
+            selector.select_resource = real_resource
+
+    def test_resource_line_is_normal_mode_only_for_allocation_failure(self):
+        kwargs = dict(
+            version="0.14.1", file="alloc.fk", line=4, column=2,
+            source="reserve too much", speaker="FREAK",
+        )
+        minimal = selector.render("oom", mode="minimal", code="E0009", **kwargs)
+        normal = selector.render("oom", mode="normal", code="E0009", **kwargs)
+        other = selector.render("bounds", mode="normal", code="E0006", **kwargs)
+        self.assertNotIn("[resource]", minimal)
+        self.assertEqual(normal.count("[resource]"), 1)
+        self.assertNotIn("[resource]", other)
+        self.assertIn(normal.split("[resource] ", 1)[1], selector.load_resources())
 
 
 class EasterEggs(unittest.TestCase):
     def test_eggs_fire_only_on_exact_invalid_source(self):
+        """Match easter eggs only for byte-exact invalid source text."""
         eggs = selector.load_easter_eggs()
         self.assertGreaterEqual(len(eggs), 3)
         for egg in eggs:
@@ -157,6 +201,7 @@ class EasterEggs(unittest.TestCase):
                 self.assertIsNone(selector.select_easter_egg(near, egg.get("code")))
 
     def test_no_egg_for_valid_sources(self):
+        """Never emit easter-egg lines for known-valid source snippets."""
         eggs = selector.load_easter_eggs()
         egg_lines = {egg["line"] for egg in eggs}
         for source in VALID_SOURCES:
@@ -175,9 +220,22 @@ class EasterEggs(unittest.TestCase):
                 for egg_line in egg_lines:
                     self.assertNotIn(egg_line, rendered)
 
+    def test_code_specific_egg_rejects_a_different_diagnostic_code(self):
+        egg = next(item for item in selector.load_easter_eggs() if item["code"])
+        different = next(code for code, _, _ in EXPECTED_CODES if code != egg["code"])
+        self.assertIsNone(selector.select_easter_egg(egg["exact_source"], different))
+
+    def test_code_agnostic_egg_accepts_any_failed_check(self):
+        egg = next(item for item in selector.load_easter_eggs() if item["code"] is None)
+        for code, _, _ in EXPECTED_CODES:
+            self.assertEqual(
+                selector.select_easter_egg(egg["exact_source"], code), egg["line"]
+            )
+
 
 class PacksAreData(unittest.TestCase):
     def test_all_json_parse_and_hold_data_only(self):
+        """Keep every diagnostics JSON file parseable and data-only."""
         files = [DIAG_DIR / "codes.json", DIAG_DIR / "easter_eggs.json", DIAG_DIR / "resources.json"]
         files += sorted(PACKS_DIR.glob("*.json"))
         self.assertGreaterEqual(len(files), 10)
@@ -191,6 +249,7 @@ class PacksAreData(unittest.TestCase):
                     self.assertNotIn(marker, text)
 
     def _assert_data_only(self, value, depth=0):
+        """Recursively assert that a pack contains bounded plain JSON data."""
         self.assertLess(depth, 10)
         if isinstance(value, dict):
             for key, item in value.items():
@@ -208,6 +267,7 @@ class PacksAreData(unittest.TestCase):
             self.fail("non-data value %r (%s)" % (value, type(value).__name__))
 
     def test_expected_speakers_and_nonempty_lines(self):
+        """Provide exactly the expected speakers with nonempty line lists."""
         stems = sorted(p.stem for p in PACKS_DIR.glob("*.json"))
         self.assertEqual(stems, sorted(EXPECTED_SPEAKERS))
         speakers = [s.lower() for s in selector.list_speakers()]
@@ -217,6 +277,7 @@ class PacksAreData(unittest.TestCase):
             self.assertGreaterEqual(len(pack["lines"]), 2)
 
     def test_no_existing_canonical_message_reused(self):
+        """Keep cast-pack lines distinct from canonical compiler messages."""
         canonical_fragments = (
             "You gave this away. It no longer belongs to you.",
             "This binding was sworn to silence. It cannot be reassigned.",
@@ -226,6 +287,12 @@ class PacksAreData(unittest.TestCase):
             for fragment in canonical_fragments:
                 self.assertNotIn(fragment, text)
 
+    def test_unknown_and_empty_speakers_fall_back_to_freak_pack(self):
+        expected = selector.load_pack("FREAK")
+        for speaker in ("DOES_NOT_EXIST", "", None):
+            with self.subTest(speaker=speaker):
+                self.assertEqual(selector.load_pack(speaker), expected)
+
 
 class PlatformVoices(unittest.TestCase):
     KWARGS = dict(
@@ -234,22 +301,26 @@ class PlatformVoices(unittest.TestCase):
     )
 
     def test_platform_subset_is_deterministic(self):
+        """Select platform-specific voice lines deterministically."""
         first = selector.select_line(**self.KWARGS, platform="linux")
         for _ in range(50):
             self.assertEqual(selector.select_line(**self.KWARGS, platform="linux"), first)
 
     def test_platform_line_comes_from_subset(self):
+        """Choose platform voice lines only from each declared subset."""
         payload = json.loads((PACKS_DIR / "platform.json").read_text(encoding="utf-8"))
         for platform in ("linux", "macos", "windows"):
             line = selector.select_line(**self.KWARGS, platform=platform)
             self.assertIn(line, payload["platforms"][platform])
 
     def test_unknown_platform_falls_back_to_top_level(self):
+        """Fall back to top-level pack lines for unknown platforms."""
         pack = selector.load_pack("PLATFORM")
         line = selector.select_line(**self.KWARGS, platform="plan9")
         self.assertIn(line, pack["lines"])
 
     def test_render_passes_platform_through(self):
+        """Forward render platform selection to the voice-line selector."""
         out = selector.render("boom", mode="normal", platform="linux", **self.KWARGS)
         payload = json.loads((PACKS_DIR / "platform.json").read_text(encoding="utf-8"))
         self.assertTrue(
@@ -259,6 +330,7 @@ class PlatformVoices(unittest.TestCase):
         )
 
     def test_empty_resources_raise(self):
+        """Reject resource selection when the resource pack is empty."""
         real = selector.load_resources
         selector.load_resources = lambda: []
         try:

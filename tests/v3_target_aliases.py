@@ -34,6 +34,7 @@ def invoke(
     *,
     timeout: int = 180,
 ) -> tuple[int, str]:
+    """Invoke the FREAK CLI and return its status and ANSI-free output."""
     completed = subprocess.run(
         [str(freak), *args],
         cwd=cwd,
@@ -49,15 +50,18 @@ def invoke(
 
 
 def normalize(triple: str) -> str:
+    """Normalize spelling differences used by equivalent target triples."""
     return triple.replace("arm64", "aarch64")
 
 
 def arch_family(triple: str) -> str:
+    """Return the normalized architecture family for a target triple."""
     first = triple.split("-")[0] if triple else ""
     return {"arm64": "aarch64", "amd64": "x86_64"}.get(first, first)
 
 
 def os_family(triple: str) -> str:
+    """Return the operating-system family encoded in a target triple."""
     low = triple.lower()
     if "android" in low:
         return "android"
@@ -71,10 +75,12 @@ def os_family(triple: str) -> str:
 
 
 def same_host(triple: str, native: str) -> bool:
+    """Return whether two triples identify the same executable host family."""
     return arch_family(triple) == arch_family(native) and os_family(triple) == os_family(native)
 
 
 def native_triple(env: dict[str, str]) -> str:
+    """Ask the configured Clang for the native target triple."""
     configured = env.get("FREAK_CLANG", "clang")
     candidates = [configured, "clang"]
     for candidate in candidates:
@@ -99,6 +105,7 @@ def native_triple(env: dict[str, str]) -> str:
 
 
 def check_static_contract(repo: Path) -> None:
+    """Verify source-level target helpers, diagnostics, and help contracts."""
     build = (repo / "src" / "cli" / "build.fk").read_text(encoding="utf-8")
     run = (repo / "src" / "cli" / "run.fk").read_text(encoding="utf-8")
     doctor = (repo / "src" / "cli" / "doctor.fk").read_text(encoding="utf-8")
@@ -147,6 +154,7 @@ def check_static_contract(repo: Path) -> None:
 def check_doctor_alias_mapping(
     freak: Path, root: Path, env: dict[str, str]
 ) -> None:
+    """Verify every alias maps consistently in text and JSON doctor output."""
     for alias, triple in ALIASES.items():
         code, output = invoke(freak, root, ["doctor", f"--target={alias}"], env)
         assert f"Mapping: {alias} -> {triple}" in output, output
@@ -169,6 +177,7 @@ def check_doctor_alias_mapping(
 def check_raw_passthrough(
     freak: Path, root: Path, env: dict[str, str], native: str
 ) -> None:
+    """Verify canonical triples pass through doctor without alias rewriting."""
     for triple in ALIASES.values():
         code, output = invoke(freak, root, ["doctor", f"--target={triple}"], env)
         assert "raw triple passthrough" in output, output
@@ -186,6 +195,7 @@ def check_raw_passthrough(
 def check_doctor_bogus_target(
     freak: Path, root: Path, env: dict[str, str]
 ) -> None:
+    """Verify doctor rejects an unknown target in text and JSON modes."""
     code, output = invoke(freak, root, ["doctor", f"--target={BOGUS_TARGET}"], env)
     assert code != 0, output
     assert "Unsupported target" in output, output
@@ -206,6 +216,7 @@ def check_doctor_bogus_target(
 def check_native_alias_build(
     freak: Path, root: Path, env: dict[str, str], native: str
 ) -> None:
+    """Verify the native alias builds an executable that runs successfully."""
     alias = next(
         (name for name, triple in ALIASES.items() if same_host(triple, native)),
         None,
@@ -233,6 +244,7 @@ def check_native_alias_build(
 def check_native_alias_run(
     freak: Path, root: Path, env: dict[str, str], native: str
 ) -> None:
+    """Verify ``freak run`` accepts and executes the native target alias."""
     # P1-2 live proof: a native alias must execute via freak run, not refuse.
     alias = next(
         (name for name, triple in ALIASES.items() if same_host(triple, native)),
@@ -250,6 +262,7 @@ def check_native_alias_run(
 def check_foreign_run_refusal(
     freak: Path, root: Path, env: dict[str, str], native: str, foreign: str
 ) -> None:
+    """Verify foreign-target run refusal leaves existing artifacts untouched."""
     source = root / "foreign-run.fk"
     source.write_text('say "FOREIGN_MUST_NOT_RUN"\n', encoding="utf-8")
     binary = source.with_suffix(".exe" if sys.platform == "win32" else "")
@@ -280,6 +293,7 @@ def check_foreign_run_refusal(
 
 
 def check_help_text(freak: Path, root: Path, env: dict[str, str]) -> None:
+    """Verify CLI help advertises aliases and raw target passthrough."""
     code, output = invoke(freak, root, ["help"], env)
     assert code == 0, output
     for alias in ALIASES:
@@ -289,6 +303,7 @@ def check_help_text(freak: Path, root: Path, env: dict[str, str]) -> None:
 
 
 def main() -> int:
+    """Run the V3 target-alias regression suite."""
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
     args = parser.parse_args()

@@ -42,6 +42,7 @@ _FALLBACK_SPEAKER = "FREAK"
 
 
 def _read_json(path: Path):
+    """Load UTF-8 JSON data from ``path``."""
     with open(path, "r", encoding="utf-8") as handle:
         return json.load(handle)
 
@@ -54,15 +55,18 @@ def load_codes() -> Dict[str, dict]:
 
 
 def code_order() -> List[str]:
+    """Return diagnostic codes in their stable table order."""
     payload = _read_json(CODES_PATH)
     return [entry["code"] for entry in payload["codes"]]
 
 
 def is_known_code(code: str) -> bool:
+    """Return whether ``code`` exists in the diagnostic code table."""
     return str(code).upper() in load_codes()
 
 
 def list_speakers() -> List[str]:
+    """Return the sorted names of available diagnostic voice packs."""
     names = []
     for path in sorted(PACKS_DIR.glob("*.json")):
         names.append(path.stem.upper())
@@ -98,11 +102,13 @@ def _pack_platforms(speaker: str) -> Dict[str, list]:
 
 @lru_cache(maxsize=1)
 def load_easter_eggs() -> List[dict]:
+    """Load the data-only exact-source easter-egg definitions."""
     return list(_read_json(EASTER_EGGS_PATH).get("eggs", []))
 
 
 @lru_cache(maxsize=1)
 def load_resources() -> List[str]:
+    """Load the fallback resource lines used by normal presentation mode."""
     return list(_read_json(RESOURCES_PATH).get("lines", []))
 
 
@@ -115,6 +121,7 @@ def digest_hex(
     source: str,
     speaker: str,
 ) -> str:
+    """Hash all stable selection fields into a deterministic digest."""
     key = "\0".join(
         [str(version), str(code).upper(), str(file), str(int(line)), str(int(column)), str(source), str(speaker).upper()]
     )
@@ -122,6 +129,7 @@ def digest_hex(
 
 
 def select_index(version: str, code: str, file: str, line: int, column: int, source: str, speaker: str) -> int:
+    """Select a deterministic voice-pack line index for a diagnostic."""
     pack = load_pack(speaker)
     count = len(pack["lines"])
     if count == 0:
@@ -164,6 +172,7 @@ def select_easter_egg(source: str, code: Optional[str] = None) -> Optional[str]:
 
 
 def select_resource(version: str, code: str, file: str, line: int, column: int, source: str) -> str:
+    """Select a deterministic fallback resource line for a diagnostic."""
     lines = load_resources()
     if not lines:
         raise ValueError("resource pack has no lines")
@@ -172,6 +181,7 @@ def select_resource(version: str, code: str, file: str, line: int, column: int, 
 
 
 def validate_mode(mode: str) -> str:
+    """Normalize and validate a diagnostic presentation mode."""
     normalized = str(mode).lower()
     if normalized not in MODES:
         raise ValueError("mode must be one of %r, got %r" % (MODES, mode))

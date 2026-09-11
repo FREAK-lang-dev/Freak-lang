@@ -187,6 +187,7 @@ PANIC = {
 
 
 def emission(compiler: Path, root: Path, backend: str, name: str, source: str):
+    """Emit one list-method fixture and return its process and artifact."""
     fixture = root / f"{name}_{backend}.fk"
     fixture.write_text(source, encoding="utf-8")
     command = [str(compiler), str(fixture), f"--{backend}"]
@@ -196,6 +197,7 @@ def emission(compiler: Path, root: Path, backend: str, name: str, source: str):
 
 
 def expect_rejected(compiler: Path, root: Path, backend: str, name: str, source: str, diagnostic: str):
+    """Verify an invalid list-method fixture is rejected without output."""
     compiled, generated = emission(compiler, root, backend, name, source)
     output = compiled.stdout + compiled.stderr
     assert compiled.returncode != 0, f"{name}/{backend}: invalid source accepted\n{output}"
@@ -205,6 +207,7 @@ def expect_rejected(compiler: Path, root: Path, backend: str, name: str, source:
 
 
 def native_run(repo: Path, root: Path, backend: str, name: str, generated: Path):
+    """Link and run one generated list-method fixture under ASan."""
     import os
     import shutil
     assert generated.is_file(), f"missing generated artifact {generated}"
@@ -221,6 +224,7 @@ def native_run(repo: Path, root: Path, backend: str, name: str, generated: Path)
 
 
 def expect_panic(compiler: Path, repo: Path, root: Path, backend: str, name: str, source: str, diagnostic: str):
+    """Verify a list runtime violation exits through a checked panic."""
     compiled, generated = emission(compiler, root, backend, name, source)
     require_ok(compiled, f"{name}/{backend} emission")
     executed = native_run(repo, root, backend, name, generated)
@@ -232,6 +236,7 @@ def expect_panic(compiler: Path, repo: Path, root: Path, backend: str, name: str
 
 
 def main() -> int:
+    """Run the selected V3 list-method regression matrix."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("compiler", type=Path)
     parser.add_argument("--backend", choices=("c", "llvm"))
