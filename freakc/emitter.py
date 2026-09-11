@@ -198,9 +198,6 @@ class CEmitter:
         self._lambda_defs: List[str] = []  # closure env structs + functions
         self._temp_counter: int = 0
         self._closure_captures: Set[str] = set()  # names accessed as __env->name
-        self._owned_word_locals: List[str] = []  # sanitized freak_word locals holding owned storage
-        self._current_task_ret_c: str = ""  # declared C return type of the task being emitted
-        self._current_function_params: Set[str] = set()  # sanitized param names of the function being emitted
         self._includes: Set[str] = set()  # extra #include from use imports
         self._uses_ui: bool = False  # tracks if use std::ui is present
         self._in_main: bool = False  # True when emitting inside freak_main
@@ -219,9 +216,6 @@ class CEmitter:
         self._lambda_counter = 0
         self._lambda_defs = []
         self._temp_counter = 0
-        self._owned_word_locals = []
-        self._current_task_ret_c = ""
-        self._current_function_params = set()
         self._includes = set()
         self._uses_ui = False
 
@@ -339,9 +333,11 @@ class CEmitter:
         # If there's a `task main()`, emit its body here
         self._in_main = True
         if main_task and isinstance(main_task.body, Block):
-            self._emit_scoped_body(main_task.body.statements, self._main_body)
+            for s in main_task.body.statements:
+                self._emit_statement(s, self._main_body)
         else:
-            self._emit_scoped_body(top_stmts, self._main_body)
+            for stmt in top_stmts:
+                self._emit_statement(stmt, self._main_body)
         self._in_main = False
         self._main_body.append("    return 0;")
         self._main_body.append("}")
@@ -473,30 +469,17 @@ class CEmitter:
         sig = self._task_forward_decl(td)
         self._func_defs.append(f"{sig} {{")
 
-        # Remember the declared C return type so give-back can name a
-        # correctly typed temp for the return value (expression inference
-        # is best-effort and wrong for some call shapes).
-        saved_ret = self._current_task_ret_c
-        self._current_task_ret_c = self._resolve_task_return_type(td)
-
         # Register function parameters in vars so interpolation & type inference works
         saved_vars = dict(self.vars)
         for p in td.params:
             pt = self._type_to_c(p.type_ann) if p.type_ann else "int64_t"
             self.vars[p.name] = VarInfo(c_type=pt)
 
-        # Each C function gets isolated ownership state: tracked locals from
-        # a previous task must never leak into this one's cleanups, and
-        # parameters are borrowed from the caller (never released/tracked).
-        saved_owned = list(self._owned_word_locals)
-        self._owned_word_locals = []
-        saved_params = set(self._current_function_params)
-        self._current_function_params = {_sanitize_name(p.name) for p in td.params}
-
         if isinstance(td.body, Block):
             saved_indent = self.indent
             self.indent = 1
-            self._emit_scoped_body(td.body.statements, self._func_defs)
+            for s in td.body.statements:
+                self._emit_statement(s, self._func_defs)
             self.indent = saved_indent
         else:
             # Arrow form: single expression
@@ -505,9 +488,6 @@ class CEmitter:
 
         # Restore vars (exit function scope)
         self.vars = saved_vars
-        self._current_task_ret_c = saved_ret
-        self._owned_word_locals = saved_owned
-        self._current_function_params = saved_params
         self._func_defs.append("}")
         self._func_defs.append("")
 
@@ -543,25 +523,17 @@ class CEmitter:
                 pt = self._type_to_c(p.type_ann) if p.type_ann else "int64_t"
                 self.vars[p.name] = VarInfo(c_type=pt)
 
-        # Isolated ownership state per C function (see _emit_task_def), and
-        # parameters (including self) are borrowed, never released/tracked.
-        saved_owned = list(self._owned_word_locals)
-        self._owned_word_locals = []
-        saved_params = set(self._current_function_params)
-        self._current_function_params = {_sanitize_name(p.name) for p in td.params}
-
         if isinstance(td.body, Block):
             saved = self.indent
             self.indent = 1
-            self._emit_scoped_body(td.body.statements, self._func_defs)
+            for s in td.body.statements:
+                self._emit_statement(s, self._func_defs)
             self.indent = saved
         else:
             ret_c = self._expr_to_c(td.body)
             self._func_defs.append(f"    return {ret_c};")
 
         self.vars = saved_vars
-        self._owned_word_locals = saved_owned
-        self._current_function_params = saved_params
         self._func_defs.append("}")
         self._func_defs.append("")
 
@@ -614,103 +586,10 @@ class CEmitter:
         elif isinstance(stmt, Assign):
             self._emit_assign(stmt, target)
         elif isinstance(stmt, ExprStmt):
-            self._emit_discarded_expr(stmt.expr, target)
+            c = self._expr_to_c(stmt.expr)
+            target.append(f"{self._ind()}{c};")
         else:
             raise EmitError(f"Unsupported statement: {stmt!r}")
-
-    # Calls whose freak_word result is a fresh heap allocation. Mirrors the
-    # shipping V3 owned-word contract: every temporary from these calls has
-    # exactly one owner and must be released on say, interpolation, local
-    # scope exit, reassignment, and discarded paths. freak_word_from_bool is
-    # deliberately absent (it returns a shared literal, like freak_word_lit).
-    _OWNED_WORD_TEMPORARY_CALLS = frozenset(
-        {"format_num", "word_from_int", "word_join", "chr"}
-    )
-
-    def _is_owned_word_temporary(self, expr) -> bool:
-        """True when evaluating `expr` yields a fresh owned freak_word."""
-        if isinstance(expr, Call) and isinstance(expr.func, Ident):
-            if expr.func.name in self._OWNED_WORD_TEMPORARY_CALLS:
-                return True
-            # User tasks annotated `-> word` transfer ownership to the
-            # caller under the owned-return convention. Release is
-            # heap-guarded, so a borrowed literal result stays safe.
-            if self.func_sigs.get(expr.func.name) == "freak_word":
-                return True
-            return False
-        if isinstance(expr, BinOp):
-            # Word concatenation allocates fresh storage via
-            # freak_word_concat; the result has exactly one owner.
-            if expr.op == "+":
-                side_types = {
-                    self._infer_c_type_of_expr(expr.left),
-                    self._infer_c_type_of_expr(expr.right),
-                }
-                if "freak_word" in side_types:
-                    return True
-            return False
-        if isinstance(expr, MethodCall) and expr.method == "to_word":
-            # int/double conversions allocate; bool converts to a literal.
-            return self._infer_c_type_of_expr(expr.obj) in ("int64_t", "double")
-        if isinstance(expr, StrLit):
-            # Interpolated strings lower to freak_interpolate (owned).
-            return bool(expr.parts)
-        return False
-
-    def _track_owned_word_local(self, name: str) -> None:
-        if name not in self._owned_word_locals:
-            self._owned_word_locals.append(name)
-
-    def _untrack_owned_word_local(self, name: str) -> None:
-        if name in self._owned_word_locals:
-            self._owned_word_locals.remove(name)
-
-    def _emit_owned_word_cleanup(
-        self, target: List[str], skip: str = ""
-    ) -> None:
-        """Release every tracked owned local (release is idempotent)."""
-        for name in self._owned_word_locals:
-            if name != skip:
-                target.append(
-                    f"{self._ind()}freak_word_release_owned(&{name});"
-                )
-
-    def _emit_scoped_body(self, stmts, target: List[str]) -> None:
-        """Emit a statement list, releasing owned locals declared inside it.
-
-        Only names DECLARED in this body (absent from vars on entry) are
-        released here. Reassigning an outer local inside the body must not
-        free it at block end: the value escapes the block.
-        """
-        outer_vars = set(self.vars)
-        saved_vars = dict(self.vars)
-        for s in stmts:
-            self._emit_statement(s, target)
-        for name in list(self._owned_word_locals):
-            if name not in outer_vars:
-                target.append(f"{self._ind()}freak_word_release_owned(&{name});")
-                self._owned_word_locals.remove(name)
-        # Pilots declared inside the body do not leak into the enclosing
-        # scope: otherwise a later reassignment of the same name would look
-        # outer-living while its C declaration is scoped to this block.
-        self.vars = saved_vars
-
-    def _emit_say_owned(self, c_expr: str, target: List[str]) -> None:
-        """Say an owned word, then release the temporary."""
-        tmp = self._next_temp("__freak_say_value")
-        target.append(f"{self._ind()}freak_word {tmp} = {c_expr};")
-        target.append(f"{self._ind()}freak_say({tmp});")
-        target.append(f"{self._ind()}freak_word_release_owned(&{tmp});")
-
-    def _emit_discarded_expr(self, expr, target: List[str]) -> None:
-        """Emit a discarded expression value, releasing owned temporaries."""
-        c = self._expr_to_c(expr)
-        if self._is_owned_word_temporary(expr):
-            tmp = self._next_temp("__freak_discarded")
-            target.append(f"{self._ind()}freak_word {tmp} = {c};")
-            target.append(f"{self._ind()}freak_word_release_owned(&{tmp});")
-        else:
-            target.append(f"{self._ind()}{c};")
 
     def _emit_pilot_decl(self, decl: PilotDecl, target: List[str]) -> None:
         name = _sanitize_name(decl.name)
@@ -718,16 +597,13 @@ class CEmitter:
         init = self._expr_to_c(decl.value)
         self.vars[decl.name] = VarInfo(c_type=c_type)
         target.append(f"{self._ind()}{c_type} {name} = {init};")
-        if c_type == "freak_word" and self._is_owned_word_temporary(decl.value):
-            # Fresh owned storage: the enclosing scope releases it on exit.
-            self._track_owned_word_local(name)
 
     def _emit_say(self, stmt: SayStmt, target: List[str]) -> None:
         expr = stmt.value
         if isinstance(expr, StrLit) and expr.parts:
-            # Interpolated string lowers to owned freak_interpolate output.
+            # Interpolated string
             c_expr = self._emit_interpolated_string(expr)
-            self._emit_say_owned(c_expr, target)
+            target.append(f"{self._ind()}freak_say({c_expr});")
         elif isinstance(expr, StrLit):
             c_expr = f'freak_word_lit("{self._escape_c_string(expr.value)}")'
             target.append(f"{self._ind()}freak_say({c_expr});")
@@ -736,76 +612,49 @@ class CEmitter:
             # Determine type to pick conversion
             c_type = self._infer_c_type_of_expr(expr)
             if c_type == "freak_word":
-                if self._is_owned_word_temporary(expr):
-                    self._emit_say_owned(c_expr, target)
-                else:
-                    target.append(f"{self._ind()}freak_say({c_expr});")
+                target.append(f"{self._ind()}freak_say({c_expr});")
             elif c_type == "double":
-                self._emit_say_owned(
-                    f"freak_word_from_double({c_expr})", target
+                target.append(
+                    f"{self._ind()}freak_say(freak_word_from_double({c_expr}));"
                 )
             elif c_type == "bool":
-                # from_bool returns a shared literal: borrowed, no release.
                 target.append(
                     f"{self._ind()}freak_say(freak_word_from_bool({c_expr}));"
                 )
             else:
-                self._emit_say_owned(
-                    f"freak_word_from_int({c_expr})", target
-                )
+                target.append(f"{self._ind()}freak_say(freak_word_from_int({c_expr}));")
 
     def _emit_give_back(self, stmt: GiveBack, target: List[str]) -> None:
-        # A returned owned local transfers to the caller; every other tracked
-        # local is released first (release is idempotent, so scope-end
-        # cleanup after an early return stays a safe no-op).
-        if stmt.value is not None and isinstance(stmt.value, Ident):
-            candidate = _sanitize_name(stmt.value.name)
-            if candidate in self._owned_word_locals:
-                self._emit_owned_word_cleanup(target, skip=candidate)
-                c = self._expr_to_c(stmt.value)
-                target.append(f"{self._ind()}return {c};")
-                return
         if stmt.value is None:
-            self._emit_owned_word_cleanup(target)
             if self._in_main:
                 target.append(f"{self._ind()}return 0;")
             else:
                 target.append(f"{self._ind()}return;")
         else:
-            # Evaluate the return expression BEFORE releasing locals: cleanup
-            # nulls owned slots, so reading them afterwards (e.g. through a
-            # concatenation) would observe the released value. The temp is
-            # typed from the task's declared return (not expression
-            # inference, which is best-effort); without a declared
-            # non-void return, keep the direct form.
             c = self._expr_to_c(stmt.value)
-            if self._current_task_ret_c not in ("", "void"):
-                tmp = self._next_temp("__freak_return_value")
-                target.append(f"{self._ind()}{self._current_task_ret_c} {tmp} = {c};")
-                self._emit_owned_word_cleanup(target)
-                target.append(f"{self._ind()}return {tmp};")
-            else:
-                self._emit_owned_word_cleanup(target)
-                target.append(f"{self._ind()}return {c};")
+            target.append(f"{self._ind()}return {c};")
 
     def _emit_if(self, stmt: IfExpr, target: List[str]) -> None:
         cond = self._expr_to_c(stmt.condition)
         target.append(f"{self._ind()}if ({cond}) {{")
         self.indent += 1
-        self._emit_scoped_body(stmt.then_block.statements, target)
+        for s in stmt.then_block.statements:
+            self._emit_statement(s, target)
         self.indent -= 1
 
         for elif_cond, elif_block in stmt.elif_branches:
             ec = self._expr_to_c(elif_cond)
             target.append(f"{self._ind()}}} else if ({ec}) {{")
             self.indent += 1
-            self._emit_scoped_body(elif_block.statements, target)
+            for s in elif_block.statements:
+                self._emit_statement(s, target)
             self.indent -= 1
 
         if stmt.else_block:
             target.append(f"{self._ind()}}} else {{")
             self.indent += 1
-            self._emit_scoped_body(stmt.else_block.statements, target)
+            for s in stmt.else_block.statements:
+                self._emit_statement(s, target)
             self.indent -= 1
 
         target.append(f"{self._ind()}}}")
@@ -833,9 +682,11 @@ class CEmitter:
                         )
                 self.indent += 1
                 if isinstance(arm.body, Block):
-                    self._emit_scoped_body(arm.body.statements, target)
+                    for s in arm.body.statements:
+                        self._emit_statement(s, target)
                 else:
-                    self._emit_discarded_expr(arm.body, target)
+                    c = self._expr_to_c(arm.body)
+                    target.append(f"{self._ind()}{c};")
                 self.indent -= 1
             target.append(f"{self._ind()}}}")
         else:
@@ -850,9 +701,11 @@ class CEmitter:
                     target.append(f"{self._ind()}case {pattern_c}: {{")
                 self.indent += 1
                 if isinstance(arm.body, Block):
-                    self._emit_scoped_body(arm.body.statements, target)
+                    for s in arm.body.statements:
+                        self._emit_statement(s, target)
                 else:
-                    self._emit_discarded_expr(arm.body, target)
+                    c = self._expr_to_c(arm.body)
+                    target.append(f"{self._ind()}{c};")
                 target.append(f"{self._ind()}break;")
                 self.indent -= 1
                 target.append(f"{self._ind()}}}")
@@ -872,7 +725,8 @@ class CEmitter:
         )
         self.indent += 1
         target.append(f"{self._ind()}int64_t {var_name} = {iterable_c}.data[{idx}];")
-        self._emit_scoped_body(stmt.body.statements, target)
+        for s in stmt.body.statements:
+            self._emit_statement(s, target)
         self.indent -= 1
         target.append(f"{self._ind()}}}")
 
@@ -883,7 +737,8 @@ class CEmitter:
             f"{self._ind()}for (int64_t {idx} = 0; {idx} < {count_c}; {idx}++) {{"
         )
         self.indent += 1
-        self._emit_scoped_body(stmt.body.statements, target)
+        for s in stmt.body.statements:
+            self._emit_statement(s, target)
         self.indent -= 1
         target.append(f"{self._ind()}}}")
 
@@ -891,7 +746,8 @@ class CEmitter:
         cond_c = self._expr_to_c(stmt.condition)
         target.append(f"{self._ind()}while (!({cond_c})) {{")
         self.indent += 1
-        self._emit_scoped_body(stmt.body.statements, target)
+        for s in stmt.body.statements:
+            self._emit_statement(s, target)
         self.indent -= 1
         target.append(f"{self._ind()}}}")
 
@@ -902,7 +758,8 @@ class CEmitter:
         target.append(f"{self._ind()}int64_t {arc_var} = 0;")
         target.append(f"{self._ind()}while (!({cond_c}) && {arc_var} < {max_c}) {{")
         self.indent += 1
-        self._emit_scoped_body(stmt.body.statements, target)
+        for s in stmt.body.statements:
+            self._emit_statement(s, target)
         target.append(f"{self._ind()}{arc_var}++;")
         self.indent -= 1
         target.append(f"{self._ind()}}}")
@@ -910,50 +767,6 @@ class CEmitter:
     def _emit_assign(self, stmt: Assign, target: List[str]) -> None:
         lhs = self._expr_to_c(stmt.target)
         rhs = self._expr_to_c(stmt.value)
-        if stmt.op == "=" and isinstance(stmt.target, Ident):
-            name = _sanitize_name(stmt.target.name)
-            info = self.vars.get(stmt.target.name)
-            if info is not None and info.c_type == "freak_word":
-                if isinstance(stmt.value, Ident) and _sanitize_name(stmt.value.name) == name:
-                    # Self-assignment keeps its buffer; nothing to do.
-                    target.append(f"{self._ind()}{lhs} {stmt.op} {rhs};")
-                    return
-                if name in self._current_function_params:
-                    # Parameters are borrowed from the caller: plain store,
-                    # never release the caller's buffer, never track it.
-                    target.append(f"{self._ind()}{lhs} {stmt.op} {rhs};")
-                    return
-                rhs_c = rhs
-                if ((name in self._owned_word_locals) or self._is_owned_word_temporary(stmt.value)) and not isinstance(stmt.value, Ident):
-                    # Reassignment drops the previous buffer, but the RHS is
-                    # evaluated into a temp FIRST: it may read this very local
-                    # (e.g. src = src + suffix in a loop, where emit-time
-                    # tracking cannot see prior iterations) and cleanup nulls
-                    # the slot the right-hand side still needs to copy.
-                    # Releasing an untracked literal/borrowed slot is a safe
-                    # no-op (release is heap-guarded).
-                    rhs_tmp = self._next_temp("__freak_reassign")
-                    target.append(
-                        f"{self._ind()}{info.c_type} {rhs_tmp} = {rhs_c};"
-                    )
-                    target.append(
-                        f"{self._ind()}freak_word_release_owned(&{name});"
-                    )
-                    rhs_c = rhs_tmp
-                if isinstance(stmt.value, Ident):
-                    source_info = self.vars.get(stmt.value.name)
-                    if source_info is not None and source_info.c_type == "freak_word":
-                        # Word-to-word copies alias; clone to keep one owner.
-                        rhs_c = f"freak_word_clone({rhs})"
-                        self._track_owned_word_local(name)
-                    else:
-                        self._untrack_owned_word_local(name)
-                elif self._is_owned_word_temporary(stmt.value):
-                    self._track_owned_word_local(name)
-                else:
-                    self._untrack_owned_word_local(name)
-                target.append(f"{self._ind()}{lhs} {stmt.op} {rhs_c};")
-                return
         target.append(f"{self._ind()}{lhs} {stmt.op} {rhs};")
 
     def _maybe_inner_type(self, expr) -> str:
@@ -989,12 +802,14 @@ class CEmitter:
         target.append(f"{self._ind()}{inner_type} {stmt.got_name} = {subject_c}.value;")
         saved_vars = dict(self.vars)
         self.vars[stmt.got_name] = VarInfo(c_type=inner_type)
-        self._emit_scoped_body(stmt.got_body.statements, target)
+        for s in stmt.got_body.statements:
+            self._emit_statement(s, target)
         self.vars = saved_vars
         self.indent -= 1
         target.append(f"{self._ind()}}} else {{")
         self.indent += 1
-        self._emit_scoped_body(stmt.nobody_body.statements, target)
+        for s in stmt.nobody_body.statements:
+            self._emit_statement(s, target)
         self.indent -= 1
         target.append(f"{self._ind()}}}")
 
@@ -1010,7 +825,8 @@ class CEmitter:
         )
         saved_vars = dict(self.vars)
         self.vars[stmt.ok_name] = VarInfo(c_type=ok_type)
-        self._emit_scoped_body(stmt.ok_body.statements, target)
+        for s in stmt.ok_body.statements:
+            self._emit_statement(s, target)
         self.vars = saved_vars
         self.indent -= 1
         target.append(f"{self._ind()}}} else {{")
@@ -1020,7 +836,8 @@ class CEmitter:
         )
         saved_vars = dict(self.vars)
         self.vars[stmt.err_name] = VarInfo(c_type="freak_word")
-        self._emit_scoped_body(stmt.err_body.statements, target)
+        for s in stmt.err_body.statements:
+            self._emit_statement(s, target)
         self.vars = saved_vars
         self.indent -= 1
         target.append(f"{self._ind()}}}")
@@ -1039,7 +856,8 @@ class CEmitter:
         )
         target.append(f"{self._ind()}{{")
         self.indent += 1
-        self._emit_scoped_body(stmt.body.statements, target)
+        for s in stmt.body.statements:
+            self._emit_statement(s, target)
         self.indent -= 1
         target.append(f"{self._ind()}}}")
 
@@ -1060,7 +878,8 @@ class CEmitter:
         target.append(f'{self._ind()}   "{escaped}" */')
         target.append(f"{self._ind()}{{")
         self.indent += 1
-        self._emit_scoped_body(stmt.body.statements, target)
+        for s in stmt.body.statements:
+            self._emit_statement(s, target)
         self.indent -= 1
         target.append(f"{self._ind()}}}")
 
@@ -1069,7 +888,8 @@ class CEmitter:
         target.append(f"{self._ind()}/* isekai: fresh scope */")
         target.append(f"{self._ind()}{{")
         self.indent += 1
-        self._emit_scoped_body(stmt.body.statements, target)
+        for s in stmt.body.statements:
+            self._emit_statement(s, target)
         self.indent -= 1
         target.append(f"{self._ind()}}}")
         if stmt.exports:
@@ -1086,7 +906,8 @@ class CEmitter:
         # For now, emit as a plain block at point of declaration (no true defer support yet)
         target.append(f"{self._ind()}{{")
         self.indent += 1
-        self._emit_scoped_body(stmt.body.statements, target)
+        for s in stmt.body.statements:
+            self._emit_statement(s, target)
         self.indent -= 1
         target.append(f"{self._ind()}}}")
 
@@ -1596,8 +1417,6 @@ class CEmitter:
             "snapshot_field_raw": ("freak_word_snapshot_field_raw", 1, False),
             "to_int": ("freak_word_to_int", 0, False),
             "to_num": ("freak_word_to_num", 0, False),
-            "parse_int": ("freak_word_parse_int", 0, False),
-            "parse_num": ("freak_word_parse_num", 0, False),
             "substring": ("freak_word_substring", 2, False),
         }
         if obj_type == "freak_word" and expr.method in WORD_METHODS:
@@ -1637,8 +1456,13 @@ class CEmitter:
             if obj_c in hints:
                 base_type = hints[obj_c]
 
-        # Generic method call: try type_method pattern
-        ref = obj_c if is_ptr else f"&{obj_c}"
+        # Generic method call: try type_method pattern.
+        # Builtin freak_word methods take the struct by value; only user
+        # shapes take a pointer receiver.
+        if base_type == "freak_word":
+            ref = obj_c
+        else:
+            ref = obj_c if is_ptr else f"&{obj_c}"
         if args_c:
             return f"{base_type}_{expr.method}({ref}, {args_c})"
         return f"{base_type}_{expr.method}({ref})"
@@ -1731,17 +1555,10 @@ class CEmitter:
         # Track captured vars so Ident emits __env->name
         saved_captures = self._closure_captures
         self._closure_captures = {cname for cname, _ in captured}
-        # Closures are separate C functions: isolate owned-local tracking so
-        # returns inside cannot release the enclosing scope's storage.
-        saved_owned = list(self._owned_word_locals)
-        self._owned_word_locals = []
-        saved_params = set(self._current_function_params)
-        self._current_function_params = {_sanitize_name(p.name) for p in expr.params}
-        saved_ret = self._current_task_ret_c
-        self._current_task_ret_c = ""
 
         if isinstance(expr.body, Block):
-            self._emit_scoped_body(expr.body.statements, self._lambda_defs)
+            for s in expr.body.statements:
+                self._emit_statement(s, self._lambda_defs)
         else:
             ret_c = self._expr_to_c(expr.body)
             self._lambda_defs.append(f"    return {ret_c};")
@@ -1749,9 +1566,6 @@ class CEmitter:
         self.indent = saved_indent
         self.vars = saved_vars
         self._closure_captures = saved_captures
-        self._owned_word_locals = saved_owned
-        self._current_function_params = saved_params
-        self._current_task_ret_c = saved_ret
 
         self._lambda_defs.append("}")
         self._lambda_defs.append("")
@@ -1832,7 +1646,6 @@ class CEmitter:
 
         fmt_parts: List[str] = []
         args: List[str] = []
-        hoisted: List[tuple] = []
 
         for text, interp_expr in expr.parts:
             escaped = self._escape_c_string(text)
@@ -1865,16 +1678,8 @@ class CEmitter:
                     c_expr = self._expr_to_c(interp_expr)
                     c_type = self._infer_c_type_of_expr(interp_expr)
                     if c_type == "freak_word":
-                        if self._is_owned_word_temporary(interp_expr):
-                            # Hoist the temporary so the cstr view cannot
-                            # outlive the allocation it points into.
-                            tmp = self._next_temp("__freak_interp_arg")
-                            hoisted.append((tmp, c_expr))
-                            fmt_parts.append(f"{escaped}%s")
-                            args.append(f"freak_word_to_cstr({tmp})")
-                        else:
-                            fmt_parts.append(f"{escaped}%s")
-                            args.append(f"freak_word_to_cstr({c_expr})")
+                        fmt_parts.append(f"{escaped}%s")
+                        args.append(f"freak_word_to_cstr({c_expr})")
                     elif c_type == "double":
                         fmt_parts.append(f"{escaped}%g")
                         args.append(c_expr)
@@ -1888,20 +1693,9 @@ class CEmitter:
         fmt_str = "".join(fmt_parts)
         if args:
             args_str = ", ".join(args)
-            result = f'freak_interpolate("{fmt_str}", {args_str})'
+            return f'freak_interpolate("{fmt_str}", {args_str})'
         else:
-            result = f'freak_word_lit("{fmt_str}")'
-        if hoisted:
-            # Owned arguments are statement-hoisted so each temporary is
-            # released after the interpolation consumes it.
-            result_tmp = self._next_temp("__freak_interp")
-            chunks = [f"freak_word {tmp} = {c_expr};" for tmp, c_expr in hoisted]
-            chunks.append(f"freak_word {result_tmp} = {result};")
-            for tmp, _ in hoisted:
-                chunks.append(f"freak_word_release_owned(&{tmp});")
-            chunks.append(f"{result_tmp};")
-            return "({ " + " ".join(chunks) + " })"
-        return result
+            return f'freak_word_lit("{fmt_str}")'
 
     # ===================================================================
     #  Type Inference Helpers
@@ -2173,8 +1967,6 @@ class CEmitter:
                 "snapshot_field_count": "int64_t",
                 "to_int": "int64_t",
                 "to_num": "double",
-                "parse_int": "int64_t",
-                "parse_num": "double",
                 "to_upper": "freak_word",
                 "to_lower": "freak_word",
                 "trim": "freak_word",
