@@ -388,6 +388,8 @@ A PR is ready only when:
   evidence
 - conformance and public docs match the actual behavior
 - the PR describes remaining conservative boundaries
+- the default merge method is **Rebase merge**; use squash or merge-commit
+  only with explicit justification recorded in the PR
 
 Record the final evidence in a PR comment. Any subsequent commit invalidates
 the record:
