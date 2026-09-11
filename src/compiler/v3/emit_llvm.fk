@@ -418,10 +418,24 @@ task llvm_infer_expr_type(expr_id: word) -> word {
         pilot arguments: word = array_get(ast_expr_lefts, i)
         give back "a:" + llvm_infer_expr_type(word_from_int(tc_arg_at(arguments, 0)))
     }
+    if kind == EXPR_CALL and (val == "List::new" or val == "List::with_capacity") { give back "a:w" }
 
     if kind == EXPR_METHOD {
         pilot recv_expr: word = array_get(ast_expr_lefts, i)
         pilot recv_type = llvm_infer_expr_type(recv_expr)
+        if recv_type.starts_with("a:") {
+            pilot list_elem = recv_type.substring(2, recv_type.length() - 2)
+            pilot list_semantic = "int"
+            if list_elem == "n" { list_semantic = "num" }
+            else if list_elem == "w" { list_semantic = "word" }
+            else if list_elem == "b" { list_semantic = "bool" }
+            else if list_elem.starts_with("s:") { list_semantic = list_elem.substring(2, list_elem.length() - 2) }
+            else if list_elem == "i" { list_semantic = "int" }
+            else { list_semantic = "int" }
+            pilot list_recv = "List<" + list_semantic + ">"
+            pilot list_ret = tc_builtin_method_return_type(list_recv, val)
+            if list_ret != "" { give back llvm_type_code(list_ret) }
+        }
         pilot recv_shape = llvm_shape_name_from_type(recv_type)
         if recv_shape != "" {
             pilot exact_ret = llvm_get_task_ret_type(recv_shape + "_" + val)
@@ -1157,6 +1171,18 @@ task llvm_emit_call(expr_id: word, val: word, left: word) -> word {
         if item_type == "w" { llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + preserved_value + ", i64 0)") }
         give back array_result
     }
+    if val == "List::new" {
+        pilot new_reg = next_reg()
+        llvm_emit_line("    " + new_reg + " = call i64 @freak_v3_array_new(i64 2)")
+        give back new_reg
+    }
+    if val == "List::with_capacity" {
+        pilot cap_id = word_from_int(tc_arg_at(left, 0))
+        pilot cap_reg = llvm_emit_expr(cap_id)
+        pilot cap_result = next_reg()
+        llvm_emit_line("    " + cap_result + " = call i64 @freak_v3_array_with_capacity(i64 2, i64 " + cap_reg + ")")
+        give back cap_result
+    }
     -- Shape constructors have their own ownership-aware argument lowering.
     if val.starts_with("shape::ctor::") { give back llvm_emit_shape_ctor(val, left) }
 
@@ -1435,6 +1461,42 @@ task llvm_emit_method(expr_id: word, val: word, left: word, right: word) -> word
     if val == "length" and recv_ty.starts_with("a:") {
         llvm_emit_line("    " + res_reg + " = call i64 @freak_v3_array_len(i64 " + obj_reg + ")")
         llvm_v3_cleanup_temp(left, obj_reg)
+        give back res_reg
+    }
+    if val == "capacity" and recv_ty.starts_with("a:") {
+        llvm_emit_line("    " + res_reg + " = call i64 @freak_v3_array_capacity(i64 " + obj_reg + ")")
+        llvm_v3_cleanup_temp(left, obj_reg)
+        give back res_reg
+    }
+    if val == "clear" and recv_ty.starts_with("a:") {
+        if not llvm_v3_temporary(left) { obj_reg = llvm_v3_retain(obj_reg, recv_ty) }
+        llvm_emit_line("    call void @freak_v3_array_clear(i64 " + obj_reg + ")")
+        llvm_v3_release(obj_reg, recv_ty)
+        give back "0"
+    }
+    if val == "reserve" and recv_ty.starts_with("a:") {
+        pilot cap_id = word_from_int(tc_arg_at(right, 0))
+        pilot cap_reg = llvm_emit_expr(cap_id)
+        if not llvm_v3_temporary(left) { obj_reg = llvm_v3_retain(obj_reg, recv_ty) }
+        llvm_emit_line("    call void @freak_v3_array_reserve(i64 " + obj_reg + ", i64 " + cap_reg + ")")
+        llvm_v3_release(obj_reg, recv_ty)
+        give back "0"
+    }
+    if val == "push" and recv_ty.starts_with("a:") {
+        pilot elem_ty = recv_ty.substring(2, recv_ty.length() - 2)
+        pilot push_id = word_from_int(tc_arg_at(right, 0))
+        pilot push_reg = llvm_emit_expr(push_id)
+        if elem_ty == "n" { push_reg = llvm_coerce_num_bits(push_reg, push_id) }
+        if not llvm_v3_temporary(left) { obj_reg = llvm_v3_retain(obj_reg, recv_ty) }
+        llvm_emit_line("    call void @freak_v3_array_push(i64 " + obj_reg + ", i64 " + push_reg + ")")
+        llvm_v3_cleanup_temp(push_id, push_reg)
+        llvm_v3_release(obj_reg, recv_ty)
+        give back "0"
+    }
+    if val == "pop" and recv_ty.starts_with("a:") {
+        if not llvm_v3_temporary(left) { obj_reg = llvm_v3_retain(obj_reg, recv_ty) }
+        llvm_emit_line("    " + res_reg + " = call i64 @freak_v3_array_pop(i64 " + obj_reg + ")")
+        llvm_v3_release(obj_reg, recv_ty)
         give back res_reg
     }
     if recv_ty.starts_with("q") {
@@ -1820,10 +1882,52 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
     pilot vtype = ""
     if type_ann != "" { vtype = llvm_type_code(type_ann) }
     if vtype == "" { vtype = llvm_infer_expr_type(expr_id_w) }
-    pilot reg = llvm_emit_expr(expr_id_w)
-    pilot stored_reg = reg
     pilot expr_idx = word_to_int(expr_id_w)
     pilot expr_kind: word = array_get(ast_expr_kinds, expr_idx)
+    pilot expr_val: word = array_get(ast_expr_vals, expr_idx)
+    pilot expr_left: word = array_get(ast_expr_lefts, expr_idx)
+    if type_ann != "" and type_ann.starts_with("List<") {
+        pilot ann_elem = type_ann.substring(5, type_ann.length() - 6)
+        pilot ann_kind = llvm_v3_kind(llvm_type_code(ann_elem))
+        pilot is_empty_lit = expr_kind == EXPR_ARRAY_LIT and tc_arg_count(expr_left) == 0
+        pilot is_new = expr_kind == EXPR_CALL and expr_val == "List::new"
+        pilot is_with_cap = expr_kind == EXPR_CALL and expr_val == "List::with_capacity"
+        if is_empty_lit or is_new {
+            pilot fresh = next_reg()
+            llvm_emit_line("    " + fresh + " = call i64 @freak_v3_array_new(i64 " + ann_kind + ")")
+            llvm_set_var_type(name_w, vtype)
+            if llvm_emitting_global_init {
+                llvm_emit_line("    store i64 " + fresh + ", i64* @g_" + name_w)
+            } else {
+                pilot uniq = name_w + "_v" + word_from_int(temp_reg_counter)
+                temp_reg_counter += 1
+                llvm_reg_var(name_w, uniq)
+                llvm_emit_line("    %" + uniq + " = alloca i64")
+                llvm_emit_line("    store i64 " + fresh + ", i64* %" + uniq)
+                if llvm_v3_owned_type(vtype) { llvm_v3_register_slot(uniq, vtype) }
+            }
+            give back
+        }
+        if is_with_cap {
+            pilot cap_reg = llvm_emit_expr(word_from_int(tc_arg_at(expr_left, 0)))
+            pilot with_cap = next_reg()
+            llvm_emit_line("    " + with_cap + " = call i64 @freak_v3_array_with_capacity(i64 " + ann_kind + ", i64 " + cap_reg + ")")
+            llvm_set_var_type(name_w, vtype)
+            if llvm_emitting_global_init {
+                llvm_emit_line("    store i64 " + with_cap + ", i64* @g_" + name_w)
+            } else {
+                pilot uniq = name_w + "_v" + word_from_int(temp_reg_counter)
+                temp_reg_counter += 1
+                llvm_reg_var(name_w, uniq)
+                llvm_emit_line("    %" + uniq + " = alloca i64")
+                llvm_emit_line("    store i64 " + with_cap + ", i64* %" + uniq)
+                if llvm_v3_owned_type(vtype) { llvm_v3_register_slot(uniq, vtype) }
+            }
+            give back
+        }
+    }
+    pilot reg = llvm_emit_expr(expr_id_w)
+    pilot stored_reg = reg
     if vtype.starts_with("n") { stored_reg = llvm_coerce_num_bits(reg, expr_id_w) }
     if vtype.starts_with("w") and llvm_word_expr_needs_clone(expr_id_w) {
         pilot clone_reg = next_reg()
@@ -2524,8 +2628,13 @@ task llvm_emit_task(eid: word) -> void {
 
 task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_v3_array_new(i64)")
+    llvm_emit_line("declare i64 @freak_v3_array_with_capacity(i64, i64)")
     llvm_emit_line("declare i64 @freak_v3_array_filled(i64, i64, i64)")
     llvm_emit_line("declare void @freak_v3_array_push(i64, i64)")
+    llvm_emit_line("declare i64 @freak_v3_array_pop(i64)")
+    llvm_emit_line("declare void @freak_v3_array_clear(i64)")
+    llvm_emit_line("declare void @freak_v3_array_reserve(i64, i64)")
+    llvm_emit_line("declare i64 @freak_v3_array_capacity(i64)")
     llvm_emit_line("declare i64 @freak_v3_array_get(i64, i64)")
     llvm_emit_line("declare void @freak_v3_array_set(i64, i64, i64)")
     llvm_emit_line("declare i64 @freak_v3_array_len(i64)")

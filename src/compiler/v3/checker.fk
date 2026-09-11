@@ -956,7 +956,7 @@ task tc_internal_runtime_task_name(name: word) -> bool {
 }
 
 task tc_reserved_builtin_call(name: word) -> bool {
-    give back tc_builtin_call_type(name) != "" or name == "process::args" or name == "List::filled"
+    give back tc_builtin_call_type(name) != "" or name == "process::args" or name == "List::filled" or name == "List::new" or name == "List::with_capacity"
 }
 
 task tc_internal_runtime_source(source_file: word) -> bool {
@@ -964,7 +964,7 @@ task tc_internal_runtime_source(source_file: word) -> bool {
 }
 
 task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
-    if tc_is_list(receiver_type) and name == "length" { give back true }
+    if tc_is_list(receiver_type) and (name == "length" or name == "push" or name == "pop" or name == "clear" or name == "reserve" or name == "capacity") { give back true }
     if receiver_type == "ByteBuffer" {
         if name == "release" or name == "status" or name == "clear_status" or name == "reserve" { give back true }
         if name == "capacity" or name == "length" or name == "position" or name == "remaining" { give back true }
@@ -993,6 +993,11 @@ task tc_builtin_method_allowed(receiver_type: word, name: word) -> bool {
 
 task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
     if not tc_builtin_method_allowed(receiver_type, name) { give back "" }
+    if tc_is_list(receiver_type) {
+        if name == "push" or name == "clear" or name == "reserve" { give back "void" }
+        if name == "pop" { give back tc_list_element(receiver_type) }
+        if name == "capacity" or name == "length" { give back "int" }
+    }
     if receiver_type == "ByteBuffer" {
         if name == "slice" { give back "ByteBuffer" }
         if name == "read_word" or name == "to_word" { give back "word" }
@@ -1008,6 +1013,11 @@ task tc_builtin_method_return_type(receiver_type: word, name: word) -> word {
 }
 
 task tc_builtin_method_params(receiver_type: word, name: word) -> word {
+    if tc_is_list(receiver_type) {
+        if name == "push" { give back tc_list_element(receiver_type) }
+        if name == "reserve" { give back "int" }
+        give back ""
+    }
     if receiver_type == "ByteBuffer" {
         if name == "reserve" or name == "truncate" or name == "seek" or name == "write_byte" { give back "int" }
         if name == "write_int" or name == "write_int_be" or name == "read_word" { give back "int" }
@@ -1037,6 +1047,7 @@ task tc_arg_count(args: word) -> int {
 }
 
 task tc_builtin_method_arity(name: word) -> int {
+    if name == "push" { give back 1 }
     if name == "char_at" or name == "contains" or name == "starts_with" or name == "ends_with" or name == "repeated" { give back 1 }
     if name == "reserve" or name == "truncate" or name == "seek" or name == "write_byte" or name == "write_int" or name == "write_int_be" or name == "write_word" or name == "read_word" { give back 1 }
     if name == "slice" { give back 2 }
@@ -1068,6 +1079,7 @@ task tc_expr_type(expr_id: int) -> word {
     if kind == EXPR_IDENT { give back tc_lookup_type(val) }
     if kind == EXPR_CALL {
         if val == "List::filled" { give back "List<" + tc_expr_type(tc_arg_at(array_get(ast_expr_lefts, expr_id), 0)) + ">" }
+        if val == "List::new" or val == "List::with_capacity" { give back "" }
         if val.starts_with("shape::ctor::") { give back val.replace("shape::ctor::", "") }
         pilot ret = tc_task_return_type(val)
         if ret != "" { give back ret }
@@ -1423,9 +1435,22 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
             tc_diag_non_shape_method(val, line, source_file)
         } else if receiver_type != "" {
             tc_validate_type_args("method '" + val + "'", right, tc_builtin_method_params(receiver_type, val), line, source_file)
+            if tc_is_list(receiver_type) and (val == "push" or val == "pop" or val == "clear" or val == "reserve") and not tc_list_root_mutable(word_to_int(left)) {
+                tc_diag("indexed assignment requires a mutable list binding; declare it with pilot mut", line, source_file)
+            }
         } else {
             tc_diag_unknown_method_receiver(val, line, source_file)
         }
+        give back
+    }
+    if kind == EXPR_CALL and val == "List::new" {
+        tc_validate_args(left, line)
+        tc_validate_type_args("List::new", left, "", line, source_file)
+        give back
+    }
+    if kind == EXPR_CALL and val == "List::with_capacity" {
+        tc_validate_args(left, line)
+        tc_validate_type_args("List::with_capacity", left, "int", line, source_file)
         give back
     }
     if kind == EXPR_CALL and val == "List::filled" {
@@ -2254,9 +2279,17 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot type_ann: word = array_get(ast_stmt_extras, stmt_id)
         pilot binding_type = type_ann
         pilot value_type = tc_expr_type(expr_id)
+        pilot expr_kind: word = array_get(ast_expr_kinds, expr_id)
+        pilot expr_val: word = array_get(ast_expr_vals, expr_id)
+        pilot is_empty_list_init = false
+        if expr_kind == EXPR_ARRAY_LIT and tc_arg_count(array_get(ast_expr_lefts, expr_id)) == 0 and tc_is_list(binding_type) { is_empty_list_init = true }
+        if expr_kind == EXPR_CALL and (expr_val == "List::new" or expr_val == "List::with_capacity") and tc_is_list(binding_type) { is_empty_list_init = true }
+        if is_empty_list_init { value_type = binding_type }
         if binding_type == "" { binding_type = value_type }
         else if not tc_is_known_value_type(binding_type) {
             tc_diag("binding '" + binding_name + "' has unknown or non-value type '" + binding_type + "'", line, source_file)
+        } else if is_empty_list_init and not tc_is_scalar(tc_list_element(binding_type)) and not is_shape_name(tc_list_element(binding_type)) {
+            tc_diag("unsupported list element type '" + tc_list_element(binding_type) + "'", tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file))
         } else if value_type != "" and not tc_type_assignable(binding_type, value_type) {
             tc_diag("cannot initialize " + binding_type + " binding '" + binding_name + "' with " + value_type, tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file))
         }

@@ -653,8 +653,19 @@ Rules:
 **Shipping V3 dynamic lists:** literals infer `List<T>` for `int`, `num`,
 `bool`, `word`, and concrete owned shapes. Mixed numeric elements widen to
 `num`; incompatible elements are diagnosed. V3 implements checked indexing,
-indexed assignment through a `pilot mut` root, `.length()`,
-`List::filled(value, count)`, and `for each item in values` on LLVM and C.
+indexed assignment through a `pilot mut` root, `.length()`, `.capacity()`,
+`.reserve(n)`, `.clear()`, `.push(value)`, `.pop()`,
+`List::filled(value, count)`, `List::new()`, `List::with_capacity(n)`, and
+`for each item in values` on LLVM and C. A context-typed empty literal
+(`pilot mut xs: List<num> = []`) and the `List::new()` /
+`List::with_capacity(n)` constructors take their element type from a
+`List<T>` pilot annotation; unannotated construction defaults to
+`List<word>` and an unannotated `List::new()` / `List::with_capacity(n)`
+is rejected as uninferred. Mutating methods (`.push()`, `.pop()`,
+`.clear()`, `.reserve()`) require the same `pilot mut` root as indexed
+assignment. Popped words and shapes transfer ownership to the caller and
+cleared elements release owned storage, so native word/shape counters
+return to zero on ordinary exits.
 The fill value and count each evaluate once, in that order. Iteration evaluates
 and retains its collection once, reads each element in order, and releases
 owned iteration values on ordinary and early exits. Indexed owned reads remain
@@ -664,12 +675,12 @@ shared ownership or lifetime syntax.
 
 V3 uses contiguous 64-bit numeric/bool slots and retains bounds checks in
 optimized builds. Owned words and nested concrete shapes are cleaned on
-replacement and scope exit. Its current conservative boundaries are explicit:
-an empty literal is `List<word>`; typed container covariance, nested lists,
+replacement, pop, clear, and scope exit. Its current conservative boundaries are explicit:
+unannotated empty literals remain `List<word>`; typed container covariance, nested lists,
 List-valued shape fields, and indexed writes through temporary call results
 are rejected. Fixed arrays/repeat literals and general collection generics
 remain their separately tracked V4 contracts. See
-`tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, and the million-element
+`tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, `tests/v3_list_methods.py`, and the million-element
 `examples/array_math.fk` workload for executable V3 evidence.
 
 Block-bodied tasks do not have implicit tail returns. `give back` is
