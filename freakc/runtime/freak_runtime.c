@@ -1705,6 +1705,119 @@ int64_t freak_word_to_int(freak_word w) {
     return strtoll(w.data, NULL, 10);
 }
 
+static int64_t freak_parse_status_value = FREAK_PARSE_STATUS_OK;
+
+static void freak_parse_fail(int64_t code) {
+    /* Sticky like ByteBuffer status: the first failure wins until cleared. */
+    if (freak_parse_status_value == FREAK_PARSE_STATUS_OK) {
+        freak_parse_status_value = code;
+    }
+}
+
+int64_t freak_parse_status(void) {
+    return freak_parse_status_value;
+}
+
+void freak_parse_clear_status(void) {
+    freak_parse_status_value = FREAK_PARSE_STATUS_OK;
+}
+
+int64_t freak_word_parse_int(freak_word w) {
+    const char* text = w.data ? w.data : "";
+    size_t length = w.data ? w.length : 0;
+    size_t i = 0;
+    bool negative = false;
+    if (i < length && (text[i] == '+' || text[i] == '-')) {
+        negative = (text[i] == '-');
+        i += 1;
+    }
+    if (i >= length) {
+        /* Empty input or sign-only text. */
+        freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+        return 0;
+    }
+    uint64_t acc = 0;
+    uint64_t limit = negative ? ((uint64_t)INT64_MAX + 1u) : (uint64_t)INT64_MAX;
+    size_t digits = 0;
+    for (; i < length; i += 1) {
+        char c = text[i];
+        if (c < '0' || c > '9') {
+            freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+            return 0;
+        }
+        unsigned digit = (unsigned)(c - '0');
+        if (acc > (limit - digit) / 10u) {
+            freak_parse_fail(FREAK_PARSE_STATUS_OUT_OF_RANGE);
+            return 0;
+        }
+        acc = acc * 10u + digit;
+        digits += 1;
+    }
+    if (digits == 0) {
+        freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+        return 0;
+    }
+    if (negative) {
+        if (acc == (uint64_t)INT64_MAX + 1u) return INT64_MIN;
+        return -(int64_t)acc;
+    }
+    return (int64_t)acc;
+}
+
+double freak_word_parse_num(freak_word w) {
+    const char* text = w.data ? w.data : "";
+    size_t length = w.data ? w.length : 0;
+    size_t i = 0;
+    if (i < length && (text[i] == '+' || text[i] == '-')) i += 1;
+    size_t int_digits = 0;
+    while (i < length && text[i] >= '0' && text[i] <= '9') { i += 1; int_digits += 1; }
+    size_t frac_digits = 0;
+    if (i < length && text[i] == '.') {
+        i += 1;
+        while (i < length && text[i] >= '0' && text[i] <= '9') { i += 1; frac_digits += 1; }
+    }
+    if (int_digits == 0 && frac_digits == 0) {
+        freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+        return 0.0;
+    }
+    if (i < length && (text[i] == 'e' || text[i] == 'E')) {
+        size_t j = i + 1;
+        if (j < length && (text[j] == '+' || text[j] == '-')) j += 1;
+        size_t exp_digits = 0;
+        while (j < length && text[j] >= '0' && text[j] <= '9') { j += 1; exp_digits += 1; }
+        if (exp_digits == 0) {
+            freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+            return 0.0;
+        }
+        i = j;
+    }
+    if (i != length) {
+        freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+        return 0.0;
+    }
+    /* The strict scan above already rejected whitespace, junk suffixes, and
+       embedded NULs, so a bounded copy converts exactly what was checked. */
+    char* buf = (char*)malloc(length + 1);
+    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); exit(1); }
+    if (length > 0) memcpy(buf, text, length);
+    buf[length] = '\0';
+    errno = 0;
+    char* end = NULL;
+    double value = strtod(buf, &end);
+    bool converted = (end != buf && *end == '\0');
+    int convert_errno = errno;
+    free(buf);
+    if (!converted) {
+        freak_parse_fail(FREAK_PARSE_STATUS_INVALID);
+        return 0.0;
+    }
+    if (convert_errno == ERANGE) {
+        freak_parse_fail(FREAK_PARSE_STATUS_OUT_OF_RANGE);
+        return 0.0;
+    }
+    return value;
+}
+
 int64_t freak_word_compare(freak_word a, freak_word b) {
     int r = strcmp(a.data, b.data);
     if (r < 0) return -1;
@@ -4999,6 +5112,37 @@ static void freak_v3_release(int64_t handle, bool shape) {
 void freak_v3_array_release(int64_t h) { freak_v3_release(h, false); }
 void freak_v3_shape_release(int64_t h) { freak_v3_release(h, true); }
 int64_t freak_v3_array_len(int64_t h) { return freak_v3_object(h, false)->length; }
+int64_t freak_v3_array_capacity(int64_t h) { return freak_v3_object(h, false)->capacity; }
+void freak_v3_array_reserve(int64_t h, int64_t min_capacity) {
+    freak_v3_container *p = freak_v3_object(h, false);
+    if (min_capacity < 0 || (uint64_t)min_capacity > SIZE_MAX / sizeof(int64_t))
+        freak_v3_fail("container length is negative or too large");
+    if (min_capacity <= p->capacity) return;
+    void *grown = realloc(p->data, (size_t)min_capacity * sizeof(int64_t));
+    if (!grown) freak_v3_fail("out of memory growing array");
+    p->data = grown; p->capacity = min_capacity;
+}
+int64_t freak_v3_array_with_capacity(int64_t kind, int64_t capacity) {
+    freak_v3_kind(kind);
+    if (capacity < 0 || (uint64_t)capacity > SIZE_MAX / sizeof(int64_t))
+        freak_v3_fail("container length is negative or too large");
+    int64_t h = freak_v3_new(false, kind, 0);
+    if (capacity > 0) freak_v3_array_reserve(h, capacity);
+    return h;
+}
+void freak_v3_array_clear(int64_t h) {
+    freak_v3_container *p = freak_v3_object(h, false);
+    for (int64_t i = 0; i < p->length; i++) freak_v3_drop(p->kind, p->data[i]);
+    p->length = 0;
+}
+int64_t freak_v3_array_pop(int64_t h) {
+    freak_v3_container *p = freak_v3_object(h, false);
+    if (p->kind == FREAK_V3_C_WORD) freak_v3_fail("C word adapter used with a different element kind");
+    if (p->length <= 0) freak_v3_index(p, 0);
+    int64_t value = p->data[--p->length];
+    if (p->kind == FREAK_V3_WORD && value) freak_v3_words_live--;
+    return value;
+}
 int64_t freak_v3_array_get(int64_t h, int64_t i) {
     freak_v3_container *p = freak_v3_object(h, false); freak_v3_index(p, i);
     return p->data[i];
@@ -5110,6 +5254,17 @@ freak_word freak_v3_array_get_word(int64_t h, int64_t i) {
 void freak_v3_array_set_word(int64_t h, int64_t i, freak_word v) {
     freak_v3_container *p = freak_v3_object(h, false); freak_v3_word_kind(p, p->kind);
     freak_v3_array_set(h, i, (int64_t)(intptr_t)&v);
+}
+freak_word freak_v3_array_pop_word(int64_t h) {
+    freak_v3_container *p = freak_v3_object(h, false); freak_v3_word_kind(p, p->kind);
+    if (p->length <= 0) freak_v3_index(p, 0);
+    int64_t stored = p->data[--p->length];
+    if (!stored) return freak_word_lit("");
+    freak_word *wrapper = (freak_word *)(intptr_t)stored;
+    freak_word result = *wrapper;
+    free(wrapper);
+    freak_v3_words_live--;
+    return result;
 }
 int64_t freak_v3_array_filled_word(int64_t n, freak_word v) {
     return freak_v3_array_filled(FREAK_V3_C_WORD, n, (int64_t)(intptr_t)&v);

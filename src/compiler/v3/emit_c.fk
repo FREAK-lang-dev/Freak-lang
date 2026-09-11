@@ -115,6 +115,14 @@ task emit_c_filled(id: word, args: word) -> void {
     emit("__freak_list; })")
 }
 
+task emit_c_list_with_capacity(id: word, args: word) -> void {
+    pilot cap = word_from_int(tc_arg_at(args, 0))
+    emit("({ int64_t __freak_cap = ")
+    emit_expr(cap)
+    emit_line(";")
+    emit("int64_t __freak_list = freak_v3_array_with_capacity(FREAK_V3_C_WORD, __freak_cap); __freak_list; })")
+}
+
 task emit_c_shape_ctor(shape_name: word, args: word) -> void {
     emit("({ int64_t __freak_shape = freak_v3_shape_new(" + word_from_int(get_shape_field_count(shape_name)) + "); ")
     pilot j = 0
@@ -530,6 +538,8 @@ task c_map_call(val: word) -> word {
     if val == "math::floor" { give back "freak_math_floor" }
     if val == "math::ceil" { give back "freak_math_ceil" }
     if val == "parse_num" { give back "freak_parse_num" }
+    if val == "parse_status" { give back "freak_parse_status" }
+    if val == "parse_clear_status" { give back "freak_parse_clear_status" }
     if val == "format_num" { give back "freak_format_num" }
     if val == "ui::create_window" { give back "freak_ui_create_window_word" }
     if val == "ui::destroy_window" { give back "freak_ui_destroy_window" }
@@ -722,6 +732,8 @@ task emit_c_interp(expr_id: word, segments: word) -> void {
 
 task emit_c_call(expr_id: word, val: word, left: word) -> void {
     if val == "List::filled" { emit_c_filled(expr_id, left) give back }
+    if val == "List::new" { emit("freak_v3_array_new(FREAK_V3_C_WORD)") give back }
+    if val == "List::with_capacity" { emit_c_list_with_capacity(expr_id, left) give back }
     if val.starts_with("shape::ctor::") { emit_c_shape_ctor(val.replace("shape::ctor::", ""), left) give back }
     pilot legacy_array_call = val == "array_get" or val == "array_set" or val == "array_push" or val == "array_len" or val == "array_release"
     if legacy_array_call and tc_is_list(tc_expr_type(tc_arg_at(left, 0))) { emit_c_legacy_list_call(expr_id, val, left) give back }
@@ -774,11 +786,60 @@ task emt_expr_type_code(id: word) -> word {
 }
 
 task emit_c_method(expr_id: word, val: word, left: word, right: word) -> void {
-    if tc_is_list(tc_expr_type(word_to_int(left))) and val == "length" {
-        emit("({ ")
-        emit_c_value_decl(left, "__freak_recv")
-        emit("freak_v3_array_len(__freak_recv); })")
-        give back
+    if tc_is_list(tc_expr_type(word_to_int(left))) {
+        if val == "length" {
+            emit("({ ")
+            emit_c_value_decl(left, "__freak_recv")
+            emit("freak_v3_array_len(__freak_recv); })")
+            give back
+        }
+        if val == "capacity" {
+            emit("({ ")
+            emit_c_value_decl(left, "__freak_recv")
+            emit("freak_v3_array_capacity(__freak_recv); })")
+            give back
+        }
+        if val == "clear" {
+            emit("({ ")
+            emit_c_value_decl(left, "__freak_recv")
+            emit("freak_v3_array_clear(__freak_recv); ((void)0); })")
+            give back
+        }
+        if val == "reserve" {
+            pilot cap_arg = word_from_int(tc_arg_at(right, 0))
+            emit("({ ")
+            emit_c_value_decl(left, "__freak_recv")
+            emit("int64_t __freak_cap = ")
+            emit_expr(cap_arg)
+            emit_line(";")
+            emit("freak_v3_array_reserve(__freak_recv, __freak_cap); ((void)0); })")
+            give back
+        }
+        if val == "push" {
+            pilot elem_code = emt_raw_type_code(tc_list_element(tc_expr_type(word_to_int(left))))
+            pilot push_value = word_from_int(tc_arg_at(right, 0))
+            emit("({ ")
+            emit_c_value_decl(left, "__freak_recv")
+            emit_c_value_decl(push_value, "__freak_value")
+            if elem_code == "w" { emit_line("freak_v3_array_push_word(__freak_recv, __freak_value);") }
+            else {
+                emit("freak_v3_array_push(__freak_recv, ")
+                emit_c_slot("__freak_value", elem_code)
+                emit_line(");")
+            }
+            emit_c_word_drop(push_value, "__freak_value")
+            emit("((void)0); })")
+            give back
+        }
+        if val == "pop" {
+            pilot pop_code = emt_raw_type_code(tc_list_element(tc_expr_type(word_to_int(left))))
+            emit("({ ")
+            emit_c_value_decl(left, "__freak_recv")
+            if pop_code == "w" { emit("freak_word __freak_popped = freak_v3_array_pop_word(__freak_recv); __freak_popped; })") }
+            else if pop_code == "d" { emit("freak_v3_bits_num(freak_v3_array_pop(__freak_recv)); })") }
+            else { emit("freak_v3_array_pop(__freak_recv); })") }
+            give back
+        }
     }
     pilot receiver_semantic_type = tc_expr_type(word_to_int(left))
     if is_shape_name(receiver_semantic_type) and tc_has_impl_method(receiver_semantic_type, val) {
@@ -846,6 +907,28 @@ task emit_c_method(expr_id: word, val: word, left: word, right: word) -> void {
         if receiver_type == "d" { emit("freak_format_num(") }
         else if receiver_type == "b" { emit("freak_word_from_bool(") }
         else { emit("freak_word_from_int(") }
+        emit_expr(left)
+        emit(")")
+        give back
+    }
+    -- Checked word parsing. Legacy to_int/to_num above stay lenient; these
+    -- strict entry points report through the sticky parse status channel.
+    if val == "parse_int" {
+        if emt_args_have_owned_word_temporary(method_args) {
+            emit_c_borrowing_call(expr_id, "freak_word_parse_int", method_args)
+            give back
+        }
+        emit("freak_word_parse_int(")
+        emit_expr(left)
+        emit(")")
+        give back
+    }
+    if val == "parse_num" {
+        if emt_args_have_owned_word_temporary(method_args) {
+            emit_c_borrowing_call(expr_id, "freak_word_parse_num", method_args)
+            give back
+        }
+        emit("freak_word_parse_num(")
         emit_expr(left)
         emit(")")
         give back
@@ -1394,6 +1477,33 @@ task emit_stmt_pilot(eid: word) -> void {
         }
     }
     pilot c_name = "__freak_local_" + eid
+    if type_ann_w != "" and tc_is_list(type_ann_w) {
+        pilot ann_code = emt_raw_type_code(tc_list_element(type_ann_w))
+        pilot ann_kind = c_storage_kind(ann_code)
+        pilot e_val: word = array_get(ast_expr_vals, e_idx)
+        pilot e_left: word = array_get(ast_expr_lefts, e_idx)
+        if e_kind == EXPR_ARRAY_LIT and tc_arg_count(e_left) == 0 {
+            emit(ctype + c_name + c_cleanup_attr(vtype) + " = freak_v3_array_new(" + ann_kind + ");")
+            emt_set_var_type_named(name_w, vtype, c_name)
+            tc_set_local(name_w, binding_type)
+            give back
+        }
+        if e_kind == EXPR_CALL and e_val == "List::new" {
+            emit(ctype + c_name + c_cleanup_attr(vtype) + " = freak_v3_array_new(" + ann_kind + ");")
+            emt_set_var_type_named(name_w, vtype, c_name)
+            tc_set_local(name_w, binding_type)
+            give back
+        }
+        if e_kind == EXPR_CALL and e_val == "List::with_capacity" {
+            pilot cap_id = word_from_int(tc_arg_at(e_left, 0))
+            emit(ctype + c_name + c_cleanup_attr(vtype) + " = ({ int64_t __freak_cap = ")
+            emit_expr(cap_id)
+            emit("; int64_t __freak_list = freak_v3_array_with_capacity(" + ann_kind + ", __freak_cap); __freak_list; });")
+            emt_set_var_type_named(name_w, vtype, c_name)
+            tc_set_local(name_w, binding_type)
+            give back
+        }
+    }
     emit(ctype + c_name + c_cleanup_attr(vtype) + " = ")
     pilot clone_initial = vtype == "w" and emt_word_expr_needs_clone(expr_id_w)
     emit_c_owned(expr_id_w)
@@ -1669,6 +1779,27 @@ task emit_global_init(eid: word) -> void {
     pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
     pilot expr_idx = word_to_int(expr_id_w)
     pilot expr_kind: word = array_get(ast_expr_kinds, expr_idx)
+    pilot type_ann: word = array_get(ast_stmt_extras, i)
+    if type_ann != "" and tc_is_list(type_ann) {
+        pilot ann_kind = c_storage_kind(emt_raw_type_code(tc_list_element(type_ann)))
+        pilot g_val: word = array_get(ast_expr_vals, expr_idx)
+        pilot g_left: word = array_get(ast_expr_lefts, expr_idx)
+        if expr_kind == EXPR_ARRAY_LIT and tc_arg_count(g_left) == 0 {
+            emit(emt_get_var_c_name(name_w) + " = freak_v3_array_new(" + ann_kind + ");")
+            give back
+        }
+        if expr_kind == EXPR_CALL and g_val == "List::new" {
+            emit(emt_get_var_c_name(name_w) + " = freak_v3_array_new(" + ann_kind + ");")
+            give back
+        }
+        if expr_kind == EXPR_CALL and g_val == "List::with_capacity" {
+            pilot cap_id = word_from_int(tc_arg_at(g_left, 0))
+            emit(emt_get_var_c_name(name_w) + " = ({ int64_t __freak_cap = ")
+            emit_expr(cap_id)
+            emit("; int64_t __freak_list = freak_v3_array_with_capacity(" + ann_kind + ", __freak_cap); __freak_list; });")
+            give back
+        }
+    }
     emit(emt_get_var_c_name(name_w) + " = ")
     pilot clone_initial = emt_get_var_type(name_w) == "w" and emt_word_expr_needs_clone(expr_id_w)
     emit_c_owned(expr_id_w)

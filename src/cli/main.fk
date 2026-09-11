@@ -102,11 +102,14 @@ task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> wo
             if tval == "" or not cli_cross_target_is_safe(tval) {
                 give back cli_flag_error("--target requires a safe target triple")
             }
-            if cross_seen != "" and cross_seen != tval {
+            -- Friendly aliases resolve to canonical triples; raw triples pass
+            -- through byte-exact so the recorded clang command line is stable.
+            pilot resolved_target = cli_resolve_target_alias(tval)
+            if cross_seen != "" and cross_seen != resolved_target {
                 give back cli_flag_error("conflicting --target flags")
             }
-            cross = tval
-            cross_seen = tval
+            cross = resolved_target
+            cross_seen = resolved_target
         } else {
             give back cli_flag_error("unknown or malformed flag " + flag)
         }
@@ -422,12 +425,45 @@ task freakc_cli_main() -> void {
     if subcmd == "doctor" {
         pilot fix_mode = false
         pilot json_mode = false
+        pilot doctor_target_raw = ""
+        pilot doctor_target = ""
         pilot doctor_arg_i = 2
         repeat until doctor_arg_i >= args_cnt {
             pilot doctor_arg: word = process::arg(doctor_arg_i)
             if doctor_arg == "--fix" { fix_mode = true }
-            if doctor_arg == "--json" { json_mode = true }
+            else if doctor_arg == "--json" { json_mode = true }
+            else if doctor_arg.starts_with("--target=") {
+                pilot doctor_tval = cli_flag_value(doctor_arg, 9)
+                if doctor_tval == "" or not cli_cross_target_is_safe(doctor_tval) {
+                    say ""
+                    say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " --target requires a safe target triple or alias"
+                    say "  " + C_DIM + "Supported aliases: linux-x64, linux-arm64, windows-x64, macos-arm64" + C_RESET
+                    say ""
+                    process::exit(1)
+                }
+                pilot doctor_resolved = cli_resolve_target_alias(doctor_tval)
+                if doctor_target != "" and doctor_target != doctor_resolved {
+                    say ""
+                    say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " conflicting --target flags"
+                    say ""
+                    process::exit(1)
+                }
+                doctor_target_raw = doctor_tval
+                doctor_target = doctor_resolved
+            }
+            else if doctor_arg.starts_with("--") {
+                say ""
+                say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " unknown doctor flag " + doctor_arg
+                say "  " + C_DIM + "Usage: " + C_RESET + "freak doctor [--fix] [--json] [--target=ALIAS|TRIPLE]"
+                say ""
+                process::exit(1)
+            }
             doctor_arg_i += 1
+        }
+        if doctor_target != "" {
+            pilot doctor_target_exit = cli_doctor_target_report(doctor_target_raw, doctor_target, json_mode)
+            if doctor_target_exit != 0 { process::exit(doctor_target_exit) }
+            give back
         }
         if json_mode {
             pilot json_exit = cli_doctor_json()
