@@ -253,7 +253,7 @@
       "name": "semantic_invalid_lvalue",
       "kind": "type",
       "file": "semantic_invalid_lvalue.fk",
-      "diagnostic": "assignment target is not an assignable binding or shape field",
+      "diagnostic": "assignment target is not an assignable binding, shape field, or list element",
       "direct": true
     },
     {
@@ -435,14 +435,14 @@
       "name": "semantic_array_element_type",
       "kind": "type",
       "file": "semantic_array_element_type.fk",
-      "diagnostic": "array element must have type word, got int",
+      "diagnostic": "list element expects int, got word",
       "direct": true
     },
     {
       "name": "semantic_index_type",
       "kind": "type",
       "file": "semantic_index_type.fk",
-      "diagnostic": "indexing is supported only on word values in V3",
+      "diagnostic": "indexing requires a List or word value",
       "direct": true
     },
     {

@@ -650,6 +650,28 @@ Rules:
 - To allocate a dynamic list with repeated values, use `List::filled(value, count)` or `List::with_capacity(count)` plus pushes.
 - Fixed arrays are value types. Moving an array moves every element. Borrowing an array borrows every element unless indexing narrows the borrow.
 
+**Shipping V3 dynamic lists:** literals infer `List<T>` for `int`, `num`,
+`bool`, `word`, and concrete owned shapes. Mixed numeric elements widen to
+`num`; incompatible elements are diagnosed. V3 implements checked indexing,
+indexed assignment through a `pilot mut` root, `.length()`,
+`List::filled(value, count)`, and `for each item in values` on LLVM and C.
+The fill value and count each evaluate once, in that order. Iteration evaluates
+and retains its collection once, reads each element in order, and releases
+owned iteration values on ordinary and early exits. Indexed owned reads remain
+valid after their source slot is replaced. Phase-1 `--strict-borrow` still
+enforces owned moves; runtime reference bookkeeping does not add source-level
+shared ownership or lifetime syntax.
+
+V3 uses contiguous 64-bit numeric/bool slots and retains bounds checks in
+optimized builds. Owned words and nested concrete shapes are cleaned on
+replacement and scope exit. Its current conservative boundaries are explicit:
+an empty literal is `List<word>`; typed container covariance, nested lists,
+List-valued shape fields, and indexed writes through temporary call results
+are rejected. Fixed arrays/repeat literals and general collection generics
+remain their separately tracked V4 contracts. See
+`tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, and the million-element
+`examples/array_math.fk` workload for executable V3 evidence.
+
 Block-bodied tasks do not have implicit tail returns. `give back` is
 required for every value-returning control path. FREAK chose drama on
 purpose, but not ambiguity.

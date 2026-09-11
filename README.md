@@ -21,7 +21,7 @@ FREAK is a compiled, statically-typed systems language with a syntax inspired by
 
 It compiles to native binaries via LLVM (or C — your choice). It has a Phase-1 borrow checker behind `--strict-borrow`. It has a package manager called **Hangar** and preserves the **COCKPIT** UI source preview for Maverick. And every variable is called `pilot` because you are always on a mission.
 
-```fk
+```rust
 pilot name = "Takeru"
 pilot power = 9001
 
@@ -79,7 +79,7 @@ FREAK records the narrative weight of your code via the audit suite. What ships 
 - **`trust me on my honor as .level { ... }`** — Escape-hatch blocks. `freak audit-trust` lists every block with its declared honor level.
 - **`deus_ex_machina "monologue" { ... }`** — Requires a monologue of at least 20 words (compile error if shorter). `freak audit-miracles` lists every block; warns past 3, errors past 10.
 
-```fk
+```rust
 foreshadow pilot victory = false
 -- ... narrative happens ...
 payoff victory   -- promise kept
@@ -114,7 +114,7 @@ release archives.
 
 FREAK has a Phase-1 borrow checker — mutability and single-owner moves — gated behind the `--strict-borrow` flag. The default mode (no flag) is leak-everything; turn on the flag to opt into the safety rules.
 
-```fk
+```rust
 shape Ship { name: word }
 
 pilot mut a = Ship { name: "Takeru" }   -- mutable binding
@@ -181,7 +181,7 @@ freak doctor --fix    # install/repair dependencies and the distribution payload
 
 Create `hello.fk`:
 
-```fk
+```rust
 pilot name = "world"
 say "Hello, {name}!"
 say "Your mission has begun."
@@ -281,7 +281,7 @@ are introduced.
 
 ### Pattern Matching (literal)
 
-```fk
+```rust
 when status {
     1  -> say "soldier"
     2  -> say "destroyer"
@@ -300,7 +300,7 @@ Molar mass **274,234 g/mol**. The Fk:C ratio of ≈ 1.03:1 confirms the self-hos
 
 ### Error Handling
 
-```fk
+```rust
 -- Propagate errors with ?
 task load_config(path: word) -> result<Config, word> {
     pilot data = fs::read(path)?
@@ -317,7 +317,7 @@ check result load_config("settings.toml") {
 
 ### The Training Arc
 
-```fk
+```rust
 -- A bounded loop with a hard session cap
 training arc until power >= 9000 max 1000 sessions {
     practice()
@@ -328,7 +328,7 @@ training arc until power >= 9000 max 1000 sessions {
 
 ### Doctrines (Traits)
 
-```fk
+```rust
 doctrine Displayable {
     task display(self) -> word
 }
@@ -447,7 +447,7 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 |---|---|
 | Self-hosting compiler | ✅ Complete |
 | LLVM IR backend (default) | ✅ Complete |
-| C backend (`--c`) | ⚠️ Portability target — scalar/control/word paths are executable; V3 shape storage is LLVM-only |
+| C backend (`--c`) | ⚠️ Portability target — scalar/control/word, typed lists, and owned shapes execute on C and LLVM; native UI parity remains separate |
 | Native CLI (`freak build`/`run`/`check`/`transpile`) | ✅ Complete; `freak test` is a source-checkout Python shim |
 | Hangar package manager | ✅ Complete |
 | Cross-compilation (`--target=`) | ✅ Complete |
@@ -457,7 +457,7 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 | Phase-1 borrow checker (`--strict-borrow`) | ✅ Complete |
 | Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | 🧰 Source-checkout Python tools; not embedded in release archives |
 | `std::fs`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
-| `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` waits for a real list ABI |
+| `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` remains unimplemented |
 | COCKPIT UI framework | 📐 Source preview; supported implementation moves to Maverick |
 | LLVM JIT mode + DWARF debug info | 🚧 In progress |
 | V4 self-hosting compiler (variants, full BC, mood/prob/power, squadron concurrency, FFI surface, error voices) | 🔜 Roadmapped |

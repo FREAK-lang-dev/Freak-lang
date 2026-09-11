@@ -77,6 +77,7 @@ pilot STMT_CONTINUE = "14"
 pilot STMT_EVENTUALLY = "15"
 pilot STMT_EXTERN = "16"
 pilot STMT_IMPL = "17"
+pilot STMT_FOREACH = "18"
 
 pilot ast_stmt_kinds = 0
 pilot ast_stmt_names = 0
@@ -124,6 +125,8 @@ pilot tc_global_visibility_count = 0 - 1
 pilot tc_dependency_pending_calls = 0
 pilot tc_local_names = 0
 pilot tc_local_types = 0
+pilot tc_local_mut = 0
+pilot tc_global_mut = 0
 pilot tc_local_count = 0
 pilot tc_local_scope_start = 0
 pilot tc_current_task_name = ""

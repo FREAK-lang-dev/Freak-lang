@@ -1,0 +1,54 @@
+-- Vector dot products, a three-point stencil, and a boolean selection mask.
+-- Default size: one million elements. Optional args: size, read-oob/write-oob/negative.
+task main() {
+    pilot mut count: int = 1000000
+    if process::args_count() > 1 { count = word_to_int(process::arg(1)) }
+    pilot mut values = List::filled(0, count)
+    pilot mut weights = List::filled(0.0, count)
+    pilot mut selected = List::filled(false, count)
+    pilot mut stencil = List::filled(0, count)
+
+    -- These exercise the same compiled indexing operations and runtime used below.
+    if process::args_count() > 2 {
+        pilot mode = process::arg(2)
+        if mode == "read-oob" { say values[count] }
+        if mode == "write-oob" { values[count] = 123 }
+        if mode == "negative" { say values[0 - 1] }
+    }
+
+    pilot mut i = 0
+    repeat until i >= count {
+        values[i] = i % 1024
+        weights[i] = (i % 64).to_num() * 0.25
+        selected[i] = i % 2 == 0
+        i += 1
+    }
+    pilot mut dot: int = 0
+    pilot mut weighted_dot: num = 0.0
+    i = 0
+    repeat until i >= count {
+        dot += values[i] * values[i]
+        weighted_dot += weights[i] * weights[i]
+        i += 1
+    }
+    i = 1
+    repeat until i >= count - 1 {
+        stencil[i] = values[i - 1] + 2 * values[i] + values[i + 1]
+        i += 1
+    }
+    pilot mut sum: int = 0
+    for each value in values { sum += value }
+    pilot mut active: int = 0
+    for each keep in selected { if keep { active += 1 } }
+    pilot mut weight_sum: num = 0.0
+    for each weight in weights { weight_sum += weight }
+    pilot mut smooth_sum: int = 0
+    for each value in stencil { smooth_sum += value }
+    say values.length()
+    say sum
+    say dot
+    say (weighted_dot * 16.0).to_int()
+    say active
+    say (weight_sum * 4.0).to_int()
+    say smooth_sum
+}
