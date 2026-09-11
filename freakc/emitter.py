@@ -200,6 +200,7 @@ class CEmitter:
         self._closure_captures: Set[str] = set()  # names accessed as __env->name
         self._owned_word_locals: List[str] = []  # sanitized freak_word locals holding owned storage
         self._current_task_ret_c: str = ""  # declared C return type of the task being emitted
+        self._current_function_params: Set[str] = set()  # sanitized param names of the function being emitted
         self._includes: Set[str] = set()  # extra #include from use imports
         self._uses_ui: bool = False  # tracks if use std::ui is present
         self._in_main: bool = False  # True when emitting inside freak_main
@@ -220,6 +221,7 @@ class CEmitter:
         self._temp_counter = 0
         self._owned_word_locals = []
         self._current_task_ret_c = ""
+        self._current_function_params = set()
         self._includes = set()
         self._uses_ui = False
 
@@ -483,6 +485,14 @@ class CEmitter:
             pt = self._type_to_c(p.type_ann) if p.type_ann else "int64_t"
             self.vars[p.name] = VarInfo(c_type=pt)
 
+        # Each C function gets isolated ownership state: tracked locals from
+        # a previous task must never leak into this one's cleanups, and
+        # parameters are borrowed from the caller (never released/tracked).
+        saved_owned = list(self._owned_word_locals)
+        self._owned_word_locals = []
+        saved_params = set(self._current_function_params)
+        self._current_function_params = {_sanitize_name(p.name) for p in td.params}
+
         if isinstance(td.body, Block):
             saved_indent = self.indent
             self.indent = 1
@@ -496,6 +506,8 @@ class CEmitter:
         # Restore vars (exit function scope)
         self.vars = saved_vars
         self._current_task_ret_c = saved_ret
+        self._owned_word_locals = saved_owned
+        self._current_function_params = saved_params
         self._func_defs.append("}")
         self._func_defs.append("")
 
@@ -531,6 +543,13 @@ class CEmitter:
                 pt = self._type_to_c(p.type_ann) if p.type_ann else "int64_t"
                 self.vars[p.name] = VarInfo(c_type=pt)
 
+        # Isolated ownership state per C function (see _emit_task_def), and
+        # parameters (including self) are borrowed, never released/tracked.
+        saved_owned = list(self._owned_word_locals)
+        self._owned_word_locals = []
+        saved_params = set(self._current_function_params)
+        self._current_function_params = {_sanitize_name(p.name) for p in td.params}
+
         if isinstance(td.body, Block):
             saved = self.indent
             self.indent = 1
@@ -541,6 +560,8 @@ class CEmitter:
             self._func_defs.append(f"    return {ret_c};")
 
         self.vars = saved_vars
+        self._owned_word_locals = saved_owned
+        self._current_function_params = saved_params
         self._func_defs.append("}")
         self._func_defs.append("")
 
@@ -662,12 +683,17 @@ class CEmitter:
         free it at block end: the value escapes the block.
         """
         outer_vars = set(self.vars)
+        saved_vars = dict(self.vars)
         for s in stmts:
             self._emit_statement(s, target)
         for name in list(self._owned_word_locals):
             if name not in outer_vars:
                 target.append(f"{self._ind()}freak_word_release_owned(&{name});")
                 self._owned_word_locals.remove(name)
+        # Pilots declared inside the body do not leak into the enclosing
+        # scope: otherwise a later reassignment of the same name would look
+        # outer-living while its C declaration is scoped to this block.
+        self.vars = saved_vars
 
     def _emit_say_owned(self, c_expr: str, target: List[str]) -> None:
         """Say an owned word, then release the temporary."""
@@ -890,6 +916,11 @@ class CEmitter:
             if info is not None and info.c_type == "freak_word":
                 if isinstance(stmt.value, Ident) and _sanitize_name(stmt.value.name) == name:
                     # Self-assignment keeps its buffer; nothing to do.
+                    target.append(f"{self._ind()}{lhs} {stmt.op} {rhs};")
+                    return
+                if name in self._current_function_params:
+                    # Parameters are borrowed from the caller: plain store,
+                    # never release the caller's buffer, never track it.
                     target.append(f"{self._ind()}{lhs} {stmt.op} {rhs};")
                     return
                 rhs_c = rhs
@@ -1704,6 +1735,8 @@ class CEmitter:
         # returns inside cannot release the enclosing scope's storage.
         saved_owned = list(self._owned_word_locals)
         self._owned_word_locals = []
+        saved_params = set(self._current_function_params)
+        self._current_function_params = {_sanitize_name(p.name) for p in expr.params}
         saved_ret = self._current_task_ret_c
         self._current_task_ret_c = ""
 
@@ -1717,6 +1750,7 @@ class CEmitter:
         self.vars = saved_vars
         self._closure_captures = saved_captures
         self._owned_word_locals = saved_owned
+        self._current_function_params = saved_params
         self._current_task_ret_c = saved_ret
 
         self._lambda_defs.append("}")
