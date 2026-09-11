@@ -710,3 +710,183 @@ task cli_doctor(fix_mode: bool) -> int {
     if all_ok { give back 0 }
     give back 1
 }
+
+-- ===================================================================
+-- Cross-compile target verification (freak doctor --target=ALIAS|TRIPLE)
+-- Termux/Android validation is P2 and document-only: no sysroot is
+-- shipped, so aarch64-linux-android stays outside the support matrix.
+-- ===================================================================
+
+task cli_doctor_target_libc(triple: word) -> word {
+    pilot canonical = cli_canonical_target_triple(triple)
+    if canonical == "x86_64-unknown-linux-gnu" { give back "glibc (gnu libc, dynamic by default)" }
+    if canonical == "aarch64-unknown-linux-gnu" { give back "glibc (gnu libc, dynamic by default)" }
+    if canonical == "x86_64-w64-windows-gnu" { give back "UCRT via llvm-mingw (mingw-w64 import libs)" }
+    if canonical == "aarch64-apple-darwin" { give back "macOS SDK libc (darwin, Xcode command line tools)" }
+    give back "unknown target libc"
+}
+
+task cli_doctor_target_sysroot_note(triple: word) -> word {
+    pilot canonical = cli_canonical_target_triple(triple)
+    if canonical == "x86_64-unknown-linux-gnu" { give back "Native on linux-x64 hosts. From other hosts provide a Linux sysroot (glibc headers plus crt files) or link with --sysroot." }
+    if canonical == "aarch64-unknown-linux-gnu" { give back "Needs an aarch64 Linux sysroot (glibc headers plus crt files). FREAK ships no vendored Linux sysroot." }
+    if canonical == "x86_64-w64-windows-gnu" { give back "Native on Windows with llvm-mingw. From POSIX hosts install a mingw-w64 toolchain and sysroot." }
+    if canonical == "aarch64-apple-darwin" { give back "Supported from a macOS host with Xcode command line tools. Cross-linking Apple targets from Linux or Windows is not supported." }
+    give back "No sysroot data for this target."
+}
+
+task cli_doctor_target_runtime_note(triple: word) -> word {
+    pilot canonical = cli_canonical_target_triple(triple)
+    if canonical == "x86_64-w64-windows-gnu" { give back "Packaged Windows runtime objects apply to native builds only; cross builds compile the runtime from C sources." }
+    give back "Runtime links from C sources; packaged Windows objects are never used for this target."
+}
+
+task cli_doctor_target_mapping_line(raw: word, triple: word) -> word {
+    if raw != triple { give back "Mapping: " + raw + " -> " + triple }
+    pilot alias = cli_target_alias_of(triple)
+    if alias != "" { give back "Mapping: " + triple + " (canonical triple for alias " + alias + "; raw triple passthrough)" }
+    give back "Mapping: " + triple + " (raw triple passthrough, no alias)"
+}
+
+task cli_doctor_target_json(raw: word, triple: word) -> int {
+    pilot known = cli_canonical_target_is_supported(triple)
+    pilot host = cli_host_native_triple()
+    pilot can_run = false
+    if known { can_run = cli_host_can_execute_target(triple) }
+    pilot clang_cmd = ""
+    pilot clang_ok = false
+    pilot clang_version = ""
+    pilot linker_cmd = ""
+    if known {
+        clang_cmd = cli_doctor_find_clang_command()
+        clang_ok = cli_doctor_clang_command_works(clang_cmd)
+        if clang_ok {
+            clang_version = cli_doctor_clang_version_line(clang_cmd)
+            linker_cmd = cli_selected_linker_command(clang_cmd, "off", cli_canonical_target_triple(triple))
+        }
+    }
+    pilot linker_ok = linker_cmd != ""
+    pilot target_ok = known and clang_ok and linker_ok
+    pilot status = "issues"
+    if target_ok { status = "ok" }
+
+    say "{"
+    say "  \"schema\": \"freak.doctor.v1\","
+    say "  \"version\": \"" + cli_doctor_json_escape(CLI_VERSION) + "\","
+    say "  \"codename\": \"" + cli_doctor_json_escape(CLI_CODENAME) + "\","
+    say "  \"status\": \"" + status + "\","
+    say "  \"checks\": {"
+    say "    \"target\": {"
+    say "      \"ok\": " + cli_doctor_json_bool(target_ok) + ","
+    say "      \"requested\": \"" + cli_doctor_json_escape(raw) + "\","
+    say "      \"resolved\": \"" + cli_doctor_json_escape(triple) + "\","
+    say "      \"canonical\": \"" + cli_doctor_json_escape(cli_canonical_target_triple(triple)) + "\","
+    say "      \"known\": " + cli_doctor_json_bool(known) + ","
+    say "      \"alias\": \"" + cli_doctor_json_escape(cli_target_alias_of(cli_canonical_target_triple(triple))) + "\","
+    say "      \"host\": \"" + cli_doctor_json_escape(host) + "\","
+    say "      \"can_execute\": " + cli_doctor_json_bool(can_run) + ","
+    say "      \"libc\": \"" + cli_doctor_json_escape(cli_doctor_target_libc(triple)) + "\","
+    say "      \"sysroot_note\": \"" + cli_doctor_json_escape(cli_doctor_target_sysroot_note(triple)) + "\","
+    say "      \"runtime_note\": \"" + cli_doctor_json_escape(cli_doctor_target_runtime_note(triple)) + "\","
+    say "      \"supported_aliases\": \"linux-x64, linux-arm64, windows-x64, macos-arm64\","
+    say "      \"clang\": {"
+    say "        \"ok\": " + cli_doctor_json_bool(clang_ok) + ","
+    say "        \"command\": \"" + cli_doctor_json_escape(clang_cmd) + "\","
+    say "        \"version\": \"" + cli_doctor_json_escape(clang_version) + "\""
+    say "      },"
+    say "      \"linker\": {"
+    say "        \"ok\": " + cli_doctor_json_bool(linker_ok) + ","
+    say "        \"command\": \"" + cli_doctor_json_escape(linker_cmd) + "\""
+    say "      }"
+    say "    }"
+    say "  }"
+    say "}"
+    if target_ok { give back 0 }
+    give back 1
+}
+
+task cli_doctor_target_matrix() -> void {
+    say "  Target libc and runtime support matrix:"
+    say "    linux-x64    x86_64-unknown-linux-gnu  glibc       runtime sources"
+    say "    linux-arm64  aarch64-unknown-linux-gnu glibc       runtime sources (needs aarch64 sysroot)"
+    say "    windows-x64  x86_64-w64-windows-gnu    UCRT/mingw  packaged objects if native, else sources"
+    say "    macos-arm64  aarch64-apple-darwin      macOS SDK   runtime sources (macOS host only)"
+}
+
+task cli_doctor_target_unsupported() -> void {
+    say "  Known-unsupported features for cross targets:"
+    say "    - LTO with --target (use --lto=off; enforced by the flag parser)"
+    say "    - +03 FINAL FORM with --target"
+    say "    - freak run --target=<foreign> (freak build there, execute on the target)"
+    say "    - Packaged Windows runtime objects for cross builds"
+    say "    - Apple SDK cross-link from non-macOS hosts"
+    say "    - Termux/Android porting work (P2, document-only; no sysroot shipped)"
+}
+
+task cli_doctor_target_report(raw: word, triple: word, json_mode: bool) -> int {
+    if json_mode { give back cli_doctor_target_json(raw, triple) }
+
+    say ""
+    say cli_box_top(50)
+    say cli_box_mid(" " + C_G1 + SYM_GEAR + " FREAK DOCTOR" + C_RESET + C_DIM + "  --target=" + raw + C_RESET, 50)
+    say cli_box_bot(50)
+    say ""
+    say "  " + cli_doctor_target_mapping_line(raw, triple)
+    pilot host = cli_host_native_triple()
+    if host == "" { host = "(toolchain unavailable)" }
+    say "  Host toolchain builds for: " + host
+    if cli_canonical_target_is_supported(triple) and cli_host_can_execute_target(triple) {
+        say "  freak run --target=" + triple + " is allowed here (host can execute it)"
+    } else {
+        say "  freak run --target=" + triple + " would refuse here (foreign target; use freak build)"
+    }
+    say ""
+
+    if not cli_canonical_target_is_supported(triple) {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " Unsupported target: " + C_BWHITE + triple + C_RESET
+        say "        " + C_DIM + "Supported aliases: linux-x64, linux-arm64, windows-x64, macos-arm64" + C_RESET
+        say "        " + C_DIM + "Raw triples pass through to clang for freak build, but doctor" + C_RESET
+        say "        " + C_DIM + "only verifies the supported matrix above." + C_RESET
+        say "        " + C_DIM + "Fix: use one of the supported aliases or canonical triples." + C_RESET
+        say ""
+        cli_doctor_target_matrix()
+        say ""
+        give back 1
+    }
+
+    pilot all_ok = true
+    pilot clang_cmd = cli_doctor_find_clang_command()
+    if cli_doctor_clang_command_works(clang_cmd) {
+        say "  " + C_BGREEN + SYM_CHECK + C_RESET + " clang usable: " + C_DIM + cli_doctor_clang_version_line(clang_cmd) + C_RESET
+    } else {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " clang toolchain " + C_RED + "unusable" + C_RESET
+        say "        " + C_DIM + "Fix: run freak doctor --fix, then retry freak doctor --target=" + triple + C_RESET
+        all_ok = false
+    }
+    pilot linker_cmd = cli_selected_linker_command(clang_cmd, "off", cli_canonical_target_triple(triple))
+    if linker_cmd != "" {
+        say "  " + C_BGREEN + SYM_CHECK + C_RESET + " linker for " + triple + ": " + C_DIM + linker_cmd + C_RESET
+    } else {
+        say "  " + C_BRED + SYM_CROSS + C_RESET + " no linker resolved for " + C_BWHITE + triple + C_RESET
+        say "        " + C_DIM + "Fix: install the target toolchain and sysroot, then retry." + C_RESET
+        all_ok = false
+    }
+    say "  Target libc: " + cli_doctor_target_libc(triple)
+    say "  Sysroot: " + cli_doctor_target_sysroot_note(triple)
+    say "  Runtime: " + cli_doctor_target_runtime_note(triple)
+    say ""
+    cli_doctor_target_matrix()
+    say ""
+    cli_doctor_target_unsupported()
+    say ""
+    say cli_box_top(50)
+    if all_ok {
+        say cli_box_mid(" " + C_BGREEN + SYM_SPARK + " TARGET READY" + C_RESET + C_DIM + "  " + triple + C_RESET, 50)
+    } else {
+        say cli_box_mid(" " + C_BRED + SYM_CROSS + " TARGET ISSUES FOUND" + C_RESET + C_DIM + "  " + triple + C_RESET, 50)
+    }
+    say cli_box_bot(50)
+    say ""
+    if all_ok { give back 0 }
+    give back 1
+}

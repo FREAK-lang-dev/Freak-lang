@@ -146,6 +146,20 @@ task cli_run_cache_record(fingerprint: word, binary: word) -> word {
 }
 
 task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, runtime_policy: word, runtime_stats: word, cross: word) -> int {
+    -- Cross-compiled binaries cannot run on this host. Refuse before any
+    -- build artifact or cache entry changes; freak build stays the
+    -- cross-compile path.
+    if cross != "" and not cli_host_can_execute_target(cross) {
+        pilot host_triple = cli_host_native_triple()
+        if host_triple == "" { host_triple = "(toolchain unavailable)" }
+        say ""
+        say "  " + C_BRED + SYM_CROSS + " FOREIGN TARGET" + C_RESET + " freak run refused --target=" + C_BWHITE + cross + C_RESET
+        say "  " + C_DIM + "Host toolchain builds for: " + host_triple + C_RESET
+        say "  " + C_DIM + "freak run only executes binaries the host can run." + C_RESET
+        say "  " + C_DIM + "Fix: " + C_RESET + "freak build " + src_file + " --target=" + cross + C_DIM + ", then execute the binary on the target machine." + C_RESET
+        say ""
+        give back 1
+    }
     -- Cache hits are still build operations from the distribution contract's
     -- perspective: never launch an artifact with a mismatched payload or while
     -- a Windows executable replacement is pending.
