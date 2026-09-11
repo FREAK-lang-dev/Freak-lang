@@ -24,11 +24,13 @@ selector by file path and read the JSON as data.
 - Packs are data only: JSON with strings/lists/dicts, no code, no templates
   that execute.
 
-## Integration hook (deferred, lead-owned)
+## Integration hook (deferred as one wiring task with code emission)
 
-The lead wires an opt-in `--diagnostic-cast=<off|minimal|normal>` CLI flag
-(default `off`) at the CLI dispatch boundary at integration time. The
-checker/parser/emitters keep emitting canonical diagnostics unchanged and
-pass `(compiler version, code, file, line, column, source, speaker)` to
-`selector.render()` as a post-pass presentation step only. This lane ships no
-checker edits and no CLI flag-parsing edits.
+Checker diagnostics do not yet carry stable codes, so a `--diagnostic-cast`
+flag today could not select per-code lines — it would be a placebo. The flag
+wiring and the code emission at diagnostic sites land together as one
+follow-up: emit the code alongside (never inside) the canonical message so
+mode `off` stays byte-identical, then pass `(compiler version, code, file,
+line, column, source, speaker)` to `selector.render()` as a post-pass
+presentation step only. This lane ships no checker edits and no CLI
+flag-parsing edits.
