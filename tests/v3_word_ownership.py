@@ -670,6 +670,17 @@ PREDICATE_OWNERSHIP_PROGRAM = """task main() {
 
 
 def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """
+    Run a subprocess and capture its output without raising on failure.
+
+    Parameters:
+        command (list[str]): Command and arguments to execute.
+        cwd (Path): Working directory for the subprocess.
+        env (dict[str, str] | None): Optional environment variables for the subprocess.
+
+    Returns:
+        subprocess.CompletedProcess[str]: Completed process details, including captured standard output and error output.
+    """
     return subprocess.run(
         command,
         cwd=cwd,
@@ -683,6 +694,15 @@ def run(command: list[str], cwd: Path, env: dict[str, str] | None = None) -> sub
 
 
 def main() -> int:
+    """
+    Run the V3 word-ownership regression suite.
+
+    Parameters:
+        Command-line arguments provide the Freak executable path and, optionally, the runtime directory through `--runtime-root`.
+
+    Returns:
+        int: `0` after all regression checks pass.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
     parser.add_argument(
