@@ -1,0 +1,76 @@
+# GitHub label scheme for FREAK-lang/Freak-lang
+#
+# Source of truth for the labels contributors should apply to issues and PRs.
+# CONTRIBUTING.md points here. Labels are advisory (no automation depends on
+# them), so adding a label never changes CI or merge behavior.
+#
+# Naming: <group>/<slug>. Three groups only: area, type, status.
+# Keep the total small — prefer reusing a label over minting a new one.
+
+- name: "area/compiler"
+  description: "V3 self-hosted compiler or Python bootstrap (freakc/, src/compiler/v3/)"
+  color: "b60205"
+
+- name: "area/v4"
+  description: "Maverick / 00-Unit compiler work (src/compiler/v4/)"
+  color: "d93f0b"
+
+- name: "area/cli"
+  description: "Native CLI: freak build/run/check, doctor, audit dispatch (src/cli/)"
+  color: "fbca04"
+
+- name: "area/hangar"
+  description: "Hangar package manager and registry"
+  color: "0e8a16"
+
+- name: "area/stdlib"
+  description: "Standard library modules (std/)"
+  color: "006b75"
+
+- name: "area/runtime"
+  description: "C/LLVM runtimes backing stdlib and codegen (freakc/runtime/)"
+  color: "1d76db"
+
+- name: "area/ui"
+  description: "COCKPIT package and std::ui surface"
+  color: "5319e7"
+
+- name: "area/docs"
+  description: "Documentation only — no behavior change"
+  color: "0075ca"
+
+- name: "area/ci"
+  description: "CI, packaging, installers, release tooling"
+  color: "ededed"
+
+- name: "type/bug"
+  description: "Something broken vs. documented behavior"
+  color: "d73a4a"
+
+- name: "type/feature"
+  description: "New capability requiring spec alignment first"
+  color: "a2eeef"
+
+- name: "type/language-design"
+  description: "Syntax/semantics proposal against freak-full-bible.md"
+  color: "d4c5f9"
+
+- name: "type/good-first-issue"
+  description: "Small, well-scoped starter task (see CONTRIBUTING.md)"
+  color: "7057ff"
+
+- name: "type/help-wanted"
+  description: "Maintainers welcome a PR for this"
+  color: "008672"
+
+- name: "status/blocked"
+  description: "Waiting on another issue, PR, or decision"
+  color: "e4e669"
+
+- name: "status/needs-repro"
+  description: "Bug report needs a minimal .fk reproducer"
+  color: "f9d0c4"
+
+- name: "status/v4-only"
+  description: "Out of scope for V3; belongs in Maverick"
+  color: "fef2c0"
