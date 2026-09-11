@@ -1841,6 +1841,15 @@ x.is_nan() / x.is_inf() / x.is_finite()
 int::checked_add(a, b)   -- maybe<int>, overflow-safe
 ```
 
+**V3 conversion implementation:** `int.to_word()`, `num.to_word()`, and
+`bool.to_word()` are implemented with C/LLVM parity, as are the `int <->
+num` cross conversions. The legacy `word_from_int()`,
+`word_from_bool()`, and `format_num()` aliases remain and agree with the
+methods. The rest of this section (`abs`, `sign`, `clamp`, `pow`, `sqrt`,
+`floor`, `ceil`, `round`, `to_word_fmt`, the `is_` predicates, and the
+overflow-safe variants) remains planned. `tests/v3_conversions.py` pins
+the implemented surface.
+
 ### 7.4 std::collections
 
 ```
