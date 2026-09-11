@@ -9,11 +9,21 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import tempfile
 from pathlib import Path
 
 from v3_array_rescue import execute_case, run
+
+
+def expect_rejected(compiler: Path, root: Path, backend: str, name: str, source: str, diagnostic: str) -> dict:
+    """Verify an invalid conversion fixture is rejected without output."""
+    fixture = root / f"{name}_{backend}.fk"
+    fixture.write_text(source, encoding="utf-8")
+    compiled = run([str(compiler), str(fixture), f"--{backend}"], root)
+    output = compiled.stdout + compiled.stderr
+    assert compiled.returncode != 0, f"{name}/{backend}: invalid source accepted\n{output}"
+    assert diagnostic.lower() in output.lower(), f"{name}/{backend}: missing {diagnostic!r}\n{output}"
+    return {"case": name, "backend": backend, "kind": "diagnostic"}
 
 POSITIVE = {
     "int_to_word": ('''task main() {
@@ -57,6 +67,7 @@ POSITIVE = {
 }
 
 NEGATIVE = {
+    "int_to_int_rejected": ('task main() {\n    pilot i = 7\n    say i.to_int()\n}\n', "has no method"),
 }
 
 
@@ -80,6 +91,11 @@ def main() -> int:
                     continue
                 print(f"RUN {name}/{backend}", flush=True)
                 records.append(execute_case(compiler, repo, root, backend, name, source, expected))
+                print(f"PASS {name}/{backend}", flush=True)
+            for name, (source, diagnostic) in NEGATIVE.items():
+                if args.case and args.case != name:
+                    continue
+                records.append(expect_rejected(compiler, root, backend, name, source, diagnostic))
                 print(f"PASS {name}/{backend}", flush=True)
     if args.report:
         args.report.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
