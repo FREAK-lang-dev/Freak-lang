@@ -4817,6 +4817,37 @@ static void freak_v3_release(int64_t handle, bool shape) {
 void freak_v3_array_release(int64_t h) { freak_v3_release(h, false); }
 void freak_v3_shape_release(int64_t h) { freak_v3_release(h, true); }
 int64_t freak_v3_array_len(int64_t h) { return freak_v3_object(h, false)->length; }
+int64_t freak_v3_array_capacity(int64_t h) { return freak_v3_object(h, false)->capacity; }
+void freak_v3_array_reserve(int64_t h, int64_t min_capacity) {
+    freak_v3_container *p = freak_v3_object(h, false);
+    if (min_capacity < 0 || (uint64_t)min_capacity > SIZE_MAX / sizeof(int64_t))
+        freak_v3_fail("container length is negative or too large");
+    if (min_capacity <= p->capacity) return;
+    void *grown = realloc(p->data, (size_t)min_capacity * sizeof(int64_t));
+    if (!grown) freak_v3_fail("out of memory growing array");
+    p->data = grown; p->capacity = min_capacity;
+}
+int64_t freak_v3_array_with_capacity(int64_t kind, int64_t capacity) {
+    freak_v3_kind(kind);
+    if (capacity < 0 || (uint64_t)capacity > SIZE_MAX / sizeof(int64_t))
+        freak_v3_fail("container length is negative or too large");
+    int64_t h = freak_v3_new(false, kind, 0);
+    if (capacity > 0) freak_v3_array_reserve(h, capacity);
+    return h;
+}
+void freak_v3_array_clear(int64_t h) {
+    freak_v3_container *p = freak_v3_object(h, false);
+    for (int64_t i = 0; i < p->length; i++) freak_v3_drop(p->kind, p->data[i]);
+    p->length = 0;
+}
+int64_t freak_v3_array_pop(int64_t h) {
+    freak_v3_container *p = freak_v3_object(h, false);
+    if (p->kind == FREAK_V3_C_WORD) freak_v3_fail("C word adapter used with a different element kind");
+    if (p->length <= 0) freak_v3_index(p, 0);
+    int64_t value = p->data[--p->length];
+    if (p->kind == FREAK_V3_WORD && value) freak_v3_words_live--;
+    return value;
+}
 int64_t freak_v3_array_get(int64_t h, int64_t i) {
     freak_v3_container *p = freak_v3_object(h, false); freak_v3_index(p, i);
     return p->data[i];
@@ -4928,6 +4959,17 @@ freak_word freak_v3_array_get_word(int64_t h, int64_t i) {
 void freak_v3_array_set_word(int64_t h, int64_t i, freak_word v) {
     freak_v3_container *p = freak_v3_object(h, false); freak_v3_word_kind(p, p->kind);
     freak_v3_array_set(h, i, (int64_t)(intptr_t)&v);
+}
+freak_word freak_v3_array_pop_word(int64_t h) {
+    freak_v3_container *p = freak_v3_object(h, false); freak_v3_word_kind(p, p->kind);
+    if (p->length <= 0) freak_v3_index(p, 0);
+    int64_t stored = p->data[--p->length];
+    if (!stored) return freak_word_lit("");
+    freak_word *wrapper = (freak_word *)(intptr_t)stored;
+    freak_word result = *wrapper;
+    free(wrapper);
+    freak_v3_words_live--;
+    return result;
 }
 int64_t freak_v3_array_filled_word(int64_t n, freak_word v) {
     return freak_v3_array_filled(FREAK_V3_C_WORD, n, (int64_t)(intptr_t)&v);

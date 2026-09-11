@@ -237,7 +237,7 @@ parity. This does not claim native C UI support or general collection fields.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `[1, 2, 3]` becomes `List<int>` | ✅ | ✅ | V3 LLVM/C checked indexing, mutable indexed assignment, length, iteration and `List::filled`; int/num/bool/word/concrete owned shape elements. `tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, `tests/v3_array_review_regressions.py`, `tests/v3_array_runtime.py` and `tests/v3_array_benchmarks.py` guard native behavior and million-element scaling. Empty literals remain List<word>; nested lists, List-valued shape fields, temporary-root indexed writes and container covariance are diagnosed. |
+| `[1, 2, 3]` becomes `List<int>` | ✅ | ✅ | V3 LLVM/C checked indexing, mutable indexed assignment, length, capacity, reserve, clear, push, pop, iteration and `List::filled`/`List::new`/`List::with_capacity`; int/num/bool/word/concrete owned shape elements with context-typed empty (`pilot mut xs: List<num> = []`) and owned word/shape pop/clear cleanup. `tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, `tests/v3_list_methods.py`, `tests/v3_array_review_regressions.py`, `tests/v3_array_runtime.py` and `tests/v3_array_benchmarks.py` guard native behavior and million-element scaling. Unannotated empty literals remain List<word>; nested lists, List-valued shape fields, temporary-root indexed writes and container covariance are diagnosed. |
 | `[1, 2, 3]: [int; 3]` fixed array | ⚠️ | 📖 V4 | V4 lowers typed fixed-array literals; stack layout and deeper const semantics still expand |
 | `[0; 100]` repeat-fill literal | ⚠️ | 📖 V4 | V4 lowers repeat-fill with literal and integer const arithmetic counts, including root-const inference/diagnostics; broader const-eval still expands |
 | Number suffixes: `42u`, `3.14f`, `42t`, `999b` | ⚠️ | 📖 V4 | V4 lex/type layers carry suffixes; broader const-evaluation surface still expands |
@@ -542,7 +542,7 @@ completion remain open.
 | `std::math` (abs, min, max, clamp, pow, sqrt, gcd, lcm, factorial, fibonacci, sin, cos, etc.) | ✅ | ✅ | |
 | `std::math3d` | ✅ | ✅ | [std/math3d.fk](std/math3d.fk) |
 | Numeric methods (`int::checked_add`, etc.) | ⚠️ | 📖 V4 | partial; many overflow-safe variants missing |
-| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | List works; Map basic; Set NOT IMPLEMENTED |
+| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | V3 List covers literals, `List::filled`/`List::new`/`List::with_capacity`, checked indexing, mutable indexed assignment, `length`/`capacity`/`reserve`/`clear`/`push`/`pop`, iteration, and owned word/shape cleanup (`tests/v3_list_methods.py` C/LLVM parity); Map basic; Set NOT IMPLEMENTED |
 | `Lineup<T>` FIFO queue | ❌ | 📖 V4 | not in stdlib |
 | `.filter` / `.collect` lazy iterators | ❌ | 📖 V4 | List has eager methods only |
 | `ask(prompt)` stdin | ✅ | ✅ | runtime |
