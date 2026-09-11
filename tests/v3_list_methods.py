@@ -191,6 +191,7 @@ NEGATIVE = {
     "reassign_new_nonword_kind": ('pilot mut xs: List<int> = [1]\nxs = List::new()\n', "without a known element type"),
     "reassign_with_capacity_nonword_kind": ('pilot mut xs: List<num> = []\nxs = List::with_capacity(4)\n', "without a known element type"),
     "reassign_new_scalar_receiver": ('pilot mut n = 1\nn = List::new()\n', "without a known element type"),
+    "reassign_new_shape_kind": (READING + 'pilot mut xs: List<Reading> = List::new()\nxs.push(Reading { label: "a", value: 1.5 })\nxs = List::new()\n', "without a known element type"),
     "unknown_list_method": ('pilot mut xs = [1]\nxs.insert(0, 2)\n', "has no method"),
 }
 

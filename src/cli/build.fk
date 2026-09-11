@@ -1040,7 +1040,7 @@ task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> wor
 
 task cli_runtime_link_plan(runtime_dir: word, lto: word, cross: word) -> word {
     pilot runtime_obj_ext = cli_precompiled_runtime_extension(runtime_dir)
-    if cli_is_windows() and cross == "" and lto == "off" and runtime_obj_ext != "" {
+    if cli_link_is_windows(cross) and cross == "" and lto == "off" and runtime_obj_ext != "" {
         give back "bundle"
     }
     give back "source"
