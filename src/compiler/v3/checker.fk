@@ -1870,6 +1870,7 @@ task tc_compound_result_type(op: word, left_type: word, right_type: word) -> wor
         give back ""
     }
     if op == "+=" or op == "-=" or op == "*=" or op == "/=" {
+        if left_type == "word" and right_type == "word" and op == "+=" { give back "word" }
         if tc_is_numeric(left_type) and tc_is_numeric(right_type) {
             if left_type == "num" or right_type == "num" { give back "num" }
             give back "int"

@@ -463,7 +463,7 @@
       "name": "semantic_word_compound_assignment",
       "kind": "type",
       "file": "semantic_word_compound_assignment.fk",
-      "diagnostic": "assignment operator '+=' does not accept word and word",
+      "diagnostic": "assignment operator '-=' does not accept word and word",
       "direct": true
     },
     {

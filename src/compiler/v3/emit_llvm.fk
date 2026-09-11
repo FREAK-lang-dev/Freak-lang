@@ -2386,8 +2386,39 @@ task llvm_emit_stmt_assign(eid: word) -> void {
             }
         }
     }
+    if target_type.starts_with("w") and name_w == "+=" and llvm_is_global(var_name_expr) {
+        -- Word `+=` on a global. Snapshot before emitting the RHS: a RHS
+        -- that mutates the global must still append to the entry value.
+        pilot word_snapshot = next_reg()
+        pilot word_loaded = next_reg()
+        llvm_emit_line("    " + word_loaded + " = load i64, i64* " + var_ptr)
+        llvm_emit_line("    " + word_snapshot + " = call i64 @freak_llvm_word_clone(i64 " + word_loaded + ")")
+        pilot word_suffix = llvm_emit_expr(rhs_w)
+        pilot word_concat = next_reg()
+        llvm_emit_line("    " + word_concat + " = call i64 @freak_llvm_word_concat(i64 " + word_snapshot + ", i64 " + word_suffix + ")")
+        llvm_v3_cleanup_temp(rhs_w, word_suffix)
+        pilot word_prev = next_reg()
+        llvm_emit_line("    " + word_prev + " = load i64, i64* " + var_ptr)
+        llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + word_prev + ", i64 " + word_concat + ")")
+        llvm_emit_line("    store i64 " + word_concat + ", i64* " + var_ptr)
+        llvm_emit_line("    call void @freak_llvm_word_release_replaced(i64 " + word_snapshot + ", i64 0)")
+        give back
+    }
     pilot reg = llvm_emit_expr(rhs_w)
     pilot stored_reg = reg
+    if target_type.starts_with("w") and name_w == "+=" {
+        -- Word `+=` on a plain local. `reg` already holds the single RHS
+        -- evaluation; locals cannot be mutated by the RHS, so load-then-
+        -- append is sound. (Globals take the snapshot path above.)
+        pilot word_prev = next_reg()
+        llvm_emit_line("    " + word_prev + " = load i64, i64* " + var_ptr)
+        pilot word_release_suffix = "0"
+        if llvm_word_expr_is_owned_temporary(rhs_w) { word_release_suffix = "1" }
+        pilot word_appended = next_reg()
+        llvm_emit_line("    " + word_appended + " = call i64 @freak_llvm_word_append_owned(i64 " + word_prev + ", i64 " + reg + ", i64 " + word_release_suffix + ")")
+        llvm_emit_line("    store i64 " + word_appended + ", i64* " + var_ptr)
+        give back
+    }
     if name_w == "=" {
         if llvm_v3_owned_type(target_type) {
             if not llvm_v3_temporary(rhs_w) { stored_reg = llvm_v3_retain(reg, target_type) }

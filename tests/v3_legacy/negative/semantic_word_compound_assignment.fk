@@ -1,5 +1,5 @@
 task main() {
     pilot mut text: word = "before"
-    text += "after"
+    text -= "after"
     say text
 }
