@@ -142,6 +142,40 @@ class PresentationModes(unittest.TestCase):
         with self.assertRaises(ValueError):
             selector.render("x", mode="verbose")
 
+    def test_off_mode_performs_no_data_lookups(self):
+        real_egg = selector.select_easter_egg
+        real_line = selector.select_line
+        real_resource = selector.select_resource
+
+        def unexpected(*_args, **_kwargs):
+            raise AssertionError("off mode must not consult presentation data")
+
+        selector.select_easter_egg = unexpected
+        selector.select_line = unexpected
+        selector.select_resource = unexpected
+        try:
+            self.assertEqual(
+                selector.render("canonical\nbytes", mode="off", code="E0009"),
+                "canonical\nbytes",
+            )
+        finally:
+            selector.select_easter_egg = real_egg
+            selector.select_line = real_line
+            selector.select_resource = real_resource
+
+    def test_resource_line_is_normal_mode_only_for_allocation_failure(self):
+        kwargs = dict(
+            version="0.14.1", file="alloc.fk", line=4, column=2,
+            source="reserve too much", speaker="FREAK",
+        )
+        minimal = selector.render("oom", mode="minimal", code="E0009", **kwargs)
+        normal = selector.render("oom", mode="normal", code="E0009", **kwargs)
+        other = selector.render("bounds", mode="normal", code="E0006", **kwargs)
+        self.assertNotIn("[resource]", minimal)
+        self.assertEqual(normal.count("[resource]"), 1)
+        self.assertNotIn("[resource]", other)
+        self.assertIn(normal.split("[resource] ", 1)[1], selector.load_resources())
+
 
 class EasterEggs(unittest.TestCase):
     def test_eggs_fire_only_on_exact_invalid_source(self):
@@ -174,6 +208,18 @@ class EasterEggs(unittest.TestCase):
                 )
                 for egg_line in egg_lines:
                     self.assertNotIn(egg_line, rendered)
+
+    def test_code_specific_egg_rejects_a_different_diagnostic_code(self):
+        egg = next(item for item in selector.load_easter_eggs() if item["code"])
+        different = next(code for code, _, _ in EXPECTED_CODES if code != egg["code"])
+        self.assertIsNone(selector.select_easter_egg(egg["exact_source"], different))
+
+    def test_code_agnostic_egg_accepts_any_failed_check(self):
+        egg = next(item for item in selector.load_easter_eggs() if item["code"] is None)
+        for code, _, _ in EXPECTED_CODES:
+            self.assertEqual(
+                selector.select_easter_egg(egg["exact_source"], code), egg["line"]
+            )
 
 
 class PacksAreData(unittest.TestCase):
@@ -225,6 +271,12 @@ class PacksAreData(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             for fragment in canonical_fragments:
                 self.assertNotIn(fragment, text)
+
+    def test_unknown_and_empty_speakers_fall_back_to_freak_pack(self):
+        expected = selector.load_pack("FREAK")
+        for speaker in ("DOES_NOT_EXIST", "", None):
+            with self.subTest(speaker=speaker):
+                self.assertEqual(selector.load_pack(speaker), expected)
 
 
 class PlatformVoices(unittest.TestCase):
