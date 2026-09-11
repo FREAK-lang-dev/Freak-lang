@@ -64,6 +64,20 @@ task main() {
     work()
 }
 ''', ["0", "2", "7", "8", "1"]),
+    "reassign_new_word_kind": ('''task work() {
+    pilot mut ws: List<word> = List::new()
+    ws.push("a")
+    say ws.length()
+    ws = List::new()
+    say ws.length()
+    ws.push("b")
+    say ws.length()
+    say ws[0]
+}
+task main() {
+    work()
+}
+''', ["1", "0", "1", "b"]),
     "with_capacity_growth": ('''task work() {
     pilot mut xs: List<int> = List::with_capacity(16)
     say xs.length()
@@ -174,6 +188,9 @@ NEGATIVE = {
     "uninferred_with_capacity": ('pilot xs = List::with_capacity(4)\n', "cannot infer"),
     "unannotated_new_arg": ('task take(xs: List<int>) -> int {\n    give back xs[0]\n}\ntask main() {\n    say take(List::new())\n}\n', "unresolved type"),
     "unannotated_new_return": ('task gen() -> List<int> {\n    give back List::new()\n}\ntask main() {\n    pilot xs = gen()\n    say xs.length()\n}\n', "no known type"),
+    "reassign_new_nonword_kind": ('pilot mut xs: List<int> = [1]\nxs = List::new()\n', "without a known element type"),
+    "reassign_with_capacity_nonword_kind": ('pilot mut xs: List<num> = []\nxs = List::with_capacity(4)\n', "without a known element type"),
+    "reassign_new_scalar_receiver": ('pilot mut n = 1\nn = List::new()\n', "without a known element type"),
     "unknown_list_method": ('pilot mut xs = [1]\nxs.insert(0, 2)\n', "has no method"),
 }
 

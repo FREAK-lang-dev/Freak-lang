@@ -659,8 +659,8 @@ indexed assignment through a `pilot mut` root, `.length()`, `.capacity()`,
 `for each item in values` on LLVM and C. A context-typed empty literal
 (`pilot mut xs: List<num> = []`) and the `List::new()` /
 `List::with_capacity(n)` constructors take their element type from a
-`List<T>` pilot annotation; unannotated construction defaults to
-`List<word>` and an unannotated `List::new()` / `List::with_capacity(n)`
+`List<T>` pilot annotation; an unannotated empty literal defaults to
+`List<word>`, while an unannotated `List::new()` / `List::with_capacity(n)`
 is rejected as uninferred. Mutating methods (`.push()`, `.pop()`,
 `.clear()`, `.reserve()`) require the same `pilot mut` root as indexed
 assignment. Popped words and shapes transfer ownership to the caller and

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import sys
 import unittest
 from pathlib import Path
 
@@ -324,8 +323,7 @@ class PlatformVoices(unittest.TestCase):
         out = selector.render("boom", mode="normal", platform="linux", **self.KWARGS)
         payload = json.loads((PACKS_DIR / "platform.json").read_text(encoding="utf-8"))
         self.assertTrue(
-            any(owned in out for owned in payload["platforms"]["linux"])
-            or "[E0010 PLATFORM]" in out,
+            any(owned in out for owned in payload["platforms"]["linux"]),
             out,
         )
 

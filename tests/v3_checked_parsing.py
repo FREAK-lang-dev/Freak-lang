@@ -499,7 +499,9 @@ def execute_case(
             assert "freak_parse_status" in generated_text, (name, backend)
         if name == "legacy_untouched":
             assert "@freak_llvm_word_to_int" in generated_text, (name, backend)
-            assert "@freak_llvm_parse_num" in generated_text, (name, backend)
+            # The shared prelude declares every runtime entry; only a call
+            # instruction proves the backend selected the parse routine.
+            assert "call i64 @freak_llvm_parse_num" in generated_text, (name, backend)
             # The shared prelude declares every runtime entry; only calls
             # prove selection, so gate on call instructions here.
             assert "call i64 @freak_llvm_word_parse" not in generated_text, (

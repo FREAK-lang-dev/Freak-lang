@@ -119,8 +119,12 @@ def check_static_contract(repo: Path) -> None:
         "task cli_canonical_target_is_supported(triple: word) -> bool",
         "task cli_host_can_execute_target(cross: word) -> bool",
         "task cli_host_native_triple() -> word",
+        "task cli_link_is_windows(cross: word) -> bool",
     ):
         assert needle in build, f"target helper missing {needle}"
+    assert "pilot is_win = cli_link_is_windows(cross)" in build, (
+        "link inputs must follow the target OS, not the host OS"
+    )
     for needle in (
         "FOREIGN TARGET",
         "freak run refused --target=",

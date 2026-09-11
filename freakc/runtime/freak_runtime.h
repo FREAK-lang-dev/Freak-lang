@@ -472,7 +472,8 @@ freak_word freak_format_num(double n);
    whitespace), malformed exponents, and out-of-range magnitudes fail.
    parse_int accepts optional sign plus decimal digits; parse_num accepts
    optional sign, digits with an optional fraction, and an optional decimal
-   exponent. Both report FREAK_PARSE_STATUS_OK (0) on success. */
+   exponent. Success leaves the status channel unchanged, so it reads
+   FREAK_PARSE_STATUS_OK (0) only when no earlier failure is still pending. */
 #define FREAK_PARSE_STATUS_OK 0
 #define FREAK_PARSE_STATUS_INVALID 1
 #define FREAK_PARSE_STATUS_OUT_OF_RANGE 2

@@ -795,6 +795,17 @@ task cli_host_native_triple() -> word {
     give back cli_clang_target_triple(clang_cmd, "")
 }
 
+task cli_link_is_windows(cross: word) -> bool {
+    -- Link inputs (-lm vs -lws2_32 and the Win32 UI backend) must follow
+    -- the TARGET os, not the host: a native build links for the host while
+    -- a cross build links for the requested triple.
+    if cross != "" {
+        pilot wanted = cli_target_os_family(cli_canonical_target_triple(cli_resolve_target_alias(cross)))
+        if wanted != "" { give back wanted == "windows" }
+    }
+    give back cli_is_windows()
+}
+
 task cli_host_can_execute_target(cross: word) -> bool {
     -- freak run only launches binaries the host toolchain can execute.
     -- freak build stays the cross-compile path and accepts any safe triple.
@@ -1074,7 +1085,7 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     -- Determine output binary name
     pilot out_bin = cli_binary_path(src_file)
 
-    pilot is_win = cli_is_windows()
+    pilot is_win = cli_link_is_windows(cross)
     pilot runtime_obj_ext = cli_precompiled_runtime_extension(runtime_dir)
     -- Packaged COFF objects are native to the Windows distribution. Use them
     -- only for a native Windows build and keep final CRT/SDK selection under

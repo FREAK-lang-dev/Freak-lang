@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SYNTAX_DIRS = (ROOT / "freakc", ROOT / "tools")
 
 REQUIRED_FILES = (
+    "README.md",
     "CONTRIBUTING.md",
     "CODEOWNERS",
     "AUTHORS.md",

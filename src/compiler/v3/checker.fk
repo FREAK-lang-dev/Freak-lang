@@ -2318,6 +2318,18 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot left_type = tc_expr_type(left_id)
         pilot right_type = tc_expr_type(right_id)
         pilot op: word = array_get(ast_stmt_names, stmt_id)
+        if op == "=" {
+            pilot rhs_kind: word = array_get(ast_expr_kinds, right_id)
+            pilot rhs_val: word = array_get(ast_expr_vals, right_id)
+            pilot rhs_untyped_empty = rhs_kind == EXPR_CALL and (rhs_val == "List::new" or rhs_val == "List::with_capacity")
+            -- An uninferred empty-list constructor carries no element type,
+            -- but both backends mint word-kind storage for it. Only accept
+            -- it where the destination is a word list; anything else would
+            -- silently install wrongly-kind storage.
+            if rhs_untyped_empty and left_type != "" and not (tc_is_list(left_type) and tc_list_element(left_type) == "word") {
+                tc_diag("cannot assign " + rhs_val + "() to " + left_type + " without a known element type", tc_expr_diag_line(right_id, line), tc_expr_diag_file(right_id, source_file))
+            }
+        }
         if left_type != "" and right_type != "" {
             if op == "=" {
                 if not tc_type_assignable(left_type, right_type) {
