@@ -357,6 +357,7 @@ def run(
     env: dict[str, str] | None = None,
     timeout: int = 180,
 ) -> subprocess.CompletedProcess[str]:
+    """Run a regression command and capture its decoded output."""
     return subprocess.run(
         command,
         cwd=cwd,
@@ -371,6 +372,7 @@ def run(
 
 
 def require_ok(result: subprocess.CompletedProcess[str], label: str) -> None:
+    """Raise an assertion containing command output when a step fails."""
     if result.returncode:
         raise AssertionError(
             f"{label} failed ({result.returncode})\n{result.stdout}{result.stderr}"
@@ -378,6 +380,7 @@ def require_ok(result: subprocess.CompletedProcess[str], label: str) -> None:
 
 
 def sanitizer_env() -> dict[str, str]:
+    """Return a clean environment configured for sanitizer failures."""
     env = os.environ.copy()
     env.pop("ASAN_OPTIONS", None)
     env.pop("LSAN_OPTIONS", None)
@@ -446,6 +449,7 @@ def compile_generated(
     backend: str,
     binary: Path,
 ) -> None:
+    """Link generated C or LLVM output with ownership auditing enabled."""
     runtime = repo / "freakc" / "runtime"
     command = [clang, "-g", "-O1", "-o", str(binary), str(generated)]
     if backend == "llvm":
@@ -468,6 +472,7 @@ def compile_generated(
 def execute_case(
     compiler: Path, repo: Path, root: Path, backend: str, name: str
 ) -> dict:
+    """Compile and execute one positive checked-parsing case."""
     source, expected = CASES[name]
     fixture = root / f"parse_{name}_{backend}.fk"
     fixture.write_text(source, encoding="utf-8")
@@ -533,6 +538,7 @@ def execute_case(
 def execute_negative(
     compiler: Path, root: Path, backend: str, name: str
 ) -> dict:
+    """Verify one invalid parsing program is rejected before emission."""
     for case_name, source, diagnostic in NEGATIVES:
         if case_name != name:
             continue
@@ -547,6 +553,7 @@ def execute_negative(
 
 
 def execute_emitter_case(repo: Path, root: Path, name: str) -> dict:
+    """Compile and run one bootstrap-emitter ownership regression."""
     from freakc.__main__ import transpile_checked
 
     source, expected = EMITTER_CASES[name]
@@ -591,6 +598,7 @@ def execute_emitter_case(repo: Path, root: Path, name: str) -> dict:
 
 
 def main() -> int:
+    """Run the selected checked-parsing regression matrix."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "compiler",
