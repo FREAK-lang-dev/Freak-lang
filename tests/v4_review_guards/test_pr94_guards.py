@@ -72,6 +72,18 @@ class TaskReturnGuards(unittest.TestCase):
         source = HARNESS.read_text(encoding="utf-8").replace('"fixture": "hir_snapshot_scaling_smoke.fk"', '"fixture": "different_fixture.fk"')
         self.assertTrue(any("missing hir_snapshot_scaling_smoke.fk" in e for e in self.scaling_errors(harness_source=source)))
 
+    def test_commented_probe_is_rejected(self):
+        source = FIXTURE.read_text(encoding="utf-8").replace('say "hir-scaling-return-missing-all="', '-- say "hir-scaling-return-missing-all="')
+        self.assertTrue(self.scaling_errors(fixture_source=source))
+
+    def test_commented_invocation_is_rejected(self):
+        source = FIXTURE.read_text(encoding="utf-8").replace("    v4_hir_scaling_return_checks(before)", "    -- v4_hir_scaling_return_checks(before)")
+        self.assertTrue(self.scaling_errors(fixture_source=source))
+
+    def test_word_literal_cannot_replace_invocation(self):
+        source = FIXTURE.read_text(encoding="utf-8").replace("    v4_hir_scaling_return_checks(before)", '    say "    v4_hir_scaling_return_checks(before)"')
+        self.assertTrue(self.scaling_errors(fixture_source=source))
+
     def test_manifest_oracle_is_required_even_with_marker_elsewhere(self):
         source = HARNESS.read_text(encoding="utf-8").replace('"hir-scaling-return-missing-all=true",', '', 1)
         source += '\n# "hir-scaling-return-missing-all=true"\n'

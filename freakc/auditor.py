@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .lexer import Lexer, TokenType
+from .lexer import Lexer, LexerError, TokenType
 from .parser import (
     Annotation,
     Assign,
@@ -1517,6 +1517,17 @@ def _task_return_scaling_errors(fixture: Path, harness: Path) -> List[str]:
     except OSError as exc:
         errors.append(f"{fixture.name}: could not read scaling fixture: {exc}")
     else:
+        # Token identity excludes comments and prevents text inside a word
+        # literal from masquerading as an executable probe or invocation.
+        try:
+            fixture_tokens = [
+                (token.type, token.lexeme)
+                for token in Lexer(fixture_source).tokenize()
+                if token.type != TokenType.EOF
+            ]
+        except LexerError as exc:
+            errors.append(f"{fixture.name}: invalid scaling fixture: {exc}")
+            fixture_tokens = []
         for needle in (
             "task v4_hir_scaling_return_checks(before: word)",
             "v4_hir_scaling_returns(1, 512)",
@@ -1524,7 +1535,15 @@ def _task_return_scaling_errors(fixture: Path, harness: Path) -> List[str]:
             "    v4_hir_scaling_return_checks(before)",
             *(f'say "{label}=" + word_from_bool(' for label in labels),
         ):
-            if needle not in fixture_source:
+            needle_tokens = [
+                (token.type, token.lexeme)
+                for token in Lexer(needle).tokenize()
+                if token.type != TokenType.EOF
+            ]
+            if not any(
+                fixture_tokens[index:index + len(needle_tokens)] == needle_tokens
+                for index in range(len(fixture_tokens) - len(needle_tokens) + 1)
+            ):
                 errors.append(f"{fixture.name}: missing return scaling probe: {needle}")
     smokes, manifest_errors = _literal_executable_smokes(harness)
     errors.extend(manifest_errors)
