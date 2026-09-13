@@ -103,6 +103,10 @@ mode vocabulary, source ordering, and atomic restore. Parameter snapshot linkage
 uses four passes over the shared native line index, seventeen released scratch
 arrays sized from observed records, and cached scalar parent bounds. It requires
 owner records even for zero-parameter Tasks; arbitrary wire ordering is accepted.
+Canonical decimal/span checks avoid reconstructed words, record kinds reuse
+exact delimited protocol literals, and unescaped fields avoid a second copy.
+The combined snapshot scaling fixture preserves its 96 validation and 32 restore
+iterations under the 64 MB / 1,024-handle limits and checks decoder equivalence.
 Impl, doctrine, and extern signatures remain explicitly named token-facing
 fallbacks. Shape/route
 fields, const annotations, other non-ordinary signatures, the
