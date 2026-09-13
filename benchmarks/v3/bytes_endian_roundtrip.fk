@@ -1,0 +1,27 @@
+task main() {
+    pilot mut records: int = 1000000
+    if process::args_count() > 1 { records = word_to_int(process::arg(1)) }
+    if records <= 0 or records > 1000000 { process::exit(2) }
+    pilot buffer = ByteBuffer::with_capacity(records * 16)
+    pilot mut index = 0
+    repeat until index >= records {
+        buffer.write_int(0 - index)
+        buffer.write_int_be(index + 1)
+        index += 1
+    }
+    say buffer.length()
+    buffer.seek(0)
+    pilot mut checksum = 0
+    index = 0
+    repeat until index >= records {
+        pilot little = buffer.read_int()
+        pilot big = buffer.read_int_be()
+        if little != 0 - index or big != index + 1 { process::exit(3) }
+        checksum += big - little
+        index += 1
+    }
+    say checksum
+    say buffer.position()
+    say buffer.status()
+    buffer.release()
+}

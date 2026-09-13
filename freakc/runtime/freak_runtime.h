@@ -40,15 +40,76 @@ freak_word freak_arg(int64_t index);
 
 #define FREAK_WORD_EMPTY { 0 }
 
+/* V3 typed containers. Scalars occupy one 64-bit slot, including num bits.
+   Reads borrow; push/set clone words and retain shapes. Release each owned
+   handle once; retain before copying a handle into another owning binding.
+   Legacy array_* remains the compiler's independent word-container ABI. */
+enum { FREAK_V3_INT = 0, FREAK_V3_NUM = 1, FREAK_V3_WORD = 2,
+       FREAK_V3_SHAPE = 3, FREAK_V3_C_WORD = 4 };
+int64_t freak_v3_array_new(int64_t kind);
+int64_t freak_v3_array_with_capacity(int64_t kind, int64_t capacity);
+int64_t freak_v3_array_filled(int64_t kind, int64_t count, int64_t value);
+void freak_v3_array_push(int64_t handle, int64_t value);
+int64_t freak_v3_array_get(int64_t handle, int64_t index);
+void freak_v3_array_set(int64_t handle, int64_t index, int64_t value);
+int64_t freak_v3_array_len(int64_t handle);
+int64_t freak_v3_array_capacity(int64_t handle);
+void freak_v3_array_reserve(int64_t handle, int64_t min_capacity);
+void freak_v3_array_clear(int64_t handle);
+int64_t freak_v3_array_pop(int64_t handle);
+int64_t freak_v3_array_retain(int64_t handle);
+void freak_v3_array_release(int64_t handle);
+void freak_v3_array_push_word(int64_t handle, freak_word value);
+freak_word freak_v3_array_get_word(int64_t handle, int64_t index);
+void freak_v3_array_set_word(int64_t handle, int64_t index, freak_word value);
+freak_word freak_v3_array_pop_word(int64_t handle);
+int64_t freak_v3_array_filled_word(int64_t count, freak_word value);
+int64_t freak_v3_num_bits(double value);
+double freak_v3_bits_num(int64_t value);
+int64_t freak_v3_shape_new(int64_t fields);
+void freak_v3_shape_init(int64_t handle, int64_t index, int64_t kind, int64_t value);
+int64_t freak_v3_shape_get(int64_t handle, int64_t index);
+void freak_v3_shape_set(int64_t handle, int64_t index, int64_t value);
+int64_t freak_v3_shape_take(int64_t handle, int64_t index);
+void freak_v3_shape_set_owned(int64_t handle, int64_t index, int64_t value);
+int64_t freak_v3_shape_retain(int64_t handle);
+void freak_v3_shape_release(int64_t handle);
+void freak_v3_shape_init_word(int64_t handle, int64_t index, freak_word value);
+freak_word freak_v3_shape_get_word(int64_t handle, int64_t index);
+void freak_v3_shape_set_word(int64_t handle, int64_t index, freak_word value);
+/* Deterministic ownership oracles; counts exclude retained registry capacity. */
+int64_t freak_v3_live_arrays(void);
+int64_t freak_v3_live_shapes(void);
+int64_t freak_v3_live_words(void);
+
 /* Construct from a C string literal (no copy, points into rodata). */
 freak_word freak_word_lit(const char* s);
 
 /* Construct from a heap-allocated buffer (takes ownership). */
 freak_word freak_word_own(char* s, size_t len);
 
+/* Private representation bridge: the LLVM ABI remains an integer pointer.
+   Runtime-owned values retain their byte length in the existing registry;
+   unknown foreign pointers keep the legacy NUL-terminated interpretation. */
+int64_t freak_llvm_word_adopt(int64_t pointer);
+/* Adopts a heap buffer with at least length + 1 bytes and a final terminator.
+   Embedded terminators are data. A repeated adoption must preserve length;
+   invalid lengths/conflicting metadata are fatal, like allocation failure. */
+int64_t freak_llvm_word_adopt_sized(int64_t pointer, size_t length);
+size_t freak_llvm_word_size(int64_t pointer);
+freak_word freak_llvm_word_view(int64_t pointer);
+/* Consumes the C owner bookkeeping when heap=true; borrowed results must be
+   C strings or the runtime's static char_at byte words. */
+int64_t freak_llvm_word_take(freak_word value);
+
 /* Concatenate two words — allocates. */
 freak_word freak_word_concat(freak_word a, freak_word b);
 freak_word freak_word_concat_consuming(freak_word a, freak_word b, bool release_a, bool release_b);
+
+/* Repeat the complete byte sequence count times. Nonempty output uses one
+   checked exact allocation; count <= 0 and empty input return empty. */
+freak_word freak_word_repeated(freak_word pattern, int64_t count);
+int64_t freak_llvm_word_repeated(int64_t pattern, int64_t count);
 
 /* Compiler-internal self-replacement fast path. Appends into a private
    geometrically grown buffer without changing freak_word's public layout. */
@@ -66,6 +127,144 @@ void freak_word_replace_owned(freak_word* slot, freak_word replacement);
    data must use this/replacement APIs rather than direct free(), because the
    frozen runtime tracks private ownership and append-capacity metadata. */
 void freak_word_release_owned(freak_word* slot);
+
+/* Opaque generation-checked word builders. Handles are ordinary V3 int
+   values; finish and discard consume the handle and invalidate every alias. */
+int64_t freak_word_builder_new(void);
+int64_t freak_word_builder_with_capacity(int64_t min_capacity);
+void freak_word_builder_reserve(int64_t handle, int64_t min_capacity);
+int64_t freak_word_builder_capacity(int64_t handle);
+int64_t freak_word_builder_length(int64_t handle);
+void freak_word_builder_clear(int64_t handle);
+void freak_word_builder_append(int64_t handle, freak_word value);
+void freak_word_builder_append_char(int64_t handle, int64_t scalar);
+void freak_word_builder_append_int(int64_t handle, int64_t value);
+freak_word freak_word_builder_finish(int64_t handle);
+void freak_word_builder_discard(int64_t handle);
+
+int64_t freak_llvm_word_builder_new(void);
+int64_t freak_llvm_word_builder_with_capacity(int64_t min_capacity);
+void freak_llvm_word_builder_reserve(int64_t handle, int64_t min_capacity);
+int64_t freak_llvm_word_builder_capacity(int64_t handle);
+int64_t freak_llvm_word_builder_length(int64_t handle);
+void freak_llvm_word_builder_clear(int64_t handle);
+void freak_llvm_word_builder_append(int64_t handle, int64_t value);
+void freak_llvm_word_builder_append_char(int64_t handle, int64_t scalar);
+void freak_llvm_word_builder_append_int(int64_t handle, int64_t value);
+int64_t freak_llvm_word_builder_finish(int64_t handle);
+void freak_llvm_word_builder_discard(int64_t handle);
+
+/* Opaque generation-checked byte buffers.  The sign-bit handle domain keeps
+   buffers disjoint from arrays and word builders.  release consumes a handle;
+   bounds, argument, and UTF-8 failures are sticky until clear_status. */
+typedef int64_t freak_byte_buffer_handle;
+
+#define FREAK_BYTE_BUFFER_STATUS_OK 0
+#define FREAK_BYTE_BUFFER_STATUS_OOB 1
+#define FREAK_BYTE_BUFFER_STATUS_INVALID_ARGUMENT 2
+#define FREAK_BYTE_BUFFER_STATUS_INVALID_UTF8 3
+
+freak_byte_buffer_handle freak_byte_buffer_new(void);
+freak_byte_buffer_handle freak_byte_buffer_with_capacity(int64_t min_capacity);
+void freak_byte_buffer_release(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_status(freak_byte_buffer_handle handle);
+void freak_byte_buffer_clear_status(freak_byte_buffer_handle handle);
+void freak_byte_buffer_reserve(freak_byte_buffer_handle handle, int64_t min_capacity);
+int64_t freak_byte_buffer_capacity(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_length(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_position(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_remaining(freak_byte_buffer_handle handle);
+void freak_byte_buffer_clear(freak_byte_buffer_handle handle);
+void freak_byte_buffer_truncate(freak_byte_buffer_handle handle, int64_t length);
+void freak_byte_buffer_seek(freak_byte_buffer_handle handle, int64_t position);
+void freak_byte_buffer_write_byte(freak_byte_buffer_handle handle, int64_t value);
+void freak_byte_buffer_write_int(freak_byte_buffer_handle handle, int64_t value);
+void freak_byte_buffer_write_int_be(freak_byte_buffer_handle handle, int64_t value);
+void freak_byte_buffer_write_word(freak_byte_buffer_handle handle, freak_word value);
+int64_t freak_byte_buffer_read_byte(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_read_int(freak_byte_buffer_handle handle);
+int64_t freak_byte_buffer_read_int_be(freak_byte_buffer_handle handle);
+freak_word freak_byte_buffer_read_word(freak_byte_buffer_handle handle, int64_t length);
+freak_byte_buffer_handle freak_byte_buffer_slice(
+    freak_byte_buffer_handle handle, int64_t offset, int64_t length);
+freak_word freak_byte_buffer_to_word(freak_byte_buffer_handle handle);
+
+int64_t freak_llvm_byte_buffer_new(void);
+int64_t freak_llvm_byte_buffer_with_capacity(int64_t min_capacity);
+void freak_llvm_byte_buffer_release(int64_t handle);
+int64_t freak_llvm_byte_buffer_status(int64_t handle);
+void freak_llvm_byte_buffer_clear_status(int64_t handle);
+void freak_llvm_byte_buffer_reserve(int64_t handle, int64_t min_capacity);
+int64_t freak_llvm_byte_buffer_capacity(int64_t handle);
+int64_t freak_llvm_byte_buffer_length(int64_t handle);
+int64_t freak_llvm_byte_buffer_position(int64_t handle);
+int64_t freak_llvm_byte_buffer_remaining(int64_t handle);
+void freak_llvm_byte_buffer_clear(int64_t handle);
+void freak_llvm_byte_buffer_truncate(int64_t handle, int64_t length);
+void freak_llvm_byte_buffer_seek(int64_t handle, int64_t position);
+void freak_llvm_byte_buffer_write_byte(int64_t handle, int64_t value);
+void freak_llvm_byte_buffer_write_int(int64_t handle, int64_t value);
+void freak_llvm_byte_buffer_write_int_be(int64_t handle, int64_t value);
+void freak_llvm_byte_buffer_write_word(int64_t handle, int64_t value);
+int64_t freak_llvm_byte_buffer_read_byte(int64_t handle);
+int64_t freak_llvm_byte_buffer_read_int(int64_t handle);
+int64_t freak_llvm_byte_buffer_read_int_be(int64_t handle);
+int64_t freak_llvm_byte_buffer_read_word(int64_t handle, int64_t length);
+int64_t freak_llvm_byte_buffer_slice(int64_t handle, int64_t offset, int64_t length);
+int64_t freak_llvm_byte_buffer_to_word(int64_t handle);
+
+/* Managed TCP sockets. Handles are generation checked and occupy a domain
+   disjoint from arrays, word builders, and ByteBuffer. Constructor failures
+   still return owned live handles so callers can inspect status then close. */
+typedef int64_t freak_tcp_socket_handle;
+
+#define FREAK_TCP_SOCKET_STATUS_OK 0
+#define FREAK_TCP_SOCKET_STATUS_INVALID_ARGUMENT 1
+#define FREAK_TCP_SOCKET_STATUS_RESOLVE_FAILED 2
+#define FREAK_TCP_SOCKET_STATUS_OPEN_FAILED 3
+#define FREAK_TCP_SOCKET_STATUS_CONNECT_FAILED 4
+#define FREAK_TCP_SOCKET_STATUS_BIND_FAILED 5
+#define FREAK_TCP_SOCKET_STATUS_LISTEN_FAILED 6
+#define FREAK_TCP_SOCKET_STATUS_ACCEPT_FAILED 7
+#define FREAK_TCP_SOCKET_STATUS_IO_FAILED 8
+#define FREAK_TCP_SOCKET_STATUS_WRONG_ROLE 9
+#define FREAK_TCP_SOCKET_STATUS_TIMED_OUT 10
+
+freak_tcp_socket_handle freak_tcp_socket_connect(freak_word host, int64_t port);
+freak_tcp_socket_handle freak_tcp_socket_listen(
+    freak_word host, int64_t port, int64_t backlog);
+freak_tcp_socket_handle freak_tcp_socket_accept(freak_tcp_socket_handle listener);
+int64_t freak_tcp_socket_status(freak_tcp_socket_handle handle);
+bool freak_tcp_socket_eof(freak_tcp_socket_handle handle);
+int64_t freak_tcp_socket_local_port(freak_tcp_socket_handle handle);
+int64_t freak_tcp_socket_send(
+    freak_tcp_socket_handle handle, freak_byte_buffer_handle source,
+    int64_t offset, int64_t count);
+int64_t freak_tcp_socket_send_all(
+    freak_tcp_socket_handle handle, freak_byte_buffer_handle source,
+    int64_t offset, int64_t count);
+int64_t freak_tcp_socket_receive(
+    freak_tcp_socket_handle handle, freak_byte_buffer_handle destination,
+    int64_t max_bytes);
+void freak_tcp_socket_set_timeout(
+    freak_tcp_socket_handle handle, int64_t receive_ms, int64_t send_ms);
+void freak_tcp_socket_close(freak_tcp_socket_handle handle);
+
+int64_t freak_llvm_tcp_socket_connect(int64_t host, int64_t port);
+int64_t freak_llvm_tcp_socket_listen(int64_t host, int64_t port, int64_t backlog);
+int64_t freak_llvm_tcp_socket_accept(int64_t listener);
+int64_t freak_llvm_tcp_socket_status(int64_t handle);
+int64_t freak_llvm_tcp_socket_eof(int64_t handle);
+int64_t freak_llvm_tcp_socket_local_port(int64_t handle);
+int64_t freak_llvm_tcp_socket_send(
+    int64_t handle, int64_t source, int64_t offset, int64_t count);
+int64_t freak_llvm_tcp_socket_send_all(
+    int64_t handle, int64_t source, int64_t offset, int64_t count);
+int64_t freak_llvm_tcp_socket_receive(
+    int64_t handle, int64_t destination, int64_t max_bytes);
+void freak_llvm_tcp_socket_set_timeout(
+    int64_t handle, int64_t receive_ms, int64_t send_ms);
+void freak_llvm_tcp_socket_close(int64_t handle);
 
 /* Equality test (byte-wise). */
 bool freak_word_eq(freak_word a, freak_word b);
@@ -142,6 +341,7 @@ int64_t freak_pow_int(int64_t base, int64_t exp);
 /* ------------------------------------------------------------------ */
 
 int64_t freak_time_now_ms(void);
+int64_t freak_time_monotonic_ns(void);
 void    freak_time_sleep(int64_t ms);
 
 /* ------------------------------------------------------------------ */
@@ -237,6 +437,19 @@ int64_t freak_word_checksum(freak_word w);
 freak_word freak_word_snapshot_escape(freak_word w);
 freak_word freak_word_snapshot_unescape(freak_word w);
 int64_t freak_word_snapshot_line_count(freak_word w);
+/* Owned word-array handle, or -1 on allocation/handle exhaustion. Empty input
+   has no records; LF separates records, preserving blank/trailing lines and CR.
+   Source is borrowed. C snapshot arrays carry an element-ownership marker:
+   both ordinary and owned release free their elements exactly once, ordinary
+   push/set clone borrowed inputs, and owned push/set transfer inputs. This also
+   supports the Python bootstrap's ordinary array_release lowering. LLVM uses
+   its existing owned-array release lowering. */
+int64_t freak_word_snapshot_lines(freak_word w);
+int64_t freak_llvm_word_snapshot_lines(int64_t source);
+/* Internal bridge: known-length adoption; failure leaves ownership unchanged.
+   A fresh pointer remains caller-owned; conflicting duplicate metadata returns
+   zero without releasing/changing an already registered owner. */
+int64_t freak_llvm_word_try_adopt_sized(int64_t pointer, size_t length);
 freak_word freak_word_snapshot_line(freak_word w, int64_t wanted);
 int64_t freak_word_snapshot_field_count(freak_word w);
 freak_word freak_word_snapshot_field_raw(freak_word w, int64_t wanted);
@@ -250,6 +463,26 @@ int64_t freak_word_compare(freak_word a, freak_word b);
 double  freak_word_to_num(freak_word w);
 double  freak_parse_num(freak_word w);
 freak_word freak_format_num(double n);
+
+/* Checked word parsing. Strict full-input conversions with a sticky status
+   channel mirroring the ByteBuffer status/clear_status contract: a failure
+   keeps the first code until parse_clear_status runs; success leaves the
+   channel unchanged. Legacy to_int/to_num/parse_num stay lenient. Empty
+   input, sign-only text, invalid digits, junk suffixes (including
+   whitespace), malformed exponents, and out-of-range magnitudes fail.
+   parse_int accepts optional sign plus decimal digits; parse_num accepts
+   optional sign, digits with an optional fraction, and an optional decimal
+   exponent. Success leaves the status channel unchanged, so it reads
+   FREAK_PARSE_STATUS_OK (0) only when no earlier failure is still pending. */
+#define FREAK_PARSE_STATUS_OK 0
+#define FREAK_PARSE_STATUS_INVALID 1
+#define FREAK_PARSE_STATUS_OUT_OF_RANGE 2
+int64_t freak_parse_status(void);
+void freak_parse_clear_status(void);
+int64_t freak_word_parse_int(freak_word w);
+double freak_word_parse_num(freak_word w);
+int64_t freak_llvm_word_parse_int(int64_t source);
+int64_t freak_llvm_word_parse_num(int64_t source);
 
 /* ------------------------------------------------------------------ */
 /*  std::process                                                      */
@@ -272,12 +505,21 @@ freak_process_handle freak_process_spawn(freak_word cmd, void* args /* TODO: lis
 uint64_t freak_process_pid(void);
 void freak_process_exit(int64_t code);
 freak_word freak_process_input(void);
+/* Environment reads snapshot process-global storage. A present nonempty value
+   is independently runtime-owned in both the direct and Maybe forms. */
 freak_maybe_word freak_process_env_var(freak_word name);
 void freak_process_set_env(freak_word name, freak_word val);
 freak_word freak_process_env(freak_word name);
 void* freak_process_args(void); /* TODO: list<word> */
 int64_t freak_process_args_count(void);
 freak_word freak_process_arg(int64_t index);
+
+/* LLVM universal-ABI bridges for the scalar V3 system surface. */
+int64_t freak_llvm_time_now_ms(void);
+int64_t freak_llvm_time_monotonic_ns(void);
+int64_t freak_llvm_process_pid(void);
+int64_t freak_llvm_process_env(int64_t name);
+void freak_llvm_process_set_env(int64_t name, int64_t value);
 
 /* Simple command execution */
 int64_t freak_process_exec(freak_word cmd);
@@ -358,7 +600,8 @@ freak_result_word_word freak_bytes_to_word(const freak_byte_buffer* b);
 /* Creates a new dynamic array, returns a handle (int64_t). */
 int64_t freak_array_new(void);
 
-/* Push a word onto the array. */
+/* Push a word onto the array. Ordinary push borrows, except snapshot-created
+   arrays clone the input. Owned push always transfers ownership. */
 void freak_array_push(int64_t handle, freak_word item);
 void freak_array_push_owned(int64_t handle, freak_word item);
 
@@ -368,12 +611,15 @@ freak_word freak_array_get(int64_t handle, int64_t index);
 /* Get current length of the array. */
 int64_t freak_array_len(int64_t handle);
 
-/* Set item at index. Panics if out of bounds. */
+/* Set item at index. Panics if out of bounds. Ordinary set borrows, except
+   snapshot-created arrays clone the input and release the replaced element.
+   Owned set always transfers ownership and releases the replaced element. */
 void freak_array_set(int64_t handle, int64_t index, freak_word item);
 void freak_array_set_owned(int64_t handle, int64_t index, freak_word item);
 
 /* Release an array slot so a later array_new call can reuse it with a new
-   generation-tagged handle. Stale handles remain invalid. */
+   generation-tagged handle. Stale handles remain invalid. Ordinary release
+   frees elements only for snapshot-created arrays; owned release always does. */
 void freak_array_release(int64_t handle);
 void freak_array_release_owned(int64_t handle);
 
@@ -431,6 +677,10 @@ int64_t freak_ui_event_gained(int64_t index);
 /* Phase MA: Frame control */
 void freak_ui_begin_frame(int64_t handle);
 void freak_ui_end_frame(int64_t handle);
+void freak_ui_set_clip(int64_t handle, int64_t x, int64_t y, int64_t width, int64_t height);
+void freak_ui_reset_clip(int64_t handle);
+void freak_llvm_ui_set_clip(int64_t handle, int64_t x, int64_t y, int64_t width, int64_t height);
+void freak_llvm_ui_reset_clip(int64_t handle);
 
 /* Phase MA: Drawing */
 void freak_ui_clear(int64_t handle, int64_t r, int64_t g, int64_t b, int64_t a);

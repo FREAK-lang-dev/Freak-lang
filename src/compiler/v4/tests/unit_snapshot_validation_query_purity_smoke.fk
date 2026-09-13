@@ -1,0 +1,97 @@
+-- A foreign TY snapshot must probe its own parents without publishing
+-- component invalidations into the live query graph.
+
+task v4_unit_validation_query_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_unit_validation_expansion_ids() -> word {
+    pilot ids = ""
+    pilot slot = 0
+    repeat until slot >= v4_expand_file_count() {
+        ids = ids + v4_macro_api_pack_field(v4_expand_contract_expansion_id(slot))
+        slot += 1
+    }
+    give back ids
+}
+
+task v4_unit_validation_expansion_ids_match(ids: word, count: int) -> bool {
+    if v4_expand_file_count() != count { give back false }
+    pilot slot = 0
+    repeat until slot >= count {
+        if not v4_expand_contract_expansion_matches(slot, v4_macro_api_field(ids, slot)) { give back false }
+        slot += 1
+    }
+    give back true
+}
+
+task v4_unit_validation_bad_ty_context(payload: word) -> word {
+    pilot out = ""
+    pilot line_id = 0
+    repeat until line_id >= v4_unit_snapshot_line_count(payload) {
+        pilot line = v4_unit_snapshot_line(payload, line_id)
+        if v4_unit_snapshot_field_raw(line, 0) == "unit-section" and v4_unit_snapshot_field(line, 1) == "ty" {
+            -- Exercise the helper's rejection after installing foreign parents;
+            -- outer container validation intentionally is not under test here.
+            line = "unit-section|ty|unused|invalid-ty-context"
+        }
+        if line_id > 0 { out = out + "\n" }
+        out = out + line
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_unit_validation_query_run() -> void {
+    pilot baseline_source = "task current() -> int {\n"
+    baseline_source = baseline_source + "    give back 1\n"
+    baseline_source = baseline_source + "}\n"
+    pilot baseline_ty = v4_ty_text_cached("validation-current.fk", baseline_source)
+    pilot peer_ty = v4_ty_text_cached("validation-peer.fk", "task peer() => 2\n")
+    pilot baseline = v4_unit_snapshot()
+    pilot foreign_source = "task foreign(value: word) -> word {\n"
+    foreign_source = foreign_source + "    give back value\n"
+    foreign_source = foreign_source + "}\n"
+    pilot foreign_ty = v4_ty_text_cached("validation-foreign.fk", foreign_source)
+    pilot foreign = v4_unit_snapshot()
+    pilot foreign_ty_payload = v4_unit_snapshot_section_payload(foreign, "ty")
+    pilot restored = v4_unit_snapshot_restore(baseline)
+    say "validation-query-baseline-restored=" + v4_unit_validation_query_bool(restored.starts_with("00-unit-snapshot-restore ok=1 ") and baseline_ty >= 0 and foreign_ty >= 0)
+    say "validation-query-foreign-context-required=" + v4_unit_validation_query_bool(not v4_ty_snapshot_validate(foreign_ty_payload).starts_with("ty-snapshot-import ok=1") and v4_ty_snapshot_validate_detached(foreign_ty_payload).starts_with("ty-snapshot-import ok=1"))
+
+    -- Include both a valid cached TY chain and pre-existing dirty state.
+    v4_query_store("validation-dirty:sentinel", "input", "output")
+    v4_query_invalidate_prefix("validation-dirty:")
+    pilot query_before = v4_query_snapshot()
+    pilot generation_before = v4_query_generation()
+    pilot generations_before = v4_query_generation_count()
+    pilot dirty_before = v4_query_dirty_count()
+    pilot invalidations_before = v4_query_invalidated_count()
+    pilot telemetry_before = v4_query_telemetry_summary()
+    pilot live_before = v4_unit_snapshot()
+    pilot semantic_generation_before = v4_session_semantic_restore_generation()
+    pilot expansion_count_before = v4_expand_file_count()
+    pilot expansion_ids_before = v4_unit_validation_expansion_ids()
+    pilot validation = v4_unit_snapshot_validate(foreign)
+    pilot query_after = v4_query_snapshot()
+    say "validation-query-foreign-accepted=" + v4_unit_validation_query_bool(validation.starts_with("00-unit-snapshot-import ok=1 "))
+    say "validation-query-snapshot-unchanged=" + v4_unit_validation_query_bool(query_before == query_after)
+    say "validation-query-generation-unchanged=" + v4_unit_validation_query_bool(generation_before == v4_query_generation() and generations_before == v4_query_generation_count())
+    say "validation-query-dirty-unchanged=" + v4_unit_validation_query_bool(dirty_before > 0 and dirty_before == v4_query_dirty_count())
+    say "validation-query-invalidations-unchanged=" + v4_unit_validation_query_bool(invalidations_before == v4_query_invalidated_count())
+    say "validation-query-telemetry-unchanged=" + v4_unit_validation_query_bool(telemetry_before == v4_query_telemetry_summary())
+    say "validation-query-parent-snapshots-restored=" + v4_unit_validation_query_bool(live_before == v4_unit_snapshot() and v4_source_find("validation-foreign.fk") < 0)
+    say "validation-query-accepted-provenance-stable=" + v4_unit_validation_query_bool(peer_ty >= 0 and expansion_count_before >= 2 and semantic_generation_before == v4_session_semantic_restore_generation() and v4_unit_validation_expansion_ids_match(expansion_ids_before, expansion_count_before))
+    pilot repeated = v4_unit_snapshot_validate(foreign)
+    say "validation-query-repeat-stable=" + v4_unit_validation_query_bool(repeated == validation and query_before == v4_query_snapshot() and generation_before == v4_query_generation() and dirty_before == v4_query_dirty_count())
+    say "validation-query-repeated-provenance-stable=" + v4_unit_validation_query_bool(semantic_generation_before == v4_session_semantic_restore_generation() and v4_unit_validation_expansion_ids_match(expansion_ids_before, expansion_count_before))
+    pilot bad_context = v4_unit_validation_bad_ty_context(foreign)
+    pilot rejected: bool = not v4_unit_snapshot_ty_context_matches(bad_context)
+    say "validation-query-rejected-context-stable=" + v4_unit_validation_query_bool(rejected and query_before == v4_query_snapshot() and live_before == v4_unit_snapshot() and generation_before == v4_query_generation() and invalidations_before == v4_query_invalidated_count())
+    say "validation-query-rejected-provenance-stable=" + v4_unit_validation_query_bool(rejected and semantic_generation_before == v4_session_semantic_restore_generation() and v4_unit_validation_expansion_ids_match(expansion_ids_before, expansion_count_before))
+    pilot real_restore = v4_unit_snapshot_restore(live_before)
+    say "validation-query-real-restore-refreshes-provenance=" + v4_unit_validation_query_bool(real_restore.starts_with("00-unit-snapshot-restore ok=1 ") and semantic_generation_before < v4_session_semantic_restore_generation() and not v4_unit_validation_expansion_ids_match(expansion_ids_before, expansion_count_before))
+}
+
+v4_unit_validation_query_run()

@@ -363,6 +363,21 @@ function Assert-StagedPayload {
     }
 }
 
+function Get-FreakFileSha256([string]$LiteralPath) {
+    # A Windows PowerShell child can inherit a PowerShell 7 PSModulePath via
+    # a native launcher. Hashing must not depend on module autoload resolution.
+    $stream = $null
+    $algorithm = $null
+    try {
+        $stream = [System.IO.File]::OpenRead($LiteralPath)
+        $algorithm = [System.Security.Cryptography.SHA256]::Create()
+        return [System.BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+    } finally {
+        if ($algorithm) { $algorithm.Dispose() }
+        if ($stream) { $stream.Dispose() }
+    }
+}
+
 function Assert-DownloadedAssetChecksum($ArchivePath, $AssetName) {
     $checksumsPath = Join-Path $TmpDir "SHA256SUMS"
     if (-not (Test-Path -LiteralPath $checksumsPath -PathType Leaf)) {
@@ -395,7 +410,7 @@ function Assert-DownloadedAssetChecksum($ArchivePath, $AssetName) {
     if ($expected -notmatch '^[0-9a-fA-F]{64}$') {
         Err "SHA256SUMS has an invalid hash for $AssetName"
     }
-    $actual = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash
+    $actual = Get-FreakFileSha256 $ArchivePath
     if ($actual -ine $expected) { Err "SHA256 mismatch for $AssetName" }
     Ok "Verified SHA-256 for $AssetName"
 }
@@ -423,8 +438,9 @@ function Start-DeferredBinaryReplacement {
     $replacementWaitStart = (Get-Process -Id $PID).StartTime.ToFileTimeUtc()
     $pendingPath = Join-Path $BinDir ".freak-upgrade-pending"
     $failedPath = Join-Path $BinDir ".freak-upgrade-failed"
-    $expectedFreakHash = (Get-FileHash -LiteralPath (Join-Path $BinDir "freak.exe.next") -Algorithm SHA256).Hash
-    $expectedHangarHash = (Get-FileHash -LiteralPath (Join-Path $BinDir "hangar.exe.next") -Algorithm SHA256).Hash
+    $expectedFreakHash = Get-FreakFileSha256 (Join-Path $BinDir "freak.exe.next")
+    $expectedHangarHash = Get-FreakFileSha256 (Join-Path $BinDir "hangar.exe.next")
+    $hashFunctionDefinition = ${function:Get-FreakFileSha256}.ToString()
     $helperLockPath = Join-Path $BinDir ".freak-upgrade-helper.lock"
     $helperReadyPath = Join-Path $BinDir ".freak-upgrade-helper.ready"
     Remove-Item -LiteralPath $helperLockPath, $helperReadyPath -Force -ErrorAction SilentlyContinue
@@ -436,6 +452,9 @@ function Start-DeferredBinaryReplacement {
     Remove-Item -LiteralPath $failedPath -Force -ErrorAction SilentlyContinue
     $apply = @"
 `$ErrorActionPreference = 'Stop'
+function Get-FreakFileSha256 {
+$hashFunctionDefinition
+}
 `$bin = '$quotedBin'
 `$installDir = '$quotedInstallDir'
 `$installLockPath = Join-Path `$installDir '.freak-install.lock'
@@ -536,7 +555,7 @@ while ([DateTime]::UtcNow -lt `$deadline) {
         foreach (`$name in `$names) {
             `$next = Join-Path `$bin (`$name + '.next')
             if (-not (Test-Path -LiteralPath `$next -PathType Leaf)) { throw "missing staged binary: `$next" }
-            if ((Get-FileHash -LiteralPath `$next -Algorithm SHA256).Hash -ne `$expectedHashes[`$name]) {
+            if ((Get-FreakFileSha256 `$next) -ne `$expectedHashes[`$name]) {
                 throw "staged binary hash mismatch: `$name"
             }
         }
@@ -554,7 +573,7 @@ while ([DateTime]::UtcNow -lt `$deadline) {
             `$next = Join-Path `$bin (`$name + '.next')
             `$target = Join-Path `$bin `$name
             Copy-Item -LiteralPath `$next -Destination `$target -Force
-            if ((Get-FileHash -LiteralPath `$target -Algorithm SHA256).Hash -ne `$expectedHashes[`$name]) {
+            if ((Get-FreakFileSha256 `$target) -ne `$expectedHashes[`$name]) {
                 throw "binary verification failed: `$name"
             }
         }

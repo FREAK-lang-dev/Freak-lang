@@ -5,6 +5,19 @@ task v4_macro_api_smoke_bool(value: bool) -> word {
     give back "false"
 }
 
+task v4_macro_api_smoke_minor_advance() -> bool {
+    pilot saved_minor = v4_macro_api_version_minor
+    pilot expansion = v4_expansion_id_new("minor-compatibility", 0, 0)
+    pilot older = v4_macro_context_new(expansion, v4_macro_cap_all)
+    v4_macro_api_version_minor = saved_minor + 1
+    pilot current = v4_macro_context_new(expansion, v4_macro_cap_all)
+    pilot future = v4_macro_api_pack_field(v4_macro_tag_context) + v4_macro_api_pack_field(word_from_int(v4_macro_api_version_major)) + v4_macro_api_pack_field(word_from_int(saved_minor + 2)) + v4_macro_api_pack_field(word_from_int(v4_macro_cap_all)) + v4_macro_api_pack_field(expansion)
+    pilot noncanonical = v4_macro_api_pack_field(v4_macro_tag_context) + v4_macro_api_pack_field(word_from_int(v4_macro_api_version_major)) + v4_macro_api_pack_field("0" + word_from_int(saved_minor)) + v4_macro_api_pack_field(word_from_int(v4_macro_cap_all)) + v4_macro_api_pack_field(expansion)
+    pilot compatible: bool = older != current and v4_macro_context_valid(older) and v4_macro_context_valid(current) and v4_macro_context_has_capability(older, v4_macro_cap_build_syntax) and v4_macro_context_expansion(older) == expansion and not v4_macro_context_valid(future) and not v4_macro_context_valid(noncanonical)
+    v4_macro_api_version_minor = saved_minor
+    give back compatible and v4_macro_context_valid(older) and not v4_macro_context_valid(current)
+}
+
 pilot v4_macro_api_smoke_source_id = v4_file_id(7, 42)
 pilot v4_macro_api_smoke_expansion = v4_expansion_id_new(v4_macro_api_smoke_source_id, 3, 1)
 pilot v4_macro_api_smoke_noncanonical_expansion = v4_macro_api_pack_field(v4_macro_tag_expansion_id) + v4_macro_api_pack_field(v4_macro_api_smoke_source_id) + v4_macro_api_pack_field("03") + v4_macro_api_pack_field("1")
@@ -88,6 +101,7 @@ pilot v4_macro_api_smoke_other_context = v4_macro_context_new(v4_macro_api_smoke
 pilot v4_macro_api_smoke_mismatched_submit = v4_macro_context_submit_diagnostic(v4_macro_api_smoke_other_context, v4_macro_api_smoke_diagnostic)
 pilot v4_macro_api_smoke_add_empty_kind = v4_macro_builder_add_node(v4_macro_api_smoke_builder, "", v4_macro_api_smoke_span)
 pilot v4_macro_api_smoke_add_invalid_span = v4_macro_builder_add_node(v4_macro_api_smoke_builder, "GeneratedTask", "")
+pilot v4_macro_api_smoke_add_foreign_span = v4_macro_builder_add_node(v4_macro_api_smoke_builder, "GeneratedTask", v4_macro_api_smoke_other_span)
 pilot v4_macro_api_smoke_invalid_finish = v4_macro_builder_finish("")
 
 pilot v4_macro_api_smoke_state_unchanged: bool = v4_macro_api_smoke_sources_before == v4_source_count() and v4_macro_api_smoke_parse_before == v4_parse_tree_count() and v4_macro_api_smoke_hir_before == v4_hir_file_count() and v4_macro_api_smoke_ty_before == v4_ty_file_count() and v4_macro_api_smoke_mir_before == v4_mir_file_count() and v4_macro_api_smoke_query_before == v4_query_store_count()
@@ -95,6 +109,7 @@ pilot v4_macro_api_smoke_state_unchanged: bool = v4_macro_api_smoke_sources_befo
 say "macro-api-format=" + v4_macro_api_wire_format
 say "macro-api-version=" + v4_macro_api_version()
 say "macro-api-version-supported=" + v4_macro_api_smoke_bool(v4_macro_api_version_supported(1, 0))
+say "macro-api-older-minor-context-supported=" + v4_macro_api_smoke_bool(v4_macro_api_smoke_minor_advance())
 say "macro-api-future-version-rejected=" + v4_macro_api_smoke_bool(not v4_macro_api_version_supported(2, 0))
 say "macro-api-unknown-capabilities-rejected=" + v4_macro_api_smoke_bool(v4_macro_context_new(v4_macro_api_smoke_expansion, 8) == "")
 say "macro-api-host-unavailable=" + v4_macro_api_smoke_bool(not v4_macro_api_host_available())
@@ -142,6 +157,7 @@ say "macro-api-noncanonical-builder-rejected=" + v4_macro_api_smoke_bool(not v4_
 say "macro-api-builder-open-capability-denied=" + v4_macro_api_smoke_bool(v4_macro_api_smoke_denied_builder == "")
 say "macro-api-builder-cannot-execute=" + v4_macro_api_smoke_bool(not v4_macro_builder_can_execute(v4_macro_api_smoke_builder))
 say "macro-api-builder-add-unsupported=" + v4_macro_api_smoke_bool(v4_macro_api_result_status(v4_macro_api_smoke_add_first) == v4_macro_result_unsupported)
+say "macro-api-builder-foreign-span-invalid=" + v4_macro_api_smoke_bool(v4_macro_span_view_valid(v4_macro_api_smoke_other_span) and v4_macro_api_result_status(v4_macro_api_smoke_add_foreign_span) == v4_macro_result_invalid and v4_macro_api_result_operation(v4_macro_api_smoke_add_foreign_span) == "builder-add-node")
 say "macro-api-noncanonical-result-rejected=" + v4_macro_api_smoke_bool(not v4_macro_api_result_valid(v4_macro_api_smoke_noncanonical_result) and v4_macro_api_field(v4_macro_api_smoke_noncanonical_result, 2) == "builder-add-node")
 say "macro-api-builder-finish-unsupported=" + v4_macro_api_smoke_bool(v4_macro_api_result_status(v4_macro_api_smoke_finish) == v4_macro_result_unsupported)
 say "macro-api-builder-deterministic=" + v4_macro_api_smoke_bool(v4_macro_api_smoke_add_first == v4_macro_api_smoke_add_second)

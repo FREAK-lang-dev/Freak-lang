@@ -1,0 +1,64 @@
+-- COCKPIT V3 compatibility: explicitly owned scalar collections.
+-- V3 arrays store words, so integer and bool values use exact text encoding.
+
+task cockpit_values_new() -> int {
+    give back array_new()
+}
+
+task cockpit_values_release(values: int) -> void {
+    array_release(values)
+}
+
+task cockpit_values_length(values: int) -> int {
+    give back array_len(values)
+}
+
+task cockpit_values_push_int(values: int, value: int) -> void {
+    array_push(values, word_from_int(value))
+}
+
+task cockpit_values_get_int(values: int, index: int) -> int {
+    give back word_to_int(array_get(values, index))
+}
+
+task cockpit_values_set_int(values: int, index: int, value: int) -> void {
+    array_set(values, index, word_from_int(value))
+}
+
+task cockpit_values_push_bool(values: int, value: bool) -> void {
+    if value { array_push(values, "1") }
+    else { array_push(values, "0") }
+}
+
+task cockpit_values_get_bool(values: int, index: int) -> bool {
+    give back word_to_int(array_get(values, index)) != 0
+}
+
+task cockpit_values_set_bool(values: int, index: int, value: bool) -> void {
+    if value { array_set(values, index, "1") }
+    else { array_set(values, index, "0") }
+}
+
+task cockpit_words_new() -> int {
+    give back array_new()
+}
+
+task cockpit_words_release(values: int) -> void {
+    array_release(values)
+}
+
+task cockpit_words_length(values: int) -> int {
+    give back array_len(values)
+}
+
+task cockpit_words_push(values: int, value: word) -> void {
+    array_push(values, value)
+}
+
+task cockpit_words_get(values: int, index: int) -> word {
+    give back array_get(values, index)
+}
+
+task cockpit_words_set(values: int, index: int, value: word) -> void {
+    array_set(values, index, value)
+}

@@ -19,6 +19,8 @@ This document explains how to contribute to the FREAK compiler, standard library
 - [Branching Model](#branching-model)
 - [Pull Request Guidelines](#pull-request-guidelines)
 - [Language Design Contributions](#language-design-contributions)
+- [Labels](#labels)
+- [Fast Local Gate](#fast-local-gate)
 - [The Identity Rule](#the-identity-rule)
 
 ---
@@ -225,6 +227,32 @@ These are configured in GitHub settings (not in the repo) and listed here so the
 
 ---
 
+## Labels
+
+Issues and PRs use the scheme in [`.github/labels.yml`](.github/labels.yml):
+`area/*` for the subsystem, `type/*` for the kind of work,
+`status/*` for triage state. Labels are advisory — they never change CI or
+merge behavior, so when in doubt pick the closest fit and move on. Language
+proposals get `type/language-design`; work that belongs in Maverick instead
+of V3 gets `status/v4-only`.
+
+## Fast Local Gate
+
+Before opening a PR, run the fast contributor gate (seconds, no build, no
+network):
+
+```bash
+python -u tools/check_contributor.py
+```
+
+It verifies Python syntax of the bootstrap-adjacent sources, the presence of
+the required contributor files, the README honesty markers, and the
+CONTRIBUTING pointers. Green here does not replace CI or
+`python -u -m freakc audit-conformance` — run those too when you touch
+compiler or conformance surface.
+
+---
+
 ## Pull Request Guidelines
 
 1. **One concern per PR.** A PR that fixes a bug and adds a feature is two PRs.
@@ -253,7 +281,7 @@ Examples:
 
 FREAK's syntax and semantics are defined in `freak-full-bible.md`. Before proposing a new language feature:
 
-1. Open a GitHub issue tagged `language-design`
+1. Open a GitHub issue tagged `type/language-design`
 2. Describe the feature in FREAK syntax — show example code
 3. Explain what problem it solves that existing syntax cannot
 4. Describe how it interacts with the type checker, the C backend, and the LLVM backend

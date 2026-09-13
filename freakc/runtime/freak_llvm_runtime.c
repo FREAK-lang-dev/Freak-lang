@@ -4,13 +4,13 @@
 #include <stdbool.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 #include "freak_runtime.h"
 extern int64_t freak_llvm_word_adopt(int64_t pointer);
 extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
 /* ctype.h no longer needed — toupper/tolower/isspace moved to LLVM IR */
 #ifdef _WIN32
 #include <io.h>
-__declspec(dllimport) unsigned long long __stdcall GetTickCount64(void);
 #else
 #include <unistd.h>
 #include <sys/time.h>
@@ -48,42 +48,39 @@ static int64_t freak_llvm_normalize_process_status(int status) {
    tasks in std/runtime.fk. They call the libc wrappers below. */
 
 /* libc wrappers — take/return i64 (FREAK's universal ABI) */
-static int64_t freak_llvm_copy_word_result(freak_word value) {
-    if (value.length == SIZE_MAX) {
-        freak_word_release_owned(&value);
-        fprintf(stderr, "FREAK: word bridge size overflow\n");
-        exit(1);
-    }
-    char* copy = (char*)malloc(value.length + 1);
-    if (!copy) {
-        freak_word_release_owned(&value);
-        fprintf(stderr, "FREAK: out of memory\n");
-        exit(1);
-    }
-    if (value.length > 0) memcpy(copy, value.data, value.length);
-    copy[value.length] = '\0';
-    freak_word_release_owned(&value);
-    return freak_llvm_word_adopt((int64_t)copy);
-}
-
 int64_t freak_llvm_fs_list_dir(int64_t path) {
-    return freak_llvm_copy_word_result(
-        freak_fs_list_dir(freak_word_lit((const char*)path))
+    return freak_llvm_word_take(
+        freak_fs_list_dir(freak_llvm_word_view(path))
     );
 }
 
 void freak_llvm_fs_make_dir(int64_t path) {
-    freak_fs_make_dir(freak_word_lit((const char*)path));
+    freak_fs_make_dir(freak_llvm_word_view(path));
 }
 
 int64_t freak_llvm_process_env(int64_t name) {
-    return freak_llvm_copy_word_result(
-        freak_process_env(freak_word_lit((const char*)name))
+    return freak_llvm_word_take(
+        freak_process_env(freak_llvm_word_view(name))
     );
 }
 
+void freak_llvm_process_set_env(int64_t name, int64_t value) {
+    freak_process_set_env(
+        freak_llvm_word_view(name),
+        freak_llvm_word_view(value));
+}
+
+int64_t freak_llvm_process_pid(void) {
+    uint64_t pid = freak_process_pid();
+    if (pid > (uint64_t)INT64_MAX) {
+        fprintf(stderr, "FREAK: process ID overflows int\n");
+        exit(1);
+    }
+    return (int64_t)pid;
+}
+
 int64_t freak_llvm_process_input(void) {
-    return freak_llvm_copy_word_result(freak_process_input());
+    return freak_llvm_word_take(freak_process_input());
 }
 
 int64_t freak_fopen(int64_t path, int64_t mode) {
@@ -104,9 +101,20 @@ int64_t freak_fread(int64_t buf, int64_t size, int64_t count, int64_t file) {
 int64_t freak_fwrite(int64_t buf, int64_t size, int64_t count, int64_t file) {
     return (int64_t)fwrite((const void*)buf, (size_t)size, (size_t)count, (FILE*)file);
 }
+/**
+ * Allocates zero-initialized memory for an array of elements.
+ * @param count Number of elements to allocate.
+ * @param size Size of each element in bytes.
+ * @returns Address of the allocated memory, or zero if allocation fails.
+ */
 int64_t freak_calloc(int64_t count, int64_t size) {
     return (int64_t)calloc((size_t)count, (size_t)size);
 }
+/**
+ * Removes the file at the specified path.
+ * @param path Null-terminated path to the file.
+ * @returns 1 if removed or already absent; 0 on another removal error.
+ */
 int64_t freak_remove(int64_t path) {
 #ifdef _WIN32
     int result = _unlink((const char*)path);
@@ -149,18 +157,16 @@ int64_t freak_llvm_process_exec_capture(int64_t cmd_p) {
 #else
     pclose(fp);
 #endif
-    return freak_llvm_word_adopt((int64_t)buf);
+    return freak_llvm_word_adopt_sized((int64_t)buf, len);
 }
 
 /* ── Time ──────────────────────────────────────────── */
 int64_t freak_llvm_time_now_ms(void) {
-#ifdef _WIN32
-    return (int64_t)GetTickCount64();
-#else
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (int64_t)(tv.tv_sec * 1000LL + tv.tv_usec / 1000LL);
-#endif
+    return freak_time_now_ms();
+}
+
+int64_t freak_llvm_time_monotonic_ns(void) {
+    return freak_time_monotonic_ns();
 }
 
 /* ── Panic ──────────────────────────────────────────── */
@@ -221,6 +227,60 @@ int64_t freak_llvm_array_new(void) {
     if (!freak_llvm_arrays[h].data) { fprintf(stderr, "FREAK: OOM\n"); exit(1); }
     return freak_llvm_array_make_handle(h, freak_llvm_arrays[h].generation);
 }
+
+int64_t freak_llvm_word_snapshot_lines(int64_t source) {
+    if (freak_llvm_array_free_head < 0 && freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS) return -1;
+    const char* text = (const char*)source;
+    /* Preserve registered Word lengths, including embedded NUL bytes. Unknown
+       foreign pointers still require one C-string scan; line adoption is sized. */
+    size_t length = freak_llvm_word_size(source);
+    size_t count = length ? 1 : 0;
+    for (size_t i = 0; i < length; ++i) {
+        if (text[i] == '\n') {
+            if (count == SIZE_MAX) return -1;
+            ++count;
+        }
+    }
+    size_t capacity = count ? count : 1;
+    if (capacity > INT64_MAX || capacity > SIZE_MAX / sizeof(int64_t)) return -1;
+    int64_t* lines = (int64_t*)malloc(capacity * sizeof(*lines));
+    if (!lines) return -1;
+    size_t used = 0, start = 0;
+    for (size_t i = 0; count != 0; ++i) {
+        if (i == length || text[i] == '\n') {
+            size_t part_length = i - start;
+            if (part_length == SIZE_MAX) goto fail;
+            char* part = (char*)malloc(part_length + 1);
+            if (!part) goto fail;
+            if (part_length) memcpy(part, text + start, part_length);
+            part[part_length] = '\0';
+            int64_t adopted = freak_llvm_word_try_adopt_sized((int64_t)part, part_length);
+            if (!adopted) { free(part); goto fail; }
+            lines[used++] = adopted;
+            if (i == length) break;
+            start = i + 1;
+        }
+    }
+    int64_t slot = freak_llvm_array_free_head;
+    if (slot >= 0) {
+        freak_llvm_array_free_head = freak_llvm_arrays[slot].next_free;
+        freak_llvm_arrays[slot].generation += 1;
+    } else {
+        slot = freak_llvm_array_count++;
+        freak_llvm_arrays[slot].generation = 1;
+    }
+    freak_llvm_arrays[slot].data = lines;
+    freak_llvm_arrays[slot].length = (int64_t)used;
+    freak_llvm_arrays[slot].capacity = (int64_t)capacity;
+    freak_llvm_arrays[slot].next_free = -1;
+    freak_llvm_arrays[slot].in_use = true;
+    return freak_llvm_array_make_handle(slot, freak_llvm_arrays[slot].generation);
+fail:
+    for (size_t i = 0; i < used; ++i) freak_llvm_word_release_replaced(lines[i], 0);
+    free(lines);
+    return -1;
+}
+
 void freak_llvm_array_push(int64_t handle, int64_t item) {
     int64_t slot = freak_llvm_array_slot_for_handle(handle);
     if (slot < 0) return;
@@ -312,8 +372,7 @@ static int64_t freak_llvm_word_join_impl(int64_t handle, bool release_elements) 
     freak_llvm_dyn_array* a = &freak_llvm_arrays[slot];
     size_t total = 0;
     for (int64_t index = 0; index < a->length; index++) {
-        const char* part = (const char*)a->data[index];
-        size_t part_length = part ? strlen(part) : 0;
+        size_t part_length = freak_llvm_word_size(a->data[index]);
         if (part_length > SIZE_MAX - total - 1) {
             fprintf(stderr, "FREAK: joined word is too large\n");
             exit(1);
@@ -329,7 +388,7 @@ static int64_t freak_llvm_word_join_impl(int64_t handle, bool release_elements) 
     size_t offset = 0;
     for (int64_t index = 0; index < a->length; index++) {
         const char* part = (const char*)a->data[index];
-        size_t part_length = part ? strlen(part) : 0;
+        size_t part_length = freak_llvm_word_size(a->data[index]);
         if (part_length > 0) {
             memcpy(joined + offset, part, part_length);
             offset += part_length;
@@ -341,7 +400,7 @@ static int64_t freak_llvm_word_join_impl(int64_t handle, bool release_elements) 
     } else {
         freak_llvm_array_release(handle);
     }
-    return freak_llvm_word_adopt((int64_t)joined);
+    return freak_llvm_word_adopt_sized((int64_t)joined, total);
 }
 
 int64_t freak_llvm_word_join(int64_t handle) {
@@ -376,7 +435,7 @@ static inline int64_t double_to_i64(double d) {
 #ifdef FREAK_HAS_UI
 #include "freak_runtime.h"
 int64_t freak_llvm_ui_create_window(int64_t title, int64_t w, int64_t h, int64_t flags) {
-    freak_word t = freak_word_lit((const char*)title);
+    freak_word t = freak_llvm_word_view(title);
     return freak_ui_create_window_word(t, w, h, flags);
 }
 void freak_llvm_ui_destroy_window(int64_t handle) {
@@ -390,6 +449,12 @@ void freak_llvm_ui_begin_frame(int64_t handle) {
 }
 void freak_llvm_ui_end_frame(int64_t handle) {
     freak_ui_end_frame(handle);
+}
+void freak_llvm_ui_set_clip(int64_t handle, int64_t x, int64_t y, int64_t w, int64_t h) {
+    freak_ui_set_clip(handle, x, y, w, h);
+}
+void freak_llvm_ui_reset_clip(int64_t handle) {
+    freak_ui_reset_clip(handle);
 }
 int64_t freak_llvm_ui_event_kind(int64_t idx)      { return freak_ui_event_kind(idx); }
 int64_t freak_llvm_ui_event_key(int64_t idx)       { return freak_ui_event_key(idx); }
@@ -408,24 +473,87 @@ int64_t freak_llvm_ui_get_height(int64_t handle)   { return freak_ui_get_height(
 void freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) {
     freak_ui_clear(h, r, g, b, a);
 }
+/**
+ * Fills a rectangle in a UI window.
+ * @param h Window handle.
+ * @param x Horizontal position.
+ * @param y Vertical position.
+ * @param w Rectangle width.
+ * @param hh Rectangle height.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ */
 void freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) {
     freak_ui_fill_rect(h, x, y, w, hh, r, g, b, a);
 }
+/**
+ * Draws a rectangle outline with the specified color and stroke thickness.
+ * @param h Window or rendering context handle.
+ * @param x Horizontal position of the rectangle.
+ * @param y Vertical position of the rectangle.
+ * @param w Rectangle width.
+ * @param hh Rectangle height.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ * @param thickness Stroke thickness.
+ */
 void freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {
     freak_ui_stroke_rect(h, x, y, w, hh, r, g, b, a, thickness);
 }
+/**
+ * Draws a filled circle in a UI window.
+ * @param h UI window handle.
+ * @param cx Circle center x-coordinate.
+ * @param cy Circle center y-coordinate.
+ * @param radius Circle radius.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ */
 void freak_llvm_ui_fill_circle(int64_t h, int64_t cx, int64_t cy, int64_t radius, int64_t r, int64_t g, int64_t b, int64_t a) {
     freak_ui_fill_circle(h, cx, cy, radius, r, g, b, a);
 }
+/**
+ * Draws a colored line in a UI window.
+ * @param h Window handle.
+ * @param x1 Starting x-coordinate.
+ * @param y1 Starting y-coordinate.
+ * @param x2 Ending x-coordinate.
+ * @param y2 Ending y-coordinate.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ * @param thickness Line thickness.
+ */
 void freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) {
     freak_ui_draw_line(h, x1, y1, x2, y2, r, g, b, a, thickness);
 }
+/**
+ * Draws text in a window using the specified position, color, size, and style.
+ * @param h Window handle.
+ * @param text Null-terminated text to draw.
+ * @param x Horizontal position.
+ * @param y Vertical position.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param size Text size.
+ * @param bold Nonzero to draw bold text.
+ * @param italic Nonzero to draw italic text.
+ * @returns Result of the text drawing operation.
+ */
 int64_t freak_llvm_ui_draw_text(int64_t h, int64_t text, int64_t x, int64_t y, int64_t r, int64_t g, int64_t b, int64_t size, int64_t bold, int64_t italic) {
-    freak_word t = freak_word_lit((const char*)text);
+    freak_word t = freak_llvm_word_view(text);
     return freak_ui_draw_text_word(h, t, x, y, r, g, b, size, bold, italic);
 }
 int64_t freak_llvm_ui_measure_text(int64_t text, int64_t size, int64_t bold, int64_t italic) {
-    freak_word t = freak_word_lit((const char*)text);
+    freak_word t = freak_llvm_word_view(text);
     return freak_ui_measure_text_word(t, size, bold, italic);
 }
 #else /* !FREAK_HAS_UI — no-op stubs so non-UI builds still link */
@@ -434,8 +562,46 @@ int64_t freak_llvm_ui_poll_events(int64_t h)  { return 0; }
 void    freak_llvm_ui_begin_frame(int64_t h)  { }
 void    freak_llvm_ui_end_frame(int64_t h)    { }
 void    freak_llvm_ui_clear(int64_t h, int64_t r, int64_t g, int64_t b, int64_t a) { }
+/**
+ * No-op when FREAK_HAS_UI is disabled. Fills a rectangle in a UI window.
+ * @param h UI window handle.
+ * @param x Horizontal position.
+ * @param y Vertical position.
+ * @param w Rectangle width.
+ * @param hh Rectangle height.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ */
 void    freak_llvm_ui_fill_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a) { }
+/**
+ * No-op when FREAK_HAS_UI is disabled. Draws a stroked rectangle in the specified color and line thickness.
+ * @param h Window or drawing context handle.
+ * @param x Horizontal position of the rectangle.
+ * @param y Vertical position of the rectangle.
+ * @param w Rectangle width.
+ * @param hh Rectangle height.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ * @param thickness Stroke thickness.
+ */
 void    freak_llvm_ui_stroke_rect(int64_t h, int64_t x, int64_t y, int64_t w, int64_t hh, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) { }
+/**
+ * No-op when FREAK_HAS_UI is disabled. Draws a colored line in a window.
+ * @param h Window handle.
+ * @param x1 Starting x-coordinate.
+ * @param y1 Starting y-coordinate.
+ * @param x2 Ending x-coordinate.
+ * @param y2 Ending y-coordinate.
+ * @param r Red color component.
+ * @param g Green color component.
+ * @param b Blue color component.
+ * @param a Alpha color component.
+ * @param thickness Line thickness.
+ */
 void    freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, int64_t y2, int64_t r, int64_t g, int64_t b, int64_t a, int64_t thickness) { }
 #endif /* FREAK_HAS_UI */
 
@@ -446,9 +612,19 @@ void    freak_llvm_ui_draw_line(int64_t h, int64_t x1, int64_t y1, int64_t x2, i
 int64_t freak_llvm_int_to_num(int64_t i) {
     return double_to_i64((double)i);
 }
+/**
+ * Decodes a packed double and converts its numeric value to an integer.
+ * @param n IEEE-754 double bits carried in the universal integer ABI.
+ * @returns The numeric value truncated toward zero when representable.
+ */
 int64_t freak_llvm_num_to_int(int64_t n) {
     return (int64_t)i64_to_double(n);
 }
+/**
+ * Formats a packed double value as a runtime word.
+ * @param n IEEE-754 double bits carried in the universal integer ABI.
+ * @returns An owned runtime word containing the formatted value.
+ */
 int64_t freak_llvm_word_from_num(int64_t n) {
     char* buf = (char*)malloc(64);
     if (!buf) {
@@ -484,7 +660,7 @@ int64_t freak_llvm_char_to_word(int64_t code) {
         len = 4;
     }
     buf[len] = '\0';
-    return freak_llvm_word_adopt((int64_t)buf);
+    return freak_llvm_word_adopt_sized((int64_t)buf, len);
 }
 
 /* ── Math bridge (LLVM i64-bitcast-double → real <math.h>) ─ */
@@ -497,10 +673,28 @@ int64_t freak_llvm_math_tan(int64_t x)   { return double_to_i64(tan(i64_to_doubl
 int64_t freak_llvm_math_floor(int64_t x) { return double_to_i64(floor(i64_to_double(x))); }
 int64_t freak_llvm_math_ceil(int64_t x)  { return double_to_i64(ceil(i64_to_double(x))); }
 
-/* ── parse_num / format_num (self-contained) ───────── */
+/**
+ * Parses a null-terminated numeric string as a double.
+ * @param w Pointer to the null-terminated numeric string.
+ * @returns Parsed double bits packed into the universal integer ABI.
+ */
 int64_t freak_llvm_parse_num(int64_t w) {
     return double_to_i64(strtod((const char*)w, NULL));
 }
+/* Checked word parsing shares the strict C core (sticky parse status lives
+   in freak_runtime.c, which always links beside this file). Views carry the
+   registry length, so embedded NULs fail as invalid digits, not truncation. */
+int64_t freak_llvm_word_parse_int(int64_t w) {
+    return freak_word_parse_int(freak_llvm_word_view(w));
+}
+int64_t freak_llvm_word_parse_num(int64_t w) {
+    return double_to_i64(freak_word_parse_num(freak_llvm_word_view(w)));
+}
+/**
+ * Formats a packed double value as a decimal string.
+ * @param n IEEE-754 double bits carried in the universal integer ABI.
+ * @return Newly allocated, owned word containing the formatted number.
+ */
 int64_t freak_llvm_format_num(int64_t n) {
     char* buf = (char*)malloc(64);
     if (!buf) {
@@ -584,7 +778,9 @@ int64_t freak_llvm_tcp_connect(int64_t host_ptr, int64_t port) {
 /* freak_tcp_send(fd, data_ptr) -> bytes sent (or -1) */
 int64_t freak_llvm_tcp_send(int64_t fd, int64_t data_ptr) {
     char* data = (char*)data_ptr;
-    int len = (int)strlen(data);
+    size_t length = freak_llvm_word_size(data_ptr);
+    if (length > INT_MAX) return -1;
+    int len = (int)length;
 #ifdef _WIN32
     return (int64_t)send((SOCKET)fd, data, len, 0);
 #else
@@ -605,7 +801,7 @@ int64_t freak_llvm_tcp_recv(int64_t fd, int64_t max_bytes) {
 #endif
     if (n <= 0) { free(buf); return (int64_t)""; }
     buf[n] = '\0';
-    return freak_llvm_word_adopt((int64_t)buf);
+    return freak_llvm_word_adopt_sized((int64_t)buf, (size_t)n);
 }
 
 /* freak_tcp_recv_all(fd, max_bytes) -> read until connection closes */
@@ -625,7 +821,7 @@ int64_t freak_llvm_tcp_recv_all(int64_t fd, int64_t max_bytes) {
         total += n;
     }
     buf[total] = '\0';
-    return freak_llvm_word_adopt((int64_t)buf);
+    return freak_llvm_word_adopt_sized((int64_t)buf, (size_t)total);
 }
 
 /* freak_tcp_close(fd) -> void */

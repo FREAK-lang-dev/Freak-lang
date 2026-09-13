@@ -1,0 +1,27 @@
+task main() {
+    pilot mut iterations: int = 1000000
+    if process::args_count() > 1 {
+        iterations = word_to_int(process::arg(1))
+    }
+    if iterations <= 0 or iterations > 1000000 { process::exit(2) }
+
+    pilot mut xs: List<int> = List::with_capacity(iterations)
+    pilot mut i: int = 0
+    repeat iterations times {
+        xs.push(i)
+        i += 1
+    }
+    pilot mut indexed: int = 0
+    pilot mut j: int = 0
+    repeat iterations times {
+        indexed = (indexed + xs[j]) % 1000000007
+        j += 1
+    }
+    pilot mut iterated: int = 0
+    for each x in xs {
+        iterated = (iterated + x) % 1000000007
+    }
+    say xs.length()
+    say indexed
+    say iterated
+}

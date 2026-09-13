@@ -117,6 +117,8 @@ task v4_task_return_snapshot_variant(payload: word, mode: word) -> word {
             line = line + "|alias-targets=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "alias-targets")
             line = line + "|local-annotations=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "local-annotations")
             line = line + "|task-returns=" + word_from_int(word_to_int(v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "task-returns")) + 1)
+            line = line + "|task-param-owners=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "task-param-owners")
+            line = line + "|task-params=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "task-params")
             line = line + "|diagnostics=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "diagnostics")
         } else if kind == "hir-item" and mode == "owner-kind" and changed == 0 and v4_hir_snapshot_field_raw(line, 1) == wanted_hir and v4_hir_snapshot_field_raw(line, 2) == wanted_item {
             pilot rebuilt_item = "hir-item"

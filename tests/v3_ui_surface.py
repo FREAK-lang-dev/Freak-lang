@@ -30,6 +30,17 @@ PROGRAM = """task main() {
 
 
 def run(command: list[str], cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """
+    Execute a command and capture its standard output and error streams.
+
+    Parameters:
+        command (list[str]): Command and arguments to execute.
+        cwd (Path): Working directory for the subprocess.
+        env (dict[str, str]): Environment variables for the subprocess.
+
+    Returns:
+        subprocess.CompletedProcess[str]: The completed process result, including its exit status and captured text streams.
+    """
     return subprocess.run(
         command,
         cwd=cwd,
@@ -44,10 +55,24 @@ def run(command: list[str], cwd: Path, env: dict[str, str]) -> subprocess.Comple
 
 
 def output(result: subprocess.CompletedProcess[str]) -> str:
+    """Combine a completed subprocess's standard output and standard error.
+
+    Parameters:
+        result (subprocess.CompletedProcess[str]): The completed subprocess result.
+
+    Returns:
+        str: The concatenated standard output and standard error.
+    """
     return result.stdout + result.stderr
 
 
 def main() -> int:
+    """
+    Validate the frozen V3 `std::ui` surface and generated backend output for a Freak executable.
+
+    Returns:
+        int: Zero after all validations pass.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("freak", type=Path)
     args = parser.parse_args()
@@ -79,9 +104,11 @@ def main() -> int:
     cockpit_readme = (repo / "packages" / "cockpit" / "README.md").read_text(
         encoding="utf-8"
     )
-    assert "COCKPIT — Maverick Source Preview" in readme
-    assert "not a supported package on the frozen V3 compiler" in readme
-    assert "not a V3 release package" in cockpit_readme
+    assert "COCKPIT — V3 Procedural UI" in readme
+    assert "immutable Hangar graph delivery remains pending" in readme
+    assert "COCKPIT for V3" in cockpit_readme
+    assert "indexed `ui::event_*`" in cockpit_readme
+    assert "does not claim a native macOS or Linux window backend" in cockpit_readme
 
     env = os.environ.copy()
     env.pop("FREAK_HOME", None)

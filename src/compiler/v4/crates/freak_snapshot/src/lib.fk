@@ -3025,7 +3025,17 @@ task v4_unit_snapshot_restore_parent_context(payload: word) -> bool {
         if parent_id == 2 { section_name = "expand" }
         if parent_id == 3 { section_name = "hir" }
         if parent_id == 4 { section_name = "resolve" }
-        pilot restore_result = v4_unit_snapshot_restore_section_result(payload, section_name)
+        -- Validation swaps parent arenas only. Component publication wrappers
+        -- would dirty live queries during both the target probe and rollback.
+        pilot section_payload = v4_unit_snapshot_section_payload(payload, section_name)
+        pilot restore_result = ""
+        if section_name == "expand" {
+            restore_result = v4_expand_snapshot_restore(section_payload)
+        } else if section_name == "hir" {
+            restore_result = v4_hir_snapshot_restore(section_payload)
+        } else {
+            restore_result = v4_unit_snapshot_restore_section_payload(section_name, section_payload)
+        }
         if v4_unit_snapshot_section_restore_ok(section_name, restore_result) == 0 { give back false }
         parent_id += 1
     }
@@ -3039,12 +3049,35 @@ task v4_unit_snapshot_ty_context_matches(payload: word) -> bool {
     }
 
     pilot rollback_payload = v4_unit_snapshot()
+    -- The serialized components intentionally omit host provenance generations.
+    -- Preserve that live metadata separately for this validation transaction;
+    -- actual component/unit restores must still issue fresh identities.
+    pilot rollback_generation = v4_session_semantic_restore_generation()
+    pilot rollback_expansion_count = v4_expand_file_count()
+    -- Request-scoped scratch stores only active slots and is released at the
+    -- common exit, including failed target probes or failed rollback.
+    pilot rollback_expansion_generations = array_new()
+    pilot expansion_slot = 0
+    repeat until expansion_slot >= rollback_expansion_count {
+        array_push(rollback_expansion_generations, word_from_int(v4_expand_generation(expansion_slot)))
+        expansion_slot += 1
+    }
     pilot target_context_ok = v4_unit_snapshot_restore_parent_context(payload)
     pilot target_ty_ok = false
     if target_context_ok {
         target_ty_ok = v4_ty_snapshot_validate(ty_payload).starts_with("ty-snapshot-import ok=1")
     }
     pilot rollback_ok = v4_unit_snapshot_restore_parent_context(rollback_payload)
+    if rollback_ok {
+        expansion_slot = 0
+        repeat until expansion_slot >= rollback_expansion_count {
+            pilot slot_generation: word = array_get(rollback_expansion_generations, expansion_slot)
+            array_set(v4_expand_generations, expansion_slot, slot_generation)
+            expansion_slot += 1
+        }
+        v4_session_semantic_restore_generation_value = rollback_generation
+    }
+    array_release(rollback_expansion_generations)
     give back target_context_ok and target_ty_ok and rollback_ok
 }
 

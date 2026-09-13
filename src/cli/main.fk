@@ -5,40 +5,140 @@
 -- Dispatches to subcommands: build, run, check, transpile, version, help.
 -- ===================================================================
 
-task cli_parse_flags(start_idx: int, args_cnt: int) -> word {
+task cli_flag_value(flag: word, start_idx: int) -> word {
+    pilot value = ""
+    pilot vi = start_idx
+    repeat until vi >= flag.length() {
+        value = value + flag.char_at(vi)
+        vi += 1
+    }
+    give back value
+}
+
+task cli_flag_error(message: word) -> word {
+    give back "error:" + message
+}
+
+task cli_parse_flags(start_idx: int, args_cnt: int, subcommand_mode: word) -> word {
     -- Parse flags from command line args starting at start_idx.
-    -- Returns a colon-delimited string: "target:opt:cross"
-    -- Side effect: --strict-borrow flips the global `strict_borrow`
-    -- so check_program() runs the borrow checker in-process.
+    -- Returns the canonical build specification:
+    --   ok:target:profile:clang-opt:lto:runtime-policy:runtime-stats:cross
+    -- or error:message. Validation is complete before global state or build
+    -- artifacts can change.
     pilot target = "llvm"
     pilot opt = "2"
+    pilot profile = "o2"
+    pilot lto = "off"
+    pilot runtime_policy = "default"
+    pilot runtime_stats = "off"
     pilot cross = ""
-    strict_borrow = false
+    pilot backend_seen = ""
+    pilot opt_seen = ""
+    pilot lto_seen = ""
+    pilot cross_seen = ""
+    pilot plus03_seen = false
+    pilot strict_seen = false
+    pilot allow_build_profile = subcommand_mode == "build" or subcommand_mode == "run"
 
     pilot fi = start_idx
     repeat until fi >= args_cnt {
         pilot flag: word = process::arg(fi)
         if flag == "--c" {
-            target = "c"
-        } else if flag == "--llvm" {
-            target = "llvm"
-        } else if flag == "--strict-borrow" {
-            strict_borrow = true
-        } else if flag.starts_with("--opt=") {
-            opt = flag.char_at(6)
-        } else if flag.starts_with("--target=") {
-            pilot ti = 9
-            pilot tval = ""
-            repeat until ti >= flag.length() {
-                tval = tval + flag.char_at(ti)
-                ti += 1
+            if backend_seen != "" and backend_seen != "c" {
+                give back cli_flag_error("conflicting backend flags")
             }
-            cross = tval
+            target = "c"
+            backend_seen = "c"
+        } else if flag == "--llvm" {
+            if backend_seen != "" and backend_seen != "llvm" {
+                give back cli_flag_error("conflicting backend flags")
+            }
+            target = "llvm"
+            backend_seen = "llvm"
+        } else if flag == "--strict-borrow" {
+            strict_seen = true
+        } else if flag == "+03" {
+            if not allow_build_profile {
+                give back cli_flag_error("+03 is only valid for build and run")
+            }
+            plus03_seen = true
+        } else if flag.starts_with("--opt=") {
+            if not allow_build_profile {
+                give back cli_flag_error("--opt is only valid for build and run")
+            }
+            pilot oval = cli_flag_value(flag, 6)
+            if oval != "0" and oval != "1" and oval != "2" and oval != "3" {
+                give back cli_flag_error("--opt must be exactly 0, 1, 2, or 3")
+            }
+            if opt_seen != "" and opt_seen != oval {
+                give back cli_flag_error("conflicting --opt flags")
+            }
+            opt = oval
+            opt_seen = oval
+        } else if flag == "--lto" {
+            if not allow_build_profile {
+                give back cli_flag_error("--lto is only valid for build and run")
+            }
+            if lto_seen != "" and lto_seen != "thin" {
+                give back cli_flag_error("conflicting --lto flags")
+            }
+            lto = "thin"
+            lto_seen = "thin"
+        } else if flag.starts_with("--lto=") {
+            if not allow_build_profile {
+                give back cli_flag_error("--lto is only valid for build and run")
+            }
+            pilot lval = cli_flag_value(flag, 6)
+            if lval != "thin" and lval != "full" and lval != "off" {
+                give back cli_flag_error("--lto must be thin, full, or off")
+            }
+            if lto_seen != "" and lto_seen != lval {
+                give back cli_flag_error("conflicting --lto flags")
+            }
+            lto = lval
+            lto_seen = lval
+        } else if flag.starts_with("--target=") {
+            pilot tval = cli_flag_value(flag, 9)
+            if tval == "" or not cli_cross_target_is_safe(tval) {
+                give back cli_flag_error("--target requires a safe target triple")
+            }
+            -- Friendly aliases resolve to canonical triples; raw triples pass
+            -- through byte-exact so the recorded clang command line is stable.
+            pilot resolved_target = cli_resolve_target_alias(tval)
+            if cross_seen != "" and cross_seen != resolved_target {
+                give back cli_flag_error("conflicting --target flags")
+            }
+            cross = resolved_target
+            cross_seen = resolved_target
+        } else {
+            give back cli_flag_error("unknown or malformed flag " + flag)
         }
         fi += 1
     }
 
-    give back target + ":" + opt + ":" + cross
+    if plus03_seen and opt_seen != "" {
+        give back cli_flag_error("+03 cannot be combined with --opt")
+    }
+    if plus03_seen and lto_seen == "off" {
+        give back cli_flag_error("+03 cannot disable LTO")
+    }
+    if plus03_seen {
+        profile = "plus03"
+        opt = "3"
+        runtime_policy = "plus03"
+        if lto_seen == "" { lto = "thin" }
+    } else {
+        profile = "o" + opt
+    }
+    if cross != "" and lto != "off" {
+        if plus03_seen {
+            give back cli_flag_error("+03 is not supported with --target")
+        }
+        give back cli_flag_error("LTO is not supported with --target; use --lto=off")
+    }
+
+    strict_borrow = strict_seen
+    give back "ok:" + target + ":" + profile + ":" + opt + ":" + lto + ":" + runtime_policy + ":" + runtime_stats + ":" + cross
 }
 
 task cli_extract_flag(flags: word, idx: int) -> word {
@@ -90,6 +190,32 @@ task cli_flex() -> void {
 
     -- Count .fk files in tests/ as a flex metric
     say "  " + C_DIM + C_ITALIC + "\"My compiler compiles itself. Does yours?\"" + C_RESET
+    say ""
+}
+
+-- ── About / Pioneers (optional, non-intrusive) ──────────
+task cli_about() -> void {
+    cli_show_banner()
+    say "  FREAK is a compiled, statically typed, memory-safe systems language."
+    say "  Shipping compiler: self-hosted V3 (LLVM IR + C backends)."
+    say ""
+    say "  " + C_DIM + "Full history: docs/history/pioneers.md" + C_RESET
+    say "  " + C_DIM + "Try: freak about --pioneers" + C_RESET
+    say ""
+}
+
+task cli_pioneers() -> void {
+    say ""
+    say "  " + C_G1 + "Generation 0 — Python bootstrap (FREAK Lite)" + C_RESET
+    say "  Proved the language could exist. Still the audit runner."
+    say ""
+    say "  " + C_G2 + "Generation 1 — V3 self-hosted compiler" + C_RESET
+    say "  FREAK learned to compile itself. Shipping; actively hardened."
+    say ""
+    say "  " + C_G3 + "Generation 2 — V4 Maverick / 00-Unit (in progress)" + C_RESET
+    say "  The modular rewrite. Not yet a V3 replacement."
+    say ""
+    say "  " + C_DIM + "docs/history/pioneers.md" + C_RESET
     say ""
 }
 
@@ -188,6 +314,16 @@ task freakc_cli_main() -> void {
         give back
     }
 
+    -- About / pioneers (optional, non-intrusive)
+    if subcmd == "about" {
+        if args_cnt >= 3 and process::arg(2) == "--pioneers" {
+            cli_pioneers()
+        } else {
+            cli_about()
+        }
+        give back
+    }
+
     -- Quick init
     if subcmd == "init" {
         if args_cnt < 3 {
@@ -212,18 +348,28 @@ task freakc_cli_main() -> void {
         }
 
         pilot src_file: word = process::arg(2)
-        pilot flags: word = cli_parse_flags(3, args_cnt)
-        pilot target: word = cli_extract_flag(flags, 0)
-        pilot opt: word = cli_extract_flag(flags, 1)
-        pilot cross: word = cli_extract_flag(flags, 2)
+        pilot flags: word = cli_parse_flags(3, args_cnt, subcmd)
+        if cli_extract_flag(flags, 0) == "error" {
+            say ""
+            say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " " + cli_extract_flag(flags, 1)
+            say ""
+            process::exit(1)
+        }
+        pilot target: word = cli_extract_flag(flags, 1)
+        pilot profile: word = cli_extract_flag(flags, 2)
+        pilot opt: word = cli_extract_flag(flags, 3)
+        pilot lto: word = cli_extract_flag(flags, 4)
+        pilot runtime_policy: word = cli_extract_flag(flags, 5)
+        pilot runtime_stats: word = cli_extract_flag(flags, 6)
+        pilot cross: word = cli_extract_flag(flags, 7)
 
         if subcmd == "build" {
-            pilot binary: word = cli_build(src_file, target, opt, cross)
+            pilot binary: word = cli_build_profile(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
             if binary == "" {
                 process::exit(1)
             }
         } else if subcmd == "run" {
-            pilot run_exit = cli_run(src_file, target, opt, cross)
+            pilot run_exit = cli_run(src_file, target, profile, opt, lto, runtime_policy, runtime_stats, cross)
             if run_exit != 0 { process::exit(run_exit) }
         } else if subcmd == "check" {
             -- Type-check only: read, lex, parse, check — no emit
@@ -315,12 +461,45 @@ task freakc_cli_main() -> void {
     if subcmd == "doctor" {
         pilot fix_mode = false
         pilot json_mode = false
+        pilot doctor_target_raw = ""
+        pilot doctor_target = ""
         pilot doctor_arg_i = 2
         repeat until doctor_arg_i >= args_cnt {
             pilot doctor_arg: word = process::arg(doctor_arg_i)
             if doctor_arg == "--fix" { fix_mode = true }
-            if doctor_arg == "--json" { json_mode = true }
+            else if doctor_arg == "--json" { json_mode = true }
+            else if doctor_arg.starts_with("--target=") {
+                pilot doctor_tval = cli_flag_value(doctor_arg, 9)
+                if doctor_tval == "" or not cli_cross_target_is_safe(doctor_tval) {
+                    say ""
+                    say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " --target requires a safe target triple or alias"
+                    say "  " + C_DIM + "Supported aliases: linux-x64, linux-arm64, windows-x64, macos-arm64" + C_RESET
+                    say ""
+                    process::exit(1)
+                }
+                pilot doctor_resolved = cli_resolve_target_alias(doctor_tval)
+                if doctor_target != "" and doctor_target != doctor_resolved {
+                    say ""
+                    say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " conflicting --target flags"
+                    say ""
+                    process::exit(1)
+                }
+                doctor_target_raw = doctor_tval
+                doctor_target = doctor_resolved
+            }
+            else if doctor_arg.starts_with("--") {
+                say ""
+                say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " unknown doctor flag " + doctor_arg
+                say "  " + C_DIM + "Usage: " + C_RESET + "freak doctor [--fix] [--json] [--target=ALIAS|TRIPLE]"
+                say ""
+                process::exit(1)
+            }
             doctor_arg_i += 1
+        }
+        if doctor_target != "" {
+            pilot doctor_target_exit = cli_doctor_target_report(doctor_target_raw, doctor_target, json_mode)
+            if doctor_target_exit != 0 { process::exit(doctor_target_exit) }
+            give back
         }
         if json_mode {
             pilot json_exit = cli_doctor_json()
@@ -358,8 +537,14 @@ task freakc_cli_main() -> void {
 
     -- Legacy mode: first arg is a .fk file (backwards compat with freakc_v2 behavior)
     if subcmd.ends_with(".fk") {
-        pilot flags: word = cli_parse_flags(2, args_cnt)
-        pilot target: word = cli_extract_flag(flags, 0)
+        pilot flags: word = cli_parse_flags(2, args_cnt, "transpile")
+        if cli_extract_flag(flags, 0) == "error" {
+            say ""
+            say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " " + cli_extract_flag(flags, 1)
+            say ""
+            process::exit(1)
+        }
+        pilot target: word = cli_extract_flag(flags, 1)
 
         if not cli_invalidate_backend_output(subcmd, target) {
             process::exit(1)

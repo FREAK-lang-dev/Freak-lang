@@ -8,8 +8,8 @@
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
 **V3 process ABI boundary (2026-08-10):** the shipping compiler rejects
-`process::args()` until it can return the bible-required `List<word>` through a
-real list ABI. V3 callers use `process::args_count()` and
+`process::args()`; its conversion to the bible-required `List<word>` remains
+unimplemented even with typed list storage available. V3 callers use `process::args_count()` and
 `process::arg(index)`; raw `argv` is no longer exposed as an integer handle.
 
 **V4 expansion and macro-contract bootstrap checkpoint (2026-08-09):** Maverick now routes every bootstrap frontend query through `parse -> expand -> HIR`. The identity-only `freak_expand` stage forwards syntax unchanged while recording stable ExpandedFile identity and deterministic provenance; its query, invalidation, component snapshot, 00-Unit v3 restore/manifest/diff/health, LSP wrappers, and architecture guards are executable. `freak_macro_api` now separately owns versioned, capability-limited `MacroContext`, read-only view, structured diagnostic, public `ExpansionId`, generated-node provenance, and deterministic non-executing builder contracts. This is an architecture-only checkpoint with no language-semantic change: user-defined syntax rewriting, hygiene, gensyms, third-party execution, and macro hosts remain absent, and the Alternative-4 annotation/macro boundary is unchanged.
@@ -151,10 +151,10 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 | Method calls `instance.method()` | ✅ | ✅ | |
 | `shape::method(self)` UFCS form | ⚠️ | 📖 V4 | V4 lowers concrete impl UFCS calls like `Pilot::boost(ship, bonus: 3)`, generic-owner `Box<int>::take(box)`, and doctrine-bound calls like `T::score(value, bonus: 2)` into MIR with receiver/value arguments plus arity and receiver-type diagnostics. Doctrine-bound static calls such as `T::baseline()` carry instantiated doctrine arguments through editor facts; body generics outrank same-named global aliases, and overlapping bound methods produce an ambiguity diagnostic instead of declaration-order dispatch. Production backend parity still expands |
 
-The shipping V3 LLVM path owns the executable shape/impl status in this table.
-The C portability emitter now keeps receiver-qualified field indexes, ownership,
-and nominal method symbols, but packaged C shape storage remains incomplete and
-is covered as a transpilation contract rather than claimed runtime parity.
+The V3 LLVM and C paths execute concrete shape construction, fields, methods,
+and owned word/nested-shape cleanup. The typed storage runtime is shared;
+`tests/v3_array_rescue.py` and `tests/v3_word_ownership.py` exercise native
+parity. This does not claim native C UI support or general collection fields.
 
 #### §1.6 Doctrines (Traits)
 
@@ -237,7 +237,7 @@ is covered as a transpilation contract rather than claimed runtime parity.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `[1, 2, 3]` becomes `List<int>` | ✅ | ✅ | |
+| `[1, 2, 3]` becomes `List<int>` | ✅ | ✅ | V3 LLVM/C checked indexing, mutable indexed assignment, length, capacity, reserve, clear, push, pop, iteration and `List::filled`/`List::new`/`List::with_capacity`; int/num/bool/word/concrete owned shape elements with context-typed empty (`pilot mut xs: List<num> = []`) and owned word/shape pop/clear cleanup. `tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, `tests/v3_list_methods.py`, `tests/v3_array_review_regressions.py`, `tests/v3_array_runtime.py` and `tests/v3_array_benchmarks.py` guard native behavior and million-element scaling. Unannotated empty literals remain List<word>; nested lists, List-valued shape fields, temporary-root indexed writes and container covariance are diagnosed. |
 | `[1, 2, 3]: [int; 3]` fixed array | ⚠️ | 📖 V4 | V4 lowers typed fixed-array literals; stack layout and deeper const semantics still expand |
 | `[0; 100]` repeat-fill literal | ⚠️ | 📖 V4 | V4 lowers repeat-fill with literal and integer const arithmetic counts, including root-const inference/diagnostics; broader const-eval still expands |
 | Number suffixes: `42u`, `3.14f`, `42t`, `999b` | ⚠️ | 📖 V4 | V4 lex/type layers carry suffixes; broader const-evaluation surface still expands |
@@ -537,19 +537,24 @@ completion remain open.
 |---|---|---|---|
 | Prelude (`say`, `panic`, basic types) | ✅ | ✅ | |
 | String methods (`length`, `bytes`, `split`, etc.) | ✅ | ✅ | [std/string.fk](std/string.fk) |
+| V3 `word.repeated` and `word_builder::*` | ✅ | V3 campaign | Native C/LLVM exact construction, checked size, explicit builder consumption and deterministic ownership/work tests in `tests/v3_word_foundation.py`; Python owned-return emission rejected. `word += word` appends through the checked ownership contract with C/LLVM parity (`tests/v3_conversions.py`); this does not establish every common-operation optimization. |
+| V3 runtime-owned Word byte lengths | ✅ | V3 campaign | Existing LLVM ownership registry preserves explicit lengths, including dynamic NULs, through tested constructors/transforms/I/O and socket/environment validation. `tests/v3_word_length_parity.py` covers C/LLVM parity and ownership. Unknown foreign pointers remain C strings; ByteBuffer text and builder character restrictions are unchanged. Requires runtime API 3 and std API 1, not a layout ABI revision. |
+| V3 checked word parsing (`parse_int`/`parse_num` + `parse_status`) | ✅ | V3 campaign | Strict full-input word methods with a sticky status channel (`0` ok, `1` invalid, `2` out of range) mirroring ByteBuffer `status()`/`clear_status()`; first failure wins until `parse_clear_status()`. `tests/v3_checked_parsing.py` covers malformed, boundary min-max, junk-suffix, and overflow cases with C/LLVM parity, owned-receiver cleanup, checker negatives, and Python bootstrap `format_num` ownership fixtures. Legacy `to_int`/`to_num`/`parse_num` stay lenient and never touch the channel. |
 | `std::math` (abs, min, max, clamp, pow, sqrt, gcd, lcm, factorial, fibonacci, sin, cos, etc.) | ✅ | ✅ | |
 | `std::math3d` | ✅ | ✅ | [std/math3d.fk](std/math3d.fk) |
 | Numeric methods (`int::checked_add`, etc.) | ⚠️ | 📖 V4 | partial; many overflow-safe variants missing |
-| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | List works; Map basic; Set NOT IMPLEMENTED |
+| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | V3 List covers literals, `List::filled`/`List::new`/`List::with_capacity`, checked indexing, mutable indexed assignment, `length`/`capacity`/`reserve`/`clear`/`push`/`pop`, iteration, and owned word/shape cleanup (`tests/v3_list_methods.py` C/LLVM parity); Map basic; Set NOT IMPLEMENTED |
 | `Lineup<T>` FIFO queue | ❌ | 📖 V4 | not in stdlib |
 | `.filter` / `.collect` lazy iterators | ❌ | 📖 V4 | List has eager methods only |
 | `ask(prompt)` stdin | ✅ | ✅ | runtime |
 | `say_err(msg)` stderr | ❌ | 📖 V4 | not in runtime |
 | `fs::read`, `fs::write`, `fs::append`, `fs::exists`, `fs::delete` | ✅ | ✅ | C/LLVM runtimes; V3 `fs::delete` is file-only and returns checked success/already-absent status |
 | `TcpSocket::connect` async | ❌ | 📖 V4 | no promise type |
+| V3 managed `tcp::socket_*` | ⚠️ | V3 campaign | Synchronous binary socket floor with status/options and explicit close; Windows C/LLVM TCP and HTTP fixtures pass, including exclusive bind and bounded idle/trickle headers. Linux and clean Hangar graph acceptance remain pending. |
 | `time::sleep`, duration literals | ⚠️ | 📖 V4 | sleep works; literals like `500.milliseconds` not parsed |
+| V3 scalar time/PID/environment | ⚠️ | V3 campaign | Separate epoch milliseconds and monotonic nanoseconds; PID and owned UTF-8 environment snapshots/mutation. C/LLVM probes cover clock edges, lock behavior and concurrent C ownership audit. Python owned `env`/`env_var` results reject; structured process/fs/random campaign work and Linux execution remain pending. |
 | `random::rand`, `random::seed` | ⚠️ | 📖 V4 | runtime present, FREAK API unclear |
-| `process::run`, `process::exit` | ✅ | ✅ | runtime |
+| `process::run`, `process::exit` | ⚠️ | Partial | Exit is implemented; legacy process helpers do not prove structured argv/capture/stdin/cwd/environment support. Native structured process campaign acceptance remains pending. |
 | `process::exec_capture` | ✅ | ✅ | runtime |
 | `thread::spawn`, `Atomic<T>` | ❌ | 📖 V4 | std::thread Planned per CLAUDE.md |
 | `std::anime` (mood/power/etc.) | ❌ | 📖 V4 | depends on §2 types |
@@ -559,7 +564,7 @@ completion remain open.
 | `std::ffi` C boundary types | ⚠️ | 📖 V4 | V4 normalizes core scalar aliases (`c_int`, `c_size`, `c_double`, `wchar`, etc.) through TY/codegen; target-width fidelity and the broader std::ffi surface still expand |
 | `std::http` (HTTP/1.1 client) | ✅ | ✅ | [std/http.fk](std/http.fk) |
 | `std::json` | ✅ | ✅ | [std/json.fk](std/json.fk) |
-| `std::bytes` ByteBuffer | ✅ | ✅ | runtime |
+| `std::bytes` ByteBuffer | ⚠️ | V3 campaign | Native managed handles, explicit release/status, checked growth/cursor/copy, signed 64-bit LE/BE and validated NUL-free UTF-8 conversion have C/LLVM regression coverage. Full unsigned widths, list conversion and borrowed views are not complete; the legacy by-value C struct is not the native managed contract. |
 | `std::ui` (window, indexed events, raw drawing) | ⚠️ | 📖 V3 boundary | Frozen V3 executes the low-level Win32/GDI floor only through LLVM on Windows. `Window.poll`/owned event lists, POSIX native UI, executable C UI shapes, and COCKPIT widgets/themes are not shipped V3 surfaces; COCKPIT remains a Maverick source preview. |
 | `std::version` (semver) | ✅ | ✅ | [std/version.fk](std/version.fk) |
 | `std::algorithm` | ✅ | ✅ | [std/algorithm.fk](std/algorithm.fk) |
@@ -698,6 +703,23 @@ Currently only `--opt=0/1/2/3` (LLVM opt levels) and `--c`/`--llvm` backend sele
 | Mana | syntax errors | ❌ | 📖 V4 |
 | Hayase | death-flag tier 3-4 | ❌ | 📖 V4 |
 | 00-Unit | causality divergence | ❌ | 📖 V4 |
+
+V3 diagnostic-code foundation (additive, checker-unwired): stable codes
+E0001 unknown binding, E0002 type mismatch, E0003 use after move, E0004
+immutable reassignment, E0005 invalid call, E0006 index out of bounds,
+E0007 numeric parse failure, E0008 numeric overflow, E0009 allocation
+failure, E0010 unsupported target live in `src/diagnostics/codes.json`
+and are never renamed/renumbered/repurposed. Optional cast packs
+(FREAK/YUUKO/MEIYA/HANGAR/COCKPIT/MINISTRY/LLVM/LINKER/PLATFORM voices,
+exact-invalid-source easter eggs, resource lines) are data-only JSON under
+`src/diagnostics/`; `selector.py` adds deterministic SHA-256 selection
+(version + code + file + line + column + source + speaker, mod pack count)
+with `off` (canonical byte-identical) / `minimal` / `normal` modes.
+Proof: `python -u tests/v3_diagnostic_codes.py` (13 checks). No existing
+diagnostic message changed; checker/emitter/parser/globals/CLI parsing
+untouched. Verdict stays 📖 V4 for routing; the `--diagnostic-cast`
+flag wiring is deferred to the lead at integration (hook: default `off`,
+post-pass `render()` presentation step only).
 
 ---
 

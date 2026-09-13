@@ -74,6 +74,11 @@ facts; and `freak_mir_build` consumes them in `v4_mir_lower_pilot_stmt` without
 calling `v4_ty_type_text` (directly or through
 `v4_mir_compact_type_text`) to rediscover the declared type. This includes
 tuple and fixed-array annotations used by tuple/list destructuring. MIR build
+preserves ordinary task generic scope when resolving those annotations.
+Concrete impl methods read the same stored HIR facts through an exact synthetic
+method identity and source-offset bridge, without adding ordinary task signature
+rows. Method boundary discovery retains the existing nonordinary signature
+fallback; generic impl scoping is not expanded by this repair. MIR build
 still reads body tokens for patterns, initializer boundaries, places, and CFG
 construction. Six unrelated `v4_ty_type_text` consumers remain allowlisted for
 method type arguments, raw-pointer instance methods, associated methods,
@@ -94,8 +99,12 @@ their exact contained spans. TY's public ordinary-task parameter APIs consume
 only those records; MIR build uses the semantic segment span and editor
 definitions use the semantic name span. HIR snapshot v6 validates exact record
 widths, Task-only ownership, contiguous ordinals and counts, identifier and
-mode vocabulary, source ordering, and atomic restore. Impl, doctrine, and
-extern signatures remain explicitly named token-facing fallbacks. Shape/route
+mode vocabulary, source ordering, and atomic restore. Parameter snapshot linkage
+uses four passes over the shared native line index, seventeen released scratch
+arrays sized from observed records, and cached scalar parent bounds. It requires
+owner records even for zero-parameter Tasks; arbitrary wire ordering is accepted.
+Impl, doctrine, and extern signatures remain explicitly named token-facing
+fallbacks. Shape/route
 fields, const annotations, other non-ordinary signatures, the
 remaining MIR body families, and all other type families remain explicit
 follow-up slices. These boundaries change fact ownership, not language
@@ -401,6 +410,7 @@ crates/
   freak_arena/     append-only word arenas for early compiler storage
   freak_intern/    string interning table
   freak_session/   source database and revision tracking
+  freak_target/    canonical release-target identity and policy metadata
   freak_lex/       lossless token streams with trivia and diagnostics
   freak_parse/     resilient top-level syntax tree and recovery nodes
   freak_expand/    identity ExpandedFile/provenance forwarding into HIR
@@ -421,10 +431,22 @@ crates/
 Current FREAK compilation still works best with concatenated source files, so these crates use globally unique `v4_` names and a dependency order that can be flattened by a later bootstrap script:
 
 ```text
-freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> freak_session -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_mir_build -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
+freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> freak_session -> freak_target -> freak_lex -> freak_parse -> freak_expand -> freak_hir -> freak_resolve -> freak_ty -> freak_mir -> freak_mir_build -> freak_borrowck -> freak_codegen_llvm -> freak_query -> freak_driver -> freak_editor -> freak_snapshot -> freak_lsp
 ```
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
+
+`freak_target` is the host-independent authority for the four current release
+target identities and their canonical metadata: architecture, OS/environment,
+pointer width, endianness, C data model, object format, symbolic link/entry
+policies, artifact suffixes, and the deliberately conservative
+calling-convention acceptance matrix. It does not probe the host or toolchain,
+calculate physical type layout, lower function ABI signatures, or select LLVM
+calling-convention spellings. Those later subsystems must consume this target
+identity rather than create parallel target tables.
+The v1 record admission budget is 512 bytes, larger than every canonical
+record. Validation and raw framed-field readers reject oversized input before
+parsing, bounding bootstrap word-scanning work on malformed records.
 
 `freak_mir` owns the persistent Built-MIR representation: stable file/body and
 node identities, CFG/local/place/rvalue storage, validation, diagnostics, and
@@ -508,6 +530,27 @@ Record serializers must collect complete records in a temporary word array and f
 
 Source validation records canonical IDs and paths while it performs the forward envelope scan. It must not reparse every earlier source line to detect duplicates. Manifest, diff-detail, and health serializers use the same join contract, while source diffs index source lines once before comparing paths. The `unit_snapshot_multisource_resource_smoke.fk` fixture exercises 192 source records through validate, manifest, diff, and health under a 64 MB process-tree ceiling.
 
+HIR validation and restore index physical lines with `word.snapshot_lines()`:
+the native C and LLVM implementations scan bytes and copy records linearly,
+without per-byte `char_at` or per-record substring length rescans. The returned
+scratch array owns the line words; `array_release` releases both. Empty input
+produces an empty array, while blank/trailing lines and carriage returns are
+preserved. Allocation failure returns a negative handle without partial data;
+restore acquires the index before changing its live arena. The V3-to-LLVM native
+pipeline regression runs the production HIR index helper. Owner and
+child slots use bounded arrays sized from observed records, never untrusted
+maximum IDs or declared counts. Duplicate, gapped, noncanonical, and orphan
+slots fail validation before restore; wire order may place children before
+owners. Local annotations use the same physical index with bounded owner/item
+metadata and dense per-owner annotation slots; parent span bounds are decoded
+once rather than reparsed for every annotation. File-slot reset owns and reuses
+all twenty-eight child arrays. Task returns also use bounded owner/item indexes
+and require exactly one fact per ordinary Task, including when the payload
+declares zero returns. `hir_snapshot_scaling_smoke.fk` covers 64/512 aliases,
+512 annotations, 512 task returns, 512 parameters/tasks, 64 owners, long parent
+records, malformed records, and repeated scratch-capacity
+checks under a 1,024-handle limit and 64 MB process-tree ceiling.
+
 Temporary graph, worklist, seen-set, and serializer arrays are request-scoped resources. Every path that allocates one must either consume it with `word_join` or release it with `array_release`, including failure exits. `mir_snapshot_resource_smoke.fk` repeatedly validates accepted and cyclic MIR graphs, and `query_invalidation_resource_smoke.fk` combines 96 `didChange` requests with 600 direct dependency invalidations. These C-backed resource fixtures are compiled with a test-only 1,024-live-handle limit matching the LLVM runtime pool; the production C runtime remains dynamically sized. Each fixture measures all remaining handle capacity before and after its workload and ends with a fresh-array probe under a 64 MB ceiling, so even one leaked handle fails instead of hiding behind low RSS or spare C table capacity.
 
 Executable smoke runs report peak process-tree memory and have a 512 MB default ceiling. Every snapshot-named fixture uses a tighter 128 MB ceiling, and generated-C compilation is capped at 1 GB. Windows children start suspended, are assigned to a kill-on-close Job Object with an aggregate commit limit, and resume only after assignment, making that ceiling OS-enforced for the complete tree. POSIX runs use a fresh process group with group-wide RSS and swap monitoring; this is a sampled ceiling rather than a hard kernel allocation limit on hosts without an available cgroup controller. Stdout and stderr are drained by bounded readers with an 8 MB ceiling per stream, so a noisy descendant cannot move the same failure into Python's memory or a giant log file. Crossing a monitored ceiling terminates the entire process tree and fails the gate before sustained growth can expand the host pagefile.
@@ -541,6 +584,14 @@ end|freak-00-unit-manifest-v1
 ```
 
 Use this endpoint for import validation when a caller does not want to mutate compiler state. Validation can run in a fresh process: TY records receive detached structural validation, then `freak_snapshot` installs only the serialized source/lex/parse/expand/HIR/resolve context, runs strict TY linkage checks, and rolls the parent arenas back before returning. There is no public `workspace/unitSnapshotImport` endpoint yet; validation-only imports are modeled as manifest or health requests.
+
+Temporary parent-context probes use raw component restores, not publication
+wrappers. They preserve live query bytes, generations, dirtiness, invalidation
+counters, and telemetry, and restore the semantic/per-slot expansion generations
+alongside the parent arenas. Existing public expansion IDs therefore remain
+valid after accepted, rejected, or repeated validation. Actual component and
+full-unit restores still refresh provenance identities. The
+`unit_snapshot_validation_query_purity_smoke.fk` fixture guards both behaviors.
 
 ### `workspace/unitSnapshotDiff`
 
@@ -641,7 +692,9 @@ Span views are canonical and bounded by their source metadata. Structured
 diagnostics preserve their own length-prefixed fields; conversion to the
 bootstrap pipe-delimited compiler diagnostic fails closed when a field cannot
 be represented without corruption. A diagnostic span must name the same source
-as its expansion identity in both construction and validation.
+as its expansion identity in both construction and validation. Builder node
+spans must likewise belong to the builder context's expansion source; a valid
+span from a different source is an invalid contract, not an unsupported one.
 Node views require their AST and span handles to name the exact same immutable
 source view, including revision. Expansion identities use canonical numeric
 fields and carry the owning ExpandedFile slot's semantic restore generation so
@@ -651,7 +704,9 @@ The bootstrap exposes no macro host and executes no built-in or third-party
 macro. Diagnostic submission and builder operations return deterministic
 `unsupported` results without mutating compiler state. The major API version is
 an exact compatibility boundary; hosts may accept only supported minor versions
-within that major. Future expansion code consumes these public identities, while
+within that major. Canonical contexts retain their encoded supported minor
+version rather than requiring the host's newest minor. Future expansion code
+consumes these public identities, while
 dependency guards reject parser/query/TY/MIR/backend internals in the API crate
 and reserved macro implementation internals in later compiler crates.
 

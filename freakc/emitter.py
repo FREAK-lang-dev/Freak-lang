@@ -56,6 +56,18 @@ from .parser import (
     UseImport,
     WhenExpr,
 )
+from .type_checker import (
+    BYTE_BUFFER_CONSTRUCTOR_SIGNATURES,
+    BYTE_BUFFER_METHOD_SIGNATURES,
+    PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED,
+    PYTHON_OWNED_WORD_UNSUPPORTED,
+    PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED,
+    SYSTEM_RUNTIME_SIGNATURES,
+    UI_CLIP_SIGNATURES,
+    TCP_SOCKET_SIGNATURES,
+    WORD_BUILDER_SIGNATURES,
+    WORD_METHOD_SIGNATURES,
+)
 
 
 class EmitError(Exception):
@@ -65,6 +77,29 @@ class EmitError(Exception):
 @dataclass
 class VarInfo:
     c_type: str
+
+
+_FREAK_TYPE_TO_C = {
+    "ByteBuffer": "freak_byte_buffer_handle",
+    "bool": "bool",
+    "int": "int64_t",
+    "word": "freak_word",
+    "void": "void",
+}
+
+
+def _word_builder_c_type(type_name: str) -> str:
+    try:
+        return _FREAK_TYPE_TO_C[type_name]
+    except KeyError as error:
+        raise EmitError(f"unsupported word_builder ABI type {type_name}") from error
+
+
+def _word_builder_freak_type(c_type: str) -> str:
+    for freak_type, mapped_c_type in _FREAK_TYPE_TO_C.items():
+        if mapped_c_type == c_type:
+            return freak_type
+    return c_type
 
 
 # C reserved words that cannot be used as variable names
@@ -148,6 +183,7 @@ class CEmitter:
     }
 
     def __init__(self) -> None:
+        """Initialize the emitter and its per-program generation state."""
         self.indent: int = 0
         self.vars: Dict[str, VarInfo] = {}
         self.shapes: Dict[str, ShapeDecl] = {}
@@ -168,6 +204,7 @@ class CEmitter:
         self._in_main: bool = False  # True when emitting inside freak_main
 
     def emit(self, program: Program) -> str:
+        """Emit a complete C translation unit for ``program``."""
         self.indent = 0
         self.vars = {}
         self.shapes = {}
@@ -382,6 +419,7 @@ class CEmitter:
             "bool": "bool",
             "char": "uint32_t",
             "void": "void",
+            "ByteBuffer": "freak_byte_buffer_handle",
             "Squad": "Squad",
             "Event": "Event",
             "Vec2": "Vec2",
@@ -430,6 +468,7 @@ class CEmitter:
         return f"{prefix}{ret} freak_{td.name}({params_str})"
 
     def _emit_task_def(self, td: TaskDecl) -> None:
+        """Emit the C definition for a top-level FREAK task."""
         sig = self._task_forward_decl(td)
         self._func_defs.append(f"{sig} {{")
 
@@ -475,6 +514,7 @@ class CEmitter:
         return f"{ret} {type_name}_{td.name}({params_str})"
 
     def _emit_impl_method_def(self, type_name: str, td: TaskDecl) -> None:
+        """Emit the C definition for one implementation method."""
         sig = self._impl_method_signature(type_name, td)
         self._func_defs.append(f"{sig} {{")
 
@@ -509,6 +549,7 @@ class CEmitter:
         return "    " * self.indent
 
     def _emit_statement(self, stmt, target: List[str]) -> None:
+        """Dispatch a statement node to its C lowering routine."""
         if isinstance(stmt, PilotDecl):
             self._emit_pilot_decl(stmt, target)
         elif isinstance(stmt, SayStmt):
@@ -556,6 +597,7 @@ class CEmitter:
             raise EmitError(f"Unsupported statement: {stmt!r}")
 
     def _emit_pilot_decl(self, decl: PilotDecl, target: List[str]) -> None:
+        """Lower a local pilot declaration and register its inferred type."""
         name = _sanitize_name(decl.name)
         c_type = self._infer_c_type(decl.value, decl.type_ann)
         init = self._expr_to_c(decl.value)
@@ -599,6 +641,7 @@ class CEmitter:
             target.append(f"{self._ind()}return {c};")
 
     def _emit_if(self, stmt: IfExpr, target: List[str]) -> None:
+        """Lower an if/otherwise statement and its scoped branches."""
         cond = self._expr_to_c(stmt.condition)
         target.append(f"{self._ind()}if ({cond}) {{")
         self.indent += 1
@@ -624,6 +667,7 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_when(self, stmt: WhenExpr, target: List[str]) -> None:
+        """Lower a when expression into typed C branch dispatch."""
         subject_c = self._expr_to_c(stmt.subject)
         subject_type = self._infer_c_type_of_expr(stmt.subject)
 
@@ -677,6 +721,7 @@ class CEmitter:
             target.append(f"{self._ind()}}}")
 
     def _emit_for_each(self, stmt: ForEach, target: List[str]) -> None:
+        """Lower a collection iteration with a scoped loop variable."""
         # for each item in iterable -> C for loop
         iterable_c = self._expr_to_c(stmt.iterable)
         idx = self._next_temp("__i")
@@ -695,6 +740,7 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_repeat_times(self, stmt: RepeatTimes, target: List[str]) -> None:
+        """Lower a counted repeat loop."""
         count_c = self._expr_to_c(stmt.count)
         idx = self._next_temp("__rep")
         target.append(
@@ -707,6 +753,7 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_repeat_until(self, stmt: RepeatUntil, target: List[str]) -> None:
+        """Lower a repeat-until loop."""
         cond_c = self._expr_to_c(stmt.condition)
         target.append(f"{self._ind()}while (!({cond_c})) {{")
         self.indent += 1
@@ -716,6 +763,7 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_training_arc(self, stmt: TrainingArc, target: List[str]) -> None:
+        """Lower a bounded training-arc loop."""
         cond_c = self._expr_to_c(stmt.condition)
         max_c = self._expr_to_c(stmt.max_sessions)
         arc_var = self._next_temp("__arc")
@@ -1116,15 +1164,98 @@ class CEmitter:
         if isinstance(expr.func, PathIdent):
             fq_name = "::".join(expr.func.parts)
 
+            byte_buffer_signature = BYTE_BUFFER_CONSTRUCTOR_SIGNATURES.get(fq_name)
+            if byte_buffer_signature is not None:
+                if len(expr.args) != len(byte_buffer_signature.argument_types):
+                    raise EmitError(
+                        f"{fq_name} expects {len(byte_buffer_signature.argument_types)} "
+                        f"argument(s), got {len(expr.args)}"
+                    )
+                for index, (argument, expected) in enumerate(
+                    zip(expr.args, byte_buffer_signature.argument_types), start=1
+                ):
+                    actual_c_type = self._infer_c_type_of_expr(argument)
+                    expected_c_type = _word_builder_c_type(expected.name)
+                    if actual_c_type != expected_c_type:
+                        raise EmitError(
+                            f"call to '{fq_name}' argument {index} expects "
+                            f"{expected}, got {_word_builder_freak_type(actual_c_type)}"
+                        )
+                return f"{byte_buffer_signature.c_name}({args_c})"
+            if fq_name.startswith("ByteBuffer::"):
+                raise EmitError(f"unknown ByteBuffer builtin '{fq_name}'")
+
+            system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq_name) or UI_CLIP_SIGNATURES.get(fq_name)
+            if system_signature is not None:
+                if len(expr.args) != len(system_signature.argument_types):
+                    raise EmitError(
+                        f"{fq_name} expects {len(system_signature.argument_types)} "
+                        f"argument(s), got {len(expr.args)}"
+                    )
+                for index, (argument, expected) in enumerate(
+                    zip(expr.args, system_signature.argument_types), start=1
+                ):
+                    actual_c_type = self._infer_c_type_of_expr(argument)
+                    expected_c_type = _word_builder_c_type(expected.name)
+                    if actual_c_type != expected_c_type:
+                        raise EmitError(
+                            f"call to '{fq_name}' argument {index} expects "
+                            f"{expected}, got {_word_builder_freak_type(actual_c_type)}"
+                        )
+                if fq_name == "process::env":
+                    raise EmitError(PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED)
+                return f"{system_signature.c_name}({args_c})"
+
+            tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq_name)
+            if tcp_socket_signature is not None:
+                if len(expr.args) != len(tcp_socket_signature.argument_types):
+                    raise EmitError(
+                        f"{fq_name} expects {len(tcp_socket_signature.argument_types)} "
+                        f"argument(s), got {len(expr.args)}"
+                    )
+                for index, (argument, expected) in enumerate(
+                    zip(expr.args, tcp_socket_signature.argument_types), start=1
+                ):
+                    actual_c_type = self._infer_c_type_of_expr(argument)
+                    expected_c_type = _word_builder_c_type(expected.name)
+                    if actual_c_type != expected_c_type:
+                        raise EmitError(
+                            f"call to '{fq_name}' argument {index} expects "
+                            f"{expected}, got {_word_builder_freak_type(actual_c_type)}"
+                        )
+                return f"{tcp_socket_signature.c_name}({args_c})"
+            if fq_name.startswith("tcp::socket_"):
+                raise EmitError(f"unknown TCP socket builtin '{fq_name}'")
+
+            word_builder_signature = WORD_BUILDER_SIGNATURES.get(fq_name)
+            if word_builder_signature is not None:
+                if len(expr.args) != len(word_builder_signature.argument_types):
+                    raise EmitError(
+                        f"{fq_name} expects {len(word_builder_signature.argument_types)} "
+                        f"argument(s), got {len(expr.args)}"
+                    )
+                for index, (argument, expected) in enumerate(
+                    zip(expr.args, word_builder_signature.argument_types), start=1
+                ):
+                    actual_c_type = self._infer_c_type_of_expr(argument)
+                    expected_c_type = _word_builder_c_type(expected.name)
+                    if actual_c_type != expected_c_type:
+                        raise EmitError(
+                            f"call to '{fq_name}' argument {index} expects "
+                            f"{expected}, got {_word_builder_freak_type(actual_c_type)}"
+                        )
+                raise EmitError(PYTHON_OWNED_WORD_UNSUPPORTED)
+
             # std::process mapping
+            if fq_name == "process::env_var":
+                raise EmitError(PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED.replace(
+                    "process::env results", "process::env_var results"
+                ))
             process_map = {
                 "process::run": "freak_process_run",
                 "process::spawn": "freak_process_spawn",
-                "process::pid": "freak_process_pid",
                 "process::exit": "freak_process_exit",
-                "process::env": "freak_process_env",
                 "process::env_var": "freak_process_env_var",
-                "process::set_env": "freak_process_set_env",
                 "process::args": "freak_process_args",
                 "process::input": "freak_ask",
                 "process::exec": "freak_process_exec",
@@ -1142,12 +1273,6 @@ class CEmitter:
                 "thread::current_id": "freak_thread_current_id",
                 "thread::yield_now": "freak_thread_yield_now",
                 "thread::available_parallelism": "freak_thread_available_parallelism",
-            }
-
-            # std::bytes mapping
-            bytes_map = {
-                "ByteBuffer::new": "freak_bytes_new",
-                "ByteBuffer::from": "freak_bytes_from",
             }
 
             # std::fs mapping
@@ -1208,7 +1333,6 @@ class CEmitter:
             c_func = (
                 process_map.get(fq_name)
                 or thread_map.get(fq_name)
-                or bytes_map.get(fq_name)
                 or fs_map.get(fq_name)
                 or math_map.get(fq_name)
                 or ui_map.get(fq_name)
@@ -1223,6 +1347,7 @@ class CEmitter:
         return f"{func_c}({args_c})"
 
     def _emit_method_call(self, expr: MethodCall) -> str:
+        """Lower a built-in or user-defined method call to C."""
         obj_c = self._expr_to_c(expr.obj)
         args_c = ", ".join(self._expr_to_c(a) for a in expr.args)
 
@@ -1238,30 +1363,53 @@ class CEmitter:
                 return f"{base_type}_{expr.method}({ref}, {args_c})"
             return f"{base_type}_{expr.method}({ref})"
 
-        # std::bytes -- ByteBuffer methods (check before WORD_METHODS so
-        # .length() on a buffer doesn't accidentally call freak_word_length)
-        BYTES_METHODS: dict[str, str] = {
-            "write_byte": "freak_bytes_write_byte",
-            "write_int": "freak_bytes_write_int",
-            "write_int_be": "freak_bytes_write_int_be",
-            "write_word": "freak_bytes_write_word",
-            "write_bytes": "freak_bytes_write_bytes",
-            "read_byte": "freak_bytes_read_byte",
-            "read_int": "freak_bytes_read_int",
-            "read_word": "freak_bytes_read_word",
-            "seek": "freak_bytes_seek",
-            "position": "freak_bytes_position",
-            "length": "freak_bytes_length",
-            "to_list": "freak_bytes_to_list",
-            "to_word": "freak_bytes_to_word",
-        }
-        if obj_type == "freak_byte_buffer" and expr.method in BYTES_METHODS:
-            c_func = BYTES_METHODS[expr.method]
-            if args_c:
-                return f"{c_func}(&{obj_c}, {args_c})"
-            return f"{c_func}(&{obj_c})"
+        # Opaque ByteBuffer methods. Owned word-returning operations are
+        # rejected because the bootstrap emitter cannot prove their cleanup.
+        if obj_type == "freak_byte_buffer_handle":
+            signature = BYTE_BUFFER_METHOD_SIGNATURES.get(expr.method)
+            if signature is None:
+                raise EmitError(f"ByteBuffer has no builtin method '{expr.method}'")
+            if len(expr.args) != len(signature.argument_types):
+                raise EmitError(
+                    f"method '{expr.method}' expects {len(signature.argument_types)} "
+                    f"argument(s), got {len(expr.args)}"
+                )
+            for index, (argument, expected) in enumerate(
+                zip(expr.args, signature.argument_types), start=1
+            ):
+                actual_c_type = self._infer_c_type_of_expr(argument)
+                expected_c_type = _word_builder_c_type(expected.name)
+                if actual_c_type != expected_c_type:
+                    raise EmitError(
+                        f"method '{expr.method}' argument {index} expects "
+                        f"{expected}, got {_word_builder_freak_type(actual_c_type)}"
+                    )
+            if signature.returns_owned:
+                raise EmitError(PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED)
+            all_args = obj_c if not args_c else f"{obj_c}, {args_c}"
+            return f"{signature.c_name}({all_args})"
 
         # Built-in word methods -> freak_word_* functions
+        word_method_signature = WORD_METHOD_SIGNATURES.get(expr.method)
+        if obj_type == "freak_word" and word_method_signature is not None:
+            if len(expr.args) != len(word_method_signature.argument_types):
+                raise EmitError(
+                    f"method '{expr.method}' expects "
+                    f"{len(word_method_signature.argument_types)} argument(s), "
+                    f"got {len(expr.args)}"
+                )
+            for index, (argument, expected) in enumerate(
+                zip(expr.args, word_method_signature.argument_types), start=1
+            ):
+                actual_c_type = self._infer_c_type_of_expr(argument)
+                expected_c_type = _word_builder_c_type(expected.name)
+                if actual_c_type != expected_c_type:
+                    raise EmitError(
+                        f"method '{expr.method}' argument {index} expects "
+                        f"{expected}, got {_word_builder_freak_type(actual_c_type)}"
+                    )
+            raise EmitError(PYTHON_OWNED_WORD_UNSUPPORTED)
+
         WORD_METHODS = {
             "length": ("freak_word_length", 0, False),
             "to_upper": ("freak_word_to_upper", 0, False),
@@ -1276,11 +1424,14 @@ class CEmitter:
             "snapshot_escape": ("freak_word_snapshot_escape", 0, False),
             "snapshot_unescape": ("freak_word_snapshot_unescape", 0, False),
             "snapshot_line_count": ("freak_word_snapshot_line_count", 0, False),
+            "snapshot_lines": ("freak_word_snapshot_lines", 0, False),
             "snapshot_line": ("freak_word_snapshot_line", 1, False),
             "snapshot_field_count": ("freak_word_snapshot_field_count", 0, False),
             "snapshot_field_raw": ("freak_word_snapshot_field_raw", 1, False),
             "to_int": ("freak_word_to_int", 0, False),
             "to_num": ("freak_word_to_num", 0, False),
+            "parse_int": ("freak_word_parse_int", 0, False),
+            "parse_num": ("freak_word_parse_num", 0, False),
             "substring": ("freak_word_substring", 2, False),
         }
         if obj_type == "freak_word" and expr.method in WORD_METHODS:
@@ -1320,8 +1471,13 @@ class CEmitter:
             if obj_c in hints:
                 base_type = hints[obj_c]
 
-        # Generic method call: try type_method pattern
-        ref = obj_c if is_ptr else f"&{obj_c}"
+        # Generic method call: try type_method pattern.
+        # Builtin freak_word methods take the struct by value; only user
+        # shapes take a pointer receiver.
+        if base_type == "freak_word":
+            ref = obj_c
+        else:
+            ref = obj_c if is_ptr else f"&{obj_c}"
         if args_c:
             return f"{base_type}_{expr.method}({ref}, {args_c})"
         return f"{base_type}_{expr.method}({ref})"
@@ -1582,7 +1738,6 @@ class CEmitter:
         if isinstance(expr, PathIdent):
             fq_name = "::".join(expr.parts)
             if fq_name in (
-                "process::pid",
                 "thread::current_id",
                 "thread::available_parallelism",
             ):
@@ -1593,8 +1748,17 @@ class CEmitter:
                 return "freak_list_word"
             if fq_name in ("process::input",):
                 return "freak_word"
-            if fq_name in ("ByteBuffer::new", "ByteBuffer::from"):
-                return "freak_byte_buffer"
+            if fq_name in BYTE_BUFFER_CONSTRUCTOR_SIGNATURES:
+                return "freak_byte_buffer_handle"
+            if fq_name in UI_CLIP_SIGNATURES:
+                return "void"
+            if fq_name in SYSTEM_RUNTIME_SIGNATURES:
+                return _word_builder_c_type(
+                    SYSTEM_RUNTIME_SIGNATURES[fq_name].return_type.name
+                )
+            tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq_name)
+            if tcp_socket_signature is not None:
+                return _word_builder_c_type(tcp_socket_signature.return_type.name)
             if fq_name in ("fs::read",):
                 return "freak_word"
             return "int64_t"
@@ -1660,18 +1824,24 @@ class CEmitter:
                     return ret
             if isinstance(expr.func, PathIdent):
                 fq = "::".join(expr.func.parts)
+                system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq) or UI_CLIP_SIGNATURES.get(fq)
+                if system_signature is not None:
+                    return _word_builder_c_type(system_signature.return_type.name)
+                word_builder_signature = WORD_BUILDER_SIGNATURES.get(fq)
+                if word_builder_signature is not None:
+                    return _word_builder_c_type(word_builder_signature.return_type.name)
+                tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq)
+                if tcp_socket_signature is not None:
+                    return _word_builder_c_type(tcp_socket_signature.return_type.name)
                 # std::process return types
                 _PROCESS_RET = {
-                    "process::pid": "uint64_t",
                     "process::exit": "void",
-                    "process::env": "freak_word",
                     "process::env_var": "freak_maybe_word",
                     "process::args": "void*",
                     "process::args_count": "int64_t",
                     "process::arg": "freak_word",
                     "process::run": "freak_process_output",
                     "process::spawn": "freak_process_handle",
-                    "process::set_env": "void",
                     "process::input": "freak_word",
                     "process::exec": "int64_t",
                     "process::exec_capture": "freak_word",
@@ -1683,10 +1853,9 @@ class CEmitter:
                     "thread::yield_now": "void",
                     "thread::available_parallelism": "uint64_t",
                 }
-                # std::bytes return types
                 _BYTES_RET = {
-                    "ByteBuffer::new": "freak_byte_buffer",
-                    "ByteBuffer::from": "freak_byte_buffer",
+                    name: _word_builder_c_type(signature.return_type.name)
+                    for name, signature in BYTE_BUFFER_CONSTRUCTOR_SIGNATURES.items()
                 }
                 # std::fs return types
                 _FS_RET = {
@@ -1799,39 +1968,28 @@ class CEmitter:
         if isinstance(expr, MethodCall):
             obj_type = self._infer_c_type_of_expr(expr.obj)
 
-            # ByteBuffer method return types (checked before word methods so
-            # .length() on a buffer correctly returns uint64_t, not int64_t)
-            BYTES_RETURN_TYPES: dict[str, str] = {
-                "write_byte": "void",
-                "write_int": "void",
-                "write_int_be": "void",
-                "write_word": "void",
-                "write_bytes": "void",
-                "read_byte": "freak_maybe_int",
-                "read_int": "freak_maybe_int",
-                "read_word": "freak_maybe_word",
-                "seek": "void",
-                "position": "uint64_t",
-                "length": "uint64_t",
-                "to_list": "void*",
-                "to_word": "freak_result_word_word",
-            }
-            if obj_type == "freak_byte_buffer" and expr.method in BYTES_RETURN_TYPES:
-                return BYTES_RETURN_TYPES[expr.method]
+            if obj_type == "freak_byte_buffer_handle":
+                signature = BYTE_BUFFER_METHOD_SIGNATURES.get(expr.method)
+                if signature is not None:
+                    return _word_builder_c_type(signature.return_type.name)
 
             # Return types for built-in word methods
             METHOD_RETURN_TYPES = {
                 "length": "int64_t",
                 "checksum": "int64_t",
                 "snapshot_line_count": "int64_t",
+                "snapshot_lines": "int64_t",
                 "snapshot_field_count": "int64_t",
                 "to_int": "int64_t",
                 "to_num": "double",
+                "parse_int": "int64_t",
+                "parse_num": "double",
                 "to_upper": "freak_word",
                 "to_lower": "freak_word",
                 "trim": "freak_word",
                 "replace": "freak_word",
                 "substring": "freak_word",
+                "repeated": "freak_word",
                 "char_at": "freak_word",
                 "snapshot_escape": "freak_word",
                 "snapshot_unescape": "freak_word",

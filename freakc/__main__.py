@@ -314,7 +314,23 @@ def find_c_compiler() -> str | None:
 
 
 def transpile(source: str, path: Path):
-    """Parse + type-check + emit C.  Returns (c_source, diagnostics, uses_ui)."""
+    """Compatible three-value API: (C source or None, diagnostics, uses_ui).
+
+    Existing callers, including the V4 harness, rely on this tuple shape.
+    Errors remain fail-closed; callers needing structured severity can use
+    transpile_checked instead of inspecting rendered diagnostic text.
+    """
+    c_source, diagnostics, uses_ui, _ = transpile_checked(source, path)
+    return c_source, diagnostics, uses_ui
+
+
+def transpile_checked(source: str, path: Path):
+    """Parse + type-check + emit C.
+
+    Returns (c_source, diagnostics, uses_ui, has_errors). Diagnostics are
+    rendered for display, so callers must use the structured error bit instead
+    of guessing severity from localized text.
+    """
     file_path = str(path)
 
     # Resolve imports: concatenate library .fk files into one compilation unit
@@ -325,7 +341,7 @@ def transpile(source: str, path: Path):
     except ParseError as e:
         # Use structured location info if available, falling back to string parsing
         formatted = format_parse_error(str(e), source=source, file_path=file_path)
-        return None, [formatted], uses_ui
+        return None, [formatted], uses_ui, True
 
     # Type check
     checker = TypeChecker()
@@ -346,15 +362,18 @@ def transpile(source: str, path: Path):
             has_errors = True
 
     # Emit C even if there are warnings (but not errors)
+    if has_errors:
+        return None, diag_msgs, uses_ui, True
+
     emitter = CEmitter()
     try:
         c_source = emitter.emit(program)
     except EmitError as e:
         formatted = format_emit_error(str(e), source=source, file_path=file_path)
         diag_msgs.append(formatted)
-        return None, diag_msgs, uses_ui
+        return None, diag_msgs, uses_ui, True
 
-    return c_source, diag_msgs, uses_ui
+    return c_source, diag_msgs, uses_ui, has_errors
 
 
 def compile_c(c_path: Path, out_bin: Path, runtime_dir: Path,
@@ -448,12 +467,12 @@ def cmd_run(path: Path, keep_c: bool = False, output: str = None,
             backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile → run."""
     source = path.read_text(encoding="utf-8")
-    c_source, diags, uses_ui = transpile(source, path)
+    c_source, diags, uses_ui, has_errors = transpile_checked(source, path)
 
     for d in diags:
         print(d, file=sys.stderr)
 
-    if c_source is None:
+    if has_errors or c_source is None:
         return 1
 
     # Write C output
@@ -505,12 +524,12 @@ def cmd_build(path: Path, keep_c: bool = False, output: str = None,
               backend: str = "c", opt_level: str = "2", target: str = "") -> int:
     """Transpile → compile (no run)."""
     source = path.read_text(encoding="utf-8")
-    c_source, diags, uses_ui = transpile(source, path)
+    c_source, diags, uses_ui, has_errors = transpile_checked(source, path)
 
     for d in diags:
         print(d, file=sys.stderr)
 
-    if c_source is None:
+    if has_errors or c_source is None:
         return 1
 
     out_c = path.with_suffix(".c")
@@ -550,18 +569,15 @@ def cmd_build(path: Path, keep_c: bool = False, output: str = None,
 def cmd_check(path: Path) -> int:
     """Type-check only (no compilation)."""
     source = path.read_text(encoding="utf-8")
-    _, diags, _ = transpile(source, path)
+    _, diags, _, has_errors = transpile_checked(source, path)
 
     if not diags:
         print(_green(f"✓ {path.name}: No issues found"))
         return 0
 
     print(f"{_bold(str(path))}:")
-    has_errors = False
     for d in diags:
         print(d, file=sys.stderr)
-        if "error" in d.lower() if isinstance(d, str) else False:
-            has_errors = True
     return 1 if has_errors else 0
 
 

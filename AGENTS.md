@@ -27,7 +27,7 @@ while keeping engineering decisions precise.
 
 Current facts:
 
-- Public release: **v0.14.1 "Maverick"**.
+- Public release: **v0.14.2 "Maverick"**.
 - Shipping compiler: self-hosted V3, emitting LLVM IR and linking natively. The
   C backend remains a portability target.
 - V4 implementation: `src/compiler/v4/`.
@@ -388,6 +388,8 @@ A PR is ready only when:
   evidence
 - conformance and public docs match the actual behavior
 - the PR describes remaining conservative boundaries
+- the default merge method is **Rebase merge**; use squash or merge-commit
+  only with explicit justification recorded in the PR
 
 Record the final evidence in a PR comment. Any subsequent commit invalidates
 the record:
@@ -445,7 +447,8 @@ V4 crate order is defined in `src/compiler/v4/check_v4.py`. Core boundaries:
 | `freak_hir` | desugared high-level forms |
 | `freak_resolve` | names, scopes, and definition identity |
 | `freak_ty` | inference, type contracts, and type diagnostics |
-| `freak_mir` | CFG lowering, places, drops, and MIR diagnostics |
+| `freak_mir` | Built-MIR representation, places, drops, diagnostics, and snapshots |
+| `freak_mir_build` | HIR/TY-to-Built-MIR construction and CFG lowering |
 | `freak_borrowck` | Meiya loans, moves, lifetimes, and ownership analysis |
 | `freak_codegen_llvm` | LLVM lowering and backend contracts |
 | `freak_query` | memoized storage and invalidation graph mechanics |

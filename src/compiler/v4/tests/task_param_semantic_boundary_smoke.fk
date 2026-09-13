@@ -222,11 +222,23 @@ task v4_task_param_invalid_source_probe() -> void {
         }
         item_id += 1
     }
-    pilot no_invented = true
+    pilot no_invented = false
     if task_item >= 0 {
-        no_invented = v4_hir_task_param_count(hir_id, task_item) <= 1
+        no_invented = v4_hir_task_param_count(hir_id, task_item) == 1
+        no_invented = no_invented and v4_hir_task_param_name(hir_id, task_item, 0) == "kept"
+        no_invented = no_invented and v4_hir_task_param_surface_type(hir_id, task_item, 0) == "word"
+    }
+    pilot targeted_diag = false
+    pilot diag_id = 0
+    repeat until diag_id >= v4_hir_diag_count(hir_id) {
+        pilot diag = v4_hir_diag(hir_id, diag_id)
+        if v4_diag_message(diag) == "invalid ordinary task parameter declaration" {
+            targeted_diag = true
+        }
+        diag_id += 1
     }
     say "task-param-invalid-hir-diagnostics=" + word_from_int(v4_hir_diag_count(hir_id))
+    say "task-param-invalid-targeted-diagnostic=" + v4_task_param_bool(targeted_diag)
     say "task-param-invalid-no-invented=" + v4_task_param_bool(no_invented)
 }
 

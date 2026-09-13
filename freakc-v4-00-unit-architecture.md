@@ -45,9 +45,10 @@ flowchart TD
     Parse --> Macro["freak_expand<br/>Expanded AST"]
     Macro --> Hir["freak_hir<br/>Desugared HIR"]
     Hir --> Ty["freak_ty<br/>Inference + Trait Solving"]
-    Hir --> MirLower["freak_mir<br/>CFG Lowering"]
+    Hir --> MirLower["freak_mir_build<br/>CFG Lowering"]
     Ty --> MirLower
-    MirLower --> Borrow["Meiya<br/>Borrow + Lifetime Analysis"]
+    MirLower --> Mir["freak_mir<br/>MIR Representation"]
+    Mir --> Borrow["Meiya<br/>Borrow + Lifetime Analysis"]
     Borrow --> Opt["MIR Optimizations<br/>Drop Elab + Const Eval"]
     Opt --> Llvm["freak_codegen_llvm<br/>LLVM IR + Objects"]
     Source --> Query["00-Unit Query Engine<br/>Memoized Database"]
@@ -664,7 +665,7 @@ region solver described below and does not establish production backend support.
 | Layer | Owned fact | Implemented guarantee |
 |---|---|---|
 | `freak_ty` | Declared lifetime graph, eligible parameter ids, and fixed-storage classification | An explicit bound such as `'long: 'short` is a directed edge. Declared binders are reflexive, direct edges close transitively, and cycles make their members mutually reachable. An iterative, cycle-safe worklist handles converging graphs and long chains without recursive stack growth. Named returns select every mode-compatible parameter whose lifetime reaches the return lifetime; elided returns select every mode-compatible borrowed parameter. Shared returns admit `lend` and `lend mut`; mutable returns admit only `lend mut`. TY classifies tuples, fixed arrays, shapes, and route payloads as the task-local fixed-layout vocabulary. Generic-call, owner-generic, and `Shared<T>::new` substitutions recursively expand nominal shapes/routes such as `Direct<'a>` before rejecting hidden lends. Classification exhaustion is a distinct fail-closed state with a targeted depth-budget diagnostic; conservative ownership queries treat it as possibly lend-bearing. Ordinary-task aggregate parameters and returns, aliases, doctrines, and callbacks remain closed to lend-bearing storage. |
-| `freak_mir` | Candidate call mappings and declaration-keyed aggregate children | MIR erases callee binder spelling from the caller-local result but maps every eligible signature parameter to its reordered call argument. `-1` means opaque/unproven, `0` is a proven-empty set, and a positive count is a fully mapped candidate set. This is candidate metadata, not caller ownership. Tuple slots and fixed-array indices are stable structural keys. Shape and route children are normalized into declaration order and recover their declared field projection independent of constructor source order. That representation requires `freak-mir-snapshot-v5`; v4 is rejected rather than reinterpreted. Direct nominal impl calls and overloaded operator dispatch on lend-bearing aggregate owners are rejected at the call boundary. Dynamic/container constructors still reject lend children while child type and span identity exist. |
+| `freak_mir_build`, `freak_mir`, and Meiya compatibility queries | Construction, storage, and interpretation of candidate call mappings and declaration-keyed aggregate children | The builder erases callee binder spelling from the caller-local result, reorders call arguments, and normalizes aggregate children into declaration order. MIR stores those facts; Meiya interprets eligible signature parameters through the stored call arguments. `-1` means opaque/unproven, `0` is a proven-empty set, and a positive count is a fully mapped candidate set. This is candidate metadata, not caller ownership. Tuple slots and fixed-array indices are stable structural keys. Shape and route projections recover the declared field independent of constructor source order. That representation requires `freak-mir-snapshot-v5`; v4 is rejected rather than reinterpreted. The builder rejects direct nominal impl calls and overloaded operator dispatch on lend-bearing aggregate owners at the call boundary. Dynamic/container constructors still reject lend children while child type and span identity exist. |
 | `freak_borrowck` / Meiya | Concrete owner-path and projected-child provenance | Meiya resolves MIR candidates through projections, scalar and fixed-layout aggregate holders, projected reborrows, nested statically resolved ordinary calls, acyclic CFG joins, and loop headers/backedges. Aggregate provenance memos include the requested projection: field or slot uses resolve only that declaration-keyed child, while whole-value or dynamic-index uses conservatively union possible children. A dynamic-index assignment overlaps every fixed slot and therefore cannot retire or launder one child loan. Projection assignment is a holder definition: rebinding retires only the selected child's old loan, protects its new owner, and preserves siblings; aggregate moves into projected destinations retain relative child paths. This supplies field-sensitive final-use liveness and preserves `LoanMut` exclusivity for the relevant child. Restore starts a fresh provenance scratch generation. It discovers memo dependencies iteratively, records reverse edges, and schedules only dependants of changed memos in deterministic waves to reach a monotonic least fixed point. Known sets deduplicate and union every concrete caller owner; unresolved empty memos and path-growing projections become opaque. Only Meiya emits queryable `ReturnLoan` / `ReturnLoanMut` paths. Bounded integer/canonical-path cache rings and explicit memo/dependency/work/source/path budgets rebuild or fail closed without changing provenance semantics. |
 | `freak_editor` plus query/snapshot crates | Lifetime semantic, hover, definition, restore, and invalidation facts | Outlives-bound references resolve to the declared binder even when that declaration appears later or the bound is repeated. Distinct definitions and spans survive snapshot restore after the live editor arenas have been poisoned. Fixed-layout local type and provenance facts use the existing MIR, borrowck, editor, and query sections; no aggregate-only snapshot or LSP method exists. Stale or fingerprint-mismatched restored entries are not promoted. Source changes update all 18 invalidation report fields: 15 concrete query families plus three aggregate totals (`all`/`query`, `core`, and `editor`); explicit requests prove every concrete family recomputes and the totals refresh. The fixed-aggregate query smoke proves `A -> B -> restore A` and re-resolves MIR, borrowck, and editor IDs from the restored arenas. |
 
@@ -982,6 +983,8 @@ src/
           src/lib.fk
         freak_mir/
           src/lib.fk
+        freak_mir_build/
+          src/lib.fk
         freak_borrowck/
           src/lib.fk
         freak_query/
@@ -1022,8 +1025,9 @@ flowchart LR
     Expand --> Hir["freak_hir"]
     Hir --> Resolve["freak_resolve"]
     Resolve --> Ty["freak_ty"]
-    Hir --> Mir["freak_mir"]
-    Ty --> Mir
+    Hir --> MirBuild["freak_mir_build"]
+    Ty --> MirBuild
+    Mir["freak_mir"] --> MirBuild
     Mir --> Borrow["freak_borrowck"]
     Borrow --> Codegen["freak_codegen_llvm"]
     Target["freak_target"] --> Codegen
@@ -1079,13 +1083,13 @@ doctrine AttributeMacro {
 }
 ```
 
-## `freak_hir` and `freak_mir`
+## `freak_hir`, `freak_mir_build`, and `freak_mir`
 
 `freak_hir` lowers expanded AST into desugared HIR, assigns stable `DefId` and local `HirId`, preserves source maps, and rejects structurally impossible constructs that survived parser recovery.
 
 It does not infer types. It may attach syntax-independent facts like "this loop is bounded" or "this block is an isekai isolation boundary."
 
-`freak_mir` lowers typed HIR into CFG, represents moves, places, assignments, calls, drops, and terminators, validates MIR, and hosts target-independent MIR optimizations.
+`freak_mir_build` owns typed-HIR-to-CFG construction policy and the transitional source interpretation still required by this mechanical split. `freak_mir` owns representation and syntax-independent storage constructors for bodies, blocks, locals, moves, places, assignments, calls, drops, and terminators, together with validation and snapshot serialization. Meiya owns provenance interpretation; the retained `v4_mir_*` compatibility query names do not move that policy back into representation. Later target-independent transformations belong in a separate transform layer, not the representation crate. The split does not yet claim that every lowering family is syntax-free.
 
 MIR is the input to borrow checking, const eval, dataflow analysis, and codegen. It is also the layer where Meiya becomes precise.
 

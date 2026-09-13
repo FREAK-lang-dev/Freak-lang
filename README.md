@@ -6,7 +6,7 @@
 and not enough sleep, but somehow it compiles.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-pink?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/v0.14.1-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
+[![Version](https://img.shields.io/badge/v0.14.2-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/FREAK-lang-dev/Freak-lang/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/FREAK-lang-dev/Freak-lang/actions)
 [![Status](https://img.shields.io/badge/status-self--hosting-brightgreen?style=flat-square)](#)
 [![Vibes](https://img.shields.io/badge/vibes-MONO__NO__AWARE-blueviolet?style=flat-square)](#)
@@ -21,7 +21,7 @@ FREAK is a compiled, statically-typed systems language with a syntax inspired by
 
 It compiles to native binaries via LLVM (or C — your choice). It has a Phase-1 borrow checker behind `--strict-borrow`. It has a package manager called **Hangar** and preserves the **COCKPIT** UI source preview for Maverick. And every variable is called `pilot` because you are always on a mission.
 
-```fk
+```rust
 pilot name = "Takeru"
 pilot power = 9001
 
@@ -79,7 +79,7 @@ FREAK records the narrative weight of your code via the audit suite. What ships 
 - **`trust me on my honor as .level { ... }`** — Escape-hatch blocks. `freak audit-trust` lists every block with its declared honor level.
 - **`deus_ex_machina "monologue" { ... }`** — Requires a monologue of at least 20 words (compile error if shorter). `freak audit-miracles` lists every block; warns past 3, errors past 10.
 
-```fk
+```rust
 foreshadow pilot victory = false
 -- ... narrative happens ...
 payoff victory   -- promise kept
@@ -114,7 +114,7 @@ release archives.
 
 FREAK has a Phase-1 borrow checker — mutability and single-owner moves — gated behind the `--strict-borrow` flag. The default mode (no flag) is leak-everything; turn on the flag to opt into the safety rules.
 
-```fk
+```rust
 shape Ship { name: word }
 
 pilot mut a = Ship { name: "Takeru" }   -- mutable binding
@@ -181,7 +181,7 @@ freak doctor --fix    # install/repair dependencies and the distribution payload
 
 Create `hello.fk`:
 
-```fk
+```rust
 pilot name = "world"
 say "Hello, {name}!"
 say "Your mission has begun."
@@ -220,6 +220,43 @@ Hello, world!
 Your mission has begun.
 ```
 
+### Something real: typed lists
+
+```rust
+task dot(a: List<num>, b: List<num>) -> num {
+    if a.length() != b.length() {
+        say "dot needs equal-length lists"
+        give back 0.0
+    }
+
+    pilot mut total: num = 0.0
+    pilot mut i: int = 0
+
+    repeat a.length() times {
+        total += a[i] * b[i]
+        i += 1
+    }
+
+    give back total
+}
+
+task main() {
+    pilot a = List::filled(2.0, 1000000)
+    pilot b = List::filled(4.0, 1000000)
+
+    say dot(a, b).to_word()
+}
+```
+
+```bash
+freak run dot.fk
+```
+
+Output:
+```
+8000000
+```
+
 ---
 
 ## Hangar — The Package Manager
@@ -256,22 +293,24 @@ Dependencies live in `hangar_modules/`. The layout is deliberately minimal.
 
 ---
 
-## COCKPIT — Maverick Source Preview
+## COCKPIT — V3 Procedural UI
 
-`packages/cockpit/` preserves the design and source of FREAK's intended
-immediate-mode UI framework: layout, widgets, themes, input handling, and
-animation helpers. It is not a supported package on the frozen V3 compiler and
-the included examples are design fixtures, not copy-and-run V3 programs.
+[`packages/cockpit/`](packages/cockpit/README.md) provides a procedural
+immediate-mode UI on the existing V3 compiler: layout, widgets, themes and
+ordered input handling. It uses explicit-lifetime array/ByteBuffer handles and
+indexed `ui::event_*` accessors, not `Squad` or a fictional `Window.poll()` API.
+Calculator, settings and showcase examples run until close; a separate bounded
+smoke and injected-event tests cover repeatable checks. Follow the package's
+source-assembly instructions; immutable Hangar graph delivery remains pending.
 
-The smaller `std::ui` floor is partial in V3. Native execution is supported
-only by the LLVM backend on Windows through the Win32/GDI runtime. V3 exposes
-the raw indexed event queue (`ui::poll_events` plus `ui::event_*`) and basic
-drawing calls; it has no owned event-list ABI, no macOS/Linux native UI
-backend, and no C-backend shape storage for executable UI programs.
-
-COCKPIT's supported implementation belongs to Maverick / 00-Unit. The source
-preview remains in-tree to preserve the intended API and architectural history
-without claiming a release surface that V3 cannot execute.
+The thin `std::ui` mechanism supplies the Win32/GDI window, indexed event queue,
+integer drawing calls and rectangular clipping. The procedural COCKPIT path
+has C and LLVM native Windows lifecycle coverage. It does not claim a native
+macOS/Linux window backend, an owned event-list ABI, or C-backend shape storage;
+the shape-based `Window`/`Canvas` convenience floor remains LLVM-only for
+native execution. Widget order, bounded event queues and explicit cleanup
+remain part of the package contract. No new compiler ownership or UI semantics
+are introduced.
 
 ---
 
@@ -279,7 +318,7 @@ without claiming a release surface that V3 cannot execute.
 
 ### Pattern Matching (literal)
 
-```fk
+```rust
 when status {
     1  -> say "soldier"
     2  -> say "destroyer"
@@ -298,7 +337,7 @@ Molar mass **274,234 g/mol**. The Fk:C ratio of ≈ 1.03:1 confirms the self-hos
 
 ### Error Handling
 
-```fk
+```rust
 -- Propagate errors with ?
 task load_config(path: word) -> result<Config, word> {
     pilot data = fs::read(path)?
@@ -315,7 +354,7 @@ check result load_config("settings.toml") {
 
 ### The Training Arc
 
-```fk
+```rust
 -- A bounded loop with a hard session cap
 training arc until power >= 9000 max 1000 sessions {
     practice()
@@ -326,7 +365,7 @@ training arc until power >= 9000 max 1000 sessions {
 
 ### Doctrines (Traits)
 
-```fk
+```rust
 doctrine Displayable {
     task display(self) -> word
 }
@@ -439,13 +478,18 @@ Both backends produce native binaries via Clang. The LLVM IR path supports cross
 
 ## Project Status
 
-FREAK is under active development. The compiler is **self-hosting** — FREAK compiles itself.
+FREAK's shipping compiler is the **self-hosted V3** — FREAK compiles itself
+and emits native binaries. V3 is **actively hardened, not stable**: it ships
+and compiles real programs, but its diagnostics, edge-case semantics, and
+platform parity are still being tightened, and breaking fixes can land in any
+release. Pin a version and read `freak-conformance-audit.md` before depending
+on sharp edges.
 
 | Milestone | Status |
 |---|---|
-| Self-hosting compiler | ✅ Complete |
+| Self-hosting compiler (V3) | ⚠️ Shipping self-hosted — actively hardened, not stable |
 | LLVM IR backend (default) | ✅ Complete |
-| C backend (`--c`) | ⚠️ Portability target — scalar/control/word paths are executable; V3 shape storage is LLVM-only |
+| C backend (`--c`) | ⚠️ Portability target — scalar/control/word, typed lists, and owned shapes execute on C and LLVM; native UI parity remains separate |
 | Native CLI (`freak build`/`run`/`check`/`transpile`) | ✅ Complete; `freak test` is a source-checkout Python shim |
 | Hangar package manager | ✅ Complete |
 | Cross-compilation (`--target=`) | ✅ Complete |
@@ -455,7 +499,7 @@ FREAK is under active development. The compiler is **self-hosting** — FREAK co
 | Phase-1 borrow checker (`--strict-borrow`) | ✅ Complete |
 | Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | 🧰 Source-checkout Python tools; not embedded in release archives |
 | `std::fs`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
-| `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` waits for a real list ABI |
+| `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` remains unimplemented |
 | COCKPIT UI framework | 📐 Source preview; supported implementation moves to Maverick |
 | LLVM JIT mode + DWARF debug info | 🚧 In progress |
 | V4 self-hosting compiler (variants, full BC, mood/prob/power, squadron concurrency, FFI surface, error voices) | 🔜 Roadmapped |

@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -22,6 +23,7 @@ CRATE_ORDER = [
     "freak_arena",
     "freak_intern",
     "freak_session",
+    "freak_target",
     "freak_lex",
     "freak_parse",
     "freak_expand",
@@ -59,6 +61,7 @@ RUNNER_PEAK_RETAINED_BYTES = 0
 C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
 C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
+        "hir_snapshot_scaling_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     }
@@ -720,12 +723,62 @@ INVALIDATION_FAMILY_FIELDS = [
 
 EXECUTABLE_SMOKES = [
     {
+        "name": "target contract",
+        "fixture": "target_contract_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect_exact": [
+            "target-count=4",
+            "target-linux-x64-summary=target triple=x86_64-unknown-linux-gnu release=linux-x64 arch=x86_64 os=linux env=gnu pointer=64 endian=little c-model=lp64 object=elf ccs=C,cdecl,system,sysv64 exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-gnu entry=posix-main",
+            "target-linux-arm64-summary=target triple=aarch64-unknown-linux-gnu release=linux-arm64 arch=aarch64 os=linux env=gnu pointer=64 endian=little c-model=lp64 object=elf ccs=C,cdecl,system exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-gnu entry=posix-main",
+            "target-macos-arm64-summary=target triple=aarch64-apple-darwin release=macos-arm64 arch=aarch64 os=macos env=darwin pointer=64 endian=little c-model=lp64 object=mach-o ccs=C,cdecl,system exe-prefix=<none> exe-suffix=<none> object-prefix=<none> object-suffix=.o link=clang-driver-darwin entry=darwin-main",
+            "target-windows-x64-summary=target triple=x86_64-w64-windows-gnu release=windows-x64 arch=x86_64 os=windows env=gnu pointer=64 endian=little c-model=llp64 object=coff ccs=C,cdecl,system,win64,vectorcall exe-prefix=<none> exe-suffix=.exe object-prefix=<none> object-suffix=.obj link=clang-driver-ucrt entry=ucrt-main",
+            "target-all-valid=true",
+            "target-index-stable=true",
+            "target-release-names=linux-x64,linux-arm64,macos-arm64,windows-x64",
+            "target-c-models=lp64,lp64,lp64,llp64",
+            "target-lp64-vs-llp64=true",
+            "target-pointer-widths=64,64,64,64",
+            "target-endianness=little,little,little,little",
+            "target-object-formats=elf,elf,mach-o,coff",
+            "target-artifact-names=maverick,maverick.o,maverick.exe,maverick.obj",
+            "target-link-policies=clang-driver-gnu,clang-driver-darwin,clang-driver-ucrt",
+            "target-entry-policies=posix-main,darwin-main,ucrt-main",
+            "target-linux-x64-conventions=true",
+            "target-arm64-rejects-x64-conventions=true",
+            "target-windows-x64-conventions=true",
+            "target-legacy-x86-conventions-rejected=true",
+            "target-unknown-convention-rejected=true",
+            "target-round-trip=true",
+            "target-aliases-rejected=true",
+            "target-unknown-triple-rejected=true",
+            "target-invalid-records-rejected=true",
+            "target-malformed-controls=true",
+            "target-truncated-fields-rejected=true",
+            "target-missing-delimiters-rejected=true",
+            "target-overflowing-lengths-rejected=true",
+            "target-extra-field-rejected=true",
+            "target-duplicate-field-rejected=true",
+            "target-unknown-tag-rejected=true",
+            "target-unknown-format-rejected=true",
+            "target-canonical-records-within-budget=true",
+            "target-oversize-no-colon-rejected=true",
+            "target-oversize-zero-prefix-rejected=true",
+            "target-oversize-empty-fields-rejected=true",
+            "target-budget-boundary-rejected=true",
+            "target-invalid-accessors-fail-closed=true",
+            "target-summary-deterministic=true",
+        ],
+        "expect": [],
+    },
+    {
         "name": "macro API contract",
         "fixture": "macro_api_contract_smoke.fk",
         "expect_exact": [
             "macro-api-format=freak-macro-api-contract-v1",
             "macro-api-version=1.0",
             "macro-api-version-supported=true",
+            "macro-api-older-minor-context-supported=true",
             "macro-api-future-version-rejected=true",
             "macro-api-unknown-capabilities-rejected=true",
             "macro-api-host-unavailable=true",
@@ -773,6 +826,7 @@ EXECUTABLE_SMOKES = [
             "macro-api-builder-open-capability-denied=true",
             "macro-api-builder-cannot-execute=true",
             "macro-api-builder-add-unsupported=true",
+            "macro-api-builder-foreign-span-invalid=true",
             "macro-api-noncanonical-result-rejected=true",
             "macro-api-builder-finish-unsupported=true",
             "macro-api-builder-deterministic=true",
@@ -1912,6 +1966,148 @@ EXECUTABLE_SMOKES = [
             "error|workspace/hirSnapshotRestore|-32602|",
             "query-snapshot-restore ok=1",
             "query-confirm ok=1 path=hir-snapshot.fk",
+        ],
+    },
+    {
+        "name": "HIR snapshot scaling and resource bounds",
+        "fixture": "hir_snapshot_scaling_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "hir-scaling-baseline-restored=true",
+            "hir-scaling-64-aliases=true",
+            "hir-scaling-512-aliases=true",
+            "hir-scaling-64-owners=true",
+            "hir-scaling-duplicate-owner=true",
+            "hir-scaling-sparse-owner=true",
+            "hir-scaling-huge-owner=true",
+            "hir-scaling-overflow-owner=true",
+            "hir-scaling-noncanonical-owner=true",
+            "hir-scaling-source-garbage=true",
+            "hir-scaling-source-negative=true",
+            "hir-scaling-source-noncanonical=true",
+            "hir-scaling-source-overflow=true",
+            "hir-scaling-expansion-garbage=true",
+            "hir-scaling-expansion-negative=true",
+            "hir-scaling-expansion-noncanonical=true",
+            "hir-scaling-expansion-overflow=true",
+            "hir-scaling-childless-owner-identities=true",
+            "hir-scaling-canonical-parent-identity=true",
+            "hir-scaling-duplicate-item=true",
+            "hir-scaling-gapped-item=true",
+            "hir-scaling-huge-item=true",
+            "hir-scaling-noncanonical-item=true",
+            "hir-scaling-orphan-item=true",
+            "hir-scaling-duplicate-diag=true",
+            "hir-scaling-gapped-diag=true",
+            "hir-scaling-huge-diag=true",
+            "hir-scaling-noncanonical-diag=true",
+            "hir-scaling-orphan-diag=true",
+            "hir-scaling-huge-item-count=true",
+            "hir-scaling-huge-diag-count=true",
+            "hir-scaling-noncanonical-count=true",
+            "hir-scaling-count-mismatch=true",
+            "hir-scaling-cross-owner-span=true",
+            "hir-scaling-empty=true",
+            "hir-scaling-empty-line-count=true",
+            "hir-scaling-trailing-newline=true",
+            "hir-scaling-repeated=true",
+            "hir-scaling-capacity-bounded=true",
+            "hir-scaling-capacity-stable=true",
+            "hir-scaling-live-unchanged=true",
+            "hir-scaling-index-exhaustion-validation=true",
+            "hir-scaling-index-exhaustion-restore=true",
+            "hir-scaling-index-exhaustion-atomic=true",
+            "hir-scaling-index-exhaustion-recovery=true",
+            "hir-scaling-fresh-slot-twenty-eight-handles=true",
+            "hir-scaling-512-params=true",
+            "hir-scaling-64-param-files=true",
+            "hir-scaling-512-param-tasks=true",
+            "hir-scaling-param-long-parent=true",
+            "hir-scaling-param-empty-task=true",
+            "hir-scaling-param-missing-owner=true",
+            "hir-scaling-param-duplicate-owner=true",
+            "hir-scaling-param-duplicate-task=true",
+            "hir-scaling-param-owner-gap=true",
+            "hir-scaling-param-owner-noncanonical=true",
+            "hir-scaling-param-owner-overflow=true",
+            "hir-scaling-param-owner-orphan-file=true",
+            "hir-scaling-param-owner-orphan-item=true",
+            "hir-scaling-param-owner-huge-count=true",
+            "hir-scaling-param-count-mismatch=true",
+            "hir-scaling-param-count-noncanonical=true",
+            "hir-scaling-param-record-duplicate=true",
+            "hir-scaling-param-record-gap=true",
+            "hir-scaling-param-record-overflow=true",
+            "hir-scaling-param-record-noncanonical=true",
+            "hir-scaling-param-orphan-file=true",
+            "hir-scaling-param-orphan-item=true",
+            "hir-scaling-param-ordinal-duplicate=true",
+            "hir-scaling-param-ordinal-gap=true",
+            "hir-scaling-param-ordinal-overflow=true",
+            "hir-scaling-param-ordinal-noncanonical=true",
+            "hir-scaling-param-cross-file=true",
+            "hir-scaling-param-outside-parent=true",
+            "hir-scaling-param-capacity-stable=true",
+            "hir-scaling-param-validation-pure=true",
+            "hir-scaling-param-restore-repeated=true",
+            "hir-scaling-param-restore-capacity=true",
+            "hir-scaling-512-task-returns=true",
+            "hir-scaling-64-return-owners=true",
+            "hir-scaling-return-missing-one=true",
+            "hir-scaling-return-missing-all=true",
+            "hir-scaling-return-duplicate-item=true",
+            "hir-scaling-return-duplicate-id=true",
+            "hir-scaling-return-gap=true",
+            "hir-scaling-return-noncanonical-id=true",
+            "hir-scaling-return-overflow-id=true",
+            "hir-scaling-return-orphan-owner=true",
+            "hir-scaling-return-orphan-item=true",
+            "hir-scaling-return-owner-kind=true",
+            "hir-scaling-return-implicit-parent-span=true",
+            "hir-scaling-return-arrow-parent-span=true",
+            "hir-scaling-return-cross-file=true",
+            "hir-scaling-return-outside-parent=true",
+            "hir-scaling-return-capacity-stable=true",
+            "hir-scaling-512-annotations=true",
+            "hir-scaling-64-annotation-owners=true",
+            "hir-scaling-annotation-duplicate=true",
+            "hir-scaling-annotation-gap=true",
+            "hir-scaling-annotation-huge-id=true",
+            "hir-scaling-annotation-overflow-id=true",
+            "hir-scaling-annotation-orphan=true",
+            "hir-scaling-annotation-owner-kind=true",
+            "hir-scaling-annotation-parent-span=true",
+            "hir-scaling-annotation-cross-file=true",
+            "hir-scaling-annotation-capacity-stable=true",
+            "hir-scaling-512-annotation-lookups=true",
+            "hir-scaling-nested-annotation-exact-start=true",
+            "hir-scaling-interior-offset-no-annotation=true",
+            "hir-scaling-lookup-state-restored=true",
+            "hir-scaling-reused-children-empty=true",
+            "hir-scaling-restore-repeated=true",
+            "hir-scaling-truncated-slots-hidden=true",
+            "hir-scaling-file-slot-capacity-stable=true",
+        ],
+    },
+    {
+        "name": "unit snapshot validation query purity",
+        "fixture": "unit_snapshot_validation_query_purity_smoke.fk",
+        "expect": [
+            "validation-query-baseline-restored=true",
+            "validation-query-foreign-context-required=true",
+            "validation-query-foreign-accepted=true",
+            "validation-query-snapshot-unchanged=true",
+            "validation-query-generation-unchanged=true",
+            "validation-query-dirty-unchanged=true",
+            "validation-query-invalidations-unchanged=true",
+            "validation-query-telemetry-unchanged=true",
+            "validation-query-parent-snapshots-restored=true",
+            "validation-query-accepted-provenance-stable=true",
+            "validation-query-repeat-stable=true",
+            "validation-query-repeated-provenance-stable=true",
+            "validation-query-rejected-context-stable=true",
+            "validation-query-rejected-provenance-stable=true",
+            "validation-query-real-restore-refreshes-provenance=true",
         ],
     },
     {
@@ -9079,6 +9275,42 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "MIR impl local annotation ownership",
+        "fixture": "mir_impl_local_annotation_smoke.fk",
+        "expect": [
+            "impl-annotation-owner-count=3",
+            "impl-annotation-body-count=3",
+            "impl-annotation-first-type=int",
+            "impl-annotation-second-type=word",
+            "impl-annotation-first-bridge=int",
+            "impl-annotation-second-bridge=word",
+            "impl-annotation-sibling-rejected=true",
+            "impl-annotation-foreign-rejected=true",
+            "impl-annotation-diagnostics=1",
+            "impl-annotation-message=local declaration type mismatch",
+            "impl-annotation-help=local expects int but got word",
+            "impl-annotation-restore-ok=true",
+            "impl-annotation-restored-first=int",
+            "impl-annotation-restored-second=word",
+            "impl-annotation-restored-sibling-rejected=true",
+        ],
+    },
+    {
+        "name": "MIR local annotation signature scope",
+        "fixture": "mir_local_annotation_scope_smoke.fk",
+        "expect": [
+            "annotation-scope-surface=T",
+            "annotation-scope-type=T",
+            "annotation-scope-alias-type=T",
+            "annotation-scope-mir-type=T",
+            "annotation-scope-mir-alias-type=T",
+            "annotation-scope-global-alias-type=word",
+            "annotation-scope-diagnostics=1",
+            "annotation-scope-message=local declaration type mismatch",
+            "annotation-scope-help=local expects word but got int",
+        ],
+    },
+    {
         "name": "task return semantic boundary",
         "fixture": "task_return_semantic_boundary_smoke.fk",
         "expect": [
@@ -9154,6 +9386,7 @@ EXECUTABLE_SMOKES = [
             "task-param-schema-variants-rejected=true",
             "task-param-schema-variants-atomic=true",
             "task-param-invalid-no-invented=true",
+            "task-param-invalid-targeted-diagnostic=true",
             "task-param-anonymous-normalized=true",
             "task-param-static-preserved=true",
             "task-param-doctrine-fallback=true",
@@ -9315,6 +9548,31 @@ def check_runtime_platform_link_contract() -> None:
     if runtime_platform_link_args() != runtime_platform_link_args(sys.platform):
         raise RuntimeError("runtime platform link default does not use sys.platform")
 
+    # Exercise the actual fourth build path without launching a compiler.
+    from unittest import mock
+
+    observed_keys: dict[str, str] = {}
+    for platform, expected_args in expected.items():
+        calls: list[list[str]] = []
+
+        def capture_native_command(command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0, "native_snapshot_lines PASS\n", "")
+
+        with mock.patch.object(sys, "platform", platform), \
+             mock.patch.object(Path, "exists", return_value=False), \
+             mock.patch.object(Path, "write_text") as write_stamp, \
+             mock.patch.dict(globals(), {"run_with_heartbeat": capture_native_command}):
+            check_native_snapshot_lines("contract-clang")
+            observed_keys[platform] = write_stamp.call_args.args[0]
+        if len(calls) != 2 or calls[0][0] != "contract-clang":
+            raise RuntimeError("native snapshot-line contract did not compile then execute")
+        actual_libraries = tuple(arg for arg in calls[0] if arg.startswith("-l"))
+        if actual_libraries != expected_args or f"-I{RUNTIME_ROOT}" not in calls[0]:
+            raise RuntimeError(f"native snapshot-line compile policy mismatch: {platform}")
+    if len(set(observed_keys.values())) != len(expected):
+        raise RuntimeError("native snapshot-line cache aliases distinct platforms")
+
 
 def crate_path(name: str) -> Path:
     return CRATES_ROOT / name / "src" / "lib.fk"
@@ -9367,6 +9625,22 @@ def check_crate_boundaries() -> None:
     contents = {name: read_text(crate_path(name)) for name in boundary_crates}
     violations: list[str] = []
 
+    target_text = read_text(crate_path("freak_target"))
+    if not re.search(r"(?m)^pilot v4_target_record_max_bytes = 512\s*$", target_text):
+        violations.append("boundary missing: freak_target fixed v1 record budget")
+    for task_name, argument, rejected in (
+        ("v4_target_spec_valid", "target_spec", "false"),
+        ("v4_target_field_count", "record", "0 - 1"),
+        ("v4_target_field", "record", '\"\"'),
+    ):
+        target_body = freak_task_body(target_text, task_name)
+        first_guard = (
+            f"if {argument}.length() > v4_target_record_max_bytes "
+            f"{{ give back {rejected} }}"
+        )
+        if target_body is None or not re.sub(r"\s+", " ", target_body).strip().startswith(first_guard):
+            violations.append(f"boundary missing: freak_target {task_name} pre-parse record budget")
+
     for crate, checks in CRATE_BOUNDARY_REQUIRED.items():
         text = contents[crate]
         for label, needle in checks:
@@ -9410,7 +9684,7 @@ def check_crate_boundaries() -> None:
 
     # These are the production post-build consumers. The editor's transitional
     # source-view dependency is documented separately and intentionally allowed.
-    for consumer in ("freak_borrowck", "freak_codegen_llvm"):
+    for consumer in ("freak_borrowck", "freak_codegen_llvm", "freak_query", "freak_snapshot"):
         consumer_text = read_text(crate_path(consumer))
         consumer_tasks = re.findall(
             r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", consumer_text
@@ -9529,10 +9803,47 @@ def freak_matching_brace(source: str, open_index: int, limit: int) -> int | None
     return None
 
 
+@lru_cache(maxsize=1)
+def freak_mask_line_comments(source: str) -> str:
+    """Mask comments without changing offsets or quoted literal contents."""
+    # Boundary checks inspect hundreds of tasks per crate. Retain only the
+    # active immutable source/mask pair, never one copy per task or revision.
+    chars = list(source)
+    index = 0
+    while index < len(source):
+        if source[index] == '"':
+            index += 1
+            while index < len(source):
+                if source[index] == "\\":
+                    index += 2
+                elif source[index] == '"':
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+        char_length = freak_char_literal_length(source, index, len(source))
+        if char_length:
+            index += char_length
+            continue
+        if source.startswith("--", index):
+            while index < len(source) and source[index] not in "\r\n":
+                chars[index] = " "
+                index += 1
+            continue
+        index += 1
+    return "".join(chars)
+
+
 def freak_task_body(source: str, task_name: str) -> str | None:
+    source = freak_mask_line_comments(source)
     match = re.search(rf"(?m)^task[ \t]+{re.escape(task_name)}[ \t]*\(", source)
     if match is None:
         return None
+
+    next_task = re.search(r"(?m)^task[ \t]+", source[match.end() :])
+    if next_task is not None:
+        source = source[: match.end() + next_task.start()]
 
     signature_end = source.find("\n", match.start())
     if signature_end < 0:
@@ -9568,7 +9879,7 @@ def freak_task_body(source: str, task_name: str) -> str | None:
     if done_match is not None:
         body_start = signature_end + 1
         return source[body_start : body_start + done_match.start()]
-    return ""
+    return None
 
 
 def freak_tasks_containing(source: str, needle: str) -> set[str]:
@@ -9580,8 +9891,11 @@ def freak_tasks_containing(source: str, needle: str) -> set[str]:
     }
 
 
-def freak_task_calls(source: str, body: str) -> set[str]:
-    task_names = set(re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", source))
+def freak_task_names(source: str) -> set[str]:
+    return set(re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", source))
+
+
+def freak_task_calls(task_names: set[str], body: str) -> set[str]:
     return {
         task_name
         for task_name in task_names
@@ -9589,8 +9903,11 @@ def freak_task_calls(source: str, body: str) -> set[str]:
     }
 
 
-def freak_task_call_closure(source: str, roots: set[str]) -> set[str]:
-    task_names = set(re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", source))
+def freak_task_call_closure(
+    source: str, roots: set[str], task_names: set[str] | None = None,
+) -> set[str]:
+    if task_names is None:
+        task_names = freak_task_names(source)
     pending = sorted(roots & task_names)
     reached: set[str] = set()
     while pending:
@@ -9601,7 +9918,7 @@ def freak_task_call_closure(source: str, roots: set[str]) -> set[str]:
         body = freak_task_body(source, task_name)
         if body is None:
             continue
-        pending.extend(sorted(freak_task_calls(source, body) - reached))
+        pending.extend(sorted(freak_task_calls(task_names, body) - reached))
     return reached
 
 
@@ -9620,6 +9937,7 @@ def freak_braced_arm(body: str, marker: str) -> str | None:
 
 def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:
     violations: list[str] = []
+    task_names = freak_task_names(ty_source)
     explicit_roots = {
         "v4_ty_ordinary_task_explicit_return_from_hir",
         "v4_ty_ordinary_task_explicit_return_span_from_hir",
@@ -9636,7 +9954,7 @@ def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:
         violations.append("task return ordinary surface dispatch reaches the nonordinary fallback")
     if surface_arm is not None:
         explicit_roots.update(
-            freak_task_calls(ty_source, surface_arm) - {"v4_ty_task_return_from_hir"}
+            freak_task_calls(task_names, surface_arm) - {"v4_ty_task_return_from_hir"}
         )
 
     hir_dispatch_body = freak_task_body(ty_source, "v4_ty_task_return_from_hir")
@@ -9647,7 +9965,7 @@ def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:
     if explicit_arm is None:
         violations.append("task return HIR dispatcher has no bounded explicit-return arm")
     else:
-        explicit_roots.update(freak_task_calls(ty_source, explicit_arm))
+        explicit_roots.update(freak_task_calls(task_names, explicit_arm))
 
     span_body = freak_task_body(ty_source, "v4_ty_signature_return_span")
     span_arm = None if span_body is None else freak_braced_arm(
@@ -9657,9 +9975,9 @@ def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:
     if span_arm is None:
         violations.append("task return signature span dispatcher has no bounded ordinary-task arm")
     else:
-        explicit_roots.update(freak_task_calls(ty_source, span_arm))
+        explicit_roots.update(freak_task_calls(task_names, span_arm))
 
-    reached = freak_task_call_closure(ty_source, explicit_roots)
+    reached = freak_task_call_closure(ty_source, explicit_roots, task_names)
     forbidden_tasks = {
         "v4_ty_nonordinary_signature_return_fallback",
         "v4_ty_nonordinary_signature_return_span_fallback",
@@ -9690,7 +10008,7 @@ def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:
                     f"task return explicit HIR call closure reconstructs syntax: {task_name} uses {forbidden}"
                 )
         token_helpers = sorted(
-            call for call in freak_task_calls(ty_source, body) if "token" in call
+            call for call in freak_task_calls(task_names, body) if "token" in call
         )
         if token_helpers:
             violations.append(
@@ -9705,6 +10023,10 @@ def check_alias_hir_boundary() -> None:
     hir_source = read_text(crate_path("freak_hir"))
     ty_source = read_text(crate_path("freak_ty"))
     violations: list[str] = []
+
+    index_body = freak_task_body(hir_source, "v4_hir_snapshot_index_lines")
+    if index_body is None or index_body.strip() != "give back payload.snapshot_lines()":
+        violations.append("HIR snapshot line index must use the native single-pass splitter")
 
     extractor_sample = (
         "task brace_sample() -> void {\n"
@@ -9722,16 +10044,42 @@ def check_alias_hir_boundary() -> None:
         "pilot local = v4_parse_multiline_inside\n"
         "}\n"
         "pilot multiline_later = v4_parse_multiline_outside\n"
+        "task commented_sample() -> void -- => { misleading markers\n"
+        "-- { another => misleading marker\n"
+        "{\n"
+        "pilot local = v4_parse_commented_inside\n"
+        "say \"-- literal stays\"\n"
+        "}\n"
+        "task unknown_sample() -> void\n"
+        "unsupported_form\n"
         "task done_sample() -> void\n"
         "fixed pilot local = 1\n"
         "    say \"safe\"\n"
         "done\n"
         "doctrine Final\n"
     )
+    freak_mask_line_comments.cache_clear()
     brace_body = freak_task_body(extractor_sample, "brace_sample")
     arrow_body = freak_task_body(extractor_sample, "arrow_sample")
     multiline_brace_body = freak_task_body(extractor_sample, "multiline_brace_sample")
     done_body = freak_task_body(extractor_sample, "done_sample")
+    commented_body = freak_task_body(extractor_sample, "commented_sample")
+    if commented_body is None or "v4_parse_commented_inside" not in commented_body or '"-- literal stays"' not in commented_body:
+        violations.append("alias HIR guard task extractor trusts signature comments")
+    if freak_task_body(extractor_sample, "unknown_sample") is not None:
+        violations.append("alias HIR guard task extractor accepts an unknown body form")
+    cache_info = freak_mask_line_comments.cache_info()
+    if cache_info.misses != 1 or cache_info.hits != 5 or cache_info.maxsize != 1 or cache_info.currsize != 1:
+        violations.append("task extractor must mask the shared source once with bounded retention")
+    edited_sample = extractor_sample.replace("v4_parse_inside", "v4_parse_changed")
+    edited_body = freak_task_body(edited_sample, "brace_sample")
+    if edited_body is None or "v4_parse_changed" not in edited_body or "v4_parse_inside" in edited_body:
+        violations.append("task extractor reused stale masked source after an edit")
+    if freak_task_body(extractor_sample, "brace_sample") != brace_body:
+        violations.append("task extractor changed its result after cache eviction")
+    cache_info = freak_mask_line_comments.cache_info()
+    if cache_info.misses != 3 or cache_info.currsize != 1:
+        violations.append("task extractor retains more than the active source revision")
     if brace_body is None or "v4_parse_inside" not in brace_body or "v4_parse_outside" in brace_body or "pilot close" not in brace_body or "pilot quote" not in brace_body or "lend 'a" not in brace_body or "say" not in brace_body:
         violations.append("alias HIR guard task extractor leaks past brace task")
     if arrow_body is None or arrow_body.strip() != "1":
@@ -9816,6 +10164,18 @@ def check_mir_local_annotation_boundary() -> None:
     mir_build_source = read_text(crate_path("freak_mir_build"))
     violations: list[str] = []
 
+    slots_body = freak_task_body(hir_source, "v4_hir_snapshot_local_annotation_slots_are_valid")
+    if slots_body is None:
+        violations.append("local annotation snapshot requires bounded indexed ownership validation")
+    elif any(call in slots_body for call in ("v4_hir_snapshot_line(", "v4_hir_snapshot_line_count(", "v4_hir_snapshot_file_for_hir(")):
+        violations.append("local annotation ownership validation must not rescan payload lines")
+
+    lookup_body = freak_task_body(hir_source, "v4_hir_local_annotation_at_offset")
+    if lookup_body is None or "offset == v4_span_start(stmt_span)" not in lookup_body:
+        violations.append("local annotation lookup must match exact declaration starts")
+    elif any(call in lookup_body for call in ("v4_hir_local_annotation_count(", "v4_hir_local_annotation_record_id(", "v4_hir_local_annotation_stmt_span(")):
+        violations.append("local annotation lookup must scan records directly without nested ordinal rescans")
+
     for marker in (
         'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
         "pilot v4_hir_local_annotation_items = 0",
@@ -9890,6 +10250,7 @@ def check_mir_local_annotation_boundary() -> None:
         for required in (
             "v4_ty_signature_local_annotation_at_offset",
             "v4_ty_signature_local_annotation_type",
+            "v4_ty_impl_local_annotation_type_at_offset",
         ):
             if required not in lower_body:
                 violations.append(f"local annotation MIR builder lowerer bypasses TY: {required}")
@@ -9898,6 +10259,18 @@ def check_mir_local_annotation_boundary() -> None:
                 violations.append(
                     f"local annotation MIR builder lowerer reconstructs type text: uses {forbidden}"
                 )
+
+    scoped_type = freak_task_body(ty_source, "v4_ty_signature_local_annotation_type") or ""
+    if "v4_ty_canonical_type_in_signature" not in scoped_type:
+        violations.append("local annotation type must preserve signature generic scope")
+    method_bridge = freak_task_body(ty_source, "v4_ty_impl_local_annotation_type_at_offset") or ""
+    for required in ("v4_ty_impl_method_def", "v4_ty_impl_method_source_span",
+                     "v4_hir_local_annotation_at_offset", "v4_hir_local_annotation_type"):
+        if required not in method_bridge:
+            violations.append(f"impl annotation bridge missing semantic ownership check: {required}")
+    for forbidden in ("v4_ty_type_text", "v4_lex_", "v4_parse_", "v4_expand_", "_token"):
+        if forbidden in method_bridge:
+            violations.append(f"impl annotation bridge reconstructs annotation syntax: {forbidden}")
 
     allowed_type_text_tasks = {
         "v4_mir_reject_method_type_args",
@@ -9935,6 +10308,15 @@ def check_task_return_hir_boundary() -> None:
     ty_source = read_text(crate_path("freak_ty"))
     violations: list[str] = []
 
+    return_slots = freak_task_body(hir_source, "v4_hir_snapshot_task_return_slots_are_valid")
+    if return_slots is None:
+        violations.append("task return snapshot requires bounded indexed ownership validation")
+    else:
+        for forbidden in ("v4_hir_snapshot_line(", "v4_hir_snapshot_line_count(", "v4_hir_snapshot_file_for_hir("):
+            if forbidden in return_slots:
+                violations.append("task return snapshot must not rescan payload or parent records")
+        if 'kind == v4_hir_task and seen != "1"' not in return_slots:
+            violations.append("task return snapshot must require every Task item even when return count is zero")
     if 'pilot v4_ty_snapshot_format = "freak-ty-snapshot-v1"' not in ty_source:
         violations.append("task return boundary unexpectedly changed the TY snapshot format")
 
@@ -10061,12 +10443,15 @@ def check_task_return_hir_boundary() -> None:
     if explicit_body is None or "give back return_ty" not in explicit_body:
         violations.append("task return boundary guard self-test could not locate explicit adapter return")
     else:
+        masked_ty_source = freak_mask_line_comments(ty_source)
         mutated_body = explicit_body.replace(
             "give back return_ty",
             "give back v4_ty_nonordinary_signature_return_fallback(0, 0)",
             1,
         )
-        mutated_source = ty_source.replace(explicit_body, mutated_body, 1)
+        if explicit_body not in masked_ty_source:
+            violations.append("task return boundary guard self-test could not locate explicit adapter body")
+        mutated_source = masked_ty_source.replace(explicit_body, mutated_body, 1)
         probe_violations = task_return_explicit_call_closure_violations(mutated_source)
         if not any(
             "v4_ty_nonordinary_signature_return_fallback" in violation
@@ -10085,6 +10470,7 @@ def check_task_return_hir_boundary() -> None:
 
 def task_param_ordinary_call_closure_violations(ty_source: str) -> list[str]:
     violations: list[str] = []
+    task_names = freak_task_names(ty_source)
     public_contracts = {
         "v4_ty_signature_param_count": "v4_hir_task_param_count",
         "v4_ty_signature_param_name": "v4_hir_task_param_name",
@@ -10114,7 +10500,8 @@ def task_param_ordinary_call_closure_violations(ty_source: str) -> list[str]:
         reached.update(
             freak_task_call_closure(
                 ty_source,
-                freak_task_calls(ty_source, ordinary_arm),
+                freak_task_calls(task_names, ordinary_arm),
+                task_names,
             )
         )
 
@@ -10139,12 +10526,77 @@ def task_param_ordinary_call_closure_violations(ty_source: str) -> list[str]:
     return violations
 
 
+def task_param_snapshot_index_violations(hir_source: str) -> list[str]:
+    violations: list[str] = []
+    root = "v4_hir_snapshot_task_param_slots_are_valid"
+    body = freak_task_body(hir_source, root)
+    if body is None:
+        return ["task parameter snapshot requires bounded indexed ownership validation"]
+    reached = freak_task_call_closure(hir_source, {root})
+    for task_name in sorted(reached):
+        reached_body = freak_task_body(hir_source, task_name)
+        if reached_body is None:
+            violations.append(f"task parameter index helper has no bounded body: {task_name}")
+            continue
+        for forbidden in (
+            "v4_hir_snapshot_line(", "v4_hir_snapshot_line_count(",
+            "v4_hir_snapshot_file_for_hir(", "snapshot_lines(",
+        ):
+            if forbidden in reached_body:
+                violations.append(f"task parameter snapshot must not rescan payload or parents: {task_name}")
+    for marker in (
+        'kind == v4_hir_task and seen != "1"',
+        "ordinal_total != params",
+        "v4_hir_snapshot_bounded_id",
+        "array_get(item_starts, item_slot)",
+        "array_get(item_ends, item_slot)",
+    ):
+        if marker not in body:
+            violations.append(f"task parameter index contract missing: {marker}")
+    handles = (
+        "owner_files", "item_counts", "item_offsets", "owner_counts",
+        "owner_offsets", "param_counts", "param_offsets", "item_kinds",
+        "item_starts", "item_ends", "item_owner_seen", "item_param_counts",
+        "item_param_offsets", "item_param_actual", "owner_seen", "param_seen",
+        "ordinal_seen",
+    )
+    allocated = re.findall(r"pilot\s+(\w+)\s*=\s*array_new\(\)", body)
+    released = re.findall(r"array_release\((\w+)\)", body)
+    if Counter(allocated) != Counter(handles) or Counter(released) != Counter(handles):
+        violations.append("task parameter index must own and release exactly seventeen scratch arrays")
+    if re.findall(r"give back[^\n]*", body) != ["give back valid"]:
+        violations.append("task parameter index must release scratch before every return")
+    if body.count("array_get(records, line_id)") != 4:
+        violations.append("task parameter index must use four bounded record passes")
+    child_arm = freak_braced_arm(body, 'if v4_hir_snapshot_field_raw(line, 0) == "hir-task-param"')
+    if child_arm is None:
+        violations.append("task parameter index has no bounded child pass")
+    else:
+        raw_fields = re.findall(r"v4_hir_snapshot_field_raw\(([^)]*)\)", child_arm)
+        value_fields = re.findall(r"v4_hir_snapshot_field\(([^)]*)\)", child_arm)
+        if raw_fields != ["line, 1", "line, 2", "line, 3", "line, 4"] or value_fields != ["line, 12"]:
+            violations.append("task parameter child pass must consume cached scalar parent metadata")
+    return violations
+
+
 def check_task_param_hir_boundary() -> None:
     hir_source = read_text(crate_path("freak_hir"))
     ty_source = read_text(crate_path("freak_ty"))
     mir_build_source = read_text(crate_path("freak_mir_build"))
     editor_source = read_text(crate_path("freak_editor"))
     violations: list[str] = []
+    violations.extend(task_param_snapshot_index_violations(hir_source))
+    index_return = "    give back valid"
+    index_body = freak_task_body(hir_source, "v4_hir_snapshot_task_param_slots_are_valid")
+    if index_body is None or index_return not in index_body:
+        violations.append("task parameter index guard self-test cannot locate return")
+    else:
+        index_start = hir_source.index("task v4_hir_snapshot_task_param_slots_are_valid(")
+        return_start = hir_source.index(index_return, index_start)
+        mutated_source = hir_source[:return_start] + "    v4_hir_bad_index_helper()\n" + hir_source[return_start:]
+        mutated_source += '\ntask v4_hir_bad_index_helper() -> void {\n    v4_hir_snapshot_line("", 0)\n}\n'
+        if not any("must not rescan" in finding for finding in task_param_snapshot_index_violations(mutated_source)):
+            violations.append("task parameter index guard accepted helper-indirected rescan")
 
     for marker in (
         'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
@@ -10238,12 +10690,15 @@ def check_task_param_hir_boundary() -> None:
     if param_count_body is None or canonical_count_return not in param_count_body:
         violations.append("task parameter boundary guard self-test could not locate ordinary count return")
     else:
+        masked_ty_source = freak_mask_line_comments(ty_source)
         mutated_body = param_count_body.replace(
             canonical_count_return,
             "give back v4_ty_nonordinary_signature_param_count_fallback(ty_id, sig_id)",
             1,
         )
-        mutated_source = ty_source.replace(param_count_body, mutated_body, 1)
+        if param_count_body not in masked_ty_source:
+            violations.append("task parameter boundary guard self-test could not locate ordinary count body")
+        mutated_source = masked_ty_source.replace(param_count_body, mutated_body, 1)
         probe_violations = task_param_ordinary_call_closure_violations(mutated_source)
         if not any(
             "v4_ty_nonordinary_signature_param_" in violation
@@ -10474,6 +10929,7 @@ def check_snapshot_inventories() -> None:
                     f"query invalidation scratch release missing: {handle_release_contract}"
                 )
     for resource_fixture in (
+        "hir_snapshot_scaling_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     ):
@@ -10485,6 +10941,7 @@ def check_snapshot_inventories() -> None:
         violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
+            "hir_snapshot_scaling_smoke.fk",
             "mir_snapshot_resource_smoke.fk",
             "query_invalidation_resource_smoke.fk",
         }
@@ -11316,6 +11773,7 @@ int64_t freak_llvm_array_len(int64_t handle);
 void freak_llvm_array_release(int64_t handle);
 int64_t freak_llvm_word_join(int64_t handle);
 int64_t freak_llvm_word_substring(int64_t value, int64_t start, int64_t length);
+void freak_llvm_word_release_replaced(int64_t previous, int64_t replacement);
 
 int main(void) {
     for (int64_t index = 0; index < 1100; index++) {
@@ -11323,7 +11781,7 @@ int main(void) {
         freak_llvm_array_push(handle, (int64_t)(intptr_t)"reused");
         int64_t joined = freak_llvm_word_join(handle);
         if (strcmp((const char*)(intptr_t)joined, "reused") != 0) return 10;
-        free((void*)(intptr_t)joined);
+        freak_llvm_word_release_replaced(joined, 0);
     }
 
     int64_t released = freak_llvm_array_new();
@@ -11342,7 +11800,7 @@ int main(void) {
         (int64_t)(intptr_t)"Alternative", 3, 5
     );
     if (strcmp((const char*)(intptr_t)sliced, "ernat") != 0) return 16;
-    free((void*)(intptr_t)sliced);
+    freak_llvm_word_release_replaced(sliced, 0);
     puts("llvm-runtime-primitives=ok");
     return 0;
 }
@@ -11404,6 +11862,45 @@ int main(void) {
     print(f"LLVM runtime primitives: compile={compile_mode} output_bytes={len(output)}")
 
 
+def check_native_snapshot_lines(clang: str) -> None:
+    """Fault-inject and measure both production snapshot splitter backends."""
+    source_path = ROOT / "tests" / "native_snapshot_lines.c"
+    suffix = ".exe" if sys.platform.startswith("win") else ""
+    exe_path = RUNTIME_BUILD_ROOT / f"native_snapshot_lines{suffix}"
+    stamp_path = RUNTIME_BUILD_ROOT / "native_snapshot_lines.sha256"
+    include_arg = f"-I{RUNTIME_ROOT}"
+    build_key = hash_text(
+        "v4-native-snapshot-lines-v2", clang, read_text(source_path),
+        *runtime_platform_cache_parts(include_arg),
+        *(read_text(RUNTIME_ROOT / name) for name in (
+            "freak_runtime.c", "freak_runtime.h", "freak_llvm_runtime.c",
+        )),
+    )
+    compiled_now = not (
+        exe_path.exists() and stamp_path.exists()
+        and read_text(stamp_path).strip() == build_key
+    )
+    if compiled_now:
+        linked = run_with_heartbeat(
+            [clang, "-O1", str(source_path), include_arg, "-o", str(exe_path),
+             *runtime_platform_link_args()],
+            label="native snapshot lines compile", memory_limit_mb=1024,
+        )
+        if linked.returncode != 0:
+            raise RuntimeError("Native snapshot line test compile failed\n" +
+                               (linked.stdout + linked.stderr)[-4000:])
+    executed = run_with_heartbeat(
+        [str(exe_path)], label="native snapshot lines execute",
+        timeout_seconds=30, memory_limit_mb=64,
+    )
+    if executed.returncode != 0 or "native_snapshot_lines PASS" not in executed.stdout.splitlines():
+        raise RuntimeError("Native snapshot line test failed\n" +
+                           (executed.stdout + executed.stderr)[-4000:])
+    if compiled_now:
+        stamp_path.write_text(build_key, encoding="utf-8")
+    print(executed.stdout.strip())
+
+
 def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
     suffix = ".exe" if sys.platform.startswith("win") else ""
     compiler_source_path = RUNTIME_BUILD_ROOT / "v3_llvm_substring_compiler.fk"
@@ -11431,7 +11928,49 @@ def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
         )
     ]
     compiler_source = "\n".join(read_text(path) for path in v3_sources)
-    fixture_source = 'say "Alternative".substring(3, 5)\n'
+    index_body = freak_task_body(
+        read_text(crate_path("freak_hir")), "v4_hir_snapshot_index_lines"
+    )
+    if index_body is None:
+        raise RuntimeError("V3 LLVM line-index regression cannot extract the HIR helper")
+    fixture_source = (
+        "task v4_hir_snapshot_index_lines(payload: word) -> int {\n"
+        + index_body
+        + "\n}\n"
+        + r'''
+say "Alternative".substring(3, 5)
+pilot empty_lines = v4_hir_snapshot_index_lines("")
+pilot empty_ok = empty_lines >= 0 and array_len(empty_lines) == 0
+array_release(empty_lines)
+pilot lines = v4_hir_snapshot_index_lines("\nA\r\n\n")
+pilot first: word = array_get(lines, 0)
+pilot middle: word = array_get(lines, 1)
+pilot blank: word = array_get(lines, 2)
+pilot trailing: word = array_get(lines, 3)
+pilot small_ok = lines >= 0 and array_len(lines) == 4 and first == "" and middle == "A\r" and blank == "" and trailing == ""
+array_release(lines)
+pilot parts = array_new()
+pilot row: word = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789----"
+pilot i = 0
+repeat until i >= 8192 {
+    array_push(parts, row)
+    array_push(parts, "\n")
+    i += 1
+}
+pilot payload: word = word_join(parts)
+pilot large = v4_hir_snapshot_index_lines(payload)
+pilot large_first: word = array_get(large, 0)
+pilot large_last: word = array_get(large, 8191)
+pilot large_trailing: word = array_get(large, 8192)
+pilot large_ok = large >= 0 and array_len(large) == 8193 and large_first == row and large_last == row and large_trailing == ""
+array_release(large)
+if empty_ok and small_ok and large_ok {
+    say "llvm-hir-line-index=ok"
+} else {
+    say "llvm-hir-line-index=failed"
+}
+'''
+    )
     bootstrap_c = read_text(bootstrap_c_path)
     runtime_source = read_text(runtime_c)
     llvm_runtime_source = read_text(llvm_runtime_c)
@@ -11554,7 +12093,7 @@ def check_v3_llvm_substring_pipeline(clang: str, include_arg: str) -> None:
         timeout_seconds=30,
         memory_limit_mb=64,
     )
-    if executed.returncode != 0 or executed.stdout.splitlines() != ["ernat"]:
+    if executed.returncode != 0 or executed.stdout.splitlines() != ["ernat", "llvm-hir-line-index=ok"]:
         raise RuntimeError(
             "V3 LLVM substring pipeline execution failed\n"
             + (executed.stdout + executed.stderr)[-4000:]
@@ -11582,6 +12121,7 @@ def check_executable_smokes(
     include_arg = f"-I{RUNTIME_ROOT}"
     check_process_tree_guard()
     check_llvm_runtime_primitives(clang, include_arg)
+    check_native_snapshot_lines(clang)
     check_v3_llvm_substring_pipeline(clang, include_arg)
 
     for smoke in smokes:

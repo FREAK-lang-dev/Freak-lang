@@ -103,6 +103,7 @@ T_WORD = FreakType("word")
 T_BOOL = FreakType("bool")
 T_VOID = FreakType("void")
 T_UNKNOWN = FreakType("unknown")
+T_BYTE_BUFFER = FreakType("ByteBuffer")
 
 
 # ===================================================================
@@ -123,6 +124,165 @@ class FuncSignature:
     params: List[Tuple[str, FreakType]]  # (name, type)
     return_type: FreakType
     is_method: bool = False
+
+
+@dataclass(frozen=True)
+class BuiltinSignature:
+    c_name: str
+    argument_types: Tuple[FreakType, ...]
+    return_type: FreakType
+    returns_owned: bool = False
+
+
+WORD_BUILDER_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "word_builder::new": BuiltinSignature(
+        "freak_word_builder_new", (), T_INT
+    ),
+    "word_builder::with_capacity": BuiltinSignature(
+        "freak_word_builder_with_capacity", (T_INT,), T_INT
+    ),
+    "word_builder::reserve": BuiltinSignature(
+        "freak_word_builder_reserve", (T_INT, T_INT), T_VOID
+    ),
+    "word_builder::capacity": BuiltinSignature(
+        "freak_word_builder_capacity", (T_INT,), T_INT
+    ),
+    "word_builder::length": BuiltinSignature(
+        "freak_word_builder_length", (T_INT,), T_INT
+    ),
+    "word_builder::clear": BuiltinSignature(
+        "freak_word_builder_clear", (T_INT,), T_VOID
+    ),
+    "word_builder::append": BuiltinSignature(
+        "freak_word_builder_append", (T_INT, T_WORD), T_VOID
+    ),
+    "word_builder::append_char": BuiltinSignature(
+        "freak_word_builder_append_char", (T_INT, T_INT), T_VOID
+    ),
+    "word_builder::append_int": BuiltinSignature(
+        "freak_word_builder_append_int", (T_INT, T_INT), T_VOID
+    ),
+    # finish consumes the handle and transfers its buffer into an owned word.
+    "word_builder::finish": BuiltinSignature(
+        "freak_word_builder_finish", (T_INT,), T_WORD, returns_owned=True
+    ),
+    "word_builder::discard": BuiltinSignature(
+        "freak_word_builder_discard", (T_INT,), T_VOID
+    ),
+}
+
+WORD_METHOD_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "repeated": BuiltinSignature(
+        "freak_word_repeated", (T_INT,), T_WORD, returns_owned=True
+    ),
+}
+
+BYTE_BUFFER_CONSTRUCTOR_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "ByteBuffer::new": BuiltinSignature("freak_byte_buffer_new", (), T_BYTE_BUFFER),
+    "ByteBuffer::with_capacity": BuiltinSignature(
+        "freak_byte_buffer_with_capacity", (T_INT,), T_BYTE_BUFFER
+    ),
+}
+
+BYTE_BUFFER_METHOD_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "release": BuiltinSignature("freak_byte_buffer_release", (), T_VOID),
+    "status": BuiltinSignature("freak_byte_buffer_status", (), T_INT),
+    "clear_status": BuiltinSignature("freak_byte_buffer_clear_status", (), T_VOID),
+    "reserve": BuiltinSignature("freak_byte_buffer_reserve", (T_INT,), T_VOID),
+    "capacity": BuiltinSignature("freak_byte_buffer_capacity", (), T_INT),
+    "length": BuiltinSignature("freak_byte_buffer_length", (), T_INT),
+    "position": BuiltinSignature("freak_byte_buffer_position", (), T_INT),
+    "remaining": BuiltinSignature("freak_byte_buffer_remaining", (), T_INT),
+    "clear": BuiltinSignature("freak_byte_buffer_clear", (), T_VOID),
+    "truncate": BuiltinSignature("freak_byte_buffer_truncate", (T_INT,), T_VOID),
+    "seek": BuiltinSignature("freak_byte_buffer_seek", (T_INT,), T_VOID),
+    "write_byte": BuiltinSignature("freak_byte_buffer_write_byte", (T_INT,), T_VOID),
+    "write_int": BuiltinSignature("freak_byte_buffer_write_int", (T_INT,), T_VOID),
+    "write_int_be": BuiltinSignature("freak_byte_buffer_write_int_be", (T_INT,), T_VOID),
+    "write_word": BuiltinSignature("freak_byte_buffer_write_word", (T_WORD,), T_VOID),
+    "read_byte": BuiltinSignature("freak_byte_buffer_read_byte", (), T_INT),
+    "read_int": BuiltinSignature("freak_byte_buffer_read_int", (), T_INT),
+    "read_int_be": BuiltinSignature("freak_byte_buffer_read_int_be", (), T_INT),
+    "read_word": BuiltinSignature(
+        "freak_byte_buffer_read_word", (T_INT,), T_WORD, returns_owned=True
+    ),
+    "slice": BuiltinSignature(
+        "freak_byte_buffer_slice", (T_INT, T_INT), T_BYTE_BUFFER
+    ),
+    "to_word": BuiltinSignature(
+        "freak_byte_buffer_to_word", (), T_WORD, returns_owned=True
+    ),
+}
+
+UI_CLIP_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "ui::set_clip": BuiltinSignature("freak_ui_set_clip", (T_INT,) * 5, T_VOID),
+    "ui::reset_clip": BuiltinSignature("freak_ui_reset_clip", (T_INT,), T_VOID),
+}
+
+SYSTEM_RUNTIME_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "time::now_ms": BuiltinSignature("freak_time_now_ms", (), T_INT),
+    "time::monotonic_ns": BuiltinSignature(
+        "freak_time_monotonic_ns", (), T_INT
+    ),
+    "process::pid": BuiltinSignature("freak_process_pid", (), T_INT),
+    "process::env": BuiltinSignature(
+        "freak_process_env", (T_WORD,), T_WORD, returns_owned=True
+    ),
+    "process::set_env": BuiltinSignature(
+        "freak_process_set_env", (T_WORD, T_WORD), T_VOID
+    ),
+}
+
+TCP_SOCKET_SIGNATURES: Dict[str, BuiltinSignature] = {
+    "tcp::socket_connect": BuiltinSignature(
+        "freak_tcp_socket_connect", (T_WORD, T_INT), T_INT
+    ),
+    "tcp::socket_listen": BuiltinSignature(
+        "freak_tcp_socket_listen", (T_WORD, T_INT, T_INT), T_INT
+    ),
+    "tcp::socket_accept": BuiltinSignature(
+        "freak_tcp_socket_accept", (T_INT,), T_INT
+    ),
+    "tcp::socket_status": BuiltinSignature(
+        "freak_tcp_socket_status", (T_INT,), T_INT
+    ),
+    "tcp::socket_eof": BuiltinSignature(
+        "freak_tcp_socket_eof", (T_INT,), T_BOOL
+    ),
+    "tcp::socket_local_port": BuiltinSignature(
+        "freak_tcp_socket_local_port", (T_INT,), T_INT
+    ),
+    "tcp::socket_send": BuiltinSignature(
+        "freak_tcp_socket_send", (T_INT, T_BYTE_BUFFER, T_INT, T_INT), T_INT
+    ),
+    "tcp::socket_send_all": BuiltinSignature(
+        "freak_tcp_socket_send_all", (T_INT, T_BYTE_BUFFER, T_INT, T_INT), T_INT
+    ),
+    "tcp::socket_receive": BuiltinSignature(
+        "freak_tcp_socket_receive", (T_INT, T_BYTE_BUFFER, T_INT), T_INT
+    ),
+    "tcp::socket_set_timeout": BuiltinSignature(
+        "freak_tcp_socket_set_timeout", (T_INT, T_INT, T_INT), T_VOID
+    ),
+    "tcp::socket_close": BuiltinSignature(
+        "freak_tcp_socket_close", (T_INT,), T_VOID
+    ),
+}
+
+PYTHON_OWNED_WORD_UNSUPPORTED = (
+    "Python bootstrap does not support owned Word builders/repetition; "
+    "use the native V3 compiler"
+)
+
+PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED = (
+    "Python bootstrap does not support owned ByteBuffer word results; "
+    "use the native V3 compiler"
+)
+
+PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED = (
+    "Python bootstrap does not support owned process::env results; "
+    "use the native V3 compiler"
+)
 
 
 class Scope:
@@ -199,7 +359,7 @@ class TypeChecker:
             if isinstance(stmt, TaskDecl):
                 self._register_task(stmt)
             elif isinstance(stmt, ShapeDecl):
-                self.shapes[stmt.name] = stmt
+                self._register_shape(stmt)
             elif isinstance(stmt, ImplBlock):
                 for m in stmt.methods:
                     self._register_method(stmt.target_type, m)
@@ -208,7 +368,7 @@ class TypeChecker:
                 if isinstance(stmt.target, TaskDecl):
                     self._register_task(stmt.target)
                 elif isinstance(stmt.target, ShapeDecl):
-                    self.shapes[stmt.target.name] = stmt.target
+                    self._register_shape(stmt.target)
 
         # Second pass: check all statements
         for stmt in program.statements:
@@ -217,6 +377,14 @@ class TypeChecker:
         return self.diagnostics
 
     # --- Registration (first pass) ---
+
+    def _register_shape(self, shape: ShapeDecl) -> None:
+        if shape.name in ("ByteBuffer", "word_builder"):
+            self._error(
+                f"Shape name '{shape.name}' conflicts with a compiler builtin namespace"
+            )
+            return
+        self.shapes[shape.name] = shape
 
     def _register_task(self, td: TaskDecl) -> None:
         params = []
@@ -528,9 +696,56 @@ class TypeChecker:
         if isinstance(expr, Call):
             return self._check_call(expr)
         if isinstance(expr, MethodCall):
-            self._check_expr(expr.obj)
-            for a in expr.args:
-                self._check_expr(a)
+            object_type = self._check_expr(expr.obj)
+            argument_types = [self._check_expr(a) for a in expr.args]
+            if object_type == T_BYTE_BUFFER:
+                signature = BYTE_BUFFER_METHOD_SIGNATURES.get(expr.method)
+                if signature is None:
+                    self._error(f"ByteBuffer has no builtin method '{expr.method}'")
+                    return T_UNKNOWN
+                expected_arity = len(signature.argument_types)
+                actual_arity = len(argument_types)
+                if expected_arity != actual_arity:
+                    self._error(
+                        f"method '{expr.method}' expects {expected_arity} "
+                        f"argument(s), got {actual_arity}"
+                    )
+                else:
+                    for index, (actual, expected) in enumerate(
+                        zip(argument_types, signature.argument_types), start=1
+                    ):
+                        if actual != T_UNKNOWN and actual != expected:
+                            self._error(
+                                f"method '{expr.method}' argument {index} expects "
+                                f"{expected}, got {actual}"
+                            )
+                if signature.returns_owned:
+                    self._error(PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED)
+                return signature.return_type
+            signature = (
+                WORD_METHOD_SIGNATURES.get(expr.method)
+                if object_type == T_WORD
+                else None
+            )
+            if signature is not None:
+                expected_arity = len(signature.argument_types)
+                actual_arity = len(argument_types)
+                if expected_arity != actual_arity:
+                    self._error(
+                        f"method '{expr.method}' expects {expected_arity} "
+                        f"argument(s), got {actual_arity}"
+                    )
+                else:
+                    for index, (actual, expected) in enumerate(
+                        zip(argument_types, signature.argument_types), start=1
+                    ):
+                        if actual != T_UNKNOWN and actual != expected:
+                            self._error(
+                                f"method '{expr.method}' argument {index} expects "
+                                f"{expected}, got {actual}"
+                            )
+                self._error(PYTHON_OWNED_WORD_UNSUPPORTED)
+                return signature.return_type
             return T_UNKNOWN
         if isinstance(expr, FieldAccess):
             self._check_expr(expr.obj)
@@ -581,8 +796,7 @@ class TypeChecker:
 
     def _check_call(self, call: Call) -> FreakType:
         # Check arguments
-        for a in call.args:
-            self._check_expr(a)
+        argument_types = [self._check_expr(a) for a in call.args]
 
         if isinstance(call.func, Ident):
             sig = self.functions.get(call.func.name)
@@ -603,14 +817,108 @@ class TypeChecker:
         if isinstance(call.func, PathIdent):
             fq_name = "::".join(call.func.parts)
 
+            byte_buffer_signature = BYTE_BUFFER_CONSTRUCTOR_SIGNATURES.get(fq_name)
+            if byte_buffer_signature is not None:
+                expected_arity = len(byte_buffer_signature.argument_types)
+                actual_arity = len(argument_types)
+                if expected_arity != actual_arity:
+                    self._error(
+                        f"call to '{fq_name}' expects {expected_arity} "
+                        f"argument(s), got {actual_arity}"
+                    )
+                else:
+                    for index, (actual, expected) in enumerate(
+                        zip(argument_types, byte_buffer_signature.argument_types),
+                        start=1,
+                    ):
+                        if actual != T_UNKNOWN and actual != expected:
+                            self._error(
+                                f"call to '{fq_name}' argument {index} expects "
+                                f"{expected}, got {actual}"
+                            )
+                return byte_buffer_signature.return_type
+            if fq_name.startswith("ByteBuffer::"):
+                self._error(f"unknown ByteBuffer builtin '{fq_name}'")
+                return T_UNKNOWN
+
+            system_signature = SYSTEM_RUNTIME_SIGNATURES.get(fq_name) or UI_CLIP_SIGNATURES.get(fq_name)
+            if system_signature is not None:
+                expected_arity = len(system_signature.argument_types)
+                actual_arity = len(argument_types)
+                if expected_arity != actual_arity:
+                    self._error(
+                        f"call to '{fq_name}' expects {expected_arity} "
+                        f"argument(s), got {actual_arity}"
+                    )
+                else:
+                    for index, (actual, expected) in enumerate(
+                        zip(argument_types, system_signature.argument_types), start=1
+                    ):
+                        if actual != T_UNKNOWN and actual != expected:
+                            self._error(
+                                f"call to '{fq_name}' argument {index} expects "
+                                f"{expected}, got {actual}"
+                            )
+                if fq_name == "process::env":
+                    self._error(PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED)
+                return system_signature.return_type
+
+            tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq_name)
+            if tcp_socket_signature is not None:
+                expected_arity = len(tcp_socket_signature.argument_types)
+                actual_arity = len(argument_types)
+                if expected_arity != actual_arity:
+                    self._error(
+                        f"call to '{fq_name}' expects {expected_arity} "
+                        f"argument(s), got {actual_arity}"
+                    )
+                else:
+                    for index, (actual, expected) in enumerate(
+                        zip(argument_types, tcp_socket_signature.argument_types),
+                        start=1,
+                    ):
+                        if actual != T_UNKNOWN and actual != expected:
+                            self._error(
+                                f"call to '{fq_name}' argument {index} expects "
+                                f"{expected}, got {actual}"
+                            )
+                return tcp_socket_signature.return_type
+            if fq_name.startswith("tcp::socket_"):
+                self._error(f"unknown TCP socket builtin '{fq_name}'")
+                return T_UNKNOWN
+
+            word_builder_signature = WORD_BUILDER_SIGNATURES.get(fq_name)
+            if word_builder_signature is not None:
+                expected_arity = len(word_builder_signature.argument_types)
+                actual_arity = len(argument_types)
+                if expected_arity != actual_arity:
+                    self._error(
+                        f"call to '{fq_name}' expects {expected_arity} "
+                        f"argument(s), got {actual_arity}"
+                    )
+                else:
+                    for index, (actual, expected) in enumerate(
+                        zip(argument_types, word_builder_signature.argument_types),
+                        start=1,
+                    ):
+                        if actual != T_UNKNOWN and actual != expected:
+                            self._error(
+                                f"call to '{fq_name}' argument {index} expects "
+                                f"{expected}, got {actual}"
+                            )
+                self._error(PYTHON_OWNED_WORD_UNSUPPORTED)
+                return word_builder_signature.return_type
+
             # std::process built-ins
+            if fq_name == "process::env_var":
+                self._error(PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED.replace(
+                    "process::env results", "process::env_var results"
+                ))
             process_builtins: Dict[str, Tuple[int, FreakType]] = {
                 "process::run": (2, T_UNKNOWN),
                 "process::spawn": (2, T_UNKNOWN),
-                "process::pid": (0, T_INT),
                 "process::exit": (1, T_VOID),
                 "process::env_var": (1, T_UNKNOWN),
-                "process::set_env": (2, T_VOID),
                 "process::args": (0, T_UNKNOWN),
                 "process::args_count": (0, T_INT),
                 "process::arg": (1, T_WORD),
@@ -624,16 +932,9 @@ class TypeChecker:
                 "thread::available_parallelism": (0, T_INT),
             }
 
-            # std::bytes built-ins (constructor-style static calls)
-            bytes_builtins: Dict[str, Tuple[int, FreakType]] = {
-                "ByteBuffer::new": (0, T_UNKNOWN),
-                "ByteBuffer::from": (1, T_UNKNOWN),
-            }
-
             all_builtins: Dict[str, Tuple[int, FreakType]] = {}
             all_builtins.update(process_builtins)
             all_builtins.update(thread_builtins)
-            all_builtins.update(bytes_builtins)
 
             if fq_name in all_builtins:
                 expected_arity, ret_type = all_builtins[fq_name]
@@ -679,4 +980,20 @@ class TypeChecker:
         self.diagnostics.append(Diagnostic("warning", msg, line=line))
 
 
-__all__ = ["TypeChecker", "Diagnostic", "FreakType"]
+__all__ = [
+    "BuiltinSignature",
+    "BYTE_BUFFER_CONSTRUCTOR_SIGNATURES",
+    "BYTE_BUFFER_METHOD_SIGNATURES",
+    "Diagnostic",
+    "FreakType",
+    "PYTHON_OWNED_WORD_UNSUPPORTED",
+    "PYTHON_BYTE_BUFFER_OWNED_WORD_UNSUPPORTED",
+    "PYTHON_SYSTEM_ENV_OWNED_UNSUPPORTED",
+    "T_BYTE_BUFFER",
+    "SYSTEM_RUNTIME_SIGNATURES",
+    "UI_CLIP_SIGNATURES",
+    "TCP_SOCKET_SIGNATURES",
+    "TypeChecker",
+    "WORD_BUILDER_SIGNATURES",
+    "WORD_METHOD_SIGNATURES",
+]

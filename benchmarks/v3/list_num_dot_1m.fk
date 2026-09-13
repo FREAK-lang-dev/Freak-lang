@@ -1,0 +1,17 @@
+task main() {
+    pilot mut iterations: int = 1000000
+    if process::args_count() > 1 {
+        iterations = word_to_int(process::arg(1))
+    }
+    if iterations <= 0 or iterations > 1000000 { process::exit(2) }
+
+    pilot a = List::filled(2.0, iterations)
+    pilot b = List::filled(4.0, iterations)
+    pilot mut total: num = 0.0
+    pilot mut i: int = 0
+    repeat iterations times {
+        total = total + a[i] * b[i]
+        i += 1
+    }
+    say total.to_word()
+}

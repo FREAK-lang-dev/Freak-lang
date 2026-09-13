@@ -1,0 +1,26 @@
+# CODEOWNERS for FREAK-lang/Freak-lang
+#
+# Team-based ownership only — no individuals are named here so maintainer
+# turnover never silently orphans a path. See DOCUMENTATION_AUTHORITY.md for
+# the per-subject docs owners and freshness contract.
+
+* @FREAK-lang-dev/maintainers
+
+# Normative language sources: changes need maintainer review, never drive-by.
+/freak-full-bible.md @FREAK-lang-dev/maintainers
+/freak-conformance-audit.md @FREAK-lang-dev/maintainers
+/freakc/auditor.py @FREAK-lang-dev/maintainers
+
+# Compilers and runtimes
+/freakc/ @FREAK-lang-dev/maintainers
+/src/compiler/v3/ @FREAK-lang-dev/maintainers
+/src/compiler/v4/ @FREAK-lang-dev/maintainers
+/src/cli/ @FREAK-lang-dev/maintainers
+
+# Contributor-facing surface owned by this lane's docs
+/docs/ @FREAK-lang-dev/maintainers
+/CONTRIBUTING.md @FREAK-lang-dev/maintainers
+/AUTHORS.md @FREAK-lang-dev/maintainers
+/DOCUMENTATION_AUTHORITY.md @FREAK-lang-dev/maintainers
+/tools/check_contributor.py @FREAK-lang-dev/maintainers
+/.github/labels.yml @FREAK-lang-dev/maintainers

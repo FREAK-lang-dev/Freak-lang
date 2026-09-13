@@ -650,6 +650,39 @@ Rules:
 - To allocate a dynamic list with repeated values, use `List::filled(value, count)` or `List::with_capacity(count)` plus pushes.
 - Fixed arrays are value types. Moving an array moves every element. Borrowing an array borrows every element unless indexing narrows the borrow.
 
+**Shipping V3 dynamic lists:** literals infer `List<T>` for `int`, `num`,
+`bool`, `word`, and concrete owned shapes. Mixed numeric elements widen to
+`num`; incompatible elements are diagnosed. V3 implements checked indexing,
+indexed assignment through a `pilot mut` root, `.length()`, `.capacity()`,
+`.reserve(n)`, `.clear()`, `.push(value)`, `.pop()`,
+`List::filled(value, count)`, `List::new()`, `List::with_capacity(n)`, and
+`for each item in values` on LLVM and C. A context-typed empty literal
+(`pilot mut xs: List<num> = []`) and the `List::new()` /
+`List::with_capacity(n)` constructors take their element type from a
+`List<T>` pilot annotation; an unannotated empty literal defaults to
+`List<word>`, while an unannotated `List::new()` / `List::with_capacity(n)`
+is rejected as uninferred. Mutating methods (`.push()`, `.pop()`,
+`.clear()`, `.reserve()`) require the same `pilot mut` root as indexed
+assignment. Popped words and shapes transfer ownership to the caller and
+cleared elements release owned storage, so native word/shape counters
+return to zero on ordinary exits.
+The fill value and count each evaluate once, in that order. Iteration evaluates
+and retains its collection once, reads each element in order, and releases
+owned iteration values on ordinary and early exits. Indexed owned reads remain
+valid after their source slot is replaced. Phase-1 `--strict-borrow` still
+enforces owned moves; runtime reference bookkeeping does not add source-level
+shared ownership or lifetime syntax.
+
+V3 uses contiguous 64-bit numeric/bool slots and retains bounds checks in
+optimized builds. Owned words and nested concrete shapes are cleaned on
+replacement, pop, clear, and scope exit. Its current conservative boundaries are explicit:
+unannotated empty literals remain `List<word>`; typed container covariance, nested lists,
+List-valued shape fields, and indexed writes through temporary call results
+are rejected. Fixed arrays/repeat literals and general collection generics
+remain their separately tracked V4 contracts. See
+`tests/v3_array_rescue.py`, `tests/v3_array_torture.py`, `tests/v3_list_methods.py`, and the million-element
+`examples/array_math.fk` workload for executable V3 evidence.
+
 Block-bodied tasks do not have implicit tail returns. `give back` is
 required for every value-returning control path. FREAK chose drama on
 purpose, but not ambiguity.
@@ -1757,6 +1790,47 @@ b.push(name)
 pilot result: word = b.build()
 ```
 
+**V3 platform campaign implementation:** `pattern.repeated(count: int)` returns
+an owned word containing complete copies of the pattern's UTF-8 byte sequence.
+An empty pattern or nonpositive count returns empty; nonempty output uses one
+checked exact allocation, and unrepresentable sizes fail before copying. This
+does not change V3's existing byte-indexed word operations. General construction
+uses the procedural `word_builder::new/with_capacity/reserve/capacity/length/
+clear/append/append_char/append_int/finish/discard` surface. Builder handles are
+generation-checked and explicitly consumed by `finish` or `discard`; `finish`
+returns owned storage. The nominal builder example above remains the broader
+API direction, not an executable V3 shape contract. Python bootstrap emission
+rejects these owned-return operations. `word += word` appends through the
+checked ownership contract (see the `+=` note under `std::num` conversions);
+other compound operators on words remain rejected.
+
+Runtime-owned LLVM words retain their explicit byte length in the existing
+ownership registry without changing the integer-pointer ABI. Embedded NUL bytes
+produced at runtime survive cloning, construction, byte-indexed transforms and
+the tested I/O bridges; the static NUL byte returned by `char_at` remains a
+borrowed length-one value. Unknown foreign pointers retain the legacy C-string
+interpretation. This does not relax ByteBuffer's NUL-free text conversion or
+the builder's `append_char(0)` restriction. `tests/v3_word_length_parity.py`
+records the supported producer/consumer and ownership coverage.
+
+**V3 checked parsing implementation:** `"42".parse_int()` and
+`"3.14".parse_num()` are strict full-input conversions that report through
+the sticky `parse_status()` / `parse_clear_status()` channel instead of the
+broader `maybe`/`result` API direction above, which remains a V4 contract.
+`parse_status()` returns `0` on success, `1` for invalid input (empty text,
+sign-only text, invalid digits, junk suffixes including whitespace,
+malformed exponents), and `2` for out-of-range magnitudes (int
+overflow/underflow, num overflow/underflow to infinity or zero). Failures
+keep the first code until `parse_clear_status()` runs, mirroring the
+ByteBuffer `status()` / `clear_status()` convention; successful parses leave
+the channel unchanged. The legacy `"...".to_int()`, `"...".to_num()`, and
+`parse_num()` entry points stay lenient and never touch the channel.
+`tests/v3_checked_parsing.py` guards malformed, boundary min-max,
+junk-suffix, and overflow cases with C/LLVM parity and no-leak runs.
+Subnormal `parse_num()` inputs follow the host libc: whether a subnormal
+result reports status `2` via `ERANGE` varies by platform, so only
+whitespace handling and normal-range boundaries are pinned cross-platform.
+
 ### 7.3 std::num
 
 ```
@@ -1768,6 +1842,22 @@ x.to_word() / x.to_word_fmt(decimals: 2)
 x.is_nan() / x.is_inf() / x.is_finite()
 int::checked_add(a, b)   -- maybe<int>, overflow-safe
 ```
+
+**V3 conversion implementation:** `int.to_word()`, `num.to_word()`, and
+`bool.to_word()` are implemented with C/LLVM parity, as are the `int <->
+num` cross conversions. The legacy `word_from_int()`, `word_from_bool()`,
+and `format_num()` aliases remain and agree with the methods. The rest of this section (`abs`, `sign`, `clamp`, `pow`, `sqrt`,
+`floor`, `ceil`, `round`, `to_word_fmt`, the `is_` predicates, and the
+overflow-safe variants) remains planned. `tests/v3_conversions.py` pins
+the implemented surface.
+
+**V3 word `+=` implementation:** `text += other` appends through the
+checked ownership contract with C/LLVM parity: mutable locals grow in
+place, globals go through concat plus replace, and shape fields and list
+elements reuse the existing compound-projection paths. Self-append
+(`s += s`) and owned temporaries (`s += n.to_word()`) are sound; other
+compound operators on words remain rejected. `tests/v3_conversions.py`
+pins the value, ownership-audit, and rejection coverage.
 
 ### 7.4 std::collections
 
@@ -1872,6 +1962,18 @@ socket.send(bytes)        -- promise<result<void, NetError>>
 socket.receive(max)       -- promise<result<List<tiny>, NetError>>
 ```
 
+**V3 platform campaign implementation:** synchronous managed handles under
+`tcp::socket_*` provide connect/listen/accept/send/receive/close, status,
+local-port lookup and timeouts. ByteBuffer carries binary I/O;
+callers handle partial transfers and release both socket and buffer handles.
+This additive runtime floor does not implement the async types above. HTTP is
+an Ordnance consumer (`packages/http-server`), not a runtime framework. Windows
+loopback C/LLVM tests exist; Linux campaign execution remains pending. The
+frozen LLVM word ABI remains an integer pointer, but runtime-owned words retain
+their explicit byte lengths. Socket host validation therefore rejects runtime
+embedded NULs on both C and LLVM instead of connecting to a truncated prefix.
+Unknown foreign pointers still use their historical NUL-terminated length.
+
 ### 7.9 std::time
 
 ```
@@ -1886,6 +1988,13 @@ start.since(other)       -- Duration
 -- Duration literals
 500.milliseconds / 2.seconds / 1.minute / 1.hour
 ```
+
+**V3 scalar clock contract:** `time::now_ms() -> int` is Unix-epoch wall time;
+`time::monotonic_ns() -> int` is a separate monotonic nanosecond reading for
+elapsed measurements. Wall-clock values are not duration measurements. Invalid
+platform samples, pre-epoch wall time and values outside V3's signed `int`
+range fail explicitly. Both C and LLVM lower to the same runtime conversions.
+This does not introduce duration literals or the `Instant` API above into V3.
 
 ### 7.10 std::math
 
@@ -1935,6 +2044,19 @@ process::args()                 -- List<word>
 > `process::args_count()` with `process::arg(index)` in V3. The `List<word>`
 > signature above remains the normative V4 API.
 
+**V3 platform campaign scalar additions:** `process::pid() -> int`,
+`process::env(name: word) -> word` and
+`process::set_env(name: word, value: word)` use native system operations.
+Environment lookup returns an independent owned UTF-8 copy; missing and empty
+values both return empty on this scalar API. Mutating the environment does not
+change a previously returned copy. Names/values are validated before platform
+calls, and runtime lookups/mutations share a lock during snapshot creation.
+This lock cannot synchronize foreign code that directly mutates the process
+environment. The Python bootstrap rejects `process::env` and
+`process::env_var` owned results because it lacks their cleanup path. Structured
+spawn/capture/cwd/environment handles remain campaign work; legacy shell
+helpers are not evidence that the structured APIs above are complete.
+
 ### 7.13 std::thread
 
 ```
@@ -1967,6 +2089,21 @@ buf.seek(pos) / buf.position() / buf.length()
 buf.to_list()     -- List<tiny>
 buf.to_word()     -- result<word, word>
 ```
+
+**V3 platform campaign implementation:** the native `ByteBuffer` surface uses
+generation-checked handles with explicit `release()`, sticky `status()` and
+`clear_status()`. Constructors are `new()` and `with_capacity(int)`. Supported
+operations include reserve/capacity/length/position/remaining, clear/truncate/
+seek, write/read byte, signed 64-bit write/read (`*_int` little-endian and
+`*_int_be` big-endian), write/read word, independent copying `slice(start,len)`
+and `to_word()`. Failed bounds/text operations report status and do not expose
+out-of-bounds storage. Text conversion validates UTF-8 and rejects embedded
+NUL. Returned words own their storage; copied handle values alias the same
+resource, so release occurs once and stale handles fail explicitly. The old
+by-value C struct layout remains preserved for ABI compatibility but is not
+the native managed representation. Native list conversion, all unsigned-width
+endian APIs and borrowed views are not claimed by this implementation. The
+`maybe`/`result` and list-returning signatures above remain broader API targets.
 
 ### 7.15 std::anime (always available)
 
@@ -2598,6 +2735,56 @@ freak timeline-diff           -- show causality divergence between timelines
 | death flag (tier 3-4)   | Hayase    | Doesn't know. That's the worst part.     |
 | isekai scope violation  | Sumika    | "You can't bring that with you."         |
 | causality divergence    | 00-Unit   | No emotion. Just facts. Somehow worse.   |
+
+### V3 diagnostic codes foundation (additive, checker-unwired)
+
+> Status: foundation data + deterministic presentation only. No existing
+> diagnostic message changed; the checker, emitters, parser, globals, and
+> CLI flag parsing are untouched by this lane. Voice routing stays 🔜 V4;
+> what lands here is the stable numbering, the data packs, and the
+> off-by-default selector the lead wires at integration.
+
+Stable codes live in `src/diagnostics/codes.json` (schema
+`freak.v3.diagnostic-codes.v1`). Codes are never renamed, renumbered, or
+repurposed; new conditions get new codes:
+
+| Code | Condition | Default speaker hint |
+|---|---|---|
+| E0001 | Unknown binding | MEIYA |
+| E0002 | Type mismatch | YUUKO |
+| E0003 | Use after move | MEIYA |
+| E0004 | Immutable reassignment | MEIYA |
+| E0005 | Invalid call | YUUKO |
+| E0006 | Index out of bounds | FREAK |
+| E0007 | Numeric parse failure | YUUKO |
+| E0008 | Numeric overflow | LLVM |
+| E0009 | Allocation failure | MINISTRY |
+| E0010 | Unsupported target | LINKER |
+
+Optional cast packs are data only (JSON, no code execution) under
+`src/diagnostics/packs/`: FREAK, YUUKO, MEIYA, HANGAR, COCKPIT, MINISTRY,
+LLVM, LINKER, plus PLATFORM voices (`windows`/`linux`/`macos` in
+`platform.json`). Exact-invalid-source easter eggs live in
+`src/diagnostics/easter_eggs.json` and fire only on byte-exact match of a
+registered invalid source after a failed check — never for valid sources or
+near-misses. Resource companion lines live in
+`src/diagnostics/resources.json` (E0009, normal mode only).
+
+`src/diagnostics/selector.py` picks one line deterministically: SHA-256
+over compiler version + code + file + line + column + source + speaker
+(NUL-joined), index = digest mod pack line count, so the same input always
+yields the same line. Presentation modes: `off` returns the canonical
+diagnostic byte-identical; `minimal` appends `[CODE] line`; `normal`
+appends `[CODE SPEAKER] line` (plus one deterministic resource line for
+E0009). Executable proof: `python -u tests/v3_diagnostic_codes.py`.
+
+Integration hook (deferred, lead-owned): the lead wires an opt-in
+`--diagnostic-cast=<off|minimal|normal>` CLI flag (default `off`) at the
+CLI dispatch boundary at integration time; the checker and emitters keep
+emitting canonical diagnostics unchanged and pass (compiler version, code,
+file, line, column, source, speaker) to `selector.render()` as a
+post-pass presentation step only. No checker/CLI flag-parsing edits ship
+from this lane.
 
 ---
 

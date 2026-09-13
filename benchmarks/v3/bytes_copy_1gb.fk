@@ -1,0 +1,19 @@
+task main() {
+    pilot mut count: int = 1000000000
+    if process::args_count() > 1 { count = word_to_int(process::arg(1)) }
+    if count <= 0 or count > 1000000000 or count % 16 != 0 { process::exit(2) }
+    pilot mut seed = "FREAK0123456789!".repeated(count / 16)
+    pilot source = ByteBuffer::with_capacity(count)
+    source.write_word(seed)
+    seed = ""
+    pilot copied = source.slice(0, count)
+    if source.status() != 0 { process::exit(3) }
+    source.clear()
+    source.release()
+    say copied.length()
+    pilot mut text = copied.to_word()
+    say copied.status()
+    copied.release()
+    say text.checksum()
+    text = ""
+}

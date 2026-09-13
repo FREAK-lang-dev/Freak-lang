@@ -1,0 +1,35 @@
+-- Bounded COCKPIT V3 smoke. It always destroys its one window and handles.
+
+task main() {
+    pilot window = cockpit_ui_open("COCKPIT smoke", 480, 300, false)
+    if window == 0 { cockpit_fail("COCKPIT smoke window creation failed") }
+    pilot layout: ByteBuffer = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    pilot theme = cockpit_theme_terminal()
+    pilot names = cockpit_words_new()
+    cockpit_words_push(names, "One")
+    cockpit_words_push(names, "Two")
+    pilot selected = 0
+    pilot checked = false
+    pilot text = "smoke"
+    repeat 30 times {
+        cockpit_ui_begin_frame(window, layout, theme)
+        if cockpit_ui_should_close() {
+            cockpit_words_release(names)
+            cockpit_theme_release(theme)
+            cockpit_layout_release(layout)
+            cockpit_ui_close(window)
+            give back
+        }
+        cockpit_widget_heading(window, layout, theme, "COCKPIT")
+        selected = cockpit_widget_tabs(window, layout, theme, selected, names)
+        text = cockpit_widget_input(window, layout, theme, text, 260)
+        checked = cockpit_widget_checkbox(window, layout, theme, "Ready", checked)
+        cockpit_widget_progress(window, layout, theme, 750, "75%")
+        if cockpit_widget_button(window, layout, theme, "Close", 100) { cockpit_ui_request_close() }
+        cockpit_ui_end_frame(window)
+    }
+    cockpit_words_release(names)
+    cockpit_theme_release(theme)
+    cockpit_layout_release(layout)
+    cockpit_ui_close(window)
+}

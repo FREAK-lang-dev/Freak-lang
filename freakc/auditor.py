@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .lexer import Lexer, TokenType
+from .lexer import Lexer, LexerError, TokenType
 from .parser import (
     Annotation,
     Assign,
@@ -1498,16 +1498,78 @@ def _explicit_strict_smoke_errors(
     return errors
 
 
+def _task_return_scaling_errors(fixture: Path, harness: Path) -> List[str]:
+    """Require the return resource probes and their executable expectations."""
+    errors: List[str] = []
+    labels = (
+        "hir-scaling-512-task-returns", "hir-scaling-64-return-owners",
+        "hir-scaling-return-missing-one", "hir-scaling-return-missing-all",
+        "hir-scaling-return-duplicate-item", "hir-scaling-return-duplicate-id",
+        "hir-scaling-return-gap", "hir-scaling-return-noncanonical-id",
+        "hir-scaling-return-overflow-id", "hir-scaling-return-orphan-owner",
+        "hir-scaling-return-orphan-item", "hir-scaling-return-owner-kind",
+        "hir-scaling-return-implicit-parent-span", "hir-scaling-return-arrow-parent-span",
+        "hir-scaling-return-cross-file", "hir-scaling-return-outside-parent",
+        "hir-scaling-return-capacity-stable",
+    )
+    try:
+        fixture_source = fixture.read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"{fixture.name}: could not read scaling fixture: {exc}")
+    else:
+        # Token identity excludes comments and prevents text inside a word
+        # literal from masquerading as an executable probe or invocation.
+        try:
+            fixture_tokens = [
+                (token.type, token.lexeme)
+                for token in Lexer(fixture_source).tokenize()
+                if token.type != TokenType.EOF
+            ]
+        except LexerError as exc:
+            errors.append(f"{fixture.name}: invalid scaling fixture: {exc}")
+            fixture_tokens = []
+        for needle in (
+            "task v4_hir_scaling_return_checks(before: word)",
+            "v4_hir_scaling_returns(1, 512)",
+            "v4_hir_scaling_returns(64, 8)",
+            "    v4_hir_scaling_return_checks(before)",
+            *(f'say "{label}=" + word_from_bool(' for label in labels),
+        ):
+            needle_tokens = [
+                (token.type, token.lexeme)
+                for token in Lexer(needle).tokenize()
+                if token.type != TokenType.EOF
+            ]
+            if not any(
+                fixture_tokens[index:index + len(needle_tokens)] == needle_tokens
+                for index in range(len(fixture_tokens) - len(needle_tokens) + 1)
+            ):
+                errors.append(f"{fixture.name}: missing return scaling probe: {needle}")
+    smokes, manifest_errors = _literal_executable_smokes(harness)
+    errors.extend(manifest_errors)
+    smoke = smokes.get(fixture.name)
+    if smoke is None:
+        errors.append(f"EXECUTABLE_SMOKES: missing {fixture.name}")
+    else:
+        expected = set(smoke.expect) | set(smoke.expect_exact)
+        for label in labels:
+            if f"{label}=true" not in expected:
+                errors.append(f"EXECUTABLE_SMOKES: {fixture.name} missing {label}=true")
+    return errors
+
+
 def audit_conformance(paths: List[Path]) -> int:
     """
-    Verify the v0.13.x baseline and promoted V4 implementation contracts.
-    Checks every audited claim is still backed by code, files, or executable
-    smoke oracles.
+    Verify the selected v0.13.x baseline and promoted V4 contracts.
 
-    Returns 1 if any audited contract is broken, 0 otherwise.
+    Each audited claim requires code, files, or executable smoke evidence.
+    Unpromoted V4 contracts remain outside this explicitly scoped gate.
 
-    The check set remains explicit: baseline contracts and selected V4 slices
-    are guarded here while unpromoted V4 contracts remain outside the gate.
+    Parameters:
+        paths (List[Path]): Paths used to locate the repository root.
+
+    Returns:
+        int: `1` if the repository cannot be located or any conformance contract fails, `0` otherwise.
     """
     import sys as _sys
 
@@ -1668,9 +1730,11 @@ def audit_conformance(paths: List[Path]) -> int:
         "run pipeline": (
             repo / "src" / "cli" / "run.fk",
             (
-                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v3"',
+                'CLI_RUN_CACHE_SCHEMA = "freak-run-cache-v6"',
                 "task cli_run_fingerprint",
                 "task cli_run_clang_identity",
+                "task cli_run_linker_identity",
+                "task cli_run_file_sha256",
                 "certutil -hashfile",
                 "sha256sum ",
                 "task cli_run_cache_record",
@@ -1691,7 +1755,10 @@ def audit_conformance(paths: List[Path]) -> int:
                 "untrusted stale artifact could not be removed",
                 "task cli_cross_target_is_safe",
                 "invalid target triple",
-                'pilot use_bundle = is_win and cross == "" and runtime_obj_ext != ""',
+                "task cli_runtime_link_plan",
+                "task cli_selected_linker_command",
+                "task cli_link_is_windows",
+                'cli_link_is_windows(cross) and cross == "" and lto == "off" and runtime_obj_ext != ""',
                 "Linking packaged Windows runtime objects",
                 "POSIX double quotes still expand",
             ),
@@ -1783,10 +1850,13 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freak_word_join_owned",
                 "freak_char_to_word",
                 "if (old_s.length == 0) return freak_word_clone(w);",
-                "while (*start && isspace((unsigned char)*start))",
+                "while (start < w.length && isspace((unsigned char)w.data[start]))",
+                "freak_llvm_word_take(freak_word_trim(freak_llvm_word_view(a)))",
                 "word replacement size overflow",
                 "(SIZE_MAX - w.length) / growth",
-                "(SIZE_MAX - source_len) / growth",
+                "return freak_llvm_word_take(freak_word_replace(",
+                "freak_llvm_word_view(a), freak_llvm_word_view(b), freak_llvm_word_view(c)",
+                "int64_t freak_llvm_word_adopt_sized(int64_t pointer, size_t length)",
             ),
         ),
         "C word temporary ownership": (
@@ -1842,7 +1912,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 ".freak-backup-",
                 ".freak-upgrade-pending",
                 ".freak-binary-backup",
-                "Get-FileHash",
+                "Get-FreakFileSha256",
+                "[System.Security.Cryptography.SHA256]::Create()",
+                "$hashFunctionDefinition = ${function:Get-FreakFileSha256}.ToString()",
                 "previous payload was restored",
                 "distribution-files.manifest",
             ),
@@ -1933,7 +2005,7 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "README.md",
             (
                 "C backend (`--c`) | ⚠️ Portability target",
-                "V3 shape storage is LLVM-only",
+                "typed lists, and owned shapes execute on C and LLVM",
             ),
         ),
     }
@@ -2078,7 +2150,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freakc/runtime/ui/win32_backend.c",
                 "freakc/runtime/ui/freak_ui_platform.h",
                 "freakc/runtime/freak_abi",
+                "freakc/runtime/freak_runtime_api",
                 "std/freak_abi",
+                "std/freak_std_api",
             }
         )
         for missing_source in sorted(expected_sources - manifest_sources):
@@ -2122,8 +2196,10 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "src" / "cli" / "doctor.fk",
             (
                 "modules_expected\\\": 11",
-                "files_expected\\\": 6",
+                "files_expected\\\": 7",
                 "FREAK_V3_ABI",
+                "FREAK_V3_RUNTIME_API",
+                "runtime_api",
                 "ABI mismatch",
                 "upgrade_pending",
                 "ui/window.fk",
@@ -2892,8 +2968,8 @@ def audit_conformance(paths: List[Path]) -> int:
             'pilot out = "hir-task-return"',
             '"task-returns"',
             "task v4_hir_snapshot_task_return_is_valid(",
-            "task v4_hir_snapshot_task_return_owner_is_valid(",
-            "task v4_hir_snapshot_task_return_slots_are_valid(",
+            "task v4_hir_snapshot_task_return_slots_are_valid(records: int, files: int, items: int, returns: int)",
+            'kind == v4_hir_task and seen != "1"',
         ):
             if needle not in hir_src:
                 task_return_boundary_missing.append(f"freak_hir: {needle}")
@@ -2925,11 +3001,18 @@ def audit_conformance(paths: List[Path]) -> int:
             "def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:",
             "task return boundary guard self-test: helper-indirected fallback rejected",
             "check_task_return_hir_boundary()",
+            "task return snapshot must not rescan payload or parent records",
+            '"hir-scaling-return-missing-all=true"',
+            '"hir-scaling-512-task-returns=true"',
         ):
             if needle not in harness_src:
                 task_return_boundary_missing.append(f"check_v4.py: {needle}")
     else:
         task_return_boundary_missing.append("check_v4.py harness missing")
+    task_return_boundary_missing.extend(_task_return_scaling_errors(
+        v4_task_return_smoke.with_name("hir_snapshot_scaling_smoke.fk"),
+        v4_task_return_harness,
+    ))
     for doc_path, needles in (
         (
             v4_task_return_readme,
@@ -3028,6 +3111,11 @@ def audit_conformance(paths: List[Path]) -> int:
             '"fixture": "task_param_semantic_boundary_smoke.fk"',
             "def check_task_param_hir_boundary() -> None:",
             "check_task_param_hir_boundary()",
+            "def task_param_snapshot_index_violations(hir_source: str) -> list[str]:",
+            "task parameter index guard accepted helper-indirected rescan",
+            '"hir-scaling-512-params=true"',
+            '"hir-scaling-param-missing-owner=true"',
+            '"hir-scaling-fresh-slot-twenty-eight-handles=true"',
         ):
             if needle not in harness_src:
                 task_param_boundary_missing.append(f"check_v4.py: {needle}")
@@ -3052,7 +3140,6 @@ def audit_conformance(paths: List[Path]) -> int:
             "V4 ordinary-task parameter HIR boundary regressed: "
             + "; ".join(task_param_boundary_missing)
         )
-
     # ── Check 10: V4 contract-region source sets ──
     # Borrowed return signatures may select every parameter whose lifetime
     # outlives the return region. Require the set-valued TY/MIR/Meiya contract,
@@ -6651,6 +6738,24 @@ def audit_conformance(paths: List[Path]) -> int:
     )
     if type_recursion_missing:
         failures.append("V4 direct type-recursion guard regressed: " + "; ".join(type_recursion_missing))
+    # Static wiring guard; executable array evidence belongs to the native gates.
+    array_missing: List[str] = []
+    array_sources = {
+        "src/compiler/v3/checker.fk": ("tc_is_list", "tc_list_element", "indexed assignment requires a mutable list binding"),
+        "src/compiler/v3/emit_c.fk": ("emit_c_list_literal", "freak_v3_array_get", "STMT_FOREACH"),
+        "src/compiler/v3/emit_llvm.fk": ("@freak_v3_array_get", "@freak_v3_array_set", "STMT_FOREACH"),
+        "freakc/runtime/freak_runtime.c": ("freak_v3_index", "out of bounds", "freak_v3_no_cycle"),
+        "freak-full-bible.md": ("Shipping V3 dynamic lists", "retains bounds checks"),
+        ".github/workflows/ci.yml": tuple(f"tests/v3_array_{name}.py" for name in ("runtime", "rescue", "torture", "review_regressions", "benchmarks")),
+    }
+    for relative, needles in array_sources.items():
+        source = repo / relative
+        source_text = source.read_text(encoding="utf-8") if source.exists() else ""
+        array_missing.extend(f"{relative}: {needle}" for needle in needles if needle not in source_text)
+    add("V3 typed arrays", not array_missing, "checked storage + native ownership/parity/performance gates wired" if not array_missing else f"{len(array_missing)} gap(s)")
+    if array_missing:
+        failures.append("V3 typed array contract regressed: " + "; ".join(array_missing))
+
     # ── Print summary ────────────────────────────────────────
     print()
     print("FREAK Conformance Audit (v0.13.x baseline)")

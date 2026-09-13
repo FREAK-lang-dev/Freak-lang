@@ -1,0 +1,8 @@
+[project]
+name = "http-server"
+version = "0.1.0"
+author = "FREAK Core Team"
+edition = "alternative-3"
+description = "Direct-compile V3 HTTP acceptance server built on managed TCP sockets."
+
+[dependencies]

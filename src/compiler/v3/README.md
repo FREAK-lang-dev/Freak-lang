@@ -262,8 +262,9 @@ python -u tests/v3_legacy_golden.py <path-to-real-v3-freak>
 It exercises deterministic representative programs through each case's
 explicit backend matrix. Scalar/control/word/interpolation cases run through C
 and LLVM; shape construction, field/method execution, and dotted shape/`self`
-interpolation are executable LLVM evidence only. The C backend is not claimed
-to execute V3 shape storage. The harness copies the supplied CLI beside only
+interpolation also run on both backends. Typed list and owned shape cleanup
+have additional source, torture, runtime and benchmark gates in
+`tests/v3_array_*.py`. The harness copies the supplied CLI beside only
 the manifest-listed runtime/std payload, runs outside the repository, proves a
 poisoned explicit `FREAK_HOME` wins, then removes it in a child before running
 the corpus through executable-local discovery. It also rejects unlisted and
@@ -288,8 +289,8 @@ platform behavior.
   native bytes require pinning the whole host toolchain and SDK and are not a
   cross-platform promise.
 - V3 `std::ui` native execution is limited to the LLVM backend on Windows via
-  the Win32/GDI runtime. The C backend may transpile the declarations but does
-  not provide executable shape storage for UI programs; there is no macOS or
+  the Win32/GDI runtime. C shape storage is executable, but the C UI call surface
+  remains a transpilation-only contract; there is no macOS or
   Linux native UI backend. `WindowConfig.vsync` is retained but ignored, events
   use the raw indexed runtime API, and COCKPIT is a Maverick source preview.
 - `freak test` is a source-checkout development shim that runs

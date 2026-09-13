@@ -1,4 +1,4 @@
 task main() {
-    pilot values = [1]
-    say array_get(values, 0)
+    pilot values = [1, "wrong element"]
+    say values[0]
 }
