@@ -346,7 +346,7 @@ task v4_ty_signature_local_annotation_type(ty_id: int, sig_id: int, annotation_i
     if surface_type == "" {
         give back v4_ty_unknown
     }
-    pilot declared_type = v4_ty_canonical_type(ty_id, surface_type)
+    pilot declared_type = v4_ty_canonical_type_in_signature(ty_id, sig_id, surface_type)
     if declared_type == "" {
         give back v4_ty_unknown
     }
@@ -359,6 +359,39 @@ task v4_ty_signature_local_annotation_type_span(ty_id: int, sig_id: int, annotat
         give back V4_NO_SPAN
     }
     give back v4_hir_local_annotation_type_span(hir_id, v4_ty_signature_hir_item(ty_id, sig_id), annotation_id)
+}
+
+-- Synthetic impl methods do not occupy ordinary TY signature rows. Resolve
+-- their existing identity and method boundary, but read annotation text only
+-- from the owner's HIR records. Do not invent ordinary signatures for methods.
+task v4_ty_impl_local_annotation_type_at_offset(ty_id: int, method_def: word, offset: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or method_def == "" or offset < 0 {
+        give back v4_ty_unknown
+    }
+    pilot item_id = 0
+    repeat until item_id >= v4_hir_item_count(hir_id) {
+        if v4_hir_item_kind(hir_id, item_id) == v4_hir_impl {
+            pilot method_id = 0
+            repeat until method_id >= v4_ty_impl_method_count(ty_id, item_id) {
+                if v4_ty_impl_method_def(ty_id, item_id, method_id) == method_def {
+                    pilot method_span = v4_ty_impl_method_source_span(ty_id, item_id, method_id)
+                    if method_span == V4_NO_SPAN or offset < v4_span_start(method_span) or offset >= v4_span_end(method_span) {
+                        give back v4_ty_unknown
+                    }
+                    pilot annotation_id = v4_hir_local_annotation_at_offset(hir_id, item_id, offset)
+                    pilot surface_type = v4_hir_local_annotation_type(hir_id, item_id, annotation_id)
+                    if surface_type == "" {
+                        give back v4_ty_unknown
+                    }
+                    give back v4_ty_canonical_type(ty_id, surface_type)
+                }
+                method_id += 1
+            }
+        }
+        item_id += 1
+    }
+    give back v4_ty_unknown
 }
 
 task v4_ty_diag(ty_id: int, diag_id: int) -> word {
@@ -7363,6 +7396,18 @@ task v4_ty_impl_method_end_token(ty_id: int, hir_item: int, method_id: int) -> i
         give back 0 - 1
     }
     give back v4_ty_skip_item(stream_id, start_token, close_token)
+}
+
+-- Method boundaries retain the existing non-ordinary signature fallback.
+-- This helper never reconstructs a local declaration's type.
+task v4_ty_impl_method_source_span(ty_id: int, hir_item: int, method_id: int) -> word {
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    pilot start_token = v4_ty_impl_method_start_token(ty_id, hir_item, method_id)
+    pilot end_token = v4_ty_impl_method_end_token(ty_id, hir_item, method_id)
+    if stream_id < 0 or start_token < 0 or end_token <= start_token {
+        give back V4_NO_SPAN
+    }
+    give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
 }
 
 task v4_ty_impl_method_name(ty_id: int, hir_item: int, method_id: int) -> word {
