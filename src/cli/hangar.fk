@@ -1589,14 +1589,35 @@ task hangar_audit(project_dir: word, fix_mode: bool) -> int {
 
 pilot HANGAR_API_BASE = "https://hangar.freaklang.dev/api/v1"
 
+-- Quote one argument for the shell that will actually run the command.
+--
+-- `hangar_shell_quote` wraps in single quotes, which cmd.exe does not treat as
+-- quoting at all -- it hands the quotes straight through as part of the value.
+-- Anything that runs on both platforms has to pick per platform.
+task hangar_arg_quote(value: word, is_win: bool) -> word {
+    if is_win { give back "\"" + value + "\"" }
+    give back hangar_shell_quote(value)
+}
+
 task hangar_api_base() -> word {
     pilot override: word = process::env("HANGAR_API")
     if override != "" { give back override }
     give back HANGAR_API_BASE
 }
 
+-- Where ~/.hangar lives.
+--
+-- USERPROFILE comes first on Windows on purpose: Git Bash and MSYS export HOME
+-- as a POSIX path (/c/Users/you), and this is a native binary, so writing there
+-- would quietly land the credential on the wrong path entirely.
 task hangar_home_dir() -> word {
-    pilot home_dir: word = process::env("HOME")
+    if cli_is_windows() {
+        pilot profile: word = process::env("USERPROFILE")
+        if profile != "" { give back profile }
+        pilot appdata: word = process::env("APPDATA")
+        if appdata != "" { give back appdata + "/freak" }
+    }
+    pilot mut home_dir: word = process::env("HOME")
     if home_dir == "" {
         home_dir = process::env("APPDATA") + "/freak"
     }
@@ -1635,7 +1656,8 @@ task hangar_post_json(url: word, body: word, bearer: word, is_win: bool) -> word
     if bearer != "" {
         cmd = cmd + " -H \"Authorization: Bearer " + bearer + "\""
     }
-    cmd = cmd + " --data-binary @" + hangar_shell_quote(body_path) + " " + hangar_shell_quote(url)
+    cmd = cmd + " --data-binary @" + hangar_arg_quote(body_path, is_win)
+    cmd = cmd + " " + hangar_arg_quote(url, is_win)
     if is_win { cmd = cmd + " 2>nul" } else { cmd = cmd + " 2>/dev/null" }
 
     pilot reply: word = process::exec_capture(cmd)
@@ -1650,14 +1672,21 @@ task hangar_get_json(url: word, bearer: word, is_win: bool) -> word {
     if bearer != "" {
         cmd = cmd + " -H \"Authorization: Bearer " + bearer + "\""
     }
-    cmd = cmd + " " + hangar_shell_quote(url)
+    cmd = cmd + " " + hangar_arg_quote(url, is_win)
     if is_win { cmd = cmd + " 2>nul" } else { cmd = cmd + " 2>/dev/null" }
     give back process::exec_capture(cmd)
 }
 
+-- Wait, without a busy loop.
+--
+-- `timeout` is the obvious Windows answer and the wrong one: it needs a real
+-- console and returns instantly the moment stdin is redirected, which turns the
+-- poll below into 180 requests in as many milliseconds. `ping` has no such
+-- requirement, and one echo goes out immediately, so -n counts one more than
+-- the seconds wanted.
 task hangar_sleep(seconds: int) -> void {
     if cli_is_windows() {
-        process::exec("timeout /t " + word_from_int(seconds) + " /nobreak >nul 2>nul")
+        process::exec("ping -n " + word_from_int(seconds + 1) + " 127.0.0.1 >nul 2>nul")
     } else {
         process::exec("sleep " + word_from_int(seconds))
     }
@@ -1665,7 +1694,7 @@ task hangar_sleep(seconds: int) -> void {
 
 task hangar_open_browser(url: word) -> void {
     if cli_is_windows() {
-        process::exec("rundll32 url.dll,FileProtocolHandler " + hangar_shell_quote(url))
+        process::exec("rundll32 url.dll,FileProtocolHandler " + hangar_arg_quote(url, true))
     } else {
         -- xdg-open on Linux, open on macOS. Failure is fine: the URL is printed
         -- anyway, so the person can open it themselves.
@@ -1866,7 +1895,7 @@ task hangar_publish(project_dir: word, dry_run: bool) -> int {
     pilot mut curl_cmd: word = "curl"
     if cli_is_windows() { curl_cmd = "curl.exe" }
     curl_cmd = curl_cmd + " -s -X POST -H \"Authorization: Bearer " + session + "\""
-    curl_cmd = curl_cmd + " -F \"package=@" + tarball + "\" " + hangar_shell_quote(api_url)
+    curl_cmd = curl_cmd + " -F \"package=@" + tarball + "\" " + hangar_arg_quote(api_url, cli_is_windows())
 
     pilot curl_res = process::exec(curl_cmd)
 
