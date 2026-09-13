@@ -536,14 +536,14 @@ completion remain open.
 | Module | Status | Verdict | Notes |
 |---|---|---|---|
 | Prelude (`say`, `panic`, basic types) | ✅ | ✅ | |
-| String methods (`length`, `bytes`, `split`, etc.) | ✅ | ✅ | [std/string.fk](std/string.fk) |
+| String methods (`length`, `trim`, `replace`, `substring`, etc.) | ⚠️ | V3 campaign | V3 word methods cover `length`/`checksum`/`trim`/`to_upper`/`to_lower`/`replace`/`char_at`/`substring`/`contains`/`starts_with`/`ends_with`/`repeated` plus snapshot helpers ([std/string.fk](std/string.fk)); `.bytes`/`.slice`/`.split`/`.trim_start`/`.trim_end`/`.chars()` remain unimplemented |
 | V3 `word.repeated` and `word_builder::*` | ✅ | V3 campaign | Native C/LLVM exact construction, checked size, explicit builder consumption and deterministic ownership/work tests in `tests/v3_word_foundation.py`; Python owned-return emission rejected. `word += word` appends through the checked ownership contract with C/LLVM parity (`tests/v3_conversions.py`); this does not establish every common-operation optimization. |
 | V3 runtime-owned Word byte lengths | ✅ | V3 campaign | Existing LLVM ownership registry preserves explicit lengths, including dynamic NULs, through tested constructors/transforms/I/O and socket/environment validation. `tests/v3_word_length_parity.py` covers C/LLVM parity and ownership. Unknown foreign pointers remain C strings; ByteBuffer text and builder character restrictions are unchanged. Requires runtime API 3 and std API 1, not a layout ABI revision. |
 | V3 checked word parsing (`parse_int`/`parse_num` + `parse_status`) | ✅ | V3 campaign | Strict full-input word methods with a sticky status channel (`0` ok, `1` invalid, `2` out of range) mirroring ByteBuffer `status()`/`clear_status()`; first failure wins until `parse_clear_status()`. `tests/v3_checked_parsing.py` covers malformed, boundary min-max, junk-suffix, and overflow cases with C/LLVM parity, owned-receiver cleanup, checker negatives, and Python bootstrap `format_num` ownership fixtures. Legacy `to_int`/`to_num`/`parse_num` stay lenient and never touch the channel. |
-| `std::math` (abs, min, max, clamp, pow, sqrt, gcd, lcm, factorial, fibonacci, sin, cos, etc.) | ✅ | ✅ | |
+| `std::math` (`sqrt`, `pow`, `sin`, `cos`, `tan`, `floor`, `ceil`) | ⚠️ | V3 campaign | Only these 7 `math::` names are wired in the checker/runtime; `abs`/`min`/`max`/`clamp`/`log`/`exp`/`gcd`/`lcm`/inverse-trig/degree helpers remain planned |
 | `std::math3d` | ✅ | ✅ | [std/math3d.fk](std/math3d.fk) |
 | Numeric methods (`int::checked_add`, etc.) | ⚠️ | 📖 V4 | partial; many overflow-safe variants missing |
-| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | V3 List covers literals, `List::filled`/`List::new`/`List::with_capacity`, checked indexing, mutable indexed assignment, `length`/`capacity`/`reserve`/`clear`/`push`/`pop`, iteration, and owned word/shape cleanup (`tests/v3_list_methods.py` C/LLVM parity); Map basic; Set NOT IMPLEMENTED |
+| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | V3 List covers literals, `List::filled`/`List::new`/`List::with_capacity`, checked indexing, mutable indexed assignment, `length`/`capacity`/`reserve`/`clear`/`push`/`pop`, iteration, and owned word/shape cleanup (`tests/v3_list_methods.py` C/LLVM parity); Map is Python-bootstrap-only (literal + handle-based emission, no V3 surface); Set NOT IMPLEMENTED |
 | `Lineup<T>` FIFO queue | ❌ | 📖 V4 | not in stdlib |
 | `.filter` / `.collect` lazy iterators | ❌ | 📖 V4 | List has eager methods only |
 | `ask(prompt)` stdin | ✅ | ✅ | runtime |

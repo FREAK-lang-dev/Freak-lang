@@ -8,179 +8,179 @@
 ## PHASE 0 — Project Setup
 *Do this first. Takes 20 minutes.*
 
-- [ ] Create project folder structure
-- [ ] Set up `__main__.py` so `python -m freakc file.fk` works
-- [ ] Create `tests/hello.fk` — first target program:
+- [x] Create project folder structure
+- [x] Set up `__main__.py` so `python -m freakc file.fk` works
+- [x] Create `tests/hello.fk` — first target program:
   ```
   pilot name = "Takeru"
   pilot power = 9001
   say "Hello from FREAK! {name} has power {power}."
   ```
-- [ ] Confirm Python 3.10+
-- [ ] Create `run.sh`: compile → clang → execute in one command
+- [x] Confirm Python 3.10+
+- [x] Create `run.sh`: compile → clang → execute in one command
 
 ---
 
 ## PHASE 1 — Lexer
 *Source string → list of Token objects*
 
-- [ ] Define `Token` dataclass: `type`, `value`, `line`, `col`
-- [ ] Define `TokenType` enum (all types from Bible Section 6.1)
-- [ ] Implement `Lexer` class with `tokenize(source: str) -> list[Token]`
-- [ ] Whitespace skipping, line number tracking
-- [ ] `--` line comments (skip to end of line)
-- [ ] Integer literals: `42`, `0xFF`, `0b1010`
-- [ ] Float literals: `3.14`
-- [ ] String literals `"..."` with `{interp}` markers
-- [ ] Bool literals: `true`, `false`, `yes`, `no`, `hai`, `iie`
-- [ ] Single-char tokens: `{ } ( ) [ ] , : . @ _`
-- [ ] Multi-char operators: `-> => |> :: == != <= >= ** += -= *= /=`
-- [ ] Identifiers and keywords (keyword list from Bible 6.1)
-- [ ] Multi-word keywords (lex greedily):
+- [x] Define `Token` dataclass: `type`, `value`, `line`, `col`
+- [x] Define `TokenType` enum (all types from Bible Section 6.1)
+- [x] Implement `Lexer` class with `tokenize(source: str) -> list[Token]`
+- [x] Whitespace skipping, line number tracking
+- [x] `--` line comments (skip to end of line)
+- [x] Integer literals: `42`, `0xFF`, `0b1010`
+- [x] Float literals: `3.14`
+- [x] String literals `"..."` with `{interp}` markers
+- [x] Bool literals: `true`, `false`, `yes`, `no`, `hai`, `iie`
+- [x] Single-char tokens: `{ } ( ) [ ] , : . @ _`
+- [x] Multi-char operators: `-> => |> :: == != <= >= ** += -= *= /=`
+- [x] Identifiers and keywords (keyword list from Bible 6.1)
+- [x] Multi-word keywords (lex greedily):
   - `give back`, `or else`, `trust me`, `for each`
   - `training arc`, `on my honor as`
   - `knowing this will hurt`, `for science`
   - `PLUS ULTRA`, `FINAL FORM`
-- [ ] `done` keyword as synonym for `}`
-- [ ] TEST: tokenize `hello.fk`, print all tokens, visually verify
+- [x] `done` keyword as synonym for `}`
+- [x] TEST: tokenize `hello.fk`, print all tokens, visually verify
 
 ---
 
 ## PHASE 2 — Parser
 *Token list → Program AST*
 
-- [ ] Define all AST dataclasses (Bible Section 7.1)
-- [ ] Implement `Parser` class with `parse() -> Program`
-- [ ] `pilot x = expr` variable declarations
-- [ ] `pilot x: Type = expr` with type annotation
-- [ ] `say expr` print statement
-- [ ] String interpolation: extract `{expr}` spans
-- [ ] Literals: int, float, bool
-- [ ] Identifiers and field access `a.b.c`
-- [ ] Binary operators with correct precedence
-- [ ] Unary operators: `not`, `-`
-- [ ] Function calls `f(a, b)`
-- [ ] `task` declarations (block, arrow, done forms)
-- [ ] `give back expr`
-- [ ] `if / else if / else` blocks
-- [ ] `when` pattern match with arms and `_`
-- [ ] `for each x in y { }` loop
-- [ ] `repeat N times { }` loop
-- [ ] `shape Name { }` struct declaration
-- [ ] `impl` blocks (with and without doctrine)
-- [ ] `{ }` and `done` blocks (identical)
-- [ ] `[1, 2, 3]` list literals
-- [ ] `{ "key": value }` map literals
-- [ ] `(a, b)` tuple literals and destructuring
-- [ ] `|x| => expr` and `|x| { block }` lambdas
-- [ ] Generic type expressions: `maybe<T>`, `result<T,E>`, `List<T>`
-- [ ] `some(x)`, `nobody`, `ok(x)`, `err(x)`
-- [ ] `check expr { got x -> ... nobody -> ... }`
-- [ ] `check result expr { ok(x) -> ... err(e) -> ... }`
-- [ ] `expr?` error propagation
-- [ ] `expr or else expr` fallback
-- [ ] `use module::{items}` imports
-- [ ] `launch` modifier
-- [ ] `@annotation` annotations
-- [ ] `trust me "msg" on my honor as .level { }`
-- [ ] `training arc until cond max N sessions { }`
-- [ ] `foreshadow pilot x = expr` and `payoff x`
-- [ ] `knowing this will hurt, call()` and `sadly call()`
-- [ ] `for science, call()`
-- [ ] Anime operators as binary ops
-- [ ] TEST: parse `hello.fk`, pretty-print AST, visually verify
+- [x] Define all AST dataclasses (Bible Section 7.1)
+- [x] Implement `Parser` class with `parse() -> Program`
+- [x] `pilot x = expr` variable declarations
+- [x] `pilot x: Type = expr` with type annotation
+- [x] `say expr` print statement
+- [x] String interpolation: extract `{expr}` spans
+- [x] Literals: int, float, bool
+- [x] Identifiers and field access `a.b.c`
+- [x] Binary operators with correct precedence
+- [x] Unary operators: `not`, `-`
+- [x] Function calls `f(a, b)`
+- [x] `task` declarations (block, arrow, done forms)
+- [x] `give back expr`
+- [x] `if / else if / else` blocks
+- [x] `when` pattern match with arms and `_`
+- [x] `for each x in y { }` loop
+- [x] `repeat N times { }` loop
+- [x] `shape Name { }` struct declaration
+- [x] `impl` blocks (with and without doctrine)
+- [x] `{ }` and `done` blocks (identical)
+- [x] `[1, 2, 3]` list literals
+- [x] `{ "key": value }` map literals
+- [x] `(a, b)` tuple literals and destructuring
+- [x] `|x| => expr` and `|x| { block }` lambdas
+- [x] Generic type expressions: `maybe<T>`, `result<T,E>`, `List<T>`
+- [x] `some(x)`, `nobody`, `ok(x)`, `err(x)`
+- [x] `check expr { got x -> ... nobody -> ... }`
+- [x] `check result expr { ok(x) -> ... err(e) -> ... }`
+- [x] `expr?` error propagation
+- [x] `expr or else expr` fallback
+- [x] `use module::{items}` imports
+- [x] `launch` modifier
+- [x] `@annotation` annotations
+- [x] `trust me "msg" on my honor as .level { }`
+- [x] `training arc until cond max N sessions { }`
+- [x] `foreshadow pilot x = expr` and `payoff x`
+- [x] `knowing this will hurt, call()` and `sadly call()`
+- [x] `for science, call()`
+- [x] Anime operators as binary ops
+- [x] TEST: parse `hello.fk`, pretty-print AST, visually verify
 
 ---
 
 ## PHASE 3 — Minimal C Emitter (Hello World target)
 *AST → C source string. Skip type checker. Get something running.*
 
-- [ ] `CEmitter` class with `emit(program: Program) -> str`
-- [ ] Emit `#include "freak_runtime.h"`
-- [ ] Emit `int main() { freak_main(); return 0; }`
-- [ ] `pilot x = 42` → `int64_t x = 42;`
-- [ ] `pilot x = "hello"` → `freak_word x = freak_word_lit("hello");`
-- [ ] `pilot x = true` → `bool x = true;`
-- [ ] `say "Hello {name}!"` → `freak_say(freak_interpolate(...));`
-- [ ] `task f(a: int) -> int { give back a; }` → C function
-- [ ] Function forward declarations before definitions
-- [ ] **★ MILESTONE: hello.fk compiles and runs ★**
+- [x] `CEmitter` class with `emit(program: Program) -> str`
+- [x] Emit `#include "freak_runtime.h"`
+- [x] Emit `int main() { freak_main(); return 0; }`
+- [x] `pilot x = 42` → `int64_t x = 42;`
+- [x] `pilot x = "hello"` → `freak_word x = freak_word_lit("hello");`
+- [x] `pilot x = true` → `bool x = true;`
+- [x] `say "Hello {name}!"` → `freak_say(freak_interpolate(...));`
+- [x] `task f(a: int) -> int { give back a; }` → C function
+- [x] Function forward declarations before definitions
+- [x] **★ MILESTONE: hello.fk compiles and runs ★**
 
 ---
 
 ## PHASE 4 — Runtime Header (freak_runtime.h)
 
-- [ ] `freak_word` struct: data pointer + byte_length + char_count
-- [ ] `freak_word_lit(const char* s)`
-- [ ] `freak_say(freak_word msg)` — print with newline
-- [ ] `freak_ask(freak_word prompt)` — read stdin
-- [ ] `freak_interpolate(...)` — handle `{x}` substitution
-- [ ] `freak_word_concat`, `freak_word_eq`
-- [ ] `freak_word_from_int`, `freak_word_from_double`
-- [ ] `freak_panic(freak_word msg)` — print + exit(1)
-- [ ] Generated `freak_maybe_T` structs per type used
-- [ ] Generated `freak_result_T_E` structs per type combo used
-- [ ] Generated `freak_list_T` structs with push/get/length/filter/map/fold
+- [x] `freak_word` struct: data pointer + byte_length + char_count
+- [x] `freak_word_lit(const char* s)`
+- [x] `freak_say(freak_word msg)` — print with newline
+- [x] `freak_ask(freak_word prompt)` — read stdin
+- [x] `freak_interpolate(...)` — handle `{x}` substitution
+- [x] `freak_word_concat`, `freak_word_eq`
+- [x] `freak_word_from_int`, `freak_word_from_double`
+- [x] `freak_panic(freak_word msg)` — print + exit(1)
+- [x] Generated `freak_maybe_T` structs per type used
+- [x] Generated `freak_result_T_E` structs per type combo used
+- [x] Generated `freak_list_T` structs with push/get/length/filter/map/fold
 
 ---
 
 ## PHASE 5 — Full C Emitter
 
-- [ ] `if / else if / else` → C if/else
+- [x] `if / else if / else` → C if/else
 - [x] `when` → switch (int) or strcmp chain (word)
-- [ ] `for each x in list` → C for loop
-- [ ] `repeat N times` → C for loop
+- [x] `for each x in list` → C for loop
+- [x] `repeat N times` → C for loop
 - [x] `training arc` → C while with session counter
-- [ ] `shape` → C typedef struct (topologically sorted)
-- [ ] `impl` methods → C functions with shape pointer first arg
-- [ ] Closures → capture struct + function pointer (Bible Section 2.6)
-- [ ] `|>` pipe → desugar to nested calls or temp vars
-- [ ] `?` operator → inline result check + early return
-- [ ] `check` (maybe) → if/else on has_value
-- [ ] `check result` → if/else on is_ok
-- [ ] `or else` → ternary fallback
-- [ ] `some/nobody/ok/err` → macro calls
-- [ ] List literals → new() + push calls
-- [ ] Destructuring → temp var + field assignments
-- [ ] `launch` → non-static; no launch → static
-- [ ] `trust me` → plain C block + compile-time log
-- [ ] `foreshadow/payoff` → C comments + symbol table tracking
-- [ ] Annotations → C comments
-- [ ] `knowing this will hurt` / `sadly` / `for science` → strip prefix, call normally
-- [ ] `route` return type → generated enum + tagged union
+- [x] `shape` → C typedef struct (topologically sorted)
+- [x] `impl` methods → C functions with shape pointer first arg
+- [x] Closures → capture struct + function pointer (Bible Section 2.6)
+- [x] `|>` pipe → desugar to nested calls or temp vars
+- [x] `?` operator → inline result check + early return
+- [x] `check` (maybe) → if/else on has_value
+- [x] `check result` → if/else on is_ok
+- [x] `or else` → ternary fallback
+- [x] `some/nobody/ok/err` → macro calls
+- [x] List literals → new() + push calls
+- [x] Destructuring → temp var + field assignments
+- [x] `launch` → non-static; no launch → static
+- [x] `trust me` → plain C block + compile-time log
+- [x] `foreshadow/payoff` → C comments + symbol table tracking
+- [x] Annotations → C comments
+- [x] `knowing this will hurt` / `sadly` / `for science` → strip prefix, call normally
+- [x] `route` return type → generated enum + tagged union
 - [x] Anime operators → C expressions (Bible Section 2.12)
-- [ ] Generics → monomorphise per concrete type used
+- [x] Generics → monomorphise per concrete type used
 
 ---
 
 ## PHASE 6 — Type Checker
 
-- [ ] Symbol table: variables and types per scope
-- [ ] Type inference for all literals (Bible Section 8.3)
-- [ ] All referenced variables declared before use
-- [ ] Function call argument counts match signature
-- [ ] Explicit annotations consistent with inferred types
-- [ ] `give back` type matches task return type
-- [ ] `check` only on `maybe<T>` values
-- [ ] `check result` only on `result<T,E>` values
-- [ ] `?` only inside result-returning tasks
-- [ ] `foreshadow` variables paid off before scope ends
-- [ ] `@nakige` tasks called with acknowledgement
-- [ ] Only ONE `@season_finale` per program
-- [ ] Annotate every AST node with resolved type
-- [ ] Clear, line-numbered error messages
+- [x] Symbol table: variables and types per scope
+- [x] Type inference for all literals (Bible Section 8.3)
+- [x] All referenced variables declared before use
+- [x] Function call argument counts match signature
+- [x] Explicit annotations consistent with inferred types
+- [x] `give back` type matches task return type
+- [x] `check` only on `maybe<T>` values
+- [x] `check result` only on `result<T,E>` values
+- [x] `?` only inside result-returning tasks
+- [x] `foreshadow` variables paid off before scope ends
+- [x] `@nakige` tasks called with acknowledgement
+- [x] Only ONE `@season_finale` per program
+- [x] Annotate every AST node with resolved type
+- [x] Clear, line-numbered error messages
 
 ---
 
 ## PHASE 7 — CLI
 
-- [ ] `freak run file.fk` — compile and run
-- [ ] `freak build file.fk` — compile to binary
-- [ ] `freak check file.fk` — type check only
-- [ ] `freak test` — run all test blocks
-- [ ] `--output / -o` flag
-- [ ] `--keep-c` flag (keep emitted C for debugging)
-- [ ] Friendly errors: filename, line number, highlighted bad line
+- [x] `freak run file.fk` — compile and run
+- [x] `freak build file.fk` — compile to binary
+- [x] `freak check file.fk` — type check only
+- [x] `freak test` — run the Python bootstrap test suite (`tests/suite/run_tests.py` shim; native runner is V4)
+- [x] `--output / -o` flag
+- [x] `--keep-c` flag (keep emitted C for debugging)
+- [x] Friendly errors: filename, line number, highlighted bad line
 
 ---
 
@@ -307,7 +307,7 @@ Released 2026-04-28. Ships the last v0.13.x patch before V4 work begins.
 ### Test suite
 - `tests/suite/test_maybe.fk` and `tests/suite/test_pipe.fk` un-skipped — both PASS
 - `freak test` shim added in `src/cli/main.fk` — wraps `python tests/suite/run_tests.py` (in-language `test "..." { expect ... }` framework lands with V4)
-- Suite at **14 passed, 0 failed, 0 skipped**
+- Suite at **14 passed, 0 failed, 0 skipped** (verified against the tree: 14 `test_*.fk` files under `tests/suite/`, 0 `SKIP:` directives)
 
 ### LB10 minimal DWARF
 - `src/compiler/v3/emit_llvm.fk:llvm_dbg_begin_func` flipped on: now emits a DISubprogram per function, sets the current scope, and returns `!dbg !N` for the function attribute. Per-instruction `!dbg` annotations were already wired in `llvm_emit_line` — they just needed the scope id.
@@ -324,3 +324,18 @@ Released 2026-04-28. Ships the last v0.13.x patch before V4 work begins.
 Nothing in scope. v0.13.x final patch is on `main` and tagged at v0.13.3. The remaining bible promises (variants, `mood`/`prob`/`power`/`causality`, full borrow checker, squadron concurrency, FFI surface, error-voice routing, JIT/LB7, in-language `test` framework, COCKPIT MG accessibility/polish) all ship with **V4**.
 
 V4 work is now landing on `main` — see commits prefixed `Add V4 …` for the latest. As V4 features land, promote the matching rows in `freak-full-bible.md` §0.2 and `freak-conformance-audit.md` from 🔜 to ⚠️/✅, and grow the matching check in `freakc/auditor.py:audit_conformance`.
+
+---
+
+## STATUS NOTE — v0.14.x (2026-09-12)
+
+Phases 0–7 above are complete: boxes checked against the shipped bootstrap
+(`freakc/` lexer/parser/emitter/type-checker, `freakc/runtime/freak_runtime.h`,
+`tests/hello.fk`, `run.sh`, the `freak run/build/check/test` CLI) and this
+file's own M1–M10 milestone record.
+
+- Next Campaign wave-1 merged: PR #109 (`2147d91`) — lists, parsing, targets, diagnostics, docs.
+- Next Campaign wave-2 merged: PR #112 (`e6e5aea`) — conversions, benchmarks, response seed, leftovers; shipped `word += word`.
+- Default PR merge method is now rebase-merge: PR #110 (`935bda7`).
+- Issues closed with evidence: #103, #105, #106, #108. #87 deferred (still open; ASan-revert verdict recorded). #104 open (needs V4 design).
+- v0.14.1 "Maverick" tagged; v0.14.2 in prep: PR #115 (`VERSION` 0.14.2).
