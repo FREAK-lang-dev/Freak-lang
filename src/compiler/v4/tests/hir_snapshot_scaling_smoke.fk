@@ -43,10 +43,11 @@ task v4_hir_scaling_annotations(files: int, per_file: int) -> word {
         pilot annotation = per_file - 1
         repeat until annotation < 0 {
             array_push(parts, "\nhir-local-annotation|" + word_from_int(owner) + "|" + word_from_int(annotation) + "|0|")
-            array_push(parts, source_file + "@10:20|int|" + source_file + "@12:15")
+            pilot start = 10 + annotation * 10
+            array_push(parts, v4_span_new(source_file, start, start + 10) + "|int|" + v4_span_new(source_file, start + 2, start + 5))
             annotation -= 1
         }
-        array_push(parts, "\nhir-item|" + word_from_int(owner) + "|0|Impl|main|def|" + source_file + "@0:100|0||" + V4_NO_SPAN)
+        array_push(parts, "\nhir-item|" + word_from_int(owner) + "|0|Impl|main|def|" + v4_span_new(source_file, 0, 100 + per_file * 10) + "|0||" + V4_NO_SPAN)
         array_push(parts, "\nhir|" + word_from_int(owner) + "|" + source_file + "|0|1|0")
         owner -= 1
     }
@@ -131,8 +132,10 @@ task v4_hir_scaling_annotation_checks(before: word) -> void {
     say "hir-scaling-annotation-overflow-id=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("hir-local-annotation|0|1|", "hir-local-annotation|0|18446744073709551616|"), before))
     say "hir-scaling-annotation-orphan=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("hir-local-annotation|0|", "hir-local-annotation|2|"), before))
     say "hir-scaling-annotation-owner-kind=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("|Impl|", "|Shape|"), before))
-    say "hir-scaling-annotation-parent-span=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("@0:100", "@11:19"), before))
+    say "hir-scaling-annotation-parent-span=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("@0:120", "@11:19"), before))
     say "hir-scaling-annotation-cross-file=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("|1@10:20|int|1@12:15", "|3@10:20|int|3@12:15"), before))
+    say "hir-scaling-annotation-duplicate-start=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("@20:30|int|", "@10:20|word|").replace("@22:25", "@12:15"), before))
+    say "hir-scaling-annotation-surplus-fields=" + word_from_bool(v4_hir_scaling_rejects_atomically(sample.replace("@12:15\n", "@12:15|surplus\n"), before))
     pilot repeated: bool = true
     pilot iteration = 0
     repeat until iteration >= 32 {
@@ -157,6 +160,7 @@ task v4_hir_scaling_annotation_lookup(sample: word, before: word) -> void {
         v4_hir_add_local_annotation(0, 1, stmt_span, "word", type_span)
         record += 1
     }
+    v4_hir_finalize_lookup_indexes(0)
     pilot correct: bool = true
     record = 0
     repeat until record >= 512 {
@@ -169,6 +173,7 @@ task v4_hir_scaling_annotation_lookup(sample: word, before: word) -> void {
     say "hir-scaling-512-annotation-lookups=" + word_from_bool(correct)
     v4_hir_add_local_annotation(0, 0, "1@10:100", "word", "1@12:16")
     v4_hir_add_local_annotation(0, 0, "1@30:50", "bool", "1@32:36")
+    v4_hir_finalize_lookup_indexes(0)
     pilot outer = v4_hir_local_annotation_at_offset(0, 0, 10)
     pilot inner = v4_hir_local_annotation_at_offset(0, 0, 30)
     say "hir-scaling-nested-annotation-exact-start=" + word_from_bool(outer == 512 and inner == 513 and v4_hir_local_annotation_type(0, 0, inner) == "bool")
@@ -237,6 +242,7 @@ task v4_hir_scaling_index_exhaustion(payload: word, before: word) -> void {
 }
 
 task v4_hir_scaling_children_empty(hir_id: int) -> bool {
+    if array_len(v4_hir_annotation_index_handle(hir_id)) != 0 or array_len(v4_hir_return_index_handle(hir_id)) != 0 { give back false }
     if array_len(v4_hir_task_return_items_handle(hir_id)) != 0 or array_len(v4_hir_task_return_forms_handle(hir_id)) != 0 or array_len(v4_hir_task_return_types_handle(hir_id)) != 0 or array_len(v4_hir_task_return_spans_handle(hir_id)) != 0 {
         give back false
     }
@@ -253,6 +259,7 @@ task v4_hir_scaling_fill_children(hir_id: int) -> void {
     v4_hir_add_diag(hir_id, "old diagnostic")
     v4_hir_add_local_annotation(hir_id, item, "73@1:15", "int", "73@5:8")
     v4_hir_add_task_return(hir_id, item, v4_hir_task_return_explicit, "int", "73@5:8")
+    v4_hir_finalize_lookup_indexes(hir_id)
 }
 
 task v4_hir_scaling_file_slots(sample: word, before: word) -> void {
@@ -291,7 +298,7 @@ task v4_hir_scaling_file_slots(sample: word, before: word) -> void {
         restored = false
     }
     pilot capacity_after = v4_hir_scaling_capacity()
-    say "hir-scaling-fresh-slot-sixteen-handles=" + word_from_bool(capacity_before - capacity_fresh == 16)
+    say "hir-scaling-fresh-slot-eighteen-handles=" + word_from_bool(capacity_before - capacity_fresh == 18)
     say "hir-scaling-reused-children-empty=" + word_from_bool(empty_children)
     say "hir-scaling-restore-repeated=" + word_from_bool(restored)
     say "hir-scaling-truncated-slots-hidden=" + word_from_bool(truncated)
