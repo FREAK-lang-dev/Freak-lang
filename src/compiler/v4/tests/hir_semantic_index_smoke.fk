@@ -5,10 +5,10 @@ task v4_hir_index_cold_resource_check() -> void {
     array_push(sentinel, "foreign-owner-alive")
     pilot holders = array_new()
     pilot count = 0
-    pilot done: bool = false
-    repeat until done or count >= 2048 {
+    pilot exhausted: bool = false
+    repeat until exhausted or count >= 2048 {
         pilot handle = array_new()
-        if handle < 0 { done = true } else { array_push(holders, word_from_int(handle)); count += 1 }
+        if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)); count += 1 }
     }
     pilot index = 0
     repeat until index >= 10 {
@@ -69,10 +69,10 @@ task v4_hir_index_rejects(payload: word, before: word) -> bool {
 task v4_hir_index_capacity() -> int {
     pilot handles = array_new()
     pilot count = 0
-    pilot done: bool = false
-    repeat until done or count >= 2048 {
+    pilot exhausted: bool = false
+    repeat until exhausted or count >= 2048 {
         pilot handle = array_new()
-        if handle < 0 { done = true } else { array_push(handles, word_from_int(handle)); count += 1 }
+        if handle < 0 { exhausted = true } else { array_push(handles, word_from_int(handle)); count += 1 }
     }
     pilot index = 0
     repeat until index >= count {
@@ -88,10 +88,10 @@ task v4_hir_index_resource_checks(before: word) -> void {
     pilot records = v4_hir_snapshot_index_lines(before)
     pilot holders = array_new()
     pilot count = 0
-    pilot done: bool = false
-    repeat until done or count >= 2048 {
+    pilot exhausted: bool = false
+    repeat until exhausted or count >= 2048 {
         pilot handle = array_new()
-        if handle < 0 { done = true } else { array_push(holders, word_from_int(handle)); count += 1 }
+        if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)); count += 1 }
     }
     -- With three handles free even the four-scratch preflight cannot succeed.
     pilot released = 0
@@ -111,7 +111,7 @@ task v4_hir_index_resource_checks(before: word) -> void {
     -- Validation fits, but an extra high-water file needs eighteen children
     -- in addition to finalizer scratch and its reservation container.
     pilot valid: bool = v4_hir_snapshot_validate(payload).starts_with("hir-snapshot-import ok=1 ")
-    pilot result = v4_hir_snapshot_restore(payload)
+    pilot restoration = v4_hir_snapshot_restore(payload)
     pilot lookup_ok: bool = v4_hir_local_annotation_at_offset(0, 0, 10) == 1 and v4_hir_task_return_record_id(0, 0) == 1
     pilot index = 0
     repeat until index >= count - released {
@@ -121,7 +121,7 @@ task v4_hir_index_resource_checks(before: word) -> void {
     array_release(holders)
     say "hir-index-scratch-reservation-rejected=" + word_from_bool(reserve_failed)
     say "hir-index-lowering-reservation-atomic=" + word_from_bool(lower_failed)
-    say "hir-index-fresh-reservation-atomic=" + word_from_bool(valid and result == "hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted" and lookup_ok and generation == v4_session_semantic_restore_generation() and v4_hir_snapshot() == before)
+    say "hir-index-fresh-reservation-atomic=" + word_from_bool(valid and restoration == "hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted" and lookup_ok and generation == v4_session_semantic_restore_generation() and v4_hir_snapshot() == before)
     pilot recovery_records = v4_hir_snapshot_index_lines(payload)
     pilot recovered: bool = v4_hir_restore_indexes_have_capacity(recovery_records)
     array_release(recovery_records)
