@@ -543,7 +543,7 @@ completion remain open.
 | `std::math` (`sqrt`, `pow`, `sin`, `cos`, `tan`, `floor`, `ceil`) | ⚠️ | V3 campaign | Only these 7 `math::` names are wired in the checker/runtime; `abs`/`min`/`max`/`clamp`/`log`/`exp`/`gcd`/`lcm`/inverse-trig/degree helpers remain planned |
 | `std::math3d` | ✅ | ✅ | [std/math3d.fk](std/math3d.fk) |
 | Numeric methods (`int::checked_add`, etc.) | ⚠️ | 📖 V4 | partial; many overflow-safe variants missing |
-| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | V3 List covers literals, `List::filled`/`List::new`/`List::with_capacity`, checked indexing, mutable indexed assignment, `length`/`capacity`/`reserve`/`clear`/`push`/`pop`, iteration, and owned word/shape cleanup (`tests/v3_list_methods.py` C/LLVM parity); Map basic; Set NOT IMPLEMENTED |
+| `List<T>` / `Map<K,V>` / `Set<T>` operations | ⚠️ | 📖 V4 | V3 List covers literals, `List::filled`/`List::new`/`List::with_capacity`, checked indexing, mutable indexed assignment, `length`/`capacity`/`reserve`/`clear`/`push`/`pop`, iteration, and owned word/shape cleanup (`tests/v3_list_methods.py` C/LLVM parity); Map is Python-bootstrap-only (literal + handle-based emission, no V3 surface); Set NOT IMPLEMENTED |
 | `Lineup<T>` FIFO queue | ❌ | 📖 V4 | not in stdlib |
 | `.filter` / `.collect` lazy iterators | ❌ | 📖 V4 | List has eager methods only |
 | `ask(prompt)` stdin | ✅ | ✅ | runtime |

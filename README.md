@@ -77,7 +77,7 @@ FREAK records the narrative weight of your code via the audit suite. What the au
 
 - **`foreshadow / payoff`** — Foreshadow a variable, payoff the promise. `freak foreshadow-audit` reports any unpaid debts and exits nonzero.
 - **`for science,`** — Used at call sites for `@experiment` tasks. `freak audit-science` lists every site.
-- **`trust me on my honor as .level { ... }`** — Escape-hatch blocks. `freak audit-trust` lists every block with its declared honor level.
+- **`trust me "reason" on my honor as .level { ... }`** — Escape-hatch blocks (Python bootstrap). `freak audit-trust` lists every block with its declared honor level.
 - **`deus_ex_machina "monologue" { ... }`** — Requires a monologue of at least 20 words (compile error if shorter). `freak audit-miracles` lists every block; warns past 3, errors past 10.
 
 ```rust
@@ -461,6 +461,7 @@ Found 14 test(s).
   14 passed, 0 failed, 0 skipped / 14 total
 ==================================================
 ```
+
 (14 `test_*.fk` cases ship; none carry SKIP directives, so a healthy tree reports 14 passed.)
 
 > The bible describes a richer in-language test framework — `test "name" { expect X to be Y }` blocks, `@nakige` test annotations, vibes ratings on output. That ships with V4. Today, add a `test_*.fk` case under `tests/suite/` and run `freak test` from the repository checkout. The shim and Python bootstrap compiler are not included in standalone release archives; use `tests/v3_legacy_golden.py` for the preserved self-hosted V3 corpus.
@@ -516,7 +517,7 @@ on sharp edges.
 | Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | 🧰 Source-checkout Python tools; not embedded in release archives |
 | `std::fs`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
 | `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` remains unimplemented |
-| COCKPIT UI framework | ✅ V3 procedural UI shipped (`packages/cockpit/`); see COCKPIT section |
+| COCKPIT UI framework | 📐 Maverick source preview (`packages/cockpit/` source-only facade over V3 primitives); widgets/themes are not shipped V3 surfaces |
 | LLVM DWARF debug info | ✅ Minimal line tables; JIT deferred to V4 |
 | V4 self-hosting compiler (variants, full BC, mood/prob/power, squadron concurrency, FFI surface, error voices) | 🔜 Roadmapped |
 | HFML (markup language) | 📐 Planned |
