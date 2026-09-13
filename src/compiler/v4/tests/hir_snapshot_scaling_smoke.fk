@@ -414,7 +414,125 @@ task v4_hir_scaling_file_slots(sample: word, before: word) -> void {
     say "hir-scaling-file-slot-capacity-stable=" + word_from_bool(capacity_after == capacity_fresh)
 }
 
+-- Preserve the pre-optimization wire semantics, including permissive low-level
+-- file prefixes (owner validation, not this helper, checks source identities).
+task v4_hir_scaling_reference_span(span: word) -> bool {
+    pilot no_span = V4_NO_SPAN
+    if span == no_span { give back false }
+    pilot file_id = v4_span_file(span)
+    pilot start = v4_span_start(span)
+    pilot end = v4_span_end(span)
+    if file_id == V4_NO_FILE or end <= start { give back false }
+    give back v4_span_new(file_id, start, end) == span
+}
+
+task v4_hir_scaling_canonical_checks() -> void {
+    pilot numbers = array_new()
+    array_push(numbers, "")
+    array_push(numbers, "0")
+    array_push(numbers, "00")
+    array_push(numbers, "01")
+    array_push(numbers, "1")
+    array_push(numbers, "9")
+    array_push(numbers, "10")
+    array_push(numbers, "-1")
+    array_push(numbers, "+1")
+    array_push(numbers, " 1")
+    array_push(numbers, "1x")
+    array_push(numbers, "9223372036854775807")
+    array_push(numbers, "9223372036854775808")
+    array_push(numbers, "18446744073709551616")
+    pilot numeric_ok = true
+    pilot index = 0
+    repeat until index >= array_len(numbers) {
+        pilot raw: word = array_get(numbers, index)
+        pilot parsed = v4_nonnegative_int_range(raw, 0, raw.length())
+        pilot canonical: bool = parsed >= 0 and word_from_int(parsed) == raw
+        if v4_hir_snapshot_nonnegative_int_is_valid(raw) != canonical { numeric_ok = false }
+        pilot limit = 0 - 1
+        repeat until limit > 11 {
+            pilot expected = 0 - 1
+            if canonical and parsed < limit { expected = parsed }
+            if v4_hir_snapshot_bounded_id(raw, limit) != expected { numeric_ok = false }
+            limit += 1
+        }
+        index += 1
+    }
+    array_release(numbers)
+    say "hir-scaling-canonical-number-equivalence=" + word_from_bool(numeric_ok)
+
+    pilot spans = array_new()
+    array_push(spans, "")
+    array_push(spans, V4_NO_SPAN)
+    array_push(spans, "0:0@0:1")
+    array_push(spans, "1@0:1")
+    array_push(spans, "1@0:10")
+    array_push(spans, "1@1:10")
+    array_push(spans, "2@1:10")
+    array_push(spans, "01@1:10")
+    array_push(spans, "@0:1")
+    array_push(spans, "arbitrary:file@0:10")
+    array_push(spans, "1@00:1")
+    array_push(spans, "1@0:01")
+    array_push(spans, "1@1:1")
+    array_push(spans, "1@2:1")
+    array_push(spans, "1@-1:2")
+    array_push(spans, "1@x:2")
+    array_push(spans, "1@:2")
+    array_push(spans, "1@0:")
+    array_push(spans, "1@0:2:3")
+    array_push(spans, "1@@0:2")
+    array_push(spans, "1@0:9223372036854775807")
+    array_push(spans, "1@0:9223372036854775808")
+    array_push(spans, "1@9223372036854775808:2")
+    pilot span_ok = true
+    index = 0
+    repeat until index >= array_len(spans) {
+        pilot inner: word = array_get(spans, index)
+        if v4_hir_snapshot_span_is_canonical_nonempty(inner) != v4_hir_scaling_reference_span(inner) { span_ok = false }
+        pilot outer_index = 0
+        repeat until outer_index >= array_len(spans) {
+            pilot outer: word = array_get(spans, outer_index)
+            pilot contained: bool = v4_hir_scaling_reference_span(inner) and v4_hir_scaling_reference_span(outer) and v4_span_file(inner) == v4_span_file(outer) and v4_span_start(inner) >= v4_span_start(outer) and v4_span_end(inner) <= v4_span_end(outer)
+            if v4_hir_snapshot_span_is_contained(inner, outer) != contained { span_ok = false }
+            outer_index += 1
+        }
+        index += 1
+    }
+    array_release(spans)
+    say "hir-scaling-canonical-span-equivalence=" + word_from_bool(span_ok)
+
+    pilot lines = array_new()
+    array_push(lines, "hir|plain||%25|%7C|%0A|%0D|%xx|%|%2")
+    array_push(lines, "hir-item|plain")
+    array_push(lines, "hir-task-param|plain")
+    array_push(lines, "hir-task-param-owner|plain")
+    array_push(lines, "hir-local-annotation|plain")
+    array_push(lines, "hir-task-return|plain")
+    array_push(lines, "hir-diag|plain")
+    array_push(lines, "hir-snapshot|plain")
+    array_push(lines, "end|plain")
+    array_push(lines, "hir")
+    array_push(lines, "hir-item-extra|plain")
+    array_push(lines, "hir%7C|plain")
+    array_push(lines, "")
+    pilot fields_ok = true
+    index = 0
+    repeat until index >= array_len(lines) {
+        pilot line: word = array_get(lines, index)
+        pilot field = 0 - 1
+        repeat until field > 11 {
+            if v4_hir_snapshot_field_raw(line, field) != v4_expand_snapshot_field_raw(line, field) or v4_hir_snapshot_field(line, field) != v4_expand_snapshot_field(line, field) { fields_ok = false }
+            field += 1
+        }
+        index += 1
+    }
+    array_release(lines)
+    say "hir-scaling-field-decoder-equivalence=" + word_from_bool(fields_ok)
+}
+
 task v4_hir_snapshot_scaling_run() -> void {
+    v4_hir_scaling_canonical_checks()
     pilot small = v4_hir_scaling_payload(1, 64)
     pilot large = v4_hir_scaling_payload(1, 512)
     pilot multi = v4_hir_scaling_payload(64, 8)

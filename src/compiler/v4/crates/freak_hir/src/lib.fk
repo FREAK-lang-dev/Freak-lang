@@ -1117,11 +1117,29 @@ task v4_hir_snapshot_field_count(line: word) -> int {
 }
 
 task v4_hir_snapshot_field_raw(line: word, wanted: int) -> word {
+    -- Record kinds are immutable protocol literals. Reuse them across the
+    -- validator's passes instead of allocating the same prefix per record.
+    -- Include the separator so unknown or extended kinds retain raw fallback.
+    if wanted == 0 {
+        if line.starts_with("hir|") { give back "hir" }
+        if line.starts_with("hir-item|") { give back "hir-item" }
+        if line.starts_with("hir-task-param|") { give back "hir-task-param" }
+        if line.starts_with("hir-task-param-owner|") { give back "hir-task-param-owner" }
+        if line.starts_with("hir-local-annotation|") { give back "hir-local-annotation" }
+        if line.starts_with("hir-task-return|") { give back "hir-task-return" }
+        if line.starts_with("hir-diag|") { give back "hir-diag" }
+        if line.starts_with("hir-snapshot|") { give back "hir-snapshot" }
+        if line.starts_with("end|") { give back "end" }
+    }
     give back v4_expand_snapshot_field_raw(line, wanted)
 }
 
 task v4_hir_snapshot_field(line: word, wanted: int) -> word {
-    give back v4_expand_snapshot_field(line, wanted)
+    pilot raw = v4_hir_snapshot_field_raw(line, wanted)
+    -- Unescaped fields already have their semantic bytes. Only the percent
+    -- escape path needs a second word; preserve its existing decoder exactly.
+    if v4_index_of_from(raw, "%", 0) < 0 { give back raw }
+    give back v4_expand_snapshot_unescape(raw)
 }
 
 task v4_hir_snapshot_key_value(line: word, wanted_key: word) -> word {
@@ -1377,7 +1395,7 @@ task v4_hir_snapshot_alias_target_is_valid(line: word) -> bool {
 
 task v4_hir_snapshot_nonnegative_int_is_valid(value: word) -> bool {
     pilot parsed = v4_nonnegative_int_range(value, 0, value.length())
-    give back parsed >= 0 and word_from_int(parsed) == value
+    give back parsed >= 0 and (value.length() == 1 or value.char_at(0) != "0")
 }
 
 task v4_hir_snapshot_local_annotation_is_valid(line: word) -> bool {
@@ -1434,7 +1452,7 @@ task v4_hir_snapshot_index_lines(payload: word) -> int {
 -- The bound comes from observed records, never an untrusted maximum ID.
 task v4_hir_snapshot_bounded_id(raw: word, limit: int) -> int {
     pilot id = v4_nonnegative_int_range(raw, 0, raw.length())
-    if id < 0 or id >= limit or word_from_int(id) != raw {
+    if id < 0 or id >= limit or (raw.length() > 1 and raw.char_at(0) == "0") {
         give back 0 - 1
     }
     give back id
@@ -2915,24 +2933,50 @@ task v4_hir_snapshot_task_param_owner_is_valid(line: word) -> bool {
 }
 
 task v4_hir_snapshot_span_is_canonical_nonempty(span: word) -> bool {
-    pilot no_span = V4_NO_SPAN
-    if span == no_span {
+    -- Validate decimal spelling in place instead of allocating a reconstructed
+    -- span on every parameter field and every validation iteration.
+    pilot at_pos = v4_index_of_from(span, "@", 0)
+    if at_pos < 0 {
         give back false
     }
-    pilot file_id = v4_span_file(span)
-    pilot start_offset = v4_span_start(span)
-    pilot end_offset = v4_span_end(span)
-    if file_id == V4_NO_FILE or end_offset <= start_offset {
+    if at_pos == 3 and span.char_at(0) == "0" and span.char_at(1) == ":" and span.char_at(2) == "0" {
         give back false
     }
-    give back v4_span_new(file_id, start_offset, end_offset) == span
+    pilot colon_pos = v4_index_of_from(span, ":", at_pos + 1)
+    if colon_pos < 0 {
+        give back false
+    }
+    pilot start_offset = v4_nonnegative_int_range(span, at_pos + 1, colon_pos)
+    pilot end_offset = v4_nonnegative_int_range(span, colon_pos + 1, span.length())
+    if start_offset < 0 or end_offset <= start_offset {
+        give back false
+    }
+    if colon_pos > at_pos + 2 and span.char_at(at_pos + 1) == "0" {
+        give back false
+    }
+    if span.length() > colon_pos + 2 and span.char_at(colon_pos + 1) == "0" {
+        give back false
+    }
+    give back true
 }
 
 task v4_hir_snapshot_span_is_contained(inner: word, outer: word) -> bool {
     if v4_hir_snapshot_span_is_canonical_nonempty(inner) == false or v4_hir_snapshot_span_is_canonical_nonempty(outer) == false {
         give back false
     }
-    give back v4_span_file(inner) == v4_span_file(outer) and v4_span_start(inner) >= v4_span_start(outer) and v4_span_end(inner) <= v4_span_end(outer)
+    pilot inner_file_end = v4_index_of_from(inner, "@", 0)
+    pilot outer_file_end = v4_index_of_from(outer, "@", 0)
+    if inner_file_end != outer_file_end {
+        give back false
+    }
+    pilot idx = 0
+    repeat until idx >= inner_file_end {
+        if inner.char_at(idx) != outer.char_at(idx) {
+            give back false
+        }
+        idx += 1
+    }
+    give back v4_span_start(inner) >= v4_span_start(outer) and v4_span_end(inner) <= v4_span_end(outer)
 }
 
 task v4_hir_snapshot_named_lifetime_is_valid(lifetime_name: word) -> bool {
