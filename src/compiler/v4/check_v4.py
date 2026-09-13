@@ -62,6 +62,7 @@ C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
 C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
         "hir_snapshot_scaling_smoke.fk",
+        "hir_semantic_index_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     }
@@ -2018,7 +2019,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-sixteen-handles=true",
+            "hir-scaling-fresh-slot-eighteen-handles=true",
             "hir-scaling-512-task-returns=true",
             "hir-scaling-64-return-owners=true",
             "hir-scaling-return-missing-one=true",
@@ -2039,6 +2040,8 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-512-annotations=true",
             "hir-scaling-64-annotation-owners=true",
             "hir-scaling-annotation-duplicate=true",
+            "hir-scaling-annotation-duplicate-start=true",
+            "hir-scaling-annotation-surplus-fields=true",
             "hir-scaling-annotation-gap=true",
             "hir-scaling-annotation-huge-id=true",
             "hir-scaling-annotation-overflow-id=true",
@@ -2055,6 +2058,32 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-restore-repeated=true",
             "hir-scaling-truncated-slots-hidden=true",
             "hir-scaling-file-slot-capacity-stable=true",
+        ],
+    },
+    {
+        "name": "HIR semantic lookup indexes",
+        "fixture": "hir_semantic_index_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "hir-index-cold-init-failure-recovery=true",
+            "hir-index-512-one-owner=true",
+            "hir-index-logarithmic-probes=true",
+            "hir-index-sort-work-bounded=true",
+            "hir-index-512-distinct-owners=true",
+            "hir-index-owner-lookup-work=true",
+            "hir-index-direct-return-work=true",
+            "hir-index-invalid-identities=true",
+            "hir-index-surplus-annotation-atomic=true",
+            "hir-index-surplus-return-atomic=true",
+            "hir-index-duplicate-start-atomic=true",
+            "hir-index-same-offset-distinct-items=true",
+            "hir-index-repeated-restore-stable=true",
+            "hir-index-append-refinalize=true",
+            "hir-index-return-overwrite-refinalize=true",
+            "hir-index-scratch-reservation-rejected=true",
+            "hir-index-lowering-reservation-atomic=true",
+            "hir-index-fresh-reservation-atomic=true",
+            "hir-index-reservation-recovery=true",
         ],
     },
     {
@@ -9334,6 +9363,7 @@ if str(ROOT) not in sys.path:
 
 from freakc.__main__ import transpile  # noqa: E402
 from freakc.parser import Parser  # noqa: E402
+from freakc.lexer import Lexer, LexerError, TokenType  # noqa: E402
 from freakc.type_checker import TypeChecker  # noqa: E402
 
 
@@ -9944,6 +9974,141 @@ def check_alias_hir_boundary() -> None:
     print("no syntax past HIR: alias target type and span")
 
 
+def hir_lookup_index_violations(hir_source: str) -> list[str]:
+    """Inspect the entire storage lookup closure, excluding comments/literals.
+
+    This is an architectural guard, not a substitute for executable work-count
+    oracles. Only offset lookup may loop, with the reviewed binary-search shape.
+    Index construction belongs to lowering/restore, never to a query accessor.
+    """
+    roots = {
+        "v4_hir_local_annotation_record_id", "v4_hir_local_annotation_count",
+        "v4_hir_local_annotation_stmt_span", "v4_hir_local_annotation_type",
+        "v4_hir_local_annotation_type_span", "v4_hir_local_annotation_at_offset",
+        "v4_hir_task_return_record_id", "v4_hir_task_return_form",
+        "v4_hir_task_return_type", "v4_hir_task_return_span",
+    }
+    names = freak_task_names(freak_mask_line_comments(hir_source))
+    violations: list[str] = []
+    bodies: dict[str, list[str]] = {}
+
+    def tokens(name: str) -> list[str]:
+        if name not in bodies:
+            body = freak_task_body(hir_source, name)
+            if body is None:
+                violations.append(f"HIR indexed lookup task missing: {name}")
+                bodies[name] = []
+            else:
+                try:
+                    bodies[name] = [
+                        token.lexeme if token.type != TokenType.STRING_LIT else "<literal>"
+                        for token in Lexer(body).tokenize() if token.type != TokenType.EOF
+                    ]
+                except LexerError:
+                    violations.append(f"HIR indexed lookup task is not lexable: {name}")
+                    bodies[name] = []
+        return bodies[name]
+
+    def contains(body: list[str], text: str) -> bool:
+        wanted = [t.lexeme for t in Lexer(text).tokenize() if t.type != TokenType.EOF]
+        return any(body[i:i + len(wanted)] == wanted for i in range(len(body) - len(wanted) + 1))
+
+    pending = sorted(roots)
+    reached: set[str] = set()
+    edges: dict[str, set[str]] = {}
+    while pending:
+        name = pending.pop()
+        if name in reached:
+            continue
+        reached.add(name)
+        body = tokens(name)
+        calls = {body[i] for i in range(len(body) - 1) if body[i + 1] == "("}
+        edges[name] = calls & names
+        for call in sorted(calls):
+            # Existing arena initialization creates only top-level registries;
+            # it does not build or populate any per-file derived index.
+            if name == "v4_hir_init" and call in {"array_new", "array_release"}:
+                continue
+            if call.startswith(("v4_parse_", "v4_lex_", "v4_expand_", "v4_ty_", "v4_hir_snapshot_")) or call in {
+                "v4_hir_finalize_lookup_indexes", "v4_hir_invalidate_lookup_indexes",
+                "v4_hir_sorted_key_records", "array_new", "array_push", "array_set", "array_release",
+            } or "_token" in call:
+                violations.append(f"HIR indexed lookup reaches forbidden work: {name} -> {call}")
+            elif call in names:
+                pending.append(call)
+            elif call.startswith("v4_hir_"):
+                violations.append(f"HIR indexed lookup helper missing: {name} -> {call}")
+        if any(token in body for token in ("repeat", "while", "for")):
+            if name != "v4_hir_local_annotation_at_offset":
+                violations.append(f"HIR indexed lookup performs a record rescan: {name}")
+            elif body.count("repeat") != 1 or any(token in body for token in ("while", "for")):
+                violations.append("HIR indexed offset lookup must contain only one binary-search loop")
+
+    active: set[str] = set()
+    complete: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in active:
+            violations.append(f"HIR indexed lookup contains recursive work: {name}")
+            return
+        if name in complete:
+            return
+        active.add(name)
+        for child in sorted(edges.get(name, set())):
+            visit(child)
+        active.remove(name)
+        complete.add(name)
+
+    for name in sorted(reached):
+        visit(name)
+
+    for name, required in {
+        "v4_hir_local_annotation_record_id": "v4_hir_annotation_index_handle(hir_id)",
+        "v4_hir_local_annotation_count": "v4_hir_annotation_index_handle(hir_id)",
+        "v4_hir_task_return_record_id": "v4_hir_return_index_handle(hir_id)",
+    }.items():
+        if not contains(tokens(name), required):
+            violations.append(f"HIR indexed lookup bypasses derived index: {name}")
+    offset = tokens("v4_hir_local_annotation_at_offset")
+    for required in (
+        "v4_hir_annotation_index_handle(hir_id)", "repeat until low >= high",
+        "middle = low + (high - low) / 2", "owner == item_id and start == offset",
+        "low = middle + 1", "high = middle", "v4_hir_annotation_lookup_probes += 1",
+    ):
+        if not contains(offset, required):
+            violations.append(f"HIR indexed offset lookup missing exact-start/binary-search contract: {required}")
+    for name in ("v4_hir_lower_expanded", "v4_hir_snapshot_restore"):
+        body = tokens(name)
+        if sum(body[i] == "v4_hir_finalize_lookup_indexes" and body[i + 1] == "(" for i in range(len(body) - 1)) != 1:
+            violations.append(f"HIR construction must explicitly finalize lookup indexes once: {name}")
+        argument = "hir_id" if name == "v4_hir_lower_expanded" else "finalized"
+        if not contains(body, f"if v4_hir_finalize_lookup_indexes({argument}) == false {{"):
+            violations.append(f"HIR construction must handle lookup finalization failure: {name}")
+        failure = freak_braced_arm(freak_task_body(hir_source, name) or "", f"if v4_hir_finalize_lookup_indexes({argument}) == false")
+        if failure is None:
+            violations.append(f"HIR construction finalization failure arm missing: {name}")
+        else:
+            failure_tokens = [t for t in Lexer(failure).tokenize() if t.type != TokenType.EOF]
+            if not any(t.type == TokenType.GIVE_BACK for t in failure_tokens) and not any(
+                failure_tokens[i].lexeme == "panic" and failure_tokens[i + 1].lexeme == "("
+                for i in range(len(failure_tokens) - 1)
+            ):
+                violations.append(f"HIR construction cannot continue after failed finalization: {name}")
+    for name, preflight, mutation in (
+        ("v4_hir_lower_expanded", "v4_hir_lookup_handles_available", "v4_hir_file_new"),
+        ("v4_hir_snapshot_restore", "v4_hir_restore_indexes_have_capacity", "v4_hir_begin_snapshot_restore"),
+    ):
+        body = tokens(name)
+        argument = "required" if name == "v4_hir_lower_expanded" else "records"
+        if not contains(body, f"if {preflight}({argument}) == false {{") or mutation not in body or preflight not in body or body.index(preflight) >= body.index(mutation):
+            violations.append(f"HIR construction must preflight before live mutation: {name}")
+        source_body = freak_task_body(hir_source, name) or ""
+        failure = freak_braced_arm(source_body, f"if {preflight}({argument}) == false")
+        if failure is None or not any(t.type == TokenType.GIVE_BACK for t in Lexer(failure).tokenize()):
+            violations.append(f"HIR construction must return on failed preflight: {name}")
+    return violations
+
+
 def check_mir_local_annotation_boundary() -> None:
     hir_source = read_text(crate_path("freak_hir"))
     ty_source = read_text(crate_path("freak_ty"))
@@ -9956,11 +10121,7 @@ def check_mir_local_annotation_boundary() -> None:
     elif any(call in slots_body for call in ("v4_hir_snapshot_line(", "v4_hir_snapshot_line_count(", "v4_hir_snapshot_file_for_hir(")):
         violations.append("local annotation ownership validation must not rescan payload lines")
 
-    lookup_body = freak_task_body(hir_source, "v4_hir_local_annotation_at_offset")
-    if lookup_body is None or "offset == v4_span_start(stmt_span)" not in lookup_body:
-        violations.append("local annotation lookup must match exact declaration starts")
-    elif any(call in lookup_body for call in ("v4_hir_local_annotation_count(", "v4_hir_local_annotation_record_id(", "v4_hir_local_annotation_stmt_span(")):
-        violations.append("local annotation lookup must scan records directly without nested ordinal rescans")
+    violations.extend(hir_lookup_index_violations(hir_source))
 
     for marker in (
         'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v5"',
