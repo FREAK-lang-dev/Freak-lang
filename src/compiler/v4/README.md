@@ -74,6 +74,11 @@ facts; and `freak_mir_build` consumes them in `v4_mir_lower_pilot_stmt` without
 calling `v4_ty_type_text` (directly or through
 `v4_mir_compact_type_text`) to rediscover the declared type. This includes
 tuple and fixed-array annotations used by tuple/list destructuring. MIR build
+preserves ordinary task generic scope when resolving those annotations.
+Concrete impl methods read the same stored HIR facts through an exact synthetic
+method identity and source-offset bridge, without adding ordinary task signature
+rows. Method boundary discovery retains the existing nonordinary signature
+fallback; generic impl scoping is not expanded by this repair. MIR build
 still reads body tokens for patterns, initializer boundaries, places, and CFG
 construction. Six unrelated `v4_ty_type_text` consumers remain allowlisted for
 method type arguments, raw-pointer instance methods, associated methods,

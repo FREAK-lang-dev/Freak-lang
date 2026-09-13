@@ -9243,6 +9243,42 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "MIR impl local annotation ownership",
+        "fixture": "mir_impl_local_annotation_smoke.fk",
+        "expect": [
+            "impl-annotation-owner-count=3",
+            "impl-annotation-body-count=3",
+            "impl-annotation-first-type=int",
+            "impl-annotation-second-type=word",
+            "impl-annotation-first-bridge=int",
+            "impl-annotation-second-bridge=word",
+            "impl-annotation-sibling-rejected=true",
+            "impl-annotation-foreign-rejected=true",
+            "impl-annotation-diagnostics=1",
+            "impl-annotation-message=local declaration type mismatch",
+            "impl-annotation-help=local expects int but got word",
+            "impl-annotation-restore-ok=true",
+            "impl-annotation-restored-first=int",
+            "impl-annotation-restored-second=word",
+            "impl-annotation-restored-sibling-rejected=true",
+        ],
+    },
+    {
+        "name": "MIR local annotation signature scope",
+        "fixture": "mir_local_annotation_scope_smoke.fk",
+        "expect": [
+            "annotation-scope-surface=T",
+            "annotation-scope-type=T",
+            "annotation-scope-alias-type=T",
+            "annotation-scope-mir-type=T",
+            "annotation-scope-mir-alias-type=T",
+            "annotation-scope-global-alias-type=word",
+            "annotation-scope-diagnostics=1",
+            "annotation-scope-message=local declaration type mismatch",
+            "annotation-scope-help=local expects word but got int",
+        ],
+    },
+    {
         "name": "task return semantic boundary",
         "fixture": "task_return_semantic_boundary_smoke.fk",
         "expect": [
@@ -9999,6 +10035,7 @@ def check_mir_local_annotation_boundary() -> None:
         for required in (
             "v4_ty_signature_local_annotation_at_offset",
             "v4_ty_signature_local_annotation_type",
+            "v4_ty_impl_local_annotation_type_at_offset",
         ):
             if required not in lower_body:
                 violations.append(f"local annotation MIR builder lowerer bypasses TY: {required}")
@@ -10007,6 +10044,18 @@ def check_mir_local_annotation_boundary() -> None:
                 violations.append(
                     f"local annotation MIR builder lowerer reconstructs type text: uses {forbidden}"
                 )
+
+    scoped_type = freak_task_body(ty_source, "v4_ty_signature_local_annotation_type") or ""
+    if "v4_ty_canonical_type_in_signature" not in scoped_type:
+        violations.append("local annotation type must preserve signature generic scope")
+    method_bridge = freak_task_body(ty_source, "v4_ty_impl_local_annotation_type_at_offset") or ""
+    for required in ("v4_ty_impl_method_def", "v4_ty_impl_method_source_span",
+                     "v4_hir_local_annotation_at_offset", "v4_hir_local_annotation_type"):
+        if required not in method_bridge:
+            violations.append(f"impl annotation bridge missing semantic ownership check: {required}")
+    for forbidden in ("v4_ty_type_text", "v4_lex_", "v4_parse_", "v4_expand_", "_token"):
+        if forbidden in method_bridge:
+            violations.append(f"impl annotation bridge reconstructs annotation syntax: {forbidden}")
 
     allowed_type_text_tasks = {
         "v4_mir_reject_method_type_args",
