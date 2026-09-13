@@ -10631,6 +10631,7 @@ def check_snapshot_inventories() -> None:
                 )
     for resource_fixture in (
         "hir_snapshot_scaling_smoke.fk",
+        "hir_semantic_index_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     ):
@@ -10643,6 +10644,7 @@ def check_snapshot_inventories() -> None:
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
             "hir_snapshot_scaling_smoke.fk",
+            "hir_semantic_index_smoke.fk",
             "mir_snapshot_resource_smoke.fk",
             "query_invalidation_resource_smoke.fk",
         }

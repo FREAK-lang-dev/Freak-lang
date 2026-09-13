@@ -91,6 +91,18 @@ class TaskReturnGuards(unittest.TestCase):
 
 
 class IndexedLookupGuards(unittest.TestCase):
+    def test_live_snapshot_inventory_includes_index_resource_limit(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            guard.check_snapshot_inventories()
+
+    def test_index_resource_limit_removal_is_rejected(self):
+        fixtures = guard.C_ARRAY_HANDLE_RESOURCE_FIXTURES - {"hir_semantic_index_smoke.fk"}
+        with patch.object(guard, "C_ARRAY_HANDLE_RESOURCE_FIXTURES", fixtures):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                with self.assertRaises(SystemExit):
+                    guard.check_snapshot_inventories()
+        self.assertIn("scratch-handle resource smoke limit coverage drifted", output.getvalue())
+
     def setUp(self):
         self.source = guard.read_text(guard.crate_path("freak_hir"))
 
