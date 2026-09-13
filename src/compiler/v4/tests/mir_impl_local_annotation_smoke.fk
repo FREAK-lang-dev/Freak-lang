@@ -1,0 +1,65 @@
+-- Synthetic method identities must consume the owner's stored HIR annotations.
+-- Verification prepends the V4 crates before this file.
+task v4_impl_annotation_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_impl_annotation_run() -> void {
+    pilot v4_impl_annotation_src = "shape Pilot {"
+    v4_impl_annotation_src = v4_impl_annotation_src + " hp: int }\n"
+    v4_impl_annotation_src = v4_impl_annotation_src + "impl Pilot {\n"
+    v4_impl_annotation_src = v4_impl_annotation_src + "task first(self) -> int {\n"
+    v4_impl_annotation_src = v4_impl_annotation_src + " pilot local: int = 7\n give back local\n}\n"
+    v4_impl_annotation_src = v4_impl_annotation_src + "task second(self) -> word {\n"
+    v4_impl_annotation_src = v4_impl_annotation_src + " pilot local: word = \"ace\"\n give back local\n}\n"
+    v4_impl_annotation_src = v4_impl_annotation_src + "task bad(self) -> int {\n"
+    v4_impl_annotation_src = v4_impl_annotation_src + " pilot local: int = \"wrong\"\n give back 0\n}\n}\n"
+    pilot v4_impl_annotation_file = v4_source_add("impl-local-annotation.fk", v4_impl_annotation_src)
+    pilot v4_impl_annotation_stream = v4_lex_text(v4_impl_annotation_file, v4_impl_annotation_src)
+    pilot v4_impl_annotation_tree = v4_parse_stream(v4_impl_annotation_file, v4_impl_annotation_stream)
+    pilot v4_impl_annotation_hir = v4_hir_lower_tree(v4_impl_annotation_file, v4_impl_annotation_tree)
+    pilot v4_impl_annotation_resolve = v4_resolve_lower_hir(v4_impl_annotation_file, v4_impl_annotation_hir)
+    pilot v4_impl_annotation_ty = v4_ty_lower_resolve(v4_impl_annotation_file, v4_impl_annotation_resolve)
+    pilot v4_impl_annotation_mir = v4_mir_lower_ty(v4_impl_annotation_file, v4_impl_annotation_ty)
+    pilot v4_impl_annotation_owner = 0 - 1
+    pilot v4_impl_annotation_item = 0
+    repeat until v4_impl_annotation_item >= v4_hir_item_count(v4_impl_annotation_hir) {
+        if v4_hir_item_kind(v4_impl_annotation_hir, v4_impl_annotation_item) == v4_hir_impl {
+            v4_impl_annotation_owner = v4_impl_annotation_item
+        }
+        v4_impl_annotation_item += 1
+    }
+    pilot v4_impl_annotation_first_def = v4_ty_impl_method_def(v4_impl_annotation_ty, v4_impl_annotation_owner, 0)
+    pilot v4_impl_annotation_second_def = v4_ty_impl_method_def(v4_impl_annotation_ty, v4_impl_annotation_owner, 1)
+    pilot v4_impl_annotation_first = v4_mir_lookup_body(v4_impl_annotation_mir, v4_impl_annotation_first_def)
+    pilot v4_impl_annotation_second = v4_mir_lookup_body(v4_impl_annotation_mir, v4_impl_annotation_second_def)
+    pilot v4_impl_annotation_first_local = v4_mir_find_local(v4_impl_annotation_mir, v4_impl_annotation_first, "local")
+    pilot v4_impl_annotation_second_local = v4_mir_find_local(v4_impl_annotation_mir, v4_impl_annotation_second, "local")
+    pilot v4_impl_annotation_first_offset = v4_span_start(v4_mir_local_span(v4_impl_annotation_mir, v4_impl_annotation_first, v4_impl_annotation_first_local))
+    pilot v4_impl_annotation_second_offset = v4_span_start(v4_mir_local_span(v4_impl_annotation_mir, v4_impl_annotation_second, v4_impl_annotation_second_local))
+    say "impl-annotation-owner-count=" + word_from_int(v4_hir_local_annotation_count(v4_impl_annotation_hir, v4_impl_annotation_owner))
+    say "impl-annotation-body-count=" + word_from_int(v4_mir_body_count(v4_impl_annotation_mir))
+    say "impl-annotation-first-type=" + v4_mir_local_ty(v4_impl_annotation_mir, v4_impl_annotation_first, v4_impl_annotation_first_local)
+    say "impl-annotation-second-type=" + v4_mir_local_ty(v4_impl_annotation_mir, v4_impl_annotation_second, v4_impl_annotation_second_local)
+    say "impl-annotation-first-bridge=" + v4_ty_impl_local_annotation_type_at_offset(v4_impl_annotation_ty, v4_impl_annotation_first_def, v4_impl_annotation_first_offset)
+    say "impl-annotation-second-bridge=" + v4_ty_impl_local_annotation_type_at_offset(v4_impl_annotation_ty, v4_impl_annotation_second_def, v4_impl_annotation_second_offset)
+    say "impl-annotation-sibling-rejected=" + v4_impl_annotation_bool(v4_ty_impl_local_annotation_type_at_offset(v4_impl_annotation_ty, v4_impl_annotation_first_def, v4_impl_annotation_second_offset) == v4_ty_unknown)
+    say "impl-annotation-foreign-rejected=" + v4_impl_annotation_bool(v4_ty_impl_local_annotation_type_at_offset(v4_impl_annotation_ty, "file999::Method::Pilot.first#1:0", v4_impl_annotation_first_offset) == v4_ty_unknown)
+    say "impl-annotation-diagnostics=" + word_from_int(v4_mir_diag_count(v4_impl_annotation_mir))
+    say "impl-annotation-message=" + v4_diag_message(v4_mir_diag(v4_impl_annotation_mir, 0))
+    say "impl-annotation-help=" + v4_diag_help(v4_mir_diag(v4_impl_annotation_mir, 0))
+    pilot v4_impl_annotation_hir_snapshot = v4_hir_snapshot()
+    pilot v4_impl_annotation_hir_restore = v4_hir_snapshot_restore(v4_impl_annotation_hir_snapshot)
+    -- Rebuild semantic consumers from restored HIR. This is not a TY snapshot
+    -- roundtrip: the existing TY format rejects its unknown-kind Impl rows.
+    pilot v4_impl_annotation_rebuilt_resolve = v4_resolve_lower_hir(v4_impl_annotation_file, v4_impl_annotation_hir)
+    pilot v4_impl_annotation_rebuilt_ty = v4_ty_lower_resolve(v4_impl_annotation_file, v4_impl_annotation_rebuilt_resolve)
+    say "impl-annotation-hir-restore-ty-rebuild-ok=" + v4_impl_annotation_bool(v4_impl_annotation_hir_restore.starts_with("hir-snapshot-restore ok=1") and v4_ty_diag_count(v4_impl_annotation_rebuilt_ty) == 0)
+    say "impl-annotation-rebuilt-identities-stable=" + v4_impl_annotation_bool(v4_ty_impl_method_def(v4_impl_annotation_rebuilt_ty, v4_impl_annotation_owner, 0) == v4_impl_annotation_first_def and v4_ty_impl_method_def(v4_impl_annotation_rebuilt_ty, v4_impl_annotation_owner, 1) == v4_impl_annotation_second_def)
+    say "impl-annotation-restored-first=" + v4_ty_impl_local_annotation_type_at_offset(v4_impl_annotation_rebuilt_ty, v4_impl_annotation_first_def, v4_impl_annotation_first_offset)
+    say "impl-annotation-restored-second=" + v4_ty_impl_local_annotation_type_at_offset(v4_impl_annotation_rebuilt_ty, v4_impl_annotation_second_def, v4_impl_annotation_second_offset)
+    say "impl-annotation-restored-sibling-rejected=" + v4_impl_annotation_bool(v4_ty_impl_local_annotation_type_at_offset(v4_impl_annotation_rebuilt_ty, v4_impl_annotation_second_def, v4_impl_annotation_first_offset) == v4_ty_unknown)
+}
+
+v4_impl_annotation_run()

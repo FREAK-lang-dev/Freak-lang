@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .lexer import Lexer, TokenType
+from .lexer import Lexer, LexerError, TokenType
 from .parser import (
     Annotation,
     Assign,
@@ -1498,6 +1498,66 @@ def _explicit_strict_smoke_errors(
     return errors
 
 
+def _task_return_scaling_errors(fixture: Path, harness: Path) -> List[str]:
+    """Require the return resource probes and their executable expectations."""
+    errors: List[str] = []
+    labels = (
+        "hir-scaling-512-task-returns", "hir-scaling-64-return-owners",
+        "hir-scaling-return-missing-one", "hir-scaling-return-missing-all",
+        "hir-scaling-return-duplicate-item", "hir-scaling-return-duplicate-id",
+        "hir-scaling-return-gap", "hir-scaling-return-noncanonical-id",
+        "hir-scaling-return-overflow-id", "hir-scaling-return-orphan-owner",
+        "hir-scaling-return-orphan-item", "hir-scaling-return-owner-kind",
+        "hir-scaling-return-implicit-parent-span", "hir-scaling-return-arrow-parent-span",
+        "hir-scaling-return-cross-file", "hir-scaling-return-outside-parent",
+        "hir-scaling-return-capacity-stable",
+    )
+    try:
+        fixture_source = fixture.read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"{fixture.name}: could not read scaling fixture: {exc}")
+    else:
+        # Token identity excludes comments and prevents text inside a word
+        # literal from masquerading as an executable probe or invocation.
+        try:
+            fixture_tokens = [
+                (token.type, token.lexeme)
+                for token in Lexer(fixture_source).tokenize()
+                if token.type != TokenType.EOF
+            ]
+        except LexerError as exc:
+            errors.append(f"{fixture.name}: invalid scaling fixture: {exc}")
+            fixture_tokens = []
+        for needle in (
+            "task v4_hir_scaling_return_checks(before: word)",
+            "v4_hir_scaling_returns(1, 512)",
+            "v4_hir_scaling_returns(64, 8)",
+            "    v4_hir_scaling_return_checks(before)",
+            *(f'say "{label}=" + word_from_bool(' for label in labels),
+        ):
+            needle_tokens = [
+                (token.type, token.lexeme)
+                for token in Lexer(needle).tokenize()
+                if token.type != TokenType.EOF
+            ]
+            if not any(
+                fixture_tokens[index:index + len(needle_tokens)] == needle_tokens
+                for index in range(len(fixture_tokens) - len(needle_tokens) + 1)
+            ):
+                errors.append(f"{fixture.name}: missing return scaling probe: {needle}")
+    smokes, manifest_errors = _literal_executable_smokes(harness)
+    errors.extend(manifest_errors)
+    smoke = smokes.get(fixture.name)
+    if smoke is None:
+        errors.append(f"EXECUTABLE_SMOKES: missing {fixture.name}")
+    else:
+        expected = set(smoke.expect) | set(smoke.expect_exact)
+        for label in labels:
+            if f"{label}=true" not in expected:
+                errors.append(f"EXECUTABLE_SMOKES: {fixture.name} missing {label}=true")
+    return errors
+
+
 def audit_conformance(paths: List[Path]) -> int:
     """
     Verify the selected v0.13.x baseline and promoted V4 contracts.
@@ -2882,6 +2942,110 @@ def audit_conformance(paths: List[Path]) -> int:
     )
     if unw_missing:
         failures.append("V4 unwinder-import diagnostic regressed: " + "; ".join(unw_missing))
+
+    # Check 9b: V4 ordinary-task return facts belong to HIR. This is an
+    # ownership boundary, not a new return semantic.
+    v4_hir_task_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_hir" / "src" / "lib.fk"
+    v4_ty_task_return = repo / "src" / "compiler" / "v4" / "crates" / "freak_ty" / "src" / "lib.fk"
+    v4_task_return_smoke = repo / "src" / "compiler" / "v4" / "tests" / "task_return_semantic_boundary_smoke.fk"
+    v4_task_return_harness = repo / "src" / "compiler" / "v4" / "check_v4.py"
+    v4_task_return_readme = repo / "src" / "compiler" / "v4" / "README.md"
+    task_return_boundary_missing: List[str] = []
+    if v4_hir_task_return.exists():
+        hir_src = v4_hir_task_return.read_text(encoding="utf-8")
+        for needle in (
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v5"',
+            'pilot v4_hir_task_return_explicit = "explicit"',
+            'pilot v4_hir_task_return_implicit_block = "implicit-block"',
+            'pilot v4_hir_task_return_arrow = "arrow"',
+            "pilot v4_hir_task_return_items = 0",
+            "pilot v4_hir_task_return_forms = 0",
+            "pilot v4_hir_task_return_types = 0",
+            "pilot v4_hir_task_return_spans = 0",
+            "task v4_hir_task_return_form(",
+            "task v4_hir_task_return_type(",
+            "task v4_hir_task_return_span(",
+            'pilot out = "hir-task-return"',
+            '"task-returns"',
+            "task v4_hir_snapshot_task_return_is_valid(",
+            "task v4_hir_snapshot_task_return_slots_are_valid(records: int, files: int, items: int, returns: int)",
+            'kind == v4_hir_task and seen != "1"',
+        ):
+            if needle not in hir_src:
+                task_return_boundary_missing.append(f"freak_hir: {needle}")
+    else:
+        task_return_boundary_missing.append("freak_hir/src/lib.fk missing")
+    if v4_ty_task_return.exists():
+        ty_src = v4_ty_task_return.read_text(encoding="utf-8")
+        for needle in (
+            "task v4_ty_signature_is_ordinary_hir_task(",
+            "task v4_ty_ordinary_task_explicit_return_from_hir(",
+            "task v4_ty_ordinary_task_explicit_return_span_from_hir(",
+            "task v4_ty_ordinary_task_arrow_return_fallback(",
+            "task v4_ty_nonordinary_signature_return_fallback(",
+            "task v4_ty_nonordinary_signature_return_span_fallback(",
+            "task v4_ty_nonordinary_hir_item_return_fallback(",
+        ):
+            if needle not in ty_src:
+                task_return_boundary_missing.append(f"freak_ty: {needle}")
+    else:
+        task_return_boundary_missing.append("freak_ty/src/lib.fk missing")
+    if not v4_task_return_smoke.exists():
+        task_return_boundary_missing.append("smoke fixture: task_return_semantic_boundary_smoke.fk")
+    if v4_task_return_harness.exists():
+        harness_src = v4_task_return_harness.read_text(encoding="utf-8")
+        for needle in (
+            '"name": "task return semantic boundary"',
+            '"fixture": "task_return_semantic_boundary_smoke.fk"',
+            "def check_task_return_hir_boundary() -> None:",
+            "def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:",
+            "task return boundary guard self-test: helper-indirected fallback rejected",
+            "check_task_return_hir_boundary()",
+            "task return snapshot must not rescan payload or parent records",
+            '"hir-scaling-return-missing-all=true"',
+            '"hir-scaling-512-task-returns=true"',
+        ):
+            if needle not in harness_src:
+                task_return_boundary_missing.append(f"check_v4.py: {needle}")
+    else:
+        task_return_boundary_missing.append("check_v4.py harness missing")
+    task_return_boundary_missing.extend(_task_return_scaling_errors(
+        v4_task_return_smoke.with_name("hir_snapshot_scaling_smoke.fk"),
+        v4_task_return_harness,
+    ))
+    for doc_path, needles in (
+        (
+            v4_task_return_readme,
+            (
+                "The third bounded boundary covers declared returns on ordinary top-level tasks.",
+                "HIR snapshot v5 validates that vocabulary",
+            ),
+        ),
+        (
+            audit_doc,
+            (
+                "V4 stores ordinary top-level tasks as closed",
+                "TY consumes that declared type/span without token reconstruction",
+            ),
+        ),
+    ):
+        if not doc_path.exists():
+            task_return_boundary_missing.append(f"documentation missing: {doc_path.name}")
+            continue
+        doc_src = doc_path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in doc_src:
+                task_return_boundary_missing.append(f"{doc_path.name}: {needle}")
+    add(
+        "V4 task return HIR boundary",
+        not task_return_boundary_missing,
+        "HIR v5 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
+    )
+    if task_return_boundary_missing:
+        failures.append(
+            "V4 ordinary-task return HIR boundary regressed: "
+            + "; ".join(task_return_boundary_missing)
+        )
 
     # ── Check 10: V4 contract-region source sets ──
     # Borrowed return signatures may select every parameter whose lifetime
