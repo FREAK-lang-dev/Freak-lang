@@ -177,7 +177,7 @@
 - [x] `freak run file.fk` — compile and run
 - [x] `freak build file.fk` — compile to binary
 - [x] `freak check file.fk` — type check only
-- [x] `freak test` — run all test blocks
+- [x] `freak test` — run the Python bootstrap test suite (`tests/suite/run_tests.py` shim; native runner is V4)
 - [x] `--output / -o` flag
 - [x] `--keep-c` flag (keep emitted C for debugging)
 - [x] Friendly errors: filename, line number, highlighted bad line
