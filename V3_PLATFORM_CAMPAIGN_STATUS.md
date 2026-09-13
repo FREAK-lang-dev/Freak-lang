@@ -1,9 +1,28 @@
 # FREAK V3 Platform Campaign Status
 
+> **MERGED — historical record.** Campaign PR #99 rebase-merged into `main`
+> as `3fa1638`. Everything below is the in-flight campaign record, preserved
+> as history; contradicted claims are corrected in the post-campaign note,
+> not rewritten in place.
+
 Pinned integration base: `db2afbb839c283c7cfe4d74a4ea9d08057a21c9d`
 (`v0.14.1`)
 
 Integration branch: `feat/v3-platform-foundation`
+
+## Post-campaign corrections (2026-09-12)
+
+- "Open non-draft / merge pending" language below is historical: PR #99
+  merged (`3fa1638`, in `main`).
+- `word += word` SHIPPED in Next Campaign wave-2 (`e6e5aea`, PR #112):
+  the checker accepts `word += word` with C/LLVM emission, and the negative
+  corpus now guards `word -= word` instead. The stability-table row and the
+  word-section "keep rejected" item are superseded (edited in place).
+- v0.14.1 "Maverick" is tagged (not pending). v0.14.2 is in prep
+  (PR #115, `VERSION` 0.14.2).
+- Default PR merge method is rebase-merge (PR #110). Windows CI no longer
+  runs inside `build-and-test` (Linux/macOS only); Windows runs the sharded
+  `windows-bootstrap-build` + `windows-test-suites-a/b/c` legs (PR #108).
 
 Campaign objective: make the stable V3 runtime, standard library, tooling, and
 ecosystem substantially faster and more useful without introducing V3.5
@@ -18,7 +37,7 @@ compiler architecture or semantics.
 | Ordnance and Hangar | Active | Package resolution remains outside the compiler; the compiler consumes a resolved immutable graph. |
 | C and LLVM backends | Required | Claimed V3 behavior needs parity coverage until V4 formally retires C. |
 | Public runtime ABI | Frozen by default | Additive ABI requires classification and tests; layout/signature replacement requires explicit approval. |
-| `word += word` | Not approved | It is a backward-compatible source extension, not a runtime-only optimization. Preserve the negative corpus until separately approved. |
+| `word += word` | SHIPPED (wave-2 `e6e5aea`) | Landed as a backward-compatible source extension: checker + C/LLVM emission in `main`. The negative corpus now preserves `word -= word` rejection instead. |
 
 ## Approved first-tranche contracts
 
@@ -200,7 +219,7 @@ the request remain future work and are not silently pulled into this campaign.
 
 - [x] Isolate the campaign from unrelated V4 work at the pinned base above.
 - [x] Classify additive runtime APIs separately from frozen layout ABI.
-- [x] Keep ordinary `word += word` rejected; approval has not been requested or granted.
+- [x] Keep ordinary `word -= word` rejected (updated wave-2 `e6e5aea`: `word += word` shipped with checker + C/LLVM emission, so the kept-rejected negative moved from `+=` to `-=`).
 - [x] Integrate Word, ByteBuffer, performance lab, profiles, scalar systems,
   managed TCP, and initial COCKPIT slices with their focused test programs.
 - [ ] Complete every remaining subsystem requirement below.
