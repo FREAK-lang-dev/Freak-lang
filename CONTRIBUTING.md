@@ -52,7 +52,7 @@ Check `freak-todo.md` for the full milestone tracker. Open issues on GitHub for 
 - New standard library modules
 - New CLI subcommands
 - Changes to the LLVM IR backend
-- freak-ui widget additions
+- COCKPIT (`packages/cockpit/`) widget additions
 
 **Do not:**
 - Submit PRs that rename `pilot` to `var`, `task` to `fn`, or otherwise de-anime the language. This will be closed without comment.
@@ -201,7 +201,7 @@ Either way, the merge target is `main` and the same review gates apply.
 
 ### Rules
 
-1. **No direct pushes to `main`.** Branch protection enforces this — every change goes through a PR with passing CI and a linear history (squash-merge).
+1. **No direct pushes to `main`.** Branch protection enforces this — every change goes through a PR with passing CI and linear history (rebase-merge default).
 2. **One concern per branch.** Same rule as PRs.
 3. **Short-lived.** If a branch is more than ~a day old, rebase on `main` before opening or updating the PR.
 4. **Delete after merge.** GitHub's "delete branch on merge" setting handles this automatically.
@@ -212,8 +212,8 @@ Either way, the merge target is `main` and the same review gates apply.
 The following protections are enabled in GitHub settings:
 
 - Require a pull request before merging
-- Require status checks to pass: `build-and-test` on Linux, macOS, and Windows
-- Require linear history (squash-merge only)
+- Require status checks to pass: `build-and-test` on Linux and macOS, plus `windows-test-suites-a/b/c`
+- Require linear history (rebase-merge default)
 - No admin bypass — emergencies still go through the PR flow
 
 ### Repository security settings
@@ -304,4 +304,4 @@ If a feature or change would fit equally well in any other language, it probably
 ---
 
 *"It was always going to end this way."*
-*— freak-ui mono_no_aware theme*
+*— COCKPIT mono_no_aware theme*

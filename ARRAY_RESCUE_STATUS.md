@@ -1,11 +1,15 @@
 # Operation Array Rescue
 
-State: scoped -> active -> integrating -> verifying -> integrating (main sync).
+State: scoped -> active -> integrating -> verifying -> complete (merged as PR #102 `62879be`, in `main`).
 Base: `0cd5404fed18ab8f38b7229cf8eb6cbfa2895940`.
 New base after rebase: `3fa1638` (V3 runtime and platform campaign).
 Integration: `fix/v3-array-rescue`, `C:/tmp/freak-v3-array-rescue`.
 Conflict repair: `teriri/pr102-conflict-repair`
 (`C:/Users/TeRiRi/.codex/worktrees/pr102-conflict-repair`).
+
+**CLOSED OUT — merged.** PR #102 rebase-merged into `main` as `62879be`.
+The no-merge authorization gate and pending-CI language preserved below are
+the historical record of the in-flight campaign, superseded by the merge.
 
 ## Contract and exit gates
 
@@ -18,7 +22,8 @@ Require executable LLVM/C parity, diagnostics and adversarial ownership checks,
 one-million-element math workloads with recorded performance, V3 regression and
 self-host verification, conformance documentation, immutable-head self-review
 and independent review. Deliver scoped commits and a draft PR; readiness needs
-current-head applicable CI and review disposition. No merge is authorized.
+current-head applicable CI and review disposition. Merged as PR #102
+(`62879be`, in `main`); the authorization gate is retired.
 
 ## Lane ledger
 
@@ -105,8 +110,9 @@ CLI in the integration checkout; no installed compiler is used as evidence.
   wiring guard. This static audit is separate from native execution evidence.
 
 Local machine reports are in `C:/tmp/freak-array-evidence/`; CI uploads its own
-per-platform benchmark report. Current-head cross-platform CI remains pending
-at this checkpoint; all required local gates have passed.
+per-platform benchmark report. PR #102 has merged into `main` as `62879be`,
+which retires the pending-CI checkpoint note; all required local gates had
+passed.
 
 ## Review disposition
 
@@ -193,8 +199,11 @@ Verification on the rebased head (repair worktree, llvm-mingw toolchain):
 - `git diff --check`: clean; locally rebuilt `build/` artifacts restored, so
   no binary churn is pushed.
 
-The standing "no merge authorized" note is superseded by the user's explicit
-rebase-merge request. Merge gate for the new head: branch mergeable after
-push; required strict CI (`build-and-test` on Linux/macOS/Windows) must run
-green on the new head before the rebase-merge completes; independent-review
-delta (this repair + arity port) is recorded here and in the PR comment.
+The standing "no merge authorized" note was superseded first by the explicit
+rebase-merge request and then by the merge itself (PR #102, `62879be` in
+`main`). Historical merge gate, with the CI reference corrected: the branch
+had to be mergeable after push and required strict CI — `build-and-test` on
+Linux/macOS plus the sharded Windows legs (`windows-bootstrap-build`,
+`windows-test-suites-a/b/c`) — had to run green on the new head before the
+rebase-merge completed; independent-review delta (this repair + arity port)
+is recorded here and in the PR comment.

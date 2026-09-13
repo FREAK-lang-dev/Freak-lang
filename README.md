@@ -46,10 +46,10 @@ That's it. That's the whole vibe.
 - **`say`** — print. Always available. No imports.
 - **`when`** — pattern matching over literal values.
 - **`fixed pilot`** — immutable binding. The pilot cannot be reassigned.
-- **`trust me`** — unsafe blocks. You asked for this.
+- **`trust me`** — unsafe blocks, Python bootstrap only (not in shipping V3). You asked for this.
 - **`training arc`** — bounded loop with a session cap. Compiles to a counted while.
 - **`eventually`** — block that runs at the end of the current scope.
-- **`isekai`** — nested scope with explicit `bringing back { ... }` exports.
+- **`isekai`** — nested scope with explicit `bringing back { ... }` exports (Python bootstrap; not in shipping V3).
 
 Native `extern task` names beginning with `__freak_` are reserved for compiler
 output, and source tasks cannot redeclare compiler builtin call names. V3
@@ -64,19 +64,20 @@ with the packaged runtime ABI.
 | `int` | 64-bit signed integer. |
 | `word` | UTF-8 string. Fat pointer. Knows its own length. |
 | `bool` | Booleans. `true`/`false`/`yes`/`no`/`hai`/`iie` are all valid literals. |
-| `maybe<T>` | Optional. `some(42)` or `nobody`. |
-| `result<T, E>` | Success or failure. `ok(val)` or `err("message")`. |
-| `List<T>` / `Map<K,V>` | The collections you'd expect. |
+| `List<T>` | Typed lists: `new` / `with_capacity` / `filled`, `push` / `pop` / `clear` / `reserve`, `capacity` / `length`, indexing, `for each`. |
+
+The Python bootstrap additionally understands `maybe<T>`, `result<T, E>`, and
+`Map<K,V>`; those reach the self-hosted compiler with V4.
 
 > The bible promises a wider type universe — `mood`, `prob[lo..hi]`, `power<N>`, `tiny`, `uint`, `char`, `big`, `float32`, fixed `[T;N]`, tuples, raw pointers. Those ship with the V4 self-hosting compiler. See [freak-conformance-audit.md](freak-conformance-audit.md) for the v0.13.x → V4 mapping.
 
 ### The Anime Layer
 
-FREAK records the narrative weight of your code via the audit suite. What ships today:
+FREAK records the narrative weight of your code via the audit suite. What the audit suite tracks today (Python bootstrap, source checkouts):
 
 - **`foreshadow / payoff`** — Foreshadow a variable, payoff the promise. `freak foreshadow-audit` reports any unpaid debts and exits nonzero.
 - **`for science,`** — Used at call sites for `@experiment` tasks. `freak audit-science` lists every site.
-- **`trust me on my honor as .level { ... }`** — Escape-hatch blocks. `freak audit-trust` lists every block with its declared honor level.
+- **`trust me "reason" on my honor as .level { ... }`** — Escape-hatch blocks (Python bootstrap). `freak audit-trust` lists every block with its declared honor level.
 - **`deus_ex_machina "monologue" { ... }`** — Requires a monologue of at least 20 words (compile error if shorter). `freak audit-miracles` lists every block; warns past 3, errors past 10.
 
 ```rust
@@ -124,7 +125,7 @@ pilot b = a                              -- moves a → b
 -- a is no longer valid: "Shirogane. You gave this away."
 ```
 
-Primitives (`int`, `num`, `bool`) are Copy and don't move. `word`, `List<...>`, `Map<...>`, and user shapes are Move. If you need to step outside the rules, `trust me on my honor as .cadet { ... }` is the escape hatch (and `freak audit-trust` will remember).
+Primitives (`int`, `num`, `bool`) are Copy and don't move. `word`, `List<...>`, and user shapes are Move. The Python bootstrap additionally offers `trust me "reason" on my honor as .cadet { ... }` as an escape hatch (and `freak audit-trust` will remember).
 
 **Spectral foundation.** Let $\mathcal{E} = \{\text{fk}, \text{c}, \text{py}, \text{md}, \text{h}, \text{y}, \text{sh}, \text{tm}, \text{bt}, \text{ps}\}$ be the extension alphabet and define the line-count operator $\hat{\mathbf{L}} = \sum_{i \in \mathcal{E}} n_i\,|e_i\rangle\langle e_i|$ on $\mathcal{H}_{\text{FREAK}} = \bigoplus_i \mathbb{C}|e_i\rangle$. The codebase satisfies the spectral action
 
@@ -257,6 +258,14 @@ Output:
 8000000
 ```
 
+### New in v0.14.x
+
+- Typed `List<T>` ergonomics (`new` / `with_capacity` / `filled`, `push` / `pop` / `clear` / `reserve`, `capacity` / `length`) with C/LLVM parity.
+- Strict `word.parse_int()` / `word.parse_num()` with the sticky `parse_status()` channel; `int` / `num` / `bool` `.to_word()` conversions and `word += word`.
+- `--target` aliases (`linux-x64`, `linux-arm64`, `windows-x64`, `macos-arm64`) and `freak doctor --target`.
+- Stable diagnostic codes with an optional data-driven cast layer.
+- `freak about` / `freak about --pioneers` for compiler history.
+
 ---
 
 ## Hangar — The Package Manager
@@ -335,7 +344,13 @@ $$\text{Fk}_{105585}\text{C}_{102553}\text{Py}_{21380}\text{Md}_{15748}\text{H}_
 
 Molar mass **274,234 g/mol**. The Fk:C ratio of ≈ 1.03:1 confirms the self-hosting threshold has been crossed — there is now more FREAK in FREAK than C in FREAK. Do not inhale. There is no good reason for this section to be between Pattern Matching and Error Handling.
 
-### Error Handling
+### Error Handling (Python bootstrap)
+
+The `result<T, E>` / `ok()` / `err()` surface with postfix `?` and `check`
+blocks lives in the Python bootstrap today and reaches the self-hosted
+compiler with V4. New native code should prefer the strict checked-parsing
+methods (`word.parse_int()` / `word.parse_num()` with `parse_status()`)
+for external input.
 
 ```rust
 -- Propagate errors with ?
@@ -363,7 +378,7 @@ training arc until power >= 9000 max 1000 sessions {
 }
 ```
 
-### Doctrines (Traits)
+### Doctrines (Traits, Python bootstrap)
 
 ```rust
 doctrine Displayable {
@@ -443,9 +458,11 @@ Found 14 test(s).
   PASS  test_loops.fk
   ...
 ==================================================
-  12 passed, 0 failed, 2 skipped / 14 total
+  14 passed, 0 failed, 0 skipped / 14 total
 ==================================================
 ```
+
+(14 `test_*.fk` cases ship; none carry SKIP directives, so a healthy tree reports 14 passed.)
 
 > The bible describes a richer in-language test framework — `test "name" { expect X to be Y }` blocks, `@nakige` test annotations, vibes ratings on output. That ships with V4. Today, add a `test_*.fk` case under `tests/suite/` and run `freak test` from the repository checkout. The shim and Python bootstrap compiler are not included in standalone release archives; use `tests/v3_legacy_golden.py` for the preserved self-hosted V3 corpus.
 
@@ -500,8 +517,8 @@ on sharp edges.
 | Audit suite (`audit-conformance` / `audit-trust` / `audit-science` / `audit-miracles` / `foreshadow-audit`) | 🧰 Source-checkout Python tools; not embedded in release archives |
 | `std::fs`, `std::time`, `std::bytes`, `std::http`, `std::json` | ✅ Complete |
 | `std::process` | ⚠️ Partial — V3 exposes `args_count()` / `arg(index)`, environment access, and command execution; `args() -> List<word>` remains unimplemented |
-| COCKPIT UI framework | 📐 Source preview; supported implementation moves to Maverick |
-| LLVM JIT mode + DWARF debug info | 🚧 In progress |
+| COCKPIT UI framework | 📐 Maverick source preview (`packages/cockpit/` source-only facade over V3 primitives); widgets/themes are not shipped V3 surfaces |
+| LLVM DWARF debug info | ✅ Minimal line tables; JIT deferred to V4 |
 | V4 self-hosting compiler (variants, full BC, mood/prob/power, squadron concurrency, FFI surface, error voices) | 🔜 Roadmapped |
 | HFML (markup language) | 📐 Planned |
 
