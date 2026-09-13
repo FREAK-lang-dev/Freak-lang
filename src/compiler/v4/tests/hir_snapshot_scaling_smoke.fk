@@ -244,7 +244,9 @@ task v4_hir_scaling_index_exhaustion(payload: word, before: word) -> void {
 task v4_hir_scaling_children_empty(hir_id: int) -> bool {
     -- Empty derived indexes retain only their initialized unready sentinel.
     if array_len(v4_hir_annotation_index_handle(hir_id)) != 1 or array_len(v4_hir_return_index_handle(hir_id)) != 1 { give back false }
-    if array_get(v4_hir_annotation_index_handle(hir_id), 0) != "0" or array_get(v4_hir_return_index_handle(hir_id), 0) != "0" { give back false }
+    pilot annotation_ready: word = array_get(v4_hir_annotation_index_handle(hir_id), 0)
+    pilot return_ready: word = array_get(v4_hir_return_index_handle(hir_id), 0)
+    if annotation_ready != "0" or return_ready != "0" { give back false }
     if array_len(v4_hir_task_return_items_handle(hir_id)) != 0 or array_len(v4_hir_task_return_forms_handle(hir_id)) != 0 or array_len(v4_hir_task_return_types_handle(hir_id)) != 0 or array_len(v4_hir_task_return_spans_handle(hir_id)) != 0 {
         give back false
     }

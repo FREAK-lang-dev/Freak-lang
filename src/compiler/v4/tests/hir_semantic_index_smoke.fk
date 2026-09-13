@@ -16,7 +16,8 @@ task v4_hir_index_cold_resource_check() -> void {
         index += 1
     }
     pilot lowered = v4_hir_lower_expanded(99, 0)
-    pilot intact: bool = lowered < 0 and v4_hir_ready == 0 and array_get(sentinel, 0) == "foreign-owner-alive" and v4_hir_lookup_handles_available(9)
+    pilot sentinel_value: word = array_get(sentinel, 0)
+    pilot intact: bool = lowered < 0 and v4_hir_ready == 0 and sentinel_value == "foreign-owner-alive" and v4_hir_lookup_handles_available(9)
     index = 0
     repeat until index >= count - 10 {
         array_release(word_to_int(array_get(holders, index)))
@@ -27,7 +28,9 @@ task v4_hir_index_cold_resource_check() -> void {
     v4_hir_init()
     pilot recovered: bool = v4_hir_ready == 1 and v4_hir_file_count() == 0
     pilot empty = v4_hir_file_new(1, 0)
-    pilot initialized: bool = array_len(v4_hir_annotation_index_handle(empty)) == 1 and array_len(v4_hir_return_index_handle(empty)) == 1 and array_get(v4_hir_annotation_index_handle(empty), 0) == "0" and array_get(v4_hir_return_index_handle(empty), 0) == "0"
+    pilot annotation_ready: word = array_get(v4_hir_annotation_index_handle(empty), 0)
+    pilot return_ready: word = array_get(v4_hir_return_index_handle(empty), 0)
+    pilot initialized: bool = array_len(v4_hir_annotation_index_handle(empty)) == 1 and array_len(v4_hir_return_index_handle(empty)) == 1 and annotation_ready == "0" and return_ready == "0"
     pilot finalized: bool = v4_hir_finalize_lookup_indexes(empty)
     say "hir-index-cold-init-failure-recovery=" + word_from_bool(intact and recovered and initialized and finalized and v4_hir_local_annotation_count(empty, 0) == 0 and v4_hir_task_return_record_id(empty, 0) < 0)
 }
