@@ -1580,34 +1580,223 @@ task hangar_audit(project_dir: word, fix_mode: bool) -> int {
     give back issues
 }
 
--- ===================== HG3: LOGIN & PUBLISH ==========================
+-- ===================== HG3: ACCOUNTS, LOGIN & PUBLISH ==========================
+-- Hangar authenticates with an account, not a hand-minted token. `hangar auth
+-- login` asks the registry for a device code, shows a short user code, and
+-- waits while the person approves it in a browser they are already signed in
+-- to. The registry then issues a session for that account, which is what the
+-- CLI stores. Nothing here is ever typed or pasted by hand.
 
-task hangar_login() -> int {
+pilot HANGAR_API_BASE = "https://hangar.freaklang.dev/api/v1"
+
+task hangar_api_base() -> word {
+    pilot override: word = process::env("HANGAR_API")
+    if override != "" { give back override }
+    give back HANGAR_API_BASE
+}
+
+task hangar_home_dir() -> word {
+    pilot home_dir: word = process::env("HOME")
+    if home_dir == "" {
+        home_dir = process::env("APPDATA") + "/freak"
+    }
+    give back home_dir
+}
+
+task hangar_creds_path() -> word {
+    give back hangar_home_dir() + "/.hangar/credentials"
+}
+
+task hangar_ensure_config_dir() -> word {
+    pilot dir = hangar_home_dir() + "/.hangar"
+    if fs::exists(dir) == false {
+        fs::make_dir(dir)
+    }
+    give back dir
+}
+
+task hangar_stored_session() -> word {
+    pilot path = hangar_creds_path()
+    if fs::exists(path) == false { give back "" }
+    give back fs::read(path).trim()
+}
+
+-- POST a JSON body. The body goes through a temp file rather than the command
+-- line: quoting a JSON document through cmd.exe and sh differently is how you
+-- get corrupted payloads on one platform only.
+task hangar_post_json(url: word, body: word, bearer: word, is_win: bool) -> word {
+    pilot dir = hangar_ensure_config_dir()
+    pilot body_path = dir + "/request.json"
+    fs::write(body_path, body)
+
+    pilot mut cmd: word = "curl"
+    if is_win { cmd = "curl.exe" }
+    cmd = cmd + " -s -X POST -H \"Content-Type: application/json\""
+    if bearer != "" {
+        cmd = cmd + " -H \"Authorization: Bearer " + bearer + "\""
+    }
+    cmd = cmd + " --data-binary @" + hangar_shell_quote(body_path) + " " + hangar_shell_quote(url)
+    if is_win { cmd = cmd + " 2>nul" } else { cmd = cmd + " 2>/dev/null" }
+
+    pilot reply: word = process::exec_capture(cmd)
+    fs::delete(body_path)
+    give back reply
+}
+
+task hangar_get_json(url: word, bearer: word, is_win: bool) -> word {
+    pilot mut cmd: word = "curl"
+    if is_win { cmd = "curl.exe" }
+    cmd = cmd + " -s"
+    if bearer != "" {
+        cmd = cmd + " -H \"Authorization: Bearer " + bearer + "\""
+    }
+    cmd = cmd + " " + hangar_shell_quote(url)
+    if is_win { cmd = cmd + " 2>nul" } else { cmd = cmd + " 2>/dev/null" }
+    give back process::exec_capture(cmd)
+}
+
+task hangar_sleep(seconds: int) -> void {
+    if cli_is_windows() {
+        process::exec("timeout /t " + word_from_int(seconds) + " /nobreak >nul 2>nul")
+    } else {
+        process::exec("sleep " + word_from_int(seconds))
+    }
+}
+
+task hangar_open_browser(url: word) -> void {
+    if cli_is_windows() {
+        process::exec("rundll32 url.dll,FileProtocolHandler " + hangar_shell_quote(url))
+    } else {
+        -- xdg-open on Linux, open on macOS. Failure is fine: the URL is printed
+        -- anyway, so the person can open it themselves.
+        process::exec("xdg-open " + hangar_shell_quote(url) + " >/dev/null 2>&1 || open " + hangar_shell_quote(url) + " >/dev/null 2>&1")
+    }
+}
+
+task hangar_auth_login() -> int {
+    pilot is_win = cli_is_windows()
+    pilot base = hangar_api_base()
+
     say ""
     say C_BMAGENTA + "  HANGAR LOGIN" + C_RESET
     say ""
-    say "  Please enter your Hangar API token:"
-    pilot token: word = process::input()
-    if token == "" {
-        say "  Login cancelled."
+
+    pilot start_reply: word = hangar_post_json(base + "/auth/device/start",
+        "{\"label\":\"freak cli\"}", "", is_win)
+    if start_reply == "" {
+        say C_BRED + "  FAILED" + C_RESET + " Could not reach the registry at " + base
+        say C_DIM + "  Check your connection, or set HANGAR_API to another registry." + C_RESET
+        say ""
         give back 1
     }
 
-    -- Store in ~/.hangar/credentials
-    pilot home_dir: word = process::env("HOME")
-    if home_dir == "" {
-        -- Windows fallback
-        home_dir = process::env("APPDATA") + "/freak"
+    pilot device_code: word = hangar_extract_json_field(start_reply, "device_code")
+    pilot user_code: word = hangar_extract_json_field(start_reply, "user_code")
+    pilot verify_url: word = hangar_extract_json_field(start_reply, "verification_uri")
+    if device_code == "" or user_code == "" {
+        say C_BRED + "  FAILED" + C_RESET + " Registry did not return a device code."
+        say C_DIM + "  " + start_reply + C_RESET
+        say ""
+        give back 1
     }
-    pilot hangar_dir = home_dir + "/.hangar"
-    if fs::exists(hangar_dir) == false {
-        fs::make_dir(hangar_dir)
+
+    say "  First copy your one-time code: " + C_BWHITE + user_code + C_RESET
+    say ""
+    say "  Then open " + C_BCYAN + verify_url + C_RESET + " and approve it."
+    say ""
+    hangar_open_browser(verify_url)
+    say C_DIM + "  Waiting for approval..." + C_RESET
+
+    -- Poll until approved. Bounded, so a forgotten terminal stops on its own
+    -- rather than hammering the registry forever.
+    pilot mut session: word = ""
+    pilot mut username: word = ""
+    pilot mut finished: bool = false
+    pilot mut expired: bool = false
+
+    training arc until finished max 180 sessions {
+        hangar_sleep(5)
+        pilot poll_reply: word = hangar_post_json(base + "/auth/device/poll",
+            "{\"device_code\":\"" + device_code + "\"}", "", is_win)
+        pilot state: word = hangar_extract_json_field(poll_reply, "status")
+        if state == "approved" {
+            session = hangar_extract_json_field(poll_reply, "session")
+            username = hangar_extract_json_field(poll_reply, "username")
+            finished = true
+        }
+        if poll_reply.contains("expired") or poll_reply.contains("already used") {
+            expired = true
+            finished = true
+        }
     }
-    pilot creds_path = hangar_dir + "/credentials"
-    fs::write(creds_path, token)
+
+    if expired {
+        say ""
+        say C_BYELLOW + "  EXPIRED" + C_RESET + " That code is no longer valid. Run the command again."
+        say ""
+        give back 1
+    }
+    if session == "" {
+        say ""
+        say C_BYELLOW + "  TIMED OUT" + C_RESET + " No approval arrived. Run the command again."
+        say ""
+        give back 1
+    }
+
+    hangar_ensure_config_dir()
+    fs::write(hangar_creds_path(), session)
 
     say ""
-    say C_BGREEN + "  SUCCESS" + C_RESET + " Token stored in " + creds_path
+    say C_BGREEN + "  LOGGED IN" + C_RESET + " as " + C_BWHITE + username + C_RESET
+    say C_DIM + "  Session stored in " + hangar_creds_path() + C_RESET
+    say ""
+    give back 0
+}
+
+task hangar_auth_status() -> int {
+    pilot session = hangar_stored_session()
+    if session == "" {
+        say ""
+        say C_BYELLOW + "  NOT LOGGED IN" + C_RESET
+        say "  Run " + C_BCYAN + "hangar auth login" + C_RESET + " to sign in."
+        say ""
+        give back 1
+    }
+
+    pilot reply: word = hangar_get_json(hangar_api_base() + "/auth/whoami",
+        session, cli_is_windows())
+    pilot username: word = hangar_extract_json_field(reply, "username")
+    if username == "" {
+        say ""
+        say C_BYELLOW + "  SESSION EXPIRED" + C_RESET
+        say "  Run " + C_BCYAN + "hangar auth login" + C_RESET + " to sign in again."
+        say ""
+        give back 1
+    }
+
+    pilot email: word = hangar_extract_json_field(reply, "email")
+    say ""
+    say C_BGREEN + "  LOGGED IN" + C_RESET + " as " + C_BWHITE + username + C_RESET + C_DIM + " (" + email + ")" + C_RESET
+    say C_DIM + "  Registry: " + hangar_api_base() + C_RESET
+    say ""
+    give back 0
+}
+
+task hangar_auth_logout() -> int {
+    pilot session = hangar_stored_session()
+    if session == "" {
+        say ""
+        say "  Not logged in."
+        say ""
+        give back 0
+    }
+
+    -- Revoke server-side first, so a copied credential dies with the file.
+    hangar_post_json(hangar_api_base() + "/auth/logout", "{}", session, cli_is_windows())
+    fs::delete(hangar_creds_path())
+
+    say ""
+    say C_BGREEN + "  LOGGED OUT" + C_RESET + " Session revoked."
     say ""
     give back 0
 }
@@ -1661,28 +1850,23 @@ task hangar_publish(project_dir: word, dry_run: bool) -> int {
         give back 1
     }
 
-    -- Get token
-    pilot home_dir: word = process::env("HOME")
-    if home_dir == "" { home_dir = process::env("APPDATA") + "/freak" }
-    pilot creds_path = home_dir + "/.hangar/credentials"
-    if fs::exists(creds_path) == false {
+    -- Publishing is tied to an account, so it needs a live session.
+    pilot session: word = hangar_stored_session()
+    if session == "" {
         say C_BYELLOW + "  NOT LOGGED IN" + C_RESET
-        say "  Run 'hangar login' first."
+        say "  Run " + C_BCYAN + "hangar auth login" + C_RESET + " first."
         give back 1
     }
-    pilot token: word = fs::read(creds_path)
 
     -- Upload to registry API
-    pilot registry: word = toml_get("registries.default")
-    if registry == "" { registry = HANGAR_DEFAULT_REGISTRY }
-    -- Convert index URL to API URL (mock)
-    -- index.hangar.dev -> api.hangar.dev
-    pilot api_url = "https://api.hangar.dev/api/v1/publish"
+    pilot api_url = hangar_api_base() + "/publish"
 
-    say C_DIM + "  >> " + C_RESET + "Uploading to " + api_url + "..."
+    say C_DIM + "  >> " + C_RESET + "Uploading to " + api_url + " as " + pname + "..."
 
-    pilot curl_cmd = "curl -s -X POST -H \"Authorization: Bearer " + token + "\" "
-    curl_cmd = curl_cmd + "-F \"package=@" + tarball + "\" " + api_url
+    pilot mut curl_cmd: word = "curl"
+    if cli_is_windows() { curl_cmd = "curl.exe" }
+    curl_cmd = curl_cmd + " -s -X POST -H \"Authorization: Bearer " + session + "\""
+    curl_cmd = curl_cmd + " -F \"package=@" + tarball + "\" " + hangar_shell_quote(api_url)
 
     pilot curl_res = process::exec(curl_cmd)
 
@@ -1748,7 +1932,9 @@ task hangar_dispatch(args_cnt: int) -> void {
         say ""
         say C_BCYAN + "    audit" + C_RESET + "                        " + C_DIM + "Verify package integrity" + C_RESET
         say C_BCYAN + "    audit" + C_RESET + " --fix                 " + C_DIM + "Fix integrity issues" + C_RESET
-        say C_BCYAN + "    login" + C_RESET + "                        " + C_DIM + "Authenticate with registry" + C_RESET
+        say C_BCYAN + "    auth login" + C_RESET + "                   " + C_DIM + "Sign in to the registry in a browser" + C_RESET
+        say C_BCYAN + "    auth status" + C_RESET + "                  " + C_DIM + "Show the signed-in account" + C_RESET
+        say C_BCYAN + "    auth logout" + C_RESET + "                  " + C_DIM + "Revoke this machine's session" + C_RESET
         say C_BCYAN + "    publish" + C_RESET + " [--dry-run]          " + C_DIM + "Publish to registry" + C_RESET
         say ""
         give back
@@ -1829,8 +2015,23 @@ task hangar_dispatch(args_cnt: int) -> void {
             if arg3 == "--fix" { fix_mode = true }
         }
         hangar_audit(project_dir, fix_mode)
+    } else if subcmd == "auth" {
+        pilot auth_action: word = hangar_arg(3)
+        if auth_action == "" or auth_action == "login" {
+            hangar_auth_login()
+        } else if auth_action == "status" {
+            hangar_auth_status()
+        } else if auth_action == "logout" {
+            hangar_auth_logout()
+        } else {
+            say ""
+            say C_BYELLOW + "  Unknown auth command: " + C_RESET + auth_action
+            say "  Try " + C_BCYAN + "hangar auth login" + C_RESET + ", " + C_BCYAN + "auth status" + C_RESET + " or " + C_BCYAN + "auth logout" + C_RESET + "."
+            say ""
+        }
     } else if subcmd == "login" {
-        hangar_login()
+        -- Kept so existing muscle memory and scripts keep working.
+        hangar_auth_login()
     } else if subcmd == "publish" {
         pilot dry_run = false
         if args_cnt >= 4 {

@@ -204,7 +204,7 @@ exclude = [
 
 ```bash
 # One-time: authenticate
-hangar login
+hangar auth login
 
 # Dry run — shows what would be uploaded
 hangar publish --dry-run
@@ -224,7 +224,7 @@ Hangar verifies before upload:
 Token-based. Tokens are scoped per-package or per-namespace.
 
 ```bash
-hangar login                   # opens browser, stores token in ~/.hangar/credentials
+hangar auth login              # opens browser, stores a session in ~/.hangar/credentials
 hangar token create --scope muvluv
 hangar token revoke <token-id>
 ```
@@ -432,7 +432,7 @@ acme-auth   = { version = "^3.0", registry = "acme" }
 
 Private registries use the same static-index protocol as the public one. The registry server is a small open-source binary (`hangar-registry`) that teams can self-host.
 
-Auth for private registries: same token system, configured per-registry in `~/.hangar/credentials`.
+Auth for private registries: same account sessions, configured per-registry in `~/.hangar/credentials`.
 
 ---
 
@@ -466,10 +466,9 @@ hangar search <query>        Search the registry
 hangar info <package>        Show package details
 hangar tree                  Print dependency tree
 
-hangar login                 Authenticate with the registry
-hangar logout                Remove stored credentials
-hangar token create          Create a new API token
-hangar token revoke <id>     Revoke an API token
+hangar auth login            Sign in to the registry in a browser
+hangar auth status           Show the signed-in account
+hangar auth logout           Revoke this machine's session
 
 hangar audit                 Check dependencies for known advisories
 hangar audit --fix           Auto-update to patched versions

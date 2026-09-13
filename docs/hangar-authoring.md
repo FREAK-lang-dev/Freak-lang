@@ -101,6 +101,9 @@ newest release. Prefer `^` ranges in libraries and exact pins in applications.
    their next `hangar update`.
 4. Tag the release in Git so `git`-form consumers can pin it.
 
-Login once with `freak hangar login` before publishing. Transitive
+Sign in once with `freak hangar auth login` before publishing: it prints a
+short code, opens the registry in your browser, and waits while you approve it,
+so your password never reaches the terminal. `hangar auth status` shows the
+account, `hangar auth logout` revokes that machine's session. Transitive
 dependencies are resolved from each dependency's own `hangar.toml` at install
 time — keep yours accurate.
