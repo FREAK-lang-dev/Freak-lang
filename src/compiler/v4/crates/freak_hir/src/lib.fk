@@ -646,7 +646,7 @@ task v4_hir_finalize_lookup_indexes(hir_id: int) -> bool {
         if array_len(returns) != length + 1 { give back false }
     }
     pilot index = 0
-    repeat until index <= items {
+    repeat until index > items {
         array_set(packed, 1 + index, "0")
         array_set(returns, index, "-1")
         index += 1
