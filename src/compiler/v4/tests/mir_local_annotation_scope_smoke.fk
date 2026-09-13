@@ -1,0 +1,33 @@
+-- Ordinary task generics shadow aliases in local annotation resolution.
+-- Verification prepends the V4 crates before this file.
+task v4_annotation_scope_run() -> void {
+    pilot v4_annotation_scope_src = "alias T = word\nalias Identity<U> = U\n"
+    v4_annotation_scope_src = v4_annotation_scope_src + "task scoped<T>(input: T) -> int {\n"
+    v4_annotation_scope_src = v4_annotation_scope_src + " pilot local: T = input\n pilot wrapped: Identity<T> = input\n give back 0\n}\n"
+    v4_annotation_scope_src = v4_annotation_scope_src + "task ordinary() -> int {\n"
+    v4_annotation_scope_src = v4_annotation_scope_src + " pilot local: T = 7\n give back 0\n}\n"
+    pilot v4_annotation_scope_stream = v4_lex_text(0, v4_annotation_scope_src)
+    pilot v4_annotation_scope_tree = v4_parse_stream(0, v4_annotation_scope_stream)
+    pilot v4_annotation_scope_hir = v4_hir_lower_tree(0, v4_annotation_scope_tree)
+    pilot v4_annotation_scope_resolve = v4_resolve_lower_hir(0, v4_annotation_scope_hir)
+    pilot v4_annotation_scope_ty = v4_ty_lower_resolve(0, v4_annotation_scope_resolve)
+    pilot v4_annotation_scope_mir = v4_mir_lower_ty(0, v4_annotation_scope_ty)
+    pilot v4_annotation_scope_def = v4_resolve_def_for_name(v4_annotation_scope_resolve, "scoped")
+    pilot v4_annotation_scope_sig = v4_ty_lookup_signature(v4_annotation_scope_ty, v4_annotation_scope_def)
+    pilot v4_annotation_scope_body = v4_mir_lookup_body(v4_annotation_scope_mir, v4_annotation_scope_def)
+    pilot v4_annotation_scope_local = v4_mir_find_local(v4_annotation_scope_mir, v4_annotation_scope_body, "local")
+    pilot v4_annotation_scope_wrapped = v4_mir_find_local(v4_annotation_scope_mir, v4_annotation_scope_body, "wrapped")
+    say "annotation-scope-surface=" + v4_ty_signature_local_annotation_surface_type(v4_annotation_scope_ty, v4_annotation_scope_sig, 0)
+    say "annotation-scope-type=" + v4_ty_signature_local_annotation_type(v4_annotation_scope_ty, v4_annotation_scope_sig, 0)
+    say "annotation-scope-alias-type=" + v4_ty_signature_local_annotation_type(v4_annotation_scope_ty, v4_annotation_scope_sig, 1)
+    say "annotation-scope-mir-type=" + v4_mir_local_ty(v4_annotation_scope_mir, v4_annotation_scope_body, v4_annotation_scope_local)
+    say "annotation-scope-mir-alias-type=" + v4_mir_local_ty(v4_annotation_scope_mir, v4_annotation_scope_body, v4_annotation_scope_wrapped)
+    pilot v4_annotation_scope_ordinary_def = v4_resolve_def_for_name(v4_annotation_scope_resolve, "ordinary")
+    pilot v4_annotation_scope_ordinary_sig = v4_ty_lookup_signature(v4_annotation_scope_ty, v4_annotation_scope_ordinary_def)
+    say "annotation-scope-global-alias-type=" + v4_ty_signature_local_annotation_type(v4_annotation_scope_ty, v4_annotation_scope_ordinary_sig, 0)
+    say "annotation-scope-diagnostics=" + word_from_int(v4_mir_diag_count(v4_annotation_scope_mir))
+    say "annotation-scope-message=" + v4_diag_message(v4_mir_diag(v4_annotation_scope_mir, 0))
+    say "annotation-scope-help=" + v4_diag_help(v4_mir_diag(v4_annotation_scope_mir, 0))
+}
+
+v4_annotation_scope_run()
