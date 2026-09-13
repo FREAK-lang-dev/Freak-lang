@@ -129,8 +129,13 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_push(v4_hir_task_return_forms, word_from_int(array_new()))
         array_push(v4_hir_task_return_types, word_from_int(array_new()))
         array_push(v4_hir_task_return_spans, word_from_int(array_new()))
-        array_push(v4_hir_annotation_indexes, word_from_int(array_new()))
-        array_push(v4_hir_return_indexes, word_from_int(array_new()))
+        -- Invalidating an index writes slot zero, even before any facts exist.
+        pilot annotation_index = array_new()
+        pilot return_index = array_new()
+        array_push(annotation_index, "0")
+        array_push(return_index, "0")
+        array_push(v4_hir_annotation_indexes, word_from_int(annotation_index))
+        array_push(v4_hir_return_indexes, word_from_int(return_index))
         array_push(v4_hir_diags, word_from_int(array_new()))
     }
     if reused {
@@ -167,8 +172,12 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_set(v4_hir_task_return_forms, hir_id, word_from_int(array_new()))
         array_set(v4_hir_task_return_types, hir_id, word_from_int(array_new()))
         array_set(v4_hir_task_return_spans, hir_id, word_from_int(array_new()))
-        array_set(v4_hir_annotation_indexes, hir_id, word_from_int(array_new()))
-        array_set(v4_hir_return_indexes, hir_id, word_from_int(array_new()))
+        pilot reused_annotation_index = array_new()
+        pilot reused_return_index = array_new()
+        array_push(reused_annotation_index, "0")
+        array_push(reused_return_index, "0")
+        array_set(v4_hir_annotation_indexes, hir_id, word_from_int(reused_annotation_index))
+        array_set(v4_hir_return_indexes, hir_id, word_from_int(reused_return_index))
         array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
     }
     array_set(v4_hir_files, hir_id, word_from_int(file_id))
