@@ -700,7 +700,11 @@ task v4_hir_finalize_lookup_indexes(hir_id: int) -> bool {
         if index > 0 {
             pilot current = word_to_int(array_get(order, index))
             pilot previous = word_to_int(array_get(order, index - 1))
-            if array_get(v4_hir_local_annotation_items_handle(hir_id), current) == array_get(v4_hir_local_annotation_items_handle(hir_id), previous) and array_get(starts, current) == array_get(starts, previous) { valid = false }
+            pilot current_item: word = array_get(v4_hir_local_annotation_items_handle(hir_id), current)
+            pilot previous_item: word = array_get(v4_hir_local_annotation_items_handle(hir_id), previous)
+            pilot current_start: word = array_get(starts, current)
+            pilot previous_start: word = array_get(starts, previous)
+            if current_item == previous_item and current_start == previous_start { valid = false }
         }
         index += 1
     }
@@ -1877,7 +1881,11 @@ task v4_hir_snapshot_local_annotation_slots_are_valid(records: int, files: int, 
         repeat until position >= annotations or valid == false {
             pilot previous = word_to_int(array_get(order, position - 1))
             pilot current = word_to_int(array_get(order, position))
-            if array_get(key_items, previous) == array_get(key_items, current) and array_get(key_starts, previous) == array_get(key_starts, current) { valid = false }
+            pilot previous_item: word = array_get(key_items, previous)
+            pilot current_item: word = array_get(key_items, current)
+            pilot previous_start: word = array_get(key_starts, previous)
+            pilot current_start: word = array_get(key_starts, current)
+            if previous_item == current_item and previous_start == current_start { valid = false }
             position += 1
         }
         array_release(order)
