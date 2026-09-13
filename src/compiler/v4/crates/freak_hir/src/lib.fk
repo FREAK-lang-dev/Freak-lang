@@ -72,7 +72,7 @@ task v4_hir_init() -> void {
     }
 }
 
--- File slots own their twelve child arrays. Logical snapshot truncation keeps
+-- File slots own their sixteen child arrays. Logical snapshot truncation keeps
 -- high-water slots reachable; reusing a slot must release its previous children.
 -- Fresh slots allocate once, without immediately overwriting those handles.
 task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
