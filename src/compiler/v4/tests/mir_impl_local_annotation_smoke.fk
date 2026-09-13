@@ -5,11 +5,15 @@ task v4_impl_annotation_bool(value: bool) -> word {
     give back "false"
 }
 
-pilot v4_impl_annotation_src = "shape Pilot { hp: int }\n"
+pilot v4_impl_annotation_src = "shape Pilot {"
+v4_impl_annotation_src = v4_impl_annotation_src + " hp: int }\n"
 v4_impl_annotation_src = v4_impl_annotation_src + "impl Pilot {\n"
-v4_impl_annotation_src = v4_impl_annotation_src + "task first(self) -> int {\n pilot local: int = 7\n give back local\n}\n"
-v4_impl_annotation_src = v4_impl_annotation_src + "task second(self) -> word {\n pilot local: word = \"ace\"\n give back local\n}\n"
-v4_impl_annotation_src = v4_impl_annotation_src + "task bad(self) -> int {\n pilot local: int = \"wrong\"\n give back 0\n}\n}\n"
+v4_impl_annotation_src = v4_impl_annotation_src + "task first(self) -> int {\n"
+v4_impl_annotation_src = v4_impl_annotation_src + " pilot local: int = 7\n give back local\n}\n"
+v4_impl_annotation_src = v4_impl_annotation_src + "task second(self) -> word {\n"
+v4_impl_annotation_src = v4_impl_annotation_src + " pilot local: word = \"ace\"\n give back local\n}\n"
+v4_impl_annotation_src = v4_impl_annotation_src + "task bad(self) -> int {\n"
+v4_impl_annotation_src = v4_impl_annotation_src + " pilot local: int = \"wrong\"\n give back 0\n}\n}\n"
 pilot v4_impl_annotation_stream = v4_lex_text(0, v4_impl_annotation_src)
 pilot v4_impl_annotation_tree = v4_parse_stream(0, v4_impl_annotation_stream)
 pilot v4_impl_annotation_hir = v4_hir_lower_tree(0, v4_impl_annotation_tree)

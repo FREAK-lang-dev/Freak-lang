@@ -1,8 +1,10 @@
 -- Ordinary task generics shadow aliases in local annotation resolution.
 -- Verification prepends the V4 crates before this file.
 pilot v4_annotation_scope_src = "alias T = word\nalias Identity<U> = U\n"
-v4_annotation_scope_src = v4_annotation_scope_src + "task scoped<T>(input: T) -> int {\n pilot local: T = input\n pilot wrapped: Identity<T> = input\n give back 0\n}\n"
-v4_annotation_scope_src = v4_annotation_scope_src + "task ordinary() -> int {\n pilot local: T = 7\n give back 0\n}\n"
+v4_annotation_scope_src = v4_annotation_scope_src + "task scoped<T>(input: T) -> int {\n"
+v4_annotation_scope_src = v4_annotation_scope_src + " pilot local: T = input\n pilot wrapped: Identity<T> = input\n give back 0\n}\n"
+v4_annotation_scope_src = v4_annotation_scope_src + "task ordinary() -> int {\n"
+v4_annotation_scope_src = v4_annotation_scope_src + " pilot local: T = 7\n give back 0\n}\n"
 pilot v4_annotation_scope_stream = v4_lex_text(0, v4_annotation_scope_src)
 pilot v4_annotation_scope_tree = v4_parse_stream(0, v4_annotation_scope_stream)
 pilot v4_annotation_scope_hir = v4_hir_lower_tree(0, v4_annotation_scope_tree)
