@@ -1498,6 +1498,47 @@ def _explicit_strict_smoke_errors(
     return errors
 
 
+def _task_return_scaling_errors(fixture: Path, harness: Path) -> List[str]:
+    """Require the return resource probes and their executable expectations."""
+    errors: List[str] = []
+    labels = (
+        "hir-scaling-512-task-returns", "hir-scaling-64-return-owners",
+        "hir-scaling-return-missing-one", "hir-scaling-return-missing-all",
+        "hir-scaling-return-duplicate-item", "hir-scaling-return-duplicate-id",
+        "hir-scaling-return-gap", "hir-scaling-return-noncanonical-id",
+        "hir-scaling-return-overflow-id", "hir-scaling-return-orphan-owner",
+        "hir-scaling-return-orphan-item", "hir-scaling-return-owner-kind",
+        "hir-scaling-return-implicit-parent-span", "hir-scaling-return-arrow-parent-span",
+        "hir-scaling-return-cross-file", "hir-scaling-return-outside-parent",
+        "hir-scaling-return-capacity-stable",
+    )
+    try:
+        fixture_source = fixture.read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"{fixture.name}: could not read scaling fixture: {exc}")
+    else:
+        for needle in (
+            "task v4_hir_scaling_return_checks(before: word)",
+            "v4_hir_scaling_returns(1, 512)",
+            "v4_hir_scaling_returns(64, 8)",
+            "    v4_hir_scaling_return_checks(before)",
+            *(f'say "{label}=" + word_from_bool(' for label in labels),
+        ):
+            if needle not in fixture_source:
+                errors.append(f"{fixture.name}: missing return scaling probe: {needle}")
+    smokes, manifest_errors = _literal_executable_smokes(harness)
+    errors.extend(manifest_errors)
+    smoke = smokes.get(fixture.name)
+    if smoke is None:
+        errors.append(f"EXECUTABLE_SMOKES: missing {fixture.name}")
+    else:
+        expected = set(smoke.expect) | set(smoke.expect_exact)
+        for label in labels:
+            if f"{label}=true" not in expected:
+                errors.append(f"EXECUTABLE_SMOKES: {fixture.name} missing {label}=true")
+    return errors
+
+
 def audit_conformance(paths: List[Path]) -> int:
     """
     Verify the selected v0.13.x baseline and promoted V4 contracts.
@@ -2949,6 +2990,10 @@ def audit_conformance(paths: List[Path]) -> int:
                 task_return_boundary_missing.append(f"check_v4.py: {needle}")
     else:
         task_return_boundary_missing.append("check_v4.py harness missing")
+    task_return_boundary_missing.extend(_task_return_scaling_errors(
+        v4_task_return_smoke.with_name("hir_snapshot_scaling_smoke.fk"),
+        v4_task_return_harness,
+    ))
     for doc_path, needles in (
         (
             v4_task_return_readme,

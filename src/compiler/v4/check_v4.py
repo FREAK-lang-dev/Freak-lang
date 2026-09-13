@@ -9640,8 +9640,11 @@ def freak_tasks_containing(source: str, needle: str) -> set[str]:
     }
 
 
-def freak_task_calls(source: str, body: str) -> set[str]:
-    task_names = set(re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", source))
+def freak_task_names(source: str) -> set[str]:
+    return set(re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", source))
+
+
+def freak_task_calls(task_names: set[str], body: str) -> set[str]:
     return {
         task_name
         for task_name in task_names
@@ -9649,8 +9652,11 @@ def freak_task_calls(source: str, body: str) -> set[str]:
     }
 
 
-def freak_task_call_closure(source: str, roots: set[str]) -> set[str]:
-    task_names = set(re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", source))
+def freak_task_call_closure(
+    source: str, roots: set[str], task_names: set[str] | None = None,
+) -> set[str]:
+    if task_names is None:
+        task_names = freak_task_names(source)
     pending = sorted(roots & task_names)
     reached: set[str] = set()
     while pending:
@@ -9661,7 +9667,7 @@ def freak_task_call_closure(source: str, roots: set[str]) -> set[str]:
         body = freak_task_body(source, task_name)
         if body is None:
             continue
-        pending.extend(sorted(freak_task_calls(source, body) - reached))
+        pending.extend(sorted(freak_task_calls(task_names, body) - reached))
     return reached
 
 
@@ -9680,6 +9686,7 @@ def freak_braced_arm(body: str, marker: str) -> str | None:
 
 def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:
     violations: list[str] = []
+    task_names = freak_task_names(ty_source)
     explicit_roots = {
         "v4_ty_ordinary_task_explicit_return_from_hir",
         "v4_ty_ordinary_task_explicit_return_span_from_hir",
@@ -9696,7 +9703,7 @@ def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:
         violations.append("task return ordinary surface dispatch reaches the nonordinary fallback")
     if surface_arm is not None:
         explicit_roots.update(
-            freak_task_calls(ty_source, surface_arm) - {"v4_ty_task_return_from_hir"}
+            freak_task_calls(task_names, surface_arm) - {"v4_ty_task_return_from_hir"}
         )
 
     hir_dispatch_body = freak_task_body(ty_source, "v4_ty_task_return_from_hir")
@@ -9707,7 +9714,7 @@ def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:
     if explicit_arm is None:
         violations.append("task return HIR dispatcher has no bounded explicit-return arm")
     else:
-        explicit_roots.update(freak_task_calls(ty_source, explicit_arm))
+        explicit_roots.update(freak_task_calls(task_names, explicit_arm))
 
     span_body = freak_task_body(ty_source, "v4_ty_signature_return_span")
     span_arm = None if span_body is None else freak_braced_arm(
@@ -9717,9 +9724,9 @@ def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:
     if span_arm is None:
         violations.append("task return signature span dispatcher has no bounded ordinary-task arm")
     else:
-        explicit_roots.update(freak_task_calls(ty_source, span_arm))
+        explicit_roots.update(freak_task_calls(task_names, span_arm))
 
-    reached = freak_task_call_closure(ty_source, explicit_roots)
+    reached = freak_task_call_closure(ty_source, explicit_roots, task_names)
     forbidden_tasks = {
         "v4_ty_nonordinary_signature_return_fallback",
         "v4_ty_nonordinary_signature_return_span_fallback",
@@ -9750,7 +9757,7 @@ def task_return_explicit_call_closure_violations(ty_source: str) -> list[str]:
                     f"task return explicit HIR call closure reconstructs syntax: {task_name} uses {forbidden}"
                 )
         token_helpers = sorted(
-            call for call in freak_task_calls(ty_source, body) if "token" in call
+            call for call in freak_task_calls(task_names, body) if "token" in call
         )
         if token_helpers:
             violations.append(
@@ -10173,12 +10180,15 @@ def check_task_return_hir_boundary() -> None:
     if explicit_body is None or "give back return_ty" not in explicit_body:
         violations.append("task return boundary guard self-test could not locate explicit adapter return")
     else:
+        masked_ty_source = freak_mask_line_comments(ty_source)
         mutated_body = explicit_body.replace(
             "give back return_ty",
             "give back v4_ty_nonordinary_signature_return_fallback(0, 0)",
             1,
         )
-        mutated_source = ty_source.replace(explicit_body, mutated_body, 1)
+        if explicit_body not in masked_ty_source:
+            violations.append("task return boundary guard self-test could not locate explicit adapter body")
+        mutated_source = masked_ty_source.replace(explicit_body, mutated_body, 1)
         probe_violations = task_return_explicit_call_closure_violations(mutated_source)
         if not any(
             "v4_ty_nonordinary_signature_return_fallback" in violation
