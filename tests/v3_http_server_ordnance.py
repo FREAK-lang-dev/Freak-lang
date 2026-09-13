@@ -39,6 +39,15 @@ VALID_FIELDS = (
     b"!#$%&'*+-.^_`|~: punctuation\r\n",
     b"X-Test:\t value:with:colons \t\r\nX-Test: repeated\r\n",
 )
+# packages/http-server/src/main.fk bounds every client receive with a 250ms
+# idle timeout and the whole request header with a 2s deadline.
+IDLE_TIMEOUT_SECONDS = 0.25
+HEADER_DEADLINE_SECONDS = 2.0
+TRICKLE_INTERVAL_SECONDS = 0.05
+# A loaded host can stall the trickle writer past the server's idle timeout.
+# Such an attempt says nothing about the server, so it is retried on a fresh
+# connection; the server's accepted-connection budget reserves every attempt.
+TRICKLE_ATTEMPTS = 3
 
 
 def assert_response(response: bytes, status: bytes, expected_body: bytes) -> None:
@@ -90,6 +99,54 @@ def request(port: int, fragments: list[bytes]) -> bytes:
         return bytes(response)
 
 
+def trickle_gaps(started: float, sent: list[float], ended: float) -> list[float]:
+    """Return every silent interval the server observed on a trickled header."""
+    stamps = [started, *sent, ended]
+    return [later - earlier for earlier, later in zip(stamps, stamps[1:])]
+
+
+def trickle_header(port: int) -> SimpleNamespace:
+    """Send a header one byte at a time until the server ends the request."""
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as trickle:
+        trickle.settimeout(5)
+        stop = threading.Event()
+        sent: list[float] = []
+
+        def send_trickle() -> None:
+            while not stop.wait(TRICKLE_INTERVAL_SECONDS):
+                try:
+                    trickle.sendall(b"x")
+                    sent.append(time.monotonic())
+                except OSError:
+                    return
+
+        writer = threading.Thread(target=send_trickle, daemon=True)
+        trickle.sendall(b"GET /hello HTTP/1.1\r\nX-Trickle: ")
+        started = time.monotonic()
+        writer.start()
+        response = bytearray()
+        try:
+            while True:
+                try:
+                    chunk = trickle.recv(4096)
+                except ConnectionResetError:
+                    break
+                if not chunk:
+                    break
+                response.extend(chunk)
+        finally:
+            ended = time.monotonic()
+            stop.set()
+            writer.join(timeout=1)
+        assert not writer.is_alive()
+        return SimpleNamespace(
+            sent=list(sent),
+            elapsed=ended - started,
+            gaps=trickle_gaps(started, sent, ended),
+            response=bytes(response),
+        )
+
+
 def bounded_readline(
     process: subprocess.Popen[str], *, timeout: float = 10.0
 ) -> str:
@@ -117,7 +174,11 @@ def bounded_readline(
 
 def exercise(binary: Path, root: Path) -> None:
     process = subprocess.Popen(
-        [str(binary), "0", str(5 + len(MALFORMED_FIELDS) + len(VALID_FIELDS))],
+        [
+            str(binary),
+            "0",
+            str(4 + TRICKLE_ATTEMPTS + len(MALFORMED_FIELDS) + len(VALID_FIELDS)),
+        ],
         cwd=root,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -141,42 +202,45 @@ def exercise(binary: Path, root: Path) -> None:
         assert slow_elapsed < 5, slow_elapsed
 
         # Keep the next header active more frequently than the 250ms idle
-        # timeout. Only the total header deadline should terminate it.
-        with socket.create_connection(("127.0.0.1", port), timeout=5) as trickle:
-            trickle.settimeout(5)
-            trickle.sendall(b"GET /hello HTTP/1.1\r\nX-Trickle: ")
-            stop = threading.Event()
-            sent: list[float] = []
-
-            def send_trickle() -> None:
-                while not stop.wait(0.05):
-                    try:
-                        trickle.sendall(b"x")
-                        sent.append(time.monotonic())
-                    except OSError:
-                        return
-
-            writer = threading.Thread(target=send_trickle, daemon=True)
-            trickle_started = time.monotonic()
-            writer.start()
-            response = bytearray()
-            try:
-                while True:
-                    try:
-                        chunk = trickle.recv(4096)
-                    except ConnectionResetError:
-                        break
-                    if not chunk:
-                        break
-                    response.extend(chunk)
-            finally:
-                stop.set()
-                writer.join(timeout=1)
-            trickle_elapsed = time.monotonic() - trickle_started
-            assert not writer.is_alive()
-            assert len(sent) >= 10, sent
-            assert 1.0 < trickle_elapsed < 4.0, trickle_elapsed
-            assert response.startswith(b"HTTP/1.1 400 Bad Request\r\n"), response
+        # timeout. Only the total header deadline should terminate it. That
+        # verdict is meaningful only when this client really kept every silent
+        # interval below the idle timeout; a stalled writer hands the server a
+        # legitimate idle timeout, so such an attempt is retried instead.
+        attempts: list[SimpleNamespace] = []
+        for _ in range(TRICKLE_ATTEMPTS):
+            attempt = trickle_header(port)
+            attempts.append(attempt)
+            # Both the idle timeout and the header deadline answer 400.
+            assert attempt.response.startswith(b"HTTP/1.1 400 Bad Request\r\n"), (
+                attempt.response
+            )
+            assert attempt.elapsed < 4.0, attempt.elapsed
+            if max(attempt.gaps) < IDLE_TIMEOUT_SECONDS:
+                break
+            print(
+                f"trickle writer stalled for {max(attempt.gaps):.3f}s "
+                f"(idle timeout {IDLE_TIMEOUT_SECONDS}s); retrying",
+                flush=True,
+            )
+        else:
+            raise AssertionError(
+                "trickle writer never kept every silent interval below the "
+                f"{IDLE_TIMEOUT_SECONDS}s idle timeout: "
+                f"{[attempt.gaps for attempt in attempts]}"
+            )
+        paced = attempts[-1]
+        # Every silent interval stayed below the idle timeout, so only the
+        # total header deadline could have ended the request.
+        assert 1.0 < paced.elapsed < 4.0, paced.elapsed
+        assert paced.elapsed > HEADER_DEADLINE_SECONDS - IDLE_TIMEOUT_SECONDS, (
+            paced.elapsed,
+            paced.gaps,
+        )
+        assert len(paced.sent) > paced.elapsed / IDLE_TIMEOUT_SECONDS - 1, (
+            len(paced.sent),
+            paced.elapsed,
+        )
+        assert len(paced.sent) >= 10, paced.sent
 
         # The timed-out client must not poison the sequential server. A complete
         # request immediately afterward still receives the normal response.
@@ -195,6 +259,14 @@ def exercise(binary: Path, root: Path) -> None:
         assert b"Connection: close" in headers
         assert body == SUCCESS_BODY, body
         assert_response(success, b"HTTP/1.1 200 OK", SUCCESS_BODY)
+        # Spend the trickle attempts this run did not need so the server still
+        # reaches its exact accepted-connection budget and exits normally.
+        for _ in range(TRICKLE_ATTEMPTS - len(attempts)):
+            spare = request(
+                port,
+                [b"GET /hello HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"],
+            )
+            assert_response(spare, b"HTTP/1.1 200 OK", SUCCESS_BODY)
 
         malformed = request(port, [b"POST /hello HTTP/1.1\r\n\r\n"])
         assert malformed.startswith(b"HTTP/1.1 400 Bad Request\r\n"), malformed
@@ -236,6 +308,27 @@ def check_readiness_reader_failures() -> None:
             raise AssertionError("readiness reader swallowed its failure")
 
 
+def check_trickle_pacing_verdicts() -> None:
+    """Silent intervals decide whether a trickle attempt says anything about the server."""
+    # Release run 34652287781 (macos-latest): the writer stalled for 383ms, so
+    # the server's 250ms idle timeout legitimately ended the header after only
+    # seven bytes. That attempt must be classified as stalled, not as a defect.
+    stalled = [
+        429.216464208, 429.271636791, 429.39691675, 429.561215458,
+        429.659156791, 429.710858083, 430.0938125,
+    ]
+    gaps = trickle_gaps(429.16, stalled, 430.12)
+    assert len(gaps) == len(stalled) + 1, gaps
+    assert max(gaps) >= IDLE_TIMEOUT_SECONDS, gaps
+    assert abs(max(gaps) - 0.383) < 0.001, gaps
+    paced = [TRICKLE_INTERVAL_SECONDS * index for index in range(1, 41)]
+    gaps = trickle_gaps(0.0, paced, HEADER_DEADLINE_SECONDS + 0.01)
+    assert max(gaps) < IDLE_TIMEOUT_SECONDS, gaps
+    # A silent client is one long gap; the server owes it only an idle timeout.
+    assert trickle_gaps(0.0, [], 0.3) == [0.3]
+    assert max(trickle_gaps(0.0, [], 0.3)) >= IDLE_TIMEOUT_SECONDS
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("freak", nargs="?", type=Path,
@@ -244,6 +337,7 @@ def main() -> int:
                         help="runtime payload to compile; defaults to repository")
     args = parser.parse_args()
     check_readiness_reader_failures()
+    check_trickle_pacing_verdicts()
     repo = Path(__file__).resolve().parents[1]
     runtime = (args.runtime_root or repo / "freakc" / "runtime").resolve()
     assert (runtime / "freak_runtime.c").is_file(), runtime

@@ -1800,7 +1800,9 @@ clear/append/append_char/append_int/finish/discard` surface. Builder handles are
 generation-checked and explicitly consumed by `finish` or `discard`; `finish`
 returns owned storage. The nominal builder example above remains the broader
 API direction, not an executable V3 shape contract. Python bootstrap emission
-rejects these owned-return operations. `word += word` remains rejected in V3.
+rejects these owned-return operations. `word += word` appends through the
+checked ownership contract (see the `+=` note under `std::num` conversions);
+other compound operators on words remain rejected.
 
 Runtime-owned LLVM words retain their explicit byte length in the existing
 ownership registry without changing the integer-pointer ABI. Embedded NUL bytes
@@ -1840,6 +1842,22 @@ x.to_word() / x.to_word_fmt(decimals: 2)
 x.is_nan() / x.is_inf() / x.is_finite()
 int::checked_add(a, b)   -- maybe<int>, overflow-safe
 ```
+
+**V3 conversion implementation:** `int.to_word()`, `num.to_word()`, and
+`bool.to_word()` are implemented with C/LLVM parity, as are the `int <->
+num` cross conversions. The legacy `word_from_int()`, `word_from_bool()`,
+and `format_num()` aliases remain and agree with the methods. The rest of this section (`abs`, `sign`, `clamp`, `pow`, `sqrt`,
+`floor`, `ceil`, `round`, `to_word_fmt`, the `is_` predicates, and the
+overflow-safe variants) remains planned. `tests/v3_conversions.py` pins
+the implemented surface.
+
+**V3 word `+=` implementation:** `text += other` appends through the
+checked ownership contract with C/LLVM parity: mutable locals grow in
+place, globals go through concat plus replace, and shape fields and list
+elements reuse the existing compound-projection paths. Self-append
+(`s += s`) and owned temporaries (`s += n.to_word()`) are sound; other
+compound operators on words remain rejected. `tests/v3_conversions.py`
+pins the value, ownership-audit, and rejection coverage.
 
 ### 7.4 std::collections
 

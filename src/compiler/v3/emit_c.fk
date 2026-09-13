@@ -1377,6 +1377,40 @@ task emit_stmt(eid: word) -> void {
             emit_expr(expr_id_w) emit_line(" = __freak_replacement; }") give back
         }
 
+        -- Word `+=` appends through the checked ownership contract: locals
+        -- grow in place via concat_consuming (same-input safe), globals go
+        -- through the replace route exactly like `=` does.
+        if lhs_kind == EXPR_IDENT and op_w == "+=" {
+            pilot lhs_name: word = array_get(ast_expr_vals, lhs_idx)
+            if emt_get_var_type(lhs_name) == "w" {
+                pilot rhs_owned = emt_word_expr_is_owned_temporary(rhs_w)
+                if emt_active_binding_is_global(lhs_name) {
+                    emit("{ freak_word __freak_add_old = freak_word_clone(")
+                    emit_expr(expr_id_w)
+                    emit_line(");")
+                    emit("freak_word __freak_add_rhs = ")
+                    emit_expr(rhs_w)
+                    emit_line(";")
+                    emit_line("freak_word __freak_add_new = freak_word_concat(__freak_add_old, __freak_add_rhs);")
+                    if rhs_owned { emit_line("freak_word_release_owned(&__freak_add_rhs);") }
+                    emit("freak_word_replace_owned(&")
+                    emit_expr(expr_id_w)
+                    emit_line(", __freak_add_new);")
+                    emit_line("freak_word_release_owned(&__freak_add_old); }")
+                    give back
+                }
+                emit_expr(expr_id_w)
+                emit(" = freak_word_concat_consuming(")
+                emit_expr(expr_id_w)
+                emit(", ")
+                emit_expr(rhs_w)
+                emit(", true, ")
+                if rhs_owned { emit_line("true);") }
+                else { emit_line("false);") }
+                give back
+            }
+        }
+
         -- A word replacement must evaluate its RHS before releasing the old
         -- owned buffer (`name = name + suffix`), and direct self-assignment
         -- must keep the shared pointer alive.

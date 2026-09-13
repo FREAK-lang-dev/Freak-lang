@@ -6,7 +6,7 @@
 and not enough sleep, but somehow it compiles.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-pink?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/v0.14.1-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
+[![Version](https://img.shields.io/badge/v0.14.2-Maverick--red?style=flat-square)](https://github.com/FREAK-lang-dev/Freak-lang/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/FREAK-lang-dev/Freak-lang/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/FREAK-lang-dev/Freak-lang/actions)
 [![Status](https://img.shields.io/badge/status-self--hosting-brightgreen?style=flat-square)](#)
 [![Vibes](https://img.shields.io/badge/vibes-MONO__NO__AWARE-blueviolet?style=flat-square)](#)
@@ -218,6 +218,43 @@ Output:
 ```
 Hello, world!
 Your mission has begun.
+```
+
+### Something real: typed lists
+
+```rust
+task dot(a: List<num>, b: List<num>) -> num {
+    if a.length() != b.length() {
+        say "dot needs equal-length lists"
+        give back 0.0
+    }
+
+    pilot mut total: num = 0.0
+    pilot mut i: int = 0
+
+    repeat a.length() times {
+        total += a[i] * b[i]
+        i += 1
+    }
+
+    give back total
+}
+
+task main() {
+    pilot a = List::filled(2.0, 1000000)
+    pilot b = List::filled(4.0, 1000000)
+
+    say dot(a, b).to_word()
+}
+```
+
+```bash
+freak run dot.fk
+```
+
+Output:
+```
+8000000
 ```
 
 ---

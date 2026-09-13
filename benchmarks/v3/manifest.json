@@ -544,6 +544,166 @@
           "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         }
       }
+    },
+    {
+      "id": "list_int_fill_sum_1m",
+      "category": "runtime",
+      "source": "list_int_fill_sum_1m.fk",
+      "source_sha256": "a95bd7c4191538f9331215ecb04e7d037de3c881ccdb368e7d2ec4dd7978e582",
+      "modes": {
+        "default": {
+          "arguments": [
+            "1000000"
+          ],
+          "parameters": {
+            "iterations": 1000000,
+            "workload": "list-int-fill-indexed-and-iterated-sum",
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "1000000\n999496507\n999496507\n",
+          "expected_stdout_sha256": "baa9cb1bd0f2b748368008c945c041eb81483efea940554f2b5d021f4da70668",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "1000"
+          ],
+          "parameters": {
+            "iterations": 1000,
+            "workload": "list-int-fill-indexed-and-iterated-sum",
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "1000\n499500\n499500\n",
+          "expected_stdout_sha256": "0dc4d41679adaeb059ef833f31dbf18f02a655dc7836cf0dc2b0e23912a1db34",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "list_num_dot_1m",
+      "category": "runtime",
+      "source": "list_num_dot_1m.fk",
+      "source_sha256": "876fa4d50096d0ac5d2e97b3a52ca7a21efc1ee875b93033890c260467a5c91f",
+      "modes": {
+        "default": {
+          "arguments": [
+            "1000000"
+          ],
+          "parameters": {
+            "iterations": 1000000,
+            "workload": "list-num-dot-product",
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "8000000\n",
+          "expected_stdout_sha256": "06839681ef514772f85b3078075814e766e85839a156afc8bad29f02085a541d",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "1000"
+          ],
+          "parameters": {
+            "iterations": 1000,
+            "workload": "list-num-dot-product",
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "8000\n",
+          "expected_stdout_sha256": "06516f7a6e849dd3bbe5e3cd905cbaf7dab8f059572d2586adde4eb88ceabdd3",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "list_bool_mask_1m",
+      "category": "runtime",
+      "source": "list_bool_mask_1m.fk",
+      "source_sha256": "67b49635da494780d55171b25e39a3b06df0a6a5f916807f67d9699bf57b85bf",
+      "modes": {
+        "default": {
+          "arguments": [
+            "1000000"
+          ],
+          "parameters": {
+            "iterations": 1000000,
+            "workload": "list-bool-mask-count",
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "1000000\n500000\n",
+          "expected_stdout_sha256": "b97a745541ac9f2889daeaa335fc22016b1fa74b3b05261a791be8fa21ee48f5",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "1000"
+          ],
+          "parameters": {
+            "iterations": 1000,
+            "workload": "list-bool-mask-count",
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "1000\n500\n",
+          "expected_stdout_sha256": "ba363e2dd1de424e399a48b105b87152e60cc1b40311748b65c5f6c58f978e61",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "id": "list_word_churn_1m",
+      "category": "runtime",
+      "source": "list_word_churn_1m.fk",
+      "source_sha256": "2d65225c4dbcf29308ae8b9e02e1b3ccd87c99593a5121925b5c2ba276e960a0",
+      "modes": {
+        "default": {
+          "arguments": [
+            "1000000"
+          ],
+          "parameters": {
+            "iterations": 1000000,
+            "workload": "list-word-push-pop-length-sum",
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "0\n5888890\n",
+          "expected_stdout_sha256": "e36f7efc273ee3e3105bd7d99a2141e0f0d3c850f2b2d1c1977bf0ba38fa3216",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "quick": {
+          "arguments": [
+            "1000"
+          ],
+          "parameters": {
+            "iterations": 1000,
+            "workload": "list-word-push-pop-length-sum",
+            "comparison_class": "same-work",
+            "timing_scope": "whole-process-including-setup-and-verification"
+          },
+          "expected_exit_code": 0,
+          "expected_stdout": "0\n2890\n",
+          "expected_stdout_sha256": "730733144a9661392725c8205f00c3b28107c9094c73cb2cda08d7225f13b3e1",
+          "expected_stderr": "",
+          "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
     }
   ]
 }

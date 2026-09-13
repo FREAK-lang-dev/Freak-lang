@@ -617,6 +617,38 @@ def _foundation_workload_checks(manifest: dict[str, Any]) -> None:
         assert mode["parameters"]["read_calls"] == mode["parameters"]["write_calls"] == records * 2
 
 
+def _list_workload_checks(manifest: dict[str, Any]) -> None:
+    """Pin list-benchmark sizes and independently derive content oracles."""
+    cases = {case["id"]: case for case in manifest["cases"]}
+
+    modulus = 1000000007
+    for mode_name, mode in cases["list_int_fill_sum_1m"]["modes"].items():
+        count = 1000 if mode_name == "quick" else 1000000
+        assert mode["arguments"] == [str(count)]
+        total = sum(range(count)) % modulus
+        assert mode["expected_stdout"] == f"{count}\n{total}\n{total}\n"
+        assert mode["parameters"]["iterations"] == count
+
+    for mode_name, mode in cases["list_num_dot_1m"]["modes"].items():
+        count = 1000 if mode_name == "quick" else 1000000
+        assert mode["arguments"] == [str(count)]
+        assert mode["expected_stdout"] == f"{8 * count}\n"
+        assert mode["parameters"]["iterations"] == count
+
+    for mode_name, mode in cases["list_bool_mask_1m"]["modes"].items():
+        count = 1000 if mode_name == "quick" else 1000000
+        assert mode["arguments"] == [str(count)]
+        assert mode["expected_stdout"] == f"{count}\n{count // 2}\n"
+        assert mode["parameters"]["iterations"] == count
+
+    for mode_name, mode in cases["list_word_churn_1m"]["modes"].items():
+        count = 1000 if mode_name == "quick" else 1000000
+        assert mode["arguments"] == [str(count)]
+        taken = sum(len(str(index)) for index in range(count))
+        assert mode["expected_stdout"] == f"0\n{taken}\n"
+        assert mode["parameters"]["iterations"] == count
+
+
 def _static_checks(temporary: Path) -> dict[str, Any]:
     _linker_identity_timeout_checks()
     manifest = LAB.load_manifest(MANIFEST)
@@ -635,8 +667,13 @@ def _static_checks(temporary: Path) -> dict[str, Any]:
         "bytes_sequential_write",
         "bytes_sequential_read",
         "bytes_endian_roundtrip",
+        "list_int_fill_sum_1m",
+        "list_num_dot_1m",
+        "list_bool_mask_1m",
+        "list_word_churn_1m",
     ]
     _foundation_workload_checks(manifest)
+    _list_workload_checks(manifest)
 
     crlf = temporary / "crlf"
     shutil.copytree(MANIFEST.parent, crlf)

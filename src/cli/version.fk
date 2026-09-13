@@ -274,6 +274,7 @@ task cli_show_help() -> void {
     say cli_box_mid("  " + C_G2 + "audit-*" + C_RESET + "                       " + C_DIM + "audit-conformance/science/trust/miracles" + C_RESET, 45)
     say cli_box_mid("  " + C_G1 + "upgrade" + C_RESET + "                      " + C_DIM + "Download latest FREAK" + C_RESET, 45)
     say cli_box_mid("  " + C_BCYAN + "version" + C_RESET + "                      " + C_DIM + "Show version" + C_RESET, 45)
+    say cli_box_mid("  " + C_BCYAN + "about" + C_RESET + " [--pioneers]             " + C_DIM + "About + history" + C_RESET, 45)
     say cli_box_mid("  " + C_BCYAN + "help" + C_RESET + "                         " + C_DIM + "This screen" + C_RESET, 45)
     say cli_box_bot(45)
     say ""
