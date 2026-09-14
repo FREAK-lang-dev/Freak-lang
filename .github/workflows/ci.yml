@@ -138,7 +138,7 @@ jobs:
 
       - name: Preserve V3 array performance evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: array-benchmarks-${{ matrix.os }}
           path: array-benchmarks.json
@@ -354,7 +354,7 @@ jobs:
           clang -c freakc/runtime/ui/win32_backend.c -Ifreakc/runtime/ui $CLANG_FLAGS -o freakc/runtime/freak_ui_win32.obj
 
       - name: Upload Windows bootstrap build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-bootstrap-build
           path: |
@@ -423,7 +423,7 @@ jobs:
 
       - name: Preserve V3 array performance evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: array-benchmarks-windows-latest
           path: array-benchmarks.json
