@@ -5,61 +5,36 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'editors/**'
-      - 'tools/package_editors.py'
-      - 'tools/release_version.py'
-      - 'tests/editor_*.py'
       - 'VERSION'
+      - 'tools/release_version.py'
       - '.github/workflows/editor-packages.yml'
       - '.github/workflows/release.yml'
   push:
     branches: [main]
     paths:
-      - 'editors/**'
-      - 'tools/package_editors.py'
-      - 'tools/release_version.py'
-      - 'tests/editor_*.py'
       - 'VERSION'
+      - 'tools/release_version.py'
       - '.github/workflows/editor-packages.yml'
       - '.github/workflows/release.yml'
 
 permissions:
   contents: read
 
-defaults:
-  run:
-    shell: bash
-
 jobs:
-  package:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: editors/package-lock.json
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: npm ci --prefix editors
-      - name: Verify highlighting
-        run: |
-          npm test --prefix editors
-          python -u tests/editor_grammars.py
-      - name: Build and verify installable editor assets
+      - id: version
         run: |
           python -u tools/release_version.py check
-          python -u tools/package_editors.py --output dist/editors
-          python -u tests/editor_packages.py --artifacts dist/editors
-      - uses: actions/upload-artifact@v7
-        if: runner.os == 'Linux'
-        with:
-          name: editor-packages
-          path: dist/editors/
-          if-no-files-found: error
+          echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+  package:
+    needs: version
+    # Keep the workflow ref and source revision identical.
+    uses: FREAK-lang-dev/freak-editors/.github/workflows/editor-packages.yml@713cb1355dbed839eff9ec86be43b3a9585b962f
+    with:
+      version: ${{ needs.version.outputs.version }}
+      revision: 713cb1355dbed839eff9ec86be43b3a9585b962f

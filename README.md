@@ -92,11 +92,13 @@ payoff victory   -- promise kept
 
 ## Editor support
 
-Releases built with editor packaging include a VS Code `.vsix` and a Zed source
-extension `.zip`, with syntax highlighting and snippet completions for `.fk`
-files. Download them from the [release assets](https://github.com/FREAK-lang-dev/Freak-lang/releases)
-and follow the [editor installation guide](editors/README.md). Type-aware
-autocomplete and compiler diagnostics are not included yet.
+VS Code and Zed plugins are maintained in
+[FREAK-lang-dev/freak-editors](https://github.com/FREAK-lang-dev/freak-editors).
+FREAK releases built with editor packaging attach a VS Code `.vsix` and a Zed
+source extension `.zip`, with highlighting and snippet completions. Follow the
+[editor installation guide](https://github.com/FREAK-lang-dev/freak-editors#readme).
+VS Code also includes the editors repository's lightweight Python language
+server; compiler-backed type and borrow analysis are not included.
 
 ## The Audit System
 
