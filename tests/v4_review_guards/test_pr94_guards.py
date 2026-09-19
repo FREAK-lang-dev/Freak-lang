@@ -226,5 +226,28 @@ class LookupProbeAudit(unittest.TestCase):
             self.assertTrue(self.errors(fixture_source=source.replace(old, new)), old)
 
 
+class QueryResourceProbeAudit(unittest.TestCase):
+    def test_live_failure_and_retry_contract(self):
+        fixture = FIXTURE.with_name("hir_query_resource_smoke.fk")
+        self.assertEqual(auditor._hir_query_resource_errors(fixture, HARNESS), [])
+
+    def test_failure_oracle_removal_is_rejected(self):
+        fixture = FIXTURE.with_name("hir_query_resource_smoke.fk")
+        original_read = Path.read_text
+        source = HARNESS.read_text(encoding="utf-8")
+        source = source.replace('"hir-query-resource-no-publication=true",', '')
+        def selected(path, *args, **kwargs):
+            return source if path == HARNESS else original_read(path, *args, **kwargs)
+        with patch.object(Path, "read_text", selected):
+            self.assertTrue(auditor._hir_query_resource_errors(fixture, HARNESS))
+
+    def test_query_failure_resource_limit_is_required(self):
+        fixtures = guard.C_ARRAY_HANDLE_RESOURCE_FIXTURES - {"hir_query_resource_smoke.fk"}
+        with patch.object(guard, "C_ARRAY_HANDLE_RESOURCE_FIXTURES", fixtures):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    guard.check_snapshot_inventories()
+
+
 if __name__ == "__main__":
     unittest.main()

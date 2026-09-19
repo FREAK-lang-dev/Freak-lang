@@ -63,6 +63,7 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
         "hir_snapshot_scaling_smoke.fk",
         "hir_semantic_index_smoke.fk",
+        "hir_query_resource_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     }
@@ -2084,6 +2085,19 @@ EXECUTABLE_SMOKES = [
             "hir-index-lowering-reservation-atomic=true",
             "hir-index-fresh-reservation-atomic=true",
             "hir-index-reservation-recovery=true",
+        ],
+    },
+    {
+        "name": "HIR query resource failure recovery",
+        "fixture": "hir_query_resource_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "hir-query-resource-rejected=true",
+            "hir-query-resource-no-publication=true",
+            "hir-query-resource-failure-summaries=true",
+            "hir-query-resource-recovered=true",
+            "hir-query-resource-upstream-stable=true",
+            "hir-query-resource-lsp-retry=true",
         ],
     },
     {
@@ -10632,6 +10646,7 @@ def check_snapshot_inventories() -> None:
     for resource_fixture in (
         "hir_snapshot_scaling_smoke.fk",
         "hir_semantic_index_smoke.fk",
+        "hir_query_resource_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
     ):
@@ -10645,6 +10660,7 @@ def check_snapshot_inventories() -> None:
         {
             "hir_snapshot_scaling_smoke.fk",
             "hir_semantic_index_smoke.fk",
+            "hir_query_resource_smoke.fk",
             "mir_snapshot_resource_smoke.fk",
             "query_invalidation_resource_smoke.fk",
         }

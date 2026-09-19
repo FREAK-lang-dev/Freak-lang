@@ -1624,6 +1624,19 @@ def _hir_semantic_index_errors(fixture: Path, harness: Path) -> List[str]:
     ))
 
 
+def _hir_query_resource_errors(fixture: Path, harness: Path) -> List[str]:
+    return _hir_lookup_probe_errors(fixture, harness, (
+        "hir-query-resource-rejected", "hir-query-resource-no-publication",
+        "hir-query-resource-failure-summaries", "hir-query-resource-recovered",
+        "hir-query-resource-upstream-stable", "hir-query-resource-lsp-retry",
+    ), (
+        "v4_hir_query_resource_smoke()",
+        "v4_hir_text_cached(path, text)", "v4_completion_text_cached(path, text, 5)",
+        "array_release(holders)", "v4_query_store_count() == stores",
+        "v4_source_revision(file_id) == revision",
+    ))
+
+
 def audit_conformance(paths: List[Path]) -> int:
     """
     Verify the selected v0.13.x baseline and promoted V4 contracts.
@@ -3085,6 +3098,10 @@ def audit_conformance(paths: List[Path]) -> int:
     ))
     task_return_boundary_missing.extend(_hir_semantic_index_errors(
         v4_task_return_smoke.with_name("hir_semantic_index_smoke.fk"),
+        v4_task_return_harness,
+    ))
+    task_return_boundary_missing.extend(_hir_query_resource_errors(
+        v4_task_return_smoke.with_name("hir_query_resource_smoke.fk"),
         v4_task_return_harness,
     ))
     for doc_path, needles in (
