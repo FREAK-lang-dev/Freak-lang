@@ -515,6 +515,12 @@ task v4_hir_scaling_canonical_checks() -> void {
     array_push(lines, "hir")
     array_push(lines, "hir-item-extra|plain")
     array_push(lines, "hir%7C|plain")
+    array_push(lines, "0|1|2|3|4|5|6|7|8|9")
+    array_push(lines, "x|a|%|%25|%7C|%0A|%0D|%xx|%2|00|01|10")
+    array_push(lines, "|x||y|")
+    array_push(lines, "x")
+    array_push(lines, "|")
+    array_push(lines, "\n|\r|\t")
     array_push(lines, "")
     pilot fields_ok = true
     index = 0

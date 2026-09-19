@@ -1131,6 +1131,22 @@ task v4_hir_snapshot_field_raw(line: word, wanted: int) -> word {
         if line.starts_with("hir-snapshot|") { give back "hir-snapshot" }
         if line.starts_with("end|") { give back "end" }
     }
+    -- Numeric owner/slot fields are commonly one byte. char_at returns an
+    -- immutable byte word, avoiding a heap copy on each validation pass.
+    -- Locate raw separators first so escaped bytes keep the normal decoder.
+    if wanted >= 0 {
+        pilot field = 0
+        pilot start = 0
+        repeat until field >= wanted {
+            pilot separator = v4_index_of_from(line, "|", start)
+            if separator < 0 { give back "" }
+            start = separator + 1
+            field += 1
+        }
+        pilot end = v4_index_of_from(line, "|", start)
+        if end < 0 { end = line.length() }
+        if end == start + 1 { give back line.char_at(start) }
+    }
     give back v4_expand_snapshot_field_raw(line, wanted)
 }
 
