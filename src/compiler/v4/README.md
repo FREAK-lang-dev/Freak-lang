@@ -543,6 +543,10 @@ The v5 annotation and return records require their exact field widths, and
 duplicate annotation declaration starts within one file/item are rejected
 before restoration. Capacity preflight preserves live facts when the extra
 file-slot and index-scratch handle budget is unavailable.
+Recoverable HIR allocation failure is not a semantic result: driver and editor
+queries propagate failure without caching it or publishing empty downstream
+facts. Retrying the same source after releasing handles recomputes the missing
+facts. An invalid HIR handle is never reported as `hir-ok`.
 Task returns also use bounded owner/item indexes
 and require exactly one fact per ordinary Task, including when the payload
 declares zero returns. `hir_snapshot_scaling_smoke.fk` covers 64/512 aliases,

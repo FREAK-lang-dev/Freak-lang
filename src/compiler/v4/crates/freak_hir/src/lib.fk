@@ -1258,6 +1258,7 @@ task v4_hir_lower_tree(file_id: int, tree_id: int) -> int {
 }
 
 task v4_hir_summary(hir_id: int) -> word {
+    if v4_hir_file_exists(hir_id) == false { give back "hir-error reason=invalid-hir" }
     pilot summary = "hir-ok hir=" + word_from_int(hir_id)
     summary = summary + " items=" + word_from_int(v4_hir_item_count(hir_id))
     summary = summary + " diagnostics=" + word_from_int(v4_hir_diag_count(hir_id))
