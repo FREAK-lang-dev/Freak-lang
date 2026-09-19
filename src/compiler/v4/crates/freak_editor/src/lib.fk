@@ -1796,6 +1796,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
     }
 
     pilot hir_id = v4_hir_text_cached(path, text)
+    if hir_id < 0 { give back 0 - 1 }
     pilot hir_item = v4_editor_hir_item_at(hir_id, offset)
     pilot item_name = ""
     pilot item_kind = ""
@@ -2066,6 +2067,7 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
 
 task v4_semantic_at_text(path: word, text: word, offset: int) -> word {
     pilot fact_id = v4_semantic_at_text_cached(path, text, offset)
+    if fact_id < 0 { give back v4_driver_resource_failure("semantic") }
     give back v4_semantic_at_summary(fact_id)
 }
 
@@ -2225,6 +2227,7 @@ task v4_hover_text_cached(path: word, text: word, offset: int) -> int {
     }
 
     pilot semantic_id = v4_semantic_at_text_cached(path, text, offset)
+    if semantic_id < 0 { give back 0 - 1 }
     pilot name = v4_semantic_at_name(semantic_id)
     pilot kind = v4_semantic_at_kind(semantic_id)
     pilot type_display = v4_semantic_at_type(semantic_id)
@@ -2239,6 +2242,7 @@ task v4_hover_text_cached(path: word, text: word, offset: int) -> int {
 
 task v4_hover_text(path: word, text: word, offset: int) -> word {
     pilot hover_id = v4_hover_text_cached(path, text, offset)
+    if hover_id < 0 { give back v4_driver_resource_failure("hover") }
     give back v4_hover_summary(hover_id)
 }
 
@@ -2389,6 +2393,7 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
     }
 
     pilot semantic_id = v4_semantic_at_text_cached(path, text, offset)
+    if semantic_id < 0 { give back 0 - 1 }
     pilot hir_id = v4_hir_text_cached(path, text)
     pilot ty_id = v4_ty_text_cached(path, text)
     pilot mir_id = v4_mir_text_cached(path, text)
@@ -2530,6 +2535,7 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
 
 task v4_definition_at_text(path: word, text: word, offset: int) -> word {
     pilot defn_id = v4_definition_at_text_cached(path, text, offset)
+    if defn_id < 0 { give back v4_driver_resource_failure("definition") }
     give back v4_definition_at_summary(defn_id)
 }
 
@@ -2724,6 +2730,7 @@ task v4_document_symbols_text_cached(path: word, text: word) -> int {
     }
 
     pilot hir_id = v4_hir_text_cached(path, text)
+    if hir_id < 0 { give back 0 - 1 }
     pilot resolve_id = v4_resolve_text_cached(path, text)
     pilot ty_id = v4_ty_text_cached(path, text)
     pilot doc_id = v4_editor_document_symbols_new(path)
@@ -2765,6 +2772,7 @@ task v4_document_symbols_text_cached(path: word, text: word) -> int {
 
 task v4_document_symbols_text(path: word, text: word) -> word {
     pilot doc_id = v4_document_symbols_text_cached(path, text)
+    if doc_id < 0 { give back v4_driver_resource_failure("document-symbols") }
     give back v4_document_symbols_summary(doc_id)
 }
 
@@ -3314,6 +3322,7 @@ task v4_completion_text_cached(path: word, text: word, offset: int) -> int {
     }
 
     pilot doc_id = v4_document_symbols_text_cached(path, text)
+    if doc_id < 0 { give back 0 - 1 }
     pilot completion_id = v4_editor_completion_new(path, offset)
     v4_completion_add_document_symbols(completion_id, doc_id)
     v4_completion_add_locals_for_offset(completion_id, path, text, offset)
@@ -3337,6 +3346,7 @@ task v4_completion_text_cached(path: word, text: word, offset: int) -> int {
 
 task v4_completion_text(path: word, text: word, offset: int) -> word {
     pilot completion_id = v4_completion_text_cached(path, text, offset)
+    if completion_id < 0 { give back v4_driver_resource_failure("completion") }
     give back v4_completion_summary(completion_id)
 }
 

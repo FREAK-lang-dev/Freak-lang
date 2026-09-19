@@ -163,6 +163,11 @@ task v4_expand_file(path: word) -> word {
     give back summary
 }
 
+-- Resource failures are retryable outcomes, never query values or empty arenas.
+task v4_driver_resource_failure(stage: word) -> word {
+    give back stage + "-failed reason=hir-resource-exhausted"
+}
+
 task v4_hir_text_cached(path: word, text: word) -> int {
     v4_driver_init()
 
@@ -176,6 +181,7 @@ task v4_hir_text_cached(path: word, text: word) -> int {
 
     pilot expansion_id = v4_expand_text_cached(path, text)
     pilot hir_id = v4_hir_lower_expanded(file_id, expansion_id)
+    if hir_id < 0 { give back 0 - 1 }
     v4_query_store(key, fingerprint, word_from_int(hir_id))
     v4_query_record_dep(key, v4_expand_query_key(path))
     give back hir_id
@@ -190,6 +196,7 @@ task v4_hir_file(path: word) -> word {
     }
 
     pilot hir_id = v4_hir_text_cached(path, text)
+    if hir_id < 0 { give back v4_driver_resource_failure("hir") }
     pilot file_id = v4_source_find(path)
     pilot summary = v4_hir_summary(hir_id)
     summary = summary + " file=" + word_from_int(file_id)
@@ -209,6 +216,7 @@ task v4_resolve_text_cached(path: word, text: word) -> int {
     }
 
     pilot hir_id = v4_hir_text_cached(path, text)
+    if hir_id < 0 { give back 0 - 1 }
     pilot resolve_id = v4_resolve_lower_hir(file_id, hir_id)
     v4_query_store(key, fingerprint, word_from_int(resolve_id))
     v4_query_record_dep(key, v4_hir_query_key(path))
@@ -224,6 +232,7 @@ task v4_resolve_file(path: word) -> word {
     }
 
     pilot resolve_id = v4_resolve_text_cached(path, text)
+    if resolve_id < 0 { give back v4_driver_resource_failure("resolve") }
     pilot file_id = v4_source_find(path)
     pilot summary = v4_resolve_summary(resolve_id)
     summary = summary + " file=" + word_from_int(file_id)
@@ -243,6 +252,7 @@ task v4_ty_text_cached(path: word, text: word) -> int {
     }
 
     pilot resolve_id = v4_resolve_text_cached(path, text)
+    if resolve_id < 0 { give back 0 - 1 }
     pilot ty_id = v4_ty_lower_resolve(file_id, resolve_id)
     v4_query_store(key, fingerprint, word_from_int(ty_id))
     v4_query_record_dep(key, v4_resolve_query_key(path))
@@ -258,6 +268,7 @@ task v4_ty_file(path: word) -> word {
     }
 
     pilot ty_id = v4_ty_text_cached(path, text)
+    if ty_id < 0 { give back v4_driver_resource_failure("ty") }
     pilot file_id = v4_source_find(path)
     pilot summary = v4_ty_summary(ty_id)
     summary = summary + " file=" + word_from_int(file_id)
@@ -277,6 +288,7 @@ task v4_mir_text_cached(path: word, text: word) -> int {
     }
 
     pilot ty_id = v4_ty_text_cached(path, text)
+    if ty_id < 0 { give back 0 - 1 }
     pilot mir_id = v4_mir_lower_ty(file_id, ty_id)
     v4_query_store(key, fingerprint, word_from_int(mir_id))
     v4_query_record_dep(key, v4_ty_query_key(path))
@@ -292,6 +304,7 @@ task v4_mir_file(path: word) -> word {
     }
 
     pilot mir_id = v4_mir_text_cached(path, text)
+    if mir_id < 0 { give back v4_driver_resource_failure("mir") }
     pilot file_id = v4_source_find(path)
     pilot summary = v4_mir_summary(mir_id)
     summary = summary + " file=" + word_from_int(file_id)
@@ -311,6 +324,7 @@ task v4_borrowck_text_cached(path: word, text: word) -> int {
     }
 
     pilot mir_id = v4_mir_text_cached(path, text)
+    if mir_id < 0 { give back 0 - 1 }
     pilot borrow_id = v4_borrowck_check_mir(file_id, mir_id)
     v4_query_store(key, fingerprint, word_from_int(borrow_id))
     v4_query_record_dep(key, v4_mir_query_key(path))
@@ -326,6 +340,7 @@ task v4_borrowck_file(path: word) -> word {
     }
 
     pilot borrow_id = v4_borrowck_text_cached(path, text)
+    if borrow_id < 0 { give back v4_driver_resource_failure("borrowck") }
     pilot file_id = v4_source_find(path)
     pilot summary = v4_borrowck_summary(borrow_id)
     summary = summary + " file=" + word_from_int(file_id)
@@ -470,6 +485,7 @@ task v4_diagnostics_text_cached(path: word, text: word) -> int {
     pilot stream_id = v4_lex_text_cached(path, text)
     pilot tree_id = v4_parse_text_cached(path, text)
     pilot hir_id = v4_hir_text_cached(path, text)
+    if hir_id < 0 { give back 0 - 1 }
     pilot resolve_id = v4_resolve_text_cached(path, text)
     pilot ty_id = v4_ty_text_cached(path, text)
     pilot mir_id = v4_mir_text_cached(path, text)
@@ -493,6 +509,7 @@ task v4_diagnostics_text_cached(path: word, text: word) -> int {
 
 task v4_diagnostics_text(path: word, text: word) -> word {
     pilot diag_set_id = v4_diagnostics_text_cached(path, text)
+    if diag_set_id < 0 { give back v4_driver_resource_failure("diagnostics") }
     give back v4_diagnostics_summary(diag_set_id)
 }
 
@@ -520,6 +537,7 @@ task v4_check_syntax_text(path: word, text: word) -> word {
     pilot stream_id = v4_lex_text_cached(path, text)
     pilot tree_id = v4_parse_text_cached(path, text)
     pilot hir_id = v4_hir_text_cached(path, text)
+    if hir_id < 0 { give back v4_driver_resource_failure("syntax") }
     pilot resolve_id = v4_resolve_text_cached(path, text)
     pilot ty_id = v4_ty_text_cached(path, text)
     pilot mir_id = v4_mir_text_cached(path, text)
