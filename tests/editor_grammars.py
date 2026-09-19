@@ -2,6 +2,7 @@
 """Exercise Zed's actual checked-in parser and queries using Tree-sitter."""
 from pathlib import Path
 import os
+import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,13 +30,19 @@ def main() -> None:
                        ("keyword.control", "continue")],
         "outline": [("name", "greet"), ("name", "Point")],
         "brackets": [("open", "{"), ("close", "}")],
-        "indents": [("indent", "{"), ("outdent", "}")],
+        "indents": [("start", "{"), ("end", "}")],
     }
     for name, captures in expected.items():
         result = run("query", str(LANGUAGE / f"{name}.scm"), str(SAMPLE))
         for capture, text in captures:
             assert any(f" - {capture}," in line and f"text: `{text}`" in line
                        for line in result.splitlines()), (name, capture, text, result)
+        if name == "indents":
+            # Zed discards single-line @indent captures. The captured range
+            # must span the body, not just the opening brace.
+            ranges = re.findall(r"capture: (?:\d+ - )?indent, start: \((\d+), \d+\), end: \((\d+), \d+\)", result)
+            assert len(ranges) >= 4, result
+            assert all(int(end) > int(start) for start, end in ranges), result
     print("Zed: sample parses without errors; all four queries compile and capture expected syntax")
 
 
