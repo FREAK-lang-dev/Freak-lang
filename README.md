@@ -90,6 +90,14 @@ payoff victory   -- promise kept
 
 ---
 
+## Editor support
+
+Releases built with editor packaging include a VS Code `.vsix` and a Zed source
+extension `.zip`, with syntax highlighting and snippet completions for `.fk`
+files. Download them from the [release assets](https://github.com/FREAK-lang-dev/Freak-lang/releases)
+and follow the [editor installation guide](editors/README.md). Type-aware
+autocomplete and compiler diagnostics are not included yet.
+
 ## The Audit System
 
 FREAK isn't just about compiling; it's about accountability. The audit suite inspects narrative integrity and v0.13.x conformance against the bible:

@@ -1,10 +1,11 @@
 {
   "name": "freak-lang",
   "displayName": "FREAK Language",
-  "description": "Language support for FREAK — syntax highlighting, file icons, and bracket matching for .fk files",
+  "description": "FREAK syntax highlighting, snippets, file icons, and bracket matching for .fk files",
   "version": "0.13.3",
   "publisher": "freak-lang-dev",
-  "icon": "icons/freak-marketplace.png",
+  "license": "MIT",
+  "files": ["README.md", "LICENSE", "language-configuration.json", "syntaxes/**", "icons/**", "snippets/**"],
   "repository": {
     "type": "git",
     "url": "https://github.com/FREAK-lang-dev/Freak-lang"
@@ -40,6 +41,9 @@
           "dark": "./icons/freak-file.svg"
         }
       }
+    ],
+    "snippets": [
+      { "language": "freak", "path": "./snippets/freak.json" }
     ],
     "grammars": [
       {

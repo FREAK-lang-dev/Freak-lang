@@ -1,12 +1,13 @@
-[package]
-name = "freak-lang"
+id = "freak-lang"
+name = "FREAK"
 version = "0.1.0"
-description = "FREAK language support for Zed — syntax highlighting, brackets, indentation"
+description = "FREAK syntax highlighting, snippets, brackets, indentation, and outline"
 authors = ["FREAK Core Team"]
 repository = "https://github.com/FREAK-lang-dev/Freak-lang"
 schema_version = 1
+snippets = ["snippets/freak.json"]
 
 [grammars.freak]
-repository = "https://github.com/FREAK-lang-dev/tree-sitter-freak"
-rev = "main"
-path = "grammars/tree-sitter-freak"
+repository = "https://github.com/FREAK-lang-dev/Freak-lang"
+rev = "e9eef243636808d7c05cf4a0e1333a3c617de1f1"
+path = "editors/zed/freak-lang/grammars/tree-sitter-freak"

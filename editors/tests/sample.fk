@@ -1,0 +1,17 @@
+-- Highlighting fixture: keywords in comments stay comments.
+shape Point {
+    x: num
+}
+
+task greet(name: word) -> void {
+    pilot answer: int = 42
+    say "Hello, {name}!"
+    repeat 3 times {
+        if answer == 42 {
+            break
+        }
+        continue
+    }
+}
+
+greet("Takeru")

@@ -1,0 +1,14 @@
+{
+  "name": "freak-editor-tools",
+  "private": true,
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node tests/highlighting.cjs"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "4.0.0",
+    "tree-sitter-cli": "0.22.6",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
+  }
+}

@@ -63,8 +63,8 @@
 "in" @keyword.control
 "give" @keyword.control
 "back" @keyword.control
-"break" @keyword.control
-"continue" @keyword.control
+(break_statement) @keyword.control
+(continue_statement) @keyword.control
 "done" @keyword.control
 
 ; ============================================================
@@ -89,7 +89,8 @@
 "err" @function.builtin
 "check" @keyword.control
 "test" @keyword
-"expect" @keyword
+((identifier) @function.builtin
+  (#eq? @function.builtin "expect"))
 
 ; ============================================================
 ;  Keywords — logical operators
