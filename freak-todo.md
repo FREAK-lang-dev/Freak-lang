@@ -120,7 +120,7 @@
 - [x] `freak_panic(freak_word msg)` — print + exit(1)
 - [x] Generated `freak_maybe_T` structs per type used
 - [x] Generated `freak_result_T_E` structs per type combo used
-- [x] Generated `freak_list_T` structs with push/get/length/filter/map/fold
+- [ ] Python bootstrap C backend: generated `freak_list_T` structs with push/get/length/filter/map/fold (not implemented; distinct from shipping V3 typed lists)
 
 ---
 
@@ -140,7 +140,7 @@
 - [x] `check result` → if/else on is_ok
 - [x] `or else` → ternary fallback
 - [x] `some/nobody/ok/err` → macro calls
-- [x] List literals → new() + push calls
+- [ ] Python bootstrap C backend: list literals → new() + push calls (`freakc/emitter.py:_emit_list_lit` still emits basic compound literals)
 - [x] Destructuring → temp var + field assignments
 - [x] `launch` → non-static; no launch → static
 - [x] `trust me` → plain C block + compile-time log
@@ -329,10 +329,13 @@ V4 work is now landing on `main` — see commits prefixed `Add V4 …` for the l
 
 ## STATUS NOTE — v0.14.x (2026-09-12)
 
-Phases 0–7 above are complete: boxes checked against the shipped bootstrap
-(`freakc/` lexer/parser/emitter/type-checker, `freakc/runtime/freak_runtime.h`,
-`tests/hello.fk`, `run.sh`, the `freak run/build/check/test` CLI) and this
-file's own M1–M10 milestone record.
+Phases 0–7 above record bootstrap milestones, not blanket completion. The
+Python bootstrap C emitter still lacks the generated `freak_list_T` API and
+list-literal new/push construction tracked in [#119](https://github.com/FREAK-lang-dev/Freak-lang/issues/119).
+Its `_emit_list_lit` currently emits basic compound literals, and
+`freakc/runtime/freak_runtime.h` does not provide that generated API. Shipping
+self-hosted V3 typed lists use the separate `freak_v3_array_*` runtime surface;
+their implemented status is unchanged by these bootstrap checklist corrections.
 
 - Next Campaign wave-1 merged: PR #109 (`2147d91`) — lists, parsing, targets, diagnostics, docs.
 - Next Campaign wave-2 merged: PR #112 (`e6e5aea`) — conversions, benchmarks, response seed, leftovers; shipped `word += word`.

@@ -391,7 +391,7 @@ jobs:
           fi
 
       - name: Download Windows bootstrap build (windows-test-suites-a)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-bootstrap-build
           path: .
@@ -555,7 +555,7 @@ jobs:
           fi
 
       - name: Download Windows bootstrap build (windows-test-suites-b)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-bootstrap-build
           path: .
@@ -607,7 +607,7 @@ jobs:
           fi
 
       - name: Download Windows bootstrap build (windows-test-suites-c)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-bootstrap-build
           path: .
