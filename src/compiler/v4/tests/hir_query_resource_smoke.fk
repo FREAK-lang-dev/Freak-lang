@@ -10,7 +10,7 @@ task v4_hir_query_resource_smoke() -> void {
     v4_mir_init()
     v4_borrowck_init()
     pilot path = "hir-query-resource.fk"
-    pilot text = "task main() -> int {\n    pilot value: int = 7\n    give back value\n}\n"
+    pilot text = "task main() -> int " + "{" + "\n    pilot value: int = 7\n    give back value\n" + "}" + "\n"
     pilot expansion = v4_expand_text_cached(path, text)
     pilot file_id = v4_source_find(path)
     pilot fingerprint = v4_source_fingerprint(file_id)
