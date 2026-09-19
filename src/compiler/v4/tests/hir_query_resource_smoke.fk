@@ -3,6 +3,7 @@
 task v4_hir_query_resource_smoke() -> void {
     v4_driver_init()
     v4_editor_init()
+    v4_lsp_init()
     v4_hir_init()
     v4_resolve_init()
     v4_ty_init()
@@ -49,6 +50,12 @@ task v4_hir_query_resource_smoke() -> void {
     pilot definition_summary = v4_definition_at_text(path, text, 5)
     pilot document_summary = v4_document_symbols_text(path, text)
     pilot completion_summary = v4_completion_text(path, text, 5)
+    pilot lsp_hover = v4_lsp_hover_text(path, text, 5)
+    pilot lsp_definition = v4_lsp_definition_text(path, text, 5)
+    pilot lsp_document = v4_lsp_document_symbols_text(path, text)
+    pilot lsp_completion = v4_lsp_completion_text(path, text, 5)
+    pilot lsp_diagnostics = v4_lsp_diagnostics_text(path, text)
+    pilot lsp_failed: bool = lsp_hover == "error|textDocument/hover|-32001|HIR resource exhausted; retry request" and lsp_definition == "error|textDocument/definition|-32001|HIR resource exhausted; retry request" and lsp_document == "error|textDocument/documentSymbol|-32001|HIR resource exhausted; retry request" and lsp_completion == "error|textDocument/completion|-32001|HIR resource exhausted; retry request" and lsp_diagnostics == "error|textDocument/publishDiagnostics|-32001|HIR resource exhausted; retry request"
     pilot summaries: bool = hir_summary == "hir-error reason=invalid-hir" and syntax_summary == "syntax-failed reason=hir-resource-exhausted" and diagnostic_summary == "diagnostics-failed reason=hir-resource-exhausted" and semantic_summary == "semantic-failed reason=hir-resource-exhausted" and hover_summary == "hover-failed reason=hir-resource-exhausted" and definition_summary == "definition-failed reason=hir-resource-exhausted" and document_summary == "document-symbols-failed reason=hir-resource-exhausted" and completion_summary == "completion-failed reason=hir-resource-exhausted"
     pilot unpublished: bool = v4_query_store_count() == stores and v4_query_entry_len == entries and v4_query_dep_len == edges and v4_hir_file_count() == 0 and v4_resolve_index_count() == 0 and v4_ty_file_count() == 0 and v4_mir_file_count() == 0 and v4_borrowck_file_count() == 0 and v4_diagnostics_set_count() == 0 and v4_semantic_fact_count() == 0 and v4_hover_count() == 0 and v4_definition_at_count() == 0 and v4_document_symbols_count() == 0 and v4_completion_set_count() == 0
     pilot index = 0
@@ -65,6 +72,12 @@ task v4_hir_query_resource_smoke() -> void {
     pilot retry_definition = v4_definition_at_text_cached(path, text, 5)
     pilot retry_document = v4_document_symbols_text_cached(path, text)
     pilot retry_completion = v4_completion_text_cached(path, text, 5)
+    pilot retry_lsp_hover = v4_lsp_hover_text(path, text, 5)
+    pilot retry_lsp_definition = v4_lsp_definition_text(path, text, 5)
+    pilot retry_lsp_document = v4_lsp_document_symbols_text(path, text)
+    pilot retry_lsp_completion = v4_lsp_completion_text(path, text, 5)
+    pilot retry_lsp_diagnostics = v4_lsp_diagnostics_text(path, text)
+    pilot lsp_recovered: bool = retry_lsp_hover.starts_with("ok|textDocument/hover\n") and retry_lsp_definition.starts_with("ok|textDocument/definition\n") and retry_lsp_document.starts_with("ok|textDocument/documentSymbol\n") and retry_lsp_completion.starts_with("ok|textDocument/completion\n") and retry_lsp_diagnostics.starts_with("ok|textDocument/publishDiagnostics\n")
     pilot recovered: bool = retry_summary.starts_with("syntax-ok ") and retry_hir >= 0 and v4_hir_local_annotation_count(retry_hir, 0) == 1 and v4_hir_task_return_record_id(retry_hir, 0) >= 0 and retry_semantic >= 0 and v4_semantic_at_name(retry_semantic) == "main" and retry_hover >= 0 and retry_definition >= 0 and retry_document >= 0 and retry_completion >= 0
     pilot upstream: bool = v4_source_fingerprint(file_id) == fingerprint and v4_source_revision(file_id) == revision and v4_expand_text_cached(path, text) == expansion and v4_query_stores_for_key(v4_hir_query_key(path)) == 1 and v4_query_stores_for_key(v4_semantic_at_query_key(path, 5)) == 1 and v4_query_stores_for_key(v4_completion_query_key(path, 5)) == 1
     say "hir-query-resource-rejected=" + word_from_bool(rejected)
@@ -72,6 +85,7 @@ task v4_hir_query_resource_smoke() -> void {
     say "hir-query-resource-failure-summaries=" + word_from_bool(summaries)
     say "hir-query-resource-recovered=" + word_from_bool(recovered)
     say "hir-query-resource-upstream-stable=" + word_from_bool(upstream)
+    say "hir-query-resource-lsp-retry=" + word_from_bool(lsp_failed and lsp_recovered)
 }
 
 v4_hir_query_resource_smoke()
