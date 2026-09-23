@@ -580,17 +580,7 @@ task v4_editor_signature_param_name_span(ty_id: int, sig_id: int, param_name: wo
     if param_id < 0 {
         give back V4_NO_SPAN
     }
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_param_segment_start(ty_id, sig_id, param_id)
-    if stream_id < 0 or start_token < 0 {
-        give back V4_NO_SPAN
-    }
-    pilot end_token = v4_ty_signature_param_segment_end(ty_id, sig_id, param_id)
-    pilot name_token = v4_ty_find_token_value(stream_id, start_token, end_token, param_name)
-    if name_token < 0 or name_token >= end_token {
-        give back V4_NO_SPAN
-    }
-    give back v4_lex_token_span(stream_id, name_token)
+    give back v4_ty_signature_param_name_span(ty_id, sig_id, param_id)
 }
 
 task v4_editor_impl_method_explicit_param_id_for_name(ty_id: int, hir_item: int, method_id: int, param_name: word) -> int {
