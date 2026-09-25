@@ -1594,18 +1594,18 @@ def _hir_lookup_probe_errors(
 def _hir_lookup_scaling_errors(fixture: Path, harness: Path) -> List[str]:
     return _hir_lookup_probe_errors(fixture, harness, (
         "hir-scaling-annotation-duplicate-start", "hir-scaling-annotation-surplus-fields",
-        "hir-scaling-fresh-slot-thirty-three-handles", "hir-scaling-file-slot-capacity-stable",
+        "hir-scaling-fresh-slot-thirty-four-handles", "hir-scaling-file-slot-capacity-stable",
     ), (
         "v4_hir_scaling_annotation_checks(before)",
         "v4_hir_scaling_file_slots(sample, before)",
-        "capacity_before - capacity_fresh == 33",
+        "capacity_before - capacity_fresh == 34",
     ))
 
 
 def _hir_semantic_index_errors(fixture: Path, harness: Path) -> List[str]:
     return _hir_lookup_probe_errors(fixture, harness, (
         "hir-index-cold-init-failure-recovery", "hir-index-512-one-owner",
-        "hir-index-v7-mixed-roundtrip",
+        "hir-index-v8-mixed-roundtrip",
         "hir-index-logarithmic-probes", "hir-index-sort-work-bounded",
         "hir-index-512-distinct-owners", "hir-index-owner-lookup-work",
         "hir-index-direct-return-work", "hir-index-invalid-identities",
@@ -3034,7 +3034,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if v4_hir_task_return.exists():
         hir_src = v4_hir_task_return.read_text(encoding="utf-8")
         for needle in (
-            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v7"',
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v8"',
             'pilot v4_hir_task_return_explicit = "explicit"',
             'pilot v4_hir_task_return_implicit_block = "implicit-block"',
             'pilot v4_hir_task_return_arrow = "arrow"',
@@ -3110,7 +3110,7 @@ def audit_conformance(paths: List[Path]) -> int:
             v4_task_return_readme,
             (
                 "The third bounded boundary covers declared returns on ordinary top-level tasks.",
-                "HIR snapshot v7 validates that vocabulary",
+                "HIR snapshot v8 validates that vocabulary",
             ),
         ),
         (
@@ -3131,7 +3131,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 task return HIR boundary",
         not task_return_boundary_missing,
-        "HIR v7 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
+        "HIR v8 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
     )
     if task_return_boundary_missing:
         failures.append(
@@ -3152,7 +3152,7 @@ def audit_conformance(paths: List[Path]) -> int:
             v4_hir_task_param,
             "freak_hir",
             (
-                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v7"',
+                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v8"',
                 'pilot v4_hir_task_param_mode_value = "value"',
                 'pilot v4_hir_task_param_mode_lend = "lend"',
                 'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -3207,12 +3207,12 @@ def audit_conformance(paths: List[Path]) -> int:
             "task parameter index guard accepted helper-indirected rescan",
             '"hir-scaling-512-params=true"',
             '"hir-scaling-param-missing-owner=true"',
-            '"hir-scaling-fresh-slot-thirty-three-handles=true"',
+            '"hir-scaling-fresh-slot-thirty-four-handles=true"',
         ):
             if needle not in harness_src:
                 task_param_boundary_missing.append(f"check_v4.py: {needle}")
     for doc_path, needles in (
-        (v4_task_return_readme, ("The fourth", "ordinary-task parameter APIs", "HIR snapshot v7 validates exact record")),
+        (v4_task_return_readme, ("The fourth", "ordinary-task parameter APIs", "HIR snapshot v8 validates exact record")),
         (audit_doc, ("Ordinary-task parameters are likewise stored", "Impl/doctrine/extern parameter signatures")),
     ):
         if not doc_path.exists():
@@ -3225,7 +3225,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 task parameter HIR boundary",
         not task_param_boundary_missing,
-        "HIR v7 + TY/MIR/editor adapters + smoke + docs wired" if not task_param_boundary_missing else f"{len(task_param_boundary_missing)} gap(s)",
+        "HIR v8 + TY/MIR/editor adapters + smoke + docs wired" if not task_param_boundary_missing else f"{len(task_param_boundary_missing)} gap(s)",
     )
     if task_param_boundary_missing:
         failures.append(
@@ -3249,7 +3249,7 @@ def audit_conformance(paths: List[Path]) -> int:
     shape_missing.extend(_hir_lookup_probe_errors(
         shape_tests / "shape_field_snapshot_smoke.fk", shape_harness,
         tuple("shape-snapshot-" + label for label in (
-            "v7-reordered", "recovery-roundtrip", "old-version-atomic",
+            "v8-reordered", "recovery-roundtrip", "old-version-atomic",
             "extra-field-atomic", "owner-width-atomic", "noncanonical-atomic",
             "sparse-item-atomic", "duplicate-ordinal-atomic", "owner-count-atomic",
             "header-count-atomic", "empty-owner-required", "shape-owner-kind",
@@ -3270,9 +3270,46 @@ def audit_conformance(paths: List[Path]) -> int:
         source = path.read_text(encoding="utf-8") if path.exists() else ""
         shape_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
     add("V4 shape field HIR boundary", not shape_missing,
-        "HIR v7 + storage adapters + executable probes wired" if not shape_missing else f"{len(shape_missing)} gap(s)")
+        "HIR v8 + storage adapters + executable probes wired" if not shape_missing else f"{len(shape_missing)} gap(s)")
     if shape_missing:
         failures.append("V4 shape field HIR boundary regressed: " + "; ".join(shape_missing))
+
+    # Root Const declaration facts are stored; initializer evaluation is not
+    # promoted by this architectural slice.
+    const_missing: List[str] = []
+    const_missing.extend(_hir_lookup_probe_errors(
+        shape_tests / "const_semantic_boundary_smoke.fk", shape_harness,
+        tuple("const-boundary-" + label for label in (
+            "stored-surface", "alias-inference", "nested-concatenation", "exact-spans",
+            "detached-access", "invalid-identities", "edit-invalidates", "targeted-diagnostic",
+            "missing-equals-recovery", "empty-annotation-recovery", "quoted-empty-type",
+            "parser-text-parity", "existing-formatter", "name-recovery-spans", "recovery-snapshot", "stored-restore",
+        )), (),
+    ))
+    const_missing.extend(_hir_lookup_probe_errors(
+        shape_tests / "const_snapshot_smoke.fk", shape_harness,
+        tuple("const-snapshot-" + label for label in (
+            "v8-reordered", "inferred-quoted", "old-version-atomic", "extra-field-atomic",
+            "noncanonical-id-atomic", "sparse-owner-atomic", "sparse-item-atomic",
+            "duplicate-item-atomic", "header-count-atomic", "owner-kind-atomic",
+            "inferred-record-required", "name-span-canonical", "name-span-owner",
+            "type-span-containment", "type-span-order", "nonempty-type-needs-span",
+            "repeat-no-handles", "large-long-parent", "multiple-owners", "large-restore-no-handles",
+        )), (),
+    ))
+    for path, markers in (
+        (v4_hir_task_param, ("task v4_hir_const_annotation_value(", "task v4_hir_const_type_span(", "task v4_hir_const_name_span(", "task v4_hir_snapshot_const_annotation_slots_are_valid(")),
+        (v4_ty_task_param, ("task v4_ty_const_declared_type_span_for_sig(", "v4_hir_const_name_span(hir_id, item_id)")),
+        (shape_harness, ("def const_boundary_violations(", "    check_const_hir_boundary()")),
+        (v4_task_return_readme, ("The sixth bounded boundary covers root Const declaration facts.",)),
+        (audit_doc, ("V4 stores declared surface type and exact type/name spans in HIR",)),
+    ):
+        source = path.read_text(encoding="utf-8") if path.exists() else ""
+        const_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
+    add("V4 root Const HIR boundary", not const_missing,
+        "HIR v8 + storage adapters + executable probes wired" if not const_missing else f"{len(const_missing)} gap(s)")
+    if const_missing:
+        failures.append("V4 root Const HIR boundary regressed: " + "; ".join(const_missing))
 
     # ── Check 10: V4 contract-region source sets ──
     # Borrowed return signatures may select every parameter whose lifetime

@@ -61,6 +61,7 @@ RUNNER_PEAK_RETAINED_BYTES = 0
 C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
 C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
+        "const_snapshot_smoke.fk",
         "shape_field_snapshot_smoke.fk",
         "hir_snapshot_scaling_smoke.fk",
         "hir_semantic_index_smoke.fk",
@@ -1972,6 +1973,55 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "root Const semantic boundary",
+        "fixture": "const_semantic_boundary_smoke.fk",
+        "expect": [
+            "const-boundary-stored-surface=true",
+            "const-boundary-alias-inference=true",
+            "const-boundary-nested-concatenation=true",
+            "const-boundary-exact-spans=true",
+            "const-boundary-detached-access=true",
+            "const-boundary-invalid-identities=true",
+            "const-boundary-edit-invalidates=true",
+            "const-boundary-targeted-diagnostic=true",
+            "const-boundary-missing-equals-recovery=true",
+            "const-boundary-empty-annotation-recovery=true",
+            "const-boundary-quoted-empty-type=true",
+            "const-boundary-parser-text-parity=true",
+            "const-boundary-existing-formatter=true",
+            "const-boundary-name-recovery-spans=true",
+            "const-boundary-recovery-snapshot=true",
+            "const-boundary-stored-restore=true",
+        ],
+    },
+    {
+        "name": "root Const snapshot contracts",
+        "fixture": "const_snapshot_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "const-snapshot-v8-reordered=true",
+            "const-snapshot-inferred-quoted=true",
+            "const-snapshot-old-version-atomic=true",
+            "const-snapshot-extra-field-atomic=true",
+            "const-snapshot-noncanonical-id-atomic=true",
+            "const-snapshot-sparse-owner-atomic=true",
+            "const-snapshot-sparse-item-atomic=true",
+            "const-snapshot-duplicate-item-atomic=true",
+            "const-snapshot-header-count-atomic=true",
+            "const-snapshot-owner-kind-atomic=true",
+            "const-snapshot-inferred-record-required=true",
+            "const-snapshot-name-span-canonical=true",
+            "const-snapshot-name-span-owner=true",
+            "const-snapshot-type-span-containment=true",
+            "const-snapshot-type-span-order=true",
+            "const-snapshot-nonempty-type-needs-span=true",
+            "const-snapshot-repeat-no-handles=true",
+            "const-snapshot-large-long-parent=true",
+            "const-snapshot-multiple-owners=true",
+            "const-snapshot-large-restore-no-handles=true",
+        ],
+    },
+    {
         "name": "shape field semantic boundary",
         "fixture": "shape_field_semantic_boundary_smoke.fk",
         "expect": [
@@ -1996,7 +2046,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "shape_field_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "shape-snapshot-v7-reordered=true",
+            "shape-snapshot-v8-reordered=true",
             "shape-snapshot-recovery-roundtrip=true",
             "shape-snapshot-old-version-atomic=true",
             "shape-snapshot-extra-field-atomic=true",
@@ -2071,7 +2121,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-thirty-three-handles=true",
+            "hir-scaling-fresh-slot-thirty-four-handles=true",
             "hir-scaling-512-params=true",
             "hir-scaling-64-param-files=true",
             "hir-scaling-512-param-tasks=true",
@@ -2150,7 +2200,7 @@ EXECUTABLE_SMOKES = [
         "memory_limit_mb": 64,
         "expect": [
             "hir-index-cold-init-failure-recovery=true",
-            "hir-index-v7-mixed-roundtrip=true",
+            "hir-index-v8-mixed-roundtrip=true",
             "hir-index-512-one-owner=true",
             "hir-index-logarithmic-probes=true",
             "hir-index-sort-work-bounded=true",
@@ -9352,7 +9402,7 @@ EXECUTABLE_SMOKES = [
             "local-annotation-mir-diagnostics=0",
             "local-annotation-borrow-status=clean",
             "local-annotation-borrow-diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v7 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 shape-owners=0 shape-fields=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v8 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 diagnostics=0 skipped-other=0 live-files=1",
             "local-annotation-restored-count=4",
             "local-annotation-restored-fixed=char",
@@ -9431,7 +9481,7 @@ EXECUTABLE_SMOKES = [
             "task-return-mir-diagnostics=0",
             "task-return-borrow-status=clean",
             "ty-snapshot format=freak-ty-snapshot-v1 files=1 signatures=3 diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v7 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 shape-owners=0 shape-fields=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v8 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=3 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 diagnostics=0 skipped-other=0 live-files=1",
             "task-return-restored-form=explicit",
             "task-return-restored-surface=lend 'a maybe<[word;2]>",
@@ -9477,7 +9527,7 @@ EXECUTABLE_SMOKES = [
             "task-param-mir-span-semantic=true",
             "task-param-meiya-status=clean",
             "task-param-editor-label-definition=true",
-            "hir-snapshot format=freak-hir-snapshot-v7",
+            "hir-snapshot format=freak-hir-snapshot-v8",
             "task-param-restored-count=4",
             "task-param-schema-variants-rejected=true",
             "task-param-schema-variants-atomic=true",
@@ -10405,7 +10455,7 @@ def check_mir_local_annotation_boundary() -> None:
     violations.extend(hir_lookup_index_violations(hir_source))
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v7"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v8"',
         "pilot v4_hir_local_annotation_items = 0",
         "pilot v4_hir_local_annotation_stmt_spans = 0",
         "pilot v4_hir_local_annotation_types = 0",
@@ -10549,7 +10599,7 @@ def check_task_return_hir_boundary() -> None:
         violations.append("task return boundary unexpectedly changed the TY snapshot format")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v7"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v8"',
         "pilot v4_hir_task_return_items = 0",
         "pilot v4_hir_task_return_forms = 0",
         "pilot v4_hir_task_return_types = 0",
@@ -10777,6 +10827,77 @@ def check_shape_field_hir_boundary() -> None:
     print("no syntax past HIR: ordered shape field names, types, and spans")
 
 
+def const_boundary_violations(hir_source: str, ty_source: str) -> list[str]:
+    """Declared Const facts are storage reads, including all indirect helpers.
+
+    Initializer inference/evaluation remains deliberately outside this slice.
+    Only cold arena initialization is a permitted mutating terminal.
+    """
+    contracts = {
+        "v4_ty_const_declared_type_for_sig": "v4_hir_const_type",
+        "v4_ty_const_declared_type_span_for_sig": "v4_hir_const_type_span",
+        "v4_ty_const_name_span": "v4_hir_const_name_span",
+    }
+    sources = {
+        name: source for source in (hir_source, ty_source)
+        for name in freak_task_names(freak_mask_line_comments(source))
+    }
+    violations: set[str] = set()
+    edges: dict[str, set[str]] = {}
+
+    def closure(root: str) -> set[str]:
+        pending, reached = [root], set()
+        while pending:
+            name = pending.pop()
+            if name in reached:
+                continue
+            reached.add(name)
+            if name in {"v4_hir_init", "v4_ty_init"}:
+                continue
+            if any(fragment in name for fragment in (
+                "v4_lex_", "v4_parse_", "v4_expand_", "_token", "v4_ty_type_text",
+                "v4_hir_lower_", "v4_hir_build_", "v4_hir_snapshot_restore",
+                "array_set", "array_push", "array_new", "array_release",
+                "v4_hir_const_init", "v4_ty_const_init", "v4_ty_const_eval",
+            )):
+                violations.add(f"Const storage closure reconstructs syntax or mutates facts: {name}")
+            if name not in sources and name != root:
+                continue
+            if name not in edges:
+                body = freak_task_body(sources.get(name, ""), name)
+                edges[name] = set()
+                if body is None:
+                    violations.add(f"Const storage task missing: {name}")
+                else:
+                    try:
+                        tokens = [t for t in Lexer(body).tokenize() if t.type != TokenType.EOF]
+                        edges[name] = {
+                            tokens[i].lexeme for i in range(len(tokens) - 1)
+                            if tokens[i].type != TokenType.STRING_LIT and tokens[i + 1].lexeme == "("
+                        }
+                    except LexerError:
+                        violations.add(f"Const storage task is not lexable: {name}")
+            pending.extend(edges[name] - reached)
+        return reached
+
+    for root, required in contracts.items():
+        if required not in closure(root):
+            violations.add(f"Const TY adapter does not consume {required}: {root}")
+        closure(required)
+    return sorted(violations)
+
+
+def check_const_hir_boundary() -> None:
+    violations = const_boundary_violations(
+        read_text(crate_path("freak_hir")), read_text(crate_path("freak_ty")),
+    )
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+    print("no syntax past HIR: root Const declared type and type/name spans")
+
+
 def task_param_ordinary_call_closure_violations(ty_source: str) -> list[str]:
     violations: list[str] = []
     task_names = freak_task_names(ty_source)
@@ -10908,7 +11029,7 @@ def check_task_param_hir_boundary() -> None:
             violations.append("task parameter index guard accepted helper-indirected rescan")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v7"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v8"',
         'pilot v4_hir_task_param_mode_value = "value"',
         'pilot v4_hir_task_param_mode_lend = "lend"',
         'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -11238,6 +11359,7 @@ def check_snapshot_inventories() -> None:
                     f"query invalidation scratch release missing: {handle_release_contract}"
                 )
     for resource_fixture in (
+        "const_snapshot_smoke.fk",
         "shape_field_snapshot_smoke.fk",
         "hir_snapshot_scaling_smoke.fk",
         "hir_semantic_index_smoke.fk",
@@ -11253,6 +11375,7 @@ def check_snapshot_inventories() -> None:
         violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
+            "const_snapshot_smoke.fk",
             "shape_field_snapshot_smoke.fk",
             "hir_snapshot_scaling_smoke.fk",
             "hir_semantic_index_smoke.fk",
@@ -12580,6 +12703,7 @@ def main(argv: list[str] | None = None) -> int:
     check_task_return_hir_boundary()
     check_task_param_hir_boundary()
     check_shape_field_hir_boundary()
+    check_const_hir_boundary()
     check_tooling_interfaces()
     check_snapshot_inventories()
     base_source = check_flattened_crates()
