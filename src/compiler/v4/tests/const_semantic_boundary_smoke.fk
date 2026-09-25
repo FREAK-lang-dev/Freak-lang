@@ -41,12 +41,16 @@ task v4_const_boundary_run() -> void {
     pilot idx = 0
     pilot mismatch = false
     repeat until idx >= v4_ty_diag_count(diag_ty) {
-        if v4_diag_message(v4_ty_diag(diag_ty, idx)) == "constant initializer type mismatch" { mismatch = true }
+        pilot diag = v4_ty_diag(diag_ty, idx)
+        if v4_diag_message(diag) == "constant initializer type mismatch" {
+            mismatch = v4_slice("fixed pilot BAD: int = true\n", v4_span_start(v4_diag_span(diag)), v4_span_end(v4_diag_span(diag))) == "true"
+        }
         idx += 1
     }
     say "const-boundary-targeted-diagnostic=" + word_from_bool(mismatch)
     pilot recovery = "fixed pilot MISSING: int\nfixed pilot EMPTY: = 1\nfixed pilot QUOTED: \"\" = 1\nfixed pilot \"\": int = 1\nfixed pilot scope::NAME: word = \"x\"\n"
     recovery = recovery + "fixed pilot FORMATTING: lend mut 'a int = 1\n"
+    recovery = recovery + "launch fixed pilot ARRAY: [int; 2] = [1, 2];\nfixed pilot = 1\nfixed pilot\n"
     pilot recovery_hir = v4_hir_text_cached("const-recovery.fk", recovery)
     pilot missing = v4_const_boundary_item(recovery_hir, "MISSING")
     pilot empty = v4_const_boundary_item(recovery_hir, "EMPTY")
@@ -59,6 +63,8 @@ task v4_const_boundary_run() -> void {
     pilot parity = true
     pilot quoted_name = false
     pilot qualified_name = false
+    pilot punctuation_name = false
+    pilot missing_name = false
     idx = 0
     repeat until idx >= v4_hir_item_count(recovery_hir) {
         if v4_hir_item_kind(recovery_hir, idx) == v4_hir_const {
@@ -67,13 +73,15 @@ task v4_const_boundary_run() -> void {
             pilot name_text = v4_slice(recovery, v4_span_start(span), v4_span_end(span))
             if name_text == "\"\"" { quoted_name = true }
             if name_text == "scope" { qualified_name = true }
+            if name_text == "=" { punctuation_name = true }
+            if name_text == "fixed pilot" { missing_name = true }
         }
         idx += 1
     }
     say "const-boundary-parser-text-parity=" + word_from_bool(parity)
     pilot formatting = v4_const_boundary_item(recovery_hir, "FORMATTING")
     say "const-boundary-existing-formatter=" + word_from_bool(v4_hir_const_type(recovery_hir, formatting) == "lendmut'aint")
-    say "const-boundary-name-recovery-spans=" + word_from_bool(quoted_name and qualified_name)
+    say "const-boundary-name-recovery-spans=" + word_from_bool(quoted_name and qualified_name and punctuation_name and missing_name)
     pilot snapshot = v4_hir_snapshot()
     say "const-boundary-recovery-snapshot=" + word_from_bool(v4_hir_snapshot_validate(snapshot).starts_with("hir-snapshot-import ok=1"))
     pilot restored = v4_hir_snapshot_restore(snapshot)

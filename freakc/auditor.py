@@ -3299,7 +3299,7 @@ def audit_conformance(paths: List[Path]) -> int:
     ))
     for path, markers in (
         (v4_hir_task_param, ("task v4_hir_const_annotation_value(", "task v4_hir_const_type_span(", "task v4_hir_const_name_span(", "task v4_hir_snapshot_const_annotation_slots_are_valid(")),
-        (v4_ty_task_param, ("task v4_ty_const_declared_type_span_for_sig(", "v4_hir_const_name_span(hir_id, item_id)")),
+        (v4_ty_task_param, ("task v4_ty_const_declared_type_span_for_sig(", "give back v4_hir_const_name_span(")),
         (shape_harness, ("def const_boundary_violations(", "    check_const_hir_boundary()")),
         (v4_task_return_readme, ("The sixth bounded boundary covers root Const declaration facts.",)),
         (audit_doc, ("V4 stores declared surface type and exact type/name spans in HIR",)),

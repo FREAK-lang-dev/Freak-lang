@@ -32,8 +32,9 @@ task v4_const_snapshot_reverse(payload: word) -> word {
 }
 
 task v4_const_snapshot_rejected(payload: word, before: word) -> bool {
+    pilot generation = v4_session_semantic_restore_generation()
     pilot report = v4_hir_snapshot_restore(payload)
-    give back report.starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == before
+    give back report.starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == before and v4_session_semantic_restore_generation() == generation
 }
 
 task v4_const_snapshot_capacity() -> int {
