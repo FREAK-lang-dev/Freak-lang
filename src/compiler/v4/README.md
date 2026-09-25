@@ -87,12 +87,29 @@ that exact set and prevents local declaration lowering from returning to it.
 The third bounded boundary covers declared returns on ordinary top-level tasks.
 `freak_hir` stores one closed `explicit` / `implicit-block` / `arrow` record per
 task, including normalized surface type and exact contained span only for an
-explicit `-> T`; HIR snapshot v5 validates that vocabulary, task-only ownership,
+explicit `-> T`; HIR snapshot v6 validates that vocabulary, task-only ownership,
 canonical spans, contiguous slots, and declared counts before restore. TY reads
 explicit return types and spans only through those HIR facts. Arrow inference,
 implicit block returns, and non-ordinary impl/doctrine/extern signatures remain
-separately named fallbacks and keep their existing semantics. Task parameter
-types, shape/route fields, const annotations, non-ordinary signatures, the
+separately named fallbacks and keep their existing semantics. The fourth
+bounded boundary covers parameters on those same ordinary tasks. HIR owns one
+ordered parameter-count record per task, including zero, plus normalized name,
+`value` / `lend` / `lend mut` mode, optional named lifetime, surface type, and
+their exact contained spans. TY's public ordinary-task parameter APIs consume
+only those records; MIR build uses the semantic segment span and editor
+definitions use the semantic name span. HIR snapshot v6 validates exact record
+widths, Task-only ownership, contiguous ordinals and counts, identifier and
+mode vocabulary, source ordering, and atomic restore. Parameter snapshot linkage
+uses four passes over the shared native line index, seventeen released scratch
+arrays sized from observed records, and cached scalar parent bounds. It requires
+owner records even for zero-parameter Tasks; arbitrary wire ordering is accepted.
+Canonical decimal/span checks avoid reconstructed words, record kinds reuse
+exact delimited protocol literals, and unescaped fields avoid a second copy.
+The combined snapshot scaling fixture preserves its 96 validation and 32 restore
+iterations under the 64 MB / 1,024-handle limits and checks decoder equivalence.
+Impl, doctrine, and extern signatures remain explicitly named token-facing
+fallbacks. Shape/route
+fields, const annotations, other non-ordinary signatures, the
 remaining MIR body families, and all other type families remain explicit
 follow-up slices. These boundaries change fact ownership, not language
 semantics or backend representation. Symbol-valued annotated locals still
@@ -531,15 +548,15 @@ slots fail validation before restore; wire order may place children before
 owners. Local annotations use the same physical index with bounded owner/item
 metadata and dense per-owner annotation slots; parent span bounds are decoded
 once rather than reparsed for every annotation. File-slot reset owns and reuses
-all eighteen child arrays, including the two derived semantic lookup indexes.
-The wire format remains v5: indexes are rebuilt from validated stored facts,
+all thirty child arrays, including the two derived semantic lookup indexes.
+The wire format remains v6: indexes are rebuilt from validated stored facts,
 not serialized as additional authority. Annotation ordinals preserve physical
 record order within each item; a separate sorted offset index supports exact
 declaration-start lookup in logarithmic work, while ordinal/count and task-return
 lookups use direct item indexes. Construction helpers invalidate indexes;
 completed lowering and whole-snapshot restoration finalize them before exposing
 semantic queries. Lookup paths do not rebuild indexes or reconstruct syntax.
-The v5 annotation and return records require their exact field widths, and
+The annotation and return records require their exact field widths, and
 duplicate annotation declaration starts within one file/item are rejected
 before restoration. Capacity preflight preserves live facts when the extra
 file-slot and index-scratch handle budget is unavailable.
@@ -550,7 +567,8 @@ facts. An invalid HIR handle is never reported as `hir-ok`.
 Task returns also use bounded owner/item indexes
 and require exactly one fact per ordinary Task, including when the payload
 declares zero returns. `hir_snapshot_scaling_smoke.fk` covers 64/512 aliases,
-512 annotations, 512 task returns, 64 owners, malformed records, and repeated scratch-capacity
+512 annotations, 512 task returns, 512 parameters/tasks, 64 owners, long parent
+records, malformed records, and repeated scratch-capacity
 checks under a 1,024-handle limit and 64 MB process-tree ceiling.
 
 Temporary graph, worklist, seen-set, and serializer arrays are request-scoped resources. Every path that allocates one must either consume it with `word_join` or release it with `array_release`, including failure exits. `mir_snapshot_resource_smoke.fk` repeatedly validates accepted and cyclic MIR graphs, and `query_invalidation_resource_smoke.fk` combines 96 `didChange` requests with 600 direct dependency invalidations. These C-backed resource fixtures are compiled with a test-only 1,024-live-handle limit matching the LLVM runtime pool; the production C runtime remains dynamically sized. Each fixture measures all remaining handle capacity before and after its workload and ends with a fresh-array probe under a 64 MB ceiling, so even one leaked handle fails instead of hiding behind low RSS or spare C table capacity.
@@ -572,7 +590,7 @@ unit-section|<section-name>|<escaped-checkpoint-identity>|<escaped-section-paylo
 end|freak-00-unit-snapshot-v3
 ```
 
-The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v5 validation requires canonical alias-target, local-annotation, and ordinary-task declared-return spans, exact child ownership/slot identity, a closed return-form vocabulary, and exact declared counts. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
+The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v6 validation requires canonical alias-target, local-annotation, ordinary-task declared-return, and ordinary-task parameter spans; exact child ownership/slot identity; closed return-form and parameter-mode vocabularies; exact declared counts; and validation-before-mutation restore. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
 
 ### `workspace/unitSnapshotManifest`
 

@@ -17,7 +17,22 @@ pilot v4_hir_import = "Import"
 pilot v4_hir_extern = "Extern"
 pilot v4_hir_attribute = "Attribute"
 pilot v4_hir_error = "Error"
-pilot v4_hir_snapshot_format = "freak-hir-snapshot-v5"
+pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"
+pilot v4_hir_task_param_mode_value = "value"
+pilot v4_hir_task_param_mode_lend = "lend"
+pilot v4_hir_task_param_mode_lend_mut = "lend mut"
+pilot v4_hir_task_param_owner_items = 0
+pilot v4_hir_task_param_owner_counts = 0
+pilot v4_hir_task_param_items = 0
+pilot v4_hir_task_param_ordinals = 0
+pilot v4_hir_task_param_names = 0
+pilot v4_hir_task_param_name_spans = 0
+pilot v4_hir_task_param_modes = 0
+pilot v4_hir_task_param_lifetimes = 0
+pilot v4_hir_task_param_lifetime_spans = 0
+pilot v4_hir_task_param_types = 0
+pilot v4_hir_task_param_type_spans = 0
+pilot v4_hir_task_param_segment_spans = 0
 pilot v4_hir_task_return_explicit = "explicit"
 pilot v4_hir_task_return_implicit_block = "implicit-block"
 pilot v4_hir_task_return_arrow = "arrow"
@@ -75,8 +90,20 @@ task v4_hir_init() -> void {
         v4_hir_task_return_spans = array_new()
         v4_hir_annotation_indexes = array_new()
         v4_hir_return_indexes = array_new()
+        v4_hir_task_param_owner_items = array_new()
+        v4_hir_task_param_owner_counts = array_new()
+        v4_hir_task_param_items = array_new()
+        v4_hir_task_param_ordinals = array_new()
+        v4_hir_task_param_names = array_new()
+        v4_hir_task_param_name_spans = array_new()
+        v4_hir_task_param_modes = array_new()
+        v4_hir_task_param_lifetimes = array_new()
+        v4_hir_task_param_lifetime_spans = array_new()
+        v4_hir_task_param_types = array_new()
+        v4_hir_task_param_type_spans = array_new()
+        v4_hir_task_param_segment_spans = array_new()
         v4_hir_diags = array_new()
-        if v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_diags < 0 {
+        if v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
             array_release(v4_hir_files)
             array_release(v4_hir_expansions)
             array_release(v4_hir_item_kinds)
@@ -96,6 +123,18 @@ task v4_hir_init() -> void {
             array_release(v4_hir_task_return_spans)
             array_release(v4_hir_annotation_indexes)
             array_release(v4_hir_return_indexes)
+            array_release(v4_hir_task_param_owner_items)
+            array_release(v4_hir_task_param_owner_counts)
+            array_release(v4_hir_task_param_items)
+            array_release(v4_hir_task_param_ordinals)
+            array_release(v4_hir_task_param_names)
+            array_release(v4_hir_task_param_name_spans)
+            array_release(v4_hir_task_param_modes)
+            array_release(v4_hir_task_param_lifetimes)
+            array_release(v4_hir_task_param_lifetime_spans)
+            array_release(v4_hir_task_param_types)
+            array_release(v4_hir_task_param_type_spans)
+            array_release(v4_hir_task_param_segment_spans)
             array_release(v4_hir_diags)
             give back
         }
@@ -104,7 +143,7 @@ task v4_hir_init() -> void {
     }
 }
 
--- File slots own their eighteen child arrays. Logical snapshot truncation keeps
+-- File slots own their thirty child arrays. Logical snapshot truncation keeps
 -- high-water slots reachable; reusing a slot must release its previous children.
 -- Fresh slots allocate once, without immediately overwriting those handles.
 task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
@@ -136,6 +175,18 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_push(return_index, "0")
         array_push(v4_hir_annotation_indexes, word_from_int(annotation_index))
         array_push(v4_hir_return_indexes, word_from_int(return_index))
+        array_push(v4_hir_task_param_owner_items, word_from_int(array_new()))
+        array_push(v4_hir_task_param_owner_counts, word_from_int(array_new()))
+        array_push(v4_hir_task_param_items, word_from_int(array_new()))
+        array_push(v4_hir_task_param_ordinals, word_from_int(array_new()))
+        array_push(v4_hir_task_param_names, word_from_int(array_new()))
+        array_push(v4_hir_task_param_name_spans, word_from_int(array_new()))
+        array_push(v4_hir_task_param_modes, word_from_int(array_new()))
+        array_push(v4_hir_task_param_lifetimes, word_from_int(array_new()))
+        array_push(v4_hir_task_param_lifetime_spans, word_from_int(array_new()))
+        array_push(v4_hir_task_param_types, word_from_int(array_new()))
+        array_push(v4_hir_task_param_type_spans, word_from_int(array_new()))
+        array_push(v4_hir_task_param_segment_spans, word_from_int(array_new()))
         array_push(v4_hir_diags, word_from_int(array_new()))
     }
     if reused {
@@ -156,6 +207,18 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_release(v4_hir_task_return_spans_handle(hir_id))
         array_release(v4_hir_annotation_index_handle(hir_id))
         array_release(v4_hir_return_index_handle(hir_id))
+        array_release(v4_hir_task_param_owner_items_handle(hir_id))
+        array_release(v4_hir_task_param_owner_counts_handle(hir_id))
+        array_release(v4_hir_task_param_items_handle(hir_id))
+        array_release(v4_hir_task_param_ordinals_handle(hir_id))
+        array_release(v4_hir_task_param_names_handle(hir_id))
+        array_release(v4_hir_task_param_name_spans_handle(hir_id))
+        array_release(v4_hir_task_param_modes_handle(hir_id))
+        array_release(v4_hir_task_param_lifetimes_handle(hir_id))
+        array_release(v4_hir_task_param_lifetime_spans_handle(hir_id))
+        array_release(v4_hir_task_param_types_handle(hir_id))
+        array_release(v4_hir_task_param_type_spans_handle(hir_id))
+        array_release(v4_hir_task_param_segment_spans_handle(hir_id))
         array_release(v4_hir_diags_handle(hir_id))
         array_set(v4_hir_item_kinds, hir_id, word_from_int(array_new()))
         array_set(v4_hir_item_names, hir_id, word_from_int(array_new()))
@@ -178,6 +241,18 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_push(reused_return_index, "0")
         array_set(v4_hir_annotation_indexes, hir_id, word_from_int(reused_annotation_index))
         array_set(v4_hir_return_indexes, hir_id, word_from_int(reused_return_index))
+        array_set(v4_hir_task_param_owner_items, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_task_param_owner_counts, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_task_param_items, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_task_param_ordinals, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_task_param_names, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_task_param_name_spans, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_task_param_modes, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_task_param_lifetimes, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_task_param_lifetime_spans, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_task_param_types, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_task_param_type_spans, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_task_param_segment_spans, hir_id, word_from_int(array_new()))
         array_set(v4_hir_diags, hir_id, word_from_int(array_new()))
     }
     array_set(v4_hir_files, hir_id, word_from_int(file_id))
@@ -1221,7 +1296,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
     if v4_hir_ready == 0 { give back 0 - 1 }
     pilot required = 4
-    if v4_hir_file_len >= array_len(v4_hir_files) { required += 18 }
+    if v4_hir_file_len >= array_len(v4_hir_files) { required += 30 }
     if v4_hir_lookup_handles_available(required) == false { give back 0 - 1 }
     pilot hir_id = v4_hir_file_new(file_id, expansion_id)
     v4_hir_copy_expand_diags(hir_id, expansion_id)
@@ -1236,6 +1311,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
             pilot item_span = v4_expand_node_span(expansion_id, node_idx)
             pilot item_id = v4_hir_add_item(hir_id, hir_kind, item_name, item_span, node_idx)
             v4_hir_lower_alias_target_type(hir_id, item_id, expansion_id, node_idx)
+            v4_hir_lower_task_params(hir_id, item_id)
             v4_hir_lower_task_return(hir_id, item_id)
             v4_hir_lower_local_annotations(hir_id, item_id)
         }
@@ -1286,11 +1362,45 @@ task v4_hir_snapshot_field_count(line: word) -> int {
 }
 
 task v4_hir_snapshot_field_raw(line: word, wanted: int) -> word {
+    -- Record kinds are immutable protocol literals. Reuse them across the
+    -- validator's passes instead of allocating the same prefix per record.
+    -- Include the separator so unknown or extended kinds retain raw fallback.
+    if wanted == 0 {
+        if line.starts_with("hir|") { give back "hir" }
+        if line.starts_with("hir-item|") { give back "hir-item" }
+        if line.starts_with("hir-task-param|") { give back "hir-task-param" }
+        if line.starts_with("hir-task-param-owner|") { give back "hir-task-param-owner" }
+        if line.starts_with("hir-local-annotation|") { give back "hir-local-annotation" }
+        if line.starts_with("hir-task-return|") { give back "hir-task-return" }
+        if line.starts_with("hir-diag|") { give back "hir-diag" }
+        if line.starts_with("hir-snapshot|") { give back "hir-snapshot" }
+        if line.starts_with("end|") { give back "end" }
+    }
+    -- Numeric owner/slot fields are commonly one byte. char_at returns an
+    -- immutable byte word, avoiding a heap copy on each validation pass.
+    -- Locate raw separators first so escaped bytes keep the normal decoder.
+    if wanted >= 0 {
+        pilot field = 0
+        pilot start = 0
+        repeat until field >= wanted {
+            pilot separator = v4_index_of_from(line, "|", start)
+            if separator < 0 { give back "" }
+            start = separator + 1
+            field += 1
+        }
+        pilot end = v4_index_of_from(line, "|", start)
+        if end < 0 { end = line.length() }
+        if end == start + 1 { give back line.char_at(start) }
+    }
     give back v4_expand_snapshot_field_raw(line, wanted)
 }
 
 task v4_hir_snapshot_field(line: word, wanted: int) -> word {
-    give back v4_expand_snapshot_field(line, wanted)
+    pilot raw = v4_hir_snapshot_field_raw(line, wanted)
+    -- Unescaped fields already have their semantic bytes. Only the percent
+    -- escape path needs a second word; preserve its existing decoder exactly.
+    if v4_index_of_from(raw, "%", 0) < 0 { give back raw }
+    give back v4_expand_snapshot_unescape(raw)
 }
 
 task v4_hir_snapshot_key_value(line: word, wanted_key: word) -> word {
@@ -1356,6 +1466,8 @@ task v4_hir_snapshot_summary() -> word {
     summary = summary + " alias-targets=" + word_from_int(v4_hir_snapshot_alias_target_total())
     summary = summary + " local-annotations=" + word_from_int(v4_hir_snapshot_local_annotation_total())
     summary = summary + " task-returns=" + word_from_int(v4_hir_snapshot_task_return_total())
+    summary = summary + " task-param-owners=" + word_from_int(v4_hir_snapshot_task_param_owner_total())
+    summary = summary + " task-params=" + word_from_int(v4_hir_snapshot_task_param_total())
     summary = summary + " diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
     give back summary
 }
@@ -1368,6 +1480,8 @@ task v4_hir_snapshot_header() -> word {
     out = out + "|alias-targets=" + word_from_int(v4_hir_snapshot_alias_target_total())
     out = out + "|local-annotations=" + word_from_int(v4_hir_snapshot_local_annotation_total())
     out = out + "|task-returns=" + word_from_int(v4_hir_snapshot_task_return_total())
+    out = out + "|task-param-owners=" + word_from_int(v4_hir_snapshot_task_param_owner_total())
+    out = out + "|task-params=" + word_from_int(v4_hir_snapshot_task_param_total())
     out = out + "|diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
     give back out
 }
@@ -1449,6 +1563,22 @@ task v4_hir_snapshot() -> word {
             task_return_id += 1
         }
 
+        pilot task_param_owner_id = 0
+        pilot task_param_owner_count = v4_hir_task_param_owner_record_count(hir_id)
+        repeat until task_param_owner_id >= task_param_owner_count {
+            array_push(parts, "\n")
+            array_push(parts, v4_hir_snapshot_task_param_owner_line(hir_id, task_param_owner_id))
+            task_param_owner_id += 1
+        }
+
+        pilot task_param_id = 0
+        pilot task_param_count = v4_hir_task_param_record_count(hir_id)
+        repeat until task_param_id >= task_param_count {
+            array_push(parts, "\n")
+            array_push(parts, v4_hir_snapshot_task_param_line(hir_id, task_param_id))
+            task_param_id += 1
+        }
+
         pilot diag_id = 0
         pilot diag_count = v4_hir_diag_count(hir_id)
         repeat until diag_id >= diag_count {
@@ -1465,7 +1595,7 @@ task v4_hir_snapshot() -> word {
 
 task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "hir-snapshot" {
-        give back 8
+        give back 10
     }
     if kind == "hir" {
         give back 6
@@ -1478,6 +1608,12 @@ task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     }
     if kind == "hir-task-return" {
         give back 7
+    }
+    if kind == "hir-task-param-owner" {
+        give back 5
+    }
+    if kind == "hir-task-param" {
+        give back 13
     }
     if kind == "hir-diag" {
         give back 4
@@ -1520,7 +1656,7 @@ task v4_hir_snapshot_alias_target_is_valid(line: word) -> bool {
 
 task v4_hir_snapshot_nonnegative_int_is_valid(value: word) -> bool {
     pilot parsed = v4_nonnegative_int_range(value, 0, value.length())
-    give back parsed >= 0 and word_from_int(parsed) == value
+    give back parsed >= 0 and (value.length() == 1 or value.char_at(0) != "0")
 }
 
 task v4_hir_snapshot_local_annotation_is_valid(line: word) -> bool {
@@ -1577,7 +1713,7 @@ task v4_hir_snapshot_index_lines(payload: word) -> int {
 -- The bound comes from observed records, never an untrusted maximum ID.
 task v4_hir_snapshot_bounded_id(raw: word, limit: int) -> int {
     pilot id = v4_nonnegative_int_range(raw, 0, raw.length())
-    if id < 0 or id >= limit or word_from_int(id) != raw {
+    if id < 0 or id >= limit or (raw.length() > 1 and raw.char_at(0) == "0") {
         give back 0 - 1
     }
     give back id
@@ -1914,7 +2050,8 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
     if v4_hir_snapshot_field_count(line) < expected {
         give back false
     }
-    if (kind == "hir-local-annotation" or kind == "hir-task-return") and v4_hir_snapshot_field_count(line) != expected {
+    -- Semantic child records have closed canonical schemas.
+    if (kind == "hir-local-annotation" or kind == "hir-task-return" or kind == "hir-task-param-owner" or kind == "hir-task-param") and v4_hir_snapshot_field_count(line) != expected {
         give back false
     }
     if kind == "hir-item" and v4_hir_snapshot_alias_target_is_valid(line) == false {
@@ -1924,6 +2061,12 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
         give back false
     }
     if kind == "hir-task-return" and v4_hir_snapshot_task_return_is_valid(line) == false {
+        give back false
+    }
+    if kind == "hir-task-param-owner" and v4_hir_snapshot_task_param_owner_is_valid(line) == false {
+        give back false
+    }
+    if kind == "hir-task-param" and v4_hir_snapshot_task_param_is_valid(line) == false {
         give back false
     }
     give back true
@@ -1940,6 +2083,8 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     pilot alias_targets = 0
     pilot local_annotations = 0
     pilot task_returns = 0
+    pilot task_param_owners = 0
+    pilot task_params = 0
     pilot diagnostics = 0
     pilot malformed = 0
     pilot saw_header = 0
@@ -1950,6 +2095,8 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     pilot declared_alias_targets = ""
     pilot declared_local_annotations = ""
     pilot declared_task_returns = ""
+    pilot declared_task_param_owners = ""
+    pilot declared_task_params = ""
     pilot declared_diagnostics = ""
 
     pilot line_id = 0
@@ -1967,6 +2114,8 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 declared_alias_targets = v4_hir_snapshot_key_value(line, "alias-targets")
                 declared_local_annotations = v4_hir_snapshot_key_value(line, "local-annotations")
                 declared_task_returns = v4_hir_snapshot_key_value(line, "task-returns")
+                declared_task_param_owners = v4_hir_snapshot_key_value(line, "task-param-owners")
+                declared_task_params = v4_hir_snapshot_key_value(line, "task-params")
                 declared_diagnostics = v4_hir_snapshot_key_value(line, "diagnostics")
                 if format != v4_hir_snapshot_format {
                     malformed += 1
@@ -1982,6 +2131,10 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 local_annotations += 1
             } else if kind == "hir-task-return" {
                 task_returns += 1
+            } else if kind == "hir-task-param-owner" {
+                task_param_owners += 1
+            } else if kind == "hir-task-param" {
+                task_params += 1
             } else if kind == "hir-diag" {
                 diagnostics += 1
             } else if kind == "end" {
@@ -2001,6 +2154,9 @@ task v4_hir_snapshot_validate(payload: word) -> word {
         malformed += 1
     }
     if malformed == 0 and v4_hir_snapshot_task_return_slots_are_valid(records, files, items, task_returns) == false {
+        malformed += 1
+    }
+    if malformed == 0 and v4_hir_snapshot_task_param_slots_are_valid(records, files, items, task_param_owners, task_params) == false {
         malformed += 1
     }
     array_release(records)
@@ -2028,6 +2184,8 @@ task v4_hir_snapshot_validate(payload: word) -> word {
         import_ok = 0
     }
 
+    if declared_task_param_owners != word_from_int(task_param_owners) { import_ok = 0 }
+    if declared_task_params != word_from_int(task_params) { import_ok = 0 }
     pilot out = "hir-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
     out = out + " format=" + format
@@ -2040,6 +2198,10 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     out = out + " declared-local-annotations=" + declared_local_annotations
     out = out + " task-returns=" + word_from_int(task_returns)
     out = out + " declared-task-returns=" + declared_task_returns
+    out = out + " task-param-owners=" + word_from_int(task_param_owners)
+    out = out + " declared-task-param-owners=" + declared_task_param_owners
+    out = out + " task-params=" + word_from_int(task_params)
+    out = out + " declared-task-params=" + declared_task_params
     out = out + " diagnostics=" + word_from_int(diagnostics)
     out = out + " malformed=" + word_from_int(malformed)
     out = out + " headers=" + word_from_int(saw_header)
@@ -2176,7 +2338,7 @@ task v4_hir_begin_snapshot_restore() -> void {
 }
 
 -- Restore is synchronous. Reserve the peak additional handle requirement
--- before touching live slots: eighteen per new high-water file plus four
+-- before touching live slots: thirty per new high-water file plus four
 -- finalizer scratch arrays. Reused files free all children before replacing
 -- them. The line index remains held throughout preflight and restoration.
 task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
@@ -2189,7 +2351,7 @@ task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
     }
     pilot fresh = files - array_len(v4_hir_files)
     if fresh < 0 { fresh = 0 }
-    give back v4_hir_lookup_handles_available(fresh * 18 + 4)
+    give back v4_hir_lookup_handles_available(fresh * 30 + 4)
 }
 
 task v4_hir_lookup_handles_available(needed: int) -> bool {
@@ -2235,6 +2397,8 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     pilot restored_items = 0
     pilot restored_local_annotations = 0
     pilot restored_task_returns = 0
+    pilot restored_task_param_owners = 0
+    pilot restored_task_params = 0
     pilot restored_diagnostics = 0
     pilot skipped_other = 0
     v4_hir_begin_snapshot_restore()
@@ -2247,7 +2411,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             pilot kind = v4_hir_snapshot_field_raw(line, 0)
             if kind == "hir" {
                 restored_files += v4_hir_snapshot_restore_file_line(line)
-            } else if kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
+            } else if kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-task-param-owner" and kind != "hir-task-param" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
@@ -2265,6 +2429,10 @@ task v4_hir_snapshot_restore(payload: word) -> word {
                 restored_local_annotations += v4_hir_snapshot_restore_local_annotation_line(line)
             } else if kind == "hir-task-return" {
                 restored_task_returns += v4_hir_snapshot_restore_task_return_line(line)
+            } else if kind == "hir-task-param-owner" {
+                restored_task_param_owners += v4_hir_snapshot_restore_task_param_owner_line(line)
+            } else if kind == "hir-task-param" {
+                restored_task_params += v4_hir_snapshot_restore_task_param_line(line)
             } else if kind == "hir-diag" {
                 restored_diagnostics += v4_hir_snapshot_restore_diag_line(line)
             }
@@ -2285,6 +2453,8 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     out = out + " items=" + word_from_int(restored_items)
     out = out + " local-annotations=" + word_from_int(restored_local_annotations)
     out = out + " task-returns=" + word_from_int(restored_task_returns)
+    out = out + " task-param-owners=" + word_from_int(restored_task_param_owners)
+    out = out + " task-params=" + word_from_int(restored_task_params)
     out = out + " diagnostics=" + word_from_int(restored_diagnostics)
     out = out + " skipped-other=" + word_from_int(skipped_other)
     out = out + " live-files=" + word_from_int(v4_hir_file_count())
@@ -2721,4 +2891,822 @@ task v4_hir_snapshot_task_return_slots_are_valid(records: int, files: int, items
     array_release(item_ends)
     array_release(item_return_seen)
     give back valid
+}
+
+
+-- Ordinary-task parameter semantic storage and wire contracts.
+task v4_hir_task_param_owner_items_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_owner_items, hir_id))
+}
+
+task v4_hir_task_param_owner_counts_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_owner_counts, hir_id))
+}
+
+task v4_hir_task_param_items_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_items, hir_id))
+}
+
+task v4_hir_task_param_ordinals_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_ordinals, hir_id))
+}
+
+task v4_hir_task_param_names_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_names, hir_id))
+}
+
+task v4_hir_task_param_name_spans_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_name_spans, hir_id))
+}
+
+task v4_hir_task_param_modes_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_modes, hir_id))
+}
+
+task v4_hir_task_param_lifetimes_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_lifetimes, hir_id))
+}
+
+task v4_hir_task_param_lifetime_spans_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_lifetime_spans, hir_id))
+}
+
+task v4_hir_task_param_types_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_types, hir_id))
+}
+
+task v4_hir_task_param_type_spans_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_type_spans, hir_id))
+}
+
+task v4_hir_task_param_segment_spans_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_segment_spans, hir_id))
+}
+
+task v4_hir_item_decl_is_ordinary_task(hir_id: int, item_id: int) -> bool {
+    if hir_id < 0 or item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
+        give back false
+    }
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_task {
+        give back false
+    }
+    -- Impl/doctrine/extern signatures live beneath non-Task HIR owners. This
+    -- declaration-keyword check also keeps recovered non-task nodes out.
+    give back v4_hir_item_decl_keyword(hir_id, item_id) == "task"
+}
+
+task v4_hir_task_param_owner_record_count(hir_id: int) -> int {
+    give back array_len(v4_hir_task_param_owner_items_handle(hir_id))
+}
+
+task v4_hir_task_param_owner_record_id(hir_id: int, item_id: int) -> int {
+    pilot record_id = 0
+    pilot record_count = v4_hir_task_param_owner_record_count(hir_id)
+    repeat until record_id >= record_count {
+        if word_to_int(array_get(v4_hir_task_param_owner_items_handle(hir_id), record_id)) == item_id {
+            give back record_id
+        }
+        record_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_item_is_ordinary_task(hir_id: int, item_id: int) -> bool {
+    if hir_id < 0 or item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
+        give back false
+    }
+    give back v4_hir_item_kind(hir_id, item_id) == v4_hir_task and v4_hir_task_param_owner_record_id(hir_id, item_id) >= 0
+}
+
+task v4_hir_task_param_record_count(hir_id: int) -> int {
+    give back array_len(v4_hir_task_param_items_handle(hir_id))
+}
+
+task v4_hir_task_param_record_id(hir_id: int, item_id: int, param_id: int) -> int {
+    if item_id < 0 or param_id < 0 {
+        give back 0 - 1
+    }
+    pilot record_id = 0
+    pilot record_count = v4_hir_task_param_record_count(hir_id)
+    repeat until record_id >= record_count {
+        if word_to_int(array_get(v4_hir_task_param_items_handle(hir_id), record_id)) == item_id and word_to_int(array_get(v4_hir_task_param_ordinals_handle(hir_id), record_id)) == param_id {
+            give back record_id
+        }
+        record_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_task_param_count(hir_id: int, item_id: int) -> int {
+    pilot owner_record = v4_hir_task_param_owner_record_id(hir_id, item_id)
+    if owner_record < 0 {
+        give back 0
+    }
+    give back word_to_int(array_get(v4_hir_task_param_owner_counts_handle(hir_id), owner_record))
+}
+
+task v4_hir_task_param_name(hir_id: int, item_id: int, param_id: int) -> word {
+    pilot record_id = v4_hir_task_param_record_id(hir_id, item_id, param_id)
+    if record_id < 0 { give back "" }
+    give back array_get(v4_hir_task_param_names_handle(hir_id), record_id)
+}
+
+task v4_hir_task_param_name_span(hir_id: int, item_id: int, param_id: int) -> word {
+    pilot record_id = v4_hir_task_param_record_id(hir_id, item_id, param_id)
+    if record_id < 0 { give back V4_NO_SPAN }
+    give back array_get(v4_hir_task_param_name_spans_handle(hir_id), record_id)
+}
+
+task v4_hir_task_param_mode(hir_id: int, item_id: int, param_id: int) -> word {
+    pilot record_id = v4_hir_task_param_record_id(hir_id, item_id, param_id)
+    if record_id < 0 { give back "" }
+    give back array_get(v4_hir_task_param_modes_handle(hir_id), record_id)
+}
+
+task v4_hir_task_param_lifetime(hir_id: int, item_id: int, param_id: int) -> word {
+    pilot record_id = v4_hir_task_param_record_id(hir_id, item_id, param_id)
+    if record_id < 0 { give back "" }
+    give back array_get(v4_hir_task_param_lifetimes_handle(hir_id), record_id)
+}
+
+task v4_hir_task_param_lifetime_span(hir_id: int, item_id: int, param_id: int) -> word {
+    pilot record_id = v4_hir_task_param_record_id(hir_id, item_id, param_id)
+    if record_id < 0 { give back V4_NO_SPAN }
+    give back array_get(v4_hir_task_param_lifetime_spans_handle(hir_id), record_id)
+}
+
+task v4_hir_task_param_surface_type(hir_id: int, item_id: int, param_id: int) -> word {
+    pilot record_id = v4_hir_task_param_record_id(hir_id, item_id, param_id)
+    if record_id < 0 { give back "" }
+    give back array_get(v4_hir_task_param_types_handle(hir_id), record_id)
+}
+
+task v4_hir_task_param_type_span(hir_id: int, item_id: int, param_id: int) -> word {
+    pilot record_id = v4_hir_task_param_record_id(hir_id, item_id, param_id)
+    if record_id < 0 { give back V4_NO_SPAN }
+    give back array_get(v4_hir_task_param_type_spans_handle(hir_id), record_id)
+}
+
+task v4_hir_task_param_segment_span(hir_id: int, item_id: int, param_id: int) -> word {
+    pilot record_id = v4_hir_task_param_record_id(hir_id, item_id, param_id)
+    if record_id < 0 { give back V4_NO_SPAN }
+    give back array_get(v4_hir_task_param_segment_spans_handle(hir_id), record_id)
+}
+
+task v4_hir_add_task_param_owner(hir_id: int, item_id: int, count: int) -> int {
+    pilot record_id = v4_hir_task_param_owner_record_count(hir_id)
+    array_push(v4_hir_task_param_owner_items_handle(hir_id), word_from_int(item_id))
+    array_push(v4_hir_task_param_owner_counts_handle(hir_id), word_from_int(count))
+    give back record_id
+}
+
+task v4_hir_add_task_param(hir_id: int, item_id: int, ordinal: int, name: word, name_span: word, mode: word, lifetime_name: word, lifetime_span: word, type_text: word, type_span: word, segment_span: word) -> int {
+    pilot record_id = v4_hir_task_param_record_count(hir_id)
+    array_push(v4_hir_task_param_items_handle(hir_id), word_from_int(item_id))
+    array_push(v4_hir_task_param_ordinals_handle(hir_id), word_from_int(ordinal))
+    array_push(v4_hir_task_param_names_handle(hir_id), name)
+    array_push(v4_hir_task_param_name_spans_handle(hir_id), name_span)
+    array_push(v4_hir_task_param_modes_handle(hir_id), mode)
+    array_push(v4_hir_task_param_lifetimes_handle(hir_id), lifetime_name)
+    array_push(v4_hir_task_param_lifetime_spans_handle(hir_id), lifetime_span)
+    array_push(v4_hir_task_param_types_handle(hir_id), type_text)
+    array_push(v4_hir_task_param_type_spans_handle(hir_id), type_span)
+    array_push(v4_hir_task_param_segment_spans_handle(hir_id), segment_span)
+    give back record_id
+}
+
+task v4_hir_task_param_depth_after_token(depth: int, value: word) -> int {
+    if value == "(" or value == "[" or value == "{" or value == "<" {
+        give back depth + 1
+    }
+    if value == ")" or value == "]" or value == "}" or value == ">" {
+        if depth > 0 {
+            give back depth - 1
+        }
+    }
+    give back depth
+}
+
+task v4_hir_task_param_find_colon(stream_id: int, start_token: int, end_token: int) -> int {
+    pilot idx = start_token
+    pilot depth = 0
+    repeat until idx >= end_token {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot value = v4_lex_token_value(stream_id, idx)
+            if value == ":" and depth == 0 {
+                give back idx
+            }
+            depth = v4_hir_task_param_depth_after_token(depth, value)
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_task_param_add_error(hir_id: int, span: word, help: word) -> void {
+    v4_hir_add_diag(hir_id, v4_diag_new(v4_diag_error, span, "invalid ordinary task parameter declaration", help))
+}
+
+task v4_hir_lower_task_param_segment(hir_id: int, item_id: int, stream_id: int, start_token: int, end_token: int, ordinal: int) -> int {
+    pilot segment_span = v4_hir_span_from_tokens(stream_id, start_token, end_token)
+    pilot no_span = V4_NO_SPAN
+    if segment_span == no_span {
+        pilot item_span = v4_hir_item_span(hir_id, item_id)
+        v4_hir_task_param_add_error(hir_id, item_span, "remove the empty parameter segment or add name: Type")
+        give back 0
+    }
+
+    pilot colon = v4_hir_task_param_find_colon(stream_id, start_token, end_token)
+    if colon < 0 {
+        v4_hir_task_param_add_error(hir_id, segment_span, "ordinary task parameters require name: Type")
+        give back 0
+    }
+
+    pilot cursor = v4_hir_skip_trivia(stream_id, start_token, colon)
+    pilot mode = v4_hir_task_param_mode_value
+    pilot lifetime_name = ""
+    pilot lifetime_span = no_span
+    if cursor < colon and v4_lex_token_value(stream_id, cursor) == "lend" {
+        mode = v4_hir_task_param_mode_lend
+        cursor = v4_hir_skip_trivia(stream_id, cursor + 1, colon)
+        if cursor < colon and v4_lex_token_value(stream_id, cursor) == "mut" {
+            mode = v4_hir_task_param_mode_lend_mut
+            cursor = v4_hir_skip_trivia(stream_id, cursor + 1, colon)
+        }
+        if cursor < colon and v4_lex_token_type(stream_id, cursor) == v4_tok_lifetime {
+            pilot candidate_lifetime = v4_lex_token_value(stream_id, cursor)
+            if candidate_lifetime != "'_" {
+                lifetime_name = candidate_lifetime
+                lifetime_span = v4_lex_token_span(stream_id, cursor)
+            }
+            cursor = v4_hir_skip_trivia(stream_id, cursor + 1, colon)
+        }
+    }
+
+    if cursor >= colon or v4_lex_token_type(stream_id, cursor) != v4_tok_ident {
+        v4_hir_task_param_add_error(hir_id, segment_span, "add one identifier before the parameter colon")
+        give back 0
+    }
+    pilot name = v4_lex_token_value(stream_id, cursor)
+    pilot name_span = v4_lex_token_span(stream_id, cursor)
+    cursor = v4_hir_skip_trivia(stream_id, cursor + 1, colon)
+    if cursor != colon {
+        v4_hir_task_param_add_error(hir_id, segment_span, "keep only lend, optional mut/lifetime, and one name before the colon")
+        give back 0
+    }
+
+    pilot type_start = v4_hir_skip_trivia(stream_id, colon + 1, end_token)
+    if type_start >= end_token {
+        v4_hir_task_param_add_error(hir_id, segment_span, "add a parameter type after the colon")
+        give back 0
+    }
+    pilot type_text = v4_hir_local_annotation_type_text(stream_id, type_start, end_token)
+    pilot type_span = v4_hir_span_from_tokens(stream_id, type_start, end_token)
+    if type_text == "" or type_span == no_span {
+        v4_hir_task_param_add_error(hir_id, segment_span, "add a complete parameter type after the colon")
+        give back 0
+    }
+
+    v4_hir_add_task_param(hir_id, item_id, ordinal, name, name_span, mode, lifetime_name, lifetime_span, type_text, type_span, segment_span)
+    give back 1
+}
+
+task v4_hir_lower_task_params(hir_id: int, item_id: int) -> void {
+    if not v4_hir_item_decl_is_ordinary_task(hir_id, item_id) {
+        give back
+    }
+    pilot stream_id = v4_hir_item_stream_id(hir_id)
+    if stream_id < 0 {
+        v4_hir_task_param_add_error(hir_id, v4_hir_item_span(hir_id, item_id), "the expanded task signature has no token stream")
+        v4_hir_add_task_param_owner(hir_id, item_id, 0)
+        give back
+    }
+    pilot item_span = v4_hir_item_span(hir_id, item_id)
+    pilot item_start = v4_hir_first_token_at_or_after(stream_id, v4_span_start(item_span))
+    pilot item_end = v4_hir_first_token_at_or_after(stream_id, v4_span_end(item_span))
+    pilot param_open = v4_hir_task_param_open_token(stream_id, item_start, item_end)
+    pilot param_close = v4_hir_task_param_close_token(stream_id, param_open, item_end)
+    if param_open < 0 or param_close < 0 {
+        v4_hir_task_param_add_error(hir_id, item_span, "add a complete (...) parameter list")
+        v4_hir_add_task_param_owner(hir_id, item_id, 0)
+        give back
+    }
+
+    pilot first = v4_hir_skip_trivia(stream_id, param_open + 1, param_close)
+    if first >= param_close {
+        v4_hir_add_task_param_owner(hir_id, item_id, 0)
+        give back
+    }
+
+    pilot valid_count = 0
+    pilot segment_start = param_open + 1
+    pilot depth = 0
+    pilot idx = param_open + 1
+    repeat until idx > param_close {
+        pilot at_end = idx == param_close
+        pilot separator = false
+        if not at_end and v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+            pilot value = v4_lex_token_value(stream_id, idx)
+            if value == "," and depth == 0 {
+                separator = true
+            } else {
+                depth = v4_hir_task_param_depth_after_token(depth, value)
+            }
+        }
+        if at_end or separator {
+            valid_count += v4_hir_lower_task_param_segment(hir_id, item_id, stream_id, segment_start, idx, valid_count)
+            segment_start = idx + 1
+        }
+        idx += 1
+    }
+    v4_hir_add_task_param_owner(hir_id, item_id, valid_count)
+}
+
+task v4_hir_snapshot_task_param_owner_total() -> int {
+    v4_hir_init()
+    pilot total = 0
+    pilot hir_id = 0
+    repeat until hir_id >= v4_hir_file_count() {
+        total += v4_hir_task_param_owner_record_count(hir_id)
+        hir_id += 1
+    }
+    give back total
+}
+
+task v4_hir_snapshot_task_param_total() -> int {
+    v4_hir_init()
+    pilot total = 0
+    pilot hir_id = 0
+    repeat until hir_id >= v4_hir_file_count() {
+        total += v4_hir_task_param_record_count(hir_id)
+        hir_id += 1
+    }
+    give back total
+}
+
+task v4_hir_snapshot_task_param_owner_line(hir_id: int, record_id: int) -> word {
+    pilot out = "hir-task-param-owner"
+    out = out + "|" + word_from_int(hir_id)
+    out = out + "|" + word_from_int(record_id)
+    out = out + "|" + word_from_int(word_to_int(array_get(v4_hir_task_param_owner_items_handle(hir_id), record_id)))
+    out = out + "|" + word_from_int(word_to_int(array_get(v4_hir_task_param_owner_counts_handle(hir_id), record_id)))
+    give back out
+}
+
+task v4_hir_snapshot_task_param_line(hir_id: int, record_id: int) -> word {
+    pilot out = "hir-task-param"
+    out = out + "|" + word_from_int(hir_id)
+    out = out + "|" + word_from_int(record_id)
+    out = out + "|" + word_from_int(word_to_int(array_get(v4_hir_task_param_items_handle(hir_id), record_id)))
+    out = out + "|" + word_from_int(word_to_int(array_get(v4_hir_task_param_ordinals_handle(hir_id), record_id)))
+    out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_task_param_names_handle(hir_id), record_id))
+    out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_task_param_name_spans_handle(hir_id), record_id))
+    out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_task_param_modes_handle(hir_id), record_id))
+    out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_task_param_lifetimes_handle(hir_id), record_id))
+    out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_task_param_lifetime_spans_handle(hir_id), record_id))
+    out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_task_param_types_handle(hir_id), record_id))
+    out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_task_param_type_spans_handle(hir_id), record_id))
+    out = out + "|" + v4_hir_snapshot_escape(array_get(v4_hir_task_param_segment_spans_handle(hir_id), record_id))
+    give back out
+}
+
+task v4_hir_snapshot_task_param_owner_is_valid(line: word) -> bool {
+    give back v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 1)) and v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 2)) and v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 3)) and v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 4))
+}
+
+task v4_hir_snapshot_span_is_canonical_nonempty(span: word) -> bool {
+    -- Validate decimal spelling in place instead of allocating a reconstructed
+    -- span on every parameter field and every validation iteration.
+    pilot at_pos = v4_index_of_from(span, "@", 0)
+    if at_pos < 0 {
+        give back false
+    }
+    if at_pos == 3 and span.char_at(0) == "0" and span.char_at(1) == ":" and span.char_at(2) == "0" {
+        give back false
+    }
+    pilot colon_pos = v4_index_of_from(span, ":", at_pos + 1)
+    if colon_pos < 0 {
+        give back false
+    }
+    pilot start_offset = v4_nonnegative_int_range(span, at_pos + 1, colon_pos)
+    pilot end_offset = v4_nonnegative_int_range(span, colon_pos + 1, span.length())
+    if start_offset < 0 or end_offset <= start_offset {
+        give back false
+    }
+    if colon_pos > at_pos + 2 and span.char_at(at_pos + 1) == "0" {
+        give back false
+    }
+    if span.length() > colon_pos + 2 and span.char_at(colon_pos + 1) == "0" {
+        give back false
+    }
+    give back true
+}
+
+task v4_hir_snapshot_span_is_contained(inner: word, outer: word) -> bool {
+    if v4_hir_snapshot_span_is_canonical_nonempty(inner) == false or v4_hir_snapshot_span_is_canonical_nonempty(outer) == false {
+        give back false
+    }
+    pilot inner_file_end = v4_index_of_from(inner, "@", 0)
+    pilot outer_file_end = v4_index_of_from(outer, "@", 0)
+    if inner_file_end != outer_file_end {
+        give back false
+    }
+    pilot idx = 0
+    repeat until idx >= inner_file_end {
+        if inner.char_at(idx) != outer.char_at(idx) {
+            give back false
+        }
+        idx += 1
+    }
+    give back v4_span_start(inner) >= v4_span_start(outer) and v4_span_end(inner) <= v4_span_end(outer)
+}
+
+task v4_hir_snapshot_named_lifetime_is_valid(lifetime_name: word) -> bool {
+    if lifetime_name.length() <= 1 or lifetime_name.char_at(0) != "'" or v4_lex_is_ident_start(lifetime_name.char_at(1)) == false {
+        give back false
+    }
+    pilot idx = 2
+    repeat until idx >= lifetime_name.length() {
+        if v4_lex_is_ident_continue(lifetime_name.char_at(idx)) == false {
+            give back false
+        }
+        idx += 1
+    }
+    give back true
+}
+
+task v4_hir_snapshot_task_param_name_is_valid(name: word) -> bool {
+    if name == "" or v4_lex_is_ident_start(name.char_at(0)) == false {
+        give back false
+    }
+    pilot idx = 1
+    repeat until idx >= name.length() {
+        if v4_lex_is_ident_continue(name.char_at(idx)) == false {
+            give back false
+        }
+        idx += 1
+    }
+    -- Lowering only accepts v4_tok_ident. Keywords and the case-insensitive
+    -- boolean vocabulary are emitted as distinct token kinds by freak_lex.
+    give back v4_lex_is_keyword_word(name) == false and v4_lex_is_bool_word(name) == false
+}
+
+task v4_hir_snapshot_task_param_is_valid(line: word) -> bool {
+    if v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 1)) == false or v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 2)) == false or v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 3)) == false or v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 4)) == false {
+        give back false
+    }
+    pilot name = v4_hir_snapshot_field(line, 5)
+    pilot name_span = v4_hir_snapshot_field(line, 6)
+    pilot mode = v4_hir_snapshot_field(line, 7)
+    pilot lifetime_name = v4_hir_snapshot_field(line, 8)
+    pilot lifetime_span = v4_hir_snapshot_field(line, 9)
+    pilot type_text = v4_hir_snapshot_field(line, 10)
+    pilot type_span = v4_hir_snapshot_field(line, 11)
+    pilot segment_span = v4_hir_snapshot_field(line, 12)
+    pilot no_span = V4_NO_SPAN
+    if v4_hir_snapshot_task_param_name_is_valid(name) == false or type_text == "" {
+        give back false
+    }
+    if mode != v4_hir_task_param_mode_value and mode != v4_hir_task_param_mode_lend and mode != v4_hir_task_param_mode_lend_mut {
+        give back false
+    }
+    if mode == v4_hir_task_param_mode_value and (lifetime_name != "" or lifetime_span != no_span) {
+        give back false
+    }
+    if lifetime_name == "" {
+        if lifetime_span != no_span {
+            give back false
+        }
+    } else {
+        if mode == v4_hir_task_param_mode_value or lifetime_name == "'_" or v4_hir_snapshot_named_lifetime_is_valid(lifetime_name) == false {
+            give back false
+        }
+        if v4_hir_snapshot_span_is_contained(lifetime_span, segment_span) == false {
+            give back false
+        }
+    }
+    if v4_hir_snapshot_span_is_contained(name_span, segment_span) == false or v4_hir_snapshot_span_is_contained(type_span, segment_span) == false {
+        give back false
+    }
+    -- These facts feed editor definitions and TY diagnostics after restore.
+    -- Preserve the source order guaranteed by lowering instead of accepting
+    -- overlapping or retargeted semantic spans that merely share an owner.
+    if v4_span_end(name_span) >= v4_span_start(type_span) {
+        give back false
+    }
+    if lifetime_name != "" and v4_span_end(lifetime_span) >= v4_span_start(name_span) {
+        give back false
+    }
+    give back true
+}
+
+-- The common owner/item validator runs first. Seventeen scratch arrays use
+-- observed totals only: 7*files + 7*items + owners + 2*params cells.
+-- File/record/ordinal order on the wire is unrestricted. Cache scalar parent
+-- metadata once, then reconcile dense record IDs and per-Task ordinal slots.
+task v4_hir_snapshot_task_param_slots_are_valid(records: int, files: int, items: int, owners: int, params: int) -> bool {
+    pilot owner_files = array_new()
+    pilot item_counts = array_new()
+    pilot item_offsets = array_new()
+    pilot owner_counts = array_new()
+    pilot owner_offsets = array_new()
+    pilot param_counts = array_new()
+    pilot param_offsets = array_new()
+    pilot item_kinds = array_new()
+    pilot item_starts = array_new()
+    pilot item_ends = array_new()
+    pilot item_owner_seen = array_new()
+    pilot item_param_counts = array_new()
+    pilot item_param_offsets = array_new()
+    pilot item_param_actual = array_new()
+    pilot owner_seen = array_new()
+    pilot param_seen = array_new()
+    pilot ordinal_seen = array_new()
+    pilot valid = true
+    pilot slot = 0
+    repeat until slot >= files {
+        array_push(owner_files, "")
+        array_push(item_counts, "0")
+        array_push(item_offsets, "0")
+        array_push(owner_counts, "0")
+        array_push(owner_offsets, "0")
+        array_push(param_counts, "0")
+        array_push(param_offsets, "0")
+        slot += 1
+    }
+    slot = 0
+    repeat until slot >= items {
+        array_push(item_kinds, "")
+        array_push(item_starts, "0")
+        array_push(item_ends, "0")
+        array_push(item_owner_seen, "0")
+        array_push(item_param_counts, "0")
+        array_push(item_param_offsets, "0")
+        array_push(item_param_actual, "0")
+        slot += 1
+    }
+    slot = 0
+    repeat until slot >= owners {
+        array_push(owner_seen, "0")
+        slot += 1
+    }
+    slot = 0
+    repeat until slot >= params {
+        array_push(param_seen, "0")
+        array_push(ordinal_seen, "0")
+        slot += 1
+    }
+    pilot line_id = 0
+    repeat until line_id >= array_len(records) or valid == false {
+        pilot line: word = array_get(records, line_id)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if kind == "hir" or kind == "hir-task-param-owner" or kind == "hir-task-param" {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            if owner < 0 {
+                valid = false
+            } else if kind == "hir" {
+                pilot count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), items + 1)
+                if count < 0 {
+                    valid = false
+                } else {
+                    array_set(owner_files, owner, v4_hir_snapshot_field_raw(line, 2))
+                    array_set(item_counts, owner, word_from_int(count))
+                }
+            } else if kind == "hir-task-param-owner" {
+                pilot count = word_to_int(array_get(owner_counts, owner))
+                array_set(owner_counts, owner, word_from_int(count + 1))
+            } else {
+                pilot count = word_to_int(array_get(param_counts, owner))
+                array_set(param_counts, owner, word_from_int(count + 1))
+            }
+        }
+        line_id += 1
+    }
+    pilot item_total = 0
+    pilot owner_total = 0
+    pilot param_total = 0
+    slot = 0
+    repeat until slot >= files or valid == false {
+        pilot item_count = word_to_int(array_get(item_counts, slot))
+        pilot owner_count = word_to_int(array_get(owner_counts, slot))
+        pilot param_count = word_to_int(array_get(param_counts, slot))
+        if item_count > items - item_total or owner_count > owners - owner_total or param_count > params - param_total {
+            valid = false
+        } else {
+            array_set(item_offsets, slot, word_from_int(item_total))
+            array_set(owner_offsets, slot, word_from_int(owner_total))
+            array_set(param_offsets, slot, word_from_int(param_total))
+            item_total += item_count
+            owner_total += owner_count
+            param_total += param_count
+        }
+        slot += 1
+    }
+    if item_total != items or owner_total != owners or param_total != params { valid = false }
+    line_id = 0
+    repeat until line_id >= array_len(records) or valid == false {
+        pilot line: word = array_get(records, line_id)
+        if v4_hir_snapshot_field_raw(line, 0) == "hir-item" {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            if owner < 0 {
+                valid = false
+            } else {
+                pilot item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(item_counts, owner)))
+                if item < 0 {
+                    valid = false
+                } else {
+                    pilot item_slot = word_to_int(array_get(item_offsets, owner)) + item
+                    pilot kind = v4_hir_snapshot_field(line, 3)
+                    array_set(item_kinds, item_slot, kind)
+                    if kind == v4_hir_task {
+                        pilot source_file: word = array_get(owner_files, owner)
+                        pilot span = v4_hir_snapshot_field(line, 6)
+                        pilot start = v4_span_start(span)
+                        pilot end = v4_span_end(span)
+                        if span == V4_NO_SPAN or v4_span_file(span) != source_file or start < 0 or end <= start or v4_span_new(source_file, start, end) != span {
+                            valid = false
+                        } else {
+                            array_set(item_starts, item_slot, word_from_int(start))
+                            array_set(item_ends, item_slot, word_from_int(end))
+                        }
+                    }
+                }
+            }
+        }
+        line_id += 1
+    }
+    line_id = 0
+    repeat until line_id >= array_len(records) or valid == false {
+        pilot line: word = array_get(records, line_id)
+        if v4_hir_snapshot_field_raw(line, 0) == "hir-task-param-owner" {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            if owner < 0 {
+                valid = false
+            } else {
+                pilot record_id = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(owner_counts, owner)))
+                pilot item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 3), word_to_int(array_get(item_counts, owner)))
+                pilot count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), params + 1)
+                if record_id < 0 or item < 0 or count < 0 {
+                    valid = false
+                } else {
+                    pilot record_slot = word_to_int(array_get(owner_offsets, owner)) + record_id
+                    pilot item_slot = word_to_int(array_get(item_offsets, owner)) + item
+                    pilot record_seen: word = array_get(owner_seen, record_slot)
+                    pilot task_seen: word = array_get(item_owner_seen, item_slot)
+                    pilot kind: word = array_get(item_kinds, item_slot)
+                    if record_seen != "0" or task_seen != "0" or kind != v4_hir_task {
+                        valid = false
+                    } else {
+                        array_set(owner_seen, record_slot, "1")
+                        array_set(item_owner_seen, item_slot, "1")
+                        array_set(item_param_counts, item_slot, word_from_int(count))
+                    }
+                }
+            }
+        }
+        line_id += 1
+    }
+    -- Completeness is independent of parameter count: empty Tasks own a record.
+    pilot ordinal_total = 0
+    slot = 0
+    repeat until slot >= items or valid == false {
+        pilot kind: word = array_get(item_kinds, slot)
+        pilot seen: word = array_get(item_owner_seen, slot)
+        pilot count = word_to_int(array_get(item_param_counts, slot))
+        if kind == v4_hir_task and seen != "1" { valid = false }
+        if kind != v4_hir_task and seen != "0" { valid = false }
+        if count > params - ordinal_total {
+            valid = false
+        } else {
+            array_set(item_param_offsets, slot, word_from_int(ordinal_total))
+            ordinal_total += count
+        }
+        slot += 1
+    }
+    if ordinal_total != params { valid = false }
+    line_id = 0
+    repeat until line_id >= array_len(records) or valid == false {
+        pilot line: word = array_get(records, line_id)
+        if v4_hir_snapshot_field_raw(line, 0) == "hir-task-param" {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            if owner < 0 {
+                valid = false
+            } else {
+                pilot record_id = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(param_counts, owner)))
+                pilot item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 3), word_to_int(array_get(item_counts, owner)))
+                if record_id < 0 or item < 0 {
+                    valid = false
+                } else {
+                    pilot record_slot = word_to_int(array_get(param_offsets, owner)) + record_id
+                    pilot item_slot = word_to_int(array_get(item_offsets, owner)) + item
+                    pilot ordinal = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), word_to_int(array_get(item_param_counts, item_slot)))
+                    pilot task_seen: word = array_get(item_owner_seen, item_slot)
+                    if ordinal < 0 or task_seen != "1" {
+                        valid = false
+                    } else {
+                        pilot ordinal_slot = word_to_int(array_get(item_param_offsets, item_slot)) + ordinal
+                        pilot record_seen: word = array_get(param_seen, record_slot)
+                        pilot position_seen: word = array_get(ordinal_seen, ordinal_slot)
+                        if record_seen != "0" or position_seen != "0" {
+                            valid = false
+                        } else {
+                            array_set(param_seen, record_slot, "1")
+                            array_set(ordinal_seen, ordinal_slot, "1")
+                            pilot actual = word_to_int(array_get(item_param_actual, item_slot))
+                            array_set(item_param_actual, item_slot, word_from_int(actual + 1))
+                            pilot segment = v4_hir_snapshot_field(line, 12)
+                            pilot source_file: word = array_get(owner_files, owner)
+                            pilot parent_start = word_to_int(array_get(item_starts, item_slot))
+                            pilot parent_end = word_to_int(array_get(item_ends, item_slot))
+                            if v4_span_file(segment) != source_file or v4_span_start(segment) < parent_start or v4_span_end(segment) > parent_end {
+                                valid = false
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        line_id += 1
+    }
+    slot = 0
+    repeat until slot >= items or valid == false {
+        pilot actual_count: word = array_get(item_param_actual, slot)
+        pilot declared_count: word = array_get(item_param_counts, slot)
+        if actual_count != declared_count { valid = false }
+        slot += 1
+    }
+    array_release(owner_files)
+    array_release(item_counts)
+    array_release(item_offsets)
+    array_release(owner_counts)
+    array_release(owner_offsets)
+    array_release(param_counts)
+    array_release(param_offsets)
+    array_release(item_kinds)
+    array_release(item_starts)
+    array_release(item_ends)
+    array_release(item_owner_seen)
+    array_release(item_param_counts)
+    array_release(item_param_offsets)
+    array_release(item_param_actual)
+    array_release(owner_seen)
+    array_release(param_seen)
+    array_release(ordinal_seen)
+    give back valid
+}
+
+task v4_hir_restore_task_param_owner_slot(hir_id: int, record_id: int, item_id: int, count: int) -> int {
+    if v4_hir_file_exists(hir_id) == false {
+        give back 0
+    }
+    repeat until v4_hir_task_param_owner_record_count(hir_id) > record_id {
+        array_push(v4_hir_task_param_owner_items_handle(hir_id), word_from_int(0 - 1))
+        array_push(v4_hir_task_param_owner_counts_handle(hir_id), "0")
+    }
+    array_set(v4_hir_task_param_owner_items_handle(hir_id), record_id, word_from_int(item_id))
+    array_set(v4_hir_task_param_owner_counts_handle(hir_id), record_id, word_from_int(count))
+    give back 1
+}
+
+task v4_hir_snapshot_restore_task_param_owner_line(line: word) -> int {
+    if v4_hir_snapshot_record_is_valid(line) == false or v4_hir_snapshot_field_raw(line, 0) != "hir-task-param-owner" {
+        give back 0
+    }
+    give back v4_hir_restore_task_param_owner_slot(word_to_int(v4_hir_snapshot_field_raw(line, 1)), word_to_int(v4_hir_snapshot_field_raw(line, 2)), word_to_int(v4_hir_snapshot_field_raw(line, 3)), word_to_int(v4_hir_snapshot_field_raw(line, 4)))
+}
+
+task v4_hir_restore_task_param_slot(hir_id: int, record_id: int, item_id: int, ordinal: int, name: word, name_span: word, mode: word, lifetime_name: word, lifetime_span: word, type_text: word, type_span: word, segment_span: word) -> int {
+    if v4_hir_file_exists(hir_id) == false {
+        give back 0
+    }
+    repeat until v4_hir_task_param_record_count(hir_id) > record_id {
+        array_push(v4_hir_task_param_items_handle(hir_id), word_from_int(0 - 1))
+        array_push(v4_hir_task_param_ordinals_handle(hir_id), word_from_int(0 - 1))
+        array_push(v4_hir_task_param_names_handle(hir_id), "")
+        array_push(v4_hir_task_param_name_spans_handle(hir_id), V4_NO_SPAN)
+        array_push(v4_hir_task_param_modes_handle(hir_id), "")
+        array_push(v4_hir_task_param_lifetimes_handle(hir_id), "")
+        array_push(v4_hir_task_param_lifetime_spans_handle(hir_id), V4_NO_SPAN)
+        array_push(v4_hir_task_param_types_handle(hir_id), "")
+        array_push(v4_hir_task_param_type_spans_handle(hir_id), V4_NO_SPAN)
+        array_push(v4_hir_task_param_segment_spans_handle(hir_id), V4_NO_SPAN)
+    }
+    array_set(v4_hir_task_param_items_handle(hir_id), record_id, word_from_int(item_id))
+    array_set(v4_hir_task_param_ordinals_handle(hir_id), record_id, word_from_int(ordinal))
+    array_set(v4_hir_task_param_names_handle(hir_id), record_id, name)
+    array_set(v4_hir_task_param_name_spans_handle(hir_id), record_id, name_span)
+    array_set(v4_hir_task_param_modes_handle(hir_id), record_id, mode)
+    array_set(v4_hir_task_param_lifetimes_handle(hir_id), record_id, lifetime_name)
+    array_set(v4_hir_task_param_lifetime_spans_handle(hir_id), record_id, lifetime_span)
+    array_set(v4_hir_task_param_types_handle(hir_id), record_id, type_text)
+    array_set(v4_hir_task_param_type_spans_handle(hir_id), record_id, type_span)
+    array_set(v4_hir_task_param_segment_spans_handle(hir_id), record_id, segment_span)
+    give back 1
+}
+
+task v4_hir_snapshot_restore_task_param_line(line: word) -> int {
+    if v4_hir_snapshot_record_is_valid(line) == false or v4_hir_snapshot_field_raw(line, 0) != "hir-task-param" {
+        give back 0
+    }
+    give back v4_hir_restore_task_param_slot(word_to_int(v4_hir_snapshot_field_raw(line, 1)), word_to_int(v4_hir_snapshot_field_raw(line, 2)), word_to_int(v4_hir_snapshot_field_raw(line, 3)), word_to_int(v4_hir_snapshot_field_raw(line, 4)), v4_hir_snapshot_field(line, 5), v4_hir_snapshot_field(line, 6), v4_hir_snapshot_field(line, 7), v4_hir_snapshot_field(line, 8), v4_hir_snapshot_field(line, 9), v4_hir_snapshot_field(line, 10), v4_hir_snapshot_field(line, 11), v4_hir_snapshot_field(line, 12))
 }

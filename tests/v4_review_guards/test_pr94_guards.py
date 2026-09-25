@@ -18,6 +18,36 @@ guard = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(guard)
 
 
+class TaskParameterGuards(unittest.TestCase):
+    def test_parameter_analysis_discovers_names_once(self):
+        source = guard.read_text(guard.crate_path("freak_ty"))
+        with patch.object(guard, "freak_task_names", wraps=guard.freak_task_names) as names:
+            self.assertEqual(guard.task_param_ordinary_call_closure_violations(source), [])
+            self.assertEqual(names.call_count, 1)
+
+    def test_parameter_helper_indirected_fallback_is_rejected(self):
+        source = guard.freak_mask_line_comments(guard.read_text(guard.crate_path("freak_ty")))
+        body = guard.freak_task_body(source, "v4_ty_signature_param_count")
+        original = "give back v4_hir_task_param_count(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))"
+        self.assertIn(original, body)
+        mutant = source.replace(body, body.replace(original, "give back hidden_param_bridge(ty_id, sig_id)", 1), 1)
+        mutant += "\ntask hidden_param_bridge(ty_id: int, sig_id: int) -> int {\n give back v4_ty_nonordinary_signature_param_count_fallback(ty_id, sig_id)\n}\n"
+        findings = guard.task_param_ordinary_call_closure_violations(mutant)
+        self.assertTrue(any("v4_ty_nonordinary_signature_param_count_fallback" in finding for finding in findings))
+
+    def test_commented_parameter_adapter_still_mutates(self):
+        original_read = guard.read_text
+        ty_path = guard.crate_path("freak_ty")
+        source = guard.freak_mask_line_comments(original_read(ty_path))
+        body = guard.freak_task_body(source, "v4_ty_signature_param_count")
+        commented = source.replace(body, "\n -- comment must not disable parameter probe\n" + body, 1)
+        self.assertNotEqual(commented, source)
+        with patch.object(guard, "read_text", side_effect=lambda p: commented if p == ty_path else original_read(p)):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                guard.check_task_param_hir_boundary()
+        self.assertIn("ordinary fallback rejected", output.getvalue())
+
+
 class TaskReturnGuards(unittest.TestCase):
     def test_call_graph_cycles_and_unknown_roots(self):
         source = "task a() { b() }\ntask b() { c() }\ntask c() { a() }\ntask d() {}"
