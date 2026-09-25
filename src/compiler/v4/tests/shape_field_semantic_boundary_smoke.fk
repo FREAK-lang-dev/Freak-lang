@@ -1,0 +1,87 @@
+-- Shape facts cross the syntax boundary once, preserving TY recovery behavior.
+task v4_shape_boundary_braces(body: word) -> word { give back "{" + body + "}" }
+
+task v4_shape_boundary_item(hir_id: int, name: word) -> int {
+    pilot item = 0
+    repeat until item >= v4_hir_item_count(hir_id) {
+        if v4_hir_item_name(hir_id, item) == name { give back item }
+        item += 1
+    }
+    give back 0 - 1
+}
+
+task v4_shape_boundary_run() -> void {
+    pilot path = "shape-boundary.fk"
+    pilot src = "alias Count = int\n"
+    src = src + "shape Packet " + v4_shape_boundary_braces("\nfirst: Count, second: (int, [word; 2]); third: maybe<int>\n") + "\n"
+    src = src + "shape Pair<A, B> " + v4_shape_boundary_braces("left: A, right: B") + "\n"
+    src = src + "shape Empty " + v4_shape_boundary_braces("") + "\n"
+    pilot hir_id = v4_hir_text_cached(path, src)
+    pilot ty_id = v4_ty_text_cached(path, src)
+    pilot item = v4_shape_boundary_item(hir_id, "Packet")
+    pilot pair_item = v4_shape_boundary_item(hir_id, "Pair")
+    pilot empty_item = v4_shape_boundary_item(hir_id, "Empty")
+    pilot sig_id = v4_ty_shape_signature_id_for_name(ty_id, "Packet")
+    say "shape-boundary-count-order=" + word_from_bool(v4_hir_shape_field_count(hir_id, item) == 3 and v4_ty_shape_field_count(ty_id, sig_id) == 3 and v4_hir_shape_field_name(hir_id, item, 0) == "first" and v4_ty_shape_field_name(ty_id, sig_id, 2) == "third")
+    say "shape-boundary-surface-alias=" + word_from_bool(v4_hir_shape_field_surface_type(hir_id, item, 0) == "Count" and v4_ty_shape_field_surface_type(ty_id, sig_id, 0) == "Count" and v4_ty_shape_field_type(ty_id, sig_id, 0) == "int")
+    say "shape-boundary-nested-type=" + word_from_bool(v4_ty_shape_field_surface_type(ty_id, sig_id, 1) == "(int,[word;2])" and v4_ty_shape_field_surface_type(ty_id, sig_id, 2) == "maybe<int>")
+    say "shape-boundary-generic-empty=" + word_from_bool(v4_hir_shape_field_surface_type(hir_id, pair_item, 0) == "A" and v4_hir_shape_field_surface_type(hir_id, pair_item, 1) == "B" and v4_hir_shape_field_count(hir_id, empty_item) == 0)
+    pilot name_span = v4_hir_shape_field_name_span(hir_id, item, 0)
+    pilot type_span = v4_hir_shape_field_type_span(hir_id, item, 0)
+    pilot segment = v4_hir_shape_field_segment_span(hir_id, item, 0)
+    say "shape-boundary-exact-spans=" + word_from_bool(v4_slice(src, v4_span_start(name_span), v4_span_end(name_span)) == "first" and v4_slice(src, v4_span_start(type_span), v4_span_end(type_span)) == "Count" and v4_slice(src, v4_span_start(segment), v4_span_end(segment)) == "first: Count" and v4_ty_shape_field_type_span(ty_id, sig_id, 0) == type_span)
+    pilot expansion: word = array_get(v4_hir_expansions, hir_id)
+    array_set(v4_hir_expansions, hir_id, "-1")
+    say "shape-boundary-detached-access=" + word_from_bool(v4_ty_shape_field_count(ty_id, sig_id) == 3 and v4_ty_shape_field_name(ty_id, sig_id, 0) == "first" and v4_ty_shape_field_surface_type(ty_id, sig_id, 1) == "(int,[word;2])" and v4_ty_shape_field_name_span(ty_id, sig_id, 0) == name_span and v4_ty_shape_field_segment_span(ty_id, sig_id, 0) == segment)
+    array_set(v4_hir_expansions, hir_id, expansion)
+    say "shape-boundary-invalid-identities=" + word_from_bool(v4_hir_shape_field_count(-1, 0) == 0 and v4_hir_shape_field_count(hir_id, -1) == 0 and v4_hir_shape_field_name(hir_id, item, 3) == "" and v4_hir_shape_field_type_span(hir_id, item, -1) == V4_NO_SPAN)
+    pilot malformed = "shape Broken " + v4_shape_boundary_braces("missing\nempty:\nkept: int\n: word") + "\n"
+    pilot broken_hir = v4_hir_text_cached("shape-recovery.fk", malformed)
+    pilot broken_item = v4_shape_boundary_item(broken_hir, "Broken")
+    say "shape-boundary-recovery=" + word_from_bool(v4_hir_shape_field_count(broken_hir, broken_item) == 4 and v4_hir_shape_field_surface_type(broken_hir, broken_item, 0) == "" and v4_hir_shape_field_surface_type(broken_hir, broken_item, 1) == "" and v4_hir_shape_field_name(broken_hir, broken_item, 3) == ":" and v4_hir_shape_field_type_span(broken_hir, broken_item, 0) == v4_hir_shape_field_segment_span(broken_hir, broken_item, 0))
+    pilot recovery_snapshot = v4_hir_snapshot()
+    say "shape-boundary-recovery-snapshot=" + word_from_bool(v4_hir_snapshot_validate(recovery_snapshot).starts_with("hir-snapshot-import ok=1"))
+    pilot rich_src = "shape Rich<'a, T> " + v4_shape_boundary_braces("a: lend mut 'a T, b: (int,\n maybe<[word;2]>); c: dyn Display; d: extern[C] task(int)->int\ne: list<list<int>>") + "\n"
+    pilot rich_hir = v4_hir_text_cached("shape-rich.fk", rich_src)
+    pilot rich_item = v4_shape_boundary_item(rich_hir, "Rich")
+    pilot rich_stream = v4_hir_item_stream_id(rich_hir)
+    pilot field = 0
+    pilot formatter_equal: bool = v4_hir_shape_field_count(rich_hir, rich_item) == 5
+    repeat until field >= v4_hir_shape_field_count(rich_hir, rich_item) {
+        pilot field_span = v4_hir_shape_field_type_span(rich_hir, rich_item, field)
+        pilot first = v4_hir_first_token_at_or_after(rich_stream, v4_span_start(field_span))
+        pilot last = v4_hir_first_token_at_or_after(rich_stream, v4_span_end(field_span))
+        if v4_hir_shape_field_surface_type(rich_hir, rich_item, field) != v4_ty_type_text(rich_stream, first, last) { formatter_equal = false }
+        field += 1
+    }
+    say "shape-boundary-formatter-parity=" + word_from_bool(formatter_equal)
+    pilot unclosed_src = "shape Unclosed " + "{" + "a: int\n"
+    pilot unclosed_hir = v4_hir_text_cached("shape-unclosed.fk", unclosed_src)
+    pilot unclosed_item = v4_shape_boundary_item(unclosed_hir, "Unclosed")
+    say "shape-boundary-unclosed-recovery=" + word_from_bool(unclosed_item >= 0 and v4_hir_shape_field_count(unclosed_hir, unclosed_item) == 0)
+    pilot quoted_src = "shape Quoted " + v4_shape_boundary_braces("\"\": int; x: \"\"") + "\n"
+    pilot quoted_hir = v4_hir_text_cached("shape-quoted.fk", quoted_src)
+    pilot quoted_item = v4_shape_boundary_item(quoted_hir, "Quoted")
+    pilot quoted_span = v4_hir_shape_field_type_span(quoted_hir, quoted_item, 1)
+    pilot quoted_snapshot = v4_hir_snapshot()
+    pilot quoted_restore = v4_hir_snapshot_restore(quoted_snapshot)
+    say "shape-boundary-quoted-recovery=" + word_from_bool(quoted_restore.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == quoted_snapshot and v4_hir_shape_field_count(quoted_hir, quoted_item) == 2 and v4_hir_shape_field_name(quoted_hir, quoted_item, 0) == "" and v4_hir_shape_field_surface_type(quoted_hir, quoted_item, 0) == "int" and v4_hir_shape_field_surface_type(quoted_hir, quoted_item, 1) == "" and v4_slice(quoted_src, v4_span_start(quoted_span), v4_span_end(quoted_span)) == "\"\"")
+    pilot changed = src.replace("first: Count", "first: word")
+    pilot change = v4_lsp_handle_text_request("textDocument/didChange", path, changed, 0)
+    pilot after_hir = v4_hir_text_cached(path, changed)
+    pilot after_ty = v4_ty_text_cached(path, changed)
+    pilot after_item = v4_shape_boundary_item(after_hir, "Packet")
+    pilot after_sig = v4_ty_shape_signature_id_for_name(after_ty, "Packet")
+    say "shape-boundary-edit-invalidates=" + word_from_bool(after_hir != hir_id and v4_hir_shape_field_surface_type(after_hir, after_item, 0) == "word" and v4_ty_shape_field_type(after_ty, after_sig, 0) == "word" and change.starts_with("ok|textDocument/didChange"))
+    pilot diag_src = "shape Box " + v4_shape_boundary_braces("value: int") + "\ntask main() -> int " + v4_shape_boundary_braces(" pilot boxed = Box " + v4_shape_boundary_braces("value: true") + "\n give back 0 ") + "\n"
+    pilot diag_mir = v4_mir_text_cached("shape-diagnostic.fk", diag_src)
+    pilot found = false
+    pilot idx = 0
+    repeat until idx >= v4_mir_diag_count(diag_mir) {
+        if v4_diag_message(v4_mir_diag(diag_mir, idx)) == "shape field type mismatch" { found = true }
+        idx += 1
+    }
+    say "shape-boundary-targeted-diagnostic=" + word_from_bool(found)
+}
+
+v4_shape_boundary_run()

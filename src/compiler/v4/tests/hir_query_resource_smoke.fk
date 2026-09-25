@@ -1,0 +1,91 @@
+-- HIR resource rejection must remain a retryable miss throughout its consumers.
+-- Prewarm registries and upstream facts before filling the array handle table.
+task v4_hir_query_resource_smoke() -> void {
+    v4_driver_init()
+    v4_editor_init()
+    v4_lsp_init()
+    v4_hir_init()
+    v4_resolve_init()
+    v4_ty_init()
+    v4_mir_init()
+    v4_borrowck_init()
+    pilot path = "hir-query-resource.fk"
+    pilot text = "task main() -> int " + "{" + "\n    pilot value: int = 7\n    give back value\n" + "}" + "\n"
+    pilot expansion = v4_expand_text_cached(path, text)
+    pilot file_id = v4_source_find(path)
+    pilot fingerprint = v4_source_fingerprint(file_id)
+    pilot revision = v4_source_revision(file_id)
+    pilot stores = v4_query_store_count()
+    pilot entries = v4_query_entry_len
+    pilot edges = v4_query_dep_len
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted: bool = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 {
+            exhausted = true
+        } else {
+            array_push(holders, word_from_int(handle))
+            count += 1
+        }
+    }
+    pilot hir_id = v4_hir_text_cached(path, text)
+    pilot resolve_id = v4_resolve_text_cached(path, text)
+    pilot ty_id = v4_ty_text_cached(path, text)
+    pilot mir_id = v4_mir_text_cached(path, text)
+    pilot borrow_id = v4_borrowck_text_cached(path, text)
+    pilot diagnostics_id = v4_diagnostics_text_cached(path, text)
+    pilot semantic_id = v4_semantic_at_text_cached(path, text, 5)
+    pilot hover_id = v4_hover_text_cached(path, text, 5)
+    pilot definition_id = v4_definition_at_text_cached(path, text, 5)
+    pilot document_id = v4_document_symbols_text_cached(path, text)
+    pilot completion_id = v4_completion_text_cached(path, text, 5)
+    pilot rejected: bool = exhausted and hir_id < 0 and resolve_id < 0 and ty_id < 0 and mir_id < 0 and borrow_id < 0 and diagnostics_id < 0 and semantic_id < 0 and hover_id < 0 and definition_id < 0 and document_id < 0 and completion_id < 0
+    pilot hir_summary = v4_hir_summary(hir_id)
+    pilot syntax_summary = v4_check_syntax_text(path, text)
+    pilot diagnostic_summary = v4_diagnostics_text(path, text)
+    pilot semantic_summary = v4_semantic_at_text(path, text, 5)
+    pilot hover_summary = v4_hover_text(path, text, 5)
+    pilot definition_summary = v4_definition_at_text(path, text, 5)
+    pilot document_summary = v4_document_symbols_text(path, text)
+    pilot completion_summary = v4_completion_text(path, text, 5)
+    pilot lsp_hover = v4_lsp_hover_text(path, text, 5)
+    pilot lsp_definition = v4_lsp_definition_text(path, text, 5)
+    pilot lsp_document = v4_lsp_document_symbols_text(path, text)
+    pilot lsp_completion = v4_lsp_completion_text(path, text, 5)
+    pilot lsp_diagnostics = v4_lsp_diagnostics_text(path, text)
+    pilot lsp_failed: bool = lsp_hover == "error|textDocument/hover|-32001|HIR resource exhausted; retry request" and lsp_definition == "error|textDocument/definition|-32001|HIR resource exhausted; retry request" and lsp_document == "error|textDocument/documentSymbol|-32001|HIR resource exhausted; retry request" and lsp_completion == "error|textDocument/completion|-32001|HIR resource exhausted; retry request" and lsp_diagnostics == "error|textDocument/publishDiagnostics|-32001|HIR resource exhausted; retry request"
+    pilot summaries: bool = hir_summary == "hir-error reason=invalid-hir" and syntax_summary == "syntax-failed reason=hir-resource-exhausted" and diagnostic_summary == "diagnostics-failed reason=hir-resource-exhausted" and semantic_summary == "semantic-failed reason=hir-resource-exhausted" and hover_summary == "hover-failed reason=hir-resource-exhausted" and definition_summary == "definition-failed reason=hir-resource-exhausted" and document_summary == "document-symbols-failed reason=hir-resource-exhausted" and completion_summary == "completion-failed reason=hir-resource-exhausted"
+    pilot unpublished: bool = v4_query_store_count() == stores and v4_query_entry_len == entries and v4_query_dep_len == edges and v4_hir_file_count() == 0 and v4_resolve_index_count() == 0 and v4_ty_file_count() == 0 and v4_mir_file_count() == 0 and v4_borrowck_file_count() == 0 and v4_diagnostics_set_count() == 0 and v4_semantic_fact_count() == 0 and v4_hover_count() == 0 and v4_definition_at_count() == 0 and v4_document_symbols_count() == 0 and v4_completion_set_count() == 0
+    pilot index = 0
+    repeat until index >= count {
+        array_release(word_to_int(array_get(holders, index)))
+        index += 1
+    }
+    array_release(holders)
+    -- Neither source invalidation nor cache clearing is needed to retry.
+    pilot retry_summary = v4_check_syntax_text(path, text)
+    pilot retry_hir = v4_hir_text_cached(path, text)
+    pilot retry_semantic = v4_semantic_at_text_cached(path, text, 5)
+    pilot retry_hover = v4_hover_text_cached(path, text, 5)
+    pilot retry_definition = v4_definition_at_text_cached(path, text, 5)
+    pilot retry_document = v4_document_symbols_text_cached(path, text)
+    pilot retry_completion = v4_completion_text_cached(path, text, 5)
+    pilot retry_lsp_hover = v4_lsp_hover_text(path, text, 5)
+    pilot retry_lsp_definition = v4_lsp_definition_text(path, text, 5)
+    pilot retry_lsp_document = v4_lsp_document_symbols_text(path, text)
+    pilot retry_lsp_completion = v4_lsp_completion_text(path, text, 5)
+    pilot retry_lsp_diagnostics = v4_lsp_diagnostics_text(path, text)
+    pilot lsp_recovered: bool = retry_lsp_hover.starts_with("ok|textDocument/hover\n") and retry_lsp_definition.starts_with("ok|textDocument/definition\n") and retry_lsp_document.starts_with("ok|textDocument/documentSymbol\n") and retry_lsp_completion.starts_with("ok|textDocument/completion\n") and retry_lsp_diagnostics.starts_with("ok|textDocument/publishDiagnostics\n")
+    pilot recovered: bool = retry_summary.starts_with("syntax-ok ") and retry_hir >= 0 and v4_hir_local_annotation_count(retry_hir, 0) == 1 and v4_hir_task_return_record_id(retry_hir, 0) >= 0 and retry_semantic >= 0 and v4_semantic_at_name(retry_semantic) == "main" and retry_hover >= 0 and retry_definition >= 0 and retry_document >= 0 and retry_completion >= 0
+    pilot upstream: bool = v4_source_fingerprint(file_id) == fingerprint and v4_source_revision(file_id) == revision and v4_expand_text_cached(path, text) == expansion and v4_query_stores_for_key(v4_hir_query_key(path)) == 1 and v4_query_stores_for_key(v4_semantic_at_query_key(path, 5)) == 1 and v4_query_stores_for_key(v4_completion_query_key(path, 5)) == 1
+    say "hir-query-resource-rejected=" + word_from_bool(rejected)
+    say "hir-query-resource-no-publication=" + word_from_bool(unpublished)
+    say "hir-query-resource-failure-summaries=" + word_from_bool(summaries)
+    say "hir-query-resource-recovered=" + word_from_bool(recovered)
+    say "hir-query-resource-upstream-stable=" + word_from_bool(upstream)
+    say "hir-query-resource-lsp-retry=" + word_from_bool(lsp_failed and lsp_recovered)
+}
+
+v4_hir_query_resource_smoke()
