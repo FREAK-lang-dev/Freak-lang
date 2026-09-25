@@ -1,0 +1,83 @@
+-- Root Const annotation ownership changes, not initializer semantics.
+task v4_const_boundary_item(hir_id: int, name: word) -> int {
+    pilot item = 0
+    repeat until item >= v4_hir_item_count(hir_id) {
+        if v4_hir_item_kind(hir_id, item) == v4_hir_const and v4_hir_item_name(hir_id, item) == name { give back item }
+        item += 1
+    }
+    give back 0 - 1
+}
+
+task v4_const_boundary_run() -> void {
+    pilot path = "const-boundary.fk"
+    pilot src = "alias Count = int\nfixed pilot FIRST: Count = 7\nfixed pilot INFER = true\nfixed pilot PAIR: (int, word) = (1, \"a\")\n"
+    pilot hir_id = v4_hir_text_cached(path, src)
+    pilot ty_id = v4_ty_text_cached(path, src)
+    pilot first = v4_const_boundary_item(hir_id, "FIRST")
+    pilot inferred = v4_const_boundary_item(hir_id, "INFER")
+    pilot pair_item = v4_const_boundary_item(hir_id, "PAIR")
+    pilot first_sig = v4_ty_const_signature_id_for_name(ty_id, "FIRST")
+    pilot inferred_sig = v4_ty_const_signature_id_for_name(ty_id, "INFER")
+    pilot pair_sig = v4_ty_const_signature_id_for_name(ty_id, "PAIR")
+    say "const-boundary-stored-surface=" + word_from_bool(v4_hir_const_type(hir_id, first) == "Count" and v4_ty_const_declared_type_for_sig(ty_id, first_sig) == "Count")
+    say "const-boundary-alias-inference=" + word_from_bool(v4_ty_const_value_type_for_sig(ty_id, first_sig) == "int" and v4_ty_const_value_type_for_sig(ty_id, inferred_sig) == "bool" and v4_hir_const_type(hir_id, inferred) == "" and v4_hir_const_type_span(hir_id, inferred) == V4_NO_SPAN)
+    say "const-boundary-nested-concatenation=" + word_from_bool(v4_hir_const_type(hir_id, pair_item) == "(int,word)" and v4_ty_const_declared_type_for_sig(ty_id, pair_sig) == "(int,word)")
+    pilot type_span = v4_hir_const_type_span(hir_id, first)
+    pilot name_span = v4_hir_const_name_span(hir_id, first)
+    say "const-boundary-exact-spans=" + word_from_bool(v4_slice(src, v4_span_start(type_span), v4_span_end(type_span)) == "Count" and v4_slice(src, v4_span_start(name_span), v4_span_end(name_span)) == "FIRST" and v4_ty_const_declared_type_span_for_sig(ty_id, first_sig) == type_span and v4_ty_const_name_span(ty_id, first_sig) == name_span)
+    pilot expansion: word = array_get(v4_hir_expansions, hir_id)
+    array_set(v4_hir_expansions, hir_id, "-1")
+    say "const-boundary-detached-access=" + word_from_bool(v4_ty_const_declared_type_for_sig(ty_id, first_sig) == "Count" and v4_ty_const_name_span(ty_id, first_sig) == name_span and v4_ty_const_declared_type_span_for_sig(ty_id, first_sig) == type_span)
+    array_set(v4_hir_expansions, hir_id, expansion)
+    say "const-boundary-invalid-identities=" + word_from_bool(v4_hir_const_type(-1, 0) == "" and v4_hir_const_type(hir_id, -1) == "" and v4_hir_const_name_span(hir_id, 9999) == V4_NO_SPAN and v4_hir_const_type(hir_id, 0) == "" and v4_ty_const_declared_type_span_for_sig(ty_id, -1) == V4_NO_SPAN)
+    pilot changed = src.replace("FIRST: Count = 7", "FIRST: word = \"ace\"")
+    pilot change = v4_lsp_handle_text_request("textDocument/didChange", path, changed, 0)
+    pilot changed_hir = v4_hir_text_cached(path, changed)
+    pilot changed_ty = v4_ty_text_cached(path, changed)
+    pilot changed_item = v4_const_boundary_item(changed_hir, "FIRST")
+    pilot changed_sig = v4_ty_const_signature_id_for_name(changed_ty, "FIRST")
+    say "const-boundary-edit-invalidates=" + word_from_bool(change.starts_with("ok|textDocument/didChange") and changed_hir != hir_id and v4_hir_const_type(changed_hir, changed_item) == "word" and v4_ty_const_value_type_for_sig(changed_ty, changed_sig) == "word")
+    pilot diag_ty = v4_ty_text_cached("const-bad.fk", "fixed pilot BAD: int = true\n")
+    pilot idx = 0
+    pilot mismatch = false
+    repeat until idx >= v4_ty_diag_count(diag_ty) {
+        if v4_diag_message(v4_ty_diag(diag_ty, idx)) == "constant initializer type mismatch" { mismatch = true }
+        idx += 1
+    }
+    say "const-boundary-targeted-diagnostic=" + word_from_bool(mismatch)
+    pilot recovery = "fixed pilot MISSING: int\nfixed pilot EMPTY: = 1\nfixed pilot QUOTED: \"\" = 1\nfixed pilot \"\": int = 1\nfixed pilot scope::NAME: word = \"x\"\n"
+    recovery = recovery + "fixed pilot FORMATTING: lend mut 'a int = 1\n"
+    pilot recovery_hir = v4_hir_text_cached("const-recovery.fk", recovery)
+    pilot missing = v4_const_boundary_item(recovery_hir, "MISSING")
+    pilot empty = v4_const_boundary_item(recovery_hir, "EMPTY")
+    pilot quoted = v4_const_boundary_item(recovery_hir, "QUOTED")
+    say "const-boundary-missing-equals-recovery=" + word_from_bool(missing >= 0 and v4_hir_const_type(recovery_hir, missing) == "" and v4_hir_const_type_span(recovery_hir, missing) == V4_NO_SPAN)
+    say "const-boundary-empty-annotation-recovery=" + word_from_bool(empty >= 0 and v4_hir_const_type(recovery_hir, empty) == "" and v4_hir_const_type_span(recovery_hir, empty) == V4_NO_SPAN)
+    pilot quoted_span = v4_hir_const_type_span(recovery_hir, quoted)
+    say "const-boundary-quoted-empty-type=" + word_from_bool(quoted >= 0 and v4_hir_const_type(recovery_hir, quoted) == "" and v4_slice(recovery, v4_span_start(quoted_span), v4_span_end(quoted_span)) == "\"\"")
+    pilot tree = v4_hir_tree_id(recovery_hir)
+    pilot parity = true
+    pilot quoted_name = false
+    pilot qualified_name = false
+    idx = 0
+    repeat until idx >= v4_hir_item_count(recovery_hir) {
+        if v4_hir_item_kind(recovery_hir, idx) == v4_hir_const {
+            if v4_hir_const_type(recovery_hir, idx) != v4_parse_const_type(tree, v4_hir_item_parse_node(recovery_hir, idx)) { parity = false }
+            pilot span = v4_hir_const_name_span(recovery_hir, idx)
+            pilot name_text = v4_slice(recovery, v4_span_start(span), v4_span_end(span))
+            if name_text == "\"\"" { quoted_name = true }
+            if name_text == "scope" { qualified_name = true }
+        }
+        idx += 1
+    }
+    say "const-boundary-parser-text-parity=" + word_from_bool(parity)
+    pilot formatting = v4_const_boundary_item(recovery_hir, "FORMATTING")
+    say "const-boundary-existing-formatter=" + word_from_bool(v4_hir_const_type(recovery_hir, formatting) == "lendmut'aint")
+    say "const-boundary-name-recovery-spans=" + word_from_bool(quoted_name and qualified_name)
+    pilot snapshot = v4_hir_snapshot()
+    say "const-boundary-recovery-snapshot=" + word_from_bool(v4_hir_snapshot_validate(snapshot).starts_with("hir-snapshot-import ok=1"))
+    pilot restored = v4_hir_snapshot_restore(snapshot)
+    say "const-boundary-stored-restore=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_const_type(hir_id, first) == "Count" and v4_hir_const_type_span(hir_id, first) == type_span and v4_hir_const_name_span(hir_id, first) == name_span and v4_hir_snapshot() == snapshot)
+}
+
+v4_const_boundary_run()
