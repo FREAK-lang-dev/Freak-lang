@@ -72,6 +72,8 @@ task v4_shape_snapshot_run() -> void {
     pilot payload = v4_shape_snapshot_payload()
     pilot restored = v4_hir_snapshot_restore(v4_shape_snapshot_reverse(payload))
     pilot before = v4_hir_snapshot()
+    say "shape-snapshot-restore-report=" + restored
+    say "shape-snapshot-restored-facts=" + before
     say "shape-snapshot-v7-reordered=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_shape_field_count(0, 0) == 3 and v4_hir_shape_field_name(0, 0, 1) == "second" and v4_hir_shape_field_surface_type(0, 0, 1) == "word" and v4_hir_shape_field_count(0, 1) == 0)
     say "shape-snapshot-recovery-roundtrip=" + word_from_bool(v4_hir_shape_field_name(0, 0, 2) == ":" and v4_hir_shape_field_surface_type(0, 0, 2) == "" and v4_hir_shape_field_type_span(0, 0, 2) == "7@36:37" and v4_hir_snapshot_validate(before).starts_with("hir-snapshot-import ok=1"))
     say "shape-snapshot-old-version-atomic=" + word_from_bool(v4_shape_snapshot_rejected(payload.replace("freak-hir-snapshot-v7", "freak-hir-snapshot-v6"), before))
