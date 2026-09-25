@@ -1594,18 +1594,18 @@ def _hir_lookup_probe_errors(
 def _hir_lookup_scaling_errors(fixture: Path, harness: Path) -> List[str]:
     return _hir_lookup_probe_errors(fixture, harness, (
         "hir-scaling-annotation-duplicate-start", "hir-scaling-annotation-surplus-fields",
-        "hir-scaling-fresh-slot-thirty-handles", "hir-scaling-file-slot-capacity-stable",
+        "hir-scaling-fresh-slot-thirty-three-handles", "hir-scaling-file-slot-capacity-stable",
     ), (
         "v4_hir_scaling_annotation_checks(before)",
         "v4_hir_scaling_file_slots(sample, before)",
-        "capacity_before - capacity_fresh == 30",
+        "capacity_before - capacity_fresh == 33",
     ))
 
 
 def _hir_semantic_index_errors(fixture: Path, harness: Path) -> List[str]:
     return _hir_lookup_probe_errors(fixture, harness, (
         "hir-index-cold-init-failure-recovery", "hir-index-512-one-owner",
-        "hir-index-v6-mixed-roundtrip",
+        "hir-index-v7-mixed-roundtrip",
         "hir-index-logarithmic-probes", "hir-index-sort-work-bounded",
         "hir-index-512-distinct-owners", "hir-index-owner-lookup-work",
         "hir-index-direct-return-work", "hir-index-invalid-identities",
@@ -3034,7 +3034,7 @@ def audit_conformance(paths: List[Path]) -> int:
     if v4_hir_task_return.exists():
         hir_src = v4_hir_task_return.read_text(encoding="utf-8")
         for needle in (
-            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
+            'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v7"',
             'pilot v4_hir_task_return_explicit = "explicit"',
             'pilot v4_hir_task_return_implicit_block = "implicit-block"',
             'pilot v4_hir_task_return_arrow = "arrow"',
@@ -3110,7 +3110,7 @@ def audit_conformance(paths: List[Path]) -> int:
             v4_task_return_readme,
             (
                 "The third bounded boundary covers declared returns on ordinary top-level tasks.",
-                "HIR snapshot v6 validates that vocabulary",
+                "HIR snapshot v7 validates that vocabulary",
             ),
         ),
         (
@@ -3131,7 +3131,7 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 task return HIR boundary",
         not task_return_boundary_missing,
-        "HIR v6 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
+        "HIR v7 + TY adapters + smoke + docs wired" if not task_return_boundary_missing else f"{len(task_return_boundary_missing)} gap(s)",
     )
     if task_return_boundary_missing:
         failures.append(
@@ -3152,7 +3152,7 @@ def audit_conformance(paths: List[Path]) -> int:
             v4_hir_task_param,
             "freak_hir",
             (
-                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
+                'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v7"',
                 'pilot v4_hir_task_param_mode_value = "value"',
                 'pilot v4_hir_task_param_mode_lend = "lend"',
                 'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -3207,12 +3207,12 @@ def audit_conformance(paths: List[Path]) -> int:
             "task parameter index guard accepted helper-indirected rescan",
             '"hir-scaling-512-params=true"',
             '"hir-scaling-param-missing-owner=true"',
-            '"hir-scaling-fresh-slot-thirty-handles=true"',
+            '"hir-scaling-fresh-slot-thirty-three-handles=true"',
         ):
             if needle not in harness_src:
                 task_param_boundary_missing.append(f"check_v4.py: {needle}")
     for doc_path, needles in (
-        (v4_task_return_readme, ("The fourth", "ordinary-task parameter APIs", "HIR snapshot v6 validates exact record")),
+        (v4_task_return_readme, ("The fourth", "ordinary-task parameter APIs", "HIR snapshot v7 validates exact record")),
         (audit_doc, ("Ordinary-task parameters are likewise stored", "Impl/doctrine/extern parameter signatures")),
     ):
         if not doc_path.exists():
@@ -3225,13 +3225,55 @@ def audit_conformance(paths: List[Path]) -> int:
     add(
         "V4 task parameter HIR boundary",
         not task_param_boundary_missing,
-        "HIR v6 + TY/MIR/editor adapters + smoke + docs wired" if not task_param_boundary_missing else f"{len(task_param_boundary_missing)} gap(s)",
+        "HIR v7 + TY/MIR/editor adapters + smoke + docs wired" if not task_param_boundary_missing else f"{len(task_param_boundary_missing)} gap(s)",
     )
     if task_param_boundary_missing:
         failures.append(
             "V4 ordinary-task parameter HIR boundary regressed: "
             + "; ".join(task_param_boundary_missing)
         )
+    # Shape-field ownership is an architectural promotion, not new syntax.
+    shape_missing: List[str] = []
+    shape_tests = repo / "src/compiler/v4/tests"
+    shape_harness = repo / "src/compiler/v4/check_v4.py"
+    shape_missing.extend(_hir_lookup_probe_errors(
+        shape_tests / "shape_field_semantic_boundary_smoke.fk", shape_harness,
+        tuple("shape-boundary-" + label for label in (
+            "count-order", "surface-alias", "nested-type", "generic-empty",
+            "exact-spans", "detached-access", "invalid-identities", "recovery",
+            "recovery-snapshot", "formatter-parity", "unclosed-recovery", "quoted-recovery",
+            "edit-invalidates", "targeted-diagnostic",
+        )), ("v4_shape_boundary_run()", "v4_ty_shape_field_count(ty_id, sig_id)",
+             "v4_hir_snapshot_validate(recovery_snapshot)"),
+    ))
+    shape_missing.extend(_hir_lookup_probe_errors(
+        shape_tests / "shape_field_snapshot_smoke.fk", shape_harness,
+        tuple("shape-snapshot-" + label for label in (
+            "v7-reordered", "recovery-roundtrip", "old-version-atomic",
+            "extra-field-atomic", "owner-width-atomic", "noncanonical-atomic",
+            "sparse-item-atomic", "duplicate-ordinal-atomic", "owner-count-atomic",
+            "header-count-atomic", "empty-owner-required", "shape-owner-kind",
+            "span-canonical-atomic", "span-owner-atomic", "span-containment-atomic",
+            "source-order-atomic", "repeat-no-handles", "empty-type-overlap-atomic",
+            "long-parent-512-fields", "many-owners-capacity",
+        )), ("v4_shape_snapshot_run()", "idx >= 48", "iteration >= 16",
+             "v4_shape_snapshot_scaling(1, 512, long_name)", "v4_shape_snapshot_scaling(64, 8, \"Many\")",
+             "v4_session_semantic_restore_generation() == generation"),
+    ))
+    for path, markers in (
+        (v4_hir_task_param, ("task v4_hir_shape_field_count(", "task v4_hir_shape_field_surface_type(", "task v4_hir_snapshot_shape_slots_are_valid(")),
+        (v4_ty_task_param, ("task v4_ty_shape_field_name_span(", "task v4_ty_shape_field_segment_span(")),
+        (shape_harness, ("def shape_field_boundary_violations(", "    check_shape_field_hir_boundary()")),
+        (v4_task_return_readme, ("The fifth bounded boundary covers shape fields.",)),
+        (audit_doc, ("V4 stores ordered field names, surface types, and exact name/type/segment spans in HIR",)),
+    ):
+        source = path.read_text(encoding="utf-8") if path.exists() else ""
+        shape_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
+    add("V4 shape field HIR boundary", not shape_missing,
+        "HIR v7 + storage adapters + executable probes wired" if not shape_missing else f"{len(shape_missing)} gap(s)")
+    if shape_missing:
+        failures.append("V4 shape field HIR boundary regressed: " + "; ".join(shape_missing))
+
     # ── Check 10: V4 contract-region source sets ──
     # Borrowed return signatures may select every parameter whose lifetime
     # outlives the return region. Require the set-valued TY/MIR/Meiya contract,

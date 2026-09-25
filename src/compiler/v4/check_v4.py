@@ -61,6 +61,7 @@ RUNNER_PEAK_RETAINED_BYTES = 0
 C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
 C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
+        "shape_field_snapshot_smoke.fk",
         "hir_snapshot_scaling_smoke.fk",
         "hir_semantic_index_smoke.fk",
         "hir_query_resource_smoke.fk",
@@ -1971,6 +1972,53 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "shape field semantic boundary",
+        "fixture": "shape_field_semantic_boundary_smoke.fk",
+        "expect": [
+            "shape-boundary-count-order=true",
+            "shape-boundary-surface-alias=true",
+            "shape-boundary-nested-type=true",
+            "shape-boundary-generic-empty=true",
+            "shape-boundary-exact-spans=true",
+            "shape-boundary-detached-access=true",
+            "shape-boundary-invalid-identities=true",
+            "shape-boundary-recovery=true",
+            "shape-boundary-recovery-snapshot=true",
+            "shape-boundary-formatter-parity=true",
+            "shape-boundary-unclosed-recovery=true",
+            "shape-boundary-quoted-recovery=true",
+            "shape-boundary-edit-invalidates=true",
+            "shape-boundary-targeted-diagnostic=true",
+        ],
+    },
+    {
+        "name": "shape field snapshot contracts",
+        "fixture": "shape_field_snapshot_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "shape-snapshot-v7-reordered=true",
+            "shape-snapshot-recovery-roundtrip=true",
+            "shape-snapshot-old-version-atomic=true",
+            "shape-snapshot-extra-field-atomic=true",
+            "shape-snapshot-owner-width-atomic=true",
+            "shape-snapshot-noncanonical-atomic=true",
+            "shape-snapshot-sparse-item-atomic=true",
+            "shape-snapshot-duplicate-ordinal-atomic=true",
+            "shape-snapshot-owner-count-atomic=true",
+            "shape-snapshot-header-count-atomic=true",
+            "shape-snapshot-empty-owner-required=true",
+            "shape-snapshot-shape-owner-kind=true",
+            "shape-snapshot-span-canonical-atomic=true",
+            "shape-snapshot-span-owner-atomic=true",
+            "shape-snapshot-span-containment-atomic=true",
+            "shape-snapshot-source-order-atomic=true",
+            "shape-snapshot-empty-type-overlap-atomic=true",
+            "shape-snapshot-long-parent-512-fields=true",
+            "shape-snapshot-many-owners-capacity=true",
+            "shape-snapshot-repeat-no-handles=true",
+        ],
+    },
+    {
         "name": "HIR snapshot scaling and resource bounds",
         "fixture": "hir_snapshot_scaling_smoke.fk",
         "memory_limit_mb": 64,
@@ -2023,7 +2071,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-thirty-handles=true",
+            "hir-scaling-fresh-slot-thirty-three-handles=true",
             "hir-scaling-512-params=true",
             "hir-scaling-64-param-files=true",
             "hir-scaling-512-param-tasks=true",
@@ -2102,7 +2150,7 @@ EXECUTABLE_SMOKES = [
         "memory_limit_mb": 64,
         "expect": [
             "hir-index-cold-init-failure-recovery=true",
-            "hir-index-v6-mixed-roundtrip=true",
+            "hir-index-v7-mixed-roundtrip=true",
             "hir-index-512-one-owner=true",
             "hir-index-logarithmic-probes=true",
             "hir-index-sort-work-bounded=true",
@@ -9304,7 +9352,7 @@ EXECUTABLE_SMOKES = [
             "local-annotation-mir-diagnostics=0",
             "local-annotation-borrow-status=clean",
             "local-annotation-borrow-diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v6 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v7 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 shape-owners=0 shape-fields=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 diagnostics=0 skipped-other=0 live-files=1",
             "local-annotation-restored-count=4",
             "local-annotation-restored-fixed=char",
@@ -9383,7 +9431,7 @@ EXECUTABLE_SMOKES = [
             "task-return-mir-diagnostics=0",
             "task-return-borrow-status=clean",
             "ty-snapshot format=freak-ty-snapshot-v1 files=1 signatures=3 diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v6 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v7 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 shape-owners=0 shape-fields=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=3 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 diagnostics=0 skipped-other=0 live-files=1",
             "task-return-restored-form=explicit",
             "task-return-restored-surface=lend 'a maybe<[word;2]>",
@@ -9429,7 +9477,7 @@ EXECUTABLE_SMOKES = [
             "task-param-mir-span-semantic=true",
             "task-param-meiya-status=clean",
             "task-param-editor-label-definition=true",
-            "hir-snapshot format=freak-hir-snapshot-v6",
+            "hir-snapshot format=freak-hir-snapshot-v7",
             "task-param-restored-count=4",
             "task-param-schema-variants-rejected=true",
             "task-param-schema-variants-atomic=true",
@@ -10357,7 +10405,7 @@ def check_mir_local_annotation_boundary() -> None:
     violations.extend(hir_lookup_index_violations(hir_source))
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v7"',
         "pilot v4_hir_local_annotation_items = 0",
         "pilot v4_hir_local_annotation_stmt_spans = 0",
         "pilot v4_hir_local_annotation_types = 0",
@@ -10501,7 +10549,7 @@ def check_task_return_hir_boundary() -> None:
         violations.append("task return boundary unexpectedly changed the TY snapshot format")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v7"',
         "pilot v4_hir_task_return_items = 0",
         "pilot v4_hir_task_return_forms = 0",
         "pilot v4_hir_task_return_types = 0",
@@ -10648,6 +10696,87 @@ def check_task_return_hir_boundary() -> None:
     print("no syntax past HIR: ordinary task declared return type and span")
 
 
+def shape_field_boundary_violations(hir_source: str, ty_source: str) -> list[str]:
+    """Follow active calls, including indirect helpers, through the storage boundary.
+
+    Global type canonicalization is an existing semantic operation, not field
+    discovery. Stop at that one operation rather than traversing other type
+    families; comments and string literals cannot supply a required call.
+    """
+    violations: list[str] = []
+    contracts = {
+        "v4_ty_shape_field_" + suffix: "v4_hir_shape_field_" + suffix
+        for suffix in ("count", "name", "name_span", "surface_type", "type_span", "segment_span")
+    }
+    sources = {}
+    for source in (hir_source, ty_source):
+        for name in freak_task_names(freak_mask_line_comments(source)):
+            sources[name] = source
+    edges: dict[str, set[str]] = {}
+
+    def calls(name: str) -> set[str]:
+        if name not in edges:
+            body = freak_task_body(sources.get(name, ""), name)
+            if body is None:
+                violations.append(f"shape field storage task missing: {name}")
+                edges[name] = set()
+            else:
+                try:
+                    tokens = [t for t in Lexer(body).tokenize() if t.type != TokenType.EOF]
+                    edges[name] = {
+                        tokens[i].lexeme for i in range(len(tokens) - 1)
+                        if tokens[i].type != TokenType.STRING_LIT and tokens[i + 1].lexeme == "("
+                    }
+                except LexerError:
+                    violations.append(f"shape field storage task is not lexable: {name}")
+                    edges[name] = set()
+        return edges[name]
+
+    def closure(root: str) -> set[str]:
+        pending = [root]
+        reached: set[str] = set()
+        while pending:
+            name = pending.pop()
+            if name in reached:
+                continue
+            reached.add(name)
+            # Existing existence checks may initialize an empty arena. They do
+            # not construct field facts; cold-allocation recovery has its own gate.
+            if name in {"v4_ty_canonical_type", "v4_hir_init", "v4_ty_init"}:
+                continue
+            if any(fragment in name for fragment in (
+                "v4_lex_", "v4_parse_", "v4_expand_", "_token", "v4_ty_type_text",
+                "v4_hir_lower_", "v4_hir_build_", "v4_hir_snapshot_restore",
+                "v4_hir_shape_prepare_owner", "array_set", "array_push", "array_new", "array_release",
+                "v4_ty_canonical_type_for_signature",
+            )):
+                violations.append(f"shape field storage closure reconstructs syntax or mutates facts: {name}")
+            if name in sources or name == root:
+                pending.extend(calls(name) - reached)
+        return reached
+
+    for root, required in contracts.items():
+        if required not in closure(root):
+            violations.append(f"shape field TY adapter does not consume {required}: {root}")
+        closure(required)
+    typed = closure("v4_ty_shape_field_type")
+    for required in ("v4_ty_shape_field_surface_type", "v4_ty_canonical_type"):
+        if required not in typed:
+            violations.append(f"shape field canonical adapter does not consume {required}")
+    return sorted(set(violations))
+
+
+def check_shape_field_hir_boundary() -> None:
+    violations = shape_field_boundary_violations(
+        read_text(crate_path("freak_hir")), read_text(crate_path("freak_ty")),
+    )
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+    print("no syntax past HIR: ordered shape field names, types, and spans")
+
+
 def task_param_ordinary_call_closure_violations(ty_source: str) -> list[str]:
     violations: list[str] = []
     task_names = freak_task_names(ty_source)
@@ -10779,7 +10908,7 @@ def check_task_param_hir_boundary() -> None:
             violations.append("task parameter index guard accepted helper-indirected rescan")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v6"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v7"',
         'pilot v4_hir_task_param_mode_value = "value"',
         'pilot v4_hir_task_param_mode_lend = "lend"',
         'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -11109,6 +11238,7 @@ def check_snapshot_inventories() -> None:
                     f"query invalidation scratch release missing: {handle_release_contract}"
                 )
     for resource_fixture in (
+        "shape_field_snapshot_smoke.fk",
         "hir_snapshot_scaling_smoke.fk",
         "hir_semantic_index_smoke.fk",
         "hir_query_resource_smoke.fk",
@@ -11123,6 +11253,7 @@ def check_snapshot_inventories() -> None:
         violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
+            "shape_field_snapshot_smoke.fk",
             "hir_snapshot_scaling_smoke.fk",
             "hir_semantic_index_smoke.fk",
             "hir_query_resource_smoke.fk",
@@ -12448,6 +12579,7 @@ def main(argv: list[str] | None = None) -> int:
     check_mir_local_annotation_boundary()
     check_task_return_hir_boundary()
     check_task_param_hir_boundary()
+    check_shape_field_hir_boundary()
     check_tooling_interfaces()
     check_snapshot_inventories()
     base_source = check_flattened_crates()

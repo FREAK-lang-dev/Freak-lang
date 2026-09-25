@@ -11,16 +11,16 @@ task v4_hir_index_cold_resource_check() -> void {
         if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)); count += 1 }
     }
     pilot index = 0
-    -- Fail the last of all 32 outer allocations, including parameter tables.
-    repeat until index >= 31 {
+    -- Fail the last of all 35 outer allocations, including parameter tables.
+    repeat until index >= 34 {
         array_release(word_to_int(array_get(holders, count - 1 - index)))
         index += 1
     }
     pilot lowered = v4_hir_lower_expanded(99, 0)
     pilot sentinel_value: word = array_get(sentinel, 0)
-    pilot intact: bool = lowered < 0 and v4_hir_ready == 0 and sentinel_value == "foreign-owner-alive" and v4_hir_lookup_handles_available(30)
+    pilot intact: bool = lowered < 0 and v4_hir_ready == 0 and sentinel_value == "foreign-owner-alive" and v4_hir_lookup_handles_available(33)
     index = 0
-    repeat until index >= count - 31 {
+    repeat until index >= count - 34 {
         array_release(word_to_int(array_get(holders, index)))
         index += 1
     }
@@ -38,8 +38,8 @@ task v4_hir_index_cold_resource_check() -> void {
 
 task v4_hir_index_payload(files: int, items: int, annotations: int) -> word {
     pilot parts = array_new()
-    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v6|files=" + word_from_int(files) + "|items=" + word_from_int(files * items))
-    array_push(parts, "|alias-targets=0|local-annotations=" + word_from_int(files * items * annotations) + "|task-returns=" + word_from_int(files * items) + "|task-param-owners=" + word_from_int(files * items) + "|task-params=0|diagnostics=0")
+    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v7|files=" + word_from_int(files) + "|items=" + word_from_int(files * items))
+    array_push(parts, "|alias-targets=0|local-annotations=" + word_from_int(files * items * annotations) + "|task-returns=" + word_from_int(files * items) + "|task-param-owners=" + word_from_int(files * items) + "|task-params=0|shape-owners=0|shape-fields=0|diagnostics=0")
     pilot file = files - 1
     repeat until file < 0 {
         pilot source = word_from_int(file + 1)
@@ -62,7 +62,7 @@ task v4_hir_index_payload(files: int, items: int, annotations: int) -> word {
         array_push(parts, "\nhir|" + word_from_int(file) + "|" + source + "|0|" + word_from_int(items) + "|0")
         file -= 1
     }
-    array_push(parts, "\nend|freak-hir-snapshot-v6")
+    array_push(parts, "\nend|freak-hir-snapshot-v7")
     pilot payload = word_join(parts)
     array_release(parts)
     give back payload
@@ -117,7 +117,7 @@ task v4_hir_index_resource_checks(before: word) -> void {
     }
     array_release(records)
     pilot generation = v4_session_semantic_restore_generation()
-    -- Validation fits, but an extra high-water file needs thirty children
+    -- Validation fits, but an extra high-water file needs thirty-three children
     -- in addition to finalizer scratch and its reservation container.
     pilot valid: bool = v4_hir_snapshot_validate(payload).starts_with("hir-snapshot-import ok=1 ")
     pilot restoration = v4_hir_snapshot_restore(payload)
@@ -206,7 +206,7 @@ task v4_hir_semantic_index_run() -> void {
     pilot mixed_restored = v4_hir_snapshot_restore(mixed)
     pilot mixed_snapshot = v4_hir_snapshot()
     pilot mixed_roundtrip = v4_hir_snapshot_restore(mixed_snapshot)
-    say "hir-index-v6-mixed-roundtrip=" + word_from_bool(mixed_restored.starts_with("hir-snapshot-restore ok=1 ") and mixed_roundtrip.starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == mixed_snapshot and v4_hir_task_param_count(0, 0) == 1 and v4_hir_task_param_name(0, 0, 0) == "seed" and v4_hir_task_param_surface_type(0, 0, 0) == "int" and v4_hir_task_param_type_span(0, 0, 0) == "1@76:79" and v4_hir_local_annotation_count(0, 0) == 2 and v4_hir_local_annotation_at_offset(0, 0, 10) == 1 and v4_hir_task_return_record_id(0, 0) == 0 and v4_hir_task_return_type(0, 0) == "int")
+    say "hir-index-v7-mixed-roundtrip=" + word_from_bool(mixed_restored.starts_with("hir-snapshot-restore ok=1 ") and mixed_roundtrip.starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == mixed_snapshot and v4_hir_task_param_count(0, 0) == 1 and v4_hir_task_param_name(0, 0, 0) == "seed" and v4_hir_task_param_surface_type(0, 0, 0) == "int" and v4_hir_task_param_type_span(0, 0, 0) == "1@76:79" and v4_hir_local_annotation_count(0, 0) == 2 and v4_hir_local_annotation_at_offset(0, 0, 10) == 1 and v4_hir_task_return_record_id(0, 0) == 0 and v4_hir_task_return_type(0, 0) == "int")
 }
 
 v4_hir_semantic_index_run()

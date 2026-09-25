@@ -50,6 +50,8 @@ task v4_task_param_snapshot_header(payload: word, original: word, task_param_del
     out = out + "|task-returns=" + v4_hir_snapshot_key_value(original, "task-returns")
     out = out + "|task-param-owners=" + v4_hir_snapshot_key_value(original, "task-param-owners")
     out = out + "|task-params=" + word_from_int(word_to_int(v4_hir_snapshot_key_value(original, "task-params")) + task_param_delta)
+    out = out + "|shape-owners=" + v4_hir_snapshot_key_value(original, "shape-owners")
+    out = out + "|shape-fields=" + v4_hir_snapshot_key_value(original, "shape-fields")
     out = out + "|diagnostics=" + v4_hir_snapshot_key_value(original, "diagnostics")
     give back out
 }
