@@ -1128,25 +1128,10 @@ task v4_hir_lower_const_annotation(hir_id: int, item_id: int) -> void {
     pilot expansion = v4_hir_item_expansion_id(hir_id)
     pilot node = v4_hir_item_parse_node(hir_id, item_id)
     pilot surface = v4_expand_const_type(expansion, node)
-    pilot type_span = V4_NO_SPAN
+    pilot type_span = v4_expand_const_type_span(expansion, node)
     pilot name_span = V4_NO_SPAN
-    pilot tree = v4_expand_parse_tree_id(expansion)
     pilot stream = v4_hir_item_stream_id(hir_id)
     if stream >= 0 {
-        -- Use the exact parser bounds/text policy (including missing '=' recovery).
-        pilot start = v4_parse_node_start_token(tree, node)
-        pilot end = v4_parse_node_end_token(tree, node)
-        if start >= 0 and end > start {
-            pilot pilot_token = v4_parse_skip_trivia(stream, start + 1)
-            pilot equals = v4_parse_find_top_level_token(stream, pilot_token + 1, end, "=")
-            if equals >= 0 {
-                pilot colon = v4_parse_find_top_level_token(stream, pilot_token + 1, equals, ":")
-                if colon >= 0 {
-                    pilot type_start = v4_parse_skip_trivia(stream, colon + 1)
-                    if type_start < equals { type_span = v4_hir_span_from_tokens(stream, type_start, equals) }
-                }
-            }
-        }
         -- Preserve the prior TY name-span lookup and whole-item recovery.
         pilot item_span = v4_hir_item_span(hir_id, item_id)
         pilot first = v4_hir_first_token_at_or_after(stream, v4_span_start(item_span))
@@ -1154,8 +1139,9 @@ task v4_hir_lower_const_annotation(hir_id: int, item_id: int) -> void {
         if last <= first { last = v4_lex_token_count(stream) }
         if first >= 0 and last > first {
             name_span = v4_hir_span_from_tokens(stream, first, last)
-            pilot fixed_token = v4_parse_find_token_value(stream, first, last, "fixed")
-            if fixed_token >= 0 {
+            pilot fixed_token = first
+            repeat until fixed_token >= last or v4_lex_token_value(stream, fixed_token) == "fixed" { fixed_token += 1 }
+            if fixed_token < last {
                 pilot pilot_token = v4_hir_skip_trivia(stream, fixed_token + 1, last)
                 if pilot_token < last and v4_lex_token_value(stream, pilot_token) == "pilot" {
                     pilot name_token = v4_hir_skip_trivia(stream, pilot_token + 1, last)
