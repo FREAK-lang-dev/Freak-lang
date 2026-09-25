@@ -58,6 +58,13 @@ pilot v4_hir_task_return_items = 0
 pilot v4_hir_task_return_forms = 0
 pilot v4_hir_task_return_types = 0
 pilot v4_hir_task_return_spans = 0
+-- Derived lookup state is never serialized. Construction invalidates it;
+-- lower_expanded and whole-snapshot restore finalize before publication.
+pilot v4_hir_annotation_indexes = 0
+pilot v4_hir_return_indexes = 0
+pilot v4_hir_index_sort_comparisons = 0
+pilot v4_hir_annotation_lookup_probes = 0
+pilot v4_hir_return_lookup_probes = 0
 pilot v4_hir_diags = 0
 pilot v4_hir_file_len = 0
 pilot v4_hir_ready = 0
@@ -81,6 +88,8 @@ task v4_hir_init() -> void {
         v4_hir_task_return_forms = array_new()
         v4_hir_task_return_types = array_new()
         v4_hir_task_return_spans = array_new()
+        v4_hir_annotation_indexes = array_new()
+        v4_hir_return_indexes = array_new()
         v4_hir_task_param_owner_items = array_new()
         v4_hir_task_param_owner_counts = array_new()
         v4_hir_task_param_items = array_new()
@@ -94,16 +103,52 @@ task v4_hir_init() -> void {
         v4_hir_task_param_type_spans = array_new()
         v4_hir_task_param_segment_spans = array_new()
         v4_hir_diags = array_new()
+        if v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
+            array_release(v4_hir_files)
+            array_release(v4_hir_expansions)
+            array_release(v4_hir_item_kinds)
+            array_release(v4_hir_item_names)
+            array_release(v4_hir_item_defs)
+            array_release(v4_hir_item_spans)
+            array_release(v4_hir_item_parse_nodes)
+            array_release(v4_hir_alias_target_types)
+            array_release(v4_hir_alias_target_spans)
+            array_release(v4_hir_local_annotation_items)
+            array_release(v4_hir_local_annotation_stmt_spans)
+            array_release(v4_hir_local_annotation_types)
+            array_release(v4_hir_local_annotation_type_spans)
+            array_release(v4_hir_task_return_items)
+            array_release(v4_hir_task_return_forms)
+            array_release(v4_hir_task_return_types)
+            array_release(v4_hir_task_return_spans)
+            array_release(v4_hir_annotation_indexes)
+            array_release(v4_hir_return_indexes)
+            array_release(v4_hir_task_param_owner_items)
+            array_release(v4_hir_task_param_owner_counts)
+            array_release(v4_hir_task_param_items)
+            array_release(v4_hir_task_param_ordinals)
+            array_release(v4_hir_task_param_names)
+            array_release(v4_hir_task_param_name_spans)
+            array_release(v4_hir_task_param_modes)
+            array_release(v4_hir_task_param_lifetimes)
+            array_release(v4_hir_task_param_lifetime_spans)
+            array_release(v4_hir_task_param_types)
+            array_release(v4_hir_task_param_type_spans)
+            array_release(v4_hir_task_param_segment_spans)
+            array_release(v4_hir_diags)
+            give back
+        }
         v4_hir_file_len = 0
         v4_hir_ready = 1
     }
 }
 
--- File slots own their twenty-eight child arrays. Logical snapshot truncation keeps
+-- File slots own their thirty child arrays. Logical snapshot truncation keeps
 -- high-water slots reachable; reusing a slot must release its previous children.
 -- Fresh slots allocate once, without immediately overwriting those handles.
 task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
     v4_hir_init()
+    if v4_hir_ready == 0 { give back }
     pilot reused: bool = hir_id < array_len(v4_hir_files)
     repeat until array_len(v4_hir_files) > hir_id {
         array_push(v4_hir_files, "0")
@@ -123,6 +168,13 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_push(v4_hir_task_return_forms, word_from_int(array_new()))
         array_push(v4_hir_task_return_types, word_from_int(array_new()))
         array_push(v4_hir_task_return_spans, word_from_int(array_new()))
+        -- Invalidating an index writes slot zero, even before any facts exist.
+        pilot annotation_index = array_new()
+        pilot return_index = array_new()
+        array_push(annotation_index, "0")
+        array_push(return_index, "0")
+        array_push(v4_hir_annotation_indexes, word_from_int(annotation_index))
+        array_push(v4_hir_return_indexes, word_from_int(return_index))
         array_push(v4_hir_task_param_owner_items, word_from_int(array_new()))
         array_push(v4_hir_task_param_owner_counts, word_from_int(array_new()))
         array_push(v4_hir_task_param_items, word_from_int(array_new()))
@@ -153,6 +205,8 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_release(v4_hir_task_return_forms_handle(hir_id))
         array_release(v4_hir_task_return_types_handle(hir_id))
         array_release(v4_hir_task_return_spans_handle(hir_id))
+        array_release(v4_hir_annotation_index_handle(hir_id))
+        array_release(v4_hir_return_index_handle(hir_id))
         array_release(v4_hir_task_param_owner_items_handle(hir_id))
         array_release(v4_hir_task_param_owner_counts_handle(hir_id))
         array_release(v4_hir_task_param_items_handle(hir_id))
@@ -181,6 +235,12 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_set(v4_hir_task_return_forms, hir_id, word_from_int(array_new()))
         array_set(v4_hir_task_return_types, hir_id, word_from_int(array_new()))
         array_set(v4_hir_task_return_spans, hir_id, word_from_int(array_new()))
+        pilot reused_annotation_index = array_new()
+        pilot reused_return_index = array_new()
+        array_push(reused_annotation_index, "0")
+        array_push(reused_return_index, "0")
+        array_set(v4_hir_annotation_indexes, hir_id, word_from_int(reused_annotation_index))
+        array_set(v4_hir_return_indexes, hir_id, word_from_int(reused_return_index))
         array_set(v4_hir_task_param_owner_items, hir_id, word_from_int(array_new()))
         array_set(v4_hir_task_param_owner_counts, hir_id, word_from_int(array_new()))
         array_set(v4_hir_task_param_items, hir_id, word_from_int(array_new()))
@@ -201,6 +261,7 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
 
 task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
+    if v4_hir_ready == 0 { give back 0 - 1 }
     pilot hir_id = v4_hir_file_len
     v4_hir_prepare_file_slot(hir_id, file_id, expansion_id)
     v4_hir_file_len = hir_id + 1
@@ -294,6 +355,7 @@ task v4_hir_def_id(file_id: int, item_kind: word, item_name: word, item_index: i
 }
 
 task v4_hir_add_item(hir_id: int, item_kind: word, item_name: word, span: word, parse_node: int) -> int {
+    v4_hir_invalidate_lookup_indexes(hir_id)
     pilot item_index = array_len(v4_hir_kinds_handle(hir_id))
     pilot file_id = word_to_int(array_get(v4_hir_files, hir_id))
     pilot def_id = v4_hir_def_id(file_id, item_kind, item_name, item_index)
@@ -563,36 +625,207 @@ task v4_hir_local_annotation_record_count(hir_id: int) -> int {
     give back array_len(v4_hir_local_annotation_items_handle(hir_id))
 }
 
-task v4_hir_local_annotation_record_id(hir_id: int, item_id: int, annotation_id: int) -> int {
-    if item_id < 0 or annotation_id < 0 {
+task v4_hir_annotation_index_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_annotation_indexes, hir_id))
+}
+
+task v4_hir_return_index_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_return_indexes, hir_id))
+}
+
+task v4_hir_invalidate_lookup_indexes(hir_id: int) -> void {
+    array_set(v4_hir_annotation_index_handle(hir_id), 0, "0")
+    array_set(v4_hir_return_index_handle(hir_id), 0, "0")
+}
+
+-- Stable bottom-up merge sort of record IDs by two numeric key arrays.
+-- Input keys are dense observed facts, never capacities derived from wire IDs.
+-- The caller owns the returned permutation; scratch is released on all paths.
+task v4_hir_sorted_key_records(owners: int, starts: int) -> int {
+    pilot count = array_len(owners)
+    pilot order = array_new()
+    pilot scratch = array_new()
+    pilot index = 0
+    repeat until index >= count {
+        array_push(order, word_from_int(index))
+        array_push(scratch, "0")
+        index += 1
+    }
+    if array_len(order) != count or array_len(scratch) != count {
+        array_release(order)
+        array_release(scratch)
         give back 0 - 1
     }
-    pilot record_id = 0
-    pilot local_id = 0
-    pilot record_count = v4_hir_local_annotation_record_count(hir_id)
-    repeat until record_id >= record_count {
-        if word_to_int(array_get(v4_hir_local_annotation_items_handle(hir_id), record_id)) == item_id {
-            if local_id == annotation_id {
-                give back record_id
+    pilot width = 1
+    repeat until width >= count {
+        pilot begin = 0
+        repeat until begin >= count {
+            pilot middle = begin + width
+            if middle > count { middle = count }
+            pilot end = middle + width
+            if end > count { end = count }
+            pilot left = begin
+            pilot right = middle
+            pilot out = begin
+            repeat until out >= end {
+                pilot take_left: bool = right >= end
+                if left < middle and right < end {
+                    pilot l = word_to_int(array_get(order, left))
+                    pilot r = word_to_int(array_get(order, right))
+                    pilot lo = word_to_int(array_get(owners, l))
+                    pilot ro = word_to_int(array_get(owners, r))
+                    v4_hir_index_sort_comparisons += 1
+                    take_left = lo < ro or (lo == ro and word_to_int(array_get(starts, l)) <= word_to_int(array_get(starts, r)))
+                }
+                if left >= middle { take_left = false }
+                if take_left {
+                    array_set(scratch, out, array_get(order, left))
+                    left += 1
+                } else {
+                    array_set(scratch, out, array_get(order, right))
+                    right += 1
+                }
+                out += 1
             }
-            local_id += 1
+            begin = end
         }
-        record_id += 1
+        pilot swap = order
+        order = scratch
+        scratch = swap
+        width *= 2
     }
-    give back 0 - 1
+    array_release(scratch)
+    give back order
+}
+
+-- Finalize only after all construction records are populated. Packed layout:
+-- ready; I+1 owner prefix offsets; A grouped records in physical-ID order;
+-- A inverse local ordinals; A records sorted by (item, statement start).
+-- No accessor rebuilds this derived state or scans the file's fact arrays.
+task v4_hir_finalize_lookup_indexes(hir_id: int) -> bool {
+    if v4_hir_file_exists(hir_id) == false { give back false }
+    v4_hir_invalidate_lookup_indexes(hir_id)
+    pilot items = v4_hir_item_count(hir_id)
+    pilot count = v4_hir_local_annotation_record_count(hir_id)
+    pilot packed = v4_hir_annotation_index_handle(hir_id)
+    pilot returns = v4_hir_return_index_handle(hir_id)
+    pilot needed = 2 + items + 3 * count
+    repeat until array_len(packed) >= needed {
+        pilot length = array_len(packed)
+        array_push(packed, "0")
+        if array_len(packed) != length + 1 { give back false }
+    }
+    repeat until array_len(returns) >= items + 1 {
+        pilot length = array_len(returns)
+        array_push(returns, "-1")
+        if array_len(returns) != length + 1 { give back false }
+    }
+    pilot index = 0
+    repeat until index > items {
+        array_set(packed, 1 + index, "0")
+        array_set(returns, index, "-1")
+        index += 1
+    }
+    pilot cursors = array_new()
+    pilot starts = array_new()
+    index = 0
+    repeat until index >= items {
+        array_push(cursors, "0")
+        index += 1
+    }
+    pilot valid: bool = array_len(cursors) == items
+    index = 0
+    repeat until index >= count {
+        pilot item = word_to_int(array_get(v4_hir_local_annotation_items_handle(hir_id), index))
+        if item < 0 or item >= items {
+            valid = false
+        } else {
+            pilot seen = word_to_int(array_get(packed, 2 + item))
+            array_set(packed, 2 + item, word_from_int(seen + 1))
+        }
+        array_push(starts, word_from_int(v4_span_start(array_get(v4_hir_local_annotation_stmt_spans_handle(hir_id), index))))
+        index += 1
+    }
+    if array_len(starts) != count { valid = false }
+    index = 0
+    repeat until index >= items {
+        pilot start = word_to_int(array_get(packed, 1 + index))
+        array_set(cursors, index, word_from_int(start))
+        pilot next = word_to_int(array_get(packed, 2 + index))
+        array_set(packed, 2 + index, word_from_int(start + next))
+        index += 1
+    }
+    pilot group_base = 2 + items
+    pilot ordinal_base = group_base + count
+    pilot sorted_base = ordinal_base + count
+    index = 0
+    repeat until index >= count or valid == false {
+        pilot item = word_to_int(array_get(v4_hir_local_annotation_items_handle(hir_id), index))
+        pilot cursor = word_to_int(array_get(cursors, item))
+        array_set(packed, group_base + cursor, word_from_int(index))
+        array_set(packed, ordinal_base + index, word_from_int(cursor - word_to_int(array_get(packed, 1 + item))))
+        array_set(cursors, item, word_from_int(cursor + 1))
+        index += 1
+    }
+    pilot order = v4_hir_sorted_key_records(v4_hir_local_annotation_items_handle(hir_id), starts)
+    if order < 0 { valid = false }
+    index = 0
+    repeat until index >= count or valid == false {
+        array_set(packed, sorted_base + index, array_get(order, index))
+        if index > 0 {
+            pilot current = word_to_int(array_get(order, index))
+            pilot previous = word_to_int(array_get(order, index - 1))
+            pilot current_item: word = array_get(v4_hir_local_annotation_items_handle(hir_id), current)
+            pilot previous_item: word = array_get(v4_hir_local_annotation_items_handle(hir_id), previous)
+            pilot current_start: word = array_get(starts, current)
+            pilot previous_start: word = array_get(starts, previous)
+            if current_item == previous_item and current_start == previous_start { valid = false }
+        }
+        index += 1
+    }
+    array_release(order)
+    array_release(starts)
+    array_release(cursors)
+    index = 0
+    repeat until index >= v4_hir_task_return_record_count(hir_id) {
+        pilot item = word_to_int(array_get(v4_hir_task_return_items_handle(hir_id), index))
+        if item < 0 or item >= items {
+            valid = false
+        } else {
+            pilot existing: word = array_get(returns, 1 + item)
+            if existing != "-1" { valid = false }
+            array_set(returns, 1 + item, word_from_int(index))
+        }
+        index += 1
+    }
+    if valid {
+        array_set(packed, 0, "1")
+        array_set(returns, 0, "1")
+    }
+    give back valid
+}
+
+task v4_hir_local_annotation_record_id(hir_id: int, item_id: int, annotation_id: int) -> int {
+    if v4_hir_file_exists(hir_id) == false or item_id < 0 or item_id >= v4_hir_item_count(hir_id) or annotation_id < 0 {
+        give back 0 - 1
+    }
+    pilot packed = v4_hir_annotation_index_handle(hir_id)
+    pilot ready: word = array_get(packed, 0)
+    if ready != "1" { give back 0 - 1 }
+    pilot start = word_to_int(array_get(packed, 1 + item_id))
+    pilot end = word_to_int(array_get(packed, 2 + item_id))
+    if annotation_id >= end - start { give back 0 - 1 }
+    v4_hir_annotation_lookup_probes += 1
+    give back word_to_int(array_get(packed, 2 + v4_hir_item_count(hir_id) + start + annotation_id))
 }
 
 task v4_hir_local_annotation_count(hir_id: int, item_id: int) -> int {
-    pilot count = 0
-    pilot record_id = 0
-    pilot record_count = v4_hir_local_annotation_record_count(hir_id)
-    repeat until record_id >= record_count {
-        if word_to_int(array_get(v4_hir_local_annotation_items_handle(hir_id), record_id)) == item_id {
-            count += 1
-        }
-        record_id += 1
-    }
-    give back count
+    if v4_hir_file_exists(hir_id) == false or item_id < 0 or item_id >= v4_hir_item_count(hir_id) { give back 0 }
+    pilot packed = v4_hir_annotation_index_handle(hir_id)
+    pilot ready: word = array_get(packed, 0)
+    if ready != "1" { give back 0 }
+    v4_hir_annotation_lookup_probes += 1
+    give back word_to_int(array_get(packed, 2 + item_id)) - word_to_int(array_get(packed, 1 + item_id))
 }
 
 task v4_hir_local_annotation_stmt_span(hir_id: int, item_id: int, annotation_id: int) -> word {
@@ -620,26 +853,29 @@ task v4_hir_local_annotation_type_span(hir_id: int, item_id: int, annotation_id:
 }
 
 task v4_hir_local_annotation_at_offset(hir_id: int, item_id: int, offset: int) -> int {
-    if item_id < 0 or offset < 0 { give back 0 - 1 }
-    pilot annotation_id = 0
-    pilot record_id = 0
-    pilot record_count = v4_hir_local_annotation_record_count(hir_id)
-    repeat until record_id >= record_count {
-        if word_to_int(array_get(v4_hir_local_annotation_items_handle(hir_id), record_id)) == item_id {
-            pilot stmt_span: word = array_get(v4_hir_local_annotation_stmt_spans_handle(hir_id), record_id)
-            -- Consumers identify the declaration by its pilot-token start.
-            -- A containing outer initializer must not supply a nested type.
-            if offset == v4_span_start(stmt_span) {
-                give back annotation_id
-            }
-            annotation_id += 1
-        }
-        record_id += 1
+    if v4_hir_file_exists(hir_id) == false or item_id < 0 or item_id >= v4_hir_item_count(hir_id) or offset < 0 { give back 0 - 1 }
+    pilot packed = v4_hir_annotation_index_handle(hir_id)
+    pilot ready: word = array_get(packed, 0)
+    if ready != "1" { give back 0 - 1 }
+    pilot count = v4_hir_local_annotation_record_count(hir_id)
+    pilot ordinal_base = 2 + v4_hir_item_count(hir_id) + count
+    pilot sorted_base = ordinal_base + count
+    pilot low = 0
+    pilot high = count
+    repeat until low >= high {
+        pilot middle = low + (high - low) / 2
+        pilot record_id = word_to_int(array_get(packed, sorted_base + middle))
+        pilot owner = word_to_int(array_get(v4_hir_local_annotation_items_handle(hir_id), record_id))
+        pilot start = v4_span_start(array_get(v4_hir_local_annotation_stmt_spans_handle(hir_id), record_id))
+        v4_hir_annotation_lookup_probes += 1
+        if owner == item_id and start == offset { give back word_to_int(array_get(packed, ordinal_base + record_id)) }
+        if owner < item_id or (owner == item_id and start < offset) { low = middle + 1 } else { high = middle }
     }
     give back 0 - 1
 }
 
 task v4_hir_add_local_annotation(hir_id: int, item_id: int, stmt_span: word, type_text: word, type_span: word) -> int {
+    array_set(v4_hir_annotation_index_handle(hir_id), 0, "0")
     pilot record_id = v4_hir_local_annotation_record_count(hir_id)
     array_push(v4_hir_local_annotation_items_handle(hir_id), word_from_int(item_id))
     array_push(v4_hir_local_annotation_stmt_spans_handle(hir_id), stmt_span)
@@ -1058,6 +1294,10 @@ task v4_hir_copy_expand_diags(hir_id: int, expansion_id: int) -> void {
 
 task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
+    if v4_hir_ready == 0 { give back 0 - 1 }
+    pilot required = 4
+    if v4_hir_file_len >= array_len(v4_hir_files) { required += 30 }
+    if v4_hir_lookup_handles_available(required) == false { give back 0 - 1 }
     pilot hir_id = v4_hir_file_new(file_id, expansion_id)
     v4_hir_copy_expand_diags(hir_id, expansion_id)
 
@@ -1078,6 +1318,10 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
         node_idx += 1
     }
 
+    if v4_hir_finalize_lookup_indexes(hir_id) == false {
+        v4_hir_file_len = hir_id
+        give back 0 - 1
+    }
     give back hir_id
 }
 
@@ -1090,6 +1334,7 @@ task v4_hir_lower_tree(file_id: int, tree_id: int) -> int {
 }
 
 task v4_hir_summary(hir_id: int) -> word {
+    if v4_hir_file_exists(hir_id) == false { give back "hir-error reason=invalid-hir" }
     pilot summary = "hir-ok hir=" + word_from_int(hir_id)
     summary = summary + " items=" + word_from_int(v4_hir_item_count(hir_id))
     summary = summary + " diagnostics=" + word_from_int(v4_hir_diag_count(hir_id))
@@ -1621,6 +1866,8 @@ task v4_hir_snapshot_local_annotation_slots_are_valid(records: int, files: int, 
     pilot owner_annotations = array_new()
     pilot annotation_offsets = array_new()
     pilot annotation_seen = array_new()
+    pilot key_items = array_new()
+    pilot key_starts = array_new()
     pilot item_kinds = array_new()
     pilot item_starts = array_new()
     pilot item_ends = array_new()
@@ -1644,8 +1891,11 @@ task v4_hir_snapshot_local_annotation_slots_are_valid(records: int, files: int, 
     slot = 0
     repeat until slot >= annotations {
         array_push(annotation_seen, "0")
+        array_push(key_items, "-1")
+        array_push(key_starts, "-1")
         slot += 1
     }
+    if array_len(key_items) != annotations or array_len(key_starts) != annotations { valid = false }
 
     pilot line_id = 0
     repeat until line_id >= array_len(records) or valid == false {
@@ -1745,6 +1995,8 @@ task v4_hir_snapshot_local_annotation_slots_are_valid(records: int, files: int, 
                     pilot source_file: word = array_get(owner_files, owner)
                     pilot stmt_span = v4_hir_snapshot_field(line, 4)
                     pilot type_span = v4_hir_snapshot_field(line, 6)
+                    array_set(key_items, annotation_slot, word_from_int(item_slot))
+                    array_set(key_starts, annotation_slot, word_from_int(v4_span_start(stmt_span)))
                     if v4_span_file(stmt_span) != source_file or v4_span_file(type_span) != source_file {
                         valid = false
                     }
@@ -1756,6 +2008,27 @@ task v4_hir_snapshot_local_annotation_slots_are_valid(records: int, files: int, 
         }
         line_id += 1
     }
+    -- Different physical record IDs cannot declare two types for one exact
+    -- (file owner, item, statement-start) identity. Sort derived keys only;
+    -- wire order and per-item public annotation ordinals remain untouched.
+    if valid {
+        pilot order = v4_hir_sorted_key_records(key_items, key_starts)
+        if order < 0 { valid = false }
+        pilot position = 1
+        repeat until position >= annotations or valid == false {
+            pilot previous = word_to_int(array_get(order, position - 1))
+            pilot current = word_to_int(array_get(order, position))
+            pilot previous_item: word = array_get(key_items, previous)
+            pilot current_item: word = array_get(key_items, current)
+            pilot previous_start: word = array_get(key_starts, previous)
+            pilot current_start: word = array_get(key_starts, current)
+            if previous_item == current_item and previous_start == current_start { valid = false }
+            position += 1
+        }
+        array_release(order)
+    }
+    array_release(key_starts)
+    array_release(key_items)
     array_release(item_ends)
     array_release(item_starts)
     array_release(item_kinds)
@@ -1777,9 +2050,8 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
     if v4_hir_snapshot_field_count(line) < expected {
         give back false
     }
-    -- Parameter records are new in v6 and have a closed canonical schema.
-    -- Reject extensions rather than silently restoring only the known prefix.
-    if (kind == "hir-task-param-owner" or kind == "hir-task-param") and v4_hir_snapshot_field_count(line) != expected {
+    -- Semantic child records have closed canonical schemas.
+    if (kind == "hir-local-annotation" or kind == "hir-task-return" or kind == "hir-task-param-owner" or kind == "hir-task-param") and v4_hir_snapshot_field_count(line) != expected {
         give back false
     }
     if kind == "hir-item" and v4_hir_snapshot_alias_target_is_valid(line) == false {
@@ -1946,6 +2218,7 @@ task v4_hir_restore_file_slot(hir_id: int, file_id: int, expansion_id: int) -> i
 }
 
 task v4_hir_restore_item_slot(hir_id: int, item_id: int, item_kind: word, item_name: word, def_id: word, span: word, parse_node: int, alias_target: word, alias_target_span: word) -> int {
+    v4_hir_invalidate_lookup_indexes(hir_id)
     if v4_hir_file_exists(hir_id) == false {
         give back 0
     }
@@ -2013,6 +2286,7 @@ task v4_hir_snapshot_restore_item_line(line: word) -> int {
 }
 
 task v4_hir_restore_local_annotation_slot(hir_id: int, record_id: int, item_id: int, stmt_span: word, type_text: word, type_span: word) -> int {
+    array_set(v4_hir_annotation_index_handle(hir_id), 0, "0")
     if v4_hir_file_exists(hir_id) == false {
         give back 0
     }
@@ -2063,7 +2337,49 @@ task v4_hir_begin_snapshot_restore() -> void {
     v4_hir_file_len = 0
 }
 
+-- Restore is synchronous. Reserve the peak additional handle requirement
+-- before touching live slots: thirty per new high-water file plus four
+-- finalizer scratch arrays. Reused files free all children before replacing
+-- them. The line index remains held throughout preflight and restoration.
+task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
+    pilot files = 0
+    pilot line_id = 0
+    repeat until line_id >= array_len(records) {
+        pilot line: word = array_get(records, line_id)
+        if line.starts_with("hir|") { files += 1 }
+        line_id += 1
+    }
+    pilot fresh = files - array_len(v4_hir_files)
+    if fresh < 0 { fresh = 0 }
+    give back v4_hir_lookup_handles_available(fresh * 30 + 4)
+}
+
+task v4_hir_lookup_handles_available(needed: int) -> bool {
+    pilot reservations = array_new()
+    if reservations < 0 { give back false }
+    pilot held = 0
+    pilot available: bool = true
+    repeat until held >= needed or available == false {
+        pilot handle = array_new()
+        if handle < 0 {
+            available = false
+        } else {
+            array_push(reservations, word_from_int(handle))
+            held += 1
+        }
+    }
+    pilot index = 0
+    repeat until index >= held {
+        array_release(word_to_int(array_get(reservations, index)))
+        index += 1
+    }
+    array_release(reservations)
+    give back available
+}
+
 task v4_hir_snapshot_restore(payload: word) -> word {
+    v4_hir_init()
+    if v4_hir_ready == 0 { give back "hir-snapshot-restore ok=0 reason=hir-initialization-resource-exhausted" }
     pilot validation = v4_hir_snapshot_validate(payload)
     if validation.starts_with("hir-snapshot-import ok=1") == false {
         give back "hir-snapshot-restore ok=0 reason=validation-failed\n" + validation
@@ -2072,6 +2388,10 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     pilot records = v4_hir_snapshot_index_lines(payload)
     if records < 0 {
         give back "hir-snapshot-restore ok=0 reason=line-index-resource-exhausted"
+    }
+    if v4_hir_restore_indexes_have_capacity(records) == false {
+        array_release(records)
+        give back "hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted"
     }
     pilot restored_files = 0
     pilot restored_items = 0
@@ -2121,6 +2441,13 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     }
 
     array_release(records)
+    pilot finalized = 0
+    repeat until finalized >= v4_hir_file_count() {
+        if v4_hir_finalize_lookup_indexes(finalized) == false {
+            panic("validated HIR lookup-index construction invariant failed")
+        }
+        finalized += 1
+    }
     pilot out = "hir-snapshot-restore ok=1"
     out = out + " files=" + word_from_int(restored_files)
     out = out + " items=" + word_from_int(restored_items)
@@ -2157,15 +2484,12 @@ task v4_hir_task_return_record_count(hir_id: int) -> int {
 }
 
 task v4_hir_task_return_record_id(hir_id: int, item_id: int) -> int {
-    pilot record_id = 0
-    pilot record_count = v4_hir_task_return_record_count(hir_id)
-    repeat until record_id >= record_count {
-        if word_to_int(array_get(v4_hir_task_return_items_handle(hir_id), record_id)) == item_id {
-            give back record_id
-        }
-        record_id += 1
-    }
-    give back 0 - 1
+    if v4_hir_file_exists(hir_id) == false or item_id < 0 or item_id >= v4_hir_item_count(hir_id) { give back 0 - 1 }
+    pilot index = v4_hir_return_index_handle(hir_id)
+    pilot ready: word = array_get(index, 0)
+    if ready != "1" { give back 0 - 1 }
+    v4_hir_return_lookup_probes += 1
+    give back word_to_int(array_get(index, 1 + item_id))
 }
 
 task v4_hir_task_return_form(hir_id: int, item_id: int) -> word {
@@ -2193,6 +2517,7 @@ task v4_hir_task_return_span(hir_id: int, item_id: int) -> word {
 }
 
 task v4_hir_add_task_return(hir_id: int, item_id: int, form: word, type_text: word, type_span: word) -> int {
+    array_set(v4_hir_return_index_handle(hir_id), 0, "0")
     pilot record_id = v4_hir_task_return_record_count(hir_id)
     array_push(v4_hir_task_return_items_handle(hir_id), word_from_int(item_id))
     array_push(v4_hir_task_return_forms_handle(hir_id), form)
@@ -2366,6 +2691,7 @@ task v4_hir_snapshot_task_return_is_valid(line: word) -> bool {
 }
 
 task v4_hir_restore_task_return_slot(hir_id: int, record_id: int, item_id: int, form: word, type_text: word, type_span: word) -> int {
+    array_set(v4_hir_return_index_handle(hir_id), 0, "0")
     if v4_hir_file_exists(hir_id) == false {
         give back 0
     }

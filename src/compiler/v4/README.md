@@ -548,7 +548,23 @@ slots fail validation before restore; wire order may place children before
 owners. Local annotations use the same physical index with bounded owner/item
 metadata and dense per-owner annotation slots; parent span bounds are decoded
 once rather than reparsed for every annotation. File-slot reset owns and reuses
-all twenty-eight child arrays. Task returns also use bounded owner/item indexes
+all thirty child arrays, including the two derived semantic lookup indexes.
+The wire format remains v6: indexes are rebuilt from validated stored facts,
+not serialized as additional authority. Annotation ordinals preserve physical
+record order within each item; a separate sorted offset index supports exact
+declaration-start lookup in logarithmic work, while ordinal/count and task-return
+lookups use direct item indexes. Construction helpers invalidate indexes;
+completed lowering and whole-snapshot restoration finalize them before exposing
+semantic queries. Lookup paths do not rebuild indexes or reconstruct syntax.
+The annotation and return records require their exact field widths, and
+duplicate annotation declaration starts within one file/item are rejected
+before restoration. Capacity preflight preserves live facts when the extra
+file-slot and index-scratch handle budget is unavailable.
+Recoverable HIR allocation failure is not a semantic result: driver and editor
+queries propagate failure without caching it or publishing empty downstream
+facts. Retrying the same source after releasing handles recomputes the missing
+facts. An invalid HIR handle is never reported as `hir-ok`.
+Task returns also use bounded owner/item indexes
 and require exactly one fact per ordinary Task, including when the payload
 declares zero returns. `hir_snapshot_scaling_smoke.fk` covers 64/512 aliases,
 512 annotations, 512 task returns, 512 parameters/tasks, 64 owners, long parent

@@ -1558,6 +1558,86 @@ def _task_return_scaling_errors(fixture: Path, harness: Path) -> List[str]:
     return errors
 
 
+def _hir_lookup_probe_errors(
+    fixture: Path, harness: Path, labels: Tuple[str, ...], invocations: Tuple[str, ...],
+) -> List[str]:
+    """Match active lookup/resource probes and literal executable expectations."""
+    errors: List[str] = []
+    try:
+        source = fixture.read_text(encoding="utf-8")
+        tokens = [(t.type, t.lexeme) for t in Lexer(source).tokenize() if t.type != TokenType.EOF]
+    except (OSError, LexerError) as exc:
+        errors.append(f"{fixture.name}: unreadable or invalid HIR lookup fixture: {exc}")
+        tokens = []
+    for needle in (*invocations, *(f'say "{label}=" + word_from_bool(' for label in labels)):
+        wanted = [(t.type, t.lexeme) for t in Lexer(needle).tokenize() if t.type != TokenType.EOF]
+        is_call = len(wanted) > 1 and wanted[0][0] == TokenType.IDENT and wanted[1][1] == "("
+        if not any(
+            tokens[i:i + len(wanted)] == wanted
+            and not (is_call and i > 0 and tokens[i - 1][0] == TokenType.TASK)
+            for i in range(len(tokens) - len(wanted) + 1)
+        ):
+            errors.append(f"{fixture.name}: missing active HIR lookup probe: {needle}")
+    smokes, manifest_errors = _literal_executable_smokes(harness)
+    errors.extend(manifest_errors)
+    smoke = smokes.get(fixture.name)
+    if smoke is None:
+        errors.append(f"EXECUTABLE_SMOKES: missing {fixture.name}")
+    else:
+        expected = set(smoke.expect) | set(smoke.expect_exact)
+        for label in labels:
+            if f"{label}=true" not in expected:
+                errors.append(f"EXECUTABLE_SMOKES: {fixture.name} missing {label}=true")
+    return errors
+
+
+def _hir_lookup_scaling_errors(fixture: Path, harness: Path) -> List[str]:
+    return _hir_lookup_probe_errors(fixture, harness, (
+        "hir-scaling-annotation-duplicate-start", "hir-scaling-annotation-surplus-fields",
+        "hir-scaling-fresh-slot-thirty-handles", "hir-scaling-file-slot-capacity-stable",
+    ), (
+        "v4_hir_scaling_annotation_checks(before)",
+        "v4_hir_scaling_file_slots(sample, before)",
+        "capacity_before - capacity_fresh == 30",
+    ))
+
+
+def _hir_semantic_index_errors(fixture: Path, harness: Path) -> List[str]:
+    return _hir_lookup_probe_errors(fixture, harness, (
+        "hir-index-cold-init-failure-recovery", "hir-index-512-one-owner",
+        "hir-index-v6-mixed-roundtrip",
+        "hir-index-logarithmic-probes", "hir-index-sort-work-bounded",
+        "hir-index-512-distinct-owners", "hir-index-owner-lookup-work",
+        "hir-index-direct-return-work", "hir-index-invalid-identities",
+        "hir-index-surplus-annotation-atomic", "hir-index-surplus-return-atomic",
+        "hir-index-duplicate-start-atomic", "hir-index-same-offset-distinct-items",
+        "hir-index-repeated-restore-stable", "hir-index-append-refinalize",
+        "hir-index-return-overwrite-refinalize", "hir-index-scratch-reservation-rejected",
+        "hir-index-lowering-reservation-atomic", "hir-index-fresh-reservation-atomic",
+        "hir-index-reservation-recovery",
+    ), (
+        "task v4_hir_semantic_index_run()", "v4_hir_semantic_index_run()",
+        "v4_hir_index_cold_resource_check()", "v4_hir_index_resource_checks(before)",
+        "v4_hir_index_payload(1, 1, 512)", "v4_hir_index_payload(1, 512, 1)",
+        "v4_hir_annotation_lookup_probes <= 512 * 24 + 1",
+        "build_steps <= 512 * 9 * 3", "v4_hir_return_lookup_probes == 1024",
+        "iteration >= 32",
+    ))
+
+
+def _hir_query_resource_errors(fixture: Path, harness: Path) -> List[str]:
+    return _hir_lookup_probe_errors(fixture, harness, (
+        "hir-query-resource-rejected", "hir-query-resource-no-publication",
+        "hir-query-resource-failure-summaries", "hir-query-resource-recovered",
+        "hir-query-resource-upstream-stable", "hir-query-resource-lsp-retry",
+    ), (
+        "v4_hir_query_resource_smoke()",
+        "v4_hir_text_cached(path, text)", "v4_completion_text_cached(path, text, 5)",
+        "array_release(holders)", "v4_query_store_count() == stores",
+        "v4_source_revision(file_id) == revision",
+    ))
+
+
 def audit_conformance(paths: List[Path]) -> int:
     """
     Verify the selected v0.13.x baseline and promoted V4 contracts.
@@ -3013,6 +3093,18 @@ def audit_conformance(paths: List[Path]) -> int:
         v4_task_return_smoke.with_name("hir_snapshot_scaling_smoke.fk"),
         v4_task_return_harness,
     ))
+    task_return_boundary_missing.extend(_hir_lookup_scaling_errors(
+        v4_task_return_smoke.with_name("hir_snapshot_scaling_smoke.fk"),
+        v4_task_return_harness,
+    ))
+    task_return_boundary_missing.extend(_hir_semantic_index_errors(
+        v4_task_return_smoke.with_name("hir_semantic_index_smoke.fk"),
+        v4_task_return_harness,
+    ))
+    task_return_boundary_missing.extend(_hir_query_resource_errors(
+        v4_task_return_smoke.with_name("hir_query_resource_smoke.fk"),
+        v4_task_return_harness,
+    ))
     for doc_path, needles in (
         (
             v4_task_return_readme,
@@ -3115,7 +3207,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "task parameter index guard accepted helper-indirected rescan",
             '"hir-scaling-512-params=true"',
             '"hir-scaling-param-missing-owner=true"',
-            '"hir-scaling-fresh-slot-twenty-eight-handles=true"',
+            '"hir-scaling-fresh-slot-thirty-handles=true"',
         ):
             if needle not in harness_src:
                 task_param_boundary_missing.append(f"check_v4.py: {needle}")

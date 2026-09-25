@@ -120,5 +120,164 @@ class TaskReturnGuards(unittest.TestCase):
         self.assertTrue(any("missing hir-scaling-return-missing-all=true" in e for e in self.scaling_errors(harness_source=source)))
 
 
+class IndexedLookupGuards(unittest.TestCase):
+    def test_live_snapshot_inventory_includes_index_resource_limit(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            guard.check_snapshot_inventories()
+
+    def test_index_resource_limit_removal_is_rejected(self):
+        fixtures = guard.C_ARRAY_HANDLE_RESOURCE_FIXTURES - {"hir_semantic_index_smoke.fk"}
+        with patch.object(guard, "C_ARRAY_HANDLE_RESOURCE_FIXTURES", fixtures):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                with self.assertRaises(SystemExit):
+                    guard.check_snapshot_inventories()
+        self.assertIn("scratch-handle resource smoke limit coverage drifted", output.getvalue())
+
+    def setUp(self):
+        self.source = guard.read_text(guard.crate_path("freak_hir"))
+
+    def changed_body(self, task, transform):
+        source = guard.freak_mask_line_comments(self.source)
+        body = guard.freak_task_body(source, task)
+        self.assertIsNotNone(body)
+        return source.replace(body, transform(body), 1)
+
+    def test_live_indexed_contract(self):
+        self.assertEqual(guard.hir_lookup_index_violations(self.source), [])
+
+    def test_harmless_comments_and_literals_are_ignored(self):
+        source = self.changed_body("v4_hir_local_annotation_count", lambda body:
+            '\n-- repeat until x > 20 { v4_hir_finalize_lookup_indexes(0) }\n'
+            'say "v4_hir_finalize_lookup_indexes(0) repeat"\n' + body)
+        self.assertEqual(guard.hir_lookup_index_violations(source), [])
+
+    def test_helper_indirected_lazy_rebuild_is_rejected(self):
+        source = self.changed_body("v4_hir_local_annotation_count", lambda body: "\nlookup_helper(hir_id)\n" + body)
+        source += "\ntask lookup_helper(hir_id: int) { v4_hir_finalize_lookup_indexes(hir_id) }\n"
+        self.assertTrue(any("forbidden work" in e for e in guard.hir_lookup_index_violations(source)))
+
+    def test_helper_indirected_global_scan_is_rejected(self):
+        source = self.changed_body("v4_hir_task_return_record_id", lambda body: "\nscan_helper(hir_id)\n" + body)
+        source += "\ntask scan_helper(hir_id: int) { pilot x = 0; repeat until x >= v4_hir_task_return_record_count(hir_id) { x += 1 } }\n"
+        self.assertTrue(any("record rescan" in e for e in guard.hir_lookup_index_violations(source)))
+
+    def test_helper_indirected_syntax_access_is_rejected(self):
+        source = self.changed_body("v4_hir_local_annotation_type", lambda body: "\nsyntax_helper()\n" + body)
+        source += "\ntask syntax_helper() { give back v4_parse_token_span(0, 0) }\n"
+        self.assertTrue(any("forbidden work" in e for e in guard.hir_lookup_index_violations(source)))
+
+    def test_recursive_scan_is_rejected(self):
+        source = self.changed_body("v4_hir_local_annotation_count", lambda body: "\nrecursive_scan()\n" + body)
+        source += "\ntask recursive_scan() { recursive_scan() }\n"
+        self.assertTrue(any("recursive work" in e for e in guard.hir_lookup_index_violations(source)))
+
+    def test_commented_exact_start_cannot_satisfy_contract(self):
+        source = self.changed_body("v4_hir_local_annotation_at_offset", lambda body:
+            body.replace("owner == item_id and start == offset", "owner == item_id") +
+            "\n-- owner == item_id and start == offset\n")
+        self.assertTrue(any("exact-start" in e for e in guard.hir_lookup_index_violations(source)))
+
+    def test_literal_exact_start_cannot_satisfy_contract(self):
+        source = self.changed_body("v4_hir_local_annotation_at_offset", lambda body:
+            body.replace("owner == item_id and start == offset", "owner == item_id") +
+            '\nsay "owner == item_id and start == offset"\n')
+        self.assertTrue(any("exact-start" in e for e in guard.hir_lookup_index_violations(source)))
+
+    def test_commented_finalize_cannot_satisfy_contract(self):
+        source = self.changed_body("v4_hir_lower_expanded", lambda body:
+            body.replace("v4_hir_finalize_lookup_indexes(hir_id)", "removed_finalizer(hir_id)") +
+            "\n-- v4_hir_finalize_lookup_indexes(hir_id)\n")
+        self.assertNotEqual(source, self.source)
+        self.assertTrue(any("explicitly finalize" in e for e in guard.hir_lookup_index_violations(source)))
+
+    def test_missing_helper_and_lexical_error_fail_closed(self):
+        source = self.changed_body("v4_hir_local_annotation_count", lambda body: "\nv4_hir_missing_helper()\n" + body)
+        self.assertTrue(any("helper missing" in e for e in guard.hir_lookup_index_violations(source)))
+        source = self.changed_body("v4_hir_local_annotation_count", lambda body: "\n`\n" + body)
+        self.assertTrue(guard.hir_lookup_index_violations(source))
+
+    def test_ignored_finalization_failure_is_rejected(self):
+        source = self.changed_body("v4_hir_lower_expanded", lambda body:
+            body.replace("v4_hir_file_len = hir_id\n        give back 0 - 1", "say 0"))
+        self.assertTrue(any("cannot continue" in e for e in guard.hir_lookup_index_violations(source)))
+
+    def test_preflight_must_return_before_mutation(self):
+        source = self.changed_body("v4_hir_lower_expanded", lambda body:
+            body.replace("if v4_hir_lookup_handles_available(required) == false { give back 0 - 1 }",
+                         "if v4_hir_lookup_handles_available(required) == false { say 0 }"))
+        self.assertTrue(any("return on failed preflight" in e for e in guard.hir_lookup_index_violations(source)))
+        source = self.changed_body("v4_hir_snapshot_restore", lambda body:
+            body.replace("v4_hir_begin_snapshot_restore()", "") + "\nv4_hir_begin_snapshot_restore()\n")
+        # Moving preflight behind the first mutation must also fail, even when
+        # its spelling remains present elsewhere in the task.
+        source = source.replace("pilot validation =", "v4_hir_begin_snapshot_restore()\n    pilot validation =", 1)
+        self.assertTrue(any("preflight before live mutation" in e for e in guard.hir_lookup_index_violations(source)))
+
+
+class LookupProbeAudit(unittest.TestCase):
+    def setUp(self):
+        self.fixture = FIXTURE.with_name("hir_semantic_index_smoke.fk")
+
+    def errors(self, fixture_source=None, harness_source=None):
+        read = Path.read_text
+        def selected(path, *args, **kwargs):
+            if path == self.fixture and fixture_source is not None:
+                return fixture_source
+            if path == HARNESS and harness_source is not None:
+                return harness_source
+            return read(path, *args, **kwargs)
+        with patch.object(Path, "read_text", selected):
+            return auditor._hir_semantic_index_errors(self.fixture, HARNESS)
+
+    def test_live_probe_and_scaling_contract(self):
+        self.assertEqual(self.errors(), [])
+        self.assertEqual(auditor._hir_lookup_scaling_errors(FIXTURE, HARNESS), [])
+
+    def test_removed_top_level_invocation_not_replaced_by_declaration(self):
+        source = self.fixture.read_text(encoding="utf-8")
+        source = source.replace("\nv4_hir_semantic_index_run()", "\n-- v4_hir_semantic_index_run()")
+        self.assertTrue(any("missing active" in e for e in self.errors(fixture_source=source)))
+
+    def test_commented_probe_or_literal_invocation_is_rejected(self):
+        source = self.fixture.read_text(encoding="utf-8")
+        self.assertTrue(self.errors(fixture_source=source.replace('say "hir-index-logarithmic-probes="', '-- say "hir-index-logarithmic-probes="')))
+        self.assertTrue(self.errors(fixture_source=source.replace("\nv4_hir_semantic_index_run()", '\nsay "v4_hir_semantic_index_run()"')))
+
+    def test_removed_manifest_and_oracle_are_rejected(self):
+        source = HARNESS.read_text(encoding="utf-8")
+        self.assertTrue(self.errors(harness_source=source.replace('"fixture": "hir_semantic_index_smoke.fk"', '"fixture": "missing.fk"')))
+        self.assertTrue(self.errors(harness_source=source.replace('"hir-index-logarithmic-probes=true",', '') + '\n# "hir-index-logarithmic-probes=true"'))
+
+    def test_resource_workload_cannot_be_weakened(self):
+        source = self.fixture.read_text(encoding="utf-8")
+        for old, new in (("v4_hir_index_payload(1, 1, 512)", "v4_hir_index_payload(1, 1, 8)"),
+                         ("build_steps <= 512 * 9 * 3", "build_steps <= 512 * 9 * 30"),
+                         ("iteration >= 32", "iteration >= 2")):
+            self.assertTrue(self.errors(fixture_source=source.replace(old, new)), old)
+
+
+class QueryResourceProbeAudit(unittest.TestCase):
+    def test_live_failure_and_retry_contract(self):
+        fixture = FIXTURE.with_name("hir_query_resource_smoke.fk")
+        self.assertEqual(auditor._hir_query_resource_errors(fixture, HARNESS), [])
+
+    def test_failure_oracle_removal_is_rejected(self):
+        fixture = FIXTURE.with_name("hir_query_resource_smoke.fk")
+        original_read = Path.read_text
+        source = HARNESS.read_text(encoding="utf-8")
+        source = source.replace('"hir-query-resource-no-publication=true",', '')
+        def selected(path, *args, **kwargs):
+            return source if path == HARNESS else original_read(path, *args, **kwargs)
+        with patch.object(Path, "read_text", selected):
+            self.assertTrue(auditor._hir_query_resource_errors(fixture, HARNESS))
+
+    def test_query_failure_resource_limit_is_required(self):
+        fixtures = guard.C_ARRAY_HANDLE_RESOURCE_FIXTURES - {"hir_query_resource_smoke.fk"}
+        with patch.object(guard, "C_ARRAY_HANDLE_RESOURCE_FIXTURES", fixtures):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    guard.check_snapshot_inventories()
+
+
 if __name__ == "__main__":
     unittest.main()

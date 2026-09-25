@@ -246,6 +246,9 @@ task v4_lsp_diagnostic_item(diag: word, source: word) -> word {
 
 task v4_lsp_hover_text(path: word, text: word, offset: int) -> word {
     pilot hover_id = v4_hover_text_cached(path, text, offset)
+    if hover_id < 0 {
+        give back v4_lsp_response_error("textDocument/hover", 0 - 32001, "HIR resource exhausted; retry request")
+    }
     pilot markdown = v4_hover_markdown(hover_id)
     if markdown == "" {
         give back v4_lsp_response_error("textDocument/hover", 0 - 32001, "no hover available")
@@ -255,6 +258,9 @@ task v4_lsp_hover_text(path: word, text: word, offset: int) -> word {
 
 task v4_lsp_definition_text(path: word, text: word, offset: int) -> word {
     pilot defn_id = v4_definition_at_text_cached(path, text, offset)
+    if defn_id < 0 {
+        give back v4_lsp_response_error("textDocument/definition", 0 - 32001, "HIR resource exhausted; retry request")
+    }
     if v4_definition_at_found(defn_id) == 0 {
         give back v4_lsp_response_ok("textDocument/definition", "location|missing")
     }
@@ -266,6 +272,9 @@ task v4_lsp_definition_text(path: word, text: word, offset: int) -> word {
 
 task v4_lsp_document_symbols_text(path: word, text: word) -> word {
     pilot doc_id = v4_document_symbols_text_cached(path, text)
+    if doc_id < 0 {
+        give back v4_lsp_response_error("textDocument/documentSymbol", 0 - 32001, "HIR resource exhausted; retry request")
+    }
     pilot out = "document-symbols|" + word_from_int(v4_document_symbol_count(doc_id))
     pilot symbol_id = 0
     pilot symbol_count = v4_document_symbol_count(doc_id)
@@ -280,6 +289,9 @@ task v4_lsp_document_symbols_text(path: word, text: word) -> word {
 
 task v4_lsp_completion_text(path: word, text: word, offset: int) -> word {
     pilot completion_id = v4_completion_text_cached(path, text, offset)
+    if completion_id < 0 {
+        give back v4_lsp_response_error("textDocument/completion", 0 - 32001, "HIR resource exhausted; retry request")
+    }
     pilot out = "completion|" + word_from_int(v4_completion_count(completion_id))
     pilot item_id = 0
     pilot item_count = v4_completion_count(completion_id)
@@ -293,6 +305,9 @@ task v4_lsp_completion_text(path: word, text: word, offset: int) -> word {
 
 task v4_lsp_diagnostics_text(path: word, text: word) -> word {
     pilot diagnostics_id = v4_diagnostics_text_cached(path, text)
+    if diagnostics_id < 0 {
+        give back v4_lsp_response_error("textDocument/publishDiagnostics", 0 - 32001, "HIR resource exhausted; retry request")
+    }
     pilot out = "diagnostics|" + word_from_int(v4_diagnostics_count(diagnostics_id))
     pilot diag_id = 0
     pilot diag_count = v4_diagnostics_count(diagnostics_id)
