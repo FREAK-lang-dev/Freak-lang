@@ -347,6 +347,7 @@ task v4_hir_scaling_index_exhaustion(payload: word, before: word) -> void {
 }
 
 task v4_hir_scaling_children_empty(hir_id: int) -> bool {
+    if array_len(v4_hir_shape_field_starts_handle(hir_id)) != 0 or array_len(v4_hir_shape_field_counts_handle(hir_id)) != 0 or array_len(v4_hir_shape_field_values_handle(hir_id)) != 0 { give back false }
     -- Empty derived indexes retain only their initialized unready sentinel.
     if array_len(v4_hir_annotation_index_handle(hir_id)) != 1 or array_len(v4_hir_return_index_handle(hir_id)) != 1 { give back false }
     pilot annotation_ready: word = array_get(v4_hir_annotation_index_handle(hir_id), 0)
@@ -380,6 +381,10 @@ task v4_hir_scaling_fill_children(hir_id: int) -> void {
     v4_hir_finalize_lookup_indexes(hir_id)
     v4_hir_add_task_param_owner(hir_id, item, 1)
     v4_hir_add_task_param(hir_id, item, 0, "old", "73@1:4", v4_hir_task_param_mode_value, "", V4_NO_SPAN, "int", "73@5:8", "73@1:8")
+    -- Deliberately dirty every shape child too; file-slot reset must clear all.
+    array_push(v4_hir_shape_field_starts_handle(hir_id), "old")
+    array_push(v4_hir_shape_field_counts_handle(hir_id), "old")
+    array_push(v4_hir_shape_field_values_handle(hir_id), "old")
 }
 
 task v4_hir_scaling_file_slots(sample: word, before: word) -> void {

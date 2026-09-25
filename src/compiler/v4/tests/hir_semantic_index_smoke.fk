@@ -206,7 +206,7 @@ task v4_hir_semantic_index_run() -> void {
     pilot mixed_restored = v4_hir_snapshot_restore(mixed)
     pilot mixed_snapshot = v4_hir_snapshot()
     pilot mixed_roundtrip = v4_hir_snapshot_restore(mixed_snapshot)
-    say "hir-index-v6-mixed-roundtrip=" + word_from_bool(mixed_restored.starts_with("hir-snapshot-restore ok=1 ") and mixed_roundtrip.starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == mixed_snapshot and v4_hir_task_param_count(0, 0) == 1 and v4_hir_task_param_name(0, 0, 0) == "seed" and v4_hir_task_param_surface_type(0, 0, 0) == "int" and v4_hir_task_param_type_span(0, 0, 0) == "1@76:79" and v4_hir_local_annotation_count(0, 0) == 2 and v4_hir_local_annotation_at_offset(0, 0, 10) == 1 and v4_hir_task_return_record_id(0, 0) == 0 and v4_hir_task_return_type(0, 0) == "int")
+    say "hir-index-v7-mixed-roundtrip=" + word_from_bool(mixed_restored.starts_with("hir-snapshot-restore ok=1 ") and mixed_roundtrip.starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == mixed_snapshot and v4_hir_task_param_count(0, 0) == 1 and v4_hir_task_param_name(0, 0, 0) == "seed" and v4_hir_task_param_surface_type(0, 0, 0) == "int" and v4_hir_task_param_type_span(0, 0, 0) == "1@76:79" and v4_hir_local_annotation_count(0, 0) == 2 and v4_hir_local_annotation_at_offset(0, 0, 10) == 1 and v4_hir_task_return_record_id(0, 0) == 0 and v4_hir_task_return_type(0, 0) == "int")
 }
 
 v4_hir_semantic_index_run()

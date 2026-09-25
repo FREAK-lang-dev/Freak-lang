@@ -107,9 +107,19 @@ Canonical decimal/span checks avoid reconstructed words, record kinds reuse
 exact delimited protocol literals, and unescaped fields avoid a second copy.
 The combined snapshot scaling fixture preserves its 96 validation and 32 restore
 iterations under the 64 MB / 1,024-handle limits and checks decoder equivalence.
+The fifth bounded boundary covers shape fields. HIR stores ordered field names,
+normalized surface types, and exact name/type/segment spans once during lowering.
+TY reads direct item/ordinal slots, retaining its existing global alias
+canonicalization. Missing-colon and empty-type recovery still reports unknown
+with the full segment as its type span; unclosed bodies expose zero fields.
+HIR snapshot v7 adds a count owner even for empty Shapes and dense field records;
+validation rejects mismatched counts, noncanonical identities, wrong owners, and
+invalid span ordering before restoration, while allowing shuffled wire records.
+Three per-file arrays hold starts, counts, and packed field values. Accessor
+call-closure guards reject token reconstruction and lazy mutation, including
+helper-indirected fallbacks. This does not change physical field layout.
 Impl, doctrine, and extern signatures remain explicitly named token-facing
-fallbacks. Shape/route
-fields, const annotations, other non-ordinary signatures, the
+fallbacks. Route fields, const annotations, other non-ordinary signatures, the
 remaining MIR body families, and all other type families remain explicit
 follow-up slices. These boundaries change fact ownership, not language
 semantics or backend representation. Symbol-valued annotated locals still
@@ -548,8 +558,9 @@ slots fail validation before restore; wire order may place children before
 owners. Local annotations use the same physical index with bounded owner/item
 metadata and dense per-owner annotation slots; parent span bounds are decoded
 once rather than reparsed for every annotation. File-slot reset owns and reuses
-all thirty child arrays, including the two derived semantic lookup indexes.
-The wire format remains v6: indexes are rebuilt from validated stored facts,
+all thirty-three child arrays, including the two derived semantic lookup indexes
+and three shape-field storage arrays. The wire format is v7: semantic lookup
+indexes are rebuilt from validated stored facts,
 not serialized as additional authority. Annotation ordinals preserve physical
 record order within each item; a separate sorted offset index supports exact
 declaration-start lookup in logarithmic work, while ordinal/count and task-return

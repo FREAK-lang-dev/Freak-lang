@@ -144,7 +144,7 @@ Verdict legend: 🛠 code fix, 📖 amend bible, ✅ already aligned.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `shape Foo { field: type }` declarations | ✅ | ✅ | |
+| `shape Foo { field: type }` declarations | ✅ | ✅ | V4 stores ordered field names, surface types, and exact name/type/segment spans in HIR; TY consumes stored facts without token reconstruction and retains global alias canonicalization. HIR snapshot v7 validates Shape-only owners (including empty Shapes), dense ordinals, counts, source ordering, and contained spans before atomic restore. Malformed-field recovery and unclosed-body behavior remain unchanged. Route fields, root-constant annotations, and physical layout are separate follow-up slices. |
 | `impl Foo { task ... }` method blocks | ✅ | ✅ | |
 | Field access `instance.field` | ✅ | ✅ | |
 | `Foo { field: value }` instantiation | ✅ | ✅ | |
