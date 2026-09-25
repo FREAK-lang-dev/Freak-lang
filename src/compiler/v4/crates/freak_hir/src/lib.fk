@@ -4042,6 +4042,8 @@ task v4_hir_snapshot_shape_slots_are_valid(records: int, files: int, items: int,
             pilot parent = v4_hir_snapshot_field(line, 6)
             pilot source_file: word = array_get(file_rows, owner * 3)
             if not v4_hir_snapshot_span_is_canonical_nonempty(parent) or v4_span_file(parent) != source_file { valid = false }
+            -- The child pass needs only bounds, not another scan through names.
+            array_set(item_rows, idx * 3, parent)
             owner_total += 1
             if count > fields - total { valid = false } else {
                 array_set(item_rows, idx * 3 + 2, word_from_int(total))
@@ -4065,8 +4067,8 @@ task v4_hir_snapshot_shape_slots_are_valid(records: int, files: int, items: int,
                         pilot target = word_to_int(array_get(item_rows, slot + 2)) + ordinal
                         pilot previous: word = array_get(field_spans, target)
                         pilot segment = v4_hir_snapshot_field(line, 8)
-                        pilot parent_line: word = array_get(item_rows, slot)
-                        if previous != "" or not v4_hir_snapshot_span_is_contained(segment, v4_hir_snapshot_field(parent_line, 6)) { valid = false } else {
+                        pilot parent_span: word = array_get(item_rows, slot)
+                        if previous != "" or not v4_hir_snapshot_span_is_contained(segment, parent_span) { valid = false } else {
                             array_set(field_spans, target, segment)
                         }
                     }
@@ -4133,16 +4135,17 @@ task v4_hir_snapshot_shape_record_is_valid(line: word) -> bool {
         idx += 1
     }
     if kind == "hir-shape-owner" { give back true }
-    pilot name = v4_hir_snapshot_field(line, 4)
     pilot name_span = v4_hir_snapshot_field(line, 5)
     pilot surface = v4_hir_snapshot_field(line, 6)
     pilot type_span = v4_hir_snapshot_field(line, 7)
     pilot segment = v4_hir_snapshot_field(line, 8)
-    if name == "" or not v4_hir_snapshot_span_is_canonical_nonempty(segment) { give back false }
+    if not v4_hir_snapshot_span_is_canonical_nonempty(segment) { give back false }
     if not v4_hir_snapshot_span_is_canonical_nonempty(name_span) or not v4_hir_snapshot_span_is_canonical_nonempty(type_span) { give back false }
     if not v4_hir_snapshot_span_is_contained(name_span, segment) or not v4_hir_snapshot_span_is_contained(type_span, segment) { give back false }
     if v4_span_start(name_span) != v4_span_start(segment) { give back false }
-    if surface == "" { give back type_span == segment }
+    -- Recovery includes quoted tokens whose normalized value is empty. Their
+    -- real token spans remain distinct from the missing-type segment fallback.
+    if surface == "" and type_span == segment { give back true }
     give back v4_span_start(type_span) >= v4_span_end(name_span)
 }
 

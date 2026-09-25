@@ -59,6 +59,13 @@ task v4_shape_boundary_run() -> void {
     pilot unclosed_hir = v4_hir_text_cached("shape-unclosed.fk", unclosed_src)
     pilot unclosed_item = v4_shape_boundary_item(unclosed_hir, "Unclosed")
     say "shape-boundary-unclosed-recovery=" + word_from_bool(unclosed_item >= 0 and v4_hir_shape_field_count(unclosed_hir, unclosed_item) == 0)
+    pilot quoted_src = "shape Quoted " + v4_shape_boundary_braces("\"\": int; x: \"\"") + "\n"
+    pilot quoted_hir = v4_hir_text_cached("shape-quoted.fk", quoted_src)
+    pilot quoted_item = v4_shape_boundary_item(quoted_hir, "Quoted")
+    pilot quoted_span = v4_hir_shape_field_type_span(quoted_hir, quoted_item, 1)
+    pilot quoted_snapshot = v4_hir_snapshot()
+    pilot quoted_restore = v4_hir_snapshot_restore(quoted_snapshot)
+    say "shape-boundary-quoted-recovery=" + word_from_bool(quoted_restore.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == quoted_snapshot and v4_hir_shape_field_count(quoted_hir, quoted_item) == 2 and v4_hir_shape_field_name(quoted_hir, quoted_item, 0) == "" and v4_hir_shape_field_surface_type(quoted_hir, quoted_item, 0) == "int" and v4_hir_shape_field_surface_type(quoted_hir, quoted_item, 1) == "" and v4_slice(quoted_src, v4_span_start(quoted_span), v4_span_end(quoted_span)) == "\"\"")
     pilot changed = src.replace("first: Count", "first: word")
     pilot change = v4_lsp_handle_text_request("textDocument/didChange", path, changed, 0)
     pilot after_hir = v4_hir_text_cached(path, changed)
@@ -67,11 +74,11 @@ task v4_shape_boundary_run() -> void {
     pilot after_sig = v4_ty_shape_signature_id_for_name(after_ty, "Packet")
     say "shape-boundary-edit-invalidates=" + word_from_bool(after_hir != hir_id and v4_hir_shape_field_surface_type(after_hir, after_item, 0) == "word" and v4_ty_shape_field_type(after_ty, after_sig, 0) == "word" and change.starts_with("ok|textDocument/didChange"))
     pilot diag_src = "shape Box " + v4_shape_boundary_braces("value: int") + "\ntask main() -> int " + v4_shape_boundary_braces(" pilot boxed = Box " + v4_shape_boundary_braces("value: true") + "\n give back 0 ") + "\n"
-    pilot diag_ty = v4_ty_text_cached("shape-diagnostic.fk", diag_src)
+    pilot diag_mir = v4_mir_text_cached("shape-diagnostic.fk", diag_src)
     pilot found = false
     pilot idx = 0
-    repeat until idx >= v4_ty_diag_count(diag_ty) {
-        if v4_diag_message(v4_ty_diag(diag_ty, idx)) == "shape field type mismatch" { found = true }
+    repeat until idx >= v4_mir_diag_count(diag_mir) {
+        if v4_diag_message(v4_mir_diag(diag_mir, idx)) == "shape field type mismatch" { found = true }
         idx += 1
     }
     say "shape-boundary-targeted-diagnostic=" + word_from_bool(found)

@@ -48,6 +48,26 @@ task v4_shape_snapshot_capacity() -> int {
     give back count
 }
 
+task v4_shape_snapshot_scaling(owners: int, per_owner: int, name: word) -> word {
+    pilot parts = array_new()
+    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v7|files=1|items=" + word_from_int(owners) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|shape-owners=" + word_from_int(owners) + "|shape-fields=" + word_from_int(owners * per_owner) + "|diagnostics=0")
+    pilot owner = owners - 1
+    repeat until owner < 0 {
+        pilot field = per_owner - 1
+        repeat until field < 0 {
+            pilot start = field * 10 + 10
+            pilot prefix = "7@" + word_from_int(start)
+            array_push(parts, "\nhir-shape-field|0|" + word_from_int(owner) + "|" + word_from_int(field) + "|x|" + prefix + ":" + word_from_int(start + 1) + "|int|7@" + word_from_int(start + 3) + ":" + word_from_int(start + 6) + "|" + prefix + ":" + word_from_int(start + 6))
+            field -= 1
+        }
+        array_push(parts, "\nhir-shape-owner|0|" + word_from_int(owner) + "|" + word_from_int(per_owner))
+        array_push(parts, "\nhir-item|0|" + word_from_int(owner) + "|Shape|" + name + "|" + name + "|7@0:10000|0||" + v4_hir_snapshot_escape(V4_NO_SPAN))
+        owner -= 1
+    }
+    array_push(parts, "\nhir|0|7|0|" + word_from_int(owners) + "|0\nend|freak-hir-snapshot-v7")
+    give back word_join(parts)
+}
+
 task v4_shape_snapshot_run() -> void {
     pilot payload = v4_shape_snapshot_payload()
     pilot restored = v4_hir_snapshot_restore(v4_shape_snapshot_reverse(payload))
@@ -68,6 +88,23 @@ task v4_shape_snapshot_run() -> void {
     say "shape-snapshot-span-owner-atomic=" + word_from_bool(v4_shape_snapshot_rejected(payload.replace("7@22:28", "8@22:28"), before))
     say "shape-snapshot-span-containment-atomic=" + word_from_bool(v4_shape_snapshot_rejected(payload.replace("7@30:34", "7@30:101"), before))
     say "shape-snapshot-source-order-atomic=" + word_from_bool(v4_shape_snapshot_rejected(payload.replace("7@22:28", "7@1:7").replace("7@30:34", "7@8:9").replace("7@22:34", "7@1:9"), before))
+    pilot quoted_empty = payload.replace("|int|7@17:20|", "||7@10:15|")
+    say "shape-snapshot-empty-type-overlap-atomic=" + word_from_bool(v4_shape_snapshot_rejected(quoted_empty, before))
+    pilot long_name = "Long"
+    pilot doubling = 0
+    repeat until doubling >= 12 { long_name = long_name + long_name; doubling += 1 }
+    pilot large = v4_shape_snapshot_scaling(1, 512, long_name)
+    pilot many = v4_shape_snapshot_scaling(64, 8, "Many")
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot validation_capacity = v4_shape_snapshot_capacity()
+    pilot iteration = 0
+    pilot valid = true
+    repeat until iteration >= 16 {
+        if not v4_hir_snapshot_validate(large).starts_with("hir-snapshot-import ok=1") or not v4_hir_snapshot_validate(many).starts_with("hir-snapshot-import ok=1") { valid = false }
+        iteration += 1
+    }
+    say "shape-snapshot-long-parent-512-fields=" + word_from_bool(valid and v4_hir_snapshot() == before and v4_session_semantic_restore_generation() == generation)
+    say "shape-snapshot-many-owners-capacity=" + word_from_bool(valid and validation_capacity == v4_shape_snapshot_capacity())
     pilot capacity = v4_shape_snapshot_capacity()
     pilot idx = 0
     pilot stable = true

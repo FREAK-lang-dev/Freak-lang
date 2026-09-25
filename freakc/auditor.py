@@ -3241,7 +3241,7 @@ def audit_conformance(paths: List[Path]) -> int:
         tuple("shape-boundary-" + label for label in (
             "count-order", "surface-alias", "nested-type", "generic-empty",
             "exact-spans", "detached-access", "invalid-identities", "recovery",
-            "recovery-snapshot", "formatter-parity", "unclosed-recovery",
+            "recovery-snapshot", "formatter-parity", "unclosed-recovery", "quoted-recovery",
             "edit-invalidates", "targeted-diagnostic",
         )), ("v4_shape_boundary_run()", "v4_ty_shape_field_count(ty_id, sig_id)",
              "v4_hir_snapshot_validate(recovery_snapshot)"),
@@ -3254,8 +3254,10 @@ def audit_conformance(paths: List[Path]) -> int:
             "sparse-item-atomic", "duplicate-ordinal-atomic", "owner-count-atomic",
             "header-count-atomic", "empty-owner-required", "shape-owner-kind",
             "span-canonical-atomic", "span-owner-atomic", "span-containment-atomic",
-            "source-order-atomic", "repeat-no-handles",
-        )), ("v4_shape_snapshot_run()", "idx >= 48",
+            "source-order-atomic", "repeat-no-handles", "empty-type-overlap-atomic",
+            "long-parent-512-fields", "many-owners-capacity",
+        )), ("v4_shape_snapshot_run()", "idx >= 48", "iteration >= 16",
+             "v4_shape_snapshot_scaling(1, 512, long_name)", "v4_shape_snapshot_scaling(64, 8, \"Many\")",
              "v4_session_semantic_restore_generation() == generation"),
     ))
     for path, markers in (

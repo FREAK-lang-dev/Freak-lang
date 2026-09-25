@@ -111,11 +111,15 @@ The fifth bounded boundary covers shape fields. HIR stores ordered field names,
 normalized surface types, and exact name/type/segment spans once during lowering.
 TY reads direct item/ordinal slots, retaining its existing global alias
 canonicalization. Missing-colon and empty-type recovery still reports unknown
-with the full segment as its type span; unclosed bodies expose zero fields.
+with the full segment as its type span; quoted recovery tokens retain their
+actual token spans even when their normalized text is empty. Unclosed bodies
+expose zero fields.
 HIR snapshot v7 adds a count owner even for empty Shapes and dense field records;
 validation rejects mismatched counts, noncanonical identities, wrong owners, and
 invalid span ordering before restoration, while allowing shuffled wire records.
-Three per-file arrays hold starts, counts, and packed field values. Accessor
+Three per-file arrays hold starts, counts, and packed field values. Validation
+caches parent spans before visiting children; the resource fixture validates
+512 fields with a long parent name and 64 owners under unchanged limits. Accessor
 call-closure guards reject token reconstruction and lazy mutation, including
 helper-indirected fallbacks. This does not change physical field layout.
 Impl, doctrine, and extern signatures remain explicitly named token-facing
