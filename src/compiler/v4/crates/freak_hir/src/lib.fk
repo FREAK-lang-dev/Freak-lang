@@ -17,7 +17,10 @@ pilot v4_hir_import = "Import"
 pilot v4_hir_extern = "Extern"
 pilot v4_hir_attribute = "Attribute"
 pilot v4_hir_error = "Error"
-pilot v4_hir_snapshot_format = "freak-hir-snapshot-v8"
+pilot v4_hir_snapshot_format = "freak-hir-snapshot-v9"
+pilot v4_hir_route_owner_values = 0
+pilot v4_hir_route_case_values = 0
+pilot v4_hir_route_field_values = 0
 pilot v4_hir_const_annotation_values = 0
 pilot v4_hir_shape_field_starts = 0
 pilot v4_hir_shape_field_counts = 0
@@ -75,6 +78,9 @@ pilot v4_hir_ready = 0
 
 task v4_hir_init() -> void {
     if v4_hir_ready == 0 {
+        v4_hir_route_owner_values = array_new()
+        v4_hir_route_case_values = array_new()
+        v4_hir_route_field_values = array_new()
         v4_hir_const_annotation_values = array_new()
         v4_hir_shape_field_starts = array_new()
         v4_hir_shape_field_counts = array_new()
@@ -111,7 +117,10 @@ task v4_hir_init() -> void {
         v4_hir_task_param_type_spans = array_new()
         v4_hir_task_param_segment_spans = array_new()
         v4_hir_diags = array_new()
-        if v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
+        if v4_hir_route_owner_values < 0 or v4_hir_route_case_values < 0 or v4_hir_route_field_values < 0 or v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
+            array_release(v4_hir_route_owner_values)
+            array_release(v4_hir_route_case_values)
+            array_release(v4_hir_route_field_values)
             array_release(v4_hir_const_annotation_values)
             array_release(v4_hir_shape_field_starts)
             array_release(v4_hir_shape_field_counts)
@@ -155,7 +164,7 @@ task v4_hir_init() -> void {
     }
 }
 
--- File slots own their thirty-four child arrays. Logical snapshot truncation keeps
+-- File slots own their thirty-seven child arrays. Logical snapshot truncation keeps
 -- high-water slots reachable; reusing a slot must release its previous children.
 -- Fresh slots allocate once, without immediately overwriting those handles.
 task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
@@ -163,6 +172,9 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
     if v4_hir_ready == 0 { give back }
     pilot reused: bool = hir_id < array_len(v4_hir_files)
     repeat until array_len(v4_hir_files) > hir_id {
+        array_push(v4_hir_route_owner_values, word_from_int(array_new()))
+        array_push(v4_hir_route_case_values, word_from_int(array_new()))
+        array_push(v4_hir_route_field_values, word_from_int(array_new()))
         array_push(v4_hir_const_annotation_values, word_from_int(array_new()))
         array_push(v4_hir_shape_field_starts, word_from_int(array_new()))
         array_push(v4_hir_shape_field_counts, word_from_int(array_new()))
@@ -206,6 +218,12 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_push(v4_hir_diags, word_from_int(array_new()))
     }
     if reused {
+        array_release(v4_hir_route_owner_values_handle(hir_id))
+        array_set(v4_hir_route_owner_values, hir_id, word_from_int(array_new()))
+        array_release(v4_hir_route_case_values_handle(hir_id))
+        array_set(v4_hir_route_case_values, hir_id, word_from_int(array_new()))
+        array_release(v4_hir_route_field_values_handle(hir_id))
+        array_set(v4_hir_route_field_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_const_annotation_values_handle(hir_id))
         array_set(v4_hir_const_annotation_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_shape_field_starts_handle(hir_id))
@@ -390,6 +408,7 @@ task v4_hir_add_item(hir_id: int, item_kind: word, item_name: word, span: word, 
     array_push(v4_hir_parse_nodes_handle(hir_id), word_from_int(parse_node))
     array_push(v4_hir_alias_target_types_handle(hir_id), "")
     array_push(v4_hir_alias_target_spans_handle(hir_id), V4_NO_SPAN)
+    if item_kind == v4_hir_route { v4_hir_route_prepare_owner(hir_id, item_index, "route", 0) }
     give back item_index
 }
 
@@ -573,10 +592,7 @@ task v4_hir_item_decl_keyword(hir_id: int, item_id: int) -> word {
 }
 
 task v4_hir_route_is_variant(hir_id: int, item_id: int) -> bool {
-    if v4_hir_item_kind(hir_id, item_id) != v4_hir_route {
-        give back false
-    }
-    give back v4_hir_item_decl_keyword(hir_id, item_id) == "variant"
+    give back v4_hir_route_form(hir_id, item_id) == "variant"
 }
 
 task v4_hir_import_path(hir_id: int, item_id: int) -> word {
@@ -1539,7 +1555,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
     if v4_hir_ready == 0 { give back 0 - 1 }
     pilot required = 4
-    if v4_hir_file_len >= array_len(v4_hir_files) { required += 34 }
+    if v4_hir_file_len >= array_len(v4_hir_files) { required += 37 }
     if v4_hir_lookup_handles_available(required) == false { give back 0 - 1 }
     pilot hir_id = v4_hir_file_new(file_id, expansion_id)
     v4_hir_copy_expand_diags(hir_id, expansion_id)
@@ -1556,6 +1572,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
             v4_hir_lower_alias_target_type(hir_id, item_id, expansion_id, node_idx)
             v4_hir_lower_const_annotation(hir_id, item_id)
             v4_hir_lower_shape_fields(hir_id, item_id)
+            v4_hir_lower_route_facts(hir_id, item_id)
             v4_hir_lower_task_params(hir_id, item_id)
             v4_hir_lower_task_return(hir_id, item_id)
             v4_hir_lower_local_annotations(hir_id, item_id)
@@ -1719,6 +1736,9 @@ task v4_hir_snapshot_summary() -> word {
     summary = summary + " const-annotations=" + word_from_int(v4_hir_const_annotation_total())
     summary = summary + " shape-owners=" + word_from_int(v4_hir_shape_owner_total())
     summary = summary + " shape-fields=" + word_from_int(v4_hir_shape_field_total())
+    summary = summary + " route-owners=" + word_from_int(v4_hir_route_owner_total())
+    summary = summary + " route-cases=" + word_from_int(v4_hir_route_case_total())
+    summary = summary + " route-fields=" + word_from_int(v4_hir_route_field_total())
     summary = summary + " diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
     give back summary
 }
@@ -1736,6 +1756,9 @@ task v4_hir_snapshot_header() -> word {
     out = out + "|const-annotations=" + word_from_int(v4_hir_const_annotation_total())
     out = out + "|shape-owners=" + word_from_int(v4_hir_shape_owner_total())
     out = out + "|shape-fields=" + word_from_int(v4_hir_shape_field_total())
+    out = out + "|route-owners=" + word_from_int(v4_hir_route_owner_total())
+    out = out + "|route-cases=" + word_from_int(v4_hir_route_case_total())
+    out = out + "|route-fields=" + word_from_int(v4_hir_route_field_total())
     out = out + "|diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
     give back out
 }
@@ -1812,6 +1835,9 @@ task v4_hir_snapshot() -> word {
                     field_id += 1
                 }
             }
+            if v4_hir_item_kind(hir_id, item_id) == v4_hir_route {
+                v4_hir_snapshot_append_route(parts, hir_id, item_id)
+            }
             item_id += 1
         }
 
@@ -1862,11 +1888,14 @@ task v4_hir_snapshot() -> word {
 }
 
 task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
+    if kind == "hir-route-owner" { give back 5 }
+    if kind == "hir-route-case" { give back 9 }
+    if kind == "hir-route-field" { give back 10 }
     if kind == "hir-const-annotation" { give back 6 }
     if kind == "hir-shape-owner" { give back 4 }
     if kind == "hir-shape-field" { give back 9 }
     if kind == "hir-snapshot" {
-        give back 13
+        give back 16
     }
     if kind == "hir" {
         give back 6
@@ -2322,6 +2351,9 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
         give back false
     }
     if kind == "hir-const-annotation" { give back v4_hir_snapshot_const_annotation_is_valid(line) }
+    if kind == "hir-route-owner" or kind == "hir-route-case" or kind == "hir-route-field" {
+        give back v4_hir_snapshot_route_record_is_valid(line)
+    }
     if kind == "hir-shape-owner" or kind == "hir-shape-field" {
         give back v4_hir_snapshot_shape_record_is_valid(line)
     }
@@ -2364,6 +2396,12 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     pilot shape_fields = 0
     pilot declared_shape_owners = ""
     pilot declared_shape_fields = ""
+    pilot route_owners = 0
+    pilot route_cases = 0
+    pilot route_fields = 0
+    pilot declared_route_owners = ""
+    pilot declared_route_cases = ""
+    pilot declared_route_fields = ""
     pilot task_param_owners = 0
     pilot task_params = 0
     pilot diagnostics = 0
@@ -2400,6 +2438,9 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 declared_const_annotations = v4_hir_snapshot_key_value(line, "const-annotations")
                 declared_shape_owners = v4_hir_snapshot_key_value(line, "shape-owners")
                 declared_shape_fields = v4_hir_snapshot_key_value(line, "shape-fields")
+                declared_route_owners = v4_hir_snapshot_key_value(line, "route-owners")
+                declared_route_cases = v4_hir_snapshot_key_value(line, "route-cases")
+                declared_route_fields = v4_hir_snapshot_key_value(line, "route-fields")
                 declared_diagnostics = v4_hir_snapshot_key_value(line, "diagnostics")
                 if format != v4_hir_snapshot_format {
                     malformed += 1
@@ -2421,6 +2462,12 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 shape_owners += 1
             } else if kind == "hir-shape-field" {
                 shape_fields += 1
+            } else if kind == "hir-route-owner" {
+                route_owners += 1
+            } else if kind == "hir-route-case" {
+                route_cases += 1
+            } else if kind == "hir-route-field" {
+                route_fields += 1
             } else if kind == "hir-task-param-owner" {
                 task_param_owners += 1
             } else if kind == "hir-task-param" {
@@ -2453,6 +2500,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
         malformed += 1
     }
     if malformed == 0 and not v4_hir_snapshot_const_annotation_slots_are_valid(records, files, items, const_annotations) { malformed += 1 }
+    if malformed == 0 and not v4_hir_snapshot_route_slots_are_valid(records, files, items, route_owners, route_cases, route_fields) { malformed += 1 }
     array_release(records)
 
     pilot import_ok = 1
@@ -2482,6 +2530,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     if declared_task_params != word_from_int(task_params) { import_ok = 0 }
     if declared_const_annotations != word_from_int(const_annotations) { import_ok = 0 }
     if declared_shape_owners != word_from_int(shape_owners) or declared_shape_fields != word_from_int(shape_fields) { import_ok = 0 }
+    if declared_route_owners != word_from_int(route_owners) or declared_route_cases != word_from_int(route_cases) or declared_route_fields != word_from_int(route_fields) { import_ok = 0 }
     pilot out = "hir-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
     out = out + " format=" + format
@@ -2634,7 +2683,7 @@ task v4_hir_begin_snapshot_restore() -> void {
 }
 
 -- Restore is synchronous. Reserve the peak additional handle requirement
--- before touching live slots: thirty-four per new high-water file plus four
+-- before touching live slots: thirty-seven per new high-water file plus four
 -- finalizer scratch arrays. Reused files free all children before replacing
 -- them. The line index remains held throughout preflight and restoration.
 task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
@@ -2647,7 +2696,7 @@ task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
     }
     pilot fresh = files - array_len(v4_hir_files)
     if fresh < 0 { fresh = 0 }
-    give back v4_hir_lookup_handles_available(fresh * 34 + 4)
+    give back v4_hir_lookup_handles_available(fresh * 37 + 4)
 }
 
 task v4_hir_lookup_handles_available(needed: int) -> bool {
@@ -2707,7 +2756,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             pilot kind = v4_hir_snapshot_field_raw(line, 0)
             if kind == "hir" {
                 restored_files += v4_hir_snapshot_restore_file_line(line)
-            } else if kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-task-param-owner" and kind != "hir-task-param" and kind != "hir-const-annotation" and kind != "hir-shape-owner" and kind != "hir-shape-field" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
+            } else if kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-task-param-owner" and kind != "hir-task-param" and kind != "hir-const-annotation" and kind != "hir-shape-owner" and kind != "hir-shape-field" and kind != "hir-route-owner" and kind != "hir-route-case" and kind != "hir-route-field" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
@@ -2738,6 +2787,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
 
     v4_hir_restore_const_annotation_records(records)
     v4_hir_restore_shape_records(records)
+    v4_hir_restore_route_records(records)
     array_release(records)
     pilot finalized = 0
     repeat until finalized >= v4_hir_file_count() {
@@ -4011,6 +4061,618 @@ task v4_hir_snapshot_restore_task_param_line(line: word) -> int {
 
 
 -- Ordered Shape fields are stored once; accessors never consult syntax.
+-- Route declaration facts use packed owner/case/field arrays. Only lowering and
+-- validated restoration mutate them; semantic readers never inspect syntax.
+task v4_hir_route_owner_values_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_route_owner_values, hir_id))
+}
+
+task v4_hir_route_case_values_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_route_case_values, hir_id))
+}
+
+task v4_hir_route_field_values_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_route_field_values, hir_id))
+}
+
+task v4_hir_route_owner_value(hir_id: int, item_id: int, column: int) -> word {
+    if not v4_hir_file_exists(hir_id) { give back "" }
+    if item_id < 0 or item_id >= v4_hir_item_count(hir_id) { give back "" }
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_route { give back "" }
+    if column < 0 or column >= 3 { give back "" }
+    pilot values = v4_hir_route_owner_values_handle(hir_id)
+    if item_id * 3 + column >= array_len(values) { give back "" }
+    give back array_get(values, item_id * 3 + column)
+}
+
+task v4_hir_route_form(hir_id: int, item_id: int) -> word {
+    give back v4_hir_route_owner_value(hir_id, item_id, 0)
+}
+
+task v4_hir_route_case_count(hir_id: int, item_id: int) -> int {
+    give back word_to_int(v4_hir_route_owner_value(hir_id, item_id, 2))
+}
+
+task v4_hir_route_case_slot(hir_id: int, item_id: int, case_id: int) -> int {
+    if case_id < 0 or case_id >= v4_hir_route_case_count(hir_id, item_id) { give back 0 - 1 }
+    give back word_to_int(v4_hir_route_owner_value(hir_id, item_id, 1)) + case_id
+}
+
+task v4_hir_route_case_value(hir_id: int, item_id: int, case_id: int, column: int) -> word {
+    pilot slot = v4_hir_route_case_slot(hir_id, item_id, case_id)
+    if slot < 0 or column < 0 or column >= 6 {
+        if column == 1 or column == 2 { give back V4_NO_SPAN }
+        give back ""
+    }
+    give back array_get(v4_hir_route_case_values_handle(hir_id), slot * 6 + column)
+}
+
+task v4_hir_route_case_name(hir_id: int, item_id: int, case_id: int) -> word {
+    give back v4_hir_route_case_value(hir_id, item_id, case_id, 0)
+}
+
+task v4_hir_route_case_name_span(hir_id: int, item_id: int, case_id: int) -> word {
+    give back v4_hir_route_case_value(hir_id, item_id, case_id, 1)
+}
+
+task v4_hir_route_case_segment_span(hir_id: int, item_id: int, case_id: int) -> word {
+    give back v4_hir_route_case_value(hir_id, item_id, case_id, 2)
+}
+
+task v4_hir_route_case_has_payload(hir_id: int, item_id: int, case_id: int) -> bool {
+    give back v4_hir_route_case_value(hir_id, item_id, case_id, 3) == "1"
+}
+
+task v4_hir_route_case_field_count(hir_id: int, item_id: int, case_id: int) -> int {
+    give back word_to_int(v4_hir_route_case_value(hir_id, item_id, case_id, 5))
+}
+
+task v4_hir_route_case_field_value(hir_id: int, item_id: int, case_id: int, field_id: int, column: int) -> word {
+    if field_id < 0 or field_id >= v4_hir_route_case_field_count(hir_id, item_id, case_id) or column < 0 or column >= 5 {
+        if column == 1 or column == 3 or column == 4 { give back V4_NO_SPAN }
+        give back ""
+    }
+    pilot start = word_to_int(v4_hir_route_case_value(hir_id, item_id, case_id, 4))
+    give back array_get(v4_hir_route_field_values_handle(hir_id), (start + field_id) * 5 + column)
+}
+
+task v4_hir_route_case_field_name(hir_id: int, item_id: int, case_id: int, field_id: int) -> word {
+    give back v4_hir_route_case_field_value(hir_id, item_id, case_id, field_id, 0)
+}
+
+task v4_hir_route_case_field_name_span(hir_id: int, item_id: int, case_id: int, field_id: int) -> word {
+    give back v4_hir_route_case_field_value(hir_id, item_id, case_id, field_id, 1)
+}
+
+task v4_hir_route_case_field_surface_type(hir_id: int, item_id: int, case_id: int, field_id: int) -> word {
+    give back v4_hir_route_case_field_value(hir_id, item_id, case_id, field_id, 2)
+}
+
+task v4_hir_route_case_field_type_span(hir_id: int, item_id: int, case_id: int, field_id: int) -> word {
+    give back v4_hir_route_case_field_value(hir_id, item_id, case_id, field_id, 3)
+}
+
+task v4_hir_route_case_field_segment_span(hir_id: int, item_id: int, case_id: int, field_id: int) -> word {
+    give back v4_hir_route_case_field_value(hir_id, item_id, case_id, field_id, 4)
+}
+
+task v4_hir_route_prepare_owner(hir_id: int, item_id: int, form: word, count: int) -> void {
+    pilot owners = v4_hir_route_owner_values_handle(hir_id)
+    pilot cases = v4_hir_route_case_values_handle(hir_id)
+    repeat until array_len(owners) >= (item_id + 1) * 3 { array_push(owners, "") }
+    array_set(owners, item_id * 3, form)
+    array_set(owners, item_id * 3 + 1, word_from_int(array_len(cases) / 6))
+    array_set(owners, item_id * 3 + 2, word_from_int(count))
+    pilot idx = 0
+    repeat until idx >= count * 6 {
+        array_push(cases, "")
+        idx += 1
+    }
+}
+
+task v4_hir_route_prepare_case_fields(hir_id: int, slot: int, count: int) -> void {
+    pilot cases = v4_hir_route_case_values_handle(hir_id)
+    pilot fields = v4_hir_route_field_values_handle(hir_id)
+    array_set(cases, slot * 6 + 4, word_from_int(array_len(fields) / 5))
+    array_set(cases, slot * 6 + 5, word_from_int(count))
+    pilot idx = 0
+    repeat until idx >= count * 5 {
+        array_push(fields, "")
+        idx += 1
+    }
+}
+
+task v4_hir_route_find_body_close(stream: int, open: int, end: int) -> int {
+    pilot idx = open
+    pilot depth = 0
+    repeat until idx >= end {
+        if v4_lex_token_type(stream, idx) != v4_tok_trivia {
+            pilot value = v4_lex_token_value(stream, idx)
+            if value == "{" { depth += 1 }
+            if value == "}" {
+                depth -= 1
+                if depth == 0 { give back idx }
+            }
+        }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_hir_lower_route_field(hir_id: int, case_slot: int, stream: int, start: int, end: int) -> void {
+    pilot segment = v4_hir_span_from_tokens(stream, start, end)
+    pilot surface = ""
+    pilot type_span = segment
+    pilot colon = v4_hir_task_param_find_colon(stream, start, end)
+    if colon >= 0 {
+        pilot type_start = v4_hir_skip_trivia(stream, colon + 1, end)
+        if type_start < end {
+            surface = v4_hir_shape_type_text(stream, type_start, end)
+            type_span = v4_hir_span_from_tokens(stream, type_start, end)
+        }
+    }
+    pilot fields = v4_hir_route_field_values_handle(hir_id)
+    array_push(fields, v4_lex_token_value(stream, start))
+    array_push(fields, v4_lex_token_span(stream, start))
+    array_push(fields, surface)
+    array_push(fields, type_span)
+    array_push(fields, segment)
+    pilot cases = v4_hir_route_case_values_handle(hir_id)
+    array_set(cases, case_slot * 6 + 5, word_from_int(word_to_int(array_get(cases, case_slot * 6 + 5)) + 1))
+}
+
+task v4_hir_lower_route_case(hir_id: int, item_id: int, stream: int, start: int, end: int) -> void {
+    pilot owners = v4_hir_route_owner_values_handle(hir_id)
+    pilot cases = v4_hir_route_case_values_handle(hir_id)
+    pilot slot = array_len(cases) / 6
+    array_push(cases, v4_lex_token_value(stream, start))
+    array_push(cases, v4_lex_token_span(stream, start))
+    array_push(cases, v4_hir_span_from_tokens(stream, start, end))
+    array_push(cases, "0")
+    array_push(cases, "0")
+    array_push(cases, "0")
+    array_set(owners, item_id * 3 + 2, word_from_int(v4_hir_route_case_count(hir_id, item_id) + 1))
+    v4_hir_route_prepare_case_fields(hir_id, slot, 0)
+    pilot open = start + 1
+    pilot depth = 0
+    pilot found = false
+    repeat until open >= end or found {
+        if v4_lex_token_type(stream, open) != v4_tok_trivia {
+            pilot value = v4_lex_token_value(stream, open)
+            if depth == 0 and value == "{" { found = true }
+            depth = v4_hir_task_param_depth_after_token(depth, value)
+        }
+        if not found { open += 1 }
+    }
+    if open >= end { give back }
+    array_set(cases, slot * 6 + 3, "1")
+    pilot close = v4_hir_route_find_body_close(stream, open, end)
+    if close <= open { give back }
+    pilot segment = 0 - 1
+    depth = 0
+    pilot idx = open + 1
+    repeat until idx > close {
+        pilot separator: bool = idx == close
+        if idx < close {
+            pilot value = v4_lex_token_value(stream, idx)
+            pilot trivia: bool = v4_lex_token_type(stream, idx) == v4_tok_trivia
+            separator = depth == 0 and ((trivia and value == "\n") or (not trivia and (value == "," or value == ";")))
+            if not separator and not trivia {
+                if segment < 0 { segment = idx }
+                depth = v4_hir_task_param_depth_after_token(depth, value)
+            }
+        }
+        if separator and segment >= 0 {
+            v4_hir_lower_route_field(hir_id, slot, stream, segment, idx)
+            segment = 0 - 1
+        }
+        idx += 1
+    }
+}
+
+task v4_hir_lower_route_facts(hir_id: int, item_id: int) -> void {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_route { give back }
+    pilot form = "route"
+    if v4_hir_item_decl_keyword(hir_id, item_id) == "variant" { form = "variant" }
+    v4_hir_route_prepare_owner(hir_id, item_id, form, 0)
+    pilot stream = v4_hir_item_stream_id(hir_id)
+    if stream < 0 { give back }
+    pilot span = v4_hir_item_span(hir_id, item_id)
+    pilot start = v4_hir_first_token_at_or_after(stream, v4_span_start(span))
+    pilot end = v4_hir_first_token_at_or_after(stream, v4_span_end(span))
+    if end <= start { end = v4_lex_token_count(stream) }
+    pilot open = start
+    repeat until open >= end or v4_lex_token_value(stream, open) == "{" { open += 1 }
+    if open >= end { give back }
+    pilot close = v4_hir_route_find_body_close(stream, open, end)
+    if close <= open { give back }
+    pilot segment = 0 - 1
+    pilot depth = 0
+    pilot idx = open + 1
+    repeat until idx > close {
+        pilot separator: bool = idx == close
+        if idx < close {
+            pilot value = v4_lex_token_value(stream, idx)
+            pilot trivia: bool = v4_lex_token_type(stream, idx) == v4_tok_trivia
+            separator = depth == 0 and ((trivia and value == "\n") or (not trivia and (value == "," or value == ";" or value == "/")))
+            if not separator and not trivia {
+                if segment < 0 { segment = idx }
+                depth = v4_hir_task_param_depth_after_token(depth, value)
+            }
+        }
+        if separator and segment >= 0 {
+            v4_hir_lower_route_case(hir_id, item_id, stream, segment, idx)
+            segment = 0 - 1
+        }
+        idx += 1
+    }
+}
+
+task v4_hir_route_owner_total() -> int {
+    pilot count = 0
+    pilot hir = 0
+    repeat until hir >= v4_hir_file_count() {
+        pilot item = 0
+        repeat until item >= v4_hir_item_count(hir) {
+            if v4_hir_item_kind(hir, item) == v4_hir_route { count += 1 }
+            item += 1
+        }
+        hir += 1
+    }
+    give back count
+}
+
+task v4_hir_route_case_total() -> int {
+    pilot count = 0
+    pilot hir = 0
+    repeat until hir >= v4_hir_file_count() {
+        count += array_len(v4_hir_route_case_values_handle(hir)) / 6
+        hir += 1
+    }
+    give back count
+}
+
+task v4_hir_route_field_total() -> int {
+    pilot count = 0
+    pilot hir = 0
+    repeat until hir >= v4_hir_file_count() {
+        count += array_len(v4_hir_route_field_values_handle(hir)) / 5
+        hir += 1
+    }
+    give back count
+}
+
+task v4_hir_snapshot_route_owner_line(hir: int, item: int) -> word {
+    give back "hir-route-owner|" + word_from_int(hir) + "|" + word_from_int(item) + "|" + v4_hir_route_form(hir, item) + "|" + word_from_int(v4_hir_route_case_count(hir, item))
+}
+
+task v4_hir_snapshot_route_case_line(hir: int, item: int, case_id: int) -> word {
+    pilot out = "hir-route-case|" + word_from_int(hir) + "|" + word_from_int(item) + "|" + word_from_int(case_id)
+    pilot column = 0
+    repeat until column >= 4 {
+        out = out + "|" + v4_hir_snapshot_escape(v4_hir_route_case_value(hir, item, case_id, column))
+        column += 1
+    }
+    give back out + "|" + word_from_int(v4_hir_route_case_field_count(hir, item, case_id))
+}
+
+task v4_hir_snapshot_route_field_line(hir: int, item: int, case_id: int, field: int) -> word {
+    pilot out = "hir-route-field|" + word_from_int(hir) + "|" + word_from_int(item) + "|" + word_from_int(case_id) + "|" + word_from_int(field)
+    pilot column = 0
+    repeat until column >= 5 {
+        out = out + "|" + v4_hir_snapshot_escape(v4_hir_route_case_field_value(hir, item, case_id, field, column))
+        column += 1
+    }
+    give back out
+}
+
+task v4_hir_snapshot_append_route(parts: int, hir: int, item: int) -> void {
+    array_push(parts, "\n")
+    array_push(parts, v4_hir_snapshot_route_owner_line(hir, item))
+    pilot case_id = 0
+    repeat until case_id >= v4_hir_route_case_count(hir, item) {
+        array_push(parts, "\n")
+        array_push(parts, v4_hir_snapshot_route_case_line(hir, item, case_id))
+        pilot field = 0
+        repeat until field >= v4_hir_route_case_field_count(hir, item, case_id) {
+            array_push(parts, "\n")
+            array_push(parts, v4_hir_snapshot_route_field_line(hir, item, case_id, field))
+            field += 1
+        }
+        case_id += 1
+    }
+}
+
+task v4_hir_snapshot_route_record_is_valid(line: word) -> bool {
+    pilot kind = v4_hir_snapshot_field_raw(line, 0)
+    if v4_hir_snapshot_field_count(line) != v4_hir_snapshot_record_expected_fields(kind) { give back false }
+    pilot last_id = 3
+    if kind == "hir-route-owner" { last_id = 2 }
+    if kind == "hir-route-field" { last_id = 4 }
+    pilot idx = 1
+    repeat until idx > last_id {
+        if not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, idx)) { give back false }
+        idx += 1
+    }
+    if kind == "hir-route-owner" {
+        pilot form = v4_hir_snapshot_field_raw(line, 3)
+        give back (form == "route" or form == "variant") and v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 4))
+    }
+    if kind == "hir-route-case" {
+        pilot name = v4_hir_snapshot_field(line, 5)
+        pilot segment = v4_hir_snapshot_field(line, 6)
+        pilot flag = v4_hir_snapshot_field_raw(line, 7)
+        pilot count = v4_hir_snapshot_field_raw(line, 8)
+        if flag != "0" and flag != "1" { give back false }
+        if not v4_hir_snapshot_nonnegative_int_is_valid(count) { give back false }
+        if flag == "0" and count != "0" { give back false }
+        if not v4_hir_snapshot_span_is_canonical_nonempty(segment) or not v4_hir_snapshot_span_is_contained(name, segment) { give back false }
+        give back v4_span_start(name) == v4_span_start(segment)
+    }
+    pilot name = v4_hir_snapshot_field(line, 6)
+    pilot surface = v4_hir_snapshot_field(line, 7)
+    pilot type_span = v4_hir_snapshot_field(line, 8)
+    pilot segment = v4_hir_snapshot_field(line, 9)
+    if not v4_hir_snapshot_span_is_canonical_nonempty(segment) { give back false }
+    if not v4_hir_snapshot_span_is_contained(name, segment) or not v4_hir_snapshot_span_is_contained(type_span, segment) { give back false }
+    if v4_span_start(name) != v4_span_start(segment) { give back false }
+    if surface == "" and type_span == segment { give back true }
+    give back v4_span_start(type_span) >= v4_span_end(name)
+}
+
+task v4_hir_snapshot_route_slots_are_valid(records: int, files: int, items: int, owners: int, cases: int, fields: int) -> bool {
+    -- Preserve the no-route resource path: no scratch arrays or copied parents.
+    if owners == 0 and cases == 0 and fields == 0 {
+        pilot idx = 0
+        repeat until idx >= array_len(records) {
+            pilot line: word = array_get(records, idx)
+            if line.starts_with("hir-item|") and v4_hir_snapshot_field(line, 3) == v4_hir_route { give back false }
+            idx += 1
+        }
+        give back true
+    }
+    -- File: source, item count, item offset. Item: line/span, case count, offset.
+    -- Case: segment, field count, offset, name end. Field: seen segment span.
+    -- All counts are observed record counts, never untrusted wire maxima.
+    pilot file_rows = array_new()
+    pilot item_rows = array_new()
+    pilot case_rows = array_new()
+    pilot field_rows = array_new()
+    pilot valid: bool = file_rows >= 0 and item_rows >= 0 and case_rows >= 0 and field_rows >= 0
+    pilot idx = 0
+    repeat until idx >= files * 3 or not valid { array_push(file_rows, "0"); idx += 1 }
+    idx = 0
+    repeat until idx >= items or not valid {
+        array_push(item_rows, "")
+        array_push(item_rows, "-1")
+        array_push(item_rows, "0")
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= cases or not valid {
+        array_push(case_rows, "")
+        array_push(case_rows, "-1")
+        array_push(case_rows, "0")
+        array_push(case_rows, "0")
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= fields or not valid { array_push(field_rows, ""); idx += 1 }
+    idx = 0
+    repeat until idx >= array_len(records) or not valid {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir|") {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            pilot count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), items + 1)
+            if owner < 0 or count < 0 { valid = false } else {
+                array_set(file_rows, owner * 3, v4_hir_snapshot_field_raw(line, 2))
+                array_set(file_rows, owner * 3 + 1, word_from_int(count))
+            }
+        }
+        idx += 1
+    }
+    pilot total = 0
+    idx = 0
+    repeat until idx >= files or not valid {
+        pilot count = word_to_int(array_get(file_rows, idx * 3 + 1))
+        if count > items - total { valid = false } else {
+            array_set(file_rows, idx * 3 + 2, word_from_int(total))
+            total += count
+        }
+        idx += 1
+    }
+    if total != items { valid = false }
+    idx = 0
+    repeat until idx >= array_len(records) or not valid {
+        pilot line: word = array_get(records, idx)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if kind == "hir-item" or kind == "hir-route-owner" {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            if owner < 0 { valid = false } else {
+                pilot item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(file_rows, owner * 3 + 1)))
+                if item < 0 { valid = false } else {
+                    pilot slot = (word_to_int(array_get(file_rows, owner * 3 + 2)) + item) * 3
+                    if kind == "hir-item" { array_set(item_rows, slot, line) } else {
+                        pilot count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), cases + 1)
+                        pilot previous: word = array_get(item_rows, slot + 1)
+                        if count < 0 or previous != "-1" { valid = false } else { array_set(item_rows, slot + 1, word_from_int(count)) }
+                    }
+                }
+            }
+        }
+        idx += 1
+    }
+    total = 0
+    pilot owner_total = 0
+    idx = 0
+    repeat until idx >= items or not valid {
+        pilot line: word = array_get(item_rows, idx * 3)
+        pilot count = word_to_int(array_get(item_rows, idx * 3 + 1))
+        pilot is_route: bool = v4_hir_snapshot_field(line, 3) == v4_hir_route
+        if is_route != (count >= 0) { valid = false }
+        if is_route {
+            pilot owner = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+            pilot parent = v4_hir_snapshot_field(line, 6)
+            pilot source: word = array_get(file_rows, owner * 3)
+            if not v4_hir_snapshot_span_is_canonical_nonempty(parent) or v4_span_file(parent) != source { valid = false }
+            array_set(item_rows, idx * 3, parent)
+            owner_total += 1
+            if count > cases - total { valid = false } else {
+                array_set(item_rows, idx * 3 + 2, word_from_int(total))
+                total += count
+            }
+        }
+        idx += 1
+    }
+    if total != cases or owner_total != owners { valid = false }
+    idx = 0
+    repeat until idx >= array_len(records) or not valid {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-route-case|") {
+            pilot slot = v4_hir_snapshot_route_item_slot(line, file_rows, files)
+            if slot < 0 { valid = false } else {
+                pilot ordinal = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 3), word_to_int(array_get(item_rows, slot * 3 + 1)))
+                pilot count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 8), fields + 1)
+                if ordinal < 0 or count < 0 { valid = false } else {
+                    pilot target = (word_to_int(array_get(item_rows, slot * 3 + 2)) + ordinal) * 4
+                    pilot previous: word = array_get(case_rows, target)
+                    pilot segment = v4_hir_snapshot_field(line, 6)
+                    pilot parent: word = array_get(item_rows, slot * 3)
+                    if previous != "" or not v4_hir_snapshot_span_is_contained(segment, parent) { valid = false } else {
+                        array_set(case_rows, target, segment)
+                        array_set(case_rows, target + 1, word_from_int(count))
+                        array_set(case_rows, target + 3, word_from_int(v4_span_end(v4_hir_snapshot_field(line, 5))))
+                    }
+                }
+            }
+        }
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= items or not valid {
+        pilot count = word_to_int(array_get(item_rows, idx * 3 + 1))
+        pilot offset = word_to_int(array_get(item_rows, idx * 3 + 2))
+        pilot ordinal = 0
+        pilot last_end = 0 - 1
+        repeat until ordinal >= count or not valid {
+            pilot span: word = array_get(case_rows, (offset + ordinal) * 4)
+            if span == "" or v4_span_start(span) < last_end { valid = false }
+            last_end = v4_span_end(span)
+            ordinal += 1
+        }
+        idx += 1
+    }
+    total = 0
+    idx = 0
+    repeat until idx >= cases or not valid {
+        pilot count = word_to_int(array_get(case_rows, idx * 4 + 1))
+        if count < 0 or count > fields - total { valid = false } else {
+            array_set(case_rows, idx * 4 + 2, word_from_int(total))
+            total += count
+        }
+        idx += 1
+    }
+    if total != fields { valid = false }
+    idx = 0
+    repeat until idx >= array_len(records) or not valid {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-route-field|") {
+            pilot slot = v4_hir_snapshot_route_item_slot(line, file_rows, files)
+            if slot < 0 { valid = false } else {
+                pilot case_id = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 3), word_to_int(array_get(item_rows, slot * 3 + 1)))
+                if case_id < 0 { valid = false } else {
+                    pilot case_slot = (word_to_int(array_get(item_rows, slot * 3 + 2)) + case_id) * 4
+                    pilot ordinal = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), word_to_int(array_get(case_rows, case_slot + 1)))
+                    if ordinal < 0 { valid = false } else {
+                        pilot target = word_to_int(array_get(case_rows, case_slot + 2)) + ordinal
+                        pilot previous: word = array_get(field_rows, target)
+                        pilot segment = v4_hir_snapshot_field(line, 9)
+                        pilot parent: word = array_get(case_rows, case_slot)
+                        pilot name_end = word_to_int(array_get(case_rows, case_slot + 3))
+                        if previous != "" or not v4_hir_snapshot_span_is_contained(segment, parent) or v4_span_start(segment) < name_end { valid = false } else {
+                            array_set(field_rows, target, segment)
+                        }
+                    }
+                }
+            }
+        }
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= cases or not valid {
+        pilot count = word_to_int(array_get(case_rows, idx * 4 + 1))
+        pilot offset = word_to_int(array_get(case_rows, idx * 4 + 2))
+        pilot ordinal = 0
+        pilot last_end = 0 - 1
+        repeat until ordinal >= count or not valid {
+            pilot span: word = array_get(field_rows, offset + ordinal)
+            if span == "" or v4_span_start(span) < last_end { valid = false }
+            last_end = v4_span_end(span)
+            ordinal += 1
+        }
+        idx += 1
+    }
+    array_release(file_rows)
+    array_release(item_rows)
+    array_release(case_rows)
+    array_release(field_rows)
+    give back valid
+}
+
+task v4_hir_snapshot_route_item_slot(line: word, file_rows: int, files: int) -> int {
+    pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+    if owner < 0 { give back 0 - 1 }
+    pilot item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(file_rows, owner * 3 + 1)))
+    if item < 0 { give back 0 - 1 }
+    give back word_to_int(array_get(file_rows, owner * 3 + 2)) + item
+}
+
+task v4_hir_restore_route_records(records: int) -> void {
+    -- Three forward passes support arbitrary wire order without rescanning parents.
+    pilot idx = 0
+    repeat until idx >= array_len(records) {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-route-owner|") {
+            v4_hir_route_prepare_owner(word_to_int(v4_hir_snapshot_field_raw(line, 1)), word_to_int(v4_hir_snapshot_field_raw(line, 2)), v4_hir_snapshot_field_raw(line, 3), word_to_int(v4_hir_snapshot_field_raw(line, 4)))
+        }
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= array_len(records) {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-route-case|") {
+            pilot hir = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+            pilot item = word_to_int(v4_hir_snapshot_field_raw(line, 2))
+            pilot case_id = word_to_int(v4_hir_snapshot_field_raw(line, 3))
+            pilot slot = v4_hir_route_case_slot(hir, item, case_id)
+            pilot column = 0
+            repeat until column >= 4 {
+                array_set(v4_hir_route_case_values_handle(hir), slot * 6 + column, v4_hir_snapshot_field(line, column + 4))
+                column += 1
+            }
+            v4_hir_route_prepare_case_fields(hir, slot, word_to_int(v4_hir_snapshot_field_raw(line, 8)))
+        }
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= array_len(records) {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-route-field|") {
+            pilot hir = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+            pilot item = word_to_int(v4_hir_snapshot_field_raw(line, 2))
+            pilot case_id = word_to_int(v4_hir_snapshot_field_raw(line, 3))
+            pilot field = word_to_int(v4_hir_snapshot_field_raw(line, 4))
+            pilot start = word_to_int(v4_hir_route_case_value(hir, item, case_id, 4))
+            pilot column = 0
+            repeat until column >= 5 {
+                array_set(v4_hir_route_field_values_handle(hir), (start + field) * 5 + column, v4_hir_snapshot_field(line, column + 5))
+                column += 1
+            }
+        }
+        idx += 1
+    }
+}
+
 task v4_hir_shape_field_starts_handle(hir_id: int) -> int {
     give back word_to_int(array_get(v4_hir_shape_field_starts, hir_id))
 }

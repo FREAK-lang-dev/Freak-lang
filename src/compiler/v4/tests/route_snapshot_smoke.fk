@@ -1,0 +1,140 @@
+-- Detached v9 route facts: complete hierarchy, atomic rejection, bounded work.
+task v4_route_snapshot_header(files: int, items: int, cases: int, fields: int) -> word {
+    give back "hir-snapshot|format=freak-hir-snapshot-v9|files=" + word_from_int(files) + "|items=" + word_from_int(items) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=" + word_from_int(items) + "|route-cases=" + word_from_int(cases) + "|route-fields=" + word_from_int(fields) + "|diagnostics=0"
+}
+
+task v4_route_snapshot_payload() -> word {
+    pilot none = v4_hir_snapshot_escape(V4_NO_SPAN)
+    pilot out = v4_route_snapshot_header(1, 2, 3, 2)
+    out = out + "\nhir|0|7|0|2|0"
+    out = out + "\nhir-item|0|0|Route|Packet|packet|7@0:100|0||" + none
+    out = out + "\nhir-item|0|1|Route|Empty|empty|7@100:120|1||" + none
+    out = out + "\nhir-route-owner|0|0|variant|3\nhir-route-owner|0|1|route|0"
+    out = out + "\nhir-route-case|0|0|0|Data|7@10:14|7@10:60|1|2"
+    out = out + "\nhir-route-case|0|0|1|Closed|7@62:68|7@62:68|0|0"
+    out = out + "\nhir-route-case|0|0|2||7@70:72|7@70:80|1|0"
+    out = out + "\nhir-route-field|0|0|0|0|first|7@20:25|int|7@27:30|7@20:30"
+    out = out + "\nhir-route-field|0|0|0|1||7@33:35||7@38:40|7@33:40"
+    give back out + "\nend|freak-hir-snapshot-v9"
+}
+
+task v4_route_snapshot_reverse(payload: word) -> word {
+    pilot lines = v4_hir_snapshot_index_lines(payload)
+    pilot parts = array_new()
+    pilot idx = array_len(lines) - 1
+    repeat until idx < 0 {
+        if idx < array_len(lines) - 1 { array_push(parts, "\n") }
+        array_push(parts, array_get(lines, idx))
+        idx -= 1
+    }
+    -- Join borrowed record words before releasing their owning line index.
+    pilot out = word_join(parts)
+    array_release(lines)
+    give back out
+}
+
+task v4_route_snapshot_rejected(payload: word, before: word) -> bool {
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot report = v4_hir_snapshot_restore(payload)
+    give back report.starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == before and v4_session_semantic_restore_generation() == generation
+}
+
+task v4_route_snapshot_capacity() -> int {
+    pilot held = array_new()
+    pilot handle = array_new()
+    repeat until handle < 0 {
+        array_push(held, word_from_int(handle))
+        handle = array_new()
+    }
+    pilot count = array_len(held)
+    pilot idx = 0
+    repeat until idx >= count {
+        array_release(word_to_int(array_get(held, idx)))
+        idx += 1
+    }
+    array_release(held)
+    give back count
+}
+
+task v4_route_snapshot_large(cases_per_owner: int, fields_per_case: int) -> word {
+    pilot parts = array_new()
+    array_push(parts, v4_route_snapshot_header(8, 8, 8 * cases_per_owner, 8 * cases_per_owner * fields_per_case))
+    pilot parent_name = ""
+    pilot idx = 0
+    repeat until idx >= 2048 {
+        parent_name = parent_name + "a"
+        idx += 1
+    }
+    pilot none = v4_hir_snapshot_escape(V4_NO_SPAN)
+    pilot owner = 0
+    repeat until owner >= 8 {
+        pilot owner_text = word_from_int(owner)
+        pilot source = word_from_int(owner + 100)
+        array_push(parts, "\nhir|" + owner_text + "|" + source + "|0|1|0")
+        array_push(parts, "\nhir-item|" + owner_text + "|0|Route|" + parent_name + "|route-" + owner_text + "|" + source + "@0:1000000|0||" + none)
+        array_push(parts, "\nhir-route-owner|" + owner_text + "|0|variant|" + word_from_int(cases_per_owner))
+        pilot case_id = 0
+        repeat until case_id >= cases_per_owner {
+            pilot case_text = word_from_int(case_id)
+            pilot start = 3000 + case_id * 10000
+            pilot case_name_span = source + "@" + word_from_int(start) + ":" + word_from_int(start + 4)
+            pilot case_span = source + "@" + word_from_int(start) + ":" + word_from_int(start + 9000)
+            array_push(parts, "\nhir-route-case|" + owner_text + "|0|" + case_text + "|Case|" + case_name_span + "|" + case_span + "|1|" + word_from_int(fields_per_case))
+            pilot field = 0
+            repeat until field >= fields_per_case {
+                pilot first = start + 10 + field * 20
+                pilot name_span = source + "@" + word_from_int(first) + ":" + word_from_int(first + 1)
+                pilot type_span = source + "@" + word_from_int(first + 3) + ":" + word_from_int(first + 6)
+                pilot segment = source + "@" + word_from_int(first) + ":" + word_from_int(first + 6)
+                array_push(parts, "\nhir-route-field|" + owner_text + "|0|" + case_text + "|" + word_from_int(field) + "|x|" + name_span + "|int|" + type_span + "|" + segment)
+                field += 1
+            }
+            case_id += 1
+        }
+        owner += 1
+    }
+    array_push(parts, "\nend|freak-hir-snapshot-v9")
+    give back word_join(parts)
+}
+
+task v4_route_snapshot_run() -> void {
+    pilot payload = v4_route_snapshot_payload()
+    pilot report = v4_hir_snapshot_restore(v4_route_snapshot_reverse(payload))
+    pilot before = v4_hir_snapshot()
+    say "route-snapshot-v9-reordered=" + word_from_bool(report.starts_with("hir-snapshot-restore ok=1") and v4_hir_route_case_count(0, 0) == 3 and v4_hir_route_case_name(0, 0, 0) == "Data" and v4_hir_route_case_field_surface_type(0, 0, 0, 0) == "int" and v4_hir_route_case_field_type_span(0, 0, 0, 0) == "7@27:30")
+    say "route-snapshot-empty-recovery=" + word_from_bool(v4_hir_route_is_variant(0, 0) and not v4_hir_route_is_variant(0, 1) and v4_hir_route_case_count(0, 1) == 0 and not v4_hir_route_case_has_payload(0, 0, 1) and v4_hir_route_case_has_payload(0, 0, 2) and v4_hir_route_case_name(0, 0, 2) == "" and v4_hir_route_case_field_name(0, 0, 0, 1) == "" and v4_hir_route_case_field_surface_type(0, 0, 0, 1) == "" and v4_hir_route_case_field_type_span(0, 0, 0, 1) == "7@38:40")
+    say "route-snapshot-old-version-atomic=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("freak-hir-snapshot-v9", "freak-hir-snapshot-v8"), before))
+    say "route-snapshot-extra-width-atomic=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("|route|0\n", "|route|0|extra\n"), before) and v4_route_snapshot_rejected(payload.replace("7@62:68|0|0\n", "7@62:68|0|0|extra\n"), before) and v4_route_snapshot_rejected(payload.replace("7@20:30\n", "7@20:30|extra\n"), before))
+    say "route-snapshot-noncanonical-ids=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("hir-route-owner|0|0|", "hir-route-owner|00|0|"), before) and v4_route_snapshot_rejected(payload.replace("hir-route-case|0|0|1|", "hir-route-case|0|0|01|"), before) and v4_route_snapshot_rejected(payload.replace("hir-route-field|0|0|0|1|", "hir-route-field|0|0|0|01|"), before))
+    say "route-snapshot-orphan-records=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("hir-route-owner|0|0|", "hir-route-owner|99|0|"), before) and v4_route_snapshot_rejected(payload.replace("hir-route-case|0|0|1|", "hir-route-case|0|99|1|"), before) and v4_route_snapshot_rejected(payload.replace("hir-route-field|0|0|0|1|", "hir-route-field|0|0|99|1|"), before))
+    say "route-snapshot-duplicate-records=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("hir-route-owner|0|1|", "hir-route-owner|0|0|"), before) and v4_route_snapshot_rejected(payload.replace("hir-route-case|0|0|1|", "hir-route-case|0|0|0|"), before) and v4_route_snapshot_rejected(payload.replace("hir-route-field|0|0|0|1|", "hir-route-field|0|0|0|0|"), before))
+    say "route-snapshot-hierarchy-counts=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("|variant|3\n", "|variant|2\n"), before) and v4_route_snapshot_rejected(payload.replace("7@10:60|1|2", "7@10:60|1|1"), before) and v4_route_snapshot_rejected(payload.replace("route-cases=3", "route-cases=2"), before) and v4_route_snapshot_rejected(payload.replace("route-fields=2", "route-fields=1"), before))
+    say "route-snapshot-owner-contract=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("|Route|Packet|", "|Error|Packet|"), before) and v4_route_snapshot_rejected(payload.replace("|variant|3\n", "|Variant|3\n"), before) and v4_route_snapshot_rejected(payload.replace("\nhir-route-owner|0|1|route|0", "").replace("route-owners=2", "route-owners=1"), before))
+    say "route-snapshot-payload-contract=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("7@10:60|1|2", "7@10:60|0|2"), before) and v4_route_snapshot_rejected(payload.replace("7@62:68|0|0", "7@62:68|2|0"), before))
+    say "route-snapshot-span-contract=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("7@27:30", "7@027:30"), before) and v4_route_snapshot_rejected(payload.replace("7@20:25", "8@20:25"), before) and v4_route_snapshot_rejected(payload.replace("7@20:30", "7@20:61"), before) and v4_route_snapshot_rejected(payload.replace("7@10:60", "7@10:101"), before))
+    say "route-snapshot-source-order=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("hir-route-case|0|0|1|Closed|7@62:68|7@62:68", "hir-route-case|0|0|1|Closed|7@50:56|7@50:56"), before) and v4_route_snapshot_rejected(payload.replace("|7@33:35||7@38:40|7@33:40", "|7@23:25||7@28:30|7@23:30"), before))
+    pilot capacity = v4_route_snapshot_capacity()
+    pilot idx = 0
+    pilot stable = true
+    repeat until idx >= 48 {
+        if not v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=1") { stable = false }
+        idx += 1
+    }
+    say "route-snapshot-repeat-no-handles=" + word_from_bool(stable and capacity == v4_route_snapshot_capacity() and v4_hir_snapshot() == before)
+    pilot many_cases = v4_route_snapshot_large(48, 2)
+    pilot many_fields = v4_route_snapshot_large(1, 96)
+    idx = 0
+    stable = true
+    repeat until idx >= 4 {
+        if not v4_hir_snapshot_validate(many_cases).starts_with("hir-snapshot-import ok=1") or not v4_hir_snapshot_validate(many_fields).starts_with("hir-snapshot-import ok=1") { stable = false }
+        idx += 1
+    }
+    say "route-snapshot-many-cases=" + word_from_bool(stable and v4_hir_snapshot_restore(many_cases).starts_with("hir-snapshot-restore ok=1") and v4_hir_route_case_count(7, 0) == 48 and v4_hir_route_case_field_count(7, 0, 47) == 2)
+    say "route-snapshot-many-fields=" + word_from_bool(v4_hir_snapshot_restore(many_fields).starts_with("hir-snapshot-restore ok=1") and v4_hir_route_case_count(7, 0) == 1 and v4_hir_route_case_field_count(7, 0, 0) == 96 and v4_hir_route_case_field_surface_type(7, 0, 0, 95) == "int")
+    pilot capacity_after = v4_route_snapshot_capacity()
+    pilot reset = v4_hir_snapshot_restore(payload)
+    pilot reuse = v4_hir_snapshot_restore(many_fields)
+    say "route-snapshot-high-water-reuse=" + word_from_bool(reset.starts_with("hir-snapshot-restore ok=1") and reuse.starts_with("hir-snapshot-restore ok=1") and capacity_after == v4_route_snapshot_capacity())
+}
+
+v4_route_snapshot_run()

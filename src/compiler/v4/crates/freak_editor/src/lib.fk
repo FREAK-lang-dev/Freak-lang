@@ -1186,50 +1186,20 @@ task v4_editor_route_case_detail(ty_id: int, sig_id: int, case_name: word) -> wo
 }
 
 task v4_editor_route_case_name_span(ty_id: int, sig_id: int, case_name: word) -> word {
-    if sig_id < 0 or case_name == "" {
-        give back V4_NO_SPAN
-    }
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
-        give back V4_NO_SPAN
-    }
-
+    if sig_id < 0 or case_name == "" { give back V4_NO_SPAN }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig { give back V4_NO_SPAN }
     pilot route_name = v4_ty_signature_name(ty_id, sig_id)
     pilot case_id = v4_ty_route_case_id_for_name(ty_id, route_name, case_name)
-    if case_id < 0 {
-        give back V4_NO_SPAN
-    }
-
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_route_case_segment_start(ty_id, sig_id, case_id)
-    if stream_id < 0 or start_token < 0 {
-        give back V4_NO_SPAN
-    }
-
-    pilot name_token = v4_ty_skip_trivia(stream_id, start_token)
-    if name_token < 0 {
-        give back V4_NO_SPAN
-    }
-    give back v4_lex_token_span(stream_id, name_token)
+    give back v4_ty_route_case_name_span(ty_id, sig_id, case_id)
 }
 
 task v4_editor_route_case_decl_id_at_token(ty_id: int, sig_id: int, stream_id: int, token_id: int, token_value: word) -> int {
-    if sig_id < 0 or token_id < 0 or token_value == "" {
-        give back 0 - 1
-    }
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
-        give back 0 - 1
-    }
-
+    if sig_id < 0 or token_id < 0 or token_value == "" { give back 0 - 1 }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig { give back 0 - 1 }
+    pilot token_span = v4_lex_token_span(stream_id, token_id)
     pilot case_id = 0
-    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
-    repeat until case_id >= case_count {
-        pilot case_start = v4_ty_route_case_segment_start(ty_id, sig_id, case_id)
-        if case_start >= 0 {
-            pilot case_token = v4_ty_skip_trivia(stream_id, case_start)
-            if case_token == token_id and v4_ty_route_case_name(ty_id, sig_id, case_id) == token_value {
-                give back case_id
-            }
-        }
+    repeat until case_id >= v4_ty_route_case_count(ty_id, sig_id) {
+        if v4_ty_route_case_name_span(ty_id, sig_id, case_id) == token_span and v4_ty_route_case_name(ty_id, sig_id, case_id) == token_value { give back case_id }
         case_id += 1
     }
     give back 0 - 1
@@ -1262,55 +1232,24 @@ task v4_editor_route_field_detail(ty_id: int, sig_id: int, case_name: word, fiel
 }
 
 task v4_editor_route_field_name_span(ty_id: int, sig_id: int, case_name: word, field_name: word) -> word {
-    if sig_id < 0 or case_name == "" or field_name == "" {
-        give back V4_NO_SPAN
-    }
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
-        give back V4_NO_SPAN
-    }
-
+    if sig_id < 0 or case_name == "" or field_name == "" { give back V4_NO_SPAN }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig { give back V4_NO_SPAN }
     pilot route_name = v4_ty_signature_name(ty_id, sig_id)
     pilot field_id = v4_ty_route_case_field_id_for_name(ty_id, route_name, case_name, field_name)
-    if field_id < 0 {
-        give back V4_NO_SPAN
-    }
-
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_route_case_field_segment_start(ty_id, route_name, case_name, field_id)
-    if stream_id < 0 or start_token < 0 {
-        give back V4_NO_SPAN
-    }
-
-    pilot name_token = v4_ty_skip_trivia(stream_id, start_token)
-    if name_token < 0 {
-        give back V4_NO_SPAN
-    }
-    give back v4_lex_token_span(stream_id, name_token)
+    give back v4_ty_route_case_field_name_span(ty_id, route_name, case_name, field_id)
 }
 
 task v4_editor_route_field_decl_case_name_at_token(ty_id: int, sig_id: int, stream_id: int, token_id: int, token_value: word) -> word {
-    if sig_id < 0 or token_id < 0 or token_value == "" {
-        give back ""
-    }
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
-        give back ""
-    }
-
+    if sig_id < 0 or token_id < 0 or token_value == "" { give back "" }
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig { give back "" }
     pilot route_name = v4_ty_signature_name(ty_id, sig_id)
+    pilot token_span = v4_lex_token_span(stream_id, token_id)
     pilot case_id = 0
-    pilot case_count = v4_ty_route_case_count(ty_id, sig_id)
-    repeat until case_id >= case_count {
+    repeat until case_id >= v4_ty_route_case_count(ty_id, sig_id) {
         pilot case_name = v4_ty_route_case_name(ty_id, sig_id, case_id)
         pilot field_id = 0
-        pilot field_count = v4_ty_route_case_field_count(ty_id, route_name, case_name)
-        repeat until field_id >= field_count {
-            pilot field_start = v4_ty_route_case_field_segment_start(ty_id, route_name, case_name, field_id)
-            if field_start >= 0 {
-                pilot field_token = v4_ty_skip_trivia(stream_id, field_start)
-                if field_token == token_id and v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) == token_value {
-                    give back case_name
-                }
-            }
+        repeat until field_id >= v4_ty_route_case_field_count(ty_id, route_name, case_name) {
+            if v4_ty_route_case_field_name_span(ty_id, route_name, case_name, field_id) == token_span and v4_ty_route_case_field_name(ty_id, route_name, case_name, field_id) == token_value { give back case_name }
             field_id += 1
         }
         case_id += 1
