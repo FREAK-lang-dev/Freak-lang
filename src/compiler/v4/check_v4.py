@@ -61,6 +61,7 @@ RUNNER_PEAK_RETAINED_BYTES = 0
 C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
 C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
+        "route_snapshot_smoke.fk",
         "const_snapshot_smoke.fk",
         "shape_field_snapshot_smoke.fk",
         "hir_snapshot_scaling_smoke.fk",
@@ -1999,7 +2000,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "const_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "const-snapshot-v8-reordered=true",
+            "const-snapshot-v9-reordered=true",
             "const-snapshot-inferred-quoted=true",
             "const-snapshot-old-version-atomic=true",
             "const-snapshot-extra-field-atomic=true",
@@ -2046,7 +2047,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "shape_field_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "shape-snapshot-v8-reordered=true",
+            "shape-snapshot-v9-reordered=true",
             "shape-snapshot-recovery-roundtrip=true",
             "shape-snapshot-old-version-atomic=true",
             "shape-snapshot-extra-field-atomic=true",
@@ -2121,7 +2122,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-thirty-four-handles=true",
+            "hir-scaling-fresh-slot-thirty-seven-handles=true",
             "hir-scaling-512-params=true",
             "hir-scaling-64-param-files=true",
             "hir-scaling-512-param-tasks=true",
@@ -2200,7 +2201,7 @@ EXECUTABLE_SMOKES = [
         "memory_limit_mb": 64,
         "expect": [
             "hir-index-cold-init-failure-recovery=true",
-            "hir-index-v8-mixed-roundtrip=true",
+            "hir-index-v9-mixed-roundtrip=true",
             "hir-index-512-one-owner=true",
             "hir-index-logarithmic-probes=true",
             "hir-index-sort-work-bounded=true",
@@ -9402,7 +9403,7 @@ EXECUTABLE_SMOKES = [
             "local-annotation-mir-diagnostics=0",
             "local-annotation-borrow-status=clean",
             "local-annotation-borrow-diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v8 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v9 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 diagnostics=0 skipped-other=0 live-files=1",
             "local-annotation-restored-count=4",
             "local-annotation-restored-fixed=char",
@@ -9481,7 +9482,7 @@ EXECUTABLE_SMOKES = [
             "task-return-mir-diagnostics=0",
             "task-return-borrow-status=clean",
             "ty-snapshot format=freak-ty-snapshot-v1 files=1 signatures=3 diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v8 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v9 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=3 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 diagnostics=0 skipped-other=0 live-files=1",
             "task-return-restored-form=explicit",
             "task-return-restored-surface=lend 'a maybe<[word;2]>",
@@ -9527,7 +9528,7 @@ EXECUTABLE_SMOKES = [
             "task-param-mir-span-semantic=true",
             "task-param-meiya-status=clean",
             "task-param-editor-label-definition=true",
-            "hir-snapshot format=freak-hir-snapshot-v8",
+            "hir-snapshot format=freak-hir-snapshot-v9",
             "task-param-restored-count=4",
             "task-param-schema-variants-rejected=true",
             "task-param-schema-variants-atomic=true",
@@ -10455,7 +10456,7 @@ def check_mir_local_annotation_boundary() -> None:
     violations.extend(hir_lookup_index_violations(hir_source))
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v8"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v9"',
         "pilot v4_hir_local_annotation_items = 0",
         "pilot v4_hir_local_annotation_stmt_spans = 0",
         "pilot v4_hir_local_annotation_types = 0",
@@ -10599,7 +10600,7 @@ def check_task_return_hir_boundary() -> None:
         violations.append("task return boundary unexpectedly changed the TY snapshot format")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v8"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v9"',
         "pilot v4_hir_task_return_items = 0",
         "pilot v4_hir_task_return_forms = 0",
         "pilot v4_hir_task_return_types = 0",
@@ -10898,6 +10899,126 @@ def check_const_hir_boundary() -> None:
     print("no syntax past HIR: root Const declared type and type/name spans")
 
 
+def route_boundary_violations(hir_source: str, ty_source: str, editor_source: str) -> list[str]:
+    """Audit route declaration readers, not discriminants or cursor discovery.
+
+    Generic substitution and alias canonicalization retain their existing
+    declaration-facing implementations. Only those named semantic operations
+    and cold arena initialization are terminals in the metadata call graph.
+    """
+    contracts = {
+        "v4_ty_route_case_" + suffix: "v4_hir_route_case_" + suffix
+        for suffix in (
+            "count", "name", "name_span", "segment_span", "has_payload",
+            "field_count", "field_name", "field_name_span", "field_surface_type",
+            "field_type_span", "field_segment_span",
+        )
+    }
+    contracts.update({
+        "v4_ty_route_surface_keyword": "v4_hir_route_is_variant",
+        "v4_ty_route_surface_keyword_for_signature": "v4_ty_route_surface_keyword",
+        "v4_editor_route_surface_keyword": "v4_ty_route_surface_keyword_for_signature",
+        "v4_editor_surface_kind_for_hir_item": "v4_hir_route_is_variant",
+        "v4_editor_route_case_name_span": "v4_ty_route_case_name_span",
+        "v4_editor_route_field_name_span": "v4_ty_route_case_field_name_span",
+    })
+    sources = {
+        name: source for source in (hir_source, ty_source, editor_source)
+        for name in freak_task_names(freak_mask_line_comments(source))
+    }
+    violations: set[str] = set()
+    edges: dict[str, set[str]] = {}
+    terminals = {
+        "v4_hir_init", "v4_ty_init", "v4_ty_canonical_type",
+        "v4_ty_apply_signature_generics", "v4_ty_signature_generic_count",
+    }
+
+    def calls(name: str) -> set[str]:
+        if name not in edges:
+            edges[name] = set()
+            body = freak_task_body(sources.get(name, ""), name)
+            if body is None:
+                violations.add(f"route storage task missing: {name}")
+            else:
+                try:
+                    tokens = [t for t in Lexer(body).tokenize() if t.type != TokenType.EOF]
+                    edges[name] = {
+                        tokens[i].lexeme for i in range(len(tokens) - 1)
+                        if tokens[i].type != TokenType.STRING_LIT and tokens[i + 1].lexeme == "("
+                    }
+                except LexerError:
+                    violations.add(f"route storage task is not lexable: {name}")
+        return edges[name]
+
+    def closure(root: str, *, cursor_matcher: bool = False) -> set[str]:
+        pending, reached = [root], set()
+        while pending:
+            name = pending.pop()
+            if name in reached:
+                continue
+            reached.add(name)
+            if name in terminals:
+                continue
+            # The two declaration matchers accept a token-at-cursor. Reading
+            # that token's span is not reconstruction of a declaration span.
+            if cursor_matcher and name == "v4_lex_token_span":
+                continue
+            forbidden = any(fragment in name for fragment in (
+                "v4_lex_", "v4_parse_", "v4_expand_", "_token", "_stream_id",
+                "_parse_node", "v4_ty_type_text", "v4_hir_item_decl_keyword",
+                "v4_ty_route_case_segment_start", "v4_ty_route_case_segment_end",
+                "v4_ty_route_case_field_segment_start", "v4_ty_route_case_field_segment_end",
+                "v4_ty_route_case_explicit_discriminant", "v4_ty_route_case_discriminant_",
+                "v4_hir_lower_", "v4_hir_build_", "v4_hir_snapshot_restore",
+                "v4_hir_route_prepare_owner", "v4_ty_canonical_type_for_signature",
+                "array_set", "array_push", "array_new", "array_release",
+            ))
+            if forbidden and not (cursor_matcher and name == root):
+                violations.add(f"route storage closure reconstructs syntax or mutates facts: {name}")
+            if name in sources or name == root:
+                pending.extend(calls(name) - reached)
+            elif name.startswith(("v4_hir_", "v4_ty_", "v4_editor_")):
+                violations.add(f"route storage task missing: {name}")
+        return reached
+
+    for root, required in contracts.items():
+        if required not in closure(root):
+            violations.add(f"route metadata adapter does not consume {required}: {root}")
+        closure(required)
+    for root in (
+        "v4_ty_route_case_id_for_name", "v4_ty_route_has_case",
+        "v4_ty_route_case_field_id_for_name", "v4_ty_route_case_field_type_for_name",
+        "v4_editor_route_case_detail", "v4_editor_route_field_detail",
+    ):
+        closure(root)
+    typed = closure("v4_ty_route_case_field_type")
+    for required in (
+        "v4_ty_route_case_field_surface_type", "v4_ty_apply_signature_generics",
+        "v4_ty_canonical_type",
+    ):
+        if required not in typed:
+            violations.add(f"route canonical field adapter does not consume {required}")
+    for root, required in (
+        ("v4_editor_route_case_decl_id_at_token", "v4_ty_route_case_name_span"),
+        ("v4_editor_route_field_decl_case_name_at_token", "v4_ty_route_case_field_name_span"),
+    ):
+        if required not in closure(root, cursor_matcher=True):
+            violations.add(f"route declaration matcher does not consume {required}: {root}")
+    return sorted(violations)
+
+
+def check_route_hir_boundary() -> None:
+    violations = route_boundary_violations(
+        read_text(crate_path("freak_hir")), read_text(crate_path("freak_ty")),
+        read_text(crate_path("freak_editor")),
+    )
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+    print("no syntax past HIR: route/variant form, ordered cases, payload fields and spans")
+
+
 def task_param_ordinary_call_closure_violations(ty_source: str) -> list[str]:
     violations: list[str] = []
     task_names = freak_task_names(ty_source)
@@ -11029,7 +11150,7 @@ def check_task_param_hir_boundary() -> None:
             violations.append("task parameter index guard accepted helper-indirected rescan")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v8"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v9"',
         'pilot v4_hir_task_param_mode_value = "value"',
         'pilot v4_hir_task_param_mode_lend = "lend"',
         'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -11359,6 +11480,7 @@ def check_snapshot_inventories() -> None:
                     f"query invalidation scratch release missing: {handle_release_contract}"
                 )
     for resource_fixture in (
+        "route_snapshot_smoke.fk",
         "const_snapshot_smoke.fk",
         "shape_field_snapshot_smoke.fk",
         "hir_snapshot_scaling_smoke.fk",
@@ -11375,6 +11497,7 @@ def check_snapshot_inventories() -> None:
         violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
+            "route_snapshot_smoke.fk",
             "const_snapshot_smoke.fk",
             "shape_field_snapshot_smoke.fk",
             "hir_snapshot_scaling_smoke.fk",
@@ -12704,6 +12827,7 @@ def main(argv: list[str] | None = None) -> int:
     check_task_param_hir_boundary()
     check_shape_field_hir_boundary()
     check_const_hir_boundary()
+    check_route_hir_boundary()
     check_tooling_interfaces()
     check_snapshot_inventories()
     base_source = check_flattened_crates()

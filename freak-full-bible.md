@@ -107,7 +107,7 @@ holds per-contract verdicts and triage. When a 🔜 V4 row promotes to
 | §1.11 Generics | ⚠️ Partial — basic `<T>` plus doctrine and multi-bound generic constraints work in V4 query slices, including doctrine-bound instance, static, and UFCS method typing with generic doctrine-argument substitution before alias canonicalization and ambiguity diagnostics for overlapping methods; full backend/monomorphization depth still expands |
 | §1.12 Borrow checker | ⚠️ Partial — see §4 |
 | §1.13 Modules | ⚠️ Partial — see §6 |
-| §1.14 Variants & aliases | ⚠️ Partial — V4 parses aliases and `variant` declarations through the route-family sum-type representation. Alias target type text/spans are now normalized and snapshotted in HIR as the first bounded No Syntax Past HIR family; all other type families remain follow-up work. Payload constructors, exhaustive `when`, alias-backed and alias-nominality diagnostics, recursion checks, import expansion, phantom generic alias erasure, bounded recursive generic walks, and editor/query facts are covered; final backend layout still expands |
+| §1.14 Variants & aliases | ⚠️ Partial — V4 parses aliases and `variant` declarations through the route-family sum-type representation. Alias targets and route/variant declaration form, ordered case inventory, and payload-field names/types/spans are stored and snapshotted in HIR; TY/editor declaration readers consume these facts without reconstructing tokens. Discriminant evaluation, remaining signature/type families, and MIR bodies retain separately bounded syntax-facing adapters. Payload constructors, exhaustive `when`, alias-backed and alias-nominality diagnostics, recursion checks, import expansion, phantom generic alias erasure, bounded recursive generic walks, and editor/query facts are covered; final backend layout still expands |
 | §1.15 Literals | ⚠️ Partial — fixed-array `[T;N]` literals, repeat-fill `[0; 100]`, numeric suffixes, integer root-constant arithmetic for array lengths, and root-const tuple/list/repeat-fill plus generic shape/route-constructor and const-task-call type inference with constructor-payload and declared-initializer diagnostics work in V4; full const-expression evaluation remains 🔜 V4 |
 
 ### 1.1 Variables
@@ -581,6 +581,15 @@ Rules:
 - Variants may be generic: `variant UiEvent<T> { Changed { value: T }, Closed }`.
 - Direct infinite-size recursion is forbidden. Recursive variants must go through indirection such as `Shared<T>`, `Weak<T>`, `List<T>`, or a raw pointer in a `trust me` boundary.
 - Codegen represents variants as a tag plus payload storage. The tag is compiler-chosen unless `@repr(...)` or `@layout(C)` is used.
+
+> **V4 implementation status.** HIR stores route/variant declaration form,
+> ordered cases, payload presence, and payload-field names, surface types, and
+> exact spans. TY and editor declaration readers consume these stored facts;
+> generic substitution, alias canonicalization, and recovery behavior are
+> unchanged. HIR v9 snapshots validate complete owner/case/field records before
+> atomic restore. Discriminant evaluation and constructor/pattern syntax remain
+> separately syntax-facing. This ownership change does not define a new layout
+> or change the nominal variant rules above.
 
 Type aliases name an existing type. They do not create a new nominal type.
 Yuuko will not let you fake a new TSF by repainting the hull.
