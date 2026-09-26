@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -99,6 +100,41 @@ class CompilerObservation:
     diagnostic_class: str
     phase_summary: str
     deterministic: bool
+
+
+@dataclass(frozen=True)
+class SourceSnapshot:
+    """One byte identity shared by both adapters and the case report."""
+
+    path: Path
+    data: bytes
+
+    @classmethod
+    def capture(cls, source_path: Path, snapshot_root: Path) -> SourceSnapshot:
+        data = source_path.read_bytes()
+        snapshot_root.mkdir(parents=True)
+        path = snapshot_root / "input.fk"
+        with path.open("xb") as stream:
+            stream.write(data)
+        path.chmod(stat.S_IRUSR)
+        return cls(path, data)
+
+    @property
+    def sha256(self) -> str:
+        return hashlib.sha256(self.data).hexdigest()
+
+    def verify(self) -> None:
+        try:
+            metadata = self.path.lstat()
+            intact = stat.S_ISREG(metadata.st_mode) and metadata.st_size == len(self.data)
+            if intact:
+                # A corrupt/growing snapshot must not cause an unbounded read.
+                with self.path.open("rb") as stream:
+                    intact = stream.read(len(self.data) + 1) == self.data
+        except OSError as exc:
+            raise RuntimeError(f"source snapshot is unavailable: {self.path}") from exc
+        if not intact:
+            raise RuntimeError(f"source snapshot was changed: {self.path}")
 
 
 def _expect_keys(value: dict[str, Any], expected: set[str], context: str) -> None:
@@ -362,7 +398,7 @@ def _strict_json_object(value: str) -> dict[str, object]:
     return payload
 
 
-def _validate_v4_probe_payload(payload: dict[str, object], source_path: Path) -> None:
+def _validate_v4_probe_payload(payload: dict[str, object], source_bytes: bytes) -> None:
     expected_keys = {
         "schema",
         "adapter",
@@ -381,7 +417,6 @@ def _validate_v4_probe_payload(payload: dict[str, object], source_path: Path) ->
             f"V4 probe JSON keys differ: missing={sorted(expected_keys - set(payload))} "
             f"extra={sorted(set(payload) - expected_keys)}"
         )
-    source_bytes = source_path.read_bytes()
     expected_digest = hashlib.sha256(source_bytes).hexdigest()
     if not isinstance(payload["schema"], str) or payload["schema"] != V4_PROBE_SCHEMA:
         raise RuntimeError("V4 probe schema is not the required version")
@@ -467,7 +502,7 @@ def _classify_v3(result: BoundedResult) -> CompilerObservation:
 
 def observe_v3(
     installed_freak: Path,
-    source_path: Path,
+    source: SourceSnapshot,
     case_root: Path,
     *,
     timeout: int,
@@ -475,28 +510,28 @@ def observe_v3(
     output_limit_mb: int,
 ) -> CompilerObservation:
     case_root.mkdir(parents=True)
-    source = case_root / "input.fk"
-    source.write_bytes(source_path.read_bytes())
     environment = os.environ.copy()
     environment.pop("FREAK_HOME", None)
     environment["NO_COLOR"] = "1"
     observations: list[CompilerObservation] = []
     for _ in range(2):
+        source.verify()
         result = run_bounded(
-            [str(installed_freak), "check", str(source)],
+            [str(installed_freak), "check", str(source.path)],
             cwd=case_root,
             env=environment,
             timeout_seconds=timeout,
             memory_limit_mb=memory_limit_mb,
             output_limit_mb=output_limit_mb,
         )
+        source.verify()
         observations.append(_classify_v3(result))
     deterministic = observations[0] == observations[1]
     return CompilerObservation(**{**observations[0].__dict__, "deterministic": deterministic})
 
 
 def observe_v4(
-    source_path: Path,
+    source: SourceSnapshot,
     *,
     timeout: int,
     memory_limit_mb: int,
@@ -508,7 +543,7 @@ def observe_v4(
         "-u",
         str(PROBE),
         "--source",
-        str(source_path),
+        str(source.path),
         "--timeout",
         str(timeout),
         "--memory-limit-mb",
@@ -523,6 +558,7 @@ def observe_v4(
     if not sys.platform.startswith("win"):
         environment[PROCESS_GROUP_HELD_ENV] = "1"
     with v4_host_mutex(timeout_seconds=timeout):
+        source.verify()
         result = run_bounded(
             command,
             cwd=ROOT,
@@ -531,6 +567,7 @@ def observe_v4(
             memory_limit_mb=memory_limit_mb,
             output_limit_mb=output_limit_mb,
         )
+        source.verify()
     output_lines = result.stdout.splitlines()
     if len(output_lines) != 1:
         raise RuntimeError(
@@ -548,7 +585,7 @@ def observe_v4(
         raise RuntimeError(f"V4 probe unavailable: {payload['adapter_error']}")
     if result.stderr:
         raise RuntimeError(f"V4 probe emitted unexpected stderr: {result.stderr[-2000:]}")
-    _validate_v4_probe_payload(payload, source_path)
+    _validate_v4_probe_payload(payload, source.data)
     return CompilerObservation(
         accepted=payload["accepted"],
         diagnostic_class=payload["diagnostic_class"],
@@ -621,8 +658,7 @@ def self_test(manifest_path: Path) -> None:
         else:
             raise AssertionError("duplicate manifest JSON key was accepted")
 
-        source = schema_root / "payload.fk"
-        source.write_bytes(b"task main() {}\r\n")
+        source = b"task main() {}\r\n"
         payload: dict[str, object] = {
             "schema": V4_PROBE_SCHEMA,
             "adapter": "embedded-v4-frontend-through-ty",
@@ -634,9 +670,9 @@ def self_test(manifest_path: Path) -> None:
                 "signatures=1|ty-diags=0"
             ),
             "deterministic": True,
-            "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-            "source_bytes": len(source.read_bytes()),
-            "source_checksum": stable_word_checksum(source.read_bytes()),
+            "source_sha256": hashlib.sha256(source).hexdigest(),
+            "source_bytes": len(source),
+            "source_checksum": stable_word_checksum(source),
             "native_program_executed": False,
             "peak_memory_bytes": 1,
         }
@@ -750,23 +786,34 @@ def main() -> int:
         failures = 0
         with tempfile.TemporaryDirectory(prefix="freak-v3-v4-differential-") as temporary:
             root = Path(temporary)
+            # Capture the entire selected corpus before any frontend runs. The
+            # manifest paths remain labels, never subsequent compiler inputs.
+            snapshots = [
+                SourceSnapshot.capture(
+                    case["source_path"], root / "cases" / f"{index:03d}-{case['id']}" / "source"
+                )
+                for index, case in enumerate(cases)
+            ]
             installed_freak = copy_adjacent_distribution(args.freak.resolve(), root / "v3-install")
-            for index, case in enumerate(cases):
+            for index, (case, source) in enumerate(zip(cases, snapshots)):
+                source.verify()
                 v3 = observe_v3(
                     installed_freak,
-                    case["source_path"],
+                    source,
                     root / "cases" / f"{index:03d}-{case['id']}" / "v3",
                     timeout=args.timeout,
                     memory_limit_mb=args.memory_limit_mb,
                     output_limit_mb=args.output_limit_mb,
                 )
+                source.verify()
                 v4 = observe_v4(
-                    case["source_path"],
+                    source,
                     timeout=args.timeout,
                     memory_limit_mb=args.memory_limit_mb,
                     output_limit_mb=args.output_limit_mb,
                     clang=args.clang,
                 )
+                source.verify()
                 expected = case["expect"]
                 ok = _matches_expectation(v3, expected["v3"]) and _matches_expectation(
                     v4, expected["v4"]
@@ -776,6 +823,8 @@ def main() -> int:
                 print(
                     f"{status} {case['id']} category={case['fixture_category']} "
                     f"relationship={case['relationship']} "
+                    f"source={case['source']} source-sha256={source.sha256} "
+                    f"source-bytes={len(source.data)} "
                     f"v3={'accept' if v3.accepted else 'reject'}/{v3.diagnostic_class} "
                     f"v4={'accept' if v4.accepted else 'reject'}/{v4.diagnostic_class} "
                     f"phases=v3:{'stable' if v3.deterministic else 'drift'},"
