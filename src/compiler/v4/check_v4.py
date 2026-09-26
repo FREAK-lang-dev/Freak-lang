@@ -1998,6 +1998,7 @@ EXECUTABLE_SMOKES = [
         "name": "route discriminant division",
         "fixture": "route_discriminant_division_smoke.fk",
         "expect": [
+            "route-division-wrapper-expressions=true",
             "route-division-basic-counts=true",
             "route-division-basic-values=true",
             "route-division-arithmetic=true",
@@ -11073,7 +11074,8 @@ def route_boundary_violations(hir_source: str, ty_source: str, editor_source: st
     # Discriminant evaluation still consumes tokens, but HIR alone decides
     # where each case ends. These adapters may map stored byte spans to token
     # indices, never rediscover separators from token values or token kinds.
-    segment_terminals = terminals | {
+    segment_terminals = {
+        "v4_hir_init", "v4_ty_init",
         "v4_ty_signature_stream_id", "v4_ty_first_token_at_or_after",
         "v4_lex_token_span", "v4_lex_token_count", "v4_lex_stream_file",
         "v4_lex_stream_exists",

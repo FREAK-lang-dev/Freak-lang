@@ -140,6 +140,10 @@ class RouteGuards(unittest.TestCase):
                 mutant += "\ntask hidden_route_segment_bridge() -> void { " + forbidden + "(0) }\n"
                 self.assertTrue(any("route segment adapter reconstructs case boundaries: " + forbidden in f for f in self.violations(ty=mutant)))
 
+    def test_discriminant_segments_cannot_use_generic_metadata_exemptions(self):
+        mutant = self.inject(self.ty, "v4_ty_route_case_segment_end", "v4_ty_signature_generic_count(ty_id, sig_id)")
+        self.assertTrue(any("route segment adapter reconstructs case boundaries: v4_lex_token_value" in f for f in self.violations(ty=mutant)))
+
 
 if __name__ == "__main__":
     unittest.main()

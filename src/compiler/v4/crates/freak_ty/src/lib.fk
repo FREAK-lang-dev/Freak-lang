@@ -6843,7 +6843,8 @@ task v4_ty_const_expr_is_wrapped(expr: word) -> bool {
 task v4_ty_strip_const_expr_wrappers(expr: word) -> word {
     pilot out = v4_ty_compact_const_expr_text(expr)
     repeat until out.length() < 2 or v4_ty_const_expr_is_wrapped(out) == false {
-        out = out.substring(1, out.length() - 1)
+        -- substring takes a length, not an end offset: drop both parentheses.
+        out = out.substring(1, out.length() - 2)
     }
     give back out
 }
