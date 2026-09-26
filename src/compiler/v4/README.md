@@ -148,7 +148,10 @@ records. Validation reconciles the three declared totals, dense ownership and
 ordinals, source order, canonical form/payload flags, and nested same-file spans
 before mutation; wire records may be shuffled. Three packed per-file arrays
 hold owner triples, case sextuples, and field quintuples. Discriminant expression
-extraction/evaluation, constructor and pattern syntax, generic declaration
+token ranges are bounded by these stored case spans, not a second TY case
+splitter. After a case's top-level `=`, `/` is constant-expression division;
+comma, semicolon, newline, or body end terminates the case. Slash still separates
+cases before `=`. Discriminant extraction/evaluation, constructor and pattern syntax, generic declaration
 syntax, and physical layout are not promoted by this slice.
 Impl, doctrine, and extern signatures remain explicitly named token-facing
 fallbacks. Other non-ordinary signatures, the
