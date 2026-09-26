@@ -19,6 +19,10 @@ jobs:
       - name: Require tag, compiler, and package versions to agree
         run: python -u tools/release_version.py check --tag "${GITHUB_REF_NAME}"
 
+  editors:
+    needs: version-invariant
+    uses: ./.github/workflows/editor-packages.yml
+
   build:
     needs: version-invariant
     strategy:
@@ -187,7 +191,7 @@ jobs:
           path: dist/
 
   publish:
-    needs: build
+    needs: [build, editors]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -326,6 +330,8 @@ jobs:
             artifacts/freak-linux-arm64.tar.gz
             artifacts/freak-macos-arm64.tar.gz
             artifacts/freak-windows-x64.zip
+            artifacts/editor-packages/freak-vscode-*.vsix
+            artifacts/editor-packages/freak-zed-*.zip
             artifacts/SHA256SUMS
             artifacts/package-manager/freak.rb
             artifacts/package-manager/freak.json

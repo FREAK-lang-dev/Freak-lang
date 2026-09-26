@@ -90,6 +90,16 @@ payoff victory   -- promise kept
 
 ---
 
+## Editor support
+
+VS Code and Zed plugins are maintained in
+[FREAK-lang-dev/freak-editors](https://github.com/FREAK-lang-dev/freak-editors).
+FREAK releases built with editor packaging attach a VS Code `.vsix` and a Zed
+source extension `.zip`, with highlighting and snippet completions. Follow the
+[editor installation guide](https://github.com/FREAK-lang-dev/freak-editors#readme).
+VS Code also includes the editors repository's lightweight Python language
+server; compiler-backed type and borrow analysis are not included.
+
 ## The Audit System
 
 FREAK isn't just about compiling; it's about accountability. The audit suite inspects narrative integrity and v0.13.x conformance against the bible:

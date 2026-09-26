@@ -1,0 +1,40 @@
+name: Editor packages
+
+on:
+  workflow_call:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'VERSION'
+      - 'tools/release_version.py'
+      - '.github/workflows/editor-packages.yml'
+      - '.github/workflows/release.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'VERSION'
+      - 'tools/release_version.py'
+      - '.github/workflows/editor-packages.yml'
+      - '.github/workflows/release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          python -u tools/release_version.py check
+          echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+  package:
+    needs: version
+    # Keep the workflow ref and source revision identical.
+    uses: FREAK-lang-dev/freak-editors/.github/workflows/editor-packages.yml@713cb1355dbed839eff9ec86be43b3a9585b962f
+    with:
+      version: ${{ needs.version.outputs.version }}
+      revision: 713cb1355dbed839eff9ec86be43b3a9585b962f
