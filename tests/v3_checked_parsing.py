@@ -4,9 +4,10 @@
 Covers malformed input, int/num boundary minima and maxima, junk suffixes,
 and overflow/underflow on both native backends with C/LLVM parity, no-leak
 runs under the ownership audits, checker negatives, and Python bootstrap
-emitter fixtures proving owned format_num temporaries are released on say,
-interpolation, local scope exit, reassignment, and discarded paths (with
-ASan/LSan sanitizer coverage where the host linker supports it).
+emitter value fixtures. A deterministic bootstrap ownership audit proves
+direct say/discard format_num temporaries are released, with missing-release
+negative controls. Local, assigned, returned, and nested-call words retain
+the bootstrap's existing alias-preserving behavior.
 """
 
 from __future__ import annotations
@@ -292,6 +293,34 @@ NEGATIVES: tuple[tuple[str, str, str], ...] = (
 )
 
 EMITTER_CASES: dict[str, tuple[str, list[str]]] = {
+    "format_temporary_audit": (
+        'task next_num() -> num {\n    say "called"\n    give back 1.5\n}\n'
+        'task main() {\n    repeat 32 times {\n'
+        '        say format_num(next_num())\n'
+        '        if true { format_num(next_num()) }\n    }\n}\n',
+        ["called", "1.5", "called"] * 32,
+    ),
+    "format_escape_boundaries": (
+        'pilot saved: word = ""\n'
+        'task save(value: word) {\n    saved = value\n}\n'
+        'task passthrough(value: word) -> word {\n    give back value\n}\n'
+        'task make() -> word {\n    give back format_num(2.5)\n}\n'
+        'task main() {\n    pilot local = format_num(3.5)\n'
+        '    pilot alias = local\n    local = format_num(4.5)\n'
+        '    say alias\n    say local\n    save(format_num(5.5))\n'
+        '    say saved\n    say make()\n'
+        '    say passthrough(format_num(6.5))\n}\n',
+        ["3.5", "4.5", "5.5", "2.5", "6.5"],
+    ),
+    "format_temporary_name_collision": (
+        'task main() {\n    pilot __format_word_1 = 1.5\n'
+        '    pilot __format_word_2 = 2.5\n'
+        '    say format_num(__format_word_1)\n'
+        '    say format_num(__format_word_2)\n'
+        '    pilot __format_word_3 = 3.5\n'
+        '    say format_num(__format_word_3)\n}\n',
+        ["1.5", "2.5", "3.5"],
+    ),
     "say_temporary": (
         'task main() {\n    say format_num(1.5)\n}\n',
         ["1.5"],
@@ -345,6 +374,22 @@ EMITTER_CASES: dict[str, tuple[str, list[str]]] = {
         'task main() {\n    if same("x", "x") { say "true" } else { say "false" }\n'
         '    if same("x", "y") { say "true" } else { say "false" }\n}\n',
         ["true", "false"],
+    ),
+}
+
+EMITTER_EMISSION_CASES: dict[str, str] = {
+    "format_shadowed_task": (
+        'task format_num(value: num) -> word { give back "borrowed" }\n'
+        'task main() {\n    say format_num(1.5)\n    format_num(2.5)\n}\n'
+    ),
+    "format_annotated_shadowed_task": (
+        '@protagonist\n'
+        'task format_num(value: num) -> word { give back "borrowed" }\n'
+        'task main() {\n    say format_num(1.5)\n    format_num(2.5)\n}\n'
+    ),
+    "format_loop_binding_collision": (
+        'task main() {\n    for each __format_word_2 in [1] {\n'
+        '        say format_num(__format_word_2)\n    }\n}\n'
     ),
 }
 
@@ -562,9 +607,12 @@ def execute_emitter_case(repo: Path, root: Path, name: str) -> dict:
     c_source, diags, _, has_errors = transpile_checked(source, path)
     assert not has_errors, (name, diags)
     assert c_source, (name, "no C emitted")
-    # Behavioral cases only: the bootstrap emitter intentionally does not
-    # free owned locals (V4 query caches and other global stores retain
-    # aliases past scope end), so pin values here, never release emission.
+    # General bootstrap values can escape into V4 query caches and other
+    # global stores. Audit only proven nonescaping direct format temporaries.
+    audited = name == "format_temporary_audit"
+    intentional_retention = name == "format_escape_boundaries"
+    if intentional_retention:
+        assert "freak_word_release_owned(" not in c_source, c_source
     generated = root / f"emitter_{name}.c"
     generated.write_text(c_source, encoding="utf-8")
     runtime = repo / "freakc" / "runtime"
@@ -577,12 +625,21 @@ def execute_emitter_case(repo: Path, root: Path, name: str) -> dict:
         "-o", str(binary), str(generated), str(runtime / "freak_runtime.c"),
         "-I", str(runtime),
     ]
+    if audited:
+        command.append("-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
     if sys.platform == "win32":
         command.append("-lws2_32")
     else:
         command.extend(["-lm", "-fsanitize=address", "-fno-omit-frame-pointer"])
     require_ok(run(command, repo), f"emitter {name} link")
-    executed = run([str(binary)], root, sanitizer_env())
+    execution_env = sanitizer_env()
+    if intentional_retention and sys.platform != "win32":
+        # This case pins aliases that deliberately outlive their local source.
+        # Keep ASan's invalid-access/UAF checks, but do not require leak freedom
+        # from that intentional-retention contract. Other cases keep their
+        # existing sanitizer policy, including the no-leak ownership audit.
+        execution_env["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=0:exitcode=86"
+    executed = run([str(binary)], root, execution_env)
     require_ok(executed, f"emitter {name} execution")
     assert "AddressSanitizer" not in executed.stderr, (name, executed.stderr)
     actual = executed.stdout.splitlines()
@@ -590,7 +647,75 @@ def execute_emitter_case(repo: Path, root: Path, name: str) -> dict:
         f"emitter {name}: expected {expected!r}, got {actual!r}\n"
         f"{executed.stderr}"
     )
-    return {"case": f"emitter/{name}", "output": actual}
+    if audited:
+        assert "ownership audit" not in executed.stderr, executed.stderr
+        releases = [
+            line for line in c_source.splitlines()
+            if "freak_word_release_owned(" in line
+        ]
+        assert len(releases) == 2, releases
+        # Remove each consumer's release separately: either omission must
+        # leave exactly one allocation per iteration and fail the audit.
+        for consumer, release in zip(("say", "discard"), releases):
+            negative_source = c_source.replace(release, "", 1)
+            negative_c = root / f"emitter_audit_missing_{consumer}.c"
+            negative_c.write_text(negative_source, encoding="utf-8")
+            negative_binary = root / (
+                f"emitter_audit_missing_{consumer}.exe"
+                if sys.platform == "win32"
+                else f"emitter_audit_missing_{consumer}"
+            )
+            compile_generated(
+                clang=clang, repo=repo, generated=negative_c,
+                backend="c", binary=negative_binary,
+            )
+            negative = run([str(negative_binary)], root, sanitizer_env())
+            assert negative.returncode == 87, (
+                consumer, negative.returncode, negative.stdout, negative.stderr,
+            )
+            assert (
+                "C ownership audit found 32 unreleased word allocation(s)"
+                in negative.stderr
+            ), (consumer, negative.stderr)
+            assert "AddressSanitizer" not in negative.stderr, (
+                consumer, negative.stderr,
+            )
+    record = {"case": f"emitter/{name}", "output": actual}
+    if intentional_retention:
+        record["ownership_mode"] = "intentional_alias_retention"
+        record["sanitizer_mode"] = (
+            "not_enabled_windows" if sys.platform == "win32"
+            else "address_only_no_leak_detection"
+        )
+    return record
+
+
+def execute_emitter_emission_case(root: Path, name: str) -> dict:
+    """Guard symbol identity and hygiene at the bootstrap emission boundary.
+
+    The bootstrap C runtime reserves the same C symbol as the shadowing
+    tasks, and its list literal lowering cannot link the for-each fixture.
+    These guards therefore make no native execution claim.
+    """
+    from freakc.__main__ import transpile_checked
+
+    source = EMITTER_EMISSION_CASES[name]
+    c_source, diags, _, has_errors = transpile_checked(
+        source, root / f"emitter_{name}.fk"
+    )
+    assert not has_errors, (name, diags)
+    assert c_source, (name, "no C emitted")
+    if name == "format_loop_binding_collision":
+        assert (
+            "freak_word __format_word_3 = freak_format_num(__format_word_2);"
+            in c_source
+        ), c_source
+        assert "freak_word_release_owned(&__format_word_3);" in c_source, c_source
+    else:
+        assert "freak_say(freak_format_num(1.5));" in c_source, c_source
+        assert "freak_format_num(2.5);" in c_source, c_source
+        assert "freak_word_release_owned(" not in c_source, c_source
+    return {"case": f"emitter/{name}", "emission_only": True}
 
 
 def main() -> int:
@@ -602,7 +727,9 @@ def main() -> int:
         type=Path,
         help="fresh stage2 compiler (omit to rebuild one outside the repo)",
     )
-    parser.add_argument("--case", choices=[*CASES, *EMITTER_CASES])
+    parser.add_argument(
+        "--case", choices=[*CASES, *EMITTER_CASES, *EMITTER_EMISSION_CASES]
+    )
     parser.add_argument("--backend", choices=("c", "llvm"))
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
@@ -619,7 +746,7 @@ def main() -> int:
             name for name in CASES if args.case is None or args.case == name
         ]
         selected_emitter = [
-            name for name in EMITTER_CASES
+            name for name in [*EMITTER_CASES, *EMITTER_EMISSION_CASES]
             if args.case is None or args.case == name
         ]
         if selected_native:
@@ -644,11 +771,14 @@ def main() -> int:
             if args.backend is not None:
                 continue
             print(f"RUN emitter/{name}", flush=True)
-            records.append(execute_emitter_case(repo, root, name))
+            if name in EMITTER_EMISSION_CASES:
+                records.append(execute_emitter_emission_case(root, name))
+            else:
+                records.append(execute_emitter_case(repo, root, name))
             print(f"PASS emitter/{name}", flush=True)
     if args.report:
         args.report.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
-    print(f"V3 checked parsing: PASS ({len(records)} executions)")
+    print(f"V3 checked parsing: PASS ({len(records)} cases)")
     return 0
 
 
