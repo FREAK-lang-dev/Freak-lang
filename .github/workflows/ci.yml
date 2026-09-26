@@ -71,6 +71,7 @@ jobs:
         shell: bash
         run: |
           python -u tests/v3_checked_parsing.py --case format_temporary_audit
+          python -u tests/v3_checked_parsing.py --case format_escape_boundaries
           python -u tests/v3_checked_parsing.py --case format_temporary_name_collision
           python -u tests/v3_checked_parsing.py --case format_shadowed_task
           python -u tests/v3_checked_parsing.py --case format_annotated_shadowed_task
@@ -323,6 +324,7 @@ jobs:
         shell: bash
         run: |
           python -u tests/v3_checked_parsing.py --case format_temporary_audit
+          python -u tests/v3_checked_parsing.py --case format_escape_boundaries
           python -u tests/v3_checked_parsing.py --case format_temporary_name_collision
           python -u tests/v3_checked_parsing.py --case format_shadowed_task
           python -u tests/v3_checked_parsing.py --case format_annotated_shadowed_task
