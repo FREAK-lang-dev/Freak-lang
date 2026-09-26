@@ -117,6 +117,29 @@ class RouteGuards(unittest.TestCase):
         mutant = self.inject(self.hir, "v4_hir_route_case_name", "v4_hir_missing_route_helper()")
         self.assertTrue(any("task missing: v4_hir_missing_route_helper" in f for f in self.violations(hir=mutant)))
 
+    def test_discriminant_segments_require_stored_spans_and_bounded_conversion(self):
+        for root in ("v4_ty_route_case_segment_start", "v4_ty_route_case_segment_end"):
+            for decoy in (
+                '-- v4_hir_route_case_segment_span(0, 0, 0)',
+                'say "v4_hir_route_case_segment_span(0, 0, 0)"',
+            ):
+                with self.subTest(root=root, decoy=decoy):
+                    mutant = self.replace_body(self.ty, root, "\n" + decoy + "\n give back 0\n")
+                    violations = self.violations(ty=mutant)
+                    self.assertTrue(any("route segment adapter does not consume v4_hir_route_case_segment_span: " + root in f for f in violations))
+                    self.assertTrue(any("route segment adapter does not consume v4_ty_first_token_at_or_after: " + root in f for f in violations))
+
+    def test_discriminant_segments_cannot_indirectly_resplit_cases(self):
+        for forbidden in (
+            "v4_lex_token_value", "v4_lex_token_type", "v4_ty_type_text",
+            "v4_ty_route_is_case_separator", "v4_ty_route_body_open_token",
+            "v4_ty_route_body_close_token", "v4_expand_file_stream",
+        ):
+            with self.subTest(forbidden=forbidden):
+                mutant = self.inject(self.ty, "v4_ty_route_case_segment_end", "hidden_route_segment_bridge()")
+                mutant += "\ntask hidden_route_segment_bridge() -> void { " + forbidden + "(0) }\n"
+                self.assertTrue(any("route segment adapter reconstructs case boundaries: " + forbidden in f for f in self.violations(ty=mutant)))
+
 
 if __name__ == "__main__":
     unittest.main()

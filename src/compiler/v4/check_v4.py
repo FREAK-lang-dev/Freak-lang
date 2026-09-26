@@ -1995,6 +1995,25 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "route discriminant division",
+        "fixture": "route_discriminant_division_smoke.fk",
+        "expect": [
+            "route-division-basic-counts=true",
+            "route-division-basic-values=true",
+            "route-division-arithmetic=true",
+            "route-division-legacy-reset=true",
+            "route-division-exact-spans=true",
+            "route-division-malformed=true",
+            "route-division-diagnostics=true",
+            "route-division-quoted-recovery=true",
+            "route-division-invalid-identities=true",
+            "route-division-invalid-span-bounds=true",
+            "route-division-detached-stream=true",
+            "route-division-snapshot-roundtrip=true",
+            "route-division-same-length-invalidation=true",
+        ],
+    },
+    {
         "name": "route declaration snapshot contracts",
         "fixture": "route_snapshot_smoke.fk",
         "memory_limit_mb": 64,
@@ -11051,6 +11070,35 @@ def route_boundary_violations(hir_source: str, ty_source: str, editor_source: st
     ):
         if required not in closure(root, cursor_matcher=True):
             violations.add(f"route declaration matcher does not consume {required}: {root}")
+    # Discriminant evaluation still consumes tokens, but HIR alone decides
+    # where each case ends. These adapters may map stored byte spans to token
+    # indices, never rediscover separators from token values or token kinds.
+    segment_terminals = terminals | {
+        "v4_ty_signature_stream_id", "v4_ty_first_token_at_or_after",
+        "v4_lex_token_span", "v4_lex_token_count", "v4_lex_stream_file",
+        "v4_lex_stream_exists",
+    }
+    for root in ("v4_ty_route_case_segment_start", "v4_ty_route_case_segment_end"):
+        pending, reached = [root], set()
+        while pending:
+            name = pending.pop()
+            if name in reached:
+                continue
+            reached.add(name)
+            if name in segment_terminals:
+                continue
+            if name.startswith(("v4_lex_", "v4_parse_", "v4_expand_")) or name in {
+                "v4_ty_type_text", "v4_ty_route_is_case_separator",
+                "v4_ty_route_body_open_token", "v4_ty_route_body_close_token",
+            }:
+                violations.add(f"route segment adapter reconstructs case boundaries: {name}")
+            if name in sources or name == root:
+                pending.extend(calls(name) - reached)
+            elif name.startswith(("v4_hir_", "v4_ty_")):
+                violations.add(f"route segment task missing: {name}")
+        for required in ("v4_hir_route_case_segment_span", "v4_ty_first_token_at_or_after"):
+            if required not in reached:
+                violations.add(f"route segment adapter does not consume {required}: {root}")
     return sorted(violations)
 
 

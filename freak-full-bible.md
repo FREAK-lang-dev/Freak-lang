@@ -581,13 +581,20 @@ Rules:
 - Variants may be generic: `variant UiEvent<T> { Changed { value: T }, Closed }`.
 - Direct infinite-size recursion is forbidden. Recursive variants must go through indirection such as `Shared<T>`, `Weak<T>`, `List<T>`, or a raw pointer in a `trust me` boundary.
 - Codegen represents variants as a tag plus payload storage. The tag is compiler-chosen unless `@repr(...)` or `@layout(C)` is used.
+- An explicit discriminant uses an integer constant expression, for example
+  `A = 4 / 2, B`. After a case's top-level `=`, `/` is division; terminate the
+  case with a comma, semicolon, newline, or the closing body. The legacy `/`
+  separator remains available between cases without an explicit discriminant,
+  such as `Up / Down`. `A = 4 / B` means division by the constant `B`, not a
+  following case named `B`.
 
 > **V4 implementation status.** HIR stores route/variant declaration form,
 > ordered cases, payload presence, and payload-field names, surface types, and
 > exact spans. TY and editor declaration readers consume these stored facts;
 > generic substitution, alias canonicalization, and recovery behavior are
 > unchanged. HIR v9 snapshots validate complete owner/case/field records before
-> atomic restore. Discriminant evaluation and constructor/pattern syntax remain
+> atomic restore. Discriminant token ranges come from stored HIR case spans;
+> evaluation and constructor/pattern syntax remain
 > separately syntax-facing. This ownership change does not define a new layout
 > or change the nominal variant rules above.
 
