@@ -67,6 +67,15 @@ jobs:
         shell: bash
         run: python -u tests/v3_fixed_point.py
 
+      - name: Bootstrap format temporary ownership
+        shell: bash
+        run: |
+          python -u tests/v3_checked_parsing.py --case format_temporary_audit
+          python -u tests/v3_checked_parsing.py --case format_temporary_name_collision
+          python -u tests/v3_checked_parsing.py --case format_shadowed_task
+          python -u tests/v3_checked_parsing.py --case format_annotated_shadowed_task
+          python -u tests/v3_checked_parsing.py --case format_loop_binding_collision
+
       - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
         shell: bash
         run: |
@@ -309,6 +318,15 @@ jobs:
       - name: V3 clean self-host fixed point
         shell: bash
         run: python -u tests/v3_fixed_point.py
+
+      - name: Bootstrap format temporary ownership
+        shell: bash
+        run: |
+          python -u tests/v3_checked_parsing.py --case format_temporary_audit
+          python -u tests/v3_checked_parsing.py --case format_temporary_name_collision
+          python -u tests/v3_checked_parsing.py --case format_shadowed_task
+          python -u tests/v3_checked_parsing.py --case format_annotated_shadowed_task
+          python -u tests/v3_checked_parsing.py --case format_loop_binding_collision
 
       - name: Build V3 compiler (Stage 0 — link pre-compiled bootstrap)
         shell: bash
