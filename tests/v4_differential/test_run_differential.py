@@ -243,6 +243,27 @@ class InputIdentityTests(unittest.TestCase):
                     self.assertIn("source snapshot", result[2])
                     self.assertEqual(len(self.calls), target_call)
 
+    def test_same_length_snapshot_tampering_fails_closed(self) -> None:
+        changed = SOURCE.replace(b"main", b"moin", 1)
+        self.assertNotEqual(changed, SOURCE)
+        self.assertEqual(len(changed), len(SOURCE))
+        for target_call, forge_payload in ((1, False), (3, False), (3, True)):
+            with self.subTest(target_call=target_call, forge_payload=forge_payload):
+                self.calls = []
+
+                def tamper_after(call):
+                    if len(self.calls) == target_call:
+                        call["path"].chmod(stat.S_IRUSR | stat.S_IWUSR)
+                        call["path"].write_bytes(changed)
+                        call["path"].chmod(stat.S_IRUSR)
+                        if forge_payload:
+                            call["payload"].update(probe_payload(changed))
+
+                result = self.run_campaign(tamper_after)
+                self.assert_harness_error(result)
+                self.assertIn("source snapshot was changed", result[2])
+                self.assertEqual(len(self.calls), target_call)
+
     def test_forged_v4_identity_cannot_follow_a_changed_original(self) -> None:
         for field in ("source_sha256", "source_bytes", "source_checksum"):
             with self.subTest(field=field):
