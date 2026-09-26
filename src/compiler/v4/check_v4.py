@@ -1974,6 +1974,50 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "route declaration semantic boundary",
+        "fixture": "route_semantic_boundary_smoke.fk",
+        "expect": [
+            "route-boundary-case-order=true",
+            "route-boundary-payload-kind=true",
+            "route-boundary-surface-alias=true",
+            "route-boundary-generic-fields=true",
+            "route-boundary-exact-spans=true",
+            "route-boundary-detached-access=true",
+            "route-boundary-editor-spans=true",
+            "route-boundary-invalid-identities=true",
+            "route-boundary-recovery=true",
+            "route-boundary-quoted-recovery=true",
+            "route-boundary-formatter-parity=true",
+            "route-boundary-unclosed-recovery=true",
+            "route-boundary-edit-invalidates=true",
+            "route-boundary-targeted-diagnostic=true",
+            "route-boundary-stored-restore=true",
+        ],
+    },
+    {
+        "name": "route declaration snapshot contracts",
+        "fixture": "route_snapshot_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "route-snapshot-v9-reordered=true",
+            "route-snapshot-empty-recovery=true",
+            "route-snapshot-old-version-atomic=true",
+            "route-snapshot-extra-width-atomic=true",
+            "route-snapshot-noncanonical-ids=true",
+            "route-snapshot-orphan-records=true",
+            "route-snapshot-duplicate-records=true",
+            "route-snapshot-hierarchy-counts=true",
+            "route-snapshot-owner-contract=true",
+            "route-snapshot-payload-contract=true",
+            "route-snapshot-span-contract=true",
+            "route-snapshot-source-order=true",
+            "route-snapshot-repeat-no-handles=true",
+            "route-snapshot-many-cases=true",
+            "route-snapshot-many-fields=true",
+            "route-snapshot-high-water-reuse=true",
+        ],
+    },
+    {
         "name": "root Const semantic boundary",
         "fixture": "const_semantic_boundary_smoke.fk",
         "expect": [
@@ -10972,7 +11016,7 @@ def route_boundary_violations(hir_source: str, ty_source: str, editor_source: st
                 "v4_hir_lower_", "v4_hir_build_", "v4_hir_snapshot_restore",
                 "v4_hir_route_prepare_owner", "v4_ty_canonical_type_for_signature",
                 "array_set", "array_push", "array_new", "array_release",
-            ))
+            )) or (name.startswith("array_") and name not in {"array_get", "array_len"})
             if forbidden and not (cursor_matcher and name == root):
                 violations.add(f"route storage closure reconstructs syntax or mutates facts: {name}")
             if name in sources or name == root:
@@ -10991,13 +11035,16 @@ def route_boundary_violations(hir_source: str, ty_source: str, editor_source: st
         "v4_editor_route_case_detail", "v4_editor_route_field_detail",
     ):
         closure(root)
-    typed = closure("v4_ty_route_case_field_type")
+    closure("v4_ty_route_case_field_type")
+    # Alias lookup itself invokes both semantic operations. Reaching them via
+    # that lookup does not prove the field value is instantiated/canonicalized.
+    typed = calls("v4_ty_route_case_field_type")
     for required in (
         "v4_ty_route_case_field_surface_type", "v4_ty_apply_signature_generics",
         "v4_ty_canonical_type",
     ):
         if required not in typed:
-            violations.add(f"route canonical field adapter does not consume {required}")
+            violations.add(f"route canonical field adapter does not consume {required} directly")
     for root, required in (
         ("v4_editor_route_case_decl_id_at_token", "v4_ty_route_case_name_span"),
         ("v4_editor_route_field_decl_case_name_at_token", "v4_ty_route_case_field_name_span"),

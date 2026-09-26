@@ -65,7 +65,7 @@ class RouteGuards(unittest.TestCase):
     def test_indirect_hir_syntax_or_mutation_is_rejected(self):
         for forbidden in (
             "v4_expand_file_stream", "v4_parse_file_stream", "v4_hir_item_decl_keyword",
-            "array_set", "array_push", "array_new", "array_release",
+            "array_set", "array_push", "array_new", "array_release", "array_pop", "array_clear",
             "v4_hir_lower_route", "v4_hir_route_prepare_owner",
         ):
             with self.subTest(forbidden=forbidden):

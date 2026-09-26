@@ -1599,6 +1599,12 @@ def _hir_lookup_scaling_errors(fixture: Path, harness: Path) -> List[str]:
         "v4_hir_scaling_annotation_checks(before)",
         "v4_hir_scaling_file_slots(sample, before)",
         "capacity_before - capacity_fresh == 37",
+        'array_push(v4_hir_route_owner_values_handle(hir_id), "old")',
+        'array_push(v4_hir_route_case_values_handle(hir_id), "old")',
+        'array_push(v4_hir_route_field_values_handle(hir_id), "old")',
+        "array_len(v4_hir_route_owner_values_handle(hir_id)) != 0",
+        "array_len(v4_hir_route_case_values_handle(hir_id)) != 0",
+        "array_len(v4_hir_route_field_values_handle(hir_id)) != 0",
     ))
 
 
@@ -3310,6 +3316,45 @@ def audit_conformance(paths: List[Path]) -> int:
         "HIR v9 + storage adapters + executable probes wired" if not const_missing else f"{len(const_missing)} gap(s)")
     if const_missing:
         failures.append("V4 root Const HIR boundary regressed: " + "; ".join(const_missing))
+
+    # Route declaration facts are stored; discriminants and generic declaration
+    # syntax remain separate, explicitly bounded families.
+    route_missing: List[str] = []
+    route_missing.extend(_hir_lookup_probe_errors(
+        shape_tests / "route_semantic_boundary_smoke.fk", shape_harness,
+        tuple("route-boundary-" + label for label in (
+            "case-order", "payload-kind", "surface-alias", "generic-fields", "exact-spans",
+            "detached-access", "editor-spans", "invalid-identities", "recovery",
+            "quoted-recovery", "formatter-parity", "unclosed-recovery", "edit-invalidates",
+            "targeted-diagnostic", "stored-restore",
+        )), ("v4_route_boundary_run()",),
+    ))
+    route_missing.extend(_hir_lookup_probe_errors(
+        shape_tests / "route_snapshot_smoke.fk", shape_harness,
+        tuple("route-snapshot-" + label for label in (
+            "v9-reordered", "empty-recovery", "old-version-atomic", "extra-width-atomic",
+            "noncanonical-ids", "orphan-records", "duplicate-records", "hierarchy-counts",
+            "owner-contract", "payload-contract", "span-contract", "source-order",
+            "repeat-no-handles", "many-cases", "many-fields", "high-water-reuse",
+        )), ("v4_route_snapshot_run()",),
+    ))
+    for path, markers in (
+        (v4_hir_task_param, (
+            "task v4_hir_route_case_name_span(", "task v4_hir_route_case_field_surface_type(",
+            "task v4_hir_snapshot_route_slots_are_valid(",
+            "task v4_hir_snapshot_route_record_is_valid(",
+        )),
+        (v4_ty_task_param, ("task v4_ty_route_case_name_span(", "task v4_ty_route_case_field_name_span(")),
+        (shape_harness, ("def route_boundary_violations(", "    check_route_hir_boundary()")),
+        (v4_task_return_readme, ("The seventh bounded boundary covers route/variant declaration facts.",)),
+        (audit_doc, ("V4 stores route/variant form, ordered cases, payload presence, and payload-field names/types/spans in HIR.",)),
+    ):
+        source = path.read_text(encoding="utf-8") if path.exists() else ""
+        route_missing.extend(f"{path.name}: {marker}" for marker in markers if marker not in source)
+    add("V4 route declaration HIR boundary", not route_missing,
+        "HIR v9 + TY/editor storage adapters + executable probes wired" if not route_missing else f"{len(route_missing)} gap(s)")
+    if route_missing:
+        failures.append("V4 route declaration HIR boundary regressed: " + "; ".join(route_missing))
 
     # ── Check 10: V4 contract-region source sets ──
     # Borrowed return signatures may select every parameter whose lifetime
