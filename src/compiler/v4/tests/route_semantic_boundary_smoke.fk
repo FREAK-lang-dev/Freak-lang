@@ -1,0 +1,93 @@
+-- Route/variant case and payload metadata cross the syntax boundary once.
+task v4_route_boundary_braces(body: word) -> word { give back "{" + body + "}" }
+
+task v4_route_boundary_item(hir: int, name: word) -> int {
+    pilot item = 0
+    repeat until item >= v4_hir_item_count(hir) {
+        if v4_hir_item_name(hir, item) == name { give back item }
+        item += 1
+    }
+    give back 0 - 1
+}
+
+task v4_route_boundary_run() -> void {
+    pilot path = "route-boundary.fk"
+    pilot src = "alias Count = int\n"
+    src = src + "route Legacy " + v4_route_boundary_braces("Up / Down;") + "\n"
+    src = src + "variant Packet " + v4_route_boundary_braces("\nData " + v4_route_boundary_braces("first: Count, second: (int, [word; 2]); third: maybe<int>") + ", Closed; Empty " + v4_route_boundary_braces("") + "\n") + "\n"
+    src = src + "variant Pair<A, B> " + v4_route_boundary_braces("Both " + v4_route_boundary_braces("left: A, right: B") + "; Neither") + "\n"
+    src = src + "alias PairAlias = Pair<int, word>\nvariant Empty " + v4_route_boundary_braces("") + "\n"
+    pilot hir = v4_hir_text_cached(path, src)
+    pilot ty = v4_ty_text_cached(path, src)
+    pilot item = v4_route_boundary_item(hir, "Packet")
+    pilot legacy = v4_route_boundary_item(hir, "Legacy")
+    pilot empty = v4_route_boundary_item(hir, "Empty")
+    pilot sig = v4_ty_route_signature_id_for_name(ty, "Packet")
+    say "route-boundary-case-order=" + word_from_bool(v4_hir_route_case_count(hir, item) == 3 and v4_ty_route_case_count(ty, sig) == 3 and v4_ty_route_case_name(ty, sig, 0) == "Data" and v4_ty_route_case_name(ty, sig, 2) == "Empty" and v4_hir_route_case_count(hir, legacy) == 2 and v4_hir_route_case_count(hir, empty) == 0)
+    say "route-boundary-payload-kind=" + word_from_bool(v4_hir_route_is_variant(hir, item) and not v4_hir_route_is_variant(hir, legacy) and v4_ty_route_case_has_payload(ty, "Packet", "Data") and not v4_ty_route_case_has_payload(ty, "Packet", "Closed") and v4_ty_route_case_has_payload(ty, "Packet", "Empty") and v4_ty_route_case_field_count(ty, "Packet", "Empty") == 0)
+    say "route-boundary-surface-alias=" + word_from_bool(v4_hir_route_case_field_surface_type(hir, item, 0, 0) == "Count" and v4_ty_route_case_field_surface_type(ty, "Packet", "Data", 0) == "Count" and v4_ty_route_case_field_type(ty, "Packet", "Data", 0) == "int" and v4_ty_route_case_field_surface_type(ty, "Packet", "Data", 1) == "(int,[word;2])")
+    say "route-boundary-generic-fields=" + word_from_bool(v4_ty_route_case_field_type(ty, "Pair<int,word>", "Both", 0) == "int" and v4_ty_route_case_field_type(ty, "PairAlias", "Both", 1) == "word")
+    pilot case_span = v4_hir_route_case_name_span(hir, item, 0)
+    pilot name_span = v4_hir_route_case_field_name_span(hir, item, 0, 0)
+    pilot type_span = v4_hir_route_case_field_type_span(hir, item, 0, 0)
+    pilot segment = v4_hir_route_case_field_segment_span(hir, item, 0, 0)
+    say "route-boundary-exact-spans=" + word_from_bool(v4_slice(src, v4_span_start(case_span), v4_span_end(case_span)) == "Data" and v4_slice(src, v4_span_start(name_span), v4_span_end(name_span)) == "first" and v4_slice(src, v4_span_start(type_span), v4_span_end(type_span)) == "Count" and v4_slice(src, v4_span_start(segment), v4_span_end(segment)) == "first: Count" and v4_ty_route_case_segment_span(ty, sig, 0) == v4_hir_route_case_segment_span(hir, item, 0))
+    pilot stream = v4_hir_item_stream_id(hir)
+    pilot case_token = v4_hir_first_token_at_or_after(stream, v4_span_start(case_span))
+    pilot field_token = v4_hir_first_token_at_or_after(stream, v4_span_start(name_span))
+    pilot expansion: word = array_get(v4_hir_expansions, hir)
+    array_set(v4_hir_expansions, hir, "-1")
+    say "route-boundary-detached-access=" + word_from_bool(v4_ty_route_case_count(ty, sig) == 3 and v4_ty_route_case_name(ty, sig, 0) == "Data" and v4_ty_route_case_field_count(ty, "Packet", "Data") == 3 and v4_ty_route_case_field_surface_type(ty, "Packet", "Data", 1) == "(int,[word;2])" and v4_ty_route_case_field_name_span(ty, "Packet", "Data", 0) == name_span and v4_ty_route_case_field_type_span(ty, "Packet", "Data", 0) == type_span and v4_ty_route_case_field_segment_span(ty, "Packet", "Data", 0) == segment and v4_ty_route_surface_keyword_for_signature(ty, sig) == "variant")
+    say "route-boundary-editor-spans=" + word_from_bool(v4_editor_route_case_name_span(ty, sig, "Data") == case_span and v4_editor_route_field_name_span(ty, sig, "Data", "first") == name_span and v4_editor_route_case_decl_id_at_token(ty, sig, stream, case_token, "Data") == 0 and v4_editor_route_field_decl_case_name_at_token(ty, sig, stream, field_token, "first") == "Data" and v4_editor_route_case_decl_id_at_token(ty, sig, stream, field_token, "Data") < 0)
+    array_set(v4_hir_expansions, hir, expansion)
+    say "route-boundary-invalid-identities=" + word_from_bool(v4_hir_route_case_count(-1, 0) == 0 and v4_hir_route_case_count(hir, -1) == 0 and v4_hir_route_case_count(hir, 0) == 0 and v4_hir_route_case_name(hir, item, 3) == "" and v4_hir_route_case_name_span(hir, item, -1) == V4_NO_SPAN and v4_hir_route_case_field_type_span(hir, item, 0, 99) == V4_NO_SPAN and v4_ty_route_case_field_surface_type(ty, "Missing", "Data", 0) == v4_ty_unknown)
+    pilot recovery = "variant Broken " + v4_route_boundary_braces("Bad " + v4_route_boundary_braces("missing\nempty:\nkept: int\n: word") + "; Bad " + v4_route_boundary_braces("later: word")) + "\n"
+    recovery = recovery + "variant Quoted " + v4_route_boundary_braces("\"\" " + v4_route_boundary_braces("\"\": int; x: \"\"")) + "\n"
+    pilot recovery_hir = v4_hir_text_cached("route-recovery.fk", recovery)
+    pilot broken = v4_route_boundary_item(recovery_hir, "Broken")
+    pilot quoted = v4_route_boundary_item(recovery_hir, "Quoted")
+    say "route-boundary-recovery=" + word_from_bool(v4_hir_route_case_count(recovery_hir, broken) == 2 and v4_hir_route_case_field_count(recovery_hir, broken, 0) == 4 and v4_hir_route_case_field_surface_type(recovery_hir, broken, 0, 0) == "" and v4_hir_route_case_field_surface_type(recovery_hir, broken, 0, 1) == "" and v4_hir_route_case_field_name(recovery_hir, broken, 0, 3) == ":" and v4_hir_route_case_field_type_span(recovery_hir, broken, 0, 0) == v4_hir_route_case_field_segment_span(recovery_hir, broken, 0, 0))
+    pilot quoted_span = v4_hir_route_case_field_type_span(recovery_hir, quoted, 0, 1)
+    say "route-boundary-quoted-recovery=" + word_from_bool(v4_hir_route_case_name(recovery_hir, quoted, 0) == "" and v4_hir_route_case_field_name(recovery_hir, quoted, 0, 0) == "" and v4_hir_route_case_field_surface_type(recovery_hir, quoted, 0, 0) == "int" and v4_hir_route_case_field_surface_type(recovery_hir, quoted, 0, 1) == "" and v4_slice(recovery, v4_span_start(quoted_span), v4_span_end(quoted_span)) == "\"\"")
+    pilot rich = "variant Rich<'a, T> " + v4_route_boundary_braces("Case " + v4_route_boundary_braces("a: lend mut 'a T, b: (int,\n maybe<[word;2]>); c: dyn Display; d: extern[C] task(int)->int\ne: list<list<int>>")) + "\n"
+    pilot rich_hir = v4_hir_text_cached("route-rich.fk", rich)
+    pilot rich_item = v4_route_boundary_item(rich_hir, "Rich")
+    pilot rich_stream = v4_hir_item_stream_id(rich_hir)
+    pilot field = 0
+    pilot parity: bool = v4_hir_route_case_field_count(rich_hir, rich_item, 0) == 5
+    repeat until field >= v4_hir_route_case_field_count(rich_hir, rich_item, 0) {
+        pilot span = v4_hir_route_case_field_type_span(rich_hir, rich_item, 0, field)
+        pilot first = v4_hir_first_token_at_or_after(rich_stream, v4_span_start(span))
+        pilot last = v4_hir_first_token_at_or_after(rich_stream, v4_span_end(span))
+        if v4_hir_route_case_field_surface_type(rich_hir, rich_item, 0, field) != v4_ty_type_text(rich_stream, first, last) { parity = false }
+        field += 1
+    }
+    say "route-boundary-formatter-parity=" + word_from_bool(parity)
+    pilot unclosed = "variant Unclosed " + "{" + "Data " + v4_route_boundary_braces("a: int") + "\n"
+    pilot unclosed_hir = v4_hir_text_cached("route-unclosed.fk", unclosed)
+    pilot unclosed_item = v4_route_boundary_item(unclosed_hir, "Unclosed")
+    say "route-boundary-unclosed-recovery=" + word_from_bool(unclosed_item >= 0 and v4_hir_route_case_count(unclosed_hir, unclosed_item) == 0)
+    pilot changed = src.replace("first: Count", "first: word")
+    pilot change = v4_lsp_handle_text_request("textDocument/didChange", path, changed, 0)
+    pilot changed_hir = v4_hir_text_cached(path, changed)
+    pilot changed_ty = v4_ty_text_cached(path, changed)
+    pilot changed_item = v4_route_boundary_item(changed_hir, "Packet")
+    say "route-boundary-edit-invalidates=" + word_from_bool(change.starts_with("ok|textDocument/didChange") and changed_hir != hir and v4_hir_route_case_field_surface_type(changed_hir, changed_item, 0, 0) == "word" and v4_ty_route_case_field_type(changed_ty, "Packet", "Data", 0) == "word")
+    pilot diag_src = "variant Bad " + v4_route_boundary_braces("Broken " + v4_route_boundary_braces("value: maybe<int, word>")) + "\n"
+    pilot diag_ty = v4_ty_text_cached("route-bad.fk", diag_src)
+    pilot idx = 0
+    pilot diagnostic = false
+    repeat until idx >= v4_ty_diag_count(diag_ty) {
+        pilot diag = v4_ty_diag(diag_ty, idx)
+        if v4_diag_message(diag).contains("expects 1 generic arguments") {
+            diagnostic = v4_slice(diag_src, v4_span_start(v4_diag_span(diag)), v4_span_end(v4_diag_span(diag))) == "maybe<int, word>"
+        }
+        idx += 1
+    }
+    say "route-boundary-targeted-diagnostic=" + word_from_bool(diagnostic)
+    pilot snapshot = v4_hir_snapshot()
+    pilot restored = v4_hir_snapshot_restore(snapshot)
+    say "route-boundary-stored-restore=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_hir_route_case_name_span(hir, item, 0) == case_span and v4_hir_route_case_field_type_span(hir, item, 0, 0) == type_span and v4_hir_route_is_variant(hir, item) and v4_hir_route_case_field_count(recovery_hir, broken, 0) == 4)
+}
+
+v4_route_boundary_run()

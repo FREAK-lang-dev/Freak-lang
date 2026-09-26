@@ -1,6 +1,6 @@
--- Detached Const v8 payloads: ownership, recovery, resource and restore contracts.
+-- Detached Const v9 payloads: ownership, recovery, resource and restore contracts.
 task v4_const_snapshot_header(files: int, items: int) -> word {
-    give back "hir-snapshot|format=freak-hir-snapshot-v8|files=" + word_from_int(files) + "|items=" + word_from_int(items) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=" + word_from_int(items) + "|shape-owners=0|shape-fields=0|diagnostics=0"
+    give back "hir-snapshot|format=freak-hir-snapshot-v9|files=" + word_from_int(files) + "|items=" + word_from_int(items) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=" + word_from_int(items) + "|shape-owners=0|shape-fields=0|route-owners=0|route-cases=0|route-fields=0|diagnostics=0"
 }
 
 task v4_const_snapshot_payload() -> word {
@@ -13,7 +13,7 @@ task v4_const_snapshot_payload() -> word {
     out = out + "\nhir-const-annotation|0|0|int|7@15:18|7@10:13"
     out = out + "\nhir-const-annotation|0|1||" + none + "|7@45:50"
     out = out + "\nhir-const-annotation|0|2||7@88:90|7@85:86"
-    give back out + "\nend|freak-hir-snapshot-v8"
+    give back out + "\nend|freak-hir-snapshot-v9"
 }
 
 task v4_const_snapshot_reverse(payload: word) -> word {
@@ -78,7 +78,7 @@ task v4_const_snapshot_large() -> word {
         }
         owner += 1
     }
-    array_push(parts, "\nend|freak-hir-snapshot-v8")
+    array_push(parts, "\nend|freak-hir-snapshot-v9")
     give back word_join(parts)
 }
 
@@ -86,9 +86,9 @@ task v4_const_snapshot_run() -> void {
     pilot payload = v4_const_snapshot_payload()
     pilot restored = v4_hir_snapshot_restore(v4_const_snapshot_reverse(payload))
     pilot before = v4_hir_snapshot()
-    say "const-snapshot-v8-reordered=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_const_type(0, 0) == "int" and v4_hir_const_type_span(0, 0) == "7@15:18" and v4_hir_const_name_span(0, 0) == "7@10:13")
+    say "const-snapshot-v9-reordered=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_const_type(0, 0) == "int" and v4_hir_const_type_span(0, 0) == "7@15:18" and v4_hir_const_name_span(0, 0) == "7@10:13")
     say "const-snapshot-inferred-quoted=" + word_from_bool(v4_hir_const_type(0, 1) == "" and v4_hir_const_type_span(0, 1) == V4_NO_SPAN and v4_hir_const_type(0, 2) == "" and v4_hir_const_type_span(0, 2) == "7@88:90")
-    say "const-snapshot-old-version-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("freak-hir-snapshot-v8", "freak-hir-snapshot-v7"), before))
+    say "const-snapshot-old-version-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("freak-hir-snapshot-v9", "freak-hir-snapshot-v8"), before))
     say "const-snapshot-extra-field-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("7@10:13\n", "7@10:13|extra\n"), before))
     say "const-snapshot-noncanonical-id-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("hir-const-annotation|0|0|", "hir-const-annotation|00|0|"), before))
     say "const-snapshot-sparse-owner-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("hir-const-annotation|0|0|", "hir-const-annotation|99|0|"), before))
