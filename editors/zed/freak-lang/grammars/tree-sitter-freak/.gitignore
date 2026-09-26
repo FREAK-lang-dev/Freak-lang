@@ -1,6 +1,0 @@
-node_modules/
-*.obj
-*.lib
-*.exp
-*.wasm
-build/
