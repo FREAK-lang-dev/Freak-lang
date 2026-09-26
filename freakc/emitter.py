@@ -191,6 +191,7 @@ class CEmitter:
         # type_name -> set of doctrine names it implements
         self.impl_doctrines: Dict[str, Set[str]] = {}
         self.func_sigs: Dict[str, str] = {}  # func_name -> return C type
+        self._user_task_names: Set[str] = set()
         self._shape_defs: List[str] = []
         self._forward_decls: List[str] = []
         self._func_defs: List[str] = []
@@ -211,6 +212,7 @@ class CEmitter:
         self.impl_methods = {}
         self.impl_doctrines = {}
         self.func_sigs = {}
+        self._user_task_names = set()
         self._shape_defs = []
         self._forward_decls = []
         self._func_defs = []
@@ -262,6 +264,8 @@ class CEmitter:
                 global_pilots.append(stmt)
             else:
                 top_stmts.append(stmt)
+
+        self._user_task_names = {td.name for td in task_decls}
 
         # Emit shapes
         for name, shape in self.shapes.items():
@@ -591,8 +595,11 @@ class CEmitter:
         elif isinstance(stmt, Assign):
             self._emit_assign(stmt, target)
         elif isinstance(stmt, ExprStmt):
-            c = self._expr_to_c(stmt.expr)
-            target.append(f"{self._ind()}{c};")
+            if self._is_format_num_temporary(stmt.expr):
+                self._emit_format_num_temporary(stmt.expr, target, say=False)
+            else:
+                c = self._expr_to_c(stmt.expr)
+                target.append(f"{self._ind()}{c};")
         else:
             raise EmitError(f"Unsupported statement: {stmt!r}")
 
@@ -606,7 +613,9 @@ class CEmitter:
 
     def _emit_say(self, stmt: SayStmt, target: List[str]) -> None:
         expr = stmt.value
-        if isinstance(expr, StrLit) and expr.parts:
+        if self._is_format_num_temporary(expr):
+            self._emit_format_num_temporary(expr, target, say=True)
+        elif isinstance(expr, StrLit) and expr.parts:
             # Interpolated string
             c_expr = self._emit_interpolated_string(expr)
             target.append(f"{self._ind()}freak_say({c_expr});")
@@ -629,6 +638,36 @@ class CEmitter:
                 )
             else:
                 target.append(f"{self._ind()}freak_say(freak_word_from_int({c_expr}));")
+
+    def _is_format_num_temporary(self, expr) -> bool:
+        return (
+            isinstance(expr, Call)
+            and isinstance(expr.func, Ident)
+            and expr.func.name == "format_num"
+            and expr.func.name not in self._user_task_names
+        )
+
+    def _emit_format_num_temporary(
+        self, expr: Call, target: List[str], *, say: bool
+    ) -> None:
+        # Only direct say/discard consumers prove this owned result cannot
+        # escape. Do not extend this cleanup to locals, returns, or nested
+        # calls: bootstrap clients can retain aliases in global/query stores.
+        referenced = self._collect_idents(expr)
+        temporary = self._next_temp("__format_word")
+        while temporary in self.vars or temporary in referenced:
+            temporary = self._next_temp("__format_word")
+        # A statement-local scope also avoids colliding with declarations
+        # later in the source block. Referenced names include loop bindings
+        # that the bootstrap's vars table does not currently register.
+        target.append(f"{self._ind()}{{")
+        self.indent += 1
+        target.append(f"{self._ind()}freak_word {temporary} = {self._expr_to_c(expr)};")
+        if say:
+            target.append(f"{self._ind()}freak_say({temporary});")
+        target.append(f"{self._ind()}freak_word_release_owned(&{temporary});")
+        self.indent -= 1
+        target.append(f"{self._ind()}}}")
 
     def _emit_give_back(self, stmt: GiveBack, target: List[str]) -> None:
         if stmt.value is None:
