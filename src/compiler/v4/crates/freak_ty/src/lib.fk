@@ -9532,114 +9532,59 @@ task v4_ty_is_route_type(ty_id: int, route_name: word) -> bool {
     give back v4_ty_route_signature_id_for_name(ty_id, route_name) >= 0
 }
 
-task v4_ty_route_body_open_token(ty_id: int, sig_id: int) -> int {
-    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig {
-        give back 0 - 1
-    }
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
-    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
-    if stream_id < 0 or start_token < 0 or end_token <= start_token {
-        give back 0 - 1
-    }
-    give back v4_ty_find_token_value(stream_id, start_token, end_token, "{")
-}
-
-task v4_ty_route_body_close_token(ty_id: int, sig_id: int) -> int {
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot open_token = v4_ty_route_body_open_token(ty_id, sig_id)
-    if stream_id < 0 or open_token < 0 {
-        give back 0 - 1
-    }
-    give back v4_ty_find_matching_brace(stream_id, open_token, v4_ty_signature_item_end_token(ty_id, sig_id))
-}
-
-task v4_ty_route_is_case_separator(val: word) -> bool {
-    give back val == "," or val == ";" or val == "/"
-}
-
 task v4_ty_route_case_count(ty_id: int, sig_id: int) -> int {
     give back v4_hir_route_case_count(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
 }
 
-task v4_ty_route_case_segment_start(ty_id: int, sig_id: int, case_id: int) -> int {
+-- Discriminant evaluation remains token-facing, but HIR alone owns case
+-- boundaries. Convert its stored half-open span without splitting syntax again.
+task v4_ty_route_case_segment_token(ty_id: int, sig_id: int, case_id: int, end_bound: bool) -> int {
     if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_route_sig or case_id < 0 {
         give back 0 - 1
     }
-
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot open_token = v4_ty_route_body_open_token(ty_id, sig_id)
-    pilot close_token = v4_ty_route_body_close_token(ty_id, sig_id)
-    if stream_id < 0 or open_token < 0 or close_token <= open_token {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot item_id = v4_ty_signature_hir_item(ty_id, sig_id)
+    if not v4_hir_file_exists(hir_id) or item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
         give back 0 - 1
     }
-
-    pilot current = 0
-    pilot segment_start = 0 - 1
-    pilot depth = 0
-    pilot idx = open_token + 1
-    repeat until idx >= close_token {
-        pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
-        if tok_type == v4_tok_trivia {
-            if val == "\n" and depth == 0 and segment_start >= 0 {
-                if current == case_id {
-                    give back segment_start
-                }
-                current += 1
-                segment_start = 0 - 1
-            }
-        } else {
-            if depth == 0 and v4_ty_route_is_case_separator(val) {
-                if segment_start >= 0 {
-                    if current == case_id {
-                        give back segment_start
-                    }
-                    current += 1
-                    segment_start = 0 - 1
-                }
-            } else {
-                if segment_start < 0 {
-                    segment_start = idx
-                }
-                depth = v4_ty_depth_after_token(depth, val)
-            }
-        }
-        idx += 1
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_route or case_id >= v4_hir_route_case_count(hir_id, item_id) {
+        give back 0 - 1
     }
-
-    if segment_start >= 0 and current == case_id {
-        give back segment_start
+    pilot stream_id = v4_ty_signature_stream_id(ty_id)
+    if not v4_lex_stream_exists(stream_id) or v4_lex_stream_file(stream_id) != v4_hir_file_id(hir_id) or v4_ty_file_id(ty_id) != v4_hir_file_id(hir_id) {
+        give back 0 - 1
     }
-    give back 0 - 1
+    pilot segment = v4_hir_route_case_segment_span(hir_id, item_id, case_id)
+    pilot parent = v4_hir_item_span(hir_id, item_id)
+    pilot source = word_from_int(v4_hir_file_id(hir_id))
+    if segment == V4_NO_SPAN or v4_span_file(segment) != source or v4_span_file(parent) != source {
+        give back 0 - 1
+    }
+    pilot start = v4_span_start(segment)
+    pilot end = v4_span_end(segment)
+    if start < v4_span_start(parent) or end > v4_span_end(parent) or end <= start {
+        give back 0 - 1
+    }
+    pilot start_token = v4_ty_first_token_at_or_after(stream_id, start)
+    pilot end_token = v4_ty_first_token_at_or_after(stream_id, end)
+    if start_token >= end_token or end_token > v4_lex_token_count(stream_id) {
+        give back 0 - 1
+    }
+    pilot first_span = v4_lex_token_span(stream_id, start_token)
+    pilot last_span = v4_lex_token_span(stream_id, end_token - 1)
+    if v4_span_file(first_span) != source or v4_span_file(last_span) != source or v4_span_start(first_span) != start or v4_span_end(last_span) != end {
+        give back 0 - 1
+    }
+    if end_bound { give back end_token }
+    give back start_token
+}
+
+task v4_ty_route_case_segment_start(ty_id: int, sig_id: int, case_id: int) -> int {
+    give back v4_ty_route_case_segment_token(ty_id, sig_id, case_id, false)
 }
 
 task v4_ty_route_case_segment_end(ty_id: int, sig_id: int, case_id: int) -> int {
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_route_case_segment_start(ty_id, sig_id, case_id)
-    pilot close_token = v4_ty_route_body_close_token(ty_id, sig_id)
-    if stream_id < 0 or start_token < 0 or close_token <= start_token {
-        give back 0 - 1
-    }
-
-    pilot depth = 0
-    pilot idx = start_token
-    repeat until idx >= close_token {
-        pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
-        if tok_type == v4_tok_trivia {
-            if val == "\n" and depth == 0 {
-                give back idx
-            }
-        } else {
-            if depth == 0 and idx > start_token and v4_ty_route_is_case_separator(val) {
-                give back idx
-            }
-            depth = v4_ty_depth_after_token(depth, val)
-        }
-        idx += 1
-    }
-    give back close_token
+    give back v4_ty_route_case_segment_token(ty_id, sig_id, case_id, true)
 }
 
 task v4_ty_route_case_segment_span(ty_id: int, sig_id: int, case_id: int) -> word {

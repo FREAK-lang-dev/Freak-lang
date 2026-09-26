@@ -1,0 +1,90 @@
+-- One bounded source pipeline, plus one same-length edit, exercises HIR-owned
+-- case boundaries through the existing token-facing discriminant evaluator.
+task v4_route_division_braces(body: word) -> word { give back "{" + body + "}" }
+
+task v4_route_division_source() -> word {
+    pilot src = "fixed pilot Divisor: int = 2\n"
+    src = src + "@repr(i32)\nvariant Basic " + v4_route_division_braces("A=4/2,B") + "\n"
+    src = src + "@repr(i32)\nvariant Arithmetic " + v4_route_division_braces("Chained=24/3/2, Precedence=20/2+3*4, Parens=(18+6)/(2*3), Signed=8/-2, Unary=-8/2, Named=18/Divisor") + "\n"
+    src = src + "route Legacy " + v4_route_division_braces("Up / Down=8/2, Next / Last; Reset=12/3\nNorth / South") + "\n"
+    src = src + "@repr(i32)\nvariant Bad " + v4_route_division_braces("Zero=8/0; Missing=8/; Prefix=/2, Tail") + "\n"
+    src = src + "variant Quoted " + v4_route_division_braces("\"/\" / \"=\" / Tail") + "\n"
+    give back src
+}
+
+task v4_route_division_slice(src: word, span: word) -> word {
+    give back v4_slice(src, v4_span_start(span), v4_span_end(span))
+}
+
+task v4_route_division_run() -> void {
+    pilot path = "route-discriminant-division.fk"
+    pilot src = v4_route_division_source()
+    pilot ty = v4_ty_text_cached(path, src)
+    pilot hir = v4_ty_signature_hir_id(ty)
+    pilot basic = v4_ty_route_signature_id_for_name(ty, "Basic")
+    pilot basic_item = v4_ty_signature_hir_item(ty, basic)
+    pilot arithmetic = v4_ty_route_signature_id_for_name(ty, "Arithmetic")
+    pilot arithmetic_item = v4_ty_signature_hir_item(ty, arithmetic)
+    pilot legacy = v4_ty_route_signature_id_for_name(ty, "Legacy")
+    pilot bad = v4_ty_route_signature_id_for_name(ty, "Bad")
+    pilot bad_item = v4_ty_signature_hir_item(ty, bad)
+    pilot quoted = v4_ty_route_signature_id_for_name(ty, "Quoted")
+    pilot quoted_item = v4_ty_signature_hir_item(ty, quoted)
+    say "route-division-basic-counts=" + word_from_bool(v4_hir_route_case_count(hir, basic_item) == 2 and v4_ty_route_case_count(ty, basic) == 2 and v4_hir_route_case_name(hir, basic_item, 0) == "A" and v4_ty_route_case_name(ty, basic, 1) == "B")
+    say "route-division-basic-values=" + word_from_bool(v4_ty_route_case_explicit_discriminant_text_by_sig(ty, basic, 0) == "4/2" and v4_ty_route_case_discriminant_value_by_sig(ty, basic, 0) == "2" and v4_ty_route_case_discriminant_value_by_sig(ty, basic, 1) == "3")
+    say "route-division-arithmetic=" + word_from_bool(v4_ty_route_case_count(ty, arithmetic) == 6 and v4_ty_route_case_discriminant_value(ty, "Arithmetic", "Chained") == "4" and v4_ty_route_case_discriminant_value(ty, "Arithmetic", "Precedence") == "22" and v4_ty_route_case_discriminant_value(ty, "Arithmetic", "Parens") == "4" and v4_ty_route_case_discriminant_value(ty, "Arithmetic", "Signed") == "-4" and v4_ty_route_case_discriminant_value(ty, "Arithmetic", "Unary") == "-4" and v4_ty_route_case_discriminant_value(ty, "Arithmetic", "Named") == "9")
+    say "route-division-legacy-reset=" + word_from_bool(v4_ty_route_case_count(ty, legacy) == 7 and v4_ty_route_case_name(ty, legacy, 0) == "Up" and v4_ty_route_case_name(ty, legacy, 1) == "Down" and v4_ty_route_case_name(ty, legacy, 2) == "Next" and v4_ty_route_case_name(ty, legacy, 3) == "Last" and v4_ty_route_case_name(ty, legacy, 4) == "Reset" and v4_ty_route_case_name(ty, legacy, 5) == "North" and v4_ty_route_case_name(ty, legacy, 6) == "South" and v4_ty_route_case_discriminant_value_by_sig(ty, legacy, 0) == "0" and v4_ty_route_case_discriminant_value_by_sig(ty, legacy, 1) == "4" and v4_ty_route_case_discriminant_value_by_sig(ty, legacy, 2) == "5" and v4_ty_route_case_discriminant_value_by_sig(ty, legacy, 3) == "6" and v4_ty_route_case_discriminant_value_by_sig(ty, legacy, 4) == "4" and v4_ty_route_case_discriminant_value_by_sig(ty, legacy, 5) == "5" and v4_ty_route_case_discriminant_value_by_sig(ty, legacy, 6) == "6")
+    pilot name_span = v4_hir_route_case_name_span(hir, basic_item, 0)
+    pilot segment = v4_hir_route_case_segment_span(hir, basic_item, 0)
+    pilot rhs_span = v4_ty_route_case_explicit_discriminant_span_by_sig(ty, basic, 0)
+    pilot stream = v4_ty_signature_stream_id(ty)
+    pilot first = v4_ty_route_case_segment_start(ty, basic, 0)
+    pilot last = v4_ty_route_case_segment_end(ty, basic, 0)
+    say "route-division-exact-spans=" + word_from_bool(v4_route_division_slice(src, name_span) == "A" and v4_route_division_slice(src, segment) == "A=4/2" and v4_route_division_slice(src, rhs_span) == "4/2" and v4_ty_route_case_segment_span(ty, basic, 0) == segment and v4_span_start(v4_lex_token_span(stream, first)) == v4_span_start(segment) and v4_span_end(v4_lex_token_span(stream, last - 1)) == v4_span_end(segment))
+    say "route-division-malformed=" + word_from_bool(v4_hir_route_case_count(hir, bad_item) == 4 and v4_ty_route_case_count(ty, bad) == 4 and v4_ty_route_case_name(ty, bad, 0) == "Zero" and v4_ty_route_case_name(ty, bad, 1) == "Missing" and v4_ty_route_case_name(ty, bad, 2) == "Prefix" and v4_ty_route_case_name(ty, bad, 3) == "Tail" and v4_ty_route_case_explicit_discriminant_text_by_sig(ty, bad, 0) == "8/0" and v4_ty_route_case_explicit_discriminant_text_by_sig(ty, bad, 1) == "8/" and v4_ty_route_case_explicit_discriminant_text_by_sig(ty, bad, 2) == "/2" and v4_ty_route_case_discriminant_value_by_sig(ty, bad, 0) == "")
+    pilot diag_id = 0
+    pilot zero_diag = false
+    pilot missing_diag = false
+    pilot prefix_diag = false
+    repeat until diag_id >= v4_ty_diag_count(ty) {
+        pilot diag = v4_ty_diag(ty, diag_id)
+        if v4_diag_message(diag) == "repr discriminant must use compile-time integer" {
+            pilot text = v4_route_division_slice(src, v4_diag_span(diag))
+            if text == "8/0" { zero_diag = true }
+            if text == "8/" { missing_diag = true }
+            if text == "/2" { prefix_diag = true }
+        }
+        diag_id += 1
+    }
+    say "route-division-diagnostics=" + word_from_bool(v4_ty_diag_count(ty) == 3 and zero_diag and missing_diag and prefix_diag)
+    say "route-division-quoted-recovery=" + word_from_bool(v4_hir_route_case_count(hir, quoted_item) == 3 and v4_ty_route_case_count(ty, quoted) == 3 and v4_hir_route_case_name(hir, quoted_item, 0) == "/" and v4_hir_route_case_name(hir, quoted_item, 1) == "=" and v4_ty_route_case_name(ty, quoted, 2) == "Tail")
+    pilot const_sig = v4_ty_const_signature_id_for_name(ty, "Divisor")
+    say "route-division-invalid-identities=" + word_from_bool(v4_ty_route_case_segment_start(-1, basic, 0) < 0 and v4_ty_route_case_segment_start(ty, -1, 0) < 0 and v4_ty_route_case_segment_end(ty, const_sig, 0) < 0 and v4_ty_route_case_segment_start(ty, basic, -1) < 0 and v4_ty_route_case_segment_end(ty, basic, 2) < 0)
+    -- Stored facts may be detached or restored; token adapters must fail closed
+    -- on a wrong source or an endpoint inside a token, not round to a token.
+    pilot values = v4_hir_route_case_values_handle(hir)
+    pilot slot = v4_hir_route_case_slot(hir, arithmetic_item, 5) * 6 + 2
+    pilot original: word = array_get(values, slot)
+    array_set(values, slot, v4_span_new("999", v4_span_start(original), v4_span_end(original)))
+    pilot invalid_bounds: bool = v4_ty_route_case_segment_start(ty, arithmetic, 5) < 0 and v4_ty_route_case_segment_end(ty, arithmetic, 5) < 0
+    array_set(values, slot, v4_span_new(v4_span_file(original), v4_span_start(original) + 1, v4_span_end(original)))
+    invalid_bounds = invalid_bounds and v4_ty_route_case_segment_start(ty, arithmetic, 5) < 0 and v4_ty_route_case_segment_end(ty, arithmetic, 5) < 0
+    array_set(values, slot, v4_span_new(v4_span_file(original), v4_span_start(original), v4_span_end(original) - 1))
+    invalid_bounds = invalid_bounds and v4_ty_route_case_segment_start(ty, arithmetic, 5) < 0 and v4_ty_route_case_segment_end(ty, arithmetic, 5) < 0
+    array_set(values, slot, original)
+    say "route-division-invalid-span-bounds=" + word_from_bool(invalid_bounds and v4_ty_route_case_explicit_discriminant_text_by_sig(ty, arithmetic, 5) == "18/Divisor")
+    pilot expansion: word = array_get(v4_hir_expansions, hir)
+    array_set(v4_hir_expansions, hir, "-1")
+    say "route-division-detached-stream=" + word_from_bool(v4_ty_route_case_segment_start(ty, basic, 0) < 0 and v4_ty_route_case_segment_end(ty, basic, 0) < 0 and v4_ty_route_case_count(ty, basic) == 2 and v4_ty_route_case_segment_span(ty, basic, 0) == segment)
+    array_set(v4_hir_expansions, hir, expansion)
+    pilot snapshot = v4_hir_snapshot()
+    pilot restored = v4_hir_snapshot_restore(snapshot)
+    say "route-division-snapshot-roundtrip=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_hir_route_case_segment_span(hir, basic_item, 0) == segment and v4_hir_route_case_count(hir, basic_item) == 2 and v4_ty_route_case_discriminant_value_by_sig(ty, basic, 0) == "2" and v4_ty_route_case_discriminant_value_by_sig(ty, basic, 1) == "3")
+    pilot changed = src.replace("A=4/2", "A=6/2")
+    pilot changed_ty = v4_ty_text_cached(path, changed)
+    pilot changed_hir = v4_ty_signature_hir_id(changed_ty)
+    pilot changed_basic = v4_ty_route_signature_id_for_name(changed_ty, "Basic")
+    say "route-division-same-length-invalidation=" + word_from_bool(changed.length() == src.length() and changed_ty != ty and changed_hir != hir and v4_ty_route_case_count(changed_ty, changed_basic) == 2 and v4_ty_route_case_segment_span(changed_ty, changed_basic, 0) == segment and v4_ty_route_case_discriminant_value_by_sig(changed_ty, changed_basic, 0) == "3" and v4_ty_route_case_discriminant_value_by_sig(changed_ty, changed_basic, 1) == "4" and v4_ty_text_cached(path, changed) == changed_ty)
+}
+
+v4_route_division_run()
