@@ -1,7 +1,7 @@
--- Synthetic HIR v7 facts prove detached restoration and atomic rejection.
+-- Synthetic HIR v8 facts prove detached restoration and atomic rejection.
 task v4_shape_snapshot_payload() -> word {
     pilot none = v4_hir_snapshot_escape(V4_NO_SPAN)
-    pilot out = "hir-snapshot|format=freak-hir-snapshot-v7|files=1|items=2|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|shape-owners=2|shape-fields=3|diagnostics=0"
+    pilot out = "hir-snapshot|format=freak-hir-snapshot-v8|files=1|items=2|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=2|shape-fields=3|diagnostics=0"
     out = out + "\nhir|0|7|0|2|0"
     out = out + "\nhir-item|0|0|Shape|Box|shape-box|7@0:100|0||" + none
     out = out + "\nhir-item|0|1|Shape|Empty|shape-empty|7@100:120|1||" + none
@@ -9,7 +9,7 @@ task v4_shape_snapshot_payload() -> word {
     out = out + "\nhir-shape-field|0|0|0|first|7@10:15|int|7@17:20|7@10:20"
     out = out + "\nhir-shape-field|0|0|1|second|7@22:28|word|7@30:34|7@22:34"
     out = out + "\nhir-shape-field|0|0|2|:|7@36:37||7@36:37|7@36:37"
-    give back out + "\nend|freak-hir-snapshot-v7"
+    give back out + "\nend|freak-hir-snapshot-v8"
 }
 
 task v4_shape_snapshot_reverse(payload: word) -> word {
@@ -53,7 +53,7 @@ task v4_shape_snapshot_capacity() -> int {
 
 task v4_shape_snapshot_scaling(owners: int, per_owner: int, name: word) -> word {
     pilot parts = array_new()
-    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v7|files=1|items=" + word_from_int(owners) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|shape-owners=" + word_from_int(owners) + "|shape-fields=" + word_from_int(owners * per_owner) + "|diagnostics=0")
+    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v8|files=1|items=" + word_from_int(owners) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=" + word_from_int(owners) + "|shape-fields=" + word_from_int(owners * per_owner) + "|diagnostics=0")
     pilot owner = owners - 1
     repeat until owner < 0 {
         pilot field = per_owner - 1
@@ -67,7 +67,7 @@ task v4_shape_snapshot_scaling(owners: int, per_owner: int, name: word) -> word 
         array_push(parts, "\nhir-item|0|" + word_from_int(owner) + "|Shape|" + name + "|" + name + "|7@0:10000|0||" + v4_hir_snapshot_escape(V4_NO_SPAN))
         owner -= 1
     }
-    array_push(parts, "\nhir|0|7|0|" + word_from_int(owners) + "|0\nend|freak-hir-snapshot-v7")
+    array_push(parts, "\nhir|0|7|0|" + word_from_int(owners) + "|0\nend|freak-hir-snapshot-v8")
     give back word_join(parts)
 }
 
@@ -76,9 +76,9 @@ task v4_shape_snapshot_run() -> void {
     pilot restored = v4_hir_snapshot_restore(v4_shape_snapshot_reverse(payload))
     pilot before = v4_hir_snapshot()
     say "shape-snapshot-restore-report=" + restored
-    say "shape-snapshot-v7-reordered=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_shape_field_count(0, 0) == 3 and v4_hir_shape_field_name(0, 0, 1) == "second" and v4_hir_shape_field_surface_type(0, 0, 1) == "word" and v4_hir_shape_field_count(0, 1) == 0)
+    say "shape-snapshot-v8-reordered=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_shape_field_count(0, 0) == 3 and v4_hir_shape_field_name(0, 0, 1) == "second" and v4_hir_shape_field_surface_type(0, 0, 1) == "word" and v4_hir_shape_field_count(0, 1) == 0)
     say "shape-snapshot-recovery-roundtrip=" + word_from_bool(v4_hir_shape_field_name(0, 0, 2) == ":" and v4_hir_shape_field_surface_type(0, 0, 2) == "" and v4_hir_shape_field_type_span(0, 0, 2) == "7@36:37" and v4_hir_snapshot_validate(before).starts_with("hir-snapshot-import ok=1"))
-    say "shape-snapshot-old-version-atomic=" + word_from_bool(v4_shape_snapshot_rejected(payload.replace("freak-hir-snapshot-v7", "freak-hir-snapshot-v6"), before))
+    say "shape-snapshot-old-version-atomic=" + word_from_bool(v4_shape_snapshot_rejected(payload.replace("freak-hir-snapshot-v8", "freak-hir-snapshot-v7"), before))
     say "shape-snapshot-extra-field-atomic=" + word_from_bool(v4_shape_snapshot_rejected(payload.replace("7@10:20\n", "7@10:20|extra\n"), before))
     say "shape-snapshot-owner-width-atomic=" + word_from_bool(v4_shape_snapshot_rejected(payload.replace("hir-shape-owner|0|1|0", "hir-shape-owner|0|1|0|extra"), before))
     say "shape-snapshot-noncanonical-atomic=" + word_from_bool(v4_shape_snapshot_rejected(payload.replace("hir-shape-field|0|0|1|", "hir-shape-field|00|0|1|"), before))

@@ -802,6 +802,25 @@ task v4_parse_const_type(tree_id: int, node_id: int) -> word {
     give back v4_parse_const_type_from_tokens(stream_id, pilot_token + 1, end_token)
 }
 
+task v4_parse_const_type_span(tree_id: int, node_id: int) -> word {
+    if v4_parse_node_kind(tree_id, node_id) != v4_node_const { give back V4_NO_SPAN }
+    pilot stream = v4_parse_stream_id(tree_id)
+    pilot start = v4_parse_node_start_token(tree_id, node_id)
+    pilot end = v4_parse_node_end_token(tree_id, node_id)
+    if start < 0 or end <= start { give back V4_NO_SPAN }
+    -- Match const_type's search bounds, even for recovered declarations.
+    pilot pilot_token = v4_parse_skip_trivia(stream, start + 1)
+    pilot equals = v4_parse_find_top_level_token(stream, pilot_token + 1, end, "=")
+    if equals < 0 { give back V4_NO_SPAN }
+    pilot colon = v4_parse_find_top_level_token(stream, pilot_token + 1, equals, ":")
+    if colon < 0 { give back V4_NO_SPAN }
+    pilot first = v4_parse_skip_trivia(stream, colon + 1)
+    if first >= equals { give back V4_NO_SPAN }
+    pilot last = equals
+    repeat until last <= first or not v4_parse_token_is_trivia(stream, last - 1) { last -= 1 }
+    give back v4_parse_make_span(stream, first, last)
+}
+
 task v4_parse_const_init(tree_id: int, node_id: int) -> word {
     if v4_parse_node_kind(tree_id, node_id) != v4_node_const {
         give back ""

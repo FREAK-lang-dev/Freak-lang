@@ -17,7 +17,8 @@ pilot v4_hir_import = "Import"
 pilot v4_hir_extern = "Extern"
 pilot v4_hir_attribute = "Attribute"
 pilot v4_hir_error = "Error"
-pilot v4_hir_snapshot_format = "freak-hir-snapshot-v7"
+pilot v4_hir_snapshot_format = "freak-hir-snapshot-v8"
+pilot v4_hir_const_annotation_values = 0
 pilot v4_hir_shape_field_starts = 0
 pilot v4_hir_shape_field_counts = 0
 pilot v4_hir_shape_field_values = 0
@@ -74,6 +75,7 @@ pilot v4_hir_ready = 0
 
 task v4_hir_init() -> void {
     if v4_hir_ready == 0 {
+        v4_hir_const_annotation_values = array_new()
         v4_hir_shape_field_starts = array_new()
         v4_hir_shape_field_counts = array_new()
         v4_hir_shape_field_values = array_new()
@@ -109,7 +111,8 @@ task v4_hir_init() -> void {
         v4_hir_task_param_type_spans = array_new()
         v4_hir_task_param_segment_spans = array_new()
         v4_hir_diags = array_new()
-        if v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
+        if v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
+            array_release(v4_hir_const_annotation_values)
             array_release(v4_hir_shape_field_starts)
             array_release(v4_hir_shape_field_counts)
             array_release(v4_hir_shape_field_values)
@@ -152,7 +155,7 @@ task v4_hir_init() -> void {
     }
 }
 
--- File slots own their thirty-three child arrays. Logical snapshot truncation keeps
+-- File slots own their thirty-four child arrays. Logical snapshot truncation keeps
 -- high-water slots reachable; reusing a slot must release its previous children.
 -- Fresh slots allocate once, without immediately overwriting those handles.
 task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
@@ -160,6 +163,7 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
     if v4_hir_ready == 0 { give back }
     pilot reused: bool = hir_id < array_len(v4_hir_files)
     repeat until array_len(v4_hir_files) > hir_id {
+        array_push(v4_hir_const_annotation_values, word_from_int(array_new()))
         array_push(v4_hir_shape_field_starts, word_from_int(array_new()))
         array_push(v4_hir_shape_field_counts, word_from_int(array_new()))
         array_push(v4_hir_shape_field_values, word_from_int(array_new()))
@@ -202,6 +206,8 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_push(v4_hir_diags, word_from_int(array_new()))
     }
     if reused {
+        array_release(v4_hir_const_annotation_values_handle(hir_id))
+        array_set(v4_hir_const_annotation_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_shape_field_starts_handle(hir_id))
         array_set(v4_hir_shape_field_starts, hir_id, word_from_int(array_new()))
         array_release(v4_hir_shape_field_counts_handle(hir_id))
@@ -1074,6 +1080,232 @@ task v4_hir_local_annotation_type_text(stream_id: int, start_token: int, end_tok
     give back out
 }
 
+-- Root Const declaration metadata is packed by item identity, not reconstructed
+-- by its consumers. Initializer/evaluation syntax remains a separate boundary.
+task v4_hir_const_annotation_values_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_const_annotation_values, hir_id))
+}
+
+task v4_hir_const_annotation_value(hir_id: int, item_id: int, column: int) -> word {
+    if not v4_hir_file_exists(hir_id) or item_id < 0 or item_id >= v4_hir_item_count(hir_id) {
+        if column == 0 { give back "" }
+        give back V4_NO_SPAN
+    }
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_const {
+        if column == 0 { give back "" }
+        give back V4_NO_SPAN
+    }
+    pilot values = v4_hir_const_annotation_values_handle(hir_id)
+    if item_id * 3 + column >= array_len(values) {
+        if column == 0 { give back "" }
+        give back V4_NO_SPAN
+    }
+    give back array_get(values, item_id * 3 + column)
+}
+
+task v4_hir_const_type_span(hir_id: int, item_id: int) -> word {
+    give back v4_hir_const_annotation_value(hir_id, item_id, 1)
+}
+
+task v4_hir_const_name_span(hir_id: int, item_id: int) -> word {
+    give back v4_hir_const_annotation_value(hir_id, item_id, 2)
+}
+
+task v4_hir_store_const_annotation(hir_id: int, item_id: int, surface: word, type_span: word, name_span: word) -> void {
+    pilot values = v4_hir_const_annotation_values_handle(hir_id)
+    repeat until array_len(values) > item_id * 3 + 2 {
+        array_push(values, "")
+        array_push(values, V4_NO_SPAN)
+        array_push(values, V4_NO_SPAN)
+    }
+    array_set(values, item_id * 3, surface)
+    array_set(values, item_id * 3 + 1, type_span)
+    array_set(values, item_id * 3 + 2, name_span)
+}
+
+task v4_hir_lower_const_annotation(hir_id: int, item_id: int) -> void {
+    if v4_hir_item_kind(hir_id, item_id) != v4_hir_const { give back }
+    pilot expansion = v4_hir_item_expansion_id(hir_id)
+    pilot node = v4_hir_item_parse_node(hir_id, item_id)
+    pilot surface = v4_expand_const_type(expansion, node)
+    pilot type_span = v4_expand_const_type_span(expansion, node)
+    pilot name_span = V4_NO_SPAN
+    pilot stream = v4_hir_item_stream_id(hir_id)
+    if stream >= 0 {
+        -- Preserve the prior TY name-span lookup and whole-item recovery.
+        pilot item_span = v4_hir_item_span(hir_id, item_id)
+        pilot first = v4_hir_first_token_at_or_after(stream, v4_span_start(item_span))
+        pilot last = v4_hir_first_token_at_or_after(stream, v4_span_end(item_span))
+        if last <= first { last = v4_lex_token_count(stream) }
+        if first >= 0 and last > first {
+            name_span = v4_hir_span_from_tokens(stream, first, last)
+            pilot fixed_token = first
+            repeat until fixed_token >= last or v4_lex_token_value(stream, fixed_token) == "fixed" { fixed_token += 1 }
+            if fixed_token < last {
+                pilot pilot_token = v4_hir_skip_trivia(stream, fixed_token + 1, last)
+                if pilot_token < last and v4_lex_token_value(stream, pilot_token) == "pilot" {
+                    pilot name_token = v4_hir_skip_trivia(stream, pilot_token + 1, last)
+                    if name_token < last { name_span = v4_lex_token_span(stream, name_token) }
+                }
+            }
+        }
+    }
+    v4_hir_store_const_annotation(hir_id, item_id, surface, type_span, name_span)
+}
+
+task v4_hir_const_annotation_total() -> int {
+    pilot total = 0
+    pilot hir_id = 0
+    repeat until hir_id >= v4_hir_file_count() {
+        pilot item = 0
+        repeat until item >= v4_hir_item_count(hir_id) {
+            if v4_hir_item_kind(hir_id, item) == v4_hir_const { total += 1 }
+            item += 1
+        }
+        hir_id += 1
+    }
+    give back total
+}
+
+task v4_hir_snapshot_const_annotation_line(hir_id: int, item_id: int) -> word {
+    give back "hir-const-annotation|" + word_from_int(hir_id) + "|" + word_from_int(item_id) + "|" + v4_hir_snapshot_escape(v4_hir_const_type(hir_id, item_id)) + "|" + v4_hir_snapshot_escape(v4_hir_const_type_span(hir_id, item_id)) + "|" + v4_hir_snapshot_escape(v4_hir_const_name_span(hir_id, item_id))
+}
+
+task v4_hir_snapshot_const_annotation_is_valid(line: word) -> bool {
+    if v4_hir_snapshot_field_count(line) != 6 { give back false }
+    if not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 1)) or not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 2)) { give back false }
+    pilot surface = v4_hir_snapshot_field(line, 3)
+    pilot type_span = v4_hir_snapshot_field(line, 4)
+    pilot name_span = v4_hir_snapshot_field(line, 5)
+    if not v4_hir_snapshot_span_is_canonical_nonempty(name_span) { give back false }
+    if (type_span == V4_NO_SPAN) { give back surface == "" }
+    give back v4_hir_snapshot_span_is_canonical_nonempty(type_span)
+}
+
+task v4_hir_snapshot_const_annotation_slots_are_valid(records: int, files: int, items: int, annotations: int) -> bool {
+    if annotations == 0 {
+        pilot idx = 0
+        repeat until idx >= array_len(records) {
+            pilot line: word = array_get(records, idx)
+            if line.starts_with("hir-item|") and v4_hir_snapshot_field(line, 3) == v4_hir_const { give back false }
+            idx += 1
+        }
+        give back true
+    }
+    -- File rows hold source/count/offset; item rows cache kind/span/seen once.
+    pilot file_rows = array_new()
+    pilot item_rows = array_new()
+    pilot valid: bool = file_rows >= 0 and item_rows >= 0
+    pilot idx = 0
+    repeat until idx >= files * 3 or not valid {
+        array_push(file_rows, "0")
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= items or not valid {
+        array_push(item_rows, "")
+        array_push(item_rows, V4_NO_SPAN)
+        array_push(item_rows, "0")
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= array_len(records) or not valid {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir|") {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            pilot count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), items + 1)
+            if owner < 0 or count < 0 { valid = false } else {
+                array_set(file_rows, owner * 3, v4_hir_snapshot_field_raw(line, 2))
+                array_set(file_rows, owner * 3 + 1, word_from_int(count))
+            }
+        }
+        idx += 1
+    }
+    pilot total = 0
+    idx = 0
+    repeat until idx >= files or not valid {
+        pilot count = word_to_int(array_get(file_rows, idx * 3 + 1))
+        if count > items - total { valid = false } else {
+            array_set(file_rows, idx * 3 + 2, word_from_int(total))
+            total += count
+        }
+        idx += 1
+    }
+    if total != items { valid = false }
+    pilot const_count = 0
+    idx = 0
+    repeat until idx >= array_len(records) or not valid {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-item|") {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            if owner < 0 { valid = false } else {
+                pilot item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(file_rows, owner * 3 + 1)))
+                if item < 0 { valid = false } else {
+                    pilot slot = (word_to_int(array_get(file_rows, owner * 3 + 2)) + item) * 3
+                    pilot kind = v4_hir_snapshot_field(line, 3)
+                    array_set(item_rows, slot, kind)
+                    if kind == v4_hir_const {
+                        const_count += 1
+                        pilot span = v4_hir_snapshot_field(line, 6)
+                        pilot source: word = array_get(file_rows, owner * 3)
+                        if not v4_hir_snapshot_span_is_canonical_nonempty(span) or v4_span_file(span) != source { valid = false }
+                        array_set(item_rows, slot + 1, span)
+                    }
+                }
+            }
+        }
+        idx += 1
+    }
+    if const_count != annotations { valid = false }
+    idx = 0
+    repeat until idx >= array_len(records) or not valid {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-const-annotation|") {
+            pilot owner = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 1), files)
+            if owner < 0 { valid = false } else {
+                pilot item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(file_rows, owner * 3 + 1)))
+                if item < 0 { valid = false } else {
+                    pilot slot = (word_to_int(array_get(file_rows, owner * 3 + 2)) + item) * 3
+                    pilot kind: word = array_get(item_rows, slot)
+                    pilot seen: word = array_get(item_rows, slot + 2)
+                    pilot parent: word = array_get(item_rows, slot + 1)
+                    pilot type_span = v4_hir_snapshot_field(line, 4)
+                    pilot name_span = v4_hir_snapshot_field(line, 5)
+                    if kind != v4_hir_const or seen != "0" or not v4_hir_snapshot_span_is_contained(name_span, parent) { valid = false }
+                    if (type_span != V4_NO_SPAN) {
+                        if not v4_hir_snapshot_span_is_contained(type_span, parent) { valid = false }
+                        if name_span != parent and v4_span_start(type_span) < v4_span_end(name_span) { valid = false }
+                    }
+                    array_set(item_rows, slot + 2, "1")
+                }
+            }
+        }
+        idx += 1
+    }
+    idx = 0
+    repeat until idx >= items or not valid {
+        pilot kind: word = array_get(item_rows, idx * 3)
+        pilot seen: word = array_get(item_rows, idx * 3 + 2)
+        if kind == v4_hir_const and seen != "1" { valid = false }
+        idx += 1
+    }
+    array_release(file_rows)
+    array_release(item_rows)
+    give back valid
+}
+
+task v4_hir_restore_const_annotation_records(records: int) -> void {
+    pilot idx = 0
+    repeat until idx >= array_len(records) {
+        pilot line: word = array_get(records, idx)
+        if line.starts_with("hir-const-annotation|") {
+            v4_hir_store_const_annotation(word_to_int(v4_hir_snapshot_field_raw(line, 1)), word_to_int(v4_hir_snapshot_field_raw(line, 2)), v4_hir_snapshot_field(line, 3), v4_hir_snapshot_field(line, 4), v4_hir_snapshot_field(line, 5))
+        }
+        idx += 1
+    }
+}
+
+
 task v4_hir_lower_local_annotations(hir_id: int, item_id: int) -> void {
     pilot item_kind = v4_hir_item_kind(hir_id, item_id)
     if item_kind != v4_hir_task and item_kind != v4_hir_impl and item_kind != v4_hir_doctrine {
@@ -1114,14 +1346,7 @@ task v4_hir_lower_local_annotations(hir_id: int, item_id: int) -> void {
 }
 
 task v4_hir_const_type(hir_id: int, item_id: int) -> word {
-    if v4_hir_item_kind(hir_id, item_id) != v4_hir_const {
-        give back ""
-    }
-    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
-    if v4_expand_tree_exists(expansion_id) == false {
-        give back ""
-    }
-    give back v4_expand_const_type(expansion_id, v4_hir_item_parse_node(hir_id, item_id))
+    give back v4_hir_const_annotation_value(hir_id, item_id, 0)
 }
 
 task v4_hir_const_init(hir_id: int, item_id: int) -> word {
@@ -1314,7 +1539,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
     if v4_hir_ready == 0 { give back 0 - 1 }
     pilot required = 4
-    if v4_hir_file_len >= array_len(v4_hir_files) { required += 33 }
+    if v4_hir_file_len >= array_len(v4_hir_files) { required += 34 }
     if v4_hir_lookup_handles_available(required) == false { give back 0 - 1 }
     pilot hir_id = v4_hir_file_new(file_id, expansion_id)
     v4_hir_copy_expand_diags(hir_id, expansion_id)
@@ -1329,6 +1554,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
             pilot item_span = v4_expand_node_span(expansion_id, node_idx)
             pilot item_id = v4_hir_add_item(hir_id, hir_kind, item_name, item_span, node_idx)
             v4_hir_lower_alias_target_type(hir_id, item_id, expansion_id, node_idx)
+            v4_hir_lower_const_annotation(hir_id, item_id)
             v4_hir_lower_shape_fields(hir_id, item_id)
             v4_hir_lower_task_params(hir_id, item_id)
             v4_hir_lower_task_return(hir_id, item_id)
@@ -1385,6 +1611,7 @@ task v4_hir_snapshot_field_raw(line: word, wanted: int) -> word {
     -- validator's passes instead of allocating the same prefix per record.
     -- Include the separator so unknown or extended kinds retain raw fallback.
     if wanted == 0 {
+        if line.starts_with("hir-const-annotation|") { give back "hir-const-annotation" }
         if line.starts_with("hir-shape-owner|") { give back "hir-shape-owner" }
         if line.starts_with("hir-shape-field|") { give back "hir-shape-field" }
         if line.starts_with("hir|") { give back "hir" }
@@ -1489,6 +1716,7 @@ task v4_hir_snapshot_summary() -> word {
     summary = summary + " task-returns=" + word_from_int(v4_hir_snapshot_task_return_total())
     summary = summary + " task-param-owners=" + word_from_int(v4_hir_snapshot_task_param_owner_total())
     summary = summary + " task-params=" + word_from_int(v4_hir_snapshot_task_param_total())
+    summary = summary + " const-annotations=" + word_from_int(v4_hir_const_annotation_total())
     summary = summary + " shape-owners=" + word_from_int(v4_hir_shape_owner_total())
     summary = summary + " shape-fields=" + word_from_int(v4_hir_shape_field_total())
     summary = summary + " diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
@@ -1505,6 +1733,7 @@ task v4_hir_snapshot_header() -> word {
     out = out + "|task-returns=" + word_from_int(v4_hir_snapshot_task_return_total())
     out = out + "|task-param-owners=" + word_from_int(v4_hir_snapshot_task_param_owner_total())
     out = out + "|task-params=" + word_from_int(v4_hir_snapshot_task_param_total())
+    out = out + "|const-annotations=" + word_from_int(v4_hir_const_annotation_total())
     out = out + "|shape-owners=" + word_from_int(v4_hir_shape_owner_total())
     out = out + "|shape-fields=" + word_from_int(v4_hir_shape_field_total())
     out = out + "|diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
@@ -1569,6 +1798,10 @@ task v4_hir_snapshot() -> word {
         repeat until item_id >= item_count {
             array_push(parts, "\n")
             array_push(parts, v4_hir_snapshot_item_line(hir_id, item_id))
+            if v4_hir_item_kind(hir_id, item_id) == v4_hir_const {
+                array_push(parts, "\n")
+                array_push(parts, v4_hir_snapshot_const_annotation_line(hir_id, item_id))
+            }
             if v4_hir_item_kind(hir_id, item_id) == v4_hir_shape {
                 array_push(parts, "\n")
                 array_push(parts, v4_hir_snapshot_shape_owner_line(hir_id, item_id))
@@ -1629,10 +1862,11 @@ task v4_hir_snapshot() -> word {
 }
 
 task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
+    if kind == "hir-const-annotation" { give back 6 }
     if kind == "hir-shape-owner" { give back 4 }
     if kind == "hir-shape-field" { give back 9 }
     if kind == "hir-snapshot" {
-        give back 12
+        give back 13
     }
     if kind == "hir" {
         give back 6
@@ -2087,6 +2321,7 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
     if v4_hir_snapshot_field_count(line) < expected {
         give back false
     }
+    if kind == "hir-const-annotation" { give back v4_hir_snapshot_const_annotation_is_valid(line) }
     if kind == "hir-shape-owner" or kind == "hir-shape-field" {
         give back v4_hir_snapshot_shape_record_is_valid(line)
     }
@@ -2123,6 +2358,8 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     pilot alias_targets = 0
     pilot local_annotations = 0
     pilot task_returns = 0
+    pilot const_annotations = 0
+    pilot declared_const_annotations = ""
     pilot shape_owners = 0
     pilot shape_fields = 0
     pilot declared_shape_owners = ""
@@ -2160,6 +2397,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 declared_task_returns = v4_hir_snapshot_key_value(line, "task-returns")
                 declared_task_param_owners = v4_hir_snapshot_key_value(line, "task-param-owners")
                 declared_task_params = v4_hir_snapshot_key_value(line, "task-params")
+                declared_const_annotations = v4_hir_snapshot_key_value(line, "const-annotations")
                 declared_shape_owners = v4_hir_snapshot_key_value(line, "shape-owners")
                 declared_shape_fields = v4_hir_snapshot_key_value(line, "shape-fields")
                 declared_diagnostics = v4_hir_snapshot_key_value(line, "diagnostics")
@@ -2177,6 +2415,8 @@ task v4_hir_snapshot_validate(payload: word) -> word {
                 local_annotations += 1
             } else if kind == "hir-task-return" {
                 task_returns += 1
+            } else if kind == "hir-const-annotation" {
+                const_annotations += 1
             } else if kind == "hir-shape-owner" {
                 shape_owners += 1
             } else if kind == "hir-shape-field" {
@@ -2212,6 +2452,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     if malformed == 0 and v4_hir_snapshot_shape_slots_are_valid(records, files, items, shape_owners, shape_fields) == false {
         malformed += 1
     }
+    if malformed == 0 and not v4_hir_snapshot_const_annotation_slots_are_valid(records, files, items, const_annotations) { malformed += 1 }
     array_release(records)
 
     pilot import_ok = 1
@@ -2239,6 +2480,7 @@ task v4_hir_snapshot_validate(payload: word) -> word {
 
     if declared_task_param_owners != word_from_int(task_param_owners) { import_ok = 0 }
     if declared_task_params != word_from_int(task_params) { import_ok = 0 }
+    if declared_const_annotations != word_from_int(const_annotations) { import_ok = 0 }
     if declared_shape_owners != word_from_int(shape_owners) or declared_shape_fields != word_from_int(shape_fields) { import_ok = 0 }
     pilot out = "hir-snapshot-import"
     out = out + " ok=" + word_from_int(import_ok)
@@ -2392,7 +2634,7 @@ task v4_hir_begin_snapshot_restore() -> void {
 }
 
 -- Restore is synchronous. Reserve the peak additional handle requirement
--- before touching live slots: thirty-three per new high-water file plus four
+-- before touching live slots: thirty-four per new high-water file plus four
 -- finalizer scratch arrays. Reused files free all children before replacing
 -- them. The line index remains held throughout preflight and restoration.
 task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
@@ -2405,7 +2647,7 @@ task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
     }
     pilot fresh = files - array_len(v4_hir_files)
     if fresh < 0 { fresh = 0 }
-    give back v4_hir_lookup_handles_available(fresh * 33 + 4)
+    give back v4_hir_lookup_handles_available(fresh * 34 + 4)
 }
 
 task v4_hir_lookup_handles_available(needed: int) -> bool {
@@ -2465,7 +2707,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             pilot kind = v4_hir_snapshot_field_raw(line, 0)
             if kind == "hir" {
                 restored_files += v4_hir_snapshot_restore_file_line(line)
-            } else if kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-task-param-owner" and kind != "hir-task-param" and kind != "hir-shape-owner" and kind != "hir-shape-field" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
+            } else if kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-task-param-owner" and kind != "hir-task-param" and kind != "hir-const-annotation" and kind != "hir-shape-owner" and kind != "hir-shape-field" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
@@ -2494,6 +2736,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
         line_id += 1
     }
 
+    v4_hir_restore_const_annotation_records(records)
     v4_hir_restore_shape_records(records)
     array_release(records)
     pilot finalized = 0

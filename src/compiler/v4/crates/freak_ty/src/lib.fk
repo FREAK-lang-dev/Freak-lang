@@ -5703,25 +5703,7 @@ task v4_ty_const_init_text_for_sig(ty_id: int, sig_id: int) -> word {
 }
 
 task v4_ty_const_name_span(ty_id: int, sig_id: int) -> word {
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_signature_item_start_token(ty_id, sig_id)
-    pilot end_token = v4_ty_signature_item_end_token(ty_id, sig_id)
-    if stream_id < 0 or start_token < 0 or end_token <= start_token {
-        give back V4_NO_SPAN
-    }
-    pilot fixed_token = v4_ty_find_token_value(stream_id, start_token, end_token, "fixed")
-    if fixed_token < 0 {
-        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
-    }
-    pilot pilot_token = v4_ty_next_nontrivia(stream_id, fixed_token + 1, end_token)
-    if pilot_token >= end_token or v4_lex_token_value(stream_id, pilot_token) != "pilot" {
-        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
-    }
-    pilot name_token = v4_ty_next_nontrivia(stream_id, pilot_token + 1, end_token)
-    if name_token >= end_token {
-        give back v4_ty_span_from_tokens(stream_id, start_token, end_token)
-    }
-    give back v4_lex_token_span(stream_id, name_token)
+    give back v4_hir_const_name_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
 }
 
 task v4_ty_const_equals_token(ty_id: int, sig_id: int) -> int {
@@ -13424,4 +13406,7 @@ task v4_ty_shape_field_name_span(ty_id: int, sig_id: int, field_id: int) -> word
 task v4_ty_shape_field_segment_span(ty_id: int, sig_id: int, field_id: int) -> word {
     pilot value = v4_hir_shape_field_segment_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), field_id)
     give back value
+}
+task v4_ty_const_declared_type_span_for_sig(ty_id: int, sig_id: int) -> word {
+    give back v4_hir_const_type_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
 }

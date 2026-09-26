@@ -27,6 +27,7 @@ task v4_alias_hir_boundary_snapshot_variant(payload: word, corrupt_alias_span: b
             line = line + "|task-params=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "task-params")
             line = line + "|shape-owners=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "shape-owners")
             line = line + "|shape-fields=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "shape-fields")
+            line = line + "|const-annotations=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "const-annotations")
             line = line + "|diagnostics=" + v4_hir_snapshot_key_value(v4_hir_snapshot_line(payload, line_id), "diagnostics")
         } else if kind == "hir-item" and corrupt_alias_span and corrupted == 0 and v4_hir_snapshot_field(line, 8) != "" {
             pilot rebuilt = "hir-item"
@@ -161,7 +162,7 @@ task v4_alias_hir_boundary_first_file_snapshot(payload: word) -> word {
     out = out + "|items=" + v4_hir_snapshot_field_raw(owner_line, 4)
     out = out + "|alias-targets=" + word_from_int(alias_targets)
     out = out + "|local-annotations=0"
-    out = out + "|task-returns=0|task-param-owners=0|task-params=0|shape-owners=0|shape-fields=0"
+    out = out + "|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0"
     out = out + "|diagnostics=" + v4_hir_snapshot_field_raw(owner_line, 5)
     line_id = 0
     repeat until line_id >= line_count {
