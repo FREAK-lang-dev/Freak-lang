@@ -4288,21 +4288,29 @@ task v4_hir_lower_route_facts(hir_id: int, item_id: int) -> void {
     if close <= open { give back }
     pilot segment = 0 - 1
     pilot depth = 0
+    pilot explicit_discriminant = false
     pilot idx = open + 1
     repeat until idx > close {
         pilot separator: bool = idx == close
         if idx < close {
             pilot value = v4_lex_token_value(stream, idx)
             pilot trivia: bool = v4_lex_token_type(stream, idx) == v4_tok_trivia
-            separator = depth == 0 and ((trivia and value == "\n") or (not trivia and (value == "," or value == ";" or value == "/")))
+            pilot symbol: bool = v4_lex_token_type(stream, idx) == v4_tok_symbol
+            -- A slash separates legacy cases only before an explicit value.
+            -- Once '=' starts the discriminant, every slash belongs to its RHS.
+            separator = depth == 0 and ((trivia and value == "\n") or (symbol and (value == "," or value == ";" or (value == "/" and not explicit_discriminant))))
             if not separator and not trivia {
                 if segment < 0 { segment = idx }
-                depth = v4_hir_task_param_depth_after_token(depth, value)
+                if symbol {
+                    if depth == 0 and value == "=" { explicit_discriminant = true }
+                    depth = v4_hir_task_param_depth_after_token(depth, value)
+                }
             }
         }
         if separator and segment >= 0 {
             v4_hir_lower_route_case(hir_id, item_id, stream, segment, idx)
             segment = 0 - 1
+            explicit_discriminant = false
         }
         idx += 1
     }
