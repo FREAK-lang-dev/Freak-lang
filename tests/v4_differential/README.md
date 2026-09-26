@@ -16,16 +16,36 @@ Run one case or validate the closed manifest without invoking either compiler:
 ```powershell
 python -u tests/v4_differential/run_differential.py build/freak.exe --case compatible-basic-task
 python -u tests/v4_differential/run_differential.py --self-test
+python -u -m unittest discover -s tests/v4_differential -p test_run_differential.py
 python -u src/compiler/v4/tools/campaign_probe.py --self-test
 ```
 
 The manifest self-test is compiler-free and exercises rejected schemas. The
+unit tests are also compiler-free: fake bounded adapters exercise original-file
+edits/deletions, snapshot tampering, byte identity, and source-bound reports. The
 probe self-test is executable: it compiles and runs generated probes for an
 opaque CRLF/Unicode/control-character source, a syntax negative, and a type
 negative. On Windows it prefers `x86_64-w64-mingw32-clang`; an explicit
 LLVM-MinGW compiler may be supplied with `--clang`.
 The generated program reports both source byte length and the runtime's stable
 word checksum; the adapter binds those to the exact requested UTF-8 bytes.
+
+Before either frontend runs, each selected fixture is read exactly once into
+an immutable byte buffer and a private, read-only temporary `input.fk`. Both V3
+runs and the V4 probe receive that same snapshot, preserving Unicode, CRLF, and
+control bytes without text normalization. Later edits or deletion of the
+original fixture do not alter the comparison. Each case report includes its
+original source label and the SHA-256/byte count of the captured input; V4's
+digest, byte count, and checksum are validated against that captured buffer,
+never a fresh read of the original fixture.
+
+The harness checks snapshot integrity at adapter boundaries and before/after
+each V3 process and the V4 probe process. Missing, replaced-by-nonregular-file,
+or changed snapshot bytes are harness errors (exit 2), not expected diagnostics
+or compiler mismatches. Read-only files and these checks guard against
+accidental writes and persistent tampering; they are not a security sandbox
+against a hostile same-user process that swaps and restores input between
+checks. The V4 probe itself embeds the captured input once for both of its runs.
 
 Each compiler runs twice. Acceptance, normalized diagnostic class, and its own
 phase summary must be stable across the two runs. Phase counts are not compared
