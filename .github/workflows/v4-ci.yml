@@ -22,6 +22,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Differential source identity regressions
+        run: python -B -u -m unittest discover -s tests/v4_differential -p "test_*.py" -v
+
       - name: Install Clang
         run: sudo apt-get update && sudo apt-get install -y clang lld
 
