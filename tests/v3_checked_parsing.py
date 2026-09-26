@@ -610,7 +610,8 @@ def execute_emitter_case(repo: Path, root: Path, name: str) -> dict:
     # General bootstrap values can escape into V4 query caches and other
     # global stores. Audit only proven nonescaping direct format temporaries.
     audited = name == "format_temporary_audit"
-    if name == "format_escape_boundaries":
+    intentional_retention = name == "format_escape_boundaries"
+    if intentional_retention:
         assert "freak_word_release_owned(" not in c_source, c_source
     generated = root / f"emitter_{name}.c"
     generated.write_text(c_source, encoding="utf-8")
@@ -631,7 +632,14 @@ def execute_emitter_case(repo: Path, root: Path, name: str) -> dict:
     else:
         command.extend(["-lm", "-fsanitize=address", "-fno-omit-frame-pointer"])
     require_ok(run(command, repo), f"emitter {name} link")
-    executed = run([str(binary)], root, sanitizer_env())
+    execution_env = sanitizer_env()
+    if intentional_retention and sys.platform != "win32":
+        # This case pins aliases that deliberately outlive their local source.
+        # Keep ASan's invalid-access/UAF checks, but do not require leak freedom
+        # from that intentional-retention contract. Other cases keep their
+        # existing sanitizer policy, including the no-leak ownership audit.
+        execution_env["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=0:exitcode=86"
+    executed = run([str(binary)], root, execution_env)
     require_ok(executed, f"emitter {name} execution")
     assert "AddressSanitizer" not in executed.stderr, (name, executed.stderr)
     actual = executed.stdout.splitlines()
@@ -672,7 +680,14 @@ def execute_emitter_case(repo: Path, root: Path, name: str) -> dict:
             assert "AddressSanitizer" not in negative.stderr, (
                 consumer, negative.stderr,
             )
-    return {"case": f"emitter/{name}", "output": actual}
+    record = {"case": f"emitter/{name}", "output": actual}
+    if intentional_retention:
+        record["ownership_mode"] = "intentional_alias_retention"
+        record["sanitizer_mode"] = (
+            "not_enabled_windows" if sys.platform == "win32"
+            else "address_only_no_leak_detection"
+        )
+    return record
 
 
 def execute_emitter_emission_case(root: Path, name: str) -> dict:
@@ -763,7 +778,7 @@ def main() -> int:
             print(f"PASS emitter/{name}", flush=True)
     if args.report:
         args.report.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
-    print(f"V3 checked parsing: PASS ({len(records)} executions)")
+    print(f"V3 checked parsing: PASS ({len(records)} cases)")
     return 0
 
 
