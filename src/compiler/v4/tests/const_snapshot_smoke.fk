@@ -1,0 +1,134 @@
+-- Detached Const v8 payloads: ownership, recovery, resource and restore contracts.
+task v4_const_snapshot_header(files: int, items: int) -> word {
+    give back "hir-snapshot|format=freak-hir-snapshot-v8|files=" + word_from_int(files) + "|items=" + word_from_int(items) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=" + word_from_int(items) + "|shape-owners=0|shape-fields=0|diagnostics=0"
+}
+
+task v4_const_snapshot_payload() -> word {
+    pilot none = v4_hir_snapshot_escape(V4_NO_SPAN)
+    pilot out = v4_const_snapshot_header(1, 3)
+    out = out + "\nhir|0|7|0|3|0"
+    out = out + "\nhir-item|0|0|Const|FIRST|const-first|7@0:40|0||" + none
+    out = out + "\nhir-item|0|1|Const|INFER|const-infer|7@40:80|1||" + none
+    out = out + "\nhir-item|0|2|Const|QUOTED|const-quoted|7@80:120|2||" + none
+    out = out + "\nhir-const-annotation|0|0|int|7@15:18|7@10:13"
+    out = out + "\nhir-const-annotation|0|1||" + none + "|7@45:50"
+    out = out + "\nhir-const-annotation|0|2||7@88:90|7@85:86"
+    give back out + "\nend|freak-hir-snapshot-v8"
+}
+
+task v4_const_snapshot_reverse(payload: word) -> word {
+    pilot lines = v4_hir_snapshot_index_lines(payload)
+    pilot parts = array_new()
+    pilot idx = array_len(lines) - 1
+    repeat until idx < 0 {
+        if idx < array_len(lines) - 1 { array_push(parts, "\n") }
+        array_push(parts, array_get(lines, idx))
+        idx -= 1
+    }
+    -- parts borrows line words; join while their owner is still alive.
+    pilot out = word_join(parts)
+    array_release(lines)
+    give back out
+}
+
+task v4_const_snapshot_rejected(payload: word, before: word) -> bool {
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot report = v4_hir_snapshot_restore(payload)
+    give back report.starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == before and v4_session_semantic_restore_generation() == generation
+}
+
+task v4_const_snapshot_capacity() -> int {
+    pilot held = array_new()
+    pilot handle = array_new()
+    repeat until handle < 0 {
+        array_push(held, word_from_int(handle))
+        handle = array_new()
+    }
+    pilot count = array_len(held)
+    pilot idx = 0
+    repeat until idx >= count {
+        array_release(word_to_int(array_get(held, idx)))
+        idx += 1
+    }
+    array_release(held)
+    give back count
+}
+
+task v4_const_snapshot_large() -> word {
+    pilot parts = array_new()
+    array_push(parts, v4_const_snapshot_header(8, 512))
+    pilot parent_name = ""
+    pilot idx = 0
+    repeat until idx >= 2048 {
+        parent_name = parent_name + "a"
+        idx += 1
+    }
+    pilot none = v4_hir_snapshot_escape(V4_NO_SPAN)
+    pilot owner = 0
+    repeat until owner >= 8 {
+        pilot owner_text = word_from_int(owner)
+        pilot source_text = word_from_int(owner + 100)
+        array_push(parts, "\nhir|" + owner_text + "|" + source_text + "|0|64|0")
+        pilot item = 0
+        repeat until item >= 64 {
+            pilot item_text = word_from_int(item)
+            array_push(parts, "\nhir-item|" + owner_text + "|" + item_text + "|Const|" + parent_name + "|" + owner_text + "-" + item_text + "|" + source_text + "@0:3000|0||" + none)
+            array_push(parts, "\nhir-const-annotation|" + owner_text + "|" + item_text + "|int|" + source_text + "@2200:2203|" + source_text + "@12:2060")
+            item += 1
+        }
+        owner += 1
+    }
+    array_push(parts, "\nend|freak-hir-snapshot-v8")
+    give back word_join(parts)
+}
+
+task v4_const_snapshot_run() -> void {
+    pilot payload = v4_const_snapshot_payload()
+    pilot restored = v4_hir_snapshot_restore(v4_const_snapshot_reverse(payload))
+    pilot before = v4_hir_snapshot()
+    say "const-snapshot-v8-reordered=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_const_type(0, 0) == "int" and v4_hir_const_type_span(0, 0) == "7@15:18" and v4_hir_const_name_span(0, 0) == "7@10:13")
+    say "const-snapshot-inferred-quoted=" + word_from_bool(v4_hir_const_type(0, 1) == "" and v4_hir_const_type_span(0, 1) == V4_NO_SPAN and v4_hir_const_type(0, 2) == "" and v4_hir_const_type_span(0, 2) == "7@88:90")
+    say "const-snapshot-old-version-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("freak-hir-snapshot-v8", "freak-hir-snapshot-v7"), before))
+    say "const-snapshot-extra-field-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("7@10:13\n", "7@10:13|extra\n"), before))
+    say "const-snapshot-noncanonical-id-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("hir-const-annotation|0|0|", "hir-const-annotation|00|0|"), before))
+    say "const-snapshot-sparse-owner-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("hir-const-annotation|0|0|", "hir-const-annotation|99|0|"), before))
+    say "const-snapshot-sparse-item-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("hir-const-annotation|0|0|", "hir-const-annotation|0|99|"), before))
+    say "const-snapshot-duplicate-item-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("hir-const-annotation|0|1|", "hir-const-annotation|0|0|"), before))
+    say "const-snapshot-header-count-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("|const-annotations=3|", "|const-annotations=2|"), before))
+    say "const-snapshot-owner-kind-atomic=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("|Const|FIRST|", "|Route|FIRST|"), before))
+    pilot inferred_line = "\nhir-const-annotation|0|1||" + v4_hir_snapshot_escape(V4_NO_SPAN) + "|7@45:50"
+    say "const-snapshot-inferred-record-required=" + word_from_bool(v4_const_snapshot_rejected(payload.replace(inferred_line, "").replace("|const-annotations=3|", "|const-annotations=2|"), before))
+    say "const-snapshot-name-span-canonical=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("7@10:13", "7@010:13"), before))
+    say "const-snapshot-name-span-owner=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("7@10:13", "8@10:13"), before))
+    say "const-snapshot-type-span-containment=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("7@15:18", "7@15:41"), before))
+    say "const-snapshot-type-span-order=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("7@15:18", "7@11:14"), before))
+    say "const-snapshot-nonempty-type-needs-span=" + word_from_bool(v4_const_snapshot_rejected(payload.replace("7@15:18", v4_hir_snapshot_escape(V4_NO_SPAN)), before))
+    pilot capacity = v4_const_snapshot_capacity()
+    pilot idx = 0
+    pilot stable = true
+    repeat until idx >= 48 {
+        if not v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=1") { stable = false }
+        idx += 1
+    }
+    say "const-snapshot-repeat-no-handles=" + word_from_bool(stable and capacity == v4_const_snapshot_capacity() and v4_hir_snapshot() == before)
+    pilot large = v4_const_snapshot_large()
+    idx = 0
+    stable = true
+    repeat until idx >= 8 {
+        if not v4_hir_snapshot_validate(large).starts_with("hir-snapshot-import ok=1") { stable = false }
+        idx += 1
+    }
+    pilot large_restored = v4_hir_snapshot_restore(large)
+    say "const-snapshot-large-long-parent=" + word_from_bool(stable and large_restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_const_annotation_total() == 512)
+    say "const-snapshot-multiple-owners=" + word_from_bool(v4_hir_file_count() == 8 and v4_hir_const_type(7, 63) == "int" and v4_hir_const_name_span(7, 63) == "107@12:2060")
+    pilot large_capacity = v4_const_snapshot_capacity()
+    idx = 0
+    stable = true
+    repeat until idx >= 3 {
+        if not v4_hir_snapshot_restore(large).starts_with("hir-snapshot-restore ok=1") { stable = false }
+        idx += 1
+    }
+    say "const-snapshot-large-restore-no-handles=" + word_from_bool(stable and large_capacity == v4_const_snapshot_capacity())
+}
+
+v4_const_snapshot_run()
