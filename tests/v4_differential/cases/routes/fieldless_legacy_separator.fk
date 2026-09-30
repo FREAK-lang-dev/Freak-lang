@@ -1,0 +1,7 @@
+route Compass { North / East / South / West }
+
+fixed pilot START: Compass = Compass::North
+
+task main() -> int {
+    give back 0
+}

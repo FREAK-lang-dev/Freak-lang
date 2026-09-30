@@ -1,0 +1,8 @@
+@repr(i32)
+variant Signal {
+    A = 4 / 0, B
+}
+
+task main() -> int {
+    give back 0
+}
