@@ -2061,6 +2061,27 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "extern member return separator boundaries",
+        "fixture": "extern_return_separator_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "extern-return-separator-counts=true",
+            "extern-return-separator-names=true",
+            "extern-return-separator-returns=true",
+            "extern-return-separator-spans=true",
+            "extern-return-separator-depth=true",
+            "extern-return-separator-quoted=true",
+            "extern-return-separator-attributes=true",
+            "extern-return-separator-parameters=true",
+            "extern-return-separator-synthetic=true",
+            "extern-return-separator-diagnostic=true",
+            "extern-return-separator-detached=true",
+            "extern-return-separator-snapshot=true",
+            "extern-return-separator-recovery=true",
+            "extern-return-separator-unclosed=true",
+        ],
+    },
+    {
         "name": "extern member return snapshot contracts",
         "fixture": "extern_return_snapshot_smoke.fk",
         "memory_limit_mb": 64,
@@ -11162,6 +11183,7 @@ def extern_return_boundary_violations(hir_source: str, ty_source: str) -> list[s
     pure_terminals = {"array_get", "array_len", "word_to_int"}
 
     def tokens_for(name: str) -> list:
+        """Cache active body tokens and report missing or unlexable tasks."""
         if name not in token_cache:
             body = freak_task_body(sources.get(name, ""), name)
             token_cache[name] = []
@@ -11175,6 +11197,7 @@ def extern_return_boundary_violations(hir_source: str, ty_source: str) -> list[s
         return token_cache[name]
 
     def calls(name: str) -> set[str]:
+        """Cache identifier-call edges without accepting comments or strings."""
         if name not in edges:
             tokens = tokens_for(name)
             edges[name] = {
@@ -11184,6 +11207,7 @@ def extern_return_boundary_violations(hir_source: str, ty_source: str) -> list[s
         return edges[name]
 
     def closure(root: str, extra_terminals: set[str] | None = None) -> set[str]:
+        """Traverse a cycle-safe read closure, rejecting syntax, writes and unknowns."""
         pending, reached = [root], set()
         terminals = pure_terminals | (extra_terminals or set())
         while pending:
@@ -11272,6 +11296,7 @@ def extern_return_boundary_violations(hir_source: str, ty_source: str) -> list[s
 
 
 def check_extern_return_hir_boundary() -> None:
+    """Fail the checker when stored extern-return ownership has drifted."""
     violations = extern_return_boundary_violations(
         read_text(crate_path("freak_hir")), read_text(crate_path("freak_ty")),
     )

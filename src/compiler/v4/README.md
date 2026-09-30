@@ -158,6 +158,9 @@ ordered member spans, normalized declared surface types and exact type spans,
 plus an explicit arrow-recovery flag. TY's direct-member, synthetic-signature,
 display and return-span paths consume those stored facts. Direct-member and
 synthetic-signature canonicalization retain their existing distinct entry points.
+Extern-only member boundaries exclude top-level semicolon separators, including
+multiple declarations on one line. Semicolons inside nested type forms and quoted
+punctuation do not split members; ordinary task parsing is unchanged.
 Missing declarations remain unknown, not implicit `void`; empty quoted types
 may retain their declaration span. The separately named arrow-recovery helper
 can infer the existing arrow expression only when the stored flag permits it;
