@@ -1572,19 +1572,19 @@ task v4_hir_lower_extern_returns(hir_id: int, item_id: int) -> void {
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern { give back }
     -- Enumerate forward with the parser's recovery end rule, avoiding repeated
     -- ordinal searches through all earlier members. Unclosed blocks stay empty.
-    pilot tree = v4_hir_tree_id(hir_id)
+    pilot expansion_id = v4_hir_item_expansion_id(hir_id)
     pilot node = v4_hir_item_parse_node(hir_id, item_id)
     pilot stream = v4_hir_item_stream_id(hir_id)
-    if tree < 0 or stream < 0 { give back }
-    pilot open = v4_parse_extern_body_open_token(tree, node)
-    pilot close = v4_parse_extern_body_close_token(tree, node)
+    if v4_expand_tree_exists(expansion_id) == false or stream < 0 { give back }
+    pilot open = v4_expand_extern_body_open_token(expansion_id, node)
+    pilot close = v4_expand_extern_body_close_token(expansion_id, node)
     if open < 0 or close <= open { give back }
     pilot idx = open + 1
     repeat until idx >= close {
         idx = v4_hir_skip_trivia(stream, idx, close)
         if idx < close {
             if v4_lex_token_value(stream, idx) == "task" {
-                pilot end = v4_parse_skip_item(stream, idx)
+                pilot end = v4_expand_extern_member_end_from_start(expansion_id, idx)
                 if end <= idx { idx += 1 } else {
                     if end > close { end = close }
                     v4_hir_lower_extern_member_return(hir_id, item_id, stream, idx, end)
