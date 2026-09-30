@@ -948,6 +948,7 @@ task v4_parse_extern_member_end_from_start(stream_id: int, start_token: int) -> 
     pilot idx = start_token
     pilot body_depth = 0
     pilot type_depth = 0
+    pilot arrow_expression = false
     pilot saw_body = false
     pilot count = v4_lex_token_count(stream_id)
     repeat until idx >= count {
@@ -958,7 +959,13 @@ task v4_parse_extern_member_end_from_start(stream_id: int, start_token: int) -> 
         pilot value = v4_lex_token_value(stream_id, idx)
         if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
             if type_depth == 0 and value == ";" { give back idx }
-            type_depth = v4_parse_depth_after_token(type_depth, value)
+            -- A real top-level arrow starts an expression, not another type.
+            -- Comparisons cannot open/close generic nesting in that expression;
+            -- nested callback and quoted arrows retain declaration-mode recovery.
+            if type_depth == 0 and value == "=>" { arrow_expression = true }
+            if not arrow_expression or (value != "<" and value != ">") {
+                type_depth = v4_parse_depth_after_token(type_depth, value)
+            }
         }
         if not v4_parse_token_is_trivia(stream_id, idx) {
             if value == "{" {
