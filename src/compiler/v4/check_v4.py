@@ -2207,6 +2207,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-canonical-span-equivalence=true",
             "hir-scaling-field-decoder-equivalence=true",
             "hir-scaling-field-equality-equivalence=true",
+            "hir-scaling-header-key-equivalence=true",
             "hir-scaling-baseline-restored=true",
             "hir-scaling-64-aliases=true",
             "hir-scaling-512-aliases=true",
