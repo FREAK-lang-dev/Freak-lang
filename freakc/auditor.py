@@ -1591,6 +1591,35 @@ def _hir_lookup_probe_errors(
     return errors
 
 
+def _hir_extern_return_probe_errors(tests: Path, harness: Path) -> List[str]:
+    """Require every extern-return fixture, active probe and executable oracle."""
+    errors: List[str] = []
+    for fixture, prefix, labels, invocation in (
+        ("extern_return_boundary_smoke.fk", "extern-return-boundary-", (
+            "counts", "alias", "void-missing", "callbacks", "spans", "diagnostic",
+            "detached", "invalid", "editor", "restored", "edit", "recovery-parity",
+            "quoted", "unclosed", "manual-empty",
+        ), "v4_extern_return_boundary_run()"),
+        ("extern_return_separator_smoke.fk", "extern-return-separator-", (
+            "counts", "names", "returns", "spans", "depth", "quoted", "attributes",
+            "parameters", "synthetic", "diagnostic", "detached", "snapshot",
+            "recovery", "unclosed", "many-same-line",
+            "arrow-counts", "arrow-names", "arrow-spans", "arrow-recovery",
+            "arrow-ty", "arrow-nesting", "arrow-snapshot",
+        ), "v4_extern_separator_run()"),
+        ("extern_return_snapshot_smoke.fk", "extern-return-snapshot-", (
+            "reordered", "empty-quoted", "version-width", "canonical-identity",
+            "orphan-duplicate", "complete-counts", "owner-contract", "surface-flag",
+            "spans-order", "repeat-handles", "resource-retry", "many-members",
+            "empty-owners-reuse",
+        ), "v4_extern_return_snapshot_run()"),
+    ):
+        errors.extend(_hir_lookup_probe_errors(
+            tests / fixture, harness, tuple(prefix + label for label in labels), (invocation,),
+        ))
+    return errors
+
+
 def _hir_lookup_scaling_errors(fixture: Path, harness: Path) -> List[str]:
     return _hir_lookup_probe_errors(fixture, harness, (
         "hir-scaling-annotation-duplicate-start", "hir-scaling-annotation-surplus-fields",
@@ -3361,25 +3390,7 @@ def audit_conformance(paths: List[Path]) -> int:
         failures.append("V4 route declaration HIR boundary regressed: " + "; ".join(route_missing))
 
     # Extern-member declared returns cross the syntax boundary once, in HIR.
-    extern_return_missing: List[str] = []
-    for fixture, labels, invocation in (
-        ("extern_return_boundary_smoke.fk", (
-            "counts", "alias", "void-missing", "callbacks", "spans", "diagnostic",
-            "detached", "invalid", "editor", "restored", "edit", "recovery-parity",
-            "quoted", "unclosed", "manual-empty",
-        ), "v4_extern_return_boundary_run()"),
-        ("extern_return_snapshot_smoke.fk", (
-            "reordered", "empty-quoted", "version-width", "canonical-identity",
-            "orphan-duplicate", "complete-counts", "owner-contract", "surface-flag",
-            "spans-order", "repeat-handles", "resource-retry", "many-members",
-            "empty-owners-reuse",
-        ), "v4_extern_return_snapshot_run()"),
-    ):
-        prefix = "extern-return-boundary-" if "boundary" in fixture else "extern-return-snapshot-"
-        extern_return_missing.extend(_hir_lookup_probe_errors(
-            shape_tests / fixture, shape_harness,
-            tuple(prefix + label for label in labels), (invocation,),
-        ))
+    extern_return_missing = _hir_extern_return_probe_errors(shape_tests, shape_harness)
     for path, markers in (
         (v4_hir_task_param, (
             'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v10"',

@@ -3041,7 +3041,10 @@ Rules:
 > remain unknown; the existing arrow-expression recovery is explicitly gated
 > by its stored HIR flag. Optional semicolon separators terminate extern-member
 > facts without entering their return types or spans, including same-line members;
-> nested type semicolons and quoted punctuation are preserved. Extern parameter
+> nested type semicolons and quoted semicolon/bracket tokens are preserved.
+> Quoted braces remain subject to the parser's existing value-based body recovery
+> and can truncate or leave an extern block unclosed; this slice does not promote
+> that recovery surface. Extern parameter
 > discovery, ABI/layout validation,
 > callback semantics and backend representation are not changed by this slice.
 
