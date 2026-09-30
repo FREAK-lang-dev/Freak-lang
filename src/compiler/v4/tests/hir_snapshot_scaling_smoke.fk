@@ -610,8 +610,74 @@ task v4_hir_scaling_canonical_checks() -> void {
     say "hir-scaling-field-equality-equivalence=" + word_from_bool(equality_ok)
 }
 
+task v4_hir_scaling_header_key_checks() -> void {
+    pilot lines = array_new()
+    array_push(lines, "")
+    array_push(lines, "files=9")
+    array_push(lines, "files=9|files=1")
+    array_push(lines, "hir-snapshot")
+    array_push(lines, "hir-snapshot|")
+    array_push(lines, "hir-snapshot||")
+    array_push(lines, "hir-snapshot|=ignored|files=2")
+    array_push(lines, "hir-snapshot|files=|files=3")
+    array_push(lines, "hir-snapshot|files=2|files=3")
+    array_push(lines, "hir-snapshot|format=x|format=y")
+    array_push(lines, "hir-snapshot|files|files=2")
+    array_push(lines, "hir-snapshot|format=first=rest|files=2|")
+    array_push(lines, "hir-snapshot|format=%25%7C%0A%0D|files=2")
+    array_push(lines, "hir-snapshot|format=%xx%2%|files=2")
+    array_push(lines, "hir-snapshot|fi%7Cles=raw|files=2")
+    array_push(lines, "hir-snapshot|files%25=literal|files=2")
+    array_push(lines, "hir-snapshot|format =spaced|format=compact")
+    array_push(lines, "hir-snapshot|format==leading-equals|zero=0|files=2")
+    array_push(lines, "hir-snapshot|x=|zero=0|")
+    array_push(lines, "|files=2")
+    array_push(lines, "ignored|missingtail")
+    array_push(lines, "ignored|=|==bad|files=2")
+    array_push(lines, "hir-snapshot||=ignored|files=a=b")
+    pilot long_key = "unrecognized-header-key"
+    pilot long_value = "long-header-value"
+    pilot long_index = 0
+    repeat until long_index >= 6 {
+        long_key = long_key + long_key
+        long_value = long_value + long_value
+        long_index += 1
+    }
+    array_push(lines, "hir-snapshot|" + long_key + "=" + long_value + "%7C|files=2")
+    pilot keys = array_new()
+    array_push(keys, "")
+    array_push(keys, "files")
+    array_push(keys, "format")
+    array_push(keys, "format ")
+    array_push(keys, "fi%7Cles")
+    array_push(keys, "fi|les")
+    array_push(keys, "files%25")
+    array_push(keys, "files%")
+    array_push(keys, "zero")
+    array_push(keys, "x")
+    array_push(keys, "missingtail")
+    array_push(keys, "=")
+    array_push(keys, long_key)
+    pilot equivalent: bool = true
+    pilot line_index = 0
+    repeat until line_index >= array_len(lines) {
+        pilot line: word = array_get(lines, line_index)
+        pilot key_index = 0
+        repeat until key_index >= array_len(keys) {
+            pilot key: word = array_get(keys, key_index)
+            if v4_hir_snapshot_key_value(line, key) != v4_expand_snapshot_key_value(line, key) { equivalent = false }
+            key_index += 1
+        }
+        line_index += 1
+    }
+    array_release(keys)
+    array_release(lines)
+    say "hir-scaling-header-key-equivalence=" + word_from_bool(equivalent)
+}
+
 task v4_hir_snapshot_scaling_run() -> void {
     v4_hir_scaling_canonical_checks()
+    v4_hir_scaling_header_key_checks()
     pilot small = v4_hir_scaling_payload(1, 64)
     pilot large = v4_hir_scaling_payload(1, 512)
     pilot multi = v4_hir_scaling_payload(64, 8)

@@ -1821,7 +1821,32 @@ task v4_hir_snapshot_field_matches(line: word, wanted: int, expected: word) -> b
 }
 
 task v4_hir_snapshot_key_value(line: word, wanted_key: word) -> word {
-    give back v4_expand_snapshot_key_value(line, wanted_key)
+    -- Header lookups skip field zero and compare raw keys without copying each
+    -- nonselected field/key. Only the first matching value is sliced/decoded.
+    pilot start = v4_index_of_from(line, "|", 0)
+    if start < 0 { give back "" }
+    start += 1
+    pilot limit = line.length()
+    repeat until start > limit {
+        pilot end = start
+        pilot eq_pos = 0 - 1
+        repeat until end >= limit or line.char_at(end) == "|" {
+            if eq_pos < 0 and line.char_at(end) == "=" { eq_pos = end }
+            end += 1
+        }
+        if eq_pos > start and eq_pos - start == wanted_key.length() {
+            pilot key_matches: bool = true
+            pilot idx = start
+            repeat until idx >= eq_pos or key_matches == false {
+                if line.char_at(idx) != wanted_key.char_at(idx - start) { key_matches = false }
+                idx += 1
+            }
+            if key_matches { give back v4_expand_snapshot_unescape(v4_slice(line, eq_pos + 1, end)) }
+        }
+        if end >= limit { give back "" }
+        start = end + 1
+    }
+    give back ""
 }
 
 task v4_hir_snapshot_item_total() -> int {
