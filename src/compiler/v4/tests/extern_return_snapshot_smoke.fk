@@ -106,7 +106,7 @@ task v4_extern_return_snapshot_resource_retry(payload: word, before: word) -> bo
     }
     pilot generation = v4_session_semantic_restore_generation()
     pilot failed = v4_hir_snapshot_restore(payload)
-    pilot atomic = v4_hir_snapshot() == before and v4_session_semantic_restore_generation() == generation
+    pilot atomic: bool = v4_hir_snapshot() == before and v4_session_semantic_restore_generation() == generation
     pilot idx = 0
     repeat until idx >= count {
         array_release(word_to_int(array_get(held, idx)))
