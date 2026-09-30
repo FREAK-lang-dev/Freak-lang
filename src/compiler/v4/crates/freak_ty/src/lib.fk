@@ -3833,7 +3833,8 @@ task v4_ty_extern_return_arrow_recovery(hir_id: int, hir_item: int, member_id: i
     -- recorded it. Declared type reconstruction cannot enter this fallback.
     pilot span = v4_hir_extern_member_span(hir_id, hir_item, member_id)
     pilot stream = v4_hir_item_stream_id(hir_id)
-    if stream < 0 or span == V4_NO_SPAN { give back v4_ty_unknown }
+    pilot no_span = V4_NO_SPAN
+    if stream < 0 or span == no_span { give back v4_ty_unknown }
     pilot start = v4_ty_first_token_at_or_after(stream, v4_span_start(span))
     pilot end = v4_ty_first_token_at_or_after(stream, v4_span_end(span))
     pilot arrow = v4_ty_find_token_value(stream, start, end, "=>")
