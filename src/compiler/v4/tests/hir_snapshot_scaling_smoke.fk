@@ -595,7 +595,9 @@ task v4_hir_scaling_canonical_checks() -> void {
             pilot expected_index = 0
             repeat until expected_index >= array_len(expected_values) {
                 pilot expected: word = array_get(expected_values, expected_index)
-                if v4_hir_snapshot_field_matches(line, field, expected) != (decoded == expected) { equality_ok = false }
+                pilot actual_match: bool = v4_hir_snapshot_field_matches(line, field, expected)
+                pilot expected_match: bool = decoded == expected
+                if actual_match != expected_match { equality_ok = false }
                 expected_index += 1
             }
             field += 1
