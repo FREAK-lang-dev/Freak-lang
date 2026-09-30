@@ -1,0 +1,121 @@
+-- One bounded HIR/TY pipeline proves optional extern semicolon separators.
+-- Quoted token-value and malformed no-semicolon recovery remain unchanged.
+task v4_extern_separator_item(hir: int, ordinal: int) -> int {
+    pilot item = 0
+    pilot found = 0
+    repeat until item >= v4_hir_item_count(hir) {
+        if v4_hir_item_kind(hir, item) == v4_hir_extern {
+            if found == ordinal { give back item }
+            found += 1
+        }
+        item += 1
+    }
+    give back 0 - 1
+}
+
+task v4_extern_separator_sig(ty: int, name: word) -> int {
+    give back v4_ty_lookup_signature(ty, v4_resolve_def_for_name(v4_ty_resolve_id(ty), name))
+}
+
+task v4_extern_separator_surface_parity(hir: int, item: int) -> bool {
+    pilot tree = v4_hir_tree_id(hir)
+    pilot stream = v4_hir_item_stream_id(hir)
+    pilot node = v4_hir_item_parse_node(hir, item)
+    pilot count = v4_parse_extern_member_count(tree, node)
+    pilot member = 0
+    pilot valid: bool = count == v4_hir_extern_member_count(hir, item)
+    repeat until member >= count {
+        pilot start = v4_parse_extern_member_start_token(tree, node, member)
+        pilot end = v4_parse_extern_member_end_token(tree, node, member)
+        if v4_ty_extern_member_return_surface_from_hir(hir, item, member) != v4_ty_task_return_from_tokens(stream, start, end) { valid = false }
+        if v4_hir_extern_member_return_span(hir, item, member) != v4_ty_task_return_span_from_tokens(stream, start, end) { valid = false }
+        if v4_hir_extern_member_span(hir, item, member) != v4_ty_span_from_tokens(stream, start, end) { valid = false }
+        member += 1
+    }
+    give back valid
+}
+
+task v4_extern_separator_legacy_recovery(hir: int, item: int) -> bool {
+    pilot tree = v4_hir_tree_id(hir)
+    pilot stream = v4_hir_item_stream_id(hir)
+    pilot node = v4_hir_item_parse_node(hir, item)
+    pilot close = v4_parse_extern_body_close_token(tree, node)
+    pilot member = 0
+    pilot count = v4_parse_extern_member_count(tree, node)
+    pilot valid = v4_extern_separator_surface_parity(hir, item)
+    repeat until member >= count {
+        pilot start = v4_parse_extern_member_start_token(tree, node, member)
+        pilot legacy_end = v4_parse_skip_item(stream, start)
+        if legacy_end > close { legacy_end = close }
+        if v4_parse_extern_member_end_token(tree, node, member) != legacy_end { valid = false }
+        member += 1
+    }
+    give back valid
+}
+
+task v4_extern_separator_run() -> void {
+    pilot path = "extern-return-separators.fk"
+    pilot src = "extern [C] { @link_name(\"native_first\") task first(value: [std::ffi::c_int; 2]) -> [std::ffi::c_int; 2]; @link_name(\"native_second\") task second(cb: extern[C]task(seed: [std::ffi::c_int; 2]) -> std::ffi::c_int) -> extern[C]task(seed: [std::ffi::c_int; 2]) -> std::ffi::c_int; task third(flag: bool) -> void;;; task bad() -> word; task missing(); }\n"
+    src = src + "extern [C] { task quoted_semicolon() -> \";\"; task quoted_open() -> \"[\"; task quoted_close() -> \"]\"; task quoted_nested(x: [\"]\";2]) -> [\"]\";2]; task after_quoted() -> void; }\n"
+    src = src + "extern [C] {\n task malformed(value: (int,\n int)) -> int\n task quoted_arrow() \"->\" std::ffi::c_int\n \"task\" recovered() -> void\n task nested_arrow(x: extern[C]task(y:int) => 7)\n task no_separator() -> int task swallowed() -> void\n task body_like() -> int { pilot local = 1; give back local }\n}\n"
+    src = src + "extern [C] {\n task lost() -> int\n"
+    pilot hir = v4_hir_text_cached(path, src)
+    pilot ty = v4_ty_text_cached(path, src)
+    pilot item = v4_extern_separator_item(hir, 0)
+    pilot quoted = v4_extern_separator_item(hir, 1)
+    pilot recovery = v4_extern_separator_item(hir, 2)
+    pilot unclosed = v4_extern_separator_item(hir, 3)
+    pilot tree = v4_hir_tree_id(hir)
+    pilot stream = v4_hir_item_stream_id(hir)
+    pilot node = v4_hir_item_parse_node(hir, item)
+    pilot block = v4_ty_signature_for_hir_item(ty, item)
+    pilot first = v4_extern_separator_sig(ty, "first")
+    pilot second = v4_extern_separator_sig(ty, "second")
+    pilot third = v4_extern_separator_sig(ty, "third")
+    pilot bad = v4_extern_separator_sig(ty, "bad")
+    pilot missing = v4_extern_separator_sig(ty, "missing")
+    pilot array_type = "[std::ffi::c_int;2]"
+    pilot callback_type = "extern[C]task(seed:[std::ffi::c_int;2])->std::ffi::c_int"
+    say "extern-return-separator-counts=" + word_from_bool(item >= 0 and v4_parse_extern_member_count(tree, node) == 5 and v4_hir_extern_member_count(hir, item) == 5 and v4_ty_extern_member_count(ty, block) == 5)
+    say "extern-return-separator-names=" + word_from_bool(v4_hir_extern_member_name(hir, item, 0) == "first" and v4_hir_extern_member_name(hir, item, 1) == "second" and v4_hir_extern_member_name(hir, item, 2) == "third" and v4_hir_extern_member_name(hir, item, 3) == "bad" and v4_hir_extern_member_name(hir, item, 4) == "missing")
+    say "extern-return-separator-returns=" + word_from_bool(v4_hir_extern_member_return_surface_type(hir, item, 0) == array_type and v4_hir_extern_member_return_surface_type(hir, item, 1) == callback_type and v4_hir_extern_member_return_surface_type(hir, item, 2) == "void" and v4_hir_extern_member_return_surface_type(hir, item, 3) == "word" and v4_hir_extern_member_return_surface_type(hir, item, 4) == "" and v4_ty_signature_return_surface_type(ty, missing) == v4_ty_unknown)
+    pilot member = 0
+    pilot spans = true
+    repeat until member >= 5 {
+        pilot start = v4_parse_extern_member_start_token(tree, node, member)
+        pilot end = v4_parse_extern_member_end_token(tree, node, member)
+        pilot member_span = v4_hir_extern_member_span(hir, item, member)
+        if v4_lex_token_type(stream, end) != v4_tok_symbol or v4_lex_token_value(stream, end) != ";" { spans = false }
+        if v4_span_end(member_span) > v4_span_start(v4_lex_token_span(stream, end)) or v4_hir_span_from_tokens(stream, start, end) != member_span { spans = false }
+        member += 1
+    }
+    pilot first_span = v4_hir_extern_member_return_span(hir, item, 0)
+    pilot second_span = v4_hir_extern_member_return_span(hir, item, 1)
+    say "extern-return-separator-spans=" + word_from_bool(spans and v4_slice(src, v4_span_start(first_span), v4_span_end(first_span)) == "[std::ffi::c_int; 2]" and v4_slice(src, v4_span_start(second_span), v4_span_end(second_span)) == "extern[C]task(seed: [std::ffi::c_int; 2]) -> std::ffi::c_int")
+    say "extern-return-separator-depth=" + word_from_bool(v4_extern_separator_surface_parity(hir, item) and v4_ty_signature_return_type(ty, first) == "[int;2]" and v4_ty_extern_member_return_type(ty, block, 0) == "[int;2]" and v4_ty_signature_param_surface_type(ty, second, 0) == callback_type)
+    pilot nested_quote_span = v4_hir_extern_member_return_span(hir, quoted, 3)
+    say "extern-return-separator-quoted=" + word_from_bool(v4_hir_extern_member_count(hir, quoted) == 5 and v4_hir_extern_member_return_surface_type(hir, quoted, 0) == ";" and v4_hir_extern_member_return_surface_type(hir, quoted, 1) == "[" and v4_hir_extern_member_return_surface_type(hir, quoted, 2) == "]" and v4_slice(src, v4_span_start(nested_quote_span), v4_span_end(nested_quote_span)) == "[\"]\";2]" and v4_hir_extern_member_return_surface_type(hir, quoted, 4) == "void" and v4_extern_separator_surface_parity(hir, quoted))
+    say "extern-return-separator-attributes=" + word_from_bool(v4_ty_extern_member_attribute_count(ty, block, 0) == 1 and v4_ty_extern_member_attribute_count(ty, block, 1) == 1 and v4_ty_extern_member_attribute_count(ty, block, 2) == 0 and v4_ty_extern_member_attribute_name(ty, block, 1, 0) == "link_name" and v4_ty_signature_symbol_name(ty, first) == "native_first" and v4_ty_signature_symbol_name(ty, second) == "native_second" and v4_ty_signature_symbol_name(ty, third) == "third")
+    say "extern-return-separator-parameters=" + word_from_bool(v4_ty_signature_param_count(ty, first) == 1 and v4_ty_signature_param_name(ty, first, 0) == "value" and v4_ty_signature_param_surface_type(ty, first, 0) == array_type and v4_ty_signature_param_count(ty, second) == 1 and v4_ty_signature_param_name(ty, second, 0) == "cb" and v4_ty_signature_param_surface_type(ty, second, 0) == callback_type and v4_ty_signature_param_name(ty, third, 0) == "flag" and v4_ty_signature_param_surface_type(ty, third, 0) == "bool" and v4_ty_signature_param_count(ty, bad) == 0)
+    say "extern-return-separator-synthetic=" + word_from_bool(first >= 0 and second >= 0 and third >= 0 and v4_ty_signature_extern_member_id(ty, first) == 0 and v4_ty_signature_extern_member_id(ty, second) == 1 and v4_ty_signature_extern_member_id(ty, third) == 2 and v4_ty_signature_return_surface_type(ty, first) == v4_ty_extern_member_return_surface_type(ty, block, 0) and v4_ty_signature_return_surface_type(ty, second) == v4_ty_extern_member_return_surface_type(ty, block, 1) and v4_ty_signature_return_span(ty, first) == first_span and v4_ty_signature_return_span(ty, second) == second_span and v4_ty_signature_display(ty, second) == "task second(...) -> " + callback_type)
+    pilot bad_span = v4_hir_extern_member_return_span(hir, item, 3)
+    pilot diag = 0
+    pilot diagnostic = false
+    repeat until diag >= v4_ty_diag_count(ty) {
+        pilot value = v4_ty_diag(ty, diag)
+        if v4_diag_message(value) == "extern return type is not FFI-safe" and v4_diag_span(value) == bad_span and v4_diag_help(value).contains("word") { diagnostic = true }
+        diag += 1
+    }
+    say "extern-return-separator-diagnostic=" + word_from_bool(diagnostic and v4_slice(src, v4_span_start(bad_span), v4_span_end(bad_span)) == "word")
+    pilot expansion: word = array_get(v4_hir_expansions, hir)
+    array_set(v4_hir_expansions, hir, "-1")
+    say "extern-return-separator-detached=" + word_from_bool(v4_hir_extern_member_count(hir, item) == 5 and v4_ty_signature_return_surface_type(ty, first) == array_type and v4_ty_signature_return_span(ty, second) == second_span and v4_ty_extern_member_return_surface_type(ty, block, 1) == callback_type and v4_ty_signature_display(ty, second) == "task second(...) -> " + callback_type)
+    array_set(v4_hir_expansions, hir, expansion)
+    pilot snapshot = v4_hir_snapshot()
+    pilot restored = v4_hir_snapshot_restore(snapshot)
+    say "extern-return-separator-snapshot=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_hir_extern_member_count(hir, item) == 5 and v4_hir_extern_member_return_span(hir, item, 1) == second_span and v4_hir_extern_member_return_surface_type(hir, quoted, 0) == ";")
+    say "extern-return-separator-recovery=" + word_from_bool(v4_hir_extern_member_count(hir, recovery) == 6 and v4_extern_separator_legacy_recovery(hir, recovery) and v4_hir_extern_member_return_span(hir, recovery, 0) == V4_NO_SPAN and v4_ty_extern_member_return_surface_from_hir(hir, recovery, 0) == v4_ty_unknown and v4_hir_extern_member_return_surface_type(hir, recovery, 1) == "std::ffi::c_int" and v4_hir_extern_member_name(hir, recovery, 2) == "recovered" and v4_ty_extern_member_return_surface_from_hir(hir, recovery, 3) == "int" and v4_hir_extern_member_return_surface_type(hir, recovery, 5) == "int")
+    say "extern-return-separator-unclosed=" + word_from_bool(unclosed >= 0 and v4_hir_extern_member_count(hir, unclosed) == 0)
+}
+
+v4_extern_separator_run()
