@@ -80,7 +80,10 @@ task v4_extern_return_boundary_run() -> void {
     say "extern-return-boundary-invalid=" + word_from_bool(v4_hir_extern_member_count(-1, 0) == 0 and v4_hir_extern_member_count(hir, -1) == 0 and v4_hir_extern_member_count(hir, 0) == 0 and v4_hir_extern_member_return_surface_type(hir, item, 6) == "" and v4_hir_extern_member_return_span(hir, item, -1) == V4_NO_SPAN and v4_hir_extern_member_span(hir, item, 99) == V4_NO_SPAN and not v4_hir_extern_member_return_has_arrow_fallback(hir, item, 99))
     -- v4_index_of_from searches one character, not a substring. The verified
     -- member span begins with "task answer"; +6 is inside the answer token.
-    pilot hover = v4_hover_text_cached(path, src, v4_span_start(member_span) + 6)
+    pilot hover_offset = v4_span_start(member_span) + 6
+    pilot hover_stream = v4_hir_item_stream_id(hir)
+    pilot hover_token = v4_editor_token_at(hover_stream, hover_offset)
+    pilot hover = v4_hover_text_cached(path, src, hover_offset)
     pilot completion = v4_completion_text_cached(path, src, src.length())
     pilot completion_id = 0
     pilot completion_found = false
@@ -88,7 +91,7 @@ task v4_extern_return_boundary_run() -> void {
         if v4_completion_label(completion, completion_id) == "answer" and v4_completion_detail(completion, completion_id) == display { completion_found = true }
         completion_id += 1
     }
-    say "extern-return-boundary-editor=" + word_from_bool(v4_hover_name(hover) == "answer" and v4_hover_type(hover) == display and v4_hover_markdown(hover).contains(display) and display.contains("Count") and completion_found)
+    say "extern-return-boundary-editor=" + word_from_bool(hover_offset >= 0 and hover_token >= 0 and v4_lex_token_value(hover_stream, hover_token) == "answer" and v4_hover_name(hover) == "answer" and v4_hover_type(hover) == display and v4_hover_markdown(hover).contains(display) and display.contains("Count") and completion_found)
     pilot snapshot = v4_hir_snapshot()
     pilot ty_snapshot = v4_ty_snapshot()
     pilot restored = v4_hir_snapshot_restore(snapshot)
