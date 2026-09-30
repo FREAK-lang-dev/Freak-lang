@@ -1,5 +1,7 @@
 -- One bounded HIR/TY pipeline proves optional extern semicolon separators.
 -- Quoted token-value and malformed no-semicolon recovery remain unchanged.
+task v4_extern_separator_braces(body: word) -> word { give back "{" + body + "}" }
+
 task v4_extern_separator_item(hir: int, ordinal: int) -> int {
     pilot item = 0
     pilot found = 0
@@ -55,10 +57,10 @@ task v4_extern_separator_legacy_recovery(hir: int, item: int) -> bool {
 
 task v4_extern_separator_run() -> void {
     pilot path = "extern-return-separators.fk"
-    pilot src = "extern [C] { @link_name(\"native_first\") task first(value: [std::ffi::c_int; 2]) -> [std::ffi::c_int; 2]; @link_name(\"native_second\") task second(cb: extern[C]task(seed: [std::ffi::c_int; 2]) -> std::ffi::c_int) -> extern[C]task(seed: [std::ffi::c_int; 2]) -> std::ffi::c_int; task third(flag: bool) -> void;;; task bad() -> word; task missing(); }\n"
-    src = src + "extern [C] { task quoted_semicolon() -> \";\"; task quoted_open() -> \"[\"; task quoted_close() -> \"]\"; task quoted_nested(x: [\"]\";2]) -> [\"]\";2]; task after_quoted() -> void; }\n"
-    src = src + "extern [C] {\n task malformed(value: (int,\n int)) -> int\n task quoted_arrow() \"->\" std::ffi::c_int\n \"task\" recovered() -> void\n task nested_arrow(x: extern[C]task(y:int) => 7)\n task no_separator() -> int task swallowed() -> void\n task body_like() -> int { pilot local = 1; give back local }\n}\n"
-    src = src + "extern [C] {\n task lost() -> int\n"
+    pilot src = "extern [C] " + v4_extern_separator_braces(" @link_name(\"native_first\") task first(value: [std::ffi::c_int; 2]) -> [std::ffi::c_int; 2]; @link_name(\"native_second\") task second(cb: extern[C]task(seed: [std::ffi::c_int; 2]) -> std::ffi::c_int) -> extern[C]task(seed: [std::ffi::c_int; 2]) -> std::ffi::c_int; task third(flag: bool) -> void;;; task bad() -> word; task missing(); ") + "\n"
+    src = src + "extern [C] " + v4_extern_separator_braces(" task quoted_semicolon() -> \";\"; task quoted_open() -> \"[\"; task quoted_close() -> \"]\"; task quoted_nested(x: [\"]\";2]) -> [\"]\";2]; task after_quoted() -> void; ") + "\n"
+    src = src + "extern [C] " + v4_extern_separator_braces("\n task malformed(value: (int,\n int)) -> int\n task quoted_arrow() \"->\" std::ffi::c_int\n \"task\" recovered() -> void\n task nested_arrow(x: extern[C]task(y:int) => 7)\n task no_separator() -> int task swallowed() -> void\n task body_like() -> int " + v4_extern_separator_braces(" pilot local = 1; give back local ") + "\n") + "\n"
+    src = src + "extern [C] " + "{" + "\n task lost() -> int\n"
     pilot hir = v4_hir_text_cached(path, src)
     pilot ty = v4_ty_text_cached(path, src)
     pilot item = v4_extern_separator_item(hir, 0)
