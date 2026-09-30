@@ -1,8 +1,11 @@
 """Compiler-free regressions for stored extern-return dependency boundaries."""
 import importlib.util
+import contextlib
+import io
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -37,6 +40,16 @@ class ExternReturnGuards(unittest.TestCase):
 
     def test_live_contract(self):
         self.assertEqual(self.violations(), [])
+
+    def test_snapshot_exhaustion_has_bounded_native_handle_pool(self):
+        self.assertEqual(guard.C_ARRAY_HANDLE_RESOURCE_LIMIT, 1024)
+        fixture = "extern_return_snapshot_smoke.fk"
+        self.assertIn(fixture, guard.C_ARRAY_HANDLE_RESOURCE_FIXTURES)
+        with patch.object(guard, "C_ARRAY_HANDLE_RESOURCE_FIXTURES", guard.C_ARRAY_HANDLE_RESOURCE_FIXTURES - {fixture}):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                with self.assertRaises(SystemExit):
+                    guard.check_snapshot_inventories()
+        self.assertIn("scratch-handle resource smoke limit coverage drifted", output.getvalue())
 
     def test_indirect_declared_type_reconstruction(self):
         for forbidden in ("v4_lex_token_value", "v4_expand_file_stream", "v4_ty_type_text", "v4_ty_task_return_from_tokens"):

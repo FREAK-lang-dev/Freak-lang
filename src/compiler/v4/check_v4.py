@@ -61,6 +61,7 @@ RUNNER_PEAK_RETAINED_BYTES = 0
 C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
 C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
+        "extern_return_snapshot_smoke.fk",
         "route_snapshot_smoke.fk",
         "const_snapshot_smoke.fk",
         "shape_field_snapshot_smoke.fk",
@@ -11754,6 +11755,7 @@ def check_snapshot_inventories() -> None:
                     f"query invalidation scratch release missing: {handle_release_contract}"
                 )
     for resource_fixture in (
+        "extern_return_snapshot_smoke.fk",
         "route_snapshot_smoke.fk",
         "const_snapshot_smoke.fk",
         "shape_field_snapshot_smoke.fk",
@@ -11771,6 +11773,7 @@ def check_snapshot_inventories() -> None:
         violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
+            "extern_return_snapshot_smoke.fk",
             "route_snapshot_smoke.fk",
             "const_snapshot_smoke.fk",
             "shape_field_snapshot_smoke.fk",
