@@ -3039,7 +3039,10 @@ Rules:
 > diagnostics and editor displays. HIR v10 snapshots validate complete ordered
 > extern-return owner/member facts before atomic restoration. Missing returns
 > remain unknown; the existing arrow-expression recovery is explicitly gated
-> by its stored HIR flag. Extern parameter discovery, ABI/layout validation,
+> by its stored HIR flag. Optional semicolon separators terminate extern-member
+> facts without entering their return types or spans, including same-line members;
+> nested type semicolons and quoted punctuation are preserved. Extern parameter
+> discovery, ABI/layout validation,
 > callback semantics and backend representation are not changed by this slice.
 
 ### 16.3 Memory Layout Constraints
