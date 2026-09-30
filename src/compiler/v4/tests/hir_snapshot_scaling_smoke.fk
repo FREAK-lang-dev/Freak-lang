@@ -547,19 +547,65 @@ task v4_hir_scaling_canonical_checks() -> void {
     array_push(lines, "|")
     array_push(lines, "\n|\r|\t")
     array_push(lines, "")
+    array_push(lines, "hir-item|0|0|Extern|name")
+    array_push(lines, "hir-item|0|0|Task|name")
+    array_push(lines, "hir-item|0|0|Alias|name")
+    array_push(lines, "hir-item|0|0|Impl|name")
+    array_push(lines, "hir-item|0|0|Extern-extra|name")
+    array_push(lines, "hir-item|0|0|Ex%74ern|name")
+    array_push(lines, "hir-item|0|0|Extern%7C|name")
+    array_push(lines, "hir-item|0|0|Other%7C")
+    array_push(lines, "hir-item|0|0|Extern%25|")
+    array_push(lines, "hir-item|0|0|Extern")
+    array_push(lines, "hir-item|0|0|Extern|")
+    array_push(lines, "hir-item|0|0||name")
+    pilot long_field = "unrecognized-item-kind"
+    pilot long_index = 0
+    repeat until long_index >= 7 {
+        long_field = long_field + long_field
+        long_index += 1
+    }
+    array_push(lines, "hir-item|0|0|" + long_field + "|name")
+    pilot expected_values = array_new()
+    array_push(expected_values, "")
+    array_push(expected_values, "Extern")
+    array_push(expected_values, "Task")
+    array_push(expected_values, "Alias")
+    array_push(expected_values, "Impl")
+    array_push(expected_values, "Extern-extra")
+    array_push(expected_values, "plain")
+    array_push(expected_values, "%")
+    array_push(expected_values, "|")
+    array_push(expected_values, "\n")
+    array_push(expected_values, "\r")
+    array_push(expected_values, "%xx")
+    array_push(expected_values, "Other|")
+    array_push(expected_values, "Extern%")
+    array_push(expected_values, long_field)
     pilot fields_ok = true
+    pilot equality_ok: bool = true
     index = 0
     repeat until index >= array_len(lines) {
         pilot line: word = array_get(lines, index)
         pilot field = 0 - 1
         repeat until field > 11 {
             if v4_hir_snapshot_field_raw(line, field) != v4_expand_snapshot_field_raw(line, field) or v4_hir_snapshot_field(line, field) != v4_expand_snapshot_field(line, field) { fields_ok = false }
+            pilot decoded = v4_expand_snapshot_field(line, field)
+            if v4_hir_snapshot_field_matches(line, field, decoded) == false { equality_ok = false }
+            pilot expected_index = 0
+            repeat until expected_index >= array_len(expected_values) {
+                pilot expected: word = array_get(expected_values, expected_index)
+                if v4_hir_snapshot_field_matches(line, field, expected) != (decoded == expected) { equality_ok = false }
+                expected_index += 1
+            }
             field += 1
         }
         index += 1
     }
     array_release(lines)
+    array_release(expected_values)
     say "hir-scaling-field-decoder-equivalence=" + word_from_bool(fields_ok)
+    say "hir-scaling-field-equality-equivalence=" + word_from_bool(equality_ok)
 }
 
 task v4_hir_snapshot_scaling_run() -> void {

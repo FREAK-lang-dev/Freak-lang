@@ -1790,6 +1790,36 @@ task v4_hir_snapshot_field(line: word, wanted: int) -> word {
     give back v4_expand_snapshot_unescape(raw)
 }
 
+task v4_hir_snapshot_field_matches(line: word, wanted: int, expected: word) -> bool {
+    -- Compare unescaped fields through immutable byte words, without retaining
+    -- a heap copy on each validator pass. Missing fields decode to empty words.
+    if wanted < 0 { give back expected == "" }
+    pilot field = 0
+    pilot start = 0
+    repeat until field >= wanted {
+        pilot separator = v4_index_of_from(line, "|", start)
+        if separator < 0 { give back expected == "" }
+        start = separator + 1
+        field += 1
+    }
+    pilot end = v4_index_of_from(line, "|", start)
+    if end < 0 { end = line.length() }
+    -- Inspect the complete selected raw field before length or byte rejection:
+    -- percent escapes may change both, and keep the existing decoder exactly.
+    pilot idx = start
+    repeat until idx >= end {
+        if line.char_at(idx) == "%" { give back v4_hir_snapshot_field(line, wanted) == expected }
+        idx += 1
+    }
+    if end - start != expected.length() { give back false }
+    idx = start
+    repeat until idx >= end {
+        if line.char_at(idx) != expected.char_at(idx - start) { give back false }
+        idx += 1
+    }
+    give back true
+}
+
 task v4_hir_snapshot_key_value(line: word, wanted_key: word) -> word {
     give back v4_expand_snapshot_key_value(line, wanted_key)
 }
@@ -5089,7 +5119,7 @@ task v4_hir_snapshot_extern_return_slots_are_valid(records: int, files: int, ite
         pilot idx = 0
         repeat until idx >= array_len(records) {
             pilot line: word = array_get(records, idx)
-            if line.starts_with("hir-item|") and v4_hir_snapshot_field(line, 3) == v4_hir_extern { give back false }
+            if line.starts_with("hir-item|") and v4_hir_snapshot_field_matches(line, 3, v4_hir_extern) { give back false }
             idx += 1
         }
         give back true
