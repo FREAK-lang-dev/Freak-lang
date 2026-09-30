@@ -52,7 +52,11 @@ task v4_extern_return_boundary_run() -> void {
     pilot missing = v4_extern_return_sig(ty, "missing")
     pilot block = v4_ty_signature_for_hir_item(ty, item)
     say "extern-return-boundary-counts=" + word_from_bool(item >= 0 and empty >= 0 and v4_hir_extern_member_count(hir, item) == 6 and v4_ty_extern_member_count(ty, block) == 6 and v4_hir_extern_member_count(hir, empty) == 0)
-    say "extern-return-boundary-alias=" + word_from_bool(v4_hir_extern_member_return_surface_type(hir, item, 0) == "Count" and v4_ty_extern_member_return_surface_type(ty, block, 0) == "Count" and v4_ty_signature_return_surface_type(ty, answer) == "Count" and v4_ty_extern_member_return_type(ty, block, 0) == "std::ffi::c_int" and v4_ty_signature_return_type(ty, answer) == "std::ffi::c_int")
+    -- The two baseline canonicalization entry points both normalize this
+    -- nongeneric Count -> std::ffi::c_int alias to int; surfaces stay Count.
+    say "extern-return-boundary-direct-canonical=" + v4_ty_extern_member_return_type(ty, block, 0)
+    say "extern-return-boundary-synthetic-canonical=" + v4_ty_signature_return_type(ty, answer)
+    say "extern-return-boundary-alias=" + word_from_bool(v4_hir_extern_member_return_surface_type(hir, item, 0) == "Count" and v4_ty_extern_member_return_surface_type(ty, block, 0) == "Count" and v4_ty_signature_return_surface_type(ty, answer) == "Count" and v4_ty_extern_member_return_type(ty, block, 0) == "int" and v4_ty_signature_return_type(ty, answer) == "int")
     say "extern-return-boundary-void-missing=" + word_from_bool(v4_ty_signature_return_surface_type(ty, clear) == "void" and v4_ty_signature_return_surface_type(ty, missing) == v4_ty_unknown and v4_hir_extern_member_return_surface_type(hir, item, 4) == "" and v4_hir_extern_member_return_span(hir, item, 4) == V4_NO_SPAN and not v4_hir_extern_member_return_has_arrow_fallback(hir, item, 4))
     say "extern-return-boundary-callbacks=" + word_from_bool(v4_ty_signature_return_surface_type(ty, nested) == "std::ffi::c_int" and v4_ty_signature_return_surface_type(ty, callback) == "extern[C]task(seed:std::ffi::c_int)->std::ffi::c_int" and v4_extern_return_old_parity(hir, item))
     pilot span = v4_hir_extern_member_return_span(hir, item, 0)
@@ -76,9 +80,22 @@ task v4_extern_return_boundary_run() -> void {
     say "extern-return-boundary-invalid=" + word_from_bool(v4_hir_extern_member_count(-1, 0) == 0 and v4_hir_extern_member_count(hir, -1) == 0 and v4_hir_extern_member_count(hir, 0) == 0 and v4_hir_extern_member_return_surface_type(hir, item, 6) == "" and v4_hir_extern_member_return_span(hir, item, -1) == V4_NO_SPAN and v4_hir_extern_member_span(hir, item, 99) == V4_NO_SPAN and not v4_hir_extern_member_return_has_arrow_fallback(hir, item, 99))
     pilot hover = v4_hover_text_cached(path, src, v4_index_of_from(src, "answer", 0))
     pilot completion = v4_completion_text_cached(path, src, src.length())
+    say "extern-return-boundary-hover-name=" + v4_hover_name(hover)
+    say "extern-return-boundary-hover-type=" + v4_hover_type(hover)
+    pilot markdown = v4_hover_markdown(hover)
+    pilot markdown_end = markdown.length()
+    if markdown_end > 512 { markdown_end = 512 }
+    say "extern-return-boundary-hover-markdown=" + v4_slice(markdown, 0, markdown_end).replace("\n", "|")
+    say "extern-return-boundary-completion-count=" + word_from_int(v4_completion_count(completion))
     pilot completion_id = 0
     pilot completion_found = false
     repeat until completion_id >= v4_completion_count(completion) {
+        if completion_id < 48 {
+            pilot detail = v4_completion_detail(completion, completion_id)
+            pilot detail_end = detail.length()
+            if detail_end > 160 { detail_end = 160 }
+            say "extern-return-boundary-completion-value=" + v4_completion_label(completion, completion_id) + "|" + v4_slice(detail, 0, detail_end)
+        }
         if v4_completion_label(completion, completion_id) == "answer" and v4_completion_detail(completion, completion_id).contains("Count") { completion_found = true }
         completion_id += 1
     }
