@@ -1,0 +1,11 @@
+@repr(i32)
+variant Signal {
+    A = 4 / 2, B
+    Grouped = (18 + 6) / (2 * 3)
+}
+
+fixed pilot START: Signal = Signal::B
+
+task main() -> int {
+    give back 0
+}

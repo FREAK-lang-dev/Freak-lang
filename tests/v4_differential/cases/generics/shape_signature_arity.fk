@@ -1,0 +1,11 @@
+shape Pair<A, B> {
+    first: A
+    second: B
+}
+
+task take_pair(value: Pair<int>) -> void {
+}
+
+task main() -> int {
+    give back 0
+}

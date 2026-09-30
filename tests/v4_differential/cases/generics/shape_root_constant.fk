@@ -1,0 +1,10 @@
+shape Pair<A, B> {
+    first: A
+    second: B
+}
+
+fixed pilot PAIR: Pair<int, word> = Pair<int, word> { first: 7, second: "pilot" }
+
+task main() -> int {
+    give back 0
+}

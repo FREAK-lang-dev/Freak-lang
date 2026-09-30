@@ -10,9 +10,9 @@
     {"name": "negative", "phase": "frontend_bootstrap", "allow_empty": false},
     {"name": "ownership", "phase": "semantic_expansion", "allow_empty": true},
     {"name": "closures", "phase": "semantic_expansion", "allow_empty": true},
-    {"name": "aggregates", "phase": "semantic_expansion", "allow_empty": true},
-    {"name": "routes", "phase": "semantic_expansion", "allow_empty": true},
-    {"name": "generics", "phase": "semantic_expansion", "allow_empty": true},
+    {"name": "aggregates", "phase": "semantic_expansion", "allow_empty": false},
+    {"name": "routes", "phase": "semantic_expansion", "allow_empty": false},
+    {"name": "generics", "phase": "semantic_expansion", "allow_empty": false},
     {"name": "control_flow", "phase": "native_runtime", "allow_empty": true},
     {"name": "std_smoke", "phase": "native_runtime", "allow_empty": true}
   ],
@@ -83,6 +83,142 @@
       "expect": {
         "v3": {"accepted": false, "diagnostic_class": "syntax"},
         "v4": {"accepted": true, "diagnostic_class": "none"}
+      }
+    },
+    {
+      "id": "aggregates-shape-root-constant",
+      "fixture_category": "aggregates",
+      "relationship": "equal",
+      "source": "aggregates/shape_root_constant.fk",
+      "intentional_difference_reason": "",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": true, "diagnostic_class": "none"},
+        "v4": {"accepted": true, "diagnostic_class": "none"}
+      }
+    },
+    {
+      "id": "aggregates-shape-field-type-mismatch",
+      "fixture_category": "aggregates",
+      "relationship": "equal",
+      "source": "aggregates/shape_field_type_mismatch.fk",
+      "intentional_difference_reason": "",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": false, "diagnostic_class": "type"},
+        "v4": {"accepted": false, "diagnostic_class": "type"}
+      }
+    },
+    {
+      "id": "aggregates-shape-missing-field",
+      "fixture_category": "aggregates",
+      "relationship": "equal",
+      "source": "aggregates/shape_missing_field.fk",
+      "intentional_difference_reason": "",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": false, "diagnostic_class": "type"},
+        "v4": {"accepted": false, "diagnostic_class": "type"}
+      }
+    },
+    {
+      "id": "routes-fieldless-legacy-separator",
+      "fixture_category": "routes",
+      "relationship": "v4_extension",
+      "source": "routes/fieldless_legacy_separator.fk",
+      "intentional_difference_reason": "V3 has no route declaration grammar. V4 accepts fieldless route declarations with the legacy slash separator before any explicit discriminant.",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": false, "diagnostic_class": "syntax"},
+        "v4": {"accepted": true, "diagnostic_class": "none"}
+      }
+    },
+    {
+      "id": "routes-repr-discriminant-division",
+      "fixture_category": "routes",
+      "relationship": "v4_extension",
+      "source": "routes/repr_discriminant_division.fk",
+      "intentional_difference_reason": "V3 does not support parameterized repr annotations or variant declaration grammar. V4 accepts represented fieldless variants whose explicit integer discriminants use division and parenthesized arithmetic.",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": false, "diagnostic_class": "syntax"},
+        "v4": {"accepted": true, "diagnostic_class": "none"}
+      }
+    },
+    {
+      "id": "routes-repr-zero-divisor",
+      "fixture_category": "routes",
+      "relationship": "intentional_divergence",
+      "source": "routes/repr_zero_divisor.fk",
+      "intentional_difference_reason": "V3 rejects unsupported parameterized repr annotation and variant syntax at parsing. V4 parses them, then TY rejects division by zero because a represented discriminant must resolve to a compile-time integer.",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": false, "diagnostic_class": "syntax"},
+        "v4": {"accepted": false, "diagnostic_class": "type"}
+      }
+    },
+    {
+      "id": "generics-shape-root-constant",
+      "fixture_category": "generics",
+      "relationship": "v4_extension",
+      "source": "generics/shape_root_constant.fk",
+      "intentional_difference_reason": "V3's shape parser requires an opening body immediately after the name and has no generic declaration grammar. V4 accepts generic shape declarations and explicitly instantiated root fixed-pilot constructors through TY.",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": false, "diagnostic_class": "syntax"},
+        "v4": {"accepted": true, "diagnostic_class": "none"}
+      }
+    },
+    {
+      "id": "generics-shape-signature-arity",
+      "fixture_category": "generics",
+      "relationship": "intentional_divergence",
+      "source": "generics/shape_signature_arity.fk",
+      "intentional_difference_reason": "V3 rejects the unsupported generic shape declaration at parsing. V4 parses that declaration and the task signature, then TY rejects Pair<int> because Pair declares two generic parameters.",
+      "requires_v4_native": false,
+      "compare": [
+        "compile_acceptance",
+        "diagnostic_class",
+        "deterministic_phase_summary"
+      ],
+      "expect": {
+        "v3": {"accepted": false, "diagnostic_class": "syntax"},
+        "v4": {"accepted": false, "diagnostic_class": "type"}
       }
     }
   ]
