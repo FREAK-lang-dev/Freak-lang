@@ -3816,23 +3816,38 @@ task v4_ty_extern_member_end_token(ty_id: int, sig_id: int, member_id: int) -> i
 }
 
 task v4_ty_extern_member_return_type(ty_id: int, sig_id: int, member_id: int) -> word {
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_extern_member_start_token(ty_id, sig_id, member_id)
-    pilot end_token = v4_ty_extern_member_end_token(ty_id, sig_id, member_id)
-    if stream_id < 0 or start_token < 0 or end_token <= start_token {
-        give back v4_ty_unknown
-    }
-    give back v4_ty_canonical_type(ty_id, v4_ty_task_return_from_tokens(stream_id, start_token, end_token))
+    give back v4_ty_canonical_type(ty_id, v4_ty_extern_member_return_surface_type(ty_id, sig_id, member_id))
 }
 
 task v4_ty_extern_member_return_surface_type(ty_id: int, sig_id: int, member_id: int) -> word {
-    pilot stream_id = v4_ty_signature_stream_id(ty_id)
-    pilot start_token = v4_ty_extern_member_start_token(ty_id, sig_id, member_id)
-    pilot end_token = v4_ty_extern_member_end_token(ty_id, sig_id, member_id)
-    if stream_id < 0 or start_token < 0 or end_token <= start_token {
-        give back v4_ty_unknown
+    if v4_ty_signature_kind(ty_id, sig_id) != v4_ty_extern_sig { give back v4_ty_unknown }
+    give back v4_ty_extern_member_return_surface_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), member_id)
+}
+
+task v4_ty_extern_declared_return_surface_type(hir_id: int, hir_item: int, member_id: int) -> word {
+    give back v4_hir_extern_member_return_surface_type(hir_id, hir_item, member_id)
+}
+
+task v4_ty_extern_return_arrow_recovery(hir_id: int, hir_item: int, member_id: int) -> word {
+    -- Retain the old first-any-member arrow inference only after HIR explicitly
+    -- recorded it. Declared type reconstruction cannot enter this fallback.
+    pilot span = v4_hir_extern_member_span(hir_id, hir_item, member_id)
+    pilot stream = v4_hir_item_stream_id(hir_id)
+    if stream < 0 or span == V4_NO_SPAN { give back v4_ty_unknown }
+    pilot start = v4_ty_first_token_at_or_after(stream, v4_span_start(span))
+    pilot end = v4_ty_first_token_at_or_after(stream, v4_span_end(span))
+    pilot arrow = v4_ty_find_token_value(stream, start, end, "=>")
+    if arrow < 0 { give back v4_ty_unknown }
+    give back v4_ty_infer_arrow_expr_return(stream, arrow + 1, end)
+}
+
+task v4_ty_extern_member_return_surface_from_hir(hir_id: int, hir_item: int, member_id: int) -> word {
+    pilot surface = v4_ty_extern_declared_return_surface_type(hir_id, hir_item, member_id)
+    if surface != "" { give back surface }
+    if v4_hir_extern_member_return_has_arrow_fallback(hir_id, hir_item, member_id) {
+        give back v4_ty_extern_return_arrow_recovery(hir_id, hir_item, member_id)
     }
-    give back v4_ty_task_return_from_tokens(stream_id, start_token, end_token)
+    give back v4_ty_unknown
 }
 
 task v4_ty_extern_member_display(ty_id: int, sig_id: int, member_id: int) -> word {
@@ -5609,6 +5624,10 @@ task v4_ty_nonordinary_hir_item_return_fallback(hir_id: int, hir_item: int) -> w
 }
 
 task v4_ty_signature_return_span(ty_id: int, sig_id: int) -> word {
+    pilot member_id = v4_ty_signature_extern_member_id(ty_id, sig_id)
+    if member_id >= 0 {
+        give back v4_hir_extern_member_return_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), member_id)
+    }
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_ty_ordinary_task_explicit_return_span_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
     }
@@ -8864,19 +8883,14 @@ task v4_ty_types_compatible_with_context(ty_id: int, sig_id: int, expected_ty: w
 }
 
 task v4_ty_display_for_hir_item(symbol_kind: word, symbol_name: word, symbol_def: word, hir_id: int, hir_item: int) -> word {
-    pilot generic_text = v4_ty_hir_item_generic_text(hir_id, hir_item)
     if symbol_kind == v4_hir_task {
         if v4_resolve_is_extern_member_def(symbol_def) {
-            pilot tree_id = v4_hir_tree_id(hir_id)
-            pilot stream_id = v4_parse_stream_id(tree_id)
-            pilot parse_node = v4_hir_item_parse_node(hir_id, hir_item)
             pilot member_id = v4_resolve_extern_member_id_from_def(symbol_def)
-            pilot member_start = v4_parse_extern_member_start_token(tree_id, parse_node, member_id)
-            pilot member_end = v4_parse_extern_member_end_token(tree_id, parse_node, member_id)
-            give back "task " + symbol_name + "(...) -> " + v4_ty_task_return_from_tokens(stream_id, member_start, member_end)
+            give back "task " + symbol_name + "(...) -> " + v4_ty_extern_member_return_surface_from_hir(hir_id, hir_item, member_id)
         }
-        give back "task " + symbol_name + generic_text + "(...) -> " + v4_ty_task_return_from_hir(hir_id, hir_item)
+        give back "task " + symbol_name + v4_ty_hir_item_generic_text(hir_id, hir_item) + "(...) -> " + v4_ty_task_return_from_hir(hir_id, hir_item)
     }
+    pilot generic_text = v4_ty_hir_item_generic_text(hir_id, hir_item)
     if symbol_kind == v4_hir_const {
         pilot const_ty = v4_hir_const_type(hir_id, hir_item)
         if const_ty != "" {
@@ -9479,6 +9493,10 @@ task v4_ty_signature_borrowed_return_source_param(ty_id: int, sig_id: int) -> in
 }
 
 task v4_ty_signature_return_surface_type(ty_id: int, sig_id: int) -> word {
+    pilot member_id = v4_ty_signature_extern_member_id(ty_id, sig_id)
+    if member_id >= 0 {
+        give back v4_ty_extern_member_return_surface_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), member_id)
+    }
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_ty_task_return_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
     }
