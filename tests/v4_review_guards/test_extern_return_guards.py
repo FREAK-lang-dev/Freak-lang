@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+from freakc import auditor
+
 SPEC = importlib.util.spec_from_file_location("extern_return_guard", ROOT / "src/compiler/v4/check_v4.py")
 guard = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(guard)
@@ -158,6 +160,88 @@ class ExternReturnGuards(unittest.TestCase):
                 body = guard.freak_task_body(self.ty, root)
                 mutant = self.ty.replace(body, body.replace(required + "(", "wrong_extern_consumer("), 1)
                 self.assertTrue(any("does not consume " + required in f for f in self.violations(ty=mutant)))
+
+
+class ExternReturnAuditGuards(unittest.TestCase):
+    """Reject loss of active separator probes or their native checker oracles."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Read the registered fixture and literal harness once for mutations."""
+        cls.tests = ROOT / "src/compiler/v4/tests"
+        cls.fixture = cls.tests / "extern_return_separator_smoke.fk"
+        cls.harness = ROOT / "src/compiler/v4/check_v4.py"
+        cls.source = cls.fixture.read_text(encoding="utf-8")
+        cls.manifest = cls.harness.read_text(encoding="utf-8")
+        cls.labels = next(
+            smoke["expect"] for smoke in guard.EXECUTABLE_SMOKES
+            if smoke["fixture"] == cls.fixture.name
+        )
+
+    def separator_errors(self, source=None, manifest=None, missing=False):
+        """Exercise the production audit inventory with one isolated fixture."""
+        original_read = Path.read_text
+        original_probe = auditor._hir_lookup_probe_errors
+
+        def selected_read(path, *args, **kwargs):
+            if path == self.fixture:
+                if missing:
+                    raise FileNotFoundError(self.fixture.name)
+                return self.source if source is None else source
+            if path == self.harness:
+                return self.manifest if manifest is None else manifest
+            return original_read(path, *args, **kwargs)
+
+        def selected_probe(fixture, harness, labels, invocations):
+            if fixture == self.fixture:
+                return original_probe(fixture, harness, labels, invocations)
+            return []
+
+        with patch.object(Path, "read_text", selected_read), patch.object(
+            auditor, "_hir_lookup_probe_errors", selected_probe,
+        ):
+            return auditor._hir_extern_return_probe_errors(self.tests, self.harness)
+
+    def test_live_extern_inventory(self):
+        """Require all three live fixtures, invocations and literal oracles."""
+        self.assertEqual(auditor._hir_extern_return_probe_errors(self.tests, self.harness), [])
+
+    def test_separator_fixture_and_registration_are_required(self):
+        """Fail when either the source fixture or its native registration is lost."""
+        self.assertTrue(any("unreadable" in error for error in self.separator_errors(missing=True)))
+        mutant = self.manifest.replace(
+            '"fixture": "extern_return_separator_smoke.fk"',
+            '"fixture": "renamed_separator.fk"', 1,
+        )
+        self.assertNotEqual(mutant, self.manifest)
+        self.assertIn("EXECUTABLE_SMOKES: missing " + self.fixture.name, self.separator_errors(manifest=mutant))
+
+    def test_separator_invocation_cannot_be_a_comment_or_definition(self):
+        """A task declaration and commented call cannot stand in for execution."""
+        invocation = "\nv4_extern_separator_run()"
+        self.assertEqual(self.source.count(invocation), 1)
+        mutant = self.source.replace(invocation, "\n-- v4_extern_separator_run()", 1)
+        self.assertTrue(any("v4_extern_separator_run()" in error for error in self.separator_errors(source=mutant)))
+
+    def test_each_separator_probe_is_active_and_required(self):
+        """Reject every removed probe even when its original text is a comment."""
+        for oracle in self.labels:
+            label = oracle.removesuffix("true")
+            needle = 'say "' + label + '" + word_from_bool('
+            with self.subTest(label=label):
+                self.assertEqual(self.source.count(needle), 1)
+                mutant = self.source.replace(needle, 'say "inactive=" + word_from_bool(', 1)
+                mutant += "\n-- " + needle + "true)\n"
+                self.assertTrue(any(label in error for error in self.separator_errors(source=mutant)))
+
+    def test_each_separator_true_oracle_is_required(self):
+        """False expectations and commented true decoys cannot satisfy the audit."""
+        for oracle in self.labels:
+            with self.subTest(oracle=oracle):
+                self.assertEqual(self.manifest.count('"' + oracle + '"'), 1)
+                mutant = self.manifest.replace('"' + oracle + '"', '"' + oracle.removesuffix("true") + 'false"', 1)
+                mutant += '\n# "' + oracle + '"\n'
+                self.assertTrue(any(oracle in error for error in self.separator_errors(manifest=mutant)))
 
 
 if __name__ == "__main__":
