@@ -1477,7 +1477,7 @@ task v4_hir_extern_abi(hir_id: int, item_id: int) -> word {
 }
 
 task v4_hir_extern_member_count(hir_id: int, item_id: int) -> int {
-    if not v4_hir_file_exists(hir_id) or item_id < 0 or item_id >= v4_hir_item_count(hir_id) { give back 0 }
+    if hir_id < 0 or hir_id >= v4_hir_file_len or item_id < 0 or item_id >= v4_hir_item_count(hir_id) { give back 0 }
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_extern { give back 0 }
     give back word_to_int(array_get(v4_hir_extern_return_owner_values_handle(hir_id), item_id * 2 + 1))
 }
