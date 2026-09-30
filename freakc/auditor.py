@@ -6596,6 +6596,7 @@ def audit_conformance(paths: List[Path]) -> int:
         for needle in (
             "C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024",
             "-DFREAK_ARRAY_LIVE_LIMIT=",
+            "extern_return_snapshot_smoke.fk",
             "mir_snapshot_resource_smoke.fk",
             "query_invalidation_resource_smoke.fk",
         ):
