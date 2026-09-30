@@ -78,28 +78,17 @@ task v4_extern_return_boundary_run() -> void {
     say "extern-return-boundary-detached=" + word_from_bool(v4_hir_extern_member_count(hir, item) == 6 and v4_ty_signature_return_surface_type(ty, answer) == "Count" and v4_ty_signature_return_span(ty, answer) == span and v4_ty_extern_member_return_surface_type(ty, block, 0) == "Count" and v4_ty_signature_return_surface_type(ty, nested) == "std::ffi::c_int" and v4_ty_display_for_hir_item(v4_hir_task, "answer", def, hir, item) == display and display == "task answer(...) -> Count")
     array_set(v4_hir_expansions, hir, expansion)
     say "extern-return-boundary-invalid=" + word_from_bool(v4_hir_extern_member_count(-1, 0) == 0 and v4_hir_extern_member_count(hir, -1) == 0 and v4_hir_extern_member_count(hir, 0) == 0 and v4_hir_extern_member_return_surface_type(hir, item, 6) == "" and v4_hir_extern_member_return_span(hir, item, -1) == V4_NO_SPAN and v4_hir_extern_member_span(hir, item, 99) == V4_NO_SPAN and not v4_hir_extern_member_return_has_arrow_fallback(hir, item, 99))
-    pilot hover = v4_hover_text_cached(path, src, v4_index_of_from(src, "answer", 0))
+    -- v4_index_of_from searches one character, not a substring. The verified
+    -- member span begins with "task answer"; +6 is inside the answer token.
+    pilot hover = v4_hover_text_cached(path, src, v4_span_start(member_span) + 6)
     pilot completion = v4_completion_text_cached(path, src, src.length())
-    say "extern-return-boundary-hover-name=" + v4_hover_name(hover)
-    say "extern-return-boundary-hover-type=" + v4_hover_type(hover)
-    pilot markdown = v4_hover_markdown(hover)
-    pilot markdown_end = markdown.length()
-    if markdown_end > 512 { markdown_end = 512 }
-    say "extern-return-boundary-hover-markdown=" + v4_slice(markdown, 0, markdown_end).replace("\n", "|")
-    say "extern-return-boundary-completion-count=" + word_from_int(v4_completion_count(completion))
     pilot completion_id = 0
     pilot completion_found = false
     repeat until completion_id >= v4_completion_count(completion) {
-        if completion_id < 48 {
-            pilot detail = v4_completion_detail(completion, completion_id)
-            pilot detail_end = detail.length()
-            if detail_end > 160 { detail_end = 160 }
-            say "extern-return-boundary-completion-value=" + v4_completion_label(completion, completion_id) + "|" + v4_slice(detail, 0, detail_end)
-        }
-        if v4_completion_label(completion, completion_id) == "answer" and v4_completion_detail(completion, completion_id).contains("Count") { completion_found = true }
+        if v4_completion_label(completion, completion_id) == "answer" and v4_completion_detail(completion, completion_id) == display { completion_found = true }
         completion_id += 1
     }
-    say "extern-return-boundary-editor=" + word_from_bool(v4_hover_type(hover).contains("Count") and completion_found)
+    say "extern-return-boundary-editor=" + word_from_bool(v4_hover_name(hover) == "answer" and v4_hover_type(hover) == display and v4_hover_markdown(hover).contains(display) and display.contains("Count") and completion_found)
     pilot snapshot = v4_hir_snapshot()
     pilot ty_snapshot = v4_ty_snapshot()
     pilot restored = v4_hir_snapshot_restore(snapshot)
