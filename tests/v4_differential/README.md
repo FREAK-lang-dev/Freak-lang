@@ -73,6 +73,29 @@ the two difference categories require their matching relationship.
 Relationships are `equal`, `v3_only`, `v4_extension`, or
 `intentional_divergence`. Every non-equal relationship requires a reason.
 
+The declaration corpus adds eight cases to the original four bootstrap cases:
+
+| Family | Cases | Expected frontend result |
+|---|---|---|
+| Shapes | `aggregates-shape-root-constant`, `aggregates-shape-field-type-mismatch`, `aggregates-shape-missing-field` | Both accept the complete, correctly typed root constructor; both reject the wrong field type and missing field with class `type`. |
+| Fieldless routes | `routes-fieldless-legacy-separator`, `routes-repr-discriminant-division` | V3 rejects unsupported declaration syntax; V4 accepts the legacy case separator and represented integer division forms. |
+| Invalid discriminant | `routes-repr-zero-divisor` | V3 rejects unsupported parameterized `repr`/variant syntax; V4 rejects the represented zero-divisor expression with class `type`. |
+| Generic shapes | `generics-shape-root-constant`, `generics-shape-signature-arity` | V3 rejects generic declaration syntax; V4 accepts the explicit root constructor and rejects a signature supplying only one argument to `Pair<A, B>` with class `type`. |
+
+Shape constructor negatives are root `fixed pilot` initializers so V4 checks
+them during TY; ordinary task-body constructor diagnostics may arise later in
+MIR and are outside this adapter. The generic arity negative is a signature
+contract, and the zero-divisor negative retains `@repr(i32)` to activate the
+represented-discriminant validator. V3 rejection classes reflect its shipping
+frontend grammar boundary. This compares the acceptance and diagnostic class
+of these exact declarations, not general V3/V4 type-semantic parity.
+
+The harness does not inspect the resulting field types, generic substitution
+environment, numeric discriminant values, or declaration spans. Those facts
+retain their separate V4 semantic smokes. In particular, accepting `A = 4 / 2`
+does not by itself prove that its value is `2` or that the following implicit
+case has value `3`.
+
 The manifest is closed over every `.fk` file below `cases/`. Runtime fields are
 rejected while `capabilities.v4_native` is false. Exit values, stdout, stderr,
 filesystem effects, ownership/drop observations, object generation, linking,

@@ -1,0 +1,10 @@
+shape Point {
+    x: int
+    y: int
+}
+
+fixed pilot ORIGIN: Point = Point { x: 3, y: 4 }
+
+task main() -> int {
+    give back 0
+}
