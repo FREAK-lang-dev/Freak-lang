@@ -764,10 +764,10 @@ post-pass `render()` presentation step only).
 - error-code translation
 - deeper ABI/runtime guarantees
 
-| Contract | Status | Verdict |
-|---|---|---|
+| Contract | Status | Verdict | Notes |
+|---|---|---|---|
 | FFI-safe types only in extern | ⚠️ | 📖 V4 | V4 rejects bare `word`/`int` extern signatures, raw pointers to non-FFI pointees, validates `extern [C]/[system] task(...) -> T` callback surfaces with explicit missing-`extern`, bad-ABI, and non-FFI callback payload diagnostics, accepts fieldless `@repr(...)` routes/variants as extern params/returns/pointer targets/layout fields, lowers indirect callback calls, rejects non-FFI-safe layout fields, and validates `@extern_callback("ABI")` task signatures against the same FFI-safety rules, but the full section-16 surface is not complete |
-| `extern [C]` (and other ABIs) | ⚠️ | partial — `tests/extern_test.fk` and `tests/extern_llvm_test.fk` (failing in v1 parser per Phase-A) |
+| `extern [C]` (and other ABIs) | ⚠️ | partial — `tests/extern_test.fk` and `tests/extern_llvm_test.fk` (failing in v1 parser per Phase-A) | |
 | V4 declared extern-member return ownership | ⚠️ | 📖 V4 | Declared extern-member surface types, exact declaration/member spans and recovery flags are stored in HIR. Direct-member, synthetic-signature, diagnostic and editor-display TY paths consume those facts without declared-type reconstruction; existing canonicalization entry points and explicitly gated arrow-expression recovery are unchanged. Extern-only boundaries exclude top-level semicolon separators, including same-line members, while preserving nested type semicolons and quoted punctuation. HIR v10 snapshots validate complete Extern owner/member sets, dense ordinals, canonical flags/counts and contained same-file spans before atomic restore. Extern parameters, ABI/layout rules and backend representation remain separate boundaries. |
 | Calling conventions: cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, system | ⚠️ | 📖 V4 | V4 carries and validates the core ABI list plus duplicate/unknown-option diagnostics; final extern variadics now enforce C-compatible ABI selection, callback surface types plus indirect callback calls reuse the same ABI validation, `@extern_callback("ABI")` task exports normalize through the same list, and the executable smoke lane now proves the full matrix through direct extern calls, callback surface types, indirect callback calls, and LLVM calling-convention lowering, while panic-boundary callback rules still expand |
 | `link="name"` library binding | ⚠️ | 📖 V4 | V4 carries library metadata through TY/codegen/query/LSP and diagnoses malformed or duplicate link entries |
@@ -779,9 +779,9 @@ post-pass `render()` presentation step only).
 | Stack-unwinder call-site warning | ⚠️ | 📖 V4 | V4 MIR fires a second warning at every call site that invokes a known unwinder extern, sharing the same `@allow_unwinder` opt-out as the declaration warning; the call-site help text mentions both the C-shim fix and the opt-out attribute |
 | `@repr(u32)` discriminant size | ⚠️ | 📖 V4 | V4 now carries `@repr(u8|u16|u32|u64|i8|i16|i32|i64)` through TY, rejects bad repr kinds, payload cases, and non-constant explicit discriminants, accepts valid fieldless repr routes/variants in FFI-safe type positions, and exposes discriminant text/value plus boundary diagnostics through the smoke/query/tooling lanes; codegen-level tagged-layout guarantees still expand |
 | Raw pointer ops (`*ptr`, `.read()`, `.write(value)`, `.offset()`, `.cast<U>()`, `.is_null()`) | ⚠️ | 📖 V4 | V4 lowers `.is_null()` to LLVM `icmp eq ptr %p, null` outside `trust me` (bible §16.4 explicitly permits null-checks anywhere), `*ptr` and `.read()` reads to LLVM `load <pointee>, ptr %op` gated on a surrounding `.cadet+` `trust me` block (`raw-pointer deref needs trust me block` diagnostic for derefs outside one), `*ptr = value` / `.write(value)` writes to LLVM `store <pointee> <value>, ptr <ptr>` with `.pilot+` honor gating plus `raw-pointer write needs *mut T`, type-mismatch, and method-arity diagnostics, and `.offset(n)` / `.cast<U>()` lower to LLVM `getelementptr` with `.ace+` honor gating plus arity, missing-target, and non-integer-offset diagnostics; allocation and freeing are still 🔜 V4 |
-| `std::os` platform modules | ❌ | 📖 V4 |
-| Error code → `result<T, OsError>` wrapping | ❌ | 📖 V4 |
-| errno/GetLastError preservation | ❌ | 📖 V4 |
+| `std::os` platform modules | ❌ | 📖 V4 | |
+| Error code → `result<T, OsError>` wrapping | ❌ | 📖 V4 | |
+| errno/GetLastError preservation | ❌ | 📖 V4 | |
 
 ---
 
