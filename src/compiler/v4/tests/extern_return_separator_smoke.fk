@@ -60,13 +60,21 @@ task v4_extern_separator_run() -> void {
     pilot src = "extern [C] " + v4_extern_separator_braces(" @link_name(\"native_first\") task first(value: [std::ffi::c_int; 2]) -> [std::ffi::c_int; 2]; @link_name(\"native_second\") task second(cb: extern[C]task(seed: [std::ffi::c_int; 2]) -> std::ffi::c_int) -> extern[C]task(seed: [std::ffi::c_int; 2]) -> std::ffi::c_int; task third(flag: bool) -> void;;; task bad() -> word; task missing(); ") + "\n"
     src = src + "extern [C] " + v4_extern_separator_braces(" task quoted_semicolon() -> \";\"; task quoted_open() -> \"[\"; task quoted_close() -> \"]\"; task quoted_nested(x: [\"]\";2]) -> [\"]\";2]; task after_quoted() -> void; ") + "\n"
     src = src + "extern [C] " + v4_extern_separator_braces("\n task malformed(value: (int,\n int)) -> int\n task quoted_arrow() \"->\" std::ffi::c_int\n \"task\" recovered() -> void\n task nested_arrow(x: extern[C]task(y:int) => 7)\n task no_separator() -> int task swallowed() -> void\n task body_like() -> int " + v4_extern_separator_braces(" pilot local = 1; give back local ") + "\n") + "\n"
+    pilot many_body = ""
+    pilot many_idx = 0
+    repeat until many_idx >= 96 {
+        many_body = many_body + "task same_line_" + word_from_int(many_idx) + "() -> void; "
+        many_idx += 1
+    }
+    src = src + "extern [C] " + v4_extern_separator_braces(many_body) + "\n"
     src = src + "extern [C] " + "{" + "\n task lost() -> int\n"
     pilot hir = v4_hir_text_cached(path, src)
     pilot ty = v4_ty_text_cached(path, src)
     pilot item = v4_extern_separator_item(hir, 0)
     pilot quoted = v4_extern_separator_item(hir, 1)
     pilot recovery = v4_extern_separator_item(hir, 2)
-    pilot unclosed = v4_extern_separator_item(hir, 3)
+    pilot many = v4_extern_separator_item(hir, 3)
+    pilot unclosed = v4_extern_separator_item(hir, 4)
     pilot tree = v4_hir_tree_id(hir)
     pilot stream = v4_hir_item_stream_id(hir)
     pilot node = v4_hir_item_parse_node(hir, item)
@@ -118,6 +126,22 @@ task v4_extern_separator_run() -> void {
     say "extern-return-separator-snapshot=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_hir_extern_member_count(hir, item) == 5 and v4_hir_extern_member_return_span(hir, item, 1) == second_span and v4_hir_extern_member_return_surface_type(hir, quoted, 0) == ";")
     say "extern-return-separator-recovery=" + word_from_bool(v4_hir_extern_member_count(hir, recovery) == 6 and v4_extern_separator_legacy_recovery(hir, recovery) and v4_hir_extern_member_return_span(hir, recovery, 0) == V4_NO_SPAN and v4_ty_extern_member_return_surface_from_hir(hir, recovery, 0) == v4_ty_unknown and v4_hir_extern_member_return_surface_type(hir, recovery, 1) == "std::ffi::c_int" and v4_hir_extern_member_name(hir, recovery, 2) == "recovered" and v4_ty_extern_member_return_surface_from_hir(hir, recovery, 3) == "int" and v4_hir_extern_member_return_surface_type(hir, recovery, 5) == "int")
     say "extern-return-separator-unclosed=" + word_from_bool(unclosed >= 0 and v4_hir_extern_member_count(hir, unclosed) == 0)
+    pilot many_node = v4_hir_item_parse_node(hir, many)
+    pilot many_close = v4_parse_extern_body_close_token(tree, many_node)
+    pilot scan = v4_parse_extern_body_open_token(tree, many_node) + 1
+    pilot scanned = 0
+    pilot many_valid = v4_parse_extern_member_count(tree, many_node) == 96 and v4_hir_extern_member_count(hir, many) == 96
+    repeat until scan >= many_close {
+        scan = v4_parse_skip_trivia(stream, scan)
+        if scan < many_close and v4_lex_token_value(stream, scan) == "task" {
+            pilot end = v4_parse_extern_member_end_from_start(stream, scan)
+            if end <= scan or end >= many_close or v4_lex_token_value(stream, end) != ";" { many_valid = false }
+            if v4_hir_extern_member_name(hir, many, scanned) != "same_line_" + word_from_int(scanned) or v4_hir_extern_member_return_surface_type(hir, many, scanned) != "void" { many_valid = false }
+            scanned += 1
+            if end <= scan { scan += 1 } else { scan = end + 1 }
+        } else { scan += 1 }
+    }
+    say "extern-return-separator-many-same-line=" + word_from_bool(many_valid and scanned == 96 and v4_ty_extern_member_count(ty, v4_ty_signature_for_hir_item(ty, many)) == 96)
 }
 
 v4_extern_separator_run()

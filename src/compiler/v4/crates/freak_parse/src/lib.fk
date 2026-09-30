@@ -942,20 +942,38 @@ task v4_parse_extern_body_close_token(tree_id: int, node_id: int) -> int {
 }
 
 task v4_parse_extern_member_end_from_start(stream_id: int, start_token: int) -> int {
-    -- Keep the existing newline/body recovery limit. Only extern declarations
-    -- gain an earlier punctuation-semicolon boundary; quoted values are data.
-    pilot end_token = v4_parse_skip_item(stream_id, start_token)
+    -- Fuse legacy newline/body recovery with separator detection so each member
+    -- walks only its own range. Legacy body depth remains value-based; only
+    -- punctuation contributes to type nesting and semicolon boundaries.
     pilot idx = start_token
-    pilot depth = 0
-    repeat until idx >= end_token {
+    pilot body_depth = 0
+    pilot type_depth = 0
+    pilot saw_body = false
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until idx >= count {
+        if v4_parse_is_eof(stream_id, idx) { give back idx }
+        if v4_parse_is_newline_token(stream_id, idx) and not saw_body {
+            give back idx + 1
+        }
+        pilot value = v4_lex_token_value(stream_id, idx)
         if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
-            pilot value = v4_lex_token_value(stream_id, idx)
-            if depth == 0 and value == ";" { give back idx }
-            depth = v4_parse_depth_after_token(depth, value)
+            if type_depth == 0 and value == ";" { give back idx }
+            type_depth = v4_parse_depth_after_token(type_depth, value)
+        }
+        if not v4_parse_token_is_trivia(stream_id, idx) {
+            if value == "{" {
+                body_depth += 1
+                saw_body = true
+            } else if value == "}" {
+                if body_depth > 0 { body_depth -= 1 }
+                if saw_body and body_depth == 0 { give back idx + 1 }
+            } else if value == "done" {
+                if saw_body { give back idx + 1 }
+            }
         }
         idx += 1
     }
-    give back end_token
+    give back idx
 }
 
 task v4_parse_extern_member_count(tree_id: int, node_id: int) -> int {

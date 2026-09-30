@@ -2079,6 +2079,7 @@ EXECUTABLE_SMOKES = [
             "extern-return-separator-snapshot=true",
             "extern-return-separator-recovery=true",
             "extern-return-separator-unclosed=true",
+            "extern-return-separator-many-same-line=true",
         ],
     },
     {

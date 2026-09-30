@@ -46,6 +46,17 @@ class ExternReturnGuards(unittest.TestCase):
         """Require the current stored-return implementation to satisfy the guard."""
         self.assertEqual(self.violations(), [])
 
+    def test_extern_separator_scanner_is_single_pass(self):
+        """Reject the legacy remaining-line prescan before separator detection."""
+        parser = guard.read_text(guard.crate_path("freak_parse"))
+        body = guard.freak_task_body(guard.freak_mask_line_comments(parser), "v4_parse_extern_member_end_from_start")
+        self.assertIsNotNone(body)
+        self.assertNotIn("v4_parse_skip_item(", body)
+        self.assertEqual(body.count("repeat until"), 1)
+        self.assertEqual(body.count("idx += 1"), 1)
+        self.assertIn("if type_depth == 0 and value == \";\" { give back idx }", body)
+        self.assertIn("if saw_body and body_depth == 0 { give back idx + 1 }", body)
+
     def test_snapshot_exhaustion_has_bounded_native_handle_pool(self):
         """Reject loss of the existing bounded native exhaustion-test registry."""
         self.assertEqual(guard.C_ARRAY_HANDLE_RESOURCE_LIMIT, 1024)
