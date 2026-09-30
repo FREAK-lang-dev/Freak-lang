@@ -11158,7 +11158,7 @@ def extern_return_boundary_violations(hir_source: str, ty_source: str) -> list[s
     violations: set[str] = set()
     token_cache: dict[str, list] = {}
     edges: dict[str, set[str]] = {}
-    pure_terminals = {"v4_hir_init", "array_get", "array_len", "word_to_int"}
+    pure_terminals = {"array_get", "array_len", "word_to_int"}
 
     def tokens_for(name: str) -> list:
         if name not in token_cache:
@@ -11196,7 +11196,7 @@ def extern_return_boundary_violations(hir_source: str, ty_source: str) -> list[s
                 fragment in name for fragment in (
                     "_token", "_stream_id", "_parse_node", "v4_ty_type_text",
                     "v4_ty_task_return_from_tokens", "v4_hir_lower_", "v4_hir_build_",
-                    "v4_hir_snapshot_restore", "v4_hir_extern_return_prepare_owner",
+                    "v4_hir_init", "v4_hir_snapshot_restore", "v4_hir_extern_return_prepare_owner",
                 )
             ) or (name.startswith("array_") and name not in {"array_get", "array_len"}):
                 violations.add(f"extern declared return closure reconstructs syntax or mutates facts: {name}")

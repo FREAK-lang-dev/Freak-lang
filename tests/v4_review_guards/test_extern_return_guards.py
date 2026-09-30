@@ -52,6 +52,20 @@ class ExternReturnGuards(unittest.TestCase):
                 mutant += "\ntask hidden_extern_write() -> void { " + forbidden + "(0, 0) }\n"
                 self.assertTrue(any(forbidden in f for f in self.violations(hir=mutant)))
 
+    def test_cold_initialization_is_not_a_storage_read(self):
+        for root, source in (
+            ("v4_hir_extern_member_count", self.hir),
+            ("v4_ty_extern_declared_return_surface_type", self.ty),
+        ):
+            for indirect in (False, True):
+                with self.subTest(root=root, indirect=indirect):
+                    statement = "hidden_extern_init()" if indirect else "v4_hir_init()"
+                    mutant = self.inject(source, root, statement)
+                    if indirect:
+                        mutant += "\ntask hidden_extern_init() -> void { v4_hir_init() }\n"
+                    findings = self.violations(hir=mutant) if root.startswith("v4_hir_") else self.violations(ty=mutant)
+                    self.assertTrue(any("v4_hir_init" in f for f in findings))
+
     def test_missing_storage_task(self):
         mutant = self.hir.replace("task v4_hir_extern_member_return_span(", "task renamed_extern_span(", 1)
         self.assertTrue(any("task missing: v4_hir_extern_member_return_span" in f for f in self.violations(hir=mutant)))
