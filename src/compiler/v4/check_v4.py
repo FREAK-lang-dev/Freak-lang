@@ -2087,6 +2087,13 @@ EXECUTABLE_SMOKES = [
             "extern-return-separator-arrow-ty=true",
             "extern-return-separator-arrow-nesting=true",
             "extern-return-separator-arrow-snapshot=true",
+        ],
+    },
+    {
+        "name": "extern nested arrow separator boundaries",
+        "fixture": "extern_return_nested_arrow_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
             "extern-return-separator-nested-arrow-counts=true",
             "extern-return-separator-nested-arrow-names=true",
             "extern-return-separator-nested-arrow-spans=true",
