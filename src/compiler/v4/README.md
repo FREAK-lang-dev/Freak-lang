@@ -168,6 +168,9 @@ following member boundaries after comparisons. Arrows inside open generic types
 retain conservative declaration recovery. Legacy nested-callback return
 discovery/inference can still leave the enclosing member's return unknown;
 this boundary repair does not expand callback type semantics.
+The separator and nested-arrow regressions run in separate bounded native
+fixtures. Their combined 29 required oracles retain the original 96-member
+same-line workload and nested recovery cases without extending runner limits.
 Missing declarations remain unknown, not implicit `void`; empty quoted types
 may retain their declaration span. The separately named arrow-recovery helper
 can infer the existing arrow expression only when the stored flag permits it;

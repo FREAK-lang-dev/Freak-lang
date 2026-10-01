@@ -165,11 +165,14 @@ class ExternReturnGuards(unittest.TestCase):
 class ExternReturnAuditGuards(unittest.TestCase):
     """Reject loss of active separator probes or their native checker oracles."""
 
+    fixture_name = "extern_return_separator_smoke.fk"
+    invocation = "v4_extern_separator_run()"
+
     @classmethod
     def setUpClass(cls):
         """Read the registered fixture and literal harness once for mutations."""
         cls.tests = ROOT / "src/compiler/v4/tests"
-        cls.fixture = cls.tests / "extern_return_separator_smoke.fk"
+        cls.fixture = cls.tests / cls.fixture_name
         cls.harness = ROOT / "src/compiler/v4/check_v4.py"
         cls.source = cls.fixture.read_text(encoding="utf-8")
         cls.manifest = cls.harness.read_text(encoding="utf-8")
@@ -203,14 +206,14 @@ class ExternReturnAuditGuards(unittest.TestCase):
             return auditor._hir_extern_return_probe_errors(self.tests, self.harness)
 
     def test_live_extern_inventory(self):
-        """Require all three live fixtures, invocations and literal oracles."""
+        """Require all four live fixtures, invocations and literal oracles."""
         self.assertEqual(auditor._hir_extern_return_probe_errors(self.tests, self.harness), [])
 
     def test_separator_fixture_and_registration_are_required(self):
         """Fail when either the source fixture or its native registration is lost."""
         self.assertTrue(any("unreadable" in error for error in self.separator_errors(missing=True)))
         mutant = self.manifest.replace(
-            '"fixture": "extern_return_separator_smoke.fk"',
+            '"fixture": "' + self.fixture_name + '"',
             '"fixture": "renamed_separator.fk"', 1,
         )
         self.assertNotEqual(mutant, self.manifest)
@@ -218,10 +221,10 @@ class ExternReturnAuditGuards(unittest.TestCase):
 
     def test_separator_invocation_cannot_be_a_comment_or_definition(self):
         """A task declaration and commented call cannot stand in for execution."""
-        invocation = "\nv4_extern_separator_run()"
+        invocation = "\n" + self.invocation
         self.assertEqual(self.source.count(invocation), 1)
-        mutant = self.source.replace(invocation, "\n-- v4_extern_separator_run()", 1)
-        self.assertTrue(any("v4_extern_separator_run()" in error for error in self.separator_errors(source=mutant)))
+        mutant = self.source.replace(invocation, "\n-- " + self.invocation, 1)
+        self.assertTrue(any(self.invocation in error for error in self.separator_errors(source=mutant)))
 
     def test_each_separator_probe_is_active_and_required(self):
         """Reject every removed probe even when its original text is a comment."""
@@ -242,6 +245,13 @@ class ExternReturnAuditGuards(unittest.TestCase):
                 mutant = self.manifest.replace('"' + oracle + '"', '"' + oracle.removesuffix("true") + 'false"', 1)
                 mutant += '\n# "' + oracle + '"\n'
                 self.assertTrue(any(oracle in error for error in self.separator_errors(manifest=mutant)))
+
+
+class ExternNestedArrowAuditGuards(ExternReturnAuditGuards):
+    """Apply every negative audit mutation to the isolated nested fixture too."""
+
+    fixture_name = "extern_return_nested_arrow_smoke.fk"
+    invocation = "v4_extern_nested_arrow_run()"
 
 
 if __name__ == "__main__":
