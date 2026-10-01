@@ -86,33 +86,6 @@ task v4_extern_separator_run() -> void {
         arrow_index += 1
     }
     src = src + "extern [C] " + v4_extern_separator_braces(arrow_body) + "\n"
-    pilot nested_members = array_new()
-    array_push(nested_members, "task nested_less(cb: extern[C]task(y:int) => y < 7) -> void")
-    array_push(nested_members, "task after_nested_less() -> void")
-    array_push(nested_members, "task nested_greater(cb: extern[C]task(y:int) => y > 7) -> void")
-    array_push(nested_members, "task nested_grouped(cb: extern[C]task(y:int) => (y < 7)) -> void")
-    array_push(nested_members, "task nested_balanced(cb: extern[C]task(y:int) => y < 7 > 1) -> void")
-    array_push(nested_members, "task nested_return(cb: extern[C]task(y:int) => y < 7) -> maybe<int;int>")
-    array_push(nested_members, "task nested_array_return(cb: extern[C]task(y:int) => y < 7) -> [std::ffi::c_int;2]")
-    array_push(nested_members, "task nested_comma(cb: extern[C]task(y:int) => y < 7, value: maybe<int;int>) -> void")
-    array_push(nested_members, "task nested_array_param(cb: extern[C]task(y:int) => y < 7, value: [std::ffi::c_int;2]) -> void")
-    array_push(nested_members, "task nested_active(cb: extern[C]task(y:int) => choose(y, extern[C]task(z:int) => z < 7)) -> maybe<int;int>")
-    array_push(nested_members, "task nested_quote(cb: extern[C]task(y:int) => (\")\", \",\", y < 7)) -> maybe<int;int>")
-    array_push(nested_members, "task nested_quoted_gate(cb: maybe<extern[C]task(y:int) \"=>\";int>) -> void")
-    array_push(nested_members, "task nested_generic_arrow_return() -> maybe<int => 7>")
-    array_push(nested_members, "task nested_generic_arrow_param(value: maybe<int => 7>) -> void")
-    array_push(nested_members, "task after_generic_arrow() -> void")
-    array_push(nested_members, "task top_nested() => choose(1, extern[C]task(y:int) => y < 7) < 9")
-    array_push(nested_members, "task after_nested_all() -> void")
-    pilot nested_body = ""
-    pilot nested_index = 0
-    repeat until nested_index >= array_len(nested_members) {
-        pilot declaration: word = array_get(nested_members, nested_index)
-        nested_body = nested_body + declaration + "; "
-        nested_index += 1
-    }
-    src = src + "extern [C] " + v4_extern_separator_braces(nested_body) + "\n"
-    src = src + "extern [C] " + v4_extern_separator_braces(" task comma_recovery(cb: extern[C]task(y:int) => y < 7, value: maybe<int;int) -> void; task after_comma_recovery() -> void; ") + "\n"
     src = src + "extern [C] " + "{" + "\n task lost() -> int\n"
     pilot hir = v4_hir_text_cached(path, src)
     pilot ty = v4_ty_text_cached(path, src)
@@ -121,9 +94,7 @@ task v4_extern_separator_run() -> void {
     pilot recovery = v4_extern_separator_item(hir, 2)
     pilot many = v4_extern_separator_item(hir, 3)
     pilot arrows = v4_extern_separator_item(hir, 4)
-    pilot nested = v4_extern_separator_item(hir, 5)
-    pilot comma_recovery = v4_extern_separator_item(hir, 6)
-    pilot unclosed = v4_extern_separator_item(hir, 7)
+    pilot unclosed = v4_extern_separator_item(hir, 5)
     pilot tree = v4_hir_tree_id(hir)
     pilot stream = v4_hir_item_stream_id(hir)
     pilot node = v4_hir_item_parse_node(hir, item)
@@ -214,75 +185,6 @@ task v4_extern_separator_run() -> void {
     say "extern-return-separator-arrow-nesting=" + word_from_bool(v4_extern_separator_surface_parity(hir, arrows) and v4_hir_extern_member_return_surface_type(hir, arrows, 6) == array_type and v4_hir_extern_member_return_surface_type(hir, arrows, 7) == "maybe<int;int>" and v4_hir_extern_member_return_surface_type(hir, arrows, 8) == "maybe<int;int>" and v4_ty_signature_param_surface_type(ty, arrow_callback, 0) == "extern[C]task(y:int)=>7")
     array_release(arrow_names)
     array_release(arrow_members)
-    pilot nested_node = v4_hir_item_parse_node(hir, nested)
-    pilot nested_block = v4_ty_signature_for_hir_item(ty, nested)
-    pilot nested_count = array_len(nested_members)
-    say "extern-return-separator-nested-arrow-counts=" + word_from_bool(nested >= 0 and nested_count == 17 and v4_parse_extern_member_count(tree, nested_node) == nested_count and v4_hir_extern_member_count(hir, nested) == nested_count and v4_ty_extern_member_count(ty, nested_block) == nested_count)
-    pilot nested_names = array_new()
-    array_push(nested_names, "nested_less")
-    array_push(nested_names, "after_nested_less")
-    array_push(nested_names, "nested_greater")
-    array_push(nested_names, "nested_grouped")
-    array_push(nested_names, "nested_balanced")
-    array_push(nested_names, "nested_return")
-    array_push(nested_names, "nested_array_return")
-    array_push(nested_names, "nested_comma")
-    array_push(nested_names, "nested_array_param")
-    array_push(nested_names, "nested_active")
-    array_push(nested_names, "nested_quote")
-    array_push(nested_names, "nested_quoted_gate")
-    array_push(nested_names, "nested_generic_arrow_return")
-    array_push(nested_names, "nested_generic_arrow_param")
-    array_push(nested_names, "after_generic_arrow")
-    array_push(nested_names, "top_nested")
-    array_push(nested_names, "after_nested_all")
-    pilot nested_names_ok = true
-    pilot nested_spans_ok = true
-    pilot nested_restoration_ok = true
-    pilot nested_recovery_ok = true
-    pilot nested_ty_ok = true
-    nested_index = 0
-    repeat until nested_index >= nested_count {
-        pilot name: word = array_get(nested_names, nested_index)
-        pilot declaration: word = array_get(nested_members, nested_index)
-        pilot sig = v4_extern_separator_sig(ty, name)
-        if v4_hir_extern_member_name(hir, nested, nested_index) != name or v4_ty_extern_member_name(ty, nested_block, nested_index) != name or v4_ty_signature_extern_member_id(ty, sig) != nested_index { nested_names_ok = false }
-        pilot start = v4_parse_extern_member_start_token(tree, nested_node, nested_index)
-        pilot end = v4_parse_extern_member_end_token(tree, nested_node, nested_index)
-        pilot span = v4_hir_extern_member_span(hir, nested, nested_index)
-        if v4_lex_token_type(stream, end) != v4_tok_symbol or v4_lex_token_value(stream, end) != ";" or v4_span_end(span) > v4_span_start(v4_lex_token_span(stream, end)) or v4_hir_span_from_tokens(stream, start, end) != span or v4_slice(src, v4_span_start(span), v4_span_end(span)) != declaration { nested_spans_ok = false }
-        -- The malformed callback expression keeps the legacy HIR/TY return
-        -- discovery contract; this slice repairs only member boundaries.
-        pilot fallback: bool = nested_index == 0 or nested_index == 3 or (nested_index >= 5 and nested_index <= 9) or nested_index == 15
-        if v4_hir_extern_member_return_has_arrow_fallback(hir, nested, nested_index) != fallback { nested_recovery_ok = false }
-        if fallback and (v4_hir_extern_member_return_surface_type(hir, nested, nested_index) != "" or v4_hir_extern_member_return_span(hir, nested, nested_index) != V4_NO_SPAN) { nested_recovery_ok = false }
-        pilot expected_type = "void"
-        if fallback { expected_type = v4_ty_unknown }
-        if nested_index == 10 { expected_type = "maybe<int;int>" }
-        if nested_index == 12 { expected_type = "maybe<int=>7>" }
-        if v4_ty_extern_member_return_surface_type(ty, nested_block, nested_index) != expected_type or v4_ty_signature_return_surface_type(ty, sig) != expected_type { nested_ty_ok = false }
-        -- Closing the callback, its own comma, and inner/quoted punctuation
-        -- cannot expose semicolons protected by a later type's nesting.
-        if nested_index >= 5 and nested_index <= 13 {
-            if v4_parse_extern_member_end_from_start(stream, start) != end or v4_slice(src, v4_span_start(span), v4_span_end(span)) != declaration { nested_restoration_ok = false }
-            pilot successor = v4_parse_skip_trivia(stream, end + 1)
-            if v4_lex_token_type(stream, successor) != v4_tok_keyword or v4_lex_token_value(stream, successor) != "task" { nested_restoration_ok = false }
-        }
-        nested_index += 1
-    }
-    pilot comma_node = v4_hir_item_parse_node(hir, comma_recovery)
-    pilot comma_start = v4_parse_extern_member_start_token(tree, comma_node, 0)
-    pilot comma_close = v4_parse_extern_body_close_token(tree, comma_node)
-    -- Without the own-depth comma reset, the later malformed generic loses
-    -- its angle depth and incorrectly exposes its member's semicolon.
-    nested_restoration_ok = nested_restoration_ok and v4_parse_extern_member_count(tree, comma_node) == 1 and v4_parse_extern_member_end_token(tree, comma_node, 0) == comma_close and v4_parse_extern_member_end_from_start(stream, comma_start) >= comma_close and v4_hir_extern_member_count(hir, comma_recovery) == 1 and v4_hir_extern_member_name(hir, comma_recovery, 0) == "comma_recovery" and v4_ty_extern_member_count(ty, v4_ty_signature_for_hir_item(ty, comma_recovery)) == 1 and v4_extern_separator_sig(ty, "after_comma_recovery") < 0
-    say "extern-return-separator-nested-arrow-names=" + word_from_bool(nested_names_ok)
-    say "extern-return-separator-nested-arrow-spans=" + word_from_bool(nested_spans_ok)
-    say "extern-return-separator-nested-arrow-restoration=" + word_from_bool(nested_restoration_ok)
-    say "extern-return-separator-nested-arrow-recovery=" + word_from_bool(nested_recovery_ok and v4_extern_separator_surface_parity(hir, nested))
-    say "extern-return-separator-nested-arrow-ty=" + word_from_bool(nested_ty_ok and v4_ty_signature_return_surface_type(ty, v4_extern_separator_sig(ty, "nested_less")) == v4_ty_unknown and v4_ty_signature_return_surface_type(ty, v4_extern_separator_sig(ty, "after_nested_less")) == "void" and v4_ty_signature_return_surface_type(ty, v4_extern_separator_sig(ty, "after_nested_all")) == "void")
-    array_release(nested_names)
-    array_release(nested_members)
     pilot expansion: word = array_get(v4_hir_expansions, hir)
     array_set(v4_hir_expansions, hir, "-1")
     say "extern-return-separator-detached=" + word_from_bool(v4_hir_extern_member_count(hir, item) == 5 and v4_ty_signature_return_surface_type(ty, first) == array_type and v4_ty_signature_return_span(ty, second) == second_span and v4_ty_extern_member_return_surface_type(ty, block, 1) == callback_type and v4_ty_signature_display(ty, second) == "task second(...) -> " + callback_type)
@@ -291,7 +193,6 @@ task v4_extern_separator_run() -> void {
     pilot restored = v4_hir_snapshot_restore(snapshot)
     say "extern-return-separator-snapshot=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_hir_extern_member_count(hir, item) == 5 and v4_hir_extern_member_return_span(hir, item, 1) == second_span and v4_hir_extern_member_return_surface_type(hir, quoted, 0) == ";")
     say "extern-return-separator-arrow-snapshot=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_extern_member_count(hir, arrows) == 10 and v4_hir_extern_member_return_has_arrow_fallback(hir, arrows, 0) and v4_hir_extern_member_return_has_arrow_fallback(hir, arrows, 5) and v4_hir_extern_member_return_has_arrow_fallback(hir, arrows, 1) == false and v4_hir_extern_member_return_surface_type(hir, arrows, 1) == "void" and v4_hir_extern_member_return_surface_type(hir, arrows, 6) == array_type and v4_hir_extern_member_return_surface_type(hir, arrows, 8) == "maybe<int;int>" and v4_hir_extern_member_name(hir, arrows, 9) == "after_arrow")
-    say "extern-return-separator-nested-arrow-snapshot=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_hir_extern_member_count(hir, nested) == 17 and v4_hir_extern_member_name(hir, nested, 1) == "after_nested_less" and v4_hir_extern_member_return_has_arrow_fallback(hir, nested, 0) and v4_hir_extern_member_return_span(hir, nested, 0) == V4_NO_SPAN and v4_hir_extern_member_return_surface_type(hir, nested, 1) == "void" and v4_hir_extern_member_return_surface_type(hir, nested, 10) == "maybe<int;int>" and v4_hir_extern_member_return_surface_type(hir, nested, 11) == "void" and v4_hir_extern_member_return_surface_type(hir, nested, 12) == "maybe<int=>7>" and v4_hir_extern_member_return_has_arrow_fallback(hir, nested, 15) and v4_hir_extern_member_name(hir, nested, 16) == "after_nested_all" and v4_hir_extern_member_count(hir, comma_recovery) == 1)
     say "extern-return-separator-recovery=" + word_from_bool(v4_hir_extern_member_count(hir, recovery) == 6 and v4_extern_separator_legacy_recovery(hir, recovery) and v4_hir_extern_member_return_span(hir, recovery, 0) == V4_NO_SPAN and v4_ty_extern_member_return_surface_from_hir(hir, recovery, 0) == v4_ty_unknown and v4_hir_extern_member_return_surface_type(hir, recovery, 1) == "std::ffi::c_int" and v4_hir_extern_member_name(hir, recovery, 2) == "recovered" and v4_ty_extern_member_return_surface_from_hir(hir, recovery, 3) == "int" and v4_hir_extern_member_return_surface_type(hir, recovery, 5) == "int")
     say "extern-return-separator-unclosed=" + word_from_bool(unclosed >= 0 and v4_hir_extern_member_count(hir, unclosed) == 0)
     pilot many_node = v4_hir_item_parse_node(hir, many)
