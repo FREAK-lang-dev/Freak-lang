@@ -2087,6 +2087,13 @@ EXECUTABLE_SMOKES = [
             "extern-return-separator-arrow-ty=true",
             "extern-return-separator-arrow-nesting=true",
             "extern-return-separator-arrow-snapshot=true",
+            "extern-return-separator-nested-arrow-counts=true",
+            "extern-return-separator-nested-arrow-names=true",
+            "extern-return-separator-nested-arrow-spans=true",
+            "extern-return-separator-nested-arrow-restoration=true",
+            "extern-return-separator-nested-arrow-recovery=true",
+            "extern-return-separator-nested-arrow-ty=true",
+            "extern-return-separator-nested-arrow-snapshot=true",
         ],
     },
     {

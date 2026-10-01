@@ -163,6 +163,11 @@ multiple declarations on one line. Semicolons inside nested type forms and quote
 semicolon/bracket tokens do not split members; ordinary task parsing is unchanged.
 Quoted braces still use the existing value-based body recovery and can truncate
 or leave an extern block unclosed; that recovery limitation is not promoted.
+Callback-parameter arrow recovery outside open generic type syntax preserves
+following member boundaries after comparisons. Arrows inside open generic types
+retain conservative declaration recovery. Legacy nested-callback return
+discovery/inference can still leave the enclosing member's return unknown;
+this boundary repair does not expand callback type semantics.
 Missing declarations remain unknown, not implicit `void`; empty quoted types
 may retain their declaration span. The separately named arrow-recovery helper
 can infer the existing arrow expression only when the stored flag permits it;
@@ -662,6 +667,14 @@ end|freak-00-unit-snapshot-v3
 ```
 
 The source records describe the current `freak_session` source database. The checkpoint identity folds the source identity and content digests for all 15 sections in canonical order, including identity expansion between parse and HIR, so a section cannot be transplanted from a different checkpoint even when source text is unchanged. This is an integrity checksum, not an authentication primitive. Section records are owned by `freak_snapshot`; each section is allowed to change internally only when its format helper and validator change together. Standalone expansion- and HIR-component restore dirty their cached query families and transitive dependents before arena-slot reuse; full prevalidated 00-Unit restore instead keeps both component restores raw before installing the checkpoint's saved query section. HIR v10 validation requires canonical alias-target, local-annotation, ordinary-task declared-return/parameter, Const, shape-field, and route-case/field spans; exact child ownership/slot identity; closed return-form and parameter-mode vocabularies; exact declared counts; and validation-before-mutation restore. Adding the expansion section changes the complete checkpoint format from v2 to v3; v2 payloads are rejected rather than reinterpreted.
+
+Standalone component restore accepts structurally validated, detached records;
+it does not authenticate the payload or prove that its file/expansion IDs match
+the caller's live source context. Treat these payloads as trusted compiler state.
+Callers must serialize arena mutation and supply matching source/parse/expansion
+provenance before combining independently restored components with syntax-backed
+queries. The full 00-Unit envelope provides checkpoint integrity/linkage checks,
+not authentication or concurrent-restore safety.
 
 ### `workspace/unitSnapshotManifest`
 
