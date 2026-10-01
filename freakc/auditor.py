@@ -1606,6 +1606,9 @@ def _hir_extern_return_probe_errors(tests: Path, harness: Path) -> List[str]:
             "recovery", "unclosed", "many-same-line",
             "arrow-counts", "arrow-names", "arrow-spans", "arrow-recovery",
             "arrow-ty", "arrow-nesting", "arrow-snapshot",
+            "nested-arrow-counts", "nested-arrow-names", "nested-arrow-spans",
+            "nested-arrow-restoration", "nested-arrow-recovery", "nested-arrow-ty",
+            "nested-arrow-snapshot",
         ), "v4_extern_separator_run()"),
         ("extern_return_snapshot_smoke.fk", "extern-return-snapshot-", (
             "reordered", "empty-quoted", "version-width", "canonical-identity",
