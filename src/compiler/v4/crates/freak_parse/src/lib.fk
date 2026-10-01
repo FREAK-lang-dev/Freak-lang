@@ -948,7 +948,8 @@ task v4_parse_extern_member_end_from_start(stream_id: int, start_token: int) -> 
     pilot idx = start_token
     pilot body_depth = 0
     pilot type_depth = 0
-    pilot arrow_expression = false
+    pilot generic_depth = 0
+    pilot arrow_expression_depth = 0 - 1
     pilot saw_body = false
     pilot count = v4_lex_token_count(stream_id)
     repeat until idx >= count {
@@ -959,13 +960,19 @@ task v4_parse_extern_member_end_from_start(stream_id: int, start_token: int) -> 
         pilot value = v4_lex_token_value(stream_id, idx)
         if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
             if type_depth == 0 and value == ";" { give back idx }
-            -- A real top-level arrow starts an expression, not another type.
-            -- Comparisons cannot open/close generic nesting in that expression;
-            -- nested callback and quoted arrows retain declaration-mode recovery.
-            if type_depth == 0 and value == "=>" { arrow_expression = true }
-            if not arrow_expression or (value != "<" and value != ">") {
+            -- Keep the outermost real arrow's entry depth: nested expressions
+            -- cannot turn comparisons into generic nesting or reset its mode.
+            -- A callback close or its own parameter comma restores type mode;
+            -- top-level arrows remain expressions until the member boundary.
+            -- Arrows inside generic types retain declaration-mode recovery.
+            if arrow_expression_depth > 0 and value == "," and type_depth == arrow_expression_depth { arrow_expression_depth = 0 - 1 }
+            if arrow_expression_depth < 0 and generic_depth == 0 and value == "=>" { arrow_expression_depth = type_depth }
+            if arrow_expression_depth < 0 or (value != "<" and value != ">") {
+                if value == "<" { generic_depth += 1 } else if value == ">" and generic_depth > 0 { generic_depth -= 1 }
                 type_depth = v4_parse_depth_after_token(type_depth, value)
             }
+            if type_depth == 0 { generic_depth = 0 }
+            if arrow_expression_depth > 0 and type_depth < arrow_expression_depth { arrow_expression_depth = 0 - 1 }
         }
         if not v4_parse_token_is_trivia(stream_id, idx) {
             if value == "{" {
