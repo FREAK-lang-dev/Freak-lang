@@ -255,7 +255,7 @@ task v4_diagnostics_snapshot_restore(payload: word) -> word {
                 pilot diag_set_id = word_to_int(v4_diagnostics_snapshot_field_raw(line, 1))
                 if kind == "diagnostics" {
                     pilot path = v4_diagnostics_snapshot_field(line, 2)
-                    if v4_diagnostics_restore_stage_set_slot(stage, diag_set_id, path) < 0 {
+                    if v4_diagnostics_restore_stage_set_slot(stage, diag_set_id, path, line_count) < 0 {
                         v4_diagnostics_restore_stage_release(stage)
                         give back "diagnostics-snapshot-restore ok=0 reason=resource-exhausted"
                     }
@@ -263,7 +263,7 @@ task v4_diagnostics_snapshot_restore(payload: word) -> word {
                 } else {
                     pilot diag_id = word_to_int(v4_diagnostics_snapshot_field_raw(line, 2))
                     pilot diag = v4_diagnostics_snapshot_field(line, 3)
-                    if v4_diagnostics_restore_stage_diag_slot(stage, diag_set_id, diag_id, diag) == 0 {
+                    if v4_diagnostics_restore_stage_diag_slot(stage, diag_set_id, diag_id, diag, line_count) == 0 {
                         v4_diagnostics_restore_stage_release(stage)
                         give back "diagnostics-snapshot-restore ok=0 reason=invalid-diagnostic-slot"
                     }
@@ -4607,5 +4607,4 @@ task v4_unit_snapshot_restore(payload: word) -> word {
     }
     give back out
 }
-
 

@@ -493,9 +493,14 @@ task v4_diagnostics_summary(diag_set_id: int) -> word {
 -- is an ownership replacement: successful publication releases the old child.
 -- Sparse slots are filled atomically; a failed reservation leaves both columns.
 task v4_driver_diag_restore_set_into(paths: int, items: int, diag_set_id: int, path: word) -> int {
+    give back v4_driver_diag_restore_set_into_bound(paths, items, diag_set_id, path, array_len(paths))
+}
+
+task v4_driver_diag_restore_set_into_bound(paths: int, items: int, diag_set_id: int, path: word, coordinate_bound: int) -> int {
     if paths < 0 or items < 0 or diag_set_id < 0 { give back 0 - 1 }
     pilot count = array_len(paths)
-    if diag_set_id > count and diag_set_id - count > v4_driver_diag_restore_gap_limit { give back 0 - 1 }
+    if coordinate_bound < 0 { give back 0 - 1 }
+    if diag_set_id > coordinate_bound and diag_set_id - coordinate_bound > v4_driver_diag_restore_gap_limit { give back 0 - 1 }
     if count != array_len(items) { give back 0 - 1 }
     if diag_set_id < count {
         pilot child = array_new()
@@ -536,12 +541,18 @@ task v4_driver_diag_restore_set_into(paths: int, items: int, diag_set_id: int, p
 }
 
 task v4_driver_diag_restore_diag_into(paths: int, items: int, diag_set_id: int, diag_id: int, diag: word) -> int {
+    pilot bound = 0
+    if diag_set_id >= 0 and diag_set_id < array_len(items) { bound = array_len(word_to_int(array_get(items, diag_set_id))) }
+    give back v4_driver_diag_restore_diag_into_bound(paths, items, diag_set_id, diag_id, diag, bound)
+}
+
+task v4_driver_diag_restore_diag_into_bound(paths: int, items: int, diag_set_id: int, diag_id: int, diag: word, coordinate_bound: int) -> int {
     if diag_set_id < 0 or diag_id < 0 { give back 0 }
     if diag_set_id >= array_len(paths) or diag_set_id >= array_len(items) { give back 0 }
     pilot child = word_to_int(array_get(items, diag_set_id))
     if child < 0 { give back 0 }
-    pilot count = array_len(child)
-    if diag_id > count and diag_id - count > v4_driver_diag_restore_gap_limit { give back 0 }
+    if coordinate_bound < 0 { give back 0 }
+    if diag_id > coordinate_bound and diag_id - coordinate_bound > v4_driver_diag_restore_gap_limit { give back 0 }
     repeat until array_len(child) > diag_id {
         array_push(child, "")
     }
@@ -614,14 +625,22 @@ task v4_diagnostics_restore_stage_new() -> int {
     give back stage
 }
 
-task v4_diagnostics_restore_stage_set_slot(stage: int, diag_set_id: int, path: word) -> int {
+task v4_diagnostics_restore_stage_set_slot(stage: int, diag_set_id: int, path: word, observed_rows: int) -> int {
     if array_len(stage) != 2 { give back 0 - 1 }
-    give back v4_driver_diag_restore_set_into(word_to_int(array_get(stage, 0)), word_to_int(array_get(stage, 1)), diag_set_id, path)
+    if observed_rows < 0 { give back 0 - 1 }
+    pilot bound = observed_rows
+    if array_len(v4_driver_diag_paths) > bound { bound = array_len(v4_driver_diag_paths) }
+    give back v4_driver_diag_restore_set_into_bound(word_to_int(array_get(stage, 0)), word_to_int(array_get(stage, 1)), diag_set_id, path, bound)
 }
 
-task v4_diagnostics_restore_stage_diag_slot(stage: int, diag_set_id: int, diag_id: int, diag: word) -> int {
+task v4_diagnostics_restore_stage_diag_slot(stage: int, diag_set_id: int, diag_id: int, diag: word, observed_rows: int) -> int {
     if array_len(stage) != 2 { give back 0 }
-    give back v4_driver_diag_restore_diag_into(word_to_int(array_get(stage, 0)), word_to_int(array_get(stage, 1)), diag_set_id, diag_id, diag)
+    if observed_rows < 0 { give back 0 }
+    -- Live arenas retain the validator's original bounds until publication;
+    -- resetting a staged set must not narrow an already admitted coordinate.
+    pilot bound = observed_rows
+    if v4_diagnostics_count(diag_set_id) > bound { bound = v4_diagnostics_count(diag_set_id) }
+    give back v4_driver_diag_restore_diag_into_bound(word_to_int(array_get(stage, 0)), word_to_int(array_get(stage, 1)), diag_set_id, diag_id, diag, bound)
 }
 
 task v4_diagnostics_restore_stage_publish(stage: int) -> bool {
@@ -777,5 +796,4 @@ task v4_driver_status() -> word {
     status = status + " misses=" + word_from_int(v4_query_miss_count())
     give back status
 }
-
 

@@ -107,6 +107,14 @@ task h6_diagnostics_restore_resource() -> void {
     v4_driver_diag_arena_release(paths, items)
     say "h6-diagnostics-coordinates negative=" + word_from_bool(negative) + " sparse=" + word_from_bool(sparse) + " huge=" + word_from_bool(huge) + " overflow=" + word_from_bool(overflow) + " duplicate-overlay=" + word_from_bool(duplicate) + " dense-growth=" + word_from_bool(dense)
 
+    pilot admitted: bool = v4_diagnostics_restore_diag_slot(0, 65536, "a") == 1 and v4_diagnostics_restore_diag_slot(0, 65537, "b") == 1
+    pilot reordered = h6_diag_payload("diagnostics|0|reordered|0\ndiagnostic|0|65537|tail\ndiagnostic|0|0|head")
+    admitted = admitted and v4_diagnostics_snapshot_validate(reordered).starts_with("diagnostics-snapshot-import ok=1")
+    admitted = admitted and v4_diagnostics_snapshot_restore(reordered).starts_with("diagnostics-snapshot-restore ok=1") and v4_diagnostics_count(0) == 65538 and v4_diagnostics_diag(0, 65537) == "tail" and v4_diagnostics_diag(0, 0) == "head"
+    pilot reset = h6_diag_payload("diagnostics|0|last|1\ndiagnostic|0|0|final")
+    admitted = admitted and v4_diagnostics_snapshot_restore(reset).starts_with("diagnostics-snapshot-restore ok=1")
+    say "h6-diagnostics-replay admitted=true" + " ordered=" + word_from_bool(admitted)
+
     before = v4_diagnostics_snapshot()
     capacity = h6_diag_available_handles()
     pressure = h6_diag_pressure()
