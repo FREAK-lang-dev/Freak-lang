@@ -38,7 +38,7 @@ task boundary_run() -> void {
     say "boundary-live=" + word_from_bool(boundary_all_offsets(boundary_live, boundary_source.length() + 2))
     pilot boundary_empty = v4_lex_stream_new(1)
     say "boundary-empty=" + word_from_bool(boundary_all_offsets(boundary_empty, 4))
-    
+
     -- Start and end ordering are independent. Repeated offsets and malformed spans
     -- keep their decoded values and original token ordinals.
     pilot boundary_start_unsorted = v4_lex_stream_new(2)
@@ -52,19 +52,19 @@ task boundary_run() -> void {
     say "boundary-unsorted-end=" + word_from_bool(boundary_all_offsets(boundary_end_unsorted, 12))
     v4_lex_add_token(boundary_end_unsorted, v4_tok_unknown, "?", "malformed", 1, 3)
     say "boundary-malformed-append=" + word_from_bool(boundary_all_offsets(boundary_end_unsorted, 12))
-    
+
     pilot boundary_payload = v4_lex_snapshot()
     pilot boundary_restored = v4_lex_snapshot_restore(boundary_payload)
     pilot boundary_restore_ok = boundary_restored.starts_with("lex-snapshot-restore ok=1")
     boundary_restore_ok = boundary_restore_ok and boundary_all_offsets(boundary_live, boundary_source.length() + 2) and boundary_all_offsets(boundary_empty, 4) and boundary_all_offsets(boundary_start_unsorted, 12) and boundary_all_offsets(boundary_end_unsorted, 12)
     say "boundary-restored=" + word_from_bool(boundary_restore_ok)
     say "boundary-snapshot-exact=" + word_from_bool(v4_lex_snapshot() == boundary_payload)
-    
+
     -- Losing a derived index must retain the original query behavior.
     array_release(v4_lex_boundaries_handle(boundary_live))
     array_set(v4_lex_stream_boundaries, boundary_live, "-1")
     say "boundary-no-index=" + word_from_bool(boundary_all_offsets(boundary_live, boundary_source.length() + 2))
-    
+
     -- A reused stream slot must forget both the old offsets and ordering flags.
     v4_lex_restore_stream_slot(boundary_end_unsorted, 4)
     v4_lex_add_token(boundary_end_unsorted, v4_tok_ident, "c", "4@20:21", 1, 1)
