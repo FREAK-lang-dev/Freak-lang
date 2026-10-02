@@ -331,7 +331,7 @@ task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
 -- Revisions describe stored owner facts, not derived-cache publication. They
 -- are intentionally absent from snapshots and never reset for a reused ID.
 task v4_hir_revision(hir_id: int) -> int {
-    if v4_hir_file_exists(hir_id) == false { give back 0 - 1 }
+    if v4_hir_ready == 0 or hir_id < 0 or hir_id >= v4_hir_file_len { give back 0 - 1 }
     give back word_to_int(array_get(v4_hir_revisions, hir_id))
 }
 
