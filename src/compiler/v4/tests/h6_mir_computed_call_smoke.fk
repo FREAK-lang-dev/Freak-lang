@@ -3,7 +3,7 @@ task h6_computed_source() -> word {
     pilot src = ""
     src = src + "extern [C] "
     src = src + "{"
-    src = src + "\n task current0() -> extern [C] task() -> int\n task current1() -> extern [C] task(value: int) -> int\n task current2() -> extern [C] task(left: int, right: int) -> int\n"
+    src = src + "\n task current0() -> extern [C] task() -> std::ffi::c_isize\n task current1() -> extern [C] task(value: std::ffi::c_isize) -> std::ffi::c_isize\n task current2() -> extern [C] task(left: std::ffi::c_isize, right: std::ffi::c_isize) -> std::ffi::c_isize\n"
     src = src + "}"
     src = src + "\ntask seed() -> int "
     src = src + "{"
@@ -64,10 +64,13 @@ task h6_computed_call_ok(mir_id: int, name: word, expected: int, abi: word, targ
     if call_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_id) != v4_mir_rvalue_call or v4_mir_rvalue_ty(mir_id, body_id, call_id) != v4_ty_int or v4_mir_rvalue_abi(mir_id, body_id, call_id) != abi or v4_mir_rvalue_call_arg_count(mir_id, body_id, call_id) != expected { give back false }
     pilot target = v4_mir_rvalue_lhs(mir_id, body_id, call_id)
     if target < 0 or target >= call_id or v4_mir_rvalue_kind(mir_id, body_id, target) != target_kind or not v4_ty_is_surface_task_function_type(v4_mir_rvalue_ty(mir_id, body_id, target)) { give back false }
+    pilot target_ty = v4_mir_rvalue_ty(mir_id, body_id, target)
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_function_type_param_count(target_ty) != expected or v4_ty_canonical_type(ty_id, v4_ty_function_type_return_text(target_ty)) != v4_ty_int { give back false }
     pilot arg_id = 0
     repeat until arg_id >= expected {
         pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, call_id, arg_id)
-        if child <= target or child >= call_id { give back false }
+        if child <= target or child >= call_id or v4_mir_rvalue_ty(mir_id, body_id, child) != v4_ty_int or v4_ty_canonical_type(ty_id, v4_ty_function_type_param_surface(target_ty, arg_id)) != v4_ty_int { give back false }
         arg_id += 1
     }
     give back true

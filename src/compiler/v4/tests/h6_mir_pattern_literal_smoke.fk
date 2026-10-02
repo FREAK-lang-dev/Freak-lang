@@ -17,7 +17,7 @@ task h6_pattern_source() -> word {
     src = src + "}"
     src = src + "\") -> give back 1\n _ -> give back 0\n "
     src = src + "}"
-    src = src + "\n give back 0\n"
+    src = src + "\n"
     src = src + "}"
     src = src + "\ntask row_case(row: [word; 2]) -> int "
     src = src + "{"
@@ -25,7 +25,7 @@ task h6_pattern_source() -> word {
     src = src + "{"
     src = src + "\n [\"else\", \"and\"] -> give back 2\n _ -> give back 0\n "
     src = src + "}"
-    src = src + "\n give back 0\n"
+    src = src + "\n"
     src = src + "}"
     src = src + "\ntask route_case(item: Payload) -> int "
     src = src + "{"
@@ -39,7 +39,7 @@ task h6_pattern_source() -> word {
     src = src + "}"
     src = src + " -> give back 3\n _ -> give back 0\n "
     src = src + "}"
-    src = src + "\n give back 0\n"
+    src = src + "\n"
     src = src + "}"
     src = src + "\ntask word_case(value: word) -> int "
     src = src + "{"
@@ -47,7 +47,7 @@ task h6_pattern_source() -> word {
     src = src + "{"
     src = src + "\n \"nobody\" -> give back 4\n \"or\" -> give back 5\n _ -> give back 0\n "
     src = src + "}"
-    src = src + "\n give back 0\n"
+    src = src + "\n"
     src = src + "}"
     src = src + "\ntask escaped_case(pair: (word, word)) -> int "
     src = src + "{"
@@ -57,7 +57,7 @@ task h6_pattern_source() -> word {
     src = src + "}"
     src = src + ",\", \"else\") -> give back 6\n _ -> give back 0\n "
     src = src + "}"
-    src = src + "\n give back 0\n"
+    src = src + "\n"
     src = src + "}"
     src = src + "\n"
     give back src
@@ -127,7 +127,7 @@ task h6_pattern_run() -> void {
         }
         h6_pattern_value += 1
     }
-    say "h6-pattern keyword-data=" + word_from_bool(h6_pattern_exact and h6_pattern_word_counted == 2 and v4_mir_body_local_count(h6_pattern_mir, h6_pattern_word_body) == 1)
+    say "h6-pattern keyword-data=" + word_from_bool(h6_pattern_exact and h6_pattern_word_counted == 2 and v4_mir_body_local_count(h6_pattern_mir, h6_pattern_word_body) == 2 and v4_mir_local_name(h6_pattern_mir, h6_pattern_word_body, 0) == "value" and v4_mir_local_name(h6_pattern_mir, h6_pattern_word_body, 1) == "_when_subject" and v4_mir_find_local(h6_pattern_mir, h6_pattern_word_body, "nobody") == -1 and v4_mir_find_local(h6_pattern_mir, h6_pattern_word_body, "or") == -1)
 }
 
 h6_pattern_run()
