@@ -1,0 +1,49 @@
+-- One long body and a deep expression, without a matching large frontend.
+task v4_llvm_body_resource_assert(condition: bool, label: word) -> void {
+    if not condition { panic("LLVM body resource: " + label) }
+}
+
+task v4_llvm_body_resource_run() -> void {
+    pilot stream = v4_lex_text(0, "task long() -> int {\n" + " give back 0\n" + "}\n")
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_file_new(0, ty)
+    pilot body = v4_mir_add_body(mir, v4_ty_signature_def(ty, 0), "long", "task long() -> int")
+    pilot one = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_int)
+    pilot statement = 0
+    repeat until statement >= 12000 {
+        pilot value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_binary, "", v4_mir_bin_add, one, one, V4_NO_SPAN, v4_ty_int)
+        v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, value)
+        statement += 1
+    }
+    pilot root = one
+    pilot depth = 0
+    repeat until depth >= 2048 {
+        root = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_binary, "", v4_mir_bin_add, root, one, V4_NO_SPAN, v4_ty_int)
+        depth += 1
+    }
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_return, "", "", V4_NO_SPAN, 0 - 1, root)
+    -- The first return suppresses later statements and the default terminator.
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, one)
+    pilot text = v4_codegen_llvm_body_line_from_mir(mir, body)
+    v4_llvm_body_resource_assert(text.starts_with("define ccc i64 @long() {\nentry:\n  br label %bb0\nbb0:\n"), "header")
+    v4_llvm_body_resource_assert(text.contains("  %rv.0.1 = add i64 1, 1\n") and text.contains("  %rv.0.12000 = add i64 1, 1\n"), "first and last statements")
+    v4_llvm_body_resource_assert(text.contains("  %rv.0.12001 = add i64 1, 1\n") and text.ends_with("  ret i64 %rv.0.14048\n}"), "deep expression return")
+    pilot lines = text.snapshot_lines()
+    v4_llvm_body_resource_assert(array_len(lines) == 14054 and text.length() > 350000 and not text.contains("ret i64 0"), "complete body and no extra terminator")
+    pilot instruction = 1
+    repeat until instruction > 14048 {
+        pilot emitted: word = array_get(lines, instruction + 3)
+        v4_llvm_body_resource_assert(emitted.starts_with("  %rv.0." + word_from_int(instruction) + " = add i64 "), "every instruction in order")
+        instruction += 1
+    }
+    array_release(lines)
+    -- A fragment join borrows its elements and releases its scratch array.
+    pilot again = v4_codegen_llvm_body_line_from_mir(mir, body)
+    v4_llvm_body_resource_assert(again == text, "repeat exact")
+    say "llvm-body-resource statements=12000 depth=2048 exact=true first-return=true"
+}
+
+v4_llvm_body_resource_run()

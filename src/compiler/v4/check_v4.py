@@ -6474,6 +6474,26 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "LLVM module assembly bounded memory",
+        "fixture": "codegen_llvm_module_resource_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 128,
+        "expect": [
+            "llvm-module-resource bodies=800 bytes-over=3300000 order=true exact=true retained=true",
+        ],
+    },
+    {
+        "name": "LLVM long body assembly bounded memory",
+        "fixture": "codegen_llvm_body_resource_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 128,
+        "expect": [
+            "llvm-body-resource statements=12000 depth=2048 exact=true first-return=true",
+        ],
+    },
+    {
         "name": "LLVM module facts across MIR restore",
         "fixture": "codegen_llvm_module_epoch_smoke.fk",
         "expect_mode": "line",

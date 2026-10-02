@@ -352,23 +352,24 @@ task v4_codegen_llvm_mangle_name(name: word) -> word {
         give back "anon"
     }
 
-    pilot out = ""
+    pilot parts = array_new()
     pilot idx = 0
     pilot last_was_sep = false
     repeat until idx >= name.length() {
         pilot ch = name.char_at(idx)
         if v4_codegen_llvm_is_symbol_char(ch) {
-            out = out + ch
+            array_push(parts, ch)
             last_was_sep = false
         } else {
-            if out == "" or last_was_sep == false {
-                out = out + "_"
+            if array_len(parts) == 0 or last_was_sep == false {
+                array_push(parts, "_")
             }
             last_was_sep = true
         }
         idx += 1
     }
 
+    pilot out = word_join(parts)
     if out == "" {
         give back "anon"
     }
@@ -427,18 +428,18 @@ task v4_codegen_llvm_callback_trampoline_call_args(ty_id: int, sig_id: int) -> w
     if count <= 0 {
         give back ""
     }
-    pilot out = ""
+    pilot parts = array_new()
     pilot param_idx = 0
     repeat until param_idx >= count {
         if param_idx > 0 {
-            out = out + ", "
+            array_push(parts, ", ")
         }
         pilot param_ty = v4_codegen_llvm_type(v4_ty_signature_param_type(ty_id, sig_id, param_idx))
         pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_idx)
-        out = out + param_ty + " %" + v4_codegen_llvm_mangle_name(param_name)
+        array_push(parts, param_ty + " %" + v4_codegen_llvm_mangle_name(param_name))
         param_idx += 1
     }
-    give back out
+    give back word_join(parts)
 }
 
 task v4_codegen_llvm_callback_trampoline_line(mir_id: int, ty_id: int, sig_id: int, abi: word) -> word {
@@ -547,22 +548,22 @@ task v4_codegen_llvm_signature_params(ty_id: int, sig_id: int) -> word {
         give back ""
     }
 
-    pilot out = ""
+    pilot parts = array_new()
     pilot param_idx = 0
     repeat until param_idx >= count {
         if param_idx > 0 {
-            out = out + ", "
+            array_push(parts, ", ")
         }
-        out = out + v4_codegen_llvm_type(v4_ty_signature_param_type(ty_id, sig_id, param_idx))
+        array_push(parts, v4_codegen_llvm_type(v4_ty_signature_param_type(ty_id, sig_id, param_idx)))
         param_idx += 1
     }
     if variadic {
-        if out != "" {
-            out = out + ", "
+        if count > 0 {
+            array_push(parts, ", ")
         }
-        out = out + "..."
+        array_push(parts, "...")
     }
-    give back out
+    give back word_join(parts)
 }
 
 task v4_codegen_llvm_signature_named_params(ty_id: int, sig_id: int) -> word {
@@ -571,18 +572,18 @@ task v4_codegen_llvm_signature_named_params(ty_id: int, sig_id: int) -> word {
         give back ""
     }
 
-    pilot out = ""
+    pilot parts = array_new()
     pilot param_idx = 0
     repeat until param_idx >= count {
         if param_idx > 0 {
-            out = out + ", "
+            array_push(parts, ", ")
         }
         pilot param_ty = v4_codegen_llvm_type(v4_ty_signature_param_type(ty_id, sig_id, param_idx))
         pilot param_name = v4_ty_signature_param_name(ty_id, sig_id, param_idx)
-        out = out + param_ty + " %" + v4_codegen_llvm_mangle_name(param_name)
+        array_push(parts, param_ty + " %" + v4_codegen_llvm_mangle_name(param_name))
         param_idx += 1
     }
-    give back out
+    give back word_join(parts)
 }
 
 task v4_codegen_llvm_signature_is_callable(ty_id: int, sig_id: int) -> bool {
@@ -648,14 +649,14 @@ task v4_codegen_llvm_word_literal_symbol(body_id: int, rvalue_id: int) -> word {
 
 -- Escape semantic bytes for LLVM, never decode source escapes here.
 task v4_codegen_llvm_word_literal_escape(text: word) -> word {
-    pilot out = ""
+    pilot parts = array_new()
     pilot idx = 0
     repeat until idx >= text.length() {
         pilot ch = text.char_at(idx)
-        if ch == "\n" { out = out + "\\0A" } else if ch == "\r" { out = out + "\\0D" } else if ch == "\t" { out = out + "\\09" } else if ch == "\"" { out = out + "\\22" } else if ch == "\\" { out = out + "\\5C" } else { out = out + ch }
+        if ch == "\n" { array_push(parts, "\\0A") } else if ch == "\r" { array_push(parts, "\\0D") } else if ch == "\t" { array_push(parts, "\\09") } else if ch == "\"" { array_push(parts, "\\22") } else if ch == "\\" { array_push(parts, "\\5C") } else { array_push(parts, ch) }
         idx += 1
     }
-    give back out
+    give back word_join(parts)
 }
 
 task v4_codegen_llvm_rvalue_local(mir_id: int, body_id: int, rvalue_id: int) -> int {
@@ -1104,17 +1105,18 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
     give back ""
 }
 
-task v4_codegen_llvm_rvalue_tree_lines(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
+-- The caller owns one fragment buffer for the whole expression tree. Returning
+-- and concatenating a complete child word at every depth retains all prefixes.
+task v4_codegen_llvm_collect_rvalue_tree_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word) -> void {
     if rvalue_id < 0 {
-        give back ""
+        give back
     }
 
-    pilot out = ""
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
     if kind == v4_mir_rvalue_call {
         pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_id, rvalue_id)
         if target_rvalue >= 0 and v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, target_rvalue) {
-            out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, target_rvalue, v4_codegen_llvm_temp_value(body_id, target_rvalue))
+            v4_codegen_llvm_collect_rvalue_tree_lines(parts, mir_id, body_id, target_rvalue, v4_codegen_llvm_temp_value(body_id, target_rvalue))
         }
         pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id)
         if arg_count > 0 {
@@ -1122,7 +1124,7 @@ task v4_codegen_llvm_rvalue_tree_lines(mir_id: int, body_id: int, rvalue_id: int
             repeat until arg_idx >= arg_count {
                 pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_idx)
                 if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, arg_rvalue) {
-                    out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, arg_rvalue, v4_codegen_llvm_temp_value(body_id, arg_rvalue))
+                    v4_codegen_llvm_collect_rvalue_tree_lines(parts, mir_id, body_id, arg_rvalue, v4_codegen_llvm_temp_value(body_id, arg_rvalue))
                 }
                 arg_idx += 1
             }
@@ -1130,7 +1132,7 @@ task v4_codegen_llvm_rvalue_tree_lines(mir_id: int, body_id: int, rvalue_id: int
             repeat until arg_idx >= arg_count {
                 pilot line = v4_codegen_llvm_variadic_arg_prelude_line(mir_id, body_id, rvalue_id, arg_idx)
                 if line != "" {
-                    out = out + "  " + line + "\n"
+                    array_push(parts, "  " + line + "\n")
                 }
                 arg_idx += 1
             }
@@ -1138,20 +1140,20 @@ task v4_codegen_llvm_rvalue_tree_lines(mir_id: int, body_id: int, rvalue_id: int
             pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
             pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
             if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, lhs) {
-                out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, lhs, v4_codegen_llvm_temp_value(body_id, lhs))
+                v4_codegen_llvm_collect_rvalue_tree_lines(parts, mir_id, body_id, lhs, v4_codegen_llvm_temp_value(body_id, lhs))
             }
             if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rhs) {
-                out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rhs, v4_codegen_llvm_temp_value(body_id, rhs))
+                v4_codegen_llvm_collect_rvalue_tree_lines(parts, mir_id, body_id, rhs, v4_codegen_llvm_temp_value(body_id, rhs))
             }
         }
     } else {
         pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
         pilot rhs = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
         if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, lhs) {
-            out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, lhs, v4_codegen_llvm_temp_value(body_id, lhs))
+            v4_codegen_llvm_collect_rvalue_tree_lines(parts, mir_id, body_id, lhs, v4_codegen_llvm_temp_value(body_id, lhs))
         }
         if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rhs) {
-            out = out + v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rhs, v4_codegen_llvm_temp_value(body_id, rhs))
+            v4_codegen_llvm_collect_rvalue_tree_lines(parts, mir_id, body_id, rhs, v4_codegen_llvm_temp_value(body_id, rhs))
         }
     }
 
@@ -1161,15 +1163,20 @@ task v4_codegen_llvm_rvalue_tree_lines(mir_id: int, body_id: int, rvalue_id: int
             pilot value_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 1)
             pilot expected_ty = v4_ty_raw_pointer_target_type(v4_mir_rvalue_ty(mir_id, body_id, ptr_rvalue))
             pilot write_temp = "%write." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
-            out = out + v4_codegen_llvm_expected_lines(mir_id, body_id, value_rvalue, expected_ty, write_temp)
+            array_push(parts, v4_codegen_llvm_expected_lines(mir_id, body_id, value_rvalue, expected_ty, write_temp))
         }
-        if kind == v4_mir_rvalue_binary { out = out + v4_codegen_llvm_binary_cast_lines(mir_id, body_id, rvalue_id) }
+        if kind == v4_mir_rvalue_binary { array_push(parts, v4_codegen_llvm_binary_cast_lines(mir_id, body_id, rvalue_id)) }
         pilot line = v4_codegen_llvm_rvalue_instruction(mir_id, body_id, rvalue_id, target)
         if line != "" {
-            out = out + "  " + line + "\n"
+            array_push(parts, "  " + line + "\n")
         }
     }
-    give back out
+}
+
+task v4_codegen_llvm_rvalue_tree_lines(mir_id: int, body_id: int, rvalue_id: int, target: word) -> word {
+    pilot parts = array_new()
+    v4_codegen_llvm_collect_rvalue_tree_lines(parts, mir_id, body_id, rvalue_id, target)
+    give back word_join(parts)
 }
 
 task v4_codegen_llvm_call_args(mir_id: int, body_id: int, rvalue_id: int) -> word {
@@ -1190,16 +1197,16 @@ task v4_codegen_llvm_call_args(mir_id: int, body_id: int, rvalue_id: int) -> wor
         give back fallback
     }
 
-    pilot out = ""
+    pilot parts = array_new()
     pilot arg_idx = 0
     repeat until arg_idx >= arg_count {
         if arg_idx > 0 {
-            out = out + ", "
+            array_push(parts, ", ")
         }
-        out = out + v4_codegen_llvm_call_arg_operand(mir_id, body_id, rvalue_id, arg_idx)
+        array_push(parts, v4_codegen_llvm_call_arg_operand(mir_id, body_id, rvalue_id, arg_idx))
         arg_idx += 1
     }
-    give back out
+    give back word_join(parts)
 }
 
 task v4_codegen_llvm_lower_signatures(codegen_id: int, mir_id: int, ty_id: int) -> void {
@@ -1269,14 +1276,14 @@ task v4_codegen_llvm_body_header(mir_id: int, body_id: int) -> word {
     pilot abi = v4_mir_body_callable_abi(mir_id, body_id)
     pilot cc = v4_codegen_llvm_calling_convention(abi)
     pilot return_ty = v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body_id))
-    pilot params = ""
+    pilot parts = array_new()
     pilot param_id = 0
     repeat until param_id >= v4_mir_body_callable_param_count(mir_id, body_id) {
-        if param_id > 0 { params = params + ", " }
-        params = params + v4_codegen_llvm_type(v4_mir_body_callable_param_type(mir_id, body_id, param_id)) + " %arg." + word_from_int(param_id)
+        if param_id > 0 { array_push(parts, ", ") }
+        array_push(parts, v4_codegen_llvm_type(v4_mir_body_callable_param_type(mir_id, body_id, param_id)) + " %arg." + word_from_int(param_id))
         param_id += 1
     }
-    give back "define " + cc + " " + return_ty + " " + v4_codegen_llvm_callable_symbol(mir_id, body_name) + "(" + params + ")"
+    give back "define " + cc + " " + return_ty + " " + v4_codegen_llvm_callable_symbol(mir_id, body_name) + "(" + word_join(parts) + ")"
 }
 
 task v4_codegen_llvm_find_mir_body(mir_id: int, name: word) -> int {
@@ -1385,38 +1392,39 @@ task v4_codegen_llvm_block_terminator_line(mir_id: int, body_id: int, block_id: 
 }
 
 task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
-    pilot out = v4_codegen_llvm_body_header(mir_id, body_id) + " {\nentry:\n"
+    pilot parts = array_new()
+    array_push(parts, v4_codegen_llvm_body_header(mir_id, body_id) + " {\nentry:\n")
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     pilot local_id = 0
     repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
         pilot local_ty = v4_codegen_llvm_type(v4_mir_local_ty(mir_id, body_id, local_id))
-        out = out + "  " + v4_codegen_llvm_local_slot(local_id) + " = alloca " + local_ty + "\n"
+        array_push(parts, "  " + v4_codegen_llvm_local_slot(local_id) + " = alloca " + local_ty + "\n")
         if local_id < v4_mir_body_callable_param_count(mir_id, body_id) {
-            out = out + "  store " + local_ty + " %arg." + word_from_int(local_id) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n"
+            array_push(parts, "  store " + local_ty + " %arg." + word_from_int(local_id) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n")
         }
         local_id += 1
     }
-    out = out + "  br label %bb0\n"
+    array_push(parts, "  br label %bb0\n")
     pilot block_id = 0
     pilot block_count = v4_mir_body_block_count(mir_id, body_id)
     repeat until block_id >= block_count {
-        out = out + "bb" + word_from_int(block_id) + ":\n"
+        array_push(parts, "bb" + word_from_int(block_id) + ":\n")
         pilot stmt_id = 0
         pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
         pilot terminal = false
         repeat until stmt_id >= stmt_count {
             if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id and terminal == false {
-                out = out + v4_codegen_llvm_stmt_lines(mir_id, body_id, stmt_id)
+                array_push(parts, v4_codegen_llvm_stmt_lines(mir_id, body_id, stmt_id))
                 if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return { terminal = true }
             }
             stmt_id += 1
         }
-        out = out + v4_codegen_llvm_block_terminator_line(mir_id, body_id, block_id)
+        array_push(parts, v4_codegen_llvm_block_terminator_line(mir_id, body_id, block_id))
         block_id += 1
     }
-    out = out + "}"
-    give back out
+    array_push(parts, "}")
+    give back word_join(parts)
 }
 
 task v4_codegen_llvm_lower_bodies(codegen_id: int, mir_id: int) -> void {
@@ -1556,20 +1564,20 @@ task v4_codegen_llvm_native_word_error(mir_id: int) -> word {
 }
 
 task v4_codegen_llvm_word_globals(mir_id: int) -> word {
-    pilot out = ""
+    pilot parts = array_new()
     pilot body_id = 0
     repeat until body_id >= v4_mir_body_count(mir_id) {
         pilot rvalue_id = 0
         repeat until rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
             if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_const_word {
                 pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
-                out = out + v4_codegen_llvm_word_literal_symbol(body_id, rvalue_id) + " = private unnamed_addr constant [" + word_from_int(text.length() + 1) + " x i8] c\"" + v4_codegen_llvm_word_literal_escape(text) + "\\00\", align 1\n"
+                array_push(parts, v4_codegen_llvm_word_literal_symbol(body_id, rvalue_id) + " = private unnamed_addr constant [" + word_from_int(text.length() + 1) + " x i8] c\"" + v4_codegen_llvm_word_literal_escape(text) + "\\00\", align 1\n")
             }
             rvalue_id += 1
         }
         body_id += 1
     }
-    give back out
+    give back word_join(parts)
 }
 
 task v4_codegen_llvm_native_entry_error(mir_id: int) -> word {
@@ -1625,25 +1633,36 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
     if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "" }
     if v4_codegen_llvm_diag_count(codegen_id) != 0 { give back "" }
     if v4_codegen_llvm_native_module_error(codegen_id) != "" { give back "" }
-    pilot out = "target triple = \"" + v4_target_spec_triple(target_spec) + "\"\n\n"
+    pilot parts = array_new()
+    array_push(parts, "target triple = \"" + v4_target_spec_triple(target_spec) + "\"\n\n")
     pilot entry: word = array_get(v4_codegen_llvm_native_entry_lines, codegen_id)
-    if entry != "" { out = out + "declare void @freak_llvm_setup_args(i64, i64)\n" }
+    if entry != "" { array_push(parts, "declare void @freak_llvm_setup_args(i64, i64)\n") }
     pilot globals: word = array_get(v4_codegen_llvm_word_global_lines, codegen_id)
-    if globals != "" { out = out + "declare void @freak_llvm_say(i64)\n" + globals }
+    if globals != "" {
+        array_push(parts, "declare void @freak_llvm_say(i64)\n")
+        array_push(parts, globals)
+    }
     pilot decl_id = 0
     repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
         pilot line = v4_codegen_llvm_decl_line(codegen_id, decl_id)
         pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl_id)
         pilot supplied: bool = (entry != "" and symbol == "@freak_llvm_setup_args") or (globals != "" and symbol == "@freak_llvm_say")
-        if v4_codegen_llvm_starts_with(line, "declare ") and not supplied { out = out + line + "\n" }
+        if v4_codegen_llvm_starts_with(line, "declare ") and not supplied {
+            array_push(parts, line)
+            array_push(parts, "\n")
+        }
         decl_id += 1
     }
     pilot body_id = 0
     repeat until body_id >= v4_codegen_llvm_body_count(codegen_id) {
-        out = out + "\n" + v4_codegen_llvm_body_line(codegen_id, body_id) + "\n"
+        array_push(parts, "\n")
+        array_push(parts, v4_codegen_llvm_body_line(codegen_id, body_id))
+        array_push(parts, "\n")
         body_id += 1
     }
-    give back out + "\n" + entry
+    array_push(parts, "\n")
+    array_push(parts, entry)
+    give back word_join(parts)
 }
 
 task v4_codegen_llvm_find_decl(codegen_id: int, name: word) -> int {
