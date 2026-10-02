@@ -72,6 +72,10 @@ pilot v4_hir_task_return_spans = 0
 pilot v4_hir_annotation_indexes = 0
 pilot v4_hir_return_indexes = 0
 pilot v4_hir_task_param_indexes = 0
+pilot v4_hir_impl_indexes = 0
+pilot v4_hir_impl_index_build_probes = 0
+pilot v4_hir_impl_candidate_lookup_probes = 0
+pilot v4_hir_impl_candidate_cold_probes = 0
 pilot v4_hir_index_sort_comparisons = 0
 pilot v4_hir_annotation_lookup_probes = 0
 pilot v4_hir_return_lookup_probes = 0
@@ -111,6 +115,7 @@ task v4_hir_init() -> void {
         v4_hir_annotation_indexes = array_new()
         v4_hir_return_indexes = array_new()
         v4_hir_task_param_indexes = array_new()
+        v4_hir_impl_indexes = array_new()
         v4_hir_task_param_owner_items = array_new()
         v4_hir_task_param_owner_counts = array_new()
         v4_hir_task_param_items = array_new()
@@ -124,7 +129,7 @@ task v4_hir_init() -> void {
         v4_hir_task_param_type_spans = array_new()
         v4_hir_task_param_segment_spans = array_new()
         v4_hir_diags = array_new()
-        if v4_hir_route_owner_values < 0 or v4_hir_route_case_values < 0 or v4_hir_route_field_values < 0 or v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_revisions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
+        if v4_hir_route_owner_values < 0 or v4_hir_route_case_values < 0 or v4_hir_route_field_values < 0 or v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_revisions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_indexes < 0 or v4_hir_impl_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
             array_release(v4_hir_route_owner_values)
             array_release(v4_hir_route_case_values)
             array_release(v4_hir_route_field_values)
@@ -153,6 +158,7 @@ task v4_hir_init() -> void {
             array_release(v4_hir_annotation_indexes)
             array_release(v4_hir_return_indexes)
             array_release(v4_hir_task_param_indexes)
+            array_release(v4_hir_impl_indexes)
             array_release(v4_hir_task_param_owner_items)
             array_release(v4_hir_task_param_owner_counts)
             array_release(v4_hir_task_param_items)
@@ -173,7 +179,7 @@ task v4_hir_init() -> void {
     }
 }
 
--- File slots own their thirty-eight child arrays. Logical snapshot truncation keeps
+-- File slots own their thirty-nine child arrays. Logical snapshot truncation keeps
 -- high-water slots reachable; reusing a slot must release its previous children.
 -- Fresh slots allocate once, without immediately overwriting those handles.
 task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
@@ -210,12 +216,17 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         pilot annotation_index = array_new()
         pilot return_index = array_new()
         pilot task_param_index = array_new()
+        pilot impl_index = array_new()
         array_push(annotation_index, "0")
         array_push(return_index, "0")
         array_push(task_param_index, "0")
+        array_push(impl_index, "0")
+        array_push(impl_index, "0")
+        array_push(impl_index, "-1")
         array_push(v4_hir_annotation_indexes, word_from_int(annotation_index))
         array_push(v4_hir_return_indexes, word_from_int(return_index))
         array_push(v4_hir_task_param_indexes, word_from_int(task_param_index))
+        array_push(v4_hir_impl_indexes, word_from_int(impl_index))
         array_push(v4_hir_task_param_owner_items, word_from_int(array_new()))
         array_push(v4_hir_task_param_owner_counts, word_from_int(array_new()))
         array_push(v4_hir_task_param_items, word_from_int(array_new()))
@@ -263,6 +274,7 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_release(v4_hir_annotation_index_handle(hir_id))
         array_release(v4_hir_return_index_handle(hir_id))
         array_release(v4_hir_task_param_index_handle(hir_id))
+        array_release(v4_hir_impl_index_handle(hir_id))
         array_release(v4_hir_task_param_owner_items_handle(hir_id))
         array_release(v4_hir_task_param_owner_counts_handle(hir_id))
         array_release(v4_hir_task_param_items_handle(hir_id))
@@ -294,12 +306,17 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         pilot reused_annotation_index = array_new()
         pilot reused_return_index = array_new()
         pilot reused_task_param_index = array_new()
+        pilot reused_impl_index = array_new()
         array_push(reused_annotation_index, "0")
         array_push(reused_return_index, "0")
         array_push(reused_task_param_index, "0")
+        array_push(reused_impl_index, "0")
+        array_push(reused_impl_index, "0")
+        array_push(reused_impl_index, "-1")
         array_set(v4_hir_annotation_indexes, hir_id, word_from_int(reused_annotation_index))
         array_set(v4_hir_return_indexes, hir_id, word_from_int(reused_return_index))
         array_set(v4_hir_task_param_indexes, hir_id, word_from_int(reused_task_param_index))
+        array_set(v4_hir_impl_indexes, hir_id, word_from_int(reused_impl_index))
         array_set(v4_hir_task_param_owner_items, hir_id, word_from_int(array_new()))
         array_set(v4_hir_task_param_owner_counts, hir_id, word_from_int(array_new()))
         array_set(v4_hir_task_param_items, hir_id, word_from_int(array_new()))
@@ -712,6 +729,84 @@ task v4_hir_invalidate_lookup_indexes(hir_id: int) -> void {
     array_set(v4_hir_annotation_index_handle(hir_id), 0, "0")
     array_set(v4_hir_return_index_handle(hir_id), 0, "0")
     v4_hir_invalidate_task_param_lookup_index(hir_id)
+    array_set(v4_hir_impl_index_handle(hir_id), 0, "0")
+}
+
+-- Compact derived impl candidates preserve physical item order. The logical
+-- count excludes retained high-water cells after a shorter rebuild. Revision
+-- matching also makes explicit raw edits followed by bump_revision safe.
+task v4_hir_impl_index_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_impl_indexes, hir_id))
+}
+
+task v4_hir_impl_index_is_ready(hir_id: int) -> bool {
+    if v4_hir_ready == 0 or hir_id < 0 or hir_id >= v4_hir_file_len { give back false }
+    pilot packed = v4_hir_impl_index_handle(hir_id)
+    pilot ready: word = array_get(packed, 0)
+    give back ready == "1" and word_to_int(array_get(packed, 2)) == v4_hir_revision(hir_id)
+}
+
+-- No scratch handles: one forward pass over observed semantic item IDs.
+-- Only the finalizer publishes this cache; failed growth leaves it cold.
+task v4_hir_finalize_impl_lookup_index(hir_id: int) -> bool {
+    if v4_hir_file_exists(hir_id) == false { give back false }
+    pilot packed = v4_hir_impl_index_handle(hir_id)
+    array_set(packed, 0, "0")
+    pilot count = 0
+    pilot item = 0
+    repeat until item >= v4_hir_item_count(hir_id) {
+        v4_hir_impl_index_build_probes += 1
+        if v4_hir_item_kind(hir_id, item) == v4_hir_impl {
+            if array_len(packed) <= 3 + count {
+                pilot length = array_len(packed)
+                array_push(packed, "0")
+                if array_len(packed) != length + 1 { give back false }
+            }
+            array_set(packed, 3 + count, word_from_int(item))
+            count += 1
+        }
+        item += 1
+    }
+    array_set(packed, 1, word_from_int(count))
+    array_set(packed, 2, word_from_int(v4_hir_revision(hir_id)))
+    array_set(packed, 0, "1")
+    give back true
+}
+
+-- Returns the first Impl item strictly after after_item, or -1. Published
+-- candidates use upper-bound search; cold traversal scans only the remaining
+-- physical IDs, so a full walk is linear rather than repeated ordinal scans.
+-- Queries neither allocate nor rebuild and return live partial-construction
+-- facts when cache publication is absent or invalidated.
+task v4_hir_next_impl_item(hir_id: int, after_item: int) -> int {
+    if v4_hir_ready == 0 or hir_id < 0 or hir_id >= v4_hir_file_len { give back 0 - 1 }
+    pilot items = v4_hir_item_count(hir_id)
+    if after_item >= items { give back 0 - 1 }
+    if v4_hir_impl_index_is_ready(hir_id) {
+        pilot packed = v4_hir_impl_index_handle(hir_id)
+        pilot count = word_to_int(array_get(packed, 1))
+        pilot low = 0
+        pilot high = count
+        repeat until low >= high {
+            pilot middle = low + (high - low) / 2
+            v4_hir_impl_candidate_lookup_probes += 1
+            if word_to_int(array_get(packed, 3 + middle)) <= after_item {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        if low >= count { give back 0 - 1 }
+        give back word_to_int(array_get(packed, 3 + low))
+    }
+    pilot item = 0
+    if after_item >= 0 { item = after_item + 1 }
+    repeat until item >= items {
+        v4_hir_impl_candidate_cold_probes += 1
+        if v4_hir_item_kind(hir_id, item) == v4_hir_impl { give back item }
+        item += 1
+    }
+    give back 0 - 1
 }
 
 -- Stable bottom-up merge sort of record IDs by two numeric key arrays.
@@ -876,6 +971,9 @@ task v4_hir_finalize_lookup_indexes(hir_id: int) -> bool {
     }
     if valid {
         valid = v4_hir_finalize_task_param_lookup_index(hir_id)
+    }
+    if valid {
+        valid = v4_hir_finalize_impl_lookup_index(hir_id)
     }
     if valid {
         array_set(packed, 0, "1")
@@ -1588,7 +1686,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
     if v4_hir_ready == 0 { give back 0 - 1 }
     pilot required = 4
-    if v4_hir_file_len >= array_len(v4_hir_files) { required += 38 }
+    if v4_hir_file_len >= array_len(v4_hir_files) { required += 39 }
     if v4_hir_lookup_handles_available(required) == false { give back 0 - 1 }
     pilot hir_id = v4_hir_file_new(file_id, expansion_id)
     v4_hir_copy_expand_diags(hir_id, expansion_id)
@@ -2719,7 +2817,7 @@ task v4_hir_begin_snapshot_restore() -> void {
 }
 
 -- Restore is synchronous. Reserve the peak additional handle requirement
--- before touching live slots: thirty-eight per new high-water file plus four
+-- before touching live slots: thirty-nine per new high-water file plus four
 -- finalizer scratch arrays. Reused files free all children before replacing
 -- them. The line index remains held throughout preflight and restoration.
 task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
@@ -2732,7 +2830,7 @@ task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
     }
     pilot fresh = files - array_len(v4_hir_files)
     if fresh < 0 { fresh = 0 }
-    give back v4_hir_lookup_handles_available(fresh * 38 + 4)
+    give back v4_hir_lookup_handles_available(fresh * 39 + 4)
 }
 
 task v4_hir_lookup_handles_available(needed: int) -> bool {
