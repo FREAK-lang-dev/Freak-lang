@@ -132,12 +132,14 @@ pilot v4_mir_diags = 0
 pilot v4_mir_ready = 0
 
 -- Optional derived indexes. They never enter snapshot v5 or allocate in readers.
+-- Body identity child: ready/capacity/count, definition buckets, name buckets.
 pilot v4_mir_body_lookup_indexes = 0 - 1
 pilot v4_mir_block_stmt_indexes = 0 - 1
 pilot v4_mir_stmt_next_indexes = 0 - 1
 pilot v4_mir_body_lookup_build_records = 0
 pilot v4_mir_body_lookup_probes = 0
 pilot v4_mir_body_lookup_linear_steps = 0
+pilot v4_mir_body_name_reads = 0
 pilot v4_mir_block_stmt_build_records = 0
 pilot v4_mir_block_stmt_lookup_steps = 0
 pilot v4_mir_block_stmt_linear_steps = 0
@@ -335,25 +337,40 @@ task v4_mir_body_lookup_index_is_ready(mir_id: int) -> bool {
     if not v4_mir_lookup_owner_exists(mir_id) { give back false }
     pilot packed = v4_mir_body_lookup_index_handle(mir_id)
     pilot ready: word = array_get(packed, 0)
-    give back array_len(packed) >= 3 and ready == "1" and word_to_int(array_get(packed, 2)) == v4_mir_body_count(mir_id)
+    pilot capacity = word_to_int(array_get(packed, 1))
+    give back array_len(packed) >= 3 and ready == "1" and capacity > 0 and capacity <= 536870912 and array_len(packed) >= 3 + 2 * capacity and word_to_int(array_get(packed, 2)) == v4_mir_body_count(mir_id)
 }
 
 task v4_mir_body_lookup_insert(mir_id: int, body_id: int) -> bool {
+    -- A duplicate in either table must not suppress the other identity.
+    if not v4_mir_body_lookup_insert_key(mir_id, body_id, false) { give back false }
+    give back v4_mir_body_lookup_insert_key(mir_id, body_id, true)
+}
+
+task v4_mir_body_lookup_key(mir_id: int, body_id: int, by_name: bool) -> word {
+    if by_name { give back v4_mir_body_name(mir_id, body_id) }
+    give back v4_mir_body_def(mir_id, body_id)
+}
+
+task v4_mir_body_lookup_insert_key(mir_id: int, body_id: int, by_name: bool) -> bool {
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back false }
     pilot packed = v4_mir_body_lookup_index_handle(mir_id)
     pilot capacity = word_to_int(array_get(packed, 1))
-    if capacity <= 0 { give back false }
-    pilot key = v4_mir_body_def(mir_id, body_id)
+    if capacity <= 0 or capacity > 536870912 or array_len(packed) < 3 + 2 * capacity { give back false }
+    pilot base = 3
+    if by_name { base += capacity }
+    pilot key = v4_mir_body_lookup_key(mir_id, body_id, by_name)
     pilot bucket: int = key.checksum() % capacity
     pilot visited = 0
     repeat until visited >= capacity {
         v4_mir_body_lookup_probes += 1
-        pilot previous = word_to_int(array_get(packed, 3 + bucket)) - 1
+        pilot previous = word_to_int(array_get(packed, base + bucket)) - 1
         if previous < 0 {
-            array_set(packed, 3 + bucket, word_from_int(body_id + 1))
+            array_set(packed, base + bucket, word_from_int(body_id + 1))
             give back true
         }
         -- Physical insertion order retains the first exact duplicate.
-        if v4_mir_body_def(mir_id, previous) == key { give back true }
+        if v4_mir_body_lookup_key(mir_id, previous, by_name) == key { give back true }
         bucket = (bucket + 1) % capacity
         visited += 1
     }
@@ -367,14 +384,15 @@ task v4_mir_finalize_body_lookup_index(mir_id: int) -> bool {
     if v4_mir_body_lookup_index_is_ready(mir_id) { give back true }
     array_set(packed, 0, "0")
     pilot count = v4_mir_body_count(mir_id)
-    if count > 536870911 { give back false }
+    if count > 268435455 { give back false }
     pilot capacity = word_to_int(array_get(packed, 1))
     if capacity < 16 { capacity = 16 }
+    if capacity > 536870912 { give back false }
     repeat until capacity >= 2 * count { capacity *= 2 }
-    if not v4_mir_lookup_ensure_slot(packed, 2 + capacity, "0") { give back false }
+    if not v4_mir_lookup_ensure_slot(packed, 2 + 2 * capacity, "0") { give back false }
     array_set(packed, 1, word_from_int(capacity))
     pilot slot = 3
-    repeat until slot >= 3 + capacity {
+    repeat until slot >= 3 + 2 * capacity {
         array_set(packed, slot, "0")
         slot += 1
     }
@@ -787,6 +805,7 @@ task v4_mir_body_def(mir_id: int, body_id: int) -> word {
 }
 
 task v4_mir_body_name(mir_id: int, body_id: int) -> word {
+    v4_mir_body_name_reads += 1
     give back array_get(v4_mir_names_handle(mir_id), body_id)
 }
 
@@ -2278,6 +2297,34 @@ task v4_mir_lookup_body(mir_id: int, def_id: word) -> int {
         v4_mir_body_lookup_linear_steps += 1
         if v4_mir_body_def(mir_id, body_idx) == def_id { give back body_idx }
         body_idx += 1
+    }
+    give back 0 - 1
+}
+
+-- Name identity shares publication and lifetime with definition identity.
+-- Cold fallback preserves the first exact name in ascending physical order.
+task v4_mir_lookup_body_name(mir_id: int, name: word) -> int {
+    if not v4_mir_lookup_owner_exists(mir_id) { give back 0 - 1 }
+    if v4_mir_body_lookup_index_is_ready(mir_id) {
+        pilot packed = v4_mir_body_lookup_index_handle(mir_id)
+        pilot capacity = word_to_int(array_get(packed, 1))
+        pilot bucket: int = name.checksum() % capacity
+        pilot visited = 0
+        repeat until visited >= capacity {
+            v4_mir_body_lookup_probes += 1
+            pilot body_id = word_to_int(array_get(packed, 3 + capacity + bucket)) - 1
+            if body_id < 0 { give back 0 - 1 }
+            if v4_mir_body_name(mir_id, body_id) == name { give back body_id }
+            bucket = (bucket + 1) % capacity
+            visited += 1
+        }
+    }
+    pilot body_id = 0
+    pilot count = v4_mir_body_count(mir_id)
+    repeat until body_id >= count {
+        v4_mir_body_lookup_linear_steps += 1
+        if v4_mir_body_name(mir_id, body_id) == name { give back body_id }
+        body_id += 1
     }
     give back 0 - 1
 }

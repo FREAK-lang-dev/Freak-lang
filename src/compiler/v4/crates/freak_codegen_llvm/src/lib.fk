@@ -1287,12 +1287,7 @@ task v4_codegen_llvm_body_header(mir_id: int, body_id: int) -> word {
 }
 
 task v4_codegen_llvm_find_mir_body(mir_id: int, name: word) -> int {
-    pilot body_id = 0
-    repeat until body_id >= v4_mir_body_count(mir_id) {
-        if v4_mir_body_name(mir_id, body_id) == name { give back body_id }
-        body_id += 1
-    }
-    give back 0 - 1
+    give back v4_mir_lookup_body_name(mir_id, name)
 }
 
 task v4_codegen_llvm_default_return_line(return_ty: word) -> word {
