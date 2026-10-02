@@ -125,7 +125,7 @@ pilot v4_borrowck_repeat_projection_scan_exhausted_value = false
 pilot v4_borrowck_repeat_projection_scan_slot_count_value = 0
 -- Optional per-result statement/path chains, derived from physical path rows.
 -- One registry per file and one packed table per result; snapshots omit them.
-pilot v4_borrowck_stmt_path_indexes = 0
+pilot v4_borrowck_stmt_path_indexes = 0 - 1
 pilot v4_borrowck_stmt_path_index_probes = 0
 pilot v4_borrowck_stmt_path_index_visits = 0
 pilot v4_borrowck_stmt_path_linear_steps = 0
@@ -330,18 +330,37 @@ task v4_borrowck_stmt_path_index_new(capacity: int) -> int {
     give back index
 }
 
+-- Index queries must not initialize Meiya or interpret default handle 0 as an
+-- owner. Keep these checks separate from file_exists, which initializes it.
+task v4_borrowck_stmt_path_file_exists(borrow_id: int) -> bool {
+    give back v4_borrowck_ready != 0 and borrow_id >= 0 and borrow_id < array_len(v4_borrowck_files)
+}
+
+task v4_borrowck_stmt_path_result_exists(borrow_id: int, result_id: int) -> bool {
+    if not v4_borrowck_stmt_path_file_exists(borrow_id) or result_id < 0 { give back false }
+    if borrow_id >= array_len(v4_borrowck_body_defs) or borrow_id >= array_len(v4_borrowck_path_kinds) or borrow_id >= array_len(v4_borrowck_path_stmt_ids) { give back false }
+    pilot defs = v4_borrowck_defs_handle(borrow_id)
+    pilot kinds = v4_borrowck_path_kinds_index_handle(borrow_id)
+    pilot stmts = v4_borrowck_path_stmt_ids_index_handle(borrow_id)
+    if defs < 0 or kinds < 0 or stmts < 0 or result_id >= array_len(defs) or result_id >= array_len(kinds) or result_id >= array_len(stmts) { give back false }
+    give back word_to_int(array_get(kinds, result_id)) >= 0 and word_to_int(array_get(stmts, result_id)) >= 0
+}
+
 task v4_borrowck_stmt_path_indexes_handle(borrow_id: int) -> int {
+    if not v4_borrowck_stmt_path_file_exists(borrow_id) { give back 0 - 1 }
     if v4_borrowck_stmt_path_indexes < 0 or borrow_id < 0 or borrow_id >= array_len(v4_borrowck_stmt_path_indexes) { give back 0 - 1 }
     give back word_to_int(array_get(v4_borrowck_stmt_path_indexes, borrow_id))
 }
 
 task v4_borrowck_stmt_path_index_handle(borrow_id: int, result_id: int) -> int {
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back 0 - 1 }
     pilot owner = v4_borrowck_stmt_path_indexes_handle(borrow_id)
     if owner < 0 or result_id < 0 or result_id >= array_len(owner) { give back 0 - 1 }
     give back word_to_int(array_get(owner, result_id))
 }
 
 task v4_borrowck_stmt_path_index_is_ready(borrow_id: int, result_id: int) -> bool {
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back false }
     pilot index = v4_borrowck_stmt_path_index_handle(borrow_id, result_id)
     if index < 0 { give back false }
     pilot count = v4_borrowck_result_path_count(borrow_id, result_id)
@@ -399,7 +418,7 @@ task v4_borrowck_stmt_path_index_insert(borrow_id: int, result_id: int, index: i
 -- Full restoration can reorder/repeat rows. Rebuild only after the authoritative
 -- slots are populated; direct mutation leaves cold scans correct meanwhile.
 task v4_borrowck_finalize_stmt_path_index(borrow_id: int, result_id: int) -> bool {
-    if v4_borrowck_result_slot_exists(borrow_id, result_id) == false { give back false }
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back false }
     pilot owner = v4_borrowck_stmt_path_indexes_handle(borrow_id)
     if owner < 0 or result_id >= array_len(owner) { give back false }
     pilot count = v4_borrowck_result_path_count(borrow_id, result_id)
@@ -426,6 +445,7 @@ task v4_borrowck_finalize_stmt_path_index(borrow_id: int, result_id: int) -> boo
 }
 
 task v4_borrowck_stmt_path_first(borrow_id: int, result_id: int, stmt_id: int) -> int {
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back 0 - 1 }
     if v4_borrowck_stmt_path_index_is_ready(borrow_id, result_id) {
         pilot index = v4_borrowck_stmt_path_index_handle(borrow_id, result_id)
         pilot bucket = v4_borrowck_stmt_path_index_bucket(index, stmt_id)
@@ -448,6 +468,7 @@ task v4_borrowck_stmt_path_first(borrow_id: int, result_id: int, stmt_id: int) -
 }
 
 task v4_borrowck_stmt_path_next(borrow_id: int, result_id: int, stmt_id: int, path_id: int) -> int {
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back 0 - 1 }
     if path_id < 0 or path_id >= v4_borrowck_result_path_count(borrow_id, result_id) { give back 0 - 1 }
     if v4_borrowck_stmt_path_index_is_ready(borrow_id, result_id) and v4_borrowck_path_stmt(borrow_id, result_id, path_id) == stmt_id {
         pilot index = v4_borrowck_stmt_path_index_handle(borrow_id, result_id)
@@ -469,6 +490,7 @@ task v4_borrowck_stmt_path_next(borrow_id: int, result_id: int, stmt_id: int, pa
 }
 
 task v4_borrowck_stmt_path_count(borrow_id: int, result_id: int, stmt_id: int) -> int {
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back 0 }
     if v4_borrowck_stmt_path_index_is_ready(borrow_id, result_id) {
         pilot index = v4_borrowck_stmt_path_index_handle(borrow_id, result_id)
         pilot bucket = v4_borrowck_stmt_path_index_bucket(index, stmt_id)
@@ -488,6 +510,7 @@ task v4_borrowck_stmt_path_count(borrow_id: int, result_id: int, stmt_id: int) -
 }
 
 task v4_borrowck_release_stmt_path_indexes(borrow_id: int) -> void {
+    if not v4_borrowck_stmt_path_file_exists(borrow_id) { give back }
     pilot owner = v4_borrowck_stmt_path_indexes_handle(borrow_id)
     pilot result_id = 0
     repeat until result_id >= array_len(owner) {

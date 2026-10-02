@@ -1,4 +1,37 @@
 -- Preserve physical path ordering and original Meiya statement query semantics.
+task borrow_path_available_handles() -> int {
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted: bool = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            count += 1
+        }
+    }
+    pilot row = 0
+    repeat until row >= count {
+        array_release(word_to_int(array_get(holders, row)))
+        row += 1
+    }
+    array_release(holders)
+    give back count
+}
+
+task borrow_path_invalid_owner_queries(borrow: int, result_id: int) -> bool {
+    pilot first = v4_borrowck_stmt_path_first(borrow, result_id, 0)
+    pilot negative = v4_borrowck_stmt_path_first(borrow, result_id, 0 - 1)
+    pilot next = v4_borrowck_stmt_path_next(borrow, result_id, 0, 0)
+    pilot count = v4_borrowck_stmt_path_count(borrow, result_id, 0)
+    pilot negative_count = v4_borrowck_stmt_path_count(borrow, result_id, 0 - 1)
+    pilot ready: bool = v4_borrowck_stmt_path_index_is_ready(borrow, result_id)
+    pilot index = v4_borrowck_stmt_path_index_handle(borrow, result_id)
+    v4_borrowck_invalidate_stmt_path_index(borrow, result_id)
+    pilot finalized: bool = v4_borrowck_finalize_stmt_path_index(borrow, result_id)
+    give back first < 0 and negative < 0 and next < 0 and count == 0 and negative_count == 0 and not ready and index < 0 and not finalized
+}
+
 task borrow_path_reference_first(borrow: int, result_id: int, stmt: int, start: int) -> int {
     pilot path = start
     repeat until path >= v4_borrowck_result_path_count(borrow, result_id) {
@@ -65,6 +98,21 @@ task borrow_path_semantic_source() -> word {
 }
 
 task borrow_path_index_run() -> void {
+    -- Default numeric handles must not alias a live unrelated array before init.
+    pilot foreign = array_new()
+    array_push(foreign, "0")
+    array_push(foreign, "0")
+    array_push(foreign, "0")
+    pilot available = borrow_path_available_handles()
+    pilot preinit: bool = foreign == 0 and v4_borrowck_ready == 0 and v4_borrowck_stmt_path_indexes < 0 and borrow_path_invalid_owner_queries(0, 0) and borrow_path_invalid_owner_queries(0 - 1, 0) and borrow_path_invalid_owner_queries(1, 0)
+    pilot foreign_owner = v4_borrowck_stmt_path_indexes_handle(0)
+    v4_borrowck_release_stmt_path_indexes(0)
+    v4_borrowck_release_stmt_path_indexes(0 - 1)
+    preinit = preinit and foreign_owner < 0 and v4_borrowck_ready == 0 and v4_borrowck_files == 0 and v4_borrowck_stmt_path_indexes < 0 and v4_borrowck_stmt_path_index_probes == 0 and v4_borrowck_stmt_path_index_visits == 0 and v4_borrowck_stmt_path_linear_steps == 0 and v4_borrowck_stmt_path_index_rebuilds == 0
+    pilot foreign_first: word = array_get(foreign, 0)
+    pilot foreign_last: word = array_get(foreign, 2)
+    preinit = preinit and array_len(foreign) == 3 and foreign_first == "0" and foreign_last == "0" and borrow_path_available_handles() == available
+    array_release(foreign)
     pilot mir = v4_mir_file_new(0, 0 - 1)
     pilot body = v4_mir_add_body(mir, "index-body", "index-body", "")
     v4_mir_add_block(mir, body, v4_mir_term_return, 0 - 1, 0 - 1, "")
@@ -90,6 +138,13 @@ task borrow_path_index_run() -> void {
     v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_move, "x", 0 - 9223372036854775807 - 1, 0)
     v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, " x ", 1, 99)
     v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, "y", 1, 0)
+    pilot valid_index = v4_borrowck_stmt_path_index_handle(borrow, result_id)
+    pilot valid_owner = v4_borrowck_stmt_path_indexes_handle(borrow)
+    available = borrow_path_available_handles()
+    pilot invalid_owner: bool = borrow_path_invalid_owner_queries(borrow, 0 - 1) and borrow_path_invalid_owner_queries(borrow, result_id + 1) and borrow_path_invalid_owner_queries(0 - 1, result_id) and borrow_path_invalid_owner_queries(borrow + 1, result_id)
+    v4_borrowck_release_stmt_path_indexes(0 - 1)
+    v4_borrowck_release_stmt_path_indexes(borrow + 1)
+    invalid_owner = invalid_owner and v4_borrowck_stmt_path_index_handle(borrow, result_id) == valid_index and v4_borrowck_stmt_path_indexes_handle(borrow) == valid_owner and v4_borrowck_stmt_path_index_is_ready(borrow, result_id) and borrow_path_available_handles() == available
     pilot groups: bool = partial and borrow_path_matches(borrow, result_id, 1) and borrow_path_matches(borrow, result_id, 257) and borrow_path_matches(borrow, result_id, 0 - 1) and borrow_path_matches(borrow, result_id, 9223372036854775807) and borrow_path_matches(borrow, result_id, 0 - 9223372036854775807 - 1) and borrow_path_matches(borrow, result_id, 16)
     groups = groups and v4_borrowck_stmt_path_count(borrow, result_id, 1) == 5 and v4_borrowck_stmt_path_next(borrow, result_id, 1, 1) == 2 and v4_borrowck_stmt_path_next(borrow, result_id, 1, 0 - 1) < 0
     pilot exact: bool = v4_borrowck_stmt_has_exact_local_path(borrow, result_id, 1, "x", v4_borrowck_path_move) and v4_borrowck_stmt_has_exact_local_path(borrow, result_id, 1, "x", v4_borrowck_path_write) and v4_borrowck_stmt_has_exact_local_path(borrow, result_id, 1, "x.field", v4_borrowck_path_write) and v4_borrowck_stmt_has_exact_local_path(borrow, result_id, 1, "x", v4_borrowck_path_copy) == false
@@ -141,6 +196,7 @@ task borrow_path_index_run() -> void {
     v4_borrowck_restore_path_slot(borrow, result_id, 3, v4_borrowck_path_write, "ship.hp", 7, 99)
     rebuilds = v4_borrowck_stmt_path_index_rebuilds
     pilot cold: bool = v4_borrowck_stmt_path_index_is_ready(borrow, result_id) == false and borrow_path_matches(borrow, result_id, 7) and v4_borrowck_stmt_path_first(borrow, result_id, 9) < 0 and v4_borrowck_stmt_repairs_move(borrow, result_id, "ship.hp", 7, 0) == false and v4_borrowck_stmt_repairs_move(borrow, result_id, "ship.hp", 7, 99)
+    cold = cold and borrow_path_matches(borrow, result_id, 0 - 1)
     v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_move, "tail", 7, 0)
     cold = cold and borrow_path_matches(borrow, result_id, 7) and v4_borrowck_stmt_path_index_rebuilds == rebuilds
     pilot finalized: bool = v4_borrowck_finalize_stmt_path_index(borrow, result_id)
@@ -252,6 +308,7 @@ task borrow_path_index_run() -> void {
     say "borrow-path-index overwrite=" + word_from_bool(overwrite) + " cold=" + word_from_bool(cold) + " reused=" + word_from_bool(reused)
     say "borrow-path-index semantic=" + word_from_bool(semantic) + " incremental=" + word_from_bool(incremental) + " bounded=" + word_from_bool(bounded)
     say "borrow-path-index exhausted=" + word_from_bool(exhaustion) + " authoritative=" + word_from_bool(facts) + " recovered=" + word_from_bool(recovered) + " absent=" + word_from_bool(absent)
+    say "borrow-path-index preinit=" + word_from_bool(preinit) + " invalid-owner=" + word_from_bool(invalid_owner)
 }
 
 borrow_path_index_run()
