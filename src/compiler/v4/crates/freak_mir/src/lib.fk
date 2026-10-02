@@ -54,6 +54,19 @@ pilot v4_mir_rvalue_capture_copy = "CaptureCopy"
 pilot v4_mir_rvalue_capture_move = "CaptureMove"
 pilot v4_mir_rvalue_unknown = "Unknown"
 
+-- MIR stores semantic truth independently of source spelling. This reader
+-- also accepts the numeric facts used by older manual/snapshot fixtures.
+task v4_mir_bool_literal_value(text: word) -> word {
+    pilot lower = text.to_lower()
+    if lower == "true" or lower == "yes" or lower == "hai" or lower == "1" {
+        give back "true"
+    }
+    if lower == "false" or lower == "no" or lower == "iie" or lower == "0" {
+        give back "false"
+    }
+    give back ""
+}
+
 pilot v4_mir_unary_neg = "Neg"
 pilot v4_mir_unary_not = "Not"
 pilot v4_mir_unary_ptr_is_null = "PtrIsNull"
@@ -1464,6 +1477,31 @@ task v4_mir_find_local_visible_at(mir_id: int, body_id: int, local_name: word, o
         }
     }
     give back 0 - 1
+}
+
+-- Synthetic UseLocal identities occupy the existing op field, rather than
+-- lhs/rhs (which are rvalue graph edges). Legacy facts still resolve by name.
+task v4_mir_rvalue_local_id(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if rvalue_id < 0 or rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        give back 0 - 1
+    }
+    if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_use_local {
+        give back 0 - 1
+    }
+    pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+    if op.starts_with("local#") {
+        pilot raw = v4_slice(op, 6, op.length())
+        if not v4_mir_snapshot_nonnegative_int_is_valid(raw) { give back 0 - 1 }
+        pilot local_id = word_to_int(raw)
+        if local_id < 0 or local_id >= v4_mir_body_local_count(mir_id, body_id) or word_from_int(local_id) != raw {
+            give back 0 - 1
+        }
+        if v4_mir_rvalue_text(mir_id, body_id, rvalue_id) != v4_mir_local_name(mir_id, body_id, local_id) or v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) != v4_mir_local_ty(mir_id, body_id, local_id) {
+            give back 0 - 1
+        }
+        give back local_id
+    }
+    give back v4_mir_find_local_visible_at(mir_id, body_id, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), v4_span_start(v4_mir_rvalue_span(mir_id, body_id, rvalue_id)))
 }
 
 task v4_mir_set_local_ty(mir_id: int, body_id: int, local_id: int, local_ty: word) -> void {
