@@ -6403,6 +6403,8 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "raw-ptr-oc-good-ty-diag-count=0",
             "raw-ptr-oc-good-mir-diag-count=0",
+            "raw-ptr-oc-generic-native-fence=true",
+            "raw-ptr-oc-native-contract=true",
             "= getelementptr i64, ptr %rv.0.1, i64 2",
             "= getelementptr i8, ptr %rv.1.1, i64 0",
             "raw-ptr-oc-offset-rvalue-op=PtrOffset",

@@ -1,7 +1,7 @@
 -- V4 raw-pointer .offset(n) and .cast<T>() smoke fixture.
 -- Verification prepends the V4 crates before this file.
 
-task v4_raw_ptr_oc_good_source() -> word {
+task v4_raw_ptr_oc_good_source(include_generic: bool) -> word {
     pilot src = "extern [C] {\n"
     src = src + "    task lookup() -> *const std::ffi::c_int\n"
     src = src + "    task lookup_mut() -> *mut std::ffi::c_int\n"
@@ -44,6 +44,7 @@ task v4_raw_ptr_oc_good_source() -> word {
     src = src + "        give back p.cast<tiny>() == lookup_tiny()\n"
     src = src + "    }\n"
     src = src + "}\n"
+    if not include_generic { give back src }
     src = src + "shape Box<T> {\n"
     src = src + "    value: T\n"
     src = src + "}\n"
@@ -186,7 +187,7 @@ task v4_raw_ptr_oc_bad_source() -> word {
     give back src
 }
 
-pilot v4_raw_ptr_oc_good_text = v4_raw_ptr_oc_good_source()
+pilot v4_raw_ptr_oc_good_text = v4_raw_ptr_oc_good_source(true)
 pilot v4_raw_ptr_oc_good_stream = v4_lex_text(0, v4_raw_ptr_oc_good_text)
 pilot v4_raw_ptr_oc_good_tree = v4_parse_stream(0, v4_raw_ptr_oc_good_stream)
 pilot v4_raw_ptr_oc_good_hir = v4_hir_lower_tree(0, v4_raw_ptr_oc_good_tree)
@@ -194,6 +195,17 @@ pilot v4_raw_ptr_oc_good_resolve = v4_resolve_lower_hir(0, v4_raw_ptr_oc_good_hi
 pilot v4_raw_ptr_oc_good_ty = v4_ty_lower_resolve(0, v4_raw_ptr_oc_good_resolve)
 pilot v4_raw_ptr_oc_good_mir = v4_mir_lower_ty(0, v4_raw_ptr_oc_good_ty)
 pilot v4_raw_ptr_oc_good_llvm = v4_codegen_llvm_lower_mir(0, v4_raw_ptr_oc_good_mir)
+
+-- Native modules reject the entire unsupported generic receiver unit. Keep
+-- its frontend/MIR coverage and lower the same scalar tasks separately.
+pilot v4_raw_ptr_oc_native_stream = v4_lex_text(2, v4_raw_ptr_oc_good_source(false))
+pilot v4_raw_ptr_oc_native_tree = v4_parse_stream(2, v4_raw_ptr_oc_native_stream)
+pilot v4_raw_ptr_oc_native_hir = v4_hir_lower_tree(2, v4_raw_ptr_oc_native_tree)
+pilot v4_raw_ptr_oc_native_resolve = v4_resolve_lower_hir(2, v4_raw_ptr_oc_native_hir)
+pilot v4_raw_ptr_oc_native_ty = v4_ty_lower_resolve(2, v4_raw_ptr_oc_native_resolve)
+pilot v4_raw_ptr_oc_native_mir = v4_mir_lower_ty(2, v4_raw_ptr_oc_native_ty)
+pilot v4_raw_ptr_oc_native_llvm = v4_codegen_llvm_lower_mir(2, v4_raw_ptr_oc_native_mir)
+pilot v4_raw_ptr_oc_target = v4_target_spec_new("x86_64-unknown-linux-gnu")
 
 pilot v4_raw_ptr_oc_offset_def = v4_resolve_def_for_name(v4_raw_ptr_oc_good_resolve, "offset_read")
 pilot v4_raw_ptr_oc_cast_def = v4_resolve_def_for_name(v4_raw_ptr_oc_good_resolve, "cast_tiny")
@@ -207,8 +219,10 @@ pilot v4_raw_ptr_oc_cast_mut_stmt_rvalue = v4_mir_stmt_rvalue(v4_raw_ptr_oc_good
 
 say "raw-ptr-oc-good-ty-diag-count=" + word_from_int(v4_ty_diag_count(v4_raw_ptr_oc_good_ty))
 say "raw-ptr-oc-good-mir-diag-count=" + word_from_int(v4_mir_diag_count(v4_raw_ptr_oc_good_mir))
-say "raw-ptr-oc-offset-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_oc_good_llvm, v4_codegen_llvm_find_body(v4_raw_ptr_oc_good_llvm, "offset_read"))
-say "raw-ptr-oc-cast-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_oc_good_llvm, v4_codegen_llvm_find_body(v4_raw_ptr_oc_good_llvm, "cast_tiny"))
+say "raw-ptr-oc-generic-native-fence=" + word_from_bool(v4_codegen_llvm_native_module_error(v4_raw_ptr_oc_good_llvm) == "native type not yet supported: Box<T>" and v4_codegen_llvm_module_text(v4_raw_ptr_oc_good_llvm, v4_raw_ptr_oc_target) == "")
+say "raw-ptr-oc-native-contract=" + word_from_bool(v4_ty_diag_count(v4_raw_ptr_oc_native_ty) == 0 and v4_mir_diag_count(v4_raw_ptr_oc_native_mir) == 0 and v4_codegen_llvm_native_module_error(v4_raw_ptr_oc_native_llvm) == "" and v4_codegen_llvm_module_text(v4_raw_ptr_oc_native_llvm, v4_raw_ptr_oc_target) != "")
+say "raw-ptr-oc-offset-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_oc_native_llvm, v4_codegen_llvm_find_body(v4_raw_ptr_oc_native_llvm, "offset_read"))
+say "raw-ptr-oc-cast-body=" + v4_codegen_llvm_body_line(v4_raw_ptr_oc_native_llvm, v4_codegen_llvm_find_body(v4_raw_ptr_oc_native_llvm, "cast_tiny"))
 say "raw-ptr-oc-offset-rvalue-op=" + v4_mir_rvalue_op(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_offset_body, v4_raw_ptr_oc_offset_stmt_rvalue)
 say "raw-ptr-oc-offset-rvalue-ty=" + v4_mir_rvalue_ty(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_offset_body, v4_raw_ptr_oc_offset_stmt_rvalue)
 say "raw-ptr-oc-cast-rvalue-op=" + v4_mir_rvalue_op(v4_raw_ptr_oc_good_mir, v4_raw_ptr_oc_cast_body, v4_raw_ptr_oc_cast_stmt_rvalue)
