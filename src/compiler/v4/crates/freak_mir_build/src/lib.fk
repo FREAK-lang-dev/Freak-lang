@@ -7142,6 +7142,13 @@ task v4_mir_lower_return_stmt(mir_id: int, body_id: int, block_id: int, stream_i
 
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, give_token, stmt_end)
     pilot rhs = v4_mir_expr_text(stream_id, rhs_start, stmt_end)
+    if v4_mir_next_nontrivia(stream_id, rhs_start, stmt_end) >= stmt_end {
+        v4_mir_check_return_type(mir_id, body_id, stmt_span, v4_ty_void)
+        pilot return_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_return, "_return", 0 - 1, "_return", 0 - 1, stmt_span, v4_ty_void)
+        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_return, "_return", "", stmt_span, return_place, 0 - 1)
+        v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_return, 0 - 1, 0 - 1, ""))
+        give back block_id
+    }
     pilot rvalue_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, rhs_start, stmt_end, v4_mir_expected_return_type(mir_id, body_id))
     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     v4_mir_check_return_type(mir_id, body_id, stmt_span, actual_ty)
