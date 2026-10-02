@@ -739,6 +739,11 @@ Task-parameter owner and `(item, ordinal)` lookups use stable sorted physical
 record IDs and lower-bound search, preserving the first physical duplicate.
 Partial construction and direct slot mutation retain linear first-match lookup
 until finalization; parameters remain visible before their owner record exists.
+HIR also retains ascending physical Impl candidates. A file with no Impl items
+answers a completed candidate walk without inspecting ordinary items. MIR's
+method and operator searches consume that walk through TY and preserve the
+existing doctrine, target, instance and first-method predicates; numeric types
+can still match user impls. This index occupies one packed child per HIR file.
 TY retains one derived hash table per file for signature names, kind families,
 the combined type family, and definition identities. Exact stored keys and
 ascending physical IDs preserve first-match behavior across duplicate kinds.
@@ -754,6 +759,32 @@ Direct row restores invalidate them; complete loose-v1 restoration rebuilds
 from final stored slots, including reordered, repeated and sparse rows.
 Exact-key comparisons handle collisions, and unavailable index storage retains
 linear lookup. Both name indexes remain derived and absent from snapshots.
+The token-facing Impl compatibility boundary additionally uses a TY-owned
+packed cache per observed HIR file: item start/end tokens and ordered Impl
+method start/end tokens. Its logical size is `7 + 6I + 2M` cells for I items
+and M methods, with one retained child and no scratch handles. Publication
+captures HIR, Parse and Lex owner revisions plus tree/stream identities;
+same-size edits and restored/reused owners make reads cold until explicit
+publication. Supported raw token/node edits call `v4_lex_note_stream_mutation`
+or `v4_parse_note_tree_mutation`; token edits discard Lex offsets, which can
+be republished with `v4_lex_rebuild_boundaries`. An unavailable revision array
+keeps TY cold while Lex's original span scanner remains correct. These epochs
+and token caches add no snapshot fields and do not persist method semantics.
+MIR retains a file-local body-definition hash table and two packed children
+per body for block summaries and physical statement links. Construction
+maintains counts/links during live lowering; direct restores invalidate them,
+and complete restoration republishes them. First return/condition ordering
+and cold scans remain unchanged. Added costs are three global registries,
+three file children and two body children, with no per-block handles.
+Meiya retains one packed statement-to-path table per result, after its four
+authoritative path columns, and one registry child per file. Numeric keys
+include negative and sparse statement IDs; allocation follows observed path
+count. Appends maintain physical path order, direct restores stay cold, and
+whole restoration rebuilds. The block consumers use MIR's first/next walk.
+All these lookup readers avoid allocation or publication, and derived
+replacement children are released. Existing authoritative MIR/Meiya restore
+storage retains its separate lifetime policy; bounded derived storage does
+not imply bounded repeated whole-component restoration.
 The annotation and return records require their exact field widths, and
 duplicate annotation declaration starts within one file/item are rejected
 before restoration. Capacity preflight preserves live facts when the extra

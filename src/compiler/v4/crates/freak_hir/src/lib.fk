@@ -76,6 +76,8 @@ pilot v4_hir_impl_indexes = 0
 pilot v4_hir_impl_index_build_probes = 0
 pilot v4_hir_impl_candidate_lookup_probes = 0
 pilot v4_hir_impl_candidate_cold_probes = 0
+-- Diagnostic work counter: distinguish candidate misses from physical scans.
+pilot v4_hir_item_kind_reads = 0
 pilot v4_hir_index_sort_comparisons = 0
 pilot v4_hir_annotation_lookup_probes = 0
 pilot v4_hir_return_lookup_probes = 0
@@ -476,6 +478,7 @@ task v4_hir_diag_count(hir_id: int) -> int {
 }
 
 task v4_hir_item_kind(hir_id: int, item_id: int) -> word {
+    v4_hir_item_kind_reads += 1
     give back array_get(v4_hir_kinds_handle(hir_id), item_id)
 }
 

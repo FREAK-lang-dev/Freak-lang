@@ -47,6 +47,7 @@ task v4_mir_candidates_noise(mir: int, hir: int, ty: int, count: int) -> void {
     pilot probes = v4_hir_impl_candidate_lookup_probes
     pilot cold = v4_hir_impl_candidate_cold_probes
     pilot method_scans = v4_ty_impl_method_cold_scans
+    pilot item_reads = v4_hir_item_kind_reads
     pilot correct = true
     idx = 0
     repeat until idx >= 64 {
@@ -59,7 +60,7 @@ task v4_mir_candidates_noise(mir: int, hir: int, ty: int, count: int) -> void {
         if v4_mir_unary_result_type(mir, v4_mir_unary_neg, "tiny") != "tiny" { correct = false }
         idx += 1
     }
-    say "mir-candidates-noise" + word_from_int(count) + "-constant-misses=" + word_from_bool(published and correct and v4_hir_impl_candidate_lookup_probes == probes and v4_hir_impl_candidate_cold_probes == cold and v4_ty_impl_method_cold_scans == method_scans)
+    say "mir-candidates-noise" + word_from_int(count) + "-constant-misses=" + word_from_bool(published and correct and v4_hir_impl_candidate_lookup_probes == probes and v4_hir_impl_candidate_cold_probes == cold and v4_ty_impl_method_cold_scans == method_scans and v4_hir_item_kind_reads == item_reads)
 }
 
 task v4_mir_candidates_run() -> void {
