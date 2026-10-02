@@ -202,8 +202,9 @@ The native C entry initializes arguments and calls the source FREAK task under
 `@freak.user.main`; source calls still target that task. Zero-argument main
 returning int or void is supported. The build command links the LLVM adapter
 and core runtime, matching the shipping CLI; no runtime-profile or component
-link-plan mechanism was added. The suggested runtime-core branch/046147e is
-unavailable among local refs, so its design remains a later review item.
+link-plan mechanism was added. The suggested `feat/v4-runtime-core` branch was
+subsequently fetched and reviewed at `046147e19246d312b31ae4ed71f9ff0ace44e673`;
+its planning groundwork is recorded below for the next runtime slices.
 
 MIR uses existing Call/ConstWord wire rows and unchanged snapshot vocabulary.
 The reserved intrinsic shape is validated atomically before restore; decoded
@@ -267,6 +268,33 @@ Independent review disposition is saved in
 The delivered binary is `/workspace/v4-native/hello-world-v4`, with LLVM text
 beside it and exact-output/provenance verification in
 `/workspace/v4-backend-after/hello-world-verification.json`.
+
+## Runtime-core prior art
+
+The fetched [runtime-core planning commit](https://github.com/FREAK-lang-dev/Freak-lang/commit/046147e19246d312b31ae4ed71f9ff0ace44e673)
+adds a separate `freak_runtime` planning crate and LLVM link-plan accessors.
+It recognizes freestanding, minimal, system, desktop and jit profiles, but
+supports only minimal. That profile records seven components: startup,
+allocator, panic-abort, word, list-array, shape and say. Its target string is
+stored without TargetSpec validation, and its library field stays `none`.
+
+The LLVM planner separately labels every nonempty codegen plan with
+`v4rt_minimal_core` and deduplicates foreign-library labels from declaration
+and call facts. It does not consume the runtime profile/component plan.
+`v4rt_minimal_core` is a logical label; this commit supplies no matching native
+artifact or linker consumer. Its smoke proves minimal-profile and link-plan
+metadata, rather than native runtime execution.
+
+This is useful prior art for owning profile/component facts separately from
+LLVM link requirements. Adapt those boundaries when runtime selection is
+implemented, keeping one planning mechanism. Integration must connect the two
+plans to actual runtime files/artifacts, validate targets and unsupported
+profiles, preserve sealed codegen facts and runtime ABI checks, and cover
+foreign libraries plus native link/run behavior. Planning persistence and
+invalidation need contracts before exposing these facts through cached queries.
+Owned-word releases and explicit bootstrap initialization remain separate
+semantic work; this branch does not implement them. The executing W1 build
+continues to link both existing runtime C files directly.
 
 ## Saved measurement artifacts
 
