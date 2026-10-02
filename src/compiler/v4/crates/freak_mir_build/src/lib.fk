@@ -2331,7 +2331,7 @@ task v4_mir_find_doctrine_impl_method_ref(mir_id: int, owner_ty: word, doctrine_
         give back ""
     }
 
-    pilot hir_item = v4_ty_next_impl_item(ty_id, 0 - 1)
+    pilot hir_item = v4_ty_next_doctrine_impl_item(ty_id, 0 - 1)
     repeat until hir_item < 0 {
         if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl {
             pilot impl_doctrine = v4_ty_impl_doctrine_name_from_hir(v4_mir_ty_id(mir_id), hir_item)
@@ -2348,7 +2348,7 @@ task v4_mir_find_doctrine_impl_method_ref(mir_id: int, owner_ty: word, doctrine_
                 }
             }
         }
-        hir_item = v4_ty_next_impl_item(ty_id, hir_item)
+        hir_item = v4_ty_next_doctrine_impl_item(ty_id, hir_item)
     }
     give back ""
 }

@@ -761,8 +761,11 @@ Exact-key comparisons handle collisions, and unavailable index storage retains
 linear lookup. Both name indexes remain derived and absent from snapshots.
 The token-facing Impl compatibility boundary additionally uses a TY-owned
 packed cache per observed HIR file: item start/end tokens and ordered Impl
-method start/end tokens. Its logical size is `7 + 6I + 2M` cells for I items
-and M methods, with one retained child and no scratch handles. Publication
+method start/end tokens and ascending physical IDs for qualified Impl owners.
+Its logical size is `9 + 6I + 2M + Q` cells for I items, M methods and Q
+qualified Impl owners, with one retained child and no scratch handles.
+Doctrine-method lookup walks this qualified list while retaining the existing
+doctrine, owner and method matching rules. Publication
 captures HIR, Parse and Lex owner revisions plus tree/stream identities;
 same-size edits and restored/reused owners make reads cold until explicit
 publication. Supported raw token/node edits call `v4_lex_note_stream_mutation`
