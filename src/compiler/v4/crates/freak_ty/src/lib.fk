@@ -86,6 +86,18 @@ pilot v4_ty_signature_index_build_records = 0
 pilot v4_ty_signature_index_lookup_probes = 0
 pilot v4_ty_signature_index_insert_probes = 0
 pilot v4_ty_signature_index_fallbacks = 0
+-- TY-owned compatibility cache: one retained packed child per observed HIR.
+-- Header: ready, tree, stream, HIR/Parse/Lex revisions, active item count.
+-- Item rows: start/end, Impl open/close, flat method base/count; method rows
+-- are start/end pairs. Neither this cache nor its owner epochs enter snapshots.
+pilot v4_ty_item_method_caches = 0 - 1
+pilot v4_ty_item_method_cache_header = 7
+pilot v4_ty_item_method_cache_item_width = 6
+pilot v4_ty_item_method_cache_builds = 0
+pilot v4_ty_item_method_cache_items_built = 0
+pilot v4_ty_item_method_cache_methods_built = 0
+pilot v4_ty_item_method_cache_hits = 0
+pilot v4_ty_impl_method_cold_scans = 0
 pilot v4_ty_lifetime_outlives_scratch_links = 0
 pilot v4_ty_lifetime_outlives_scratch_ids = 0
 pilot v4_ty_lifetime_outlives_scratch_active = 0
@@ -121,6 +133,7 @@ task v4_ty_init() -> void {
         v4_ty_signature_active_counts = array_new()
         v4_ty_diag_active_counts = array_new()
         v4_ty_signature_indexes = array_new()
+        v4_ty_item_method_caches = array_new()
         v4_ty_lifetime_outlives_scratch_links = array_new()
         v4_ty_lifetime_outlives_scratch_ids = array_new()
         v4_ty_borrowed_return_source_cache_ty_ids = array_new()
@@ -438,6 +451,147 @@ task v4_ty_signature_index_lookup(ty_id: int, key: word, category: int) -> int {
     }
     -- A full/corrupt derived table cannot turn an authoritative fact into a miss.
     give back v4_ty_signature_index_linear_lookup(ty_id, key, category)
+}
+
+task v4_ty_item_method_cache_handle(hir_id: int) -> int {
+    if v4_ty_item_method_caches < 0 or hir_id < 0 or hir_id >= array_len(v4_ty_item_method_caches) { give back 0 - 1 }
+    pilot stored: word = array_get(v4_ty_item_method_caches, hir_id)
+    if stored == "" { give back 0 - 1 }
+    give back word_to_int(stored)
+}
+
+-- Queries validate owner epochs without initializing, allocating or writing.
+-- Counts are secondary checks; revisions detect same-size in-place edits.
+task v4_ty_item_method_cache_is_ready(hir_id: int) -> bool {
+    pilot packed = v4_ty_item_method_cache_handle(hir_id)
+    if packed < 0 or array_len(packed) < v4_ty_item_method_cache_header { give back false }
+    pilot ready: word = array_get(packed, 0)
+    if ready != "1" { give back false }
+    pilot hir_revision = v4_hir_revision(hir_id)
+    if hir_revision < 0 or hir_revision != word_to_int(array_get(packed, 3)) { give back false }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    if tree_id != word_to_int(array_get(packed, 1)) { give back false }
+    pilot parse_revision = v4_parse_tree_revision(tree_id)
+    if parse_revision < 0 or parse_revision != word_to_int(array_get(packed, 4)) { give back false }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    if stream_id != word_to_int(array_get(packed, 2)) { give back false }
+    pilot lex_revision = v4_lex_stream_revision(stream_id)
+    if lex_revision < 0 or lex_revision != word_to_int(array_get(packed, 5)) { give back false }
+    give back v4_hir_item_count(hir_id) == word_to_int(array_get(packed, 6))
+}
+
+task v4_ty_item_method_cache_item_row(hir_id: int, item_id: int) -> int {
+    if v4_ty_item_method_cache_is_ready(hir_id) == false { give back 0 - 1 }
+    pilot packed = v4_ty_item_method_cache_handle(hir_id)
+    if item_id < 0 or item_id >= word_to_int(array_get(packed, 6)) { give back 0 - 1 }
+    give back v4_ty_item_method_cache_header + v4_ty_item_method_cache_item_width * item_id
+}
+
+task v4_ty_item_method_cache_impl_row(hir_id: int, item_id: int) -> int {
+    pilot row = v4_ty_item_method_cache_item_row(hir_id, item_id)
+    if row < 0 { give back 0 - 1 }
+    if word_to_int(array_get(v4_ty_item_method_cache_handle(hir_id), row + 5)) < 0 { give back 0 - 1 }
+    give back row
+}
+
+task v4_ty_item_method_cache_value(hir_id: int, row: int) -> int {
+    give back word_to_int(array_get(v4_ty_item_method_cache_handle(hir_id), row))
+}
+
+task v4_ty_item_method_cache_invalidate(ty_id: int) -> void {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    array_set(v4_ty_item_method_cache_handle(hir_id), 0, "0")
+}
+
+-- Explicit publication belongs to semantic construction/restore, never reads.
+-- One packed child is retained at high-water capacity, with no scratch handles.
+task v4_ty_item_method_cache_finalize_hir(hir_id: int) -> bool {
+    v4_ty_init()
+    if v4_hir_file_exists(hir_id) == false { give back false }
+    if v4_ty_item_method_cache_is_ready(hir_id) { give back true }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false { give back false }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    if v4_lex_stream_exists(stream_id) == false { give back false }
+    pilot hir_revision = v4_hir_revision(hir_id)
+    pilot parse_revision = v4_parse_tree_revision(tree_id)
+    pilot lex_revision = v4_lex_stream_revision(stream_id)
+    if hir_revision < 0 or parse_revision < 0 or lex_revision < 0 { give back false }
+    if v4_ty_child_handle_ensure_slot(v4_ty_item_method_caches, hir_id, "-1") == false { give back false }
+    pilot packed = v4_ty_item_method_cache_handle(hir_id)
+    if packed < 0 {
+        packed = array_new()
+        if packed < 0 { give back false }
+        if v4_ty_child_handle_ensure_slot(packed, v4_ty_item_method_cache_header - 1, "0") == false {
+            array_release(packed)
+            give back false
+        }
+        array_set(v4_ty_item_method_caches, hir_id, word_from_int(packed))
+    }
+    array_set(packed, 0, "0")
+    pilot items = v4_hir_item_count(hir_id)
+    pilot active_end = v4_ty_item_method_cache_header + v4_ty_item_method_cache_item_width * items
+    if v4_ty_child_handle_ensure_slot(packed, active_end - 1, "-1") == false { give back false }
+    pilot item_id = 0
+    repeat until item_id >= items {
+        pilot row = v4_ty_item_method_cache_header + v4_ty_item_method_cache_item_width * item_id
+        pilot start_token = v4_ty_hir_item_start_token_uncached(hir_id, item_id)
+        pilot end_token = v4_ty_hir_item_end_token_uncached(hir_id, item_id)
+        array_set(packed, row, word_from_int(start_token))
+        array_set(packed, row + 1, word_from_int(end_token))
+        array_set(packed, row + 2, "-1")
+        array_set(packed, row + 3, "-1")
+        array_set(packed, row + 4, "-1")
+        array_set(packed, row + 5, "-1")
+        if v4_hir_item_kind(hir_id, item_id) == v4_hir_impl {
+            pilot open_token = v4_ty_find_token_value(stream_id, start_token, end_token, "{")
+            pilot close_token = 0 - 1
+            if open_token >= 0 { close_token = v4_ty_find_matching_brace(stream_id, open_token, end_token) }
+            array_set(packed, row + 2, word_from_int(open_token))
+            array_set(packed, row + 3, word_from_int(close_token))
+            array_set(packed, row + 4, word_from_int(active_end))
+            pilot method_count = 0
+            if open_token >= 0 and close_token > open_token {
+                pilot token_id = open_token + 1
+                repeat until token_id >= close_token {
+                    token_id = v4_ty_skip_trivia(stream_id, token_id)
+                    if token_id < close_token {
+                        if v4_lex_token_value(stream_id, token_id) == "task" {
+                            pilot method_end = v4_ty_skip_item(stream_id, token_id, close_token)
+                            if method_end <= token_id { give back false }
+                            if v4_ty_child_handle_ensure_slot(packed, active_end + 1, "-1") == false { give back false }
+                            array_set(packed, active_end, word_from_int(token_id))
+                            array_set(packed, active_end + 1, word_from_int(method_end))
+                            active_end += 2
+                            method_count += 1
+                            token_id = method_end
+                        } else {
+                            token_id += 1
+                        }
+                    }
+                }
+            }
+            array_set(packed, row + 5, word_from_int(method_count))
+            v4_ty_item_method_cache_methods_built += method_count
+        }
+        v4_ty_item_method_cache_items_built += 1
+        item_id += 1
+    }
+    -- Do not publish a hybrid if an owner changed while facts were collected.
+    if v4_hir_revision(hir_id) != hir_revision or v4_parse_tree_revision(tree_id) != parse_revision or v4_lex_stream_revision(stream_id) != lex_revision { give back false }
+    array_set(packed, 1, word_from_int(tree_id))
+    array_set(packed, 2, word_from_int(stream_id))
+    array_set(packed, 3, word_from_int(hir_revision))
+    array_set(packed, 4, word_from_int(parse_revision))
+    array_set(packed, 5, word_from_int(lex_revision))
+    array_set(packed, 6, word_from_int(items))
+    array_set(packed, 0, "1")
+    v4_ty_item_method_cache_builds += 1
+    give back true
+}
+
+task v4_ty_item_method_cache_finalize(ty_id: int) -> bool {
+    give back v4_ty_item_method_cache_finalize_hir(v4_ty_signature_hir_id(ty_id))
 }
 
 task v4_ty_diag_count(ty_id: int) -> int {
@@ -4291,8 +4445,7 @@ task v4_ty_signature_item_start_token(ty_id: int, sig_id: int) -> int {
     if member_id >= 0 {
         give back v4_parse_extern_member_start_token(tree_id, parse_node, member_id)
     }
-    pilot item_span = v4_parse_node_span(tree_id, parse_node)
-    give back v4_ty_first_token_at_or_after(stream_id, v4_span_start(item_span))
+    give back v4_ty_hir_item_start_token(hir_id, hir_item)
 }
 
 task v4_ty_signature_item_end_token(ty_id: int, sig_id: int) -> int {
@@ -4314,12 +4467,7 @@ task v4_ty_signature_item_end_token(ty_id: int, sig_id: int) -> int {
     if member_id >= 0 {
         give back v4_parse_extern_member_end_token(tree_id, parse_node, member_id)
     }
-    pilot item_span = v4_parse_node_span(tree_id, parse_node)
-    pilot end_token = v4_ty_first_token_at_or_after(stream_id, v4_span_end(item_span))
-    if end_token <= v4_ty_signature_item_start_token(ty_id, sig_id) {
-        end_token = v4_lex_token_count(stream_id)
-    }
-    give back end_token
+    give back v4_ty_hir_item_end_token(hir_id, hir_item)
 }
 
 task v4_ty_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
@@ -4347,6 +4495,24 @@ task v4_ty_span_from_tokens(stream_id: int, start_token: int, end_token: int) ->
 }
 
 task v4_ty_hir_item_start_token(hir_id: int, item_id: int) -> int {
+    pilot row = v4_ty_item_method_cache_item_row(hir_id, item_id)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        give back v4_ty_item_method_cache_value(hir_id, row)
+    }
+    give back v4_ty_hir_item_start_token_uncached(hir_id, item_id)
+}
+
+task v4_ty_hir_item_end_token(hir_id: int, item_id: int) -> int {
+    pilot row = v4_ty_item_method_cache_item_row(hir_id, item_id)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        give back v4_ty_item_method_cache_value(hir_id, row + 1)
+    }
+    give back v4_ty_hir_item_end_token_uncached(hir_id, item_id)
+}
+
+task v4_ty_hir_item_start_token_uncached(hir_id: int, item_id: int) -> int {
     if hir_id < 0 {
         give back 0 - 1
     }
@@ -4360,7 +4526,7 @@ task v4_ty_hir_item_start_token(hir_id: int, item_id: int) -> int {
     give back v4_ty_first_token_at_or_after(stream_id, v4_span_start(item_span))
 }
 
-task v4_ty_hir_item_end_token(hir_id: int, item_id: int) -> int {
+task v4_ty_hir_item_end_token_uncached(hir_id: int, item_id: int) -> int {
     if hir_id < 0 {
         give back 0 - 1
     }
@@ -7519,6 +7685,60 @@ task v4_ty_impl_target_alias_name_from_hir(ty_id: int, hir_item: int) -> word {
 
 task v4_ty_impl_body_open_token_from_hir(ty_id: int, hir_item: int) -> int {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot row = v4_ty_item_method_cache_impl_row(hir_id, hir_item)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        give back v4_ty_item_method_cache_value(hir_id, row + 2)
+    }
+    give back v4_ty_impl_body_open_token_from_hir_uncached(ty_id, hir_item)
+}
+
+task v4_ty_impl_body_close_token_from_hir(ty_id: int, hir_item: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot row = v4_ty_item_method_cache_impl_row(hir_id, hir_item)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        give back v4_ty_item_method_cache_value(hir_id, row + 3)
+    }
+    give back v4_ty_impl_body_close_token_from_hir_uncached(ty_id, hir_item)
+}
+
+task v4_ty_impl_method_count(ty_id: int, hir_item: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot row = v4_ty_item_method_cache_impl_row(hir_id, hir_item)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        give back v4_ty_item_method_cache_value(hir_id, row + 5)
+    }
+    give back v4_ty_impl_method_count_uncached(ty_id, hir_item)
+}
+
+task v4_ty_impl_method_start_token(ty_id: int, hir_item: int, method_id: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot row = v4_ty_item_method_cache_impl_row(hir_id, hir_item)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        if method_id < 0 or method_id >= v4_ty_item_method_cache_value(hir_id, row + 5) { give back 0 - 1 }
+        pilot base = v4_ty_item_method_cache_value(hir_id, row + 4)
+        give back v4_ty_item_method_cache_value(hir_id, base + 2 * method_id)
+    }
+    give back v4_ty_impl_method_start_token_uncached(ty_id, hir_item, method_id)
+}
+
+task v4_ty_impl_method_end_token(ty_id: int, hir_item: int, method_id: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot row = v4_ty_item_method_cache_impl_row(hir_id, hir_item)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        if method_id < 0 or method_id >= v4_ty_item_method_cache_value(hir_id, row + 5) { give back 0 - 1 }
+        pilot base = v4_ty_item_method_cache_value(hir_id, row + 4)
+        give back v4_ty_item_method_cache_value(hir_id, base + 2 * method_id + 1)
+    }
+    give back v4_ty_impl_method_end_token_uncached(ty_id, hir_item, method_id)
+}
+
+task v4_ty_impl_body_open_token_from_hir_uncached(ty_id: int, hir_item: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 or hir_item < 0 {
         give back 0 - 1
     }
@@ -7529,7 +7749,7 @@ task v4_ty_impl_body_open_token_from_hir(ty_id: int, hir_item: int) -> int {
     give back v4_ty_find_token_value(stream_id, start_token, end_token, "{")
 }
 
-task v4_ty_impl_body_close_token_from_hir(ty_id: int, hir_item: int) -> int {
+task v4_ty_impl_body_close_token_from_hir_uncached(ty_id: int, hir_item: int) -> int {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 or hir_item < 0 {
         give back 0 - 1
@@ -7543,7 +7763,8 @@ task v4_ty_impl_body_close_token_from_hir(ty_id: int, hir_item: int) -> int {
     give back v4_ty_find_matching_brace(stream_id, open_token, v4_ty_hir_item_end_token(hir_id, hir_item))
 }
 
-task v4_ty_impl_method_count(ty_id: int, hir_item: int) -> int {
+task v4_ty_impl_method_count_uncached(ty_id: int, hir_item: int) -> int {
+    v4_ty_impl_method_cold_scans += 1
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 or hir_item < 0 {
         give back 0
@@ -7573,7 +7794,8 @@ task v4_ty_impl_method_count(ty_id: int, hir_item: int) -> int {
     give back count
 }
 
-task v4_ty_impl_method_start_token(ty_id: int, hir_item: int, method_id: int) -> int {
+task v4_ty_impl_method_start_token_uncached(ty_id: int, hir_item: int, method_id: int) -> int {
+    v4_ty_impl_method_cold_scans += 1
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 or hir_item < 0 or method_id < 0 {
         give back 0 - 1
@@ -7606,7 +7828,8 @@ task v4_ty_impl_method_start_token(ty_id: int, hir_item: int, method_id: int) ->
     give back 0 - 1
 }
 
-task v4_ty_impl_method_end_token(ty_id: int, hir_item: int, method_id: int) -> int {
+task v4_ty_impl_method_end_token_uncached(ty_id: int, hir_item: int, method_id: int) -> int {
+    v4_ty_impl_method_cold_scans += 1
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 {
         give back 0 - 1
@@ -12346,6 +12569,7 @@ task v4_ty_add_signature(ty_id: int, def_id: word, sig_kind: word, sig_name: wor
     array_set(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(hir_item))
     array_set(v4_ty_signature_active_counts, ty_id, word_from_int(sig_id + 1))
     v4_ty_signature_index_added(ty_id, sig_id)
+    v4_ty_item_method_cache_finalize(ty_id)
     give back sig_id
 }
 
@@ -12354,6 +12578,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
     pilot ty_id = v4_ty_file_new(file_id, resolve_id)
     v4_ty_copy_resolve_diags(ty_id, resolve_id)
     pilot hir_id = v4_resolve_hir_id(resolve_id)
+    v4_ty_item_method_cache_finalize_hir(hir_id)
 
     pilot symbol_idx = 0
     pilot symbol_count = v4_resolve_symbol_count(resolve_id)
@@ -13033,6 +13258,7 @@ task v4_ty_restore_clear_child_handle(handle: int, empty_value: word) -> void {
 }
 
 task v4_ty_restore_clear_file_children(ty_id: int) -> void {
+    v4_ty_item_method_cache_invalidate(ty_id)
     v4_ty_signature_index_invalidate(ty_id)
     v4_ty_restore_clear_child_handle(v4_ty_defs_handle(ty_id), "")
     v4_ty_restore_clear_child_handle(v4_ty_kinds_handle(ty_id), "")
@@ -13090,6 +13316,7 @@ task v4_ty_restore_signature_slot(ty_id: int, sig_id: int, def_id: word, sig_kin
     if v4_ty_child_handle_ensure_slot(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(0 - 1)) == false {
         give back 0
     }
+    v4_ty_item_method_cache_invalidate(ty_id)
     v4_ty_signature_index_invalidate(ty_id)
     array_set(v4_ty_defs_handle(ty_id), sig_id, def_id)
     array_set(v4_ty_kinds_handle(ty_id), sig_id, sig_kind)
@@ -13247,6 +13474,7 @@ task v4_ty_snapshot_restore(payload: word) -> word {
         pilot indexed_ty_id = 0
         repeat until indexed_ty_id >= restored_files {
             v4_ty_signature_index_finalize(indexed_ty_id)
+            v4_ty_item_method_cache_finalize(indexed_ty_id)
             indexed_ty_id += 1
         }
         v4_ty_copy_doctrine_cache_reset()

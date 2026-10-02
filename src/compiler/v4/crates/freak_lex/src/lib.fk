@@ -74,7 +74,7 @@ task v4_lex_stream_revision(stream_id: int) -> int {
 }
 
 task v4_lex_advance_stream_revision(stream_id: int) -> void {
-    if stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) { give back }
+    if v4_lex_ready == 0 or stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) { give back }
     repeat until array_len(v4_lex_stream_revisions) > stream_id {
         pilot before = array_len(v4_lex_stream_revisions)
         array_push(v4_lex_stream_revisions, "-1")

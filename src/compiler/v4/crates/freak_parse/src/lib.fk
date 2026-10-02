@@ -73,7 +73,7 @@ task v4_parse_tree_revision(tree_id: int) -> int {
 
 -- Supported hook after raw parse-handle edits, also used by owner mutations.
 task v4_parse_note_tree_mutation(tree_id: int) -> void {
-    if tree_id < 0 or tree_id >= array_len(v4_parse_tree_files) { give back }
+    if v4_parse_ready == 0 or tree_id < 0 or tree_id >= array_len(v4_parse_tree_files) { give back }
     repeat until array_len(v4_parse_tree_revisions) > tree_id {
         pilot before = array_len(v4_parse_tree_revisions)
         array_push(v4_parse_tree_revisions, "-1")

@@ -1,0 +1,310 @@
+-- Derived TY item/method bounds: epochs, cold reads and bounded publication.
+-- Verification prepends the V4 crates before this file; use 1024 live handles.
+
+task v4_ty_bounds_source() -> word {
+    pilot src = "shape Box<T> {\n"
+    src = src + " value: T\n}\n"
+    src = src + "alias Crate<T> = Box<T>\n"
+    src = src + "impl Box<T> {\n"
+    src = src + " task take(self) -> T {\n"
+    src = src + " give back self.value\n }\n"
+    src = src + " task echo(self, value: T) -> T {\n"
+    src = src + " give back value\n }\n"
+    src = src + " task echo(self, value: T) -> T {\n"
+    src = src + " give back value\n }\n}\n"
+    src = src + "impl Crate<int> {\n"
+    src = src + " task once(self) -> int => 7\n}\n"
+    src = src + "impl Box<word> {\n"
+    src = src + "}\n"
+    src = src + "task plain() -> int {\n"
+    src = src + " give back 1\n}\n"
+    give back src
+}
+
+task v4_ty_bounds_available_handles() -> int {
+    pilot holders = array_new()
+    pilot count = 0
+    pilot pressure_done = false
+    repeat until pressure_done or count >= 2048 {
+        pilot candidate = array_new()
+        if candidate < 0 { pressure_done = true } else {
+            array_push(holders, word_from_int(candidate))
+            count += 1
+        }
+    }
+    pilot idx = 0
+    repeat until idx >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, idx)))
+        idx += 1
+    }
+    array_release(holders)
+    give back count
+}
+
+task v4_ty_bounds_equal_raw(ty: int, hir: int) -> bool {
+    pilot item = 0
+    pilot correct = true
+    repeat until item >= v4_hir_item_count(hir) {
+        if v4_ty_hir_item_start_token(hir, item) != v4_ty_hir_item_start_token_uncached(hir, item) { correct = false }
+        if v4_ty_hir_item_end_token(hir, item) != v4_ty_hir_item_end_token_uncached(hir, item) { correct = false }
+        if v4_hir_item_kind(hir, item) == v4_hir_impl {
+            if v4_ty_impl_body_open_token_from_hir(ty, item) != v4_ty_impl_body_open_token_from_hir_uncached(ty, item) { correct = false }
+            if v4_ty_impl_body_close_token_from_hir(ty, item) != v4_ty_impl_body_close_token_from_hir_uncached(ty, item) { correct = false }
+            pilot count = v4_ty_impl_method_count(ty, item)
+            if count != v4_ty_impl_method_count_uncached(ty, item) { correct = false }
+            pilot method = 0 - 1
+            repeat until method > count {
+                if v4_ty_impl_method_start_token(ty, item, method) != v4_ty_impl_method_start_token_uncached(ty, item, method) { correct = false }
+                if v4_ty_impl_method_end_token(ty, item, method) != v4_ty_impl_method_end_token_uncached(ty, item, method) { correct = false }
+                method += 1
+            }
+        }
+        item += 1
+    }
+    give back correct
+}
+
+task v4_ty_bounds_scale(ty: int, hir: int, owner: int, count: int) -> void {
+    pilot original = v4_hir_item_count(hir)
+    pilot node = v4_hir_item_parse_node(hir, owner)
+    pilot span = v4_hir_item_span(hir, owner)
+    pilot idx = 0
+    repeat until idx >= count {
+        v4_hir_add_item(hir, v4_hir_impl, "Box<T>", span, node)
+        idx += 1
+    }
+    pilot built_items = v4_ty_item_method_cache_items_built
+    pilot built_methods = v4_ty_item_method_cache_methods_built
+    pilot publish: bool = v4_ty_item_method_cache_finalize(ty)
+    pilot cold = v4_ty_impl_method_cold_scans
+    pilot builds = v4_ty_item_method_cache_builds
+    pilot correct = true
+    idx = original
+    repeat until idx >= original + count {
+        pilot repeat_read = 0
+        repeat until repeat_read >= 4 {
+            if v4_ty_impl_method_count(ty, idx) != 3 { correct = false }
+            if v4_ty_impl_method_start_token(ty, idx, 2) != v4_ty_impl_method_start_token(ty, owner, 2) { correct = false }
+            if v4_ty_impl_method_end_token(ty, idx, 2) != v4_ty_impl_method_end_token(ty, owner, 2) { correct = false }
+            repeat_read += 1
+        }
+        idx += 1
+    }
+    pilot items = v4_hir_item_count(hir)
+    pilot packed = v4_ty_item_method_cache_handle(hir)
+    pilot methods = v4_ty_item_method_cache_methods_built - built_methods
+    pilot bounded: bool = v4_ty_item_method_cache_items_built - built_items == items and methods <= 3 * items and array_len(packed) == 7 + 6 * items + 2 * methods
+    say "ty-bounds-scale" + word_from_int(count) + "-linear=" + word_from_bool(publish and correct and bounded and v4_ty_impl_method_cold_scans == cold and v4_ty_item_method_cache_builds == builds)
+}
+
+task v4_ty_bounds_run() -> void {
+    pilot invalid: bool = v4_lex_stream_revision(0) == 0 - 1 and v4_parse_tree_revision(0) == 0 - 1 and v4_hir_revision(0) == 0 - 1
+    say "ty-bounds-invalid-revisions-readonly=" + word_from_bool(invalid and v4_lex_ready == 0 and v4_parse_ready == 0 and v4_hir_ready == 0 and not v4_ty_item_method_cache_is_ready(0) and v4_ty_ready == 0)
+    pilot source = v4_ty_bounds_source()
+    pilot file = v4_source_add("ty-item-method-cache.fk", source)
+    pilot stream = v4_lex_text(file, source)
+    pilot tree = v4_parse_stream(file, stream)
+    pilot hir = v4_hir_lower_tree(file, tree)
+    pilot resolved = v4_resolve_lower_hir(file, hir)
+    pilot ty = v4_ty_lower_resolve(file, resolved)
+    say "ty-bounds-clean-source=" + word_from_bool(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_ty_diag_count(ty) == 0)
+    pilot owner = 2
+    pilot once = 3
+    pilot empty = 4
+    pilot main = v4_ty_task_signature_id_for_name(ty, "plain")
+    pilot packed = v4_ty_item_method_cache_handle(hir)
+    pilot original_start = v4_ty_hir_item_start_token(hir, owner)
+    pilot original_end = v4_ty_hir_item_end_token(hir, owner)
+    pilot first = v4_ty_impl_method_start_token(ty, owner, 0)
+    pilot last = v4_ty_impl_method_start_token(ty, owner, 2)
+    pilot method_def = v4_ty_impl_method_def(ty, owner, 1)
+    say "ty-bounds-owner-zero-one-many=" + word_from_bool(v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, empty) == 0 and v4_ty_impl_method_count(ty, once) == 1 and v4_ty_impl_method_count(ty, owner) == 3)
+    say "ty-bounds-raw-equivalence=" + word_from_bool(v4_ty_bounds_equal_raw(ty, hir))
+    pilot duplicate: bool = v4_ty_impl_method_name(ty, owner, 1) == "echo" and v4_ty_impl_method_name(ty, owner, 2) == "echo" and v4_ty_impl_method_start_token(ty, owner, 1) < last
+    pilot identity: bool = v4_ty_impl_method_index_for_def(ty, method_def, 0) == owner and v4_ty_impl_method_index_for_def(ty, method_def, 1) == 1 and v4_ty_impl_method_index_for_def(ty, "file999::Method::Box<T>.echo#2:1", 0) == 0 - 1
+    say "ty-bounds-duplicate-identity-order=" + word_from_bool(duplicate and identity)
+    say "ty-bounds-generic-alias-returns=" + word_from_bool(v4_ty_impl_method_return_type_for_owner(ty, owner, 0, "Crate<int>") == "int" and v4_ty_impl_method_return_type(ty, once, 0) == "int" and v4_ty_impl_method_param_type_for_owner(ty, owner, 1, 1, "Crate<int>") == "int")
+    pilot cold = v4_ty_impl_method_cold_scans
+    pilot builds = v4_ty_item_method_cache_builds
+    pilot hits = v4_ty_item_method_cache_hits
+    pilot handles = v4_ty_bounds_available_handles()
+    pilot idx = 0
+    pilot warm = true
+    repeat until idx >= 64 {
+        if v4_ty_impl_method_count(ty, owner) != 3 or v4_ty_impl_method_start_token(ty, owner, 0) != first or v4_ty_impl_method_start_token(ty, owner, 2) != last { warm = false }
+        if v4_ty_impl_method_index_for_def(ty, method_def, 1) != 1 { warm = false }
+        if v4_ty_signature_item_start_token(ty, main) != v4_ty_hir_item_start_token(hir, v4_ty_signature_hir_item(ty, main)) { warm = false }
+        if v4_ty_signature_item_end_token(ty, main) != v4_ty_hir_item_end_token(hir, v4_ty_signature_hir_item(ty, main)) { warm = false }
+        idx += 1
+    }
+    say "ty-bounds-warm-no-walk-or-allocation=" + word_from_bool(warm and v4_ty_impl_method_cold_scans == cold and v4_ty_item_method_cache_builds == builds and v4_ty_item_method_cache_hits > hits and v4_ty_bounds_available_handles() == handles)
+
+    -- Parent identities must participate even when HIR itself did not change.
+    pilot other_stream = v4_lex_text(file, source)
+    pilot other_tree = v4_parse_stream(file, other_stream)
+    pilot expansion = v4_hir_expansion_id(hir)
+    pilot provenance = v4_expand_provenance_kind(expansion)
+    pilot unchanged_hir_revision = v4_hir_revision(hir)
+    v4_expand_restore_file_slot(expansion, file, other_tree, provenance)
+    pilot parent_cold: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_hir_revision(hir) == unchanged_hir_revision and v4_ty_impl_method_count(ty, owner) == 3 and v4_ty_item_method_cache_builds == builds
+    pilot parent_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    v4_expand_restore_file_slot(expansion, file, tree, provenance)
+    pilot parent_return: bool = not v4_ty_item_method_cache_is_ready(hir)
+    v4_ty_item_method_cache_finalize(ty)
+    array_set(v4_parse_tree_streams, tree, word_from_int(other_stream))
+    v4_parse_note_tree_mutation(tree)
+    pilot stream_cold: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, owner) == 3
+    pilot stream_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    array_set(v4_parse_tree_streams, tree, word_from_int(stream))
+    v4_parse_note_tree_mutation(tree)
+    v4_ty_item_method_cache_finalize(ty)
+    say "ty-bounds-parent-identities-cold=" + word_from_bool(parent_cold and parent_publish and parent_return and stream_cold and stream_publish and v4_ty_item_method_cache_is_ready(hir))
+    builds = v4_ty_item_method_cache_builds
+
+    -- Whole restores keep IDs and counts while replacing backing token/node arrays.
+    pilot lex_snapshot = v4_lex_snapshot()
+    pilot lex_restore_revision = v4_lex_stream_revision(stream)
+    pilot lex_restored = v4_lex_snapshot_restore(lex_snapshot)
+    pilot lex_restore_cold: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_lex_stream_revision(stream) > lex_restore_revision and v4_ty_impl_method_count(ty, owner) == 3 and v4_ty_item_method_cache_builds == builds
+    pilot lex_restore_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-bounds-whole-lex-restore-cold=" + word_from_bool(lex_restored.starts_with("lex-snapshot-restore ok=1") and lex_restore_cold and lex_restore_publish and v4_lex_snapshot() == lex_snapshot)
+    pilot parse_snapshot = v4_parse_snapshot()
+    pilot parse_restore_revision = v4_parse_tree_revision(tree)
+    builds = v4_ty_item_method_cache_builds
+    pilot parse_restored = v4_parse_snapshot_restore(parse_snapshot)
+    pilot parse_restore_cold: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_parse_tree_revision(tree) > parse_restore_revision and v4_ty_hir_item_start_token(hir, owner) == original_start and v4_ty_item_method_cache_builds == builds
+    pilot parse_restore_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-bounds-whole-parse-restore-cold=" + word_from_bool(parse_restored.starts_with("parse-snapshot-restore ok=1") and parse_restore_cold and parse_restore_publish and v4_parse_snapshot() == parse_snapshot)
+    builds = v4_ty_item_method_cache_builds
+
+    -- Same-size direct parse node overwrite: only the revision can catch it.
+    pilot node = v4_hir_item_parse_node(hir, owner)
+    pilot node_kind = v4_parse_node_kind(tree, node)
+    pilot node_value = v4_parse_node_value(tree, node)
+    pilot node_span = v4_parse_node_span(tree, node)
+    pilot parent = v4_parse_node_parent(tree, node)
+    pilot old_revision = v4_parse_tree_revision(tree)
+    pilot changed_span = v4_span_new(word_from_int(file), v4_span_start(v4_lex_token_span(stream, first)), v4_span_end(node_span))
+    v4_parse_restore_node_slot(tree, node, node_kind, node_value, changed_span, parent)
+    pilot parse_cold: bool = v4_parse_tree_revision(tree) > old_revision and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_hir_item_start_token(hir, owner) == first and v4_ty_item_method_cache_builds == builds
+    v4_parse_restore_node_slot(tree, node, node_kind, node_value, node_span, parent)
+    pilot parse_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-bounds-parse-overwrite-cold-recover=" + word_from_bool(parse_cold and parse_publish and v4_ty_hir_item_start_token(hir, owner) == original_start)
+
+    -- Same-size official HIR replacement changes the parse-node binding.
+    pilot owner_kind = v4_hir_item_kind(hir, owner)
+    pilot owner_name = v4_hir_item_name(hir, owner)
+    pilot owner_def = v4_hir_item_def(hir, owner)
+    pilot owner_span = v4_hir_item_span(hir, owner)
+    old_revision = v4_hir_revision(hir)
+    builds = v4_ty_item_method_cache_builds
+    v4_hir_restore_item_slot(hir, owner, owner_kind, owner_name, owner_def, owner_span, v4_hir_item_parse_node(hir, empty), "", V4_NO_SPAN)
+    pilot hir_cold: bool = v4_hir_revision(hir) > old_revision and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, owner) == 0 and v4_ty_item_method_cache_builds == builds
+    v4_hir_restore_item_slot(hir, owner, owner_kind, owner_name, owner_def, owner_span, node, "", V4_NO_SPAN)
+    pilot hir_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-bounds-hir-overwrite-cold-recover=" + word_from_bool(hir_cold and hir_publish and v4_ty_impl_method_count(ty, owner) == 3)
+
+    -- Supported raw token edit invalidates both TY and Lex offset pairs.
+    old_revision = v4_lex_stream_revision(stream)
+    builds = v4_ty_item_method_cache_builds
+    pilot token_span = v4_lex_token_span(stream, first)
+    array_set(v4_lex_values_handle(stream), first, "noop")
+    array_set(v4_lex_spans_handle(stream), first, v4_span_new(word_from_int(file), 999999, 1000000))
+    v4_lex_note_stream_mutation(stream)
+    pilot lex_cold: bool = v4_lex_stream_revision(stream) > old_revision and v4_lex_boundaries_handle(stream) < 0 and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, owner) == 2 and v4_ty_impl_method_count(ty, owner) == v4_ty_impl_method_count_uncached(ty, owner) and v4_ty_first_token_at_or_after(stream, v4_span_start(token_span)) == first and v4_ty_item_method_cache_builds == builds
+    array_set(v4_lex_values_handle(stream), first, "task")
+    array_set(v4_lex_spans_handle(stream), first, token_span)
+    v4_lex_note_stream_mutation(stream)
+    pilot lex_bounds: bool = v4_lex_rebuild_boundaries(stream)
+    pilot lex_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-bounds-token-overwrite-cold-recover=" + word_from_bool(lex_cold and lex_bounds and lex_publish and v4_ty_impl_method_count(ty, owner) == 3)
+
+    -- Direct TY signature restore also stays cold until explicit publication.
+    pilot main_def = v4_ty_signature_def(ty, main)
+    pilot main_kind = v4_ty_signature_kind(ty, main)
+    pilot main_name = v4_ty_signature_name(ty, main)
+    pilot main_display = v4_ty_signature_display(ty, main)
+    pilot main_item = v4_ty_signature_hir_item(ty, main)
+    builds = v4_ty_item_method_cache_builds
+    v4_ty_restore_signature_slot(ty, main, main_def, main_kind, main_name, main_display, main_item)
+    pilot ty_cold: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_ty_signature_item_start_token(ty, main) == v4_ty_hir_item_start_token_uncached(hir, main_item) and v4_ty_item_method_cache_builds == builds
+    pilot ty_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-bounds-direct-ty-restore-cold=" + word_from_bool(ty_cold and ty_publish)
+    pilot ty_snapshot = v4_ty_snapshot()
+    pilot bad = v4_ty_snapshot_restore("not-a-snapshot")
+    say "ty-bounds-rejected-restore-stable=" + word_from_bool(bad.starts_with("ty-snapshot-restore ok=0") and v4_ty_snapshot() == ty_snapshot and v4_ty_item_method_cache_is_ready(hir))
+
+    -- HIR snapshot roundtrip and fresh consumers preserve synthetic identities.
+    -- TY's existing snapshot vocabulary does not include Impl rows.
+    pilot hir_snapshot = v4_hir_snapshot()
+    old_revision = v4_hir_revision(hir)
+    pilot restored = v4_hir_snapshot_restore(hir_snapshot)
+    pilot restored_cold: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_hir_revision(hir) > old_revision and v4_ty_impl_method_count(ty, owner) == 3
+    pilot rebuilt_resolve = v4_resolve_lower_hir(file, hir)
+    pilot rebuilt_ty = v4_ty_lower_resolve(file, rebuilt_resolve)
+    say "ty-bounds-whole-hir-restore-rebuild=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and restored_cold and v4_hir_snapshot() == hir_snapshot and v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_def(rebuilt_ty, owner, 1) == method_def and v4_ty_diag_count(rebuilt_ty) == 0)
+    ty = rebuilt_ty
+    handles = v4_ty_bounds_available_handles()
+    idx = 0
+    pilot stable = true
+    repeat until idx >= 16 {
+        v4_ty_item_method_cache_invalidate(ty)
+        if not v4_ty_item_method_cache_finalize(ty) or v4_ty_item_method_cache_handle(hir) != packed { stable = false }
+        idx += 1
+    }
+    say "ty-bounds-republish-handle-stable=" + word_from_bool(stable and handles > 0 and handles < 2048 and v4_ty_bounds_available_handles() == handles)
+    idx = 0
+    old_revision = v4_hir_revision(hir)
+    repeat until idx >= 8 {
+        pilot replay = v4_hir_snapshot_restore(hir_snapshot)
+        if not replay.starts_with("hir-snapshot-restore ok=1") or v4_ty_item_method_cache_is_ready(hir) or v4_hir_snapshot() != hir_snapshot { stable = false }
+        if not v4_ty_item_method_cache_finalize(ty) or v4_ty_item_method_cache_handle(hir) != packed or v4_ty_impl_method_def(ty, owner, 1) != method_def { stable = false }
+        idx += 1
+    }
+    say "ty-bounds-repeated-hir-restore-handle-stable=" + word_from_bool(stable and v4_hir_revision(hir) > old_revision and v4_ty_bounds_available_handles() == handles)
+
+    -- Actual array_new exhaustion must leave authoritative cold queries intact.
+    array_release(v4_ty_item_method_cache_handle(hir))
+    array_set(v4_ty_item_method_caches, hir, "-1")
+    pilot holders = array_new()
+    pilot exhausted = false
+    idx = 0
+    repeat until exhausted or idx >= 2048 {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(candidate))
+            idx += 1
+        }
+    }
+    builds = v4_ty_item_method_cache_builds
+    pilot denied: bool = not v4_ty_item_method_cache_finalize(ty)
+    pilot cold_ok: bool = v4_ty_impl_method_count(ty, owner) == 3 and v4_ty_impl_method_start_token(ty, owner, 0) == first and v4_ty_impl_method_start_token(ty, owner, 2) == last and v4_ty_hir_item_end_token(hir, owner) == original_end
+    say "ty-bounds-exhaustion-cold-readonly=" + word_from_bool(exhausted and denied and cold_ok and v4_ty_item_method_cache_handle(hir) < 0 and v4_ty_item_method_cache_builds == builds)
+    idx = 0
+    repeat until idx >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, idx)))
+        idx += 1
+    }
+    array_release(holders)
+    pilot before_recover: bool = v4_ty_impl_method_count(ty, owner) == 3 and v4_ty_item_method_cache_handle(hir) < 0
+    pilot recovery: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-bounds-exhaustion-explicit-recover=" + word_from_bool(before_recover and recovery and v4_ty_item_method_cache_is_ready(hir))
+
+    -- Official append and malformed owner ranges exercise revision invalidation.
+    builds = v4_ty_item_method_cache_builds
+    old_revision = v4_lex_stream_revision(stream)
+    v4_lex_add_token(stream, v4_tok_trivia, " ", v4_span_new(word_from_int(file), source.length(), source.length() + 1), 99, 0)
+    pilot append_cold: bool = v4_lex_stream_revision(stream) > old_revision and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, owner) == 3 and v4_ty_item_method_cache_builds == builds
+    pilot append_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-bounds-token-append-cold=" + word_from_bool(append_cold and append_publish)
+    v4_parse_restore_node_slot(tree, node, node_kind, node_value, v4_span_new(word_from_int(file), v4_span_start(node_span), v4_span_start(v4_lex_token_span(stream, first))), parent)
+    pilot malformed_cold: bool = v4_ty_impl_method_count(ty, owner) == 0 and v4_ty_impl_method_start_token(ty, owner, 0) == 0 - 1
+    pilot malformed_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-bounds-incomplete-owner-sentinels=" + word_from_bool(malformed_cold and malformed_publish and v4_ty_impl_method_count(ty, owner) == 0 and v4_ty_impl_method_start_token(ty, owner, 0) == 0 - 1)
+    v4_parse_restore_node_slot(tree, node, node_kind, node_value, node_span, parent)
+    v4_ty_item_method_cache_finalize(ty)
+    v4_ty_bounds_scale(ty, hir, owner, 200)
+    v4_ty_bounds_scale(ty, hir, owner, 800)
+}
+
+v4_ty_bounds_run()
