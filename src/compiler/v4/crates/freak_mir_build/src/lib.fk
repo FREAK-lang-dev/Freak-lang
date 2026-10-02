@@ -8720,6 +8720,7 @@ task v4_mir_lower_task_body_token_range(mir_id: int, body_id: int, stream_id: in
     } else if body_marker == "=>" {
         pilot body_tail = v4_mir_lower_arrow_body(mir_id, body_id, 0, stream_id, body_token, end_token)
     }
+    v4_mir_finalize_block_stmt_index(mir_id, body_id)
     v4_mir_validate_body_cfg(mir_id, body_id, item_span)
     v4_mir_validate_body_return_coverage(mir_id, body_id, item_span)
 }
@@ -8827,5 +8828,6 @@ task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {
         hir_item += 1
     }
 
+    v4_mir_finalize_lookup_indexes(mir_id)
     give back mir_id
 }

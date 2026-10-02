@@ -1,0 +1,187 @@
+-- MIR-owned derived indexes: exact identities, physical order and cold readers.
+task mir_index_assert(condition: bool, label: word) -> void {
+    if not condition { panic("MIR lookup index: " + label) }
+}
+
+task mir_index_available_handles() -> int {
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            count += 1
+        }
+    }
+    pilot row = 0
+    repeat until row >= count {
+        array_release(word_to_int(array_get(holders, row)))
+        row += 1
+    }
+    array_release(holders)
+    give back count
+}
+
+task mir_index_run() -> void {
+    pilot cold_capacity = mir_index_available_handles()
+    mir_index_assert(v4_mir_lookup_body(0, "") < 0 and v4_mir_block_first_stmt(0, 0, 0) < 0 and v4_mir_block_next_stmt(0, 0, 0, 0) < 0 and v4_mir_ready == 0 and mir_index_available_handles() == cold_capacity, "uninitialized readers allocate nothing")
+    -- One real pipeline and one complete restore, before the larger manual
+    -- construction. Repeated authoritative restoration has a separate policy.
+    pilot stream = v4_lex_text(0, "task main() -> int {" + "\n give back 6\n" + "}\n")
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot lowered = v4_mir_lower_ty(0, ty)
+    mir_index_assert(v4_mir_diag_count(lowered) == 0 and v4_mir_body_lookup_index_is_ready(lowered) and v4_mir_block_stmt_index_is_ready(lowered, 0), "lowering publication")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot plan = v4_codegen_llvm_lower_mir(0, lowered)
+    pilot module = v4_codegen_llvm_module_text(plan, target)
+    pilot payload = v4_mir_snapshot()
+    pilot stable = v4_mir_body_lookup_index_handle(lowered)
+    pilot rejected = v4_mir_snapshot_restore_component(payload + "\nmir-body")
+    mir_index_assert(rejected.starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == payload and v4_mir_body_lookup_index_handle(lowered) == stable, "rejected restore atomic")
+    mir_index_assert(v4_mir_snapshot_restore_component(payload).starts_with("mir-snapshot-restore ok=1"), "valid restore")
+    mir_index_assert(v4_mir_snapshot() == payload and v4_mir_body_lookup_index_is_ready(lowered) and v4_mir_block_stmt_index_is_ready(lowered, 0), "restore publication and exact wire")
+    mir_index_assert(array_len(stable) == 0 and v4_codegen_llvm_module_text(plan, target) == module, "released index and sealed module")
+    say "mir-index lowering=true restore=true rejected-atomic=true wire-exact=true retained-plan=true"
+
+    pilot mir = v4_mir_file_new(0, ty)
+    pilot def_id = v4_ty_signature_def(ty, 0)
+    pilot built = v4_mir_body_lookup_build_records
+    pilot linear = v4_mir_body_lookup_linear_steps
+    pilot body = v4_mir_add_body(mir, def_id, "main", "task main() -> int")
+    v4_mir_add_body(mir, def_id, "duplicate", "")
+    v4_mir_add_body(mir, "", "empty", "")
+    pilot first = "collision0"
+    pilot second = ""
+    pilot candidate_id = 1
+    repeat until second != "" or candidate_id >= 256 {
+        pilot candidate = "collision" + word_from_int(candidate_id)
+        if candidate.checksum() % 16 == first.checksum() % 16 { second = candidate }
+        candidate_id += 1
+    }
+    v4_mir_add_body(mir, first, "first", "")
+    v4_mir_add_body(mir, second, "second", "")
+    pilot row = 5
+    repeat until row >= 12 {
+        pilot key = "body" + word_from_int(row)
+        mir_index_assert(v4_mir_lookup_body(mir, key) < 0, "lookup before append")
+        v4_mir_add_body(mir, key, key, "")
+        mir_index_assert(v4_mir_lookup_body(mir, key) == row, "append lookup")
+        row += 1
+    }
+    mir_index_assert(second != "" and v4_mir_lookup_body(mir, def_id) == 0 and v4_mir_lookup_body(mir, "") == 2 and v4_mir_lookup_body(mir, first) == 3 and v4_mir_lookup_body(mir, second) == 4, "duplicate empty and collision keys")
+    mir_index_assert(v4_mir_body_lookup_linear_steps == linear and v4_mir_body_lookup_build_records - built <= 24, "geometric construction")
+    pilot probes = v4_mir_body_lookup_probes
+    row = 5
+    repeat until row >= 12 {
+        mir_index_assert(v4_mir_lookup_body(mir, "body" + word_from_int(row)) == row and v4_mir_lookup_body(mir, "absent" + word_from_int(row)) < 0, "exact keyed lookup")
+        row += 1
+    }
+    mir_index_assert(v4_mir_body_lookup_probes - probes <= 128 and v4_mir_body_lookup_linear_steps == linear, "bounded lookup work")
+    say "mir-index definitions=true duplicates=true empty=true collisions=true append-work=true"
+
+    pilot other = v4_mir_add_block(mir, body, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot empty = v4_mir_add_block(mir, body, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot yes_value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_bool, "yes", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_bool)
+    pilot no_value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_bool, "no", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_bool)
+    pilot one = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_int)
+    pilot live = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_binary, "", v4_mir_bin_add, one, one, V4_NO_SPAN, v4_ty_int)
+    pilot dead = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_binary, "", v4_mir_bin_add, one, one, V4_NO_SPAN, v4_ty_int)
+    v4_mir_add_stmt(mir, body, other, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, live)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_branch, "", "", V4_NO_SPAN, 0 - 1, yes_value)
+    v4_mir_add_stmt(mir, body, other, v4_mir_stmt_return, "", "", V4_NO_SPAN, 0 - 1, one)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_loop, "", "", V4_NO_SPAN, 0 - 1, no_value)
+    v4_mir_add_stmt(mir, body, other, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, dead)
+    v4_mir_set_body_block(mir, body, 0, v4_mir_block_new_full(0, v4_mir_term_if, other, empty, ""))
+    mir_index_assert(v4_mir_block_first_stmt(mir, body, 0) == 1 and v4_mir_block_next_stmt(mir, body, 0, 1) == 3 and v4_mir_block_next_stmt(mir, body, 0, 3) < 0, "entry physical order")
+    mir_index_assert(v4_mir_block_first_stmt(mir, body, other) == 0 and v4_mir_block_next_stmt(mir, body, other, 0) == 2 and v4_mir_block_next_stmt(mir, body, other, 2) == 4 and v4_mir_block_first_stmt(mir, body, empty) < 0, "interleaved physical order")
+    pilot text = v4_codegen_llvm_body_line_from_mir(mir, body)
+    mir_index_assert(v4_codegen_llvm_block_terminator_line(mir, body, 0) == "  br i1 1, label %bb1, label %bb2\n", "first condition selected")
+    mir_index_assert(text.contains("ret i64 1") and not text.contains("%rv.0." + word_from_int(dead)), "first return suppression")
+    pilot wire = v4_mir_snapshot()
+    v4_mir_invalidate_body_lookup_index(mir)
+    v4_mir_invalidate_block_stmt_index(mir, body)
+    pilot capacity = mir_index_available_handles()
+    built = v4_mir_block_stmt_build_records
+    mir_index_assert(v4_mir_lookup_body(mir, def_id) == 0 and v4_mir_block_first_stmt(mir, body, 0) == 1 and v4_codegen_llvm_body_line_from_mir(mir, body) == text, "cold exact queries")
+    mir_index_assert(mir_index_available_handles() == capacity and v4_mir_block_stmt_build_records == built and not v4_mir_block_stmt_index_is_ready(mir, body), "cold no publication or handle consumption")
+    mir_index_assert(v4_mir_finalize_lookup_indexes(mir) and v4_mir_snapshot() == wire, "derived state absent from wire")
+
+    -- Slot edits may keep cardinality unchanged, move between blocks, and add
+    -- sparse placeholders. Cold invalid-block queries retain the old scans.
+    v4_mir_restore_stmt_slot(mir, body, 0, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0, 0 - 1, live)
+    v4_mir_restore_stmt_slot(mir, body, 7, "Odd", "", "", V4_NO_SPAN, 0 - 1, 0 - 1, 0 - 1)
+    mir_index_assert(not v4_mir_block_stmt_index_is_ready(mir, body) and v4_mir_block_first_stmt(mir, body, 0) == 0 and v4_mir_block_next_stmt(mir, body, 0, 0) == 1, "direct movement invalidates")
+    mir_index_assert(v4_mir_block_first_stmt(mir, body, 0 - 1) == 5 and v4_mir_block_next_stmt(mir, body, 0 - 1, 5) == 6 and v4_mir_block_next_stmt(mir, body, 0 - 1, 6) == 7 and v4_mir_body_stmt_count_for_block(mir, body, 0 - 1) == 3 and v4_mir_body_stmt_kind_count_for_block(mir, body, 0 - 1, "Odd") == 1, "negative block and sparse semantics")
+    mir_index_assert(not v4_mir_finalize_block_stmt_index(mir, body), "malformed membership stays cold")
+    row = 5
+    repeat until row >= 8 {
+        v4_mir_restore_stmt_slot(mir, body, row, "Odd", "", "", V4_NO_SPAN, empty, 0 - 1, 0 - 1)
+        row += 1
+    }
+    pilot cold = v4_codegen_llvm_body_line_from_mir(mir, body)
+    mir_index_assert(v4_mir_finalize_block_stmt_index(mir, body) and v4_codegen_llvm_body_line_from_mir(mir, body) == cold and v4_mir_body_stmt_kind_count_for_block(mir, body, empty, "Odd") == 3, "final physical rebuild and unknown kind")
+    stable = v4_mir_block_stmt_index_handle(mir, 1)
+    v4_mir_restore_body_slot(mir, 1, "changed", "changed", "")
+    mir_index_assert(not v4_mir_body_lookup_index_is_ready(mir) and v4_mir_lookup_body(mir, "changed") == 1 and v4_mir_lookup_body(mir, def_id) == 0 and v4_mir_block_stmt_index_handle(mir, 1) == stable, "definition overwrite and derived reuse")
+    v4_mir_add_block(mir, 1, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    mir_index_assert(v4_mir_finalize_lookup_indexes(mir), "finalize edited owner")
+    say "mir-index interleaved=true first-condition=true first-return=true cold-exact=true sparse=true direct-edits=true"
+
+    -- A large statement group exercises the actual append-maintained index,
+    -- including the per-statement terminal query used during MIR lowering.
+    linear = v4_mir_block_stmt_linear_steps
+    built = v4_mir_block_stmt_build_records
+    row = 0
+    repeat until row >= 1024 {
+        v4_mir_add_stmt(mir, 1, 0, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, 0 - 1)
+        mir_index_assert(not v4_mir_block_has_terminal_stmt(mir, 1, 0), "live terminal count")
+        row += 1
+    }
+    pilot steps = v4_mir_block_stmt_lookup_steps
+    pilot stmt = v4_mir_block_first_stmt(mir, 1, 0)
+    row = 0
+    repeat until stmt < 0 {
+        mir_index_assert(stmt == row, "every physical statement")
+        stmt = v4_mir_block_next_stmt(mir, 1, 0, stmt)
+        row += 1
+    }
+    mir_index_assert(row == 1024 and v4_mir_block_stmt_lookup_steps - steps == 1025 and v4_mir_block_stmt_build_records == built and v4_mir_block_stmt_linear_steps == linear, "linear iteration and append work")
+    capacity = mir_index_available_handles()
+    stable = v4_mir_block_stmt_index_handle(mir, 1)
+    row = 0
+    repeat until row >= 32 {
+        v4_mir_invalidate_block_stmt_index(mir, 1)
+        mir_index_assert(v4_mir_finalize_block_stmt_index(mir, 1), "repeated finalize")
+        row += 1
+    }
+    mir_index_assert(v4_mir_block_stmt_build_records - built == 32768 and v4_mir_block_stmt_index_handle(mir, 1) == stable and mir_index_available_handles() == capacity, "bounded rebuild and handles")
+    say "mir-index statements=1024 linear-iteration=true append-work=true rebuild-work=true handles-stable=true"
+
+    -- Optional index storage fails cold under the harness's 1,024-handle cap.
+    v4_mir_release_lookup_indexes(mir)
+    pilot holders = array_new()
+    pilot held = 0
+    pilot exhausted = false
+    repeat until exhausted or held >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            held += 1
+        }
+    }
+    mir_index_assert(exhausted and not v4_mir_finalize_lookup_indexes(mir) and v4_mir_lookup_body(mir, "changed") == 1 and v4_mir_block_first_stmt(mir, 1, 0) == 0 and v4_mir_block_next_stmt(mir, 1, 0, 0) == 1 and not v4_mir_block_stmt_index_is_ready(mir, 1), "exhaustion cold fallback")
+    row = 0
+    repeat until row >= held {
+        array_release(word_to_int(array_get(holders, row)))
+        row += 1
+    }
+    array_release(holders)
+    mir_index_assert(v4_mir_finalize_lookup_indexes(mir) and v4_mir_lookup_body(mir, "changed") == 1 and v4_mir_body_stmt_count_for_block(mir, 1, 0) == 1024 and mir_index_available_handles() == capacity, "resource recovery without derived leak")
+    say "mir-index exhaustion-cold=true resource-recovery=true derived-handles-bounded=true"
+}
+
+mir_index_run()

@@ -1370,14 +1370,14 @@ task v4_codegen_llvm_block_terminator_line(mir_id: int, body_id: int, block_id: 
         give back "  br label %bb" + word_from_int(v4_mir_block_target(block_record)) + "\n"
     }
     if term == v4_mir_term_if {
-        pilot stmt_id = 0
-        repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, block_id)
+        repeat until stmt_id < 0 {
             pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
-            if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id and (kind == v4_mir_stmt_branch or kind == v4_mir_stmt_loop) {
+            if kind == v4_mir_stmt_branch or kind == v4_mir_stmt_loop {
                 pilot condition = v4_codegen_llvm_rvalue_value(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt_id))
                 give back "  br i1 " + condition + ", label %bb" + word_from_int(v4_mir_block_target(block_record)) + ", label %bb" + word_from_int(v4_mir_block_else_target(block_record)) + "\n"
             }
-            stmt_id += 1
+            stmt_id = v4_mir_block_next_stmt(mir_id, body_id, block_id, stmt_id)
         }
         give back "  unreachable\n"
     }
@@ -1410,15 +1410,12 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
     pilot block_count = v4_mir_body_block_count(mir_id, body_id)
     repeat until block_id >= block_count {
         array_push(parts, "bb" + word_from_int(block_id) + ":\n")
-        pilot stmt_id = 0
-        pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
+        pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, block_id)
         pilot terminal = false
-        repeat until stmt_id >= stmt_count {
-            if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id and terminal == false {
-                array_push(parts, v4_codegen_llvm_stmt_lines(mir_id, body_id, stmt_id))
-                if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return { terminal = true }
-            }
-            stmt_id += 1
+        repeat until stmt_id < 0 or terminal {
+            array_push(parts, v4_codegen_llvm_stmt_lines(mir_id, body_id, stmt_id))
+            if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return { terminal = true }
+            stmt_id = v4_mir_block_next_stmt(mir_id, body_id, block_id, stmt_id)
         }
         array_push(parts, v4_codegen_llvm_block_terminator_line(mir_id, body_id, block_id))
         block_id += 1
