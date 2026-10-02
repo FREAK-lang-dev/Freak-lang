@@ -1,0 +1,122 @@
+-- MIR candidate consumers retain selection while skipping non-Impl items.
+-- Verification prepends the V4 crates before this file.
+
+task v4_mir_candidates_numeric_source() -> word {
+    pilot src = "task numeric(left: tiny, right: tiny) -> tiny {\n"
+    src = src + " pilot sum = left + right\n"
+    src = src + " pilot flipped = -sum\n"
+    src = src + " give back flipped\n}\n"
+    give back src
+}
+
+task v4_mir_candidates_method_source() -> word {
+    pilot src = "shape Box<T> {\n"
+    src = src + " value: T\n}\n"
+    src = src + "doctrine Add {\n"
+    src = src + " task add(self, other: Self) -> Self\n}\n"
+    src = src + "impl Box<T> {\n"
+    src = src + " task choose(self) -> T {\n"
+    src = src + " give back self.value\n }\n"
+    src = src + " task choose(self) -> word {\n"
+    src = src + " give back \"later\"\n }\n"
+    src = src + " task make(value: T) -> T {\n"
+    src = src + " give back value\n }\n}\n"
+    src = src + "impl Box<T> {\n"
+    src = src + " task choose(self) -> T {\n"
+    src = src + " give back self.value\n }\n}\n"
+    src = src + "impl Add for int {\n"
+    src = src + " task add(self, other: int) -> int {\n"
+    src = src + " give back other\n }\n}\n"
+    src = src + "task use_methods(box: Box<int>, left: tiny, right: tiny) -> int {\n"
+    src = src + " pilot selected = box.choose()\n"
+    src = src + " pilot packed = Box<int>::make(9)\n"
+    src = src + " pilot summed = left + right\n"
+    src = src + " give back selected + packed + summed\n}\n"
+    give back src
+}
+
+task v4_mir_candidates_noise(mir: int, hir: int, ty: int, count: int) -> void {
+    pilot node = v4_hir_item_parse_node(hir, 0)
+    pilot span = v4_hir_item_span(hir, 0)
+    pilot idx = 0
+    repeat until idx >= count {
+        v4_hir_add_item(hir, v4_hir_task, "unrelated" + word_from_int(v4_hir_item_count(hir)), span, node)
+        idx += 1
+    }
+    pilot published: bool = v4_hir_finalize_impl_lookup_index(hir)
+    pilot probes = v4_hir_impl_candidate_lookup_probes
+    pilot cold = v4_hir_impl_candidate_cold_probes
+    pilot method_scans = v4_ty_impl_method_cold_scans
+    pilot correct = true
+    idx = 0
+    repeat until idx >= 64 {
+        if v4_ty_next_impl_item(ty, 0 - 1) != 0 - 1 { correct = false }
+        if v4_mir_find_method_ref(mir, "tiny", "missing", true) != "" { correct = false }
+        if v4_mir_find_any_method_ref(mir, "tiny", "missing") != "" { correct = false }
+        if v4_mir_binary_operator_overload_ref(mir, "tiny", v4_mir_bin_add) != "" { correct = false }
+        if v4_mir_unary_operator_overload_ref(mir, "tiny", v4_mir_unary_neg) != "" { correct = false }
+        if v4_mir_binary_result_type(mir, v4_mir_bin_add, "tiny", "tiny") != "tiny" { correct = false }
+        if v4_mir_unary_result_type(mir, v4_mir_unary_neg, "tiny") != "tiny" { correct = false }
+        idx += 1
+    }
+    say "mir-candidates-noise" + word_from_int(count) + "-constant-misses=" + word_from_bool(published and correct and v4_hir_impl_candidate_lookup_probes == probes and v4_hir_impl_candidate_cold_probes == cold and v4_ty_impl_method_cold_scans == method_scans)
+}
+
+task v4_mir_candidates_run() -> void {
+    pilot invalid: bool = v4_ty_next_impl_item(0, 0 - 1) == 0 - 1 and v4_ty_next_impl_item(0 - 1, 0 - 1) == 0 - 1 and v4_ty_next_impl_item(999999, 0 - 1) == 0 - 1
+    say "mir-candidates-invalid-ty-readonly=" + word_from_bool(invalid and v4_ty_ready == 0 and v4_resolve_ready == 0 and v4_hir_ready == 0)
+    pilot orphan = v4_ty_file_new(0, 0 - 1)
+    pilot parentless: bool = v4_ty_next_impl_item(orphan, 0 - 1) == 0 - 1 and v4_resolve_ready == 0 and v4_hir_ready == 0
+    say "mir-candidates-parentless-ty-readonly=" + word_from_bool(parentless)
+    pilot numeric_source = v4_mir_candidates_numeric_source()
+    pilot numeric_file = v4_source_add("candidate-numeric.fk", numeric_source)
+    pilot numeric_stream = v4_lex_text(numeric_file, numeric_source)
+    pilot numeric_tree = v4_parse_stream(numeric_file, numeric_stream)
+    pilot numeric_hir = v4_hir_lower_tree(numeric_file, numeric_tree)
+    pilot numeric_resolve = v4_resolve_lower_hir(numeric_file, numeric_hir)
+    pilot numeric_ty = v4_ty_lower_resolve(numeric_file, numeric_resolve)
+    pilot probes = v4_hir_impl_candidate_lookup_probes
+    pilot cold = v4_hir_impl_candidate_cold_probes
+    pilot numeric_mir = v4_mir_lower_ty(numeric_file, numeric_ty)
+    pilot numeric_def = v4_resolve_def_for_name(numeric_resolve, "numeric")
+    pilot numeric_body = v4_mir_lookup_body(numeric_mir, numeric_def)
+    pilot sum = v4_mir_stmt_rvalue(numeric_mir, numeric_body, 0)
+    pilot flipped = v4_mir_stmt_rvalue(numeric_mir, numeric_body, 1)
+    pilot numeric_clean: bool = v4_parse_diag_count(numeric_tree) == 0 and v4_ty_diag_count(numeric_ty) == 0 and v4_mir_diag_count(numeric_mir) == 0
+    say "mir-candidates-empty-impl-builtin-lowering=" + word_from_bool(numeric_clean and numeric_body >= 0 and v4_mir_rvalue_kind(numeric_mir, numeric_body, sum) == v4_mir_rvalue_binary and v4_mir_rvalue_kind(numeric_mir, numeric_body, flipped) == v4_mir_rvalue_unary and v4_mir_local_ty_for_name(numeric_mir, numeric_body, "sum") == "tiny" and v4_mir_local_ty_for_name(numeric_mir, numeric_body, "flipped") == "tiny" and v4_hir_impl_candidate_lookup_probes == probes and v4_hir_impl_candidate_cold_probes == cold)
+    v4_mir_candidates_noise(numeric_mir, numeric_hir, numeric_ty, 200)
+    v4_mir_candidates_noise(numeric_mir, numeric_hir, numeric_ty, 800)
+
+    pilot source = v4_mir_candidates_method_source()
+    pilot file = v4_source_add("candidate-methods.fk", source)
+    pilot stream = v4_lex_text(file, source)
+    pilot tree = v4_parse_stream(file, stream)
+    pilot hir = v4_hir_lower_tree(file, tree)
+    pilot resolved = v4_resolve_lower_hir(file, hir)
+    pilot ty = v4_ty_lower_resolve(file, resolved)
+    pilot mir = v4_mir_lower_ty(file, ty)
+    pilot use_def = v4_resolve_def_for_name(resolved, "use_methods")
+    pilot body = v4_mir_lookup_body(mir, use_def)
+    say "mir-candidates-method-source-clean=" + word_from_bool(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0)
+    pilot first = v4_ty_next_impl_item(ty, 0 - 1)
+    pilot second = v4_ty_next_impl_item(ty, first)
+    pilot primitive = v4_ty_next_impl_item(ty, second)
+    say "mir-candidates-physical-impl-order=" + word_from_bool(first == 2 and second == 3 and primitive == 4 and v4_ty_next_impl_item(ty, primitive) == 0 - 1)
+    pilot chosen = v4_mir_find_method_ref(mir, "Box<int>", "choose", true)
+    pilot any_chosen = v4_mir_find_any_method_ref(mir, "Box<int>", "choose")
+    pilot make = v4_mir_find_method_ref(mir, "Box<int>", "make", false)
+    say "mir-candidates-first-duplicate-method-impl=" + word_from_bool(chosen == v4_mir_method_ref(first, 0) and any_chosen == chosen and v4_mir_method_return_type(mir, "Box<int>", chosen) == "int")
+    say "mir-candidates-instance-associated-filter=" + word_from_bool(make == v4_mir_method_ref(first, 2) and v4_mir_find_method_ref(mir, "Box<int>", "make", true) == "" and v4_mir_find_method_ref(mir, "Box<int>", "choose", false) == "")
+    pilot generic: bool = v4_mir_method_return_type(mir, "Box<word>", make) == "word" and v4_ty_impl_method_explicit_param_type_for_owner(ty, first, 2, 0, "Box<word>") == "word"
+    say "mir-candidates-generic-substitution=" + word_from_bool(generic)
+    pilot operator_ref = v4_mir_binary_operator_overload_ref(mir, "int", v4_mir_bin_add)
+    pilot primitive_selected: bool = operator_ref == v4_mir_method_ref(primitive, 0) and v4_mir_binary_operator_overload_ref(mir, "tiny", v4_mir_bin_add) == operator_ref and v4_mir_binary_operator_overload_ref(mir, "uint", v4_mir_bin_add) == operator_ref and v4_mir_binary_result_type(mir, v4_mir_bin_add, "tiny", "tiny") == "int" and v4_ty_binary_result(v4_mir_bin_add, "tiny", "tiny") == "tiny"
+    say "mir-candidates-primitive-numeric-compatible=" + word_from_bool(primitive_selected)
+    pilot selected = v4_mir_stmt_rvalue(mir, body, 0)
+    pilot packed = v4_mir_stmt_rvalue(mir, body, 1)
+    pilot summed = v4_mir_stmt_rvalue(mir, body, 2)
+    pilot lowered: bool = body >= 0 and v4_mir_rvalue_kind(mir, body, selected) == v4_mir_rvalue_call and v4_mir_rvalue_kind(mir, body, packed) == v4_mir_rvalue_call and v4_mir_rvalue_kind(mir, body, summed) == v4_mir_rvalue_call
+    say "mir-candidates-actual-call-lowering=" + word_from_bool(lowered and v4_mir_local_ty_for_name(mir, body, "selected") == "int" and v4_mir_local_ty_for_name(mir, body, "packed") == "int" and v4_mir_local_ty_for_name(mir, body, "summed") == "int")
+}
+
+v4_mir_candidates_run()
