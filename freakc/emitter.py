@@ -1317,6 +1317,7 @@ class CEmitter:
             # std::fs mapping
             fs_map = {
                 "fs::read": "freak_fs_read",
+                "fs::read_checked": "freak_fs_read_checked",
                 "fs::write": "freak_fs_write",
                 "fs::append": "freak_fs_append",
                 "fs::exists": "freak_fs_exists",
@@ -1798,6 +1799,8 @@ class CEmitter:
             tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq_name)
             if tcp_socket_signature is not None:
                 return _word_builder_c_type(tcp_socket_signature.return_type.name)
+            if fq_name == "fs::read_checked":
+                return "freak_result_word_word"
             if fq_name in ("fs::read",):
                 return "freak_word"
             return "int64_t"
@@ -1899,6 +1902,7 @@ class CEmitter:
                 # std::fs return types
                 _FS_RET = {
                     "fs::read": "freak_word",
+                    "fs::read_checked": "freak_result_word_word",
                     "fs::write": "void",
                     "fs::append": "void",
                     "fs::exists": "bool",

@@ -404,6 +404,11 @@ FREAK_RESULT_DECL(double,     freak_word, num_word);
 FREAK_RESULT_DECL(freak_word, freak_word, word_word);
 FREAK_RESULT_DECL(bool,       freak_word, bool_word);
 
+/* Bootstrap checked source loading: empty regular files are ok(""). Errors
+   return err without printing or exiting. This additive helper leaves the
+   legacy freak_fs_read word/panic ABI unchanged. */
+freak_result_word_word freak_fs_read_checked(freak_word path);
+
 /* ------------------------------------------------------------------ */
 /*  String methods                                                    */
 /* ------------------------------------------------------------------ */
