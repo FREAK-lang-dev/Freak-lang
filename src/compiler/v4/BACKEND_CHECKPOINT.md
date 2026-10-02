@@ -48,6 +48,8 @@ The registered LLVM gate runs these emitted modules through clang:
 | `scalar_coercions.fk` | exit 42; conversions at calls, returns and local stores |
 | `impl_scalar.fk` | exit 42; associated methods, named arguments and numeric conversion |
 | `raw_pointer_coercions.fk` | exit 42; int->tiny pointer write and tiny->int read |
+| `hello_world.fk` | exit 0; stdout exactly `Hello, world!\n` |
+| `literal_say.fk` | exit 0; exact escapes/UTF-8, argument setup, void entry and source-main calls |
 
 Each program validates/restores MIR before native execution and compares module
 text byte for byte after restoration. Scalar storage uses local identities and
@@ -74,9 +76,9 @@ python tools/release_version.py check
 python src/compiler/v4/build_v4.py src/compiler/v4/examples/fib_collatz.fk -o build/v4-demo
 ```
 
-The full gate passed all 266 executable smokes at the scalar/impl checkpoint.
-The final pointer-write and build-tool changes receive the focused execution,
-raw-pointer and variadic checks. Conformance audit passes with one environment
+The full gate passes all 268 executable smokes at the final W1 checkpoint,
+including pointer-write, build-tool and literal-word regressions. Conformance
+audit passes with one environment
 warning: the shipping native CLI is not built in this worktree. The native V4
 program tests use the bootstrap build tool and clang.
 
@@ -243,6 +245,28 @@ seal all module facts at lowering, and share compatible runtime declarations
 while rejecting incompatible emitted symbols (including link-name aliases).
 Regressions cover each case; imported NUL text fails native emission without
 changing previously sealed plans.
+
+Final executable validation is tied to
+`66f9558a0dc31c83d57ed9c84537848c9b2dc4b1`: all 268 registered runtime smokes,
+ten native LLVM programs, and the build-command gates passed with clang 19 on
+x86_64 Linux. Peak retained runner memory was 73.9 MiB against its 256 MiB
+limit. Conformance audit and the 0.14.2 release-version invariant passed;
+the audit retains only the existing missing-shipping-CLI warning.
+
+Both independent reviewers cleared that SHA, including the tests/docs-only
+delta from `6154f23`. The first broad run exposed old fixtures that ignored
+nonliteral `say` inside checked/guarded arms. Their source programs and original
+diagnostic assertions remain intact; exact counts and messages now cover all
+nine added W1 rejection diagnostics across three fixtures. The final full run
+passes those checks. Windows/macOS native linking remains unverified.
+
+The final full log is
+`/workspace/v4-backend-after/w1-final-full-v4-check-66f9558.log`.
+Independent review disposition is saved in
+`/workspace/v4-backend-after/w1-review/FINAL_VERDICT.md`.
+The delivered binary is `/workspace/v4-native/hello-world-v4`, with LLVM text
+beside it and exact-output/provenance verification in
+`/workspace/v4-backend-after/hello-world-verification.json`.
 
 ## Saved measurement artifacts
 
