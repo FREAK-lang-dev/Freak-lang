@@ -1,12 +1,191 @@
 # V4 backend checkpoint - 2026-10-02
 
-The profiled token-boundary bottleneck and module-assembly memory growth are
-fixed. Derived TY signature, HIR parameter and resolve symbol indexes remove
-the three lookup families identified in handoff 4. V4 assembles and runs scalar
+The handoff 4 memory fixes and handoff 5 derived lookup changes are implemented.
+All six measured shapes compile and execute with unchanged LLVM output. The
+56,003-line task input takes 13.7 seconds; remaining TY closure-validation and
+loan-bearing Meiya scans are described below. V4 assembles and runs scalar
 LLVM modules, including local mutation, scoped bindings, control flow, ordered
-short-circuit evaluation, numeric conversions and scalar associated impl tasks.
-The W1 follow-up below adds literal `say` and runtime linking. General word
-values and compiler self-hosting remain open.
+short-circuit evaluation, numeric conversions, scalar associated impl tasks and
+literal `say`. General word values and compiler self-hosting remain open.
+
+## Handoff 5: six-shape lookup scaling
+
+The baseline compiler is `9f6986f6ec1aa4fa70dd52c6ac45c9a3de031368`;
+the final measured compiler and independently reviewed integration is
+`3db07fb68e8d370fef3551d074c843418ce4e705`. The baseline PG checkout is
+`b57ab5bf42d5cb55d22cefa95f3c8d36aac9785c`, which changes only the benchmark
+and its tests relative to the baseline; generated compiler C is identical.
+The portable measurements, complete nine-stage timings, source/module hashes,
+compiler/runtime hashes, growth factors and selected profile counts are in
+[`benchmarks/v4/scaling_handoff5.json`](../../../benchmarks/v4/scaling_handoff5.json).
+
+All six shapes run at sizes 200, 400 and 800, plus task sizes 3,200 and 8,000.
+Every one of these 20 inputs reports zero diagnostics in all nine phases,
+links and executes with its exact expected exit status, stdout and stderr.
+Source and LLVM modules match the baseline byte for byte in every case.
+The 56,003-line case is below the handoff's 30-second target.
+
+The following are single serialized x86_64 Linux runs with clang 19 `-O2`,
+excluding clang compilation/linking of the generated module. Native monotonic
+clocks measure stages; Linux `VmHWM` supplies the compiler's actual peak RSS,
+without the inherited parent high-water floor of `getrusage`. Stage peaks are
+cumulative. The process-tree guard is 5,000 MiB with a 400-second compiler
+limit. Shared-host timings have about 30% noise. Table cells show baseline
+→ final; increased memory reflects the additional derived facts and remains
+proportional to input across this matrix.
+
+| Workload | Total s | TY s | MIR s | Meiya s | Codegen s | VmHWM MiB | Speedup |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| tasks 800 | 1.518 → 1.185 | 0.145 → 0.107 | 0.435 → 0.250 | 0.240 → 0.245 | 0.411 → 0.264 | 132.3 → 149.0 | 1.28× |
+| long 800 | 4.664 → 1.437 | 0.001 → 0.000 | 0.767 → 0.330 | 3.535 → 0.813 | 0.205 → 0.085 | 76.6 → 84.4 | 3.24× |
+| calls 800 | 2.527 → 1.891 | 0.122 → 0.083 | 0.860 → 0.538 | 0.221 → 0.206 | 1.019 → 0.736 | 162.1 → 178.5 | 1.34× |
+| impl 800 | 32.157 → 2.397 | 0.304 → 0.290 | 21.731 → 0.614 | 0.551 → 0.211 | 8.942 → 0.687 | 354.0 → 384.7 | 13.41× |
+| say 800 | 1.179 → 0.511 | 0.087 → 0.061 | 0.077 → 0.090 | 0.038 → 0.032 | 0.835 → 0.159 | 101.1 → 110.4 | 2.30× |
+| mixed 800 | 7.434 → 1.235 | 0.107 → 0.093 | 4.479 → 0.341 | 0.234 → 0.140 | 2.340 → 0.349 | 154.3 → 169.3 | 6.02× |
+
+Large task sets:
+
+| Workload | Total s | TY s | MIR s | Meiya s | Codegen s | VmHWM MiB | Speedup |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| tasks 3200 | 7.595 → 5.333 | 0.854 → 0.737 | 3.156 → 1.182 | 0.861 → 1.079 | 1.632 → 1.142 | 520.0 → 586.3 | 1.42× |
+| tasks 8000 | 28.966 → 13.666 | 3.753 → 2.997 | 15.122 → 2.573 | 2.261 → 2.488 | 5.051 → 2.751 | 1298.7 → 1463.9 | 2.12× |
+
+### Implemented lookup changes
+
+- R1: HIR exposes ascending physical Impl IDs. MIR's method searches use
+  those candidates; doctrine search uses the qualified subset in TY's packed
+  compatibility cache. Existing doctrine, target, instance and method tests
+  preserve first-match ordering, generic substitutions and custom primitive
+  overloads. With ready indexes, a zero-candidate miss reads no item kinds or doctrine
+  headers.
+- R2: MIR keeps independent definition and name bucket tables in one packed
+  child (`3 + 2C` cells for capacity C). Both retain their first physical
+  match. LLVM signature lookup uses definitions; variadic promotion uses
+  names, avoiding repeated whole-file misses for literal `say`.
+- R3: Meiya indexes numeric statement IDs to physically ordered paths, with
+  storage sized by observed rows, including sparse and negative keys. Its
+  statement queries and block-state consumers retain Move-before-Write
+  behavior. Mutable exclusivity separately checks actual Loan/LoanMut rows
+  once and skips pair comparisons in loan-free results, regardless of stored
+  summary counters.
+- R4: MIR maintains per-block counts, first/last statement IDs and physical
+  next links during live construction. Meiya and LLVM traverse those links;
+  first condition/return selection and cold negative-block behavior remain
+  unchanged. There are two derived children per body and no per-block handles.
+- R5: TY retains item and Impl-method token bounds in one cache per observed
+  HIR (`9 + 6I + 2M + Q` cells: I items, M methods, Q qualified Impls). Ready
+  reads require current HIR/Parse/Lex revisions and tree/stream identities.
+  Supported raw edits use the mutation hooks. Cold readers neither allocate
+  nor publish derived cache storage; explicit finalization recovers after handle pressure clears.
+- R6: Resolve rejects missing extern-member markers through the runtime
+  substring primitive before its existing first-hit/suffix logic. Cached item
+  bounds also reduce repeated span and decimal parsing.
+
+All indexes are derived, absent from snapshot vocabulary, invalidated by
+supported direct edits/restores, and rebuilt after complete construction or
+restoration. Exact duplicates, collisions, empty keys, sparse rows, owner reuse,
+rejected restoration and unavailable derived storage retain cold semantics.
+
+### Profile evidence and resource coverage
+
+Profiles use a separate frozen `-pg -O1 -fno-inline` compiler. These are flat
+call counts; profile seconds and sampling percentages are excluded.
+
+| Workload | Actual reader | Baseline calls | Final calls |
+| --- | --- | ---: | ---: |
+| tasks 3,200 | HIR item kind | 61,881,727 | 428,929 |
+| tasks 3,200 | MIR body definition | 5,265,623 | 160,151 |
+| tasks 3,200 | Meiya path statement | 1,171,200 | 316,801 |
+| long 800 | Meiya path statement | 45,228,428 | 425,661 |
+| long 800 | MIR statement block | 13,019,109 | 32,056 |
+| impl 400 | TY skip item | 377,340 | 1,200 |
+| impl 400 | TY matching brace | 299,154 | 400 |
+| impl 400 | Lex token type | 78,989,000 | 2,675,066 |
+| impl 400 | TY Impl doctrine header entry | 640,403 | 403 |
+| tasks 3,200 | Decimal digit | 9,112,004 | 4,501,076 |
+
+The intermediate compiler made 12,832,021 MIR body-name reads on `say` 800;
+the final compiler makes 25,307 with the same 16,011 lookup requests. There is
+no baseline Say PG capture. Extern-marker requests fall from 1,213,189 to
+941,102 on tasks 3,200; request counts alone do not measure the removed miss
+work inside the helper.
+
+Nine added executable smokes use the existing 1,024-array-handle mode and a
+64 MiB fixture ceiling. They cover cold/exhausted/recovered readers, supported
+same-size mutation, duplicate ordering, snapshots, owner reuse and actual work
+at increasing sizes. Work assertions count actual getters, rather than only
+index probes. An external negative control restoring the three old MIR whole-
+item loops fails exactly the two 200/800 work assertions. TY's qualified
+fixture observes actual MIR operator consumers and demonstrates the old header
+scan as a cold control; MIR's name fixture observes actual literal-say variadic
+promotion. Its 200/800 identity-column-only rows exercise name lookup and are
+explicitly excluded from valid-MIR snapshot or native-execution claims.
+
+Current source allocation counts and fixture budgets agree with README.
+HIR's 39-child budget is also guarded by conformance. HIR has 42 global
+registries, 39 file children and four finalizer scratch handles;
+MIR has 39 globals, 37 file children and 32 children per body; Meiya has
+50 globals, 12 file children and five children per result (four authoritative
+plus one derived). TY adds one item/method cache registry and one packed child
+per observed HIR; Lex and Parse each add one revision registry without new
+children. The qualified and body-name extensions add cells to existing
+children, with no added handles. Derived replacement children are released;
+authoritative restore-storage lifetimes and process-lifetime bootstrap Words
+retain their existing separate policy.
+
+### Remaining scaling boundaries
+
+The 3,200→8,000 task step grows total time 2.56x for 2.5x input: MIR 2.18x,
+Meiya 2.30x and codegen 2.41x. TY grows 4.07x. Closure validation still asks
+for each HIR item's child count by scanning Parse nodes; the 3,200-task profile
+retains 10,249,602 Parse-parent reads even without closures.
+
+`long` 800 improves overall by 3.24x, but its remaining Meiya work is
+loan-bearing: 6,026,219 path-kind reads and 362,516 loan-holder/successor tests
+remain. The no-loan preflight does not remove those comparisons. Many qualified
+Impls combined with many queries can also remain superlinear because each
+candidate step uses an upper-bound search followed by original semantic tests.
+This checkpoint does not claim the handoff's near-2x target in every stage.
+These families, general word ownership and explicit bootstrap initialization
+remain separate follow-up work.
+
+### Verification and reproduction
+
+The full gate passes all 282 registered smokes on compiler/checker sources at
+`3db07fb`, including ten native LLVM programs, exact `Hello, world!\n` output
+and normal build-command checks. Peak retained runner memory is 65.3 MiB
+against the 256 MiB limit. Independent review cleared this integrated source
+and the portable measurement report. The five benchmark failure tests pass.
+
+Conformance and the 0.14.2 version check pass, with the existing warning that
+the shipping native CLI is not built.
+
+This checkpoint/report and the README allocation wording are documentation-only
+follow-ups; they do not change the tested compiler or smoke harness.
+
+
+```sh
+python v4_scale_bench.py --sizes 200 400 800 --check --mem-limit-mb 5000 --timeout 400 --json /tmp/v4-six.json
+python v4_scale_bench.py --shapes tasks --sizes 3200 8000 --check --mem-limit-mb 5000 --timeout 400 --json /tmp/v4-big.json
+python v4_scale_bench.py --shapes impl --sizes 400 --profile --check --json /tmp/v4-impl-profile.json
+python src/compiler/v4/check_v4.py
+python -u -m freakc audit-conformance
+python tools/release_version.py check
+```
+
+The harness freezes generated C and runtimes in uniquely named compiler
+bundles, validates hashes when reusing `--tool`, audits native export collisions,
+continuously applies the shared process-group time/memory/output guards, and
+records failure captures with a nonzero exit status. Five focused harness tests
+cover diagnostic rejection, nonfinite timeout options, quiet-stage timeout and
+descendant termination, wrong native exits and prelink duplicate symbols,
+including failure JSON propagation. Raw manifests, programs, modules, captures, profiles and
+review reports remain in `/workspace/v4-scaling5`.
+
+The handoff's `yes`/`no` parameter example already fails at the baseline with
+ordinary-parameter diagnostics. Those spellings are reserved Boolean literals;
+this run does not change binding or Boolean-literal semantics.
+
 
 ## Handoff 4: whole-module memory and lookup scaling
 

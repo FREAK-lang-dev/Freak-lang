@@ -791,7 +791,7 @@ Mutable exclusivity first inspects actual path kinds once. Files without
 `Loan`/`LoanMut` rows skip write-by-path comparisons; stored loan summaries
 cannot justify that shortcut. Loan-bearing comparisons and diagnostic order
 retain their existing behavior.
-All these lookup readers avoid allocation or publication, and derived
+These lookup readers never allocate or publish derived indexes, and derived
 replacement children are released. Existing authoritative MIR/Meiya restore
 storage retains its separate lifetime policy; bounded derived storage does
 not imply bounded repeated whole-component restoration.
