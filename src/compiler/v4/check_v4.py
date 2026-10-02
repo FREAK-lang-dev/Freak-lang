@@ -12548,6 +12548,7 @@ def check_snapshot_inventories() -> None:
         violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
+            "extern_literal_syntax_smoke.fk",
             "extern_return_snapshot_smoke.fk",
             "route_snapshot_smoke.fk",
             "const_snapshot_smoke.fk",

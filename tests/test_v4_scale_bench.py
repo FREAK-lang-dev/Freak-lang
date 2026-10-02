@@ -79,7 +79,8 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, int64_t tar
         ):
             declarations += f"static int64_t freak_v4_{function}(int64_t id, int64_t previous) {{ return id; }}\n"
         for stage in STAGES[:-1]:
-            declarations += f"static int64_t freak_v4_{stage}_diag_count(int64_t id) {{ return 0; }}\n"
+            prefix = "codegen_llvm" if stage == "codegen" else stage
+            declarations += f"static int64_t freak_v4_{prefix}_diag_count(int64_t id) {{ return 0; }}\n"
         source = declarations + "static void freak_v4_build_llvm_source(freak_word source) {\n"
         source += "\n".join(statement for _, statement, _ in benchmark.INSTRUMENTATION_POINTS)
         source += "\n}\nstatic void freak_v4_build_llvm_run(void) {\n"
