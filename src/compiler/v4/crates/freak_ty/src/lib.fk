@@ -7769,6 +7769,33 @@ task v4_ty_impl_method_def(ty_id: int, hir_item: int, method_id: int) -> word {
     give back "file" + word_from_int(file_id) + "::Method::" + owner_ty + "." + method_name + "#" + word_from_int(hir_item) + ":" + word_from_int(method_id)
 }
 
+-- Resolve method identity in TY, which owns access to HIR declarations.
+task v4_ty_impl_method_index_for_def(ty_id: int, method_def: word, part: int) -> int {
+    if not v4_ty_file_exists(ty_id) or part < 0 or part > 1 { give back 0 - 1 }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 { give back 0 - 1 }
+    pilot hash_pos = v4_index_of_from(method_def, "#", 0)
+    if hash_pos < 0 { give back 0 - 1 }
+    pilot colon_pos = v4_index_of_from(method_def, ":", hash_pos + 1)
+    if colon_pos < 0 { give back 0 - 1 }
+    pilot hir_item = v4_nonnegative_int_range(method_def, hash_pos + 1, colon_pos)
+    pilot method_id = v4_nonnegative_int_range(method_def, colon_pos + 1, method_def.length())
+    if hir_item < 0 or hir_item >= v4_hir_item_count(hir_id) or method_id < 0 {
+        give back 0 - 1
+    }
+    if v4_hir_item_kind(hir_id, hir_item) != v4_hir_impl {
+        give back 0 - 1
+    }
+    if method_id >= v4_ty_impl_method_count(ty_id, hir_item) {
+        give back 0 - 1
+    }
+    if v4_ty_impl_method_def(ty_id, hir_item, method_id) != method_def {
+        give back 0 - 1
+    }
+    if part == 0 { give back hir_item }
+    give back method_id
+}
+
 task v4_ty_impl_method_display(ty_id: int, hir_item: int, method_id: int) -> word {
     pilot owner_ty = v4_ty_impl_target_type_from_hir(ty_id, hir_item)
     pilot method_name = v4_ty_impl_method_name(ty_id, hir_item, method_id)

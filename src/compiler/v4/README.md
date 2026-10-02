@@ -56,8 +56,17 @@ the original child IDs as leaves and evaluate later clones, preserving the
 snapshot's child-before-parent invariant. Build-tool checks prove warning-only
 programs execute and errors suppress module output.
 
+MIR callable accessors now describe ordinary tasks and declared impl bodies.
+TY validates impl method identities; MIR does not reach into HIR to recover
+them. LLVM headers, parameter stores, return types, and fixed argument
+conversions use these accessors. The native gate executes scalar associated
+methods with reordered named arguments and an integer-to-float conversion.
+Ordinary signature lookup stays separate for returned-loan contracts. Impl
+borrowed returns receive an explicit unsupported-contract diagnostic; generic
+facts still describe declared types and do not monomorphize an impl.
+
 This is a partial backend checkpoint. Word/runtime lowering, aggregate layout,
-generic monomorphization, impl callable descriptors, drops, and compiler-crate
+generic monomorphization, receiver/lend ABI, drops, and compiler-crate
 self-hosting remain open. Runtime root initialization will use an explicit
 bootstrap compatibility mode; normal root scope continues to follow bible
 section 17.4. Cross-target module text is available, but only host linking is

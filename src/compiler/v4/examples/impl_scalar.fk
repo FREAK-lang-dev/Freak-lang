@@ -12,9 +12,14 @@ impl Arithmetic {
         if flag { give back selected }
         give back alternate
     }
+
+    task widen(value: num) -> num {
+        give back value
+    }
 }
 
 task main() -> int {
     pilot sum = Arithmetic::add(right: 19, left: 23)
+    if Arithmetic::widen(sum) != 42.0 { give back 1 }
     give back Arithmetic::choose(true, sum, 0)
 }

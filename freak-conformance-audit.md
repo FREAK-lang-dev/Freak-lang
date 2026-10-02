@@ -19,8 +19,12 @@ loads and stores, computed branch conditions, loop exits, void returns, numeric
 operand widening, and validated-target module assembly now execute through clang
 in `codegen_llvm_execute_smoke.fk`. Fibonacci/Collatz returns 166. Short-circuit
 checks cover an aborting RHS, ordered call arguments, and exact side-effect
-output. The handoff's remaining word/runtime, global initialization, impl,
-aggregate, and self-hosting work is not promoted by this checkpoint. Root
+output. TY-owned impl identities now supply MIR callable facts and native scalar
+associated methods, including named arguments and numeric conversion. Generic
+monomorphization, receiver/lend ABI, and impl returned-loan contracts remain
+open; unsupported impl borrowed returns fail explicitly. The handoff's remaining
+word/runtime, global initialization, aggregate, and self-hosting work is not
+promoted by this checkpoint. Root
 runtime initialization is reserved for an explicit bootstrap compatibility mode;
 normal language semantics remain as specified in bible section 17.4.
 

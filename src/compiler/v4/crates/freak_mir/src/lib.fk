@@ -1299,31 +1299,7 @@ task v4_mir_body_impl_method_index(mir_id: int, body_id: int, part: int) -> int 
     if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
         give back 0 - 1
     }
-    if part < 0 or part > 1 { give back 0 - 1 }
-    pilot ty_id = v4_mir_ty_id(mir_id)
-    pilot hir_id = v4_ty_signature_hir_id(ty_id)
-    if hir_id < 0 { give back 0 - 1 }
-    pilot method_def = v4_mir_body_def(mir_id, body_id)
-    pilot hash_pos = v4_index_of_from(method_def, "#", 0)
-    if hash_pos < 0 { give back 0 - 1 }
-    pilot colon_pos = v4_index_of_from(method_def, ":", hash_pos + 1)
-    if colon_pos < 0 { give back 0 - 1 }
-    pilot hir_item = v4_nonnegative_int_range(method_def, hash_pos + 1, colon_pos)
-    pilot method_id = v4_nonnegative_int_range(method_def, colon_pos + 1, method_def.length())
-    if hir_item < 0 or hir_item >= v4_hir_item_count(hir_id) or method_id < 0 {
-        give back 0 - 1
-    }
-    if v4_hir_item_kind(hir_id, hir_item) != v4_hir_impl {
-        give back 0 - 1
-    }
-    if method_id >= v4_ty_impl_method_count(ty_id, hir_item) {
-        give back 0 - 1
-    }
-    if v4_ty_impl_method_def(ty_id, hir_item, method_id) != method_def {
-        give back 0 - 1
-    }
-    if part == 0 { give back hir_item }
-    give back method_id
+    give back v4_ty_impl_method_index_for_def(v4_mir_ty_id(mir_id), v4_mir_body_def(mir_id, body_id), part)
 }
 
 task v4_mir_body_callable_return_type(mir_id: int, body_id: int) -> word {

@@ -3096,6 +3096,10 @@ task v4_borrowck_check_returned_lends(borrow_id: int, result_id: int, mir_id: in
                                     message = "Meiya refuses to return a loan of an owned value"
                                     if return_projection != "" { message = "Meiya refuses to return an aggregate loan of an owned value" }
                                     help = v4_borrowck_return_owned_help(body_name, source_text)
+                                    if sig_id < 0 and v4_mir_body_impl_method_index(mir_id, body_id, 0) >= 0 {
+                                        message = "Meiya cannot prove an impl method borrowed return yet"
+                                        help = "impl callable facts do not provide ordinary task returned-loan source contracts yet"
+                                    }
                                 } else {
                                     pilot contract_id = 0
                                     repeat until contract_id >= contract_count or message != "" {

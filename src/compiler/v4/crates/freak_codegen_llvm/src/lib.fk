@@ -751,6 +751,8 @@ task v4_codegen_llvm_variadic_arg_promoted_type(mir_id: int, body_id: int, call_
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, call_name)
     if sig_id < 0 {
+        pilot callee_body = v4_codegen_llvm_find_mir_body(mir_id, call_name)
+        if callee_body >= 0 { give back v4_mir_body_callable_param_type(mir_id, callee_body, arg_id) }
         pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_id, call_rvalue_id)
         if target_rvalue >= 0 {
             pilot callback_ty = v4_mir_rvalue_ty(mir_id, body_id, target_rvalue)
@@ -1213,21 +1215,26 @@ task v4_codegen_llvm_body_header(mir_id: int, body_id: int) -> word {
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     pilot body_name = v4_mir_body_name(mir_id, body_id)
-    if sig_id < 0 {
-        give back "define ccc ptr " + v4_codegen_llvm_symbol(body_name) + "()"
-    }
-
-    pilot abi = v4_ty_signature_call_abi(ty_id, sig_id)
+    pilot abi = v4_mir_body_callable_abi(mir_id, body_id)
     pilot cc = v4_codegen_llvm_calling_convention(abi)
-    pilot return_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_id))
+    pilot return_ty = v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body_id))
     pilot params = ""
     pilot param_id = 0
-    repeat until param_id >= v4_ty_signature_fixed_param_count(ty_id, sig_id) {
+    repeat until param_id >= v4_mir_body_callable_param_count(mir_id, body_id) {
         if param_id > 0 { params = params + ", " }
-        params = params + v4_codegen_llvm_type(v4_ty_signature_param_type(ty_id, sig_id, param_id)) + " %arg." + word_from_int(param_id)
+        params = params + v4_codegen_llvm_type(v4_mir_body_callable_param_type(mir_id, body_id, param_id)) + " %arg." + word_from_int(param_id)
         param_id += 1
     }
     give back "define " + cc + " " + return_ty + " " + v4_codegen_llvm_symbol(body_name) + "(" + params + ")"
+}
+
+task v4_codegen_llvm_find_mir_body(mir_id: int, name: word) -> int {
+    pilot body_id = 0
+    repeat until body_id >= v4_mir_body_count(mir_id) {
+        if v4_mir_body_name(mir_id, body_id) == name { give back body_id }
+        body_id += 1
+    }
+    give back 0 - 1
 }
 
 task v4_codegen_llvm_default_return_line(return_ty: word) -> word {
@@ -1253,9 +1260,9 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
     if kind == v4_mir_stmt_return {
         pilot out = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
         pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
-        pilot ret_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(v4_mir_ty_id(mir_id), sig_id))
+        pilot ret_ty = v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body_id))
         if ret_ty == "void" { give back out + "  ret void\n" }
-        pilot expected_ty = v4_ty_signature_return_type(v4_mir_ty_id(mir_id), sig_id)
+        pilot expected_ty = v4_mir_body_callable_return_type(mir_id, body_id)
         out = out + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, expected_ty, expected_temp)
         out = out + "  ret " + ret_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + "\n"
         give back out
@@ -1320,11 +1327,7 @@ task v4_codegen_llvm_block_terminator_line(mir_id: int, body_id: int, block_id: 
         give back "  unreachable\n"
     }
     if term == v4_mir_term_return {
-        pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
-        pilot return_ty = "void"
-        if sig_id >= 0 {
-            return_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(v4_mir_ty_id(mir_id), sig_id))
-        }
+        pilot return_ty = v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body_id))
         give back v4_codegen_llvm_default_return_line(return_ty)
     }
     give back ""
@@ -1338,7 +1341,7 @@ task v4_codegen_llvm_body_line_from_mir(mir_id: int, body_id: int) -> word {
     repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
         pilot local_ty = v4_codegen_llvm_type(v4_mir_local_ty(mir_id, body_id, local_id))
         out = out + "  " + v4_codegen_llvm_local_slot(local_id) + " = alloca " + local_ty + "\n"
-        if sig_id >= 0 and local_id < v4_ty_signature_fixed_param_count(ty_id, sig_id) {
+        if local_id < v4_mir_body_callable_param_count(mir_id, body_id) {
             out = out + "  store " + local_ty + " %arg." + word_from_int(local_id) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n"
         }
         local_id += 1
