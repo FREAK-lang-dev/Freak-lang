@@ -1,0 +1,67 @@
+-- Checked bootstrap source reads must not conflate empty contents with errors.
+-- Run from the repository root, matching check_v4's normal fixture contract.
+task h6_driver_read_all(path: word, expect_error: bool) -> bool {
+    pilot responses = array_new()
+    array_push(responses, v4_lex_file(path))
+    array_push(responses, v4_parse_file(path))
+    array_push(responses, v4_expand_file(path))
+    array_push(responses, v4_hir_file(path))
+    array_push(responses, v4_resolve_file(path))
+    array_push(responses, v4_ty_file(path))
+    array_push(responses, v4_mir_file(path))
+    array_push(responses, v4_borrowck_file(path))
+    array_push(responses, v4_diagnostics_file(path))
+    array_push(responses, v4_check_syntax_file(path))
+    pilot index = 0
+    pilot correct: bool = array_len(responses) == 10
+    repeat until index >= array_len(responses) {
+        pilot response: word = array_get(responses, index)
+        pilot is_error: bool = response.contains("could not read source file")
+        if is_error != expect_error { correct = false }
+        index += 1
+    }
+    array_release(responses)
+    give back correct
+}
+
+task h6_driver_file_read_smoke() -> void {
+    v4_driver_init()
+    pilot empty_path = "src/compiler/v4/tests/h6_io_empty_source.fk"
+    pilot readable_path = "src/compiler/v4/tests/h6_io_readable_source.fk"
+    pilot missing_path = "src/compiler/v4/tests/h6_io_missing_source_never_created.fk"
+    pilot directory_path = "src/compiler/v4/tests"
+    pilot empty: bool = h6_driver_read_all(empty_path, false)
+    pilot empty_file = v4_source_find(empty_path)
+    empty = empty and empty_file >= 0 and v4_source_text(empty_file) == "" and v4_source_revision(empty_file) == 1
+    pilot empty_hir = v4_hir_text_cached(empty_path, "")
+    pilot empty_ty = v4_ty_text_cached(empty_path, "")
+    pilot empty_mir = v4_mir_text_cached(empty_path, "")
+    empty = empty and v4_hir_item_count(empty_hir) == 0 and v4_mir_body_count(empty_mir) == 0 and v4_ty_diag_count(empty_ty) == 0
+    pilot stores = v4_query_store_count()
+    pilot cached: bool = h6_driver_read_all(empty_path, false) and v4_query_store_count() == stores and v4_source_revision(empty_file) == 1
+    pilot readable: bool = h6_driver_read_all(readable_path, false)
+    pilot readable_file = v4_source_find(readable_path)
+    readable = readable and readable_file >= 0 and v4_source_text(readable_file) == "task main() -> int " + "{" + "\n give back 7\n" + "}" + "\n"
+    say "h6-source-read empty=" + word_from_bool(empty) + " cached=" + word_from_bool(cached) + " readable=" + word_from_bool(readable)
+
+    pilot sources = v4_source_count()
+    stores = v4_query_store_count()
+    pilot entries = v4_query_entry_len
+    pilot deps = v4_query_dep_len
+    pilot generation = v4_query_generation()
+    pilot missing: bool = h6_driver_read_all(missing_path, true)
+    pilot directory: bool = h6_driver_read_all(directory_path, true)
+    pilot unpublished: bool = v4_source_count() == sources and v4_source_find(missing_path) < 0 and v4_source_find(directory_path) < 0 and v4_query_store_count() == stores and v4_query_entry_len == entries and v4_query_dep_len == deps and v4_query_generation() == generation
+    -- A stale source/cache entry must survive a failed refresh unchanged.
+    pilot stale = v4_source_set_text(missing_path, "previous source text")
+    pilot fingerprint = v4_source_fingerprint(stale)
+    pilot revision = v4_source_revision(stale)
+    pilot key = v4_check_syntax_query_key(missing_path)
+    v4_query_store(key, fingerprint, "previous query output")
+    stores = v4_query_store_count()
+    generation = v4_query_generation()
+    pilot retained: bool = h6_driver_read_all(missing_path, true) and v4_source_text(stale) == "previous source text" and v4_source_revision(stale) == revision and v4_source_fingerprint(stale) == fingerprint and v4_query_get(key, fingerprint) == "previous query output" and v4_query_store_count() == stores and v4_query_generation() == generation
+    say "h6-source-errors missing=" + word_from_bool(missing) + " directory=" + word_from_bool(directory) + " unpublished=" + word_from_bool(unpublished) + " stale-retained=" + word_from_bool(retained)
+}
+
+h6_driver_file_read_smoke()

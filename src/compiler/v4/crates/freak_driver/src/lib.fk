@@ -12,13 +12,23 @@ pilot FREAKC_V4_CODENAME = "00-Unit"
 pilot v4_driver_diag_paths = 0
 pilot v4_driver_diag_items = 0
 pilot v4_driver_ready = 0
+-- Bound one sparse expansion, while dense arenas may grow beyond this limit.
+-- Coordinates must not infer unbounded holes from unchecked snapshot integers.
+pilot v4_driver_diag_restore_gap_limit = 65536
 
 task v4_driver_init() -> void {
     v4_session_init()
     v4_query_init()
     if v4_driver_ready == 0 {
-        v4_driver_diag_paths = array_new()
-        v4_driver_diag_items = array_new()
+        pilot paths = array_new()
+        pilot items = array_new()
+        if paths < 0 or items < 0 {
+            array_release(paths)
+            array_release(items)
+            give back
+        }
+        v4_driver_diag_paths = paths
+        v4_driver_diag_items = items
         v4_driver_ready = 1
     }
 }
@@ -81,19 +91,22 @@ task v4_lex_text_cached(path: word, text: word) -> int {
 }
 
 task v4_lex_file(path: word) -> word {
-    pilot text = fs::read(path)
-    if text == "" {
-        pilot span = v4_span_new("0", 0, 0)
-        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
-        give back v4_diag_render(diag, "")
+    pilot source_read = fs::read_checked(path)
+    check result source_read {
+        ok(text) -> {
+            pilot stream_id = v4_lex_text_cached(path, text)
+            pilot file_id = v4_source_find(path)
+            pilot summary = v4_lex_summary(stream_id)
+            summary = summary + " file=" + word_from_int(file_id)
+            summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
+            give back summary
+        }
+        err(error) -> {
+            pilot span = v4_span_new("0", 0, 0)
+            pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path + ": " + error)
+            give back v4_diag_render(diag, "")
+        }
     }
-
-    pilot stream_id = v4_lex_text_cached(path, text)
-    pilot file_id = v4_source_find(path)
-    pilot summary = v4_lex_summary(stream_id)
-    summary = summary + " file=" + word_from_int(file_id)
-    summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
-    give back summary
 }
 
 task v4_parse_text_cached(path: word, text: word) -> int {
@@ -115,19 +128,22 @@ task v4_parse_text_cached(path: word, text: word) -> int {
 }
 
 task v4_parse_file(path: word) -> word {
-    pilot text = fs::read(path)
-    if text == "" {
-        pilot span = v4_span_new("0", 0, 0)
-        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
-        give back v4_diag_render(diag, "")
+    pilot source_read = fs::read_checked(path)
+    check result source_read {
+        ok(text) -> {
+            pilot tree_id = v4_parse_text_cached(path, text)
+            pilot file_id = v4_source_find(path)
+            pilot summary = v4_parse_summary(tree_id)
+            summary = summary + " file=" + word_from_int(file_id)
+            summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
+            give back summary
+        }
+        err(error) -> {
+            pilot span = v4_span_new("0", 0, 0)
+            pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path + ": " + error)
+            give back v4_diag_render(diag, "")
+        }
     }
-
-    pilot tree_id = v4_parse_text_cached(path, text)
-    pilot file_id = v4_source_find(path)
-    pilot summary = v4_parse_summary(tree_id)
-    summary = summary + " file=" + word_from_int(file_id)
-    summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
-    give back summary
 }
 
 task v4_expand_text_cached(path: word, text: word) -> int {
@@ -149,18 +165,21 @@ task v4_expand_text_cached(path: word, text: word) -> int {
 }
 
 task v4_expand_file(path: word) -> word {
-    pilot text = fs::read(path)
-    if text == "" {
-        pilot span = v4_span_new("0", 0, 0)
-        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
-        give back v4_diag_render(diag, "")
+    pilot source_read = fs::read_checked(path)
+    check result source_read {
+        ok(text) -> {
+            pilot expansion_id = v4_expand_text_cached(path, text)
+            pilot file_id = v4_source_find(path)
+            pilot summary = v4_expand_summary(expansion_id)
+            summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
+            give back summary
+        }
+        err(error) -> {
+            pilot span = v4_span_new("0", 0, 0)
+            pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path + ": " + error)
+            give back v4_diag_render(diag, "")
+        }
     }
-
-    pilot expansion_id = v4_expand_text_cached(path, text)
-    pilot file_id = v4_source_find(path)
-    pilot summary = v4_expand_summary(expansion_id)
-    summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
-    give back summary
 }
 
 -- Resource failures are retryable outcomes, never query values or empty arenas.
@@ -188,20 +207,23 @@ task v4_hir_text_cached(path: word, text: word) -> int {
 }
 
 task v4_hir_file(path: word) -> word {
-    pilot text = fs::read(path)
-    if text == "" {
-        pilot span = v4_span_new("0", 0, 0)
-        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
-        give back v4_diag_render(diag, "")
+    pilot source_read = fs::read_checked(path)
+    check result source_read {
+        ok(text) -> {
+            pilot hir_id = v4_hir_text_cached(path, text)
+            if hir_id < 0 { give back v4_driver_resource_failure("hir") }
+            pilot file_id = v4_source_find(path)
+            pilot summary = v4_hir_summary(hir_id)
+            summary = summary + " file=" + word_from_int(file_id)
+            summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
+            give back summary
+        }
+        err(error) -> {
+            pilot span = v4_span_new("0", 0, 0)
+            pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path + ": " + error)
+            give back v4_diag_render(diag, "")
+        }
     }
-
-    pilot hir_id = v4_hir_text_cached(path, text)
-    if hir_id < 0 { give back v4_driver_resource_failure("hir") }
-    pilot file_id = v4_source_find(path)
-    pilot summary = v4_hir_summary(hir_id)
-    summary = summary + " file=" + word_from_int(file_id)
-    summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
-    give back summary
 }
 
 task v4_resolve_text_cached(path: word, text: word) -> int {
@@ -224,20 +246,23 @@ task v4_resolve_text_cached(path: word, text: word) -> int {
 }
 
 task v4_resolve_file(path: word) -> word {
-    pilot text = fs::read(path)
-    if text == "" {
-        pilot span = v4_span_new("0", 0, 0)
-        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
-        give back v4_diag_render(diag, "")
+    pilot source_read = fs::read_checked(path)
+    check result source_read {
+        ok(text) -> {
+            pilot resolve_id = v4_resolve_text_cached(path, text)
+            if resolve_id < 0 { give back v4_driver_resource_failure("resolve") }
+            pilot file_id = v4_source_find(path)
+            pilot summary = v4_resolve_summary(resolve_id)
+            summary = summary + " file=" + word_from_int(file_id)
+            summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
+            give back summary
+        }
+        err(error) -> {
+            pilot span = v4_span_new("0", 0, 0)
+            pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path + ": " + error)
+            give back v4_diag_render(diag, "")
+        }
     }
-
-    pilot resolve_id = v4_resolve_text_cached(path, text)
-    if resolve_id < 0 { give back v4_driver_resource_failure("resolve") }
-    pilot file_id = v4_source_find(path)
-    pilot summary = v4_resolve_summary(resolve_id)
-    summary = summary + " file=" + word_from_int(file_id)
-    summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
-    give back summary
 }
 
 task v4_ty_text_cached(path: word, text: word) -> int {
@@ -260,20 +285,23 @@ task v4_ty_text_cached(path: word, text: word) -> int {
 }
 
 task v4_ty_file(path: word) -> word {
-    pilot text = fs::read(path)
-    if text == "" {
-        pilot span = v4_span_new("0", 0, 0)
-        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
-        give back v4_diag_render(diag, "")
+    pilot source_read = fs::read_checked(path)
+    check result source_read {
+        ok(text) -> {
+            pilot ty_id = v4_ty_text_cached(path, text)
+            if ty_id < 0 { give back v4_driver_resource_failure("ty") }
+            pilot file_id = v4_source_find(path)
+            pilot summary = v4_ty_summary(ty_id)
+            summary = summary + " file=" + word_from_int(file_id)
+            summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
+            give back summary
+        }
+        err(error) -> {
+            pilot span = v4_span_new("0", 0, 0)
+            pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path + ": " + error)
+            give back v4_diag_render(diag, "")
+        }
     }
-
-    pilot ty_id = v4_ty_text_cached(path, text)
-    if ty_id < 0 { give back v4_driver_resource_failure("ty") }
-    pilot file_id = v4_source_find(path)
-    pilot summary = v4_ty_summary(ty_id)
-    summary = summary + " file=" + word_from_int(file_id)
-    summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
-    give back summary
 }
 
 task v4_mir_text_cached(path: word, text: word) -> int {
@@ -296,20 +324,23 @@ task v4_mir_text_cached(path: word, text: word) -> int {
 }
 
 task v4_mir_file(path: word) -> word {
-    pilot text = fs::read(path)
-    if text == "" {
-        pilot span = v4_span_new("0", 0, 0)
-        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
-        give back v4_diag_render(diag, "")
+    pilot source_read = fs::read_checked(path)
+    check result source_read {
+        ok(text) -> {
+            pilot mir_id = v4_mir_text_cached(path, text)
+            if mir_id < 0 { give back v4_driver_resource_failure("mir") }
+            pilot file_id = v4_source_find(path)
+            pilot summary = v4_mir_summary(mir_id)
+            summary = summary + " file=" + word_from_int(file_id)
+            summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
+            give back summary
+        }
+        err(error) -> {
+            pilot span = v4_span_new("0", 0, 0)
+            pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path + ": " + error)
+            give back v4_diag_render(diag, "")
+        }
     }
-
-    pilot mir_id = v4_mir_text_cached(path, text)
-    if mir_id < 0 { give back v4_driver_resource_failure("mir") }
-    pilot file_id = v4_source_find(path)
-    pilot summary = v4_mir_summary(mir_id)
-    summary = summary + " file=" + word_from_int(file_id)
-    summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
-    give back summary
 }
 
 task v4_borrowck_text_cached(path: word, text: word) -> int {
@@ -332,31 +363,39 @@ task v4_borrowck_text_cached(path: word, text: word) -> int {
 }
 
 task v4_borrowck_file(path: word) -> word {
-    pilot text = fs::read(path)
-    if text == "" {
-        pilot span = v4_span_new("0", 0, 0)
-        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
-        give back v4_diag_render(diag, "")
+    pilot source_read = fs::read_checked(path)
+    check result source_read {
+        ok(text) -> {
+            pilot borrow_id = v4_borrowck_text_cached(path, text)
+            if borrow_id < 0 { give back v4_driver_resource_failure("borrowck") }
+            pilot file_id = v4_source_find(path)
+            pilot summary = v4_borrowck_summary(borrow_id)
+            summary = summary + " file=" + word_from_int(file_id)
+            summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
+            give back summary
+        }
+        err(error) -> {
+            pilot span = v4_span_new("0", 0, 0)
+            pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path + ": " + error)
+            give back v4_diag_render(diag, "")
+        }
     }
-
-    pilot borrow_id = v4_borrowck_text_cached(path, text)
-    if borrow_id < 0 { give back v4_driver_resource_failure("borrowck") }
-    pilot file_id = v4_source_find(path)
-    pilot summary = v4_borrowck_summary(borrow_id)
-    summary = summary + " file=" + word_from_int(file_id)
-    summary = summary + " rev=" + word_from_int(v4_source_revision(file_id))
-    give back summary
 }
 
 task v4_driver_diag_items_handle(diag_set_id: int) -> int {
+    if v4_driver_ready == 0 or diag_set_id < 0 { give back 0 - 1 }
+    if diag_set_id >= array_len(v4_driver_diag_paths) or diag_set_id >= array_len(v4_driver_diag_items) { give back 0 - 1 }
     give back word_to_int(array_get(v4_driver_diag_items, diag_set_id))
 }
 
 task v4_driver_diag_set_new(path: word) -> int {
     v4_driver_init()
+    if v4_driver_ready == 0 { give back 0 - 1 }
+    pilot child = array_new()
+    if child < 0 { give back 0 - 1 }
     pilot diag_set_id = array_len(v4_driver_diag_paths)
     array_push(v4_driver_diag_paths, path)
-    array_push(v4_driver_diag_items, word_from_int(array_new()))
+    array_push(v4_driver_diag_items, word_from_int(child))
     give back diag_set_id
 }
 
@@ -450,26 +489,156 @@ task v4_diagnostics_summary(diag_set_id: int) -> word {
     give back summary
 }
 
-task v4_diagnostics_restore_set_slot(diag_set_id: int, path: word) -> int {
-    v4_driver_init()
-    repeat until array_len(v4_driver_diag_paths) > diag_set_id {
-        v4_driver_diag_set_new("")
+-- Reserve every new child before changing a diagnostic arena. Direct restore
+-- is an ownership replacement: successful publication releases the old child.
+-- Sparse slots are filled atomically; a failed reservation leaves both columns.
+task v4_driver_diag_restore_set_into(paths: int, items: int, diag_set_id: int, path: word) -> int {
+    if paths < 0 or items < 0 or diag_set_id < 0 { give back 0 - 1 }
+    pilot count = array_len(paths)
+    if diag_set_id > count and diag_set_id - count > v4_driver_diag_restore_gap_limit { give back 0 - 1 }
+    if count != array_len(items) { give back 0 - 1 }
+    if diag_set_id < count {
+        pilot child = array_new()
+        if child < 0 { give back 0 - 1 }
+        pilot old = word_to_int(array_get(items, diag_set_id))
+        array_set(paths, diag_set_id, path)
+        array_set(items, diag_set_id, word_from_int(child))
+        array_release(old)
+        give back diag_set_id
     }
-    array_set(v4_driver_diag_paths, diag_set_id, path)
-    array_set(v4_driver_diag_items, diag_set_id, word_from_int(array_new()))
+    pilot children = array_new()
+    if children < 0 { give back 0 - 1 }
+    pilot slot = count
+    repeat until slot > diag_set_id {
+        pilot child = array_new()
+        if child < 0 {
+            pilot index = 0
+            repeat until index >= array_len(children) {
+                array_release(word_to_int(array_get(children, index)))
+                index += 1
+            }
+            array_release(children)
+            give back 0 - 1
+        }
+        array_push(children, word_from_int(child))
+        slot += 1
+    }
+    slot = count
+    repeat until slot > diag_set_id {
+        pilot slot_path = ""
+        if slot == diag_set_id { slot_path = path }
+        array_push(paths, slot_path)
+        array_push(items, array_get(children, slot - count))
+        slot += 1
+    }
+    array_release(children)
     give back diag_set_id
 }
 
-task v4_diagnostics_restore_diag_slot(diag_set_id: int, diag_id: int, diag: word) -> int {
-    if v4_diagnostics_set_exists(diag_set_id) == false {
-        give back 0
+task v4_driver_diag_restore_diag_into(paths: int, items: int, diag_set_id: int, diag_id: int, diag: word) -> int {
+    if diag_set_id < 0 or diag_id < 0 { give back 0 }
+    if diag_set_id >= array_len(paths) or diag_set_id >= array_len(items) { give back 0 }
+    pilot child = word_to_int(array_get(items, diag_set_id))
+    if child < 0 { give back 0 }
+    pilot count = array_len(child)
+    if diag_id > count and diag_id - count > v4_driver_diag_restore_gap_limit { give back 0 }
+    repeat until array_len(child) > diag_id {
+        array_push(child, "")
     }
-    repeat until v4_diagnostics_count(diag_set_id) > diag_id {
-        array_push(v4_driver_diag_items_handle(diag_set_id), "")
-    }
-    array_set(v4_driver_diag_items_handle(diag_set_id), diag_id, diag)
+    array_set(child, diag_id, diag)
     give back 1
 }
+
+task v4_diagnostics_restore_set_slot(diag_set_id: int, path: word) -> int {
+    if diag_set_id < 0 { give back 0 - 1 }
+    v4_driver_init()
+    if v4_driver_ready == 0 { give back 0 - 1 }
+    give back v4_driver_diag_restore_set_into(v4_driver_diag_paths, v4_driver_diag_items, diag_set_id, path)
+}
+
+task v4_diagnostics_restore_diag_slot(diag_set_id: int, diag_id: int, diag: word) -> int {
+    if v4_driver_ready == 0 { give back 0 }
+    give back v4_driver_diag_restore_diag_into(v4_driver_diag_paths, v4_driver_diag_items, diag_set_id, diag_id, diag)
+}
+
+-- Snapshot owns decoding, validation and overlay order. Driver owns only the
+-- arena storage transaction: a private copy, abort, and one atomic publication.
+task v4_driver_diag_arena_release(paths: int, items: int) -> void {
+    pilot slot = 0
+    repeat until slot >= array_len(items) {
+        array_release(word_to_int(array_get(items, slot)))
+        slot += 1
+    }
+    array_release(items)
+    array_release(paths)
+}
+
+task v4_diagnostics_restore_stage_release(stage: int) -> void {
+    if array_len(stage) == 2 {
+        v4_driver_diag_arena_release(word_to_int(array_get(stage, 0)), word_to_int(array_get(stage, 1)))
+    }
+    array_release(stage)
+}
+
+task v4_diagnostics_restore_stage_new() -> int {
+    v4_driver_init()
+    if v4_driver_ready == 0 { give back 0 - 1 }
+    pilot stage = array_new()
+    pilot paths = array_new()
+    pilot items = array_new()
+    if stage < 0 or paths < 0 or items < 0 {
+        array_release(stage)
+        array_release(paths)
+        array_release(items)
+        give back 0 - 1
+    }
+    array_push(stage, word_from_int(paths))
+    array_push(stage, word_from_int(items))
+    pilot slot = 0
+    repeat until slot >= array_len(v4_driver_diag_paths) {
+        pilot child = array_new()
+        if child < 0 {
+            v4_diagnostics_restore_stage_release(stage)
+            give back 0 - 1
+        }
+        array_push(paths, array_get(v4_driver_diag_paths, slot))
+        array_push(items, word_from_int(child))
+        pilot old = v4_driver_diag_items_handle(slot)
+        pilot diag_id = 0
+        repeat until diag_id >= array_len(old) {
+            array_push(child, array_get(old, diag_id))
+            diag_id += 1
+        }
+        slot += 1
+    }
+    give back stage
+}
+
+task v4_diagnostics_restore_stage_set_slot(stage: int, diag_set_id: int, path: word) -> int {
+    if array_len(stage) != 2 { give back 0 - 1 }
+    give back v4_driver_diag_restore_set_into(word_to_int(array_get(stage, 0)), word_to_int(array_get(stage, 1)), diag_set_id, path)
+}
+
+task v4_diagnostics_restore_stage_diag_slot(stage: int, diag_set_id: int, diag_id: int, diag: word) -> int {
+    if array_len(stage) != 2 { give back 0 }
+    give back v4_driver_diag_restore_diag_into(word_to_int(array_get(stage, 0)), word_to_int(array_get(stage, 1)), diag_set_id, diag_id, diag)
+}
+
+task v4_diagnostics_restore_stage_publish(stage: int) -> bool {
+    if array_len(stage) != 2 { give back false }
+    pilot paths = word_to_int(array_get(stage, 0))
+    pilot items = word_to_int(array_get(stage, 1))
+    if paths < 0 or items < 0 or array_len(paths) != array_len(items) { give back false }
+    pilot old_paths = v4_driver_diag_paths
+    pilot old_items = v4_driver_diag_items
+    v4_driver_diag_paths = paths
+    v4_driver_diag_items = items
+    v4_driver_ready = 1
+    array_release(stage)
+    v4_driver_diag_arena_release(old_paths, old_items)
+    give back true
+}
+
 
 task v4_diagnostics_text_cached(path: word, text: word) -> int {
     v4_driver_init()
@@ -491,6 +660,7 @@ task v4_diagnostics_text_cached(path: word, text: word) -> int {
     pilot mir_id = v4_mir_text_cached(path, text)
     pilot borrow_id = v4_borrowck_text_cached(path, text)
     pilot diag_set_id = v4_driver_diag_set_new(path)
+    if diag_set_id < 0 { give back 0 - 1 }
     v4_diagnostics_copy_lex(diag_set_id, stream_id)
     v4_diagnostics_copy_borrowck(diag_set_id, borrow_id)
 
@@ -514,13 +684,17 @@ task v4_diagnostics_text(path: word, text: word) -> word {
 }
 
 task v4_diagnostics_file(path: word) -> word {
-    pilot text = fs::read(path)
-    if text == "" {
-        pilot span = v4_span_new("0", 0, 0)
-        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
-        give back v4_diag_render(diag, "")
+    pilot source_read = fs::read_checked(path)
+    check result source_read {
+        ok(text) -> {
+            give back v4_diagnostics_text(path, text)
+        }
+        err(error) -> {
+            pilot span = v4_span_new("0", 0, 0)
+            pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path + ": " + error)
+            give back v4_diag_render(diag, "")
+        }
     }
-    give back v4_diagnostics_text(path, text)
 }
 
 task v4_check_syntax_text(path: word, text: word) -> word {
@@ -579,13 +753,17 @@ task v4_check_syntax_text(path: word, text: word) -> word {
 }
 
 task v4_check_syntax_file(path: word) -> word {
-    pilot text = fs::read(path)
-    if text == "" {
-        pilot span = v4_span_new("0", 0, 0)
-        pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path)
-        give back v4_diag_render(diag, "")
+    pilot source_read = fs::read_checked(path)
+    check result source_read {
+        ok(text) -> {
+            give back v4_check_syntax_text(path, text)
+        }
+        err(error) -> {
+            pilot span = v4_span_new("0", 0, 0)
+            pilot diag = v4_diag_new(v4_diag_error, span, "could not read source file", path + ": " + error)
+            give back v4_diag_render(diag, "")
+        }
     }
-    give back v4_check_syntax_text(path, text)
 }
 
 task v4_driver_status() -> word {

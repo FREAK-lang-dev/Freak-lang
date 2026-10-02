@@ -8,8 +8,7 @@ task v4_build_llvm_abort(errors: int, stage: word) -> bool {
     give back true
 }
 
-task v4_build_llvm_run() -> void {
-    pilot source = fs::read(process::arg(1))
+task v4_build_llvm_source(source: word) -> void {
     pilot errors = 0
     pilot stream = v4_lex_text(0, source)
     say "v4-build-stage=lex diagnostics=" + word_from_int(v4_lex_diag_count(stream))
@@ -87,6 +86,10 @@ task v4_build_llvm_run() -> void {
         say "v4-native-contract-error=" + native_error
         errors += 1
     }
+    if native_error == "" and v4_codegen_llvm_find_mir_body(mir, "main") < 0 {
+        say "v4-native-contract-error=native build requires task main"
+        errors += 1
+    }
     if v4_build_llvm_abort(errors, "codegen") { give back }
     say "v4-diagnostics lex=" + word_from_int(v4_lex_diag_count(stream)) + " parse=" + word_from_int(v4_parse_diag_count(tree)) + " hir=" + word_from_int(v4_hir_diag_count(hir)) + " resolve=" + word_from_int(v4_resolve_diag_count(resolve)) + " ty=" + word_from_int(v4_ty_diag_count(ty)) + " mir=" + word_from_int(v4_mir_diag_count(mir)) + " borrowck=" + word_from_int(v4_borrowck_diag_count(borrowck)) + " codegen=" + word_from_int(v4_codegen_llvm_diag_count(codegen))
     say "v4-errors=" + word_from_int(errors)
@@ -95,6 +98,24 @@ task v4_build_llvm_run() -> void {
     if module == "" { say "v4-module-rejected" give back }
     say "@@V4-MODULE"
     say module
+}
+
+-- Checked reads distinguish ok("") from missing, directories and failed I/O.
+-- No compiler stage or module is published for a failed source read.
+task v4_build_llvm_run() -> void {
+    if process::args_count() < 3 {
+        say "v4-source-read-error=expected source path and target"
+        v4_build_llvm_abort(1, "source")
+        give back
+    }
+    pilot source_read = fs::read_checked(process::arg(1))
+    check result source_read {
+        ok(source) -> { v4_build_llvm_source(source) }
+        err(error) -> {
+            say "v4-source-read-error=" + process::arg(1) + ": " + error
+            v4_build_llvm_abort(1, "source")
+        }
+    }
 }
 
 v4_build_llvm_run()
