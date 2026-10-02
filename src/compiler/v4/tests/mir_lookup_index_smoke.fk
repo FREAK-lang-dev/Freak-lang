@@ -127,8 +127,10 @@ task mir_index_run() -> void {
 
     pilot other = v4_mir_add_block(mir, body, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot empty = v4_mir_add_block(mir, body, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot yes_value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_bool, "yes", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_bool)
-    pilot no_value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_bool, "no", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_bool)
+    -- LLVM emission passes ConstBool text through. Use explicit i1 operands
+    -- so the physical-order assertion does not depend on source spellings.
+    pilot yes_value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_bool, "1", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_bool)
+    pilot no_value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_bool, "0", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_bool)
     pilot one = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_int)
     pilot live = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_binary, "", v4_mir_bin_add, one, one, V4_NO_SPAN, v4_ty_int)
     pilot dead = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_binary, "", v4_mir_bin_add, one, one, V4_NO_SPAN, v4_ty_int)
