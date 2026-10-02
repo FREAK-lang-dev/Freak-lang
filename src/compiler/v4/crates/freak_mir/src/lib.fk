@@ -230,6 +230,7 @@ task v4_mir_file_new(file_id: int, ty_id: int) -> int {
 }
 
 task v4_mir_lookup_outer_ensure() -> bool {
+    if v4_mir_ready == 0 { give back false }
     if v4_mir_body_lookup_indexes >= 0 { give back true }
     pilot bodies = array_new()
     pilot blocks = array_new()
@@ -257,7 +258,7 @@ task v4_mir_lookup_ensure_slot(handle: int, slot: int, empty: word) -> bool {
 }
 
 task v4_mir_lookup_file_ensure(mir_id: int) -> bool {
-    if not v4_mir_file_exists(mir_id) or not v4_mir_lookup_outer_ensure() { give back false }
+    if not v4_mir_lookup_owner_exists(mir_id) or not v4_mir_lookup_outer_ensure() { give back false }
     repeat until array_len(v4_mir_body_lookup_indexes) > mir_id {
         array_push(v4_mir_body_lookup_indexes, "-1")
         array_push(v4_mir_block_stmt_indexes, "-1")
@@ -287,22 +288,37 @@ task v4_mir_lookup_file_ensure(mir_id: int) -> bool {
 }
 
 task v4_mir_lookup_file_child(outer: int, mir_id: int) -> int {
-    if outer < 0 or mir_id < 0 or mir_id >= array_len(outer) { give back 0 - 1 }
+    if v4_mir_ready == 0 or outer < 0 or mir_id < 0 or mir_id >= array_len(outer) { give back 0 - 1 }
     pilot stored: word = array_get(outer, mir_id)
     if stored == "" { give back 0 - 1 }
     give back word_to_int(stored)
 }
 
 task v4_mir_body_lookup_index_handle(mir_id: int) -> int {
+    if not v4_mir_lookup_owner_exists(mir_id) { give back 0 - 1 }
     give back v4_mir_lookup_file_child(v4_mir_body_lookup_indexes, mir_id)
 }
 
 task v4_mir_block_stmt_index_handle(mir_id: int, body_id: int) -> int {
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back 0 - 1 }
     give back v4_mir_lookup_file_child(v4_mir_lookup_file_child(v4_mir_block_stmt_indexes, mir_id), body_id)
 }
 
 task v4_mir_stmt_next_index_handle(mir_id: int, body_id: int) -> int {
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back 0 - 1 }
     give back v4_mir_lookup_file_child(v4_mir_lookup_file_child(v4_mir_stmt_next_indexes, mir_id), body_id)
+}
+
+-- Noninitializing logical bounds must precede authoritative handle reads:
+-- stale storage references must not stand in for an initialized MIR owner.
+task v4_mir_lookup_owner_exists(mir_id: int) -> bool {
+    if v4_mir_ready == 0 or mir_id < 0 { give back false }
+    give back mir_id < array_len(v4_mir_files)
+}
+
+task v4_mir_lookup_body_exists(mir_id: int, body_id: int) -> bool {
+    if not v4_mir_lookup_owner_exists(mir_id) or body_id < 0 { give back false }
+    give back body_id < v4_mir_body_count(mir_id)
 }
 
 task v4_mir_invalidate_body_lookup_index(mir_id: int) -> void {
@@ -316,7 +332,7 @@ task v4_mir_invalidate_block_stmt_index(mir_id: int, body_id: int) -> void {
 }
 
 task v4_mir_body_lookup_index_is_ready(mir_id: int) -> bool {
-    if mir_id < 0 or mir_id >= array_len(v4_mir_files) { give back false }
+    if not v4_mir_lookup_owner_exists(mir_id) { give back false }
     pilot packed = v4_mir_body_lookup_index_handle(mir_id)
     pilot ready: word = array_get(packed, 0)
     give back array_len(packed) >= 3 and ready == "1" and word_to_int(array_get(packed, 2)) == v4_mir_body_count(mir_id)
@@ -406,7 +422,7 @@ task v4_mir_block_stmt_kind_slot(kind: word) -> int {
 }
 
 task v4_mir_block_stmt_storage_ensure(mir_id: int, body_id: int) -> bool {
-    if not v4_mir_body_slot_exists(mir_id, body_id) or not v4_mir_lookup_file_ensure(mir_id) { give back false }
+    if not v4_mir_lookup_body_exists(mir_id, body_id) or not v4_mir_lookup_file_ensure(mir_id) { give back false }
     pilot owners = v4_mir_lookup_file_child(v4_mir_block_stmt_indexes, mir_id)
     pilot link_owners = v4_mir_lookup_file_child(v4_mir_stmt_next_indexes, mir_id)
     repeat until array_len(owners) > body_id {
@@ -430,8 +446,7 @@ task v4_mir_block_stmt_storage_ensure(mir_id: int, body_id: int) -> bool {
 }
 
 task v4_mir_block_stmt_index_is_ready(mir_id: int, body_id: int) -> bool {
-    if mir_id < 0 or mir_id >= array_len(v4_mir_files) { give back false }
-    if body_id < 0 or body_id >= v4_mir_body_count(mir_id) { give back false }
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back false }
     pilot packed = v4_mir_block_stmt_index_handle(mir_id, body_id)
     pilot ready: word = array_get(packed, 0)
     give back array_len(packed) >= 3 and ready == "1" and word_to_int(array_get(packed, 1)) == v4_mir_body_block_count(mir_id, body_id) and word_to_int(array_get(packed, 2)) == v4_mir_body_stmt_count(mir_id, body_id)
@@ -533,8 +548,7 @@ task v4_mir_block_index_added(mir_id: int, body_id: int, block_id: int) -> void 
 }
 
 task v4_mir_block_first_stmt(mir_id: int, body_id: int, block_id: int) -> int {
-    if mir_id < 0 or mir_id >= array_len(v4_mir_files) { give back 0 - 1 }
-    if body_id < 0 or body_id >= v4_mir_body_count(mir_id) { give back 0 - 1 }
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back 0 - 1 }
     if block_id >= 0 and block_id < v4_mir_body_block_count(mir_id, body_id) and v4_mir_block_stmt_index_is_ready(mir_id, body_id) {
         v4_mir_block_stmt_lookup_steps += 1
         give back word_to_int(array_get(v4_mir_block_stmt_index_handle(mir_id, body_id), 3 + 11 * block_id))
@@ -543,6 +557,7 @@ task v4_mir_block_first_stmt(mir_id: int, body_id: int, block_id: int) -> int {
 }
 
 task v4_mir_block_next_stmt_linear(mir_id: int, body_id: int, block_id: int, stmt_id: int) -> int {
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back 0 - 1 }
     pilot next = stmt_id + 1
     if next < 0 { next = 0 }
     pilot count = v4_mir_body_stmt_count(mir_id, body_id)
@@ -555,8 +570,7 @@ task v4_mir_block_next_stmt_linear(mir_id: int, body_id: int, block_id: int, stm
 }
 
 task v4_mir_block_next_stmt(mir_id: int, body_id: int, block_id: int, stmt_id: int) -> int {
-    if mir_id < 0 or mir_id >= array_len(v4_mir_files) { give back 0 - 1 }
-    if body_id < 0 or body_id >= v4_mir_body_count(mir_id) { give back 0 - 1 }
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back 0 - 1 }
     if stmt_id < 0 { give back v4_mir_block_first_stmt(mir_id, body_id, block_id) }
     if stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) { give back 0 - 1 }
     if block_id >= 0 and block_id < v4_mir_body_block_count(mir_id, body_id) and v4_mir_block_stmt_index_is_ready(mir_id, body_id) and v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
@@ -567,6 +581,7 @@ task v4_mir_block_next_stmt(mir_id: int, body_id: int, block_id: int, stmt_id: i
 }
 
 task v4_mir_finalize_lookup_indexes(mir_id: int) -> bool {
+    if not v4_mir_lookup_owner_exists(mir_id) { give back false }
     pilot ready = v4_mir_finalize_body_lookup_index(mir_id)
     pilot body_id = 0
     repeat until body_id >= v4_mir_body_count(mir_id) {
@@ -579,6 +594,7 @@ task v4_mir_finalize_lookup_indexes(mir_id: int) -> bool {
 -- File restore drops only derived children. Authoritative storage retains its
 -- existing lifetime policy; repeated finalization itself reuses these arrays.
 task v4_mir_release_lookup_indexes(mir_id: int) -> void {
+    if not v4_mir_lookup_owner_exists(mir_id) { give back }
     array_release(v4_mir_body_lookup_index_handle(mir_id))
     pilot blocks = v4_mir_lookup_file_child(v4_mir_block_stmt_indexes, mir_id)
     pilot links = v4_mir_lookup_file_child(v4_mir_stmt_next_indexes, mir_id)
@@ -1239,6 +1255,7 @@ task v4_mir_validate_body_return_coverage(mir_id: int, body_id: int, item_span: 
 }
 
 task v4_mir_body_stmt_count_for_block(mir_id: int, body_id: int, block_id: int) -> int {
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back 0 }
     if block_id >= 0 and block_id < v4_mir_body_block_count(mir_id, body_id) and v4_mir_block_stmt_index_is_ready(mir_id, body_id) {
         v4_mir_block_stmt_lookup_steps += 1
         give back word_to_int(array_get(v4_mir_block_stmt_index_handle(mir_id, body_id), 3 + 11 * block_id + 2))
@@ -1253,6 +1270,7 @@ task v4_mir_body_stmt_count_for_block(mir_id: int, body_id: int, block_id: int) 
 }
 
 task v4_mir_body_stmt_kind_count_for_block(mir_id: int, body_id: int, block_id: int, wanted_kind: word) -> int {
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back 0 }
     pilot kind_slot = v4_mir_block_stmt_kind_slot(wanted_kind)
     if kind_slot >= 0 and block_id >= 0 and block_id < v4_mir_body_block_count(mir_id, body_id) and v4_mir_block_stmt_index_is_ready(mir_id, body_id) {
         v4_mir_block_stmt_lookup_steps += 1
@@ -2237,7 +2255,7 @@ task v4_mir_pattern_trim(pattern: word) -> word {
 }
 
 task v4_mir_lookup_body(mir_id: int, def_id: word) -> int {
-    if mir_id < 0 or mir_id >= array_len(v4_mir_files) { give back 0 - 1 }
+    if not v4_mir_lookup_owner_exists(mir_id) { give back 0 - 1 }
     if v4_mir_body_lookup_index_is_ready(mir_id) {
         pilot packed = v4_mir_body_lookup_index_handle(mir_id)
         pilot capacity = word_to_int(array_get(packed, 1))

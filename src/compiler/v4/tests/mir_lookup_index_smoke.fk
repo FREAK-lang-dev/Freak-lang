@@ -24,8 +24,43 @@ task mir_index_available_handles() -> int {
 }
 
 task mir_index_run() -> void {
+    pilot foreign = array_new()
+    pilot foreign_value = word_from_int(foreign)
+    array_push(foreign, foreign_value)
     pilot cold_capacity = mir_index_available_handles()
     mir_index_assert(v4_mir_lookup_body(0, "") < 0 and v4_mir_block_first_stmt(0, 0, 0) < 0 and v4_mir_block_next_stmt(0, 0, 0, 0) < 0 and v4_mir_ready == 0 and mir_index_available_handles() == cold_capacity, "uninitialized readers allocate nothing")
+    -- Runtime handles are tagged: array_new does not return literal zero.
+    -- Simulate stale storage references with an actual live foreign handle.
+    -- Readiness must reject them before any authoritative handle is followed.
+    pilot original_files = v4_mir_files
+    pilot original_defs = v4_mir_body_defs
+    pilot original_blocks = v4_mir_body_blocks
+    pilot original_kinds = v4_mir_body_stmt_kinds
+    pilot original_stmt_blocks = v4_mir_body_stmt_blocks
+    v4_mir_files = foreign
+    v4_mir_body_defs = foreign
+    v4_mir_body_blocks = foreign
+    v4_mir_body_stmt_kinds = foreign
+    v4_mir_body_stmt_blocks = foreign
+    mir_index_assert(not v4_mir_lookup_owner_exists(0) and not v4_mir_lookup_body_exists(0, 0), "preinit logical owner rejected")
+    mir_index_assert(v4_mir_lookup_body(0, foreign_value) < 0 and v4_mir_lookup_body(0 - 1, foreign_value) < 0, "preinit definition storage rejected")
+    mir_index_assert(v4_mir_block_first_stmt(0, 0, foreign) < 0 and v4_mir_block_next_stmt(0, 0, foreign, 0 - 1) < 0 and v4_mir_block_next_stmt_linear(0, 0, foreign, 0 - 1) < 0, "preinit statement storage rejected")
+    mir_index_assert(v4_mir_body_stmt_count_for_block(0, 0, foreign) == 0 and v4_mir_body_stmt_kind_count_for_block(0, 0, foreign, foreign_value) == 0, "preinit count readers rejected")
+    mir_index_assert(not v4_mir_block_has_return_stmt(0, 0, foreign) and not v4_mir_block_has_terminal_stmt(0, 0, foreign) and not v4_mir_body_block_has_stmt_after_return(0, 0, foreign), "preinit summary readers rejected")
+    mir_index_assert(not v4_mir_body_lookup_index_is_ready(0) and not v4_mir_block_stmt_index_is_ready(0, 0) and v4_mir_body_lookup_index_handle(0) < 0 and v4_mir_block_stmt_index_handle(0, 0) < 0 and v4_mir_stmt_next_index_handle(0, 0) < 0, "preinit derived readers rejected")
+    mir_index_assert(not v4_mir_lookup_outer_ensure() and not v4_mir_lookup_file_ensure(0) and not v4_mir_finalize_body_lookup_index(0) and not v4_mir_finalize_block_stmt_index(0, 0) and not v4_mir_finalize_lookup_indexes(0) and not v4_mir_finalize_lookup_indexes(0 - 1), "preinit publication rejected")
+    v4_mir_invalidate_body_lookup_index(0)
+    v4_mir_invalidate_block_stmt_index(0, 0)
+    v4_mir_release_lookup_indexes(0)
+    v4_mir_release_lookup_indexes(0 - 1)
+    pilot retained_foreign: word = array_get(foreign, 0)
+    mir_index_assert(v4_mir_ready == 0 and v4_mir_body_lookup_indexes < 0 and v4_mir_block_stmt_indexes < 0 and v4_mir_stmt_next_indexes < 0 and array_len(foreign) == 1 and retained_foreign == foreign_value and mir_index_available_handles() == cold_capacity, "preinit no state allocation or foreign mutation")
+    v4_mir_files = original_files
+    v4_mir_body_defs = original_defs
+    v4_mir_body_blocks = original_blocks
+    v4_mir_body_stmt_kinds = original_kinds
+    v4_mir_body_stmt_blocks = original_stmt_blocks
+    array_release(foreign)
     -- One real pipeline and one complete restore, before the larger manual
     -- construction. Repeated authoritative restoration has a separate policy.
     pilot stream = v4_lex_text(0, "task main() -> int {" + "\n give back 6\n" + "}\n")
@@ -48,6 +83,13 @@ task mir_index_run() -> void {
     say "mir-index lowering=true restore=true rejected-atomic=true wire-exact=true retained-plan=true"
 
     pilot mir = v4_mir_file_new(0, ty)
+    cold_capacity = mir_index_available_handles()
+    mir_index_assert(not v4_mir_lookup_owner_exists(0 - 1) and not v4_mir_lookup_owner_exists(array_len(v4_mir_files)) and not v4_mir_lookup_body_exists(mir, 0 - 1) and not v4_mir_lookup_body_exists(mir, v4_mir_body_count(mir)), "initialized logical bounds")
+    mir_index_assert(v4_mir_lookup_body(0 - 1, "") < 0 and v4_mir_block_first_stmt(0 - 1, 0, 0 - 1) < 0 and v4_mir_block_next_stmt(mir, 0 - 1, 0 - 1, 0 - 1) < 0 and v4_mir_body_stmt_count_for_block(0 - 1, 0, 0 - 1) == 0 and v4_mir_body_stmt_kind_count_for_block(mir, 0 - 1, 0 - 1, v4_mir_stmt_return) == 0, "initialized invalid readers")
+    mir_index_assert(not v4_mir_lookup_file_ensure(0 - 1) and not v4_mir_finalize_lookup_indexes(array_len(v4_mir_files)), "initialized invalid publication")
+    v4_mir_release_lookup_indexes(0 - 1)
+    v4_mir_release_lookup_indexes(array_len(v4_mir_files))
+    mir_index_assert(mir_index_available_handles() == cold_capacity, "initialized invalid operations consume no handles")
     pilot def_id = v4_ty_signature_def(ty, 0)
     pilot built = v4_mir_body_lookup_build_records
     pilot linear = v4_mir_body_lookup_linear_steps
