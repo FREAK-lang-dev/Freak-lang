@@ -50,7 +50,13 @@ structural token scans. Indirect callbacks keep empty arguments separate from
 the callee and evaluate computed targets once. Native Codegen rejects
 unsupported aggregate, container,
 closure and field/index facts by name before module emission. General aggregate
-layout and C-width ABI lowering remain open. Diagnostic v1 restoration preserves
+layout and C-width ABI lowering remain open. LLVM globals preserve exact
+qualified and explicit ABI names across definitions, direct calls, callback
+targets, and MIR restore; quoted names remain exact without scratch handles.
+Native character constants retain printable ASCII and admitted control escapes,
+including NUL, and reject unsupported non-ASCII or unknown escapes by name instead of emitting
+zero. This does not promote general native Unicode character lowering.
+Diagnostic v1 restoration preserves
 its overlay/duplicate order through atomic staging and released replacement
 storage. Bootstrap checked source reads distinguish empty regular files from
 I/O errors without publishing failed sources or query results; the executable

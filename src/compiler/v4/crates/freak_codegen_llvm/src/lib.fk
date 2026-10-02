@@ -383,27 +383,42 @@ task v4_codegen_llvm_mangle_name(name: word) -> word {
 -- underscores would merge A_b with A::b and could rewrite explicit ABI names.
 -- Local/type display names continue to use the separate mangle_name helper.
 task v4_codegen_llvm_symbol(name: word) -> word {
-    pilot plain = name != ""
+    pilot plain: bool = name != ""
     if v4_lex_is_digit(name.char_at(0)) { plain = false }
-    pilot parts = array_new()
     pilot idx = 0
     pilot ch = name.char_at(idx)
-    -- char_at addresses bytes in the bootstrap runtime, while length counts
-    -- codepoints. Walk to the byte sentinel so quoted UTF-8 names stay whole.
+    -- char_at addresses bytes; walk to its sentinel so UTF-8 names stay whole
+    -- regardless of character-count metadata in the bootstrap runtime.
     repeat until ch == "" {
         if not v4_codegen_llvm_is_symbol_char(ch) { plain = false }
-        if ch == "\"" { array_push(parts, "\\22") }
-        else if ch == "\\" { array_push(parts, "\\5C") }
-        else if ch == chr(0) { array_push(parts, "\\00") }
-        else if ch == "\n" { array_push(parts, "\\0A") }
-        else if ch == "\r" { array_push(parts, "\\0D") }
-        else if ch == "\t" { array_push(parts, "\\09") }
-        else { array_push(parts, ch) }
         idx += 1
         ch = name.char_at(idx)
     }
-    pilot escaped = word_join(parts)
     if plain { give back "@" + name }
+    pilot parts = array_new()
+    pilot escaped = ""
+    idx = 0
+    ch = name.char_at(idx)
+    repeat until ch == "" {
+        pilot byte = ch
+        if ch == "\"" {
+            byte = "\\22"
+        } else if ch == "\\" {
+            byte = "\\5C"
+        } else if ch == chr(0) {
+            byte = "\\00"
+        } else if ch == "\n" {
+            byte = "\\0A"
+        } else if ch == "\r" {
+            byte = "\\0D"
+        } else if ch == "\t" {
+            byte = "\\09"
+        }
+        if parts < 0 { escaped = escaped + byte } else { array_push(parts, byte) }
+        idx += 1
+        ch = name.char_at(idx)
+    }
+    if parts >= 0 { escaped = word_join(parts) }
     give back "@\"" + escaped + "\""
 }
 

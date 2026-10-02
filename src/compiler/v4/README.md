@@ -45,6 +45,14 @@ LLVM. Scalar, raw pointer and task pointer support retains its existing boundary
 Indirect calls keep their callee separate from arguments, including empty
 argument lists. Local, returned and grouped task pointers evaluate their target
 once; unsupported field callback places receive a native-contract error.
+LLVM global names preserve their source or explicit ABI spelling. Qualified
+names use LLVM quoted identifiers, so `A::b` and `A_b` remain distinct across
+definitions, direct calls, and callback targets, including after MIR restore.
+Quoted-name escaping preserves complete UTF-8 bytes and remains exact when
+temporary array handles are exhausted. Native character constants currently
+support printable ASCII and the admitted control escapes, including NUL;
+non-ASCII and unknown escapes receive a named error instead of silently becoming zero.
+This character fence does not change the language's Unicode contract.
 Module and body assembly collect borrowed fragments and join once. Expression
 trees append into one shared fragment buffer, so recursive returns do not copy
 complete child prefixes. The registered 128 MiB resource fixtures cover 800

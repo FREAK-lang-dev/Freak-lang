@@ -5,6 +5,28 @@ task h6_symbol_assert(condition: bool, label: word) -> void {
 }
 
 task h6_symbol_execute_run() -> void {
+    -- Exact names remain distinct even when no scratch handle is available.
+    pilot pressure = array_new()
+    pilot held = array_new()
+    repeat until held < 0 {
+        array_push(pressure, word_from_int(held))
+        held = array_new()
+    }
+    h6_symbol_assert(v4_codegen_llvm_symbol("A_b") == "@A_b", "plain without scratch")
+    h6_symbol_assert(v4_codegen_llvm_symbol("A::b") == "@\"A::b\"" and v4_codegen_llvm_symbol("B::c") == "@\"B::c\"", "distinct without scratch")
+    h6_symbol_assert(v4_codegen_llvm_symbol("a\"b\\c") == "@\"a\\22b\\5Cc\"", "escaped without scratch")
+    h6_symbol_assert(v4_codegen_llvm_symbol(chr(233)) == "@\"" + chr(233) + "\"", "UTF-8 without scratch")
+    h6_symbol_assert(array_new() < 0, "query consumed no handle")
+    pilot slot = 0
+    repeat until slot >= array_len(pressure) {
+        array_release(word_to_int(array_get(pressure, slot)))
+        slot += 1
+    }
+    array_release(pressure)
+    h6_symbol_assert(v4_codegen_llvm_symbol("A::b") == "@\"A::b\"", "scratch recovered")
+    pilot recovered = array_new()
+    h6_symbol_assert(recovered >= 0, "pressure released")
+    array_release(recovered)
     pilot source = fs::read(process::arg(1))
     pilot stream = v4_lex_text(0, source)
     pilot tree = v4_parse_stream(0, stream)
@@ -26,7 +48,7 @@ task h6_symbol_execute_run() -> void {
     h6_symbol_assert(v4_codegen_llvm_symbol("native_tick") == "@native_tick", "plain ABI symbol unchanged")
     h6_symbol_assert(v4_codegen_llvm_symbol("9task") == "@\"9task\"", "leading digit quoted")
     h6_symbol_assert(v4_codegen_llvm_symbol("a\"b\\c") == "@\"a\\22b\\5Cc\"", "quote and slash escaped")
-    h6_symbol_assert(v4_codegen_llvm_symbol("é") == "@\"é\"", "complete UTF-8 identity")
+    h6_symbol_assert(v4_codegen_llvm_symbol(chr(233)) == "@\"" + chr(233) + "\"", "complete UTF-8 identity")
     h6_symbol_assert(v4_codegen_llvm_callback_trampoline_symbol("A::b") != v4_codegen_llvm_callback_trampoline_symbol("A_b"), "callback naming injective")
     pilot snapshot = v4_mir_snapshot()
     h6_symbol_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "snapshot valid")

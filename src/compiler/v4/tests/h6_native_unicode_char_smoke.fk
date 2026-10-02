@@ -23,9 +23,9 @@ task h6_unicode_run() -> void {
     h6_unicode_assert(v4_codegen_llvm_char_literal_codepoint("\\n") == "10" and v4_codegen_llvm_char_literal_codepoint("\\r") == "13" and v4_codegen_llvm_char_literal_codepoint("\\t") == "9", "ASCII control escapes")
     h6_unicode_assert(v4_codegen_llvm_char_literal_codepoint("\\'") == "39" and v4_codegen_llvm_char_literal_codepoint("\\\"") == "34" and v4_codegen_llvm_char_literal_codepoint("\\\\") == "92", "ASCII punctuation escapes")
     pilot values = array_new()
-    array_push(values, "é")
-    array_push(values, "漢")
-    array_push(values, "😀")
+    array_push(values, chr(233))
+    array_push(values, chr(28450))
+    array_push(values, chr(128512))
     pilot value_id = 0
     repeat until value_id >= array_len(values) {
         pilot value: word = array_get(values, value_id)
@@ -41,7 +41,7 @@ task h6_unicode_run() -> void {
     pilot snapshot = v4_mir_snapshot()
     h6_unicode_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "Unicode valid on existing wire")
     h6_unicode_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "Unicode restored")
-    h6_unicode_assert(v4_mir_rvalue_text(mir, 0, 0) == "😀", "restored Unicode text exact")
+    h6_unicode_assert(v4_mir_rvalue_text(mir, 0, 0) == chr(128512), "restored Unicode text exact")
     pilot restored = v4_codegen_llvm_lower_mir(0, mir)
     h6_unicode_assert(v4_codegen_llvm_native_module_error(restored) == "native character literal not yet supported: non-ASCII or unknown escape" and v4_codegen_llvm_module_text(restored, target) == "", "restored Unicode rejected")
     array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "\\x41")
