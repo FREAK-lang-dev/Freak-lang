@@ -1284,15 +1284,120 @@ task v4_mir_name_list_add(names: word, wanted: word) -> word {
 }
 
 task v4_mir_expected_return_type(mir_id: int, body_id: int) -> word {
-    pilot sig_id = v4_ty_lookup_signature(v4_mir_ty_id(mir_id), v4_mir_body_def(mir_id, body_id))
-    if sig_id < 0 {
-        give back v4_ty_unknown
-    }
-    give back v4_ty_signature_return_type(v4_mir_ty_id(mir_id), sig_id)
+    give back v4_mir_body_callable_return_type(mir_id, body_id)
 }
 
 task v4_mir_body_signature_id(mir_id: int, body_id: int) -> int {
     give back v4_ty_lookup_signature(v4_mir_ty_id(mir_id), v4_mir_body_def(mir_id, body_id))
+}
+
+-- Callable facts include concrete impl bodies without inventing ordinary TY
+-- signature rows. The ordinary-only signature accessor above remains the gate
+-- for generic/lifetime and returned-loan contracts. These facts describe the
+-- declared method; they do not monomorphize generic impls or define an aggregate ABI.
+task v4_mir_body_impl_method_index(mir_id: int, body_id: int, part: int) -> int {
+    if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
+        give back 0 - 1
+    }
+    if part < 0 or part > 1 { give back 0 - 1 }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 { give back 0 - 1 }
+    pilot method_def = v4_mir_body_def(mir_id, body_id)
+    pilot hash_pos = v4_index_of_from(method_def, "#", 0)
+    if hash_pos < 0 { give back 0 - 1 }
+    pilot colon_pos = v4_index_of_from(method_def, ":", hash_pos + 1)
+    if colon_pos < 0 { give back 0 - 1 }
+    pilot hir_item = v4_nonnegative_int_range(method_def, hash_pos + 1, colon_pos)
+    pilot method_id = v4_nonnegative_int_range(method_def, colon_pos + 1, method_def.length())
+    if hir_item < 0 or hir_item >= v4_hir_item_count(hir_id) or method_id < 0 {
+        give back 0 - 1
+    }
+    if v4_hir_item_kind(hir_id, hir_item) != v4_hir_impl {
+        give back 0 - 1
+    }
+    if method_id >= v4_ty_impl_method_count(ty_id, hir_item) {
+        give back 0 - 1
+    }
+    if v4_ty_impl_method_def(ty_id, hir_item, method_id) != method_def {
+        give back 0 - 1
+    }
+    if part == 0 { give back hir_item }
+    give back method_id
+}
+
+task v4_mir_body_callable_return_type(mir_id: int, body_id: int) -> word {
+    if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
+        give back v4_ty_unknown
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id >= 0 { give back v4_ty_signature_return_type(ty_id, sig_id) }
+    pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
+    if hir_item < 0 { give back v4_ty_unknown }
+    pilot method_id = v4_mir_body_impl_method_index(mir_id, body_id, 1)
+    give back v4_ty_impl_method_return_type(ty_id, hir_item, method_id)
+}
+
+task v4_mir_body_callable_abi(mir_id: int, body_id: int) -> word {
+    if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
+        give back ""
+    }
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id >= 0 { give back v4_ty_signature_call_abi(v4_mir_ty_id(mir_id), sig_id) }
+    -- An impl body uses the language ABI, represented by the empty ABI name.
+    give back ""
+}
+
+-- Count only fixed parameters, matching ordinary LLVM signature lowering.
+-- An impl receiver, when present, is the first declared parameter.
+task v4_mir_body_callable_param_count(mir_id: int, body_id: int) -> int {
+    if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
+        give back 0
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id >= 0 { give back v4_ty_signature_fixed_param_count(ty_id, sig_id) }
+    pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
+    if hir_item < 0 { give back 0 }
+    pilot method_id = v4_mir_body_impl_method_index(mir_id, body_id, 1)
+    give back v4_ty_impl_method_param_count(ty_id, hir_item, method_id)
+}
+
+task v4_mir_body_callable_param_name(mir_id: int, body_id: int, param_id: int) -> word {
+    if param_id < 0 or param_id >= v4_mir_body_callable_param_count(mir_id, body_id) {
+        give back ""
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id >= 0 { give back v4_ty_signature_param_name(ty_id, sig_id, param_id) }
+    pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
+    pilot method_id = v4_mir_body_impl_method_index(mir_id, body_id, 1)
+    give back v4_ty_impl_method_param_name(ty_id, hir_item, method_id, param_id)
+}
+
+task v4_mir_body_callable_param_type(mir_id: int, body_id: int, param_id: int) -> word {
+    if param_id < 0 or param_id >= v4_mir_body_callable_param_count(mir_id, body_id) {
+        give back v4_ty_unknown
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id >= 0 { give back v4_ty_signature_param_type(ty_id, sig_id, param_id) }
+    pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
+    pilot method_id = v4_mir_body_impl_method_index(mir_id, body_id, 1)
+    give back v4_ty_impl_method_param_type(ty_id, hir_item, method_id, param_id)
+}
+
+task v4_mir_body_callable_param_mode(mir_id: int, body_id: int, param_id: int) -> word {
+    if param_id < 0 or param_id >= v4_mir_body_callable_param_count(mir_id, body_id) {
+        give back v4_ty_param_mode_value
+    }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id >= 0 { give back v4_ty_signature_param_mode(ty_id, sig_id, param_id) }
+    pilot hir_item = v4_mir_body_impl_method_index(mir_id, body_id, 0)
+    pilot method_id = v4_mir_body_impl_method_index(mir_id, body_id, 1)
+    give back v4_ty_impl_method_param_mode(ty_id, hir_item, method_id, param_id)
 }
 
 task v4_mir_rvalue_is_aggregate_kind(kind: word) -> bool {

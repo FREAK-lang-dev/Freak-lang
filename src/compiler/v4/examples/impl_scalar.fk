@@ -1,0 +1,20 @@
+-- Associated impl tasks use scalar parameters and results without a receiver ABI.
+shape Arithmetic {
+    marker: int
+}
+
+impl Arithmetic {
+    task add(left: int, right: int) -> int {
+        give back left + right
+    }
+
+    task choose(flag: bool, selected: int, alternate: int) -> int {
+        if flag { give back selected }
+        give back alternate
+    }
+}
+
+task main() -> int {
+    pilot sum = Arithmetic::add(right: 19, left: 23)
+    give back Arithmetic::choose(true, sum, 0)
+}
