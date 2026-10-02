@@ -154,11 +154,12 @@ task v4_ty_file_new(file_id: int, resolve_id: int) -> int {
         array_push(v4_ty_diags, word_from_int(array_new()))
         array_push(v4_ty_signature_active_counts, "0")
         array_push(v4_ty_diag_active_counts, "0")
-        -- Allocate derived storage on first lookup, after authoritative rows
-        -- exist. Exhaustion remains a retryable linear lookup fallback.
+        -- Derived storage is published after the new file becomes active.
+        -- Exhaustion leaves readonly queries on authoritative linear facts.
         array_push(v4_ty_signature_indexes, "-1")
     }
     v4_ty_file_active_count_value = ty_id + 1
+    v4_ty_signature_index_finalize(ty_id)
     give back ty_id
 }
 
@@ -384,6 +385,7 @@ task v4_ty_signature_index_added(ty_id: int, sig_id: int) -> void {
         }
     }
     v4_ty_signature_index_invalidate(ty_id)
+    v4_ty_signature_index_finalize(ty_id)
 }
 
 task v4_ty_signature_index_linear_lookup(ty_id: int, key: word, category: int) -> int {
@@ -409,11 +411,18 @@ task v4_ty_signature_index_linear_lookup(ty_id: int, key: word, category: int) -
 
 task v4_ty_signature_index_lookup(ty_id: int, key: word, category: int) -> int {
     if v4_ty_file_exists(ty_id) == false { give back 0 - 1 }
-    if v4_ty_signature_index_finalize(ty_id) == false {
+    -- Semantic readers never allocate or publish derived facts. Construction,
+    -- ordinary append and whole restore publish; direct slot edits stay cold
+    -- until their owner explicitly finalizes the file.
+    pilot packed = v4_ty_signature_index_handle(ty_id)
+    pilot ready: word = array_get(packed, 0)
+    if ready != "1" or word_to_int(array_get(packed, 2)) != v4_ty_signature_count(ty_id) {
         give back v4_ty_signature_index_linear_lookup(ty_id, key, category)
     }
-    pilot packed = v4_ty_signature_index_handle(ty_id)
     pilot capacity = word_to_int(array_get(packed, 1))
+    if capacity <= 0 {
+        give back v4_ty_signature_index_linear_lookup(ty_id, key, category)
+    }
     pilot bucket = v4_ty_signature_index_hash(key, category, capacity)
     pilot visited = 0
     repeat until visited >= capacity {

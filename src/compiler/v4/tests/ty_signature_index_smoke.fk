@@ -107,12 +107,18 @@ task v4_ty_index_fixture_run() -> void {
     pilot later = v4_ty_add_signature(id, "later-def", v4_ty_alias_sig, "Later", "Later", 0)
     say "ty-index-append-after-miss=" + word_from_bool(miss and later == 7 and v4_ty_alias_signature_id_for_name(id, "Later") == 7 and v4_ty_lookup_signature(id, "later-def") == 7)
 
+    pilot cold_builds = v4_ty_signature_index_builds
     v4_ty_restore_signature_slot(id, 3, "renamed-def", v4_ty_shape_sig, "Renamed", "Renamed", 0)
     pilot renamed: bool = v4_ty_alias_signature_id_for_name(id, "Alias") == 4 and v4_ty_lookup_signature(id, "first-alias") == 0 - 1 and v4_ty_lookup_signature(id, "renamed-def") == 3 and v4_ty_shape_signature_id_for_name(id, "Renamed") == 3
     v4_ty_restore_signature_slot(id, 0, "early-doctrine", v4_ty_doctrine_sig, "Shared", "Shared", 0)
-    say "ty-index-overwrite-name-kind-def=" + word_from_bool(renamed and v4_ty_type_signature_id_for_name(id, "Shared") == 0 and v4_ty_task_signature_id_for_name(id, "Shared") == 0 - 1 and v4_ty_doctrine_signature_id_for_name(id, "Shared") == 0)
+    pilot cold_overwrite: bool = renamed and v4_ty_type_signature_id_for_name(id, "Shared") == 0 and v4_ty_task_signature_id_for_name(id, "Shared") == 0 - 1 and v4_ty_doctrine_signature_id_for_name(id, "Shared") == 0 and v4_ty_signature_index_builds == cold_builds
+    pilot overwrite_published: bool = v4_ty_signature_index_finalize(id)
+    pilot warm_overwrite: bool = v4_ty_alias_signature_id_for_name(id, "Alias") == 4 and v4_ty_lookup_signature(id, "first-alias") == 0 - 1 and v4_ty_lookup_signature(id, "renamed-def") == 3 and v4_ty_shape_signature_id_for_name(id, "Renamed") == 3 and v4_ty_type_signature_id_for_name(id, "Shared") == 0 and v4_ty_doctrine_signature_id_for_name(id, "Shared") == 0
+    say "ty-index-overwrite-name-kind-def=" + word_from_bool(cold_overwrite and overwrite_published and warm_overwrite)
     v4_ty_restore_signature_slot(id, 20, "sparse-def", v4_ty_const_sig, "Sparse", "Sparse", 0)
-    say "ty-index-sparse-restore=" + word_from_bool(v4_ty_signature_count(id) == 21 and v4_ty_const_signature_id_for_name(id, "Sparse") == 20 and v4_ty_lookup_signature(id, "") == 8)
+    pilot sparse_cold: bool = v4_ty_signature_count(id) == 21 and v4_ty_const_signature_id_for_name(id, "Sparse") == 20 and v4_ty_lookup_signature(id, "") == 8
+    pilot sparse_published: bool = v4_ty_signature_index_finalize(id)
+    say "ty-index-sparse-restore=" + word_from_bool(sparse_cold and sparse_published and v4_ty_const_signature_id_for_name(id, "Sparse") == 20 and v4_ty_lookup_signature(id, "") == 8)
     pilot before_bad = v4_ty_snapshot()
     pilot bad = v4_ty_snapshot_restore("not-a-snapshot")
     say "ty-index-invalid-restore-stable=" + word_from_bool(bad.starts_with("ty-snapshot-restore ok=0") and v4_ty_snapshot() == before_bad and v4_ty_const_signature_id_for_name(id, "Sparse") == 20)
@@ -130,6 +136,7 @@ task v4_ty_index_fixture_run() -> void {
     pilot fallback_before = v4_ty_signature_index_fallbacks
     pilot fallback: bool = v4_ty_const_signature_id_for_name(id, "Sparse") == 20 and v4_ty_signature_index_fallbacks == fallback_before + 1
     v4_ty_signature_index_invalidate(id)
+    v4_ty_signature_index_finalize(id)
     say "ty-index-full-table-fallback=" + word_from_bool(fallback and v4_ty_const_signature_id_for_name(id, "Sparse") == 20)
 
     v4_ty_restore_file_slot(id, 91, 0 - 1)
@@ -182,6 +189,10 @@ task v4_ty_index_fixture_run() -> void {
 
     pilot pressure = v4_ty_file_new(94, 0 - 1)
     v4_ty_add_signature(pressure, "pressure-def", v4_ty_const_sig, "Pressure", "Pressure", 0)
+    -- Remove only the disposable derived cache while authoritative facts live.
+    -- Actual handle exhaustion below then rejects explicit index publication.
+    array_release(v4_ty_signature_index_handle(pressure))
+    array_set(v4_ty_signature_indexes, pressure, "-1")
     pilot holders = array_new()
     pilot count = 0
     pilot exhausted = false
@@ -196,17 +207,21 @@ task v4_ty_index_fixture_run() -> void {
     }
     pilot pressure_fallbacks = v4_ty_signature_index_fallbacks
     pilot pressure_before: bool = v4_ty_signature_index_handle(pressure) < 0
+    pilot pressure_publish: bool = v4_ty_signature_index_finalize(pressure)
     pilot pressure_ok: bool = v4_ty_const_signature_id_for_name(pressure, "Pressure") == 0 and v4_ty_lookup_signature(pressure, "pressure-def") == 0 and v4_ty_alias_signature_id_for_name(pressure, "Pressure") == 0 - 1
-    say "ty-index-handle-exhaustion-fallback=" + word_from_bool(exhausted and pressure_before and pressure_ok and v4_ty_signature_index_handle(pressure) < 0 and v4_ty_signature_index_fallbacks == pressure_fallbacks + 3)
+    say "ty-index-handle-exhaustion-fallback=" + word_from_bool(exhausted and pressure_before and not pressure_publish and pressure_ok and v4_ty_signature_index_handle(pressure) < 0 and v4_ty_signature_index_fallbacks == pressure_fallbacks + 3)
     pilot row = 0
     repeat until row >= array_len(holders) {
         array_release(word_to_int(array_get(holders, row)))
         row += 1
     }
     array_release(holders)
+    pilot released_fallbacks = v4_ty_signature_index_fallbacks
+    pilot released_cold: bool = v4_ty_const_signature_id_for_name(pressure, "Pressure") == 0 and v4_ty_signature_index_handle(pressure) < 0 and v4_ty_signature_index_fallbacks == released_fallbacks + 1
     pilot recovered_fallbacks = v4_ty_signature_index_fallbacks
+    pilot recovered_publish: bool = v4_ty_signature_index_finalize(pressure)
     pilot recovered: bool = v4_ty_const_signature_id_for_name(pressure, "Pressure") == 0 and v4_ty_lookup_signature(pressure, "pressure-def") == 0 and v4_ty_alias_signature_id_for_name(pressure, "Pressure") == 0 - 1
-    say "ty-index-handle-exhaustion-recovered=" + word_from_bool(recovered and v4_ty_signature_index_handle(pressure) >= 0 and v4_ty_signature_index_fallbacks == recovered_fallbacks)
+    say "ty-index-handle-exhaustion-recovered=" + word_from_bool(released_cold and recovered_publish and recovered and v4_ty_signature_index_handle(pressure) >= 0 and v4_ty_signature_index_fallbacks == recovered_fallbacks)
 }
 
 v4_ty_index_fixture_run()
