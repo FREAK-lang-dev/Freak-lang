@@ -1,0 +1,48 @@
+-- Missing optional revision storage must never preserve stale Lex offsets.
+-- Verification prepends V4 crates; run with 1024 live array handles.
+
+task v4_lex_mutation_pressure_run() -> void {
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            count += 1
+        }
+    }
+    -- Leave exactly eight slots: original Lex arena metadata succeeds while
+    -- the ninth, optional revision outer array fails under real pressure.
+    pilot idx = count - 8
+    repeat until idx >= count {
+        array_release(word_to_int(array_get(holders, idx)))
+        array_set(holders, idx, "-1")
+        idx += 1
+    }
+    v4_lex_init()
+    say "lex-mutation-epoch-storage-exhausted=" + word_from_bool(exhausted and v4_lex_ready == 1 and v4_lex_stream_files >= 0 and v4_lex_stream_boundaries >= 0 and v4_lex_stream_revisions < 0 and v4_lex_stream_revision(0) == 0 - 1)
+    -- Clear pressure so a real owner can obtain all seven token/index children.
+    idx = 0
+    repeat until idx >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, idx)))
+        idx += 1
+    }
+    array_release(holders)
+    pilot stream = v4_lex_stream_new(0)
+    v4_lex_add_token(stream, v4_tok_ident, "first", v4_span_new("0", 0, 5), 0, 0)
+    v4_lex_add_token(stream, v4_tok_ident, "second", v4_span_new("0", 10, 20), 0, 10)
+    pilot original: bool = v4_lex_boundaries_handle(stream) >= 0 and v4_lex_first_boundary(stream, 15, false) == 2 and v4_lex_first_boundary(stream, 15, true) == 1
+    array_set(v4_lex_spans_handle(stream), 0, v4_span_new("0", 16, 18))
+    v4_lex_note_stream_mutation(stream)
+    pilot cold: bool = v4_lex_stream_revision(stream) == 0 - 1 and v4_lex_boundaries_handle(stream) < 0 and v4_lex_first_boundary(stream, 15, false) == 0 and v4_lex_first_boundary(stream, 15, true) == 0
+    say "lex-mutation-missing-epoch-invalidates-offsets=" + word_from_bool(original and cold)
+    pilot rebuilt: bool = v4_lex_rebuild_boundaries(stream)
+    say "lex-mutation-missing-epoch-explicit-rebuild=" + word_from_bool(rebuilt and v4_lex_stream_revision(stream) == 0 - 1 and v4_lex_boundaries_handle(stream) >= 0 and v4_lex_first_boundary(stream, 15, false) == 0 and v4_lex_first_boundary(stream, 15, true) == 0)
+    -- Same-size edit after recovery must discard the rebuilt pairs again.
+    array_set(v4_lex_spans_handle(stream), 0, v4_span_new("0", 0, 5))
+    v4_lex_note_stream_mutation(stream)
+    say "lex-mutation-repeated-cold-correct=" + word_from_bool(v4_lex_boundaries_handle(stream) < 0 and v4_lex_first_boundary(stream, 15, false) == 2 and v4_lex_first_boundary(stream, 15, true) == 1)
+}
+
+v4_lex_mutation_pressure_run()

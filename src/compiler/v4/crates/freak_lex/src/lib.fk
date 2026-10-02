@@ -88,14 +88,16 @@ task v4_lex_advance_stream_revision(stream_id: int) -> void {
 -- query. Offset pairs may have changed, so discard the disposable Lex index.
 -- Reads remain correct through the linear fallback until explicit publication.
 task v4_lex_note_stream_mutation(stream_id: int) -> void {
-    if v4_lex_stream_revision(stream_id) < 0 { give back }
+    -- Authoritative owners remain valid if the optional epoch array exhausted.
+    -- A raw edit must still discard offset pairs in that cold-cache state.
+    if v4_lex_ready == 0 or stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) { give back }
     v4_lex_advance_stream_revision(stream_id)
     array_release(v4_lex_boundaries_handle(stream_id))
     array_set(v4_lex_stream_boundaries, stream_id, "-1")
 }
 
 task v4_lex_rebuild_boundaries(stream_id: int) -> bool {
-    if v4_lex_stream_revision(stream_id) < 0 { give back false }
+    if v4_lex_ready == 0 or stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) { give back false }
     array_release(v4_lex_boundaries_handle(stream_id))
     pilot bounds = v4_lex_boundaries_new()
     array_set(v4_lex_stream_boundaries, stream_id, word_from_int(bounds))
