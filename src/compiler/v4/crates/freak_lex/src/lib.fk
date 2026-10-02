@@ -98,6 +98,9 @@ task v4_lex_note_stream_mutation(stream_id: int) -> void {
 
 task v4_lex_rebuild_boundaries(stream_id: int) -> bool {
     if v4_lex_ready == 0 or stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) { give back false }
+    -- Publication needs a usable registry slot before retaining a new child.
+    -- Optional-index exhaustion must neither leak handles nor report success.
+    if v4_lex_stream_boundaries < 0 or stream_id >= array_len(v4_lex_stream_boundaries) { give back false }
     array_release(v4_lex_boundaries_handle(stream_id))
     pilot bounds = v4_lex_boundaries_new()
     array_set(v4_lex_stream_boundaries, stream_id, word_from_int(bounds))
