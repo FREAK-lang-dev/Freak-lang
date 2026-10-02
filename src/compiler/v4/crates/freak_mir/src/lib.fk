@@ -61,6 +61,7 @@ pilot v4_mir_unary_deref = "Deref"
 pilot v4_mir_unary_ptr_offset = "PtrOffset"
 pilot v4_mir_unary_ptr_cast = "PtrCast"
 pilot v4_mir_call_raw_ptr_write = "#RawPtrWrite"
+pilot v4_mir_call_say_literal = "#SayLiteral"
 
 pilot v4_mir_builtin_shared_new = "builtin::Shared::new"
 pilot v4_mir_builtin_shared_clone = "builtin::Shared::clone"
@@ -2427,6 +2428,20 @@ task v4_mir_snapshot_rvalue_refs_are_valid(kind: word, raw_lhs: word, raw_rhs: w
     give back raw_lhs == "-1" and raw_rhs == "-1" and args_payload == ""
 }
 
+task v4_mir_snapshot_say_literal_is_valid(line: word, prior_kinds: int, prior_types: int) -> bool {
+    if v4_mir_snapshot_field(line, 4) != v4_mir_rvalue_call { give back false }
+    if v4_mir_snapshot_field_raw(line, 7) != "-1" or v4_mir_snapshot_field_raw(line, 8) != "-1" { give back false }
+    if v4_mir_snapshot_field(line, 10) != v4_ty_void { give back false }
+    if v4_mir_snapshot_field(line, 11) != "" or v4_mir_snapshot_field(line, 13) != "" { give back false }
+    pilot args = v4_mir_snapshot_field(line, 12)
+    if v4_mir_call_args_payload_count(args) != 1 { give back false }
+    if not v4_mir_snapshot_ref_is_valid(args, array_len(prior_kinds), false) { give back false }
+    pilot arg = word_to_int(args)
+    pilot arg_kind: word = array_get(prior_kinds, arg)
+    pilot arg_ty: word = array_get(prior_types, arg)
+    give back arg_kind == v4_mir_rvalue_const_word and arg_ty == v4_ty_word
+}
+
 task v4_mir_snapshot_graph_ref_is_done(states: int, offset: int, raw_ref: word, allow_negative: bool) -> bool {
     if raw_ref == "-1" { give back allow_negative }
     if not v4_mir_snapshot_nonnegative_int_is_valid(raw_ref) { give back false }
@@ -2603,6 +2618,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
     pilot body_graph_rvalue_lhs = array_new()
     pilot body_graph_rvalue_rhs = array_new()
     pilot body_graph_rvalue_args = array_new()
+    pilot body_say_literal_types = array_new()
 
     pilot line_id = 0
     repeat until line_id >= lines {
@@ -2689,6 +2705,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 }
 
                 v4_mir_snapshot_release_body_graph_arrays(body_graph_place_kinds, body_graph_place_bases, body_graph_place_indexes, body_graph_rvalue_kinds, body_graph_rvalue_lhs, body_graph_rvalue_rhs, body_graph_rvalue_args)
+                array_release(body_say_literal_types)
 
                 pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
                 pilot raw_body_id = v4_mir_snapshot_field_raw(line, 2)
@@ -2728,6 +2745,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 body_graph_rvalue_lhs = array_new()
                 body_graph_rvalue_rhs = array_new()
                 body_graph_rvalue_args = array_new()
+                body_say_literal_types = array_new()
                 file_bodies += 1
                 bodies += 1
             } else if kind == "mir-block" {
@@ -2824,7 +2842,11 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 pilot raw_rhs = v4_mir_snapshot_field_raw(line, 8)
                 pilot args_payload = v4_mir_snapshot_field(line, 12)
                 if not v4_mir_snapshot_rvalue_refs_are_valid(rvalue_kind, raw_lhs, raw_rhs, args_payload, word_to_int(raw_child_id), body_declared_places) { malformed += 1 }
+                if v4_mir_snapshot_field(line, 6) == v4_mir_call_say_literal {
+                    if not v4_mir_snapshot_say_literal_is_valid(line, body_graph_rvalue_kinds, body_say_literal_types) { malformed += 1 }
+                }
                 array_push(body_graph_rvalue_kinds, rvalue_kind)
+                array_push(body_say_literal_types, v4_mir_snapshot_field(line, 10))
                 array_push(body_graph_rvalue_lhs, raw_lhs)
                 array_push(body_graph_rvalue_rhs, raw_rhs)
                 array_push(body_graph_rvalue_args, args_payload)
@@ -2881,6 +2903,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
     }
 
     v4_mir_snapshot_release_body_graph_arrays(body_graph_place_kinds, body_graph_place_bases, body_graph_place_indexes, body_graph_rvalue_kinds, body_graph_rvalue_lhs, body_graph_rvalue_rhs, body_graph_rvalue_args)
+    array_release(body_say_literal_types)
 
     if files != declared_files { malformed += 1 }
     if bodies != declared_bodies { malformed += 1 }

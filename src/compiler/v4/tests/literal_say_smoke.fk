@@ -1,0 +1,221 @@
+-- W1 literal say semantic bytes, diagnostics, static borrowing, and wire shape.
+-- One compiler pipeline covers the accepted and rejected statement contracts.
+
+task v4_literal_say_assert(condition: bool, label: word) -> void {
+    if not condition { panic("literal say smoke: " + label) }
+}
+
+task v4_literal_say_quoted(text: word) -> word {
+    give back "\"" + text + "\""
+}
+
+task v4_literal_say_braced(text: word) -> word {
+    give back "{" + text + "}"
+}
+
+task v4_literal_say_bad_task(name: word, expression: word) -> word {
+    give back "task " + name + "(value: word) -> int {\n    say " + expression + "\n    give back 0\n}\n"
+}
+
+task v4_literal_say_source() -> word {
+    pilot slash = "\\"
+    pilot escaped = "row" + slash + "nline" + slash + "t" + slash + "\"quote" + slash + "\"" + slash + slash + "tail" + slash + "rend"
+    pilot src = "task main() -> int {\n"
+    src = src + "    say \"hello\"\n"
+    src = src + "    say " + v4_literal_say_quoted(escaped) + "\n"
+    src = src + "    say \"\"\n"
+    src = src + "    say " + v4_literal_say_quoted(v4_literal_say_braced("1 + 2")) + "\n"
+    src = src + "    say " + v4_literal_say_quoted(v4_literal_say_braced("path..field")) + "\n"
+    src = src + "    say " + v4_literal_say_quoted("{" + "name") + "\n"
+    src = src + "    say " + v4_literal_say_quoted("}" + "tail") + "\n"
+    src = src + "    say " + v4_literal_say_quoted(v4_literal_say_braced(v4_literal_say_braced("name"))) + "\n"
+    src = src + "    say " + v4_literal_say_quoted(v4_literal_say_braced("true")) + "\n"
+    src = src + "    say " + v4_literal_say_quoted("caf" + chr(233)) + "\n"
+    pilot extra = 10
+    repeat until extra >= 27 {
+        src = src + "    say " + v4_literal_say_quoted(v4_literal_say_expected(extra)) + "\n"
+        extra += 1
+    }
+    src = src + "    give back 0\n}\n"
+    src = src + v4_literal_say_bad_task("bad_path", v4_literal_say_quoted(v4_literal_say_braced("ship.callsign")))
+    src = src + v4_literal_say_bad_task("bad_name", v4_literal_say_quoted(v4_literal_say_braced("name")))
+    src = src + v4_literal_say_bad_task("bad_zero_escape", v4_literal_say_quoted("before" + slash + "0after"))
+    src = src + v4_literal_say_bad_task("bad_zero_byte", v4_literal_say_quoted("before" + chr(0) + "after"))
+    src = src + v4_literal_say_bad_task("bad_escape", v4_literal_say_quoted(slash + "x41"))
+    src = src + v4_literal_say_bad_task("bad_value", "value")
+    src = src + v4_literal_say_bad_task("bad_method", "\"abc\".length()")
+    src = src + v4_literal_say_bad_task("bad_expression", "\"a\" + \"b\"")
+    src = src + v4_literal_say_bad_task("bad_group", "(\"a\")")
+    src = src + v4_literal_say_bad_task("bad_number", "42")
+    src = src + v4_literal_say_bad_task("bad_empty", "")
+    give back src
+}
+
+task v4_literal_say_expected(statement: int) -> word {
+    if statement == 0 { give back "hello" }
+    if statement == 1 { give back "row\nline\t\"quote\"\\tail\rend" }
+    if statement == 2 { give back "" }
+    if statement == 3 { give back v4_literal_say_braced("1 + 2") }
+    if statement == 4 { give back v4_literal_say_braced("path..field") }
+    if statement == 5 { give back "{" + "name" }
+    if statement == 6 { give back "}" + "tail" }
+    if statement == 7 { give back v4_literal_say_braced(v4_literal_say_braced("name")) }
+    if statement == 8 { give back v4_literal_say_braced("true") }
+    if statement == 9 { give back "caf" + chr(233) }
+    if statement == 10 { give back "{" }
+    if statement == 11 { give back "}" }
+    if statement == 12 { give back ";" }
+    if statement == 13 { give back "(" }
+    if statement == 14 { give back ")" }
+    if statement == 15 { give back "[" }
+    if statement == 16 { give back "]" }
+    if statement == 17 { give back "done" }
+    if statement == 18 { give back "task" }
+    if statement == 19 { give back "pilot" }
+    if statement == 20 { give back "|" }
+    if statement == 21 { give back "move" }
+    if statement == 22 { give back "say" }
+    if statement == 23 { give back "give" }
+    if statement == 24 { give back "|%" }
+    if statement == 25 { give back "fixed" }
+    give back "=>"
+}
+
+task v4_literal_say_forge(payload: word, mode: int) -> word {
+    pilot out = ""
+    pilot line_id = 0
+    repeat until line_id >= v4_mir_snapshot_line_count(payload) {
+        pilot line = v4_mir_snapshot_line(payload, line_id)
+        if line != "" {
+            if v4_mir_snapshot_field_raw(line, 0) == "mir-rvalue" and v4_mir_snapshot_field_raw(line, 2) == "0" {
+                pilot child = v4_mir_snapshot_field_raw(line, 3)
+                pilot change_field = 0 - 1
+                pilot change_value = ""
+                if child == "1" {
+                    if mode == 0 {
+                        change_field = 7; change_value = "0"
+                    } else if mode == 1 {
+                        change_field = 8; change_value = "0"
+                    } else if mode == 2 {
+                        change_field = 12; change_value = ""
+                    } else if mode == 3 {
+                        change_field = 12; change_value = "0,0"
+                    } else if mode == 4 {
+                        change_field = 10; change_value = v4_ty_word
+                    } else if mode == 7 {
+                        change_field = 4; change_value = v4_mir_rvalue_const_word
+                    } else if mode == 8 {
+                        change_field = 11; change_value = "CABI"
+                    } else if mode == 9 {
+                        change_field = 13; change_value = "length"
+                    }
+                } else if child == "0" {
+                    if mode == 5 {
+                        change_field = 4; change_value = v4_mir_rvalue_const_int
+                    } else if mode == 6 {
+                        change_field = 10; change_value = v4_ty_int
+                    }
+                }
+                if change_field >= 0 {
+                    line = ""
+                    pilot field = 0
+                    repeat until field >= 14 {
+                        if field > 0 { line = line + "|" }
+                        if field == change_field { line = line + v4_mir_snapshot_escape(change_value) } else { line = line + v4_mir_snapshot_field_raw(v4_mir_snapshot_line(payload, line_id), field) }
+                        field += 1
+                    }
+                }
+            }
+            out = out + line + "\n"
+        }
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_literal_say_smoke() -> void {
+    pilot slash = "\\"
+    v4_literal_say_assert(v4_ty_word_literal_issue(slash) == "escape", "trailing escape")
+    v4_literal_say_assert(v4_ty_word_literal_issue(slash + "u0041") == "escape", "unsupported escape")
+    v4_literal_say_assert(v4_ty_word_literal_issue(v4_literal_say_braced("_ship.field2")) == "interpolation", "identifier path")
+    v4_literal_say_assert(v4_ty_word_literal_issue(v4_literal_say_braced("ship.")) == "", "malformed path")
+    -- Backslash is decoded once: the escaped backslash before n stays literal.
+    v4_literal_say_assert(v4_ty_word_literal_value(slash + slash + "n") == slash + "n", "decode once")
+
+    pilot stream = v4_lex_text(0, v4_literal_say_source())
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    v4_literal_say_assert(v4_lex_diag_count(stream) == 0, "lexer diagnostics")
+    v4_literal_say_assert(v4_parse_diag_count(tree) == 0, "parse diagnostics")
+    v4_literal_say_assert(v4_ty_diag_count(ty) == 0, "TY diagnostics")
+    v4_literal_say_assert(v4_mir_diag_count(mir) == 11, "MIR diagnostic count")
+    pilot main_def = v4_resolve_def_for_name(resolve, "main")
+    pilot body = v4_mir_lookup_body(mir, main_def)
+    pilot statement = 0
+    repeat until statement >= 27 {
+        pilot call = v4_mir_stmt_rvalue(mir, body, statement)
+        v4_literal_say_assert(v4_mir_stmt_kind(mir, body, statement) == v4_mir_stmt_expr, "say statement")
+        v4_literal_say_assert(v4_mir_rvalue_kind(mir, body, call) == v4_mir_rvalue_call, "call kind")
+        v4_literal_say_assert(v4_mir_rvalue_op(mir, body, call) == v4_mir_call_say_literal, "reserved op")
+        v4_literal_say_assert(v4_mir_rvalue_ty(mir, body, call) == v4_ty_void, "void result")
+        v4_literal_say_assert(v4_mir_rvalue_lhs(mir, body, call) == 0 - 1 and v4_mir_rvalue_rhs(mir, body, call) == 0 - 1, "child slots")
+        v4_literal_say_assert(v4_mir_rvalue_call_arg_count(mir, body, call) == 1, "one argument")
+        pilot arg = v4_mir_rvalue_call_arg(mir, body, call, 0)
+        v4_literal_say_assert(arg < call and v4_mir_rvalue_kind(mir, body, arg) == v4_mir_rvalue_const_word, "static argument")
+        v4_literal_say_assert(v4_mir_rvalue_ty(mir, body, arg) == v4_ty_word, "word argument")
+        v4_literal_say_assert(v4_mir_rvalue_text(mir, body, arg) == v4_literal_say_expected(statement), "semantic bytes")
+        v4_literal_say_assert(v4_borrowck_rvalue_move_count(mir, body, call) == 0, "no literal move")
+        statement += 1
+    }
+
+    pilot nonliteral = 0
+    pilot interpolation = 0
+    pilot nul = 0
+    pilot escape = 0
+    pilot diagnostic = 0
+    repeat until diagnostic >= v4_mir_diag_count(mir) {
+        pilot diag = v4_mir_diag(mir, diagnostic)
+        pilot message = v4_diag_message(diag)
+        if message == "say nonliteral is not yet supported" { nonliteral += 1 } else if message == "say interpolation is not yet supported" { interpolation += 1 } else if message == "say literal contains embedded NUL" { nul += 1 } else if message == "say literal escape is not yet supported" { escape += 1 } else { panic("unexpected literal say diagnostic: " + message) }
+        v4_literal_say_assert(v4_span_end(v4_diag_span(diag)) > v4_span_start(v4_diag_span(diag)), "diagnostic span")
+        diagnostic += 1
+    }
+    v4_literal_say_assert(nonliteral == 6 and interpolation == 2 and nul == 2 and escape == 1, "diagnostic categories")
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    pilot borrow_result = v4_borrowck_lookup_result(borrow, main_def)
+    v4_literal_say_assert(v4_borrowck_result_status(borrow, borrow_result) == "clean", "borrow status")
+    v4_literal_say_assert(v4_borrowck_result_moves(borrow, borrow_result) == 0, "borrow moves")
+    v4_literal_say_assert(v4_borrowck_result_loans(borrow, borrow_result) == 0, "borrow loans")
+    v4_literal_say_assert(v4_borrowck_result_drops(borrow, borrow_result) == 0, "borrow drops")
+    say "literal-say frontend calls=27 diagnostics=11 borrowed=true bytes=true"
+    say "literal-say errors nonliteral=6 interpolation=2 nul=2 escape=1 spans=true"
+
+    pilot parse_payload = v4_parse_snapshot()
+    pilot hir_payload = v4_hir_snapshot()
+    v4_literal_say_assert(v4_parse_snapshot_restore(parse_payload).contains("ok=1"), "parse source snapshot restore")
+    v4_literal_say_assert(v4_parse_snapshot() == parse_payload, "parse source snapshot bytes")
+    v4_literal_say_assert(v4_hir_snapshot_restore(hir_payload).contains("ok=1"), "HIR source snapshot restore")
+    v4_literal_say_assert(v4_hir_snapshot() == hir_payload, "HIR source snapshot bytes")
+    pilot payload = v4_mir_snapshot()
+    v4_literal_say_assert(v4_mir_snapshot_validate(payload).contains("mir-snapshot-import ok=1"), "snapshot validation")
+    pilot mode = 0
+    repeat until mode >= 10 {
+        v4_literal_say_assert(v4_mir_snapshot_validate(v4_literal_say_forge(payload, mode)).contains("mir-snapshot-import ok=0"), "forged call rejected")
+        mode += 1
+    }
+    v4_literal_say_assert(v4_mir_snapshot_restore_component(payload).contains("ok=1"), "snapshot restore")
+    v4_literal_say_assert(v4_mir_snapshot() == payload, "snapshot byte roundtrip")
+    statement = 0
+    repeat until statement >= 27 {
+        pilot call = v4_mir_stmt_rvalue(mir, body, statement)
+        pilot arg = v4_mir_rvalue_call_arg(mir, body, call, 0)
+        v4_literal_say_assert(v4_mir_rvalue_text(mir, body, arg) == v4_literal_say_expected(statement), "restored semantic bytes")
+        statement += 1
+    }
+    say "literal-say snapshot roundtrip=true forged-rejected=10"
+}
+
+v4_literal_say_smoke()

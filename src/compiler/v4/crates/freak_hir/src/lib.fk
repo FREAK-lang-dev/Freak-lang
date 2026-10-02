@@ -964,7 +964,7 @@ task v4_hir_token_starts_statement(stream_id: int, token_id: int, item_start: in
         give back true
     }
     pilot previous_value = v4_lex_token_value(stream_id, previous)
-    if previous_value == "{" or previous_value == "}" or previous_value == ";" {
+    if v4_lex_token_type(stream_id, previous) == v4_tok_symbol and (previous_value == "{" or previous_value == "}" or previous_value == ";") {
         give back true
     }
     give back v4_hir_has_newline_between(stream_id, previous, token_id)
@@ -999,7 +999,7 @@ task v4_hir_statement_end(stream_id: int, start_token: int, end_token: int) -> i
     repeat until idx >= end_token {
         pilot token_type = v4_lex_token_type(stream_id, idx)
         pilot value = v4_lex_token_value(stream_id, idx)
-        if token_type != v4_tok_trivia {
+        if token_type == v4_tok_symbol {
             if value == "}" and depth == 0 {
                 give back idx
             }
@@ -1007,7 +1007,7 @@ task v4_hir_statement_end(stream_id: int, start_token: int, end_token: int) -> i
                 give back idx
             }
             depth = v4_hir_depth_after_token(depth, value)
-        } else if value == "\n" and depth == 0 {
+        } else if token_type == v4_tok_trivia and value == "\n" and depth == 0 {
             give back idx
         }
         idx += 1
@@ -1019,7 +1019,7 @@ task v4_hir_find_local_assignment(stream_id: int, start_token: int, end_token: i
     pilot idx = start_token
     pilot depth = 0
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
             pilot value = v4_lex_token_value(stream_id, idx)
             if value == "=" and depth == 0 {
                 give back idx
@@ -1035,7 +1035,7 @@ task v4_hir_find_local_annotation_colon(stream_id: int, start_token: int, end_to
     pilot idx = start_token
     pilot depth = 0
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
             pilot value = v4_lex_token_value(stream_id, idx)
             if value == ":" and depth == 0 {
                 give back idx
@@ -1328,7 +1328,7 @@ task v4_hir_lower_local_annotations(hir_id: int, item_id: int) -> void {
     pilot item_end = v4_hir_first_token_at_or_after(stream_id, v4_span_end(item_span))
     pilot idx = item_start
     repeat until idx >= item_end {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_value(stream_id, idx) == "pilot" and v4_hir_pilot_starts_local_decl(stream_id, idx, item_start) {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_keyword and v4_lex_token_value(stream_id, idx) == "pilot" and v4_hir_pilot_starts_local_decl(stream_id, idx, item_start) {
             pilot stmt_end = v4_hir_statement_end(stream_id, idx, item_end)
             pilot pattern_start = v4_hir_skip_trivia(stream_id, idx + 1, stmt_end)
             pilot assignment = v4_hir_find_local_assignment(stream_id, pattern_start, stmt_end)
@@ -5169,6 +5169,81 @@ task v4_hir_shape_type_text_needs_separator_after_lifetime(out: word, value: wor
     give back value != ":" and value != "+" and value != "," and value != ">" and value != ")" and value != "]" and value != ";"
 }
 
+
+-- A string token carries its raw interior. W1 say consumes these bounded
+-- semantic helpers; ordinary word expressions keep their existing contract.
+task v4_hir_word_literal_path_is_valid(path: word) -> bool {
+    if path == "" { give back false }
+    pilot segment_start = 0
+    pilot idx = 0
+    repeat until idx > path.length() {
+        if idx == path.length() or path.char_at(idx) == "." {
+            if idx == segment_start { give back false }
+            pilot segment = v4_slice(path, segment_start, idx)
+            if v4_lex_is_keyword_word(segment) or v4_lex_is_bool_word(segment) { give back false }
+            segment_start = idx + 1
+        } else if idx == segment_start {
+            if not v4_lex_is_ident_start(path.char_at(idx)) { give back false }
+        } else if not v4_lex_is_ident_continue(path.char_at(idx)) {
+            give back false
+        }
+        idx += 1
+    }
+    give back true
+}
+
+task v4_hir_word_literal_issue(raw: word) -> word {
+    -- chr builds a sized word, so this also catches an actual byte zero in
+    -- source loaded from a file rather than just the spelling backslash-zero.
+    pilot nul = chr(0)
+    pilot idx = 0
+    repeat until idx >= raw.length() {
+        pilot ch = raw.char_at(idx)
+        if ch == nul { give back "nul" }
+        if ch == "\\" {
+            idx += 1
+            if idx >= raw.length() { give back "escape" }
+            pilot escaped = raw.char_at(idx)
+            if escaped == "0" or escaped == nul { give back "nul" }
+            if escaped != "n" and escaped != "r" and escaped != "t" and escaped != "\"" and escaped != "\\" {
+                give back "escape"
+            }
+        }
+        idx += 1
+    }
+
+    idx = 0
+    repeat until idx >= raw.length() {
+        if raw.char_at(idx) == "{" {
+            pilot close = idx + 1
+            repeat until close >= raw.length() or raw.char_at(close) == "}" { close += 1 }
+            if close < raw.length() {
+                if v4_hir_word_literal_path_is_valid(v4_slice(raw, idx + 1, close)) { give back "interpolation" }
+                -- A matched body that is not a path stays entirely literal.
+                idx = close
+            }
+        }
+        idx += 1
+    }
+    give back ""
+}
+
+task v4_hir_word_literal_value(raw: word) -> word {
+    if v4_hir_word_literal_issue(raw) != "" { give back "" }
+    pilot value = ""
+    pilot idx = 0
+    repeat until idx >= raw.length() {
+        pilot ch = raw.char_at(idx)
+        if ch == "\\" {
+            idx += 1
+            pilot escaped = raw.char_at(idx)
+            if escaped == "n" { ch = "\n" } else if escaped == "r" { ch = "\r" } else if escaped == "t" { ch = "\t" } else { ch = escaped }
+        }
+        value = value + ch
+        idx += 1
+    }
+    give back value
+}
 
 task v4_hir_shape_type_text(stream_id: int, start_token: int, end_token: int) -> word {
     pilot out = ""

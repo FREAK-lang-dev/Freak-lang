@@ -527,7 +527,7 @@ task v4_mir_find_token_value(stream_id: int, start_token: int, end_token: int, w
 task v4_mir_find_body_token(stream_id: int, start_token: int, end_token: int) -> int {
     pilot idx = start_token
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
             pilot val = v4_lex_token_value(stream_id, idx)
             if val == "{" or val == "=>" {
                 give back idx
@@ -542,7 +542,7 @@ task v4_mir_find_matching_brace(stream_id: int, open_token: int, end_token: int)
     pilot idx = open_token
     pilot depth = 0
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
             pilot val = v4_lex_token_value(stream_id, idx)
             if val == "{" {
                 depth += 1
@@ -562,7 +562,7 @@ task v4_mir_find_matching_paren(stream_id: int, open_token: int, end_token: int)
     pilot idx = open_token
     pilot depth = 0
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
             pilot val = v4_lex_token_value(stream_id, idx)
             if val == "(" {
                 depth += 1
@@ -582,7 +582,7 @@ task v4_mir_find_open_paren_token(stream_id: int, start_token: int, close_token:
     pilot idx = close_token
     pilot depth = 0
     repeat until idx < start_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
             pilot val = v4_lex_token_value(stream_id, idx)
             if val == ")" {
                 depth += 1
@@ -602,7 +602,7 @@ task v4_mir_find_open_brace_token(stream_id: int, start_token: int, close_token:
     pilot idx = close_token
     pilot depth = 0
     repeat until idx < start_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
+        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
             pilot val = v4_lex_token_value(stream_id, idx)
             if val == "}" {
                 depth += 1
@@ -625,7 +625,7 @@ task v4_mir_statement_end(stream_id: int, start_token: int, end_token: int) -> i
         pilot tok_type = v4_lex_token_type(stream_id, idx)
         pilot val = v4_lex_token_value(stream_id, idx)
 
-        if tok_type != v4_tok_trivia {
+        if tok_type == v4_tok_symbol {
             if val == "(" or val == "[" or val == "{" {
                 depth += 1
             } else if val == ")" or val == "]" {
@@ -640,7 +640,7 @@ task v4_mir_statement_end(stream_id: int, start_token: int, end_token: int) -> i
                     give back idx
                 }
             }
-        } else if val == "\n" {
+        } else if tok_type == v4_tok_trivia and val == "\n" {
             if depth == 0 {
                 give back idx
             }
@@ -8578,6 +8578,37 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
     give back block_id
 }
 
+task v4_mir_lower_say_literal_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> int {
+    pilot literal_token = v4_mir_skip_trivia(stream_id, stmt_start + 1)
+    pilot last = v4_mir_last_nontrivia_before(stream_id, stmt_end)
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, stmt_start, stmt_end)
+    if literal_token >= stmt_end or literal_token != last or v4_lex_token_type(stream_id, literal_token) != v4_tok_string {
+        v4_mir_add_type_error(mir_id, stmt_span, "say nonliteral is not yet supported", "W1 say requires exactly one static word literal; word values, expressions, and methods need the later word runtime slices")
+        give back block_id
+    }
+    pilot raw = v4_lex_token_value(stream_id, literal_token)
+    pilot issue = v4_ty_word_literal_issue(raw)
+    pilot literal_span = v4_mir_span_from_tokens(stream_id, literal_token, literal_token + 1)
+    if issue == "nul" {
+        v4_mir_add_type_error(mir_id, literal_span, "say literal contains embedded NUL", "W1 say uses a null-terminated static word; remove byte zero until the sized word slice lands")
+        give back block_id
+    }
+    if issue == "escape" {
+        v4_mir_add_type_error(mir_id, literal_span, "say literal escape is not yet supported", "W1 supports escaped newline, carriage return, tab, double quote, and backslash")
+        give back block_id
+    }
+    if issue == "interpolation" {
+        v4_mir_add_type_error(mir_id, literal_span, "say interpolation is not yet supported", "path holes need the later persisted interpolation plan; W1 say accepts a static literal")
+        give back block_id
+    }
+    pilot value = v4_ty_word_literal_value(raw)
+    pilot literal = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, value, "", 0 - 1, 0 - 1, literal_span, v4_ty_word)
+    pilot call = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, "say", v4_mir_call_say_literal, 0 - 1, 0 - 1, stmt_span, v4_ty_void)
+    v4_mir_set_rvalue_args_payload(mir_id, body_id, call, word_from_int(literal))
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_expr, "", "say", stmt_span, 0 - 1, call)
+    give back block_id
+}
+
 task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> int {
     pilot first = v4_mir_skip_trivia(stream_id, stmt_start)
     if first >= stmt_end {
@@ -8585,7 +8616,9 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
     }
 
     pilot first_val = v4_lex_token_value(stream_id, first)
-    if first_val == "pilot" {
+    if first_val == "say" {
+        give back v4_mir_lower_say_literal_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+    } else if first_val == "pilot" {
         give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "fixed" {
         pilot maybe_pilot = v4_mir_skip_trivia(stream_id, first + 1)

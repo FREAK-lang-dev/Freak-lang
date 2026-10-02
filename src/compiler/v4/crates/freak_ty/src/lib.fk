@@ -13144,3 +13144,11 @@ task v4_ty_shape_field_segment_span(ty_id: int, sig_id: int, field_id: int) -> w
 task v4_ty_const_declared_type_span_for_sig(ty_id: int, sig_id: int) -> word {
     give back v4_hir_const_type_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
 }
+
+task v4_ty_word_literal_issue(raw: word) -> word {
+    give back v4_hir_word_literal_issue(raw)
+}
+
+task v4_ty_word_literal_value(raw: word) -> word {
+    give back v4_hir_word_literal_value(raw)
+}
