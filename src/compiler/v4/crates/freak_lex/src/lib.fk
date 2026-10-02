@@ -267,6 +267,23 @@ task v4_lex_token_value(stream_id: int, token_id: int) -> word {
     give back array_get(v4_lex_values_handle(stream_id), token_id)
 }
 
+-- Grammar readers must not interpret literal payload as punctuation or a
+-- keyword. The raw value remains the authority for literals and display.
+-- This projection reads existing facts only, including for cold/invalid IDs.
+task v4_lex_token_syntax_value(stream_id: int, token_id: int) -> word {
+    if v4_lex_ready == 0 or stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) or token_id < 0 {
+        give back ""
+    }
+    if token_id >= v4_lex_token_count(stream_id) {
+        give back ""
+    }
+    pilot kind = v4_lex_token_type(stream_id, token_id)
+    if kind == v4_tok_string or kind == v4_tok_char or kind == v4_tok_trivia or kind == v4_tok_eof {
+        give back ""
+    }
+    give back v4_lex_token_value(stream_id, token_id)
+}
+
 task v4_lex_token_span(stream_id: int, token_id: int) -> word {
     give back array_get(v4_lex_spans_handle(stream_id), token_id)
 }
