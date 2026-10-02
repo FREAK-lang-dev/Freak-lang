@@ -1,0 +1,28 @@
+extern [C] {
+    task freak_llvm_process_args_count() -> std::ffi::c_isize
+}
+
+task greeting() -> void {
+    say "line1\nline2\t\"quoted\"\\tail"
+    say ""
+    say "literal {1 + 2} and unmatched {"
+    say "UTF-8: café 日本"
+    say "{"
+    say "}"
+    say ";"
+    say "("
+    say ")"
+    say "["
+    say "]"
+    say "task"
+}
+
+task main() -> void {
+    greeting()
+    if freak_llvm_process_args_count() != 1 { say "argc setup failed" }
+}
+
+-- Calls from source use the FREAK entry task, including a void return.
+task invoke_main() -> void {
+    main()
+}

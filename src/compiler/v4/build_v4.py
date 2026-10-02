@@ -11,6 +11,15 @@ import tempfile
 import check_v4 as checks
 
 
+def native_link_command(clang: str, llvm_path: Path, output: Path) -> list[str]:
+    # Match the shipping LLVM CLI: the adapter and core runtime are both needed.
+    return [clang, "-w", "-O2", str(llvm_path),
+            str(checks.RUNTIME_ROOT / "freak_llvm_runtime.c"),
+            str(checks.RUNTIME_ROOT / "freak_runtime.c"),
+            f"-I{checks.RUNTIME_ROOT}", "-o", str(output),
+            *checks.runtime_platform_final_link_args()]
+
+
 def host_target() -> str:
     machine = platform.machine().lower()
     if sys.platform == "linux" and machine in ("x86_64", "amd64"):
@@ -82,7 +91,7 @@ def main() -> int:
                     raise RuntimeError(f"LLVM verification failed:\n{result.stdout}{result.stderr}")
         if not args.emit_llvm:
             result = checks.run_with_heartbeat(
-                [clang, "-O2", str(llvm_path), "-o", str(args.output)],
+                native_link_command(clang, llvm_path, args.output),
                 label="V4 native link", timeout_seconds=120, memory_limit_mb=1024,
             )
             if result.returncode != 0:

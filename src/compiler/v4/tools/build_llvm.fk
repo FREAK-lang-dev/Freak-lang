@@ -82,6 +82,11 @@ task v4_build_llvm_run() -> void {
         say v4_codegen_llvm_diag(codegen, diag_codegen)
         diag_codegen += 1
     }
+    pilot native_error = v4_codegen_llvm_native_module_error(codegen)
+    if native_error != "" {
+        say "v4-native-contract-error=" + native_error
+        errors += 1
+    }
     if v4_build_llvm_abort(errors, "codegen") { give back }
     say "v4-diagnostics lex=" + word_from_int(v4_lex_diag_count(stream)) + " parse=" + word_from_int(v4_parse_diag_count(tree)) + " hir=" + word_from_int(v4_hir_diag_count(hir)) + " resolve=" + word_from_int(v4_resolve_diag_count(resolve)) + " ty=" + word_from_int(v4_ty_diag_count(ty)) + " mir=" + word_from_int(v4_mir_diag_count(mir)) + " borrowck=" + word_from_int(v4_borrowck_diag_count(borrowck)) + " codegen=" + word_from_int(v4_codegen_llvm_diag_count(codegen))
     say "v4-errors=" + word_from_int(errors)

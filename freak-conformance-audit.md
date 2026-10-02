@@ -30,6 +30,19 @@ promoted by this checkpoint. Root
 runtime initialization is reserved for an explicit bootstrap compatibility mode;
 normal language semantics remain as specified in bible section 17.4.
 
+**V4 literal say / W1 (2026-10-02):** `say` of a static word literal now
+executes through the existing runtime with exact `Hello, world!\n` output and
+exit zero. HIR owns escape decoding, TY exposes the semantic helper, and MIR
+uses a typed compiler-owned Call with one static borrowed word argument. Its
+existing snapshot records preserve decoded bytes and reject malformed reserved
+call shapes. Native entry initializes arguments before the FREAK main task;
+the build command links both runtime C files. The literal and LLVM execution
+smokes cover escapes, empty/UTF-8 strings, malformed brace bodies, snapshot
+roundtrip, void main, and exact output. NUL, interpolation paths, nonliteral
+say, and broader native word values fail explicitly. This narrow backend slice
+does not promote general word ownership, interpolation, methods, globals, or
+self-hosting conformance; the bible's language semantics are unchanged.
+
 **V3 process ABI boundary (2026-08-10):** the shipping compiler rejects
 `process::args()`; its conversion to the bible-required `List<word>` remains
 unimplemented even with typed list storage available. V3 callers use `process::args_count()` and

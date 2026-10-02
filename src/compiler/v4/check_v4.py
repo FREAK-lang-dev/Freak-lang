@@ -6440,7 +6440,7 @@ EXECUTABLE_SMOKES = [
             "codegen-llvm-host-line=declare ccc i64 @host_tick(i64)",
             "codegen-llvm-double-symbol=@util_math_double",
             "codegen-llvm-double-line=define ccc i64 @util_math_double(i64)",
-            "codegen-llvm-main-line=define ccc i64 @main()",
+            "codegen-llvm-main-line=define ccc i64 @freak.user.main()",
             "codegen-llvm-call-puts-symbol=@native_tick",
             "codegen-llvm-call-puts-link=msvcrt",
             "codegen-llvm-call-puts-abi=cdecl",
@@ -6463,14 +6463,25 @@ EXECUTABLE_SMOKES = [
             "%rv.0.1 = load i64, ptr %local.0.addr",
             "%rv.0.2 = add i64 %rv.0.0, %rv.0.1",
             "ret i64 %rv.0.2",
-            "codegen-llvm-main-body-symbol=@main",
-            "define ccc i64 @main() {",
+            "codegen-llvm-main-body-symbol=@freak.user.main",
+            "define ccc i64 @freak.user.main() {",
             "%rv.1.1 = call ccc i64 @native_tick(i64 0)",
             "store i64 %rv.1.1, ptr %local.0.addr",
             "%rv.1.3 = call x86_stdcallcc i64 @win_tick(i64 1)",
             "%rv.1.5 = call ccc i64 @host_tick(i64 2)",
             "%rv.1.7 = call ccc i64 @util_math_double(i64 4)",
             "ret i64 %rv.1.14",
+        ],
+    },
+    {
+        "name": "literal say frontend and snapshots",
+        "fixture": "literal_say_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "literal-say frontend calls=27 diagnostics=11 borrowed=true bytes=true",
+            "literal-say errors nonliteral=6 interpolation=2 nul=2 escape=1 spans=true",
+            "literal-say snapshot roundtrip=true forged-rejected=10",
         ],
     },
     {
@@ -6511,11 +6522,19 @@ EXECUTABLE_SMOKES = [
             "llvm-execute-module-exact-5=true",
             "llvm-execute-module-exact-6=true",
             "llvm-execute-module-exact-7=true",
+            "llvm-execute-diag-8=0", "llvm-execute-invalid-target-8=true",
+            "llvm-execute-snapshot-valid-8=true", "llvm-execute-snapshot-restored-8=true",
+            "llvm-execute-module-exact-8=true",
+            "llvm-execute-diag-9=0", "llvm-execute-invalid-target-9=true",
+            "llvm-execute-snapshot-valid-9=true", "llvm-execute-snapshot-restored-9=true",
+            "llvm-execute-module-exact-9=true",
         ],
         "llvm_programs": [("fib_collatz.fk", 166, ""), ("scalar_locals.fk", 42, ""),
                           ("short_circuit.fk", 42, ""), ("short_circuit_order.fk", 42, "ABCD"),
                           ("scalar_numeric.fk", 42, ""), ("scalar_coercions.fk", 42, ""),
-                          ("impl_scalar.fk", 42, ""), ("raw_pointer_coercions.fk", 42, "")],
+                          ("impl_scalar.fk", 42, ""), ("raw_pointer_coercions.fk", 42, ""),
+                          ("hello_world.fk", 0, "Hello, world!\n"),
+                          ("literal_say.fk", 0, 'line1\nline2\t"quoted"\\tail\n\nliteral {1 + 2} and unmatched {\nUTF-8: café 日本\n{\n}\n;\n(\n)\n[\n]\ntask\n')],
         "llvm_build_checks": True,
     },
     {
@@ -12849,11 +12868,20 @@ def check_v4_build_command() -> None:
     error_source.write_text('task main() -> int { give back "wrong" }\n', encoding="utf-8")
     root_source = RUNTIME_BUILD_ROOT / "llvm_root_error.fk"
     root_source.write_text('pilot global = 0\n', encoding="utf-8")
+    say_error_source = RUNTIME_BUILD_ROOT / "llvm_say_error.fk"
+    say_error_source.write_text('task main() -> int { say 42\n give back 0 }\n', encoding="utf-8")
+    word_error_source = RUNTIME_BUILD_ROOT / "llvm_word_error.fk"
+    word_error_source.write_text('task main() -> int { pilot text = "owned later"\n give back 0 }\n', encoding="utf-8")
+    main_error_source = RUNTIME_BUILD_ROOT / "llvm_main_error.fk"
+    main_error_source.write_text('task main(value: int) -> int { give back value }\n', encoding="utf-8")
     executable = RUNTIME_BUILD_ROOT / ("llvm_warning_only.exe" if sys.platform == "win32" else "llvm_warning_only.native")
     for source, output, expected_success, abort_stage in (
         (warning_source, executable, True, None),
         (error_source, RUNTIME_BUILD_ROOT / "llvm_error.ll", False, "mir"),
         (root_source, RUNTIME_BUILD_ROOT / "llvm_root_error.ll", False, "parse"),
+        (say_error_source, RUNTIME_BUILD_ROOT / "llvm_say_error.ll", False, "mir"),
+        (word_error_source, RUNTIME_BUILD_ROOT / "llvm_word_error.ll", False, "codegen"),
+        (main_error_source, RUNTIME_BUILD_ROOT / "llvm_main_error.ll", False, "codegen"),
     ):
         output.unlink(missing_ok=True)
         command = [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output)]
@@ -12862,6 +12890,13 @@ def check_v4_build_command() -> None:
         result = run_with_heartbeat(command, label="V4 build command", timeout_seconds=180, memory_limit_mb=512)
         if (result.returncode == 0) != expected_success or output.exists() != expected_success:
             raise RuntimeError(f"V4 build command rejection mismatch:\n{result.stdout}{result.stderr}")
+        reasons = {
+            say_error_source: "say nonliteral is not yet supported",
+            word_error_source: "native words currently support only literal say operands",
+            main_error_source: "native main parameters are not yet supported",
+        }
+        if source in reasons and reasons[source] not in result.stdout + result.stderr:
+            raise RuntimeError(f"V4 build rejected input without the expected reason: {reasons[source]}")
         if abort_stage and f"v4-aborted-after={abort_stage}" not in result.stdout + result.stderr:
             raise RuntimeError("V4 build did not stop at the stage reporting errors")
         if abort_stage == "parse" and "v4-build-stage=hir" in result.stdout + result.stderr:
@@ -12871,7 +12906,18 @@ def check_v4_build_command() -> None:
     executed = run_with_heartbeat([str(executable)], label="V4 warning-only execute", timeout_seconds=10, memory_limit_mb=128)
     if executed.returncode != 42 or executed.stdout or executed.stderr:
         raise RuntimeError("warning-only V4 build did not execute correctly")
-    print("V4 build command: warning-only executes, errors stop at their owning stage")
+    hello = RUNTIME_BUILD_ROOT / ("hello_world.exe" if sys.platform == "win32" else "hello_world.native")
+    hello.unlink(missing_ok=True)
+    built = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(V4_ROOT / "examples" / "hello_world.fk"), "-o", str(hello)],
+        label="V4 hello world build command", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if built.returncode != 0 or not hello.exists():
+        raise RuntimeError(f"V4 hello world build failed:\n{built.stdout}{built.stderr}")
+    executed = run_with_heartbeat([str(hello)], label="V4 hello world execute", timeout_seconds=10, memory_limit_mb=128)
+    if executed.returncode != 0 or executed.stdout != "Hello, world!\n" or executed.stderr:
+        raise RuntimeError("V4 build command hello world stdout/exit mismatch")
+    print("V4 build command: hello world and warning-only execute, errors stop at their owning stage")
 
 
 def check_executable_smokes(
@@ -12978,7 +13024,10 @@ def check_executable_smokes(
                 native_path = ll_path.with_suffix(".exe" if sys.platform == "win32" else ".native")
                 ll_path.write_text(module, encoding="utf-8")
                 linked = run_with_heartbeat(
-                    [clang, "-O2", str(ll_path), "-o", str(native_path)],
+                    [clang, "-w", "-O2", str(ll_path),
+                     str(RUNTIME_ROOT / "freak_llvm_runtime.c"), str(runtime_c),
+                     include_arg, "-o", str(native_path),
+                     *runtime_platform_final_link_args()],
                     label=f"LLVM module link: {name}", timeout_seconds=120, memory_limit_mb=512,
                 )
                 if linked.returncode != 0:

@@ -3,8 +3,8 @@
 The profiled token-boundary bottleneck is fixed. V4 now assembles and runs scalar
 LLVM modules, including local mutation, scoped bindings, control flow, ordered
 short-circuit evaluation, numeric conversions and scalar associated impl tasks.
-This checkpoint does not complete the handoff's word/runtime or compiler
-self-hosting goal.
+The W1 follow-up below adds literal `say` and runtime linking. General word
+values and compiler self-hosting remain open.
 
 ## Scaling evidence
 
@@ -93,7 +93,7 @@ of the final pointer-write and early-abort changes found no actionable issue.
 | 1: locals/conditions | Scalar execution complete |
 | 2: module/build command | Scalar host execution complete |
 | 3: short circuit | Existing MIR CFG extended for call arguments and ordered operands |
-| 4: words/interpolation/runtime | Pending |
+| 4: words/interpolation/runtime | W1 literal say complete; W2/W3/W4 pending |
 | 5: runtime root initialization | Explicit bootstrap mode selected; implementation pending |
 | 6: impl callable signatures | Declared facts and scalar associated methods complete; broader ABI remains open |
 | 7: dogfood | Strict individual-crate diagnostic baseline recorded; self-host compilation pending |
@@ -109,9 +109,11 @@ aggregate/lend global storage require separate support.
 Globals need distinct HIR/TY/MIR identities, global places/reads and a synthetic
 void module-init body. They must not be seeded as task locals, which would create
 incorrect local moves/drops and break shadowing. Native entry must initialize
-arguments and call module initialization once before user main. The existing LLVM
-runtime does not define V3's generated argument-setup intrinsics, so linking the
-C runtime alone cannot provide `process::arg/count`. Mode/global facts require
+arguments and call module initialization once before user main. The handoff's
+correction is verified: `freak_llvm_setup_args`, `freak_llvm_say`, and the LLVM
+process argument functions are ordinary C in `freak_runtime.c`. Linking both
+runtime C files supplies them; comments in `freak_llvm_runtime.c` claiming they
+are generated intrinsics are stale. Mode/global facts require
 versioned snapshots and rejection of malformed references before mutation.
 
 Words require compiler-owned typed intrinsic contracts. Read-only methods,
@@ -179,6 +181,60 @@ The first crate, `freak_span`, reports unsupported root pilots and word methods.
 The larger strict runs also expose downstream memory/time limits. Those limits
 remain visible here; the token index and runnable scalar programs do not prove
 self-hosting or bounded error-tolerant Meiya on all compiler crates.
+
+## W1 hello-world follow-up
+
+`examples/hello_world.fk` now builds and prints exactly `Hello, world!\n`, with
+exit zero, first verified at 2026-10-02 07:27 UTC. This intentionally narrow
+word slice admits only literal `say`.
+HIR validates/decodes escapes through a TY facade; MIR uses a `#SayLiteral`
+Call with a single static `ConstWord` argument and `void` result. LLVM words
+use the private i64 handle ABI, and decoded literal bytes become private,
+null-terminated globals. Static literals need no ownership release. Newline,
+carriage return, tab, quote, backslash, empty strings, UTF-8, and non-path brace
+bodies are supported. Embedded NUL, unsupported escapes, valid interpolation
+paths, and nonliteral say fail explicitly. Native module assembly rejects
+broader word locals, parameters, returns, and rvalues until W2 cleanup exists.
+
+The native C entry initializes arguments and calls the source FREAK task under
+`@freak.user.main`; source calls still target that task. Zero-argument main
+returning int or void is supported. The build command links the LLVM adapter
+and core runtime, matching the shipping CLI; no runtime-profile or component
+link-plan mechanism was added. The suggested runtime-core branch/046147e is
+unavailable among local refs, so its design remains a later review item.
+
+MIR uses existing Call/ConstWord wire rows and unchanged snapshot vocabulary.
+The reserved intrinsic shape is validated atomically before restore; decoded
+bytes survive the existing text escaping. No HIR interpolation plan is added
+in W1. W2 ownership/drops, W3 persisted interpolation, W4 character-indexed
+methods, and explicit bootstrap root initialization remain open.
+
+The runtime argv reference was also verified independently: linking both C
+files prints exactly `from-argv\n` with arguments `from-argv extra`, exit 3.
+Clean stage-only follow-up timings at pinned scalar checkpoint `db51c43`:
+
+| Native stage | 703 lines | 1,403 lines | Growth |
+| --- | ---: | ---: | ---: |
+| Meiya | 0.042133 s | 0.132976 s | 3.16x |
+| LLVM lowering | 0.062382 s | 0.205893 s | 3.30x |
+
+Every measured stage reports zero diagnostics; whole-process max RSS stays
+below 35 MiB. LLVM lowering includes complete body generation, but excludes
+final module assembly and clang/link execution. These are single-run samples.
+Follow-up stage-only gprof call counts locate repeated TY signature/alias and
+HIR parameter-owner scans. Sampling windows are too short for reliable time
+percentages. This clean result does not resolve error-driven individual-crate
+blowup; that baseline needs repeating after words and root initialization.
+
+Raw argv verification, timings, stage-only profiles, pinned source copies and
+reproduction scripts are in `/workspace/v4-backend-after/words-explorer`.
+
+The focused integrated gate passes the literal/snapshot smoke, LLVM ABI plan
+smoke, ten native programs, and the build command's hello-world, warning-only,
+nonliteral-say, unsupported-word, main-parameter, MIR-error, and strict-root
+checks. Literal delimiter/keyword text is now excluded from structural parsing
+and HIR/MIR scans, so strings like `"{"`, `";"`, or `"pilot"` retain their bytes.
+This preserves the MIR builder's existing token-kind allowlist.
 
 ## Saved measurement artifacts
 

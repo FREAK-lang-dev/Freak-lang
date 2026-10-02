@@ -527,7 +527,7 @@ task v4_mir_find_token_value(stream_id: int, start_token: int, end_token: int, w
 task v4_mir_find_body_token(stream_id: int, start_token: int, end_token: int) -> int {
     pilot idx = start_token
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_type(stream_id, idx) != v4_tok_string and v4_lex_token_type(stream_id, idx) != v4_tok_char {
             pilot val = v4_lex_token_value(stream_id, idx)
             if val == "{" or val == "=>" {
                 give back idx
@@ -542,7 +542,7 @@ task v4_mir_find_matching_brace(stream_id: int, open_token: int, end_token: int)
     pilot idx = open_token
     pilot depth = 0
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_type(stream_id, idx) != v4_tok_string and v4_lex_token_type(stream_id, idx) != v4_tok_char {
             pilot val = v4_lex_token_value(stream_id, idx)
             if val == "{" {
                 depth += 1
@@ -562,7 +562,7 @@ task v4_mir_find_matching_paren(stream_id: int, open_token: int, end_token: int)
     pilot idx = open_token
     pilot depth = 0
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_type(stream_id, idx) != v4_tok_string and v4_lex_token_type(stream_id, idx) != v4_tok_char {
             pilot val = v4_lex_token_value(stream_id, idx)
             if val == "(" {
                 depth += 1
@@ -582,7 +582,7 @@ task v4_mir_find_open_paren_token(stream_id: int, start_token: int, close_token:
     pilot idx = close_token
     pilot depth = 0
     repeat until idx < start_token {
-        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_type(stream_id, idx) != v4_tok_string and v4_lex_token_type(stream_id, idx) != v4_tok_char {
             pilot val = v4_lex_token_value(stream_id, idx)
             if val == ")" {
                 depth += 1
@@ -602,7 +602,7 @@ task v4_mir_find_open_brace_token(stream_id: int, start_token: int, close_token:
     pilot idx = close_token
     pilot depth = 0
     repeat until idx < start_token {
-        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_type(stream_id, idx) != v4_tok_string and v4_lex_token_type(stream_id, idx) != v4_tok_char {
             pilot val = v4_lex_token_value(stream_id, idx)
             if val == "}" {
                 depth += 1
@@ -625,7 +625,7 @@ task v4_mir_statement_end(stream_id: int, start_token: int, end_token: int) -> i
         pilot tok_type = v4_lex_token_type(stream_id, idx)
         pilot val = v4_lex_token_value(stream_id, idx)
 
-        if tok_type == v4_tok_symbol {
+        if tok_type != v4_tok_trivia and tok_type != v4_tok_string and tok_type != v4_tok_char {
             if val == "(" or val == "[" or val == "{" {
                 depth += 1
             } else if val == ")" or val == "]" {

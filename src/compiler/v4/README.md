@@ -66,7 +66,7 @@ Ordinary signature lookup stays separate for returned-loan contracts. Impl
 borrowed returns receive an explicit unsupported-contract diagnostic; generic
 facts still describe declared types and do not monomorphize an impl.
 
-This is a partial backend checkpoint. Word/runtime lowering, aggregate layout,
+This is a partial backend checkpoint. General word values, aggregate layout,
 generic monomorphization, receiver/lend ABI, drops, and compiler-crate
 self-hosting remain open. Runtime root initialization will use an explicit
 bootstrap compatibility mode; normal root scope continues to follow bible
@@ -76,6 +76,47 @@ proof.
 
 The measured before/after results, crate diagnostics, and remaining handoff
 contracts are tracked in [BACKEND_CHECKPOINT.md](BACKEND_CHECKPOINT.md).
+
+### Literal say (W1)
+
+The native word slice supports `say` of one static string literal:
+
+```freak
+task main() -> int {
+    say "Hello, world!"
+    give back 0
+}
+```
+
+```sh
+python src/compiler/v4/build_v4.py src/compiler/v4/examples/hello_world.fk -o build/hello-world-v4
+./build/hello-world-v4
+```
+
+HIR owns escape validation/decoding through a TY facade. MIR stores the decoded
+bytes in a `ConstWord` argument to the compiler-owned `#SayLiteral` Call, with
+one static borrowed `word` argument and a `void` result. LLVM emits a private
+null-terminated global and passes its pointer as the runtime's private `i64`
+handle. Native entry initializes argc/argv, then calls the renamed source task
+`@freak.user.main`; zero-argument `int` and `void` entries are supported. Source
+calls and callback targets retain the FREAK task ABI. Native linking includes
+both `freak_llvm_runtime.c` and `freak_runtime.c`, as the shipping CLI does.
+This is a fixed bootstrap link command, without new runtime-profile facts.
+
+The literal slice supports UTF-8 bytes, empty strings, escaped newline/carriage
+return/tab/quote/backslash, and literal malformed or unmatched brace bodies.
+Embedded NUL, unsupported escapes, valid interpolation paths, and nonliteral
+`say` operands receive explicit diagnostics. Module assembly also rejects word
+locals, parameters, returns, and other word rvalues until ownership cleanup
+lands. Existing broader plan-only codegen facts remain available.
+
+The MIR wire vocabulary and version stay unchanged: this uses existing
+`ConstWord` and `Call` records, and escaped text survives restoration. The
+reserved intrinsic's exact shape is validated before restore. The registered
+`literal_say_smoke.fk` and LLVM execution gate cover these boundaries, snapshot
+roundtrip, exact hello-world output, runtime argument setup, and the void entry.
+Word values/drops (W2), persisted interpolation (W3), character-indexed methods
+(W4), and explicit bootstrap root initialization remain separate work.
 
 ## Post-Bootstrap Sequencing
 
