@@ -665,6 +665,30 @@ task v4_mir_expr_text(stream_id: int, start_token: int, end_token: int) -> word 
     give back out
 }
 
+-- Pattern text crosses a token boundary into the existing compact pattern
+-- readers. Preserve literal quotes so their delimiters remain data there too.
+task v4_mir_pattern_text(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot out = ""
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        if tok_type != v4_tok_trivia {
+            if out != "" { out = out + " " }
+            pilot value = v4_lex_token_value(stream_id, idx)
+            if tok_type == v4_tok_string {
+                out = out + "\"" + value + "\""
+            } else if tok_type == v4_tok_char {
+                if value == "'" { value = "\\'" }
+                out = out + "'" + value + "'"
+            } else {
+                out = out + value
+            }
+        }
+        idx += 1
+    }
+    give back out
+}
+
 task v4_mir_last_nontrivia_before(stream_id: int, end_token: int) -> int {
     pilot idx = end_token - 1
     repeat until idx < 0 {
@@ -6022,16 +6046,56 @@ task v4_mir_pattern_is_simple_local(pattern: word) -> bool {
     give back true
 }
 
+task v4_mir_pattern_literal_end(pattern: word, start_pos: int, end_pos: int) -> int {
+    if start_pos < 0 or start_pos >= end_pos or start_pos >= pattern.length() { give back start_pos }
+    pilot quote = pattern.char_at(start_pos)
+    if quote != "\"" and quote != "'" { give back start_pos }
+    pilot idx = start_pos + 1
+    repeat until idx >= end_pos or idx >= pattern.length() {
+        pilot ch = pattern.char_at(idx)
+        if ch == "\\" {
+            idx += 2
+        } else if ch == quote {
+            give back idx + 1
+        } else {
+            idx += 1
+        }
+    }
+    give back start_pos
+}
+
 task v4_mir_pattern_find_top_level_char(pattern: word, wanted: word, start_pos: int, end_pos: int) -> int {
     pilot depth = 0
     pilot idx = start_pos
     repeat until idx >= end_pos {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == wanted {
-            give back idx
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, end_pos)
+        if literal_end > idx {
+            idx = literal_end
+        } else {
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == wanted {
+                give back idx
+            }
+            depth = v4_ty_type_depth_after_char(depth, ch)
+            idx += 1
         }
-        depth = v4_ty_type_depth_after_char(depth, ch)
-        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_pattern_scope_separator(pattern: word) -> int {
+    pilot idx = 0
+    pilot depth = 0
+    repeat until idx + 1 >= pattern.length() {
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length())
+        if literal_end > idx {
+            idx = literal_end
+        } else {
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == ":" and pattern.char_at(idx + 1) == ":" { give back idx }
+            depth = v4_ty_type_depth_after_char(depth, ch)
+            idx += 1
+        }
     }
     give back 0 - 1
 }
@@ -6068,13 +6132,18 @@ task v4_mir_tuple_pattern_slot_count(pattern: word) -> int {
     pilot depth = 0
     pilot idx = 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            count += 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                count += 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
     give back count
 }
@@ -6090,17 +6159,22 @@ task v4_mir_tuple_pattern_slot(pattern: word, slot_id: int) -> word {
     pilot depth = 0
     pilot idx = 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            if current == slot_id {
-                give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
-            }
-            current += 1
-            segment_start = idx + 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                if current == slot_id {
+                    give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
+                }
+                current += 1
+                segment_start = idx + 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
 
     if current == slot_id and segment_start < pattern.length() - 1 {
@@ -6125,13 +6199,18 @@ task v4_mir_bracket_pattern_slot_count(pattern: word) -> int {
     pilot depth = 0
     pilot idx = 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            count += 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                count += 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
     give back count
 }
@@ -6147,17 +6226,22 @@ task v4_mir_bracket_pattern_slot(pattern: word, slot_id: int) -> word {
     pilot depth = 0
     pilot idx = 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            if current == slot_id {
-                give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
-            }
-            current += 1
-            segment_start = idx + 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                if current == slot_id {
+                    give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
+                }
+                current += 1
+                segment_start = idx + 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
 
     if current == slot_id and segment_start < pattern.length() - 1 {
@@ -6206,13 +6290,18 @@ task v4_mir_named_brace_pattern_field_count(pattern: word) -> int {
     pilot depth = 0
     pilot idx = open_pos + 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            count += 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                count += 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
     give back count
 }
@@ -6229,17 +6318,22 @@ task v4_mir_named_brace_pattern_field(pattern: word, field_id: int) -> word {
     pilot depth = 0
     pilot idx = open_pos + 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            if current == field_id {
-                give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
-            }
-            current += 1
-            segment_start = idx + 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                if current == field_id {
+                    give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
+                }
+                current += 1
+                segment_start = idx + 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
 
     if current == field_id and segment_start < pattern.length() - 1 {
@@ -6280,7 +6374,7 @@ task v4_mir_is_route_destructure_pattern(pattern: word) -> bool {
     if v4_mir_named_brace_pattern_head(pattern) != "" {
         give back true
     }
-    give back v4_mir_path_scope_separator(pattern) >= 0
+    give back v4_mir_pattern_scope_separator(pattern) >= 0
 }
 
 task v4_mir_destructure_pattern_kind(pattern: word) -> word {
@@ -6616,7 +6710,7 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, for_token, stmt_end)
     }
 
-    pilot loop_pattern = v4_mir_expr_text(stream_id, each_token + 1, in_token)
+    pilot loop_pattern = v4_mir_pattern_text(stream_id, each_token + 1, in_token)
     pilot iterable_text = v4_mir_expr_text(stream_id, in_token + 1, open_token)
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, for_token, stmt_end)
     pilot loop_scope_span = v4_mir_span_from_tokens(stream_id, open_token, stmt_end)
@@ -6926,7 +7020,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         declared_ty = v4_ty_impl_local_annotation_type_at_offset(ty_id, v4_mir_body_def(mir_id, body_id), pilot_offset)
     }
 
-    pilot pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, pattern_start, pattern_end))
+    pilot pattern = v4_mir_pattern_trim(v4_mir_pattern_text(stream_id, pattern_start, pattern_end))
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, pilot_token, stmt_end)
     if v4_ty_is_known(declared_ty) {
         if not v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), stmt_span, declared_ty, "invalid local annotation type", "local declaration " + pattern) {
@@ -7180,7 +7274,7 @@ task v4_mir_when_pattern_literal_rvalue(mir_id: int, body_id: int, pattern: word
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, v4_mir_when_pattern_bool_text(pattern), "", 0 - 1, 0 - 1, stmt_span, v4_ty_bool)
     }
     if v4_mir_when_pattern_is_string_literal(pattern) {
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, pattern, "", 0 - 1, 0 - 1, stmt_span, v4_ty_word)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, v4_slice(pattern, 1, pattern.length() - 1), "", 0 - 1, 0 - 1, stmt_span, v4_ty_word)
     }
     if v4_mir_when_pattern_is_numeric_literal(pattern) {
         if v4_index_of_from(pattern, ".", 0) >= 0 {
@@ -7341,7 +7435,7 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
         give back cond_rvalue
     }
 
-    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
+    pilot route_pattern_sep = v4_mir_pattern_scope_separator(pattern)
     pilot treat_simple_name_as_route = bare_names_are_route_candidates and v4_mir_pattern_is_simple_local(pattern)
     if route_pattern_sep >= 0 or (v4_ty_is_route_type(ty_id, source_ty) and v4_ty_route_has_case(ty_id, source_ty, pattern)) or treat_simple_name_as_route {
         if v4_ty_is_known(source_ty) and not v4_ty_is_route_type(ty_id, source_ty) {
@@ -7614,7 +7708,7 @@ task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: w
         give back true
     }
 
-    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
+    pilot route_pattern_sep = v4_mir_pattern_scope_separator(pattern)
     if route_pattern_sep >= 0 or (v4_ty_is_route_type(ty_id, source_ty) and v4_ty_route_has_case(ty_id, source_ty, pattern)) {
         pilot route_name = source_ty
         pilot case_name = pattern
@@ -7700,7 +7794,7 @@ task v4_mir_when_pattern_route_case(mir_id: int, pattern: word, source_ty: word)
         give back case_name
     }
 
-    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
+    pilot route_pattern_sep = v4_mir_pattern_scope_separator(pattern)
     if route_pattern_sep >= 0 or v4_ty_route_has_case(ty_id, source_ty, pattern) {
         pilot route_name = source_ty
         pilot case_name = pattern
@@ -7898,7 +7992,7 @@ task v4_mir_try_lower_route_pattern_bindings(mir_id: int, body_id: int, block_id
         give back true
     }
 
-    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
+    pilot route_pattern_sep = v4_mir_pattern_scope_separator(pattern)
     if route_pattern_sep >= 0 or (v4_ty_is_route_type(ty_id, source_ty) and v4_ty_route_has_case(ty_id, source_ty, pattern)) or (bare_names_are_route_candidates and v4_mir_pattern_is_simple_local(pattern)) {
         give back true
     }
@@ -7952,7 +8046,7 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
                   if got_arrow >= 0 {
                       v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe duplicate got arm", "got already appears in this check")
                   } else {
-                      got_pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, arm_first + 1, arrow))
+                      got_pattern = v4_mir_pattern_trim(v4_mir_pattern_text(stream_id, arm_first + 1, arrow))
                       if not v4_mir_checked_pattern_supported(got_pattern) {
                           v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe arm malformed", "use got pattern -> ...")
                       } else {
@@ -8068,7 +8162,7 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
                       if close_paren != head_last {
                           malformed = true
                       } else {
-                          bind_pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, open_paren + 1, close_paren))
+                          bind_pattern = v4_mir_pattern_trim(v4_mir_pattern_text(stream_id, open_paren + 1, close_paren))
                           if not v4_mir_checked_pattern_supported(bind_pattern) {
                               malformed = true
                           }
@@ -8179,7 +8273,7 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
             idx = check_close
         }
         if idx < check_close {
-            pilot pattern = v4_mir_expr_text(stream_id, idx, arrow)
+            pilot pattern = v4_mir_pattern_text(stream_id, idx, arrow)
             pilot arm_end = v4_mir_when_arm_body_end(stream_id, arrow + 1, check_close)
             pilot arm_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
             pilot trimmed_pattern = v4_mir_pattern_trim(pattern)
@@ -8262,7 +8356,7 @@ task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_
         give back block_id
     }
 
-    pilot pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, on_token + 1, from_token))
+    pilot pattern = v4_mir_pattern_trim(v4_mir_pattern_text(stream_id, on_token + 1, from_token))
     pilot subject_text = v4_mir_expr_text(stream_id, from_token + 1, open_token)
     if pattern == "" or subject_text == "" {
         v4_mir_add_type_error(mir_id, stmt_span, "only on statement malformed", "use only on Route::Case from value with a guarded block")
@@ -8416,7 +8510,7 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
             idx = when_close
         }
         if idx < when_close {
-            pilot pattern = v4_mir_expr_text(stream_id, idx, arrow)
+            pilot pattern = v4_mir_pattern_text(stream_id, idx, arrow)
             pilot arm_end = v4_mir_when_arm_body_end(stream_id, arrow + 1, when_close)
             pilot arm_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
             pilot pattern_route_case = ""
