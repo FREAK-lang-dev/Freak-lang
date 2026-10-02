@@ -178,8 +178,8 @@ task mir_index_run() -> void {
 
     pilot other = v4_mir_add_block(mir, body, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot empty = v4_mir_add_block(mir, body, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    -- LLVM emission passes ConstBool text through. Use explicit i1 operands
-    -- so the physical-order assertion does not depend on source spellings.
+    -- Imported legacy numeric Bool values normalize to canonical LLVM operands;
+    -- the physical-order assertion must still select the first true condition.
     pilot yes_value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_bool, "1", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_bool)
     pilot no_value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_bool, "0", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_bool)
     pilot one = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, V4_NO_SPAN, v4_ty_int)
@@ -194,7 +194,7 @@ task mir_index_run() -> void {
     mir_index_assert(v4_mir_block_first_stmt(mir, body, 0) == 1 and v4_mir_block_next_stmt(mir, body, 0, 1) == 3 and v4_mir_block_next_stmt(mir, body, 0, 3) < 0, "entry physical order")
     mir_index_assert(v4_mir_block_first_stmt(mir, body, other) == 0 and v4_mir_block_next_stmt(mir, body, other, 0) == 2 and v4_mir_block_next_stmt(mir, body, other, 2) == 4 and v4_mir_block_first_stmt(mir, body, empty) < 0, "interleaved physical order")
     pilot text = v4_codegen_llvm_body_line_from_mir(mir, body)
-    mir_index_assert(v4_codegen_llvm_block_terminator_line(mir, body, 0) == "  br i1 1, label %bb1, label %bb2\n", "first condition selected")
+    mir_index_assert(v4_codegen_llvm_block_terminator_line(mir, body, 0) == "  br i1 true, label %bb1, label %bb2\n", "first condition selected")
     mir_index_assert(text.contains("ret i64 1") and not text.contains("%rv.0." + word_from_int(dead)), "first return suppression")
     pilot wire = v4_mir_snapshot()
     v4_mir_invalidate_body_lookup_index(mir)
