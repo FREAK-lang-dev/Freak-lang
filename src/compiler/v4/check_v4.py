@@ -1041,6 +1041,23 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "token boundary index",
+        "fixture": "token_boundary_index_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "boundary-live=true",
+            "boundary-empty=true",
+            "boundary-unsorted-start=true",
+            "boundary-unsorted-end=true",
+            "boundary-malformed-append=true",
+            "boundary-restored=true",
+            "boundary-snapshot-exact=true",
+            "boundary-no-index=true",
+            "boundary-reused-slot=true",
+        ],
+    },
+    {
         "name": "lex baseline",
         "fixture": "lex_smoke.fk",
         "expect": [

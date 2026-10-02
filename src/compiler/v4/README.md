@@ -485,6 +485,18 @@ freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> fr
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
 
+Token-boundary lookup uses a lexer-owned derived index of decoded start/end
+offsets. Each column records its ordering during token construction, so ordinary
+streams use binary search while unordered or malformed restored spans preserve
+the first matching token in original order. Parser queries retain `end > offset`;
+HIR, TY, and MIR construction retain `start >= offset`, including trivia and
+zero-width EOF. Missing index storage falls back to the original span query.
+Append and stream-slot restore maintain the index; restore releases the replaced
+index array. It is derived storage, not an additional snapshot field or a new
+TY/MIR token-facing dependency. `token_boundary_index_smoke.fk` compares both
+contracts against their original linear queries over live, empty, malformed,
+unordered, restored, appended, and reused streams.
+
 `freak_target` is the host-independent authority for the four current release
 target identities and their canonical metadata: architecture, OS/environment,
 pointer width, endianness, C data model, object format, symbolic link/entry

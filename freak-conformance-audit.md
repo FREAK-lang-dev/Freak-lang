@@ -7,6 +7,13 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**V4 token-boundary scaling (2026-10-02):** a derived lexer-owned start/end index
+removes repeated full-stream scans from parser, HIR, TY, and MIR construction.
+The existing `start >= offset` and `end > offset` contracts, including unordered
+and malformed restored spans, are compared with the original linear queries by
+`token_boundary_index_smoke.fk`. Snapshot vocabulary and language status are
+unchanged; this optimization does not promote backend or ownership conformance.
+
 **V3 process ABI boundary (2026-08-10):** the shipping compiler rejects
 `process::args()`; its conversion to the bible-required `List<word>` remains
 unimplemented even with typed list storage available. V3 callers use `process::args_count()` and

@@ -3947,16 +3947,7 @@ task v4_ty_signature_call_abi(ty_id: int, sig_id: int) -> word {
 }
 
 task v4_ty_first_token_at_or_after(stream_id: int, offset: int) -> int {
-    pilot idx = 0
-    pilot count = v4_lex_token_count(stream_id)
-    repeat until idx >= count {
-        pilot token_span = v4_lex_token_span(stream_id, idx)
-        if v4_span_start(token_span) >= offset {
-            give back idx
-        }
-        idx += 1
-    }
-    give back count
+    give back v4_hir_first_token_at_or_after(stream_id, offset)
 }
 
 task v4_ty_skip_trivia(stream_id: int, token_id: int) -> int {

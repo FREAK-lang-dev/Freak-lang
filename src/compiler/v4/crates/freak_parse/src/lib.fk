@@ -332,16 +332,7 @@ task v4_parse_make_span(stream_id: int, start_token: int, end_token: int) -> wor
 }
 
 task v4_parse_first_token_at_or_after(stream_id: int, offset: int) -> int {
-    pilot token_idx = 0
-    pilot token_count = v4_lex_token_count(stream_id)
-    repeat until token_idx >= token_count {
-        pilot token_span = v4_lex_token_span(stream_id, token_idx)
-        if v4_span_end(token_span) > offset {
-            give back token_idx
-        }
-        token_idx += 1
-    }
-    give back token_count
+    give back v4_lex_first_boundary(stream_id, offset, true)
 }
 
 task v4_parse_node_start_token(tree_id: int, node_id: int) -> int {

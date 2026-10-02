@@ -925,15 +925,7 @@ task v4_hir_add_local_annotation(hir_id: int, item_id: int, stmt_span: word, typ
 }
 
 task v4_hir_first_token_at_or_after(stream_id: int, offset: int) -> int {
-    pilot token_id = 0
-    pilot token_count = v4_lex_token_count(stream_id)
-    repeat until token_id >= token_count {
-        if v4_span_start(v4_lex_token_span(stream_id, token_id)) >= offset {
-            give back token_id
-        }
-        token_id += 1
-    }
-    give back token_count
+    give back v4_lex_first_boundary(stream_id, offset, false)
 }
 
 task v4_hir_skip_trivia(stream_id: int, token_id: int, end_token: int) -> int {
