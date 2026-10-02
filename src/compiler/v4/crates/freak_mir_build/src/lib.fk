@@ -312,6 +312,39 @@ task v4_mir_wire_single_try_propagation(mir_id: int, body_id: int, block_id: int
     give back continue_block
 }
 
+task v4_mir_rvalue_needs_control_flow(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if rvalue_id < 0 { give back false }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_try { give back true }
+    if kind == v4_mir_rvalue_binary {
+        pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+        if op == v4_mir_bin_and or op == v4_mir_bin_or { give back true }
+    }
+    if not v4_mir_rvalue_can_contain_child_tries(kind) { give back false }
+    if v4_mir_rvalue_needs_control_flow(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)) { give back true }
+    if v4_mir_rvalue_needs_control_flow(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)) { give back true }
+    if kind == v4_mir_rvalue_call {
+        pilot arg_id = 0
+        repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
+            if v4_mir_rvalue_needs_control_flow(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id)) { give back true }
+            arg_id += 1
+        }
+    }
+    give back false
+}
+
+-- Values evaluated before a later CFG expression must survive that expression
+-- without replaying calls or reloading locals after its side effects.
+task v4_mir_capture_control_flow_value(mir_id: int, body_id: int, block_id: int, stmt_span: word, rvalue_id: int) -> int {
+    if rvalue_id < 0 { give back rvalue_id }
+    pilot temp_name = v4_mir_unique_local_name(mir_id, body_id, "_eval_sc")
+    pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot temp_local = v4_mir_add_local(mir_id, body_id, temp_name, value_ty, stmt_span)
+    pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_local, temp_name, 0 - 1, stmt_span, value_ty)
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, temp_name, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_span, temp_place, rvalue_id)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, temp_name, temp_name, 0 - 1, 0 - 1, v4_mir_rvalue_span(mir_id, body_id, rvalue_id), value_ty)
+}
+
 task v4_mir_wire_control_flow_rvalue(mir_id: int, body_id: int, block_id: int, stmt_span: word, rvalue_id: int) -> int {
     if rvalue_id < 0 {
         give back block_id
@@ -360,10 +393,35 @@ task v4_mir_wire_control_flow_rvalue(mir_id: int, body_id: int, block_id: int, s
     }
 
     pilot current_block = block_id
+    if kind == v4_mir_rvalue_call and v4_mir_rvalue_needs_control_flow(mir_id, body_id, rvalue_id) {
+        pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        pilot first_arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
+        if lhs >= 0 and lhs != first_arg {
+            current_block = v4_mir_wire_control_flow_rvalue(mir_id, body_id, current_block, stmt_span, lhs)
+            lhs = v4_mir_capture_control_flow_value(mir_id, body_id, current_block, stmt_span, lhs)
+        }
+        pilot payload = ""
+        pilot arg_id = 0
+        repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
+            pilot arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id)
+            current_block = v4_mir_wire_control_flow_rvalue(mir_id, body_id, current_block, stmt_span, arg)
+            pilot captured = v4_mir_capture_control_flow_value(mir_id, body_id, current_block, stmt_span, arg)
+            if lhs == arg { lhs = captured }
+            payload = v4_mir_call_args_payload_append(payload, captured)
+            arg_id += 1
+        }
+        v4_mir_set_rvalue_children(mir_id, body_id, rvalue_id, lhs, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id))
+        v4_mir_set_rvalue_args_payload(mir_id, body_id, rvalue_id, payload)
+        give back current_block
+    }
     if v4_mir_rvalue_can_contain_child_tries(kind) {
         pilot left = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
         pilot right = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
         current_block = v4_mir_wire_control_flow_rvalue(mir_id, body_id, current_block, stmt_span, left)
+        if left >= 0 and v4_mir_rvalue_needs_control_flow(mir_id, body_id, right) {
+            left = v4_mir_capture_control_flow_value(mir_id, body_id, current_block, stmt_span, left)
+            v4_mir_set_rvalue_children(mir_id, body_id, rvalue_id, left, right)
+        }
         current_block = v4_mir_wire_control_flow_rvalue(mir_id, body_id, current_block, stmt_span, right)
     }
     if kind == v4_mir_rvalue_try {

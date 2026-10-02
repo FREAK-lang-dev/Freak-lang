@@ -1,0 +1,25 @@
+-- The harness supplies program paths followed by the host TargetSpec triple.
+-- Emitted modules are compiled and executed, including short-circuit RHS abort.
+task v4_llvm_execute_run() -> void {
+    pilot idx = 0
+    repeat until idx >= 5 {
+        pilot source = fs::read(process::arg(idx + 1))
+        pilot stream = v4_lex_text(idx, source)
+        pilot tree = v4_parse_stream(idx, stream)
+        pilot hir = v4_hir_lower_tree(idx, tree)
+        pilot resolve = v4_resolve_lower_hir(idx, hir)
+        pilot ty = v4_ty_lower_resolve(idx, resolve)
+        pilot mir = v4_mir_lower_ty(idx, ty)
+        pilot borrowck = v4_borrowck_check_mir(idx, mir)
+        pilot codegen = v4_codegen_llvm_lower_mir(idx, mir)
+        pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_borrowck_diag_count(borrowck) + v4_codegen_llvm_diag_count(codegen)
+        say "llvm-execute-diag-" + word_from_int(idx) + "=" + word_from_int(total)
+        say "llvm-execute-invalid-target-" + word_from_int(idx) + "=" + word_from_bool(v4_codegen_llvm_module_text(codegen, "invalid") == "")
+        say "@@LLVM-MODULE-BEGIN"
+        say v4_codegen_llvm_module_text(codegen, v4_target_spec_new(process::arg(6)))
+        say "@@LLVM-MODULE-END"
+        idx += 1
+    }
+}
+
+v4_llvm_execute_run()

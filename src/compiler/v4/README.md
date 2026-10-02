@@ -19,6 +19,44 @@ The **Bootstrap V4** finish line is considered met when all of the following rem
 
 Anything beyond this marker belongs to the next phase: richer language coverage, deeper Meiya borrow analysis, and backend/codegen integration. Do not push those concerns back into `freak_driver` to move faster; that is how the rewrite loop returns.
 
+## Runnable LLVM Scalar Checkpoint
+
+`freak_codegen_llvm` now emits entry-block storage per MIR local identity,
+parameter stores, local loads, initializer/assignment stores, computed branch
+conditions, and complete scalar bodies. Internal LLVM values use dotted names
+so source names cannot collide with block labels or temporaries. Sibling scopes
+with the same local name retain separate storage. `break` and `continue` emit
+their MIR edges, and explicit void returns emit `ret void`.
+
+`v4_codegen_llvm_module_text(codegen_id, target_spec)` assembles a module using
+the validated `freak_target` triple, external declarations, and complete bodies;
+definition headers from declaration-plan metadata are not emitted twice.
+Invalid targets or codegen IDs yield an empty module. The bootstrap build tool
+keeps emission in the backend and invokes clang only for host native linking:
+
+```sh
+python src/compiler/v4/build_v4.py src/compiler/v4/examples/fib_collatz.fk -o build/v4-demo
+python src/compiler/v4/build_v4.py src/compiler/v4/examples/fib_collatz.fk --emit-llvm -o build/v4-demo.ll
+python src/compiler/v4/check_v4.py --smoke "LLVM module execution"
+```
+
+The executable gate compiles the emitted modules with clang and checks results,
+not just LLVM substrings: Fibonacci/Collatz returns 166; storage, sibling scopes,
+loop exits, numeric operations, and short-circuit cases return 42. The latter
+include an aborting RHS, a third call argument, and exact `ABCD` side-effect
+ordering through call arguments and ordinary binary operands. MIR retains
+short-circuit ownership and captures earlier operands before a later CFG split.
+Numeric emission follows TY's common operand type with widening conversions,
+floating comparisons, and unsigned comparison/division/remainder opcodes.
+
+This is a partial backend checkpoint. Word/runtime lowering, aggregate layout,
+generic monomorphization, impl callable descriptors, drops, and compiler-crate
+self-hosting remain open. Runtime root initialization will use an explicit
+bootstrap compatibility mode; normal root scope continues to follow bible
+section 17.4. Cross-target module text is available, but only host linking is
+exercised here; the existing FFI metadata checks are not a complete native ABI
+proof.
+
 ## Post-Bootstrap Sequencing
 
 After the bootstrap slice, V4 work advances by dependency strata rather than by

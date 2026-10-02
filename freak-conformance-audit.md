@@ -14,6 +14,16 @@ and malformed restored spans, are compared with the original linear queries by
 `token_boundary_index_smoke.fk`. Snapshot vocabulary and language status are
 unchanged; this optimization does not promote backend or ownership conformance.
 
+**V4 runnable scalar backend (2026-10-02):** local-ID allocas, parameter/local
+loads and stores, computed branch conditions, loop exits, void returns, numeric
+operand widening, and validated-target module assembly now execute through clang
+in `codegen_llvm_execute_smoke.fk`. Fibonacci/Collatz returns 166. Short-circuit
+checks cover an aborting RHS, ordered call arguments, and exact side-effect
+output. The handoff's remaining word/runtime, global initialization, impl,
+aggregate, and self-hosting work is not promoted by this checkpoint. Root
+runtime initialization is reserved for an explicit bootstrap compatibility mode;
+normal language semantics remain as specified in bible section 17.4.
+
 **V3 process ABI boundary (2026-08-10):** the shipping compiler rejects
 `process::args()`; its conversion to the bible-required `List<word>` remains
 unimplemented even with typed list storage available. V3 callers use `process::args_count()` and

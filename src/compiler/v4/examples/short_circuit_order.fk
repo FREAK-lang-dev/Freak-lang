@@ -1,0 +1,25 @@
+extern [C] {
+    task putchar(c: std::ffi::c_int) -> std::ffi::c_int
+    task abort() -> void
+}
+
+task mark(c: int) -> bool {
+    putchar(c)
+    give back true
+}
+
+task fail() -> bool {
+    abort()
+    give back true
+}
+
+task third(a: bool, b: bool, c: bool) -> bool {
+    give back a and b and c
+}
+
+task main() -> int {
+    pilot a = third(mark(65), mark(66) or fail(), true)
+    pilot b = mark(67) == (mark(68) or fail())
+    if a and b { give back 42 }
+    give back 1
+}

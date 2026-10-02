@@ -5986,8 +5986,8 @@ EXECUTABLE_SMOKES = [
             "extern-callback-call-c-op=hooks . on_tick",
             "extern-callback-call-c-target-kind=UsePlace",
             "extern-callback-call-current-line=call ccc ptr @current() nounwind",
-            "extern-callback-call-cb-line=call ccc i64 %cb(i64 7) nounwind",
-            "extern-callback-call-now-line=call ccc i64 %now(i64 8) nounwind",
+            "extern-callback-call-cb-line=call ccc i64 %rv.0.0(i64 7) nounwind",
+            "extern-callback-call-now-line=call ccc i64 %rv.0.4(i64 8) nounwind",
             "extern-callback-call-field-line=call ccc i64 %hooks_on_tick(i64 9) nounwind",
             "extern-callback-call-bad-target-diag-count=1",
             "extern-callback-call-bad-target-message=call target is not callable",
@@ -6074,7 +6074,7 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "raw-ptr-is-null-good-ty-diag-count=0",
             "raw-ptr-is-null-good-mir-diag-count=0",
-            "= icmp eq ptr %p, null",
+            "= icmp eq ptr %rv.0.1, null",
             "raw-ptr-is-null-bad-mir-diag-count=1",
             "raw-ptr-is-null-bad-diag0-message=is_null takes no arguments",
             "raw-ptr-is-null-bad-diag0-help=*constint.is_null() must be called without arguments",
@@ -6100,7 +6100,7 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "raw-ptr-write-good-ty-diag-count=0",
             "raw-ptr-write-good-mir-diag-count=0",
-            "store i64 %value, ptr %p",
+            "store i64 %rv.0.2, ptr %rv.0.1",
             "raw-ptr-write-outside-mir-diag-count=1",
             "raw-ptr-write-outside-mir-diag0-message=raw-pointer deref needs trust me block",
             "raw-ptr-write-cadet-mir-diag-count=1",
@@ -6120,7 +6120,7 @@ EXECUTABLE_SMOKES = [
             "raw-ptr-method-good-mir-diag-count=0",
             "raw-ptr-method-good-call-count=3",
             "= load i64, ptr",
-            "store i64 %value, ptr %p",
+            "store i64 %rv.1.2, ptr %rv.1.1",
             "call ccc i64 @RawPtrWrite(i64 41)",
             "raw-ptr-method-collide-call-line=call ccc i64 @RawPtrWrite(i64 41)",
             "raw-ptr-method-read-rvalue-kind=Unary",
@@ -6142,8 +6142,8 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "raw-ptr-oc-good-ty-diag-count=0",
             "raw-ptr-oc-good-mir-diag-count=0",
-            "= getelementptr i64, ptr %p, i64 2",
-            "= getelementptr i8, ptr %p, i64 0",
+            "= getelementptr i64, ptr %rv.0.1, i64 2",
+            "= getelementptr i8, ptr %rv.1.1, i64 0",
             "raw-ptr-oc-offset-rvalue-op=PtrOffset",
             "raw-ptr-oc-offset-rvalue-ty=*constint",
             "raw-ptr-oc-cast-rvalue-op=PtrCast",
@@ -6260,11 +6260,11 @@ EXECUTABLE_SMOKES = [
             "abi-matrix-vector-call-line=call x86_vectorcallcc i64 @vector_tick(i64 3) nounwind",
             "abi-matrix-win64-call-line=call win64cc i64 @win64_tick(i64 4) nounwind",
             "abi-matrix-sysv-call-line=call x86_64_sysvcc i64 @sysv_tick(i64 5) nounwind",
-            "abi-matrix-cb-fast-call-line=call x86_fastcallcc i64 %fc(i64 6) nounwind",
-            "abi-matrix-cb-this-call-line=call x86_thiscallcc i64 %tc(i64 7) nounwind",
-            "abi-matrix-cb-vector-call-line=call x86_vectorcallcc i64 %vc(i64 8) nounwind",
-            "abi-matrix-cb-win64-call-line=call win64cc i64 %w64(i64 9) nounwind",
-            "abi-matrix-cb-sysv-call-line=call x86_64_sysvcc i64 %s64(i64 10) nounwind",
+            "abi-matrix-cb-fast-call-line=call x86_fastcallcc i64 %rv.1.0(i64 6) nounwind",
+            "abi-matrix-cb-this-call-line=call x86_thiscallcc i64 %rv.1.3(i64 7) nounwind",
+            "abi-matrix-cb-vector-call-line=call x86_vectorcallcc i64 %rv.1.6(i64 8) nounwind",
+            "abi-matrix-cb-win64-call-line=call win64cc i64 %rv.1.9(i64 9) nounwind",
+            "abi-matrix-cb-sysv-call-line=call x86_64_sysvcc i64 %rv.1.12(i64 10) nounwind",
             "abi-matrix-diag-count=0",
         ],
     },
@@ -6454,17 +6454,38 @@ EXECUTABLE_SMOKES = [
             "codegen-llvm-call-double-symbol=@util_math_double",
             "codegen-llvm-call-double-line=call ccc i64 @util_math_double(i64 4)",
             "codegen-llvm-double-body-symbol=@util_math_double",
-            "define ccc i64 @util_math_double(i64 %value) {",
-            "%rv0_2 = add i64 %value, %value",
-            "ret i64 %rv0_2",
+            "define ccc i64 @util_math_double(i64 %arg.0) {",
+            "%local.0.addr = alloca i64",
+            "store i64 %arg.0, ptr %local.0.addr",
+            "%rv.0.0 = load i64, ptr %local.0.addr",
+            "%rv.0.1 = load i64, ptr %local.0.addr",
+            "%rv.0.2 = add i64 %rv.0.0, %rv.0.1",
+            "ret i64 %rv.0.2",
             "codegen-llvm-main-body-symbol=@main",
             "define ccc i64 @main() {",
-            "%a = call ccc i64 @native_tick(i64 0)",
-            "%b = call x86_stdcallcc i64 @win_tick(i64 1)",
-            "%c = call ccc i64 @host_tick(i64 2)",
-            "%d = call ccc i64 @util_math_double(i64 4)",
-            "ret i64 %rv1_14",
+            "%rv.1.1 = call ccc i64 @native_tick(i64 0)",
+            "store i64 %rv.1.1, ptr %local.0.addr",
+            "%rv.1.3 = call x86_stdcallcc i64 @win_tick(i64 1)",
+            "%rv.1.5 = call ccc i64 @host_tick(i64 2)",
+            "%rv.1.7 = call ccc i64 @util_math_double(i64 4)",
+            "ret i64 %rv.1.14",
         ],
+    },
+    {
+        "name": "LLVM module execution",
+        "fixture": "codegen_llvm_execute_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "llvm-execute-diag-0=0", "llvm-execute-diag-1=0", "llvm-execute-diag-2=0",
+            "llvm-execute-invalid-target-0=true", "llvm-execute-invalid-target-1=true",
+            "llvm-execute-invalid-target-2=true",
+            "llvm-execute-diag-3=0", "llvm-execute-diag-4=0",
+            "llvm-execute-invalid-target-3=true", "llvm-execute-invalid-target-4=true",
+        ],
+        "llvm_programs": [("fib_collatz.fk", 166, ""), ("scalar_locals.fk", 42, ""),
+                          ("short_circuit.fk", 42, ""), ("short_circuit_order.fk", 42, "ABCD"),
+                          ("scalar_numeric.fk", 42, "")],
     },
     {
         "name": "module paths and import expansion",
@@ -12825,8 +12846,13 @@ def check_executable_smokes(
         )
         timeout_seconds = int(smoke.get("timeout", 60))
         default_memory_limit_mb = 128 if "snapshot" in fixture.stem else 512
+        command = [str(exe_path)]
+        if smoke.get("llvm_programs"):
+            from build_v4 import host_target
+            command += [str(V4_ROOT / "examples" / name) for name, _, _ in smoke["llvm_programs"]]
+            command.append(host_target())
         executed = run_with_heartbeat(
-            [str(exe_path)],
+            command,
             label=f"runtime execute: {label}",
             timeout_seconds=timeout_seconds,
             memory_limit_mb=int(smoke.get("memory_limit_mb", default_memory_limit_mb)),
@@ -12868,6 +12894,28 @@ def check_executable_smokes(
                 )
             print(output[:4000])
             raise SystemExit(1)
+
+        if smoke.get("llvm_programs"):
+            modules = re.findall(r"@@LLVM-MODULE-BEGIN\n(.*?)\n@@LLVM-MODULE-END", output, re.DOTALL)
+            if len(modules) != len(smoke["llvm_programs"]):
+                raise RuntimeError("LLVM module smoke emitted the wrong number of modules")
+            for (name, exit_code, stdout), module in zip(smoke["llvm_programs"], modules):
+                ll_path = RUNTIME_BUILD_ROOT / f"{Path(name).stem}.v4.ll"
+                native_path = ll_path.with_suffix(".exe" if sys.platform == "win32" else ".native")
+                ll_path.write_text(module, encoding="utf-8")
+                linked = run_with_heartbeat(
+                    [clang, "-O2", str(ll_path), "-o", str(native_path)],
+                    label=f"LLVM module link: {name}", timeout_seconds=120, memory_limit_mb=512,
+                )
+                if linked.returncode != 0:
+                    raise RuntimeError(f"LLVM module link failed: {name}\n{linked.stdout}{linked.stderr}")
+                native = run_with_heartbeat(
+                    [str(native_path)], label=f"LLVM module execute: {name}",
+                    timeout_seconds=10, memory_limit_mb=128,
+                )
+                if native.returncode != exit_code or native.stdout != stdout or native.stderr:
+                    raise RuntimeError(f"LLVM module execution failed: {name} expected={exit_code} actual={native.returncode}\n{native.stdout}{native.stderr}")
+                print(f"LLVM module execution: {name} exit={exit_code}")
 
         compile_mode = "clang" if compiled else "cache"
         print(

@@ -1,0 +1,22 @@
+extern [C] {
+    task abort() -> void
+}
+
+task fail() -> bool {
+    abort()
+    give back true
+}
+
+task third(a: bool, b: bool, c: bool) -> bool {
+    give back a and b and c
+}
+
+task main() -> int {
+    pilot a = false and fail()
+    pilot b = true or fail()
+    pilot c = (true and true) or fail()
+    pilot d = false or (true and not false)
+    pilot e = third(true, true, true or fail())
+    if not a and b and c and d and e { give back 42 }
+    give back 1
+}

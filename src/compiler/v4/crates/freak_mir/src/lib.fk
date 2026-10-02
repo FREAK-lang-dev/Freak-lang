@@ -664,6 +664,11 @@ task v4_mir_set_rvalue_ty(mir_id: int, body_id: int, rvalue_id: int, rvalue_ty: 
     array_set(v4_mir_body_rvalue_tys_handle(mir_id, body_id), rvalue_id, rvalue_ty)
 }
 
+task v4_mir_set_rvalue_children(mir_id: int, body_id: int, rvalue_id: int, lhs: int, rhs: int) -> void {
+    array_set(v4_mir_body_rvalue_lhs_handle(mir_id, body_id), rvalue_id, word_from_int(lhs))
+    array_set(v4_mir_body_rvalue_rhs_handle(mir_id, body_id), rvalue_id, word_from_int(rhs))
+}
+
 task v4_mir_rvalue_abi(mir_id: int, body_id: int, rvalue_id: int) -> word {
     give back array_get(v4_mir_body_rvalue_abis_handle(mir_id, body_id), rvalue_id)
 }
