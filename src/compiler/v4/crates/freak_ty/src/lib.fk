@@ -87,17 +87,22 @@ pilot v4_ty_signature_index_lookup_probes = 0
 pilot v4_ty_signature_index_insert_probes = 0
 pilot v4_ty_signature_index_fallbacks = 0
 -- TY-owned compatibility cache: one retained packed child per observed HIR.
--- Header: ready, tree, stream, HIR/Parse/Lex revisions, active item count.
+-- Header: ready, tree, stream, HIR/Parse/Lex revisions, active item count,
+-- qualified Impl list base/count. This list retains physical item order.
 -- Item rows: start/end, Impl open/close, flat method base/count; method rows
 -- are start/end pairs. Neither this cache nor its owner epochs enter snapshots.
 pilot v4_ty_item_method_caches = 0 - 1
-pilot v4_ty_item_method_cache_header = 7
+pilot v4_ty_item_method_cache_header = 9
 pilot v4_ty_item_method_cache_item_width = 6
 pilot v4_ty_item_method_cache_builds = 0
 pilot v4_ty_item_method_cache_items_built = 0
 pilot v4_ty_item_method_cache_methods_built = 0
 pilot v4_ty_item_method_cache_hits = 0
 pilot v4_ty_impl_method_cold_scans = 0
+pilot v4_ty_impl_doctrine_header_reads = 0
+pilot v4_ty_impl_doctrine_candidate_build_items = 0
+pilot v4_ty_impl_doctrine_candidate_lookup_probes = 0
+pilot v4_ty_impl_doctrine_candidate_cold_probes = 0
 pilot v4_ty_lifetime_outlives_scratch_links = 0
 pilot v4_ty_lifetime_outlives_scratch_ids = 0
 pilot v4_ty_lifetime_outlives_scratch_active = 0
@@ -577,6 +582,27 @@ task v4_ty_item_method_cache_finalize_hir(hir_id: int) -> bool {
         v4_ty_item_method_cache_items_built += 1
         item_id += 1
     }
+    -- Append a selective, ordered list without disturbing item/method rows.
+    -- Use active bounds rather than retained array length after a shorter restore.
+    pilot qualified_base = active_end
+    pilot qualified_count = 0
+    item_id = 0
+    repeat until item_id >= items {
+        v4_ty_impl_doctrine_candidate_build_items += 1
+        pilot row = v4_ty_item_method_cache_header + v4_ty_item_method_cache_item_width * item_id
+        if word_to_int(array_get(packed, row + 5)) >= 0 {
+            pilot start_token = word_to_int(array_get(packed, row))
+            pilot open_token = word_to_int(array_get(packed, row + 2))
+            pilot qualifier = v4_ty_impl_doctrine_from_token_bounds(stream_id, start_token, open_token)
+            if qualifier != "" {
+                if v4_ty_child_handle_ensure_slot(packed, active_end, "-1") == false { give back false }
+                array_set(packed, active_end, word_from_int(item_id))
+                active_end += 1
+                qualified_count += 1
+            }
+        }
+        item_id += 1
+    }
     -- Do not publish a hybrid if an owner changed while facts were collected.
     if v4_hir_revision(hir_id) != hir_revision or v4_parse_tree_revision(tree_id) != parse_revision or v4_lex_stream_revision(stream_id) != lex_revision { give back false }
     array_set(packed, 1, word_from_int(tree_id))
@@ -585,6 +611,8 @@ task v4_ty_item_method_cache_finalize_hir(hir_id: int) -> bool {
     array_set(packed, 4, word_from_int(parse_revision))
     array_set(packed, 5, word_from_int(lex_revision))
     array_set(packed, 6, word_from_int(items))
+    array_set(packed, 7, word_from_int(qualified_base))
+    array_set(packed, 8, word_from_int(qualified_count))
     array_set(packed, 0, "1")
     v4_ty_item_method_cache_builds += 1
     give back true
@@ -4412,6 +4440,62 @@ task v4_ty_next_impl_item(ty_id: int, after_item: int) -> int {
     give back v4_hir_next_impl_item(v4_resolve_hir_id(resolve_id), after_item)
 }
 
+-- Select only Impl owners with a nonempty surface doctrine qualifier.
+-- All doctrine/owner/method matching remains with existing semantic readers.
+task v4_ty_next_doctrine_impl_item(ty_id: int, after_item: int) -> int {
+    pilot hir_id = v4_ty_doctrine_candidates_hir_id(ty_id)
+    if hir_id < 0 { give back 0 - 1 }
+    if v4_ty_item_method_cache_is_ready(hir_id) {
+        pilot packed = v4_ty_item_method_cache_handle(hir_id)
+        pilot base = word_to_int(array_get(packed, 7))
+        pilot count = word_to_int(array_get(packed, 8))
+        if base >= v4_ty_item_method_cache_header and count >= 0 and base <= array_len(packed) and count <= array_len(packed) - base {
+            pilot low = 0
+            pilot high = count
+            repeat until low >= high {
+                pilot middle = low + (high - low) / 2
+                v4_ty_impl_doctrine_candidate_lookup_probes += 1
+                if word_to_int(array_get(packed, base + middle)) <= after_item { low = middle + 1 } else { high = middle }
+            }
+            if low >= count { give back 0 - 1 }
+            give back word_to_int(array_get(packed, base + low))
+        }
+    }
+    give back v4_ty_next_doctrine_impl_item_uncached(ty_id, after_item)
+}
+
+-- Current authoritative facts remain readable after direct edits/restores or
+-- unavailable derived storage. This forward walk neither allocates nor publishes.
+task v4_ty_next_doctrine_impl_item_uncached(ty_id: int, after_item: int) -> int {
+    if v4_ty_doctrine_candidates_hir_id(ty_id) < 0 { give back 0 - 1 }
+    pilot item = v4_ty_next_impl_item(ty_id, after_item)
+    repeat until item < 0 {
+        v4_ty_impl_doctrine_candidate_cold_probes += 1
+        if v4_ty_impl_doctrine_name_from_hir(ty_id, item) != "" { give back item }
+        item = v4_ty_next_impl_item(ty_id, item)
+    }
+    give back 0 - 1
+}
+
+-- Validate authoritative parent arenas directly, including cold/absent parents.
+-- Optional epoch storage may be unavailable without invalidating live tokens.
+task v4_ty_doctrine_candidates_hir_id(ty_id: int) -> int {
+    if v4_ty_ready == 0 or ty_id < 0 or ty_id >= v4_ty_file_active_count_value { give back 0 - 1 }
+    if v4_resolve_ready == 0 or v4_hir_ready == 0 { give back 0 - 1 }
+    pilot resolve_id = word_to_int(array_get(v4_ty_resolves, ty_id))
+    if resolve_id < 0 or resolve_id >= array_len(v4_resolve_files) { give back 0 - 1 }
+    pilot hir_id = v4_resolve_hir_id(resolve_id)
+    if hir_id < 0 or hir_id >= v4_hir_file_len { give back 0 - 1 }
+    if v4_expand_ready == 0 or v4_parse_ready == 0 or v4_lex_ready == 0 { give back 0 - 1 }
+    pilot expansion_id = v4_hir_expansion_id(hir_id)
+    if expansion_id < 0 or expansion_id >= v4_expand_file_len { give back 0 - 1 }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    if tree_id < 0 or tree_id >= array_len(v4_parse_tree_files) { give back 0 - 1 }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    if stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) { give back 0 - 1 }
+    give back hir_id
+}
+
 task v4_ty_signature_hir_id(ty_id: int) -> int {
     pilot resolve_id = v4_ty_resolve_id(ty_id)
     if v4_resolve_exists(resolve_id) == false {
@@ -7590,10 +7674,15 @@ task v4_ty_impl_doctrine_name_from_hir(ty_id: int, hir_item: int) -> word {
     pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
     pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
     pilot open_token = v4_ty_find_token_value(stream_id, start_token, end_token, "{")
-    if open_token < 0 {
-        give back ""
-    }
+    give back v4_ty_impl_doctrine_from_token_bounds(stream_id, start_token, open_token)
+}
 
+-- Exact original qualifier extraction shared by publication and cold readers.
+-- Count actual header-reader work so a full candidate scan cannot hide behind
+-- unchanged index-probe counters in regression checks.
+task v4_ty_impl_doctrine_from_token_bounds(stream_id: int, start_token: int, open_token: int) -> word {
+    v4_ty_impl_doctrine_header_reads += 1
+    if open_token < 0 { give back "" }
     pilot for_token = v4_ty_find_top_level_token(stream_id, start_token + 1, open_token, "for")
     if for_token < 0 {
         give back ""

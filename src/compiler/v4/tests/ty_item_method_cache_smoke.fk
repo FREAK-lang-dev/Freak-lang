@@ -93,7 +93,7 @@ task v4_ty_bounds_scale(ty: int, hir: int, owner: int, count: int) -> void {
     pilot items = v4_hir_item_count(hir)
     pilot packed = v4_ty_item_method_cache_handle(hir)
     pilot methods = v4_ty_item_method_cache_methods_built - built_methods
-    pilot bounded: bool = v4_ty_item_method_cache_items_built - built_items == items and methods <= 3 * items and array_len(packed) == 7 + 6 * items + 2 * methods
+    pilot bounded: bool = v4_ty_item_method_cache_items_built - built_items == items and methods <= 3 * items and array_len(packed) == 9 + 6 * items + 2 * methods + word_to_int(array_get(packed, 8))
     say "ty-bounds-scale" + word_from_int(count) + "-linear=" + word_from_bool(publish and correct and bounded and v4_ty_impl_method_cold_scans == cold and v4_ty_item_method_cache_builds == builds)
 }
 
