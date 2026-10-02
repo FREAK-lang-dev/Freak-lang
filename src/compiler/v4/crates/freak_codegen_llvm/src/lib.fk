@@ -1521,6 +1521,16 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
     pilot type_text = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     pilot error = v4_codegen_llvm_native_type_error(type_text, kind == v4_mir_rvalue_call)
     if error != "" { give back error }
+    pilot llvm_type = v4_codegen_llvm_type(type_text)
+    if kind == v4_mir_rvalue_const_int {
+        if llvm_type != "i8" and llvm_type != "i32" and llvm_type != "i64" and llvm_type != "float" and llvm_type != "double" { give back "invalid native integer literal type: " + type_text }
+    }
+    if kind == v4_mir_rvalue_const_float {
+        if llvm_type != "float" and llvm_type != "double" { give back "invalid native float literal type: " + type_text }
+    }
+    if kind == v4_mir_rvalue_const_char {
+        if llvm_type != "i8" and llvm_type != "i32" and llvm_type != "i64" { give back "invalid native char literal type: " + type_text }
+    }
     if kind == v4_mir_rvalue_const_bool {
         if type_text != v4_ty_bool or v4_mir_bool_literal_value(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) == "" { give back "invalid native boolean literal" }
     }
