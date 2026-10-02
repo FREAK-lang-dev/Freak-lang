@@ -95,37 +95,41 @@ task h6_literal_aggregate_ok(mir_id: int, name: word, kind: word, child_kind: wo
     }
     give back true
 }
-pilot h6_literal_stream = v4_lex_text(0, h6_literal_source())
-pilot h6_literal_tree = v4_parse_stream(0, h6_literal_stream)
-pilot h6_literal_hir = v4_hir_lower_tree(0, h6_literal_tree)
-pilot h6_literal_resolve = v4_resolve_lower_hir(0, h6_literal_hir)
-pilot h6_literal_ty = v4_ty_lower_resolve(0, h6_literal_resolve)
-pilot h6_literal_mir = v4_mir_lower_ty(0, h6_literal_ty)
-say "h6-literal diagnostics=" + word_from_int(v4_lex_diag_count(h6_literal_stream) + v4_parse_diag_count(h6_literal_tree) + v4_hir_diag_count(h6_literal_hir) + v4_resolve_diag_count(h6_literal_resolve) + v4_ty_diag_count(h6_literal_ty) + v4_mir_diag_count(h6_literal_mir))
-say "h6-literal lists=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "words", v4_mir_rvalue_list, v4_mir_rvalue_const_word, 17)) + " chars=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "chars", v4_mir_rvalue_list, v4_mir_rvalue_const_char, 6))
-say "h6-literal tuple=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "tuple", v4_mir_rvalue_tuple, v4_mir_rvalue_const_word, 2)) + " constructor=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "ctor", v4_mir_rvalue_construct, v4_mir_rvalue_const_word, 2))
-say "h6-literal array=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "array", v4_mir_rvalue_array, v4_mir_rvalue_const_word, 3)) + " map=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "mapping", v4_mir_rvalue_map, v4_mir_rvalue_const_word, 4))
-pilot h6_literal_call_body = v4_mir_lookup_body_name(h6_literal_mir, "call")
-pilot h6_literal_call_value = h6_literal_return_value(h6_literal_mir, "call")
-pilot h6_literal_call0 = v4_mir_rvalue_call_arg(h6_literal_mir, h6_literal_call_body, h6_literal_call_value, 0)
-pilot h6_literal_call1 = v4_mir_rvalue_call_arg(h6_literal_mir, h6_literal_call_body, h6_literal_call_value, 1)
-say "h6-literal call=" + word_from_bool(v4_mir_rvalue_kind(h6_literal_mir, h6_literal_call_body, h6_literal_call_value) == v4_mir_rvalue_call and v4_mir_rvalue_call_arg_count(h6_literal_mir, h6_literal_call_body, h6_literal_call_value) == 2 and v4_mir_rvalue_text(h6_literal_mir, h6_literal_call_body, h6_literal_call0) == "," and v4_mir_rvalue_text(h6_literal_mir, h6_literal_call_body, h6_literal_call1) == ")")
-pilot h6_literal_kw_body = v4_mir_lookup_body_name(h6_literal_mir, "keyword")
-pilot h6_literal_kw_value = h6_literal_return_value(h6_literal_mir, "keyword")
-say "h6-literal keyword=" + word_from_bool(v4_mir_rvalue_kind(h6_literal_mir, h6_literal_kw_body, h6_literal_kw_value) == v4_mir_rvalue_const_word and v4_mir_rvalue_text(h6_literal_mir, h6_literal_kw_body, h6_literal_kw_value) == "nobody") + " condition=" + word_from_bool(v4_mir_body_block_count(h6_literal_mir, v4_mir_lookup_body_name(h6_literal_mir, "condition")) == 3)
-pilot h6_literal_probe_src = ""
-h6_literal_probe_src = h6_literal_probe_src + "(\",\", \"(\", \")\", \"[\", \"]\", \""
-h6_literal_probe_src = h6_literal_probe_src + "{"
-h6_literal_probe_src = h6_literal_probe_src + "\", \""
-h6_literal_probe_src = h6_literal_probe_src + "}"
-h6_literal_probe_src = h6_literal_probe_src + "\", \":\", \";\", \"->\", \"else\", \"and\", \"or\", \"give\", '(', ')', '[', ']', '"
-h6_literal_probe_src = h6_literal_probe_src + "{"
-h6_literal_probe_src = h6_literal_probe_src + "', '"
-h6_literal_probe_src = h6_literal_probe_src + "}"
-h6_literal_probe_src = h6_literal_probe_src + "')"
-pilot h6_literal_probe = v4_lex_text(1, h6_literal_probe_src)
-pilot h6_literal_probe_end = v4_lex_token_count(h6_literal_probe)
-pilot h6_literal_probe_close = v4_mir_last_nontrivia_before(h6_literal_probe, h6_literal_probe_end - 1)
-say "h6-literal matching=" + word_from_bool(v4_mir_find_matching_paren(h6_literal_probe, 0, h6_literal_probe_end) == h6_literal_probe_close and v4_mir_find_open_paren_token(h6_literal_probe, 0, h6_literal_probe_close) == 0) + " arg-count=" + word_from_int(v4_mir_call_arg_count(h6_literal_probe, 0, h6_literal_probe_close))
-say "h6-literal keyword-scans=" + word_from_bool(v4_mir_find_token_value(h6_literal_probe, 0, h6_literal_probe_end, "else") == -1 and v4_mir_find_else_token(h6_literal_probe, 0, h6_literal_probe_end) == -1 and v4_mir_find_arrow_token(h6_literal_probe, 0, h6_literal_probe_end) == -1 and v4_mir_find_or_else_op(h6_literal_probe, 0, h6_literal_probe_end) == -1)
-say "h6-literal operator-scans=" + word_from_bool(v4_mir_find_binary_op(h6_literal_probe, 1, h6_literal_probe_close, 1) == -1 and v4_mir_find_binary_op(h6_literal_probe, 1, h6_literal_probe_close, 2) == -1 and v4_mir_find_assignment_operator_token(h6_literal_probe, 1, h6_literal_probe_close) == -1 and v4_mir_find_top_level_token(h6_literal_probe, 1, h6_literal_probe_close, ";") == -1)
+task h6_literal_run() -> void {
+    pilot h6_literal_stream = v4_lex_text(0, h6_literal_source())
+    pilot h6_literal_tree = v4_parse_stream(0, h6_literal_stream)
+    pilot h6_literal_hir = v4_hir_lower_tree(0, h6_literal_tree)
+    pilot h6_literal_resolve = v4_resolve_lower_hir(0, h6_literal_hir)
+    pilot h6_literal_ty = v4_ty_lower_resolve(0, h6_literal_resolve)
+    pilot h6_literal_mir = v4_mir_lower_ty(0, h6_literal_ty)
+    say "h6-literal diagnostics=" + word_from_int(v4_lex_diag_count(h6_literal_stream) + v4_parse_diag_count(h6_literal_tree) + v4_hir_diag_count(h6_literal_hir) + v4_resolve_diag_count(h6_literal_resolve) + v4_ty_diag_count(h6_literal_ty) + v4_mir_diag_count(h6_literal_mir))
+    say "h6-literal lists=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "words", v4_mir_rvalue_list, v4_mir_rvalue_const_word, 17)) + " chars=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "chars", v4_mir_rvalue_list, v4_mir_rvalue_const_char, 6))
+    say "h6-literal tuple=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "tuple", v4_mir_rvalue_tuple, v4_mir_rvalue_const_word, 2)) + " constructor=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "ctor", v4_mir_rvalue_construct, v4_mir_rvalue_const_word, 2))
+    say "h6-literal array=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "array", v4_mir_rvalue_array, v4_mir_rvalue_const_word, 3)) + " map=" + word_from_bool(h6_literal_aggregate_ok(h6_literal_mir, "mapping", v4_mir_rvalue_map, v4_mir_rvalue_const_word, 4))
+    pilot h6_literal_call_body = v4_mir_lookup_body_name(h6_literal_mir, "call")
+    pilot h6_literal_call_value = h6_literal_return_value(h6_literal_mir, "call")
+    pilot h6_literal_call0 = v4_mir_rvalue_call_arg(h6_literal_mir, h6_literal_call_body, h6_literal_call_value, 0)
+    pilot h6_literal_call1 = v4_mir_rvalue_call_arg(h6_literal_mir, h6_literal_call_body, h6_literal_call_value, 1)
+    say "h6-literal call=" + word_from_bool(v4_mir_rvalue_kind(h6_literal_mir, h6_literal_call_body, h6_literal_call_value) == v4_mir_rvalue_call and v4_mir_rvalue_call_arg_count(h6_literal_mir, h6_literal_call_body, h6_literal_call_value) == 2 and v4_mir_rvalue_text(h6_literal_mir, h6_literal_call_body, h6_literal_call0) == "," and v4_mir_rvalue_text(h6_literal_mir, h6_literal_call_body, h6_literal_call1) == ")")
+    pilot h6_literal_kw_body = v4_mir_lookup_body_name(h6_literal_mir, "keyword")
+    pilot h6_literal_kw_value = h6_literal_return_value(h6_literal_mir, "keyword")
+    say "h6-literal keyword=" + word_from_bool(v4_mir_rvalue_kind(h6_literal_mir, h6_literal_kw_body, h6_literal_kw_value) == v4_mir_rvalue_const_word and v4_mir_rvalue_text(h6_literal_mir, h6_literal_kw_body, h6_literal_kw_value) == "nobody") + " condition=" + word_from_bool(v4_mir_body_block_count(h6_literal_mir, v4_mir_lookup_body_name(h6_literal_mir, "condition")) == 3)
+    pilot h6_literal_probe_src = ""
+    h6_literal_probe_src = h6_literal_probe_src + "(\",\", \"(\", \")\", \"[\", \"]\", \""
+    h6_literal_probe_src = h6_literal_probe_src + "{"
+    h6_literal_probe_src = h6_literal_probe_src + "\", \""
+    h6_literal_probe_src = h6_literal_probe_src + "}"
+    h6_literal_probe_src = h6_literal_probe_src + "\", \":\", \";\", \"->\", \"else\", \"and\", \"or\", \"give\", '(', ')', '[', ']', '"
+    h6_literal_probe_src = h6_literal_probe_src + "{"
+    h6_literal_probe_src = h6_literal_probe_src + "', '"
+    h6_literal_probe_src = h6_literal_probe_src + "}"
+    h6_literal_probe_src = h6_literal_probe_src + "')"
+    pilot h6_literal_probe = v4_lex_text(1, h6_literal_probe_src)
+    pilot h6_literal_probe_end = v4_lex_token_count(h6_literal_probe)
+    pilot h6_literal_probe_close = v4_mir_last_nontrivia_before(h6_literal_probe, h6_literal_probe_end - 1)
+    say "h6-literal matching=" + word_from_bool(v4_mir_find_matching_paren(h6_literal_probe, 0, h6_literal_probe_end) == h6_literal_probe_close and v4_mir_find_open_paren_token(h6_literal_probe, 0, h6_literal_probe_close) == 0) + " arg-count=" + word_from_int(v4_mir_call_arg_count(h6_literal_probe, 0, h6_literal_probe_close))
+    say "h6-literal keyword-scans=" + word_from_bool(v4_mir_find_token_value(h6_literal_probe, 0, h6_literal_probe_end, "else") == -1 and v4_mir_find_else_token(h6_literal_probe, 0, h6_literal_probe_end) == -1 and v4_mir_find_arrow_token(h6_literal_probe, 0, h6_literal_probe_end) == -1 and v4_mir_find_or_else_op(h6_literal_probe, 0, h6_literal_probe_end) == -1)
+    say "h6-literal operator-scans=" + word_from_bool(v4_mir_find_binary_op(h6_literal_probe, 1, h6_literal_probe_close, 1) == -1 and v4_mir_find_binary_op(h6_literal_probe, 1, h6_literal_probe_close, 2) == -1 and v4_mir_find_assignment_operator_token(h6_literal_probe, 1, h6_literal_probe_close) == -1 and v4_mir_find_top_level_token(h6_literal_probe, 1, h6_literal_probe_close, ";") == -1)
+}
+
+h6_literal_run()
