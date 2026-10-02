@@ -1,12 +1,176 @@
 # V4 backend checkpoint - 2026-10-02
 
-The profiled token-boundary bottleneck is fixed. V4 now assembles and runs scalar
+The profiled token-boundary bottleneck and module-assembly memory growth are
+fixed. Derived TY signature, HIR parameter and resolve symbol indexes remove
+the three lookup families identified in handoff 4. V4 assembles and runs scalar
 LLVM modules, including local mutation, scoped bindings, control flow, ordered
 short-circuit evaluation, numeric conversions and scalar associated impl tasks.
 The W1 follow-up below adds literal `say` and runtime linking. General word
 values and compiler self-hosting remain open.
 
-## Scaling evidence
+## Handoff 4: whole-module memory and lookup scaling
+
+The pinned before source is `1fa0461091db41d4e94a9c9af1d3cab55fbf0191`.
+Memory-only measurements use `77a1b31e7b93c574333d596b1d6fef5350040033`;
+the final indexed compiler uses `29447d7c17a853c9b41d1651e35540704e34f776`.
+All three compile the same synthetic tasks with clang 19 `-O2` on x86_64 Linux.
+Stage boundaries use the native monotonic clock, current RSS and `getrusage`
+peak RSS. Runs are sequential, with a 2 GiB process-tree guard and a 300-second
+timeout. Every stage reports zero diagnostics.
+
+These measurements include module assembly and compiler output, excluding
+clang compilation/linking of the emitted LLVM. The peak column uses native
+`getrusage`, since polling can miss the short module-assembly peak. Timings are
+single runs on a shared host; treat them as within about 30%.
+
+| Lines | Before wall / peak RSS | Memory fix only | Memory fix and indexes |
+| --- | ---: | ---: | ---: |
+| 1,403 | 0.814 s / 79.7 MiB | 0.815 s / 34.9 MiB | 0.410 s / 35.3 MiB |
+| 5,603 | 10.270 s / 820.6 MiB | 9.871 s / 130.8 MiB | 1.433 s / 132.1 MiB |
+| 22,403 | Not retried locally | 152.390 s / 513.8 MiB | 7.870 s / 519.9 MiB |
+
+The handoff's independent before run at 22,403 lines was killed near 6 GB after
+176 seconds. Both new runs complete under the local 2 GiB guard. The final
+22,403-line LLVM module is 2,408,214 bytes. It matches the memory-only module
+byte for byte; the 1,403- and 5,603-line modules also match the original before
+compiler byte for byte (146,412 and 590,412 bytes).
+Clang also verifies and links the final 22,403-line module with both runtime C
+files; executing it exits 6 with empty stdout/stderr, as `f0(1, 2)` requires.
+
+### Module and body memory
+
+`freak_codegen_llvm` now collects borrowed fragments and calls `word_join`
+once for module assembly, body assembly, complete rvalue trees, globals,
+literal escaping, mangled names and argument/parameter lists. Joining releases
+the scratch array without consuming the retained words. A recursive rvalue
+collector shares one accumulator through the expression tree, preserving
+instruction order, casts and raw-pointer preludes. Module emission continues
+to consume sealed codegen facts, preserving the existing epoch contract.
+
+At 5,603 lines, before RSS rose from 140.6 MiB after codegen to 820.6 MiB after
+module assembly. The indexed compiler rises from 131.7 to 132.3 MiB, about
+0.66 MiB added. Module assembly time falls from 0.524440 to 0.000637 seconds.
+The memory-only run already demonstrates the fix independently of the indexes.
+
+Two registered smokes execute under a fixed 128 MiB ceiling:
+
+- `codegen_llvm_module_resource_smoke.fk` assembles 800 valid LLVM bodies,
+  padded with comments to exceed 3.3 MB, and checks exact header, body order,
+  byte contents, newlines and retained body facts.
+- `codegen_llvm_body_resource_smoke.fk` emits 12,000 statements and a
+  depth-2,048 expression tree. It checks all 14,048 instruction IDs in order,
+  exact repeated output, and suppression of a real instruction after the first
+  return. The focused run used about 32 MiB.
+
+The identical final fixtures fail the 128 MiB guard with the original codegen:
+the module probe was sampled at 960.9 MiB and the body probe at 575.0 MiB before
+their process groups were stopped. The guard polls, so those observations are
+overshoots of the ceiling, not exact peaks or hard allocation limits.
+
+### Derived lookup indexes
+
+All indexes are per owner and derived from authoritative rows. They preserve
+the earliest physical match, do not alter snapshot vocabulary, invalidate on
+direct mutation/restore, and rebuild after complete lowering or validated
+whole-owner restoration. Cold/failure paths retain the original lookup
+semantics. Query paths never allocate or publish a TY index.
+
+- TY stores one packed hash table for name/category and definition lookups.
+  Category-specific first-match and cross-kind type-union ordering remain
+  intact, including resolve-first extern precedence and alias normalization.
+- HIR stores stable sorted physical record IDs for parameter owners and
+  `(item, ordinal)` parameters, queried with lower bounds. Sparse/directly
+  restored rows and parameters written before their owner retain cold behavior.
+- Resolve stores packed name and `(name, kind)` hash tables, retaining physical
+  first-match behavior across duplicate names and loose v1 snapshot writes.
+
+The HIR owner budget is now 38 child handles; its exact fixture, harness,
+README and conformance audit agree. Existing storage-closure guards remain
+unchanged. Three registered index smokes run under 64 MiB with
+`FREAK_ARRAY_LIVE_LIMIT=1024`. They cover duplicates, collisions or extreme
+keys, misses followed by appends, overwrite, reuse, rejected atomic restore,
+snapshot roundtrips and real handle-exhaustion recovery. TY and resolve repeat
+restoration with stable handle capacity; HIR retains its fresh-slot and bounded
+scratch accounting. Resource failures preserve correct cold reads.
+
+For four times the task count (200 to 800), measured middle-stage growth is:
+
+| Stage | Before 1,403 / 5,603 lines | Before growth | Indexed 1,403 / 5,603 lines | Indexed growth |
+| --- | ---: | ---: | ---: | ---: |
+| TY | 0.233119 / 3.609409 s | 15.48x | 0.038701 / 0.151680 s | 3.92x |
+| MIR construction | 0.137745 / 1.557357 s | 11.31x | 0.084484 / 0.426317 s | 5.05x |
+| Meiya | 0.118459 / 1.547793 s | 13.07x | 0.047995 / 0.206009 s | 4.29x |
+| LLVM lowering | 0.201864 / 2.687515 s | 13.31x | 0.082641 / 0.371908 s | 4.50x |
+
+Whole-run gprof call counts at 5,603 lines (`-pg -O1 -fno-inline`) corroborate
+the lookup reduction. The final profile has only 0.71 seconds of sampled time;
+time percentages are not used as evidence.
+
+| Function | Before calls | Indexed calls |
+| --- | ---: | ---: |
+| `freak_array_get` | 651,217,719 | 38,875,390 |
+| `freak_v4_ty_signature_kind` | 97,602,674 | 108,959 |
+| `freak_v4_hir_task_param_owner_items_handle` | 46,934,692 | 1,255,733 |
+| `freak_v4_hir_task_param_items_handle` | 38,474,545 | 566,518 |
+| `freak_v4_resolve_names_handle` | 40,715,649 | 6,074 |
+| `freak_v4_resolve_kinds_handle` | 16,992,414 | 5,236 |
+
+Resolve's indexed path reads individual symbols directly, so the old array
+accessor counts do not represent all new resolve work. Lookup request counts
+remain unchanged; the resource fixture separately checks bounded hash probes.
+
+MIR still has residual global scans: `find_doctrine_impl_method_ref` is called
+4,800 times and scans 801 HIR items on each miss, making 3,844,800 item-kind
+checks. LLVM signature emission invokes MIR `lookup_body` 801 times, causing
+321,201 definition checks. These scans are unchanged by this patch. MIR grows
+7.62x between 800 and 3,200 tasks (0.426318 to 3.249518 seconds), so this
+checkpoint does not claim linear scaling of every stage. Those two families
+are a concrete future profiling target; W2 word ownership and explicit
+bootstrap root initialization remain the next semantic roadmap work.
+
+### Build flag, verification and reproduction
+
+`build_v4.py --compiler-opt 0|1|2|3` chooses optimization for the bootstrap V4
+compiler. Default 0 preserves the original smoke build; other levels use
+isolated cache directories such as `build/v4_smoke/compiler_O2`. The shared
+smoke compiler flags remain unchanged. An optimized Hello World run reports
+zero diagnostics at every stage and exact `Hello, world!\n` output; repeated
+optimized builds reuse the compiler cache without replacing the default build.
+
+The full gate passes all 273 registered smokes on compiler sources at
+`29447d7`, including ten native LLVM programs, exact Hello World output and
+the build-command checks. Peak retained runner memory is 64.1 MiB against its
+256 MiB limit. Focused resource, restore, semantic, query and architecture
+checks pass. Conformance and the 0.14.2 version check pass, with the existing
+warning that the shipping native CLI is not built. Independent review cleared
+the integrated compiler, optimization flag and auditor-only budget delta
+`f29d804193af42c25e40c181d0f7ecaf85229030`. Later checkpoint documentation
+does not change the tested compiler sources.
+
+```sh
+python src/compiler/v4/build_v4.py --compiler-opt 2 src/compiler/v4/examples/hello_world.fk -o /tmp/hello-v4
+python src/compiler/v4/check_v4.py
+python -u -m freakc audit-conformance
+python tools/release_version.py check
+```
+
+Frozen generated C, runtime copies, SHA-256 manifests, synthetic inputs,
+instrumentation scripts, timing JSON, whole-run gprof reports and fixture
+failure/pass evidence are retained in `/workspace/v4-scaling4`. Measurements
+are in `{baseline,memory,indexed}/timed-results.json`; call counts are in
+`{baseline,indexed}/profile-800/{gprof,flat}.txt`. Input SHA-256 values are
+`02c6afc41381503f6383db29fd38739c0608d19cfeb969f6af13a37ea011966c`
+(200 tasks), `f8165e0450fe289fcfa024cde1fca27e03c8f79a00507bfefe0a1412dae2d2a7`
+(800), and `38348bfc6b6a86ba36e832b19eb50b3935e7500540d18d943d4b23a3318a9999`
+(3,200). `prepare_measurement.py` freezes source and asserts generated-C
+instrumentation points; `run_measurement.py` runs guarded, sequential jobs.
+The final full log is `/workspace/v4-scaling4/full-v4-29447d7.log`.
+Large-module native execution and the final optimized Hello World cache proof
+are saved in `/workspace/v4-scaling4/native-completion-verification.json`.
+Independent review disposition is saved in
+`/workspace/v4-scaling4/review/FINAL_VERDICT.md`.
+
+## Earlier token-boundary scaling evidence
 
 The uninstrumented native C pipeline uses the same 1,403-line input: 200 copies
 of the handoff's seven-line task plus `main`. Stage-only timings use the runtime
@@ -221,9 +385,11 @@ Clean stage-only follow-up timings at pinned scalar checkpoint `db51c43`:
 | Meiya | 0.042133 s | 0.132976 s | 3.16x |
 | LLVM lowering | 0.062382 s | 0.205893 s | 3.30x |
 
-Every measured stage reports zero diagnostics; whole-process max RSS stays
-below 35 MiB. LLVM lowering includes complete body generation, but excludes
-final module assembly and clang/link execution. These are single-run samples.
+Every measured stage reports zero diagnostics; the process maximum observed
+within this earlier stage-only run stays below 35 MiB. LLVM lowering includes
+complete body generation, but this run stops before final module assembly and
+clang/link execution. It is not a whole-compiler memory bound; the handoff 4
+measurements above include module assembly. These are single-run samples.
 Follow-up stage-only gprof call counts locate repeated TY signature/alias and
 HIR parameter-owner scans. Sampling windows are too short for reliable time
 percentages. This clean result does not resolve error-driven individual-crate
