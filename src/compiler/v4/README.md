@@ -712,10 +712,10 @@ slots fail validation before restore; wire order may place children before
 owners. Local annotations use the same physical index with bounded owner/item
 metadata and dense per-owner annotation slots; parent span bounds are decoded
 once rather than reparsed for every annotation. File-slot reset owns and reuses
-all thirty-seven child arrays, including the two derived semantic lookup indexes
+all thirty-eight child arrays, including the three derived semantic lookup indexes
 and three shape-field storage arrays, one packed Const-fact array, and three
-packed route declaration arrays. Cold initialization owns 39 outer handles;
-each new file owns 37 child handles, and both failure cleanup and slot reuse
+packed route declaration arrays. Cold initialization owns 40 outer handles;
+each new file owns 38 child handles, and both failure cleanup and slot reuse
 cover the complete set. The wire
 format is v9: semantic lookup
 indexes are rebuilt from validated stored facts,
@@ -725,6 +725,10 @@ declaration-start lookup in logarithmic work, while ordinal/count and task-retur
 lookups use direct item indexes. Construction helpers invalidate indexes;
 completed lowering and whole-snapshot restoration finalize them before exposing
 semantic queries. Lookup paths do not rebuild indexes or reconstruct syntax.
+Task-parameter owner and `(item, ordinal)` lookups use stable sorted physical
+record IDs and lower-bound search, preserving the first physical duplicate.
+Partial construction and direct slot mutation retain linear first-match lookup
+until finalization; parameters remain visible before their owner record exists.
 The annotation and return records require their exact field widths, and
 duplicate annotation declaration starts within one file/item are rejected
 before restoration. Capacity preflight preserves live facts when the extra

@@ -66,6 +66,7 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "shape_field_snapshot_smoke.fk",
         "hir_snapshot_scaling_smoke.fk",
         "hir_semantic_index_smoke.fk",
+        "hir_param_index_smoke.fk",
         "hir_query_resource_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
@@ -727,6 +728,21 @@ INVALIDATION_FAMILY_FIELDS = [
 ]
 
 EXECUTABLE_SMOKES = [
+    {
+        "name": "HIR task parameter derived indexes",
+        "fixture": "hir_param_index_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "hir-param-index construction=true duplicates=true sparse=true overwrite=true reuse=true",
+            "hir-param-index 512-owners=true 1024-params=true logarithmic=true build-bounded=true",
+            "hir-param-index 512-ordinals=true empty-owner=true",
+            "hir-param-index snapshot-v9=true roundtrip=true rejected-atomic=true capacity-stable=true",
+            "hir-param-index build-failure-cold=true recovery=true",
+            "hir-param-index restore-resource-atomic=true fresh-recovery=true",
+        ],
+    },
     {
         "name": "target contract",
         "fixture": "target_contract_smoke.fk",
@@ -2203,7 +2219,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-thirty-seven-handles=true",
+            "hir-scaling-fresh-slot-thirty-eight-handles=true",
             "hir-scaling-512-params=true",
             "hir-scaling-64-param-files=true",
             "hir-scaling-512-param-tasks=true",
@@ -11746,6 +11762,7 @@ def check_snapshot_inventories() -> None:
             "shape_field_snapshot_smoke.fk",
             "hir_snapshot_scaling_smoke.fk",
             "hir_semantic_index_smoke.fk",
+            "hir_param_index_smoke.fk",
             "hir_query_resource_smoke.fk",
             "mir_snapshot_resource_smoke.fk",
             "query_invalidation_resource_smoke.fk",
