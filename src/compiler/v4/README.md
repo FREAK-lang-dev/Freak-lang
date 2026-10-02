@@ -48,6 +48,13 @@ ordering through call arguments and ordinary binary operands. MIR retains
 short-circuit ownership and captures earlier operands before a later CFG split.
 Numeric emission follows TY's common operand type with widening conversions,
 floating comparisons, and unsigned comparison/division/remainder opcodes.
+Resolved return, local/assignment, and fixed call-argument types also determine
+numeric conversions; contextually floating integer literals use floating LLVM
+syntax. MIR snapshots validate and restore before each native program executes,
+with byte-identical module output after restoration. Ordered CFG captures keep
+the original child IDs as leaves and evaluate later clones, preserving the
+snapshot's child-before-parent invariant. Build-tool checks prove warning-only
+programs execute and errors suppress module output.
 
 This is a partial backend checkpoint. Word/runtime lowering, aggregate layout,
 generic monomorphization, impl callable descriptors, drops, and compiler-crate

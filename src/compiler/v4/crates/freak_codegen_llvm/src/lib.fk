@@ -678,7 +678,7 @@ task v4_codegen_llvm_rvalue_operand(mir_id: int, body_id: int, rvalue_id: int) -
         give back operand_ty + " " + v4_codegen_llvm_char_literal_codepoint(text)
     }
     if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word {
-        give back operand_ty + " " + text
+        give back operand_ty + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id)
     }
     if kind == v4_mir_rvalue_use_local {
         give back operand_ty + " " + v4_codegen_llvm_temp_value(body_id, rvalue_id)
@@ -712,6 +712,10 @@ task v4_codegen_llvm_rvalue_value(mir_id: int, body_id: int, rvalue_id: int) -> 
         give back v4_codegen_llvm_char_literal_codepoint(text)
     }
     if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_word {
+        if kind == v4_mir_rvalue_const_int {
+            pilot llvm_ty = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id))
+            if llvm_ty == "float" or llvm_ty == "double" { give back text + ".0" }
+        }
         give back text
     }
     if kind == v4_mir_rvalue_use_local {
@@ -750,11 +754,8 @@ task v4_codegen_llvm_variadic_arg_promoted_type(mir_id: int, body_id: int, call_
         pilot target_rvalue = v4_codegen_llvm_call_target_rvalue(mir_id, body_id, call_rvalue_id)
         if target_rvalue >= 0 {
             pilot callback_ty = v4_mir_rvalue_ty(mir_id, body_id, target_rvalue)
-            if v4_ty_function_type_variadic_param_id(callback_ty) < 0 {
-                give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
-            }
             if arg_id < v4_ty_function_type_fixed_param_count(callback_ty) {
-                give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+                give back v4_ty_canonical_type(ty_id, v4_ty_function_type_param_surface(callback_ty, arg_id))
             }
             pilot promoted_callback_ty = v4_ty_variadic_arg_promoted_type(ty_id, v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue))
             if promoted_callback_ty == v4_ty_unknown {
@@ -766,11 +767,11 @@ task v4_codegen_llvm_variadic_arg_promoted_type(mir_id: int, body_id: int, call_
     }
 
     if v4_ty_signature_is_variadic(ty_id, sig_id) == false {
-        give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+        give back v4_ty_signature_param_type(ty_id, sig_id, arg_id)
     }
 
     if arg_id < v4_ty_signature_fixed_param_count(ty_id, sig_id) {
-        give back v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue)
+        give back v4_ty_signature_param_type(ty_id, sig_id, arg_id)
     }
 
     pilot promoted_ty = v4_ty_variadic_arg_promoted_type(ty_id, v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue))
@@ -806,7 +807,7 @@ task v4_codegen_llvm_variadic_arg_needs_cast(mir_id: int, body_id: int, call_rva
     }
     pilot actual_llvm = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue))
     pilot target_llvm = v4_codegen_llvm_type(v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id))
-    give back v4_codegen_llvm_variadic_arg_cast_opcode(actual_llvm, target_llvm) != ""
+    give back v4_codegen_llvm_numeric_cast_opcode(v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue), v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id)) != ""
 }
 
 task v4_codegen_llvm_variadic_arg_prelude_line(mir_id: int, body_id: int, call_rvalue_id: int, arg_id: int) -> word {
@@ -817,7 +818,7 @@ task v4_codegen_llvm_variadic_arg_prelude_line(mir_id: int, body_id: int, call_r
 
     pilot actual_llvm = v4_codegen_llvm_type(v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue))
     pilot target_llvm = v4_codegen_llvm_type(v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id))
-    pilot opcode = v4_codegen_llvm_variadic_arg_cast_opcode(actual_llvm, target_llvm)
+    pilot opcode = v4_codegen_llvm_numeric_cast_opcode(v4_mir_rvalue_ty(mir_id, body_id, arg_rvalue), v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id))
     if opcode == "" {
         give back ""
     }
@@ -833,7 +834,7 @@ task v4_codegen_llvm_call_arg_operand(mir_id: int, body_id: int, call_rvalue_id:
     if v4_codegen_llvm_variadic_arg_needs_cast(mir_id, body_id, call_rvalue_id, arg_id) {
         give back v4_codegen_llvm_type(v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id)) + " " + v4_codegen_llvm_variadic_arg_temp(body_id, call_rvalue_id, arg_id)
     }
-    give back v4_codegen_llvm_rvalue_operand(mir_id, body_id, arg_rvalue)
+    give back v4_codegen_llvm_type(v4_codegen_llvm_variadic_arg_promoted_type(mir_id, body_id, call_rvalue_id, arg_id)) + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, arg_rvalue)
 }
 
 task v4_codegen_llvm_rvalue_needs_instruction(mir_id: int, body_id: int, rvalue_id: int) -> bool {
@@ -909,16 +910,39 @@ task v4_codegen_llvm_binary_cast_temp(body_id: int, rvalue_id: int, side: int) -
 }
 
 task v4_codegen_llvm_numeric_cast_opcode(source_ty: word, target_ty: word) -> word {
+    pilot canonical = v4_ty_normalize_ffi_alias_type(source_ty)
+    if canonical != "" { source_ty = canonical }
+    canonical = v4_ty_normalize_ffi_alias_type(target_ty)
+    if canonical != "" { target_ty = canonical }
     pilot source = v4_codegen_llvm_type(source_ty)
     pilot target = v4_codegen_llvm_type(target_ty)
     if source == target { give back "" }
     if source == "float" and target == "double" { give back "fpext" }
+    if source == "double" and target == "float" { give back "fptrunc" }
     if target == "float" or target == "double" {
         if source_ty == v4_ty_uint or source_ty == v4_ty_tiny { give back "uitofp" }
         give back "sitofp"
     }
-    if source == "i8" and target == "i64" { give back "zext" }
+    if source == "float" or source == "double" {
+        if target_ty == v4_ty_uint or target_ty == v4_ty_tiny or target_ty == v4_ty_char { give back "fptoui" }
+        give back "fptosi"
+    }
+    if (source == "i1" or source == "i8" or source == "i32") and target == "i64" { give back "zext" }
+    if (source == "i1" or source == "i8") and target == "i32" { give back "zext" }
+    if (source == "i64" or source == "i32") and target == "i8" { give back "trunc" }
+    if source == "i64" and target == "i32" { give back "trunc" }
     give back ""
+}
+
+task v4_codegen_llvm_expected_lines(mir_id: int, body_id: int, rvalue_id: int, expected_ty: word, temp: word) -> word {
+    pilot op = v4_codegen_llvm_numeric_cast_opcode(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id), expected_ty)
+    if op == "" { give back "" }
+    give back "  " + temp + " = " + op + " " + v4_codegen_llvm_rvalue_operand(mir_id, body_id, rvalue_id) + " to " + v4_codegen_llvm_type(expected_ty) + "\n"
+}
+
+task v4_codegen_llvm_expected_value(mir_id: int, body_id: int, rvalue_id: int, expected_ty: word, temp: word) -> word {
+    if v4_codegen_llvm_numeric_cast_opcode(v4_mir_rvalue_ty(mir_id, body_id, rvalue_id), expected_ty) != "" { give back temp }
+    give back v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id)
 }
 
 task v4_codegen_llvm_binary_arg_value(mir_id: int, body_id: int, rvalue_id: int, side: int) -> word {
@@ -1225,12 +1249,15 @@ task v4_codegen_llvm_default_return_line(return_ty: word) -> word {
 task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word {
     pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
     pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+    pilot expected_temp = "%expected." + word_from_int(body_id) + "." + word_from_int(stmt_id)
     if kind == v4_mir_stmt_return {
         pilot out = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
         pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
         pilot ret_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(v4_mir_ty_id(mir_id), sig_id))
         if ret_ty == "void" { give back out + "  ret void\n" }
-        out = out + "  ret " + ret_ty + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id) + "\n"
+        pilot expected_ty = v4_ty_signature_return_type(v4_mir_ty_id(mir_id), sig_id)
+        out = out + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, expected_ty, expected_temp)
+        out = out + "  ret " + ret_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + "\n"
         give back out
     }
     if kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign {
@@ -1244,6 +1271,9 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
                 pilot ptr_lines = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, ptr_rvalue, v4_codegen_llvm_temp_value(body_id, ptr_rvalue))
                 pilot value_text = v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id)
                 pilot ptr_text = v4_codegen_llvm_rvalue_value(mir_id, body_id, ptr_rvalue)
+                pilot expected_ty = v4_mir_place_ty(mir_id, body_id, place_id)
+                value_lines = value_lines + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, expected_ty, expected_temp)
+                value_text = v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp)
                 give back value_lines + ptr_lines + "  store " + pointee_ty + " " + value_text + ", ptr " + ptr_text + "\n"
             }
         }
@@ -1252,7 +1282,9 @@ task v4_codegen_llvm_stmt_lines(mir_id: int, body_id: int, stmt_id: int) -> word
         if local_id < 0 { local_id = v4_mir_find_local_visible_at(mir_id, body_id, target_name, v4_span_start(v4_mir_stmt_span(mir_id, body_id, stmt_id))) }
         pilot local_ty = v4_codegen_llvm_type(v4_mir_local_ty(mir_id, body_id, local_id))
         pilot value_lines = v4_codegen_llvm_rvalue_tree_lines(mir_id, body_id, rvalue_id, v4_codegen_llvm_temp_value(body_id, rvalue_id))
-        give back value_lines + "  store " + local_ty + " " + v4_codegen_llvm_rvalue_value(mir_id, body_id, rvalue_id) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n"
+        pilot expected_ty = v4_mir_local_ty(mir_id, body_id, local_id)
+        value_lines = value_lines + v4_codegen_llvm_expected_lines(mir_id, body_id, rvalue_id, expected_ty, expected_temp)
+        give back value_lines + "  store " + local_ty + " " + v4_codegen_llvm_expected_value(mir_id, body_id, rvalue_id, expected_ty, expected_temp) + ", ptr " + v4_codegen_llvm_local_slot(local_id) + "\n"
     }
     if kind == v4_mir_stmt_expr or kind == v4_mir_stmt_branch or kind == v4_mir_stmt_loop {
         if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rvalue_id) {

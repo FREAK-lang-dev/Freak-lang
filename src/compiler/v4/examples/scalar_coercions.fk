@@ -1,0 +1,17 @@
+task contextual() -> num { give back 2 }
+
+task returned(x: int) -> num { give back x }
+
+task accepts(x: num) -> bool { give back x == 2.0 }
+
+task main() -> int {
+    pilot x = 2
+    pilot y: num = x
+    y = x
+    pilot narrow: tiny = x
+    pilot widened: int = narrow
+    if accepts(x) and accepts(2) and accepts(y) and accepts(returned(x)) and accepts(contextual()) and widened == 2 {
+        give back 42
+    }
+    give back 1
+}

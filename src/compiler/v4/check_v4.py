@@ -6482,10 +6482,15 @@ EXECUTABLE_SMOKES = [
             "llvm-execute-invalid-target-2=true",
             "llvm-execute-diag-3=0", "llvm-execute-diag-4=0",
             "llvm-execute-invalid-target-3=true", "llvm-execute-invalid-target-4=true",
+            "llvm-execute-diag-5=0", "llvm-execute-invalid-target-5=true",
+            *[f"llvm-execute-snapshot-valid-{i}=true" for i in range(6)],
+            *[f"llvm-execute-snapshot-restored-{i}=true" for i in range(6)],
+            *[f"llvm-execute-module-exact-{i}=true" for i in range(6)],
         ],
         "llvm_programs": [("fib_collatz.fk", 166, ""), ("scalar_locals.fk", 42, ""),
                           ("short_circuit.fk", 42, ""), ("short_circuit_order.fk", 42, "ABCD"),
-                          ("scalar_numeric.fk", 42, "")],
+                          ("scalar_numeric.fk", 42, ""), ("scalar_coercions.fk", 42, "")],
+        "llvm_build_checks": True,
     },
     {
         "name": "module paths and import expansion",
@@ -12800,6 +12805,34 @@ if empty_ok and small_ok and large_ok {
     print(f"V3 LLVM substring pipeline: compile={compile_mode}")
 
 
+def check_v4_build_command() -> None:
+    warning_source = RUNTIME_BUILD_ROOT / "llvm_warning_only.fk"
+    warning_source.write_text(
+        'extern [C] {\n task longjmp(env: *mut tiny, code: std::ffi::c_int) -> void\n}\n'
+        'task main() -> int { give back 42 }\n', encoding="utf-8",
+    )
+    error_source = RUNTIME_BUILD_ROOT / "llvm_error.fk"
+    error_source.write_text('task main() -> int { give back "wrong" }\n', encoding="utf-8")
+    executable = RUNTIME_BUILD_ROOT / ("llvm_warning_only.exe" if sys.platform == "win32" else "llvm_warning_only.native")
+    for source, output, expected_success in (
+        (warning_source, executable, True),
+        (error_source, RUNTIME_BUILD_ROOT / "llvm_error.ll", False),
+    ):
+        output.unlink(missing_ok=True)
+        command = [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output)]
+        if not expected_success:
+            command.append("--emit-llvm")
+        result = run_with_heartbeat(command, label="V4 build command", timeout_seconds=180, memory_limit_mb=512)
+        if (result.returncode == 0) != expected_success or output.exists() != expected_success:
+            raise RuntimeError(f"V4 build command rejection mismatch:\n{result.stdout}{result.stderr}")
+        if expected_success and "v4-errors=0" not in result.stdout:
+            raise RuntimeError("warning-only V4 build did not report zero errors")
+    executed = run_with_heartbeat([str(executable)], label="V4 warning-only execute", timeout_seconds=10, memory_limit_mb=128)
+    if executed.returncode != 42 or executed.stdout or executed.stderr:
+        raise RuntimeError("warning-only V4 build did not execute correctly")
+    print("V4 build command: warning-only executes, errors reject")
+
+
 def check_executable_smokes(
     base_source: str,
     smokes: list[dict[str, object]],
@@ -12916,6 +12949,8 @@ def check_executable_smokes(
                 if native.returncode != exit_code or native.stdout != stdout or native.stderr:
                     raise RuntimeError(f"LLVM module execution failed: {name} expected={exit_code} actual={native.returncode}\n{native.stdout}{native.stderr}")
                 print(f"LLVM module execution: {name} exit={exit_code}")
+        if smoke.get("llvm_build_checks"):
+            check_v4_build_command()
 
         compile_mode = "clang" if compiled else "cache"
         print(

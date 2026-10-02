@@ -10,41 +10,49 @@ task v4_build_llvm_run() -> void {
     pilot mir = v4_mir_lower_ty(0, ty)
     pilot borrowck = v4_borrowck_check_mir(0, mir)
     pilot codegen = v4_codegen_llvm_lower_mir(0, mir)
+    pilot errors = v4_codegen_llvm_diag_count(codegen)
     pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_borrowck_diag_count(borrowck) + v4_codegen_llvm_diag_count(codegen)
     say "v4-diagnostics lex=" + word_from_int(v4_lex_diag_count(stream)) + " parse=" + word_from_int(v4_parse_diag_count(tree)) + " hir=" + word_from_int(v4_hir_diag_count(hir)) + " resolve=" + word_from_int(v4_resolve_diag_count(resolve)) + " ty=" + word_from_int(v4_ty_diag_count(ty)) + " mir=" + word_from_int(v4_mir_diag_count(mir)) + " borrowck=" + word_from_int(v4_borrowck_diag_count(borrowck)) + " codegen=" + word_from_int(v4_codegen_llvm_diag_count(codegen))
     pilot diag_stream = 0
     repeat until diag_stream >= v4_lex_diag_count(stream) {
         say v4_lex_diag(stream, diag_stream)
+        if v4_diag_severity(v4_lex_diag(stream, diag_stream)) >= v4_diag_error { errors += 1 }
         diag_stream += 1
     }
     pilot diag_tree = 0
     repeat until diag_tree >= v4_parse_diag_count(tree) {
         say v4_parse_diag(tree, diag_tree)
+        if v4_diag_severity(v4_parse_diag(tree, diag_tree)) >= v4_diag_error { errors += 1 }
         diag_tree += 1
     }
     pilot diag_hir = 0
     repeat until diag_hir >= v4_hir_diag_count(hir) {
         say v4_hir_diag(hir, diag_hir)
+        if v4_diag_severity(v4_hir_diag(hir, diag_hir)) >= v4_diag_error { errors += 1 }
         diag_hir += 1
     }
     pilot diag_resolve = 0
     repeat until diag_resolve >= v4_resolve_diag_count(resolve) {
         say v4_resolve_diag(resolve, diag_resolve)
+        if v4_diag_severity(v4_resolve_diag(resolve, diag_resolve)) >= v4_diag_error { errors += 1 }
         diag_resolve += 1
     }
     pilot diag_ty = 0
     repeat until diag_ty >= v4_ty_diag_count(ty) {
         say v4_ty_diag(ty, diag_ty)
+        if v4_diag_severity(v4_ty_diag(ty, diag_ty)) >= v4_diag_error { errors += 1 }
         diag_ty += 1
     }
     pilot diag_mir = 0
     repeat until diag_mir >= v4_mir_diag_count(mir) {
         say v4_mir_diag(mir, diag_mir)
+        if v4_diag_severity(v4_mir_diag(mir, diag_mir)) >= v4_diag_error { errors += 1 }
         diag_mir += 1
     }
     pilot diag_borrowck = 0
     repeat until diag_borrowck >= v4_borrowck_diag_count(borrowck) {
         say v4_borrowck_diag(borrowck, diag_borrowck)
+        if v4_diag_severity(v4_borrowck_diag(borrowck, diag_borrowck)) >= v4_diag_error { errors += 1 }
         diag_borrowck += 1
     }
     pilot diag_codegen = 0
@@ -52,7 +60,8 @@ task v4_build_llvm_run() -> void {
         say v4_codegen_llvm_diag(codegen, diag_codegen)
         diag_codegen += 1
     }
-    if total != 0 { give back }
+    say "v4-errors=" + word_from_int(errors)
+    if errors != 0 { give back }
     pilot module = v4_codegen_llvm_module_text(codegen, v4_target_spec_new(process::arg(2)))
     if module == "" { say "v4-module-rejected" give back }
     say "@@V4-MODULE"

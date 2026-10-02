@@ -341,8 +341,16 @@ task v4_mir_capture_control_flow_value(mir_id: int, body_id: int, block_id: int,
     pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     pilot temp_local = v4_mir_add_local(mir_id, body_id, temp_name, value_ty, stmt_span)
     pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_local, temp_name, 0 - 1, stmt_span, value_ty)
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, temp_name, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_span, temp_place, rvalue_id)
-    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, temp_name, temp_name, 0 - 1, 0 - 1, v4_mir_rvalue_span(mir_id, body_id, rvalue_id), value_ty)
+    -- Keep parent-before-capture identities valid for the snapshot's prior-ref
+    -- contract: evaluate a later clone, then rewrite the original ID as a leaf.
+    pilot value_span = v4_mir_rvalue_span(mir_id, body_id, rvalue_id)
+    pilot evaluated = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_kind(mir_id, body_id, rvalue_id), v4_mir_rvalue_text(mir_id, body_id, rvalue_id), v4_mir_rvalue_op(mir_id, body_id, rvalue_id), v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id), value_span, value_ty)
+    v4_mir_set_rvalue_abi(mir_id, body_id, evaluated, v4_mir_rvalue_abi(mir_id, body_id, rvalue_id))
+    v4_mir_set_rvalue_args_payload(mir_id, body_id, evaluated, v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id))
+    v4_mir_set_rvalue_builtin_method(mir_id, body_id, evaluated, v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id))
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, temp_name, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_span, temp_place, evaluated)
+    v4_mir_restore_rvalue_slot(mir_id, body_id, rvalue_id, v4_mir_rvalue_use_local, temp_name, temp_name, 0 - 1, 0 - 1, value_span, value_ty, "", "", "")
+    give back rvalue_id
 }
 
 task v4_mir_wire_control_flow_rvalue(mir_id: int, body_id: int, block_id: int, stmt_span: word, rvalue_id: int) -> int {
