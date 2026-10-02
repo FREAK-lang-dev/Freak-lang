@@ -98,20 +98,39 @@ task borrow_path_semantic_source() -> word {
 }
 
 task borrow_path_index_run() -> void {
-    -- Default numeric handles must not alias a live unrelated array before init.
+    -- Handles are tagged. Inject an actual live foreign handle into cold globals
+    -- to prove readiness guards prevent reads, publication, mutation and release.
+    pilot cold_files = v4_borrowck_files
+    pilot cold_defs = v4_borrowck_body_defs
+    pilot cold_kinds = v4_borrowck_path_kinds
+    pilot cold_stmts = v4_borrowck_path_stmt_ids
+    pilot cold_indexes = v4_borrowck_stmt_path_indexes
     pilot foreign = array_new()
-    array_push(foreign, "0")
-    array_push(foreign, "0")
-    array_push(foreign, "0")
+    array_push(foreign, word_from_int(foreign))
+    array_push(foreign, word_from_int(foreign))
+    array_push(foreign, word_from_int(foreign))
+    v4_borrowck_files = foreign
+    v4_borrowck_body_defs = foreign
+    v4_borrowck_path_kinds = foreign
+    v4_borrowck_path_stmt_ids = foreign
+    v4_borrowck_stmt_path_indexes = foreign
     pilot available = borrow_path_available_handles()
-    pilot preinit: bool = foreign == 0 and v4_borrowck_ready == 0 and v4_borrowck_stmt_path_indexes < 0 and borrow_path_invalid_owner_queries(0, 0) and borrow_path_invalid_owner_queries(0 - 1, 0) and borrow_path_invalid_owner_queries(1, 0)
+    pilot preinit: bool = foreign >= 0 and cold_indexes < 0 and v4_borrowck_ready == 0 and borrow_path_invalid_owner_queries(0, 0) and borrow_path_invalid_owner_queries(0 - 1, 0) and borrow_path_invalid_owner_queries(1, 0)
+    pilot phantom_first = v4_borrowck_stmt_path_first(0, 0, foreign)
+    pilot phantom_next = v4_borrowck_stmt_path_next(0, 0, foreign, 0)
+    pilot phantom_count = v4_borrowck_stmt_path_count(0, 0, foreign)
     pilot foreign_owner = v4_borrowck_stmt_path_indexes_handle(0)
     v4_borrowck_release_stmt_path_indexes(0)
     v4_borrowck_release_stmt_path_indexes(0 - 1)
-    preinit = preinit and foreign_owner < 0 and v4_borrowck_ready == 0 and v4_borrowck_files == 0 and v4_borrowck_stmt_path_indexes < 0 and v4_borrowck_stmt_path_index_probes == 0 and v4_borrowck_stmt_path_index_visits == 0 and v4_borrowck_stmt_path_linear_steps == 0 and v4_borrowck_stmt_path_index_rebuilds == 0
+    preinit = preinit and phantom_first < 0 and phantom_next < 0 and phantom_count == 0 and foreign_owner < 0 and v4_borrowck_ready == 0 and v4_borrowck_files == foreign and v4_borrowck_body_defs == foreign and v4_borrowck_path_kinds == foreign and v4_borrowck_path_stmt_ids == foreign and v4_borrowck_stmt_path_indexes == foreign and v4_borrowck_stmt_path_index_probes == 0 and v4_borrowck_stmt_path_index_visits == 0 and v4_borrowck_stmt_path_linear_steps == 0 and v4_borrowck_stmt_path_index_rebuilds == 0
     pilot foreign_first: word = array_get(foreign, 0)
     pilot foreign_last: word = array_get(foreign, 2)
-    preinit = preinit and array_len(foreign) == 3 and foreign_first == "0" and foreign_last == "0" and borrow_path_available_handles() == available
+    preinit = preinit and array_len(foreign) == 3 and foreign_first == word_from_int(foreign) and foreign_last == word_from_int(foreign) and borrow_path_available_handles() == available
+    v4_borrowck_files = cold_files
+    v4_borrowck_body_defs = cold_defs
+    v4_borrowck_path_kinds = cold_kinds
+    v4_borrowck_path_stmt_ids = cold_stmts
+    v4_borrowck_stmt_path_indexes = cold_indexes
     array_release(foreign)
     pilot mir = v4_mir_file_new(0, 0 - 1)
     pilot body = v4_mir_add_body(mir, "index-body", "index-body", "")
