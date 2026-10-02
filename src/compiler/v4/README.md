@@ -103,6 +103,8 @@ Source loading uses the additive bootstrap `fs::read_checked` helper, which
 returns the existing C `result<word,word>` representation. Empty regular files
 succeed; open, metadata, seek, read and close failures return errors before any
 source/query publication. The legacy bootstrap `fs::read` ABI is unchanged.
+Size checks use descriptor metadata (`_fstat64` on Windows), retaining complete
+read and trailing-byte checks without a 32-bit `long` size limit.
 The command requires a source `main`; public Codegen APIs can still emit library
 modules without one. This helper does not complete bible section 7.7's standard
 filesystem API or add a native word-result ABI.
@@ -153,6 +155,9 @@ Embedded NUL, unsupported escapes, valid interpolation paths, and nonliteral
 `say` operands receive explicit diagnostics. Module assembly also rejects word
 locals, parameters, returns, and other word rvalues until ownership cleanup
 lands. Existing broader plan-only codegen facts remain available.
+The bootstrap literal decoder returns validated plain bytes directly and joins
+decoded escape output once. If no scratch handle is available, it preserves
+exact decoding through the existing slower concatenation fallback.
 
 The MIR wire vocabulary and version stay unchanged: this uses existing
 `ConstWord` and `Call` records, and escaped text survives restoration. The

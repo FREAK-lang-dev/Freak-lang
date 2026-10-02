@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import contextlib
+import io
 import importlib.util
 import json
 from pathlib import Path
@@ -11,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -105,6 +108,24 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, int64_t tar
         result, rows = self.run_bench(tool)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(rows[0]["status"], "diagnostics")
+
+    def test_git_provenance_failure_writes_structured_build_failure(self):
+        spec = importlib.util.spec_from_file_location("v4_benchmark_failure", ROOT / "v4_scale_bench.py")
+        benchmark = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(benchmark)
+        destination = self.work / "result.json"
+        error = subprocess.CalledProcessError(128, ["git", "rev-parse", "HEAD"])
+        arguments = ["v4_scale_bench.py", "--repo", str(ROOT), "--work", str(self.work / "runs"),
+                     "--json", str(destination), "--shapes", "tasks", "--sizes", "1"]
+        with patch.object(sys, "argv", arguments), patch.object(benchmark, "load_build", return_value=object()), \
+                patch.object(benchmark.subprocess, "check_output", side_effect=error), \
+                contextlib.redirect_stderr(io.StringIO()) as captured:
+            self.assertEqual(benchmark.main(), 1)
+        result = json.loads(destination.read_text())
+        self.assertEqual(result["status"], "build-failed")
+        self.assertEqual(result["results"], [])
+        self.assertIn("cannot record repository head", result["failure"])
+        self.assertNotIn("Traceback", captured.getvalue())
 
     def test_nonfinite_timeout_rejected_before_running_tool(self):
         marker = self.work / "executed"

@@ -5953,6 +5953,10 @@ task v4_hir_word_literal_issue(raw: word) -> word {
 
 task v4_hir_word_literal_value(raw: word) -> word {
     if v4_hir_word_literal_issue(raw) != "" { give back "" }
+    if not raw.contains("\\") { give back raw }
+    -- Join once in normal operation. Preserve exact decoding if no scratch
+    -- handle is available instead of silently publishing an empty literal.
+    pilot parts = array_new()
     pilot value = ""
     pilot idx = 0
     repeat until idx >= raw.length() {
@@ -5962,9 +5966,10 @@ task v4_hir_word_literal_value(raw: word) -> word {
             pilot escaped = raw.char_at(idx)
             if escaped == "n" { ch = "\n" } else if escaped == "r" { ch = "\r" } else if escaped == "t" { ch = "\t" } else { ch = escaped }
         }
-        value = value + ch
+        if parts >= 0 { array_push(parts, ch) } else { value = value + ch }
         idx += 1
     }
+    if parts >= 0 { give back word_join(parts) }
     give back value
 }
 

@@ -54,6 +54,7 @@ task h6_diagnostics_restore_resource() -> void {
     v4_query_init()
     pilot pressure = h6_diag_pressure()
     array_release(word_to_int(array_get(pressure, array_len(pressure) - 1)))
+    array_set(pressure, array_len(pressure) - 1, "-1")
     pilot cold: bool = v4_driver_diag_set_new("never-published.fk") < 0 and v4_driver_ready == 0
     pilot retry_probe = array_new()
     cold = cold and retry_probe >= 0
@@ -125,7 +126,9 @@ task h6_diagnostics_restore_resource() -> void {
     -- Allow only part of a sparse/staged reservation, then force rollback.
     pilot released = 0
     repeat until released >= 5 {
-        array_release(word_to_int(array_get(pressure, array_len(pressure) - 1 - released)))
+        pilot slot = array_len(pressure) - 1 - released
+        array_release(word_to_int(array_get(pressure, slot)))
+        array_set(pressure, slot, "-1")
         released += 1
     }
     pilot partial: bool = v4_diagnostics_restore_set_slot(20, "bad") < 0 and v4_diagnostics_set_count() == old_count

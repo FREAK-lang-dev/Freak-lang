@@ -108,4 +108,39 @@ task v4_h6_grammar_run() -> void {
     say "h6-grammar-restore-and-display=" + word_from_bool(preserved and display_kept and v4_ty_impl_method_count(ty, owner) == 4)
 }
 
+task v4_h6_literal_decode_run() -> void {
+    pilot raw_parts = array_new()
+    pilot expected_parts = array_new()
+    pilot slash = "\\"
+    pilot segment = "x" + slash + "n"
+    pilot idx = 0
+    repeat until idx >= 8192 {
+        array_push(raw_parts, segment)
+        array_push(expected_parts, "x\n")
+        idx += 1
+    }
+    pilot raw = word_join(raw_parts)
+    pilot expected = word_join(expected_parts)
+    -- The fixture retains its 64 MiB limit; per-byte concatenation exceeds it.
+    pilot bounded: bool = expected.length() == 16384 and v4_hir_word_literal_value(raw) == expected and v4_hir_word_literal_value("plain") == "plain" and v4_hir_word_literal_value("") == ""
+    pilot holders = array_new()
+    pilot exhausted = false
+    repeat until exhausted or array_len(holders) >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)) }
+    }
+    pilot short_raw = "a" + slash + "n" + slash + "t" + slash + "r" + slash + "\"" + slash + slash
+    pilot short_expected = "a\n\t\r\"\\"
+    exhausted = exhausted and v4_hir_word_literal_value(short_raw) == short_expected and v4_hir_word_literal_value(slash + "q") == "" and array_new() < 0
+    idx = 0
+    repeat until idx >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, idx)))
+        idx += 1
+    }
+    array_release(holders)
+    pilot recovered: bool = v4_hir_word_literal_value(short_raw) == short_expected
+    say "h6-grammar-literal-decode bounded=" + word_from_bool(bounded) + " exhausted=" + word_from_bool(exhausted) + " recovered=" + word_from_bool(recovered)
+}
+
 v4_h6_grammar_run()
+v4_h6_literal_decode_run()

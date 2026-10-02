@@ -6,6 +6,7 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -18,18 +19,16 @@
 #endif
 static int h6_fault = 0;
 static int h6_allocations = 0;
+static size_t h6_last_allocation = 0;
 static void* h6_malloc(size_t size) {
     ++h6_allocations;
-    if (h6_fault == 8 || (h6_fault == 9 && h6_allocations == 2)) return NULL;
+    h6_last_allocation = size;
+    if (h6_fault == 8 || ((h6_fault == 9 || h6_fault == 10) && h6_allocations == 2)) return NULL;
     return malloc(size);
 }
 static int h6_seek(FILE* file, long offset, int whence) {
     if (h6_fault == 1) { errno = EIO; return -1; }
     return fseek(file, offset, whence);
-}
-static long h6_tell(FILE* file) {
-    if (h6_fault == 2) { errno = EIO; return -1; }
-    return ftell(file);
 }
 static size_t h6_read(void* contents, size_t size, size_t count, FILE* file) {
     if (h6_fault == 4) { errno = EIO; return 0; }
@@ -51,7 +50,10 @@ static int h6_open(const char* name, int flags, ...) {
 }
 static int h6_stat(int descriptor, struct _stat64* metadata) {
     if (h6_fault == 3) { errno = EIO; return -1; }
-    return _fstat64(descriptor, metadata);
+    int status = _fstat64(descriptor, metadata);
+    if (status == 0 && h6_fault == 2) metadata->st_size = -1;
+    if (status == 0 && h6_fault == 10) metadata->st_size = (int64_t)INT32_MAX + 19;
+    return status;
 }
 #define _open h6_open
 #define _fstat64 h6_stat
@@ -62,21 +64,22 @@ static int h6_open(const char* name, int flags, ...) {
 }
 static int h6_stat(int descriptor, struct stat* metadata) {
     if (h6_fault == 3) { errno = EIO; return -1; }
-    return fstat(descriptor, metadata);
+    int status = fstat(descriptor, metadata);
+    if (status == 0 && h6_fault == 2) metadata->st_size = -1;
+    if (status == 0 && h6_fault == 10) metadata->st_size = (int64_t)INT32_MAX + 19;
+    return status;
 }
 #define open h6_open
 #define fstat h6_stat
 #endif
 #define malloc h6_malloc
 #define fseek h6_seek
-#define ftell h6_tell
 #define fread h6_read
 #define fclose h6_close
 #define fgetc h6_getc
 #include "../../../../freakc/runtime/freak_runtime.c"
 #undef malloc
 #undef fseek
-#undef ftell
 #undef fread
 #undef fclose
 #undef fgetc
@@ -119,6 +122,13 @@ int main(int argc, char** argv) {
         h6_allocations = 0;
         if (!h6_err(freak_fs_read_checked(freak_word_lit(argv[2])))) faults = 0;
     }
+    /* Exercise a size beyond Windows long without allocating gigabytes. */
+    h6_fault = 10;
+    h6_allocations = 0;
+    int large_size = h6_err(freak_fs_read_checked(freak_word_lit(argv[2]))) &&
+                     h6_allocations == 2 &&
+                     h6_last_allocation == (size_t)INT32_MAX + 20;
+    faults = faults && large_size;
     h6_fault = 0;
     int recovery = h6_ok(freak_fs_read_checked(freak_word_lit(argv[2])), "task main() -> int {\n give back 7\n}\n");
     printf("h6-runtime-source-read contents=%s errors=%s faults=%s recovery=%s\n",

@@ -207,6 +207,8 @@ task v4_ty_index_fixture_run() -> void {
     }
     pilot pressure_fallbacks = v4_ty_signature_index_fallbacks
     pilot pressure_before: bool = v4_ty_signature_index_handle(pressure) < 0
+    v4_ty_signature_index_invalidate(pressure)
+    v4_ty_signature_index_added(pressure, 0)
     pilot pressure_publish: bool = v4_ty_signature_index_finalize(pressure)
     pilot pressure_ok: bool = v4_ty_const_signature_id_for_name(pressure, "Pressure") == 0 and v4_ty_lookup_signature(pressure, "pressure-def") == 0 and v4_ty_alias_signature_id_for_name(pressure, "Pressure") == 0 - 1
     say "ty-index-handle-exhaustion-fallback=" + word_from_bool(exhausted and pressure_before and not pressure_publish and pressure_ok and v4_ty_signature_index_handle(pressure) < 0 and v4_ty_signature_index_fallbacks == pressure_fallbacks + 3)
@@ -222,6 +224,26 @@ task v4_ty_index_fixture_run() -> void {
     pilot recovered_publish: bool = v4_ty_signature_index_finalize(pressure)
     pilot recovered: bool = v4_ty_const_signature_id_for_name(pressure, "Pressure") == 0 and v4_ty_lookup_signature(pressure, "pressure-def") == 0 and v4_ty_alias_signature_id_for_name(pressure, "Pressure") == 0 - 1
     say "ty-index-handle-exhaustion-recovered=" + word_from_bool(released_cold and recovered_publish and recovered and v4_ty_signature_index_handle(pressure) >= 0 and v4_ty_signature_index_fallbacks == recovered_fallbacks)
+
+    -- Missing and incomplete disposable storage must never become array writes.
+    pilot published = v4_ty_signature_index_handle(pressure)
+    pilot short_index = array_new()
+    array_set(v4_ty_signature_indexes, pressure, word_from_int(short_index))
+    pilot short_builds = v4_ty_signature_index_builds
+    v4_ty_signature_index_invalidate(pressure)
+    v4_ty_signature_index_added(pressure, 0)
+    pilot short_ok: bool = array_len(short_index) == 0 and v4_ty_const_signature_id_for_name(pressure, "Pressure") == 0
+    array_push(short_index, "1")
+    array_push(short_index, "16")
+    v4_ty_signature_index_invalidate(pressure)
+    v4_ty_signature_index_added(pressure, 0)
+    pilot short_ready: word = array_get(short_index, 0)
+    short_ok = short_ok and array_len(short_index) == 2 and short_ready == "1" and v4_ty_lookup_signature(pressure, "pressure-def") == 0 and v4_ty_signature_index_builds == short_builds
+    array_set(v4_ty_signature_indexes, pressure, word_from_int(published))
+    array_release(short_index)
+    v4_ty_item_method_cache_invalidate(0 - 1)
+    v4_ty_item_method_cache_invalidate(pressure)
+    say "ty-index-missing-and-short-storage=" + word_from_bool(short_ok and v4_ty_const_signature_id_for_name(pressure, "Pressure") == 0)
 }
 
 v4_ty_index_fixture_run()

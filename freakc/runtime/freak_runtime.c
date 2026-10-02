@@ -1009,17 +1009,16 @@ freak_result_word_word freak_fs_read_checked(freak_word path) {
 #endif
         return freak_fs_read_checked_error("could not open source stream");
     }
-    if (fseek(file, 0, SEEK_END) != 0) {
-        fclose(file);
-        return freak_fs_read_checked_error("could not seek source file");
-    }
-    long measured = ftell(file);
-    if (measured < 0 || (uintmax_t)measured >= SIZE_MAX ||
-        fseek(file, 0, SEEK_SET) != 0) {
+    /* _fstat64 on Windows avoids the 32-bit long used by ftell on LLP64. */
+    if (metadata.st_size < 0 || (uintmax_t)metadata.st_size >= SIZE_MAX) {
         fclose(file);
         return freak_fs_read_checked_error("could not measure source file");
     }
-    size_t length = (size_t)measured;
+    if (fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return freak_fs_read_checked_error("could not seek source file");
+    }
+    size_t length = (size_t)metadata.st_size;
     char* contents = (char*)malloc(length + 1);
     if (!contents) {
         fclose(file);

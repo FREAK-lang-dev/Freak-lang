@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import platform
+import re
 import shutil
 import sys
 import tempfile
@@ -62,9 +63,12 @@ def emit_module(compiler: Path, source: Path, target: str) -> str:
         label=f"V4 compile: {source.name}", timeout_seconds=900,
         memory_limit_mb=2048,
     )
-    prefix, marker, module = result.stdout.partition("@@V4-MODULE\n")
-    if result.returncode != 0 or not marker:
+    markers = list(re.finditer(r"^@@V4-MODULE\r?\n", result.stdout, re.MULTILINE))
+    if result.returncode != 0 or len(markers) != 1:
         raise RuntimeError(f"V4 compilation failed:\n{result.stdout}{result.stderr}")
+    marker = markers[0]
+    prefix = result.stdout[:marker.start()]
+    module = result.stdout[marker.end():]
     print(prefix.strip())
     return module
 
@@ -90,7 +94,7 @@ def main() -> int:
         module = emit_module(bootstrap(clang, args.compiler_opt), args.source, target)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         llvm_path = args.output if args.emit_llvm else args.output.with_suffix(".ll")
-        llvm_path.write_text(module, encoding="utf-8")
+        llvm_path.write_bytes(module.encode("utf-8"))
         if args.emit_llvm:
             with tempfile.TemporaryDirectory(prefix="freak-v4-verify-") as temporary:
                 result = checks.run_with_heartbeat(

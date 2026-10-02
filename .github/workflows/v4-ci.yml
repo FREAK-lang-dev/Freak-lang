@@ -150,11 +150,13 @@ jobs:
         run: python -B -u -m unittest discover -s tests -p test_v4_scale_bench.py -v
 
       - name: Build instrumented compiler and execute a measured program
+        env:
+          V4_BENCH_TMP: ${{ runner.temp }}
         run: >
           python -u v4_scale_bench.py --shapes tasks --sizes 1 --check
           --timeout 60 --build-timeout 300
-          --work "${{ runner.temp }}/v4-benchmark-smoke"
-          --json "${{ runner.temp }}/v4-benchmark-smoke.json"
+          --work "$V4_BENCH_TMP/v4-benchmark-smoke"
+          --json "$V4_BENCH_TMP/v4-benchmark-smoke.json"
 
       - name: Preserve benchmark smoke evidence
         if: always()

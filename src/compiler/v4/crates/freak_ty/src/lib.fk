@@ -269,7 +269,9 @@ task v4_ty_signature_index_handle(ty_id: int) -> int {
 }
 
 task v4_ty_signature_index_invalidate(ty_id: int) -> void {
-    array_set(v4_ty_signature_index_handle(ty_id), 0, "0")
+    pilot packed = v4_ty_signature_index_handle(ty_id)
+    if packed < 0 or array_len(packed) < 3 { give back }
+    array_set(packed, 0, "0")
 }
 
 task v4_ty_signature_index_category(sig_kind: word) -> int {
@@ -394,6 +396,10 @@ task v4_ty_signature_index_finalize(ty_id: int) -> bool {
 
 task v4_ty_signature_index_added(ty_id: int, sig_id: int) -> void {
     pilot packed = v4_ty_signature_index_handle(ty_id)
+    if packed < 0 or array_len(packed) < 3 {
+        v4_ty_signature_index_finalize(ty_id)
+        give back
+    }
     pilot capacity = word_to_int(array_get(packed, 1))
     pilot ready: word = array_get(packed, 0)
     if ready == "1" and word_to_int(array_get(packed, 2)) == sig_id and capacity >= 8 * (sig_id + 1) {
@@ -433,6 +439,9 @@ task v4_ty_signature_index_lookup(ty_id: int, key: word, category: int) -> int {
     -- ordinary append and whole restore publish; direct slot edits stay cold
     -- until their owner explicitly finalizes the file.
     pilot packed = v4_ty_signature_index_handle(ty_id)
+    if packed < 0 or array_len(packed) < 3 {
+        give back v4_ty_signature_index_linear_lookup(ty_id, key, category)
+    }
     pilot ready: word = array_get(packed, 0)
     if ready != "1" or word_to_int(array_get(packed, 2)) != v4_ty_signature_count(ty_id) {
         give back v4_ty_signature_index_linear_lookup(ty_id, key, category)
@@ -505,7 +514,9 @@ task v4_ty_item_method_cache_value(hir_id: int, row: int) -> int {
 
 task v4_ty_item_method_cache_invalidate(ty_id: int) -> void {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
-    array_set(v4_ty_item_method_cache_handle(hir_id), 0, "0")
+    pilot packed = v4_ty_item_method_cache_handle(hir_id)
+    if packed < 0 or array_len(packed) < 1 { give back }
+    array_set(packed, 0, "0")
 }
 
 -- Explicit publication belongs to semantic construction/restore, never reads.

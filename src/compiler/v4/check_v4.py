@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import signal
+import stat
 import shutil
 import subprocess
 import sys
@@ -971,6 +972,7 @@ EXECUTABLE_SMOKES = [
             "ty-index-reused-file=true",
             "ty-index-handle-exhaustion-fallback=true",
             "ty-index-handle-exhaustion-recovered=true",
+            "ty-index-missing-and-short-storage=true",
         ],
     },
     {
@@ -6893,7 +6895,8 @@ EXECUTABLE_SMOKES = [
             "h6-grammar-constant-literal-types=true",
             "h6-grammar-method-cache-equivalence=true",
             "h6-grammar-closure-keyword-data=true",
-            "h6-grammar-restore-and-display=true"
+            "h6-grammar-restore-and-display=true",
+            "h6-grammar-literal-decode bounded=true exhausted=true recovered=true"
         ]
     },
     {
@@ -13769,6 +13772,28 @@ def expected_native_stdout(text: str) -> str:
     return text.replace("\n", "\r\n") if sys.platform == "win32" else text
 
 
+def extract_llvm_modules(output: str) -> list[str]:
+    """Accept C text-stream framing while retaining each module's bytes."""
+    return re.findall(r"^@@LLVM-MODULE-BEGIN\r?\n(.*?)\r?\n@@LLVM-MODULE-END\r?$",
+                      output, re.DOTALL | re.MULTILINE)
+
+
+def prepare_source_fifo(fifo: Path) -> None:
+    """Reuse a real FIFO, replacing stale files without following symlinks."""
+    try:
+        mode = fifo.lstat().st_mode
+    except FileNotFoundError:
+        mode = None
+    if mode is not None:
+        if stat.S_ISFIFO(mode):
+            return
+        if stat.S_ISDIR(mode):
+            fifo.rmdir()  # Only an empty generated directory may be replaced.
+        else:
+            fifo.unlink()
+    os.mkfifo(fifo)
+
+
 def check_checked_source_runtime(clang: str) -> None:
     fixture = TESTS_ROOT / "h6_source_read_checked_runtime.c"
     executable = RUNTIME_BUILD_ROOT / ("h6_source_read.exe" if sys.platform == "win32" else "h6_source_read")
@@ -13793,8 +13818,7 @@ def check_checked_source_runtime(clang: str) -> None:
     paths = checked_source_fixture_paths()
     if hasattr(os, "mkfifo"):
         fifo = RUNTIME_BUILD_ROOT / "h6_source_fifo"
-        if not fifo.exists():
-            os.mkfifo(fifo)
+        prepare_source_fifo(fifo)
         paths.append(str(fifo))
     executed = run_with_heartbeat(
         [str(executable), *paths], label="checked source runtime execute",
@@ -14007,13 +14031,13 @@ def check_executable_smokes(
             raise SystemExit(1)
 
         if smoke.get("llvm_programs"):
-            modules = re.findall(r"@@LLVM-MODULE-BEGIN\n(.*?)\n@@LLVM-MODULE-END", output, re.DOTALL)
+            modules = extract_llvm_modules(output)
             if len(modules) != len(smoke["llvm_programs"]):
                 raise RuntimeError("LLVM module smoke emitted the wrong number of modules")
-            for (name, exit_code, stdout), module in zip(smoke["llvm_programs"], modules):
+            for (name, exit_code, stdout), module in zip(smoke["llvm_programs"], modules, strict=True):
                 ll_path = RUNTIME_BUILD_ROOT / f"{Path(name).stem}.v4.ll"
                 native_path = ll_path.with_suffix(".exe" if sys.platform == "win32" else ".native")
-                ll_path.write_text(module, encoding="utf-8")
+                ll_path.write_bytes(module.encode("utf-8"))
                 linked = run_with_heartbeat(
                     [clang, "-w", "-O2", str(ll_path),
                      str(RUNTIME_ROOT / "freak_llvm_runtime.c"), str(runtime_c),

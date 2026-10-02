@@ -285,6 +285,11 @@ def defined_symbols(build, path: Path, directory: Path, timeout: float) -> set[s
 
 
 def build_tool(repo, work, profile, timeout, build):
+    try:
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True,
+                                       stderr=subprocess.STDOUT).strip()
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise RuntimeError(f"cannot record repository head: {error}") from error
     clang = shutil.which("clang")
     if not clang:
         raise RuntimeError("clang is required")
@@ -343,7 +348,7 @@ def build_tool(repo, work, profile, timeout, build):
     duplicates = sorted(symbols[0] & symbols[1])
     if duplicates:
         raise RuntimeError(f"unexpected runtime symbol collisions: {duplicates}")
-    manifest = {"repository_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip(),
+    manifest = {"repository_head": head,
                 "generated_c_sha256": sha256(frozen), "instrumented_c_sha256": sha256(measured),
                 "tool_sha256": sha256(tool), "tool": str(tool), "clang": clang,
                 "clang_version": version.stdout, "compiler_flags": flags, "profile": profile,
