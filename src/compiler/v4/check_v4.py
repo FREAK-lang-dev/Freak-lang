@@ -72,6 +72,7 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "ty_item_method_cache_smoke.fk",
         "lex_mutation_revision_exhaustion_smoke.fk",
         "mir_impl_candidate_lookup_smoke.fk",
+        "lex_boundary_publication_exhaustion_smoke.fk",
         "hir_param_index_smoke.fk",
         "ty_signature_index_smoke.fk",
         "resolve_lookup_index_smoke.fk",
@@ -736,6 +737,20 @@ INVALIDATION_FAMILY_FIELDS = [
 ]
 
 EXECUTABLE_SMOKES = [
+    {
+        "name": "Lex publication without boundary storage",
+        "fixture": "lex_boundary_publication_exhaustion_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "lex-publication-outer-storage-exhausted=true",
+            "lex-publication-empty-fails-without-allocation=true",
+            "lex-publication-nonempty-fails-without-allocation=true",
+            "lex-publication-raw-mutation-cold-correct=true",
+            "lex-publication-repeated-denial-stable=true",
+        ],
+    },
     {
         "name": "MIR impl candidate lookup",
         "fixture": "mir_impl_candidate_lookup_smoke.fk",
@@ -11933,6 +11948,7 @@ def check_snapshot_inventories() -> None:
             "ty_item_method_cache_smoke.fk",
             "lex_mutation_revision_exhaustion_smoke.fk",
             "mir_impl_candidate_lookup_smoke.fk",
+            "lex_boundary_publication_exhaustion_smoke.fk",
             "hir_param_index_smoke.fk",
             "ty_signature_index_smoke.fk",
             "resolve_lookup_index_smoke.fk",
