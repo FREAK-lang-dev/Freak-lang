@@ -115,7 +115,7 @@ task v4_hir_impl_smoke_bounds() -> void {
 
 task v4_hir_impl_smoke_payload(files: int) -> word {
     pilot parts = array_new()
-    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v9|files=" + word_from_int(files) + "|items=" + word_from_int(files * 4) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|shape-owners=0|shape-fields=0|const-annotations=0|route-owners=0|route-cases=0|route-fields=0|diagnostics=0")
+    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v10|files=" + word_from_int(files) + "|items=" + word_from_int(files * 4) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|shape-owners=0|shape-fields=0|const-annotations=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|diagnostics=0")
     pilot file = files - 1
     repeat until file < 0 {
         pilot item = 3
@@ -128,7 +128,7 @@ task v4_hir_impl_smoke_payload(files: int) -> word {
         array_push(parts, "\nhir|" + word_from_int(file) + "|77|0|4|0")
         file -= 1
     }
-    array_push(parts, "\nend|freak-hir-snapshot-v9")
+    array_push(parts, "\nend|freak-hir-snapshot-v10")
     pilot payload = word_join(parts)
     array_release(parts)
     give back payload
@@ -184,8 +184,8 @@ task v4_hir_impl_smoke_snapshots() -> void {
         v4_hir_impl_smoke_assert(v4_hir_snapshot_restore(before).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == before and v4_hir_revision(0) > revision and v4_hir_impl_index_is_ready(0), "byte-stable repeated restore rebuilds with new revision")
         iteration += 1
     }
-    v4_hir_impl_smoke_assert(v4_hir_impl_smoke_capacity() == capacity and before.starts_with("hir-snapshot|format=freak-hir-snapshot-v9|"), "snapshot vocabulary and handle capacity stable")
-    say "hir-impl-index snapshot-v9=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true"
+    v4_hir_impl_smoke_assert(v4_hir_impl_smoke_capacity() == capacity and before.starts_with("hir-snapshot|format=freak-hir-snapshot-v10|"), "snapshot vocabulary and handle capacity stable")
+    say "hir-impl-index snapshot-v10=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true"
 
     pilot held = v4_hir_impl_smoke_exhaust()
     v4_hir_impl_smoke_assert(v4_hir_next_impl_item(0, 0 - 1) == 1, "published reader needs no handles")
@@ -205,8 +205,8 @@ task v4_hir_impl_smoke_snapshots() -> void {
     v4_hir_impl_smoke_assert(valid and restored == "hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted" and v4_hir_revision(0) == revision and v4_hir_impl_index_is_ready(0) and v4_session_semantic_restore_generation() == generation and v4_hir_file_len == 1, "fresh-owner preflight failure is atomic")
     v4_hir_impl_smoke_free_rest(held, 20)
     v4_hir_impl_smoke_assert(v4_hir_snapshot() == before and v4_hir_impl_smoke_capacity() == capacity, "reservation cleanup preserves capacity")
-    v4_hir_impl_smoke_assert(v4_hir_snapshot_restore(fresh).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_impl_index_is_ready(1) and v4_hir_next_impl_item(1, 0 - 1) == 1 and capacity - v4_hir_impl_smoke_capacity() == 39, "fresh owner uses exactly thirty-nine children")
-    say "hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=39"
+    v4_hir_impl_smoke_assert(v4_hir_snapshot_restore(fresh).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_impl_index_is_ready(1) and v4_hir_next_impl_item(1, 0 - 1) == 1 and capacity - v4_hir_impl_smoke_capacity() == 41, "fresh owner uses exactly forty-one children")
+    say "hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=41"
 }
 
 v4_hir_impl_smoke_revisions()

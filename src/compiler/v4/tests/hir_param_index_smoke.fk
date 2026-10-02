@@ -64,9 +64,9 @@ task v4_hir_param_index_construction() -> void {
 task v4_hir_param_index_payload(files: int, tasks: int, params: int) -> word {
     pilot parts = array_new()
     pilot total = files * tasks
-    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v9|files=" + word_from_int(files) + "|items=" + word_from_int(total))
+    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v10|files=" + word_from_int(files) + "|items=" + word_from_int(total))
     array_push(parts, "|alias-targets=0|local-annotations=0|task-returns=" + word_from_int(total) + "|task-param-owners=" + word_from_int(total) + "|task-params=" + word_from_int(total * params))
-    array_push(parts, "|shape-owners=0|shape-fields=0|const-annotations=0|route-owners=0|route-cases=0|route-fields=0|diagnostics=0")
+    array_push(parts, "|shape-owners=0|shape-fields=0|const-annotations=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|diagnostics=0")
     pilot file = files - 1
     repeat until file < 0 {
         pilot id = word_from_int(file)
@@ -90,7 +90,7 @@ task v4_hir_param_index_payload(files: int, tasks: int, params: int) -> word {
         array_push(parts, "\nhir|" + id + "|" + source + "|0|" + word_from_int(tasks) + "|0")
         file -= 1
     }
-    array_push(parts, "\nend|freak-hir-snapshot-v9")
+    array_push(parts, "\nend|freak-hir-snapshot-v10")
     pilot payload = word_join(parts)
     array_release(parts)
     give back payload
@@ -197,7 +197,7 @@ task v4_hir_param_index_run() -> void {
         iteration += 1
     }
     v4_hir_param_index_assert(v4_hir_param_index_capacity() == capacity, "repeated restore releases index handles")
-    say "hir-param-index snapshot-v9=true roundtrip=true rejected-atomic=true capacity-stable=true"
+    say "hir-param-index snapshot-v10=true roundtrip=true rejected-atomic=true capacity-stable=true"
 
     pilot held = v4_hir_param_index_exhaust()
     v4_hir_param_index_free_tail(held, 1)

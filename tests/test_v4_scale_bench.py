@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import platform
@@ -55,6 +56,48 @@ class BenchmarkFailures(unittest.TestCase):
             "--work", str(self.work / "runs"), "--json", str(self.work / "result.json"), *extra],
             cwd=ROOT, capture_output=True, text=True, timeout=15)
         return result, json.loads((self.work / "result.json").read_text())
+
+    @unittest.skipUnless(shutil.which("clang"), "clang required")
+    def test_source_helper_measurements_compile_and_flush_at_exit(self):
+        spec = importlib.util.spec_from_file_location("v4_benchmark", ROOT / "v4_scale_bench.py")
+        benchmark = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(benchmark)
+        declarations = """
+#include <stdint.h>
+typedef struct { const char *data; int64_t len; } freak_word;
+static const char *freak_argv[] = {"tool", "source", "target"};
+static freak_word freak_word_lit(const char *text) { return (freak_word){text, 0}; }
+static int64_t freak_v4_lex_text(int64_t id, freak_word source) { return id; }
+static int64_t freak_v4_target_spec_new(freak_word target) { return 0; }
+static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, int64_t target) { return (freak_word){0}; }
+"""
+        for stage, function in (
+            ("parse", "parse_stream"), ("hir", "hir_lower_tree"),
+            ("resolve", "resolve_lower_hir"), ("ty", "ty_lower_resolve"),
+            ("mir", "mir_lower_ty"), ("borrowck", "borrowck_check_mir"),
+            ("codegen", "codegen_llvm_lower_mir"),
+        ):
+            declarations += f"static int64_t freak_v4_{function}(int64_t id, int64_t previous) {{ return id; }}\n"
+        for stage in STAGES[:-1]:
+            declarations += f"static int64_t freak_v4_{stage}_diag_count(int64_t id) {{ return 0; }}\n"
+        source = declarations + "static void freak_v4_build_llvm_source(freak_word source) {\n"
+        source += "\n".join(statement for _, statement, _ in benchmark.INSTRUMENTATION_POINTS)
+        source += "\n}\nstatic void freak_v4_build_llvm_run(void) {\n"
+        source += "freak_v4_build_llvm_source((freak_word){0});\n}\n"
+        source += "int main(void) { freak_v4_build_llvm_run(); return 0; }\n"
+        c_path, binary = self.work / "measured.c", self.work / "measured"
+        c_path.write_text(benchmark.instrument(source))
+        compiled = subprocess.run([
+            shutil.which("clang"), "-std=c11", "-D_POSIX_C_SOURCE=200809L",
+            "-Werror=implicit-function-declaration", str(c_path), "-o", str(binary),
+        ], capture_output=True, text=True, timeout=15)
+        self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+        executed = subprocess.run([str(binary)], capture_output=True, text=True, timeout=5)
+        self.assertEqual(executed.returncode, 0, executed.stdout + executed.stderr)
+        records = executed.stderr.splitlines()
+        self.assertEqual([line.split()[1] for line in records[:-1]],
+                         [f"stage={stage}" for stage in STAGES])
+        self.assertRegex(records[-1], r"^V4BENCH final peak_bytes=[1-9][0-9]*$")
 
     def test_diagnostics_fail_even_with_zero_compiler_exit(self):
         tool = self.fake_tool("print('v4-build-stage=lex diagnostics=1')\n")

@@ -1,0 +1,159 @@
+-- Detached v10 extern-return facts, atomic rejection, and bounded handle reuse.
+task v4_extern_return_snapshot_header(files: int, items: int, owners: int, members: int) -> word {
+    give back "hir-snapshot|format=freak-hir-snapshot-v10|files=" + word_from_int(files) + "|items=" + word_from_int(items) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=" + word_from_int(owners) + "|extern-returns=" + word_from_int(members) + "|diagnostics=0"
+}
+
+task v4_extern_return_snapshot_payload() -> word {
+    pilot none = v4_hir_snapshot_escape(V4_NO_SPAN)
+    pilot out = v4_extern_return_snapshot_header(1, 2, 2, 4)
+    out = out + "\nhir|0|31|0|2|0"
+    out = out + "\nhir-item|0|0|Extern|C|foreign|31@0:100|0||" + none
+    out = out + "\nhir-item|0|1|Extern|C|empty|31@100:120|1||" + none
+    out = out + "\nhir-extern-return-owner|0|0|4\nhir-extern-return-owner|0|1|0"
+    out = out + "\nhir-extern-return|0|0|0|int|31@20:23|0|31@10:30"
+    out = out + "\nhir-extern-return|0|0|1||" + none + "|0|31@35:45"
+    out = out + "\nhir-extern-return|0|0|2||31@56:58|0|31@50:65"
+    out = out + "\nhir-extern-return|0|0|3||31@72:74|1|31@70:90"
+    give back out + "\nend|freak-hir-snapshot-v10"
+}
+
+task v4_extern_return_snapshot_reverse(payload: word) -> word {
+    pilot lines = v4_hir_snapshot_index_lines(payload)
+    pilot parts = array_new()
+    pilot idx = array_len(lines) - 1
+    repeat until idx < 0 {
+        if idx < array_len(lines) - 1 { array_push(parts, "\n") }
+        array_push(parts, array_get(lines, idx))
+        idx -= 1
+    }
+    pilot out = word_join(parts)
+    array_release(lines)
+    give back out
+}
+
+task v4_extern_return_snapshot_rejected(payload: word, before: word) -> bool {
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot validation = v4_hir_snapshot_validate(payload)
+    pilot report = v4_hir_snapshot_restore(payload)
+    give back validation.starts_with("hir-snapshot-import ok=0") and report.starts_with("hir-snapshot-restore ok=0") and v4_hir_snapshot() == before and v4_session_semantic_restore_generation() == generation
+}
+
+task v4_extern_return_snapshot_capacity() -> int {
+    pilot held = array_new()
+    pilot handle = array_new()
+    repeat until handle < 0 {
+        array_push(held, word_from_int(handle))
+        handle = array_new()
+    }
+    pilot count = array_len(held)
+    pilot idx = 0
+    repeat until idx >= count {
+        array_release(word_to_int(array_get(held, idx)))
+        idx += 1
+    }
+    array_release(held)
+    give back count
+}
+
+task v4_extern_return_snapshot_large(owners_per_file: int, members_per_owner: int) -> word {
+    pilot parts = array_new()
+    array_push(parts, v4_extern_return_snapshot_header(8, 8 * owners_per_file, 8 * owners_per_file, 8 * owners_per_file * members_per_owner))
+    pilot long_name = ""
+    pilot idx = 0
+    repeat until idx >= 1024 { long_name = long_name + "a"; idx += 1 }
+    pilot none = v4_hir_snapshot_escape(V4_NO_SPAN)
+    pilot file = 0
+    repeat until file >= 8 {
+        pilot file_text = word_from_int(file)
+        pilot source = word_from_int(100 + file)
+        array_push(parts, "\nhir|" + file_text + "|" + source + "|0|" + word_from_int(owners_per_file) + "|0")
+        pilot item = 0
+        repeat until item >= owners_per_file {
+            pilot item_text = word_from_int(item)
+            pilot owner_start = item * 10000
+            array_push(parts, "\nhir-item|" + file_text + "|" + item_text + "|Extern|" + long_name + "|extern-" + file_text + "-" + item_text + "|" + source + "@" + word_from_int(owner_start) + ":" + word_from_int(owner_start + 10000) + "|0||" + none)
+            array_push(parts, "\nhir-extern-return-owner|" + file_text + "|" + item_text + "|" + word_from_int(members_per_owner))
+            pilot member = 0
+            repeat until member >= members_per_owner {
+                pilot start = owner_start + 10 + member * 100
+                pilot member_span = source + "@" + word_from_int(start) + ":" + word_from_int(start + 90)
+                pilot type_span = source + "@" + word_from_int(start + 20) + ":" + word_from_int(start + 23)
+                array_push(parts, "\nhir-extern-return|" + file_text + "|" + item_text + "|" + word_from_int(member) + "|int|" + type_span + "|0|" + member_span)
+                member += 1
+            }
+            item += 1
+        }
+        file += 1
+    }
+    array_push(parts, "\nend|freak-hir-snapshot-v10")
+    give back word_join(parts)
+}
+
+task v4_extern_return_snapshot_resource_retry(payload: word, before: word) -> bool {
+    pilot held = array_new()
+    pilot handle = array_new()
+    repeat until handle < 0 {
+        array_push(held, word_from_int(handle))
+        handle = array_new()
+    }
+    -- Release enough for validators but less than seven fresh 41-handle files.
+    pilot count = array_len(held)
+    pilot release = 0
+    repeat until release >= 40 or count <= 0 {
+        count -= 1
+        array_release(word_to_int(array_get(held, count)))
+        release += 1
+    }
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot failed = v4_hir_snapshot_restore(payload)
+    pilot atomic: bool = v4_hir_snapshot() == before and v4_session_semantic_restore_generation() == generation
+    pilot idx = 0
+    repeat until idx >= count {
+        array_release(word_to_int(array_get(held, idx)))
+        idx += 1
+    }
+    array_release(held)
+    pilot retry = v4_hir_snapshot_restore(payload)
+    give back failed.starts_with("hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted") and atomic and retry.starts_with("hir-snapshot-restore ok=1") and v4_hir_extern_member_count(7, 0) == 64
+}
+
+task v4_extern_return_snapshot_run() -> void {
+    pilot payload = v4_extern_return_snapshot_payload()
+    pilot restored = v4_hir_snapshot_restore(v4_extern_return_snapshot_reverse(payload))
+    pilot before = v4_hir_snapshot()
+    say "extern-return-snapshot-reordered=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_extern_member_count(0, 0) == 4 and v4_hir_extern_member_return_surface_type(0, 0, 0) == "int" and v4_hir_extern_member_return_span(0, 0, 0) == "31@20:23" and v4_hir_extern_member_span(0, 0, 0) == "31@10:30")
+    say "extern-return-snapshot-empty-quoted=" + word_from_bool(v4_hir_extern_member_count(0, 1) == 0 and v4_hir_extern_member_return_surface_type(0, 0, 1) == "" and v4_hir_extern_member_return_span(0, 0, 1) == V4_NO_SPAN and v4_hir_extern_member_return_surface_type(0, 0, 2) == "" and v4_hir_extern_member_return_span(0, 0, 2) == "31@56:58" and not v4_hir_extern_member_return_has_arrow_fallback(0, 0, 2) and v4_hir_extern_member_return_has_arrow_fallback(0, 0, 3))
+    say "extern-return-snapshot-version-width=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("freak-hir-snapshot-v10", "freak-hir-snapshot-v9"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|1|0", "hir-extern-return-owner|0|1|0|extra"), before) and v4_extern_return_snapshot_rejected(payload.replace("31@10:30\n", "31@10:30|extra\n"), before))
+    say "extern-return-snapshot-canonical-identity=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|0|", "hir-extern-return-owner|00|0|"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return|0|0|1|", "hir-extern-return|0|0|01|"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|0|4", "hir-extern-return-owner|0|0|999999999999999999999"), before))
+    say "extern-return-snapshot-orphan-duplicate=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|1|0", "hir-extern-return-owner|99|1|0"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return|0|0|1|", "hir-extern-return|0|9|1|"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return|0|0|1|", "hir-extern-return|0|0|0|"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|1|0", "hir-extern-return-owner|0|0|0"), before))
+    say "extern-return-snapshot-complete-counts=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("extern-return-owners=2", "extern-return-owners=1"), before) and v4_extern_return_snapshot_rejected(payload.replace("extern-returns=4", "extern-returns=3"), before) and v4_extern_return_snapshot_rejected(payload.replace("hir-extern-return-owner|0|0|4", "hir-extern-return-owner|0|0|3"), before) and v4_extern_return_snapshot_rejected(payload.replace("\nhir-extern-return-owner|0|1|0", "").replace("extern-return-owners=2", "extern-return-owners=1"), before))
+    say "extern-return-snapshot-owner-contract=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("|Extern|C|foreign|", "|Error|C|foreign|"), before) and v4_extern_return_snapshot_rejected(payload.replace("|Extern|C|empty|", "|Error|C|empty|"), before))
+    pilot none = v4_hir_snapshot_escape(V4_NO_SPAN)
+    say "extern-return-snapshot-surface-flag=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("|int|31@20:23|0|", "|int|" + none + "|0|"), before) and v4_extern_return_snapshot_rejected(payload.replace("|int|31@20:23|0|", "|int|31@20:23|1|"), before) and v4_extern_return_snapshot_rejected(payload.replace("|1|31@70:90", "|01|31@70:90"), before))
+    say "extern-return-snapshot-spans-order=" + word_from_bool(v4_extern_return_snapshot_rejected(payload.replace("31@20:23", "31@020:23"), before) and v4_extern_return_snapshot_rejected(payload.replace("31@20:23", "32@20:23"), before) and v4_extern_return_snapshot_rejected(payload.replace("31@20:23", "31@20:31"), before) and v4_extern_return_snapshot_rejected(payload.replace("31@70:90", "31@70:101"), before) and v4_extern_return_snapshot_rejected(payload.replace("31@35:45", "31@25:45"), before))
+    pilot capacity = v4_extern_return_snapshot_capacity()
+    pilot idx = 0
+    pilot stable = true
+    repeat until idx >= 32 {
+        if not v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=1") { stable = false }
+        idx += 1
+    }
+    say "extern-return-snapshot-repeat-handles=" + word_from_bool(stable and capacity == v4_extern_return_snapshot_capacity() and v4_hir_snapshot() == before)
+    pilot many_members = v4_extern_return_snapshot_large(1, 64)
+    say "extern-return-snapshot-resource-retry=" + word_from_bool(v4_extern_return_snapshot_resource_retry(many_members, before))
+    pilot large_capacity = v4_extern_return_snapshot_capacity()
+    pilot many_owners = v4_extern_return_snapshot_large(8, 0)
+    idx = 0
+    stable = true
+    repeat until idx >= 16 {
+        if not v4_hir_snapshot_validate(many_members).starts_with("hir-snapshot-import ok=1") or not v4_hir_snapshot_validate(many_owners).starts_with("hir-snapshot-import ok=1") { stable = false }
+        idx += 1
+    }
+    say "extern-return-snapshot-many-members=" + word_from_bool(stable and v4_hir_extern_member_count(7, 0) == 64 and v4_hir_extern_member_return_surface_type(7, 0, 63) == "int")
+    pilot empty = v4_hir_snapshot_restore(many_owners)
+    pilot reset = v4_hir_snapshot_restore(payload)
+    pilot reuse = v4_hir_snapshot_restore(many_members)
+    say "extern-return-snapshot-empty-owners-reuse=" + word_from_bool(empty.starts_with("hir-snapshot-restore ok=1") and reset.starts_with("hir-snapshot-restore ok=1") and reuse.starts_with("hir-snapshot-restore ok=1") and large_capacity == v4_extern_return_snapshot_capacity())
+}
+
+v4_extern_return_snapshot_run()

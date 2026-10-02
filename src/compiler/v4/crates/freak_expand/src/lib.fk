@@ -259,6 +259,18 @@ task v4_expand_extern_abi(expansion_id: int, node_id: int) -> word {
     give back v4_parse_extern_abi(v4_expand_parse_tree_id(expansion_id), node_id)
 }
 
+task v4_expand_extern_body_open_token(expansion_id: int, node_id: int) -> int {
+    give back v4_parse_extern_body_open_token(v4_expand_parse_tree_id(expansion_id), node_id)
+}
+
+task v4_expand_extern_body_close_token(expansion_id: int, node_id: int) -> int {
+    give back v4_parse_extern_body_close_token(v4_expand_parse_tree_id(expansion_id), node_id)
+}
+
+task v4_expand_extern_member_end_from_start(expansion_id: int, start_token: int) -> int {
+    give back v4_parse_extern_member_end_from_start(v4_expand_stream_id(expansion_id), start_token)
+}
+
 task v4_expand_extern_member_count(expansion_id: int, node_id: int) -> int {
     give back v4_parse_extern_member_count(v4_expand_parse_tree_id(expansion_id), node_id)
 }

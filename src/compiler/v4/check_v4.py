@@ -61,6 +61,8 @@ RUNNER_PEAK_RETAINED_BYTES = 0
 C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
 C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
+        "extern_literal_syntax_smoke.fk",
+        "extern_return_snapshot_smoke.fk",
         "route_snapshot_smoke.fk",
         "const_snapshot_smoke.fk",
         "shape_field_snapshot_smoke.fk",
@@ -857,9 +859,9 @@ EXECUTABLE_SMOKES = [
             'hir-impl-index revision-monotonic=true invalid-readonly=true same-size=true reuse=true',
             'hir-impl-index cold-linear=true sparse=true duplicates=true overwrite=true stale-tail=true',
             'hir-impl-index 1024-items=true 512-impls=true logarithmic=true zero-impl-constant=true',
-            'hir-impl-index snapshot-v9=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true',
+            'hir-impl-index snapshot-v10=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true',
             'hir-impl-index resource-readonly=true build-failure-cold=true recovery=true',
-            'hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=39',
+            'hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=41',
         ],
     },
     {
@@ -981,7 +983,7 @@ EXECUTABLE_SMOKES = [
             "hir-param-index construction=true duplicates=true sparse=true overwrite=true reuse=true",
             "hir-param-index 512-owners=true 1024-params=true logarithmic=true build-bounded=true",
             "hir-param-index 512-ordinals=true empty-owner=true",
-            "hir-param-index snapshot-v9=true roundtrip=true rejected-atomic=true capacity-stable=true",
+            "hir-param-index snapshot-v10=true roundtrip=true rejected-atomic=true capacity-stable=true",
             "hir-param-index build-failure-cold=true recovery=true",
             "hir-param-index restore-resource-atomic=true fresh-recovery=true",
         ],
@@ -2295,7 +2297,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "route_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "route-snapshot-v9-reordered=true",
+            "route-snapshot-v10-reordered=true",
             "route-snapshot-empty-recovery=true",
             "route-snapshot-old-version-atomic=true",
             "route-snapshot-extra-width-atomic=true",
@@ -2311,6 +2313,104 @@ EXECUTABLE_SMOKES = [
             "route-snapshot-many-cases=true",
             "route-snapshot-many-fields=true",
             "route-snapshot-high-water-reuse=true",
+        ],
+    },
+    {
+        "name": "extern member return semantic boundary",
+        "fixture": "extern_return_boundary_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "extern-return-boundary-counts=true",
+            "extern-return-boundary-alias=true",
+            "extern-return-boundary-void-missing=true",
+            "extern-return-boundary-callbacks=true",
+            "extern-return-boundary-spans=true",
+            "extern-return-boundary-diagnostic=true",
+            "extern-return-boundary-detached=true",
+            "extern-return-boundary-invalid=true",
+            "extern-return-boundary-editor=true",
+            "extern-return-boundary-restored=true",
+            "extern-return-boundary-edit=true",
+            "extern-return-boundary-recovery-parity=true",
+            "extern-return-boundary-quoted=true",
+            "extern-return-boundary-unclosed=true",
+            "extern-return-boundary-manual-empty=true",
+        ],
+    },
+    {
+        "name": "extern literal syntax boundaries",
+        "fixture": "extern_literal_syntax_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "extern-literal members=true successors=true",
+            "extern-literal arrows=true fallback=true",
+            "extern-literal payload=true body=true",
+            "extern-literal snapshot=true",
+        ],
+    },
+    {
+        "name": "extern member return separator boundaries",
+        "fixture": "extern_return_separator_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "extern-return-separator-counts=true",
+            "extern-return-separator-names=true",
+            "extern-return-separator-returns=true",
+            "extern-return-separator-spans=true",
+            "extern-return-separator-depth=true",
+            "extern-return-separator-quoted=true",
+            "extern-return-separator-attributes=true",
+            "extern-return-separator-parameters=true",
+            "extern-return-separator-synthetic=true",
+            "extern-return-separator-diagnostic=true",
+            "extern-return-separator-detached=true",
+            "extern-return-separator-snapshot=true",
+            "extern-return-separator-recovery=true",
+            "extern-return-separator-unclosed=true",
+            "extern-return-separator-many-same-line=true",
+            "extern-return-separator-arrow-counts=true",
+            "extern-return-separator-arrow-names=true",
+            "extern-return-separator-arrow-spans=true",
+            "extern-return-separator-arrow-recovery=true",
+            "extern-return-separator-arrow-ty=true",
+            "extern-return-separator-arrow-nesting=true",
+            "extern-return-separator-arrow-snapshot=true",
+        ],
+    },
+    {
+        "name": "extern nested arrow separator boundaries",
+        "fixture": "extern_return_nested_arrow_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "extern-return-separator-nested-arrow-counts=true",
+            "extern-return-separator-nested-arrow-names=true",
+            "extern-return-separator-nested-arrow-spans=true",
+            "extern-return-separator-nested-arrow-restoration=true",
+            "extern-return-separator-nested-arrow-recovery=true",
+            "extern-return-separator-nested-arrow-ty=true",
+            "extern-return-separator-nested-arrow-snapshot=true",
+        ],
+    },
+    {
+        "name": "extern member return snapshot contracts",
+        "fixture": "extern_return_snapshot_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect": [
+            "extern-return-snapshot-reordered=true",
+            "extern-return-snapshot-empty-quoted=true",
+            "extern-return-snapshot-version-width=true",
+            "extern-return-snapshot-canonical-identity=true",
+            "extern-return-snapshot-orphan-duplicate=true",
+            "extern-return-snapshot-complete-counts=true",
+            "extern-return-snapshot-owner-contract=true",
+            "extern-return-snapshot-surface-flag=true",
+            "extern-return-snapshot-spans-order=true",
+            "extern-return-snapshot-repeat-handles=true",
+            "extern-return-snapshot-resource-retry=true",
+            "extern-return-snapshot-many-members=true",
+            "extern-return-snapshot-empty-owners-reuse=true",
         ],
     },
     {
@@ -2340,7 +2440,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "const_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "const-snapshot-v9-reordered=true",
+            "const-snapshot-v10-reordered=true",
             "const-snapshot-inferred-quoted=true",
             "const-snapshot-old-version-atomic=true",
             "const-snapshot-extra-field-atomic=true",
@@ -2387,7 +2487,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "shape_field_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "shape-snapshot-v9-reordered=true",
+            "shape-snapshot-v10-reordered=true",
             "shape-snapshot-recovery-roundtrip=true",
             "shape-snapshot-old-version-atomic=true",
             "shape-snapshot-extra-field-atomic=true",
@@ -2417,6 +2517,8 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-canonical-number-equivalence=true",
             "hir-scaling-canonical-span-equivalence=true",
             "hir-scaling-field-decoder-equivalence=true",
+            "hir-scaling-field-equality-equivalence=true",
+            "hir-scaling-header-key-equivalence=true",
             "hir-scaling-baseline-restored=true",
             "hir-scaling-64-aliases=true",
             "hir-scaling-512-aliases=true",
@@ -2462,7 +2564,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-thirty-nine-handles=true",
+            "hir-scaling-fresh-slot-forty-one-handles=true",
             "hir-scaling-512-params=true",
             "hir-scaling-64-param-files=true",
             "hir-scaling-512-param-tasks=true",
@@ -2541,7 +2643,7 @@ EXECUTABLE_SMOKES = [
         "memory_limit_mb": 64,
         "expect": [
             "hir-index-cold-init-failure-recovery=true",
-            "hir-index-v9-mixed-roundtrip=true",
+            "hir-index-v10-mixed-roundtrip=true",
             "hir-index-512-one-owner=true",
             "hir-index-logarithmic-probes=true",
             "hir-index-sort-work-bounded=true",
@@ -10179,7 +10281,7 @@ EXECUTABLE_SMOKES = [
             "local-annotation-mir-diagnostics=0",
             "local-annotation-borrow-status=clean",
             "local-annotation-borrow-diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v9 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v10 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 diagnostics=0 skipped-other=0 live-files=1",
             "local-annotation-restored-count=4",
             "local-annotation-restored-fixed=char",
@@ -10258,7 +10360,7 @@ EXECUTABLE_SMOKES = [
             "task-return-mir-diagnostics=0",
             "task-return-borrow-status=clean",
             "ty-snapshot format=freak-ty-snapshot-v1 files=1 signatures=3 diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v9 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v10 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=3 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 diagnostics=0 skipped-other=0 live-files=1",
             "task-return-restored-form=explicit",
             "task-return-restored-surface=lend 'a maybe<[word;2]>",
@@ -10304,7 +10406,7 @@ EXECUTABLE_SMOKES = [
             "task-param-mir-span-semantic=true",
             "task-param-meiya-status=clean",
             "task-param-editor-label-definition=true",
-            "hir-snapshot format=freak-hir-snapshot-v9",
+            "hir-snapshot format=freak-hir-snapshot-v10",
             "task-param-restored-count=4",
             "task-param-schema-variants-rejected=true",
             "task-param-schema-variants-atomic=true",
@@ -11232,7 +11334,7 @@ def check_mir_local_annotation_boundary() -> None:
     violations.extend(hir_lookup_index_violations(hir_source))
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v9"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v10"',
         "pilot v4_hir_local_annotation_items = 0",
         "pilot v4_hir_local_annotation_stmt_spans = 0",
         "pilot v4_hir_local_annotation_types = 0",
@@ -11376,7 +11478,7 @@ def check_task_return_hir_boundary() -> None:
         violations.append("task return boundary unexpectedly changed the TY snapshot format")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v9"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v10"',
         "pilot v4_hir_task_return_items = 0",
         "pilot v4_hir_task_return_forms = 0",
         "pilot v4_hir_task_return_types = 0",
@@ -11470,10 +11572,7 @@ def check_task_return_hir_boundary() -> None:
         violations.append("nonordinary HIR-item return fallback is not separately pinned")
 
     allowed_return_token_tasks = {
-        "v4_ty_display_for_hir_item",
         "v4_ty_doctrine_method_return_surface_type",
-        "v4_ty_extern_member_return_surface_type",
-        "v4_ty_extern_member_return_type",
         "v4_ty_impl_method_return_type",
         "v4_ty_nonordinary_hir_item_return_fallback",
         "v4_ty_nonordinary_signature_return_fallback",
@@ -11489,7 +11588,7 @@ def check_task_return_hir_boundary() -> None:
 
     display_body = freak_task_body(ty_source, "v4_ty_display_for_hir_item")
     if display_body is None or "v4_resolve_is_extern_member_def" not in display_body or "v4_ty_task_return_from_hir" not in display_body:
-        violations.append("task display does not isolate extern token fallback from ordinary HIR returns")
+        violations.append("task display does not isolate nonordinary fallbacks from ordinary HIR returns")
 
     violations.extend(task_return_explicit_call_closure_violations(ty_source))
 
@@ -11816,6 +11915,148 @@ def route_boundary_violations(hir_source: str, ty_source: str, editor_source: st
     return sorted(violations)
 
 
+def extern_return_boundary_violations(hir_source: str, ty_source: str) -> list[str]:
+    """Audit stored extern returns; narrowly retain existing arrow inference.
+
+    Extern parameters, generic display lookup, ABI and other signature families
+    are not migrated here. Follow only declared-fact readers, not entire mixed
+    display/signature dispatchers. Required calls and branches use lexer tokens,
+    so comments and string literals cannot satisfy the architecture contract.
+    """
+    sources = {
+        name: source for source in (hir_source, ty_source)
+        for name in freak_task_names(freak_mask_line_comments(source))
+    }
+    violations: set[str] = set()
+    token_cache: dict[str, list] = {}
+    edges: dict[str, set[str]] = {}
+    pure_terminals = {"array_get", "array_len", "word_to_int"}
+
+    def tokens_for(name: str) -> list:
+        """Cache active body tokens and report missing or unlexable tasks."""
+        if name not in token_cache:
+            body = freak_task_body(sources.get(name, ""), name)
+            token_cache[name] = []
+            if body is None:
+                violations.add(f"extern return task missing: {name}")
+            else:
+                try:
+                    token_cache[name] = [t for t in Lexer(body).tokenize() if t.type != TokenType.EOF]
+                except LexerError:
+                    violations.add(f"extern return task is not lexable: {name}")
+        return token_cache[name]
+
+    def calls(name: str) -> set[str]:
+        """Cache identifier-call edges without accepting comments or strings."""
+        if name not in edges:
+            tokens = tokens_for(name)
+            edges[name] = {
+                tokens[i].lexeme for i in range(len(tokens) - 1)
+                if tokens[i].type == TokenType.IDENT and tokens[i + 1].lexeme == "("
+            }
+        return edges[name]
+
+    def closure(root: str, extra_terminals: set[str] | None = None) -> set[str]:
+        """Traverse a cycle-safe read closure, rejecting syntax, writes and unknowns."""
+        pending, reached = [root], set()
+        terminals = pure_terminals | (extra_terminals or set())
+        while pending:
+            name = pending.pop()
+            if name in reached:
+                continue
+            reached.add(name)
+            if name in terminals:
+                continue
+            if name.startswith(("v4_lex_", "v4_parse_", "v4_expand_")) or any(
+                fragment in name for fragment in (
+                    "_token", "_stream_id", "_parse_node", "v4_ty_type_text",
+                    "v4_ty_task_return_from_tokens", "v4_hir_lower_", "v4_hir_build_",
+                    "v4_hir_init", "v4_hir_snapshot_restore", "v4_hir_extern_return_prepare_owner",
+                )
+            ) or (name.startswith("array_") and name not in {"array_get", "array_len"}):
+                violations.add(f"extern declared return closure reconstructs syntax or mutates facts: {name}")
+            if name in sources or name == root:
+                pending.extend(calls(name) - reached)
+            else:
+                violations.add(f"extern return closure has unknown helper: {name}")
+        return reached
+
+    for root in (
+        "v4_hir_extern_member_count", "v4_hir_extern_member_return_surface_type",
+        "v4_hir_extern_member_return_span", "v4_hir_extern_member_return_has_arrow_fallback",
+        "v4_hir_extern_member_span",
+    ):
+        closure(root)
+    declared = "v4_ty_extern_declared_return_surface_type"
+    if "v4_hir_extern_member_return_surface_type" not in closure(declared):
+        violations.add("extern declared return adapter does not consume stored HIR surface")
+
+    dispatcher = "v4_ty_extern_member_return_surface_from_hir"
+    recovery = "v4_ty_extern_return_arrow_recovery"
+    reached = closure(dispatcher, {recovery})
+    for required in (declared, "v4_hir_extern_member_return_has_arrow_fallback", recovery):
+        if required not in reached:
+            violations.add(f"extern return dispatch does not consume {required}")
+    actual_tokens = [(t.type, t.lexeme) for t in tokens_for(dispatcher)]
+    branch = (
+        'if v4_hir_extern_member_return_has_arrow_fallback(hir_id, hir_item, member_id) '
+        '{ give back v4_ty_extern_return_arrow_recovery(hir_id, hir_item, member_id) }'
+    )
+    expected_tokens = [(t.type, t.lexeme) for t in Lexer(branch).tokenize() if t.type != TokenType.EOF]
+    # Strip newlines only; string tokens retain their type and cannot become calls.
+    actual_tokens = [t for t in actual_tokens if t[0] != TokenType.NEWLINE]
+    expected_tokens = [t for t in expected_tokens if t[0] != TokenType.NEWLINE]
+    priority = (
+        'pilot surface = v4_ty_extern_declared_return_surface_type(hir_id, hir_item, member_id) '
+        'if surface != "" { give back surface }'
+    )
+    priority_tokens = [(t.type, t.lexeme) for t in Lexer(priority).tokenize()
+                       if t.type not in {TokenType.EOF, TokenType.NEWLINE}]
+    if not any(actual_tokens[i:i + len(priority_tokens)] == priority_tokens
+               for i in range(len(actual_tokens) - len(priority_tokens) + 1)):
+        violations.add("extern declared surface must take priority over arrow recovery")
+    recovery_calls = sum(
+        t.type == TokenType.IDENT and t.lexeme == recovery
+        and i + 1 < len(tokens_for(dispatcher)) and tokens_for(dispatcher)[i + 1].lexeme == "("
+        for i, t in enumerate(tokens_for(dispatcher))
+    )
+    if recovery_calls != 1 or not any(
+        actual_tokens[i:i + len(expected_tokens)] == expected_tokens
+        for i in range(len(actual_tokens) - len(expected_tokens) + 1)
+    ):
+        violations.add("extern arrow recovery must be gated by the stored HIR fallback flag")
+    closure(recovery, {
+        "v4_hir_item_stream_id", "v4_ty_first_token_at_or_after", "v4_ty_find_token_value",
+        "v4_ty_infer_arrow_expr_return", "v4_span_start", "v4_span_end",
+    })
+    for required in ("v4_hir_extern_member_span", "v4_ty_infer_arrow_expr_return"):
+        if required not in calls(recovery):
+            violations.add(f"extern recovery-only helper does not consume {required}")
+
+    for root, required in (
+        ("v4_ty_extern_member_return_surface_type", dispatcher),
+        ("v4_ty_extern_member_return_type", "v4_ty_canonical_type"),
+        ("v4_ty_signature_return_surface_type", dispatcher),
+        ("v4_ty_signature_return_span", "v4_hir_extern_member_return_span"),
+        ("v4_ty_display_for_hir_item", dispatcher),
+    ):
+        if required not in calls(root):
+            violations.add(f"extern return consumer does not consume {required}: {root}")
+    return sorted(violations)
+
+
+def check_extern_return_hir_boundary() -> None:
+    """Fail the checker when stored extern-return ownership has drifted."""
+    violations = extern_return_boundary_violations(
+        read_text(crate_path("freak_hir")), read_text(crate_path("freak_ty")),
+    )
+    if violations:
+        for violation in violations:
+            print(violation)
+        raise SystemExit(1)
+    print("no syntax past HIR: extern-member declared returns and spans; recovery-only arrow inference")
+
+
 def check_route_hir_boundary() -> None:
     violations = route_boundary_violations(
         read_text(crate_path("freak_hir")), read_text(crate_path("freak_ty")),
@@ -11959,7 +12200,7 @@ def check_task_param_hir_boundary() -> None:
             violations.append("task parameter index guard accepted helper-indirected rescan")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v9"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v10"',
         'pilot v4_hir_task_param_mode_value = "value"',
         'pilot v4_hir_task_param_mode_lend = "lend"',
         'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -12289,6 +12530,7 @@ def check_snapshot_inventories() -> None:
                     f"query invalidation scratch release missing: {handle_release_contract}"
                 )
     for resource_fixture in (
+        "extern_return_snapshot_smoke.fk",
         "route_snapshot_smoke.fk",
         "const_snapshot_smoke.fk",
         "shape_field_snapshot_smoke.fk",
@@ -12306,6 +12548,7 @@ def check_snapshot_inventories() -> None:
         violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
+            "extern_return_snapshot_smoke.fk",
             "route_snapshot_smoke.fk",
             "const_snapshot_smoke.fk",
             "shape_field_snapshot_smoke.fk",
@@ -13857,6 +14100,7 @@ def main(argv: list[str] | None = None) -> int:
     check_shape_field_hir_boundary()
     check_const_hir_boundary()
     check_route_hir_boundary()
+    check_extern_return_hir_boundary()
     check_tooling_interfaces()
     check_snapshot_inventories()
     base_source = check_flattened_crates()

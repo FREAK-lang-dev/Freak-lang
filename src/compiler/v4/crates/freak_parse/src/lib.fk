@@ -958,6 +958,55 @@ task v4_parse_extern_body_close_token(tree_id: int, node_id: int) -> int {
     give back v4_parse_find_matching_token(stream_id, open_token, v4_parse_node_end_token(tree_id, node_id), "{", "}")
 }
 
+task v4_parse_extern_member_end_from_start(stream_id: int, start_token: int) -> int {
+    -- Fuse legacy newline/body recovery with separator detection so each member
+    -- walks only its own range. Literal payload stays out of body recovery;
+    -- punctuation contributes to type nesting and semicolon boundaries.
+    pilot idx = start_token
+    pilot body_depth = 0
+    pilot type_depth = 0
+    pilot generic_depth = 0
+    pilot arrow_expression_depth = 0 - 1
+    pilot saw_body = false
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until idx >= count {
+        if v4_parse_is_eof(stream_id, idx) { give back idx }
+        if v4_parse_is_newline_token(stream_id, idx) and not saw_body {
+            give back idx + 1
+        }
+        pilot value = v4_lex_token_syntax_value(stream_id, idx)
+        if v4_lex_token_type(stream_id, idx) == v4_tok_symbol {
+            if type_depth == 0 and value == ";" { give back idx }
+            -- Keep the outermost real arrow's entry depth: nested expressions
+            -- cannot turn comparisons into generic nesting or reset its mode.
+            -- A callback close or its own parameter comma restores type mode;
+            -- top-level arrows remain expressions until the member boundary.
+            -- Arrows inside generic types retain declaration-mode recovery.
+            if arrow_expression_depth > 0 and value == "," and type_depth == arrow_expression_depth { arrow_expression_depth = 0 - 1 }
+            if arrow_expression_depth < 0 and generic_depth == 0 and value == "=>" { arrow_expression_depth = type_depth }
+            if arrow_expression_depth < 0 or (value != "<" and value != ">") {
+                if value == "<" { generic_depth += 1 } else if value == ">" and generic_depth > 0 { generic_depth -= 1 }
+                type_depth = v4_parse_depth_after_token(type_depth, value)
+            }
+            if type_depth == 0 { generic_depth = 0 }
+            if arrow_expression_depth > 0 and type_depth < arrow_expression_depth { arrow_expression_depth = 0 - 1 }
+        }
+        if not v4_parse_token_is_trivia(stream_id, idx) {
+            if value == "{" {
+                body_depth += 1
+                saw_body = true
+            } else if value == "}" {
+                if body_depth > 0 { body_depth -= 1 }
+                if saw_body and body_depth == 0 { give back idx + 1 }
+            } else if value == "done" {
+                if saw_body { give back idx + 1 }
+            }
+        }
+        idx += 1
+    }
+    give back idx
+}
+
 task v4_parse_extern_member_count(tree_id: int, node_id: int) -> int {
     if v4_parse_node_kind(tree_id, node_id) != v4_node_extern {
         give back 0
@@ -978,7 +1027,7 @@ task v4_parse_extern_member_count(tree_id: int, node_id: int) -> int {
         }
         if v4_lex_token_syntax_value(stream_id, idx) == "task" {
             count += 1
-            pilot next = v4_parse_skip_item(stream_id, idx)
+            pilot next = v4_parse_extern_member_end_from_start(stream_id, idx)
             if next <= idx {
                 idx += 1
             } else if next > close_token {
@@ -1016,7 +1065,7 @@ task v4_parse_extern_member_start_token(tree_id: int, node_id: int, member_id: i
                 give back idx
             }
             current += 1
-            pilot next = v4_parse_skip_item(stream_id, idx)
+            pilot next = v4_parse_extern_member_end_from_start(stream_id, idx)
             if next <= idx {
                 idx += 1
             } else if next > close_token {
@@ -1038,7 +1087,7 @@ task v4_parse_extern_member_end_token(tree_id: int, node_id: int, member_id: int
     if start_token < 0 or close_token <= start_token {
         give back 0 - 1
     }
-    pilot end_token = v4_parse_skip_item(stream_id, start_token)
+    pilot end_token = v4_parse_extern_member_end_from_start(stream_id, start_token)
     if end_token <= start_token {
         give back 0 - 1
     }

@@ -1,0 +1,121 @@
+-- Declared extern returns cross the syntax boundary once; inference recovery
+-- stays explicitly named. This fixture owns one bounded semantic pipeline.
+task v4_extern_return_braces(body: word) -> word { give back "{" + body + "}" }
+
+task v4_extern_return_item(hir: int, ordinal: int) -> int {
+    pilot item = 0
+    pilot found = 0
+    repeat until item >= v4_hir_item_count(hir) {
+        if v4_hir_item_kind(hir, item) == v4_hir_extern {
+            if found == ordinal { give back item }
+            found += 1
+        }
+        item += 1
+    }
+    give back 0 - 1
+}
+
+task v4_extern_return_sig(ty: int, name: word) -> int {
+    give back v4_ty_lookup_signature(ty, v4_resolve_def_for_name(v4_ty_resolve_id(ty), name))
+}
+
+task v4_extern_return_old_parity(hir: int, item: int) -> bool {
+    pilot tree = v4_hir_tree_id(hir)
+    pilot node = v4_hir_item_parse_node(hir, item)
+    pilot stream = v4_hir_item_stream_id(hir)
+    pilot count = v4_parse_extern_member_count(tree, node)
+    pilot valid = v4_hir_extern_member_count(hir, item) == count
+    pilot member = 0
+    repeat until member >= count {
+        pilot start = v4_parse_extern_member_start_token(tree, node, member)
+        pilot end = v4_parse_extern_member_end_token(tree, node, member)
+        if v4_ty_extern_member_return_surface_from_hir(hir, item, member) != v4_ty_task_return_from_tokens(stream, start, end) { valid = false }
+        if v4_hir_extern_member_return_span(hir, item, member) != v4_ty_task_return_span_from_tokens(stream, start, end) { valid = false }
+        if v4_hir_extern_member_span(hir, item, member) != v4_ty_span_from_tokens(stream, start, end) { valid = false }
+        member += 1
+    }
+    give back valid
+}
+
+task v4_extern_return_boundary_run() -> void {
+    pilot path = "extern-return-boundary.fk"
+    pilot src = "alias Count = std::ffi::c_int\nextern [C] "
+    src = src + v4_extern_return_braces("\n    task answer() -> Count\n    task clear() -> void\n    task nested(cb: extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int\n    task callback() -> extern [C] task(seed: std::ffi::c_int) -> std::ffi::c_int\n    task missing()\n    task unsafe_text() -> word\n") + "\nextern [C] " + v4_extern_return_braces("") + "\n"
+    pilot hir = v4_hir_text_cached(path, src)
+    pilot ty = v4_ty_text_cached(path, src)
+    pilot item = v4_extern_return_item(hir, 0)
+    pilot empty = v4_extern_return_item(hir, 1)
+    pilot answer = v4_extern_return_sig(ty, "answer")
+    pilot clear = v4_extern_return_sig(ty, "clear")
+    pilot nested = v4_extern_return_sig(ty, "nested")
+    pilot callback = v4_extern_return_sig(ty, "callback")
+    pilot missing = v4_extern_return_sig(ty, "missing")
+    pilot block = v4_ty_signature_for_hir_item(ty, item)
+    say "extern-return-boundary-counts=" + word_from_bool(item >= 0 and empty >= 0 and v4_hir_extern_member_count(hir, item) == 6 and v4_ty_extern_member_count(ty, block) == 6 and v4_hir_extern_member_count(hir, empty) == 0)
+    -- The two baseline canonicalization entry points both normalize this
+    -- nongeneric Count -> std::ffi::c_int alias to int; surfaces stay Count.
+    say "extern-return-boundary-direct-canonical=" + v4_ty_extern_member_return_type(ty, block, 0)
+    say "extern-return-boundary-synthetic-canonical=" + v4_ty_signature_return_type(ty, answer)
+    say "extern-return-boundary-alias=" + word_from_bool(v4_hir_extern_member_return_surface_type(hir, item, 0) == "Count" and v4_ty_extern_member_return_surface_type(ty, block, 0) == "Count" and v4_ty_signature_return_surface_type(ty, answer) == "Count" and v4_ty_extern_member_return_type(ty, block, 0) == "int" and v4_ty_signature_return_type(ty, answer) == "int")
+    say "extern-return-boundary-void-missing=" + word_from_bool(v4_ty_signature_return_surface_type(ty, clear) == "void" and v4_ty_signature_return_surface_type(ty, missing) == v4_ty_unknown and v4_hir_extern_member_return_surface_type(hir, item, 4) == "" and v4_hir_extern_member_return_span(hir, item, 4) == V4_NO_SPAN and not v4_hir_extern_member_return_has_arrow_fallback(hir, item, 4))
+    say "extern-return-boundary-callbacks=" + word_from_bool(v4_ty_signature_return_surface_type(ty, nested) == "std::ffi::c_int" and v4_ty_signature_return_surface_type(ty, callback) == "extern[C]task(seed:std::ffi::c_int)->std::ffi::c_int" and v4_extern_return_old_parity(hir, item))
+    pilot span = v4_hir_extern_member_return_span(hir, item, 0)
+    pilot member_span = v4_hir_extern_member_span(hir, item, 0)
+    say "extern-return-boundary-spans=" + word_from_bool(v4_ty_signature_return_span(ty, answer) == span and v4_slice(src, v4_span_start(span), v4_span_end(span)) == "Count" and v4_slice(src, v4_span_start(member_span), v4_span_end(member_span)) == "task answer() -> Count" and v4_hir_snapshot_span_is_contained(span, member_span))
+    pilot unsafe_span = v4_hir_extern_member_return_span(hir, item, 5)
+    pilot found = false
+    pilot diag = 0
+    repeat until diag >= v4_ty_diag_count(ty) {
+        pilot value = v4_ty_diag(ty, diag)
+        if v4_diag_message(value) == "extern return type is not FFI-safe" and v4_diag_span(value) == unsafe_span and v4_diag_help(value).contains("word") { found = true }
+        diag += 1
+    }
+    say "extern-return-boundary-diagnostic=" + word_from_bool(found and v4_slice(src, v4_span_start(unsafe_span), v4_span_end(unsafe_span)) == "word")
+    pilot def = v4_ty_signature_def(ty, answer)
+    pilot display = v4_ty_signature_display(ty, answer)
+    pilot expansion: word = array_get(v4_hir_expansions, hir)
+    array_set(v4_hir_expansions, hir, "-1")
+    say "extern-return-boundary-detached=" + word_from_bool(v4_hir_extern_member_count(hir, item) == 6 and v4_ty_signature_return_surface_type(ty, answer) == "Count" and v4_ty_signature_return_span(ty, answer) == span and v4_ty_extern_member_return_surface_type(ty, block, 0) == "Count" and v4_ty_signature_return_surface_type(ty, nested) == "std::ffi::c_int" and v4_ty_display_for_hir_item(v4_hir_task, "answer", def, hir, item) == display and display == "task answer(...) -> Count")
+    array_set(v4_hir_expansions, hir, expansion)
+    say "extern-return-boundary-invalid=" + word_from_bool(v4_hir_extern_member_count(-1, 0) == 0 and v4_hir_extern_member_count(hir, -1) == 0 and v4_hir_extern_member_count(hir, 0) == 0 and v4_hir_extern_member_return_surface_type(hir, item, 6) == "" and v4_hir_extern_member_return_span(hir, item, -1) == V4_NO_SPAN and v4_hir_extern_member_span(hir, item, 99) == V4_NO_SPAN and not v4_hir_extern_member_return_has_arrow_fallback(hir, item, 99))
+    -- v4_index_of_from searches one character, not a substring. The verified
+    -- member span begins with "task answer"; +6 is inside the answer token.
+    pilot hover_offset = v4_span_start(member_span) + 6
+    pilot hover_stream = v4_hir_item_stream_id(hir)
+    pilot hover_token = v4_editor_token_at(hover_stream, hover_offset)
+    pilot hover = v4_hover_text_cached(path, src, hover_offset)
+    pilot completion = v4_completion_text_cached(path, src, src.length())
+    pilot completion_id = 0
+    pilot completion_found = false
+    repeat until completion_id >= v4_completion_count(completion) {
+        if v4_completion_label(completion, completion_id) == "answer" and v4_completion_detail(completion, completion_id) == display { completion_found = true }
+        completion_id += 1
+    }
+    say "extern-return-boundary-editor=" + word_from_bool(hover_offset >= 0 and hover_token >= 0 and v4_lex_token_value(hover_stream, hover_token) == "answer" and v4_hover_name(hover) == "answer" and v4_hover_type(hover) == display and v4_hover_markdown(hover).contains(display) and display.contains("Count") and completion_found)
+    pilot snapshot = v4_hir_snapshot()
+    pilot ty_snapshot = v4_ty_snapshot()
+    pilot restored = v4_hir_snapshot_restore(snapshot)
+    pilot ty_restored = v4_ty_snapshot_restore(ty_snapshot)
+    say "extern-return-boundary-restored=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and ty_restored.starts_with("ty-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_ty_signature_return_span(ty, answer) == span and v4_ty_signature_display(ty, answer) == display)
+    pilot changed = src.replace("answer() -> Count", "answer() -> void")
+    pilot change = v4_lsp_handle_text_request("textDocument/didChange", path, changed, 0)
+    pilot next_hir = v4_hir_text_cached(path, changed)
+    pilot next_ty = v4_ty_text_cached(path, changed)
+    pilot next_sig = v4_extern_return_sig(next_ty, "answer")
+    say "extern-return-boundary-edit=" + word_from_bool(change.starts_with("ok|textDocument/didChange") and next_hir != hir and v4_ty_signature_return_surface_type(next_ty, next_sig) == "void" and v4_ty_signature_display(next_ty, next_sig) == "task answer(...) -> void")
+
+    pilot recovery = "extern [C] " + v4_extern_return_braces("\n task quoted() -> \"\"\n task quoted_arrow() -> \"\" => 7\n task inferred() => true\n task nested_arrow(x: extern[C]task(y:int) => 7)\n task multiline(x: (int,\n int)) -> int\n task semicolon() -> int;\n task token_arrow() \"->\" std::ffi::c_int\n \"task\" quoted_member() -> void\n") + "\n"
+    pilot recovery_hir = v4_hir_text_cached("extern-return-recovery.fk", recovery)
+    pilot recovery_item = v4_extern_return_item(recovery_hir, 0)
+    say "extern-return-boundary-recovery-parity=" + word_from_bool(v4_extern_return_old_parity(recovery_hir, recovery_item) and v4_hir_extern_member_count(recovery_hir, recovery_item) == 7)
+    pilot quoted_span = v4_hir_extern_member_return_span(recovery_hir, recovery_item, 0)
+    say "extern-return-boundary-quoted=" + word_from_bool(v4_hir_extern_member_return_surface_type(recovery_hir, recovery_item, 0) == "" and v4_slice(recovery, v4_span_start(quoted_span), v4_span_end(quoted_span)) == "\"\"" and not v4_hir_extern_member_return_has_arrow_fallback(recovery_hir, recovery_item, 0) and v4_hir_extern_member_return_has_arrow_fallback(recovery_hir, recovery_item, 1) and v4_ty_extern_member_return_surface_from_hir(recovery_hir, recovery_item, 1) == "int" and v4_ty_extern_member_return_surface_from_hir(recovery_hir, recovery_item, 2) == "bool" and v4_ty_extern_member_return_surface_from_hir(recovery_hir, recovery_item, 3) == "int")
+    pilot unclosed = "extern [C] {\n task lost() -> int\n"
+    pilot unclosed_hir = v4_hir_text_cached("extern-return-unclosed.fk", unclosed)
+    say "extern-return-boundary-unclosed=" + word_from_bool(v4_hir_extern_member_count(unclosed_hir, v4_extern_return_item(unclosed_hir, 0)) == 0)
+    pilot manual_hir = v4_hir_file_new(99, -1)
+    pilot manual = v4_hir_add_item(manual_hir, v4_hir_extern, "manual", "99@0:1", -1)
+    say "extern-return-boundary-manual-empty=" + word_from_bool(v4_hir_extern_member_count(manual_hir, manual) == 0 and v4_hir_snapshot_extern_return_owner_line(manual_hir, manual) == "hir-extern-return-owner|" + word_from_int(manual_hir) + "|0|0")
+}
+
+v4_extern_return_boundary_run()

@@ -259,11 +259,12 @@ static void v4_bench_report(const char *stage, double started, long long diagnos
 
 
 def instrument(source: str) -> str:
+    source_marker = "static void freak_v4_build_llvm_source(freak_word source) {"
     marker = "static void freak_v4_build_llvm_run(void) {"
-    if source.count(marker) != 1:
+    if source.count(source_marker) != 1 or source.count(marker) != 1:
         raise RuntimeError("generated C entrypoint changed; update benchmark instrumentation")
-    source = source.replace(marker, NATIVE_MEASUREMENT + "\n" + marker
-                            + "\n    atexit(v4_bench_final);")
+    source = source.replace(source_marker, NATIVE_MEASUREMENT + "\n" + source_marker)
+    source = source.replace(marker, marker + "\n    atexit(v4_bench_final);")
     for stage, statement, diagnostics in INSTRUMENTATION_POINTS:
         if source.count(statement) != 1:
             raise RuntimeError(f"generated C {stage} boundary changed; update instrumentation")
