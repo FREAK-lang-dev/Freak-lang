@@ -170,4 +170,15 @@ task resolve_index_run() -> void {
     say "resolve-index exhausted=" + word_from_bool(fallback) + " recovered=" + word_from_bool(recovered)
 }
 
+task resolve_index_extern_marker_checks() -> void {
+    pilot marker = v4_resolve_extern_member_marker
+    pilot absent: bool = v4_resolve_extern_member_marker_index("") < 0 and v4_resolve_extern_member_marker_index("ordinary::item#7") < 0 and v4_resolve_extern_member_marker_index("prefix::extern-member") < 0
+    absent = absent and not v4_resolve_is_extern_member_def("ordinary::item#7") and v4_resolve_extern_member_id_from_def("ordinary::item#7") < 0
+    pilot first: bool = v4_resolve_extern_member_marker_index(marker + "7" + marker + "9") == 0 and v4_resolve_extern_member_marker_index("prefix" + marker + "7") == 6
+    pilot suffix: bool = v4_resolve_extern_member_id_from_def("prefix" + marker + "7") == 7 and v4_resolve_extern_member_id_from_def(marker) < 0 and v4_resolve_extern_member_id_from_def(marker + "-2") == 0 - 2
+    suffix = suffix and v4_resolve_is_extern_member_def(marker) and v4_resolve_is_extern_member_def("prefix" + marker + "garbage")
+    say "resolve-index extern-marker-miss=" + word_from_bool(absent) + " first=" + word_from_bool(first) + " suffix=" + word_from_bool(suffix)
+}
+
 resolve_index_run()
+resolve_index_extern_marker_checks()

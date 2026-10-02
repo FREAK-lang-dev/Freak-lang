@@ -411,6 +411,10 @@ task v4_resolve_extern_member_def(extern_def: word, member_id: int) -> word {
 }
 
 task v4_resolve_extern_member_marker_index(def_id: word) -> int {
+    -- Most definitions are ordinary items. The runtime miss probe avoids
+    -- allocating one-character words; retain the original character offset
+    -- and first-marker semantics for hits, including arbitrary input IDs.
+    if def_id.contains(v4_resolve_extern_member_marker) == false { give back 0 - 1 }
     pilot marker_len = v4_resolve_extern_member_marker.length()
     pilot def_len = def_id.length()
     pilot idx = 0
@@ -434,7 +438,7 @@ task v4_resolve_extern_member_marker_index(def_id: word) -> int {
 }
 
 task v4_resolve_is_extern_member_def(def_id: word) -> bool {
-    give back v4_resolve_extern_member_marker_index(def_id) >= 0
+    give back def_id.contains(v4_resolve_extern_member_marker)
 }
 
 task v4_resolve_extern_member_id_from_def(def_id: word) -> int {

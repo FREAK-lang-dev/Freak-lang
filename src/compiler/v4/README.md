@@ -722,10 +722,10 @@ slots fail validation before restore; wire order may place children before
 owners. Local annotations use the same physical index with bounded owner/item
 metadata and dense per-owner annotation slots; parent span bounds are decoded
 once rather than reparsed for every annotation. File-slot reset owns and reuses
-all thirty-eight child arrays, including the three derived semantic lookup indexes
+all thirty-nine child arrays, including the four derived semantic lookup indexes
 and three shape-field storage arrays, one packed Const-fact array, and three
-packed route declaration arrays. Cold initialization owns 40 outer handles;
-each new file owns 38 child handles, and both failure cleanup and slot reuse
+packed route declaration arrays. Cold initialization owns 42 outer handles;
+each new file owns 39 child handles, and both failure cleanup and slot reuse
 cover the complete set. The wire
 format is v9: semantic lookup
 indexes are rebuilt from validated stored facts,

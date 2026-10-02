@@ -4402,6 +4402,16 @@ task v4_ty_type_text(stream_id: int, start_token: int, end_token: int) -> word {
     give back out
 }
 
+-- MIR consumes the owner-local candidate walk through TY. Invalid readers
+-- must not initialize compiler arenas or publish derived storage.
+task v4_ty_next_impl_item(ty_id: int, after_item: int) -> int {
+    if v4_ty_ready == 0 or ty_id < 0 or ty_id >= v4_ty_file_active_count_value { give back 0 - 1 }
+    if v4_resolve_ready == 0 or v4_hir_ready == 0 { give back 0 - 1 }
+    pilot resolve_id = word_to_int(array_get(v4_ty_resolves, ty_id))
+    if resolve_id < 0 or resolve_id >= array_len(v4_resolve_files) { give back 0 - 1 }
+    give back v4_hir_next_impl_item(v4_resolve_hir_id(resolve_id), after_item)
+}
+
 task v4_ty_signature_hir_id(ty_id: int) -> int {
     pilot resolve_id = v4_ty_resolve_id(ty_id)
     if v4_resolve_exists(resolve_id) == false {
