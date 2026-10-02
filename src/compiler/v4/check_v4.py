@@ -73,6 +73,7 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "lex_mutation_revision_exhaustion_smoke.fk",
         "mir_impl_candidate_lookup_smoke.fk",
         "lex_boundary_publication_exhaustion_smoke.fk",
+        "borrowck_mutable_preflight_smoke.fk",
         "hir_param_index_smoke.fk",
         "ty_signature_index_smoke.fk",
         "resolve_lookup_index_smoke.fk",
@@ -737,6 +738,18 @@ INVALIDATION_FAMILY_FIELDS = [
 ]
 
 EXECUTABLE_SMOKES = [
+    {
+        "name": "Meiya mutable conflict no-loan preflight",
+        "fixture": "borrowck_mutable_preflight_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "borrow-mutable-preflight empty=true linear256=true linear512=true linear1024=true",
+            "borrow-mutable-preflight shared=true mutable=true order=true",
+            "borrow-mutable-preflight overwrites=true sparse=true malformed=true restored=true",
+        ],
+    },
     {
         "name": "Lex publication without boundary storage",
         "fixture": "lex_boundary_publication_exhaustion_smoke.fk",
@@ -11949,6 +11962,7 @@ def check_snapshot_inventories() -> None:
             "lex_mutation_revision_exhaustion_smoke.fk",
             "mir_impl_candidate_lookup_smoke.fk",
             "lex_boundary_publication_exhaustion_smoke.fk",
+            "borrowck_mutable_preflight_smoke.fk",
             "hir_param_index_smoke.fk",
             "ty_signature_index_smoke.fk",
             "resolve_lookup_index_smoke.fk",

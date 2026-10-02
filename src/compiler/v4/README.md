@@ -781,6 +781,10 @@ authoritative path columns, and one registry child per file. Numeric keys
 include negative and sparse statement IDs; allocation follows observed path
 count. Appends maintain physical path order, direct restores stay cold, and
 whole restoration rebuilds. The block consumers use MIR's first/next walk.
+Mutable exclusivity first inspects actual path kinds once. Files without
+`Loan`/`LoanMut` rows skip write-by-path comparisons; stored loan summaries
+cannot justify that shortcut. Loan-bearing comparisons and diagnostic order
+retain their existing behavior.
 All these lookup readers avoid allocation or publication, and derived
 replacement children are released. Existing authoritative MIR/Meiya restore
 storage retains its separate lifetime policy; bounded derived storage does
