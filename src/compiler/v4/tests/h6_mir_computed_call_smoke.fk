@@ -1,0 +1,93 @@
+-- Computed call results are targets, independent of their zero/one/many argument payloads.
+task h6_computed_source() -> word {
+    pilot src = ""
+    src = src + "extern [C] "
+    src = src + "{"
+    src = src + "\n task current0() -> extern [C] task() -> int\n task current1() -> extern [C] task(value: int) -> int\n task current2() -> extern [C] task(left: int, right: int) -> int\n"
+    src = src + "}"
+    src = src + "\ntask seed() -> int "
+    src = src + "{"
+    src = src + " give back 7 "
+    src = src + "}"
+    src = src + "\ntask ordinary() -> task() -> int "
+    src = src + "{"
+    src = src + " give back seed "
+    src = src + "}"
+    src = src + "\ntask zero() -> int "
+    src = src + "{"
+    src = src + " give back current0()() "
+    src = src + "}"
+    src = src + "\ntask one() -> int "
+    src = src + "{"
+    src = src + " give back current1()(7) "
+    src = src + "}"
+    src = src + "\ntask many() -> int "
+    src = src + "{"
+    src = src + " give back current2()(4, 5) "
+    src = src + "}"
+    src = src + "\ntask plain() -> int "
+    src = src + "{"
+    src = src + " give back ordinary()() "
+    src = src + "}"
+    src = src + "\ntask grouped(cb: task() -> int) -> int "
+    src = src + "{"
+    src = src + " give back (cb)() "
+    src = src + "}"
+    src = src + "\ntask direct(cb: task() -> int) -> int "
+    src = src + "{"
+    src = src + " give back cb() "
+    src = src + "}"
+    src = src + "\n"
+    give back src
+}
+task h6_computed_bad_source() -> word {
+    pilot src = ""
+    src = src + "task number() -> int "
+    src = src + "{"
+    src = src + " give back 3 "
+    src = src + "}"
+    src = src + "\ntask invalid() -> int "
+    src = src + "{"
+    src = src + " give back number()() "
+    src = src + "}"
+    src = src + "\n"
+    give back src
+}
+task h6_computed_call_ok(mir_id: int, name: word, expected: int, abi: word, target_kind: word) -> bool {
+    pilot body_id = v4_mir_lookup_body_name(mir_id, name)
+    pilot stmt_id = 0
+    pilot call_id = -1
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return { call_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id) }
+        stmt_id += 1
+    }
+    if call_id < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_id) != v4_mir_rvalue_call or v4_mir_rvalue_ty(mir_id, body_id, call_id) != v4_ty_int or v4_mir_rvalue_abi(mir_id, body_id, call_id) != abi or v4_mir_rvalue_call_arg_count(mir_id, body_id, call_id) != expected { give back false }
+    pilot target = v4_mir_rvalue_lhs(mir_id, body_id, call_id)
+    if target < 0 or target >= call_id or v4_mir_rvalue_kind(mir_id, body_id, target) != target_kind or not v4_ty_is_surface_task_function_type(v4_mir_rvalue_ty(mir_id, body_id, target)) { give back false }
+    pilot arg_id = 0
+    repeat until arg_id >= expected {
+        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, call_id, arg_id)
+        if child <= target or child >= call_id { give back false }
+        arg_id += 1
+    }
+    give back true
+}
+task h6_computed_run() -> void {
+    pilot stream = v4_lex_text(0, h6_computed_source())
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir_id = v4_hir_lower_tree(0, tree)
+    pilot resolve_id = v4_resolve_lower_hir(0, hir_id)
+    pilot ty_id = v4_ty_lower_resolve(0, resolve_id)
+    pilot mir_id = v4_mir_lower_ty(0, ty_id)
+    say "h6-computed extern=" + word_from_bool(h6_computed_call_ok(mir_id, "zero", 0, "C", v4_mir_rvalue_call) and h6_computed_call_ok(mir_id, "one", 1, "C", v4_mir_rvalue_call) and h6_computed_call_ok(mir_id, "many", 2, "C", v4_mir_rvalue_call)) + " diagnostics=" + word_from_int(v4_mir_diag_count(mir_id))
+    say "h6-computed ordinary=" + word_from_bool(h6_computed_call_ok(mir_id, "plain", 0, "", v4_mir_rvalue_call)) + " grouped=" + word_from_bool(h6_computed_call_ok(mir_id, "grouped", 0, "", v4_mir_rvalue_use_local)) + " direct=" + word_from_bool(h6_computed_call_ok(mir_id, "direct", 0, "", v4_mir_rvalue_use_local))
+    say "h6-computed snapshot=" + word_from_bool(v4_mir_snapshot_validate(v4_mir_snapshot()).starts_with("mir-snapshot-import ok=1"))
+    pilot bad_stream = v4_lex_text(1, h6_computed_bad_source())
+    pilot bad_tree = v4_parse_stream(1, bad_stream)
+    pilot bad_hir = v4_hir_lower_tree(1, bad_tree)
+    pilot bad_resolve = v4_resolve_lower_hir(1, bad_hir)
+    pilot bad_ty = v4_ty_lower_resolve(1, bad_resolve)
+    pilot bad_mir = v4_mir_lower_ty(1, bad_ty)
+    say "h6-computed bad-target=" + word_from_bool(v4_mir_diag_count(bad_mir) == 1 and v4_diag_message(v4_mir_diag(bad_mir, 0)) == "call target is not callable")
+}
+h6_computed_run()

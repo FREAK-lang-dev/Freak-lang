@@ -1,0 +1,17 @@
+task zero() -> int { give back 7 }
+task one(value: int) -> int { give back value + 1 }
+task two(left: int, right: int) -> int { give back left + right }
+task current0() -> task() -> int { give back zero }
+task current1() -> task(value: int) -> int { give back one }
+task current2() -> task(left: int, right: int) -> int { give back two }
+task main() -> int {
+    if current0()() != 7 { give back 1 }
+    if current1()(7) != 8 { give back 2 }
+    if current2()(4, 5) != 9 { give back 3 }
+    pilot callback = zero
+    if (callback)() != 7 { give back 4 }
+    if callback() != 7 { give back 5 }
+    if -current0()() != -7 { give back 6 }
+    if 1 + current0()() != 8 { give back 7 }
+    give back 42
+}
