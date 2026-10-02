@@ -81,6 +81,16 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "hir_query_resource_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
+        "h6_mir_repeat_identity_smoke.fk",
+        "h6_mir_bool_aliases_smoke.fk",
+        "h6_grammar_literal_smoke.fk",
+        "h6_mir_literal_grammar_smoke.fk",
+        "h6_diagnostics_restore_resource_smoke.fk",
+        "h6_driver_file_read_smoke.fk",
+        "h6_codegen_indirect_smoke.fk",
+        "h6_native_contract_smoke.fk",
+        "h6_codegen_bool_restore_smoke.fk",
+        "h6_native_field_callback_smoke.fk",
     }
 )
 
@@ -505,7 +515,7 @@ MIR_BUILD_TRANSITIONAL_DIRECT_DEPENDENCIES = {
         r"\bv4_lex_[A-Za-z0-9_]+\b",
         frozenset(
             {
-                "v4_lex_is_bool_word",
+                "v4_lex_token_syntax_value",
                 "v4_lex_is_digit",
                 "v4_lex_is_ident_continue",
                 "v4_lex_is_ident_start",
@@ -2915,7 +2925,7 @@ EXECUTABLE_SMOKES = [
             "break-continue-countdown-continue-epilogue-term=Goto",
             "break-continue-countdown-continue-epilogue-target=4",
             "break-continue-countdown-continue-epilogue-kind=Assign",
-            "break-continue-countdown-continue-epilogue-rhs=_repeat_i - 1",
+            "break-continue-countdown-continue-epilogue-rhs=$repeat_i#3 - 1",
             "break-continue-sortie-break-kind=Break",
             "break-continue-sortie-break-target=2",
             "break-continue-sortie-continue-kind=Continue",
@@ -6733,6 +6743,136 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "H6 counted loop local identity",
+        "fixture": "h6_mir_repeat_identity_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-repeat depths=true siblings=true flow=true",
+            "h6-repeat source-locals=true diagnostics=0",
+            "h6-repeat snapshot=true",
+            "h6-repeat invalid-identity=true"
+        ]
+    },
+    {
+        "name": "H6 canonical MIR bool aliases",
+        "fixture": "h6_mir_bool_aliases_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-bool returns=true canonical=true diagnostics=0",
+            "h6-bool old-facts=true invalid=true"
+        ]
+    },
+    {
+        "name": "H6 frontend literal grammar",
+        "fixture": "h6_grammar_literal_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-grammar-cold-readonly=true",
+            "h6-grammar-literal-projection=true",
+            "h6-grammar-delimiters-and-arity=true",
+            "h6-grammar-constant-literal-types=true",
+            "h6-grammar-method-cache-equivalence=true",
+            "h6-grammar-closure-keyword-data=true",
+            "h6-grammar-restore-and-display=true"
+        ]
+    },
+    {
+        "name": "H6 MIR literal grammar",
+        "fixture": "h6_mir_literal_grammar_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-literal diagnostics=0",
+            "h6-literal lists=true chars=true",
+            "h6-literal tuple=true constructor=true",
+            "h6-literal array=true map=true",
+            "h6-literal call=true",
+            "h6-literal keyword=true condition=true",
+            "h6-literal matching=true arg-count=20",
+            "h6-literal keyword-scans=true",
+            "h6-literal operator-scans=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 indirect callback payloads",
+        "fixture": "h6_codegen_indirect_smoke.fk",
+        "expect": [
+            "h6-indirect zero=true one=true many=true callee-excluded=true",
+            "h6-indirect local=true returned=true computed-once=true",
+            "h6-indirect library=true snapshot=true module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 sealed native MIR contract",
+        "fixture": "h6_native_contract_smoke.fk",
+        "expect": [
+            "h6-native-contract rvalues=23 named=true no-module=true",
+            "h6-native-contract places=3 named=true no-module=true",
+            "h6-native-contract types=14 named=true no-module=true",
+            "h6-native-contract malformed=true snapshot=true sealed=true",
+            "h6-native-contract literal-types=3 restored=true no-module=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 restored boolean emission",
+        "fixture": "h6_codegen_bool_restore_smoke.fk",
+        "expect": [
+            "h6-restored-bool aliases=20 canonical=true casing=true numeric=true",
+            "h6-restored-bool snapshot=true spelling-retained=true invalid-rejected=true sealed=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 aggregate and field callback rejection",
+        "fixture": "h6_native_field_callback_smoke.fk",
+        "expect": [
+            "h6-native-aggregate shape=true field-callback=true named=true no-module=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 atomic diagnostics restore resources",
+        "fixture": "h6_diagnostics_restore_resource_smoke.fk",
+        "expect": [
+            "h6-diagnostics-restore cold=true direct600=true snapshot600=true exact=true handles=true",
+            "h6-diagnostics-coordinates negative=true sparse=true huge=true overflow=true duplicate-overlay=true dense-growth=true",
+            "h6-diagnostics-failure exhausted=true partial=true preserved=true handles=true recovery=true",
+            "h6-diagnostics-replay admitted=true ordered=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 checked driver source files",
+        "fixture": "h6_driver_file_read_smoke.fk",
+        "source_read_checks": True,
+        "expect": [
+            "h6-source-read empty=true cached=true readable=true",
+            "h6-source-errors missing=true directory=true unpublished=true stale-retained=true"
+        ]
+    },
+    {
         "name": "LLVM module facts across MIR restore",
         "fixture": "codegen_llvm_module_epoch_smoke.fk",
         "expect_mode": "line",
@@ -7795,7 +7935,7 @@ EXECUTABLE_SMOKES = [
             "times-entry-term=Goto",
             "times-entry-target=4",
             "times-condition-term=If",
-            "times-condition-cond=_repeat_i > 0",
+            "times-condition-cond=$repeat_i#2 > 0",
             "times-loop-stmt-kind=Loop",
             "times-loop-stmt-lhs=repeat n times",
             "times-loop-rvalue-kind=Binary",
@@ -12000,6 +12140,16 @@ def check_snapshot_inventories() -> None:
             "hir_query_resource_smoke.fk",
             "mir_snapshot_resource_smoke.fk",
             "query_invalidation_resource_smoke.fk",
+            "h6_mir_repeat_identity_smoke.fk",
+            "h6_mir_bool_aliases_smoke.fk",
+            "h6_grammar_literal_smoke.fk",
+            "h6_mir_literal_grammar_smoke.fk",
+            "h6_diagnostics_restore_resource_smoke.fk",
+            "h6_driver_file_read_smoke.fk",
+            "h6_codegen_indirect_smoke.fk",
+            "h6_native_contract_smoke.fk",
+            "h6_codegen_bool_restore_smoke.fk",
+            "h6_native_field_callback_smoke.fk",
         }
     ):
         violations.append("scratch-handle resource smoke limit coverage drifted")
@@ -13160,6 +13310,57 @@ if empty_ok and small_ok and large_ok {
     print(f"V3 LLVM substring pipeline: compile={compile_mode}")
 
 
+def checked_source_fixture_paths() -> list[str]:
+    directory = RUNTIME_BUILD_ROOT / "h6_source_directory"
+    directory.mkdir(parents=True, exist_ok=True)
+    missing = directory / "missing.fk"
+    if missing.exists():
+        raise RuntimeError(f"checked source fixture requires an absent path: {missing}")
+    return [
+        str(TESTS_ROOT / "data" / "h6_io_empty_source.fk"),
+        str(TESTS_ROOT / "data" / "h6_io_readable_source.fk"),
+        str(missing),
+        str(directory),
+    ]
+
+
+def check_checked_source_runtime(clang: str) -> None:
+    fixture = TESTS_ROOT / "h6_source_read_checked_runtime.c"
+    executable = RUNTIME_BUILD_ROOT / ("h6_source_read.exe" if sys.platform == "win32" else "h6_source_read")
+    stamp = executable.with_suffix(".compile.sha256")
+    key = hash_text(
+        "checked-source-runtime-v1", clang, read_text(fixture),
+        read_text(RUNTIME_ROOT / "freak_runtime.c"),
+        read_text(RUNTIME_ROOT / "freak_runtime.h"),
+        *runtime_platform_link_args(),
+    )
+    if not executable.exists() or not stamp.exists() or read_text(stamp).strip() != key:
+        compiled = run_with_heartbeat(
+            [clang, str(fixture), "-o", str(executable),
+             f"-DFREAK_ARRAY_LIVE_LIMIT={C_ARRAY_HANDLE_RESOURCE_LIMIT}",
+             *runtime_platform_link_args()],
+            label="checked source runtime compile", timeout_seconds=60,
+            memory_limit_mb=512,
+        )
+        if compiled.returncode != 0:
+            raise RuntimeError(f"checked source runtime compile failed:\n{compiled.stdout}{compiled.stderr}")
+        stamp.write_text(key + "\n", encoding="utf-8")
+    paths = checked_source_fixture_paths()
+    if hasattr(os, "mkfifo"):
+        fifo = RUNTIME_BUILD_ROOT / "h6_source_fifo"
+        if not fifo.exists():
+            os.mkfifo(fifo)
+        paths.append(str(fifo))
+    executed = run_with_heartbeat(
+        [str(executable), *paths], label="checked source runtime execute",
+        timeout_seconds=10, memory_limit_mb=64,
+    )
+    expected = "h6-runtime-source-read contents=true errors=true faults=true recovery=true\n"
+    if executed.returncode != 0 or executed.stdout != expected or executed.stderr:
+        raise RuntimeError(f"checked source runtime failed:\n{executed.stdout}{executed.stderr}")
+    print(expected.strip())
+
+
 def check_v4_build_command() -> None:
     warning_source = RUNTIME_BUILD_ROOT / "llvm_warning_only.fk"
     warning_source.write_text(
@@ -13253,6 +13454,7 @@ def check_executable_smokes(
     include_arg = f"-I{RUNTIME_ROOT}"
     check_process_tree_guard()
     check_llvm_runtime_primitives(clang, include_arg)
+    check_checked_source_runtime(clang)
     check_native_snapshot_lines(clang)
     check_v3_llvm_substring_pipeline(clang, include_arg)
 
@@ -13283,6 +13485,8 @@ def check_executable_smokes(
         timeout_seconds = int(smoke.get("timeout", 60))
         default_memory_limit_mb = 128 if "snapshot" in fixture.stem else 512
         command = [str(exe_path)]
+        if smoke.get("source_read_checks"):
+            command += checked_source_fixture_paths()
         if smoke.get("llvm_programs"):
             from build_v4 import host_target
             command += [str(V4_ROOT / "examples" / name) for name, _, _ in smoke["llvm_programs"]]
