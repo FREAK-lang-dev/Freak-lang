@@ -1531,6 +1531,7 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
     if kind == v4_mir_rvalue_const_char {
         if llvm_type != "i8" and llvm_type != "i32" and llvm_type != "i64" { give back "invalid native char literal type: " + type_text }
     }
+    if kind == v4_mir_rvalue_const_word and type_text != v4_ty_word { give back "invalid native word literal type: " + type_text }
     if kind == v4_mir_rvalue_const_bool {
         if type_text != v4_ty_bool or v4_mir_bool_literal_value(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) == "" { give back "invalid native boolean literal" }
     }

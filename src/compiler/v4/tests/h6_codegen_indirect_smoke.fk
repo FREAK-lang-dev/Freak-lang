@@ -5,19 +5,20 @@ task h6_indirect_assert(condition: bool, label: word) -> void {
 }
 
 task h6_indirect_occurrences(text: word, needle: word) -> int {
+    if needle == "" { give back 0 }
     pilot count = 0
     pilot offset = 0
-    repeat until offset >= text.length() {
-        pilot found = v4_index_of_from(text, needle, offset)
-        if found < 0 { give back count }
-        count += 1
-        offset = found + needle.length()
+    repeat until offset + needle.length() > text.length() {
+        if v4_slice(text, offset, offset + needle.length()) == needle {
+            count += 1
+            offset += needle.length()
+        } else { offset += 1 }
     }
     give back count
 }
 
 task h6_indirect_run() -> void {
-    pilot source = "extern [C] {\n" + " task current() -> extern [C] task() -> int\n" + "}\n"
+    pilot source = "extern [C] {\n" + " task current() -> extern [C] task() -> std::ffi::c_isize\n" + "}\n"
     source = source + "task zero(cb: extern [C] task() -> int) -> int {\n" + " give back cb()\n" + "}\n"
     source = source + "task one(cb: extern [C] task(a: int) -> int) -> int {\n" + " give back cb(5)\n" + "}\n"
     source = source + "task many(cb: extern [C] task(a: int, b: int, c: int) -> int) -> int {\n" + " give back cb(5, 6, 7)\n" + "}\n"

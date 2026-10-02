@@ -1,112 +1,114 @@
 task pass(flag: bool) -> bool { give back flag }
-task value0() -> bool { give back yes }
-task value1() -> bool { give back YES }
-task value2() -> bool { give back Yes }
-task value3() -> bool { give back no }
-task value4() -> bool { give back NO }
-task value5() -> bool { give back No }
-task value6() -> bool { give back hai }
-task value7() -> bool { give back HAI }
-task value8() -> bool { give back Hai }
-task value9() -> bool { give back iie }
-task value10() -> bool { give back IIE }
-task value11() -> bool { give back Iie }
-task value12() -> bool { give back true }
-task value13() -> bool { give back TRUE }
-task value14() -> bool { give back True }
-task value15() -> bool { give back false }
-task value16() -> bool { give back FALSE }
-task value17() -> bool { give back False }
+task value(selector: int) -> bool {
+    if selector == 0 { give back yes }
+    if selector == 1 { give back YES }
+    if selector == 2 { give back Yes }
+    if selector == 3 { give back no }
+    if selector == 4 { give back NO }
+    if selector == 5 { give back No }
+    if selector == 6 { give back hai }
+    if selector == 7 { give back HAI }
+    if selector == 8 { give back Hai }
+    if selector == 9 { give back iie }
+    if selector == 10 { give back IIE }
+    if selector == 11 { give back Iie }
+    if selector == 12 { give back true }
+    if selector == 13 { give back TRUE }
+    if selector == 14 { give back True }
+    if selector == 15 { give back false }
+    if selector == 16 { give back FALSE }
+    give back False
+}
 task main() -> int {
     pilot flag0 = yes
     if flag0 != true { give back 1 }
     if pass(yes) != true { give back 2 }
-    if value0() != true { give back 3 }
+    if value(0) != true { give back 3 }
     if yes {} else { give back 5 }
     pilot flag1 = YES
     if flag1 != true { give back 1 }
     if pass(YES) != true { give back 2 }
-    if value1() != true { give back 3 }
+    if value(1) != true { give back 3 }
     if YES {} else { give back 5 }
     pilot flag2 = Yes
     if flag2 != true { give back 1 }
     if pass(Yes) != true { give back 2 }
-    if value2() != true { give back 3 }
+    if value(2) != true { give back 3 }
     if Yes {} else { give back 5 }
     pilot flag3 = no
     if flag3 != false { give back 1 }
     if pass(no) != false { give back 2 }
-    if value3() != false { give back 3 }
+    if value(3) != false { give back 3 }
     if no { give back 4 } else {}
     pilot flag4 = NO
     if flag4 != false { give back 1 }
     if pass(NO) != false { give back 2 }
-    if value4() != false { give back 3 }
+    if value(4) != false { give back 3 }
     if NO { give back 4 } else {}
     pilot flag5 = No
     if flag5 != false { give back 1 }
     if pass(No) != false { give back 2 }
-    if value5() != false { give back 3 }
+    if value(5) != false { give back 3 }
     if No { give back 4 } else {}
     pilot flag6 = hai
     if flag6 != true { give back 1 }
     if pass(hai) != true { give back 2 }
-    if value6() != true { give back 3 }
+    if value(6) != true { give back 3 }
     if hai {} else { give back 5 }
     pilot flag7 = HAI
     if flag7 != true { give back 1 }
     if pass(HAI) != true { give back 2 }
-    if value7() != true { give back 3 }
+    if value(7) != true { give back 3 }
     if HAI {} else { give back 5 }
     pilot flag8 = Hai
     if flag8 != true { give back 1 }
     if pass(Hai) != true { give back 2 }
-    if value8() != true { give back 3 }
+    if value(8) != true { give back 3 }
     if Hai {} else { give back 5 }
     pilot flag9 = iie
     if flag9 != false { give back 1 }
     if pass(iie) != false { give back 2 }
-    if value9() != false { give back 3 }
+    if value(9) != false { give back 3 }
     if iie { give back 4 } else {}
     pilot flag10 = IIE
     if flag10 != false { give back 1 }
     if pass(IIE) != false { give back 2 }
-    if value10() != false { give back 3 }
+    if value(10) != false { give back 3 }
     if IIE { give back 4 } else {}
     pilot flag11 = Iie
     if flag11 != false { give back 1 }
     if pass(Iie) != false { give back 2 }
-    if value11() != false { give back 3 }
+    if value(11) != false { give back 3 }
     if Iie { give back 4 } else {}
     pilot flag12 = true
     if flag12 != true { give back 1 }
     if pass(true) != true { give back 2 }
-    if value12() != true { give back 3 }
+    if value(12) != true { give back 3 }
     if true {} else { give back 5 }
     pilot flag13 = TRUE
     if flag13 != true { give back 1 }
     if pass(TRUE) != true { give back 2 }
-    if value13() != true { give back 3 }
+    if value(13) != true { give back 3 }
     if TRUE {} else { give back 5 }
     pilot flag14 = True
     if flag14 != true { give back 1 }
     if pass(True) != true { give back 2 }
-    if value14() != true { give back 3 }
+    if value(14) != true { give back 3 }
     if True {} else { give back 5 }
     pilot flag15 = false
     if flag15 != false { give back 1 }
     if pass(false) != false { give back 2 }
-    if value15() != false { give back 3 }
+    if value(15) != false { give back 3 }
     if false { give back 4 } else {}
     pilot flag16 = FALSE
     if flag16 != false { give back 1 }
     if pass(FALSE) != false { give back 2 }
-    if value16() != false { give back 3 }
+    if value(16) != false { give back 3 }
     if FALSE { give back 4 } else {}
     pilot flag17 = False
     if flag17 != false { give back 1 }
     if pass(False) != false { give back 2 }
-    if value17() != false { give back 3 }
+    if value(17) != false { give back 3 }
     if False { give back 4 } else {}
     give back 42
 }

@@ -11,9 +11,9 @@ task many(a: std::ffi::c_int, b: std::ffi::c_int, c: std::ffi::c_int) -> std::ff
     give back a + b + c
 }
 
-task invoke_zero(cb: extern [C] task() -> std::ffi::c_int) -> std::ffi::c_int { give back cb() }
-task invoke_one(cb: extern [C] task(value: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int { give back cb(4) }
-task invoke_many(cb: extern [C] task(a: std::ffi::c_int, b: std::ffi::c_int, c: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int { give back cb(1, 2, 3) }
+task invoke(cb_zero: extern [C] task() -> std::ffi::c_int, cb_one: extern [C] task(value: std::ffi::c_int) -> std::ffi::c_int, cb_many: extern [C] task(a: std::ffi::c_int, b: std::ffi::c_int, c: std::ffi::c_int) -> std::ffi::c_int) -> std::ffi::c_int {
+    give back cb_zero() + cb_one(4) + cb_many(1, 2, 3)
+}
 
 task current() -> extern [C] task() -> std::ffi::c_int {
     say "callback target evaluated"
@@ -23,7 +23,7 @@ task current() -> extern [C] task() -> std::ffi::c_int {
 task main() -> int {
     pilot local = zero
     pilot returned = current()
-    pilot answer = invoke_zero(local) + invoke_one(one) + invoke_many(many)
+    pilot answer = invoke(local, one, many)
     answer += returned()
     answer += current()()
     give back answer + 10

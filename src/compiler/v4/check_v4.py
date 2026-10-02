@@ -85,6 +85,16 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "h6_mir_bool_aliases_smoke.fk",
         "h6_grammar_literal_smoke.fk",
         "h6_mir_literal_grammar_smoke.fk",
+        "h6_mir_void_return_smoke.fk",
+        "h6_native_repeat_execute_smoke.fk",
+        "h6_native_bool_execute_smoke.fk",
+        "h6_native_indirect_execute_smoke.fk",
+        "h6_native_computed_execute_smoke.fk",
+        "h6_native_computed_many_execute_smoke.fk",
+        "h6_mir_bool_binding_smoke.fk",
+        "h6_mir_computed_call_smoke.fk",
+        "h6_mir_pattern_literal_smoke.fk",
+        "h6_mir_assignment_literal_smoke.fk",
         "h6_diagnostics_restore_resource_smoke.fk",
         "h6_driver_file_read_smoke.fk",
         "h6_codegen_indirect_smoke.fk",
@@ -6823,7 +6833,7 @@ EXECUTABLE_SMOKES = [
             "h6-native-contract places=3 named=true no-module=true",
             "h6-native-contract types=14 named=true no-module=true",
             "h6-native-contract malformed=true snapshot=true sealed=true",
-            "h6-native-contract literal-types=3 restored=true no-module=true"
+            "h6-native-contract literal-types=5 restored=true no-module=true"
         ]
     },
     {
@@ -6870,6 +6880,180 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "h6-source-read empty=true cached=true readable=true",
             "h6-source-errors missing=true directory=true unpublished=true stale-retained=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 compact pattern literal grammar",
+        "fixture": "h6_mir_pattern_literal_smoke.fk",
+        "expect": [
+            "h6-pattern diagnostics=0",
+            "h6-pattern semantic=true",
+            "h6-pattern tuple=true bracket=true",
+            "h6-pattern fields=true escaped=true",
+            "h6-pattern scopes=true",
+            "h6-pattern chars=true nested=true",
+            "h6-pattern keyword-data=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 reject literal assignment targets",
+        "fixture": "h6_mir_assignment_literal_smoke.fk",
+        "expect": [
+            "h6-assignment literal-diagnostics=true",
+            "h6-assignment strings=true chars=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 reserved boolean declarations",
+        "fixture": "h6_mir_bool_binding_smoke.fk",
+        "expect": [
+            "h6-bool-binding parameters=true declarations=18",
+            "h6-bool-binding locals=true local-count=0"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 computed call MIR identities",
+        "fixture": "h6_mir_computed_call_smoke.fk",
+        "expect": [
+            "h6-computed extern=true diagnostics=0",
+            "h6-computed ordinary=true grouped=true direct=true",
+            "h6-computed snapshot=true",
+            "h6-computed bad-target=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native repeat execution",
+        "fixture": "h6_native_repeat_execute_smoke.fk",
+        "llvm_programs": [
+            [
+                "h6_repeat_identity_native.fk",
+                42,
+                ""
+            ]
+        ],
+        "expect": [
+            "h6-repeat-execute diagnostics=0",
+            "h6-repeat-execute contract=true",
+            "h6-repeat-execute module=true",
+            "h6-repeat-execute snapshot-valid=true",
+            "h6-repeat-execute snapshot-restored=true",
+            "h6-repeat-execute module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native bool execution",
+        "fixture": "h6_native_bool_execute_smoke.fk",
+        "llvm_programs": [
+            [
+                "h6_bool_aliases_native.fk",
+                42,
+                ""
+            ]
+        ],
+        "expect": [
+            "h6-bool-execute diagnostics=0",
+            "h6-bool-execute contract=true",
+            "h6-bool-execute module=true",
+            "h6-bool-execute snapshot-valid=true",
+            "h6-bool-execute snapshot-restored=true",
+            "h6-bool-execute module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native indirect execution",
+        "fixture": "h6_native_indirect_execute_smoke.fk",
+        "llvm_programs": [
+            [
+                "indirect_calls.fk",
+                42,
+                "callback target evaluated\ncallback target evaluated\n"
+            ]
+        ],
+        "expect": [
+            "h6-indirect-execute diagnostics=0",
+            "h6-indirect-execute contract=true",
+            "h6-indirect-execute module=true",
+            "h6-indirect-execute snapshot-valid=true",
+            "h6-indirect-execute snapshot-restored=true",
+            "h6-indirect-execute module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native computed execution",
+        "fixture": "h6_native_computed_execute_smoke.fk",
+        "llvm_programs": [
+            [
+                "h6_computed_callbacks_native.fk",
+                42,
+                ""
+            ]
+        ],
+        "expect": [
+            "h6-computed-execute diagnostics=0",
+            "h6-computed-execute contract=true",
+            "h6-computed-execute module=true",
+            "h6-computed-execute snapshot-valid=true",
+            "h6-computed-execute snapshot-restored=true",
+            "h6-computed-execute module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native multiple-argument computed execution",
+        "fixture": "h6_native_computed_many_execute_smoke.fk",
+        "llvm_programs": [
+            [
+                "h6_computed_many_native.fk",
+                42,
+                ""
+            ]
+        ],
+        "expect": [
+            "h6-computed-many-execute diagnostics=0",
+            "h6-computed-many-execute contract=true",
+            "h6-computed-many-execute module=true",
+            "h6-computed-many-execute snapshot-valid=true",
+            "h6-computed-many-execute snapshot-restored=true",
+            "h6-computed-many-execute module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 explicit void returns without sentinel values",
+        "fixture": "h6_mir_void_return_smoke.fk",
+        "expect": [
+            "h6-void implicit=true explicit=true alias=true branch=true",
+            "h6-void value-preserved=true",
+            "h6-void missing-nonvoid=true",
+            "h6-void snapshot=true"
         ]
     },
     {
@@ -12144,6 +12328,16 @@ def check_snapshot_inventories() -> None:
             "h6_mir_bool_aliases_smoke.fk",
             "h6_grammar_literal_smoke.fk",
             "h6_mir_literal_grammar_smoke.fk",
+            "h6_mir_void_return_smoke.fk",
+            "h6_native_repeat_execute_smoke.fk",
+            "h6_native_bool_execute_smoke.fk",
+            "h6_native_indirect_execute_smoke.fk",
+            "h6_native_computed_execute_smoke.fk",
+            "h6_native_computed_many_execute_smoke.fk",
+            "h6_mir_bool_binding_smoke.fk",
+            "h6_mir_computed_call_smoke.fk",
+            "h6_mir_pattern_literal_smoke.fk",
+            "h6_mir_assignment_literal_smoke.fk",
             "h6_diagnostics_restore_resource_smoke.fk",
             "h6_driver_file_read_smoke.fk",
             "h6_codegen_indirect_smoke.fk",
@@ -13362,6 +13556,24 @@ def check_checked_source_runtime(clang: str) -> None:
 
 
 def check_v4_build_command() -> None:
+    from build_v4 import bootstrap, host_target
+
+    compiler = bootstrap(shutil.which("clang"))
+    source_paths = checked_source_fixture_paths()
+    for arguments in ([], [source_paths[0]], [source_paths[2], host_target()], [source_paths[3], host_target()]):
+        rejected = run_with_heartbeat(
+            [str(compiler), *arguments], label="V4 bootstrap source rejection",
+            timeout_seconds=10, memory_limit_mb=64,
+        )
+        if (
+            rejected.returncode != 0 or rejected.stderr
+            or "v4-source-read-error=" not in rejected.stdout
+            or "v4-aborted-after=source" not in rejected.stdout
+            or "v4-build-stage=" in rejected.stdout or "@@V4-MODULE" in rejected.stdout
+        ):
+            raise RuntimeError(f"V4 bootstrap published a failed source:\n{rejected.stdout}{rejected.stderr}")
+    library_source = RUNTIME_BUILD_ROOT / "llvm_no_main_library.fk"
+    library_source.write_text("task helper() -> int { give back 7 }\n", encoding="utf-8")
     warning_source = RUNTIME_BUILD_ROOT / "llvm_warning_only.fk"
     warning_source.write_text(
         'extern [C] {\n task longjmp(env: *mut tiny, code: std::ffi::c_int) -> void\n}\n'
@@ -13397,6 +13609,10 @@ def check_v4_build_command() -> None:
         (main_error_source, RUNTIME_BUILD_ROOT / "llvm_main_error.ll", False, "codegen"),
         (runtime_say_error, RUNTIME_BUILD_ROOT / "llvm_runtime_say_error.ll", False, "codegen"),
         (runtime_setup_error, RUNTIME_BUILD_ROOT / "llvm_runtime_setup_error.ll", False, "codegen"),
+        (Path(source_paths[0]), RUNTIME_BUILD_ROOT / "llvm_empty_source.ll", False, "codegen"),
+        (library_source, RUNTIME_BUILD_ROOT / "llvm_no_main_library.ll", False, "codegen"),
+        (Path(source_paths[2]), RUNTIME_BUILD_ROOT / "llvm_missing_source.ll", False, None),
+        (Path(source_paths[3]), RUNTIME_BUILD_ROOT / "llvm_directory_source.ll", False, None),
     ):
         output.unlink(missing_ok=True)
         command = [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output)]
@@ -13411,6 +13627,10 @@ def check_v4_build_command() -> None:
             main_error_source: "native main parameters are not yet supported",
             runtime_say_error: "native runtime declaration conflicts with @freak_llvm_say",
             runtime_setup_error: "native runtime declaration conflicts with @freak_llvm_setup_args",
+            Path(source_paths[0]): "native build requires task main",
+            library_source: "native build requires task main",
+            Path(source_paths[2]): "source file does not exist",
+            Path(source_paths[3]): "source file does not exist",
         }
         if source in reasons and reasons[source] not in result.stdout + result.stderr:
             raise RuntimeError(f"V4 build rejected input without the expected reason: {reasons[source]}")
