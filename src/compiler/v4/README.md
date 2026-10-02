@@ -105,9 +105,18 @@ succeed; open, metadata, seek, read and close failures return errors before any
 source/query publication. The legacy bootstrap `fs::read` ABI is unchanged.
 Size checks use descriptor metadata (`_fstat64` on Windows), retaining complete
 read and trailing-byte checks without a 32-bit `long` size limit.
+The C bootstrap captures a `check result` expression once for its
+four existing scalar/word result layouts, so its status and selected payload
+come from the same evaluation. This includes direct checked-read calls when a
+file changes during matching. The temporary borrows the result payload and
+adds no allocation or automatic release; general native result ownership and
+other result layouts remain outside this bootstrap slice.
 The command requires a source `main`; public Codegen APIs can still emit library
 modules without one. This helper does not complete bible section 7.7's standard
 filesystem API or add a native word-result ABI.
+Native linking writes LLVM input into a private temporary directory, separate
+from the requested executable path even when it ends in `.ll` or `.LL`.
+`--emit-llvm` writes the module to the requested output path.
 
 Diagnostic snapshot restoration stages a copy of the live diagnostic arena,
 applies the v1 overlay in wire order, and publishes only after every allocation

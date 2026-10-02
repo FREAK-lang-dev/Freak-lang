@@ -4,6 +4,7 @@ import contextlib
 import io
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 import unittest
@@ -71,6 +72,62 @@ class LlvmModuleFraming(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(build.main(), 0)
             self.assertEqual(output.read_bytes(), module.encode("utf-8"))
+
+    def test_native_intermediate_is_separate_and_cleaned_on_success_or_failure(self):
+        """Native output suffixes and linker failures cannot overwrite the LLVM input."""
+        for name in ("program", "program.ll", "program.LL"):
+            for status in (0, 1):
+                with self.subTest(name=name, status=status), tempfile.TemporaryDirectory() as temporary:
+                    directory = Path(temporary)
+                    source = directory / "source.fk"
+                    output = directory / name
+                    source.write_text("task main() -> int { give back 0 }")
+                    output.write_bytes(b"existing executable")
+                    seen = []
+
+                    def link(command, **kwargs):
+                        """Inspect input while alive and simulate an atomic linker output."""
+                        llvm_path = Path(command[3])
+                        seen.append(llvm_path)
+                        self.assertNotEqual(llvm_path.resolve(), output.resolve())
+                        self.assertEqual(llvm_path.read_bytes(), b"module\r\n")
+                        self.assertEqual(output.read_bytes(), b"existing executable")
+                        self.assertEqual(command[command.index("-o") + 1], str(output))
+                        if status == 0:
+                            output.write_bytes(b"native executable")
+                        return subprocess.CompletedProcess(command, status, "", "")
+
+                    arguments = ["build_v4.py", str(source), "-o", str(output)]
+                    with patch.object(sys, "argv", arguments), patch.object(build.shutil, "which", return_value="clang"), \
+                            patch.object(build, "host_target", return_value="target"), \
+                            patch.object(build, "bootstrap", return_value=Path("compiler")), \
+                            patch.object(build, "emit_module", return_value="module\r\n"), \
+                            patch.object(build.checks, "run_with_heartbeat", side_effect=link), \
+                            contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        self.assertEqual(build.main(), status)
+                    self.assertEqual(len(seen), 1)
+                    self.assertFalse(seen[0].exists())
+                    self.assertEqual(output.read_bytes(), b"native executable" if status == 0 else b"existing executable")
+
+    def test_native_ll_output_links_and_executes(self):
+        """A real LLVM link accepts an executable path ending in .ll."""
+        clang = shutil.which("clang")
+        self.assertIsNotNone(clang, "Clang is required for the .ll native output gate")
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "source.fk"
+            output = directory / "native-output.ll"
+            source.write_text("task main() -> int { give back 0 }")
+            arguments = ["build_v4.py", str(source), "-o", str(output)]
+            module = "define i32 @main() { ret i32 0 }\n"
+            with patch.object(sys, "argv", arguments), \
+                    patch.object(build, "bootstrap", return_value=Path("compiler")), \
+                    patch.object(build, "emit_module", return_value=module), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(build.main(), 0)
+            executed = subprocess.run([str(output)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(executed.returncode, 0, executed.stdout + executed.stderr)
+            self.assertEqual(executed.stdout + executed.stderr, "")
 
 
 if __name__ == "__main__":

@@ -93,9 +93,9 @@ def main() -> int:
     try:
         module = emit_module(bootstrap(clang, args.compiler_opt), args.source, target)
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        llvm_path = args.output if args.emit_llvm else args.output.with_suffix(".ll")
-        llvm_path.write_bytes(module.encode("utf-8"))
         if args.emit_llvm:
+            llvm_path = args.output
+            llvm_path.write_bytes(module.encode("utf-8"))
             with tempfile.TemporaryDirectory(prefix="freak-v4-verify-") as temporary:
                 result = checks.run_with_heartbeat(
                     [clang, "--target=" + target, "-x", "ir", "-c", str(llvm_path),
@@ -105,10 +105,15 @@ def main() -> int:
                 if result.returncode != 0:
                     raise RuntimeError(f"LLVM verification failed:\n{result.stdout}{result.stderr}")
         if not args.emit_llvm:
-            result = checks.run_with_heartbeat(
-                native_link_command(clang, llvm_path, args.output),
-                label="V4 native link", timeout_seconds=120, memory_limit_mb=1024,
-            )
+            # Keep linker input separate from every requested output name,
+            # including .ll and .LL executable paths on Windows.
+            with tempfile.TemporaryDirectory(prefix="freak-v4-link-") as temporary:
+                llvm_path = Path(temporary) / "module.ll"
+                llvm_path.write_bytes(module.encode("utf-8"))
+                result = checks.run_with_heartbeat(
+                    native_link_command(clang, llvm_path, args.output),
+                    label="V4 native link", timeout_seconds=120, memory_limit_mb=1024,
+                )
             if result.returncode != 0:
                 raise RuntimeError(f"LLVM native link failed:\n{result.stdout}{result.stderr}")
         print(f"built {args.output}")

@@ -54,7 +54,10 @@ layout and C-width ABI lowering remain open. Diagnostic v1 restoration preserves
 its overlay/duplicate order through atomic staging and released replacement
 storage. Bootstrap checked source reads distinguish empty regular files from
 I/O errors without publishing failed sources or query results; the executable
-build command requires `main`, while public library Codegen does not. These
+build command requires `main`, while public library Codegen does not. The
+C bootstrap captures supported result expressions once before
+examining their tag and payload, including checked reads across file changes.
+The existing word-payload ownership contract is unchanged. These
 fixes retain existing wire versions and language semantics; the additive
 bootstrap checked-read helper does not promote the full standard filesystem or
 native word ownership/result surface.
