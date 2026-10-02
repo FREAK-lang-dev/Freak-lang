@@ -1,0 +1,44 @@
+-- The existing native harness compiles and executes this emitted module.
+-- Root A_b, associated A::b, direct calls and callback targets must agree.
+task h6_symbol_assert(condition: bool, label: word) -> void {
+    if not condition { panic("native symbol identity: " + label) }
+}
+
+task h6_symbol_execute_run() -> void {
+    pilot source = fs::read(process::arg(1))
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot borrowck = v4_borrowck_check_mir(0, mir)
+    pilot codegen = v4_codegen_llvm_lower_mir(0, mir)
+    pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_borrowck_diag_count(borrowck) + v4_codegen_llvm_diag_count(codegen)
+    h6_symbol_assert(v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 4, "valid source owner and bodies")
+    h6_symbol_assert(total == 0 and v4_codegen_llvm_native_module_error(codegen) == "", "clean native source")
+    pilot target = v4_target_spec_new(process::arg(2))
+    pilot before = v4_codegen_llvm_module_text(codegen, target)
+    h6_symbol_assert(before.contains("define ccc i64 @A_b()") and before.contains("define ccc i64 @\"A::b\"()"), "distinct definitions")
+    h6_symbol_assert(before.contains("call ccc i64 @A_b()") and before.contains("call ccc i64 @\"A::b\"()"), "exact direct calls")
+    h6_symbol_assert(before.contains("ptr @__freak_callback_A_b") and before.contains("define ccc i64 @__freak_callback_A_b()"), "callback target agrees")
+    h6_symbol_assert(v4_codegen_llvm_symbol("A_b") != v4_codegen_llvm_symbol("A::b"), "source spelling is injective")
+    h6_symbol_assert(v4_codegen_llvm_symbol("native_tick") == "@native_tick", "plain ABI symbol unchanged")
+    h6_symbol_assert(v4_codegen_llvm_symbol("9task") == "@\"9task\"", "leading digit quoted")
+    h6_symbol_assert(v4_codegen_llvm_symbol("a\"b\\c") == "@\"a\\22b\\5Cc\"", "quote and slash escaped")
+    h6_symbol_assert(v4_codegen_llvm_symbol("é") == "@\"é\"", "complete UTF-8 identity")
+    h6_symbol_assert(v4_codegen_llvm_callback_trampoline_symbol("A::b") != v4_codegen_llvm_callback_trampoline_symbol("A_b"), "callback naming injective")
+    pilot snapshot = v4_mir_snapshot()
+    h6_symbol_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "snapshot valid")
+    h6_symbol_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "snapshot restored")
+    pilot restored = v4_codegen_llvm_lower_mir(0, mir)
+    h6_symbol_assert(v4_codegen_llvm_module_text(restored, target) == before, "snapshot exact")
+    say "h6-symbol-execute diagnostics=0 distinct=true direct=true callback=true"
+    say "h6-symbol-execute ABI=true digit=true escapes=true utf8=true"
+    say "h6-symbol-execute snapshot=true module-exact=true"
+    say "@@LLVM-MODULE-BEGIN"
+    say v4_codegen_llvm_module_text(restored, target)
+    say "@@LLVM-MODULE-END"
+}
+
+h6_symbol_execute_run()

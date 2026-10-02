@@ -104,6 +104,8 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "h6_native_contract_smoke.fk",
         "h6_codegen_bool_restore_smoke.fk",
         "h6_native_field_callback_smoke.fk",
+        "h6_native_symbol_collision_execute_smoke.fk",
+        "h6_native_unicode_char_smoke.fk",
     }
 )
 
@@ -6803,8 +6805,8 @@ EXECUTABLE_SMOKES = [
             "codegen-llvm-host-abi=system",
             "codegen-llvm-host-cc=ccc",
             "codegen-llvm-host-line=declare ccc i64 @host_tick(i64)",
-            "codegen-llvm-double-symbol=@util_math_double",
-            "codegen-llvm-double-line=define ccc i64 @util_math_double(i64)",
+            "codegen-llvm-double-symbol=@\"util::math::double\"",
+            "codegen-llvm-double-line=define ccc i64 @\"util::math::double\"(i64)",
             "codegen-llvm-main-line=define ccc i64 @freak.user.main()",
             "codegen-llvm-call-puts-symbol=@native_tick",
             "codegen-llvm-call-puts-link=msvcrt",
@@ -6818,10 +6820,10 @@ EXECUTABLE_SMOKES = [
             "codegen-llvm-call-host-abi=system",
             "codegen-llvm-call-host-cc=ccc",
             "codegen-llvm-call-host-line=call ccc i64 @host_tick(i64 2)",
-            "codegen-llvm-call-double-symbol=@util_math_double",
-            "codegen-llvm-call-double-line=call ccc i64 @util_math_double(i64 4)",
-            "codegen-llvm-double-body-symbol=@util_math_double",
-            "define ccc i64 @util_math_double(i64 %arg.0) {",
+            "codegen-llvm-call-double-symbol=@\"util::math::double\"",
+            "codegen-llvm-call-double-line=call ccc i64 @\"util::math::double\"(i64 4)",
+            "codegen-llvm-double-body-symbol=@\"util::math::double\"",
+            "define ccc i64 @\"util::math::double\"(i64 %arg.0) {",
             "%local.0.addr = alloca i64",
             "store i64 %arg.0, ptr %local.0.addr",
             "%rv.0.0 = load i64, ptr %local.0.addr",
@@ -6834,7 +6836,7 @@ EXECUTABLE_SMOKES = [
             "store i64 %rv.1.1, ptr %local.0.addr",
             "%rv.1.3 = call x86_stdcallcc i64 @win_tick(i64 1)",
             "%rv.1.5 = call ccc i64 @host_tick(i64 2)",
-            "%rv.1.7 = call ccc i64 @util_math_double(i64 4)",
+            "%rv.1.7 = call ccc i64 @\"util::math::double\"(i64 4)",
             "ret i64 %rv.1.14",
         ],
     },
@@ -7161,6 +7163,33 @@ EXECUTABLE_SMOKES = [
             "h6-void value-preserved=true",
             "h6-void missing-nonvoid=true",
             "h6-void snapshot=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native symbol collision execution",
+        "fixture": "h6_native_symbol_collision_execute_smoke.fk",
+        "llvm_programs": [
+            ["../tests/data/h6_native_symbol_collision.fk", 42, ""]
+        ],
+        "expect": [
+            "h6-symbol-execute diagnostics=0 distinct=true direct=true callback=true",
+            "h6-symbol-execute ABI=true digit=true escapes=true utf8=true",
+            "h6-symbol-execute snapshot=true module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native Unicode character rejection",
+        "fixture": "h6_native_unicode_char_smoke.fk",
+        "expect": [
+            "h6-native-char ascii=true nul=true escapes=true",
+            "h6-native-char unicode=3 named=true no-module=true not-zero=true",
+            "h6-native-char snapshot=true unknown-escape=true sealed=true"
         ]
     },
     {
@@ -12593,6 +12622,8 @@ def check_snapshot_inventories() -> None:
             "h6_native_contract_smoke.fk",
             "h6_codegen_bool_restore_smoke.fk",
             "h6_native_field_callback_smoke.fk",
+            "h6_native_symbol_collision_execute_smoke.fk",
+            "h6_native_unicode_char_smoke.fk",
         }
     ):
         violations.append("scratch-handle resource smoke limit coverage drifted")

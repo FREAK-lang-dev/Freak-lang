@@ -379,8 +379,32 @@ task v4_codegen_llvm_mangle_name(name: word) -> word {
     give back out
 }
 
+-- LLVM global names retain their exact identity. Replacing punctuation with
+-- underscores would merge A_b with A::b and could rewrite explicit ABI names.
+-- Local/type display names continue to use the separate mangle_name helper.
 task v4_codegen_llvm_symbol(name: word) -> word {
-    give back "@" + v4_codegen_llvm_mangle_name(name)
+    pilot plain = name != ""
+    if v4_lex_is_digit(name.char_at(0)) { plain = false }
+    pilot parts = array_new()
+    pilot idx = 0
+    pilot ch = name.char_at(idx)
+    -- char_at addresses bytes in the bootstrap runtime, while length counts
+    -- codepoints. Walk to the byte sentinel so quoted UTF-8 names stay whole.
+    repeat until ch == "" {
+        if not v4_codegen_llvm_is_symbol_char(ch) { plain = false }
+        if ch == "\"" { array_push(parts, "\\22") }
+        else if ch == "\\" { array_push(parts, "\\5C") }
+        else if ch == chr(0) { array_push(parts, "\\00") }
+        else if ch == "\n" { array_push(parts, "\\0A") }
+        else if ch == "\r" { array_push(parts, "\\0D") }
+        else if ch == "\t" { array_push(parts, "\\09") }
+        else { array_push(parts, ch) }
+        idx += 1
+        ch = name.char_at(idx)
+    }
+    pilot escaped = word_join(parts)
+    if plain { give back "@" + name }
+    give back "@\"" + escaped + "\""
 }
 
 task v4_codegen_llvm_calling_convention(abi: word) -> word {
@@ -675,6 +699,7 @@ task v4_codegen_llvm_char_literal_codepoint_in_chunk(text: word, chunk: word, ba
 
 task v4_codegen_llvm_char_literal_codepoint(text: word) -> word {
     if text == "\\0" { give back "0" }
+    if text == chr(0) { give back "0" }
     if text == "\\t" { give back "9" }
     if text == "\\n" { give back "10" }
     if text == "\\r" { give back "13" }
@@ -698,7 +723,7 @@ task v4_codegen_llvm_char_literal_codepoint(text: word) -> word {
     if codepoint != "" { give back codepoint }
     codepoint = v4_codegen_llvm_char_literal_codepoint_in_chunk(text, "abcdefghijklmnopqrstuvwxyz", 97)
     if codepoint != "" { give back codepoint }
-    give back "0"
+    give back ""
 }
 
 task v4_codegen_llvm_rvalue_operand(mir_id: int, body_id: int, rvalue_id: int) -> word {
@@ -1530,6 +1555,7 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
     }
     if kind == v4_mir_rvalue_const_char {
         if llvm_type != "i8" and llvm_type != "i32" and llvm_type != "i64" { give back "invalid native char literal type: " + type_text }
+        if v4_codegen_llvm_char_literal_codepoint(v4_mir_rvalue_text(mir_id, body_id, rvalue_id)) == "" { give back "native character literal not yet supported: non-ASCII or unknown escape" }
     }
     if kind == v4_mir_rvalue_const_word and type_text != v4_ty_word { give back "invalid native word literal type: " + type_text }
     if kind == v4_mir_rvalue_const_bool {

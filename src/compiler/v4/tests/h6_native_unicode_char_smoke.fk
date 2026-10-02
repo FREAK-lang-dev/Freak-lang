@@ -1,0 +1,59 @@
+-- Typed and restored MIR may contain Unicode scalars even while the native
+-- char emitter is ASCII-only. Unsupported text must never become zero.
+task h6_unicode_assert(condition: bool, label: word) -> void {
+    if not condition { panic("native Unicode char: " + label) }
+}
+
+task h6_unicode_run() -> void {
+    pilot source = "task probe() -> char {\n" + " give back 'A'\n" + "}\n"
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir)
+    h6_unicode_assert(total == 0 and v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 1 and v4_mir_body_rvalue_count(mir, 0) == 1, "valid typed owner/body")
+    h6_unicode_assert(v4_mir_rvalue_kind(mir, 0, 0) == v4_mir_rvalue_const_char and v4_mir_rvalue_ty(mir, 0, 0) == v4_ty_char, "authored char kind/type")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot old = v4_codegen_llvm_lower_mir(0, mir)
+    pilot before = v4_codegen_llvm_module_text(old, target)
+    h6_unicode_assert(before.contains("ret i32 65") and v4_codegen_llvm_native_module_error(old) == "", "ASCII remains native")
+    h6_unicode_assert(v4_codegen_llvm_char_literal_codepoint("\\0") == "0" and v4_codegen_llvm_char_literal_codepoint(chr(0)) == "0", "explicit NUL remains zero")
+    h6_unicode_assert(v4_codegen_llvm_char_literal_codepoint("\\n") == "10" and v4_codegen_llvm_char_literal_codepoint("\\r") == "13" and v4_codegen_llvm_char_literal_codepoint("\\t") == "9", "ASCII control escapes")
+    h6_unicode_assert(v4_codegen_llvm_char_literal_codepoint("\\'") == "39" and v4_codegen_llvm_char_literal_codepoint("\\\"") == "34" and v4_codegen_llvm_char_literal_codepoint("\\\\") == "92", "ASCII punctuation escapes")
+    pilot values = array_new()
+    array_push(values, "é")
+    array_push(values, "漢")
+    array_push(values, "😀")
+    pilot value_id = 0
+    repeat until value_id >= array_len(values) {
+        pilot value: word = array_get(values, value_id)
+        array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, value)
+        h6_unicode_assert(v4_mir_rvalue_text(mir, 0, 0) == value, "authored Unicode text")
+        h6_unicode_assert(v4_codegen_llvm_char_literal_codepoint(value) == "", "Unicode is not zero")
+        pilot rejected = v4_codegen_llvm_lower_mir(0, mir)
+        h6_unicode_assert(v4_codegen_llvm_native_module_error(rejected) == "native character literal not yet supported: non-ASCII or unknown escape", "named Unicode error")
+        h6_unicode_assert(v4_codegen_llvm_module_text(rejected, target) == "", "Unicode emits no module")
+        value_id += 1
+    }
+    array_release(values)
+    pilot snapshot = v4_mir_snapshot()
+    h6_unicode_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "Unicode valid on existing wire")
+    h6_unicode_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "Unicode restored")
+    h6_unicode_assert(v4_mir_rvalue_text(mir, 0, 0) == "😀", "restored Unicode text exact")
+    pilot restored = v4_codegen_llvm_lower_mir(0, mir)
+    h6_unicode_assert(v4_codegen_llvm_native_module_error(restored) == "native character literal not yet supported: non-ASCII or unknown escape" and v4_codegen_llvm_module_text(restored, target) == "", "restored Unicode rejected")
+    array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "\\x41")
+    pilot unknown = v4_codegen_llvm_lower_mir(0, mir)
+    h6_unicode_assert(v4_codegen_llvm_native_module_error(unknown) != "" and v4_codegen_llvm_module_text(unknown, target) == "", "unknown escape rejected")
+    array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "\\0")
+    pilot nul = v4_codegen_llvm_lower_mir(0, mir)
+    h6_unicode_assert(v4_codegen_llvm_native_module_error(nul) == "" and v4_codegen_llvm_module_text(nul, target).contains("ret i32 0"), "valid NUL module")
+    h6_unicode_assert(v4_codegen_llvm_module_text(old, target) == before, "old plan remains sealed")
+    say "h6-native-char ascii=true nul=true escapes=true"
+    say "h6-native-char unicode=3 named=true no-module=true not-zero=true"
+    say "h6-native-char snapshot=true unknown-escape=true sealed=true"
+}
+
+h6_unicode_run()
