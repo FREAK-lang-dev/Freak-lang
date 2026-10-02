@@ -1,0 +1,149 @@
+-- Fresh counted-loop identities, bounded deep nesting, and snapshot v5 facts.
+task h6_repeat_source() -> word {
+    pilot src = ""
+    src = src + "task depth3() -> int "
+    src = src + "{"
+    src = src + "\n    pilot hits = 0\n    repeat 2 times "
+    src = src + "{"
+    src = src + " repeat 3 times "
+    src = src + "{"
+    src = src + " repeat 4 times "
+    src = src + "{"
+    src = src + " hits += 1 "
+    src = src + "}"
+    src = src + " "
+    src = src + "}"
+    src = src + " "
+    src = src + "}"
+    src = src + "\n    give back hits\n"
+    src = src + "}"
+    src = src + "\ntask depth4() -> int "
+    src = src + "{"
+    src = src + "\n    pilot hits = 0\n    repeat 2 times "
+    src = src + "{"
+    src = src + " repeat 2 times "
+    src = src + "{"
+    src = src + " repeat 2 times "
+    src = src + "{"
+    src = src + " repeat 2 times "
+    src = src + "{"
+    src = src + " hits += 1 "
+    src = src + "}"
+    src = src + " "
+    src = src + "}"
+    src = src + " "
+    src = src + "}"
+    src = src + " "
+    src = src + "}"
+    src = src + "\n    give back hits\n"
+    src = src + "}"
+    src = src + "\ntask depth5() -> int "
+    src = src + "{"
+    src = src + "\n    pilot hits = 0\n    repeat 2 times "
+    src = src + "{"
+    src = src + " repeat 2 times "
+    src = src + "{"
+    src = src + " repeat 2 times "
+    src = src + "{"
+    src = src + " repeat 2 times "
+    src = src + "{"
+    src = src + " repeat 2 times "
+    src = src + "{"
+    src = src + " hits += 1 "
+    src = src + "}"
+    src = src + " "
+    src = src + "}"
+    src = src + " "
+    src = src + "}"
+    src = src + " "
+    src = src + "}"
+    src = src + " "
+    src = src + "}"
+    src = src + "\n    give back hits\n"
+    src = src + "}"
+    src = src + "\ntask siblings() -> int "
+    src = src + "{"
+    src = src + "\n    pilot hits = 0\n    repeat 2 times "
+    src = src + "{"
+    src = src + " hits += 1 "
+    src = src + "}"
+    src = src + "\n    repeat 3 times "
+    src = src + "{"
+    src = src + " hits += 1 "
+    src = src + "}"
+    src = src + "\n    give back hits\n"
+    src = src + "}"
+    src = src + "\ntask flow() -> int "
+    src = src + "{"
+    src = src + "\n    pilot _repeat_i = 40\n    pilot _repeat_i2 = 2\n    pilot hits = 0\n    repeat 3 times "
+    src = src + "{"
+    src = src + "\n        repeat 4 times "
+    src = src + "{"
+    src = src + " hits += 1\n            continue "
+    src = src + "}"
+    src = src + "\n        repeat 5 times "
+    src = src + "{"
+    src = src + " hits += 1\n            break "
+    src = src + "}"
+    src = src + "\n    "
+    src = src + "}"
+    src = src + "\n    give back _repeat_i + _repeat_i2 + hits\n"
+    src = src + "}"
+    src = src + "\n"
+    give back src
+}
+
+task h6_repeat_identity_ok(mir_id: int, body_id: int, expected: int) -> bool {
+    pilot loops = 0
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_loop {
+            pilot cond = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
+            pilot use_id = v4_mir_rvalue_lhs(mir_id, body_id, cond)
+            pilot local_id = v4_mir_rvalue_local_id(mir_id, body_id, use_id)
+            if local_id < 0 or not v4_mir_local_name(mir_id, body_id, local_id).starts_with("$repeat_i#") { give back false }
+            if v4_mir_rvalue_lhs(mir_id, body_id, use_id) != -1 or v4_mir_rvalue_rhs(mir_id, body_id, use_id) != -1 { give back false }
+            pilot previous = 0
+            repeat until previous >= stmt_id {
+                if v4_mir_stmt_kind(mir_id, body_id, previous) == v4_mir_stmt_loop {
+                    pilot prior_cond = v4_mir_stmt_rvalue(mir_id, body_id, previous)
+                    if v4_mir_rvalue_local_id(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, prior_cond)) == local_id { give back false }
+                }
+                previous += 1
+            }
+            loops += 1
+        }
+        stmt_id += 1
+    }
+    pilot use_idx = 0
+    repeat until use_idx >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_kind(mir_id, body_id, use_idx) == v4_mir_rvalue_use_local and v4_mir_rvalue_op(mir_id, body_id, use_idx).starts_with("local#") {
+            if v4_mir_rvalue_local_id(mir_id, body_id, use_idx) < 0 { give back false }
+        }
+        use_idx += 1
+    }
+    give back loops == expected
+}
+
+pilot h6_repeat_stream = v4_lex_text(0, h6_repeat_source())
+pilot h6_repeat_tree = v4_parse_stream(0, h6_repeat_stream)
+pilot h6_repeat_hir = v4_hir_lower_tree(0, h6_repeat_tree)
+pilot h6_repeat_resolve = v4_resolve_lower_hir(0, h6_repeat_hir)
+pilot h6_repeat_ty = v4_ty_lower_resolve(0, h6_repeat_resolve)
+pilot h6_repeat_mir = v4_mir_lower_ty(0, h6_repeat_ty)
+pilot h6_repeat_b3 = v4_mir_lookup_body_name(h6_repeat_mir, "depth3")
+pilot h6_repeat_b4 = v4_mir_lookup_body_name(h6_repeat_mir, "depth4")
+pilot h6_repeat_b5 = v4_mir_lookup_body_name(h6_repeat_mir, "depth5")
+pilot h6_repeat_bs = v4_mir_lookup_body_name(h6_repeat_mir, "siblings")
+pilot h6_repeat_bf = v4_mir_lookup_body_name(h6_repeat_mir, "flow")
+say "h6-repeat depths=" + word_from_bool(h6_repeat_identity_ok(h6_repeat_mir, h6_repeat_b3, 3) and h6_repeat_identity_ok(h6_repeat_mir, h6_repeat_b4, 4) and h6_repeat_identity_ok(h6_repeat_mir, h6_repeat_b5, 5)) + " siblings=" + word_from_bool(h6_repeat_identity_ok(h6_repeat_mir, h6_repeat_bs, 2)) + " flow=" + word_from_bool(h6_repeat_identity_ok(h6_repeat_mir, h6_repeat_bf, 3))
+say "h6-repeat source-locals=" + word_from_bool(v4_mir_local_name(h6_repeat_mir, h6_repeat_bf, 0) == "_repeat_i" and v4_mir_local_name(h6_repeat_mir, h6_repeat_bf, 1) == "_repeat_i2" and v4_mir_body_local_count(h6_repeat_mir, h6_repeat_bf) == 6) + " diagnostics=" + word_from_int(v4_mir_diag_count(h6_repeat_mir))
+pilot h6_repeat_snapshot = v4_mir_snapshot()
+pilot h6_repeat_snapshot_ok = v4_mir_snapshot_validate(h6_repeat_snapshot)
+pilot h6_repeat_restored = v4_mir_snapshot_restore(h6_repeat_snapshot)
+say "h6-repeat snapshot=" + word_from_bool(h6_repeat_snapshot_ok.starts_with("mir-snapshot-import ok=1") and h6_repeat_restored.starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == h6_repeat_snapshot and h6_repeat_identity_ok(h6_repeat_mir, h6_repeat_b5, 5))
+pilot h6_repeat_span = v4_span_new(0, 0, 1)
+pilot h6_repeat_bad = v4_mir_add_rvalue(h6_repeat_mir, h6_repeat_bf, v4_mir_rvalue_use_local, "_repeat_i", "local#1", -1, -1, h6_repeat_span, v4_ty_int)
+pilot h6_repeat_bad2 = v4_mir_add_rvalue(h6_repeat_mir, h6_repeat_bf, v4_mir_rvalue_use_local, "_repeat_i", "local#", -1, -1, h6_repeat_span, v4_ty_int)
+pilot h6_repeat_bad3 = v4_mir_add_rvalue(h6_repeat_mir, h6_repeat_bf, v4_mir_rvalue_use_local, "_repeat_i", "local#999", -1, -1, h6_repeat_span, v4_ty_int)
+say "h6-repeat invalid-identity=" + word_from_bool(v4_mir_rvalue_local_id(h6_repeat_mir, h6_repeat_bf, h6_repeat_bad) == -1 and v4_mir_rvalue_local_id(h6_repeat_mir, h6_repeat_bf, h6_repeat_bad2) == -1 and v4_mir_rvalue_local_id(h6_repeat_mir, h6_repeat_bf, h6_repeat_bad3) == -1)

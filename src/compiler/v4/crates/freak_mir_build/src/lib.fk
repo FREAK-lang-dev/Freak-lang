@@ -5520,7 +5520,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_word)
     }
     if first_type == v4_tok_bool {
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_bool)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, v4_mir_bool_literal_value(first_value), "", 0 - 1, 0 - 1, expr_span, v4_ty_bool)
     }
     if first_type == v4_tok_char {
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_char, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_char)
@@ -5925,19 +5925,18 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
             v4_mir_add_type_error(mir_id, stmt_span, "repeat N times count must be int", "got " + count_ty)
         }
 
-        -- Synthetic counter local: _repeat_i (pick unique name based on block count)
-        pilot counter_name = "_repeat_i"
-        if v4_mir_find_local(mir_id, body_id, counter_name) >= 0 {
-            counter_name = "_repeat_i2"
-        }
-        pilot counter_local = v4_mir_add_local(mir_id, body_id, counter_name, v4_ty_int, stmt_span)
+        -- Allocate a fresh identity, including for siblings and arbitrary nesting.
+        -- The internal display name cannot be spelled as a source identifier.
+        pilot counter_name = "$repeat_i#" + word_from_int(v4_mir_body_local_count(mir_id, body_id))
+        pilot counter_local = v4_mir_add_local_at_scope(mir_id, body_id, counter_name, v4_ty_int, stmt_span, v4_mir_current_scope_span(stmt_span))
+        pilot counter_identity = "local#" + word_from_int(counter_local)
         pilot counter_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
         pilot count_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, count_rvalue)
         v4_mir_add_stmt(mir_id, body_id, count_block, v4_mir_stmt_local, counter_name, count_text, stmt_span, counter_place, count_rvalue)
 
         -- Loop check: _repeat_i > 0
         pilot zero_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "0", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
-        pilot counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_name, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+        pilot counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_identity, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
         pilot check_cond_text = counter_name + " > 0"
         pilot check_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, check_cond_text, "Gt", counter_use, zero_rvalue, stmt_span, v4_ty_bool)
         pilot loop_lhs = "repeat " + count_text + " times"
@@ -5957,7 +5956,7 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
 
         -- Decrement counter in body block: _repeat_i = _repeat_i - 1
         if v4_mir_block_terminator(v4_mir_body_block(mir_id, body_id, body_tail)) == v4_mir_term_return and not v4_mir_block_has_return_stmt(mir_id, body_id, body_tail) {
-            pilot dec_counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_name, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+            pilot dec_counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_identity, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot one_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot dec_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, counter_name + " - 1", "Sub", dec_counter_use, one_rvalue, stmt_span, v4_ty_int)
             pilot dec_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
@@ -5965,7 +5964,7 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
         }
         v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, condition_block)
         if v4_mir_body_block_predecessor_count(mir_id, body_id, continue_block) > 0 and not v4_mir_block_has_return_stmt(mir_id, body_id, continue_block) {
-            pilot continue_counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_name, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+            pilot continue_counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_identity, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot continue_one = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot continue_dec = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, counter_name + " - 1", "Sub", continue_counter_use, continue_one, stmt_span, v4_ty_int)
             pilot continue_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
@@ -7099,14 +7098,12 @@ task v4_mir_when_arm_body_end(stream_id: int, after_arrow: int, when_close: int)
 }
 
 task v4_mir_when_pattern_is_bool_literal(pattern: word) -> bool {
-    give back pattern == "true" or pattern == "false" or pattern == "yes" or pattern == "no" or pattern == "hai" or pattern == "iie"
+    pilot lower = pattern.to_lower()
+    give back lower == "true" or lower == "false" or lower == "yes" or lower == "no" or lower == "hai" or lower == "iie"
 }
 
 task v4_mir_when_pattern_bool_text(pattern: word) -> word {
-    if pattern == "false" or pattern == "no" or pattern == "iie" {
-        give back "false"
-    }
-    give back "true"
+    give back v4_mir_bool_literal_value(pattern)
 }
 
 task v4_mir_when_pattern_is_string_literal(pattern: word) -> bool {
