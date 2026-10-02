@@ -1,5 +1,5 @@
 -- Checked bootstrap source reads must not conflate empty contents with errors.
--- Run from the repository root, matching check_v4's normal fixture contract.
+-- argv: empty regular file, readable regular file, missing path, directory.
 task h6_driver_read_all(path: word, expect_error: bool) -> bool {
     pilot responses = array_new()
     array_push(responses, v4_lex_file(path))
@@ -25,11 +25,15 @@ task h6_driver_read_all(path: word, expect_error: bool) -> bool {
 }
 
 task h6_driver_file_read_smoke() -> void {
+    if process::args_count() < 5 {
+        say "h6-source-read-fixture requires empty/readable/missing/directory paths"
+        give back
+    }
     v4_driver_init()
-    pilot empty_path = "src/compiler/v4/tests/h6_io_empty_source.fk"
-    pilot readable_path = "src/compiler/v4/tests/h6_io_readable_source.fk"
-    pilot missing_path = "src/compiler/v4/tests/h6_io_missing_source_never_created.fk"
-    pilot directory_path = "src/compiler/v4/tests"
+    pilot empty_path = process::arg(1)
+    pilot readable_path = process::arg(2)
+    pilot missing_path = process::arg(3)
+    pilot directory_path = process::arg(4)
     pilot empty: bool = h6_driver_read_all(empty_path, false)
     pilot empty_file = v4_source_find(empty_path)
     empty = empty and empty_file >= 0 and v4_source_text(empty_file) == "" and v4_source_revision(empty_file) == 1
