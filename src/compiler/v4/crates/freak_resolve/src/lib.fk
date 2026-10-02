@@ -16,6 +16,12 @@ pilot v4_resolve_kinds = 0
 pilot v4_resolve_defs = 0
 pilot v4_resolve_hir_items = 0
 pilot v4_resolve_diags = 0
+-- Derived name and name/kind tables contain physical symbol IDs, never wire data.
+-- Layout: indexed symbol count; capacity; name buckets; name/kind buckets.
+pilot v4_resolve_lookup_indexes = 0
+pilot v4_resolve_lookup_index_probes = 0
+pilot v4_resolve_lookup_index_rebuilds = 0
+pilot v4_resolve_lookup_linear_steps = 0
 pilot v4_resolve_ready = 0
 
 task v4_resolve_init() -> void {
@@ -27,6 +33,7 @@ task v4_resolve_init() -> void {
         v4_resolve_defs = array_new()
         v4_resolve_hir_items = array_new()
         v4_resolve_diags = array_new()
+        v4_resolve_lookup_indexes = array_new()
         v4_resolve_ready = 1
     }
 }
@@ -41,6 +48,7 @@ task v4_resolve_new(file_id: int, hir_id: int) -> int {
     array_push(v4_resolve_defs, word_from_int(array_new()))
     array_push(v4_resolve_hir_items, word_from_int(array_new()))
     array_push(v4_resolve_diags, word_from_int(array_new()))
+    array_push(v4_resolve_lookup_indexes, word_from_int(v4_resolve_lookup_index_new(16)))
     give back resolve_id
 }
 
@@ -154,16 +162,131 @@ task v4_resolve_requires_unique_name(item_kind: word) -> bool {
     give back v4_resolve_is_definition_kind(item_kind)
 }
 
+task v4_resolve_lookup_index_new(capacity: int) -> int {
+    pilot index = array_new()
+    if index < 0 { give back 0 - 1 }
+    array_push(index, "0")
+    array_push(index, word_from_int(capacity))
+    pilot bucket = 0
+    repeat until bucket >= capacity * 2 {
+        array_push(index, "-1")
+        bucket += 1
+    }
+    give back index
+}
+
+task v4_resolve_lookup_index_handle(resolve_id: int) -> int {
+    if v4_resolve_lookup_indexes < 0 or resolve_id < 0 or resolve_id >= array_len(v4_resolve_lookup_indexes) {
+        give back 0 - 1
+    }
+    give back word_to_int(array_get(v4_resolve_lookup_indexes, resolve_id))
+}
+
+task v4_resolve_lookup_index_is_ready(resolve_id: int) -> bool {
+    pilot index = v4_resolve_lookup_index_handle(resolve_id)
+    if index < 0 { give back false }
+    pilot capacity = word_to_int(array_get(index, 1))
+    give back capacity > 0 and array_len(index) == 2 + capacity * 2 and word_to_int(array_get(index, 0)) == v4_resolve_symbol_count(resolve_id)
+}
+
+task v4_resolve_invalidate_lookup_index(resolve_id: int) -> void {
+    pilot index = v4_resolve_lookup_index_handle(resolve_id)
+    if index >= 0 { array_set(index, 0, "-1") }
+}
+
+task v4_resolve_lookup_index_bucket(name: word, kind: word, capacity: int, typed: bool) -> int {
+    pilot bucket = name.checksum() % capacity
+    if typed { bucket = (bucket + kind.checksum() % capacity) % capacity }
+    give back bucket
+}
+
+-- Compare original columns, including empty names/kinds and qualified names.
+-- An equal key retains its first physical symbol, even when names repeat.
+task v4_resolve_lookup_index_insert(resolve_id: int, index: int, symbol_id: int, typed: bool) -> bool {
+    pilot name = v4_resolve_symbol_name(resolve_id, symbol_id)
+    pilot kind = v4_resolve_symbol_kind(resolve_id, symbol_id)
+    pilot capacity = word_to_int(array_get(index, 1))
+    pilot base = 2
+    if typed { base += capacity }
+    pilot bucket = v4_resolve_lookup_index_bucket(name, kind, capacity, typed)
+    pilot visited = 0
+    repeat until visited >= capacity {
+        v4_resolve_lookup_index_probes += 1
+        pilot previous = word_to_int(array_get(index, base + bucket))
+        if previous < 0 {
+            array_set(index, base + bucket, word_from_int(symbol_id))
+            give back true
+        }
+        pilot equal: bool = v4_resolve_symbol_name(resolve_id, previous) == name
+        if typed { equal = equal and v4_resolve_symbol_kind(resolve_id, previous) == kind }
+        if equal { give back true }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back false
+}
+
+-- Rebuild from the final stored columns, not restore arrival order. A loose v1
+-- restore can overwrite/reorder rows or leave sparse empty placeholders.
+-- Failed derived allocation leaves the original linear semantics available.
+task v4_resolve_finalize_lookup_index(resolve_id: int) -> bool {
+    if v4_resolve_lookup_indexes < 0 or v4_resolve_exists(resolve_id) == false { give back false }
+    pilot count = v4_resolve_symbol_count(resolve_id)
+    pilot capacity = 16
+    repeat until capacity >= count * 2 { capacity *= 2 }
+    pilot index = v4_resolve_lookup_index_new(capacity)
+    if index < 0 { give back false }
+    pilot symbol_id = 0
+    pilot valid: bool = true
+    repeat until symbol_id >= count or valid == false {
+        valid = v4_resolve_lookup_index_insert(resolve_id, index, symbol_id, false)
+        if valid { valid = v4_resolve_lookup_index_insert(resolve_id, index, symbol_id, true) }
+        symbol_id += 1
+    }
+    if not valid {
+        array_release(index)
+        give back false
+    }
+    array_set(index, 0, word_from_int(count))
+    pilot old = v4_resolve_lookup_index_handle(resolve_id)
+    array_set(v4_resolve_lookup_indexes, resolve_id, word_from_int(index))
+    array_release(old)
+    v4_resolve_lookup_index_rebuilds += 1
+    give back true
+}
+
+task v4_resolve_lookup_index_find(resolve_id: int, lookup_name: word, lookup_kind: word, typed: bool) -> int {
+    pilot index = v4_resolve_lookup_index_handle(resolve_id)
+    pilot capacity = word_to_int(array_get(index, 1))
+    pilot base = 2
+    if typed { base += capacity }
+    pilot bucket = v4_resolve_lookup_index_bucket(lookup_name, lookup_kind, capacity, typed)
+    pilot visited = 0
+    repeat until visited >= capacity {
+        v4_resolve_lookup_index_probes += 1
+        pilot symbol_id = word_to_int(array_get(index, base + bucket))
+        if symbol_id < 0 { give back 0 - 1 }
+        pilot equal: bool = v4_resolve_symbol_name(resolve_id, symbol_id) == lookup_name
+        if typed { equal = equal and v4_resolve_symbol_kind(resolve_id, symbol_id) == lookup_kind }
+        if equal { give back symbol_id }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back 0 - 1
+}
+
 task v4_resolve_lookup_symbol(resolve_id: int, lookup_name: word, lookup_kind: word) -> int {
+    if v4_resolve_lookup_index_is_ready(resolve_id) {
+        give back v4_resolve_lookup_index_find(resolve_id, lookup_name, lookup_kind, true)
+    }
     pilot idx = 0
     pilot count = v4_resolve_symbol_count(resolve_id)
     repeat until idx >= count {
+        v4_resolve_lookup_linear_steps += 1
         pilot symbol_name: word = array_get(v4_resolve_names_handle(resolve_id), idx)
         pilot symbol_kind: word = array_get(v4_resolve_kinds_handle(resolve_id), idx)
         if symbol_name == lookup_name {
-            if symbol_kind == lookup_kind {
-                give back idx
-            }
+            if symbol_kind == lookup_kind { give back idx }
         }
         idx += 1
     }
@@ -171,13 +294,15 @@ task v4_resolve_lookup_symbol(resolve_id: int, lookup_name: word, lookup_kind: w
 }
 
 task v4_resolve_lookup_any(resolve_id: int, lookup_name: word) -> int {
+    if v4_resolve_lookup_index_is_ready(resolve_id) {
+        give back v4_resolve_lookup_index_find(resolve_id, lookup_name, "", false)
+    }
     pilot idx = 0
     pilot count = v4_resolve_symbol_count(resolve_id)
     repeat until idx >= count {
+        v4_resolve_lookup_linear_steps += 1
         pilot symbol_name: word = array_get(v4_resolve_names_handle(resolve_id), idx)
-        if symbol_name == lookup_name {
-            give back idx
-        }
+        if symbol_name == lookup_name { give back idx }
         idx += 1
     }
     give back 0 - 1
@@ -261,10 +386,23 @@ task v4_resolve_can_glob_import_kind(symbol_kind: word) -> bool {
 
 task v4_resolve_add_symbol(resolve_id: int, item_name: word, item_kind: word, def_id: word, hir_item: int) -> int {
     pilot symbol_id = array_len(v4_resolve_defs_handle(resolve_id))
+    pilot indexed: bool = v4_resolve_lookup_index_is_ready(resolve_id)
     array_push(v4_resolve_names_handle(resolve_id), item_name)
     array_push(v4_resolve_kinds_handle(resolve_id), item_kind)
     array_push(v4_resolve_defs_handle(resolve_id), def_id)
     array_push(v4_resolve_hir_items_handle(resolve_id), word_from_int(hir_item))
+    if indexed {
+        pilot index = v4_resolve_lookup_index_handle(resolve_id)
+        pilot capacity = word_to_int(array_get(index, 1))
+        if (symbol_id + 1) * 2 > capacity {
+            v4_resolve_invalidate_lookup_index(resolve_id)
+            v4_resolve_finalize_lookup_index(resolve_id)
+        } else {
+            pilot inserted: bool = v4_resolve_lookup_index_insert(resolve_id, index, symbol_id, false)
+            if inserted { inserted = v4_resolve_lookup_index_insert(resolve_id, index, symbol_id, true) }
+            if inserted { array_set(index, 0, word_from_int(symbol_id + 1)) } else { v4_resolve_invalidate_lookup_index(resolve_id) }
+        }
+    }
     give back symbol_id
 }
 
@@ -718,8 +856,11 @@ task v4_resolve_restore_index_slot(resolve_id: int, file_id: int, hir_id: int) -
         array_push(v4_resolve_defs, word_from_int(array_new()))
         array_push(v4_resolve_hir_items, word_from_int(array_new()))
         array_push(v4_resolve_diags, word_from_int(array_new()))
+        array_push(v4_resolve_lookup_indexes, "-1")
     }
 
+    array_release(v4_resolve_lookup_index_handle(resolve_id))
+    array_set(v4_resolve_lookup_indexes, resolve_id, word_from_int(v4_resolve_lookup_index_new(16)))
     array_set(v4_resolve_files, resolve_id, word_from_int(file_id))
     array_set(v4_resolve_hirs, resolve_id, word_from_int(hir_id))
     array_set(v4_resolve_names, resolve_id, word_from_int(array_new()))
@@ -734,6 +875,7 @@ task v4_resolve_restore_symbol_slot(resolve_id: int, symbol_id: int, symbol_name
     if v4_resolve_exists(resolve_id) == false {
         give back 0
     }
+    v4_resolve_invalidate_lookup_index(resolve_id)
     repeat until v4_resolve_symbol_count(resolve_id) > symbol_id {
         array_push(v4_resolve_names_handle(resolve_id), "")
         array_push(v4_resolve_kinds_handle(resolve_id), "")
@@ -828,6 +970,14 @@ task v4_resolve_snapshot_restore(payload: word) -> word {
             }
         }
         line_id += 1
+    }
+
+    pilot resolve_id = 0
+    repeat until resolve_id >= v4_resolve_index_count() {
+        if v4_resolve_lookup_index_is_ready(resolve_id) == false {
+            v4_resolve_finalize_lookup_index(resolve_id)
+        }
+        resolve_id += 1
     }
 
     pilot out = "resolve-snapshot-restore ok=1"
