@@ -34,6 +34,10 @@ definition headers from declaration-plan metadata are not emitted twice.
 Bodies, literal globals, entry text, and native contract errors are sealed
 together during lowering; a retained codegen handle stays byte identical when
 MIR snapshots restore different facts under reused IDs.
+Module and body assembly collect borrowed fragments and join once. Expression
+trees append into one shared fragment buffer, so recursive returns do not copy
+complete child prefixes. The registered 128 MiB resource fixtures cover 800
+four-KiB bodies, a 12,000-statement body, and an expression of depth 2,048.
 Invalid targets or codegen IDs yield an empty module. The bootstrap build tool
 keeps emission in the backend and uses clang to verify emitted IR and link
 native programs for the host:
@@ -43,6 +47,12 @@ python src/compiler/v4/build_v4.py src/compiler/v4/examples/fib_collatz.fk -o bu
 python src/compiler/v4/build_v4.py src/compiler/v4/examples/fib_collatz.fk --emit-llvm -o build/v4-demo.ll
 python src/compiler/v4/check_v4.py --smoke "LLVM module execution"
 ```
+
+`--compiler-opt 2` optimizes the bootstrapped compiler for faster compilation;
+levels 0 through 3 are accepted, with 0 as the default. Optimized compilers use
+separate cached artifacts under `build/v4_smoke/compiler_O<level>`. Compiler
+flags participate in cache identity. The executable smoke harness keeps its
+existing optimization settings.
 
 The executable gate compiles the emitted modules with clang and checks results,
 not just LLVM substrings: Fibonacci/Collatz returns 166; storage, sibling scopes,
@@ -729,6 +739,21 @@ Task-parameter owner and `(item, ordinal)` lookups use stable sorted physical
 record IDs and lower-bound search, preserving the first physical duplicate.
 Partial construction and direct slot mutation retain linear first-match lookup
 until finalization; parameters remain visible before their owner record exists.
+TY retains one derived hash table per file for signature names, kind families,
+the combined type family, and definition identities. Exact stored keys and
+ascending physical IDs preserve first-match behavior across duplicate kinds.
+Owner creation and ordinary appends maintain ready tables; direct slot
+overwrites invalidate them, and complete lowering/restoration rebuilds from
+active rows. Lookups read ready tables or fall back to authoritative linear
+facts. Explicit owner finalization can recover after handle pressure clears.
+Retained capacity never
+adds inactive signatures to the lookup result or snapshot vocabulary.
+Resolve retains one packed array containing name and name/kind hash tables.
+Appends preserve the first physical symbol and update the tables incrementally.
+Direct row restores invalidate them; complete loose-v1 restoration rebuilds
+from final stored slots, including reordered, repeated and sparse rows.
+Exact-key comparisons handle collisions, and unavailable index storage retains
+linear lookup. Both name indexes remain derived and absent from snapshots.
 The annotation and return records require their exact field widths, and
 duplicate annotation declaration starts within one file/item are rejected
 before restoration. Capacity preflight preserves live facts when the extra
