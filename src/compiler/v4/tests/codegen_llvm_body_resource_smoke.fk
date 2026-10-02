@@ -26,11 +26,13 @@ task v4_llvm_body_resource_run() -> void {
     }
     v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_return, "", "", V4_NO_SPAN, 0 - 1, root)
     -- The first return suppresses later statements and the default terminator.
-    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, one)
+    pilot unreachable_value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_binary, "", v4_mir_bin_add, one, one, V4_NO_SPAN, v4_ty_int)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, unreachable_value)
     pilot text = v4_codegen_llvm_body_line_from_mir(mir, body)
     v4_llvm_body_resource_assert(text.starts_with("define ccc i64 @long() {\nentry:\n  br label %bb0\nbb0:\n"), "header")
     v4_llvm_body_resource_assert(text.contains("  %rv.0.1 = add i64 1, 1\n") and text.contains("  %rv.0.12000 = add i64 1, 1\n"), "first and last statements")
     v4_llvm_body_resource_assert(text.contains("  %rv.0.12001 = add i64 1, 1\n") and text.ends_with("  ret i64 %rv.0.14048\n}"), "deep expression return")
+    v4_llvm_body_resource_assert(not text.contains("%rv.0.14049"), "instruction after return suppressed")
     pilot lines = text.snapshot_lines()
     v4_llvm_body_resource_assert(array_len(lines) == 14054 and text.length() > 350000 and not text.contains("ret i64 0"), "complete body and no extra terminator")
     pilot instruction = 1
