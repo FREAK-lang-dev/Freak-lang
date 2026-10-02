@@ -13764,6 +13764,11 @@ def checked_source_fixture_paths() -> list[str]:
     ]
 
 
+def expected_native_stdout(text: str) -> str:
+    """Expected bytes decoded from a C text stream, including Windows LF writes."""
+    return text.replace("\n", "\r\n") if sys.platform == "win32" else text
+
+
 def check_checked_source_runtime(clang: str) -> None:
     fixture = TESTS_ROOT / "h6_source_read_checked_runtime.c"
     executable = RUNTIME_BUILD_ROOT / ("h6_source_read.exe" if sys.platform == "win32" else "h6_source_read")
@@ -13796,7 +13801,7 @@ def check_checked_source_runtime(clang: str) -> None:
         timeout_seconds=10, memory_limit_mb=64,
     )
     expected = "h6-runtime-source-read contents=true errors=true faults=true recovery=true\n"
-    if executed.returncode != 0 or executed.stdout != expected or executed.stderr:
+    if executed.returncode != 0 or executed.stdout != expected_native_stdout(expected) or executed.stderr:
         raise RuntimeError(f"checked source runtime failed:\n{executed.stdout}{executed.stderr}")
     print(expected.strip())
 
@@ -13898,7 +13903,7 @@ def check_v4_build_command() -> None:
     if built.returncode != 0 or not hello.exists():
         raise RuntimeError(f"V4 hello world build failed:\n{built.stdout}{built.stderr}")
     executed = run_with_heartbeat([str(hello)], label="V4 hello world execute", timeout_seconds=10, memory_limit_mb=128)
-    if executed.returncode != 0 or executed.stdout != "Hello, world!\n" or executed.stderr:
+    if executed.returncode != 0 or executed.stdout != expected_native_stdout("Hello, world!\n") or executed.stderr:
         raise RuntimeError("V4 build command hello world stdout/exit mismatch")
     print("V4 build command: hello world and warning-only execute, errors stop at their owning stage")
 
@@ -14022,7 +14027,7 @@ def check_executable_smokes(
                     [str(native_path)], label=f"LLVM module execute: {name}",
                     timeout_seconds=10, memory_limit_mb=128,
                 )
-                if native.returncode != exit_code or native.stdout != stdout or native.stderr:
+                if native.returncode != exit_code or native.stdout != expected_native_stdout(stdout) or native.stderr:
                     raise RuntimeError(f"LLVM module execution failed: {name} expected={exit_code} actual={native.returncode}\n{native.stdout}{native.stderr}")
                 print(f"LLVM module execution: {name} exit={exit_code}")
         if smoke.get("llvm_build_checks"):

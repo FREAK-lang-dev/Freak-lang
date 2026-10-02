@@ -4,7 +4,9 @@ task v4_extern_literal_assert(condition: bool, label: word) -> void {
 }
 
 task v4_extern_literal_run() -> void {
-    pilot source = "extern [C] {\n \"task\" ghost() -> void;\n task literal_arrow() \"->\" int;\n task literal_fallback() \"=>\" true;\n task literal_open() -> \"{\";\n task literal_close() -> \"}\";\n task literal_done() -> \"done\";\n task body() -> int { say \"{\"; say \"}\"; say \"done\"; give back 1 }\n task after() -> void;\n}\n"
+    pilot open_brace = "{"
+    pilot close_brace = "}"
+    pilot source = "extern [C] " + open_brace + "\n \"task\" ghost() -> void;\n task literal_arrow() \"->\" int;\n task literal_fallback() \"=>\" true;\n task literal_open() -> \"" + open_brace + "\";\n task literal_close() -> \"" + close_brace + "\";\n task literal_done() -> \"done\";\n task body() -> int " + open_brace + " say \"" + open_brace + "\"; say \"" + close_brace + "\"; say \"done\"; give back 1 " + close_brace + "\n task after() -> void;\n" + close_brace + "\n"
     pilot hir = v4_hir_text_cached("extern-literal-syntax.fk", source)
     pilot ty = v4_ty_text_cached("extern-literal-syntax.fk", source)
     pilot tree = v4_hir_tree_id(hir)
