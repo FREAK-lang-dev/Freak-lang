@@ -110,14 +110,13 @@ task v4_extern_nested_arrow_run() -> void {
         pilot end = v4_parse_extern_member_end_token(tree, nested_node, nested_index)
         pilot span = v4_hir_extern_member_span(hir, nested, nested_index)
         if v4_lex_token_type(stream, end) != v4_tok_symbol or v4_lex_token_value(stream, end) != ";" or v4_span_end(span) > v4_span_start(v4_lex_token_span(stream, end)) or v4_hir_span_from_tokens(stream, start, end) != span or v4_slice(src, v4_span_start(span), v4_span_end(span)) != declaration { nested_spans_ok = false }
-        -- The malformed callback expression keeps the legacy HIR/TY return
-        -- discovery contract; this slice repairs only member boundaries.
-        pilot fallback: bool = nested_index == 0 or nested_index == 3 or (nested_index >= 5 and nested_index <= 9) or nested_index == 15
+        -- The malformed callback expression keeps the HIR/TY fallback
+        -- contract, including when quoted punctuation is correctly data.
+        pilot fallback: bool = nested_index == 0 or nested_index == 3 or (nested_index >= 5 and nested_index <= 10) or nested_index == 15
         if v4_hir_extern_member_return_has_arrow_fallback(hir, nested, nested_index) != fallback { nested_recovery_ok = false }
         if fallback and (v4_hir_extern_member_return_surface_type(hir, nested, nested_index) != "" or v4_hir_extern_member_return_span(hir, nested, nested_index) != V4_NO_SPAN) { nested_recovery_ok = false }
         pilot expected_type = "void"
         if fallback { expected_type = v4_ty_unknown }
-        if nested_index == 10 { expected_type = "maybe<int;int>" }
         if nested_index == 12 { expected_type = "maybe<int=>7>" }
         if v4_ty_extern_member_return_surface_type(ty, nested_block, nested_index) != expected_type or v4_ty_signature_return_surface_type(ty, sig) != expected_type { nested_ty_ok = false }
         -- Closing the callback, its own comma, and inner/quoted punctuation
@@ -144,7 +143,7 @@ task v4_extern_nested_arrow_run() -> void {
     array_release(nested_members)
     pilot snapshot = v4_hir_snapshot()
     pilot restored = v4_hir_snapshot_restore(snapshot)
-    say "extern-return-separator-nested-arrow-snapshot=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_hir_extern_member_count(hir, nested) == 17 and v4_hir_extern_member_name(hir, nested, 1) == "after_nested_less" and v4_hir_extern_member_return_has_arrow_fallback(hir, nested, 0) and v4_hir_extern_member_return_span(hir, nested, 0) == V4_NO_SPAN and v4_hir_extern_member_return_surface_type(hir, nested, 1) == "void" and v4_hir_extern_member_return_surface_type(hir, nested, 10) == "maybe<int;int>" and v4_hir_extern_member_return_surface_type(hir, nested, 11) == "void" and v4_hir_extern_member_return_surface_type(hir, nested, 12) == "maybe<int=>7>" and v4_hir_extern_member_return_has_arrow_fallback(hir, nested, 15) and v4_hir_extern_member_name(hir, nested, 16) == "after_nested_all" and v4_hir_extern_member_count(hir, comma_recovery) == 1)
+    say "extern-return-separator-nested-arrow-snapshot=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_hir_extern_member_count(hir, nested) == 17 and v4_hir_extern_member_name(hir, nested, 1) == "after_nested_less" and v4_hir_extern_member_return_has_arrow_fallback(hir, nested, 0) and v4_hir_extern_member_return_span(hir, nested, 0) == V4_NO_SPAN and v4_hir_extern_member_return_surface_type(hir, nested, 1) == "void" and v4_hir_extern_member_return_has_arrow_fallback(hir, nested, 10) and v4_hir_extern_member_return_span(hir, nested, 10) == V4_NO_SPAN and v4_hir_extern_member_return_surface_type(hir, nested, 10) == "" and v4_hir_extern_member_return_surface_type(hir, nested, 11) == "void" and v4_hir_extern_member_return_surface_type(hir, nested, 12) == "maybe<int=>7>" and v4_hir_extern_member_return_has_arrow_fallback(hir, nested, 15) and v4_hir_extern_member_name(hir, nested, 16) == "after_nested_all" and v4_hir_extern_member_count(hir, comma_recovery) == 1)
 }
 
 v4_extern_nested_arrow_run()
