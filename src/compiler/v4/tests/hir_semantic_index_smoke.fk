@@ -11,16 +11,16 @@ task v4_hir_index_cold_resource_check() -> void {
         if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)); count += 1 }
     }
     pilot index = 0
-    -- Fail the last of all 40 outer allocations, including derived indexes.
-    repeat until index >= 39 {
+    -- Fail the last of all 41 outer allocations, including derived indexes.
+    repeat until index >= 40 {
         array_release(word_to_int(array_get(holders, count - 1 - index)))
         index += 1
     }
     pilot lowered = v4_hir_lower_expanded(99, 0)
     pilot sentinel_value: word = array_get(sentinel, 0)
-    pilot intact: bool = lowered < 0 and v4_hir_ready == 0 and sentinel_value == "foreign-owner-alive" and v4_hir_lookup_handles_available(38)
+    pilot intact: bool = lowered < 0 and v4_hir_ready == 0 and sentinel_value == "foreign-owner-alive" and v4_hir_lookup_handles_available(39)
     index = 0
-    repeat until index >= count - 39 {
+    repeat until index >= count - 40 {
         array_release(word_to_int(array_get(holders, index)))
         index += 1
     }

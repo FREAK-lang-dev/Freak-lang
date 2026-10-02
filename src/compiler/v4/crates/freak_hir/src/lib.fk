@@ -46,6 +46,8 @@ pilot v4_hir_task_return_arrow = "arrow"
 
 pilot v4_hir_files = 0
 pilot v4_hir_expansions = 0
+-- Derived owner revisions survive logical clear and high-water slot reuse.
+pilot v4_hir_revisions = 0
 pilot v4_hir_item_kinds = 0
 pilot v4_hir_item_names = 0
 pilot v4_hir_item_defs = 0
@@ -90,6 +92,7 @@ task v4_hir_init() -> void {
         v4_hir_shape_field_values = array_new()
         v4_hir_files = array_new()
         v4_hir_expansions = array_new()
+        v4_hir_revisions = array_new()
         v4_hir_item_kinds = array_new()
         v4_hir_item_names = array_new()
         v4_hir_item_defs = array_new()
@@ -121,7 +124,7 @@ task v4_hir_init() -> void {
         v4_hir_task_param_type_spans = array_new()
         v4_hir_task_param_segment_spans = array_new()
         v4_hir_diags = array_new()
-        if v4_hir_route_owner_values < 0 or v4_hir_route_case_values < 0 or v4_hir_route_field_values < 0 or v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
+        if v4_hir_route_owner_values < 0 or v4_hir_route_case_values < 0 or v4_hir_route_field_values < 0 or v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_revisions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
             array_release(v4_hir_route_owner_values)
             array_release(v4_hir_route_case_values)
             array_release(v4_hir_route_field_values)
@@ -131,6 +134,7 @@ task v4_hir_init() -> void {
             array_release(v4_hir_shape_field_values)
             array_release(v4_hir_files)
             array_release(v4_hir_expansions)
+            array_release(v4_hir_revisions)
             array_release(v4_hir_item_kinds)
             array_release(v4_hir_item_names)
             array_release(v4_hir_item_defs)
@@ -186,6 +190,7 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_push(v4_hir_shape_field_values, word_from_int(array_new()))
         array_push(v4_hir_files, "0")
         array_push(v4_hir_expansions, "0")
+        array_push(v4_hir_revisions, "0")
         array_push(v4_hir_item_kinds, word_from_int(array_new()))
         array_push(v4_hir_item_names, word_from_int(array_new()))
         array_push(v4_hir_item_defs, word_from_int(array_new()))
@@ -311,6 +316,7 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
     }
     array_set(v4_hir_files, hir_id, word_from_int(file_id))
     array_set(v4_hir_expansions, hir_id, word_from_int(expansion_id))
+    v4_hir_bump_revision(hir_id)
 }
 
 task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
@@ -320,6 +326,20 @@ task v4_hir_file_new(file_id: int, expansion_id: int) -> int {
     v4_hir_prepare_file_slot(hir_id, file_id, expansion_id)
     v4_hir_file_len = hir_id + 1
     give back hir_id
+}
+
+-- Revisions describe stored owner facts, not derived-cache publication. They
+-- are intentionally absent from snapshots and never reset for a reused ID.
+task v4_hir_revision(hir_id: int) -> int {
+    if v4_hir_file_exists(hir_id) == false { give back 0 - 1 }
+    give back word_to_int(array_get(v4_hir_revisions, hir_id))
+}
+
+task v4_hir_bump_revision(hir_id: int) -> void {
+    -- prepare_file_slot can bump a retained owner before logical publication.
+    if hir_id < 0 or hir_id >= array_len(v4_hir_revisions) { give back }
+    pilot revision = word_to_int(array_get(v4_hir_revisions, hir_id))
+    array_set(v4_hir_revisions, hir_id, word_from_int(revision + 1))
 }
 
 task v4_hir_kinds_handle(hir_id: int) -> int {
@@ -409,6 +429,7 @@ task v4_hir_def_id(file_id: int, item_kind: word, item_name: word, item_index: i
 }
 
 task v4_hir_add_item(hir_id: int, item_kind: word, item_name: word, span: word, parse_node: int) -> int {
+    v4_hir_bump_revision(hir_id)
     v4_hir_invalidate_lookup_indexes(hir_id)
     pilot item_index = array_len(v4_hir_kinds_handle(hir_id))
     pilot file_id = word_to_int(array_get(v4_hir_files, hir_id))
@@ -425,6 +446,7 @@ task v4_hir_add_item(hir_id: int, item_kind: word, item_name: word, span: word, 
 }
 
 task v4_hir_add_diag(hir_id: int, diag: word) -> void {
+    v4_hir_bump_revision(hir_id)
     array_push(v4_hir_diags_handle(hir_id), diag)
 }
 
@@ -666,6 +688,7 @@ task v4_hir_alias_target_span(hir_id: int, item_id: int) -> word {
 }
 
 task v4_hir_lower_alias_target_type(hir_id: int, item_id: int, expansion_id: int, expanded_node: int) -> void {
+    v4_hir_bump_revision(hir_id)
     if v4_hir_item_kind(hir_id, item_id) != v4_hir_alias {
         give back
     }
@@ -931,6 +954,7 @@ task v4_hir_local_annotation_at_offset(hir_id: int, item_id: int, offset: int) -
 }
 
 task v4_hir_add_local_annotation(hir_id: int, item_id: int, stmt_span: word, type_text: word, type_span: word) -> int {
+    v4_hir_bump_revision(hir_id)
     array_set(v4_hir_annotation_index_handle(hir_id), 0, "0")
     pilot record_id = v4_hir_local_annotation_record_count(hir_id)
     array_push(v4_hir_local_annotation_items_handle(hir_id), word_from_int(item_id))
@@ -1136,6 +1160,7 @@ task v4_hir_const_name_span(hir_id: int, item_id: int) -> word {
 }
 
 task v4_hir_store_const_annotation(hir_id: int, item_id: int, surface: word, type_span: word, name_span: word) -> void {
+    v4_hir_bump_revision(hir_id)
     pilot values = v4_hir_const_annotation_values_handle(hir_id)
     repeat until array_len(values) > item_id * 3 + 2 {
         array_push(values, "")
@@ -2571,6 +2596,7 @@ task v4_hir_restore_file_slot(hir_id: int, file_id: int, expansion_id: int) -> i
 }
 
 task v4_hir_restore_item_slot(hir_id: int, item_id: int, item_kind: word, item_name: word, def_id: word, span: word, parse_node: int, alias_target: word, alias_target_span: word) -> int {
+    v4_hir_bump_revision(hir_id)
     v4_hir_invalidate_lookup_indexes(hir_id)
     if v4_hir_file_exists(hir_id) == false {
         give back 0
@@ -2595,6 +2621,7 @@ task v4_hir_restore_item_slot(hir_id: int, item_id: int, item_kind: word, item_n
 }
 
 task v4_hir_restore_diag_slot(hir_id: int, diag_id: int, diag: word) -> int {
+    v4_hir_bump_revision(hir_id)
     if v4_hir_file_exists(hir_id) == false {
         give back 0
     }
@@ -2639,6 +2666,7 @@ task v4_hir_snapshot_restore_item_line(line: word) -> int {
 }
 
 task v4_hir_restore_local_annotation_slot(hir_id: int, record_id: int, item_id: int, stmt_span: word, type_text: word, type_span: word) -> int {
+    v4_hir_bump_revision(hir_id)
     array_set(v4_hir_annotation_index_handle(hir_id), 0, "0")
     if v4_hir_file_exists(hir_id) == false {
         give back 0
@@ -2873,6 +2901,7 @@ task v4_hir_task_return_span(hir_id: int, item_id: int) -> word {
 }
 
 task v4_hir_add_task_return(hir_id: int, item_id: int, form: word, type_text: word, type_span: word) -> int {
+    v4_hir_bump_revision(hir_id)
     array_set(v4_hir_return_index_handle(hir_id), 0, "0")
     pilot record_id = v4_hir_task_return_record_count(hir_id)
     array_push(v4_hir_task_return_items_handle(hir_id), word_from_int(item_id))
@@ -3047,6 +3076,7 @@ task v4_hir_snapshot_task_return_is_valid(line: word) -> bool {
 }
 
 task v4_hir_restore_task_return_slot(hir_id: int, record_id: int, item_id: int, form: word, type_text: word, type_span: word) -> int {
+    v4_hir_bump_revision(hir_id)
     array_set(v4_hir_return_index_handle(hir_id), 0, "0")
     if v4_hir_file_exists(hir_id) == false {
         give back 0
@@ -3514,6 +3544,7 @@ task v4_hir_task_param_segment_span(hir_id: int, item_id: int, param_id: int) ->
 }
 
 task v4_hir_add_task_param_owner(hir_id: int, item_id: int, count: int) -> int {
+    v4_hir_bump_revision(hir_id)
     v4_hir_invalidate_task_param_lookup_index(hir_id)
     pilot record_id = v4_hir_task_param_owner_record_count(hir_id)
     array_push(v4_hir_task_param_owner_items_handle(hir_id), word_from_int(item_id))
@@ -3522,6 +3553,7 @@ task v4_hir_add_task_param_owner(hir_id: int, item_id: int, count: int) -> int {
 }
 
 task v4_hir_add_task_param(hir_id: int, item_id: int, ordinal: int, name: word, name_span: word, mode: word, lifetime_name: word, lifetime_span: word, type_text: word, type_span: word, segment_span: word) -> int {
+    v4_hir_bump_revision(hir_id)
     v4_hir_invalidate_task_param_lookup_index(hir_id)
     pilot record_id = v4_hir_task_param_record_count(hir_id)
     array_push(v4_hir_task_param_items_handle(hir_id), word_from_int(item_id))
@@ -4118,6 +4150,7 @@ task v4_hir_snapshot_task_param_slots_are_valid(records: int, files: int, items:
 }
 
 task v4_hir_restore_task_param_owner_slot(hir_id: int, record_id: int, item_id: int, count: int) -> int {
+    v4_hir_bump_revision(hir_id)
     if v4_hir_file_exists(hir_id) == false {
         give back 0
     }
@@ -4139,6 +4172,7 @@ task v4_hir_snapshot_restore_task_param_owner_line(line: word) -> int {
 }
 
 task v4_hir_restore_task_param_slot(hir_id: int, record_id: int, item_id: int, ordinal: int, name: word, name_span: word, mode: word, lifetime_name: word, lifetime_span: word, type_text: word, type_span: word, segment_span: word) -> int {
+    v4_hir_bump_revision(hir_id)
     if v4_hir_file_exists(hir_id) == false {
         give back 0
     }
@@ -4273,6 +4307,7 @@ task v4_hir_route_case_field_segment_span(hir_id: int, item_id: int, case_id: in
 }
 
 task v4_hir_route_prepare_owner(hir_id: int, item_id: int, form: word, count: int) -> void {
+    v4_hir_bump_revision(hir_id)
     pilot owners = v4_hir_route_owner_values_handle(hir_id)
     pilot cases = v4_hir_route_case_values_handle(hir_id)
     repeat until array_len(owners) >= (item_id + 1) * 3 { array_push(owners, "") }
@@ -4287,6 +4322,7 @@ task v4_hir_route_prepare_owner(hir_id: int, item_id: int, form: word, count: in
 }
 
 task v4_hir_route_prepare_case_fields(hir_id: int, slot: int, count: int) -> void {
+    v4_hir_bump_revision(hir_id)
     pilot cases = v4_hir_route_case_values_handle(hir_id)
     pilot fields = v4_hir_route_field_values_handle(hir_id)
     array_set(cases, slot * 6 + 4, word_from_int(array_len(fields) / 5))
@@ -4316,6 +4352,7 @@ task v4_hir_route_find_body_close(stream: int, open: int, end: int) -> int {
 }
 
 task v4_hir_lower_route_field(hir_id: int, case_slot: int, stream: int, start: int, end: int) -> void {
+    v4_hir_bump_revision(hir_id)
     pilot segment = v4_hir_span_from_tokens(stream, start, end)
     pilot surface = ""
     pilot type_span = segment
@@ -4338,6 +4375,7 @@ task v4_hir_lower_route_field(hir_id: int, case_slot: int, stream: int, start: i
 }
 
 task v4_hir_lower_route_case(hir_id: int, item_id: int, stream: int, start: int, end: int) -> void {
+    v4_hir_bump_revision(hir_id)
     pilot owners = v4_hir_route_owner_values_handle(hir_id)
     pilot cases = v4_hir_route_case_values_handle(hir_id)
     pilot slot = array_len(cases) / 6
@@ -4783,6 +4821,7 @@ task v4_hir_restore_route_records(records: int) -> void {
         pilot line: word = array_get(records, idx)
         if line.starts_with("hir-route-field|") {
             pilot hir = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+            v4_hir_bump_revision(hir)
             pilot item = word_to_int(v4_hir_snapshot_field_raw(line, 2))
             pilot case_id = word_to_int(v4_hir_snapshot_field_raw(line, 3))
             pilot field = word_to_int(v4_hir_snapshot_field_raw(line, 4))
@@ -4848,6 +4887,7 @@ task v4_hir_shape_field_segment_span(hir_id: int, item_id: int, field_id: int) -
 }
 
 task v4_hir_shape_prepare_owner(hir_id: int, item_id: int, count: int) -> void {
+    v4_hir_bump_revision(hir_id)
     pilot starts = v4_hir_shape_field_starts_handle(hir_id)
     pilot counts = v4_hir_shape_field_counts_handle(hir_id)
     pilot values = v4_hir_shape_field_values_handle(hir_id)
@@ -4865,6 +4905,7 @@ task v4_hir_shape_prepare_owner(hir_id: int, item_id: int, count: int) -> void {
 }
 
 task v4_hir_lower_shape_segment(hir_id: int, item_id: int, stream_id: int, start: int, end: int) -> void {
+    v4_hir_bump_revision(hir_id)
     pilot segment_span = v4_hir_span_from_tokens(stream_id, start, end)
     pilot name = v4_lex_token_value(stream_id, start)
     pilot name_span = v4_lex_token_span(stream_id, start)
@@ -5141,6 +5182,7 @@ task v4_hir_restore_shape_records(records: int) -> void {
         pilot line: word = array_get(records, idx)
         if line.starts_with("hir-shape-field|") {
             pilot hir_id = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+            v4_hir_bump_revision(hir_id)
             pilot item = word_to_int(v4_hir_snapshot_field_raw(line, 2))
             pilot ordinal = word_to_int(v4_hir_snapshot_field_raw(line, 3))
             pilot start = word_to_int(array_get(v4_hir_shape_field_starts_handle(hir_id), item))
