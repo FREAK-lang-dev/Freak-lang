@@ -255,6 +255,7 @@ raw timing JSON and stage-only gprof output outside the repository:
 
 Reproduction scripts assert generated-C instrumentation points and compile
 separate timed and `-pg` binaries. gprof sampling/call counting is enabled only
-around the selected HIR/TY/MIR stage via `moncontrol`. Synthetic files contain
+around the selected HIR/TY/MIR, Meiya, or LLVM lowering stage via `moncontrol`.
+Synthetic files contain
 703/1,403 lines. Timed and profiling jobs run sequentially, with process-tree
 monitoring and fixed time/memory budgets.

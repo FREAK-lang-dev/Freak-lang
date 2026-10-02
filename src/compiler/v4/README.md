@@ -35,7 +35,8 @@ Bodies, literal globals, entry text, and native contract errors are sealed
 together during lowering; a retained codegen handle stays byte identical when
 MIR snapshots restore different facts under reused IDs.
 Invalid targets or codegen IDs yield an empty module. The bootstrap build tool
-keeps emission in the backend and invokes clang only for host native linking:
+keeps emission in the backend and uses clang to verify emitted IR and link
+native programs for the host:
 
 ```sh
 python src/compiler/v4/build_v4.py src/compiler/v4/examples/fib_collatz.fk -o build/v4-demo

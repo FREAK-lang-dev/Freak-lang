@@ -109,3 +109,7 @@ say "check-destructure-diagnostic2-message=" + v4_diag_message(v4_mir_diag(v4_mi
 say "check-destructure-diagnostic2-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_destructure_mir, 2))
 say "check-destructure-diagnostic3-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 3))
 say "check-destructure-diagnostic3-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_destructure_mir, 3))
+say "check-destructure-diagnostic4-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 4))
+say "check-destructure-diagnostic5-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 5))
+say "check-destructure-diagnostic5-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_destructure_mir, 5))
+say "check-destructure-diagnostic6-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 6))
