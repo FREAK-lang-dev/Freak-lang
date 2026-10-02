@@ -102,13 +102,14 @@ task resolve_index_run() -> void {
 
     -- Exercise actual lowering: duplicate checks query before every append;
     -- extern members and glob-import leaf additions share the same index.
-    pilot source = "task repeated() => 1\nshape repeated\ntask repeated() => 2\n"
+    pilot source = "task repeated() => 1\nshape repeated " + "{" + "\n" + "}" + "\ntask repeated() => 2\n"
     source = source + "task util::leaf() => 3\nuse util::*\nextern [C] " + "{" + "\n task repeated() -> int\n" + "}" + "\n"
     pilot stream = v4_lex_text(11, source)
     pilot tree = v4_parse_stream(11, stream)
     pilot hir = v4_hir_lower_tree(11, tree)
     pilot lowered = v4_resolve_lower_hir(11, hir)
-    pilot lowering: bool = v4_resolve_lookup_index_is_ready(lowered) and v4_resolve_lookup_symbol(lowered, "repeated", v4_hir_task) == 0 and v4_resolve_lookup_symbol(lowered, "repeated", v4_hir_shape) == 1 and v4_resolve_diag_count(lowered) == 2 and v4_resolve_expand_import_name(lowered, "leaf") == "util::leaf"
+    pilot lowering: bool = v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_lookup_index_is_ready(lowered) and v4_resolve_lookup_symbol(lowered, "repeated", v4_hir_task) == 0 and v4_resolve_lookup_symbol(lowered, "repeated", v4_hir_shape) == 1 and v4_resolve_diag_count(lowered) == 2 and v4_resolve_expand_import_name(lowered, "leaf") == "util::leaf"
+    lowering = lowering and v4_diag_message(v4_resolve_diag(lowered, 0)) == "duplicate definition" and v4_diag_help(v4_resolve_diag(lowered, 0)) == "repeated" and v4_diag_message(v4_resolve_diag(lowered, 1)) == "duplicate definition" and v4_diag_help(v4_resolve_diag(lowered, 1)) == "repeated"
 
     pilot large = v4_resolve_new(12, 12)
     pilot names = array_new()
