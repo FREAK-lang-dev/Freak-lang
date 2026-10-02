@@ -130,6 +130,7 @@ pilot v4_borrowck_stmt_path_index_probes = 0
 pilot v4_borrowck_stmt_path_index_visits = 0
 pilot v4_borrowck_stmt_path_linear_steps = 0
 pilot v4_borrowck_stmt_path_index_rebuilds = 0
+pilot v4_borrowck_mutable_exclusivity_path_probes = 0
 pilot v4_borrowck_ready = 0
 
 task v4_borrowck_init() -> void {
@@ -5804,14 +5805,26 @@ task v4_borrowck_collect_body_paths(borrow_id: int, result_id: int, mir_id: int,
 task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    -- Summary counts are populated after checking and can be loose restored
+    -- facts. Reject loan-free bodies from their actual stored path kinds only.
+    pilot has_loan: bool = false
+    pilot path_idx = 0
+    repeat until path_idx >= path_count or has_loan {
+        v4_borrowck_mutable_exclusivity_path_probes += 1
+        has_loan = v4_borrowck_path_is_loan_kind(v4_borrowck_path_kind(borrow_id, result_id, path_idx))
+        path_idx += 1
+    }
+    if not has_loan { give back 0 }
     pilot write_idx = 0
     repeat until write_idx >= path_count {
+        v4_borrowck_mutable_exclusivity_path_probes += 1
         if v4_borrowck_path_kind(borrow_id, result_id, write_idx) == v4_borrowck_path_write {
             pilot write_stmt = v4_borrowck_path_stmt(borrow_id, result_id, write_idx)
             pilot write_block = v4_borrowck_path_block(borrow_id, result_id, write_idx)
             pilot write_text = v4_borrowck_path_text(borrow_id, result_id, write_idx)
             pilot loan_idx = 0
             repeat until loan_idx >= path_count {
+                v4_borrowck_mutable_exclusivity_path_probes += 1
                 if v4_borrowck_path_is_loan_kind(v4_borrowck_path_kind(borrow_id, result_id, loan_idx)) {
                     pilot loan_stmt = v4_borrowck_path_stmt(borrow_id, result_id, loan_idx)
                     pilot loan_block = v4_borrowck_path_block(borrow_id, result_id, loan_idx)
