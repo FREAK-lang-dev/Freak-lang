@@ -11,16 +11,16 @@ task v4_hir_index_cold_resource_check() -> void {
         if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)); count += 1 }
     }
     pilot index = 0
-    -- Fail the last of all 39 outer allocations, including route storage.
-    repeat until index >= 38 {
+    -- Fail the last of all 40 outer allocations, including derived indexes.
+    repeat until index >= 39 {
         array_release(word_to_int(array_get(holders, count - 1 - index)))
         index += 1
     }
     pilot lowered = v4_hir_lower_expanded(99, 0)
     pilot sentinel_value: word = array_get(sentinel, 0)
-    pilot intact: bool = lowered < 0 and v4_hir_ready == 0 and sentinel_value == "foreign-owner-alive" and v4_hir_lookup_handles_available(37)
+    pilot intact: bool = lowered < 0 and v4_hir_ready == 0 and sentinel_value == "foreign-owner-alive" and v4_hir_lookup_handles_available(38)
     index = 0
-    repeat until index >= count - 38 {
+    repeat until index >= count - 39 {
         array_release(word_to_int(array_get(holders, index)))
         index += 1
     }
@@ -117,7 +117,7 @@ task v4_hir_index_resource_checks(before: word) -> void {
     }
     array_release(records)
     pilot generation = v4_session_semantic_restore_generation()
-    -- Validation fits, but an extra high-water file needs thirty-seven children
+    -- Validation fits, but an extra high-water file needs thirty-eight children
     -- in addition to finalizer scratch and its reservation container.
     pilot valid: bool = v4_hir_snapshot_validate(payload).starts_with("hir-snapshot-import ok=1 ")
     pilot restoration = v4_hir_snapshot_restore(payload)

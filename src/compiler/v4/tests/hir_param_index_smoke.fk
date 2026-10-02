@@ -1,0 +1,221 @@
+-- Derived ordinary-task parameter indexes. Run with 1,024 live array handles.
+-- Synthetic HIR facts and validated snapshots isolate lookup contracts without
+-- repeating full compiler pipelines or persisting any derived index fields.
+
+task v4_hir_param_index_assert(condition: bool, label: word) -> void {
+    if not condition { panic("HIR parameter index smoke: " + label) }
+}
+
+task v4_hir_param_index_add(hir: int, item: int, ordinal: int, name: word) -> int {
+    give back v4_hir_add_task_param(hir, item, ordinal, name, "73@10:15", v4_hir_task_param_mode_value, "", V4_NO_SPAN, "int", "73@17:20", "73@10:20")
+}
+
+task v4_hir_param_index_restore(hir: int, record: int, item: int, ordinal: int, name: word) -> int {
+    give back v4_hir_restore_task_param_slot(hir, record, item, ordinal, name, "73@10:15", v4_hir_task_param_mode_value, "", V4_NO_SPAN, "int", "73@17:20", "73@10:20")
+}
+
+task v4_hir_param_index_construction() -> void {
+    pilot hir = v4_hir_file_new(73, 0)
+    v4_hir_param_index_assert(array_len(v4_hir_task_param_index_handle(hir)) == 1 and not v4_hir_task_param_index_is_ready(hir), "fresh file initializes cold index header")
+    v4_hir_add_item(hir, v4_hir_task, "first", "73@0:100", 0 - 1)
+    v4_hir_add_item(hir, v4_hir_task, "empty", "73@0:100", 0 - 1)
+    v4_hir_add_local_annotation(hir, 0, "73@30:40", "int", "73@32:35")
+    v4_hir_add_task_return(hir, 0, v4_hir_task_return_explicit, "int", "73@5:8")
+    v4_hir_add_task_return(hir, 1, v4_hir_task_return_explicit, "int", "73@5:8")
+    v4_hir_add_task_param_owner(hir, 1, 0)
+    v4_hir_param_index_add(hir, 0, 1, "later")
+    v4_hir_param_index_add(hir, 0, 0, "first")
+    v4_hir_param_index_assert(not v4_hir_task_param_index_is_ready(hir), "construction is cold")
+    v4_hir_param_index_assert(v4_hir_task_param_count(hir, 0) == 0 and v4_hir_task_param_record_id(hir, 0, 0) == 1 and v4_hir_task_param_name(hir, 0, 0) == "first", "parameters precede owner")
+    v4_hir_add_task_param_owner(hir, 0, 2)
+    v4_hir_add_task_param_owner(hir, 0, 99)
+    v4_hir_param_index_add(hir, 0, 0, "duplicate")
+    v4_hir_add_task_param_owner(hir, 999999, 0)
+    v4_hir_param_index_add(hir, 999999, 999999, "large")
+    v4_hir_param_index_assert(v4_hir_finalize_lookup_indexes(hir), "construction finalization")
+    v4_hir_param_index_assert(v4_hir_task_param_owner_record_id(hir, 0) == 1 and v4_hir_task_param_count(hir, 0) == 2 and v4_hir_task_param_record_id(hir, 0, 0) == 1 and v4_hir_task_param_name(hir, 0, 0) == "first", "duplicate first physical record")
+    v4_hir_param_index_assert(v4_hir_task_param_owner_record_id(hir, 999999) == 3 and v4_hir_task_param_record_id(hir, 999999, 999999) == 3 and array_len(v4_hir_task_param_index_handle(hir)) == 11, "observed capacity")
+    v4_hir_param_index_add(hir, 0, 2, "third")
+    v4_hir_param_index_assert(not v4_hir_task_param_index_is_ready(hir) and v4_hir_task_param_name(hir, 0, 2) == "third", "append is immediately visible")
+    v4_hir_param_index_assert(v4_hir_local_annotation_count(hir, 0) == 1 and v4_hir_task_return_type(hir, 0) == "int", "unrelated indexes remain published")
+    v4_hir_param_index_assert(v4_hir_finalize_lookup_indexes(hir) and v4_hir_task_param_count(hir, 0) == 2, "owner count remains stored fact")
+
+    v4_hir_restore_task_param_owner_slot(hir, 1, 1, 8)
+    v4_hir_param_index_assert(not v4_hir_task_param_index_is_ready(hir) and v4_hir_task_param_owner_record_id(hir, 0) == 2 and v4_hir_task_param_count(hir, 0) == 99, "owner key overwrite removes old mapping")
+    v4_hir_restore_task_param_owner_slot(hir, 0, 0, 7)
+    v4_hir_param_index_restore(hir, 1, 1, 0, "moved")
+    v4_hir_param_index_assert(v4_hir_task_param_name(hir, 0, 0) == "duplicate" and v4_hir_task_param_name(hir, 1, 0) == "moved", "parameter overwrite is immediately visible")
+    v4_hir_param_index_assert(v4_hir_finalize_lookup_indexes(hir) and v4_hir_task_param_owner_record_id(hir, 0) == 0 and v4_hir_task_param_count(hir, 0) == 7 and v4_hir_task_param_record_id(hir, 0, 0) == 2, "overwritten first matches rebuild")
+    v4_hir_restore_task_param_owner_slot(hir, 8, 0, 77)
+    v4_hir_param_index_restore(hir, 9, 1, 5, "sparse")
+    v4_hir_param_index_assert(v4_hir_task_param_owner_record_id(hir, 0 - 1) == 4 and v4_hir_task_param_record_id(hir, 1, 5) == 9 and v4_hir_task_param_record_id(hir, 0 - 1, 0) < 0, "sparse placeholders before finalization")
+    v4_hir_param_index_assert(v4_hir_finalize_lookup_indexes(hir) and v4_hir_task_param_owner_record_id(hir, 0 - 1) == 4 and v4_hir_task_param_record_id(hir, 1, 5) == 9, "sparse placeholders after finalization")
+    v4_hir_param_index_restore(hir, 9, 999999, 999999, "later-large")
+    v4_hir_param_index_assert(v4_hir_finalize_lookup_indexes(hir) and v4_hir_task_param_record_id(hir, 1, 5) < 0 and v4_hir_task_param_record_id(hir, 999999, 999999) == 3, "overwrite removal and existing first duplicate")
+    v4_hir_add_item(hir, v4_hir_shape, "extra", "73@0:100", 0 - 1)
+    v4_hir_param_index_assert(not v4_hir_task_param_index_is_ready(hir) and v4_hir_task_param_name(hir, 0, 0) == "duplicate" and v4_hir_finalize_lookup_indexes(hir), "item mutation and refinalization")
+    v4_hir_param_index_assert(v4_hir_task_param_name(hir, 0, 0 - 1) == "" and v4_hir_task_param_name_span(hir, 0, 0 - 1) == V4_NO_SPAN and v4_hir_task_param_count(hir, 777) == 0, "missing keys preserve defaults")
+    v4_hir_prepare_file_slot(hir, 74, 0)
+    v4_hir_param_index_assert(not v4_hir_task_param_index_is_ready(hir) and array_len(v4_hir_task_param_index_handle(hir)) == 1 and v4_hir_task_param_count(hir, 0) == 0 and v4_hir_task_param_name(hir, 0, 0) == "", "file reuse clears facts and derived state")
+    v4_hir_param_index_assert(v4_hir_finalize_lookup_indexes(hir) and v4_hir_task_param_owner_record_id(hir, 0 - 1) < 0, "empty file finalization")
+    say "hir-param-index construction=true duplicates=true sparse=true overwrite=true reuse=true"
+}
+
+task v4_hir_param_index_payload(files: int, tasks: int, params: int) -> word {
+    pilot parts = array_new()
+    pilot total = files * tasks
+    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v9|files=" + word_from_int(files) + "|items=" + word_from_int(total))
+    array_push(parts, "|alias-targets=0|local-annotations=0|task-returns=" + word_from_int(total) + "|task-param-owners=" + word_from_int(total) + "|task-params=" + word_from_int(total * params))
+    array_push(parts, "|shape-owners=0|shape-fields=0|const-annotations=0|route-owners=0|route-cases=0|route-fields=0|diagnostics=0")
+    pilot file = files - 1
+    repeat until file < 0 {
+        pilot id = word_from_int(file)
+        pilot source = word_from_int(91 + file)
+        pilot item = tasks - 1
+        repeat until item < 0 {
+            pilot owner_record = tasks - 1 - item
+            pilot ordinal = params - 1
+            repeat until ordinal < 0 {
+                pilot record = owner_record * params + params - 1 - ordinal
+                pilot start = 10 + ordinal * 20
+                array_push(parts, "\nhir-task-param|" + id + "|" + word_from_int(record) + "|" + word_from_int(item) + "|" + word_from_int(ordinal))
+                array_push(parts, "|p" + word_from_int(ordinal) + "|" + v4_span_new(source, start, start + 2) + "|value||" + V4_NO_SPAN + "|int|" + v4_span_new(source, start + 4, start + 7) + "|" + v4_span_new(source, start, start + 8))
+                ordinal -= 1
+            }
+            array_push(parts, "\nhir-task-param-owner|" + id + "|" + word_from_int(owner_record) + "|" + word_from_int(item) + "|" + word_from_int(params))
+            array_push(parts, "\nhir-task-return|" + id + "|" + word_from_int(owner_record) + "|" + word_from_int(item) + "|implicit-block||" + V4_NO_SPAN)
+            array_push(parts, "\nhir-item|" + id + "|" + word_from_int(item) + "|Task|main|def|" + source + "@0:20000|0||" + V4_NO_SPAN)
+            item -= 1
+        }
+        array_push(parts, "\nhir|" + id + "|" + source + "|0|" + word_from_int(tasks) + "|0")
+        file -= 1
+    }
+    array_push(parts, "\nend|freak-hir-snapshot-v9")
+    pilot payload = word_join(parts)
+    array_release(parts)
+    give back payload
+}
+
+task v4_hir_param_index_check_fields(tasks: int, params: int) -> void {
+    pilot item = tasks - 1
+    repeat until item < 0 {
+        v4_hir_param_index_assert(v4_hir_task_param_owner_record_id(0, item) == tasks - 1 - item and v4_hir_task_param_count(0, item) == params, "shuffled owner physical ID")
+        pilot ordinal = params - 1
+        repeat until ordinal < 0 {
+            pilot record = (tasks - 1 - item) * params + params - 1 - ordinal
+            pilot start = 10 + ordinal * 20
+            v4_hir_param_index_assert(v4_hir_task_param_record_id(0, item, ordinal) == record and v4_hir_task_param_name(0, item, ordinal) == "p" + word_from_int(ordinal), "shuffled parameter physical ID")
+            v4_hir_param_index_assert(v4_hir_task_param_name_span(0, item, ordinal) == v4_span_new("91", start, start + 2) and v4_hir_task_param_mode(0, item, ordinal) == v4_hir_task_param_mode_value, "name span and mode")
+            v4_hir_param_index_assert(v4_hir_task_param_lifetime(0, item, ordinal) == "" and v4_hir_task_param_lifetime_span(0, item, ordinal) == V4_NO_SPAN and v4_hir_task_param_surface_type(0, item, ordinal) == "int", "lifetime and type")
+            v4_hir_param_index_assert(v4_hir_task_param_type_span(0, item, ordinal) == v4_span_new("91", start + 4, start + 7) and v4_hir_task_param_segment_span(0, item, ordinal) == v4_span_new("91", start, start + 8), "semantic spans")
+            ordinal -= 1
+        }
+        item -= 1
+    }
+}
+
+task v4_hir_param_index_capacity() -> int {
+    pilot held = array_new()
+    pilot count = 0
+    pilot exhausted = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(held, word_from_int(handle)); count += 1 }
+    }
+    pilot index = 0
+    repeat until index >= count {
+        array_release(word_to_int(array_get(held, index)))
+        index += 1
+    }
+    array_release(held)
+    v4_hir_param_index_assert(exhausted, "fixture requires 1024-handle runtime limit")
+    give back count
+}
+
+task v4_hir_param_index_exhaust() -> int {
+    pilot held = array_new()
+    pilot exhausted = false
+    repeat until exhausted or array_len(held) >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(held, word_from_int(handle)) }
+    }
+    v4_hir_param_index_assert(exhausted, "fixture requires 1024-handle runtime limit")
+    give back held
+}
+
+task v4_hir_param_index_free_tail(held: int, count: int) -> void {
+    pilot index = 0
+    repeat until index >= count {
+        array_release(word_to_int(array_get(held, array_len(held) - 1 - index)))
+        index += 1
+    }
+}
+
+task v4_hir_param_index_free_rest(held: int, freed: int) -> void {
+    pilot index = 0
+    repeat until index >= array_len(held) - freed {
+        array_release(word_to_int(array_get(held, index)))
+        index += 1
+    }
+    array_release(held)
+}
+
+task v4_hir_param_index_run() -> void {
+    v4_hir_param_index_construction()
+    pilot many = v4_hir_param_index_payload(1, 512, 2)
+    v4_hir_index_sort_comparisons = 0
+    v4_hir_param_index_assert(v4_hir_snapshot_restore(many).starts_with("hir-snapshot-restore ok=1 "), "many-task restore")
+    pilot steps = v4_hir_index_sort_comparisons
+    v4_hir_task_param_owner_lookup_probes = 0
+    v4_hir_task_param_lookup_probes = 0
+    v4_hir_param_index_check_fields(512, 2)
+    v4_hir_param_index_assert(v4_hir_task_param_count(0, 512) == 0 and v4_hir_task_param_record_id(0, 512, 0) < 0 and v4_hir_task_param_record_id(0, 0, 2) < 0, "published misses")
+    v4_hir_param_index_assert(steps > 0 and steps <= (512 * 9 + 1024 * 10) * 2, "nlogn observed-row build work")
+    v4_hir_param_index_assert(v4_hir_task_param_owner_lookup_probes > 1024 and v4_hir_task_param_owner_lookup_probes <= 1025 * 11, "logarithmic owner work")
+    v4_hir_param_index_assert(v4_hir_task_param_lookup_probes > 9216 and v4_hir_task_param_lookup_probes <= 9218 * 12, "logarithmic parameter work")
+    say "hir-param-index 512-owners=true 1024-params=true logarithmic=true build-bounded=true"
+
+    pilot one = v4_hir_param_index_payload(1, 1, 512)
+    v4_hir_param_index_assert(v4_hir_snapshot_restore(one).starts_with("hir-snapshot-restore ok=1 "), "one-task restore")
+    v4_hir_task_param_lookup_probes = 0
+    v4_hir_param_index_check_fields(1, 512)
+    v4_hir_param_index_assert(v4_hir_task_param_lookup_probes > 4608 and v4_hir_task_param_lookup_probes <= 4608 * 11, "one-task logarithmic work")
+    v4_hir_param_index_assert(v4_hir_snapshot_restore(v4_hir_param_index_payload(1, 1, 0)).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_task_param_owner_record_id(0, 0) == 0 and v4_hir_task_param_count(0, 0) == 0 and v4_hir_task_param_record_id(0, 0, 0) < 0, "empty task owns a record")
+    say "hir-param-index 512-ordinals=true empty-owner=true"
+
+    pilot sample = v4_hir_param_index_payload(1, 2, 2)
+    v4_hir_param_index_assert(v4_hir_snapshot_restore(sample).starts_with("hir-snapshot-restore ok=1 "), "sample restore")
+    pilot before = v4_hir_snapshot()
+    v4_hir_param_index_assert(v4_hir_finalize_lookup_indexes(0) and v4_hir_snapshot() == before and not before.contains("hir-task-param-index"), "derived indexes are never persisted")
+    pilot rejected = before.replace("hir-task-param|0|3|0|0|", "hir-task-param|0|3|0|1|")
+    v4_hir_param_index_assert(v4_hir_snapshot_restore(rejected).starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_hir_snapshot() == before and v4_hir_task_param_index_is_ready(0) and v4_hir_task_param_record_id(0, 0, 0) == 3, "invalid restore preserves published lookup")
+    pilot capacity = v4_hir_param_index_capacity()
+    pilot iteration = 0
+    repeat until iteration >= 32 {
+        v4_hir_param_index_assert(v4_hir_snapshot_restore(before).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == before and v4_hir_task_param_index_is_ready(0), "stable wire restore")
+        v4_hir_param_index_check_fields(2, 2)
+        iteration += 1
+    }
+    v4_hir_param_index_assert(v4_hir_param_index_capacity() == capacity, "repeated restore releases index handles")
+    say "hir-param-index snapshot-v9=true roundtrip=true rejected-atomic=true capacity-stable=true"
+
+    pilot held = v4_hir_param_index_exhaust()
+    v4_hir_param_index_free_tail(held, 1)
+    v4_hir_param_index_assert(not v4_hir_finalize_task_param_lookup_index(0) and not v4_hir_task_param_index_is_ready(0) and v4_hir_task_param_record_id(0, 0, 0) == 3 and v4_hir_task_param_name(0, 0, 0) == "p0", "failed build keeps cold first-match reads")
+    v4_hir_param_index_free_rest(held, 1)
+    v4_hir_param_index_assert(v4_hir_snapshot() == before and v4_hir_finalize_lookup_indexes(0) and v4_hir_task_param_record_id(0, 0, 0) == 3 and v4_hir_param_index_capacity() == capacity, "failed build recovers without leaked handles")
+    say "hir-param-index build-failure-cold=true recovery=true"
+
+    pilot fresh = v4_hir_param_index_payload(2, 2, 2)
+    held = v4_hir_param_index_exhaust()
+    v4_hir_param_index_free_tail(held, 20)
+    pilot valid = v4_hir_snapshot_validate(fresh).starts_with("hir-snapshot-import ok=1 ")
+    pilot restored = v4_hir_snapshot_restore(fresh)
+    v4_hir_param_index_assert(valid and restored == "hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted" and v4_hir_task_param_index_is_ready(0) and v4_hir_task_param_record_id(0, 0, 0) == 3 and v4_hir_file_count() == 1, "preflight failure preserves published indexes")
+    v4_hir_param_index_free_rest(held, 20)
+    v4_hir_param_index_assert(v4_hir_snapshot() == before and v4_hir_param_index_capacity() == capacity, "preflight failure is atomic and releases reservations")
+    v4_hir_param_index_assert(v4_hir_snapshot_restore(fresh).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_task_param_index_is_ready(1) and v4_hir_task_param_record_id(1, 0, 0) == 3, "fresh file index recovery")
+    say "hir-param-index restore-resource-atomic=true fresh-recovery=true"
+}
+
+v4_hir_param_index_run()

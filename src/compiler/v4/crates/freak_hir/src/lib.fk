@@ -69,9 +69,12 @@ pilot v4_hir_task_return_spans = 0
 -- lower_expanded and whole-snapshot restore finalize before publication.
 pilot v4_hir_annotation_indexes = 0
 pilot v4_hir_return_indexes = 0
+pilot v4_hir_task_param_indexes = 0
 pilot v4_hir_index_sort_comparisons = 0
 pilot v4_hir_annotation_lookup_probes = 0
 pilot v4_hir_return_lookup_probes = 0
+pilot v4_hir_task_param_owner_lookup_probes = 0
+pilot v4_hir_task_param_lookup_probes = 0
 pilot v4_hir_diags = 0
 pilot v4_hir_file_len = 0
 pilot v4_hir_ready = 0
@@ -104,6 +107,7 @@ task v4_hir_init() -> void {
         v4_hir_task_return_spans = array_new()
         v4_hir_annotation_indexes = array_new()
         v4_hir_return_indexes = array_new()
+        v4_hir_task_param_indexes = array_new()
         v4_hir_task_param_owner_items = array_new()
         v4_hir_task_param_owner_counts = array_new()
         v4_hir_task_param_items = array_new()
@@ -117,7 +121,7 @@ task v4_hir_init() -> void {
         v4_hir_task_param_type_spans = array_new()
         v4_hir_task_param_segment_spans = array_new()
         v4_hir_diags = array_new()
-        if v4_hir_route_owner_values < 0 or v4_hir_route_case_values < 0 or v4_hir_route_field_values < 0 or v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
+        if v4_hir_route_owner_values < 0 or v4_hir_route_case_values < 0 or v4_hir_route_field_values < 0 or v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
             array_release(v4_hir_route_owner_values)
             array_release(v4_hir_route_case_values)
             array_release(v4_hir_route_field_values)
@@ -144,6 +148,7 @@ task v4_hir_init() -> void {
             array_release(v4_hir_task_return_spans)
             array_release(v4_hir_annotation_indexes)
             array_release(v4_hir_return_indexes)
+            array_release(v4_hir_task_param_indexes)
             array_release(v4_hir_task_param_owner_items)
             array_release(v4_hir_task_param_owner_counts)
             array_release(v4_hir_task_param_items)
@@ -164,7 +169,7 @@ task v4_hir_init() -> void {
     }
 }
 
--- File slots own their thirty-seven child arrays. Logical snapshot truncation keeps
+-- File slots own their thirty-eight child arrays. Logical snapshot truncation keeps
 -- high-water slots reachable; reusing a slot must release its previous children.
 -- Fresh slots allocate once, without immediately overwriting those handles.
 task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
@@ -199,10 +204,13 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         -- Invalidating an index writes slot zero, even before any facts exist.
         pilot annotation_index = array_new()
         pilot return_index = array_new()
+        pilot task_param_index = array_new()
         array_push(annotation_index, "0")
         array_push(return_index, "0")
+        array_push(task_param_index, "0")
         array_push(v4_hir_annotation_indexes, word_from_int(annotation_index))
         array_push(v4_hir_return_indexes, word_from_int(return_index))
+        array_push(v4_hir_task_param_indexes, word_from_int(task_param_index))
         array_push(v4_hir_task_param_owner_items, word_from_int(array_new()))
         array_push(v4_hir_task_param_owner_counts, word_from_int(array_new()))
         array_push(v4_hir_task_param_items, word_from_int(array_new()))
@@ -249,6 +257,7 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_release(v4_hir_task_return_spans_handle(hir_id))
         array_release(v4_hir_annotation_index_handle(hir_id))
         array_release(v4_hir_return_index_handle(hir_id))
+        array_release(v4_hir_task_param_index_handle(hir_id))
         array_release(v4_hir_task_param_owner_items_handle(hir_id))
         array_release(v4_hir_task_param_owner_counts_handle(hir_id))
         array_release(v4_hir_task_param_items_handle(hir_id))
@@ -279,10 +288,13 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_set(v4_hir_task_return_spans, hir_id, word_from_int(array_new()))
         pilot reused_annotation_index = array_new()
         pilot reused_return_index = array_new()
+        pilot reused_task_param_index = array_new()
         array_push(reused_annotation_index, "0")
         array_push(reused_return_index, "0")
+        array_push(reused_task_param_index, "0")
         array_set(v4_hir_annotation_indexes, hir_id, word_from_int(reused_annotation_index))
         array_set(v4_hir_return_indexes, hir_id, word_from_int(reused_return_index))
+        array_set(v4_hir_task_param_indexes, hir_id, word_from_int(reused_task_param_index))
         array_set(v4_hir_task_param_owner_items, hir_id, word_from_int(array_new()))
         array_set(v4_hir_task_param_owner_counts, hir_id, word_from_int(array_new()))
         array_set(v4_hir_task_param_items, hir_id, word_from_int(array_new()))
@@ -676,6 +688,7 @@ task v4_hir_return_index_handle(hir_id: int) -> int {
 task v4_hir_invalidate_lookup_indexes(hir_id: int) -> void {
     array_set(v4_hir_annotation_index_handle(hir_id), 0, "0")
     array_set(v4_hir_return_index_handle(hir_id), 0, "0")
+    v4_hir_invalidate_task_param_lookup_index(hir_id)
 }
 
 -- Stable bottom-up merge sort of record IDs by two numeric key arrays.
@@ -837,6 +850,9 @@ task v4_hir_finalize_lookup_indexes(hir_id: int) -> bool {
             array_set(returns, 1 + item, word_from_int(index))
         }
         index += 1
+    }
+    if valid {
+        valid = v4_hir_finalize_task_param_lookup_index(hir_id)
     }
     if valid {
         array_set(packed, 0, "1")
@@ -1547,7 +1563,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
     if v4_hir_ready == 0 { give back 0 - 1 }
     pilot required = 4
-    if v4_hir_file_len >= array_len(v4_hir_files) { required += 37 }
+    if v4_hir_file_len >= array_len(v4_hir_files) { required += 38 }
     if v4_hir_lookup_handles_available(required) == false { give back 0 - 1 }
     pilot hir_id = v4_hir_file_new(file_id, expansion_id)
     v4_hir_copy_expand_diags(hir_id, expansion_id)
@@ -2675,7 +2691,7 @@ task v4_hir_begin_snapshot_restore() -> void {
 }
 
 -- Restore is synchronous. Reserve the peak additional handle requirement
--- before touching live slots: thirty-seven per new high-water file plus four
+-- before touching live slots: thirty-eight per new high-water file plus four
 -- finalizer scratch arrays. Reused files free all children before replacing
 -- them. The line index remains held throughout preflight and restoration.
 task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
@@ -2688,7 +2704,7 @@ task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
     }
     pilot fresh = files - array_len(v4_hir_files)
     if fresh < 0 { fresh = 0 }
-    give back v4_hir_lookup_handles_available(fresh * 37 + 4)
+    give back v4_hir_lookup_handles_available(fresh * 38 + 4)
 }
 
 task v4_hir_lookup_handles_available(needed: int) -> bool {
@@ -3235,6 +3251,100 @@ task v4_hir_snapshot_task_return_slots_are_valid(records: int, files: int, items
 
 
 -- Ordinary-task parameter semantic storage and wire contracts.
+task v4_hir_task_param_index_handle(hir_id: int) -> int {
+    give back word_to_int(array_get(v4_hir_task_param_indexes, hir_id))
+}
+
+task v4_hir_task_param_index_is_ready(hir_id: int) -> bool {
+    if v4_hir_ready == 0 or hir_id < 0 or hir_id >= array_len(v4_hir_task_param_indexes) { give back false }
+    pilot ready: word = array_get(v4_hir_task_param_index_handle(hir_id), 0)
+    give back ready == "1"
+}
+
+task v4_hir_invalidate_task_param_lookup_index(hir_id: int) -> void {
+    if v4_hir_ready == 0 or hir_id < 0 or hir_id >= array_len(v4_hir_task_param_indexes) { give back }
+    array_set(v4_hir_task_param_index_handle(hir_id), 0, "0")
+}
+
+-- Derived packed layout: ready, owner count, parameter count, owner record IDs
+-- sorted by item, then parameter record IDs sorted by (item, ordinal). Stable
+-- sort retains the lowest physical record for duplicate keys. Capacity follows
+-- observed rows, including partial-construction placeholders, never wire IDs.
+task v4_hir_finalize_task_param_lookup_index(hir_id: int) -> bool {
+    if not v4_hir_file_exists(hir_id) { give back false }
+    v4_hir_invalidate_task_param_lookup_index(hir_id)
+    pilot packed = v4_hir_task_param_index_handle(hir_id)
+    pilot owners = v4_hir_task_param_owner_record_count(hir_id)
+    pilot params = v4_hir_task_param_record_count(hir_id)
+    pilot needed = 3 + owners + params
+    repeat until array_len(packed) >= needed {
+        pilot length = array_len(packed)
+        array_push(packed, "0")
+        if array_len(packed) != length + 1 { give back false }
+    }
+    pilot owner_items = v4_hir_task_param_owner_items_handle(hir_id)
+    pilot order = v4_hir_sorted_key_records(owner_items, owner_items)
+    if order < 0 { give back false }
+    pilot record = 0
+    repeat until record >= owners {
+        array_set(packed, 3 + record, array_get(order, record))
+        record += 1
+    }
+    array_release(order)
+    -- Copy and release each permutation before sorting the next: two scratch
+    -- handles fit below the existing annotation finalizer's four-handle peak.
+    order = v4_hir_sorted_key_records(v4_hir_task_param_items_handle(hir_id), v4_hir_task_param_ordinals_handle(hir_id))
+    if order < 0 { give back false }
+    record = 0
+    repeat until record >= params {
+        array_set(packed, 3 + owners + record, array_get(order, record))
+        record += 1
+    }
+    array_release(order)
+    array_set(packed, 1, word_from_int(owners))
+    array_set(packed, 2, word_from_int(params))
+    array_set(packed, 0, "1")
+    give back true
+}
+
+task v4_hir_task_param_index_owner_record_id(hir_id: int, item_id: int) -> int {
+    pilot packed = v4_hir_task_param_index_handle(hir_id)
+    pilot count = word_to_int(array_get(packed, 1))
+    pilot lower = 0
+    pilot upper = count
+    repeat until lower >= upper {
+        pilot middle = lower + (upper - lower) / 2
+        pilot record = word_to_int(array_get(packed, 3 + middle))
+        pilot item = word_to_int(array_get(v4_hir_task_param_owner_items_handle(hir_id), record))
+        v4_hir_task_param_owner_lookup_probes += 1
+        if item < item_id { lower = middle + 1 } else { upper = middle }
+    }
+    if lower >= count { give back 0 - 1 }
+    pilot record = word_to_int(array_get(packed, 3 + lower))
+    if word_to_int(array_get(v4_hir_task_param_owner_items_handle(hir_id), record)) != item_id { give back 0 - 1 }
+    give back record
+}
+
+task v4_hir_task_param_index_record_id(hir_id: int, item_id: int, param_id: int) -> int {
+    pilot packed = v4_hir_task_param_index_handle(hir_id)
+    pilot base = 3 + word_to_int(array_get(packed, 1))
+    pilot count = word_to_int(array_get(packed, 2))
+    pilot lower = 0
+    pilot upper = count
+    repeat until lower >= upper {
+        pilot middle = lower + (upper - lower) / 2
+        pilot record = word_to_int(array_get(packed, base + middle))
+        pilot item = word_to_int(array_get(v4_hir_task_param_items_handle(hir_id), record))
+        pilot ordinal = word_to_int(array_get(v4_hir_task_param_ordinals_handle(hir_id), record))
+        v4_hir_task_param_lookup_probes += 1
+        if item < item_id or (item == item_id and ordinal < param_id) { lower = middle + 1 } else { upper = middle }
+    }
+    if lower >= count { give back 0 - 1 }
+    pilot record = word_to_int(array_get(packed, base + lower))
+    if word_to_int(array_get(v4_hir_task_param_items_handle(hir_id), record)) != item_id or word_to_int(array_get(v4_hir_task_param_ordinals_handle(hir_id), record)) != param_id { give back 0 - 1 }
+    give back record
+}
+
 task v4_hir_task_param_owner_items_handle(hir_id: int) -> int {
     give back word_to_int(array_get(v4_hir_task_param_owner_items, hir_id))
 }
@@ -3300,9 +3410,15 @@ task v4_hir_task_param_owner_record_count(hir_id: int) -> int {
 }
 
 task v4_hir_task_param_owner_record_id(hir_id: int, item_id: int) -> int {
+    if v4_hir_task_param_index_is_ready(hir_id) {
+        give back v4_hir_task_param_index_owner_record_id(hir_id, item_id)
+    }
+    -- Construction exposes rows immediately, even before the owner is added.
+    -- Keep its first-match behavior without rebuilding a cache in an accessor.
     pilot record_id = 0
     pilot record_count = v4_hir_task_param_owner_record_count(hir_id)
     repeat until record_id >= record_count {
+        v4_hir_task_param_owner_lookup_probes += 1
         if word_to_int(array_get(v4_hir_task_param_owner_items_handle(hir_id), record_id)) == item_id {
             give back record_id
         }
@@ -3326,9 +3442,13 @@ task v4_hir_task_param_record_id(hir_id: int, item_id: int, param_id: int) -> in
     if item_id < 0 or param_id < 0 {
         give back 0 - 1
     }
+    if v4_hir_task_param_index_is_ready(hir_id) {
+        give back v4_hir_task_param_index_record_id(hir_id, item_id, param_id)
+    }
     pilot record_id = 0
     pilot record_count = v4_hir_task_param_record_count(hir_id)
     repeat until record_id >= record_count {
+        v4_hir_task_param_lookup_probes += 1
         if word_to_int(array_get(v4_hir_task_param_items_handle(hir_id), record_id)) == item_id and word_to_int(array_get(v4_hir_task_param_ordinals_handle(hir_id), record_id)) == param_id {
             give back record_id
         }
@@ -3394,6 +3514,7 @@ task v4_hir_task_param_segment_span(hir_id: int, item_id: int, param_id: int) ->
 }
 
 task v4_hir_add_task_param_owner(hir_id: int, item_id: int, count: int) -> int {
+    v4_hir_invalidate_task_param_lookup_index(hir_id)
     pilot record_id = v4_hir_task_param_owner_record_count(hir_id)
     array_push(v4_hir_task_param_owner_items_handle(hir_id), word_from_int(item_id))
     array_push(v4_hir_task_param_owner_counts_handle(hir_id), word_from_int(count))
@@ -3401,6 +3522,7 @@ task v4_hir_add_task_param_owner(hir_id: int, item_id: int, count: int) -> int {
 }
 
 task v4_hir_add_task_param(hir_id: int, item_id: int, ordinal: int, name: word, name_span: word, mode: word, lifetime_name: word, lifetime_span: word, type_text: word, type_span: word, segment_span: word) -> int {
+    v4_hir_invalidate_task_param_lookup_index(hir_id)
     pilot record_id = v4_hir_task_param_record_count(hir_id)
     array_push(v4_hir_task_param_items_handle(hir_id), word_from_int(item_id))
     array_push(v4_hir_task_param_ordinals_handle(hir_id), word_from_int(ordinal))
@@ -3999,6 +4121,7 @@ task v4_hir_restore_task_param_owner_slot(hir_id: int, record_id: int, item_id: 
     if v4_hir_file_exists(hir_id) == false {
         give back 0
     }
+    v4_hir_invalidate_task_param_lookup_index(hir_id)
     repeat until v4_hir_task_param_owner_record_count(hir_id) > record_id {
         array_push(v4_hir_task_param_owner_items_handle(hir_id), word_from_int(0 - 1))
         array_push(v4_hir_task_param_owner_counts_handle(hir_id), "0")
@@ -4019,6 +4142,7 @@ task v4_hir_restore_task_param_slot(hir_id: int, record_id: int, item_id: int, o
     if v4_hir_file_exists(hir_id) == false {
         give back 0
     }
+    v4_hir_invalidate_task_param_lookup_index(hir_id)
     repeat until v4_hir_task_param_record_count(hir_id) > record_id {
         array_push(v4_hir_task_param_items_handle(hir_id), word_from_int(0 - 1))
         array_push(v4_hir_task_param_ordinals_handle(hir_id), word_from_int(0 - 1))
