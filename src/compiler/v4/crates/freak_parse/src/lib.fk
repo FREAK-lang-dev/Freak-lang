@@ -30,6 +30,9 @@ pilot v4_parse_tree_node_values = 0
 pilot v4_parse_tree_node_spans = 0
 pilot v4_parse_tree_node_parents = 0
 pilot v4_parse_tree_diags = 0
+-- Derived owner epochs are monotonic and never serialized.
+pilot v4_parse_tree_revisions = 0
+pilot v4_parse_revision_clock = 0
 pilot v4_parse_ready = 0
 
 task v4_parse_init() -> void {
@@ -41,6 +44,7 @@ task v4_parse_init() -> void {
         v4_parse_tree_node_spans = array_new()
         v4_parse_tree_node_parents = array_new()
         v4_parse_tree_diags = array_new()
+        v4_parse_tree_revisions = array_new()
         v4_parse_ready = 1
     }
 }
@@ -55,7 +59,28 @@ task v4_parse_tree_new(file_id: int, stream_id: int) -> int {
     array_push(v4_parse_tree_node_spans, word_from_int(array_new()))
     array_push(v4_parse_tree_node_parents, word_from_int(array_new()))
     array_push(v4_parse_tree_diags, word_from_int(array_new()))
+    v4_parse_note_tree_mutation(tree_id)
     give back tree_id
+}
+
+-- Readonly even for an invalid/cold owner: this getter never initializes.
+task v4_parse_tree_revision(tree_id: int) -> int {
+    if v4_parse_ready == 0 or tree_id < 0 or tree_id >= array_len(v4_parse_tree_files) or tree_id >= array_len(v4_parse_tree_revisions) {
+        give back 0 - 1
+    }
+    give back word_to_int(array_get(v4_parse_tree_revisions, tree_id))
+}
+
+-- Supported hook after raw parse-handle edits, also used by owner mutations.
+task v4_parse_note_tree_mutation(tree_id: int) -> void {
+    if tree_id < 0 or tree_id >= array_len(v4_parse_tree_files) { give back }
+    repeat until array_len(v4_parse_tree_revisions) > tree_id {
+        pilot before = array_len(v4_parse_tree_revisions)
+        array_push(v4_parse_tree_revisions, "-1")
+        if array_len(v4_parse_tree_revisions) != before + 1 { give back }
+    }
+    v4_parse_revision_clock += 1
+    array_set(v4_parse_tree_revisions, tree_id, word_from_int(v4_parse_revision_clock))
 }
 
 task v4_parse_kinds_handle(tree_id: int) -> int {
@@ -108,6 +133,7 @@ task v4_parse_add_node(tree_id: int, node_kind: word, value: word, span: word, p
     array_push(v4_parse_values_handle(tree_id), value)
     array_push(v4_parse_spans_handle(tree_id), span)
     array_push(v4_parse_parents_handle(tree_id), word_from_int(parent))
+    v4_parse_note_tree_mutation(tree_id)
     give back node_id
 }
 
@@ -1784,6 +1810,7 @@ task v4_parse_restore_tree_slot(tree_id: int, file_id: int, stream_id: int) -> i
     array_set(v4_parse_tree_node_spans, tree_id, word_from_int(array_new()))
     array_set(v4_parse_tree_node_parents, tree_id, word_from_int(array_new()))
     array_set(v4_parse_tree_diags, tree_id, word_from_int(array_new()))
+    v4_parse_note_tree_mutation(tree_id)
     give back tree_id
 }
 
@@ -1801,6 +1828,7 @@ task v4_parse_restore_node_slot(tree_id: int, node_id: int, node_kind: word, val
     array_set(v4_parse_values_handle(tree_id), node_id, value)
     array_set(v4_parse_spans_handle(tree_id), node_id, span)
     array_set(v4_parse_parents_handle(tree_id), node_id, word_from_int(parent))
+    v4_parse_note_tree_mutation(tree_id)
     give back 1
 }
 
