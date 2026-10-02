@@ -31,6 +31,9 @@ their MIR edges, and explicit void returns emit `ret void`.
 `v4_codegen_llvm_module_text(codegen_id, target_spec)` assembles a module using
 the validated `freak_target` triple, external declarations, and complete bodies;
 definition headers from declaration-plan metadata are not emitted twice.
+Bodies, literal globals, entry text, and native contract errors are sealed
+together during lowering; a retained codegen handle stays byte identical when
+MIR snapshots restore different facts under reused IDs.
 Invalid targets or codegen IDs yield an empty module. The bootstrap build tool
 keeps emission in the backend and invokes clang only for host native linking:
 
@@ -102,6 +105,8 @@ handle. Native entry initializes argc/argv, then calls the renamed source task
 calls and callback targets retain the FREAK task ABI. Native linking includes
 both `freak_llvm_runtime.c` and `freak_runtime.c`, as the shipping CLI does.
 This is a fixed bootstrap link command, without new runtime-profile facts.
+Compatible explicit runtime extern declarations (including link-name aliases)
+share the generated declaration; incompatible contracts receive a diagnostic.
 
 The literal slice supports UTF-8 bytes, empty strings, escaped newline/carriage
 return/tab/quote/backslash, and literal malformed or unmatched brace bodies.
@@ -115,6 +120,8 @@ The MIR wire vocabulary and version stay unchanged: this uses existing
 reserved intrinsic's exact shape is validated before restore. The registered
 `literal_say_smoke.fk` and LLVM execution gate cover these boundaries, snapshot
 roundtrip, exact hello-world output, runtime argument setup, and the void entry.
+`codegen_llvm_module_epoch_smoke.fk` covers retained/fresh plans across edited
+MIR restore and native rejection of imported NUL text.
 Word values/drops (W2), persisted interpolation (W3), character-indexed methods
 (W4), and explicit bootstrap root initialization remain separate work.
 

@@ -17,6 +17,7 @@ task v4_llvm_execute_run() -> void {
         say "llvm-execute-invalid-target-" + word_from_int(idx) + "=" + word_from_bool(v4_codegen_llvm_module_text(codegen, "invalid") == "")
         pilot target = v4_target_spec_new(process::arg(11))
         pilot before = v4_codegen_llvm_module_text(codegen, target)
+        say "llvm-execute-module-nonempty-" + word_from_int(idx) + "=" + word_from_bool(before != "")
         pilot snapshot = v4_mir_snapshot()
         say "llvm-execute-snapshot-valid-" + word_from_int(idx) + "=" + word_from_bool(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"))
         say "llvm-execute-snapshot-restored-" + word_from_int(idx) + "=" + word_from_bool(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"))

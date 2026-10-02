@@ -1,0 +1,75 @@
+-- One frontend pipeline, followed by a valid edited MIR restore. A codegen
+-- handle must remain a complete immutable output plan across MIR ID reuse.
+task v4_llvm_epoch_assert(condition: bool, label: word) -> void {
+    if not condition { panic("LLVM module epoch: " + label) }
+}
+
+task v4_llvm_epoch_edit(payload: word, nul: bool) -> word {
+    pilot out = ""
+    pilot line_id = 0
+    repeat until line_id >= v4_mir_snapshot_line_count(payload) {
+        pilot line = v4_mir_snapshot_line(payload, line_id)
+        if v4_mir_snapshot_field_raw(line, 0) == "mir-rvalue" {
+            pilot kind = v4_mir_snapshot_field(line, 4)
+            if kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_int {
+                pilot value = "42"
+                if kind == v4_mir_rvalue_const_word {
+                    value = "after"
+                    if nul { value = "after" + chr(0) + "hidden" }
+                }
+                pilot edited = ""
+                pilot field = 0
+                repeat until field >= 14 {
+                    if field > 0 { edited = edited + "|" }
+                    if field == 5 { edited = edited + v4_mir_snapshot_escape(value) } else { edited = edited + v4_mir_snapshot_field_raw(line, field) }
+                    field += 1
+                }
+                line = edited
+            }
+        }
+        out = out + line + "\n"
+        line_id += 1
+    }
+    give back out
+}
+
+task v4_llvm_epoch_run() -> void {
+    pilot source = "task main() -> int {" + "\n say \"before\"\n give back 41\n" + "}\n"
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    pilot old = v4_codegen_llvm_lower_mir(0, mir)
+    pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_borrowck_diag_count(borrow) + v4_codegen_llvm_diag_count(old)
+    v4_llvm_epoch_assert(total == 0, "clean input")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot before = v4_codegen_llvm_module_text(old, target)
+    pilot original = v4_mir_snapshot()
+    pilot edited = v4_llvm_epoch_edit(original, false)
+    v4_llvm_epoch_assert(v4_mir_snapshot_validate(edited).starts_with("mir-snapshot-import ok=1"), "edited snapshot valid")
+    v4_llvm_epoch_assert(v4_mir_snapshot_restore_component(edited).starts_with("mir-snapshot-restore ok=1"), "edited snapshot restored")
+    v4_llvm_epoch_assert(v4_codegen_llvm_module_text(old, target) == before, "old plan remains byte exact")
+    pilot fresh = v4_codegen_llvm_lower_mir(0, mir)
+    pilot after = v4_codegen_llvm_module_text(fresh, target)
+    v4_llvm_epoch_assert(before != after and before.contains("ret i64 41") and after.contains("ret i64 42"), "fresh scalar return")
+    v4_llvm_epoch_assert(before.contains("c\"before\\00\"") and after.contains("c\"after\\00\""), "fresh literal globals")
+    say "llvm-module-epoch clean=true restore=true old-exact=true fresh-changed=true"
+    say "llvm-module-epoch globals=true returns=true"
+
+    -- Structurally valid imported text may contain NUL; native emission must
+    -- reject it without changing already sealed plans from the same MIR ID.
+    pilot invalid_native = v4_llvm_epoch_edit(original, true)
+    v4_llvm_epoch_assert(v4_mir_snapshot_validate(invalid_native).starts_with("mir-snapshot-import ok=1"), "NUL snapshot shape valid")
+    v4_llvm_epoch_assert(v4_mir_snapshot_restore_component(invalid_native).starts_with("mir-snapshot-restore ok=1"), "NUL snapshot restored")
+    pilot rejected = v4_codegen_llvm_lower_mir(0, mir)
+    v4_llvm_epoch_assert(v4_codegen_llvm_native_module_error(rejected) == "say literal contains embedded NUL", "NUL native rejection")
+    v4_llvm_epoch_assert(v4_codegen_llvm_module_text(rejected, target) == "", "NUL emits no module")
+    v4_llvm_epoch_assert(v4_codegen_llvm_native_module_error(old) == "" and v4_codegen_llvm_module_text(old, target) == before, "old native contract sealed")
+    v4_llvm_epoch_assert(v4_codegen_llvm_module_text(fresh, target) == after, "fresh plan sealed")
+    say "llvm-module-epoch native-error-sealed=true nul-rejected=true"
+}
+
+v4_llvm_epoch_run()

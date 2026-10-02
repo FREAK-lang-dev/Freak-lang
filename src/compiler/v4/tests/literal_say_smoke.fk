@@ -48,6 +48,8 @@ task v4_literal_say_source() -> word {
     src = src + v4_literal_say_bad_task("bad_group", "(\"a\")")
     src = src + v4_literal_say_bad_task("bad_number", "42")
     src = src + v4_literal_say_bad_task("bad_empty", "")
+    -- A standalone string whose text is say remains an ordinary expression.
+    src = src + "task word_expression() -> int {" + "\n    \"say\"\n    give back 0\n" + "}\n"
     give back src
 }
 
@@ -152,6 +154,9 @@ task v4_literal_say_smoke() -> void {
     v4_literal_say_assert(v4_parse_diag_count(tree) == 0, "parse diagnostics")
     v4_literal_say_assert(v4_ty_diag_count(ty) == 0, "TY diagnostics")
     v4_literal_say_assert(v4_mir_diag_count(mir) == 11, "MIR diagnostic count")
+    pilot expression_body = v4_mir_lookup_body(mir, v4_resolve_def_for_name(resolve, "word_expression"))
+    pilot expression = v4_mir_stmt_rvalue(mir, expression_body, 0)
+    v4_literal_say_assert(v4_mir_stmt_kind(mir, expression_body, 0) == v4_mir_stmt_expr and v4_mir_rvalue_kind(mir, expression_body, expression) == v4_mir_rvalue_const_word and v4_mir_rvalue_text(mir, expression_body, expression) == "say", "string say is an expression")
     pilot main_def = v4_resolve_def_for_name(resolve, "main")
     pilot body = v4_mir_lookup_body(mir, main_def)
     pilot statement = 0

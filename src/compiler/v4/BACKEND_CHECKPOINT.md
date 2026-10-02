@@ -229,12 +229,20 @@ blowup; that baseline needs repeating after words and root initialization.
 Raw argv verification, timings, stage-only profiles, pinned source copies and
 reproduction scripts are in `/workspace/v4-backend-after/words-explorer`.
 
-The focused integrated gate passes the literal/snapshot smoke, LLVM ABI plan
+The focused integrated gate passes the literal/snapshot and module-epoch smokes, LLVM ABI plan
 smoke, ten native programs, and the build command's hello-world, warning-only,
 nonliteral-say, unsupported-word, main-parameter, MIR-error, and strict-root
 checks. Literal delimiter/keyword text is now excluded from structural parsing
 and HIR/MIR scans, so strings like `"{"`, `";"`, or `"pilot"` retain their bytes.
 This preserves the MIR builder's existing token-kind allowlist.
+
+Independent review found three W1 issues: text-only keyword dispatch for an
+ordinary `"say"` expression, mixed old body/new literal facts after MIR restore,
+and duplicate explicit runtime declarations. The fixes require a keyword token,
+seal all module facts at lowering, and share compatible runtime declarations
+while rejecting incompatible emitted symbols (including link-name aliases).
+Regressions cover each case; imported NUL text fails native emission without
+changing previously sealed plans.
 
 ## Saved measurement artifacts
 

@@ -8616,7 +8616,7 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
     }
 
     pilot first_val = v4_lex_token_value(stream_id, first)
-    if first_val == "say" {
+    if first_val == "say" and v4_lex_token_type(stream_id, first) == v4_tok_keyword {
         give back v4_mir_lower_say_literal_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "pilot" {
         give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)

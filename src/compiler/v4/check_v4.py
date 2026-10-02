@@ -6474,6 +6474,17 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "LLVM module facts across MIR restore",
+        "fixture": "codegen_llvm_module_epoch_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "llvm-module-epoch clean=true restore=true old-exact=true fresh-changed=true",
+            "llvm-module-epoch globals=true returns=true",
+            "llvm-module-epoch native-error-sealed=true nul-rejected=true",
+        ],
+    },
+    {
         "name": "literal say frontend and snapshots",
         "fixture": "literal_say_smoke.fk",
         "expect_mode": "line",
@@ -6528,6 +6539,16 @@ EXECUTABLE_SMOKES = [
             "llvm-execute-diag-9=0", "llvm-execute-invalid-target-9=true",
             "llvm-execute-snapshot-valid-9=true", "llvm-execute-snapshot-restored-9=true",
             "llvm-execute-module-exact-9=true",
+            "llvm-execute-module-nonempty-0=true",
+            "llvm-execute-module-nonempty-1=true",
+            "llvm-execute-module-nonempty-2=true",
+            "llvm-execute-module-nonempty-3=true",
+            "llvm-execute-module-nonempty-4=true",
+            "llvm-execute-module-nonempty-5=true",
+            "llvm-execute-module-nonempty-6=true",
+            "llvm-execute-module-nonempty-7=true",
+            "llvm-execute-module-nonempty-8=true",
+            "llvm-execute-module-nonempty-9=true",
         ],
         "llvm_programs": [("fib_collatz.fk", 166, ""), ("scalar_locals.fk", 42, ""),
                           ("short_circuit.fk", 42, ""), ("short_circuit_order.fk", 42, "ABCD"),
@@ -12874,6 +12895,16 @@ def check_v4_build_command() -> None:
     word_error_source.write_text('task main() -> int { pilot text = "owned later"\n give back 0 }\n', encoding="utf-8")
     main_error_source = RUNTIME_BUILD_ROOT / "llvm_main_error.fk"
     main_error_source.write_text('task main(value: int) -> int { give back value }\n', encoding="utf-8")
+    runtime_say_error = RUNTIME_BUILD_ROOT / "llvm_runtime_say_error.fk"
+    runtime_say_error.write_text(
+        'extern [C] {\n @link_name("freak_llvm_say")\n task shadow_say(value: std::ffi::c_isize) -> std::ffi::c_isize\n}\n'
+        'task main() -> int { say "hello"\n give back 0 }\n', encoding="utf-8",
+    )
+    runtime_setup_error = RUNTIME_BUILD_ROOT / "llvm_runtime_setup_error.fk"
+    runtime_setup_error.write_text(
+        'extern [C] { task freak_llvm_setup_args(argc: std::ffi::c_isize) -> void }\n'
+        'task main() -> int { give back 0 }\n', encoding="utf-8",
+    )
     executable = RUNTIME_BUILD_ROOT / ("llvm_warning_only.exe" if sys.platform == "win32" else "llvm_warning_only.native")
     for source, output, expected_success, abort_stage in (
         (warning_source, executable, True, None),
@@ -12882,6 +12913,8 @@ def check_v4_build_command() -> None:
         (say_error_source, RUNTIME_BUILD_ROOT / "llvm_say_error.ll", False, "mir"),
         (word_error_source, RUNTIME_BUILD_ROOT / "llvm_word_error.ll", False, "codegen"),
         (main_error_source, RUNTIME_BUILD_ROOT / "llvm_main_error.ll", False, "codegen"),
+        (runtime_say_error, RUNTIME_BUILD_ROOT / "llvm_runtime_say_error.ll", False, "codegen"),
+        (runtime_setup_error, RUNTIME_BUILD_ROOT / "llvm_runtime_setup_error.ll", False, "codegen"),
     ):
         output.unlink(missing_ok=True)
         command = [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output)]
@@ -12894,6 +12927,8 @@ def check_v4_build_command() -> None:
             say_error_source: "say nonliteral is not yet supported",
             word_error_source: "native words currently support only literal say operands",
             main_error_source: "native main parameters are not yet supported",
+            runtime_say_error: "native runtime declaration conflicts with @freak_llvm_say",
+            runtime_setup_error: "native runtime declaration conflicts with @freak_llvm_setup_args",
         }
         if source in reasons and reasons[source] not in result.stdout + result.stderr:
             raise RuntimeError(f"V4 build rejected input without the expected reason: {reasons[source]}")
