@@ -2,7 +2,7 @@
 -- Emitted modules are compiled and executed, including short-circuit RHS abort.
 task v4_llvm_execute_run() -> void {
     pilot idx = 0
-    repeat until idx >= 7 {
+    repeat until idx >= 8 {
         pilot source = fs::read(process::arg(idx + 1))
         pilot stream = v4_lex_text(idx, source)
         pilot tree = v4_parse_stream(idx, stream)
@@ -15,7 +15,7 @@ task v4_llvm_execute_run() -> void {
         pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_borrowck_diag_count(borrowck) + v4_codegen_llvm_diag_count(codegen)
         say "llvm-execute-diag-" + word_from_int(idx) + "=" + word_from_int(total)
         say "llvm-execute-invalid-target-" + word_from_int(idx) + "=" + word_from_bool(v4_codegen_llvm_module_text(codegen, "invalid") == "")
-        pilot target = v4_target_spec_new(process::arg(8))
+        pilot target = v4_target_spec_new(process::arg(9))
         pilot before = v4_codegen_llvm_module_text(codegen, target)
         pilot snapshot = v4_mir_snapshot()
         say "llvm-execute-snapshot-valid-" + word_from_int(idx) + "=" + word_from_bool(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"))

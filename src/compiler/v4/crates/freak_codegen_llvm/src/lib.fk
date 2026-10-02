@@ -981,8 +981,10 @@ task v4_codegen_llvm_call_instruction(mir_id: int, body_id: int, rvalue_id: int,
         if ptr_rvalue < 0 or value_rvalue < 0 {
             give back ""
         }
-        pilot pointee_ty = v4_codegen_llvm_type(v4_ty_raw_pointer_target_type(v4_mir_rvalue_ty(mir_id, body_id, ptr_rvalue)))
-        pilot value_text = v4_codegen_llvm_rvalue_value(mir_id, body_id, value_rvalue)
+        pilot expected_ty = v4_ty_raw_pointer_target_type(v4_mir_rvalue_ty(mir_id, body_id, ptr_rvalue))
+        pilot pointee_ty = v4_codegen_llvm_type(expected_ty)
+        pilot write_temp = "%write." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+        pilot value_text = v4_codegen_llvm_expected_value(mir_id, body_id, value_rvalue, expected_ty, write_temp)
         pilot ptr_text = v4_codegen_llvm_rvalue_value(mir_id, body_id, ptr_rvalue)
         give back "store " + pointee_ty + " " + value_text + ", ptr " + ptr_text
     }
@@ -1113,6 +1115,13 @@ task v4_codegen_llvm_rvalue_tree_lines(mir_id: int, body_id: int, rvalue_id: int
     }
 
     if v4_codegen_llvm_rvalue_needs_instruction(mir_id, body_id, rvalue_id) {
+        if kind == v4_mir_rvalue_call and v4_mir_rvalue_op(mir_id, body_id, rvalue_id) == v4_mir_call_raw_ptr_write {
+            pilot ptr_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
+            pilot value_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 1)
+            pilot expected_ty = v4_ty_raw_pointer_target_type(v4_mir_rvalue_ty(mir_id, body_id, ptr_rvalue))
+            pilot write_temp = "%write." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+            out = out + v4_codegen_llvm_expected_lines(mir_id, body_id, value_rvalue, expected_ty, write_temp)
+        }
         if kind == v4_mir_rvalue_binary { out = out + v4_codegen_llvm_binary_cast_lines(mir_id, body_id, rvalue_id) }
         pilot line = v4_codegen_llvm_rvalue_instruction(mir_id, body_id, rvalue_id, target)
         if line != "" {

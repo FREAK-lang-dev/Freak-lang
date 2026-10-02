@@ -6486,6 +6486,7 @@ EXECUTABLE_SMOKES = [
             "llvm-execute-invalid-target-3=true", "llvm-execute-invalid-target-4=true",
             "llvm-execute-diag-5=0", "llvm-execute-invalid-target-5=true",
             "llvm-execute-diag-6=0", "llvm-execute-invalid-target-6=true",
+            "llvm-execute-diag-7=0", "llvm-execute-invalid-target-7=true",
             "llvm-execute-snapshot-valid-0=true",
             "llvm-execute-snapshot-valid-1=true",
             "llvm-execute-snapshot-valid-2=true",
@@ -6493,6 +6494,7 @@ EXECUTABLE_SMOKES = [
             "llvm-execute-snapshot-valid-4=true",
             "llvm-execute-snapshot-valid-5=true",
             "llvm-execute-snapshot-valid-6=true",
+            "llvm-execute-snapshot-valid-7=true",
             "llvm-execute-snapshot-restored-0=true",
             "llvm-execute-snapshot-restored-1=true",
             "llvm-execute-snapshot-restored-2=true",
@@ -6500,6 +6502,7 @@ EXECUTABLE_SMOKES = [
             "llvm-execute-snapshot-restored-4=true",
             "llvm-execute-snapshot-restored-5=true",
             "llvm-execute-snapshot-restored-6=true",
+            "llvm-execute-snapshot-restored-7=true",
             "llvm-execute-module-exact-0=true",
             "llvm-execute-module-exact-1=true",
             "llvm-execute-module-exact-2=true",
@@ -6507,11 +6510,12 @@ EXECUTABLE_SMOKES = [
             "llvm-execute-module-exact-4=true",
             "llvm-execute-module-exact-5=true",
             "llvm-execute-module-exact-6=true",
+            "llvm-execute-module-exact-7=true",
         ],
         "llvm_programs": [("fib_collatz.fk", 166, ""), ("scalar_locals.fk", 42, ""),
                           ("short_circuit.fk", 42, ""), ("short_circuit_order.fk", 42, "ABCD"),
                           ("scalar_numeric.fk", 42, ""), ("scalar_coercions.fk", 42, ""),
-                          ("impl_scalar.fk", 42, "")],
+                          ("impl_scalar.fk", 42, ""), ("raw_pointer_coercions.fk", 42, "")],
         "llvm_build_checks": True,
     },
     {
@@ -12843,10 +12847,13 @@ def check_v4_build_command() -> None:
     )
     error_source = RUNTIME_BUILD_ROOT / "llvm_error.fk"
     error_source.write_text('task main() -> int { give back "wrong" }\n', encoding="utf-8")
+    root_source = RUNTIME_BUILD_ROOT / "llvm_root_error.fk"
+    root_source.write_text('pilot global = 0\n', encoding="utf-8")
     executable = RUNTIME_BUILD_ROOT / ("llvm_warning_only.exe" if sys.platform == "win32" else "llvm_warning_only.native")
-    for source, output, expected_success in (
-        (warning_source, executable, True),
-        (error_source, RUNTIME_BUILD_ROOT / "llvm_error.ll", False),
+    for source, output, expected_success, abort_stage in (
+        (warning_source, executable, True, None),
+        (error_source, RUNTIME_BUILD_ROOT / "llvm_error.ll", False, "mir"),
+        (root_source, RUNTIME_BUILD_ROOT / "llvm_root_error.ll", False, "parse"),
     ):
         output.unlink(missing_ok=True)
         command = [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output)]
@@ -12855,12 +12862,16 @@ def check_v4_build_command() -> None:
         result = run_with_heartbeat(command, label="V4 build command", timeout_seconds=180, memory_limit_mb=512)
         if (result.returncode == 0) != expected_success or output.exists() != expected_success:
             raise RuntimeError(f"V4 build command rejection mismatch:\n{result.stdout}{result.stderr}")
+        if abort_stage and f"v4-aborted-after={abort_stage}" not in result.stdout + result.stderr:
+            raise RuntimeError("V4 build did not stop at the stage reporting errors")
+        if abort_stage == "parse" and "v4-build-stage=hir" in result.stdout + result.stderr:
+            raise RuntimeError("V4 build lowered unsupported root syntax past parsing")
         if expected_success and "v4-errors=0" not in result.stdout:
             raise RuntimeError("warning-only V4 build did not report zero errors")
     executed = run_with_heartbeat([str(executable)], label="V4 warning-only execute", timeout_seconds=10, memory_limit_mb=128)
     if executed.returncode != 42 or executed.stdout or executed.stderr:
         raise RuntimeError("warning-only V4 build did not execute correctly")
-    print("V4 build command: warning-only executes, errors reject")
+    print("V4 build command: warning-only executes, errors stop at their owning stage")
 
 
 def check_executable_smokes(

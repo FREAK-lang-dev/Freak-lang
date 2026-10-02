@@ -54,7 +54,8 @@ syntax. MIR snapshots validate and restore before each native program executes,
 with byte-identical module output after restoration. Ordered CFG captures keep
 the original child IDs as leaves and evaluate later clones, preserving the
 snapshot's child-before-parent invariant. Build-tool checks prove warning-only
-programs execute and errors suppress module output.
+programs execute and errors stop before the next lowering stage. Native numeric
+pointer-write coverage also checks truncation to `tiny` and widening on read.
 
 MIR callable accessors now describe ordinary tasks and declared impl bodies.
 TY validates impl method identities; MIR does not reach into HIR to recover
@@ -72,6 +73,9 @@ bootstrap compatibility mode; normal root scope continues to follow bible
 section 17.4. Cross-target module text is available, but only host linking is
 exercised here; the existing FFI metadata checks are not a complete native ABI
 proof.
+
+The measured before/after results, crate diagnostics, and remaining handoff
+contracts are tracked in [BACKEND_CHECKPOINT.md](BACKEND_CHECKPOINT.md).
 
 ## Post-Bootstrap Sequencing
 

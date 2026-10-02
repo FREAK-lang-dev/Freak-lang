@@ -1,0 +1,17 @@
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task main() -> int {
+    pilot p = malloc(8)
+    pilot value = 258
+    trust me "test a numeric pointer store" on my honor as .ace {
+        p.write(value)
+        pilot observed: int = p.read()
+        free(p)
+        if observed == 2 { give back 42 }
+    }
+    give back 1
+}
