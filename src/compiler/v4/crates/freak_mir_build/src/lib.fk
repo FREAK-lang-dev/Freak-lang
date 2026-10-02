@@ -8590,9 +8590,10 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, stmt_start, stmt_end)
     if eq_token > stmt_start {
         pilot lhs = v4_mir_expr_text(stream_id, stmt_start, eq_token)
+        pilot lhs_pattern = v4_mir_pattern_text(stream_id, stmt_start, eq_token)
         pilot rhs = v4_mir_expr_text(stream_id, eq_token + 1, stmt_end)
         pilot op_text = v4_lex_token_syntax_value(stream_id, eq_token)
-        pilot pattern_kind = v4_mir_destructure_pattern_kind(lhs)
+        pilot pattern_kind = v4_mir_destructure_pattern_kind(lhs_pattern)
         if pattern_kind != "" {
             if op_text != "=" {
                 v4_mir_add_type_error(mir_id, stmt_span, "destructure assignment only supports =", "use = with tuple or sequence patterns")
@@ -8616,7 +8617,7 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
             pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_id, temp_name, 0 - 1, stmt_span, source_ty)
             pilot value_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, source_rvalue)
             v4_mir_add_stmt(mir_id, body_id, value_block, v4_mir_stmt_local, temp_name, rhs, stmt_span, temp_place, source_rvalue)
-            v4_mir_lower_destructure_assignment_pattern(mir_id, body_id, value_block, stmt_span, pattern_kind, lhs, temp_place, source_ty)
+            v4_mir_lower_destructure_assignment_pattern(mir_id, body_id, value_block, stmt_span, pattern_kind, lhs_pattern, temp_place, source_ty)
             give back value_block
         }
         pilot place_id = v4_mir_lower_place(mir_id, body_id, stream_id, stmt_start, eq_token)

@@ -1,9 +1,13 @@
 -- Quoted pattern data survives token-to-pattern conversion and nested scans.
 task h6_pattern_source() -> word {
     pilot src = ""
-    src = src + "shape Payload "
+    src = src + "route Payload "
     src = src + "{"
-    src = src + "\n x: word\n y: word\n"
+    src = src + "\n Data "
+    src = src + "{"
+    src = src + " x: word, y: word "
+    src = src + "}"
+    src = src + "\n Closed\n"
     src = src + "}"
     src = src + "\ntask pair_case(pair: (word, word)) -> int "
     src = src + "{"
@@ -23,11 +27,11 @@ task h6_pattern_source() -> word {
     src = src + "}"
     src = src + "\n give back 0\n"
     src = src + "}"
-    src = src + "\ntask shape_case(item: Payload) -> int "
+    src = src + "\ntask route_case(item: Payload) -> int "
     src = src + "{"
     src = src + "\n when item "
     src = src + "{"
-    src = src + "\n Payload "
+    src = src + "\n Payload::Data "
     src = src + "{"
     src = src + " x: \",\", y: \""
     src = src + "}"
@@ -58,6 +62,7 @@ task h6_pattern_source() -> word {
     src = src + "\n"
     give back src
 }
+
 task h6_pattern_word_count(mir_id: int, name: word, expected: int) -> bool {
     pilot body_id = v4_mir_lookup_body_name(mir_id, name)
     pilot count = 0
@@ -76,7 +81,7 @@ task h6_pattern_run() -> void {
     pilot h6_pattern_ty = v4_ty_lower_resolve(0, h6_pattern_resolve)
     pilot h6_pattern_mir = v4_mir_lower_ty(0, h6_pattern_ty)
     say "h6-pattern diagnostics=" + word_from_int(v4_lex_diag_count(h6_pattern_stream) + v4_parse_diag_count(h6_pattern_tree) + v4_hir_diag_count(h6_pattern_hir) + v4_resolve_diag_count(h6_pattern_resolve) + v4_ty_diag_count(h6_pattern_ty) + v4_mir_diag_count(h6_pattern_mir))
-    say "h6-pattern semantic=" + word_from_bool(h6_pattern_word_count(h6_pattern_mir, "pair_case", 2) and h6_pattern_word_count(h6_pattern_mir, "row_case", 2) and h6_pattern_word_count(h6_pattern_mir, "shape_case", 2) and h6_pattern_word_count(h6_pattern_mir, "word_case", 2) and h6_pattern_word_count(h6_pattern_mir, "escaped_case", 2))
+    say "h6-pattern semantic=" + word_from_bool(h6_pattern_word_count(h6_pattern_mir, "pair_case", 2) and h6_pattern_word_count(h6_pattern_mir, "row_case", 2) and h6_pattern_word_count(h6_pattern_mir, "route_case", 2) and h6_pattern_word_count(h6_pattern_mir, "word_case", 2) and h6_pattern_word_count(h6_pattern_mir, "escaped_case", 2))
     pilot h6_pattern_tuple = ""
     h6_pattern_tuple = h6_pattern_tuple + "(\"a,b\", \""
     h6_pattern_tuple = h6_pattern_tuple + "}"

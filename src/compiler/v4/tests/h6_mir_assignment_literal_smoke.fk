@@ -1,0 +1,48 @@
+-- Literal assignment targets stay literals and cannot overwrite same-spelled locals.
+task h6_assignment_source() -> word {
+    pilot src = ""
+    src = src + "task tuple_word() -> int "
+    src = src + "{"
+    src = src + "\n pilot x = 40\n pilot y = 2\n (\"x\", y) = (1, 2)\n give back x + y\n"
+    src = src + "}"
+    src = src + "\ntask sequence_word() -> int "
+    src = src + "{"
+    src = src + "\n pilot x = 40\n pilot y = 2\n [\"x\", y] = [1, 2]\n give back x + y\n"
+    src = src + "}"
+    src = src + "\ntask tuple_char() -> int "
+    src = src + "{"
+    src = src + "\n pilot x = 40\n pilot y = 2\n ('x', y) = (1, 2)\n give back x + y\n"
+    src = src + "}"
+    src = src + "\ntask sequence_char() -> int "
+    src = src + "{"
+    src = src + "\n pilot x = 40\n pilot y = 2\n ['x', y] = [1, 2]\n give back x + y\n"
+    src = src + "}"
+    src = src + "\n"
+    give back src
+}
+task h6_assignment_no_x_write(mir_id: int, name: word) -> bool {
+    pilot body_id = v4_mir_lookup_body_name(mir_id, name)
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_assign and v4_mir_stmt_lhs(mir_id, body_id, stmt_id) == "x" { give back false }
+        stmt_id += 1
+    }
+    give back true
+}
+task h6_assignment_run() -> void {
+    pilot stream = v4_lex_text(0, h6_assignment_source())
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir_id = v4_hir_lower_tree(0, tree)
+    pilot resolve_id = v4_resolve_lower_hir(0, hir_id)
+    pilot ty_id = v4_ty_lower_resolve(0, resolve_id)
+    pilot mir_id = v4_mir_lower_ty(0, ty_id)
+    pilot exact = v4_mir_diag_count(mir_id) == 4
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir_id) {
+        exact = exact and v4_diag_message(v4_mir_diag(mir_id, diag_id)) == "destructure assignment target must be local"
+        diag_id += 1
+    }
+    say "h6-assignment literal-diagnostics=" + word_from_bool(exact)
+    say "h6-assignment strings=" + word_from_bool(h6_assignment_no_x_write(mir_id, "tuple_word") and h6_assignment_no_x_write(mir_id, "sequence_word")) + " chars=" + word_from_bool(h6_assignment_no_x_write(mir_id, "tuple_char") and h6_assignment_no_x_write(mir_id, "sequence_char"))
+}
+h6_assignment_run()
