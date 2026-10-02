@@ -1,0 +1,257 @@
+-- Preserve physical path ordering and original Meiya statement query semantics.
+task borrow_path_reference_first(borrow: int, result_id: int, stmt: int, start: int) -> int {
+    pilot path = start
+    repeat until path >= v4_borrowck_result_path_count(borrow, result_id) {
+        if v4_borrowck_path_stmt(borrow, result_id, path) == stmt { give back path }
+        path += 1
+    }
+    give back 0 - 1
+}
+
+task borrow_path_matches(borrow: int, result_id: int, stmt: int) -> bool {
+    pilot expected = borrow_path_reference_first(borrow, result_id, stmt, 0)
+    pilot actual = v4_borrowck_stmt_path_first(borrow, result_id, stmt)
+    pilot count = 0
+    repeat until expected < 0 or count > v4_borrowck_result_path_count(borrow, result_id) {
+        if actual != expected { give back false }
+        actual = v4_borrowck_stmt_path_next(borrow, result_id, stmt, actual)
+        expected = borrow_path_reference_first(borrow, result_id, stmt, expected + 1)
+        count += 1
+    }
+    give back expected < 0 and actual < 0 and v4_borrowck_stmt_path_count(borrow, result_id, stmt) == count
+}
+
+task borrow_path_reference_has(borrow: int, result_id: int, stmt: int, local: word, kind: word) -> bool {
+    pilot path = 0
+    repeat until path >= v4_borrowck_result_path_count(borrow, result_id) {
+        if v4_borrowck_path_stmt(borrow, result_id, path) == stmt and v4_borrowck_path_kind(borrow, result_id, path) == kind and v4_borrowck_path_exact_local(v4_borrowck_path_text(borrow, result_id, path), local) { give back true }
+        path += 1
+    }
+    give back false
+}
+
+task borrow_path_reference_state(borrow: int, result_id: int, mir: int, body: int, local: word, block: int, initialized: bool) -> bool {
+    pilot current = initialized
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir, body) {
+        if v4_mir_stmt_block(mir, body, stmt) == block {
+            if borrow_path_reference_has(borrow, result_id, stmt, local, v4_borrowck_path_move) { current = false }
+            if borrow_path_reference_has(borrow, result_id, stmt, local, v4_borrowck_path_write) { current = true }
+        }
+        stmt += 1
+    }
+    give back current
+}
+
+task borrow_path_nth_kind(borrow: int, result_id: int, kind: word, ordinal: int) -> word {
+    pilot path = 0
+    pilot found = 0
+    repeat until path >= v4_borrowck_result_path_count(borrow, result_id) {
+        if v4_borrowck_path_kind(borrow, result_id, path) == kind {
+            if found == ordinal { give back v4_borrowck_path_text(borrow, result_id, path) }
+            found += 1
+        }
+        path += 1
+    }
+    give back ""
+}
+
+task borrow_path_semantic_source() -> word {
+    pilot src = "task consume(value: word) -> int " + "{" + "\n give back 0\n" + "}" + "\n"
+    src = src + "task moved() -> int " + "{" + "\n pilot x = \"x\"\n pilot y = x\n give back 0\n" + "}" + "\n"
+    src = src + "task reinit() -> int " + "{" + "\n pilot x = \"x\"\n pilot y = x\n x = \"again\"\n give back 0\n" + "}" + "\n"
+    src = src + "task branch(ready: bool) -> int " + "{" + "\n pilot x = \"x\"\n if ready " + "{" + "\n consume(x)\n" + "}" + "\n give back 0\n" + "}" + "\n"
+    give back src
+}
+
+task borrow_path_index_run() -> void {
+    pilot mir = v4_mir_file_new(0, 0 - 1)
+    pilot body = v4_mir_add_body(mir, "index-body", "index-body", "")
+    v4_mir_add_block(mir, body, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    v4_mir_add_stmt(mir, body, 1, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, 0 - 1)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, 0 - 1)
+    v4_mir_add_stmt(mir, body, 1, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, 0 - 1)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, 0 - 1)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, 0 - 1)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, 0 - 1)
+    v4_mir_add_stmt(mir, body, 0 - 1, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, 0 - 1)
+    v4_mir_add_stmt(mir, body, 99, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, 0 - 1)
+    pilot borrow = v4_borrowck_file_new(0, mir)
+    pilot result_id = v4_borrowck_add_result(borrow, "index-body", "index-body", v4_borrowck_clean, 0, 0, 0)
+    pilot partial: bool = v4_borrowck_stmt_path_first(borrow, result_id, 1) < 0 and v4_borrowck_stmt_path_count(borrow, result_id, 1) == 0
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, "x", 1, 0)
+    partial = partial and v4_borrowck_stmt_path_first(borrow, result_id, 1) == 0 and v4_borrowck_stmt_path_next(borrow, result_id, 1, 0) < 0
+    -- 1 and 257 collide at the initial capacity; exact integer keys still differ.
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_move, "x", 257, 1)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_move, "x", 1, 0)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, "x.field", 1, 0)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_drop, "x", 0 - 1, 0 - 1)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, "x", 9223372036854775807, 0)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_move, "x", 0 - 9223372036854775807 - 1, 0)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, " x ", 1, 99)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, "y", 1, 0)
+    pilot groups: bool = partial and borrow_path_matches(borrow, result_id, 1) and borrow_path_matches(borrow, result_id, 257) and borrow_path_matches(borrow, result_id, 0 - 1) and borrow_path_matches(borrow, result_id, 9223372036854775807) and borrow_path_matches(borrow, result_id, 0 - 9223372036854775807 - 1) and borrow_path_matches(borrow, result_id, 16)
+    groups = groups and v4_borrowck_stmt_path_count(borrow, result_id, 1) == 5 and v4_borrowck_stmt_path_next(borrow, result_id, 1, 1) == 2 and v4_borrowck_stmt_path_next(borrow, result_id, 1, 0 - 1) < 0
+    pilot exact: bool = v4_borrowck_stmt_has_exact_local_path(borrow, result_id, 1, "x", v4_borrowck_path_move) and v4_borrowck_stmt_has_exact_local_path(borrow, result_id, 1, "x", v4_borrowck_path_write) and v4_borrowck_stmt_has_exact_local_path(borrow, result_id, 1, "x.field", v4_borrowck_path_write) and v4_borrowck_stmt_has_exact_local_path(borrow, result_id, 1, "x", v4_borrowck_path_copy) == false
+    exact = exact and v4_borrowck_stmt_has_exact_local_path(borrow, result_id, 1, " x ", v4_borrowck_path_move) == borrow_path_reference_has(borrow, result_id, 1, " x ", v4_borrowck_path_move)
+    pilot other = v4_borrowck_add_result(borrow, "other", "other", v4_borrowck_clean, 0, 0, 0)
+    v4_borrowck_add_path(borrow, other, v4_borrowck_path_write, "x", 1, 99)
+    pilot blocks: bool = v4_borrowck_stmt_repairs_move(borrow, other, "x", 1, 0) == false and v4_borrowck_stmt_repairs_move(borrow, other, "x", 1, 99) and v4_borrowck_stmt_path_count(borrow, other, 1) == 1
+    pilot state: bool = v4_borrowck_local_state_after_block(borrow, result_id, mir, body, "x", 0, false) and v4_borrowck_local_state_after_block(borrow, result_id, mir, body, "x", 1, true)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_move, "x", 3, 0)
+    state = state and v4_borrowck_local_state_after_block(borrow, result_id, mir, body, "x", 0, true) == false
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, "x", 4, 0)
+    state = state and v4_borrowck_local_state_after_block(borrow, result_id, mir, body, "x", 0, false)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_move, "x", 6, 0 - 1)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, "x", 7, 99)
+    state = state and v4_borrowck_local_state_after_block(borrow, result_id, mir, body, "x", 0 - 1, true) == false and v4_borrowck_local_state_after_block(borrow, result_id, mir, body, "x", 99, false)
+    state = state and v4_borrowck_local_state_after_block(borrow, result_id, mir, body, "x", 0, false) == borrow_path_reference_state(borrow, result_id, mir, body, "x", 0, false)
+    state = state and v4_borrowck_move_repaired_before_use(borrow, result_id, mir, body, 1, 0, "x", 5, 0)
+
+    pilot payload = v4_borrowck_snapshot()
+    pilot old_owner = v4_borrowck_stmt_path_indexes_handle(borrow)
+    pilot old_index = v4_borrowck_stmt_path_index_handle(borrow, result_id)
+    pilot restore = v4_borrowck_snapshot_restore(payload)
+    pilot snapshot: bool = restore.starts_with("borrowck-snapshot-restore ok=1") and v4_borrowck_snapshot() == payload and borrow_path_matches(borrow, result_id, 1) and array_len(old_owner) == 0 and array_len(old_index) == 0
+    pilot generation = v4_borrowck_provenance_scratch_generation()
+    pilot stable_index = v4_borrowck_stmt_path_index_handle(borrow, result_id)
+    pilot rebuilds = v4_borrowck_stmt_path_index_rebuilds
+    pilot rejected = v4_borrowck_snapshot_restore(payload + "\nborrowck-path")
+    pilot invalid: bool = rejected.starts_with("borrowck-snapshot-restore ok=0") and v4_borrowck_snapshot() == payload and v4_borrowck_stmt_path_index_handle(borrow, result_id) == stable_index and v4_borrowck_stmt_path_index_rebuilds == rebuilds and v4_borrowck_provenance_scratch_generation() == generation
+    pilot round = 0
+    pilot repeated: bool = true
+    repeat until round >= 4 {
+        old_owner = v4_borrowck_stmt_path_indexes_handle(borrow)
+        old_index = v4_borrowck_stmt_path_index_handle(borrow, result_id)
+        pilot old_other = v4_borrowck_stmt_path_index_handle(borrow, other)
+        pilot report = v4_borrowck_snapshot_restore(payload)
+        repeated = repeated and report.starts_with("borrowck-snapshot-restore ok=1") and v4_borrowck_snapshot() == payload and borrow_path_matches(borrow, result_id, 1)
+        repeated = repeated and array_len(old_owner) == 0 and array_len(old_index) == 0 and array_len(old_other) == 0 and array_len(v4_borrowck_stmt_path_index_handle(borrow, result_id)) == 143
+        round += 1
+    }
+
+    -- Reordered/repeated rows overwrite in wire order, then group by final IDs.
+    pilot loose = v4_borrowck_snapshot_header() + "\n" + v4_borrowck_snapshot_file_line(borrow) + "\n" + v4_borrowck_snapshot_result_line(borrow, result_id) + "\n"
+    loose = loose + "borrowck-path|" + word_from_int(borrow) + "|0|3|Move|x|7|0\n"
+    loose = loose + "borrowck-path|" + word_from_int(borrow) + "|0|0|Write|x|7|0\n"
+    loose = loose + "borrowck-path|" + word_from_int(borrow) + "|0|3|Move|x|9|1\nend|" + v4_borrowck_snapshot_format
+    pilot loose_report = v4_borrowck_snapshot_restore(loose)
+    pilot overwrite: bool = loose_report.starts_with("borrowck-snapshot-restore ok=1") and v4_borrowck_stmt_path_first(borrow, result_id, 7) == 0 and v4_borrowck_stmt_path_first(borrow, result_id, 9) == 3 and v4_borrowck_stmt_path_first(borrow, result_id, 1) < 0 and v4_borrowck_stmt_path_count(borrow, result_id, 0 - 1) == 2
+    overwrite = overwrite and borrow_path_matches(borrow, result_id, 7) and borrow_path_matches(borrow, result_id, 9) and borrow_path_matches(borrow, result_id, 0 - 1)
+    v4_borrowck_restore_path_slot(borrow, result_id, 3, v4_borrowck_path_write, "ship.hp", 7, 99)
+    rebuilds = v4_borrowck_stmt_path_index_rebuilds
+    pilot cold: bool = v4_borrowck_stmt_path_index_is_ready(borrow, result_id) == false and borrow_path_matches(borrow, result_id, 7) and v4_borrowck_stmt_path_first(borrow, result_id, 9) < 0 and v4_borrowck_stmt_repairs_move(borrow, result_id, "ship.hp", 7, 0) == false and v4_borrowck_stmt_repairs_move(borrow, result_id, "ship.hp", 7, 99)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_move, "tail", 7, 0)
+    cold = cold and borrow_path_matches(borrow, result_id, 7) and v4_borrowck_stmt_path_index_rebuilds == rebuilds
+    pilot finalized: bool = v4_borrowck_finalize_stmt_path_index(borrow, result_id)
+    cold = cold and finalized and borrow_path_matches(borrow, result_id, 7)
+    old_index = v4_borrowck_stmt_path_index_handle(borrow, result_id)
+    v4_borrowck_restore_result_slot(borrow, result_id, "reused", "reused", v4_borrowck_clean, 0, 0, 0)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, "new", 12, 0)
+    pilot reused: bool = array_len(old_index) == 0 and v4_borrowck_stmt_path_first(borrow, result_id, 7) < 0 and v4_borrowck_stmt_path_first(borrow, result_id, 12) == 0
+    old_owner = v4_borrowck_stmt_path_indexes_handle(borrow)
+    old_index = v4_borrowck_stmt_path_index_handle(borrow, result_id)
+    v4_borrowck_restore_file_slot(borrow, 13, mir)
+    result_id = v4_borrowck_add_result(borrow, "file-reused", "file-reused", v4_borrowck_clean, 0, 0, 0)
+    reused = reused and array_len(old_owner) == 0 and array_len(old_index) == 0 and v4_borrowck_stmt_path_count(borrow, result_id, 12) == 0
+
+    -- Real drop decisions still distinguish move, reinitialization and CFG joins.
+    pilot source = borrow_path_semantic_source()
+    pilot stream = v4_lex_text(14, source)
+    pilot tree = v4_parse_stream(14, stream)
+    pilot hir = v4_hir_lower_tree(14, tree)
+    pilot resolved = v4_resolve_lower_hir(14, hir)
+    pilot ty = v4_ty_lower_resolve(14, resolved)
+    pilot source_mir = v4_mir_lower_ty(14, ty)
+    pilot checked = v4_borrowck_check_mir(14, source_mir)
+    pilot moved = v4_borrowck_lookup_result(checked, v4_resolve_def_for_name(resolved, "moved"))
+    pilot reinit = v4_borrowck_lookup_result(checked, v4_resolve_def_for_name(resolved, "reinit"))
+    pilot branch = v4_borrowck_lookup_result(checked, v4_resolve_def_for_name(resolved, "branch"))
+    pilot semantic: bool = v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolved) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(source_mir) == 0 and v4_borrowck_diag_count(checked) == 0
+    semantic = semantic and v4_borrowck_result_status(checked, moved) == v4_borrowck_clean and v4_borrowck_result_drops(checked, moved) == 1 and borrow_path_nth_kind(checked, moved, v4_borrowck_path_drop, 0) == "y"
+    semantic = semantic and v4_borrowck_result_drops(checked, reinit) == 2 and borrow_path_nth_kind(checked, reinit, v4_borrowck_path_drop, 0) == "y" and borrow_path_nth_kind(checked, reinit, v4_borrowck_path_drop, 1) == "x"
+    semantic = semantic and v4_borrowck_path_count_by_kind(checked, branch, v4_borrowck_path_drop_if) == 1 and borrow_path_nth_kind(checked, branch, v4_borrowck_path_drop_if, 0) == "x"
+
+    pilot large = v4_borrowck_add_result(borrow, "large", "large", v4_borrowck_clean, 0, 0, 0)
+    pilot pass_id = 0
+    pilot key = 0
+    pilot incremental: bool = true
+    pilot linear = v4_borrowck_stmt_path_linear_steps
+    repeat until pass_id >= 4 {
+        key = 0
+        repeat until key >= 1024 {
+            incremental = incremental and v4_borrowck_stmt_path_count(borrow, large, key) == pass_id
+            v4_borrowck_add_path(borrow, large, v4_borrowck_path_write, "value", key, 0)
+            key += 1
+        }
+        pass_id += 1
+    }
+    incremental = incremental and v4_borrowck_stmt_path_index_is_ready(borrow, large) and v4_borrowck_stmt_path_linear_steps == linear
+    pilot probes = v4_borrowck_stmt_path_index_probes
+    pilot visits = v4_borrowck_stmt_path_index_visits
+    linear = v4_borrowck_stmt_path_linear_steps
+    key = 0
+    pilot bounded: bool = true
+    repeat until key >= 1024 {
+        pilot path = v4_borrowck_stmt_path_first(borrow, large, key)
+        pass_id = 0
+        repeat until pass_id >= 4 {
+            bounded = bounded and path == pass_id * 1024 + key
+            path = v4_borrowck_stmt_path_next(borrow, large, key, path)
+            pass_id += 1
+        }
+        bounded = bounded and path < 0 and v4_borrowck_stmt_path_count(borrow, large, key) == 4 and v4_borrowck_stmt_path_first(borrow, large, 8192 + key) < 0
+        key += 1
+    }
+    bounded = bounded and v4_borrowck_stmt_path_index_visits - visits == 4096 and v4_borrowck_stmt_path_index_probes - probes < 16384 and v4_borrowck_stmt_path_linear_steps == linear
+
+    -- Real optional-storage exhaustion must preserve the authoritative paths.
+    -- Four free handles suffice for a new result's four path columns, even when
+    -- the following derived table allocation fails.
+    pilot holders = array_new()
+    pilot held = 0
+    pilot exhausted: bool = false
+    repeat until exhausted or held >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            held += 1
+        }
+    }
+    v4_borrowck_invalidate_stmt_path_index(borrow, large)
+    pilot failed: bool = v4_borrowck_finalize_stmt_path_index(borrow, large) == false
+    pilot exhaustion: bool = exhausted and failed and v4_borrowck_stmt_has_exact_local_path(borrow, large, 1023, "value", v4_borrowck_path_write) and v4_borrowck_stmt_path_first(borrow, large, 2048) < 0
+    v4_borrowck_add_path(borrow, large, v4_borrowck_path_move, "tail", 2048, 0)
+    exhaustion = exhaustion and v4_borrowck_stmt_path_first(borrow, large, 2048) == 4096
+    pass_id = 0
+    repeat until pass_id >= 4 {
+        held -= 1
+        array_release(word_to_int(array_get(holders, held)))
+        pass_id += 1
+    }
+    pilot optional = v4_borrowck_add_result(borrow, "optional", "optional", v4_borrowck_clean, 0, 0, 0)
+    v4_borrowck_add_path(borrow, optional, v4_borrowck_path_write, "authoritative", 42, 0)
+    pilot facts: bool = v4_borrowck_result_path_kinds_handle(borrow, optional) >= 0 and v4_borrowck_result_path_texts_handle(borrow, optional) >= 0 and v4_borrowck_result_path_stmt_ids_handle(borrow, optional) >= 0 and v4_borrowck_result_path_block_ids_handle(borrow, optional) >= 0 and v4_borrowck_stmt_path_index_handle(borrow, optional) < 0 and v4_borrowck_stmt_path_first(borrow, optional, 42) == 0 and v4_borrowck_path_text(borrow, optional, 0) == "authoritative"
+    key = 0
+    repeat until key >= held {
+        array_release(word_to_int(array_get(holders, key)))
+        key += 1
+    }
+    array_release(holders)
+    pilot recovered: bool = v4_borrowck_finalize_stmt_path_index(borrow, large)
+    recovered = recovered and v4_borrowck_finalize_stmt_path_index(borrow, optional) and v4_borrowck_stmt_path_first(borrow, large, 2048) == 4096 and v4_borrowck_stmt_path_first(borrow, optional, 42) == 0
+    v4_borrowck_release_stmt_path_indexes(borrow)
+    rebuilds = v4_borrowck_stmt_path_index_rebuilds
+    pilot absent: bool = v4_borrowck_finalize_stmt_path_index(borrow, large) == false and v4_borrowck_stmt_path_first(borrow, optional, 42) == 0 and borrow_path_matches(borrow, large, 2048) and v4_borrowck_stmt_path_index_rebuilds == rebuilds
+    pilot detached = v4_borrowck_add_result(borrow, "detached", "detached", v4_borrowck_clean, 0, 0, 0)
+    v4_borrowck_add_path(borrow, detached, v4_borrowck_path_write, "detached", 77, 0)
+    absent = absent and v4_borrowck_stmt_path_index_handle(borrow, detached) < 0 and v4_borrowck_stmt_path_first(borrow, detached, 77) == 0
+
+    say "borrow-path-index groups=" + word_from_bool(groups) + " exact=" + word_from_bool(exact) + " blocks=" + word_from_bool(blocks) + " state=" + word_from_bool(state)
+    say "borrow-path-index snapshot=" + word_from_bool(snapshot) + " invalid=" + word_from_bool(invalid) + " repeated=" + word_from_bool(repeated)
+    say "borrow-path-index overwrite=" + word_from_bool(overwrite) + " cold=" + word_from_bool(cold) + " reused=" + word_from_bool(reused)
+    say "borrow-path-index semantic=" + word_from_bool(semantic) + " incremental=" + word_from_bool(incremental) + " bounded=" + word_from_bool(bounded)
+    say "borrow-path-index exhausted=" + word_from_bool(exhaustion) + " authoritative=" + word_from_bool(facts) + " recovered=" + word_from_bool(recovered) + " absent=" + word_from_bool(absent)
+}
+
+borrow_path_index_run()
