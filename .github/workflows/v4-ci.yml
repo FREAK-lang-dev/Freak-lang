@@ -187,7 +187,9 @@ jobs:
       - name: V4 executable smoke shard
         run: >
           python -u src/compiler/v4/check_v4.py
-          --smoke-exclude unit_snapshot
+          --smoke-exclude unit_snapshot_smoke.fk
+          --smoke-exclude unit_snapshot_const_smoke.fk
+          --smoke-exclude unit_snapshot_diff_smoke.fk
           --smoke-shard ${{ matrix.shard }}
 
   v4-runtime-linux-unit-snapshot:
