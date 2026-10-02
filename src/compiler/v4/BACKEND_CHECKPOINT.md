@@ -1,12 +1,84 @@
 # V4 backend checkpoint - 2026-10-02
 
-The handoff 4 memory fixes and handoff 5 derived lookup changes are implemented.
-All six measured shapes compile and execute with unchanged LLVM output. The
-56,003-line task input takes 13.7 seconds; remaining TY closure-validation and
-loan-bearing Meiya scans are described below. V4 assembles and runs scalar
-LLVM modules, including local mutation, scoped bindings, control flow, ordered
-short-circuit evaluation, numeric conversions, scalar associated impl tasks and
-literal `say`. General word values and compiler self-hosting remain open.
+Handoff 6 fixes nested counted loops, literal grammar scans, boolean aliases,
+and indirect callback calls. Unsupported native MIR now receives named errors;
+diagnostic restoration and source-loading failures preserve live state. The
+handoff 4 memory and handoff 5 lookup results remain the measured scaling
+checkpoints below. This scalar backend still leaves general word ownership,
+aggregate layout, target-width C ABI fidelity, and compiler self-hosting open.
+
+## Handoff 6: correctness
+
+The pinned integration base is `5cb1d2b2ad1653efc5b116a8a6e3d03bf371b85c`.
+Baseline reproduction uses the frozen handoff-5 compiler at
+`3db07fb68e8d370fef3551d074c843418ce4e705`, whose compiler sources match that
+base. These x86_64 Linux cases reproduce the handoff's five REAL findings:
+
+| Finding | Baseline evidence | Current behavior and regression |
+|---|---|---|
+| F02, nested counted loops | Three levels returned 8 instead of 24; four returned 4 instead of 16 | Every counted loop allocates a fresh local identity. Native checks cover depths 3/4/5, siblings, source-name collisions, break and continue. |
+| F03, literal delimiters | `two(",", ")")` falsely reports three arguments | Structural token readers exclude String/Char payloads. Frontend and MIR checks preserve delimiter/keyword/operator data in lists, tuples, arrays, maps, constructors, calls, returns, conditions and compact patterns. Raw display text stays intact. |
+| F04, empty callback arguments | LLVM repeats a callee SSA definition and passes it to itself | The callee is separate from the argument list and computed targets become MIR children. Native zero/one/multiple-argument callbacks, local and returned targets execute; the producer prints exactly once per evaluation. Unsupported field callbacks are fenced. |
+| F06, boolean aliases | `ret i1 yes` fails clang verification | MIR stores canonical true/false; Codegen also normalizes older restored aliases. Eighteen lower/upper/title-case spellings execute as returns, locals, arguments and conditions. Reserved literal spellings diagnose at parameter/local declarations. |
+| F08, unsupported native facts | Shape/field code emits an undefined `%P` layout | Codegen seals named errors before assembling bodies. Checks reject 23 unsupported rvalue kinds, three place kinds, 14 type families, incompatible literal types and malformed references, including restored facts; no module is returned. |
+| F09, diagnostic restore storage | Replacement children were abandoned in source | Direct replacements release old children; whole v1 restore stages an overlay and publishes atomically. 600 direct and 600 whole restores keep handle capacity stable. Exhaustion/partial failures preserve live bytes and recover; sparse, dense and duplicate-order cases retain validation semantics. |
+| F10, source reads and executable entry | Driver confuses empty contents with an I/O error | Checked bootstrap reads accept empty regular files and return errors for failed/nonregular reads before source/query publication. File APIs retain cached/live facts on failure. Executable builds require main; library Codegen can omit it. |
+
+F10's missing-file build claim is stale at this pinned base: Python already
+rejects non-files and the old C read helper exits on open failure. The new helper
+provides an explicit error result for the driver and bootstrap tool, including
+metadata, seek/tell, short-read, allocation and close failures. Its C fault
+fixture checks nine injected faults and exact successful contents/recovery;
+POSIX coverage additionally rejects FIFOs without blocking. LF is pinned for
+the exact-content source fixture on Windows checkouts. Windows native execution
+has not been performed here.
+
+Empty void returns now have an absent operand rather than an Unknown sentinel,
+so the strengthened native fence preserves existing `ret void` behavior. The
+checks retain F01/F05/F07 native behavior and F11's literal-say rejection.
+Indirect returned loans remain opaque to Meiya and diagnose at the invocation
+with a blocked result. Generic pointer-cast frontend/MIR coverage is retained,
+while native scalar emission uses a unit without the unsupported aggregate
+receiver and the generic unit explicitly requires a named no-module fence.
+C-width ABI lowering (B01) remains deferred. No language semantics, public wire
+versions, or root-scope rules change. The additive checked read uses the existing
+bootstrap C result representation; it does not add a native word/result ABI or
+complete the standard filesystem surface.
+
+### Resource boundary and verification
+
+All 20 added executable smokes use the unchanged 64 MiB process guard and
+1,024 live-array ceiling. Five added native programs each run in a separate
+compiler fixture process, validate/restore MIR, compare modules byte for byte,
+and require exact native exit/stdout/stderr. The Bool source combines 18 return
+helpers into one selector; the ordinary computed-callback source splits its
+multiple-argument case into a second program. Both preserve the original case
+checks. These sizes fit the existing authoritative MIR lifetime policy: larger
+initial fixtures exhausted handles during Meiya or MIR restore, which can stall
+under exhausted storage. This checkpoint fixes diagnostic restoration only;
+it does not claim general MIR/Meiya restore lifetime or exhaustion recovery.
+
+The full gate passes all 302 registered smokes and all 15 native LLVM programs
+on compiler/checker/fixture sources at `cd8b82d63faf74cefacb9a8e37f483c9647f5351`. It includes exact
+Hello World output, the checked-read C fault fixture, warning-only execution,
+and stage-owned build-command rejection. Peak retained runner memory is
+107.9 MiB against the 256 MiB limit. Independent review reports no unresolved
+source findings. Conformance and the 0.14.2 version invariant pass at
+`00b51831f1b550ecc12279aa95b5ef1d37d3f4d5`, with the existing warning that the shipping native CLI is not
+built in this workspace. The conformance follow-up changes only its duplicate
+callback oracle. Report and documentation changes preserve the tested compiler,
+check_v4 harness and fixtures.
+
+Portable baseline/tool hashes, source hashes and gate evidence are in
+[`benchmarks/v4/correctness_handoff6.json`](../../../benchmarks/v4/correctness_handoff6.json).
+Raw captures and independent reviews remain in `/workspace/v4-correctness6`.
+
+```sh
+python src/compiler/v4/check_v4.py --smoke H6
+python src/compiler/v4/check_v4.py
+python -u -m freakc audit-conformance
+python -u tools/release_version.py check
+```
 
 ## Handoff 5: six-shape lookup scaling
 

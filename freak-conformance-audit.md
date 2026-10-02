@@ -43,6 +43,22 @@ say, and broader native word values fail explicitly. This narrow backend slice
 does not promote general word ownership, interpolation, methods, globals, or
 self-hosting conformance; the bible's language semantics are unchanged.
 
+**V4 correctness checkpoint (2026-10-02):** counted loops use fresh synthetic
+local identities at every depth; boolean aliases and admitted casing normalize
+to canonical MIR/LLVM values; literal delimiter/keyword data stays out of
+structural token scans. Indirect callbacks keep empty arguments separate from
+the callee and evaluate computed targets once. Native Codegen rejects
+unsupported aggregate, container,
+closure and field/index facts by name before module emission. General aggregate
+layout and C-width ABI lowering remain open. Diagnostic v1 restoration preserves
+its overlay/duplicate order through atomic staging and released replacement
+storage. Bootstrap checked source reads distinguish empty regular files from
+I/O errors without publishing failed sources or query results; the executable
+build command requires `main`, while public library Codegen does not. These
+fixes retain existing wire versions and language semantics; the additive
+bootstrap checked-read helper does not promote the full standard filesystem or
+native word ownership/result surface.
+
 **V3 process ABI boundary (2026-08-10):** the shipping compiler rejects
 `process::args()`; its conversion to the bible-required `List<word>` remains
 unimplemented even with typed list storage available. V3 callers use `process::args_count()` and

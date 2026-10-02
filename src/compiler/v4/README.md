@@ -34,6 +34,17 @@ definition headers from declaration-plan metadata are not emitted twice.
 Bodies, literal globals, entry text, and native contract errors are sealed
 together during lowering; a retained codegen handle stays byte identical when
 MIR snapshots restore different facts under reused IDs.
+Counted loops allocate fresh synthetic MIR locals with explicit identities in
+`UseLocal` operations; user names and nesting depth cannot reuse their counters.
+Boolean literals use canonical MIR `true`/`false` values. Codegen also normalizes
+older restored alias spellings. Structural token readers exclude String and
+Char payloads while preserving their raw data for display and literal values.
+Native lowering seals named errors for unsupported rvalues, places and type
+families before assembling bodies, so aggregate syntax cannot escape as invalid
+LLVM. Scalar, raw pointer and task pointer support retains its existing boundary.
+Indirect calls keep their callee separate from arguments, including empty
+argument lists. Local, returned and grouped task pointers evaluate their target
+once; unsupported field callback places receive a native-contract error.
 Module and body assembly collect borrowed fragments and join once. Expression
 trees append into one shared fragment buffer, so recursive returns do not copy
 complete child prefixes. The registered 128 MiB resource fixtures cover 800
@@ -87,6 +98,23 @@ bootstrap compatibility mode; normal root scope continues to follow bible
 section 17.4. Cross-target module text is available, but only host linking is
 exercised here; the existing FFI metadata checks are not a complete native ABI
 proof.
+
+Source loading uses the additive bootstrap `fs::read_checked` helper, which
+returns the existing C `result<word,word>` representation. Empty regular files
+succeed; open, metadata, seek, read and close failures return errors before any
+source/query publication. The legacy bootstrap `fs::read` ABI is unchanged.
+The command requires a source `main`; public Codegen APIs can still emit library
+modules without one. This helper does not complete bible section 7.7's standard
+filesystem API or add a native word-result ABI.
+
+Diagnostic snapshot restoration stages a copy of the live diagnostic arena,
+applies the v1 overlay in wire order, and publishes only after every allocation
+and row succeeds. Failed restoration preserves live bytes and releases staged
+arrays. Direct replacements release old children. Checked coordinates reject
+negative/overflowing IDs and bound sparse expansion to 65,536 slots relative to
+current logical sizes or observed payload rows; dense arenas can grow beyond
+that size. Repeated restore and allocation-failure fixtures run under the
+existing 1,024 live-array ceiling and 64 MiB memory guard.
 
 The measured before/after results, crate diagnostics, and remaining handoff
 contracts are tracked in [BACKEND_CHECKPOINT.md](BACKEND_CHECKPOINT.md).
