@@ -204,20 +204,31 @@ task v4_ty_bounds_run() -> void {
     pilot hir_publish: bool = v4_ty_item_method_cache_finalize(ty)
     say "ty-bounds-hir-overwrite-cold-recover=" + word_from_bool(hir_cold and hir_publish and v4_ty_impl_method_count(ty, owner) == 3)
 
-    -- Supported raw token edit invalidates both TY and Lex offset pairs.
+    -- Value-only and nonmonotonic-span edits have different raw semantics.
+    -- Each supported mutation invalidates both TY and Lex offset pairs.
     old_revision = v4_lex_stream_revision(stream)
     builds = v4_ty_item_method_cache_builds
     pilot token_span = v4_lex_token_span(stream, first)
     array_set(v4_lex_values_handle(stream), first, "noop")
+    v4_lex_note_stream_mutation(stream)
+    pilot value_cold: bool = v4_lex_stream_revision(stream) > old_revision and v4_lex_boundaries_handle(stream) < 0 and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, owner) == 2 and v4_ty_impl_method_count(ty, owner) == v4_ty_impl_method_count_uncached(ty, owner) and v4_ty_item_method_cache_builds == builds
+    array_set(v4_lex_values_handle(stream), first, "task")
+    v4_lex_note_stream_mutation(stream)
+    pilot value_bounds: bool = v4_lex_rebuild_boundaries(stream)
+    pilot value_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    pilot value_recovered: bool = value_bounds and value_publish and v4_ty_impl_method_count(ty, owner) == 3
+    old_revision = v4_lex_stream_revision(stream)
+    builds = v4_ty_item_method_cache_builds
     array_set(v4_lex_spans_handle(stream), first, v4_span_new(word_from_int(file), 999999, 1000000))
     v4_lex_note_stream_mutation(stream)
-    pilot lex_cold: bool = v4_lex_stream_revision(stream) > old_revision and v4_lex_boundaries_handle(stream) < 0 and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, owner) == 2 and v4_ty_impl_method_count(ty, owner) == v4_ty_impl_method_count_uncached(ty, owner) and v4_ty_first_token_at_or_after(stream, v4_span_start(token_span)) == first and v4_ty_item_method_cache_builds == builds
-    array_set(v4_lex_values_handle(stream), first, "task")
+    -- The first task's moved start is now the first physical boundary beyond
+    -- the owner's end byte. Original scanners therefore see no complete body.
+    pilot lex_cold: bool = v4_lex_stream_revision(stream) > old_revision and v4_lex_boundaries_handle(stream) < 0 and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_hir_item_end_token(hir, owner) == first and v4_ty_impl_method_count(ty, owner) == 0 and v4_ty_impl_method_count(ty, owner) == v4_ty_impl_method_count_uncached(ty, owner) and v4_ty_first_token_at_or_after(stream, v4_span_start(token_span)) == first and v4_ty_item_method_cache_builds == builds
     array_set(v4_lex_spans_handle(stream), first, token_span)
     v4_lex_note_stream_mutation(stream)
     pilot lex_bounds: bool = v4_lex_rebuild_boundaries(stream)
     pilot lex_publish: bool = v4_ty_item_method_cache_finalize(ty)
-    say "ty-bounds-token-overwrite-cold-recover=" + word_from_bool(lex_cold and lex_bounds and lex_publish and v4_ty_impl_method_count(ty, owner) == 3)
+    say "ty-bounds-token-overwrite-cold-recover=" + word_from_bool(value_cold and value_recovered and lex_cold and lex_bounds and lex_publish and v4_ty_impl_method_count(ty, owner) == 3)
 
     -- Direct TY signature restore also stays cold until explicit publication.
     pilot main_def = v4_ty_signature_def(ty, main)
