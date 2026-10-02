@@ -1,0 +1,211 @@
+-- Derived TY name/definition indexes: physical precedence, append and restores.
+-- Verification prepends the V4 crates before this file.
+
+task v4_ty_index_fixture_source() -> word {
+    pilot src = "shape Ship<T> {\n"
+    src = src + "    cargo: T\n"
+    src = src + "}\n"
+    src = src + "route Path<T> {\n"
+    src = src + "    Dock\n"
+    src = src + "}\n"
+    src = src + "doctrine View\n"
+    src = src + "alias Vessel<T> = Ship<T>\n"
+    src = src + "alias Course<T> = Path<T>\n"
+    src = src + "alias Lens = View\n"
+    src = src + "fixed pilot LEVEL = 7\n"
+    src = src + "task main() -> int {\n"
+    src = src + "    give back LEVEL\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_ty_index_scaling(ty_id: int, count: int) -> int {
+    v4_ty_restore_file_slot(ty_id, 90, 0 - 1)
+    pilot builds_before = v4_ty_signature_index_build_records
+    pilot row = 0
+    pilot correct = true
+    repeat until row >= count {
+        pilot name = "scale" + word_from_int(row)
+        pilot def_id = "scale-def" + word_from_int(row)
+        if v4_ty_lookup_signature(ty_id, def_id) != 0 - 1 { correct = false }
+        if v4_ty_alias_signature_id_for_name(ty_id, name) != 0 - 1 { correct = false }
+        if v4_ty_add_signature(ty_id, def_id, v4_ty_task_sig, name, name, 0) != row { correct = false }
+        row += 1
+    }
+    v4_ty_signature_index_finalize(ty_id)
+    pilot probes_before = v4_ty_signature_index_lookup_probes
+    row = 0
+    repeat until row >= count {
+        pilot name = "scale" + word_from_int(row)
+        pilot missing = "absent" + word_from_int(row)
+        if v4_ty_task_signature_id_for_name(ty_id, name) != row { correct = false }
+        if v4_ty_lookup_signature(ty_id, "scale-def" + word_from_int(row)) != row { correct = false }
+        if v4_ty_alias_signature_id_for_name(ty_id, missing) != 0 - 1 { correct = false }
+        if v4_ty_type_signature_id_for_name(ty_id, missing) != 0 - 1 { correct = false }
+        if v4_ty_shape_signature_id_for_name(ty_id, missing) != 0 - 1 { correct = false }
+        if v4_ty_route_signature_id_for_name(ty_id, missing) != 0 - 1 { correct = false }
+        row += 1
+    }
+    pilot probes = v4_ty_signature_index_lookup_probes - probes_before
+    pilot rebuilt = v4_ty_signature_index_build_records - builds_before
+    say "ty-index-scale" + word_from_int(count) + "-correct=" + word_from_bool(correct)
+    say "ty-index-scale" + word_from_int(count) + "-bounded=" + word_from_bool(probes <= 32 * count and rebuilt <= 3 * count)
+    give back probes
+}
+
+task v4_ty_index_available_handles() -> int {
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted = false
+    repeat until exhausted or count >= 2048 {
+        pilot candidate = array_new()
+        if candidate < 0 {
+            exhausted = true
+        } else {
+            array_push(holders, word_from_int(candidate))
+            count += 1
+        }
+    }
+    pilot row = 0
+    repeat until row >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, row)))
+        row += 1
+    }
+    array_release(holders)
+    give back count
+}
+
+task v4_ty_index_fixture_run() -> void {
+    pilot source = v4_ty_index_fixture_source()
+    pilot source_id = v4_source_add("ty-index.fk", source)
+    pilot stream = v4_lex_text(source_id, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir_id = v4_hir_lower_tree(0, tree)
+    pilot resolve_id = v4_resolve_lower_hir(0, hir_id)
+    pilot base = v4_ty_lower_resolve(0, resolve_id)
+    pilot baseline = v4_ty_snapshot()
+    pilot ship = v4_ty_shape_signature_id_for_name(base, "Ship")
+    pilot path = v4_ty_route_signature_id_for_name(base, "Path")
+    pilot view = v4_ty_doctrine_signature_id_for_name(base, "View")
+    pilot normal: bool = v4_ty_shape_signature_id_for_name(base, "Vessel<int>") == ship and v4_ty_route_signature_id_for_name(base, "Course<int>") == path and v4_ty_doctrine_signature_id_for_name(base, "View<int>") == view and v4_ty_doctrine_signature_id_for_name(base, "Lens") == 0 - 1
+    say "ty-index-normalized=" + word_from_bool(normal and ship >= 0 and path >= 0 and view >= 0)
+    say "ty-index-lower-clean=" + word_from_bool(v4_parse_diag_count(tree) == 0 and v4_ty_diag_count(base) == 0)
+
+    pilot id = v4_ty_file_new(90, 0 - 1)
+    v4_ty_add_signature(id, "shared-task", v4_ty_task_sig, "Shared", "Shared", 0)
+    v4_ty_add_signature(id, "shared-route", v4_ty_route_sig, "Shared", "Shared", 0)
+    v4_ty_add_signature(id, "shared-shape", v4_ty_shape_sig, "Shared", "Shared", 0)
+    v4_ty_add_signature(id, "first-alias", v4_ty_alias_sig, "Alias", "Alias", 0)
+    v4_ty_add_signature(id, "second-alias", v4_ty_alias_sig, "Alias", "Alias", 0)
+    v4_ty_add_signature(id, "duplicate-def", v4_ty_const_sig, "CONST", "CONST", 0)
+    v4_ty_add_signature(id, "duplicate-def", v4_ty_const_sig, "CONST", "CONST", 0)
+    pilot first: bool = v4_ty_alias_signature_id_for_name(id, "Alias") == 3 and v4_ty_const_signature_id_for_name(id, "CONST") == 5 and v4_ty_task_signature_id_for_name(id, "Shared") == 0 and v4_ty_lookup_signature(id, "duplicate-def") == 5
+    say "ty-index-first-kind-and-def=" + word_from_bool(first)
+    say "ty-index-first-type-union=" + word_from_bool(v4_ty_type_signature_id_for_name(id, "Shared") == 1 and v4_ty_is_declared_simple_type_name(id, "CONST") and v4_ty_type_signature_id_for_name(id, "CONST") == 0 - 1)
+    pilot miss: bool = v4_ty_alias_signature_id_for_name(id, "Later") == 0 - 1 and v4_ty_lookup_signature(id, "later-def") == 0 - 1
+    pilot later = v4_ty_add_signature(id, "later-def", v4_ty_alias_sig, "Later", "Later", 0)
+    say "ty-index-append-after-miss=" + word_from_bool(miss and later == 7 and v4_ty_alias_signature_id_for_name(id, "Later") == 7 and v4_ty_lookup_signature(id, "later-def") == 7)
+
+    v4_ty_restore_signature_slot(id, 3, "renamed-def", v4_ty_shape_sig, "Renamed", "Renamed", 0)
+    pilot renamed: bool = v4_ty_alias_signature_id_for_name(id, "Alias") == 4 and v4_ty_lookup_signature(id, "first-alias") == 0 - 1 and v4_ty_lookup_signature(id, "renamed-def") == 3 and v4_ty_shape_signature_id_for_name(id, "Renamed") == 3
+    v4_ty_restore_signature_slot(id, 0, "early-doctrine", v4_ty_doctrine_sig, "Shared", "Shared", 0)
+    say "ty-index-overwrite-name-kind-def=" + word_from_bool(renamed and v4_ty_type_signature_id_for_name(id, "Shared") == 0 and v4_ty_task_signature_id_for_name(id, "Shared") == 0 - 1 and v4_ty_doctrine_signature_id_for_name(id, "Shared") == 0)
+    v4_ty_restore_signature_slot(id, 20, "sparse-def", v4_ty_const_sig, "Sparse", "Sparse", 0)
+    say "ty-index-sparse-restore=" + word_from_bool(v4_ty_signature_count(id) == 21 and v4_ty_const_signature_id_for_name(id, "Sparse") == 20 and v4_ty_lookup_signature(id, "") == 8)
+    pilot before_bad = v4_ty_snapshot()
+    pilot bad = v4_ty_snapshot_restore("not-a-snapshot")
+    say "ty-index-invalid-restore-stable=" + word_from_bool(bad.starts_with("ty-snapshot-restore ok=0") and v4_ty_snapshot() == before_bad and v4_ty_const_signature_id_for_name(id, "Sparse") == 20)
+    say "ty-index-invalid-owner=" + word_from_bool(v4_ty_lookup_signature(0 - 1, "") == 0 - 1 and v4_ty_alias_signature_id_for_name(999999, "Alias") == 0 - 1)
+
+    -- A derived table with no empty bucket must use authoritative linear facts.
+    pilot packed = v4_ty_signature_index_handle(id)
+    pilot capacity = word_to_int(array_get(packed, 1))
+    pilot bucket = 0
+    repeat until bucket >= capacity {
+        array_set(packed, 3 + 2 * bucket, word_from_int(v4_ty_signature_index_def))
+        array_set(packed, 4 + 2 * bucket, "1")
+        bucket += 1
+    }
+    pilot fallback_before = v4_ty_signature_index_fallbacks
+    pilot fallback: bool = v4_ty_const_signature_id_for_name(id, "Sparse") == 20 and v4_ty_signature_index_fallbacks == fallback_before + 1
+    v4_ty_signature_index_invalidate(id)
+    say "ty-index-full-table-fallback=" + word_from_bool(fallback and v4_ty_const_signature_id_for_name(id, "Sparse") == 20)
+
+    v4_ty_restore_file_slot(id, 91, 0 - 1)
+    v4_ty_signature_index_finalize(id)
+    pilot collision_capacity = word_to_int(array_get(v4_ty_signature_index_handle(id), 1))
+    pilot first_key = "collision0"
+    pilot first_bucket = v4_ty_signature_index_hash(first_key, v4_ty_signature_index_alias, collision_capacity)
+    pilot second_key = ""
+    pilot candidate = 1
+    repeat until second_key != "" or candidate >= 20000 {
+        pilot key = "collision" + word_from_int(candidate)
+        if v4_ty_signature_index_hash(key, v4_ty_signature_index_alias, collision_capacity) == first_bucket { second_key = key }
+        candidate += 1
+    }
+    v4_ty_add_signature(id, "collision-first", v4_ty_alias_sig, first_key, first_key, 0)
+    v4_ty_add_signature(id, "collision-second", v4_ty_alias_sig, second_key, second_key, 0)
+    pilot collision_probes_before = v4_ty_signature_index_lookup_probes
+    pilot collision: bool = second_key != "" and v4_ty_alias_signature_id_for_name(id, first_key) == 0 and v4_ty_alias_signature_id_for_name(id, second_key) == 1
+    say "ty-index-collision=" + word_from_bool(collision and v4_ty_signature_index_lookup_probes - collision_probes_before >= 3)
+
+    -- Resolve-first task lookup may select an extern ahead of a task fallback.
+    pilot extern_resolve = v4_resolve_new(92, 0 - 1)
+    v4_resolve_add_symbol(extern_resolve, "call", v4_hir_task, "extern-def", 0)
+    v4_ty_restore_file_slot(id, 92, extern_resolve)
+    v4_ty_add_signature(id, "task-def", v4_ty_task_sig, "call", "call", 0)
+    v4_ty_add_signature(id, "extern-def", v4_ty_extern_sig, "call", "call", 0)
+    say "ty-index-resolve-first-extern=" + word_from_bool(v4_ty_task_signature_id_for_name(id, "call") == 1)
+
+    pilot small = v4_ty_index_scaling(id, 200)
+    pilot large = v4_ty_index_scaling(id, 800)
+    say "ty-index-probe-growth=" + word_from_bool(large <= 5 * small)
+    pilot held = v4_ty_signature_index_handle(id)
+    pilot restored = v4_ty_snapshot_restore(baseline)
+    pilot shortened: bool = restored.starts_with("ty-snapshot-restore ok=1") and v4_ty_file_count() == 1 and v4_ty_snapshot() == baseline and v4_ty_lookup_signature(id, "scale-def0") == 0 - 1
+    say "ty-index-whole-restore-shortened=" + word_from_bool(shortened and v4_ty_shape_signature_id_for_name(base, "Vessel<int>") == ship)
+    pilot capacity_before = v4_ty_index_available_handles()
+    pilot repeat_restore = 0
+    pilot churn = true
+    repeat until repeat_restore >= 16 {
+        pilot restore = v4_ty_snapshot_restore(baseline)
+        if restore.starts_with("ty-snapshot-restore ok=1") == false or v4_ty_snapshot() != baseline or v4_ty_shape_signature_id_for_name(base, "Vessel<int>") != ship { churn = false }
+        repeat_restore += 1
+    }
+    pilot capacity_after = v4_ty_index_available_handles()
+    say "ty-index-restore-handle-capacity-stable=" + word_from_bool(churn and capacity_before > 0 and capacity_before < 2048 and capacity_before == capacity_after)
+    say "ty-index-restore-snapshot-byte-exact=" + word_from_bool(v4_ty_snapshot() == baseline)
+    pilot reused = v4_ty_file_new(93, 0 - 1)
+    pilot fresh = v4_ty_add_signature(reused, "fresh-def", v4_ty_const_sig, "Fresh", "Fresh", 0)
+    say "ty-index-reused-file=" + word_from_bool(reused == id and fresh == 0 and held == v4_ty_signature_index_handle(reused) and v4_ty_const_signature_id_for_name(reused, "CONST") == 0 - 1 and v4_ty_const_signature_id_for_name(reused, "Fresh") == 0)
+
+    pilot pressure = v4_ty_file_new(94, 0 - 1)
+    v4_ty_add_signature(pressure, "pressure-def", v4_ty_const_sig, "Pressure", "Pressure", 0)
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted = false
+    repeat until exhausted or count >= 2048 {
+        pilot candidate = array_new()
+        if candidate < 0 {
+            exhausted = true
+        } else {
+            array_push(holders, word_from_int(candidate))
+            count += 1
+        }
+    }
+    pilot pressure_fallbacks = v4_ty_signature_index_fallbacks
+    pilot pressure_before: bool = v4_ty_signature_index_handle(pressure) < 0
+    pilot pressure_ok: bool = v4_ty_const_signature_id_for_name(pressure, "Pressure") == 0 and v4_ty_lookup_signature(pressure, "pressure-def") == 0 and v4_ty_alias_signature_id_for_name(pressure, "Pressure") == 0 - 1
+    say "ty-index-handle-exhaustion-fallback=" + word_from_bool(exhausted and pressure_before and pressure_ok and v4_ty_signature_index_handle(pressure) < 0 and v4_ty_signature_index_fallbacks == pressure_fallbacks + 3)
+    pilot row = 0
+    repeat until row >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, row)))
+        row += 1
+    }
+    array_release(holders)
+    pilot recovered_fallbacks = v4_ty_signature_index_fallbacks
+    pilot recovered: bool = v4_ty_const_signature_id_for_name(pressure, "Pressure") == 0 and v4_ty_lookup_signature(pressure, "pressure-def") == 0 and v4_ty_alias_signature_id_for_name(pressure, "Pressure") == 0 - 1
+    say "ty-index-handle-exhaustion-recovered=" + word_from_bool(recovered and v4_ty_signature_index_handle(pressure) >= 0 and v4_ty_signature_index_fallbacks == recovered_fallbacks)
+}
+
+v4_ty_index_fixture_run()

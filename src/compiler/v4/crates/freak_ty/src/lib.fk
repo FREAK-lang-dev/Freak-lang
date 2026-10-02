@@ -68,6 +68,24 @@ pilot v4_ty_diags = 0
 pilot v4_ty_file_active_count_value = 0
 pilot v4_ty_signature_active_counts = 0
 pilot v4_ty_diag_active_counts = 0
+-- Derived first-physical-signature indexes never enter the snapshot wire format.
+-- Each file retains one packed array: ready, capacity, indexed rows, followed
+-- by (lookup category, signature id + 1) buckets. Keys borrow stored facts.
+pilot v4_ty_signature_indexes = 0
+pilot v4_ty_signature_index_any_name = 0
+pilot v4_ty_signature_index_alias = 1
+pilot v4_ty_signature_index_shape = 2
+pilot v4_ty_signature_index_route = 3
+pilot v4_ty_signature_index_doctrine = 4
+pilot v4_ty_signature_index_const = 5
+pilot v4_ty_signature_index_task = 6
+pilot v4_ty_signature_index_type = 7
+pilot v4_ty_signature_index_def = 8
+pilot v4_ty_signature_index_builds = 0
+pilot v4_ty_signature_index_build_records = 0
+pilot v4_ty_signature_index_lookup_probes = 0
+pilot v4_ty_signature_index_insert_probes = 0
+pilot v4_ty_signature_index_fallbacks = 0
 pilot v4_ty_lifetime_outlives_scratch_links = 0
 pilot v4_ty_lifetime_outlives_scratch_ids = 0
 pilot v4_ty_lifetime_outlives_scratch_active = 0
@@ -102,6 +120,7 @@ task v4_ty_init() -> void {
         v4_ty_diags = array_new()
         v4_ty_signature_active_counts = array_new()
         v4_ty_diag_active_counts = array_new()
+        v4_ty_signature_indexes = array_new()
         v4_ty_lifetime_outlives_scratch_links = array_new()
         v4_ty_lifetime_outlives_scratch_ids = array_new()
         v4_ty_borrowed_return_source_cache_ty_ids = array_new()
@@ -135,6 +154,9 @@ task v4_ty_file_new(file_id: int, resolve_id: int) -> int {
         array_push(v4_ty_diags, word_from_int(array_new()))
         array_push(v4_ty_signature_active_counts, "0")
         array_push(v4_ty_diag_active_counts, "0")
+        -- Allocate derived storage on first lookup, after authoritative rows
+        -- exist. Exhaustion remains a retryable linear lookup fallback.
+        array_push(v4_ty_signature_indexes, "-1")
     }
     v4_ty_file_active_count_value = ty_id + 1
     give back ty_id
@@ -218,6 +240,195 @@ task v4_ty_signature_count(ty_id: int) -> int {
         give back 0
     }
     give back word_to_int(array_get(v4_ty_signature_active_counts, ty_id))
+}
+
+task v4_ty_signature_index_handle(ty_id: int) -> int {
+    if ty_id < 0 or ty_id >= array_len(v4_ty_signature_indexes) { give back 0 - 1 }
+    pilot stored: word = array_get(v4_ty_signature_indexes, ty_id)
+    if stored == "" { give back 0 - 1 }
+    give back word_to_int(stored)
+}
+
+task v4_ty_signature_index_invalidate(ty_id: int) -> void {
+    array_set(v4_ty_signature_index_handle(ty_id), 0, "0")
+}
+
+task v4_ty_signature_index_category(sig_kind: word) -> int {
+    if sig_kind == v4_ty_alias_sig { give back v4_ty_signature_index_alias }
+    if sig_kind == v4_ty_shape_sig { give back v4_ty_signature_index_shape }
+    if sig_kind == v4_ty_route_sig { give back v4_ty_signature_index_route }
+    if sig_kind == v4_ty_doctrine_sig { give back v4_ty_signature_index_doctrine }
+    if sig_kind == v4_ty_const_sig { give back v4_ty_signature_index_const }
+    if sig_kind == v4_ty_task_sig { give back v4_ty_signature_index_task }
+    give back 0 - 1
+}
+
+task v4_ty_signature_index_is_type(sig_kind: word) -> bool {
+    give back sig_kind == v4_ty_shape_sig or sig_kind == v4_ty_route_sig or sig_kind == v4_ty_alias_sig or sig_kind == v4_ty_doctrine_sig
+}
+
+task v4_ty_signature_index_key(ty_id: int, sig_id: int, category: int) -> word {
+    if category == v4_ty_signature_index_def {
+        give back array_get(v4_ty_defs_handle(ty_id), sig_id)
+    }
+    give back array_get(v4_ty_names_handle(ty_id), sig_id)
+}
+
+task v4_ty_signature_index_hash(key: word, category: int, capacity: int) -> int {
+    -- The checksum is nonnegative. Reduce before mixing to avoid signed overflow.
+    pilot checksum: int = key.checksum() % capacity
+    give back (checksum * 17 + category) % capacity
+}
+
+task v4_ty_signature_index_insert(ty_id: int, sig_id: int, category: int) -> bool {
+    pilot packed = v4_ty_signature_index_handle(ty_id)
+    pilot capacity = word_to_int(array_get(packed, 1))
+    if capacity <= 0 { give back false }
+    pilot key = v4_ty_signature_index_key(ty_id, sig_id, category)
+    pilot bucket = v4_ty_signature_index_hash(key, category, capacity)
+    pilot visited = 0
+    repeat until visited >= capacity {
+        v4_ty_signature_index_insert_probes += 1
+        pilot slot = 3 + 2 * bucket
+        pilot previous = word_to_int(array_get(packed, slot + 1)) - 1
+        if previous < 0 {
+            array_set(packed, slot, word_from_int(category))
+            array_set(packed, slot + 1, word_from_int(sig_id + 1))
+            give back true
+        }
+        if word_to_int(array_get(packed, slot)) == category {
+            if v4_ty_signature_index_key(ty_id, previous, category) == key {
+                -- Rebuild order is physical ID order; an append cannot replace it.
+                give back true
+            }
+        }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back false
+}
+
+task v4_ty_signature_index_insert_record(ty_id: int, sig_id: int) -> bool {
+    pilot sig_kind: word = array_get(v4_ty_kinds_handle(ty_id), sig_id)
+    if v4_ty_signature_index_insert(ty_id, sig_id, v4_ty_signature_index_any_name) == false { give back false }
+    if v4_ty_signature_index_insert(ty_id, sig_id, v4_ty_signature_index_def) == false { give back false }
+    pilot category = v4_ty_signature_index_category(sig_kind)
+    if category >= 0 {
+        if v4_ty_signature_index_insert(ty_id, sig_id, category) == false { give back false }
+    }
+    if v4_ty_signature_index_is_type(sig_kind) {
+        if v4_ty_signature_index_insert(ty_id, sig_id, v4_ty_signature_index_type) == false { give back false }
+    }
+    give back true
+}
+
+task v4_ty_signature_index_finalize(ty_id: int) -> bool {
+    if v4_ty_file_exists(ty_id) == false { give back false }
+    pilot packed = v4_ty_signature_index_handle(ty_id)
+    if packed < 0 {
+        packed = array_new()
+        if packed < 0 { give back false }
+        array_push(packed, "0")
+        array_push(packed, "0")
+        array_push(packed, "0")
+        if array_len(packed) != 3 or ty_id >= array_len(v4_ty_signature_indexes) {
+            array_release(packed)
+            give back false
+        }
+        array_set(v4_ty_signature_indexes, ty_id, word_from_int(packed))
+    }
+    if array_len(packed) < 3 { give back false }
+    pilot count = v4_ty_signature_count(ty_id)
+    pilot ready: word = array_get(packed, 0)
+    if ready == "1" and word_to_int(array_get(packed, 2)) == count {
+        give back true
+    }
+    array_set(packed, 0, "0")
+    -- At most four keys per signature, kept below half-full. Retained capacity
+    -- grows geometrically from observed active rows, never imported wire IDs.
+    if count > 134217727 { give back false }
+    pilot capacity = word_to_int(array_get(packed, 1))
+    if capacity < 16 { capacity = 16 }
+    repeat until capacity >= 8 * count {
+        capacity *= 2
+    }
+    if v4_ty_child_handle_ensure_slot(packed, 2 + 2 * capacity, "0") == false {
+        give back false
+    }
+    array_set(packed, 1, word_from_int(capacity))
+    pilot slot = 3
+    repeat until slot >= 3 + 2 * capacity {
+        array_set(packed, slot, "0")
+        slot += 1
+    }
+    pilot sig_id = 0
+    repeat until sig_id >= count {
+        if v4_ty_signature_index_insert_record(ty_id, sig_id) == false { give back false }
+        v4_ty_signature_index_build_records += 1
+        sig_id += 1
+    }
+    array_set(packed, 2, word_from_int(count))
+    array_set(packed, 0, "1")
+    v4_ty_signature_index_builds += 1
+    give back true
+}
+
+task v4_ty_signature_index_added(ty_id: int, sig_id: int) -> void {
+    pilot packed = v4_ty_signature_index_handle(ty_id)
+    pilot capacity = word_to_int(array_get(packed, 1))
+    pilot ready: word = array_get(packed, 0)
+    if ready == "1" and word_to_int(array_get(packed, 2)) == sig_id and capacity >= 8 * (sig_id + 1) {
+        if v4_ty_signature_index_insert_record(ty_id, sig_id) {
+            array_set(packed, 2, word_from_int(sig_id + 1))
+            give back
+        }
+    }
+    v4_ty_signature_index_invalidate(ty_id)
+}
+
+task v4_ty_signature_index_linear_lookup(ty_id: int, key: word, category: int) -> int {
+    v4_ty_signature_index_fallbacks += 1
+    pilot count = v4_ty_signature_count(ty_id)
+    pilot sig_id = 0
+    repeat until sig_id >= count {
+        if v4_ty_signature_index_key(ty_id, sig_id, category) == key {
+            if category == v4_ty_signature_index_any_name or category == v4_ty_signature_index_def {
+                give back sig_id
+            }
+            pilot sig_kind: word = array_get(v4_ty_kinds_handle(ty_id), sig_id)
+            if category == v4_ty_signature_index_type {
+                if v4_ty_signature_index_is_type(sig_kind) { give back sig_id }
+            } else if v4_ty_signature_index_category(sig_kind) == category {
+                give back sig_id
+            }
+        }
+        sig_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_signature_index_lookup(ty_id: int, key: word, category: int) -> int {
+    if v4_ty_file_exists(ty_id) == false { give back 0 - 1 }
+    if v4_ty_signature_index_finalize(ty_id) == false {
+        give back v4_ty_signature_index_linear_lookup(ty_id, key, category)
+    }
+    pilot packed = v4_ty_signature_index_handle(ty_id)
+    pilot capacity = word_to_int(array_get(packed, 1))
+    pilot bucket = v4_ty_signature_index_hash(key, category, capacity)
+    pilot visited = 0
+    repeat until visited >= capacity {
+        v4_ty_signature_index_lookup_probes += 1
+        pilot slot = 3 + 2 * bucket
+        pilot sig_id = word_to_int(array_get(packed, slot + 1)) - 1
+        if sig_id < 0 { give back 0 - 1 }
+        if word_to_int(array_get(packed, slot)) == category {
+            if v4_ty_signature_index_key(ty_id, sig_id, category) == key { give back sig_id }
+        }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    -- A full/corrupt derived table cannot turn an authoritative fact into a miss.
+    give back v4_ty_signature_index_linear_lookup(ty_id, key, category)
 }
 
 task v4_ty_diag_count(ty_id: int) -> int {
@@ -437,17 +648,7 @@ task v4_ty_copy_resolve_diags(ty_id: int, resolve_id: int) -> void {
 }
 
 task v4_ty_alias_signature_id_for_name(ty_id: int, alias_name: word) -> int {
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_alias_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == alias_name {
-                give back sig_id
-            }
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, alias_name, v4_ty_signature_index_alias)
 }
 
 task v4_ty_alias_target_type_for_sig(ty_id: int, sig_id: int) -> word {
@@ -2816,15 +3017,7 @@ task v4_ty_is_declared_simple_type_name(ty_id: int, type_name: word) -> bool {
         give back true
     }
 
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_name(ty_id, sig_id) == type_name {
-            give back true
-        }
-        sig_id += 1
-    }
-    give back false
+    give back v4_ty_signature_index_lookup(ty_id, type_name, v4_ty_signature_index_any_name) >= 0
 }
 
 task v4_ty_builtin_generic_arg_count(type_name: word) -> int {
@@ -2841,18 +3034,7 @@ task v4_ty_builtin_generic_arg_count(type_name: word) -> int {
 }
 
 task v4_ty_type_signature_id_for_name(ty_id: int, type_name: word) -> int {
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
-        if sig_kind == v4_ty_shape_sig or sig_kind == v4_ty_route_sig or sig_kind == v4_ty_alias_sig or sig_kind == v4_ty_doctrine_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == type_name {
-                give back sig_id
-            }
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, type_name, v4_ty_signature_index_type)
 }
 
 task v4_ty_expected_generic_arg_count(ty_id: int, type_name: word) -> int {
@@ -5626,15 +5808,7 @@ task v4_ty_task_return_from_hir(hir_id: int, hir_item: int) -> word {
 }
 
 task v4_ty_const_signature_id_for_name(ty_id: int, const_name: word) -> int {
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_const_sig and v4_ty_signature_name(ty_id, sig_id) == const_name {
-            give back sig_id
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, const_name, v4_ty_signature_index_const)
 }
 
 task v4_ty_task_signature_id_for_name(ty_id: int, task_name: word) -> int {
@@ -5652,15 +5826,7 @@ task v4_ty_task_signature_id_for_name(ty_id: int, task_name: word) -> int {
         }
     }
 
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_task_sig and v4_ty_signature_name(ty_id, sig_id) == task_name {
-            give back sig_id
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, task_name, v4_ty_signature_index_task)
 }
 
 task v4_ty_const_declared_type_for_sig(ty_id: int, sig_id: int) -> word {
@@ -7812,46 +7978,22 @@ task v4_ty_doctrine_signature_id_for_name(ty_id: int, doctrine_name: word) -> in
         lookup_name = v4_ty_generic_base_name(lookup_name)
     }
 
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_doctrine_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == lookup_name {
-                give back sig_id
-            }
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, lookup_name, v4_ty_signature_index_doctrine)
 }
 
 task v4_ty_doctrine_lookup_name_from_surface_name(ty_id: int, surface_name: word) -> word {
     if surface_name == "" or surface_name == v4_ty_unknown {
         give back ""
     }
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_doctrine_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == surface_name {
-                give back surface_name
-            }
-        }
-        sig_id += 1
+    if v4_ty_signature_index_lookup(ty_id, surface_name, v4_ty_signature_index_doctrine) >= 0 {
+        give back surface_name
     }
-
     pilot resolve_id = v4_ty_resolve_id(ty_id)
     if resolve_id >= 0 {
         pilot expanded = v4_resolve_expand_import_name(resolve_id, surface_name)
         if expanded != "" and expanded != surface_name {
-            sig_id = 0
-            repeat until sig_id >= sig_count {
-                if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_doctrine_sig {
-                    if v4_ty_signature_name(ty_id, sig_id) == expanded {
-                        give back expanded
-                    }
-                }
-                sig_id += 1
+            if v4_ty_signature_index_lookup(ty_id, expanded, v4_ty_signature_index_doctrine) >= 0 {
+                give back expanded
             }
         }
     }
@@ -9512,17 +9654,7 @@ task v4_ty_shape_signature_id_for_name(ty_id: int, shape_name: word) -> int {
     if v4_ty_is_generic_instance_type(lookup_name) {
         lookup_name = v4_ty_generic_base_name(lookup_name)
     }
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_shape_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == lookup_name {
-                give back sig_id
-            }
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, lookup_name, v4_ty_signature_index_shape)
 }
 
 task v4_ty_route_signature_id_for_name(ty_id: int, route_name: word) -> int {
@@ -9534,17 +9666,7 @@ task v4_ty_route_signature_id_for_name(ty_id: int, route_name: word) -> int {
     if v4_ty_is_generic_instance_type(lookup_name) {
         lookup_name = v4_ty_generic_base_name(lookup_name)
     }
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_route_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == lookup_name {
-                give back sig_id
-            }
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, lookup_name, v4_ty_signature_index_route)
 }
 
 task v4_ty_is_route_type(ty_id: int, route_name: word) -> bool {
@@ -12214,6 +12336,7 @@ task v4_ty_add_signature(ty_id: int, def_id: word, sig_kind: word, sig_name: wor
     array_set(v4_ty_displays_handle(ty_id), sig_id, sig_display)
     array_set(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(hir_item))
     array_set(v4_ty_signature_active_counts, ty_id, word_from_int(sig_id + 1))
+    v4_ty_signature_index_added(ty_id, sig_id)
     give back sig_id
 }
 
@@ -12238,6 +12361,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
         symbol_idx += 1
     }
 
+    v4_ty_signature_index_finalize(ty_id)
     v4_ty_validate_closure_params(ty_id)
     v4_ty_validate_lifetime_contracts(ty_id)
     v4_ty_validate_repr_contracts(ty_id)
@@ -12253,15 +12377,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
 }
 
 task v4_ty_lookup_signature(ty_id: int, def_id: word) -> int {
-    pilot sig_idx = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_idx >= sig_count {
-        if v4_ty_signature_def(ty_id, sig_idx) == def_id {
-            give back sig_idx
-        }
-        sig_idx += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, def_id, v4_ty_signature_index_def)
 }
 
 task v4_ty_signature_of(ty_id: int, def_id: word) -> word {
@@ -12908,6 +13024,7 @@ task v4_ty_restore_clear_child_handle(handle: int, empty_value: word) -> void {
 }
 
 task v4_ty_restore_clear_file_children(ty_id: int) -> void {
+    v4_ty_signature_index_invalidate(ty_id)
     v4_ty_restore_clear_child_handle(v4_ty_defs_handle(ty_id), "")
     v4_ty_restore_clear_child_handle(v4_ty_kinds_handle(ty_id), "")
     v4_ty_restore_clear_child_handle(v4_ty_names_handle(ty_id), "")
@@ -12964,6 +13081,7 @@ task v4_ty_restore_signature_slot(ty_id: int, sig_id: int, def_id: word, sig_kin
     if v4_ty_child_handle_ensure_slot(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(0 - 1)) == false {
         give back 0
     }
+    v4_ty_signature_index_invalidate(ty_id)
     array_set(v4_ty_defs_handle(ty_id), sig_id, def_id)
     array_set(v4_ty_kinds_handle(ty_id), sig_id, sig_kind)
     array_set(v4_ty_names_handle(ty_id), sig_id, sig_name)
@@ -13117,6 +13235,11 @@ task v4_ty_snapshot_restore(payload: word) -> word {
             inactive_ty_id += 1
         }
         v4_ty_file_active_count_value = restored_files
+        pilot indexed_ty_id = 0
+        repeat until indexed_ty_id >= restored_files {
+            v4_ty_signature_index_finalize(indexed_ty_id)
+            indexed_ty_id += 1
+        }
         v4_ty_copy_doctrine_cache_reset()
     } else {
         v4_ty_file_active_count_value = previous_active_files
