@@ -33,17 +33,26 @@ def host_target() -> str:
     raise RuntimeError(f"no V4 TargetSpec for {sys.platform}/{machine}")
 
 
-def bootstrap(clang: str) -> Path:
+def bootstrap(clang: str, compiler_opt: int = 0) -> Path:
     fixture = checks.V4_ROOT / "tools" / "build_llvm.fk"
     c_source, uses_ui = checks.transpile_fixture(checks.flattened_crates(), fixture)
     if uses_ui:
         raise RuntimeError("V4 bootstrap unexpectedly requires UI")
-    checks.RUNTIME_BUILD_ROOT.mkdir(parents=True, exist_ok=True)
     runtime = checks.RUNTIME_ROOT / "freak_runtime.c"
-    executable, _ = checks.compile_runtime_smoke(
-        clang, f"-I{checks.RUNTIME_ROOT}", runtime,
-        checks.read_text(runtime), fixture, c_source,
-    )
+    # Optimized compiler builds have separate artifacts from the O0 smoke
+    # harness. The shared compiler cache already includes extra compiler flags.
+    smoke_build_root = checks.RUNTIME_BUILD_ROOT
+    if compiler_opt:
+        checks.RUNTIME_BUILD_ROOT = smoke_build_root / f"compiler_O{compiler_opt}"
+    try:
+        checks.RUNTIME_BUILD_ROOT.mkdir(parents=True, exist_ok=True)
+        executable, _ = checks.compile_runtime_smoke(
+            clang, f"-I{checks.RUNTIME_ROOT}", runtime,
+            checks.read_text(runtime), fixture, c_source,
+            (f"-O{compiler_opt}",) if compiler_opt else (),
+        )
+    finally:
+        checks.RUNTIME_BUILD_ROOT = smoke_build_root
     return executable
 
 
@@ -66,6 +75,8 @@ def main() -> int:
     parser.add_argument("-o", "--output", type=Path, required=True)
     parser.add_argument("--emit-llvm", action="store_true", help="write .ll without linking")
     parser.add_argument("--target", default=None, help="canonical freak_target triple")
+    parser.add_argument("--compiler-opt", type=int, choices=(0, 1, 2, 3), default=0,
+                        help="bootstrap compiler optimization level (default: 0)")
     args = parser.parse_args()
     clang = shutil.which("clang")
     if clang is None:
@@ -76,7 +87,7 @@ def main() -> int:
     if not args.emit_llvm and target != host_target():
         parser.error("native linking currently supports the host TargetSpec; use --emit-llvm for cross targets")
     try:
-        module = emit_module(bootstrap(clang), args.source, target)
+        module = emit_module(bootstrap(clang, args.compiler_opt), args.source, target)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         llvm_path = args.output if args.emit_llvm else args.output.with_suffix(".ll")
         llvm_path.write_text(module, encoding="utf-8")
