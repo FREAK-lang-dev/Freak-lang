@@ -854,6 +854,7 @@ EXECUTABLE_SMOKES = [
             'mir-index interleaved=true first-condition=true first-return=true cold-exact=true sparse=true direct-edits=true',
             'mir-index statements=1024 linear-iteration=true append-work=true rebuild-work=true handles-stable=true',
             'mir-index exhaustion-cold=true resource-recovery=true derived-handles-bounded=true',
+            'mir-index names=true independent-keys=true cold-exact=true codegen-misses=200,800 bounded-name-reads=true handles-stable=true',
         ],
     },
     {

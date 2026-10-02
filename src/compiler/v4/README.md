@@ -773,8 +773,11 @@ or `v4_parse_note_tree_mutation`; token edits discard Lex offsets, which can
 be republished with `v4_lex_rebuild_boundaries`. An unavailable revision array
 keeps TY cold while Lex's original span scanner remains correct. These epochs
 and token caches add no snapshot fields and do not persist method semantics.
-MIR retains a file-local body-definition hash table and two packed children
-per body for block summaries and physical statement links. Construction
+MIR retains independent body-definition and body-name hash tables in one
+file-local packed child (`3 + 2C` cells for bucket capacity C), plus two packed
+children per body for block summaries and physical statement links. Definition
+and name matches each retain the first physical body; literal `say` variadic
+promotion also uses the name index for its common miss. Construction
 maintains counts/links during live lowering; direct restores invalidate them,
 and complete restoration republishes them. First return/condition ordering
 and cold scans remain unchanged. Added costs are three global registries,
