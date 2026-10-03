@@ -210,9 +210,9 @@ The pre-interpolation owned-word checkpoint used HIR: 44 global registries and
 41 file children. Interpolation now adds one packed-plan registry and child:
 the current HIR inventory is 45 global registries and 42 file children, with
 snapshot v11. MIR retains 40 global registries, 38 file children and 33 children
-per body. MIR snapshot v6 adds lexical statement scopes and
-validates their live and restored cross-facts atomically; v4/v5 snapshots are
-rejected. These counts supersede the historical handoff-4 counts above.
+per body. MIR snapshot v6 added lexical statement scopes. The current v7
+appends closed lowercase identity 119 and validates live and restored
+cross-facts atomically; v4/v5/v6 snapshots are rejected. These counts supersede the historical handoff-4 counts above.
 The older counts remain historical measurements of their pinned checkpoints.
 
 ### Remaining scaling boundaries

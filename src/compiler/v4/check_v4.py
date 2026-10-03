@@ -117,6 +117,11 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "owned_word_semantics_smoke.fk",
         "owned_word_contract_smoke.fk",
         "owned_word_execute_smoke.fk",
+        "word_lower_semantic_smoke.fk",
+        "word_lower_contract_smoke.fk",
+        "word_lower_loan_contract_smoke.fk",
+        "word_lower_editor_smoke.fk",
+        "word_lower_execute_smoke.fk",
         "checked_numeric_contract_smoke.fk",
         "checked_numeric_execute_smoke.fk",
         "mir_restore_resource_smoke.fk",
@@ -319,7 +324,7 @@ CRATE_BOUNDARY_REQUIRED = {
     "freak_mir": [
         ("representation ownership comment", "-- freak_mir - persistent V4 Built-MIR representation"),
         ("explicit-scope local primitive", "task v4_mir_add_local_at_scope("),
-        ("snapshot v6 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v6"'),
+        ("snapshot v7 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v7"'),
     ],
     "freak_mir_build": [
         ("construction ownership comment", "-- freak_mir_build - stateless V4 HIR+TY to Built-MIR construction"),
@@ -9948,7 +9953,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "mir_snapshot_smoke.fk",
         "expect": [
             "mir-snapshot-bytes=",
-            "mir-snapshot|format=freak-mir-snapshot-v6",
+            "mir-snapshot|format=freak-mir-snapshot-v7",
             "mir-snapshot-restore ok=1",
             "ok|workspace/mirSnapshotRestore",
             "borrowck-ok borrow=",
@@ -10603,6 +10608,192 @@ EXECUTABLE_SMOKES = [
             "task-param-invalidation-after-editor=num",
         ],
     },
+    {'name': 'word lower semantic',
+     'fixture': 'word_lower_semantic_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-lower generic=clone chained=2 borrowed=true temporary=true self-replace=true sealed=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['word-lower generic=clone chained=2 borrowed=true temporary=true '
+                                   'self-replace=true sealed=true']},
+                       {'argv': ['1'],
+                        'expect': ['word-lower generic=to_lower chained=2 borrowed=true temporary=true '
+                                   'self-replace=true sealed=true']},
+                       {'argv': ['2'],
+                        'expect': ['word-lower ordered-consume-rejected=true reverse-accepted=true']},
+                       {'argv': ['3'], 'expect': ['word-lower negative=3 diagnosed=true no-module=true']},
+                       {'argv': ['4'], 'expect': ['word-lower negative=4 diagnosed=true no-module=true']},
+                       {'argv': ['5'], 'expect': ['word-lower negative=5 diagnosed=true no-module=true']},
+                       {'argv': ['6'], 'expect': ['word-lower negative=6 diagnosed=true no-module=true']}]},
+    {'name': 'word lower contract',
+     'fixture': 'word_lower_contract_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-lower-contract restore=passed sealed-stable=true'],
+     'runtime_cases': [{'argv': ['restore'], 'expect': ['word-lower-contract restore=passed sealed-stable=true']},
+                       {'argv': ['old-version'],
+                        'expect': ['word-lower-contract old-version=passed sealed-stable=true']},
+                       {'argv': ['live'], 'expect': ['word-lower-contract live=passed sealed-stable=true']},
+                       {'argv': ['identity'],
+                        'expect': ['word-lower-contract identity=passed sealed-stable=true']},
+                       {'argv': ['op'], 'expect': ['word-lower-contract op=passed sealed-stable=true']},
+                       {'argv': ['abi'], 'expect': ['word-lower-contract abi=passed sealed-stable=true']},
+                       {'argv': ['result'], 'expect': ['word-lower-contract result=passed sealed-stable=true']},
+                       {'argv': ['arity'], 'expect': ['word-lower-contract arity=passed sealed-stable=true']},
+                       {'argv': ['loan-kind'],
+                        'expect': ['word-lower-contract loan-kind=passed sealed-stable=true']},
+                       {'argv': ['loan-type'],
+                        'expect': ['word-lower-contract loan-type=passed sealed-stable=true']}]},
+    {'name': 'word lower loan contract',
+     'fixture': 'word_lower_loan_contract_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-lower-loan 0=passed owner-independent=true actual-loan-retained=true forwarding=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['word-lower-loan 0=passed owner-independent=true actual-loan-retained=true '
+                                   'forwarding=true']},
+                       {'argv': ['restore'],
+                        'expect': ['word-lower-loan restore=passed owner-independent=true '
+                                   'actual-loan-retained=true forwarding=true']},
+                       {'argv': ['loan-argument'],
+                        'expect': ['word-lower-loan loan-argument=passed conservative=true '
+                                   'no-new-malformed-diagnostic=true']},
+                       {'argv': ['alias'],
+                        'expect': ['word-lower-loan alias=passed canonical-owner=true '
+                                   'named-argument-binding=true sealed=true']},
+                       {'argv': ['argument-overlap'],
+                        'expect': ['word-lower-loan argument-overlap=passed temporary-loan-retained=true '
+                                   'distinct-owner-accepted=true no-module=true']},
+                       {'argv': ['arity'],
+                        'expect': ['word-lower-loan arity=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['extra'],
+                        'expect': ['word-lower-loan extra=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['reordered'],
+                        'expect': ['word-lower-loan reordered=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['abi'],
+                        'expect': ['word-lower-loan abi=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['identity'],
+                        'expect': ['word-lower-loan identity=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['result'],
+                        'expect': ['word-lower-loan result=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['unknown'],
+                        'expect': ['word-lower-loan unknown=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['loan-kind'],
+                        'expect': ['word-lower-loan loan-kind=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['loan-type'],
+                        'expect': ['word-lower-loan loan-type=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['loan-local-id'],
+                        'expect': ['word-lower-loan loan-local-id=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['loan-local-name'],
+                        'expect': ['word-lower-loan loan-local-name=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-arity'],
+                        'expect': ['word-lower-loan restore-arity=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-extra'],
+                        'expect': ['word-lower-loan restore-extra=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-reordered'],
+                        'expect': ['word-lower-loan restore-reordered=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-abi'],
+                        'expect': ['word-lower-loan restore-abi=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['restore-identity'],
+                        'expect': ['word-lower-loan restore-identity=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-result'],
+                        'expect': ['word-lower-loan restore-result=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-unknown'],
+                        'expect': ['word-lower-loan restore-unknown=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-loan-kind'],
+                        'expect': ['word-lower-loan restore-loan-kind=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-loan-type'],
+                        'expect': ['word-lower-loan restore-loan-type=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-loan-local-id'],
+                        'expect': ['word-lower-loan restore-loan-local-id=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-loan-local-name'],
+                        'expect': ['word-lower-loan restore-loan-local-name=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['producer-direct'],
+                        'expect': ['word-lower-loan producer-direct=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']},
+                       {'argv': ['producer-holder'],
+                        'expect': ['word-lower-loan producer-holder=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']},
+                       {'argv': ['producer-typed'],
+                        'expect': ['word-lower-loan producer-typed=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']},
+                       {'argv': ['producer-loan-holder'],
+                        'expect': ['word-lower-loan producer-loan-holder=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']},
+                       {'argv': ['producer-direct-restore'],
+                        'expect': ['word-lower-loan producer-direct-restore=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']},
+                       {'argv': ['producer-holder-restore'],
+                        'expect': ['word-lower-loan producer-holder-restore=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']}]},
+    {'name': 'word lower editor',
+     'fixture': 'word_lower_editor_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-lower-editor chained=true trivia=true TY-signatures=true lexical-provenance=true '
+                'no-fake-definition=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['word-lower-editor chained=true trivia=true TY-signatures=true '
+                                   'lexical-provenance=true no-fake-definition=true']},
+                       {'argv': ['1'],
+                        'expect': ['word-lower-editor ordinary-task=true local-shadow=true '
+                                   'literal-negative=true']},
+                       {'argv': ['2'],
+                        'expect': ['word-lower-editor raw-MIR-exact=true HIR-query-invalidation=true '
+                                   'fresh-query=true fact-snapshots=true']},
+                       {'argv': ['3'],
+                        'expect': ['word-lower-editor source-invalidation=true fresh-builtin=true '
+                                   'old-fact-stable=true']}]},
+    {'name': 'word lowercase native execution and MIR restoration',
+     'fixture': 'word_lower_execute_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-lower-execute stages=clean v7-restore=true old-seal=true fresh-module=true'],
+     'llvm_programs': [('word_lowercase.fk',
+                        0,
+                        'A\x00B\n'
+                        'a\x00b\n'
+                        'a\x00b\n'
+                        '3\n'
+                        '3\n'
+                        '\n'
+                        'i̇\n'
+                        'ος\n'
+                        'οσα\n'
+                        'ος́\n'
+                        '𐐨\n'
+                        'temp\n'
+                        'nested\n'
+                        'already lower\n'
+                        'already lower\n'
+                        'loop\n')]},
     {
         "name": "owned word semantic and snapshot contracts",
         "fixture": "owned_word_semantics_smoke.fk",
@@ -13055,6 +13246,11 @@ def check_snapshot_inventories() -> None:
             "owned_word_semantics_smoke.fk",
             "owned_word_contract_smoke.fk",
             "owned_word_execute_smoke.fk",
+            "word_lower_semantic_smoke.fk",
+            "word_lower_contract_smoke.fk",
+            "word_lower_loan_contract_smoke.fk",
+            "word_lower_editor_smoke.fk",
+            "word_lower_execute_smoke.fk",
             "checked_numeric_contract_smoke.fk",
             "checked_numeric_execute_smoke.fk",
             "mir_restore_resource_smoke.fk",

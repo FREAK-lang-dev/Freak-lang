@@ -118,7 +118,7 @@ task v4_restore_resource_run() -> void {
     pilot query_generation = v4_query_generation()
     pilot source_revision = v4_source_revision(v4_mir_file_id(mir))
     pilot generation = v4_session_semantic_restore_generation()
-    pilot malformed = payload.replace("end|freak-mir-snapshot-v6", "end|freak-mir-snapshot-v5")
+    pilot malformed = payload.replace("end|freak-mir-snapshot-v7", "end|freak-mir-snapshot-v6")
     v4_restore_resource_assert(v4_mir_snapshot_restore(malformed).starts_with("mir-snapshot-restore ok=0"), "late malformed rejection")
     v4_restore_resource_assert(v4_mir_snapshot() == payload and v4_session_semantic_restore_generation() == generation and v4_source_revision(v4_mir_file_id(mir)) == source_revision and v4_query_generation() == query_generation and v4_query_entry_state(entry) == query_state and v4_query_entry_output(entry) == query_output, "malformed atomicity")
     v4_restore_resource_assert(v4_codegen_llvm_module_text(sealed, target) == module_a, "malformed keeps sealed A")

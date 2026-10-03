@@ -179,7 +179,7 @@ lender calls currently require an explicit `lend` of a named place. Borrowed
 returns, externally supplied words, callback word contracts and native
 aggregate fields remain unsupported.
 
-MIR snapshot v6 stores lexical statement scopes and validates their relation
+MIR snapshot v7 stores lexical statement scopes and validates their relation
 to bindings, body ranges and closed builtin IDs before publication. The
 focused semantic fixture covers shadowing, ordered consume/lend events,
 atomic snapshot rejection and exhaustion recovery at 64 MiB/1,024 handles.
@@ -190,9 +190,15 @@ have isolated native controls; the preview still requires the remaining tier-1
 features and fresh platform CI.
 The dedicated generated-word gate is `python tests/v4_owned_word_codegen.py`.
 
-Private runtime helpers also implement Unicode 17 default lowercase and
-checked process/filesystem adapters. They have separate C runtime probes;
-`to_lower` and typed `fs::read` are not yet wired through the native compiler.
+The W4 `.to_lower()` method borrows its receiver and returns a fresh owned
+word using Unicode 17 default lowercase, including contextual FinalSigma.
+Closed identity 119 extends MIR snapshot v7; earlier versions reject atomically.
+The dedicated `python tests/v4_word_lower_codegen.py` gate checks exact Unicode
+and embedded NUL output at O0/O2/O3 with both ownership audits and mandatory
+ASan/UBSan; `--plain` supplies additional platform evidence. Its 54 focused
+semantic, restored-call, loan and editor cases retain 64 MiB/1,024 handles.
+Private process/filesystem adapters have separate C runtime probes; typed
+`process::arg` and `fs::read` still need their language Result ABI.
 The centralized `freakc.v4_native_runtime` inventory determines native link
 inputs and benchmark provenance. Root initialization is planned as an explicit
 bootstrap compatibility mode; strict language mode remains the default.
@@ -683,7 +689,7 @@ beyond declared relations and general lexical region inference remain open.
 Fixed-layout editor facts, MIR/borrowck snapshots, restore, and
 source-change invalidation use the existing query families and 00-Unit
 protocols; no aggregate-specific LSP endpoint or snapshot section is added.
-Declaration-order aggregate children require `freak-mir-snapshot-v6`; v4 and v5 are
+Declaration-order aggregate children require `freak-mir-snapshot-v7`; v4, v5 and v6 are
 rejected rather than reinterpreted. Component restore, 00-Unit restore, and the
 standalone `workspace/mirSnapshotRestore` path each start a fresh borrowck
 provenance scratch generation. The query smoke proves `A -> B -> restore A` with
@@ -818,7 +824,7 @@ parsing, bounding bootstrap word-scanning work on malformed records.
 
 `freak_mir` owns the persistent Built-MIR representation: stable file/body and
 node identities, CFG/local/place/rvalue storage, validation, diagnostics, and
-the byte-stable MIR snapshot v6 protocol. `freak_mir_build` is the stateless
+the byte-stable MIR snapshot v7 protocol. `freak_mir_build` is the stateless
 construction policy layer over HIR and TY. It keeps only request-scoped loop,
 scope, and trust-lowering scratch and preserves `v4_mir_lower_ty` as the public
 driver entrypoint. Meiya, codegen, query, and snapshot code consume the

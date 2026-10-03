@@ -178,6 +178,12 @@ jobs:
       - name: Generated owned word native portability
         run: python -B -u tests/v4_owned_word_codegen.py --plain
 
+      - name: Unicode lowercase generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_word_lower_codegen.py -v
+
+      - name: Unicode lowercase generated-code native portability
+        run: python -B -u tests/v4_word_lower_codegen.py --plain --work "${{ runner.temp }}/word-lower-codegen-plain" --report "${{ runner.temp }}/word-lower-codegen-plain.json"
+
       - name: Cold admission fault-proof oracle regressions
         run: python -B -u -m unittest discover -s tests -p test_v4_cold_init_admission.py -v
 
@@ -202,6 +208,10 @@ jobs:
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_owned_word_codegen.py
 
+      - name: Unicode lowercase generated-code sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_word_lower_codegen.py --work "${{ runner.temp }}/word-lower-codegen-sanitized" --report "${{ runner.temp }}/word-lower-codegen-sanitized.json"
+
       - name: Owned process and filesystem sanitizer gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_system_runtime.py
@@ -217,6 +227,14 @@ jobs:
       - name: Checked numeric generated-code sanitizer and ownership gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_checked_numeric_codegen.py --snapshot-control --work "${{ runner.temp }}/numeric-codegen-sanitized" --json "${{ runner.temp }}/numeric-codegen-sanitized.json"
+
+      - name: Preserve Unicode lowercase generated-code evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-word-lower-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/word-lower-codegen-*.json
+          if-no-files-found: warn
 
       - name: Preserve Unicode runtime evidence
         if: always()

@@ -240,7 +240,7 @@ task v4_owned_semantics_run() -> void {
         index += 1
     }
     array_release(modes)
-    v4_owned_semantics_assert(v4_owned_semantics_rejects(payload.replace("freak-mir-snapshot-v6", "freak-mir-snapshot-v5"), payload), "old wire version rejection")
+    v4_owned_semantics_assert(v4_owned_semantics_rejects(payload.replace("freak-mir-snapshot-v7", "freak-mir-snapshot-v6"), payload), "old wire version rejection")
     say "owned-word-semantics snapshot-crossfacts=true atomic-rejection=true old-version-rejected=true"
     pilot body_id = v4_mir_lookup_body_name(mir_id, "rebind_good")
     pilot local_id = v4_mir_find_local(mir_id, body_id, "x")

@@ -52,7 +52,7 @@ task h6_bool_run() -> void {
 
     array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "Hai")
     pilot snapshot = v4_mir_snapshot()
-    h6_bool_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v6|"), "lexical scope wire version")
+    h6_bool_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v7|"), "lexical scope wire version")
     h6_bool_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "old alias valid on wire")
     h6_bool_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "old alias restored")
     pilot restored = v4_codegen_llvm_lower_mir(0, mir)

@@ -7,6 +7,16 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**V4 owned lowercase checkpoint (2026-10-03):** `.to_lower()` borrows its
+sized UTF-8 word receiver and returns a fresh owner using Unicode 17 default
+lowercase and FinalSigma. MIR v7 appends closed identity 119; older wire versions
+reject atomically. The 54 focused semantic/restored-call/loan/editor cases retain
+64 MiB and 1,024 handles. `tests/v4_word_lower_codegen.py` verifies exact Unicode
+and embedded NUL at O0/O2/O3 with both ownership audits and mandatory ASan/UBSan.
+Linux candidate-source evidence is independently reviewed at `361d110`; fresh
+integration/platform execution remains a delivery gate. This checkpoint does
+not implement checked maybe parsing, all string methods, or typed OS results.
+
 **V4 token-boundary scaling (2026-10-02):** a derived lexer-owned start/end index
 removes repeated full-stream scans from parser, HIR, TY, and MIR construction.
 The existing `start >= offset` and `end > offset` contracts, including unordered

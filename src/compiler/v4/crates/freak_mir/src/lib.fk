@@ -146,7 +146,7 @@ pilot v4_mir_diags = 0
 pilot v4_mir_ready = 0
 pilot v4_mir_restore_building: bool = false
 
--- Optional derived indexes. They never enter snapshot v6 or allocate in readers.
+-- Optional derived indexes. They never enter snapshot v7 or allocate in readers.
 -- Body identity child: ready/capacity/count, definition buckets, name buckets.
 pilot v4_mir_body_lookup_indexes = 0 - 1
 pilot v4_mir_block_stmt_indexes = 0 - 1

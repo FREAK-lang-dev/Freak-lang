@@ -54,9 +54,11 @@ the guarded benchmark. Four authored collision fixtures pass at
 64 MiB / 1,024 handles. The subsequent automatic review identified a
 conditional optional-diagnostic cleanup failure; the independently reviewed
 fix is in [PR #140](https://github.com/FREAK-lang-dev/Freak-lang/pull/140).
-All 23 CI jobs passed at `c3420da`; a subsequent persistent-cleanup review
-finding has a committed fallback repair awaiting review and fresh CI. The
-earlier real parent/descendant cleanup control passes.
+PR #140 merged at `af1d10b` after all 23 CI jobs passed at `807ecff`.
+The follow-up [PR #142](https://github.com/FREAK-lang-dev/Freak-lang/pull/142)
+passed all 23 jobs at `4a48fd7`; subsequent confirmed tool-alias and guard
+evidence findings require a reviewed successor and fresh current-head CI.
+The earlier real parent/descendant cleanup control passes.
 
 The integration harness now executes the three owned-word fixture groups as
 13 independent resource cases, preserving 64 MiB / 1,024 handles and exact
@@ -84,11 +86,14 @@ navigation when tolerant recovery admits duplicate declarations. The `e492ef1`
 resource fixture passes 24 restores, 42-handle growth/shrink/regrowth, decoder
 conservation and transitive editor invalidation at 9.0 MiB under 64 MiB.
 Nine existing HIR fixtures pass 257 expectations at `b080c64`, including v10
-atomic rejection and v11 storage reuse. The integration registers 329 fixtures;
-these new registrations still need the integrated gate and platform CI.
-Native aggregate fields remain fenced. Cold query and expansion initialization
-allocation failures in the component-restore facade are being repaired before
-readiness.
+atomic rejection and v11 storage reuse. Reviewed transactional cold query,
+expansion and HIR admission fixes are integrated. All 335 fixtures transpiled
+at `55678bc`, but native HIR snapshot scaling reached 66.8 MiB against its
+unchanged 64 MiB ceiling; merged cold/resource execution remains incomplete.
+The W4 lowercase slice adds five registrations (340 total) and 54 focused
+contracts. Its reviewed `361d110` candidate passes O0/O2/O3 with mandatory
+ASan/UBSan and both ownership audits; fresh integrated and platform gates
+remain pending. Native aggregate fields and typed OS Result wiring remain fenced.
 The explicit panic-abort runtime has private native byte/borrow controls;
 compiler mode/never/CFG wiring and default unwinding remain pending.
 
@@ -170,7 +175,7 @@ Entry and build:
 
 ## Tier 2: V4 compiles V4
 
-- [ ] **L** Root `pilot` globals with distinct HIR/TY/MIR identity (636 in the crates)
+- [ ] **L** Root `pilot` globals with distinct HIR/TY/MIR identity (718 at `3fc7f76`)
 - [ ] **L** Root statements and synthetic module-init body, run once before `main`
 - [ ] **M** Explicit per-file bootstrap mode; strict mode stays default (bible 17.4)
 - [ ] **M** Mode and global facts in versioned snapshots

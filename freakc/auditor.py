@@ -2506,6 +2506,45 @@ def audit_conformance(paths: List[Path]) -> int:
     if isn_missing:
         failures.append("V4 raw-pointer is_null lowering regressed: " + "; ".join(isn_missing))
 
+    # This is a wiring guard for the bounded owned-lowercase checkpoint, not
+    # a replacement for executing its resource, ownership and platform gates.
+    lower_missing: List[str] = []
+    lower_contracts = (
+        ("src/compiler/v4/crates/freak_mir/src/lib.fk",
+         ('pilot v4_mir_snapshot_format = "freak-mir-snapshot-v7"',
+          'if kind == "to_lower" { give back 119 }')),
+        ("src/compiler/v4/crates/freak_ty/src/lib.fk",
+         ('if kind == "to_lower" { give back v4_ty_word }',
+          'if kind == "to_lower" { give back 1 }')),
+        ("src/compiler/v4/crates/freak_codegen_llvm/src/lib.fk",
+         ('declare i64 @freak_v4_word_to_lower(i64)',)),
+        ("tests/v4_word_lower_codegen.py",
+         ('OPTIMIZATIONS = (0, 2, 3)', '-fsanitize=address,undefined',
+          'memory_limit_mb=64', 'assert_native_output(native, EXPECTED)')),
+        ("src/compiler/v4/check_v4.py",
+         ('word_lower_semantic_smoke.fk', 'word_lower_contract_smoke.fk',
+          'word_lower_loan_contract_smoke.fk', 'word_lower_editor_smoke.fk',
+          'word_lower_execute_smoke.fk')),
+        (".github/workflows/v4-ci.yml",
+         ('test_v4_word_lower_codegen.py', 'tests/v4_word_lower_codegen.py --plain',
+          'tests/v4_word_lower_codegen.py --work')),
+        ("src/compiler/v4/README.md", ('The W4 `.to_lower()` method',)),
+    )
+    for relative, needles in lower_contracts:
+        path = repo / relative
+        if not path.is_file():
+            lower_missing.append(relative + " missing")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in text:
+                lower_missing.append(relative + ": " + needle)
+    add("V4 owned Unicode lowercase", not lower_missing,
+        "closed v7 contracts and compiler/native gates wired" if not lower_missing
+        else f"{len(lower_missing)} gap(s)")
+    if lower_missing:
+        failures.append("V4 owned lowercase wiring regressed: " + "; ".join(lower_missing))
+
     # ── Check 7d: V4 trust me block parsing (regression guard) ──
     # Bible §16.4 gates raw-pointer dereferencing on `trust me` blocks. V4 now
     # parses the honor ladder, validates known ranks, and uses that rank for
