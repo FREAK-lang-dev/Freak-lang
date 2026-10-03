@@ -3743,7 +3743,12 @@ task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
     pilot fresh = mir_id >= array_len(v4_mir_files)
     if not v4_mir_restore_building {
         pilot needed = 35 - v4_mir_restore_raw_handle_count(mir_id)
-        if fresh { needed = 35 * (mir_id - array_len(v4_mir_files) + 1) }
+        if fresh {
+            pilot missing_before_last = mir_id - array_len(v4_mir_files)
+            -- floor(INT64_MAX / 35), checked before addition and multiply.
+            if missing_before_last >= 263524915338707880 { give back 0 }
+            needed = 35 * (missing_before_last + 1)
+        }
         if not v4_mir_restore_reserve_needed(needed) { give back 0 }
     }
     pilot previous_mode = v4_mir_restore_building
@@ -3812,7 +3817,12 @@ task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name
     pilot fresh = body_id >= v4_mir_body_count(mir_id)
     if not v4_mir_restore_building {
         pilot needed = 0
-        if fresh { needed = 31 * (body_id - v4_mir_body_count(mir_id) + 1) }
+        if fresh {
+            pilot missing_before_last = body_id - v4_mir_body_count(mir_id)
+            -- floor(INT64_MAX / 31), checked before addition and multiply.
+            if missing_before_last >= 297528130221121800 { give back 0 }
+            needed = 31 * (missing_before_last + 1)
+        }
         if not v4_mir_restore_reserve_needed(needed) { give back 0 }
     }
     pilot previous_mode = v4_mir_restore_building

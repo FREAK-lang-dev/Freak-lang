@@ -156,6 +156,11 @@ task v4_restore_resource_run() -> void {
     v4_restore_resource_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_body_count(mir) == 13 and v4_mir_snapshot() == payload and v4_restore_resource_capacity() == capacity, "shrink restores exact tail counts and capacity")
     say "mir-restore-resource late-malformed-atomic=true positive-delta-admission=true growth-shrink=true pressure-recovery=true"
     capacity = v4_restore_resource_capacity()
+    pilot maximal_file_failure = v4_mir_restore_file_slot(9223372036854775807, 0, v4_mir_ty_id(mir)) == 0
+    pilot maximal_body_failure = v4_mir_restore_body_slot(mir, 9223372036854775807, "", "", "") == 0
+    pilot overflowing_file_failure = v4_mir_restore_file_slot(263524915338707881, 0, v4_mir_ty_id(mir)) == 0
+    pilot overflowing_body_failure = v4_mir_restore_body_slot(mir, 297528130221121813, "", "", "") == 0
+    v4_restore_resource_assert(maximal_file_failure and maximal_body_failure and overflowing_file_failure and overflowing_body_failure and v4_mir_file_count() == 1 and v4_mir_body_count(mir) == 13 and v4_mir_snapshot() == payload and v4_restore_resource_capacity() == capacity, "maximal and overflow gap IDs reject before owner publication")
     held = array_new()
     pilot exhausted = false
     repeat until exhausted {
@@ -176,6 +181,6 @@ task v4_restore_resource_run() -> void {
     pilot omitted_names = v4_mir_names_handle(omitted)
     pilot omitted_index = v4_mir_body_lookup_index_handle(omitted)
     v4_restore_resource_assert(omitted == 1 and v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_file_count() == 2 and v4_mir_names_handle(omitted) == omitted_names and v4_mir_body_lookup_index_handle(omitted) == omitted_index, "omitted owner lifetime preserved")
-    say "mir-restore-resource failed-growth-closed=true source-equivalent=true fresh-sealing=true sealed-A-stable=true omitted-file-preserved=true"
+    say "mir-restore-resource failed-growth-closed=true maximal-gap-ids-closed=true source-equivalent=true fresh-sealing=true sealed-A-stable=true omitted-file-preserved=true"
 }
 v4_restore_resource_run()
