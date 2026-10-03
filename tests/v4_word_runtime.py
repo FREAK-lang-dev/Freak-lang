@@ -25,7 +25,8 @@ def assert_named_panic(result: subprocess.CompletedProcess[bytes], reason: str,
     # of a successful bounds or UTF-8 rejection.
     expected_exit = 3 if platform == "win32" else -signal.SIGABRT
     diagnostic = ("FREAK: V4 word panic: " + reason + "\n").encode()
-    actual = (result.returncode, result.stdout, result.stderr.replace(b"\r\n", b"\n"))
+    stderr = result.stderr.replace(b"\r\n", b"\n") if platform == "win32" else result.stderr
+    actual = (result.returncode, result.stdout, stderr)
     expected = (expected_exit, b"", diagnostic)
     if actual != expected:
         raise AssertionError(f"expected named panic {expected!r}; actual {actual!r}")
@@ -67,8 +68,10 @@ def main() -> int:
         accepted = execute()
         payload = b"A\0\xc3\xa9\xe4\xb8\xad\xf0\x9f\x98\x80"
         assert accepted.returncode == 0, (accepted.returncode, accepted.stdout, accepted.stderr)
-        assert accepted.stdout.replace(b"\r\n", b"\n") == payload + b"\n\nv4-word-runtime=ok\n", accepted.stdout
-        assert accepted.stderr.replace(b"\r\n", b"\n") == payload + b"\n", accepted.stderr
+        stdout = accepted.stdout.replace(b"\r\n", b"\n") if sys.platform == "win32" else accepted.stdout
+        stderr = accepted.stderr.replace(b"\r\n", b"\n") if sys.platform == "win32" else accepted.stderr
+        assert stdout == payload + b"\n\nv4-word-runtime=ok\n", accepted.stdout
+        assert stderr == payload + b"\n", accepted.stderr
 
         rejected = {f"utf8-{index}": "invalid UTF-8" for index in range(13)}
         rejected.update({

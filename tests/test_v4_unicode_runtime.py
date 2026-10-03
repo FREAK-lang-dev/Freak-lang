@@ -22,9 +22,16 @@ class UnicodePanicOracleTests(unittest.TestCase):
         for platform in ("linux", "darwin", "win32"):
             status = 3 if platform == "win32" else -signal.SIGABRT
             for diagnostic in self.diagnostics:
-                for stderr in (diagnostic.encode(), diagnostic.replace("\n", "\r\n").encode()):
+                outputs = (diagnostic.encode(), diagnostic.replace("\n", "\r\n").encode()) if platform == "win32" else (diagnostic.encode(),)
+                for stderr in outputs:
                     with self.subTest(platform=platform, diagnostic=diagnostic, stderr=stderr):
                         assert_named_panic(self.result(status, stderr), diagnostic, platform=platform)
+
+    def test_crlf_cannot_masquerade_as_exact_posix_diagnostics(self) -> None:
+        for platform in ("linux", "darwin"):
+            for diagnostic in self.diagnostics:
+                with self.subTest(platform=platform, diagnostic=diagnostic), self.assertRaises(AssertionError):
+                    assert_named_panic(self.result(-signal.SIGABRT, diagnostic.replace("\n", "\r\n").encode()), diagnostic, platform=platform)
 
     def test_wrong_exit_and_signal_never_prove_rejection(self) -> None:
         for platform in ("linux", "darwin", "win32"):

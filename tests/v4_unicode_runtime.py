@@ -31,8 +31,8 @@ def assert_named_panic(result: subprocess.CompletedProcess[bytes], diagnostic: s
     # sanitizer reports, ownership audits and a crash after the diagnostic.
     expected = (3 if platform == "win32" else -signal.SIGABRT,
                 b"", diagnostic.encode("ascii"))
-    actual = (result.returncode, result.stdout,
-              result.stderr.replace(b"\r\n", b"\n"))
+    stderr = result.stderr.replace(b"\r\n", b"\n") if platform == "win32" else result.stderr
+    actual = (result.returncode, result.stdout, stderr)
     if actual != expected:
         raise AssertionError(f"expected named panic {expected!r}; actual {actual!r}")
 
@@ -204,7 +204,8 @@ def main() -> int:
         def execute(*arguments: str, data: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
             return subprocess.run([str(binary), *arguments], input=data, cwd=temporary, capture_output=True, timeout=60, env=environment)
         accepted = execute()
-        assert accepted.returncode == 0 and accepted.stdout.replace(b"\r\n", b"\n") == b"v4-unicode-storage=ok\n" and not accepted.stderr, (accepted.returncode, accepted.stdout, accepted.stderr)
+        stdout = accepted.stdout.replace(b"\r\n", b"\n") if sys.platform == "win32" else accepted.stdout
+        assert accepted.returncode == 0 and stdout == b"v4-unicode-storage=ok\n" and not accepted.stderr, (accepted.returncode, accepted.stdout, accepted.stderr)
         tested = execute("--batch", data=payload.encode("ascii"))
         assert tested.returncode == 0 and not tested.stderr, (tested.returncode, tested.stderr)
         actual = tested.stdout.decode("ascii").splitlines()

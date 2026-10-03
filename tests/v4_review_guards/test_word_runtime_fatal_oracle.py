@@ -41,6 +41,12 @@ class WordPanicOracle(unittest.TestCase):
             gate.assert_named_panic(self.result(stderr=b"FREAK: V4 word panic: wrong reason\n"),
                                     self.reason, platform="linux")
 
+    def test_crlf_cannot_masquerade_as_exact_posix_diagnostics(self):
+        for platform in ("linux", "darwin"):
+            with self.subTest(platform=platform), self.assertRaises(AssertionError):
+                gate.assert_named_panic(self.result(stderr=self.diagnostic.replace(b"\n", b"\r\n")),
+                                        self.reason, platform=platform)
+
 
 if __name__ == "__main__":
     unittest.main()
