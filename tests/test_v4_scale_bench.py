@@ -73,6 +73,41 @@ class SymbolToolSelection(unittest.TestCase):
         metadata = json.loads((self.work / "symbols/tool-selection/provenance.json").read_text())
         self.assertEqual(metadata["nm_version"], result.stdout)
 
+    def test_version_permission_error_keeps_pinned_tool_provenance(self):
+        error = PermissionError(13, "selected symbol reader cannot execute")
+        directory = self.work / "selection"
+        with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark, "guarded_job", side_effect=error) as job, \
+                self.assertRaises(RuntimeError) as failure:
+            self.benchmark.llvm_symbol_tool(None, directory, 20)
+        self.assertIs(failure.exception.__cause__, error)
+        self.assertIn("selected symbol reader cannot execute", str(failure.exception))
+        self.assertIn("symbol-tool-provenance=", str(failure.exception))
+        metadata = json.loads((directory / "provenance.json").read_text())
+        self.assertEqual(metadata["requested_nm"], str(self.tool))
+        self.assertEqual(metadata["resolved_nm"], str(self.tool))
+        self.assertEqual(metadata["nm_file"]["sha256"], hashlib.sha256(self.tool.read_bytes()).hexdigest())
+        self.assertEqual(metadata["nm_version"], "unavailable within unchanged resource limits")
+        job.assert_called_once_with(None, [str(self.tool), "--version"],
+                                   directory / "tool-version", "LLVM symbol tool version", 5, 128, 1)
+
+    def test_version_nonzero_exit_keeps_stderr_and_pinned_provenance(self):
+        result = subprocess.CompletedProcess([], 2, LLVM_VERSION, "version loader failed")
+        directory = self.work / "selection"
+        with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark, "guarded_job", return_value=result) as job, \
+                self.assertRaises(RuntimeError) as failure:
+            self.benchmark.llvm_symbol_tool(None, directory, 20)
+        self.assertIn("version loader failed", str(failure.exception))
+        self.assertIn("symbol-tool-provenance=", str(failure.exception))
+        self.assertIsInstance(failure.exception.__cause__, RuntimeError)
+        metadata = json.loads((directory / "provenance.json").read_text())
+        self.assertEqual(metadata["resolved_nm"], str(self.tool))
+        self.assertEqual(metadata["nm_file"]["sha256"], hashlib.sha256(self.tool.read_bytes()).hexdigest())
+        self.assertEqual(metadata["nm_version"], "unavailable within unchanged resource limits")
+        job.assert_called_once_with(None, [str(self.tool), "--version"],
+                                   directory / "tool-version", "LLVM symbol tool version", 5, 128, 1)
+
     def test_frozen_image_change_stops_before_symbol_reader_execution(self):
         selected = {"requested_nm": str(self.tool), "resolved_nm": str(self.tool),
                     "nm_file": self.benchmark.symbol_file_provenance(self.tool),
