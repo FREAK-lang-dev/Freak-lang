@@ -114,7 +114,8 @@ def main() -> int:
 
         mode = "plain portability" if args.plain else "AddressSanitizer + UndefinedBehaviorSanitizer"
         print(f"V4 system runtime: UTF-8 argv/Unicode paths, sized NUL/empty/error reads, "
-              f"13 I/O/storage faults, {len(rejected)} named failures, zero owners/descriptors; {mode} passed")
+              f"pre-read path size rejection, 13 I/O/storage faults, {len(rejected)} named failures, "
+              f"zero owners/descriptors; {mode} passed")
     return 0
 
 

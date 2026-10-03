@@ -197,6 +197,16 @@ void freak_v4_fs_read(int64_t path, int64_t *out_is_ok, int64_t *out_payload) {
     size_t length = 0;
     if (!freak_llvm_word_owned_size(path, &length))
         freak_v4_system_fail("filesystem path is not a live owned word");
+    /* Registry membership alone does not make impossible byte counts safe to
+       inspect. Admit the byte count before scanning or allocating a pathname. */
+    if (length >= SIZE_MAX || (uintmax_t)length > (uintmax_t)INT64_MAX
+#ifdef _WIN32
+            || length > (size_t)INT_MAX
+#endif
+            ) {
+        freak_v4_fs_error(out_is_ok, out_payload, "filesystem path size overflow");
+        return;
+    }
     const char *bytes = (const char *)(uintptr_t)path;
     const char *error = NULL;
     if (!length) error = "filesystem path is empty";
@@ -206,7 +216,6 @@ void freak_v4_fs_read(int64_t path, int64_t *out_is_ok, int64_t *out_payload) {
     int descriptor = -1;
     if (!error) {
 #ifdef _WIN32
-        if (length > INT_MAX) error = "filesystem path size overflow";
         int wide_length = !error ? MultiByteToWideChar(CP_UTF8,
                 MB_ERR_INVALID_CHARS, bytes, (int)length, NULL, 0) : 0;
         if (!error && wide_length <= 0) error = "could not convert filesystem path";

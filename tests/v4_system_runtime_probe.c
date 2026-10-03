@@ -12,6 +12,8 @@ static size_t probe_last_allocation = 0;
 static int probe_descriptors = 0;
 static void *probe_raw[8192];
 static size_t probe_raw_count = 0;
+static bool probe_forbid_path_touch = false;
+static size_t probe_path_scans = 0;
 
 static void probe_untrack(void *pointer) {
     if (!pointer) return;
@@ -21,6 +23,7 @@ static void probe_untrack(void *pointer) {
     probe_raw[index] = probe_raw[--probe_raw_count];
 }
 static void *probe_malloc(size_t size) {
+    assert(!probe_forbid_path_touch);
     ++probe_allocations;
     probe_last_allocation = size;
     if ((probe_fault == 1 && probe_allocations == 1) ||
@@ -42,6 +45,11 @@ static int64_t probe_adopt(int64_t pointer, size_t length) {
     int64_t result = freak_llvm_word_try_adopt_sized(pointer, length);
     if (result) probe_untrack((void *)(uintptr_t)pointer);
     return result;
+}
+static void *probe_memchr(const void *bytes, int value, size_t length) {
+    assert(!probe_forbid_path_touch);
+    ++probe_path_scans;
+    return memchr(bytes, value, length);
 }
 static int probe_seek(FILE *file, long offset, int whence) {
     if (probe_fault == 7) return -1;
@@ -67,6 +75,7 @@ static int probe_close_file(FILE *file) {
 }
 #ifdef _WIN32
 static int probe_open(const wchar_t *name, int flags, ...) {
+    assert(!probe_forbid_path_touch);
     if (probe_fault == 4) return -1;
     int descriptor = _wopen(name, flags);
     if (descriptor >= 0) ++probe_descriptors;
@@ -94,6 +103,7 @@ static int probe_close_descriptor(int descriptor) {
 #define _close probe_close_descriptor
 #else
 static int probe_open(const char *name, int flags, ...) {
+    assert(!probe_forbid_path_touch);
     if (probe_fault == 4) return -1;
     int descriptor = open(name, flags);
     if (descriptor >= 0) ++probe_descriptors;
@@ -128,6 +138,7 @@ static int probe_close_descriptor(int descriptor) {
 #define ferror probe_error
 #define fclose probe_close_file
 #define freak_llvm_word_try_adopt_sized probe_adopt
+#define memchr probe_memchr
 #include "freak_v4_system_runtime.c"
 #undef malloc
 #undef free
@@ -137,6 +148,7 @@ static int probe_close_descriptor(int descriptor) {
 #undef ferror
 #undef fclose
 #undef freak_llvm_word_try_adopt_sized
+#undef memchr
 #ifdef _WIN32
 #undef _wopen
 #undef _fstat64
@@ -183,6 +195,31 @@ static void probe_result(int64_t path, int64_t expected_tag,
     else assert(freak_v4_word_bytes(payload) > 0);
     freak_v4_word_drop(payload);
     assert(freak_llvm_owned_count == before && probe_descriptors == 0);
+}
+static void probe_oversized_path(size_t forged_length) {
+    /* The allocation and ownership are genuine. Only the private registry's
+       metadata is forged, so any pathname scan would overrun this byte. */
+    int64_t path = probe_word("p", 1);
+    freak_llvm_owned_word *owned = freak_llvm_owned_find((void *)(uintptr_t)path, NULL);
+    assert(owned && owned->length == 1);
+    size_t before = freak_llvm_owned_count, scans = probe_path_scans;
+    int allocations = probe_allocations;
+    owned->length = forged_length;
+    int64_t tag = -1, payload = 0;
+    probe_forbid_path_touch = true;
+    freak_v4_fs_read(path, &tag, &payload);
+    probe_forbid_path_touch = false;
+    assert(tag == 0 && payload && payload != path);
+    assert(probe_path_scans == scans && probe_allocations == allocations);
+    assert(probe_descriptors == 0 && freak_llvm_owned_count == before + 1);
+    const char expected[] = "filesystem path size overflow";
+    probe_bytes(payload, expected, sizeof(expected) - 1);
+    size_t still_length = 0;
+    assert(freak_llvm_word_owned_size(path, &still_length) && still_length == forged_length);
+    owned->length = 1;
+    freak_v4_word_drop(payload);
+    freak_v4_word_drop(path);
+    assert(freak_llvm_owned_count == before - 1);
 }
 static void probe_arguments(int argc, char **argv, bool print) {
     freak_v4_process_setup_args(argc, (int64_t)(uintptr_t)argv);
@@ -282,6 +319,14 @@ int main(int argc, char **argv) {
     int64_t paths[5];
     for (int index = 0; index < 5; ++index) paths[index] = freak_v4_process_arg(index + 2);
     const unsigned char content[] = {'A', 0, 0xc3, 0xa9, 0xe4, 0xb8, 0xad, 0xf0, 0x9f, 0x98, 0x80};
+    probe_oversized_path(SIZE_MAX);
+#if SIZE_MAX > INT64_MAX
+    probe_oversized_path((size_t)INT64_MAX + 1);
+#endif
+#ifdef _WIN32
+    probe_oversized_path((size_t)INT_MAX + 1);
+#endif
+    /* The same adapter must recover to ordinary successful reads afterward. */
     probe_result(paths[0], 1, "", 0);
     probe_result(paths[1], 1, content, sizeof(content));
     probe_result(paths[2], 0, NULL, 0);
