@@ -2,8 +2,9 @@
 """Prove generated sized stderr, immutable loans and cleanup at O0/O2/O3.
 
 Default requires Linux ASan+UBSan and real controls; --plain is a separate
-all-OS proof. Compiler cases retain 64 MiB/1024 handles. Every command/output,
-module, binary and partial report remains in a required fresh --work directory.
+all-OS proof. Compiler cases retain 64 MiB/1024 handles. Generated-program build
+and execution commands/output, modules, binaries and partial reports remain in
+a required fresh --work directory.
 """
 from __future__ import annotations
 
