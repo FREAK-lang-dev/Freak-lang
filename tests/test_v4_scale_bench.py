@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,29 @@ STAGES = ["lex", "parse", "hir", "resolve", "ty", "mir", "borrowck", "codegen", 
 LLVM_VERSION = "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n"
 
 
+def synthetic_elf_image(marker=b"LLVM tool image"):
+    """Closed ELF header for process-free metadata/FD tests, not executable proof."""
+    ident = b"\x7fELF\x02\x01\x01" + b"\0" * 9
+    return struct.pack("<16sHHIQQQIHHHHHH", ident, 2, 62, 1, 0, 64, 0, 0,
+                       64, 56, 0, 0, 0, 0) + marker
+
+
+def synthetic_dynamic_elf_image(origin_path):
+    """Bounded dynamic metadata for parser tests, without executable code."""
+    strings = b"\0" + origin_path.encode("ascii") + b"\0"
+    dynamic_offset, strings_offset = 64 + 2 * 56, 64 + 2 * 56 + 4 * 16
+    size = strings_offset + len(strings)
+    ident = b"\x7fELF\x02\x01\x01" + b"\0" * 9
+    header = struct.pack("<16sHHIQQQIHHHHHH", ident, 2, 62, 1, 0, 64, 0, 0,
+                         64, 56, 2, 0, 0, 0)
+    load = struct.pack("<IIQQQQQQ", 1, 4, 0, 0x400000, 0, size, size, 4096)
+    dynamic = struct.pack("<IIQQQQQQ", 2, 6, dynamic_offset,
+                          0x400000 + dynamic_offset, 0, 64, 64, 8)
+    tags = b"".join(struct.pack("<qQ", tag, value) for tag, value in
+                    ((5, 0x400000 + strings_offset), (10, len(strings)), (29, 1), (0, 0)))
+    return header + load + dynamic + tags + strings
+
+
 @unittest.skipUnless(sys.platform.startswith("linux"), "Linux pinned ELF symbol reader")
 class SymbolToolSelection(unittest.TestCase):
     def setUp(self):
@@ -30,7 +54,7 @@ class SymbolToolSelection(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.work = Path(temporary.name).resolve()
         self.tool = self.work / "llvm-nm-real"
-        self.tool.write_bytes(b"\x7fELF LLVM tool image")
+        self.tool.write_bytes(synthetic_elf_image())
         self.obj = self.work / "module.o"
         self.obj.write_bytes(b"native object")
         spec = importlib.util.spec_from_file_location("symbol_tool_benchmark", ROOT / "v4_scale_bench.py")
@@ -277,7 +301,7 @@ class SymbolToolSelection(unittest.TestCase):
             descriptor, = launch["pass_fds"]
             inode = os.fstat(descriptor).st_ino
             replacement = self.work / "replacement"
-            replacement.write_bytes(b"\x7fELF another tool image")
+            replacement.write_bytes(synthetic_elf_image(b"another tool image"))
             os.replace(replacement, self.tool)
             self.assertNotEqual(self.tool.stat().st_ino, inode)
             self.assertEqual(os.stat(launch["executable"]).st_ino, inode)
@@ -286,6 +310,139 @@ class SymbolToolSelection(unittest.TestCase):
             self.assertEqual(launch["image"]["sha256"], hashlib.sha256(original).hexdigest())
         with self.assertRaises(OSError):
             os.fstat(descriptor)
+
+    def test_private_copy_survives_original_inplace_writes_with_frozen_bytes(self):
+        import fcntl
+        original = self.tool.read_bytes()
+        original_stat = self.tool.stat()
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        with self.benchmark.frozen_symbol_tool_launch(selected) as launch:
+            descriptor, = launch["pass_fds"]
+            self.tool.write_bytes(synthetic_elf_image(b"replacement image"))
+            self.assertEqual(self.tool.stat().st_ino, original_stat.st_ino)
+            # This byte assertion rejects the prior held-original-inode strategy.
+            self.assertEqual(os.read(descriptor, len(original)), original)
+            image = launch["image"]
+            self.assertEqual(image["sha256"], hashlib.sha256(original).hexdigest())
+            self.assertEqual(image["original_image"]["inode"], original_stat.st_ino)
+            self.assertNotEqual((image["device"], image["inode"]),
+                                (original_stat.st_dev, original_stat.st_ino))
+            self.assertEqual(fcntl.fcntl(descriptor, fcntl.F_GETFL) & os.O_ACCMODE, os.O_RDONLY)
+            self.assertEqual(Path(image["private_copy"]).stat().st_mode & 0o777, 0o500)
+            private_root = Path(image["private_root"])
+            self.assertEqual(private_root.stat().st_mode & 0o777, 0o700)
+            self.assertFalse(image["sealed"])
+        self.assertFalse(private_root.exists())
+        with self.assertRaises(OSError):
+            os.fstat(descriptor)
+
+    def test_original_writes_between_attestation_and_both_mocked_jobs_keep_copy_identity(self):
+        original = self.tool.read_bytes()
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        private_images = []
+        def mutate(*args, **kwargs):
+            descriptor, = kwargs["pass_fds"]
+            self.tool.write_bytes(synthetic_elf_image(b"replacement image"))
+            self.assertEqual(os.read(descriptor, len(original)), original)
+            self.assertEqual(args[1][0], str(self.tool))
+            private_images.append(descriptor)
+            return subprocess.CompletedProcess([], 0,
+                LLVM_VERSION if args[1][-1] == "--version" else "00000000 T copy_export\n", "")
+        with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark, "guarded_job", side_effect=mutate):
+            provenance = self.benchmark.llvm_symbol_tool(None, self.work / "copy-selection", 10)
+            self.tool.write_bytes(original)
+            exports = self.benchmark.defined_symbols(None, self.obj, self.work / "copy-inventory", 10,
+                                                    symbol_tool=provenance)
+        self.assertEqual(exports, {"copy_export"})
+        self.assertEqual(provenance["nm_file"], selected["nm_file"])
+        self.assertEqual(len(private_images), 2)
+        for directory in ("copy-selection/tool-version", "copy-inventory"):
+            image = json.loads((self.work / directory / "image.json").read_text())
+            self.assertEqual(image["sha256"], selected["nm_file"]["sha256"])
+            self.assertEqual(image["original_image"]["sha256"], selected["nm_file"]["sha256"])
+            self.assertFalse(Path(image["private_root"]).exists())
+        for descriptor in private_images:
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
+
+    def test_shadow_origin_parser_admits_lookup_paths_and_rejects_escapes_and_bad_frames(self):
+        for path in ("$ORIGIN", "${ORIGIN}/../lib", "/usr/lib:$ORIGIN/../plugins"):
+            with self.subTest(path=path):
+                image = synthetic_dynamic_elf_image(path)
+                self.assertEqual(self.benchmark.symbol_elf_origin_paths(io.BytesIO(image), len(image), self.work), [path])
+        for path in ("$LIB", "/other/$ORIGIN", "$ORIGIN/../$PLATFORM",
+                     "$ORIGIN/" + "../" * len(self.work.parts)):
+            with self.subTest(path=path), self.assertRaises(RuntimeError):
+                image = synthetic_dynamic_elf_image(path)
+                self.benchmark.symbol_elf_origin_paths(io.BytesIO(image), len(image), self.work)
+        image = synthetic_dynamic_elf_image("$ORIGIN")
+        for invalid in (image[:10], image[:64], image[:-1]):
+            with self.subTest(length=len(invalid)), self.assertRaises(RuntimeError):
+                self.benchmark.symbol_elf_origin_paths(io.BytesIO(invalid), len(invalid), self.work)
+
+    def test_shadow_origin_spine_keeps_adjacent_parent_paths_and_bounds_names(self):
+        with tempfile.TemporaryDirectory() as original, tempfile.TemporaryDirectory() as shadow:
+            origin = Path(original)
+            (origin / "bin").mkdir()
+            (origin / "plugins").mkdir()
+            (origin / "plugins/dependency.so").write_bytes(b"external library bytes")
+            (origin / "bin/adjacent.so").write_bytes(b"adjacent library bytes")
+            tool = origin / "bin/llvm-nm"
+            tool.write_bytes(synthetic_elf_image())
+            copied, entries = self.benchmark.symbol_shadow_origin(tool, Path(shadow))
+            self.assertEqual((copied.parent / "adjacent.so").read_bytes(), b"adjacent library bytes")
+            self.assertEqual((copied.parent / "../plugins/dependency.so").read_bytes(), b"external library bytes")
+            self.assertGreater(entries, 0)
+            self.assertFalse(copied.exists())
+        with tempfile.TemporaryDirectory() as shadow, \
+                patch.object(Path, "iterdir", return_value=iter([Path("/same-name")] * 2)), \
+                self.assertRaisesRegex(RuntimeError, "shadow-origin slot collision"):
+            self.benchmark.symbol_shadow_origin(Path("/bin/llvm-nm"), Path(shadow))
+        with tempfile.TemporaryDirectory() as shadow, \
+                patch.object(Path, "iterdir", return_value=iter(Path("/" + str(n)) for n in range(8193))), \
+                self.assertRaisesRegex(RuntimeError, "entry limit exceeded"):
+            self.benchmark.symbol_shadow_origin(Path("/bin/llvm-nm"), Path(shadow))
+
+    def test_private_cleanup_failure_preserves_primary_or_fails_by_name(self):
+        cleanup = self.benchmark.tempfile.TemporaryDirectory.cleanup
+        def clean_then_fail(temporary):
+            cleanup(temporary)
+            raise OSError(errno.EIO, "private cleanup fault")
+        for primary in (None, RuntimeError("original guard limit")):
+            with self.subTest(primary=primary), \
+                    patch.object(self.benchmark.tempfile.TemporaryDirectory, "cleanup", clean_then_fail), \
+                    patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                    patch.object(self.benchmark, "guarded_job", side_effect=primary,
+                                 return_value=subprocess.CompletedProcess([], 0, LLVM_VERSION, "")), \
+                    self.assertRaises(RuntimeError) as failure:
+                self.benchmark.llvm_symbol_tool(None, self.work / "cleanup", 10)
+            if primary is None:
+                self.assertIn("private-copy cleanup failed", str(failure.exception))
+            else:
+                self.assertIs(failure.exception.__cause__, primary)
+                self.assertIn("original guard limit", str(failure.exception))
+                self.assertEqual(len(primary.__notes__), 1)
+                self.assertIn("private-copy cleanup failure", primary.__notes__[0])
+        try:
+            raise RuntimeError("unrelated caller exception")
+        except RuntimeError:
+            with patch.object(self.benchmark.tempfile.TemporaryDirectory, "cleanup", clean_then_fail), \
+                    patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                    patch.object(self.benchmark, "guarded_job", return_value=subprocess.CompletedProcess([], 0, LLVM_VERSION, "")), \
+                    self.assertRaisesRegex(RuntimeError, "private-copy cleanup failed"):
+                self.benchmark.llvm_symbol_tool(None, self.work / "ambient-cleanup", 10)
+
+    def test_private_noexec_storage_fails_before_reader_launch(self):
+        with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark.os, "statvfs", return_value=type("Flags", (), {"f_flag": os.ST_NOEXEC})()), \
+                patch.object(self.benchmark, "guarded_job") as job, \
+                self.assertRaisesRegex(RuntimeError, "private-copy storage is mounted noexec") as failure:
+            self.benchmark.llvm_symbol_tool(None, self.work / "private-noexec", 10)
+        self.assertIn("symbol-tool-provenance=", str(failure.exception))
+        job.assert_not_called()
 
     def test_shebang_tool_rejected_before_execution(self):
         self.tool.write_bytes(b"#!/usr/bin/env python3\nprint('LLVM version 19')\n")
@@ -321,7 +478,8 @@ class SymbolToolSelection(unittest.TestCase):
         opened = []
         def record_open(*args, **kwargs):
             descriptor = original_open(*args, **kwargs)
-            opened.append(descriptor)
+            if isinstance(args[0], Path) and args[0].name == self.tool.name:
+                opened.append(descriptor)
             return descriptor
         def missing_proc(path, *args, **kwargs):
             if str(path).startswith("/proc/self/fd/"):
@@ -334,9 +492,10 @@ class SymbolToolSelection(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "requires Linux proc-fd support"):
                 self.benchmark.llvm_symbol_tool(None, self.work / "selection", 10)
         job.assert_not_called()
-        self.assertEqual(len(opened), 1)
-        with self.assertRaises(OSError):
-            os.fstat(opened[0])
+        self.assertEqual(len(opened), 2)
+        for descriptor in opened:
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
 
     def test_secondary_close_error_preserves_version_and_inventory_guard_failures(self):
         original_close = os.close
@@ -354,7 +513,7 @@ class SymbolToolSelection(unittest.TestCase):
                             "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
                 with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
                         patch.object(self.benchmark, "guarded_job", side_effect=primary) as job, \
-                        patch.object(self.benchmark.os, "close", side_effect=close_then_fail) as close, \
+                        patch.object(self.benchmark, "close_symbol_descriptor", side_effect=close_then_fail) as close, \
                         self.assertRaises(RuntimeError) as failure:
                     if phase == "version":
                         self.benchmark.llvm_symbol_tool(None, self.work / phase, 10)
@@ -389,7 +548,7 @@ class SymbolToolSelection(unittest.TestCase):
                                                      else "00000000 T exported\n", "")
                 with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
                         patch.object(self.benchmark, "guarded_job", return_value=result) as job, \
-                        patch.object(self.benchmark.os, "close", side_effect=close_then_fail) as close, \
+                        patch.object(self.benchmark, "close_symbol_descriptor", side_effect=close_then_fail) as close, \
                         self.assertRaisesRegex(RuntimeError, "LLVM symbol reader descriptor close failed") as failure:
                     if phase == "version":
                         self.benchmark.llvm_symbol_tool(None, self.work / phase, 10)
@@ -417,7 +576,7 @@ class SymbolToolSelection(unittest.TestCase):
             self.assertEqual(replacement, descriptor)
             raise OSError(errno.EINTR, "already closed and reused")
         try:
-            with patch.object(self.benchmark.os, "close", side_effect=close_and_reuse) as close:
+            with patch.object(self.benchmark, "close_symbol_descriptor", side_effect=close_and_reuse) as close:
                 with self.assertRaisesRegex(RuntimeError, "LLVM symbol reader descriptor close failed"):
                     with self.benchmark.frozen_symbol_tool_launch(selected):
                         pass
@@ -439,7 +598,7 @@ class SymbolToolSelection(unittest.TestCase):
             original_close(descriptor)
             closed.append(descriptor)
             raise OSError(errno.EINTR, "secondary FD close interrupted")
-        with patch.object(self.benchmark.os, "close", side_effect=close_then_fail) as close:
+        with patch.object(self.benchmark, "close_symbol_descriptor", side_effect=close_then_fail) as close:
             with self.assertRaises(KeyboardInterrupt) as failure:
                 with self.benchmark.frozen_symbol_tool_launch(selected):
                     raise primary
@@ -483,13 +642,33 @@ class SymbolToolSelection(unittest.TestCase):
         link_flags = []
         if with_origin:
             library_source = self.work / "origin.c"
-            library_source.write_text("int bench_fd_origin(void) { return 313; }\n")
-            library = self.work / "libbench_fd_origin.so"
+            dependency_flags = []
+            if with_origin in ("nested", "transitive"):
+                dependency_directory = (self.tool.parent.parent / "plugins" if with_origin == "nested"
+                                        else self.tool.parent)
+                dependency_directory.mkdir(exist_ok=True)
+                dependency_source = self.work / "dependency.c"
+                dependency_source.write_text("int bench_fd_dependency(void) { return 313; }\n")
+                dependency = dependency_directory / "libbench_fd_dependency.so"
+                compiled = self.benchmark.guarded_job(build,
+                    [clang, "-shared", "-fPIC", str(dependency_source), "-o", str(dependency)],
+                    self.work / "dependency-build", "native nested origin dependency", 10, 128, 8)
+                self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+                library_source.write_text("extern int bench_fd_dependency(void);\n"
+                                          "int bench_fd_origin(void) { return bench_fd_dependency(); }\n")
+                dependency_flags = ["-L", str(dependency_directory), "-lbench_fd_dependency"]
+                if with_origin == "nested":
+                    dependency_flags += ["-Wl,-rpath,$ORIGIN/../plugins"]
+            else:
+                library_source.write_text("int bench_fd_origin(void) { return 313; }\n")
+            library = self.tool.parent / "libbench_fd_origin.so"
             compiled = self.benchmark.guarded_job(build,
-                [clang, "-shared", "-fPIC", str(library_source), "-o", str(library)],
+                [clang, "-shared", "-fPIC", str(library_source), *dependency_flags, "-o", str(library)],
                 self.work / "origin-build", "native origin library", 10, 128, 8)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
-            link_flags = ["-L", str(self.work), "-lbench_fd_origin", "-Wl,-rpath,$ORIGIN"]
+            link_flags = ["-L", str(self.tool.parent), "-lbench_fd_origin", "-Wl,-rpath,$ORIGIN"]
+            if with_origin in ("nested", "transitive"):
+                link_flags += ["-Wl,-rpath-link," + str(dependency_directory)]
         for image, flags in ((self.tool, []), (replacement,
                 ['-DIMAGE_MARKER="replacement"', '-DEXPORT_NAME="unverified_export"'])):
             compiled = self.benchmark.guarded_job(build,
@@ -497,6 +676,98 @@ class SymbolToolSelection(unittest.TestCase):
                 self.work / (image.name + "-build"), "native multicall image", 10, 128, 8)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
         return build, calls, replacement
+
+    def test_original_inplace_mutation_executes_copy_and_rejects_old_held_inode_strategy(self):
+        build, calls, replacement = self.native_multicall_images(with_origin=True)
+        alias = self.work / "llvm-nm"
+        alias.symlink_to(self.tool)
+        original_bytes, replacement_bytes = self.tool.read_bytes(), replacement.read_bytes()
+        original_identity = self.benchmark.symbol_file_provenance(self.tool)
+        original_inode = self.tool.stat().st_ino
+        original_job = self.benchmark.guarded_job
+        for phase, arguments in (("version", ["--version"]),
+                                 ("inventory", ["-g", "--defined-only", str(self.obj)])):
+            with self.subTest(phase=phase):
+                self.tool.write_bytes(original_bytes)
+                # Reproduce the previous strategy: verify an original FD, then
+                # mutate that same inode before its exec, leaving metadata stale.
+                with self.tool.open("rb") as stream:
+                    self.assertEqual(hashlib.sha256(stream.read()).hexdigest(), original_identity["sha256"])
+                    self.tool.write_bytes(replacement_bytes)
+                    self.assertEqual(self.tool.stat().st_ino, original_inode)
+                    self.benchmark.save_json(self.work / ("old-inplace-" + phase) / "image.json",
+                                             {"original_image": original_identity,
+                                              "inode": original_inode, "strategy": "verified original FD"})
+                    result = original_job(build, [str(alias), *arguments],
+                        self.work / ("old-inplace-" + phase), "old inplace image negative", 5, 128, 8,
+                        executable=f"/proc/self/fd/{stream.fileno()}", pass_fds=(stream.fileno(),))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(calls.read_text().splitlines()[-1].split("|"),
+                                 ["replacement", str(alias), arguments[0]])
+                if phase == "inventory":
+                    self.assertIn("unverified_export", result.stdout)
+                self.tool.write_bytes(original_bytes)
+                def mutate_after_copy(*args, **kwargs):
+                    self.tool.write_bytes(replacement_bytes)
+                    self.assertEqual(self.tool.stat().st_ino, original_inode)
+                    return original_job(*args, **kwargs)
+                with patch.object(self.benchmark.shutil, "which", return_value=str(alias)), \
+                        patch.object(self.benchmark, "guarded_job", side_effect=mutate_after_copy):
+                    if phase == "version":
+                        self.benchmark.llvm_symbol_tool(build, self.work / "copy-inplace-version", 10)
+                        directory = self.work / "copy-inplace-version/tool-version"
+                    else:
+                        expected = {"selected_nm": str(alias), "resolved_nm": str(self.tool),
+                                    "nm_file": original_identity}
+                        exports = self.benchmark.defined_symbols(build, self.obj, self.work / "copy-inplace-inventory", 10,
+                                                               symbol_tool=expected)
+                        self.assertEqual(exports, {"multicall_export"})
+                        directory = self.work / "copy-inplace-inventory"
+                self.assertEqual(calls.read_text().splitlines()[-1].split("|"),
+                                 ["pinned", str(alias), arguments[0]])
+                image = json.loads((directory / "image.json").read_text())
+                self.assertEqual(image["sha256"], original_identity["sha256"])
+                self.assertEqual(image["original_image"]["sha256"], original_identity["sha256"])
+                self.assertEqual(image["original_image"]["inode"], original_inode)
+                self.assertNotEqual(image["inode"], original_inode)
+                self.assertFalse(image["sealed"])
+                self.assertFalse(Path(image["private_root"]).exists())
+        self.tool.write_bytes(original_bytes)
+
+    def test_private_origin_keeps_adjacent_library_own_parent_origin(self):
+        (self.work / "bin").mkdir()
+        self.tool = self.work / "bin/llvm-nm-real"
+        build, calls, _ = self.native_multicall_images(with_origin="nested")
+        alias = self.work / "bin/llvm-nm"
+        alias.symlink_to(self.tool)
+        direct = self.benchmark.guarded_job(build, [str(alias), "--version"],
+            self.work / "original-nested-origin", "original nested origin", 5, 128, 1)
+        self.assertEqual(direct.returncode, 0, direct.stdout + direct.stderr)
+        with patch.object(self.benchmark.shutil, "which", return_value=str(alias)):
+            selected = self.benchmark.llvm_symbol_tool(build, self.work / "private-nested-origin", 10)
+        exports = self.benchmark.defined_symbols(build, self.obj, self.work / "private-nested-inventory", 10,
+                                                symbol_tool=selected)
+        self.assertEqual(exports, {"multicall_export"})
+        self.assertEqual([line.split("|") for line in calls.read_text().splitlines()],
+                         [["pinned", str(alias), "--version"], ["pinned", str(alias), "--version"],
+                          ["pinned", str(alias), "-g"]])
+
+    def test_private_origin_does_not_make_main_runpath_transitive(self):
+        (self.work / "bin").mkdir()
+        self.tool = self.work / "bin/llvm-nm-real"
+        build, calls, _ = self.native_multicall_images(with_origin="transitive")
+        alias = self.work / "bin/llvm-nm"
+        alias.symlink_to(self.tool)
+        direct = self.benchmark.guarded_job(build, [str(alias), "--version"],
+            self.work / "original-nontransitive", "original nontransitive origin", 5, 128, 1)
+        self.assertEqual(direct.returncode, 127, direct.stdout + direct.stderr)
+        self.assertIn("libbench_fd_dependency.so", direct.stderr)
+        with patch.object(self.benchmark.shutil, "which", return_value=str(alias)), \
+                self.assertRaisesRegex(RuntimeError, "llvm-nm version: exit 127"):
+            self.benchmark.llvm_symbol_tool(build, self.work / "private-nontransitive", 10)
+        private_stderr = (self.work / "private-nontransitive/tool-version/stderr.txt").read_text()
+        self.assertIn("libbench_fd_dependency.so", private_stderr)
+        self.assertFalse(calls.exists())
 
     def test_real_multicall_alias_dispatch_and_resolved_image_negative_control(self):
         build, calls, replacement = self.native_multicall_images()
@@ -521,7 +792,8 @@ class SymbolToolSelection(unittest.TestCase):
             self.assertEqual(args[1][0], str(alias))
             descriptor, = kwargs["pass_fds"]
             self.assertEqual(kwargs.get("executable"), f"/proc/self/fd/{descriptor}")
-            self.assertEqual(os.fstat(descriptor).st_ino, self.tool.stat().st_ino)
+            self.assertNotEqual((os.fstat(descriptor).st_dev, os.fstat(descriptor).st_ino),
+                                (self.tool.stat().st_dev, self.tool.stat().st_ino))
             alias.unlink()
             alias.symlink_to(replacement)
             return original_job(*args, **kwargs)
@@ -576,7 +848,7 @@ class SymbolToolSelection(unittest.TestCase):
         self.assertEqual(calls.read_text().splitlines()[-1].split("|"),
                          ["replacement", str(alias), "--version"])
         original_job = self.benchmark.guarded_job
-        observed_inodes = []
+        observed_inodes, original_inodes = [], []
         def restore_pinned_path():
             temporary = self.work / "pinned-restore"
             temporary.write_bytes(pinned_bytes)
@@ -586,7 +858,9 @@ class SymbolToolSelection(unittest.TestCase):
             descriptor, = kwargs["pass_fds"]
             observed = os.fstat(descriptor)
             self.assertEqual(kwargs["executable"], f"/proc/self/fd/{descriptor}")
-            self.assertEqual(observed.st_ino, self.tool.stat().st_ino)
+            self.assertNotEqual((observed.st_dev, observed.st_ino),
+                                (self.tool.stat().st_dev, self.tool.stat().st_ino))
+            original_inodes.append(self.tool.stat().st_ino)
             replacement.write_bytes(replacement_bytes)
             replacement.chmod(0o755)
             os.replace(replacement, self.tool)
@@ -611,6 +885,9 @@ class SymbolToolSelection(unittest.TestCase):
             command = json.loads((self.work / directory / "command.json").read_text())
             self.assertEqual(image["sha256"], pinned_hash)
             self.assertEqual(image["inode"], observed_inodes[index])
+            self.assertEqual(image["original_image"]["inode"], original_inodes[index])
+            self.assertEqual(image["original_image"]["sha256"], pinned_hash)
+            self.assertFalse(image["sealed"])
             self.assertEqual(command["argv0"], str(alias))
             self.assertEqual(command["executable"], image["executable"])
             self.assertEqual(command["memory_limit_mib"], 128)
