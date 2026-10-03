@@ -1984,7 +1984,7 @@ class FrozenRuntimeInventory(unittest.TestCase):
     def test_later_runtime_object_collision_stops_before_manifest_publication(self):
         exports = [{f"unique_{i}"} for i in range(len(self.sources))]
         exports[2].add("later_collision")
-        exports[5].add("later_collision")
+        exports[-1].add("later_collision")
         with patch.object(self.benchmark, "defined_symbols", side_effect=exports) as symbols:
             with self.assertRaisesRegex(RuntimeError, "unexpected runtime symbol collisions.*later_collision"):
                 self.benchmark.build_tool(self.repo, self.work / "runs", False, 30, self.build)
@@ -1995,10 +1995,10 @@ class FrozenRuntimeInventory(unittest.TestCase):
         exports = [{f"unique_{i}"} for i in range(len(self.sources))]
         with patch.object(self.benchmark, "defined_symbols", side_effect=exports):
             tool, manifest = self.benchmark.build_tool(self.repo, self.work / "runs", False, 30, self.build)
-        self.assertEqual(len(manifest["runtime_objects"]), 6)
+        self.assertEqual(len(manifest["runtime_objects"]), 7)
         self.assertEqual(set(manifest["runtime_hashes"]), set((*self.sources, *self.headers)))
-        self.assertEqual(len(manifest["runtime_hashes"]), 12)
-        self.assertEqual(manifest["runtime_symbols"], [f"unique_{i}" for i in range(6)])
+        self.assertEqual(len(manifest["runtime_hashes"]), 14)
+        self.assertEqual(manifest["runtime_symbols"], [f"unique_{i}" for i in range(7)])
         self.assertEqual(manifest["runtime_collisions"], [])
         self.assertEqual(manifest["symbol_tool"], self.symbol_tool)
         for name, digest in manifest["runtime_hashes"].items():

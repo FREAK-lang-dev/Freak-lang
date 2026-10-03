@@ -11,6 +11,7 @@ SOURCE_NAMES = (
     "freak_v4_numeric_runtime.c",
     "freak_v4_unicode_runtime.c",
     "freak_v4_system_runtime.c",
+    "freak_v4_panic_runtime.c",
     "freak_runtime.c",
 )
 
@@ -21,4 +22,5 @@ HEADER_NAMES = (
     "freak_v4_unicode_runtime.h",
     "freak_v4_unicode_lower_tables.h",
     "freak_v4_system_runtime.h",
+    "freak_v4_panic_runtime.h",
 )
