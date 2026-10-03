@@ -646,6 +646,153 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                 else:
                     self.assertIsInstance(error.guard_error, RuntimeError)
 
+    def test_failed_cleanup_freezes_totals_with_text_before_reader_appends(self):
+        for guard in ("output", "timeout"):
+            with self.subTest(guard=guard):
+                fixture = self.cleanup_retry_fixture("posix", "terminate", persistent=True, permission_failure=True)
+                payloads = (b"frozen-stdout", b"frozen-stderr")
+                late = (b"-later-stdout", b"-later-stderr")
+                fixture.process.stdout = io.BytesIO(payloads[0])
+                fixture.process.stderr = io.BytesIO(payloads[1])
+                captures = []
+                workers = []
+                capture_type = checks.BoundedPipeCapture
+
+                def capture(*args):
+                    instance = capture_type(*args)
+                    captures.append(instance)
+                    return instance
+
+                def thread(*, target, args, daemon):
+                    def join(*, timeout):
+                        self.assertEqual(timeout, 5)
+                        self.assertEqual(fixture.attempts["terminate"], 2)
+                        self.assertEqual(fixture.process.returncode, -9)
+                    worker = SimpleNamespace(start=lambda: target(*args), join=Mock(side_effect=join))
+                    workers.append(worker)
+                    return worker
+
+                appended = False
+
+                def runtime_error(message):
+                    nonlocal appended
+                    if message.startswith("frozen guard process-tree cleanup failed"):
+                        # A daemon reader can still append after the bounded joins.
+                        # Append between the final refresh and exception fields.
+                        self.assertFalse(appended)
+                        appended = True
+                        for instance, addition in zip(captures, late):
+                            instance.read_from(io.BytesIO(addition))
+                    return RuntimeError(message)
+
+                command = ["unused", "frozen-command"]
+                artifacts = self.proc / ("frozen-" + guard)
+                with patch.object(checks, "BoundedPipeCapture", side_effect=capture), \
+                        patch.object(checks.threading, "Thread", side_effect=thread), \
+                        patch.object(checks, "RuntimeError", side_effect=runtime_error, create=True), \
+                        patch.object(checks.time, "monotonic", side_effect=[0, 2, 2]), \
+                        self.assertRaises(RuntimeError) as failure:
+                    benchmark.guarded_job(
+                        None, command, artifacts, "frozen guard",
+                        1 if guard == "timeout" else None, None,
+                        0 if guard == "output" else 8, runner=checks.run_with_heartbeat,
+                    )
+                error = failure.exception
+                self.assertTrue(appended)
+                self.assertEqual(error.guard_trigger, guard)
+                self.assertIs(error.__cause__, error.cleanup_errors[0][1])
+                self.assertEqual(error.__cause__.errno, 1)
+                for index, field in enumerate(("stdout_total_bytes", "stderr_total_bytes")):
+                    self.assertEqual(captures[index].snapshot()[0], len(payloads[index]) + len(late[index]))
+                    self.assertEqual(getattr(error, field), len(payloads[index]))
+                    self.assertEqual(getattr(error.guard_error, field), len(payloads[index]))
+                self.assertEqual(error.output, payloads[0].decode())
+                self.assertEqual(error.stderr, payloads[1].decode())
+                self.assertEqual(error.guard_error.output, error.output)
+                self.assertEqual(error.guard_error.stderr, error.stderr)
+                self.assertEqual((artifacts / "stdout.txt").read_text(), error.output)
+                self.assertEqual((artifacts / "stderr.txt").read_text(), error.stderr)
+                self.assertEqual((artifacts / "failure.txt").read_text(), str(error))
+                self.assertEqual(json.loads((artifacts / "command.json").read_text())["command"], command)
+                self.assertIn("stdout-tail=" + error.output, str(error))
+                self.assertIn("stderr-tail=" + error.stderr, str(error))
+                self.assertNotIn("later-", str(error))
+                for worker in workers:
+                    worker.join.assert_called_once_with(timeout=5)
+                if guard == "timeout":
+                    self.assertIsInstance(error.guard_error, subprocess.TimeoutExpired)
+                    self.assertIs(error.guard_error.cmd, command)
+                    self.assertEqual(error.guard_error.timeout, 1)
+                else:
+                    self.assertIsInstance(error.guard_error, RuntimeError)
+
+    def test_spawn_forwards_verified_executable_without_changing_default_invocation(self):
+        for platform in ("linux", "win32"):
+            for executable in (None, "/verified/llvm-image"):
+                with self.subTest(platform=platform, executable=executable):
+                    process = SimpleNamespace(pid=10)
+                    job = SimpleNamespace(assign=Mock(), resume=Mock())
+                    command = ["selected-llvm-nm", "--version"]
+                    with patch.object(checks.sys, "platform", platform), \
+                            patch.object(checks, "WindowsJob", return_value=job) as job_factory, \
+                            patch.object(checks.subprocess, "Popen", return_value=process) as popen, \
+                            patch.object(checks.ProcessTree, "_rollback_spawn") as rollback:
+                        tree = checks.ProcessTree.spawn(command, 123, executable=executable)
+                    self.assertIs(tree.process, process)
+                    self.assertIs(popen.call_args.args[0], command)
+                    expected = dict(cwd=checks.ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    if platform == "win32":
+                        expected["creationflags"] = 0x00000004
+                        job_factory.assert_called_once_with(123)
+                        job.assign.assert_called_once_with(process)
+                        job.resume.assert_called_once_with(process)
+                        self.assertIs(tree.windows_job, job)
+                    else:
+                        expected["start_new_session"] = True
+                        job_factory.assert_not_called()
+                        job.assign.assert_not_called()
+                        job.resume.assert_not_called()
+                        self.assertIsNone(tree.windows_job)
+                    if executable is not None:
+                        expected["executable"] = executable
+                    popen.assert_called_once_with(command, **expected)
+                    rollback.assert_not_called()
+
+    def test_runner_forwards_verified_executable_and_preserves_default_spawn_shape(self):
+        def thread(*, target, args, daemon):
+            return SimpleNamespace(start=lambda: target(*args), join=lambda timeout: None)
+
+        for platform in ("linux", "win32"):
+            for executable in (None, "/verified/llvm-image"):
+                with self.subTest(platform=platform, executable=executable):
+                    process = SimpleNamespace(pid=10, returncode=None, stdout=io.BytesIO(b"tool-output"), stderr=io.BytesIO(b"tool-stderr"))
+                    process.poll = lambda: process.returncode
+
+                    def wait(*, timeout):
+                        self.assertEqual(timeout, 0.25)
+                        process.returncode = 0
+                        return 0
+
+                    process.wait = Mock(side_effect=wait)
+                    tree = checks.ProcessTree(process, None)
+                    command = ["selected-llvm-nm", "--version"]
+                    with patch.object(checks.sys, "platform", platform), \
+                            patch.object(checks.ProcessTree, "spawn", return_value=tree) as spawn, \
+                            patch.object(tree, "memory_bytes", return_value=0), \
+                            patch.object(tree, "terminate") as terminate, \
+                            patch.object(tree, "close") as close, \
+                            patch.object(checks.threading, "Thread", side_effect=thread):
+                        result = checks.run_with_heartbeat(command, label="verified image", executable=executable)
+                    if executable is None:
+                        spawn.assert_called_once_with(command, None)
+                    else:
+                        spawn.assert_called_once_with(command, None, executable=executable)
+                    self.assertIs(spawn.call_args.args[0], command)
+                    self.assertIs(result.args, command)
+                    self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "tool-output", "tool-stderr"))
+                    terminate.assert_called_once_with()
+                    close.assert_called_once_with()
+
     def test_windows_bool_zero_persistent_failures_keep_handle_and_os_cause(self):
         for phase in ("terminate", "close"):
             with self.subTest(failure=phase):
@@ -724,6 +871,122 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
             QueryInformationJobObject=Mock(side_effect=AssertionError("retired identity used")),
         )
         return job, error
+
+    def test_windows_memory_invalid_handle_retires_identity_but_transient_query_retries(self):
+        for errno in (9, 13):
+            with self.subTest(mapped_errno=errno):
+                job, error = self.invalid_windows_job("memory", errno)
+                job.info_type = lambda: SimpleNamespace(PeakProcessMemoryUsed=100, PeakJobMemoryUsed=200)
+                job.ctypes.byref = lambda info: info
+                job.ctypes.sizeof = Mock(return_value=88)
+                job.kernel32.QueryInformationJobObject = Mock(return_value=0)
+                self.assertIsNone(job.memory_bytes())
+                self.assertIsNone(job.handle)
+                self.assertIs(job.invalid_handle_error, error)
+                before = {name: method.call_count for name, method in vars(job.kernel32).items()}
+                self.assertIsNone(job.memory_bytes())
+                for action in (job.terminate, job.close, lambda: job.assign(SimpleNamespace(_handle=99))):
+                    with self.assertRaises(OSError) as repeated:
+                        action()
+                    self.assertIs(repeated.exception, error)
+                self.assertEqual(before, {name: method.call_count for name, method in vars(job.kernel32).items()})
+                job.kernel32.QueryInformationJobObject.assert_called_once()
+                self.assertEqual(job.kernel32.QueryInformationJobObject.call_args.args[:2], (47, 9))
+                job.ctypes.get_last_error.assert_called_once_with()
+                job.ctypes.WinError.assert_called_once_with(6)
+
+        job, error = self.invalid_windows_job("memory", mapped_errno=6)
+        error.winerror = 5
+        job.ctypes.get_last_error.return_value = 5
+        job.info_type = lambda: SimpleNamespace(PeakProcessMemoryUsed=100, PeakJobMemoryUsed=200)
+        job.ctypes.byref = lambda info: info
+        job.ctypes.sizeof = Mock(return_value=88)
+        job.kernel32.QueryInformationJobObject = Mock(side_effect=[0, 1])
+        self.assertIsNone(job.memory_bytes())
+        self.assertEqual(job.handle, 47)
+        self.assertIsNone(getattr(job, "invalid_handle_error", None))
+        self.assertEqual(job.memory_bytes(), 200)
+        job.ctypes.get_last_error.assert_called_once_with()
+        job.ctypes.WinError.assert_not_called()
+        job.terminate()
+        job.close()
+        self.assertIsNone(job.handle)
+        self.assertEqual(job.kernel32.TerminateJobObject.call_count, 1)
+        self.assertEqual(job.kernel32.CloseHandle.call_count, 1)
+
+    def test_windows_invalid_memory_query_cleanup_keeps_first_cause_without_api_reuse(self):
+        fixture = self.cleanup_retry_fixture("windows", "terminate", bool_failure=True, persistent=True)
+        error = OSError(9, "private invalid query payload")
+        error.winerror = 6
+        fixture.job.ctypes.get_last_error = Mock(return_value=6)
+        fixture.job.ctypes.WinError = Mock(return_value=error)
+        fixture.job.info_type = lambda: SimpleNamespace(PeakProcessMemoryUsed=100, PeakJobMemoryUsed=200)
+        fixture.job.ctypes.byref = lambda info: info
+        fixture.job.ctypes.sizeof = Mock(return_value=88)
+        fixture.job.kernel32.QueryInformationJobObject = Mock(return_value=0)
+        command = ["unused", "query-timeout"]
+        with patch.object(fixture.tree, "memory_bytes", side_effect=lambda: checks.ProcessTree.memory_bytes(fixture.tree)), \
+                patch.object(checks.time, "monotonic", side_effect=[0, 2, 2]), \
+                self.assertRaises(RuntimeError) as failure:
+            checks.run_with_heartbeat(command, label="invalid query Job", timeout_seconds=1)
+        retained = failure.exception
+        self.assertIs(retained.__cause__, error)
+        self.assertIs(retained.cleanup_errors[0][1], error)
+        self.assertIsNone(fixture.job.handle)
+        self.assertIs(fixture.job.invalid_handle_error, error)
+        fixture.job.kernel32.QueryInformationJobObject.assert_called_once()
+        fixture.job.kernel32.TerminateJobObject.assert_not_called()
+        fixture.job.kernel32.CloseHandle.assert_not_called()
+        fixture.job.ctypes.get_last_error.assert_called_once_with()
+        fixture.job.ctypes.WinError.assert_called_once_with(6)
+        fixture.process.kill.assert_called()
+        fixture.process.wait.assert_called_once_with(timeout=5)
+        self.assertEqual(fixture.running_group, {11})
+        self.assertEqual(fixture.process.returncode, -9)
+        self.assertIn("tree-closed=False", str(retained))
+        self.assertIn("resource-closed=False", str(retained))
+        self.assertIn("errno=9:winerror=6", str(retained))
+        self.assertNotIn("private invalid query payload", str(retained))
+        self.assertEqual(len(retained.cleanup_errors), 4)
+        fixture.capture.assert_not_called()
+        self.assertIsInstance(retained.guard_error, subprocess.TimeoutExpired)
+        self.assertIs(retained.guard_error.cmd, command)
+        self.assertEqual(retained.guard_error.timeout, 1)
+
+    def test_windows_invalid_initial_query_cannot_turn_completed_command_into_success(self):
+        fixture = self.cleanup_retry_fixture("windows", "terminate", bool_failure=True, persistent=True)
+        error = OSError(13, "private invalid query payload")
+        error.winerror = 6
+        fixture.job.ctypes.get_last_error = Mock(return_value=6)
+        fixture.job.ctypes.WinError = Mock(return_value=error)
+        fixture.job.info_type = lambda: SimpleNamespace(PeakProcessMemoryUsed=100, PeakJobMemoryUsed=200)
+        fixture.job.ctypes.byref = lambda info: info
+        fixture.job.ctypes.sizeof = Mock(return_value=88)
+        fixture.job.kernel32.QueryInformationJobObject = Mock(return_value=0)
+        original_wait = fixture.process.wait
+
+        def wait(*, timeout):
+            if timeout == 0.25:
+                fixture.process.returncode = 0
+                fixture.running_group.discard(10)
+                return 0
+            return original_wait(timeout=timeout)
+
+        fixture.process.wait = Mock(side_effect=wait)
+        with patch.object(fixture.tree, "memory_bytes", side_effect=lambda: checks.ProcessTree.memory_bytes(fixture.tree)), \
+                self.assertRaises(RuntimeError) as failure:
+            checks.run_with_heartbeat(["unused"], label="completed invalid query", memory_limit_mb=1)
+        self.assertIs(failure.exception.__cause__, error)
+        self.assertEqual(failure.exception.guard_trigger, "completed")
+        self.assertIsNone(failure.exception.guard_error)
+        self.assertIn("tree-closed=False", str(failure.exception))
+        self.assertIn("resource-closed=False", str(failure.exception))
+        self.assertNotIn("exceeded memory limit", str(failure.exception))
+        self.assertEqual(fixture.process.returncode, -9)
+        self.assertEqual(fixture.running_group, {11})
+        fixture.job.kernel32.QueryInformationJobObject.assert_called_once()
+        fixture.job.kernel32.TerminateJobObject.assert_not_called()
+        fixture.job.kernel32.CloseHandle.assert_not_called()
 
     def test_windows_invalid_handle_is_terminal_without_api_reuse(self):
         for stage in ("terminate", "close"):
