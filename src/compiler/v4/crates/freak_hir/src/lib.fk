@@ -17,12 +17,17 @@ pilot v4_hir_import = "Import"
 pilot v4_hir_extern = "Extern"
 pilot v4_hir_attribute = "Attribute"
 pilot v4_hir_error = "Error"
-pilot v4_hir_snapshot_format = "freak-hir-snapshot-v10"
+pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"
 pilot v4_hir_extern_return_owner_values = 0
 pilot v4_hir_extern_return_values = 0
 pilot v4_hir_route_owner_values = 0
 pilot v4_hir_route_case_values = 0
 pilot v4_hir_route_field_values = 0
+pilot v4_hir_word_plans = 0
+pilot v4_hir_word_build_failed: bool = false
+pilot v4_hir_word_build_literal_cursor: int = 0
+pilot v4_hir_word_build_piece_cursor: int = 0
+pilot v4_hir_word_build_part_cursor: int = 0
 pilot v4_hir_const_annotation_values = 0
 pilot v4_hir_shape_field_starts = 0
 pilot v4_hir_shape_field_counts = 0
@@ -97,6 +102,7 @@ task v4_hir_init() -> void {
         v4_hir_route_case_values = array_new()
         v4_hir_route_field_values = array_new()
         v4_hir_const_annotation_values = array_new()
+        v4_hir_word_plans = array_new()
         v4_hir_shape_field_starts = array_new()
         v4_hir_shape_field_counts = array_new()
         v4_hir_shape_field_values = array_new()
@@ -135,13 +141,14 @@ task v4_hir_init() -> void {
         v4_hir_task_param_type_spans = array_new()
         v4_hir_task_param_segment_spans = array_new()
         v4_hir_diags = array_new()
-        if v4_hir_extern_return_owner_values < 0 or v4_hir_extern_return_values < 0 or v4_hir_route_owner_values < 0 or v4_hir_route_case_values < 0 or v4_hir_route_field_values < 0 or v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_revisions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_indexes < 0 or v4_hir_impl_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
+        if v4_hir_word_plans < 0 or v4_hir_extern_return_owner_values < 0 or v4_hir_extern_return_values < 0 or v4_hir_route_owner_values < 0 or v4_hir_route_case_values < 0 or v4_hir_route_field_values < 0 or v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_revisions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_indexes < 0 or v4_hir_impl_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
             array_release(v4_hir_extern_return_owner_values)
             array_release(v4_hir_extern_return_values)
             array_release(v4_hir_route_owner_values)
             array_release(v4_hir_route_case_values)
             array_release(v4_hir_route_field_values)
             array_release(v4_hir_const_annotation_values)
+            array_release(v4_hir_word_plans)
             array_release(v4_hir_shape_field_starts)
             array_release(v4_hir_shape_field_counts)
             array_release(v4_hir_shape_field_values)
@@ -187,7 +194,7 @@ task v4_hir_init() -> void {
     }
 }
 
--- File slots own their forty-one child arrays. Logical snapshot truncation keeps
+-- File slots own their forty-two child arrays. Logical snapshot truncation keeps
 -- high-water slots reachable; reusing a slot must release its previous children.
 -- Fresh slots allocate once, without immediately overwriting those handles.
 task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> void {
@@ -201,6 +208,7 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_push(v4_hir_route_case_values, word_from_int(array_new()))
         array_push(v4_hir_route_field_values, word_from_int(array_new()))
         array_push(v4_hir_const_annotation_values, word_from_int(array_new()))
+        array_push(v4_hir_word_plans, word_from_int(array_new()))
         array_push(v4_hir_shape_field_starts, word_from_int(array_new()))
         array_push(v4_hir_shape_field_counts, word_from_int(array_new()))
         array_push(v4_hir_shape_field_values, word_from_int(array_new()))
@@ -263,7 +271,9 @@ task v4_hir_prepare_file_slot(hir_id: int, file_id: int, expansion_id: int) -> v
         array_release(v4_hir_route_field_values_handle(hir_id))
         array_set(v4_hir_route_field_values, hir_id, word_from_int(array_new()))
         array_release(v4_hir_const_annotation_values_handle(hir_id))
+        array_release(v4_hir_word_plans_handle(hir_id))
         array_set(v4_hir_const_annotation_values, hir_id, word_from_int(array_new()))
+        array_set(v4_hir_word_plans, hir_id, word_from_int(array_new()))
         array_release(v4_hir_shape_field_starts_handle(hir_id))
         array_set(v4_hir_shape_field_starts, hir_id, word_from_int(array_new()))
         array_release(v4_hir_shape_field_counts_handle(hir_id))
@@ -1810,7 +1820,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
     v4_hir_init()
     if v4_hir_ready == 0 { give back 0 - 1 }
     pilot required = 4
-    if v4_hir_file_len >= array_len(v4_hir_files) { required += 41 }
+    if v4_hir_file_len >= array_len(v4_hir_files) { required += 42 }
     if v4_hir_lookup_handles_available(required) == false { give back 0 - 1 }
     pilot hir_id = v4_hir_file_new(file_id, expansion_id)
     v4_hir_copy_expand_diags(hir_id, expansion_id)
@@ -1836,6 +1846,7 @@ task v4_hir_lower_expanded(file_id: int, expansion_id: int) -> int {
         node_idx += 1
     }
 
+    if not v4_hir_build_word_plans(hir_id) { v4_hir_file_len = hir_id give back -1 }
     if v4_hir_finalize_lookup_indexes(hir_id) == false {
         v4_hir_file_len = hir_id
         give back 0 - 1
@@ -1884,6 +1895,10 @@ task v4_hir_snapshot_field_raw(line: word, wanted: int) -> word {
     -- validator's passes instead of allocating the same prefix per record.
     -- Include the separator so unknown or extended kinds retain raw fallback.
     if wanted == 0 {
+        if line.starts_with("hir-word-owner|") { give back "hir-word-owner" }
+        if line.starts_with("hir-word-literal|") { give back "hir-word-literal" }
+        if line.starts_with("hir-word-piece|") { give back "hir-word-piece" }
+        if line.starts_with("hir-word-path-part|") { give back "hir-word-path-part" }
         if line.starts_with("hir-const-annotation|") { give back "hir-const-annotation" }
         if line.starts_with("hir-shape-owner|") { give back "hir-shape-owner" }
         if line.starts_with("hir-shape-field|") { give back "hir-shape-field" }
@@ -2074,6 +2089,10 @@ task v4_hir_snapshot_header() -> word {
     out = out + "|route-fields=" + word_from_int(v4_hir_route_field_total())
     out = out + "|extern-return-owners=" + word_from_int(v4_hir_extern_return_owner_total())
     out = out + "|extern-returns=" + word_from_int(v4_hir_extern_return_total())
+    out = out + "|word-owners=" + word_from_int(v4_hir_word_snapshot_total(0))
+    out = out + "|word-literals=" + word_from_int(v4_hir_word_snapshot_total(2))
+    out = out + "|word-pieces=" + word_from_int(v4_hir_word_snapshot_total(3))
+    out = out + "|word-path-parts=" + word_from_int(v4_hir_word_snapshot_total(4))
     out = out + "|diagnostics=" + word_from_int(v4_hir_snapshot_diag_total())
     give back out
 }
@@ -2136,6 +2155,7 @@ task v4_hir_snapshot() -> word {
         repeat until item_id >= item_count {
             array_push(parts, "\n")
             array_push(parts, v4_hir_snapshot_item_line(hir_id, item_id))
+            v4_hir_word_snapshot_append(parts, hir_id, item_id)
             if v4_hir_item_kind(hir_id, item_id) == v4_hir_const {
                 array_push(parts, "\n")
                 array_push(parts, v4_hir_snapshot_const_annotation_line(hir_id, item_id))
@@ -2202,10 +2222,16 @@ task v4_hir_snapshot() -> word {
     }
     array_push(parts, "\nend|")
     array_push(parts, v4_hir_snapshot_format)
-    give back word_join(parts)
+    pilot out = word_join(parts)
+    array_release(parts)
+    give back out
 }
 
 task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
+    if kind == "hir-word-owner" { give back 4 }
+    if kind == "hir-word-literal" { give back 8 }
+    if kind == "hir-word-piece" { give back 9 }
+    if kind == "hir-word-path-part" { give back 8 }
     if kind == "hir-extern-return-owner" { give back 4 }
     if kind == "hir-extern-return" { give back 8 }
     if kind == "hir-route-owner" { give back 5 }
@@ -2215,7 +2241,7 @@ task v4_hir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "hir-shape-owner" { give back 4 }
     if kind == "hir-shape-field" { give back 9 }
     if kind == "hir-snapshot" {
-        give back 18
+        give back 22
     }
     if kind == "hir" {
         give back 6
@@ -2671,6 +2697,9 @@ task v4_hir_snapshot_record_is_valid(line: word) -> bool {
         give back false
     }
     if kind == "hir-snapshot" and v4_hir_snapshot_field_count(line) != expected { give back false }
+    if kind == "hir-word-owner" or kind == "hir-word-literal" or kind == "hir-word-piece" or kind == "hir-word-path-part" {
+        give back v4_hir_word_snapshot_record_is_valid(line)
+    }
     if kind == "hir-extern-return-owner" or kind == "hir-extern-return" {
         give back v4_hir_snapshot_extern_return_record_is_valid(line)
     }
@@ -2836,6 +2865,10 @@ task v4_hir_snapshot_validate(payload: word) -> word {
     if malformed == 0 and not v4_hir_snapshot_const_annotation_slots_are_valid(records, files, items, const_annotations) { malformed += 1 }
     if malformed == 0 and not v4_hir_snapshot_route_slots_are_valid(records, files, items, route_owners, route_cases, route_fields) { malformed += 1 }
     if malformed == 0 and not v4_hir_snapshot_extern_return_slots_are_valid(records, files, items, extern_return_owners, extern_returns) { malformed += 1 }
+    if malformed == 0 {
+        pilot word_ticket = v4_hir_word_snapshot_build(records)
+        if word_ticket < 0 { malformed += 1 } else { v4_hir_word_snapshot_release(word_ticket) }
+    }
     array_release(records)
 
     pilot import_ok = 1
@@ -3026,7 +3059,7 @@ task v4_hir_begin_snapshot_restore() -> void {
 }
 
 -- Restore is synchronous. Reserve the peak additional handle requirement
--- before touching live slots: forty-one per new high-water file plus four
+-- before touching live slots: forty-two per new high-water file plus four
 -- finalizer scratch arrays. Reused files free all children before replacing
 -- them. The line index remains held throughout preflight and restoration.
 task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
@@ -3039,7 +3072,7 @@ task v4_hir_restore_indexes_have_capacity(records: int) -> bool {
     }
     pilot fresh = files - array_len(v4_hir_files)
     if fresh < 0 { fresh = 0 }
-    give back v4_hir_lookup_handles_available(fresh * 41 + 4)
+    give back v4_hir_lookup_handles_available(fresh * 42 + 4)
 }
 
 task v4_hir_lookup_handles_available(needed: int) -> bool {
@@ -3077,8 +3110,14 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     if records < 0 {
         give back "hir-snapshot-restore ok=0 reason=line-index-resource-exhausted"
     }
+    pilot word_ticket = v4_hir_word_snapshot_build(records)
+    if word_ticket < 0 {
+        array_release(records)
+        give back "hir-snapshot-restore ok=0 reason=word-plan-resource-exhausted"
+    }
     if v4_hir_restore_indexes_have_capacity(records) == false {
         array_release(records)
+        v4_hir_word_snapshot_release(word_ticket)
         give back "hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted"
     }
     pilot restored_files = 0
@@ -3099,7 +3138,7 @@ task v4_hir_snapshot_restore(payload: word) -> word {
             pilot kind = v4_hir_snapshot_field_raw(line, 0)
             if kind == "hir" {
                 restored_files += v4_hir_snapshot_restore_file_line(line)
-            } else if kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-task-param-owner" and kind != "hir-task-param" and kind != "hir-const-annotation" and kind != "hir-shape-owner" and kind != "hir-shape-field" and kind != "hir-route-owner" and kind != "hir-route-case" and kind != "hir-route-field" and kind != "hir-extern-return-owner" and kind != "hir-extern-return" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
+            } else if kind != "hir-word-owner" and kind != "hir-word-literal" and kind != "hir-word-piece" and kind != "hir-word-path-part" and kind != "hir-item" and kind != "hir-local-annotation" and kind != "hir-task-return" and kind != "hir-task-param-owner" and kind != "hir-task-param" and kind != "hir-const-annotation" and kind != "hir-shape-owner" and kind != "hir-shape-field" and kind != "hir-route-owner" and kind != "hir-route-case" and kind != "hir-route-field" and kind != "hir-extern-return-owner" and kind != "hir-extern-return" and kind != "hir-diag" and kind != "hir-snapshot" and kind != "end" {
                 skipped_other += 1
             }
         }
@@ -3132,6 +3171,8 @@ task v4_hir_snapshot_restore(payload: word) -> word {
     v4_hir_restore_shape_records(records)
     v4_hir_restore_route_records(records)
     v4_hir_restore_extern_return_records(records)
+    v4_hir_word_snapshot_restore_plans(word_ticket)
+    v4_hir_word_snapshot_release(word_ticket)
     array_release(records)
     pilot finalized = 0
     repeat until finalized >= v4_hir_file_count() {
@@ -6049,4 +6090,848 @@ task v4_hir_owned_word_literal_value(raw: word) -> word {
     }
     if parts >= 0 { give back word_join(parts) }
     give back value
+}
+
+-- Packed HIR word plans have one file-owned child. Offsets are source bytes.
+-- Header: ready/items/literals/pieces/parts/owner-base/literal-base/piece-base/part-base.
+task v4_hir_word_plans_handle(hir_id: int) -> int {
+    if hir_id < 0 or hir_id >= array_len(v4_hir_word_plans) { give back -1 }
+    give back word_to_int(array_get(v4_hir_word_plans, hir_id))
+}
+
+task v4_hir_word_plan_ready(hir_id: int) -> bool {
+    pilot values = v4_hir_word_plans_handle(hir_id)
+    if values < 0 or array_len(values) < 9 { give back false }
+    pilot ready: word = array_get(values, 0)
+    give back ready == "1"
+}
+
+task v4_hir_word_plan_number(hir_id: int, column: int) -> int {
+    if not v4_hir_word_plan_ready(hir_id) or column < 1 or column > 8 { give back 0 }
+    give back word_to_int(array_get(v4_hir_word_plans_handle(hir_id), column))
+}
+
+task v4_hir_word_owner_kind(kind: word) -> bool {
+    give back kind == v4_hir_task or kind == v4_hir_impl or kind == v4_hir_const
+}
+
+task v4_hir_word_literal_count(hir_id: int, item_id: int) -> int {
+    if not v4_hir_word_plan_ready(hir_id) or item_id < 0 or item_id >= v4_hir_word_plan_number(hir_id, 1) { give back 0 }
+    give back word_to_int(array_get(v4_hir_word_plans_handle(hir_id), 9 + item_id * 2 + 1))
+}
+
+task v4_hir_word_literal_start(hir_id: int, item_id: int) -> int {
+    if not v4_hir_word_plan_ready(hir_id) or item_id < 0 or item_id >= v4_hir_word_plan_number(hir_id, 1) { give back -1 }
+    give back word_to_int(array_get(v4_hir_word_plans_handle(hir_id), 9 + item_id * 2))
+}
+
+task v4_hir_word_literal_field(hir_id: int, literal_id: int, column: int) -> word {
+    if not v4_hir_word_plan_ready(hir_id) or literal_id < 0 or literal_id >= v4_hir_word_plan_number(hir_id, 2) or column < 0 or column >= 6 { give back "" }
+    give back array_get(v4_hir_word_plans_handle(hir_id), v4_hir_word_plan_number(hir_id, 6) + literal_id * 6 + column)
+}
+
+task v4_hir_word_literal_span(hir_id: int, literal_id: int) -> word { give back v4_hir_word_literal_field(hir_id, literal_id, 1) }
+task v4_hir_word_literal_interior_span(hir_id: int, literal_id: int) -> word { give back v4_hir_word_literal_field(hir_id, literal_id, 2) }
+task v4_hir_word_literal_issue_at(hir_id: int, literal_id: int) -> word { give back v4_hir_word_literal_field(hir_id, literal_id, 3) }
+task v4_hir_word_piece_count(hir_id: int, literal_id: int) -> int { give back word_to_int(v4_hir_word_literal_field(hir_id, literal_id, 5)) }
+
+task v4_hir_word_piece_field(hir_id: int, literal_id: int, piece_id: int, column: int) -> word {
+    if piece_id < 0 or piece_id >= v4_hir_word_piece_count(hir_id, literal_id) or column < 0 or column >= 5 { give back "" }
+    pilot first = word_to_int(v4_hir_word_literal_field(hir_id, literal_id, 4))
+    give back array_get(v4_hir_word_plans_handle(hir_id), v4_hir_word_plan_number(hir_id, 7) + (first + piece_id) * 5 + column)
+}
+
+task v4_hir_word_piece_kind(hir_id: int, literal_id: int, piece_id: int) -> word { give back v4_hir_word_piece_field(hir_id, literal_id, piece_id, 0) }
+task v4_hir_word_piece_value(hir_id: int, literal_id: int, piece_id: int) -> word { give back v4_hir_word_piece_field(hir_id, literal_id, piece_id, 1) }
+task v4_hir_word_piece_span(hir_id: int, literal_id: int, piece_id: int) -> word { give back v4_hir_word_piece_field(hir_id, literal_id, piece_id, 2) }
+task v4_hir_word_path_part_count(hir_id: int, literal_id: int, piece_id: int) -> int { give back word_to_int(v4_hir_word_piece_field(hir_id, literal_id, piece_id, 4)) }
+
+task v4_hir_word_path_part_field(hir_id: int, literal_id: int, piece_id: int, part_id: int, column: int) -> word {
+    if part_id < 0 or part_id >= v4_hir_word_path_part_count(hir_id, literal_id, piece_id) or column < 0 or column >= 2 { give back "" }
+    pilot first = word_to_int(v4_hir_word_piece_field(hir_id, literal_id, piece_id, 3))
+    give back array_get(v4_hir_word_plans_handle(hir_id), v4_hir_word_plan_number(hir_id, 8) + (first + part_id) * 2 + column)
+}
+
+task v4_hir_word_path_part_name(hir_id: int, literal_id: int, piece_id: int, part_id: int) -> word { give back v4_hir_word_path_part_field(hir_id, literal_id, piece_id, part_id, 0) }
+task v4_hir_word_path_part_span(hir_id: int, literal_id: int, piece_id: int, part_id: int) -> word { give back v4_hir_word_path_part_field(hir_id, literal_id, piece_id, part_id, 1) }
+
+task v4_hir_word_literal_at_offset(hir_id: int, item_id: int, offset: int) -> int {
+    pilot start = v4_hir_word_literal_start(hir_id, item_id)
+    pilot end = start + v4_hir_word_literal_count(hir_id, item_id)
+    if start < 0 { give back -1 }
+    repeat until start >= end {
+        pilot middle = start + (end - start) / 2
+        pilot span = v4_hir_word_literal_span(hir_id, middle)
+        if offset < v4_span_start(span) { end = middle } else if offset >= v4_span_end(span) { start = middle + 1 } else { give back middle }
+    }
+    give back -1
+}
+
+task v4_hir_word_literal_at_span(hir_id: int, item_id: int, span: word) -> int {
+    pilot literal = v4_hir_word_literal_at_offset(hir_id, item_id, v4_span_start(span))
+    if literal >= 0 and v4_hir_word_literal_span(hir_id, literal) == span { give back literal }
+    give back -1
+}
+
+task v4_hir_word_piece_at_offset(hir_id: int, literal_id: int, offset: int) -> int {
+    pilot start = 0
+    pilot end = v4_hir_word_piece_count(hir_id, literal_id)
+    repeat until start >= end {
+        pilot middle = start + (end - start) / 2
+        pilot span = v4_hir_word_piece_span(hir_id, literal_id, middle)
+        if offset < v4_span_start(span) { end = middle } else if offset >= v4_span_end(span) { start = middle + 1 } else { give back middle }
+    }
+    give back -1
+}
+
+task v4_hir_word_path_part_at_offset(hir_id: int, literal_id: int, offset: int) -> int {
+    pilot piece = v4_hir_word_piece_at_offset(hir_id, literal_id, offset)
+    if piece < 0 { give back -1 }
+    pilot start = 0
+    pilot end = v4_hir_word_path_part_count(hir_id, literal_id, piece)
+    repeat until start >= end {
+        pilot middle = start + (end - start) / 2
+        pilot span = v4_hir_word_path_part_span(hir_id, literal_id, piece, middle)
+        if offset < v4_span_start(span) { end = middle } else if offset >= v4_span_end(span) { start = middle + 1 } else { give back middle }
+    }
+    give back -1
+}
+
+-- Escape checking belongs here; interpolation matching does not hide invalid escapes.
+task v4_hir_word_plan_escape_issue(raw: word) -> word {
+    pilot index = 0
+    repeat until index >= raw.length() {
+        if raw.char_at(index) == "\\" {
+            index += 1
+            if index >= raw.length() { give back "escape" }
+            pilot escaped = raw.char_at(index)
+            if escaped != "0" and escaped != "n" and escaped != "r" and escaped != "t" and escaped != "\"" and escaped != "\\" { give back "escape" }
+        }
+        index += 1
+    }
+    give back ""
+}
+
+task v4_hir_word_plan_decode_literal(raw: word) -> word {
+    if not raw.contains("\\") { give back raw }
+    pilot parts = array_new()
+    if parts < 0 { v4_hir_word_build_failed = true give back "" }
+    pilot index = 0
+    pilot count = 0
+    repeat until index >= raw.length() or v4_hir_word_build_failed {
+        pilot ch = raw.char_at(index)
+        if ch == "\\" {
+            index += 1
+            pilot escaped = raw.char_at(index)
+            if escaped == "0" { ch = chr(0) } else if escaped == "n" { ch = "\n" } else if escaped == "r" { ch = "\r" } else if escaped == "t" { ch = "\t" } else { ch = escaped }
+        }
+        array_push(parts, ch)
+        count += 1
+        if array_len(parts) != count { v4_hir_word_build_failed = true }
+        index += 1
+    }
+    pilot value = ""
+    if not v4_hir_word_build_failed { value = word_join(parts) }
+    array_release(parts)
+    give back value
+}
+
+task v4_hir_word_plan_emit_piece(hir_id: int, raw: word, start: int, end: int, interior: word, display: bool, fill: bool) -> void {
+    if end <= start { give back }
+    pilot piece = v4_hir_word_build_piece_cursor
+    pilot first_part = v4_hir_word_build_part_cursor
+    pilot part_count = 0
+    pilot span = v4_span_new(v4_span_file(interior), v4_span_start(interior) + start, v4_span_start(interior) + end)
+    if display {
+        pilot index = start + 1
+        pilot segment_start = index
+        repeat until index >= end {
+            if index == end - 1 or raw.char_at(index) == "." {
+                if fill {
+                    pilot base = word_to_int(array_get(v4_hir_word_plans_handle(hir_id), 8)) + v4_hir_word_build_part_cursor * 2
+                    array_set(v4_hir_word_plans_handle(hir_id), base, v4_slice(raw, segment_start, index))
+                    array_set(v4_hir_word_plans_handle(hir_id), base + 1, v4_span_new(v4_span_file(interior), v4_span_start(interior) + segment_start, v4_span_start(interior) + index))
+                }
+                v4_hir_word_build_part_cursor += 1
+                part_count += 1
+                segment_start = index + 1
+            }
+            index += 1
+        }
+    }
+    if fill {
+        pilot base = word_to_int(array_get(v4_hir_word_plans_handle(hir_id), 7)) + piece * 5
+        pilot kind = "Literal"
+        pilot value = ""
+        if display { kind = "DisplayPath" } else { value = v4_hir_word_plan_decode_literal(v4_slice(raw, start, end)) }
+        array_set(v4_hir_word_plans_handle(hir_id), base, kind)
+        array_set(v4_hir_word_plans_handle(hir_id), base + 1, value)
+        array_set(v4_hir_word_plans_handle(hir_id), base + 2, span)
+        array_set(v4_hir_word_plans_handle(hir_id), base + 3, word_from_int(first_part))
+        array_set(v4_hir_word_plans_handle(hir_id), base + 4, word_from_int(part_count))
+    }
+    v4_hir_word_build_piece_cursor += 1
+}
+
+task v4_hir_word_plan_scan_literal(hir_id: int, item: int, stream: int, token: int, fill: bool) -> void {
+    pilot raw = v4_lex_token_value(stream, token)
+    pilot token_span = v4_lex_token_span(stream, token)
+    pilot interior = v4_span_new(v4_span_file(token_span), v4_span_start(token_span) + 1, v4_span_start(token_span) + 1 + raw.length())
+    pilot issue = v4_hir_word_plan_escape_issue(raw)
+    pilot literal = v4_hir_word_build_literal_cursor
+    pilot first_piece = v4_hir_word_build_piece_cursor
+    if issue == "" {
+        pilot index = 0
+        pilot run_start = 0
+        repeat until index >= raw.length() {
+            if raw.char_at(index) == "\\" { index += 2 } else if raw.char_at(index) == "{" {
+                pilot close = index + 1
+                repeat until close >= raw.length() or raw.char_at(close) == "}" { close += 1 }
+                if close < raw.length() {
+                    if v4_hir_word_literal_path_is_valid(v4_slice(raw, index + 1, close)) {
+                        v4_hir_word_plan_emit_piece(hir_id, raw, run_start, index, interior, false, fill)
+                        v4_hir_word_plan_emit_piece(hir_id, raw, index, close + 1, interior, true, fill)
+                        run_start = close + 1
+                    }
+                    index = close + 1
+                } else { index = raw.length() }
+            } else { index += 1 }
+        }
+        v4_hir_word_plan_emit_piece(hir_id, raw, run_start, raw.length(), interior, false, fill)
+    }
+    if fill {
+        pilot base = word_to_int(array_get(v4_hir_word_plans_handle(hir_id), 6)) + literal * 6
+        array_set(v4_hir_word_plans_handle(hir_id), base, word_from_int(item))
+        array_set(v4_hir_word_plans_handle(hir_id), base + 1, token_span)
+        array_set(v4_hir_word_plans_handle(hir_id), base + 2, interior)
+        array_set(v4_hir_word_plans_handle(hir_id), base + 3, issue)
+        array_set(v4_hir_word_plans_handle(hir_id), base + 4, word_from_int(first_piece))
+        array_set(v4_hir_word_plans_handle(hir_id), base + 5, word_from_int(v4_hir_word_build_piece_cursor - first_piece))
+    }
+    v4_hir_word_build_literal_cursor += 1
+}
+
+-- Scan each owner range once per construction pass. Method headers and metadata
+-- are not word expressions; braces inside a string token cannot change this state.
+task v4_hir_word_plan_scan_item(hir_id: int, item: int, fill: bool) -> void {
+    pilot kind = v4_hir_item_kind(hir_id, item)
+    if not v4_hir_word_owner_kind(kind) { give back }
+    pilot stream = v4_hir_item_stream_id(hir_id)
+    if stream < 0 { give back }
+    pilot span = v4_hir_item_span(hir_id, item)
+    pilot index = v4_hir_first_token_at_or_after(stream, v4_span_start(span))
+    pilot limit = v4_hir_first_token_at_or_after(stream, v4_span_end(span))
+    pilot phase = 1
+    if kind == v4_hir_impl { phase = 0 }
+    pilot depth = 0
+    pilot method_depth = 0
+    pilot arrow: bool = false
+    pilot annotation_depth = 0
+    repeat until index >= limit or v4_hir_word_build_failed {
+        pilot token_type = v4_lex_token_type(stream, index)
+        pilot value = v4_lex_token_syntax_value(stream, index)
+        if phase == 2 and annotation_depth == 0 and token_type == v4_tok_string {
+            v4_hir_word_plan_scan_literal(hir_id, item, stream, index, fill)
+        } else if token_type == v4_tok_symbol {
+            if phase == 2 and value == "#" { annotation_depth = 1 } else if annotation_depth > 0 {
+                if value == "[" { annotation_depth += 1 }
+                if value == "]" { annotation_depth -= 1 if annotation_depth == 1 { annotation_depth = 0 } }
+            } else {
+                if phase == 1 and depth == method_depth {
+                    if kind == v4_hir_const and value == "=" { phase = 2 } else if kind != v4_hir_const and (value == "{" or value == "=>") { phase = 2 arrow = value == "=>" }
+                }
+                if value == "(" or value == "[" or value == "{" { depth += 1 } else if value == ")" or value == "]" or value == "}" { depth -= 1 }
+                if kind == v4_hir_impl and phase == 2 and not arrow and value == "}" and depth == method_depth { phase = 0 }
+            }
+        } else if kind == v4_hir_impl and phase == 0 and depth == 1 and token_type == v4_tok_keyword and value == "task" {
+            phase = 1
+            method_depth = depth
+        } else if kind == v4_hir_impl and phase == 2 and arrow and depth == method_depth and token_type == v4_tok_trivia and value == "\n" { phase = 0 }
+        index += 1
+    }
+}
+
+task v4_hir_build_word_plans(hir_id: int) -> bool {
+    pilot values = v4_hir_word_plans_handle(hir_id)
+    if values < 0 or array_len(values) != 0 { give back false }
+    pilot items = v4_hir_item_count(hir_id)
+    pilot cells = 9 + items * 2
+    pilot index = 0
+    repeat until index >= cells {
+        array_push(values, "0")
+        if array_len(values) != index + 1 { give back false }
+        index += 1
+    }
+    array_set(values, 1, word_from_int(items))
+    array_set(values, 5, "9")
+    v4_hir_word_build_failed = false
+    v4_hir_word_build_literal_cursor = 0
+    v4_hir_word_build_piece_cursor = 0
+    v4_hir_word_build_part_cursor = 0
+    pilot item = 0
+    repeat until item >= items {
+        pilot first = v4_hir_word_build_literal_cursor
+        if v4_hir_word_owner_kind(v4_hir_item_kind(hir_id, item)) {
+            v4_hir_word_plan_scan_item(hir_id, item, false)
+            array_set(values, 9 + item * 2, word_from_int(first))
+        } else { array_set(values, 9 + item * 2, "-1") }
+        array_set(values, 9 + item * 2 + 1, word_from_int(v4_hir_word_build_literal_cursor - first))
+        item += 1
+    }
+    pilot literals = v4_hir_word_build_literal_cursor
+    pilot pieces = v4_hir_word_build_piece_cursor
+    pilot parts = v4_hir_word_build_part_cursor
+    pilot literal_base = cells
+    pilot piece_base = literal_base + literals * 6
+    pilot part_base = piece_base + pieces * 5
+    cells = part_base + parts * 2
+    array_set(values, 2, word_from_int(literals))
+    array_set(values, 3, word_from_int(pieces))
+    array_set(values, 4, word_from_int(parts))
+    array_set(values, 6, word_from_int(literal_base))
+    array_set(values, 7, word_from_int(piece_base))
+    array_set(values, 8, word_from_int(part_base))
+    index = array_len(values)
+    repeat until index >= cells {
+        array_push(values, "")
+        if array_len(values) != index + 1 { give back false }
+        index += 1
+    }
+    v4_hir_word_build_literal_cursor = 0
+    v4_hir_word_build_piece_cursor = 0
+    v4_hir_word_build_part_cursor = 0
+    item = 0
+    repeat until item >= items or v4_hir_word_build_failed {
+        v4_hir_word_plan_scan_item(hir_id, item, true)
+        item += 1
+    }
+    if v4_hir_word_build_failed or v4_hir_word_build_literal_cursor != literals or v4_hir_word_build_piece_cursor != pieces or v4_hir_word_build_part_cursor != parts { give back false }
+    array_set(values, 0, "1")
+    give back true
+}
+
+-- Detached word-plan rows use five fixed scratch arrays. Parent ordinals are
+-- dense indices, independent of physical wire order and live syntax arenas.
+task v4_hir_word_snapshot_count(records: int, key: word) -> int {
+    pilot index = 0
+    repeat until index >= array_len(records) {
+        pilot line: word = array_get(records, index)
+        if line.starts_with("hir-snapshot|") {
+            pilot raw = v4_hir_snapshot_key_value(line, key)
+            if not v4_hir_snapshot_nonnegative_int_is_valid(raw) { give back -1 }
+            pilot count = word_to_int(raw)
+            if count > array_len(records) { give back -1 }
+            give back count
+        }
+        index += 1
+    }
+    give back -1
+}
+
+task v4_hir_word_snapshot_release(ticket: int) -> void {
+    if ticket < 0 { give back }
+    pilot index = 0
+    repeat until index >= array_len(ticket) {
+        array_release(word_to_int(array_get(ticket, index)))
+        index += 1
+    }
+    array_release(ticket)
+}
+
+task v4_hir_word_snapshot_reserve(values: int, cells: int) -> bool {
+    if values < 0 or cells < 0 { give back false }
+    repeat until array_len(values) >= cells {
+        pilot previous = array_len(values)
+        array_push(values, "")
+        if array_len(values) != previous + 1 { give back false }
+    }
+    give back array_len(values) == cells
+}
+
+task v4_hir_word_snapshot_record_is_valid(line: word) -> bool {
+    pilot kind = v4_hir_snapshot_field_raw(line, 0)
+    if v4_hir_snapshot_field_count(line) != v4_hir_snapshot_record_expected_fields(kind) { give back false }
+    pilot last = 3
+    if kind == "hir-word-piece" { last = 4 }
+    if kind == "hir-word-path-part" { last = 5 }
+    pilot index = 1
+    repeat until index > last {
+        if not v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, index)) { give back false }
+        index += 1
+    }
+    if kind == "hir-word-literal" {
+        pilot issue = v4_hir_snapshot_field(line, 6)
+        give back (issue == "" or issue == "escape") and v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 7))
+    }
+    if kind == "hir-word-piece" {
+        pilot piece_kind = v4_hir_snapshot_field(line, 5)
+        give back (piece_kind == "Literal" or piece_kind == "DisplayPath") and v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 8))
+    }
+    if kind == "hir-word-path-part" {
+        pilot name = v4_hir_snapshot_field(line, 6)
+        give back v4_hir_word_literal_path_is_valid(name) and v4_index_of_from(name, ".", 0) < 0
+    }
+    give back kind == "hir-word-owner"
+}
+
+-- Empty word interiors have canonical zero-width spans; other word spans
+-- must be nonempty. Require decimal file spelling too, before parsing it.
+task v4_hir_word_snapshot_span_valid(span: word, empty_allowed: bool) -> bool {
+    pilot at = v4_index_of_from(span, "@", 0)
+    pilot colon = v4_index_of_from(span, ":", at + 1)
+    if at < 1 or colon < at + 2 { give back false }
+    pilot file = v4_slice(span, 0, at)
+    pilot start = v4_slice(span, at + 1, colon)
+    pilot end = v4_slice(span, colon + 1, span.length())
+    if not v4_hir_snapshot_nonnegative_int_is_valid(file) or not v4_hir_snapshot_nonnegative_int_is_valid(start) or not v4_hir_snapshot_nonnegative_int_is_valid(end) { give back false }
+    if empty_allowed { give back word_to_int(end) >= word_to_int(start) }
+    give back word_to_int(end) > word_to_int(start)
+}
+
+task v4_hir_word_snapshot_contains(inner: word, outer: word, empty_allowed: bool) -> bool {
+    if not v4_hir_word_snapshot_span_valid(inner, empty_allowed) or not v4_hir_word_snapshot_span_valid(outer, false) { give back false }
+    give back v4_span_file(inner) == v4_span_file(outer) and v4_span_start(inner) >= v4_span_start(outer) and v4_span_end(inner) <= v4_span_end(outer)
+}
+
+task v4_hir_word_snapshot_build(records: int) -> int {
+    pilot files = v4_hir_word_snapshot_count(records, "files")
+    pilot items = v4_hir_word_snapshot_count(records, "items")
+    pilot owners = v4_hir_word_snapshot_count(records, "word-owners")
+    pilot literals = v4_hir_word_snapshot_count(records, "word-literals")
+    pilot pieces = v4_hir_word_snapshot_count(records, "word-pieces")
+    pilot parts = v4_hir_word_snapshot_count(records, "word-path-parts")
+    if files < 0 or items < 0 or owners < 0 or literals < 0 or pieces < 0 or parts < 0 { give back -1 }
+    pilot ticket = array_new()
+    if ticket < 0 { give back -1 }
+    pilot created = 0
+    repeat until created >= 5 {
+        pilot handle = array_new()
+        if handle < 0 { v4_hir_word_snapshot_release(ticket) give back -1 }
+        array_push(ticket, word_from_int(handle))
+        if array_len(ticket) != created + 1 { array_release(handle) v4_hir_word_snapshot_release(ticket) give back -1 }
+        created += 1
+    }
+    pilot fs = word_to_int(array_get(ticket, 0))
+    pilot its = word_to_int(array_get(ticket, 1))
+    pilot ls = word_to_int(array_get(ticket, 2))
+    pilot ps = word_to_int(array_get(ticket, 3))
+    pilot ns = word_to_int(array_get(ticket, 4))
+    -- Counts cannot exceed physically indexed records, so these fixed-width
+    -- multiplications cannot amplify a forged decimal count into allocation.
+    if not v4_hir_word_snapshot_reserve(fs, files * 5) or not v4_hir_word_snapshot_reserve(its, items * 7) or not v4_hir_word_snapshot_reserve(ls, literals * 7) or not v4_hir_word_snapshot_reserve(ps, pieces * 6) or not v4_hir_word_snapshot_reserve(ns, parts * 3) {
+        v4_hir_word_snapshot_release(ticket) give back -1
+    }
+    pilot valid = true
+    pilot index = 0
+    repeat until index >= array_len(records) {
+        pilot line: word = array_get(records, index)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if kind == "hir" {
+            pilot file = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+            if file < 0 or file >= files { valid = false } else {
+                array_set(fs, file * 5, v4_hir_snapshot_field_raw(line, 2))
+                array_set(fs, file * 5 + 2, v4_hir_snapshot_field_raw(line, 4))
+            }
+        }
+        index += 1
+    }
+    pilot total = 0
+    index = 0
+    repeat until index >= files {
+        pilot count = word_to_int(array_get(fs, index * 5 + 2))
+        if count < 0 or count > items - total { valid = false } else {
+            array_set(fs, index * 5 + 1, word_from_int(total)) total += count
+        }
+        index += 1
+    }
+    if total != items { valid = false }
+    index = 0
+    repeat until index >= array_len(records) or not valid {
+        pilot line: word = array_get(records, index)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if kind == "hir-item" or kind == "hir-word-owner" {
+            pilot file = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+            pilot item = word_to_int(v4_hir_snapshot_field_raw(line, 2))
+            if file < 0 or file >= files { valid = false } else if item < 0 or item >= word_to_int(array_get(fs, file * 5 + 2)) { valid = false } else {
+                pilot base = (word_to_int(array_get(fs, file * 5 + 1)) + item) * 7
+                if kind == "hir-item" {
+                    array_set(its, base, v4_hir_snapshot_field(line, 3))
+                    array_set(its, base + 1, v4_hir_snapshot_field(line, 6))
+                    array_set(its, base + 6, word_from_int(file))
+                } else {
+                    pilot seen: word = array_get(its, base + 4)
+                    pilot count = word_to_int(v4_hir_snapshot_field_raw(line, 3))
+                    if seen != "" or count > literals { valid = false }
+                    array_set(its, base + 3, word_from_int(count))
+                    array_set(its, base + 4, "1")
+                }
+            }
+        }
+        index += 1
+    }
+    total = 0
+    pilot owner_total = 0
+    index = 0
+    repeat until index >= items or not valid {
+        pilot base = index * 7
+        pilot kind: word = array_get(its, base)
+        pilot seen: word = array_get(its, base + 4)
+        pilot count = word_to_int(array_get(its, base + 3))
+        if v4_hir_word_owner_kind(kind) {
+            if seen != "1" or count > literals - total { valid = false } else {
+                owner_total += 1
+                array_set(its, base + 2, word_from_int(total))
+                total += count
+            }
+        } else {
+            if seen != "" { valid = false }
+            array_set(its, base + 2, "-1")
+            array_set(its, base + 3, "0")
+        }
+        index += 1
+    }
+    if total != literals or owner_total != owners { valid = false }
+    index = 0
+    repeat until index >= array_len(records) or not valid {
+        pilot line: word = array_get(records, index)
+        if v4_hir_snapshot_field_raw(line, 0) == "hir-word-literal" {
+            pilot file = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+            pilot item = word_to_int(v4_hir_snapshot_field_raw(line, 2))
+            pilot ordinal = word_to_int(v4_hir_snapshot_field_raw(line, 3))
+            if file < 0 or file >= files { valid = false } else if item < 0 or item >= word_to_int(array_get(fs, file * 5 + 2)) { valid = false } else {
+                pilot owner = word_to_int(array_get(fs, file * 5 + 1)) + item
+                pilot start = word_to_int(array_get(its, owner * 7 + 2))
+                pilot count = word_to_int(array_get(its, owner * 7 + 3))
+                if start < 0 or ordinal < 0 or ordinal >= count { valid = false } else {
+                    pilot base = (start + ordinal) * 7
+                    pilot seen: word = array_get(ls, base + 6)
+                    if seen != "" { valid = false }
+                    array_set(ls, base, word_from_int(owner))
+                    array_set(ls, base + 1, v4_hir_snapshot_field(line, 4))
+                    array_set(ls, base + 2, v4_hir_snapshot_field(line, 5))
+                    array_set(ls, base + 3, v4_hir_snapshot_field(line, 6))
+                    array_set(ls, base + 5, v4_hir_snapshot_field_raw(line, 7))
+                    array_set(ls, base + 6, "1")
+                }
+            }
+        }
+        index += 1
+    }
+    total = 0
+    index = 0
+    repeat until index >= literals or not valid {
+        pilot base = index * 7
+        pilot seen: word = array_get(ls, base + 6)
+        pilot count = word_to_int(array_get(ls, base + 5))
+        if seen != "1" or count < 0 or count > pieces - total { valid = false } else {
+            array_set(ls, base + 4, word_from_int(total)) total += count
+        }
+        index += 1
+    }
+    if total != pieces { valid = false }
+    -- Piece and component records locate their detached parents in constant
+    -- time using the already validated dense owner/literal offsets.
+    index = 0
+    repeat until index >= array_len(records) or not valid {
+        pilot line: word = array_get(records, index)
+        if v4_hir_snapshot_field_raw(line, 0) == "hir-word-piece" {
+            pilot parent = v4_hir_word_snapshot_parent(fs, its, ls, line)
+            pilot ordinal = word_to_int(v4_hir_snapshot_field_raw(line, 4))
+            if parent < 0 { valid = false } else if ordinal < 0 or ordinal >= word_to_int(array_get(ls, parent * 7 + 5)) { valid = false } else {
+                pilot base = (word_to_int(array_get(ls, parent * 7 + 4)) + ordinal) * 6
+                pilot seen: word = array_get(ps, base + 5)
+                if seen != "" { valid = false }
+                array_set(ps, base, v4_hir_snapshot_field(line, 5))
+                array_set(ps, base + 1, v4_hir_snapshot_field(line, 6))
+                array_set(ps, base + 2, v4_hir_snapshot_field(line, 7))
+                array_set(ps, base + 4, v4_hir_snapshot_field_raw(line, 8))
+                array_set(ps, base + 5, "1")
+            }
+        }
+        index += 1
+    }
+    total = 0
+    index = 0
+    repeat until index >= pieces or not valid {
+        pilot base = index * 6
+        pilot seen: word = array_get(ps, base + 5)
+        pilot count = word_to_int(array_get(ps, base + 4))
+        if seen != "1" or count < 0 or count > parts - total { valid = false } else {
+            array_set(ps, base + 3, word_from_int(total)) total += count
+        }
+        index += 1
+    }
+    if total != parts { valid = false }
+    index = 0
+    repeat until index >= array_len(records) or not valid {
+        pilot line: word = array_get(records, index)
+        if v4_hir_snapshot_field_raw(line, 0) == "hir-word-path-part" {
+            pilot parent = v4_hir_word_snapshot_parent(fs, its, ls, line)
+            pilot piece = word_to_int(v4_hir_snapshot_field_raw(line, 4))
+            pilot ordinal = word_to_int(v4_hir_snapshot_field_raw(line, 5))
+            if parent < 0 { valid = false } else if piece < 0 or piece >= word_to_int(array_get(ls, parent * 7 + 5)) { valid = false } else {
+                pilot piece_base = (word_to_int(array_get(ls, parent * 7 + 4)) + piece) * 6
+                if ordinal < 0 or ordinal >= word_to_int(array_get(ps, piece_base + 4)) { valid = false } else {
+                    pilot base = (word_to_int(array_get(ps, piece_base + 3)) + ordinal) * 3
+                    pilot seen: word = array_get(ns, base + 2)
+                    if seen != "" { valid = false }
+                    array_set(ns, base, v4_hir_snapshot_field(line, 6))
+                    array_set(ns, base + 1, v4_hir_snapshot_field(line, 7))
+                    array_set(ns, base + 2, "1")
+                }
+            }
+        }
+        index += 1
+    }
+    if valid { valid = v4_hir_word_snapshot_crossfacts(ticket) }
+    if not valid { v4_hir_word_snapshot_release(ticket) give back -1 }
+    give back ticket
+}
+
+task v4_hir_word_snapshot_parent(fs: int, its: int, ls: int, line: word) -> int {
+    pilot file = word_to_int(v4_hir_snapshot_field_raw(line, 1))
+    pilot item = word_to_int(v4_hir_snapshot_field_raw(line, 2))
+    pilot ordinal = word_to_int(v4_hir_snapshot_field_raw(line, 3))
+    if file < 0 or file >= array_len(fs) / 5 { give back -1 }
+    if item < 0 or item >= word_to_int(array_get(fs, file * 5 + 2)) { give back -1 }
+    pilot owner = word_to_int(array_get(fs, file * 5 + 1)) + item
+    pilot start = word_to_int(array_get(its, owner * 7 + 2))
+    if start < 0 or ordinal < 0 or ordinal >= word_to_int(array_get(its, owner * 7 + 3)) { give back -1 }
+    give back start + ordinal
+}
+
+task v4_hir_word_snapshot_crossfacts(ticket: int) -> bool {
+    pilot fs = word_to_int(array_get(ticket, 0))
+    pilot its = word_to_int(array_get(ticket, 1))
+    pilot ls = word_to_int(array_get(ticket, 2))
+    pilot ps = word_to_int(array_get(ticket, 3))
+    pilot ns = word_to_int(array_get(ticket, 4))
+    pilot index = 0
+    repeat until index >= array_len(ls) / 7 {
+        pilot base = index * 7
+        pilot owner = word_to_int(array_get(ls, base))
+        pilot file = word_to_int(array_get(its, owner * 7 + 6))
+        pilot source: word = array_get(fs, file * 5)
+        pilot outer: word = array_get(its, owner * 7 + 1)
+        pilot token: word = array_get(ls, base + 1)
+        pilot interior: word = array_get(ls, base + 2)
+        pilot issue: word = array_get(ls, base + 3)
+        pilot first = word_to_int(array_get(ls, base + 4))
+        pilot count = word_to_int(array_get(ls, base + 5))
+        if not v4_hir_word_snapshot_contains(token, outer, false) or v4_span_file(token) != source or not v4_hir_word_snapshot_span_valid(interior, true) { give back false }
+        if v4_span_file(interior) != source or v4_span_start(interior) != v4_span_start(token) + 1 or v4_span_end(interior) != v4_span_end(token) - 1 { give back false }
+        if index > word_to_int(array_get(its, owner * 7 + 2)) {
+            pilot previous: word = array_get(ls, (index - 1) * 7 + 1)
+            if v4_span_end(previous) > v4_span_start(token) { give back false }
+        }
+        if issue != "" and count != 0 { give back false }
+        if issue == "" {
+            pilot cursor = v4_span_start(interior)
+            pilot piece = 0
+            repeat until piece >= count {
+                pilot piece_base = (first + piece) * 6
+                pilot kind: word = array_get(ps, piece_base)
+                pilot value: word = array_get(ps, piece_base + 1)
+                pilot span: word = array_get(ps, piece_base + 2)
+                pilot part_first = word_to_int(array_get(ps, piece_base + 3))
+                pilot part_count = word_to_int(array_get(ps, piece_base + 4))
+                if not v4_hir_word_snapshot_contains(span, token, false) or v4_span_start(span) != cursor or v4_span_end(span) > v4_span_end(interior) { give back false }
+                if kind == "Literal" {
+                    if part_count != 0 { give back false }
+                } else if kind == "DisplayPath" {
+                    if value != "" or part_count < 1 { give back false }
+                    pilot part = 0
+                    pilot part_cursor = v4_span_start(span) + 1
+                    repeat until part >= part_count {
+                        pilot part_base = (part_first + part) * 3
+                        pilot name: word = array_get(ns, part_base)
+                        pilot name_span: word = array_get(ns, part_base + 1)
+                        pilot seen: word = array_get(ns, part_base + 2)
+                        if seen != "1" or not v4_hir_word_literal_path_is_valid(name) or v4_index_of_from(name, ".", 0) >= 0 { give back false }
+                        if not v4_hir_word_snapshot_contains(name_span, span, false) or v4_span_start(name_span) != part_cursor or v4_span_end(name_span) - v4_span_start(name_span) != name.length() { give back false }
+                        part_cursor = v4_span_end(name_span) + 1
+                        part += 1
+                    }
+                    if part_cursor != v4_span_end(span) { give back false }
+                } else { give back false }
+                cursor = v4_span_end(span)
+                piece += 1
+            }
+            if cursor != v4_span_end(interior) { give back false }
+        }
+        index += 1
+    }
+    give back true
+}
+
+task v4_hir_word_snapshot_append(parts: int, hir_id: int, item: int) -> void {
+    if not v4_hir_word_owner_kind(v4_hir_item_kind(hir_id, item)) { give back }
+    pilot count = v4_hir_word_literal_count(hir_id, item)
+    pilot prefix = "|" + word_from_int(hir_id) + "|" + word_from_int(item)
+    array_push(parts, "\nhir-word-owner" + prefix + "|" + word_from_int(count))
+    pilot ordinal = 0
+    repeat until ordinal >= count {
+        pilot literal = v4_hir_word_literal_start(hir_id, item) + ordinal
+        pilot literal_prefix = prefix + "|" + word_from_int(ordinal)
+        pilot line = "\nhir-word-literal" + literal_prefix
+        line = line + "|" + v4_hir_snapshot_escape(v4_hir_word_literal_span(hir_id, literal))
+        line = line + "|" + v4_hir_snapshot_escape(v4_hir_word_literal_interior_span(hir_id, literal))
+        line = line + "|" + v4_hir_snapshot_escape(v4_hir_word_literal_issue_at(hir_id, literal))
+        line = line + "|" + word_from_int(v4_hir_word_piece_count(hir_id, literal))
+        array_push(parts, line)
+        pilot piece = 0
+        repeat until piece >= v4_hir_word_piece_count(hir_id, literal) {
+            pilot piece_prefix = literal_prefix + "|" + word_from_int(piece)
+            pilot piece_line = "\nhir-word-piece" + piece_prefix
+            piece_line = piece_line + "|" + v4_hir_snapshot_escape(v4_hir_word_piece_kind(hir_id, literal, piece))
+            piece_line = piece_line + "|" + v4_hir_snapshot_escape(v4_hir_word_piece_value(hir_id, literal, piece))
+            piece_line = piece_line + "|" + v4_hir_snapshot_escape(v4_hir_word_piece_span(hir_id, literal, piece))
+            piece_line = piece_line + "|" + word_from_int(v4_hir_word_path_part_count(hir_id, literal, piece))
+            array_push(parts, piece_line)
+            pilot part = 0
+            repeat until part >= v4_hir_word_path_part_count(hir_id, literal, piece) {
+                pilot part_line = "\nhir-word-path-part" + piece_prefix + "|" + word_from_int(part)
+                part_line = part_line + "|" + v4_hir_snapshot_escape(v4_hir_word_path_part_name(hir_id, literal, piece, part))
+                part_line = part_line + "|" + v4_hir_snapshot_escape(v4_hir_word_path_part_span(hir_id, literal, piece, part))
+                array_push(parts, part_line)
+                part += 1
+            }
+            piece += 1
+        }
+        ordinal += 1
+    }
+}
+
+task v4_hir_word_snapshot_total(column: int) -> int {
+    pilot total = 0
+    pilot file = 0
+    repeat until file >= v4_hir_file_count() {
+        if column == 0 {
+            pilot item = 0
+            repeat until item >= v4_hir_item_count(file) {
+                if v4_hir_word_owner_kind(v4_hir_item_kind(file, item)) { total += 1 }
+                item += 1
+            }
+        } else { total += v4_hir_word_plan_number(file, column) }
+        file += 1
+    }
+    give back total
+}
+
+-- The detached validated rows are held while all authoritative file children
+-- and finalizer capacity are preflighted. Publication cannot require handles.
+task v4_hir_word_snapshot_restore_plans(ticket: int) -> void {
+    pilot fs = word_to_int(array_get(ticket, 0))
+    pilot its = word_to_int(array_get(ticket, 1))
+    pilot ls = word_to_int(array_get(ticket, 2))
+    pilot ps = word_to_int(array_get(ticket, 3))
+    pilot ns = word_to_int(array_get(ticket, 4))
+    pilot literal_offset = 0
+    pilot piece_offset = 0
+    pilot part_offset = 0
+    pilot file = 0
+    repeat until file >= array_len(fs) / 5 {
+        pilot item_offset = word_to_int(array_get(fs, file * 5 + 1))
+        pilot item_count = word_to_int(array_get(fs, file * 5 + 2))
+        pilot literal_count = 0
+        pilot item = 0
+        repeat until item >= item_count {
+            literal_count += word_to_int(array_get(its, (item_offset + item) * 7 + 3))
+            item += 1
+        }
+        pilot piece_count = 0
+        pilot literal = 0
+        repeat until literal >= literal_count {
+            piece_count += word_to_int(array_get(ls, (literal_offset + literal) * 7 + 5))
+            literal += 1
+        }
+        pilot part_count = 0
+        pilot piece = 0
+        repeat until piece >= piece_count {
+            part_count += word_to_int(array_get(ps, (piece_offset + piece) * 6 + 4))
+            piece += 1
+        }
+        pilot values = v4_hir_word_plans_handle(file)
+        pilot literal_base = 9 + item_count * 2
+        pilot piece_base = literal_base + literal_count * 6
+        pilot part_base = piece_base + piece_count * 5
+        if not v4_hir_word_snapshot_reserve(values, part_base + part_count * 2) { panic("validated HIR word-plan cell construction invariant failed") }
+        array_set(values, 0, "0")
+        array_set(values, 1, word_from_int(item_count))
+        array_set(values, 2, word_from_int(literal_count))
+        array_set(values, 3, word_from_int(piece_count))
+        array_set(values, 4, word_from_int(part_count))
+        array_set(values, 5, "9")
+        array_set(values, 6, word_from_int(literal_base))
+        array_set(values, 7, word_from_int(piece_base))
+        array_set(values, 8, word_from_int(part_base))
+        item = 0
+        repeat until item >= item_count {
+            pilot start = word_to_int(array_get(its, (item_offset + item) * 7 + 2))
+            if start >= 0 { start -= literal_offset }
+            array_set(values, 9 + item * 2, word_from_int(start))
+            array_set(values, 10 + item * 2, array_get(its, (item_offset + item) * 7 + 3))
+            item += 1
+        }
+        literal = 0
+        repeat until literal >= literal_count {
+            pilot source_base = (literal_offset + literal) * 7
+            pilot target_base = literal_base + literal * 6
+            array_set(values, target_base, word_from_int(word_to_int(array_get(ls, source_base)) - item_offset))
+            pilot column = 1
+            repeat until column >= 4 { array_set(values, target_base + column, array_get(ls, source_base + column)) column += 1 }
+            array_set(values, target_base + 4, word_from_int(word_to_int(array_get(ls, source_base + 4)) - piece_offset))
+            array_set(values, target_base + 5, array_get(ls, source_base + 5))
+            literal += 1
+        }
+        piece = 0
+        repeat until piece >= piece_count {
+            pilot source_base = (piece_offset + piece) * 6
+            pilot target_base = piece_base + piece * 5
+            pilot column = 0
+            repeat until column >= 3 { array_set(values, target_base + column, array_get(ps, source_base + column)) column += 1 }
+            array_set(values, target_base + 3, word_from_int(word_to_int(array_get(ps, source_base + 3)) - part_offset))
+            array_set(values, target_base + 4, array_get(ps, source_base + 4))
+            piece += 1
+        }
+        pilot part = 0
+        repeat until part >= part_count {
+            array_set(values, part_base + part * 2, array_get(ns, (part_offset + part) * 3))
+            array_set(values, part_base + part * 2 + 1, array_get(ns, (part_offset + part) * 3 + 1))
+            part += 1
+        }
+        array_set(values, 0, "1")
+        literal_offset += literal_count
+        piece_offset += piece_count
+        part_offset += part_count
+        file += 1
+    }
+}
+
+
+-- A sole literal somewhere inside a constant expression does not prove its
+-- value. Admit only a direct string initializer through this HIR-owned fact.
+task v4_hir_word_constant_is_single_literal(hir: int, item: int) -> bool {
+    if v4_hir_item_kind(hir, item) != v4_hir_const or v4_hir_word_literal_count(hir, item) != 1 { give back false }
+    pilot stream = v4_hir_item_stream_id(hir)
+    if stream < 0 { give back false }
+    pilot span = v4_hir_item_span(hir, item)
+    pilot index = v4_hir_first_token_at_or_after(stream, v4_span_start(span))
+    pilot limit = v4_hir_first_token_at_or_after(stream, v4_span_end(span))
+    pilot initializer = false
+    pilot saw_literal = false
+    repeat until index >= limit {
+        pilot kind = v4_lex_token_type(stream, index)
+        pilot value = v4_lex_token_syntax_value(stream, index)
+        if kind != v4_tok_trivia {
+            if initializer {
+                if not saw_literal {
+                    if kind != v4_tok_string { give back false }
+                    saw_literal = true
+                } else if value != ";" { give back false }
+            } else if value == "=" { initializer = true }
+        }
+        index += 1
+    }
+    give back saw_literal
 }

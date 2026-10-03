@@ -1,0 +1,79 @@
+task v4_interp_mir_assert(condition: bool, label: word) -> void {
+    if not condition { panic("interpolation-mir " + label) }
+}
+
+task v4_interp_mir_source() -> word {
+    pilot src = "shape Box<T> " + chr(123) + " field: T " + chr(125) + "\n"
+    src = src + "task consume(value: word) -> int " + chr(123) + " say value; give back 1 " + chr(125) + "\n"
+    src = src + "task display(lend text: word, number: int, rate: num, flag: bool) -> word " + chr(123) + "\n"
+    src = src + "    pilot copied = \"" + chr(123) + "text" + chr(125) + "|" + chr(123) + "number" + chr(125) + "|" + chr(123) + "rate" + chr(125) + "|" + chr(123) + "flag" + chr(125) + "\"\n"
+    src = src + "    say copied\n    say text\n    give back copied\n" + chr(125) + "\n"
+    src = src + "task shadow() -> word " + chr(123) + "\n"
+    src = src + "    pilot x = \"outer\"\n"
+    src = src + "    if true " + chr(123) + " pilot x = \"inner\"; say \"" + chr(123) + "x" + chr(125) + "\" " + chr(125) + "\n"
+    src = src + "    give back \"" + chr(123) + "x" + chr(125) + "\"\n" + chr(125) + "\n"
+    src = src + "task aggregate(lend box: Box<int>) -> word " + chr(123) + " give back \"" + chr(123) + "box.field" + chr(125) + "\" " + chr(125) + "\n"
+    src = src + "task consume_then_hole() -> int " + chr(123) + " pilot x = \"x\"; give back consume(x) + \"" + chr(123) + "x" + chr(125) + "\".length() " + chr(125) + "\n"
+    src = src + "task hole_then_consume() -> int " + chr(123) + " pilot x = \"x\"; give back \"" + chr(123) + "x" + chr(125) + "\".length() + consume(x) " + chr(125) + "\n"
+    give back src
+}
+
+task v4_interp_mir_status(borrow: int, name: word, status: word) -> bool {
+    pilot mir = v4_borrowck_mir_id(borrow)
+    pilot body = v4_mir_lookup_body_name(mir, name)
+    pilot record = v4_borrowck_lookup_result(borrow, v4_mir_body_def(mir, body))
+    give back record >= 0 and v4_borrowck_result_status(borrow, record) == status
+}
+
+task v4_interp_mir_bad(name: word, params: word, expression: word, expected: word) -> bool {
+    pilot source = "task bad(" + params + ") -> word " + chr(123) + " give back \"" + expression + "\" " + chr(125) + "\n"
+    pilot mir = v4_mir_text_cached(name, source)
+    if v4_mir_diag_count(mir) != 1 { give back false }
+    give back v4_diag_message(v4_mir_diag(mir, 0)) == expected
+}
+
+task v4_interp_mir_run() -> void {
+    pilot borrow = v4_borrowck_text_cached("interpolation-mir.fk", v4_interp_mir_source())
+    pilot mir = v4_borrowck_mir_id(borrow)
+    v4_interp_mir_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0, "front end")
+    v4_interp_mir_assert(v4_interp_mir_status(borrow, "display", v4_borrowck_clean) and v4_interp_mir_status(borrow, "shadow", v4_borrowck_clean) and v4_interp_mir_status(borrow, "aggregate", v4_borrowck_clean), "borrowed holes and field typing")
+    v4_interp_mir_assert(v4_interp_mir_status(borrow, "consume_then_hole", v4_borrowck_blocked) and v4_interp_mir_status(borrow, "hole_then_consume", v4_borrowck_clean), "ordered interpolation observation")
+    pilot display = v4_mir_lookup_body_name(mir, "display")
+    pilot clone_count = 0
+    pilot int_count = 0
+    pilot num_count = 0
+    pilot bool_count = 0
+    pilot concat_count = 0
+    pilot index = 0
+    repeat until index >= v4_mir_body_rvalue_count(mir, display) {
+        if v4_mir_rvalue_is_builtin_word(mir, display, index) {
+            pilot kind = v4_mir_word_intrinsic_kind(mir, display, index)
+            if kind == "clone" { clone_count += 1 }
+            if kind == "from_int" { int_count += 1 }
+            if kind == "from_num" { num_count += 1 }
+            if kind == "from_bool" { bool_count += 1 }
+            if kind == "concat" { concat_count += 1 }
+        }
+        index += 1
+    }
+    v4_interp_mir_assert(clone_count == 1 and int_count == 1 and num_count == 1 and bool_count == 1 and concat_count == 6, "closed display identities")
+    pilot shadow = v4_mir_lookup_body_name(mir, "shadow")
+    pilot observed = array_new()
+    index = 0
+    repeat until index >= v4_mir_body_rvalue_count(mir, shadow) {
+        if v4_mir_rvalue_kind(mir, shadow, index) == v4_mir_rvalue_use_local and v4_mir_rvalue_text(mir, shadow, index) == "x" {
+            array_push(observed, v4_mir_rvalue_op(mir, shadow, index))
+        }
+        index += 1
+    }
+    v4_interp_mir_assert(array_len(observed) == 2, "shadow observers")
+    pilot inner: word = array_get(observed, 0)
+    pilot outer: word = array_get(observed, 1)
+    v4_interp_mir_assert(inner != outer, "actual binding IDs")
+    array_release(observed)
+    v4_interp_mir_assert(v4_interp_mir_bad("interp-unknown.fk", "", "" + chr(123) + "missing" + chr(125) + "", "unknown interpolation root missing"), "unknown root diagnostic")
+    v4_interp_mir_assert(v4_interp_mir_bad("interp-uint.fk", "value: uint", "" + chr(123) + "value" + chr(125) + "", "unsupported interpolation terminal type uint"), "unsupported terminal diagnostic")
+    v4_interp_mir_assert(v4_interp_mir_bad("interp-escape.fk", "", "bad\\q", "unsupported word literal escape"), "unsupported escape diagnostic")
+    say "interpolation-mir borrowed=true scalar-display=true field-types=true binding-ids=true ordered-events=true diagnostics=true"
+}
+v4_interp_mir_run()

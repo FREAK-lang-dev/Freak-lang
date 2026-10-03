@@ -5581,12 +5581,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_float, literal_value, "", 0 - 1, 0 - 1, expr_span, literal_ty)
     }
     if first_type == v4_tok_string and first == last {
-        pilot issue = v4_hir_owned_word_literal_issue(first_value)
-        if issue != "" {
-            v4_mir_add_type_error(mir_id, expr_span, "owned word literal " + issue + " is not yet supported", "use supported escapes and a static literal; interpolation requires its persisted HIR plan")
-            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
-        }
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, v4_hir_owned_word_literal_value(first_value), "", 0 - 1, 0 - 1, expr_span, v4_ty_word)
+        give back v4_mir_lower_word_plan(mir_id, body_id, expr_span)
     }
     if first_type == v4_tok_bool and first == last {
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, v4_mir_bool_literal_value(first_value), "", 0 - 1, 0 - 1, expr_span, v4_ty_bool)
@@ -8745,21 +8740,22 @@ task v4_mir_lower_say_literal_stmt(mir_id: int, body_id: int, block_id: int, str
     if literal_token >= stmt_end or literal_token != last or v4_lex_token_type(stream_id, literal_token) != v4_tok_string {
         give back v4_mir_lower_say_value_stmt(mir_id, body_id, block_id, stream_id, stmt_start, stmt_end)
     }
-    pilot raw = v4_lex_token_value(stream_id, literal_token)
-    pilot issue = v4_ty_word_literal_issue(raw)
     pilot literal_span = v4_mir_span_from_tokens(stream_id, literal_token, literal_token + 1)
-    if issue == "nul" {
+    pilot ty = v4_mir_ty_id(mir_id)
+    pilot hir = v4_ty_word_plan_hir_id(ty)
+    pilot planned = v4_ty_word_plan_literal_at_span(ty, v4_mir_word_plan_body_item(mir_id, body_id), literal_span)
+    if planned < 0 or v4_hir_word_literal_issue_at(hir, planned) != "" {
         give back v4_mir_lower_say_value_stmt(mir_id, body_id, block_id, stream_id, stmt_start, stmt_end)
     }
-    if issue == "escape" {
-        v4_mir_add_type_error(mir_id, literal_span, "say literal escape is not yet supported", "W1 supports escaped newline, carriage return, tab, double quote, and backslash")
-        give back block_id
+    pilot pieces = v4_hir_word_piece_count(hir, planned)
+    if pieces > 1 or (pieces == 1 and v4_hir_word_piece_kind(hir, planned, 0) != "Literal") {
+        give back v4_mir_lower_say_value_stmt(mir_id, body_id, block_id, stream_id, stmt_start, stmt_end)
     }
-    if issue == "interpolation" {
-        v4_mir_add_type_error(mir_id, literal_span, "say interpolation is not yet supported", "path holes need the later persisted interpolation plan; W1 say accepts a static literal")
-        give back block_id
+    pilot value = ""
+    if pieces == 1 { value = v4_hir_word_piece_value(hir, planned, 0) }
+    if v4_index_of_from(value, chr(0), 0) >= 0 {
+        give back v4_mir_lower_say_value_stmt(mir_id, body_id, block_id, stream_id, stmt_start, stmt_end)
     }
-    pilot value = v4_ty_word_literal_value(raw)
     pilot literal = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, value, "", 0 - 1, 0 - 1, literal_span, v4_ty_word)
     pilot call = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, "say", v4_mir_call_say_literal, 0 - 1, 0 - 1, stmt_span, v4_ty_void)
     v4_mir_set_rvalue_args_payload(mir_id, body_id, call, word_from_int(literal))
@@ -9135,4 +9131,118 @@ task v4_mir_is_signed_min_magnitude(stream_id: int, start_token: int, end_token:
     pilot index = 0
     repeat until index >= magnitude.length() or magnitude.char_at(index) != "0" { index += 1 }
     give back magnitude.substring(index, magnitude.length() - index) == "9223372036854775808"
+}
+
+-- The lowering layer consumes HIR pieces and component names; it never scans
+-- word bytes for braces, dots or escapes.
+task v4_mir_word_plan_body_item(mir: int, body: int) -> int {
+    pilot ty = v4_mir_ty_id(mir)
+    pilot signature = v4_mir_body_signature_id(mir, body)
+    if signature >= 0 { give back v4_ty_signature_hir_item(ty, signature) }
+    give back v4_mir_body_impl_method_index(mir, body, 0)
+}
+
+task v4_mir_word_plan_error(mir: int, body: int, span: word, message: word) -> int {
+    v4_mir_add_type_error(mir, span, message, "word interpolation accepts visible values with terminal word, int, num or bool type")
+    give back v4_mir_add_rvalue(mir, body, v4_mir_rvalue_unknown, "word interpolation", "", -1, -1, span, v4_ty_unknown)
+}
+
+task v4_mir_word_plan_const_value(mir: int, body: int, name: word, span: word) -> int {
+    pilot ty = v4_mir_ty_id(mir)
+    pilot signature = v4_ty_const_signature_id_for_name(ty, name)
+    if signature < 0 { give back v4_mir_word_plan_error(mir, body, span, "unknown interpolation root " + name) }
+    pilot value_type = v4_ty_const_value_type_for_sig(ty, signature)
+    if value_type == v4_ty_int {
+        pilot value = v4_ty_const_integer_text_for_sig(ty, signature)
+        if value != "" { give back v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_int, value, "", -1, -1, span, v4_ty_int) }
+    }
+    pilot init = v4_ty_const_init_text_for_sig(ty, signature)
+    if value_type == v4_ty_bool and (init == "true" or init == "false") {
+        give back v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_bool, init, "", -1, -1, span, v4_ty_bool)
+    }
+    pilot hir = v4_ty_word_plan_hir_id(ty)
+    pilot item = v4_ty_signature_hir_item(ty, signature)
+    if value_type == v4_ty_word and v4_hir_word_literal_count(hir, item) == 1 and v4_hir_word_constant_is_single_literal(hir, item) {
+        pilot literal = v4_hir_word_literal_start(hir, item)
+        if v4_hir_word_literal_issue_at(hir, literal) == "" and v4_hir_word_piece_count(hir, literal) == 0 {
+            give back v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_word, "", "", -1, -1, span, v4_ty_word)
+        }
+        if v4_hir_word_literal_issue_at(hir, literal) == "" and v4_hir_word_piece_count(hir, literal) == 1 and v4_hir_word_piece_kind(hir, literal, 0) == "Literal" {
+            give back v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_word, v4_hir_word_piece_value(hir, literal, 0), "", -1, -1, span, v4_ty_word)
+        }
+    }
+    give back v4_mir_word_plan_error(mir, body, span, "interpolation constant value is not supported " + name)
+}
+
+task v4_mir_word_plan_path(mir: int, body: int, hir: int, literal: int, piece: int, offset: int) -> int {
+    pilot span = v4_hir_word_piece_span(hir, literal, piece)
+    pilot count = v4_hir_word_path_part_count(hir, literal, piece)
+    pilot name = v4_hir_word_path_part_name(hir, literal, piece, 0)
+    pilot root_span = v4_hir_word_path_part_span(hir, literal, piece, 0)
+    pilot local = v4_mir_find_local_visible_at(mir, body, name, offset)
+    pilot value = -1
+    pilot value_type = v4_ty_unknown
+    pilot place = -1
+    pilot path = name
+    if local >= 0 {
+        value_type = v4_mir_local_ty(mir, body, local)
+        if count == 1 {
+            value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_use_local, name, "local#" + word_from_int(local), -1, -1, root_span, value_type)
+        } else {
+            place = v4_mir_add_place(mir, body, v4_mir_place_local, name, local, "", -1, root_span, value_type)
+        }
+    } else {
+        if count != 1 { give back v4_mir_word_plan_error(mir, body, span, "interpolation field root must be a visible local " + name) }
+        value = v4_mir_word_plan_const_value(mir, body, name, span)
+        value_type = v4_mir_rvalue_ty(mir, body, value)
+    }
+    pilot part = 1
+    repeat until part >= count {
+        pilot field = v4_hir_word_path_part_name(hir, literal, piece, part)
+        pilot field_span = v4_hir_word_path_part_span(hir, literal, piece, part)
+        pilot projected_type = value_type
+        if v4_ty_is_lend_type(projected_type) { projected_type = v4_ty_lend_target_type(projected_type) }
+        value_type = v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir), projected_type, field)
+        if not v4_ty_is_known(value_type) { give back v4_mir_word_plan_error(mir, body, span, "unknown interpolation field " + path + "." + field) }
+        path = path + "." + field
+        place = v4_mir_add_place(mir, body, v4_mir_place_field, path, place, field, -1, field_span, value_type)
+        part += 1
+    }
+    if count > 1 { value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_use_place, path, path, place, -1, span, value_type) }
+    pilot conversion = ""
+    if value_type == v4_ty_word {
+        conversion = "clone"
+        value = v4_mir_word_borrow_argument(mir, body, value, span)
+    } else if value_type == v4_ty_int { conversion = "from_int" } else if value_type == v4_ty_num { conversion = "from_num" } else if value_type == v4_ty_bool { conversion = "from_bool" }
+    if conversion == "" { give back v4_mir_word_plan_error(mir, body, span, "unsupported interpolation terminal type " + value_type) }
+    give back v4_mir_add_word_intrinsic(mir, body, conversion, v4_mir_call_args_payload_append("", value), "word display " + path, span)
+}
+
+task v4_mir_word_plan_range(mir: int, body: int, hir: int, literal: int, start: int, end: int, offset: int) -> int {
+    pilot span = v4_hir_word_literal_span(hir, literal)
+    if start >= end { give back v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_word, "", "", -1, -1, span, v4_ty_word) }
+    if end == start + 1 {
+        pilot piece_span = v4_hir_word_piece_span(hir, literal, start)
+        if v4_hir_word_piece_kind(hir, literal, start) == "Literal" {
+            give back v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_word, v4_hir_word_piece_value(hir, literal, start), "", -1, -1, piece_span, v4_ty_word)
+        }
+        give back v4_mir_word_plan_path(mir, body, hir, literal, start, offset)
+    }
+    pilot middle = start + (end - start) / 2
+    pilot left = v4_mir_word_plan_range(mir, body, hir, literal, start, middle, offset)
+    pilot right = v4_mir_word_plan_range(mir, body, hir, literal, middle, end, offset)
+    if v4_mir_rvalue_ty(mir, body, left) != v4_ty_word or v4_mir_rvalue_ty(mir, body, right) != v4_ty_word {
+        give back v4_mir_add_rvalue(mir, body, v4_mir_rvalue_unknown, "word interpolation", "", -1, -1, span, v4_ty_unknown)
+    }
+    give back v4_mir_try_lower_word_binary(mir, body, left, right, v4_mir_bin_add, "word concat", span)
+}
+
+task v4_mir_lower_word_plan(mir: int, body: int, span: word) -> int {
+    pilot ty = v4_mir_ty_id(mir)
+    pilot hir = v4_ty_word_plan_hir_id(ty)
+    pilot item = v4_mir_word_plan_body_item(mir, body)
+    pilot literal = v4_ty_word_plan_literal_at_span(ty, item, span)
+    if literal < 0 { give back v4_mir_word_plan_error(mir, body, span, "word expression lacks its persisted HIR plan") }
+    if v4_hir_word_literal_issue_at(hir, literal) != "" { give back v4_mir_word_plan_error(mir, body, span, "unsupported word literal escape") }
+    give back v4_mir_word_plan_range(mir, body, hir, literal, 0, v4_hir_word_piece_count(hir, literal), v4_span_start(span))
 }
