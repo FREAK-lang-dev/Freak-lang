@@ -92,7 +92,7 @@ at `55678bc`, but native HIR snapshot scaling reached 66.8 MiB against its
 unchanged 64 MiB ceiling; that resource gate remains open. At `5608f27`, all
 80 selected merged word/cold/interpolation/resource/legacy-MIR cases pass,
 and 129 cold-query/expansion case executions cover 42 allocation-fault positions
-and one bootstrap-success scenario over three recovery cycles under the original
+and one bootstrap-row failure scenario over three recovery cycles under the original
 limits. This verifies the selected contracts, rather
 than the complete runtime inventory or the failing HIR scaling fixture.
 The W4 lowercase slice adds five registrations (340 total) and 54 focused
