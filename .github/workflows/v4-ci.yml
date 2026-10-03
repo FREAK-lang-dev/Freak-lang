@@ -129,6 +129,7 @@ jobs:
           python -u src/compiler/v4/check_v4.py
           --smoke h6_
           --smoke release_native_ordinary_
+          --smoke owned_word_
           --smoke codegen_llvm_execute
           --smoke extern_literal_syntax
           --smoke extern_return
@@ -159,11 +160,24 @@ jobs:
       - name: Owned UTF-8 word runtime portability and ownership audits
         run: python -B -u tests/v4_word_runtime.py --plain
 
+      - name: Unicode fatal-error oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_unicode_runtime.py -v
+
       - name: Checked numeric helpers at O0, O2 and O3
         run: python -B -u tests/v4_numeric_runtime.py
 
       - name: Generated owned word programs with C and LLVM ownership audits
         run: python -B -u tests/v4_owned_word_codegen.py --plain
+
+      - name: Owned process and checked filesystem runtime portability
+        run: python -B -u tests/v4_system_runtime.py --plain
+
+      - name: Unicode lowercase runtime portability
+        run: python -B -u tests/v4_unicode_runtime.py --plain --download --ucd-dir "${{ runner.temp }}/freak-unicode-17" --report "${{ runner.temp }}/unicode-lower-plain.json"
+
+      - name: Windows suite fresh-build and exit-status regressions
+        if: runner.os == 'Windows'
+        run: python -B -u tests/test_windows_suite_runner.py
 
       - name: Owned word AddressSanitizer and UndefinedBehaviorSanitizer gate
         if: runner.os == 'Linux'
@@ -173,9 +187,25 @@ jobs:
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_owned_word_codegen.py
 
+      - name: Owned process and filesystem sanitizer gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_system_runtime.py
+
+      - name: Unicode lowercase sanitizer gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_unicode_runtime.py --download --ucd-dir "${{ runner.temp }}/freak-unicode-17" --report "${{ runner.temp }}/unicode-lower-sanitized.json"
+
       - name: Checked numeric UndefinedBehaviorSanitizer gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_numeric_runtime.py --optimization 2 --sanitize
+
+      - name: Preserve Unicode runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-unicode-runtime-${{ matrix.os }}
+          path: ${{ runner.temp }}/unicode-lower-*.json
+          if-no-files-found: warn
 
   v4-benchmark:
     name: V4 benchmark instrumentation
