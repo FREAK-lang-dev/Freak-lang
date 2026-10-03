@@ -999,6 +999,47 @@ task v4_editor_bound_method_detail_for_owner(ty_id: int, owner_ty: word, method_
     give back "task " + lookup_owner_ty + "::" + v4_ty_doctrine_method_name(ty_id, sig_id, method_id) + "(...) -> " + v4_ty_doctrine_method_return_type_for_bound(ty_id, sig_id, method_id, lookup_owner_ty, v4_mir_bound_method_ref_doctrine_instance(method_ref))
 }
 
+-- Primitive word methods have closed MIR contracts rather than authored defs.
+-- Anchor the actual lexical call close so a surrounding chained call cannot
+-- impersonate the selected method token. MIR spans may include trailing trivia.
+task v4_editor_word_method_rvalue_at_token(stream_id: int, mir_id: int, body_id: int, token_id: int, token_value: word, offset: int) -> int {
+    if token_id < 0 or body_id < 0 { give back -1 }
+    pilot wanted = v4_ty_word_intrinsic_member_kind(v4_ty_word, token_value)
+    if wanted == "" { give back -1 }
+    pilot previous = v4_editor_prev_nontrivia_token(stream_id, token_id)
+    pilot next = v4_editor_next_nontrivia_token(stream_id, token_id)
+    if previous < 0 or next < 0 { give back -1 }
+    if v4_lex_token_value(stream_id, previous) != "." or v4_lex_token_value(stream_id, next) != "(" { give back -1 }
+    pilot close = v4_mir_find_matching_paren(stream_id, next, v4_lex_token_count(stream_id))
+    if close < 0 { give back -1 }
+    pilot best = -1
+    pilot best_width = -1
+    pilot rv = 0
+    repeat until rv >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rv) and v4_mir_word_intrinsic_kind(mir_id, body_id, rv) == wanted {
+            pilot span = v4_mir_rvalue_span(mir_id, body_id, rv)
+            if offset >= v4_span_start(span) and offset < v4_span_end(span) and v4_editor_last_nontrivia_token_in_span(stream_id, span) == close {
+                pilot width = v4_span_end(span) - v4_span_start(span)
+                if best < 0 or width < best_width { best = rv; best_width = width }
+            }
+        }
+        rv += 1
+    }
+    give back best
+}
+
+task v4_editor_word_method_detail(kind: word, method: word) -> word {
+    if not v4_ty_word_intrinsic_known(kind) { give back v4_ty_unknown }
+    pilot detail = "task word." + method + "("
+    pilot parameter = 1
+    repeat until parameter >= v4_ty_word_intrinsic_param_count(kind) {
+        if parameter > 1 { detail = detail + ", " }
+        detail = detail + v4_ty_word_intrinsic_param_type(kind, parameter)
+        parameter += 1
+    }
+    give back detail + ") -> " + v4_ty_word_intrinsic_result_type(kind)
+}
+
 task v4_editor_method_call_rvalue_at_token(stream_id: int, ty_id: int, mir_id: int, body_id: int, token_id: int, token_value: word, offset: int) -> int {
     if token_id < 0 or token_value == "" or body_id < 0 {
         give back 0 - 1
@@ -1976,6 +2017,18 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                 def_id = v4_editor_closure_param_def(v4_hir_item_def(hir_id, hir_item), closure_id, token_value)
                 type_display = v4_editor_closure_param_detail(ty_id, hir_id, hir_item, closure_id, closure_param_id)
                 symbol_id = 0 - 1
+                named_param_handled = true
+            }
+        }
+        if not named_param_handled and hir_item >= 0 {
+            pilot word_body = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
+            pilot word_method = v4_editor_word_method_rvalue_at_token(stream_id, mir_id, word_body, token_id, token_value, offset)
+            if word_method >= 0 {
+                name = token_value
+                kind = "BuiltinMethod"
+                def_id = v4_mir_rvalue_builtin_method(mir_id, word_body, word_method)
+                type_display = v4_editor_word_method_detail(v4_mir_word_intrinsic_kind(mir_id, word_body, word_method), token_value)
+                symbol_id = -1
                 named_param_handled = true
             }
         }

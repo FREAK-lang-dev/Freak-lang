@@ -1782,6 +1782,67 @@ task v4_borrowck_path_root(path_text: word) -> word {
 
 -- Meiya owns this TY-backed interpretation of stored call facts. Built-MIR
 -- remains source-independent, and borrowck does not depend on MIR construction.
+task v4_borrowck_owned_word_call_local_is_valid(mir_id: int, body_id: int, value: int) -> bool {
+    pilot local = v4_mir_rvalue_local_id(mir_id, body_id, value)
+    if local < 0 or local >= v4_mir_body_local_count(mir_id, body_id) { give back false }
+    if v4_mir_rvalue_op(mir_id, body_id, value) != "local#" + word_from_int(local) { give back false }
+    give back v4_mir_local_ty(mir_id, body_id, local) == v4_mir_rvalue_ty(mir_id, body_id, value) and v4_mir_local_name(mir_id, body_id, local) == v4_mir_rvalue_text(mir_id, body_id, value)
+}
+
+task v4_borrowck_owned_word_call_argument_contract_status(mir_id: int, body_id: int, rvalue_id: int, sig_id: int) -> int {
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_mir_rvalue_abi(mir_id, body_id, rvalue_id) != v4_ty_signature_call_abi(ty_id, sig_id) or v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id) != "" { give back 0 }
+    -- Generic specialization is a separate contract; do not turn an unresolved
+    -- type environment into evidence that a call produced a fresh owner.
+    if v4_ty_signature_generic_count(ty_id, sig_id) != 0 { give back 0 }
+    if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) != v4_ty_signature_param_count(ty_id, sig_id) { give back 0 }
+    pilot status = 1
+    pilot param = 0
+    repeat until param >= v4_ty_signature_param_count(ty_id, sig_id) {
+        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, param)
+        if child < 0 or child >= rvalue_id { give back 0 }
+        pilot expected = v4_ty_signature_param_type(ty_id, sig_id, param)
+        pilot actual = v4_mir_rvalue_ty(mir_id, body_id, child)
+        pilot mode = v4_ty_signature_param_mode(ty_id, sig_id, param)
+        pilot argument_kind = v4_mir_rvalue_kind(mir_id, body_id, child)
+        if expected == v4_ty_unknown or actual == v4_ty_unknown { give back 0 }
+        if argument_kind == v4_mir_rvalue_use_local and not v4_borrowck_owned_word_call_local_is_valid(mir_id, body_id, child) { give back 0 }
+        if (argument_kind == v4_mir_rvalue_lend or argument_kind == v4_mir_rvalue_lend_mut) and not v4_ty_is_lend_type(actual) { give back 0 }
+        if mode == v4_ty_param_mode_value and actual == v4_ty_word and argument_kind == v4_mir_rvalue_use_local and v4_mir_local_mode(mir_id, body_id, v4_mir_rvalue_local_id(mir_id, body_id, child)) != v4_ty_param_mode_value { give back 0 }
+        if v4_ty_is_lend_type(actual) {
+            pilot child_kind = argument_kind
+            if child_kind == v4_mir_rvalue_lend or child_kind == v4_mir_rvalue_lend_mut {
+                pilot value = v4_mir_rvalue_lhs(mir_id, body_id, child)
+                if value < 0 or value >= child or v4_mir_rvalue_rhs(mir_id, body_id, child) >= 0 { give back 0 }
+                if v4_mir_rvalue_ty(mir_id, body_id, value) != v4_ty_lend_target_type(actual) { give back 0 }
+                pilot mutable_kind: bool = child_kind == v4_mir_rvalue_lend_mut
+                pilot mutable_type: bool = v4_ty_is_lend_mut_type(actual)
+                if mutable_kind != mutable_type { give back 0 }
+                if v4_mir_rvalue_kind(mir_id, body_id, value) == v4_mir_rvalue_use_local and not v4_borrowck_owned_word_call_local_is_valid(mir_id, body_id, value) { give back 0 }
+            } else if child_kind == v4_mir_rvalue_use_local {
+                -- Exact loan-local identity was checked above.
+            } else if child_kind == v4_mir_rvalue_call or child_kind == v4_mir_rvalue_use_place {
+                -- Preserve established conservative provenance for real loan-
+                -- producing expressions; absence of this new owner proof is
+                -- not itself a malformed-call diagnosis.
+                status = -1
+            } else { give back 0 }
+        }
+        if mode == v4_ty_param_mode_lend or mode == v4_ty_param_mode_lend_mut {
+            if not v4_ty_is_lend_type(actual) { give back 0 }
+            if mode == v4_ty_param_mode_lend_mut and not v4_ty_is_lend_mut_type(actual) { give back 0 }
+            actual = v4_ty_lend_target_type(actual)
+        } else if mode != v4_ty_param_mode_value { give back 0 }
+        if not v4_ty_types_compatible_in_signature(ty_id, sig_id, expected, actual) { give back 0 }
+        param += 1
+    }
+    give back status
+}
+
+task v4_borrowck_owned_word_call_arguments_are_valid(mir_id: int, body_id: int, rvalue_id: int, sig_id: int) -> bool {
+    give back v4_borrowck_owned_word_call_argument_contract_status(mir_id, body_id, rvalue_id, sig_id) == 1
+}
+
 task v4_borrowck_call_borrowed_source_signature_id(mir_id: int, body_id: int, rvalue_id: int) -> int {
     if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
         give back 0 - 1
@@ -1814,6 +1875,12 @@ task v4_borrowck_call_borrowed_source_signature_id(mir_id: int, body_id: int, rv
         if not v4_ty_is_lend_type(call_return_ty) or v4_ty_lend_mode(signature_return_ty) != v4_ty_lend_mode(call_return_ty) {
             give back 0 - 1
         }
+        give back sig_id
+    }
+    -- An exact owning word cannot retain a lend. Require the ordinary resolved
+    -- task and all argument contracts before returning a known empty source
+    -- set; malformed/unknown calls keep the conservative opaque path below.
+    if signature_return_ty == v4_ty_word and call_return_ty == v4_ty_word and v4_borrowck_owned_word_call_arguments_are_valid(mir_id, body_id, rvalue_id, sig_id) {
         give back sig_id
     }
     pilot signature_leaf_count = v4_ty_fixed_lend_leaf_count(ty_id, signature_return_ty)
@@ -7006,6 +7073,24 @@ task v4_borrowck_word_local_exit_state(mir_id: int, body_id: int, local_id: int,
 }
 
 task v4_borrowck_check_word_binding_uses(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> void {
+    -- Opaque returned-source facts are conservative, but cannot certify a
+    -- malformed owning call whose missing arguments erased every loan path.
+    -- This admission check is confined to exact nongeneric ordinary Word
+    -- contracts; loan returns and hidden aggregate provenance stay separate.
+    pilot value = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_kind(mir_id, body_id, value) == v4_mir_rvalue_call and v4_mir_rvalue_ty(mir_id, body_id, value) == v4_ty_word and not v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) and v4_mir_rvalue_lhs(mir_id, body_id, value) < 0 and v4_mir_rvalue_rhs(mir_id, body_id, value) < 0 {
+            pilot ty_id = v4_mir_ty_id(mir_id)
+            pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, v4_mir_rvalue_op(mir_id, body_id, value))
+            if sig_id >= 0 and v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) and v4_ty_signature_return_type(ty_id, sig_id) == v4_ty_word and v4_ty_signature_generic_count(ty_id, sig_id) == 0 {
+                if v4_borrowck_owned_word_call_argument_contract_status(mir_id, body_id, value, sig_id) == 0 {
+                    v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, v4_mir_rvalue_span(mir_id, body_id, value), "Meiya cannot validate this owning word call contract", v4_mir_rvalue_op(mir_id, body_id, value)))
+                    v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+                }
+            }
+        }
+        value += 1
+    }
     pilot local_id = 0
     repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
         if v4_mir_local_ty(mir_id, body_id, local_id) == v4_ty_word {

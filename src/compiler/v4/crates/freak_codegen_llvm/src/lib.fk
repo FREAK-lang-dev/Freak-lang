@@ -2779,6 +2779,7 @@ task v4_codegen_llvm_numeric_runtime_symbol_error(codegen_id: int) -> word {
 task v4_codegen_llvm_word_runtime_declarations() -> word {
     pilot out = "declare i64 @freak_v4_word_from_bytes(i64, i64)\n"
     out = out + "declare i64 @freak_v4_word_clone(i64)\ndeclare i64 @freak_v4_word_concat(i64, i64)\n"
+    out = out + "declare i64 @freak_v4_word_to_lower(i64)\n"
     out = out + "declare i64 @freak_v4_word_from_int(i64)\ndeclare i64 @freak_v4_word_from_bool(i64)\ndeclare i64 @freak_v4_word_from_num(double)\n"
     out = out + "declare i64 @freak_v4_word_to_int(i64)\ndeclare i64 @freak_v4_word_equal(i64, i64)\n"
     out = out + "declare i64 @freak_v4_word_length(i64)\ndeclare i64 @freak_v4_word_bytes(i64)\n"

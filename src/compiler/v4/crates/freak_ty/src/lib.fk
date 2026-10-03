@@ -13703,7 +13703,7 @@ task v4_ty_word_literal_value(raw: word) -> word {
 
 -- Compiler-owned word intrinsic contracts; source spelling is resolved by MIR.
 task v4_ty_word_intrinsic_known(kind: word) -> bool {
-    give back kind == "concat" or kind == "equal" or kind == "not_equal" or kind == "say" or kind == "say_err" or kind == "from_int" or kind == "from_bool" or kind == "from_num" or kind == "to_int" or kind == "length" or kind == "bytes" or kind == "char_at" or kind == "slice" or kind == "substring" or kind == "starts_with" or kind == "ends_with" or kind == "contains" or kind == "clone"
+    give back kind == "concat" or kind == "equal" or kind == "not_equal" or kind == "say" or kind == "say_err" or kind == "from_int" or kind == "from_bool" or kind == "from_num" or kind == "to_int" or kind == "length" or kind == "bytes" or kind == "char_at" or kind == "slice" or kind == "substring" or kind == "starts_with" or kind == "ends_with" or kind == "contains" or kind == "clone" or kind == "to_lower"
 }
 
 task v4_ty_word_intrinsic_result_type(kind: word) -> word {
@@ -13725,6 +13725,7 @@ task v4_ty_word_intrinsic_result_type(kind: word) -> word {
     if kind == "ends_with" { give back v4_ty_bool }
     if kind == "contains" { give back v4_ty_bool }
     if kind == "clone" { give back v4_ty_word }
+    if kind == "to_lower" { give back v4_ty_word }
     give back v4_ty_unknown
 }
 
@@ -13747,6 +13748,7 @@ task v4_ty_word_intrinsic_param_count(kind: word) -> int {
     if kind == "ends_with" { give back 2 }
     if kind == "contains" { give back 2 }
     if kind == "clone" { give back 1 }
+    if kind == "to_lower" { give back 1 }
     give back 0 - 1
 }
 
@@ -13816,6 +13818,9 @@ task v4_ty_word_intrinsic_param_type(kind: word, param_id: int) -> word {
     if kind == "clone" {
         if param_id == 0 { give back v4_ty_word }
     }
+    if kind == "to_lower" {
+        if param_id == 0 { give back v4_ty_word }
+    }
     give back v4_ty_unknown
 }
 
@@ -13839,6 +13844,7 @@ task v4_ty_word_intrinsic_member_kind(receiver_ty: word, method_name: word) -> w
         if method_name == "ends_with" { give back "ends_with" }
         if method_name == "contains" { give back "contains" }
         if method_name == "clone" { give back "clone" }
+        if method_name == "to_lower" { give back "to_lower" }
     }
     if method_name == "to_word" {
         if receiver_ty == v4_ty_int { give back "from_int" }

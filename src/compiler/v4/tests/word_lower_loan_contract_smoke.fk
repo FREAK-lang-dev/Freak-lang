@@ -1,0 +1,148 @@
+-- Owning outputs end receiver loans; ordinary borrowed outputs preserve them.
+task v4_lower_loan_assert(condition: bool, label: word) -> void {
+    if not condition { panic("word-lower-loan " + label) }
+}
+
+task v4_lower_loan_status(borrow: int, name: word) -> word {
+    pilot mir = v4_borrowck_mir_id(borrow)
+    pilot body = v4_mir_lookup_body_name(mir, name)
+    pilot outcome = v4_borrowck_lookup_result(borrow, v4_mir_body_def(mir, body))
+    give back v4_borrowck_result_status(borrow, outcome)
+}
+
+task v4_lower_loan_source() -> word {
+    pilot src = "task share(lend source: word) -> lend word " + chr(123) + " give back lend source " + chr(125) + "\n"
+    src = src + "task forward(lend source: word) -> lend word " + chr(123) + " give back share(lend source) " + chr(125) + "\n"
+    src = src + "task inspect(lend source: word) -> int " + chr(123) + " give back source.length() " + chr(125) + "\n"
+    src = src + "task fresh(lend source: word) -> word " + chr(123) + " give back source.to_lower() " + chr(125) + "\n"
+    src = src + "task owned_good() -> int " + chr(123) + " pilot mut source = \"A\"; pilot owner = fresh(lend source); source = source.to_lower(); say owner; give back 0 " + chr(125) + "\n"
+    src = src + "task loan_bad() -> int " + chr(123) + " pilot mut source = \"A\"; pilot view = forward(lend source); source = source.to_lower(); give back inspect(view) " + chr(125) + "\n"
+    src = src + "task loan_good() -> int " + chr(123) + " pilot source = \"A\"; pilot view = forward(lend source); give back inspect(view) " + chr(125) + "\n"
+    give back src
+}
+
+task v4_lower_loan_run() -> void {
+    pilot mode = process::arg(1)
+    if mode.starts_with("producer-") {
+        pilot producer_mode = mode
+        pilot producer_restore: bool = mode.ends_with("-restore")
+        if producer_restore { producer_mode = mode.substring(0, mode.length() - 8) }
+        pilot body = "give back value"
+        pilot parameter = "lend value: word"
+        pilot message = "Meiya refuses a use of an unavailable word binding"
+        if producer_mode == "producer-holder" { body = "pilot holder = value; give back holder" }
+        if producer_mode == "producer-typed" { parameter = "value: lend word"; message = "return type mismatch" }
+        if producer_mode == "producer-loan-holder" { body = "pilot holder = lend value; give back holder"; message = "return type mismatch" }
+        pilot source = "task fresh(lend value: word) -> word " + chr(123) + " give back value.clone() " + chr(125) + "\n"
+        source = source + "task bad(" + parameter + ") -> word " + chr(123) + " " + body + " " + chr(125) + "\n"
+        pilot borrow = v4_borrowck_text_cached("word-lower-producer-contract.fk", source)
+        pilot mir = v4_borrowck_mir_id(borrow)
+        pilot found: bool = false
+        pilot diag = 0
+        repeat until diag >= v4_mir_diag_count(mir) {
+            if v4_mir_diag(mir, diag).contains(message) { found = true }
+            diag += 1
+        }
+        diag = 0
+        repeat until diag >= v4_borrowck_diag_count(borrow) {
+            if v4_borrowck_diag(borrow, diag).contains(message) { found = true }
+            diag += 1
+        }
+        v4_lower_loan_assert(found, "producer named rejection " + message)
+        v4_lower_loan_assert(v4_lower_loan_status(borrow, "fresh") == v4_borrowck_clean, "clone creates actual owner")
+        if message.starts_with("Meiya") { v4_lower_loan_assert(v4_lower_loan_status(borrow, "bad") == v4_borrowck_blocked, "borrowed owner cannot transfer") }
+        if producer_restore {
+            pilot payload = v4_mir_snapshot()
+            v4_lower_loan_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "producer raw restore")
+            pilot fresh_borrow = v4_borrowck_check_mir(0, mir)
+            v4_lower_loan_assert(v4_lower_loan_status(fresh_borrow, "bad") == v4_borrowck_blocked and v4_lower_loan_status(fresh_borrow, "fresh") == v4_borrowck_clean, "fresh restored producer status")
+        }
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_lower_loan_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "borrowed producer cannot seal")
+        say "word-lower-loan " + mode + "=passed named-diagnostic=true clone-owner-clean=true no-module=true"
+        give back
+    }
+    if mode == "argument-overlap" {
+        pilot source = "task fresh(lend source: word, owned: word) -> word " + chr(123) + " give back source.to_lower() " + chr(125) + "\n"
+        source = source + "task bad() -> int " + chr(123) + " pilot source = \"A\"; pilot owner = fresh(lend source, source); say owner; give back 0 " + chr(125) + "\n"
+        source = source + "task good() -> int " + chr(123) + " pilot source = \"A\"; pilot other = \"B\"; pilot owner = fresh(lend source, other); say owner; give back 0 " + chr(125) + "\n"
+        pilot borrow = v4_borrowck_text_cached("word-lower-argument-overlap.fk", source)
+        pilot mir = v4_borrowck_mir_id(borrow)
+        v4_lower_loan_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0, "overlap frontend")
+        v4_lower_loan_assert(v4_lower_loan_status(borrow, "bad") == v4_borrowck_blocked and v4_lower_loan_status(borrow, "good") == v4_borrowck_clean, "temporary argument loan retained")
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_lower_loan_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "overlap cannot seal")
+        say "word-lower-loan argument-overlap=passed temporary-loan-retained=true distinct-owner-accepted=true no-module=true"
+        give back
+    }
+    if mode == "loan-argument" {
+        pilot source = "task share(lend source: word) -> lend word " + chr(123) + " give back lend source " + chr(125) + "\n"
+        source = source + "task fresh(lend source: word) -> word " + chr(123) + " give back source.to_lower() " + chr(125) + "\n"
+        source = source + "task main() -> int " + chr(123) + " pilot source = \"A\"; pilot owner = fresh(share(lend source)); say owner; give back 0 " + chr(125) + "\n"
+        pilot borrow = v4_borrowck_text_cached("word-lower-loan-argument.fk", source)
+        pilot mir = v4_borrowck_mir_id(borrow)
+        v4_lower_loan_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0, "loan argument frontend")
+        v4_lower_loan_assert(v4_borrowck_diag_count(borrow) == 0 and v4_lower_loan_status(borrow, "main") == v4_borrowck_clean, "loan expression remains conservative")
+        pilot body = v4_mir_lookup_body_name(mir, "main")
+        pilot call = 0
+        repeat until call >= v4_mir_body_rvalue_count(mir, body) or v4_mir_rvalue_op(mir, body, call) == "fresh" { call += 1 }
+        v4_lower_loan_assert(v4_borrowck_call_return_lend_leaf_count(mir, body, call) < 0, "loan expression not promoted to new owner proof")
+        say "word-lower-loan loan-argument=passed conservative=true no-new-malformed-diagnostic=true"
+        give back
+    }
+    if mode == "0" or mode == "restore" {
+        pilot source = v4_lower_loan_source()
+        pilot borrow = v4_borrowck_text_cached("word-lower-loan.fk", source)
+        pilot mir = v4_borrowck_mir_id(borrow)
+        v4_lower_loan_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
+        v4_lower_loan_assert(v4_lower_loan_status(borrow, "owned_good") == v4_borrowck_clean, "fresh owned output ends loan")
+        v4_lower_loan_assert(v4_lower_loan_status(borrow, "loan_bad") == v4_borrowck_blocked and v4_lower_loan_status(borrow, "loan_good") == v4_borrowck_clean, "ordinary loan result remains borrowed")
+        v4_lower_loan_assert(v4_lower_loan_status(borrow, "share") == v4_borrowck_clean and v4_lower_loan_status(borrow, "forward") == v4_borrowck_clean, "ordinary loan forwarding")
+        if mode == "restore" {
+            pilot payload = v4_mir_snapshot()
+            v4_lower_loan_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "raw v7 restore")
+            pilot fresh_borrow = v4_borrowck_check_mir(0, mir)
+            v4_lower_loan_assert(v4_lower_loan_status(fresh_borrow, "owned_good") == v4_borrowck_clean and v4_lower_loan_status(fresh_borrow, "loan_bad") == v4_borrowck_blocked and v4_lower_loan_status(fresh_borrow, "forward") == v4_borrowck_clean, "restored owner/loan distinction")
+        }
+        say "word-lower-loan " + mode + "=passed owner-independent=true actual-loan-retained=true forwarding=true"
+        give back
+    }
+    pilot restore: bool = mode.starts_with("restore-")
+    if restore { mode = mode.substring(8, mode.length() - 8) }
+    pilot source = "task fresh(lend source: word, count: int) -> word " + chr(123) + " give back source.to_lower() " + chr(125) + "\n"
+    source = source + "task main() -> int " + chr(123) + " pilot mut source = \"A\"; pilot owner = fresh(count: 1, source: lend source); source = source.to_lower(); say owner; give back 0 " + chr(125) + "\n"
+    if mode == "alias" { source = "alias Text = word\n" + source.replace(": word", ": Text").replace("-> word", "-> Text") }
+    pilot mir = v4_mir_text_cached("word-lower-call-contract.fk", source)
+    v4_lower_loan_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0, "forgery clean frontend")
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    pilot call = 0
+    repeat until call >= v4_mir_body_rvalue_count(mir, body) or v4_mir_rvalue_op(mir, body, call) == "fresh" { call += 1 }
+    v4_lower_loan_assert(call < v4_mir_body_rvalue_count(mir, body), "ordinary owning call")
+    v4_lower_loan_assert(v4_borrowck_call_return_lend_leaf_count(mir, body, call) == 0, "exact owner has no loan leaves")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot sealed = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot module = v4_codegen_llvm_module_text(sealed, target)
+    v4_lower_loan_assert(module != "", "initial owner seal")
+    if mode == "alias" {
+        say "word-lower-loan alias=passed canonical-owner=true named-argument-binding=true sealed=true"
+        give back
+    }
+    pilot child = v4_mir_rvalue_call_arg(mir, body, call, 0)
+    pilot second = v4_mir_rvalue_call_arg(mir, body, call, 1)
+    if mode == "arity" { v4_mir_set_rvalue_args_payload(mir, body, call, "") } else if mode == "extra" { v4_mir_set_rvalue_args_payload(mir, body, call, word_from_int(child) + "," + word_from_int(second) + "," + word_from_int(second)) } else if mode == "reordered" { v4_mir_set_rvalue_args_payload(mir, body, call, word_from_int(second) + "," + word_from_int(child)) } else if mode == "abi" { v4_mir_set_rvalue_abi(mir, body, call, "C") } else if mode == "identity" { v4_mir_set_rvalue_builtin_method(mir, body, call, "builtin::word::to_lower") } else if mode == "result" { v4_mir_set_rvalue_ty(mir, body, call, v4_ty_int) } else if mode == "unknown" { array_set(v4_mir_body_rvalue_ops_handle(mir, body), call, "forged_word_task") } else if mode == "loan-kind" { array_set(v4_mir_body_rvalue_kinds_handle(mir, body), child, v4_mir_rvalue_const_int) } else if mode == "loan-type" { v4_mir_set_rvalue_ty(mir, body, child, v4_ty_word) } else if mode == "loan-local-id" { array_set(v4_mir_body_rvalue_ops_handle(mir, body), v4_mir_rvalue_lhs(mir, body, child), "local#999") } else if mode == "loan-local-name" { array_set(v4_mir_body_rvalue_texts_handle(mir, body), v4_mir_rvalue_lhs(mir, body, child), "forged_source") } else { panic("word-lower-loan unknown case") }
+    v4_lower_loan_assert(v4_borrowck_call_return_lend_leaf_count(mir, body, call) < 0, "forgery cannot claim known-empty output")
+    if restore {
+        pilot forged = v4_mir_snapshot()
+        pilot response = v4_mir_snapshot_restore(forged)
+        v4_lower_loan_assert(response.starts_with("mir-snapshot-restore ok=1") or response.starts_with("mir-snapshot-restore ok=0"), "restore explicit outcome")
+        if response.starts_with("mir-snapshot-restore ok=0") { v4_lower_loan_assert(v4_mir_snapshot() == forged, "rejected raw restore atomic") }
+        v4_lower_loan_assert(v4_borrowck_call_return_lend_leaf_count(mir, body, call) < 0, "restored forgery cannot claim known-empty output")
+    }
+    pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_lower_loan_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, target) == "", "forgery cannot seal")
+    v4_lower_loan_assert(v4_codegen_llvm_module_text(sealed, target) == module, "old sealed plan stable")
+    pilot label = mode
+    if restore { label = "restore-" + mode }
+    say "word-lower-loan " + label + "=passed forged-owner-rejected=true no-module=true sealed-stable=true"
+}
+v4_lower_loan_run()
