@@ -748,7 +748,7 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
 class SymbolInventoryProvenance(unittest.TestCase):
     def test_failure_context_keeps_tool_and_object_identity_after_temp_deletion(self):
         with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
+            directory = Path(temporary).resolve()
             nm, obj = directory / "selected-nm", directory / "module.o"
             nm.write_bytes(b"fake tool")
             obj.write_bytes(b"tiny object")
@@ -778,7 +778,7 @@ class SymbolInventoryProvenance(unittest.TestCase):
 
     def test_failed_version_validation_retains_original_failure_and_stops_inventory(self):
         with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
+            directory = Path(temporary).resolve()
             nm = directory / "selected-llvm-nm"
             nm.write_bytes(b"LLVM tool")
             obj = directory / "module.o"
@@ -795,7 +795,7 @@ class SymbolInventoryProvenance(unittest.TestCase):
 
     def test_success_keeps_collision_symbols_with_validated_llvm_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
+            directory = Path(temporary).resolve()
             nm, obj = directory / "llvm-nm", directory / "module.o"
             nm.write_bytes(b"LLVM tool")
             obj.write_bytes(b"object")
@@ -812,8 +812,11 @@ class SymbolInventoryProvenance(unittest.TestCase):
 
     def test_alias_spelling_executes_and_hashes_the_resolved_image(self):
         with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
+            directory = Path(temporary).resolve()
             alias = directory / "short-spelling" / "llvm-nm"
+            canonical_parent = directory / "canonical-tools"
+            canonical_parent.mkdir()
+            selected = canonical_parent / alias.name
             tool = directory / "canonical-llvm-nm"
             obj = directory / "module.o"
             tool.write_bytes(b"canonical LLVM executable")
@@ -822,7 +825,9 @@ class SymbolInventoryProvenance(unittest.TestCase):
             original_resolve = Path.resolve
 
             def resolve(path, *args, **kwargs):
-                if path == alias:
+                if path == alias.parent:
+                    return canonical_parent
+                if path in (alias, selected):
                     return resolved
                 return original_resolve(path, *args, **kwargs)
 
@@ -836,9 +841,10 @@ class SymbolInventoryProvenance(unittest.TestCase):
                 self.assertEqual(benchmark.defined_symbols(None, obj, directory / "work", 10),
                                  {"main", "bench_collision"})
             self.assertEqual([call.args[1][0] for call in job.call_args_list],
-                             [str(resolved), str(resolved)])
+                             [str(selected), str(selected)])
             metadata = json.loads((directory / "work/provenance.json").read_text())
             self.assertEqual(metadata["requested_nm"], str(alias))
+            self.assertEqual(metadata["selected_nm"], str(selected))
             self.assertEqual(metadata["resolved_nm"], str(resolved))
             self.assertEqual(metadata["nm_file"]["sha256"],
                              hashlib.sha256(tool.read_bytes()).hexdigest())
