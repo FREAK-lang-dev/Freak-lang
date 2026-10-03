@@ -1,0 +1,49 @@
+-- W2 owning words, read-only observers, explicit cloning, and UTF-8 scalars.
+task take_word(value: word) -> word {
+    give back value
+}
+
+task decorate_word(value: word) -> word {
+    pilot decorated = value + "!"
+    give back decorated
+}
+
+task inspect_word(lend value: word) -> int {
+    say value
+    give back value.length()
+}
+
+task main() -> int {
+    pilot mut message = "café 🐱"
+    say message
+    if message.length() != 6 { give back 1 }
+    if message.bytes() != 10 { give back 2 }
+    if message != "café 🐱" { give back 3 }
+    if not message.starts_with("café") { give back 4 }
+    if not message.ends_with("🐱") { give back 5 }
+    if not message.contains("é 🐱") { give back 6 }
+    if message.char_at(3) != "é" { give back 7 }
+    if message.slice(0, 4) != "café" { give back 8 }
+    if message.substring(5, 1) != "🐱" { give back 9 }
+    pilot independent = message.clone()
+    if inspect_word(lend message) != 6 { give back 10 }
+    message = message + "!"
+    message = take_word(message)
+    say message
+    say decorate_word(take_word(message))
+    say independent
+    pilot empty = ""
+    if empty.length() != 0 or empty.bytes() != 0 { give back 11 }
+    say empty
+    pilot sized = "A\0B"
+    if sized.length() != 3 or sized.bytes() != 3 { give back 12 }
+    if sized != "A\0B" { give back 13 }
+    say sized
+    pilot number = word_from_int(-42)
+    if word_to_int(number) != -42 { give back 14 }
+    say number
+    say word_from_bool(true)
+    say format_num(12.5)
+    "unused" + " temporary"
+    give back 0
+}

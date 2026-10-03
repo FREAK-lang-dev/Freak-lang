@@ -1,0 +1,46 @@
+-- Every lexical exit releases its owners in reverse declaration order.
+task relay_word(value: word) -> word { give back value }
+
+task choose_word(first: bool) -> word {
+    pilot outer = "outer"
+    if first {
+        pilot local = "left"
+        give back local
+    } else {
+        pilot local = "right"
+        give back local
+    }
+}
+
+task default_scope() -> void {
+    pilot value = "default return cleanup"
+    say value
+}
+
+task main() -> int {
+    pilot mut survivor = "survivor"
+    if true {
+        pilot survivor = "shadow"
+        say survivor
+        if true {
+            pilot inner = "inner"
+            say inner
+        }
+    }
+    say survivor
+    if choose_word(true) != "left" { give back 1 }
+    if choose_word(false) != "right" { give back 2 }
+    pilot mut count = 0
+    repeat until count == 20000 {
+        pilot iteration = "iteration" + word_from_int(count)
+        count += 1
+        if count % 3 == 0 { continue }
+        if count == 19999 { break }
+        if iteration.length() < 9 { give back 3 }
+    }
+    survivor = relay_word(survivor)
+    survivor = "replacement"
+    say survivor
+    default_scope()
+    give back 0
+}

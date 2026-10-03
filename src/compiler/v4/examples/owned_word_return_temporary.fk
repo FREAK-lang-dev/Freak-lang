@@ -1,0 +1,27 @@
+-- Nested result temporaries are observed, released, or transferred once.
+task bounce_word(value: word) -> word { give back value }
+
+task word_size(lend value: word) -> int { give back value.length() }
+
+task early_word(stop: bool) -> int {
+    pilot first = "first"
+    pilot second = "second"
+    if stop { give back (first + second).length() }
+    say bounce_word(first)
+    say second
+    give back 0
+}
+
+task main() -> int {
+    if early_word(true) != 11 { give back 1 }
+    if early_word(false) != 0 { give back 2 }
+    pilot mut value = "transfer"
+    value = bounce_word(value)
+    say value
+    pilot transferred = bounce_word(value)
+    say transferred
+    if word_size(lend transferred) != 8 { give back 4 }
+    bounce_word("discarded")
+    if bounce_word("nested").length() != 6 { give back 3 }
+    give back 0
+}
