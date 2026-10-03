@@ -206,12 +206,14 @@ children, with no added handles. Derived replacement children are released;
 authoritative restore-storage lifetimes and process-lifetime bootstrap Words
 retain their existing separate policy.
 
-The owned-word checkpoint changes the current inventory to HIR: 44 global
-registries and 41 file children; MIR: 40 global registries, 38 file children
-and 33 children per body. MIR snapshot v6 adds lexical statement scopes and
+The pre-interpolation owned-word checkpoint used HIR: 44 global registries and
+41 file children. Interpolation now adds one packed-plan registry and child:
+the current HIR inventory is 45 global registries and 42 file children, with
+snapshot v11. MIR retains 40 global registries, 38 file children and 33 children
+per body. MIR snapshot v6 adds lexical statement scopes and
 validates their live and restored cross-facts atomically; v4/v5 snapshots are
 rejected. These counts supersede the historical handoff-4 counts above.
-Interpolation has not yet changed the published HIR protocol.
+The older counts remain historical measurements of their pinned checkpoints.
 
 ### Remaining scaling boundaries
 
