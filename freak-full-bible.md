@@ -3042,9 +3042,8 @@ Rules:
 > by its stored HIR flag. Optional semicolon separators terminate extern-member
 > facts without entering their return types or spans, including same-line members;
 > nested type semicolons and quoted semicolon/bracket tokens are preserved.
-> Quoted braces remain subject to the parser's existing value-based body recovery
-> and can truncate or leave an extern block unclosed; this slice does not promote
-> that recovery surface. Callback-parameter arrow recovery outside open generic
+> Quoted braces, arrows and keywords remain literal data during member and body
+> scans; real declaration punctuation retains its recovery behavior. Callback-parameter arrow recovery outside open generic
 > type syntax preserves following member boundaries after comparisons. Arrows
 > inside open generic types retain conservative declaration recovery. Legacy
 > nested-callback return discovery/inference can still leave the enclosing

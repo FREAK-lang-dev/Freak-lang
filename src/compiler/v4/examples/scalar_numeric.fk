@@ -1,0 +1,20 @@
+task floating(a: num, b: num) -> bool {
+    pilot x = a
+    x = x * b
+    give back x > 3 and x / b == a and not (a != a) and a + 2 == 4.0
+}
+
+task unsigned_byte(a: tiny, b: tiny) -> bool {
+    give back a > b and a / b == 2 and a % b == 0 and not (a > 300)
+}
+
+task unsigned_int(a: uint, b: uint) -> bool {
+    give back a > b and a / b > 0
+}
+
+task main() -> int {
+    if floating(2.0, 3.0) and unsigned_byte(200, 100) and unsigned_int(18446744073709551615, 2) {
+        give back 42
+    }
+    give back 1
+}

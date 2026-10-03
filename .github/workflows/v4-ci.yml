@@ -105,6 +105,67 @@ jobs:
       - name: V4 structural and transpile coverage
         run: python -u src/compiler/v4/check_v4.py --fast
 
+  v4-native-platforms:
+    name: V4 native backend (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm -y
+
+      - name: Native LLVM programs, H6 correctness and extern integration
+        run: >
+          python -u src/compiler/v4/check_v4.py
+          --smoke h6_
+          --smoke codegen_llvm_execute
+          --smoke extern_literal_syntax
+          --smoke extern_return
+
+  v4-benchmark:
+    name: V4 benchmark instrumentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: Benchmark failure and instrumentation regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_scale_bench.py -v
+
+      - name: Build instrumented compiler and execute a measured program
+        env:
+          V4_BENCH_TMP: ${{ runner.temp }}
+        run: >
+          python -u v4_scale_bench.py --shapes tasks --sizes 1 --check
+          --timeout 60 --build-timeout 300
+          --work "$V4_BENCH_TMP/v4-benchmark-smoke"
+          --json "$V4_BENCH_TMP/v4-benchmark-smoke.json"
+
+      - name: Preserve benchmark smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-benchmark-smoke
+          path: ${{ runner.temp }}/v4-benchmark-smoke.json
+          if-no-files-found: ignore
+
   v4-runtime-linux:
     name: V4 runtime linux (${{ matrix.shard }})
     strategy:
@@ -126,7 +187,9 @@ jobs:
       - name: V4 executable smoke shard
         run: >
           python -u src/compiler/v4/check_v4.py
-          --smoke-exclude unit_snapshot
+          --smoke-exclude unit_snapshot_smoke.fk
+          --smoke-exclude unit_snapshot_const_smoke.fk
+          --smoke-exclude unit_snapshot_diff_smoke.fk
           --smoke-shard ${{ matrix.shard }}
 
   v4-runtime-linux-unit-snapshot:

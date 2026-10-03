@@ -68,6 +68,41 @@ pilot v4_ty_diags = 0
 pilot v4_ty_file_active_count_value = 0
 pilot v4_ty_signature_active_counts = 0
 pilot v4_ty_diag_active_counts = 0
+-- Derived first-physical-signature indexes never enter the snapshot wire format.
+-- Each file retains one packed array: ready, capacity, indexed rows, followed
+-- by (lookup category, signature id + 1) buckets. Keys borrow stored facts.
+pilot v4_ty_signature_indexes = 0
+pilot v4_ty_signature_index_any_name = 0
+pilot v4_ty_signature_index_alias = 1
+pilot v4_ty_signature_index_shape = 2
+pilot v4_ty_signature_index_route = 3
+pilot v4_ty_signature_index_doctrine = 4
+pilot v4_ty_signature_index_const = 5
+pilot v4_ty_signature_index_task = 6
+pilot v4_ty_signature_index_type = 7
+pilot v4_ty_signature_index_def = 8
+pilot v4_ty_signature_index_builds = 0
+pilot v4_ty_signature_index_build_records = 0
+pilot v4_ty_signature_index_lookup_probes = 0
+pilot v4_ty_signature_index_insert_probes = 0
+pilot v4_ty_signature_index_fallbacks = 0
+-- TY-owned compatibility cache: one retained packed child per observed HIR.
+-- Header: ready, tree, stream, HIR/Parse/Lex revisions, active item count,
+-- qualified Impl list base/count. This list retains physical item order.
+-- Item rows: start/end, Impl open/close, flat method base/count; method rows
+-- are start/end pairs. Neither this cache nor its owner epochs enter snapshots.
+pilot v4_ty_item_method_caches = 0 - 1
+pilot v4_ty_item_method_cache_header = 9
+pilot v4_ty_item_method_cache_item_width = 6
+pilot v4_ty_item_method_cache_builds = 0
+pilot v4_ty_item_method_cache_items_built = 0
+pilot v4_ty_item_method_cache_methods_built = 0
+pilot v4_ty_item_method_cache_hits = 0
+pilot v4_ty_impl_method_cold_scans = 0
+pilot v4_ty_impl_doctrine_header_reads = 0
+pilot v4_ty_impl_doctrine_candidate_build_items = 0
+pilot v4_ty_impl_doctrine_candidate_lookup_probes = 0
+pilot v4_ty_impl_doctrine_candidate_cold_probes = 0
 pilot v4_ty_lifetime_outlives_scratch_links = 0
 pilot v4_ty_lifetime_outlives_scratch_ids = 0
 pilot v4_ty_lifetime_outlives_scratch_active = 0
@@ -102,6 +137,8 @@ task v4_ty_init() -> void {
         v4_ty_diags = array_new()
         v4_ty_signature_active_counts = array_new()
         v4_ty_diag_active_counts = array_new()
+        v4_ty_signature_indexes = array_new()
+        v4_ty_item_method_caches = array_new()
         v4_ty_lifetime_outlives_scratch_links = array_new()
         v4_ty_lifetime_outlives_scratch_ids = array_new()
         v4_ty_borrowed_return_source_cache_ty_ids = array_new()
@@ -135,8 +172,12 @@ task v4_ty_file_new(file_id: int, resolve_id: int) -> int {
         array_push(v4_ty_diags, word_from_int(array_new()))
         array_push(v4_ty_signature_active_counts, "0")
         array_push(v4_ty_diag_active_counts, "0")
+        -- Derived storage is published after the new file becomes active.
+        -- Exhaustion leaves readonly queries on authoritative linear facts.
+        array_push(v4_ty_signature_indexes, "-1")
     }
     v4_ty_file_active_count_value = ty_id + 1
+    v4_ty_signature_index_finalize(ty_id)
     give back ty_id
 }
 
@@ -218,6 +259,378 @@ task v4_ty_signature_count(ty_id: int) -> int {
         give back 0
     }
     give back word_to_int(array_get(v4_ty_signature_active_counts, ty_id))
+}
+
+task v4_ty_signature_index_handle(ty_id: int) -> int {
+    if ty_id < 0 or ty_id >= array_len(v4_ty_signature_indexes) { give back 0 - 1 }
+    pilot stored: word = array_get(v4_ty_signature_indexes, ty_id)
+    if stored == "" { give back 0 - 1 }
+    give back word_to_int(stored)
+}
+
+task v4_ty_signature_index_invalidate(ty_id: int) -> void {
+    pilot packed = v4_ty_signature_index_handle(ty_id)
+    if packed < 0 or array_len(packed) < 3 { give back }
+    array_set(packed, 0, "0")
+}
+
+task v4_ty_signature_index_category(sig_kind: word) -> int {
+    if sig_kind == v4_ty_alias_sig { give back v4_ty_signature_index_alias }
+    if sig_kind == v4_ty_shape_sig { give back v4_ty_signature_index_shape }
+    if sig_kind == v4_ty_route_sig { give back v4_ty_signature_index_route }
+    if sig_kind == v4_ty_doctrine_sig { give back v4_ty_signature_index_doctrine }
+    if sig_kind == v4_ty_const_sig { give back v4_ty_signature_index_const }
+    if sig_kind == v4_ty_task_sig { give back v4_ty_signature_index_task }
+    give back 0 - 1
+}
+
+task v4_ty_signature_index_is_type(sig_kind: word) -> bool {
+    give back sig_kind == v4_ty_shape_sig or sig_kind == v4_ty_route_sig or sig_kind == v4_ty_alias_sig or sig_kind == v4_ty_doctrine_sig
+}
+
+task v4_ty_signature_index_key(ty_id: int, sig_id: int, category: int) -> word {
+    if category == v4_ty_signature_index_def {
+        give back array_get(v4_ty_defs_handle(ty_id), sig_id)
+    }
+    give back array_get(v4_ty_names_handle(ty_id), sig_id)
+}
+
+task v4_ty_signature_index_hash(key: word, category: int, capacity: int) -> int {
+    -- The checksum is nonnegative. Reduce before mixing to avoid signed overflow.
+    pilot checksum: int = key.checksum() % capacity
+    give back (checksum * 17 + category) % capacity
+}
+
+task v4_ty_signature_index_insert(ty_id: int, sig_id: int, category: int) -> bool {
+    pilot packed = v4_ty_signature_index_handle(ty_id)
+    pilot capacity = word_to_int(array_get(packed, 1))
+    if capacity <= 0 { give back false }
+    pilot key = v4_ty_signature_index_key(ty_id, sig_id, category)
+    pilot bucket = v4_ty_signature_index_hash(key, category, capacity)
+    pilot visited = 0
+    repeat until visited >= capacity {
+        v4_ty_signature_index_insert_probes += 1
+        pilot slot = 3 + 2 * bucket
+        pilot previous = word_to_int(array_get(packed, slot + 1)) - 1
+        if previous < 0 {
+            array_set(packed, slot, word_from_int(category))
+            array_set(packed, slot + 1, word_from_int(sig_id + 1))
+            give back true
+        }
+        if word_to_int(array_get(packed, slot)) == category {
+            if v4_ty_signature_index_key(ty_id, previous, category) == key {
+                -- Rebuild order is physical ID order; an append cannot replace it.
+                give back true
+            }
+        }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back false
+}
+
+task v4_ty_signature_index_insert_record(ty_id: int, sig_id: int) -> bool {
+    pilot sig_kind: word = array_get(v4_ty_kinds_handle(ty_id), sig_id)
+    if v4_ty_signature_index_insert(ty_id, sig_id, v4_ty_signature_index_any_name) == false { give back false }
+    if v4_ty_signature_index_insert(ty_id, sig_id, v4_ty_signature_index_def) == false { give back false }
+    pilot category = v4_ty_signature_index_category(sig_kind)
+    if category >= 0 {
+        if v4_ty_signature_index_insert(ty_id, sig_id, category) == false { give back false }
+    }
+    if v4_ty_signature_index_is_type(sig_kind) {
+        if v4_ty_signature_index_insert(ty_id, sig_id, v4_ty_signature_index_type) == false { give back false }
+    }
+    give back true
+}
+
+task v4_ty_signature_index_finalize(ty_id: int) -> bool {
+    if v4_ty_file_exists(ty_id) == false { give back false }
+    pilot packed = v4_ty_signature_index_handle(ty_id)
+    if packed < 0 {
+        packed = array_new()
+        if packed < 0 { give back false }
+        array_push(packed, "0")
+        array_push(packed, "0")
+        array_push(packed, "0")
+        if array_len(packed) != 3 or ty_id >= array_len(v4_ty_signature_indexes) {
+            array_release(packed)
+            give back false
+        }
+        array_set(v4_ty_signature_indexes, ty_id, word_from_int(packed))
+    }
+    if array_len(packed) < 3 { give back false }
+    pilot count = v4_ty_signature_count(ty_id)
+    pilot ready: word = array_get(packed, 0)
+    if ready == "1" and word_to_int(array_get(packed, 2)) == count {
+        give back true
+    }
+    array_set(packed, 0, "0")
+    -- At most four keys per signature, kept below half-full. Retained capacity
+    -- grows geometrically from observed active rows, never imported wire IDs.
+    if count > 134217727 { give back false }
+    pilot capacity = word_to_int(array_get(packed, 1))
+    if capacity < 16 { capacity = 16 }
+    repeat until capacity >= 8 * count {
+        capacity *= 2
+    }
+    if v4_ty_child_handle_ensure_slot(packed, 2 + 2 * capacity, "0") == false {
+        give back false
+    }
+    array_set(packed, 1, word_from_int(capacity))
+    pilot slot = 3
+    repeat until slot >= 3 + 2 * capacity {
+        array_set(packed, slot, "0")
+        slot += 1
+    }
+    pilot sig_id = 0
+    repeat until sig_id >= count {
+        if v4_ty_signature_index_insert_record(ty_id, sig_id) == false { give back false }
+        v4_ty_signature_index_build_records += 1
+        sig_id += 1
+    }
+    array_set(packed, 2, word_from_int(count))
+    array_set(packed, 0, "1")
+    v4_ty_signature_index_builds += 1
+    give back true
+}
+
+task v4_ty_signature_index_added(ty_id: int, sig_id: int) -> void {
+    pilot packed = v4_ty_signature_index_handle(ty_id)
+    if packed < 0 or array_len(packed) < 3 {
+        v4_ty_signature_index_finalize(ty_id)
+        give back
+    }
+    pilot capacity = word_to_int(array_get(packed, 1))
+    pilot ready: word = array_get(packed, 0)
+    if ready == "1" and word_to_int(array_get(packed, 2)) == sig_id and capacity >= 8 * (sig_id + 1) {
+        if v4_ty_signature_index_insert_record(ty_id, sig_id) {
+            array_set(packed, 2, word_from_int(sig_id + 1))
+            give back
+        }
+    }
+    v4_ty_signature_index_invalidate(ty_id)
+    v4_ty_signature_index_finalize(ty_id)
+}
+
+task v4_ty_signature_index_linear_lookup(ty_id: int, key: word, category: int) -> int {
+    v4_ty_signature_index_fallbacks += 1
+    pilot count = v4_ty_signature_count(ty_id)
+    pilot sig_id = 0
+    repeat until sig_id >= count {
+        if v4_ty_signature_index_key(ty_id, sig_id, category) == key {
+            if category == v4_ty_signature_index_any_name or category == v4_ty_signature_index_def {
+                give back sig_id
+            }
+            pilot sig_kind: word = array_get(v4_ty_kinds_handle(ty_id), sig_id)
+            if category == v4_ty_signature_index_type {
+                if v4_ty_signature_index_is_type(sig_kind) { give back sig_id }
+            } else if v4_ty_signature_index_category(sig_kind) == category {
+                give back sig_id
+            }
+        }
+        sig_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_ty_signature_index_lookup(ty_id: int, key: word, category: int) -> int {
+    if v4_ty_file_exists(ty_id) == false { give back 0 - 1 }
+    -- Semantic readers never allocate or publish derived facts. Construction,
+    -- ordinary append and whole restore publish; direct slot edits stay cold
+    -- until their owner explicitly finalizes the file.
+    pilot packed = v4_ty_signature_index_handle(ty_id)
+    if packed < 0 or array_len(packed) < 3 {
+        give back v4_ty_signature_index_linear_lookup(ty_id, key, category)
+    }
+    pilot ready: word = array_get(packed, 0)
+    if ready != "1" or word_to_int(array_get(packed, 2)) != v4_ty_signature_count(ty_id) {
+        give back v4_ty_signature_index_linear_lookup(ty_id, key, category)
+    }
+    pilot capacity = word_to_int(array_get(packed, 1))
+    if capacity <= 0 {
+        give back v4_ty_signature_index_linear_lookup(ty_id, key, category)
+    }
+    pilot bucket = v4_ty_signature_index_hash(key, category, capacity)
+    pilot visited = 0
+    repeat until visited >= capacity {
+        v4_ty_signature_index_lookup_probes += 1
+        pilot slot = 3 + 2 * bucket
+        pilot sig_id = word_to_int(array_get(packed, slot + 1)) - 1
+        if sig_id < 0 { give back 0 - 1 }
+        if word_to_int(array_get(packed, slot)) == category {
+            if v4_ty_signature_index_key(ty_id, sig_id, category) == key { give back sig_id }
+        }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    -- A full/corrupt derived table cannot turn an authoritative fact into a miss.
+    give back v4_ty_signature_index_linear_lookup(ty_id, key, category)
+}
+
+task v4_ty_item_method_cache_handle(hir_id: int) -> int {
+    if v4_ty_item_method_caches < 0 or hir_id < 0 or hir_id >= array_len(v4_ty_item_method_caches) { give back 0 - 1 }
+    pilot stored: word = array_get(v4_ty_item_method_caches, hir_id)
+    if stored == "" { give back 0 - 1 }
+    give back word_to_int(stored)
+}
+
+-- Queries validate owner epochs without initializing, allocating or writing.
+-- Counts are secondary checks; revisions detect same-size in-place edits.
+task v4_ty_item_method_cache_is_ready(hir_id: int) -> bool {
+    pilot packed = v4_ty_item_method_cache_handle(hir_id)
+    if packed < 0 or array_len(packed) < v4_ty_item_method_cache_header { give back false }
+    pilot ready: word = array_get(packed, 0)
+    if ready != "1" { give back false }
+    pilot hir_revision = v4_hir_revision(hir_id)
+    if hir_revision < 0 or hir_revision != word_to_int(array_get(packed, 3)) { give back false }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    if tree_id != word_to_int(array_get(packed, 1)) { give back false }
+    pilot parse_revision = v4_parse_tree_revision(tree_id)
+    if parse_revision < 0 or parse_revision != word_to_int(array_get(packed, 4)) { give back false }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    if stream_id != word_to_int(array_get(packed, 2)) { give back false }
+    pilot lex_revision = v4_lex_stream_revision(stream_id)
+    if lex_revision < 0 or lex_revision != word_to_int(array_get(packed, 5)) { give back false }
+    give back v4_hir_item_count(hir_id) == word_to_int(array_get(packed, 6))
+}
+
+task v4_ty_item_method_cache_item_row(hir_id: int, item_id: int) -> int {
+    if v4_ty_item_method_cache_is_ready(hir_id) == false { give back 0 - 1 }
+    pilot packed = v4_ty_item_method_cache_handle(hir_id)
+    if item_id < 0 or item_id >= word_to_int(array_get(packed, 6)) { give back 0 - 1 }
+    give back v4_ty_item_method_cache_header + v4_ty_item_method_cache_item_width * item_id
+}
+
+task v4_ty_item_method_cache_impl_row(hir_id: int, item_id: int) -> int {
+    pilot row = v4_ty_item_method_cache_item_row(hir_id, item_id)
+    if row < 0 { give back 0 - 1 }
+    if word_to_int(array_get(v4_ty_item_method_cache_handle(hir_id), row + 5)) < 0 { give back 0 - 1 }
+    give back row
+}
+
+task v4_ty_item_method_cache_value(hir_id: int, row: int) -> int {
+    give back word_to_int(array_get(v4_ty_item_method_cache_handle(hir_id), row))
+}
+
+task v4_ty_item_method_cache_invalidate(ty_id: int) -> void {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot packed = v4_ty_item_method_cache_handle(hir_id)
+    if packed < 0 or array_len(packed) < 1 { give back }
+    array_set(packed, 0, "0")
+}
+
+-- Explicit publication belongs to semantic construction/restore, never reads.
+-- One packed child is retained at high-water capacity, with no scratch handles.
+task v4_ty_item_method_cache_finalize_hir(hir_id: int) -> bool {
+    v4_ty_init()
+    if v4_hir_file_exists(hir_id) == false { give back false }
+    if v4_ty_item_method_cache_is_ready(hir_id) { give back true }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    if v4_parse_tree_exists(tree_id) == false { give back false }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    if v4_lex_stream_exists(stream_id) == false { give back false }
+    pilot hir_revision = v4_hir_revision(hir_id)
+    pilot parse_revision = v4_parse_tree_revision(tree_id)
+    pilot lex_revision = v4_lex_stream_revision(stream_id)
+    if hir_revision < 0 or parse_revision < 0 or lex_revision < 0 { give back false }
+    if v4_ty_child_handle_ensure_slot(v4_ty_item_method_caches, hir_id, "-1") == false { give back false }
+    pilot packed = v4_ty_item_method_cache_handle(hir_id)
+    if packed < 0 {
+        packed = array_new()
+        if packed < 0 { give back false }
+        if v4_ty_child_handle_ensure_slot(packed, v4_ty_item_method_cache_header - 1, "0") == false {
+            array_release(packed)
+            give back false
+        }
+        array_set(v4_ty_item_method_caches, hir_id, word_from_int(packed))
+    }
+    array_set(packed, 0, "0")
+    pilot items = v4_hir_item_count(hir_id)
+    pilot active_end = v4_ty_item_method_cache_header + v4_ty_item_method_cache_item_width * items
+    if v4_ty_child_handle_ensure_slot(packed, active_end - 1, "-1") == false { give back false }
+    pilot item_id = 0
+    repeat until item_id >= items {
+        pilot row = v4_ty_item_method_cache_header + v4_ty_item_method_cache_item_width * item_id
+        pilot start_token = v4_ty_hir_item_start_token_uncached(hir_id, item_id)
+        pilot end_token = v4_ty_hir_item_end_token_uncached(hir_id, item_id)
+        array_set(packed, row, word_from_int(start_token))
+        array_set(packed, row + 1, word_from_int(end_token))
+        array_set(packed, row + 2, "-1")
+        array_set(packed, row + 3, "-1")
+        array_set(packed, row + 4, "-1")
+        array_set(packed, row + 5, "-1")
+        if v4_hir_item_kind(hir_id, item_id) == v4_hir_impl {
+            pilot open_token = v4_ty_find_token_value(stream_id, start_token, end_token, "{")
+            pilot close_token = 0 - 1
+            if open_token >= 0 { close_token = v4_ty_find_matching_brace(stream_id, open_token, end_token) }
+            array_set(packed, row + 2, word_from_int(open_token))
+            array_set(packed, row + 3, word_from_int(close_token))
+            array_set(packed, row + 4, word_from_int(active_end))
+            pilot method_count = 0
+            if open_token >= 0 and close_token > open_token {
+                pilot token_id = open_token + 1
+                repeat until token_id >= close_token {
+                    token_id = v4_ty_skip_trivia(stream_id, token_id)
+                    if token_id < close_token {
+                        if v4_lex_token_syntax_value(stream_id, token_id) == "task" {
+                            pilot method_end = v4_ty_skip_item(stream_id, token_id, close_token)
+                            if method_end <= token_id { give back false }
+                            if v4_ty_child_handle_ensure_slot(packed, active_end + 1, "-1") == false { give back false }
+                            array_set(packed, active_end, word_from_int(token_id))
+                            array_set(packed, active_end + 1, word_from_int(method_end))
+                            active_end += 2
+                            method_count += 1
+                            token_id = method_end
+                        } else {
+                            token_id += 1
+                        }
+                    }
+                }
+            }
+            array_set(packed, row + 5, word_from_int(method_count))
+            v4_ty_item_method_cache_methods_built += method_count
+        }
+        v4_ty_item_method_cache_items_built += 1
+        item_id += 1
+    }
+    -- Append a selective, ordered list without disturbing item/method rows.
+    -- Use active bounds rather than retained array length after a shorter restore.
+    pilot qualified_base = active_end
+    pilot qualified_count = 0
+    item_id = 0
+    repeat until item_id >= items {
+        v4_ty_impl_doctrine_candidate_build_items += 1
+        pilot row = v4_ty_item_method_cache_header + v4_ty_item_method_cache_item_width * item_id
+        if word_to_int(array_get(packed, row + 5)) >= 0 {
+            pilot start_token = word_to_int(array_get(packed, row))
+            pilot open_token = word_to_int(array_get(packed, row + 2))
+            pilot qualifier = v4_ty_impl_doctrine_from_token_bounds(stream_id, start_token, open_token)
+            if qualifier != "" {
+                if v4_ty_child_handle_ensure_slot(packed, active_end, "-1") == false { give back false }
+                array_set(packed, active_end, word_from_int(item_id))
+                active_end += 1
+                qualified_count += 1
+            }
+        }
+        item_id += 1
+    }
+    -- Do not publish a hybrid if an owner changed while facts were collected.
+    if v4_hir_revision(hir_id) != hir_revision or v4_parse_tree_revision(tree_id) != parse_revision or v4_lex_stream_revision(stream_id) != lex_revision { give back false }
+    array_set(packed, 1, word_from_int(tree_id))
+    array_set(packed, 2, word_from_int(stream_id))
+    array_set(packed, 3, word_from_int(hir_revision))
+    array_set(packed, 4, word_from_int(parse_revision))
+    array_set(packed, 5, word_from_int(lex_revision))
+    array_set(packed, 6, word_from_int(items))
+    array_set(packed, 7, word_from_int(qualified_base))
+    array_set(packed, 8, word_from_int(qualified_count))
+    array_set(packed, 0, "1")
+    v4_ty_item_method_cache_builds += 1
+    give back true
+}
+
+task v4_ty_item_method_cache_finalize(ty_id: int) -> bool {
+    give back v4_ty_item_method_cache_finalize_hir(v4_ty_signature_hir_id(ty_id))
 }
 
 task v4_ty_diag_count(ty_id: int) -> int {
@@ -437,17 +850,7 @@ task v4_ty_copy_resolve_diags(ty_id: int, resolve_id: int) -> void {
 }
 
 task v4_ty_alias_signature_id_for_name(ty_id: int, alias_name: word) -> int {
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_alias_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == alias_name {
-                give back sig_id
-            }
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, alias_name, v4_ty_signature_index_alias)
 }
 
 task v4_ty_alias_target_type_for_sig(ty_id: int, sig_id: int) -> word {
@@ -2816,15 +3219,7 @@ task v4_ty_is_declared_simple_type_name(ty_id: int, type_name: word) -> bool {
         give back true
     }
 
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_name(ty_id, sig_id) == type_name {
-            give back true
-        }
-        sig_id += 1
-    }
-    give back false
+    give back v4_ty_signature_index_lookup(ty_id, type_name, v4_ty_signature_index_any_name) >= 0
 }
 
 task v4_ty_builtin_generic_arg_count(type_name: word) -> int {
@@ -2841,18 +3236,7 @@ task v4_ty_builtin_generic_arg_count(type_name: word) -> int {
 }
 
 task v4_ty_type_signature_id_for_name(ty_id: int, type_name: word) -> int {
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        pilot sig_kind = v4_ty_signature_kind(ty_id, sig_id)
-        if sig_kind == v4_ty_shape_sig or sig_kind == v4_ty_route_sig or sig_kind == v4_ty_alias_sig or sig_kind == v4_ty_doctrine_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == type_name {
-                give back sig_id
-            }
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, type_name, v4_ty_signature_index_type)
 }
 
 task v4_ty_expected_generic_arg_count(ty_id: int, type_name: word) -> int {
@@ -3323,7 +3707,7 @@ task v4_ty_extern_spec_item_start_token(ty_id: int, sig_id: int, item_id: int) -
     pilot idx = open_token + 1
     repeat until idx >= close_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and val == "," {
                 if current == item_id {
                     give back segment_start
@@ -3354,7 +3738,7 @@ task v4_ty_extern_spec_item_end_token(ty_id: int, sig_id: int, item_id: int) -> 
     pilot idx = start_token
     repeat until idx >= close_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and val == "," {
                 give back idx
             }
@@ -3377,7 +3761,7 @@ task v4_ty_extern_spec_item_value_token(ty_id: int, sig_id: int, item_id: int) -
     pilot idx = start_token
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and val == "=" {
                 give back v4_ty_skip_trivia(stream_id, idx + 1)
             }
@@ -3413,7 +3797,7 @@ task v4_ty_extern_member_attribute_arg_is_string(ty_id: int, sig_id: int, member
     }
     pilot name_token = v4_ty_skip_trivia(stream_id, start_token + 1)
     pilot open_token = v4_ty_skip_trivia(stream_id, name_token + 1)
-    if open_token >= end_token or v4_lex_token_value(stream_id, open_token) != "(" {
+    if open_token >= end_token or v4_lex_token_syntax_value(stream_id, open_token) != "(" {
         give back false
     }
     pilot value_token = v4_ty_skip_trivia(stream_id, open_token + 1)
@@ -3963,16 +4347,7 @@ task v4_ty_signature_call_abi(ty_id: int, sig_id: int) -> word {
 }
 
 task v4_ty_first_token_at_or_after(stream_id: int, offset: int) -> int {
-    pilot idx = 0
-    pilot count = v4_lex_token_count(stream_id)
-    repeat until idx >= count {
-        pilot token_span = v4_lex_token_span(stream_id, idx)
-        if v4_span_start(token_span) >= offset {
-            give back idx
-        }
-        idx += 1
-    }
-    give back count
+    give back v4_hir_first_token_at_or_after(stream_id, offset)
 }
 
 task v4_ty_skip_trivia(stream_id: int, token_id: int) -> int {
@@ -4010,7 +4385,7 @@ task v4_ty_find_token_value(stream_id: int, start_token: int, end_token: int, wa
     pilot idx = start_token
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            if v4_lex_token_value(stream_id, idx) == wanted {
+            if v4_lex_token_syntax_value(stream_id, idx) == wanted {
                 give back idx
             }
         }
@@ -4082,6 +4457,72 @@ task v4_ty_type_text(stream_id: int, start_token: int, end_token: int) -> word {
     give back out
 }
 
+-- MIR consumes the owner-local candidate walk through TY. Invalid readers
+-- must not initialize compiler arenas or publish derived storage.
+task v4_ty_next_impl_item(ty_id: int, after_item: int) -> int {
+    if v4_ty_ready == 0 or ty_id < 0 or ty_id >= v4_ty_file_active_count_value { give back 0 - 1 }
+    if v4_resolve_ready == 0 or v4_hir_ready == 0 { give back 0 - 1 }
+    pilot resolve_id = word_to_int(array_get(v4_ty_resolves, ty_id))
+    if resolve_id < 0 or resolve_id >= array_len(v4_resolve_files) { give back 0 - 1 }
+    give back v4_hir_next_impl_item(v4_resolve_hir_id(resolve_id), after_item)
+}
+
+-- Select only Impl owners with a nonempty surface doctrine qualifier.
+-- All doctrine/owner/method matching remains with existing semantic readers.
+task v4_ty_next_doctrine_impl_item(ty_id: int, after_item: int) -> int {
+    pilot hir_id = v4_ty_doctrine_candidates_hir_id(ty_id)
+    if hir_id < 0 { give back 0 - 1 }
+    if v4_ty_item_method_cache_is_ready(hir_id) {
+        pilot packed = v4_ty_item_method_cache_handle(hir_id)
+        pilot base = word_to_int(array_get(packed, 7))
+        pilot count = word_to_int(array_get(packed, 8))
+        if base >= v4_ty_item_method_cache_header and count >= 0 and base <= array_len(packed) and count <= array_len(packed) - base {
+            pilot low = 0
+            pilot high = count
+            repeat until low >= high {
+                pilot middle = low + (high - low) / 2
+                v4_ty_impl_doctrine_candidate_lookup_probes += 1
+                if word_to_int(array_get(packed, base + middle)) <= after_item { low = middle + 1 } else { high = middle }
+            }
+            if low >= count { give back 0 - 1 }
+            give back word_to_int(array_get(packed, base + low))
+        }
+    }
+    give back v4_ty_next_doctrine_impl_item_uncached(ty_id, after_item)
+}
+
+-- Current authoritative facts remain readable after direct edits/restores or
+-- unavailable derived storage. This forward walk neither allocates nor publishes.
+task v4_ty_next_doctrine_impl_item_uncached(ty_id: int, after_item: int) -> int {
+    if v4_ty_doctrine_candidates_hir_id(ty_id) < 0 { give back 0 - 1 }
+    pilot item = v4_ty_next_impl_item(ty_id, after_item)
+    repeat until item < 0 {
+        v4_ty_impl_doctrine_candidate_cold_probes += 1
+        if v4_ty_impl_doctrine_name_from_hir(ty_id, item) != "" { give back item }
+        item = v4_ty_next_impl_item(ty_id, item)
+    }
+    give back 0 - 1
+}
+
+-- Validate authoritative parent arenas directly, including cold/absent parents.
+-- Optional epoch storage may be unavailable without invalidating live tokens.
+task v4_ty_doctrine_candidates_hir_id(ty_id: int) -> int {
+    if v4_ty_ready == 0 or ty_id < 0 or ty_id >= v4_ty_file_active_count_value { give back 0 - 1 }
+    if v4_resolve_ready == 0 or v4_hir_ready == 0 { give back 0 - 1 }
+    pilot resolve_id = word_to_int(array_get(v4_ty_resolves, ty_id))
+    if resolve_id < 0 or resolve_id >= array_len(v4_resolve_files) { give back 0 - 1 }
+    pilot hir_id = v4_resolve_hir_id(resolve_id)
+    if hir_id < 0 or hir_id >= v4_hir_file_len { give back 0 - 1 }
+    if v4_expand_ready == 0 or v4_parse_ready == 0 or v4_lex_ready == 0 { give back 0 - 1 }
+    pilot expansion_id = v4_hir_expansion_id(hir_id)
+    if expansion_id < 0 or expansion_id >= v4_expand_file_len { give back 0 - 1 }
+    pilot tree_id = v4_hir_tree_id(hir_id)
+    if tree_id < 0 or tree_id >= array_len(v4_parse_tree_files) { give back 0 - 1 }
+    pilot stream_id = v4_parse_stream_id(tree_id)
+    if stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) { give back 0 - 1 }
+    give back hir_id
+}
+
 task v4_ty_signature_hir_id(ty_id: int) -> int {
     pilot resolve_id = v4_ty_resolve_id(ty_id)
     if v4_resolve_exists(resolve_id) == false {
@@ -4125,8 +4566,7 @@ task v4_ty_signature_item_start_token(ty_id: int, sig_id: int) -> int {
     if member_id >= 0 {
         give back v4_parse_extern_member_start_token(tree_id, parse_node, member_id)
     }
-    pilot item_span = v4_parse_node_span(tree_id, parse_node)
-    give back v4_ty_first_token_at_or_after(stream_id, v4_span_start(item_span))
+    give back v4_ty_hir_item_start_token(hir_id, hir_item)
 }
 
 task v4_ty_signature_item_end_token(ty_id: int, sig_id: int) -> int {
@@ -4148,12 +4588,7 @@ task v4_ty_signature_item_end_token(ty_id: int, sig_id: int) -> int {
     if member_id >= 0 {
         give back v4_parse_extern_member_end_token(tree_id, parse_node, member_id)
     }
-    pilot item_span = v4_parse_node_span(tree_id, parse_node)
-    pilot end_token = v4_ty_first_token_at_or_after(stream_id, v4_span_end(item_span))
-    if end_token <= v4_ty_signature_item_start_token(ty_id, sig_id) {
-        end_token = v4_lex_token_count(stream_id)
-    }
-    give back end_token
+    give back v4_ty_hir_item_end_token(hir_id, hir_item)
 }
 
 task v4_ty_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
@@ -4181,6 +4616,24 @@ task v4_ty_span_from_tokens(stream_id: int, start_token: int, end_token: int) ->
 }
 
 task v4_ty_hir_item_start_token(hir_id: int, item_id: int) -> int {
+    pilot row = v4_ty_item_method_cache_item_row(hir_id, item_id)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        give back v4_ty_item_method_cache_value(hir_id, row)
+    }
+    give back v4_ty_hir_item_start_token_uncached(hir_id, item_id)
+}
+
+task v4_ty_hir_item_end_token(hir_id: int, item_id: int) -> int {
+    pilot row = v4_ty_item_method_cache_item_row(hir_id, item_id)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        give back v4_ty_item_method_cache_value(hir_id, row + 1)
+    }
+    give back v4_ty_hir_item_end_token_uncached(hir_id, item_id)
+}
+
+task v4_ty_hir_item_start_token_uncached(hir_id: int, item_id: int) -> int {
     if hir_id < 0 {
         give back 0 - 1
     }
@@ -4194,7 +4647,7 @@ task v4_ty_hir_item_start_token(hir_id: int, item_id: int) -> int {
     give back v4_ty_first_token_at_or_after(stream_id, v4_span_start(item_span))
 }
 
-task v4_ty_hir_item_end_token(hir_id: int, item_id: int) -> int {
+task v4_ty_hir_item_end_token_uncached(hir_id: int, item_id: int) -> int {
     if hir_id < 0 {
         give back 0 - 1
     }
@@ -4217,7 +4670,7 @@ task v4_ty_find_matching_paren(stream_id: int, open_token: int, end_token: int) 
     pilot depth = 0
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == "(" {
                 depth += 1
             } else if val == ")" {
@@ -4237,7 +4690,7 @@ task v4_ty_find_matching_square(stream_id: int, open_token: int, end_token: int)
     pilot depth = 0
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == "[" {
                 depth += 1
             } else if val == "]" {
@@ -4257,7 +4710,7 @@ task v4_ty_find_matching_brace(stream_id: int, open_token: int, end_token: int) 
     pilot depth = 0
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == "{" {
                 depth += 1
             } else if val == "}" {
@@ -4277,7 +4730,7 @@ task v4_ty_find_matching_angle(stream_id: int, open_token: int, end_token: int) 
     pilot depth = 0
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == "<" {
                 depth += 1
             } else if val == ">" {
@@ -4346,9 +4799,9 @@ task v4_ty_item_header_end_token_from_tokens(stream_id: int, start_token: int, e
     pilot depth = 0
     repeat until idx >= end_token {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type == v4_tok_trivia {
-            if val == "\n" and depth == 0 {
+            if v4_lex_token_value(stream_id, idx) == "\n" and depth == 0 {
                 give back idx
             }
         } else {
@@ -4458,7 +4911,7 @@ task v4_ty_param_count_from_tokens(stream_id: int, open_token: int, close_token:
     pilot idx = open_token + 1
     repeat until idx >= close_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and val == "," {
                 count += 1
             } else {
@@ -4488,7 +4941,7 @@ task v4_ty_param_segment_start_from_tokens(stream_id: int, open_token: int, clos
     pilot idx = open_token + 1
     repeat until idx >= close_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and val == "," {
                 if current == param_id {
                     give back segment_start
@@ -4523,7 +4976,7 @@ task v4_ty_param_segment_end_from_tokens(stream_id: int, start_token: int, close
     pilot idx = start_token
     repeat until idx >= close_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and val == "," {
                 give back idx
             }
@@ -4539,7 +4992,7 @@ task v4_ty_find_top_level_token(stream_id: int, start_token: int, end_token: int
     pilot idx = start_token
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and val == wanted {
                 give back idx
             }
@@ -5000,11 +5453,11 @@ task v4_ty_param_lifetime_token_from_tokens(stream_id: int, start_token: int, en
         give back 0 - 1
     }
     pilot token_id = v4_ty_skip_trivia(stream_id, start_token)
-    if token_id >= end_token or v4_lex_token_value(stream_id, token_id) != "lend" {
+    if token_id >= end_token or v4_lex_token_syntax_value(stream_id, token_id) != "lend" {
         give back 0 - 1
     }
     token_id = v4_ty_skip_trivia(stream_id, token_id + 1)
-    if token_id < end_token and v4_lex_token_value(stream_id, token_id) == "mut" {
+    if token_id < end_token and v4_lex_token_syntax_value(stream_id, token_id) == "mut" {
         token_id = v4_ty_skip_trivia(stream_id, token_id + 1)
     }
     if token_id < end_token and v4_lex_token_type(stream_id, token_id) == v4_tok_lifetime {
@@ -5029,9 +5482,9 @@ task v4_ty_param_name_from_tokens(stream_id: int, start_token: int, end_token: i
     if first >= end_token {
         give back ""
     }
-    if v4_lex_token_value(stream_id, first) == "lend" {
+    if v4_lex_token_syntax_value(stream_id, first) == "lend" {
         first = v4_ty_skip_trivia(stream_id, first + 1)
-        if first < end_token and v4_lex_token_value(stream_id, first) == "mut" {
+        if first < end_token and v4_lex_token_syntax_value(stream_id, first) == "mut" {
             first = v4_ty_skip_trivia(stream_id, first + 1)
         }
         if first < end_token and v4_lex_token_type(stream_id, first) == v4_tok_lifetime {
@@ -5056,11 +5509,11 @@ task v4_ty_param_mode_from_tokens(stream_id: int, start_token: int, end_token: i
     if first >= end_token {
         give back v4_ty_param_mode_value
     }
-    if v4_lex_token_value(stream_id, first) != "lend" {
+    if v4_lex_token_syntax_value(stream_id, first) != "lend" {
         give back v4_ty_param_mode_value
     }
     pilot after_lend = v4_ty_skip_trivia(stream_id, first + 1)
-    if after_lend < end_token and v4_lex_token_value(stream_id, after_lend) == "mut" {
+    if after_lend < end_token and v4_lex_token_syntax_value(stream_id, after_lend) == "mut" {
         give back v4_ty_param_mode_lend_mut
     }
     give back v4_ty_param_mode_lend
@@ -5307,9 +5760,9 @@ task v4_ty_return_type_end(stream_id: int, start_token: int, end_token: int) -> 
     pilot depth = 0
     repeat until idx >= end_token {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type == v4_tok_trivia {
-            if val == "\n" and depth == 0 {
+            if v4_lex_token_value(stream_id, idx) == "\n" and depth == 0 {
                 give back idx
             }
         } else {
@@ -5379,11 +5832,11 @@ task v4_ty_closure_param_type_for_name(ty_id: int, hir_item: int, closure_id: in
 task v4_ty_infer_closure_block_return(ty_id: int, hir_item: int, closure_id: int, stream_id: int, start_token: int, end_token: int) -> word {
     pilot idx = start_token
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_value(stream_id, idx) == "give" {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_syntax_value(stream_id, idx) == "give" {
             pilot back_token = v4_ty_next_nontrivia(stream_id, idx + 1, end_token)
-            if back_token < end_token and v4_lex_token_value(stream_id, back_token) == "back" {
+            if back_token < end_token and v4_lex_token_syntax_value(stream_id, back_token) == "back" {
                 pilot expr_token = v4_ty_next_nontrivia(stream_id, back_token + 1, end_token)
-                if expr_token >= end_token or v4_lex_token_value(stream_id, expr_token) == "}" {
+                if expr_token >= end_token or v4_lex_token_syntax_value(stream_id, expr_token) == "}" {
                     give back v4_ty_void
                 }
                 pilot inferred = v4_ty_infer_arrow_expr_return(stream_id, expr_token, end_token)
@@ -5393,8 +5846,8 @@ task v4_ty_infer_closure_block_return(ty_id: int, hir_item: int, closure_id: int
                 pilot token_type = v4_lex_token_type(stream_id, expr_token)
                 if token_type == v4_tok_ident or token_type == v4_tok_keyword {
                     pilot after_expr = v4_ty_next_nontrivia(stream_id, expr_token + 1, end_token)
-                    if after_expr >= end_token or v4_lex_token_value(stream_id, after_expr) == ";" or v4_lex_token_value(stream_id, after_expr) == "}" {
-                        give back v4_ty_closure_param_type_for_name(ty_id, hir_item, closure_id, v4_lex_token_value(stream_id, expr_token))
+                    if after_expr >= end_token or v4_lex_token_syntax_value(stream_id, after_expr) == ";" or v4_lex_token_syntax_value(stream_id, after_expr) == "}" {
+                        give back v4_ty_closure_param_type_for_name(ty_id, hir_item, closure_id, v4_lex_token_syntax_value(stream_id, expr_token))
                     }
                 }
                 give back v4_ty_unknown
@@ -5655,15 +6108,7 @@ task v4_ty_task_return_from_hir(hir_id: int, hir_item: int) -> word {
 }
 
 task v4_ty_const_signature_id_for_name(ty_id: int, const_name: word) -> int {
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_const_sig and v4_ty_signature_name(ty_id, sig_id) == const_name {
-            give back sig_id
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, const_name, v4_ty_signature_index_const)
 }
 
 task v4_ty_task_signature_id_for_name(ty_id: int, task_name: word) -> int {
@@ -5681,15 +6126,7 @@ task v4_ty_task_signature_id_for_name(ty_id: int, task_name: word) -> int {
         }
     }
 
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_task_sig and v4_ty_signature_name(ty_id, sig_id) == task_name {
-            give back sig_id
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, task_name, v4_ty_signature_index_task)
 }
 
 task v4_ty_const_declared_type_for_sig(ty_id: int, sig_id: int) -> word {
@@ -5738,7 +6175,7 @@ task v4_ty_const_equals_token(ty_id: int, sig_id: int) -> int {
         give back 0 - 1
     }
     pilot pilot_token = v4_ty_next_nontrivia(stream_id, fixed_token + 1, end_token)
-    if pilot_token >= end_token or v4_lex_token_value(stream_id, pilot_token) != "pilot" {
+    if pilot_token >= end_token or v4_lex_token_syntax_value(stream_id, pilot_token) != "pilot" {
         give back 0 - 1
     }
     give back v4_ty_find_top_level_token(stream_id, pilot_token + 1, end_token, "=")
@@ -5815,7 +6252,7 @@ task v4_ty_const_constructor_head_is_valid(stream_id: int, start_token: int, end
     pilot saw_token = false
     repeat until idx >= end_token {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type != v4_tok_trivia {
             saw_token = true
             if tok_type == v4_tok_ident or tok_type == v4_tok_keyword or tok_type == v4_tok_lifetime or tok_type == v4_tok_int or tok_type == v4_tok_float {
@@ -6239,7 +6676,7 @@ task v4_ty_const_expr_type_from_tokens_seen(ty_id: int, owner_sig: int, stream_i
         give back v4_ty_unknown
     }
 
-    pilot first_value = v4_lex_token_value(stream_id, first)
+    pilot first_value = v4_lex_token_syntax_value(stream_id, first)
     if first_value == "(" and v4_ty_find_matching_paren(stream_id, first, end_token) == last {
         pilot tuple_comma = v4_ty_find_top_level_token(stream_id, first + 1, last, ",")
         if tuple_comma >= 0 {
@@ -6325,7 +6762,7 @@ task v4_ty_const_expr_type_from_tokens_seen(ty_id: int, owner_sig: int, stream_i
     }
 
     pilot first_type = v4_lex_token_type(stream_id, first)
-    if v4_lex_token_value(stream_id, last) == ")" {
+    if v4_lex_token_syntax_value(stream_id, last) == ")" {
         pilot open_token = v4_ty_find_top_level_token(stream_id, first, end_token, "(")
         if open_token > first and v4_ty_find_matching_paren(stream_id, open_token, end_token) == last {
             pilot callee_name = v4_ty_const_constructor_head_name(stream_id, first, open_token)
@@ -6337,7 +6774,7 @@ task v4_ty_const_expr_type_from_tokens_seen(ty_id: int, owner_sig: int, stream_i
             }
         }
     }
-    if v4_lex_token_value(stream_id, last) == "}" {
+    if v4_lex_token_syntax_value(stream_id, last) == "}" {
         pilot open_token = v4_ty_find_top_level_token(stream_id, first, end_token, "{")
         if open_token > first and v4_ty_find_matching_brace(stream_id, open_token, end_token) == last {
             pilot ctor_name = v4_ty_const_constructor_head_name(stream_id, first, open_token)
@@ -6442,7 +6879,7 @@ task v4_ty_const_ctor_field_end(stream_id: int, start_token: int, close_token: i
     pilot idx = start_token
     repeat until idx >= close_token {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type != v4_tok_trivia {
             if depth == 0 and val == "," {
                 give back idx
@@ -6468,7 +6905,7 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
         give back
     }
 
-    pilot first_value = v4_lex_token_value(stream_id, first)
+    pilot first_value = v4_lex_token_syntax_value(stream_id, first)
     pilot expr_span = v4_ty_span_from_tokens(stream_id, first, last + 1)
     if first_value == "(" and v4_ty_find_matching_paren(stream_id, first, end_token) == last {
         pilot tuple_comma = v4_ty_find_top_level_token(stream_id, first + 1, last, ",")
@@ -6517,7 +6954,7 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
         give back
     }
 
-    if v4_lex_token_value(stream_id, last) == ")" {
+    if v4_lex_token_syntax_value(stream_id, last) == ")" {
         pilot open_token = v4_ty_find_top_level_token(stream_id, first, end_token, "(")
         if open_token > first and v4_ty_find_matching_paren(stream_id, open_token, end_token) == last {
             pilot callee_name = v4_ty_const_constructor_head_name(stream_id, first, open_token)
@@ -6554,7 +6991,7 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
         }
     }
 
-    if v4_lex_token_value(stream_id, last) == "}" {
+    if v4_lex_token_syntax_value(stream_id, last) == "}" {
         pilot open_token = v4_ty_find_top_level_token(stream_id, first, end_token, "{")
         if open_token > first and v4_ty_find_matching_brace(stream_id, open_token, end_token) == last {
             pilot ctor_name = v4_ty_const_constructor_head_name(stream_id, first, open_token)
@@ -6607,7 +7044,7 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
                             pilot name_token = v4_ty_skip_trivia(stream_id, field_start)
                             pilot field_name = ""
                             if name_token < field_end {
-                                field_name = v4_lex_token_value(stream_id, name_token)
+                                field_name = v4_lex_token_syntax_value(stream_id, name_token)
                             }
                             pilot colon_token = v4_ty_find_top_level_token(stream_id, field_start, field_end, ":")
                             if colon_token < 0 or field_name == "" {
@@ -6683,7 +7120,7 @@ task v4_ty_validate_const_expr_seen(ty_id: int, owner_sig: int, stream_id: int, 
                         pilot name_token = v4_ty_skip_trivia(stream_id, field_start)
                         pilot field_name = ""
                         if name_token < field_end {
-                            field_name = v4_lex_token_value(stream_id, name_token)
+                            field_name = v4_lex_token_syntax_value(stream_id, name_token)
                         }
                         pilot colon_token = v4_ty_find_top_level_token(stream_id, field_start, field_end, ":")
                         if colon_token < 0 or field_name == "" {
@@ -6820,6 +7257,35 @@ task v4_ty_const_cycle_seen_append(seen_consts: word, const_name: word) -> word 
         give back const_name
     }
     give back seen_consts + "|" + const_name
+}
+
+-- MIR preserves the raw cast expression even after its result type is
+-- canonicalized. Recover its final method type argument without a new lexer
+-- arena; malformed/unrecognized text fails closed at the native ABI boundary.
+task v4_ty_raw_pointer_cast_target_surface(expr_text: word) -> word {
+    -- Trivia-bearing raw expressions cannot be reconstructed by compaction.
+    -- Reject rather than silently treat a comment-obscured alias as opaque.
+    if expr_text.contains("--") { give back v4_ty_unknown }
+    pilot text = v4_ty_compact_const_expr_text(expr_text)
+    pilot start = 0 - 1
+    pilot marker = 0
+    -- index_of_from searches one character, so match this complete marker
+    -- directly. Keep the final cast in a receiver chain without a new arena.
+    repeat until marker + 6 > text.length() {
+        if text.char_at(marker) == "." and text.char_at(marker + 1) == "c" and text.char_at(marker + 2) == "a" and text.char_at(marker + 3) == "s" and text.char_at(marker + 4) == "t" and text.char_at(marker + 5) == "<" { start = marker + 6 }
+        marker += 1
+    }
+    if start < 0 { give back v4_ty_unknown }
+    pilot depth = 1
+    pilot idx = start
+    repeat until idx >= text.length() or depth == 0 {
+        pilot ch = text.char_at(idx)
+        if ch == "<" { depth += 1 }
+        if ch == ">" and text.char_at(idx - 1) != "-" { depth -= 1 }
+        if depth > 0 { idx += 1 }
+    }
+    if depth != 0 or idx <= start or v4_slice(text, idx + 1, text.length()) != "()" { give back v4_ty_unknown }
+    give back v4_slice(text, start, idx)
 }
 
 task v4_ty_compact_const_expr_text(expr: word) -> word {
@@ -7085,7 +7551,7 @@ task v4_ty_const_dep_name_at_token(ty_id: int, stream_id: int, token_id: int, st
 
     pilot prev_token = v4_ty_prev_nontrivia(stream_id, token_id - 1, start_token)
     if prev_token >= start_token {
-        pilot prev_value = v4_lex_token_value(stream_id, prev_token)
+        pilot prev_value = v4_lex_token_syntax_value(stream_id, prev_token)
         if prev_value == "." or prev_value == "::" {
             give back ""
         }
@@ -7093,7 +7559,7 @@ task v4_ty_const_dep_name_at_token(ty_id: int, stream_id: int, token_id: int, st
 
     pilot next_token = v4_ty_next_nontrivia(stream_id, token_id + 1, end_token)
     if next_token < end_token {
-        pilot next_value = v4_lex_token_value(stream_id, next_token)
+        pilot next_value = v4_lex_token_syntax_value(stream_id, next_token)
         if next_value == ":" or next_value == "::" or next_value == "(" {
             give back ""
         }
@@ -7198,8 +7664,8 @@ task v4_ty_skip_item(stream_id: int, start_token: int, end_limit: int) -> int {
         }
 
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
-        if tok_type == v4_tok_trivia and val == "\n" and not saw_body and depth == 0 {
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
+        if tok_type == v4_tok_trivia and v4_lex_token_value(stream_id, idx) == "\n" and not saw_body and depth == 0 {
             give back idx + 1
         }
 
@@ -7268,10 +7734,15 @@ task v4_ty_impl_doctrine_name_from_hir(ty_id: int, hir_item: int) -> word {
     pilot start_token = v4_ty_hir_item_start_token(hir_id, hir_item)
     pilot end_token = v4_ty_hir_item_end_token(hir_id, hir_item)
     pilot open_token = v4_ty_find_token_value(stream_id, start_token, end_token, "{")
-    if open_token < 0 {
-        give back ""
-    }
+    give back v4_ty_impl_doctrine_from_token_bounds(stream_id, start_token, open_token)
+}
 
+-- Exact original qualifier extraction shared by publication and cold readers.
+-- Count actual header-reader work so a full candidate scan cannot hide behind
+-- unchanged index-probe counters in regression checks.
+task v4_ty_impl_doctrine_from_token_bounds(stream_id: int, start_token: int, open_token: int) -> word {
+    v4_ty_impl_doctrine_header_reads += 1
+    if open_token < 0 { give back "" }
     pilot for_token = v4_ty_find_top_level_token(stream_id, start_token + 1, open_token, "for")
     if for_token < 0 {
         give back ""
@@ -7373,6 +7844,60 @@ task v4_ty_impl_target_alias_name_from_hir(ty_id: int, hir_item: int) -> word {
 
 task v4_ty_impl_body_open_token_from_hir(ty_id: int, hir_item: int) -> int {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot row = v4_ty_item_method_cache_impl_row(hir_id, hir_item)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        give back v4_ty_item_method_cache_value(hir_id, row + 2)
+    }
+    give back v4_ty_impl_body_open_token_from_hir_uncached(ty_id, hir_item)
+}
+
+task v4_ty_impl_body_close_token_from_hir(ty_id: int, hir_item: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot row = v4_ty_item_method_cache_impl_row(hir_id, hir_item)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        give back v4_ty_item_method_cache_value(hir_id, row + 3)
+    }
+    give back v4_ty_impl_body_close_token_from_hir_uncached(ty_id, hir_item)
+}
+
+task v4_ty_impl_method_count(ty_id: int, hir_item: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot row = v4_ty_item_method_cache_impl_row(hir_id, hir_item)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        give back v4_ty_item_method_cache_value(hir_id, row + 5)
+    }
+    give back v4_ty_impl_method_count_uncached(ty_id, hir_item)
+}
+
+task v4_ty_impl_method_start_token(ty_id: int, hir_item: int, method_id: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot row = v4_ty_item_method_cache_impl_row(hir_id, hir_item)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        if method_id < 0 or method_id >= v4_ty_item_method_cache_value(hir_id, row + 5) { give back 0 - 1 }
+        pilot base = v4_ty_item_method_cache_value(hir_id, row + 4)
+        give back v4_ty_item_method_cache_value(hir_id, base + 2 * method_id)
+    }
+    give back v4_ty_impl_method_start_token_uncached(ty_id, hir_item, method_id)
+}
+
+task v4_ty_impl_method_end_token(ty_id: int, hir_item: int, method_id: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    pilot row = v4_ty_item_method_cache_impl_row(hir_id, hir_item)
+    if row >= 0 {
+        v4_ty_item_method_cache_hits += 1
+        if method_id < 0 or method_id >= v4_ty_item_method_cache_value(hir_id, row + 5) { give back 0 - 1 }
+        pilot base = v4_ty_item_method_cache_value(hir_id, row + 4)
+        give back v4_ty_item_method_cache_value(hir_id, base + 2 * method_id + 1)
+    }
+    give back v4_ty_impl_method_end_token_uncached(ty_id, hir_item, method_id)
+}
+
+task v4_ty_impl_body_open_token_from_hir_uncached(ty_id: int, hir_item: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 or hir_item < 0 {
         give back 0 - 1
     }
@@ -7383,7 +7908,7 @@ task v4_ty_impl_body_open_token_from_hir(ty_id: int, hir_item: int) -> int {
     give back v4_ty_find_token_value(stream_id, start_token, end_token, "{")
 }
 
-task v4_ty_impl_body_close_token_from_hir(ty_id: int, hir_item: int) -> int {
+task v4_ty_impl_body_close_token_from_hir_uncached(ty_id: int, hir_item: int) -> int {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 or hir_item < 0 {
         give back 0 - 1
@@ -7397,7 +7922,8 @@ task v4_ty_impl_body_close_token_from_hir(ty_id: int, hir_item: int) -> int {
     give back v4_ty_find_matching_brace(stream_id, open_token, v4_ty_hir_item_end_token(hir_id, hir_item))
 }
 
-task v4_ty_impl_method_count(ty_id: int, hir_item: int) -> int {
+task v4_ty_impl_method_count_uncached(ty_id: int, hir_item: int) -> int {
+    v4_ty_impl_method_cold_scans += 1
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 or hir_item < 0 {
         give back 0
@@ -7417,7 +7943,7 @@ task v4_ty_impl_method_count(ty_id: int, hir_item: int) -> int {
         if idx >= close_token {
             give back count
         }
-        if v4_lex_token_value(stream_id, idx) == "task" {
+        if v4_lex_token_syntax_value(stream_id, idx) == "task" {
             count += 1
             idx = v4_ty_skip_item(stream_id, idx, close_token)
         } else {
@@ -7427,7 +7953,8 @@ task v4_ty_impl_method_count(ty_id: int, hir_item: int) -> int {
     give back count
 }
 
-task v4_ty_impl_method_start_token(ty_id: int, hir_item: int, method_id: int) -> int {
+task v4_ty_impl_method_start_token_uncached(ty_id: int, hir_item: int, method_id: int) -> int {
+    v4_ty_impl_method_cold_scans += 1
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 or hir_item < 0 or method_id < 0 {
         give back 0 - 1
@@ -7447,7 +7974,7 @@ task v4_ty_impl_method_start_token(ty_id: int, hir_item: int, method_id: int) ->
         if idx >= close_token {
             give back 0 - 1
         }
-        if v4_lex_token_value(stream_id, idx) == "task" {
+        if v4_lex_token_syntax_value(stream_id, idx) == "task" {
             if current == method_id {
                 give back idx
             }
@@ -7460,7 +7987,8 @@ task v4_ty_impl_method_start_token(ty_id: int, hir_item: int, method_id: int) ->
     give back 0 - 1
 }
 
-task v4_ty_impl_method_end_token(ty_id: int, hir_item: int, method_id: int) -> int {
+task v4_ty_impl_method_end_token_uncached(ty_id: int, hir_item: int, method_id: int) -> int {
+    v4_ty_impl_method_cold_scans += 1
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 {
         give back 0 - 1
@@ -7573,7 +8101,8 @@ task v4_ty_impl_method_param_mode(ty_id: int, hir_item: int, method_id: int, par
     give back v4_ty_param_mode_from_tokens(stream_id, start_token, end_token)
 }
 
-task v4_ty_impl_method_param_type(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+-- Preserve declared aliases for consumers that must inspect the ABI surface.
+task v4_ty_impl_method_param_type_read(ty_id: int, hir_item: int, method_id: int, param_id: int, canonical: bool) -> word {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 {
         give back v4_ty_unknown
@@ -7588,7 +8117,17 @@ task v4_ty_impl_method_param_type(ty_id: int, hir_item: int, method_id: int, par
     if param_name == "self" {
         give back v4_ty_impl_target_type_from_hir(ty_id, hir_item)
     }
-    give back v4_ty_canonical_type(ty_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
+    pilot surface_type = v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
+    if canonical { give back v4_ty_canonical_type(ty_id, surface_type) }
+    give back surface_type
+}
+
+task v4_ty_impl_method_param_surface_type(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+    give back v4_ty_impl_method_param_type_read(ty_id, hir_item, method_id, param_id, false)
+}
+
+task v4_ty_impl_method_param_type(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+    give back v4_ty_impl_method_param_type_read(ty_id, hir_item, method_id, param_id, true)
 }
 
 task v4_ty_impl_method_is_instance(ty_id: int, hir_item: int, method_id: int) -> bool {
@@ -7773,14 +8312,32 @@ task v4_ty_impl_method_explicit_param_type_for_owner(ty_id: int, hir_item: int, 
     give back v4_ty_canonical_type(ty_id, v4_ty_apply_impl_generics(ty_id, hir_item, owner_ty, v4_ty_impl_method_explicit_param_type(ty_id, hir_item, method_id, param_id)))
 }
 
-task v4_ty_impl_method_return_type(ty_id: int, hir_item: int, method_id: int) -> word {
+task v4_ty_impl_method_return_surface_type(ty_id: int, hir_item: int, method_id: int) -> word {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 {
         give back v4_ty_unknown
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
     pilot stream_id = v4_parse_stream_id(tree_id)
-    give back v4_ty_canonical_type(ty_id, v4_ty_task_return_from_tokens(stream_id, v4_ty_impl_method_start_token(ty_id, hir_item, method_id), v4_ty_impl_method_end_token(ty_id, hir_item, method_id)))
+    give back v4_ty_task_return_from_tokens(stream_id, v4_ty_impl_method_start_token(ty_id, hir_item, method_id), v4_ty_impl_method_end_token(ty_id, hir_item, method_id))
+}
+
+-- Raw owner annotations preserve aliases erased by canonical MIR locals.
+-- Methods share the impl owner annotation table, just like signature readers.
+task v4_ty_impl_method_local_annotation_count(ty_id: int, hir_item: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or hir_item < 0 { give back 0 }
+    give back v4_hir_local_annotation_count(hir_id, hir_item)
+}
+
+task v4_ty_impl_method_local_annotation_surface_type(ty_id: int, hir_item: int, annotation_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or hir_item < 0 { give back "" }
+    give back v4_hir_local_annotation_type(hir_id, hir_item, annotation_id)
+}
+
+task v4_ty_impl_method_return_type(ty_id: int, hir_item: int, method_id: int) -> word {
+    give back v4_ty_canonical_type(ty_id, v4_ty_impl_method_return_surface_type(ty_id, hir_item, method_id))
 }
 
 task v4_ty_impl_method_return_type_for_owner(ty_id: int, hir_item: int, method_id: int, owner_ty: word) -> word {
@@ -7796,6 +8353,33 @@ task v4_ty_impl_method_def(ty_id: int, hir_item: int, method_id: int) -> word {
     pilot method_name = v4_ty_impl_method_name(ty_id, hir_item, method_id)
     pilot file_id = v4_hir_file_id(hir_id)
     give back "file" + word_from_int(file_id) + "::Method::" + owner_ty + "." + method_name + "#" + word_from_int(hir_item) + ":" + word_from_int(method_id)
+}
+
+-- Resolve method identity in TY, which owns access to HIR declarations.
+task v4_ty_impl_method_index_for_def(ty_id: int, method_def: word, part: int) -> int {
+    if not v4_ty_file_exists(ty_id) or part < 0 or part > 1 { give back 0 - 1 }
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 { give back 0 - 1 }
+    pilot hash_pos = v4_index_of_from(method_def, "#", 0)
+    if hash_pos < 0 { give back 0 - 1 }
+    pilot colon_pos = v4_index_of_from(method_def, ":", hash_pos + 1)
+    if colon_pos < 0 { give back 0 - 1 }
+    pilot hir_item = v4_nonnegative_int_range(method_def, hash_pos + 1, colon_pos)
+    pilot method_id = v4_nonnegative_int_range(method_def, colon_pos + 1, method_def.length())
+    if hir_item < 0 or hir_item >= v4_hir_item_count(hir_id) or method_id < 0 {
+        give back 0 - 1
+    }
+    if v4_hir_item_kind(hir_id, hir_item) != v4_hir_impl {
+        give back 0 - 1
+    }
+    if method_id >= v4_ty_impl_method_count(ty_id, hir_item) {
+        give back 0 - 1
+    }
+    if v4_ty_impl_method_def(ty_id, hir_item, method_id) != method_def {
+        give back 0 - 1
+    }
+    if part == 0 { give back hir_item }
+    give back method_id
 }
 
 task v4_ty_impl_method_display(ty_id: int, hir_item: int, method_id: int) -> word {
@@ -7814,46 +8398,22 @@ task v4_ty_doctrine_signature_id_for_name(ty_id: int, doctrine_name: word) -> in
         lookup_name = v4_ty_generic_base_name(lookup_name)
     }
 
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_doctrine_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == lookup_name {
-                give back sig_id
-            }
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, lookup_name, v4_ty_signature_index_doctrine)
 }
 
 task v4_ty_doctrine_lookup_name_from_surface_name(ty_id: int, surface_name: word) -> word {
     if surface_name == "" or surface_name == v4_ty_unknown {
         give back ""
     }
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_doctrine_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == surface_name {
-                give back surface_name
-            }
-        }
-        sig_id += 1
+    if v4_ty_signature_index_lookup(ty_id, surface_name, v4_ty_signature_index_doctrine) >= 0 {
+        give back surface_name
     }
-
     pilot resolve_id = v4_ty_resolve_id(ty_id)
     if resolve_id >= 0 {
         pilot expanded = v4_resolve_expand_import_name(resolve_id, surface_name)
         if expanded != "" and expanded != surface_name {
-            sig_id = 0
-            repeat until sig_id >= sig_count {
-                if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_doctrine_sig {
-                    if v4_ty_signature_name(ty_id, sig_id) == expanded {
-                        give back expanded
-                    }
-                }
-                sig_id += 1
+            if v4_ty_signature_index_lookup(ty_id, expanded, v4_ty_signature_index_doctrine) >= 0 {
+                give back expanded
             }
         }
     }
@@ -7912,7 +8472,7 @@ task v4_ty_doctrine_method_count(ty_id: int, sig_id: int) -> int {
         if idx >= close_token {
             give back count
         }
-        if v4_lex_token_value(stream_id, idx) == "task" {
+        if v4_lex_token_syntax_value(stream_id, idx) == "task" {
             count += 1
             idx = v4_ty_skip_item(stream_id, idx, close_token)
         } else {
@@ -7937,7 +8497,7 @@ task v4_ty_doctrine_method_start_token(ty_id: int, sig_id: int, method_id: int) 
         if idx >= close_token {
             give back 0 - 1
         }
-        if v4_lex_token_value(stream_id, idx) == "task" {
+        if v4_lex_token_syntax_value(stream_id, idx) == "task" {
             if current == method_id {
                 give back idx
             }
@@ -9513,17 +10073,7 @@ task v4_ty_shape_signature_id_for_name(ty_id: int, shape_name: word) -> int {
     if v4_ty_is_generic_instance_type(lookup_name) {
         lookup_name = v4_ty_generic_base_name(lookup_name)
     }
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_shape_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == lookup_name {
-                give back sig_id
-            }
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, lookup_name, v4_ty_signature_index_shape)
 }
 
 task v4_ty_route_signature_id_for_name(ty_id: int, route_name: word) -> int {
@@ -9535,17 +10085,7 @@ task v4_ty_route_signature_id_for_name(ty_id: int, route_name: word) -> int {
     if v4_ty_is_generic_instance_type(lookup_name) {
         lookup_name = v4_ty_generic_base_name(lookup_name)
     }
-    pilot sig_id = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_id >= sig_count {
-        if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_route_sig {
-            if v4_ty_signature_name(ty_id, sig_id) == lookup_name {
-                give back sig_id
-            }
-        }
-        sig_id += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, lookup_name, v4_ty_signature_index_route)
 }
 
 task v4_ty_is_route_type(ty_id: int, route_name: word) -> bool {
@@ -12215,6 +12755,8 @@ task v4_ty_add_signature(ty_id: int, def_id: word, sig_kind: word, sig_name: wor
     array_set(v4_ty_displays_handle(ty_id), sig_id, sig_display)
     array_set(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(hir_item))
     array_set(v4_ty_signature_active_counts, ty_id, word_from_int(sig_id + 1))
+    v4_ty_signature_index_added(ty_id, sig_id)
+    v4_ty_item_method_cache_finalize(ty_id)
     give back sig_id
 }
 
@@ -12223,6 +12765,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
     pilot ty_id = v4_ty_file_new(file_id, resolve_id)
     v4_ty_copy_resolve_diags(ty_id, resolve_id)
     pilot hir_id = v4_resolve_hir_id(resolve_id)
+    v4_ty_item_method_cache_finalize_hir(hir_id)
 
     pilot symbol_idx = 0
     pilot symbol_count = v4_resolve_symbol_count(resolve_id)
@@ -12239,6 +12782,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
         symbol_idx += 1
     }
 
+    v4_ty_signature_index_finalize(ty_id)
     v4_ty_validate_closure_params(ty_id)
     v4_ty_validate_lifetime_contracts(ty_id)
     v4_ty_validate_repr_contracts(ty_id)
@@ -12254,15 +12798,7 @@ task v4_ty_lower_resolve(file_id: int, resolve_id: int) -> int {
 }
 
 task v4_ty_lookup_signature(ty_id: int, def_id: word) -> int {
-    pilot sig_idx = 0
-    pilot sig_count = v4_ty_signature_count(ty_id)
-    repeat until sig_idx >= sig_count {
-        if v4_ty_signature_def(ty_id, sig_idx) == def_id {
-            give back sig_idx
-        }
-        sig_idx += 1
-    }
-    give back 0 - 1
+    give back v4_ty_signature_index_lookup(ty_id, def_id, v4_ty_signature_index_def)
 }
 
 task v4_ty_signature_of(ty_id: int, def_id: word) -> word {
@@ -12909,6 +13445,8 @@ task v4_ty_restore_clear_child_handle(handle: int, empty_value: word) -> void {
 }
 
 task v4_ty_restore_clear_file_children(ty_id: int) -> void {
+    v4_ty_item_method_cache_invalidate(ty_id)
+    v4_ty_signature_index_invalidate(ty_id)
     v4_ty_restore_clear_child_handle(v4_ty_defs_handle(ty_id), "")
     v4_ty_restore_clear_child_handle(v4_ty_kinds_handle(ty_id), "")
     v4_ty_restore_clear_child_handle(v4_ty_names_handle(ty_id), "")
@@ -12965,6 +13503,8 @@ task v4_ty_restore_signature_slot(ty_id: int, sig_id: int, def_id: word, sig_kin
     if v4_ty_child_handle_ensure_slot(v4_ty_hir_items_handle(ty_id), sig_id, word_from_int(0 - 1)) == false {
         give back 0
     }
+    v4_ty_item_method_cache_invalidate(ty_id)
+    v4_ty_signature_index_invalidate(ty_id)
     array_set(v4_ty_defs_handle(ty_id), sig_id, def_id)
     array_set(v4_ty_kinds_handle(ty_id), sig_id, sig_kind)
     array_set(v4_ty_names_handle(ty_id), sig_id, sig_name)
@@ -13118,6 +13658,12 @@ task v4_ty_snapshot_restore(payload: word) -> word {
             inactive_ty_id += 1
         }
         v4_ty_file_active_count_value = restored_files
+        pilot indexed_ty_id = 0
+        repeat until indexed_ty_id >= restored_files {
+            v4_ty_signature_index_finalize(indexed_ty_id)
+            v4_ty_item_method_cache_finalize(indexed_ty_id)
+            indexed_ty_id += 1
+        }
         v4_ty_copy_doctrine_cache_reset()
     } else {
         v4_ty_file_active_count_value = previous_active_files
@@ -13144,4 +13690,12 @@ task v4_ty_shape_field_segment_span(ty_id: int, sig_id: int, field_id: int) -> w
 }
 task v4_ty_const_declared_type_span_for_sig(ty_id: int, sig_id: int) -> word {
     give back v4_hir_const_type_span(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
+}
+
+task v4_ty_word_literal_issue(raw: word) -> word {
+    give back v4_hir_word_literal_issue(raw)
+}
+
+task v4_ty_word_literal_value(raw: word) -> word {
+    give back v4_hir_word_literal_value(raw)
 }

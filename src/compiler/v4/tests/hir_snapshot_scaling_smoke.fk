@@ -432,7 +432,7 @@ task v4_hir_scaling_file_slots(sample: word, before: word) -> void {
         restored = false
     }
     pilot capacity_after = v4_hir_scaling_capacity()
-    say "hir-scaling-fresh-slot-thirty-nine-handles=" + word_from_bool(capacity_before - capacity_fresh == 39)
+    say "hir-scaling-fresh-slot-forty-one-handles=" + word_from_bool(capacity_before - capacity_fresh == 41)
     say "hir-scaling-reused-children-empty=" + word_from_bool(empty_children)
     say "hir-scaling-restore-repeated=" + word_from_bool(restored)
     say "hir-scaling-truncated-slots-hidden=" + word_from_bool(truncated)

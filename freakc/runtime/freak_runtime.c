@@ -14,6 +14,7 @@
 #include <time.h>
 #include <math.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -954,6 +955,87 @@ freak_word freak_fs_read(freak_word path) {
     fclose(f);
     buf[read] = '\0';
     return freak_word_own(buf, read);
+}
+
+static freak_result_word_word freak_fs_read_checked_error(const char* message) {
+    freak_result_word_word result = { .is_ok = false };
+    result.data.err_val = freak_word_lit(message);
+    return result;
+}
+
+freak_result_word_word freak_fs_read_checked(freak_word path) {
+    if (!path.data || path.length == 0)
+        return freak_fs_read_checked_error("source path is empty");
+    if (path.length == SIZE_MAX || memchr(path.data, '\0', path.length))
+        return freak_fs_read_checked_error("source path contains NUL");
+    char* name = (char*)malloc(path.length + 1);
+    if (!name) return freak_fs_read_checked_error("source path allocation failed");
+    memcpy(name, path.data, path.length);
+    name[path.length] = '\0';
+#ifdef _WIN32
+    int descriptor = _open(name, _O_RDONLY | _O_BINARY);
+#else
+    /* Nonblocking open lets us reject a FIFO before it can wait for a writer. */
+    int descriptor = open(name, O_RDONLY | O_NONBLOCK);
+#endif
+    free(name);
+    if (descriptor < 0) return freak_fs_read_checked_error("could not open source file");
+#ifdef _WIN32
+    struct _stat64 metadata;
+    bool regular = _fstat64(descriptor, &metadata) == 0 &&
+                   (metadata.st_mode & _S_IFMT) == _S_IFREG;
+#else
+    struct stat metadata;
+    bool regular = fstat(descriptor, &metadata) == 0 && S_ISREG(metadata.st_mode);
+#endif
+    if (!regular) {
+#ifdef _WIN32
+        _close(descriptor);
+#else
+        close(descriptor);
+#endif
+        return freak_fs_read_checked_error("source path is not a readable regular file");
+    }
+#ifdef _WIN32
+    FILE* file = _fdopen(descriptor, "rb");
+#else
+    FILE* file = fdopen(descriptor, "rb");
+#endif
+    if (!file) {
+#ifdef _WIN32
+        _close(descriptor);
+#else
+        close(descriptor);
+#endif
+        return freak_fs_read_checked_error("could not open source stream");
+    }
+    /* _fstat64 on Windows avoids the 32-bit long used by ftell on LLP64. */
+    if (metadata.st_size < 0 || (uintmax_t)metadata.st_size >= SIZE_MAX) {
+        fclose(file);
+        return freak_fs_read_checked_error("could not measure source file");
+    }
+    if (fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return freak_fs_read_checked_error("could not seek source file");
+    }
+    size_t length = (size_t)metadata.st_size;
+    char* contents = (char*)malloc(length + 1);
+    if (!contents) {
+        fclose(file);
+        return freak_fs_read_checked_error("source contents allocation failed");
+    }
+    size_t count = fread(contents, 1, length, file);
+    bool complete = count == length && !ferror(file);
+    if (complete) complete = fgetc(file) == EOF && !ferror(file);
+    int closed = fclose(file);
+    if (!complete || closed != 0) {
+        free(contents);
+        return freak_fs_read_checked_error("could not read complete source file");
+    }
+    contents[length] = '\0';
+    freak_result_word_word result = { .is_ok = true };
+    result.data.ok_val = freak_word_own(contents, length);
+    return result;
 }
 
 void freak_fs_write(freak_word path, freak_word content) {

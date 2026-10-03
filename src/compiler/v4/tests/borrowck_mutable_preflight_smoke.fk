@@ -1,0 +1,133 @@
+-- Actual path kinds, including loose restored rows, decide the no-loan gate.
+task borrow_mut_preflight_available_handles() -> int {
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted: bool = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            count += 1
+        }
+    }
+    pilot row = 0
+    repeat until row >= count {
+        array_release(word_to_int(array_get(holders, row)))
+        row += 1
+    }
+    array_release(holders)
+    give back count
+}
+
+task borrow_mut_preflight_unchanged(borrow: int, result_id: int, mir: int, body: int, expected_probes: int) -> bool {
+    pilot payload = v4_borrowck_snapshot()
+    pilot capacity = borrow_mut_preflight_available_handles()
+    pilot probes = v4_borrowck_mutable_exclusivity_path_probes
+    pilot generation = v4_borrowck_provenance_scratch_generation()
+    pilot exhausted: bool = v4_borrowck_repeat_projection_scan_exhausted_value
+    pilot slots = v4_borrowck_repeat_projection_scan_slot_count_value
+    pilot conflicts = v4_borrowck_check_mutable_exclusivity(borrow, result_id, mir, body)
+    pilot unchanged: bool = conflicts == 0 and v4_borrowck_mutable_exclusivity_path_probes - probes == expected_probes and borrow_mut_preflight_available_handles() == capacity
+    unchanged = unchanged and v4_borrowck_provenance_scratch_generation() == generation and v4_borrowck_repeat_projection_scan_exhausted_value == exhausted and v4_borrowck_repeat_projection_scan_slot_count_value == slots
+    give back unchanged and v4_borrowck_snapshot() == payload
+}
+
+task borrow_mut_preflight_linear(borrow: int, mir: int, body: int, count: int) -> bool {
+    -- Stored summaries deliberately claim loans where all actual rows are writes.
+    pilot result_id = v4_borrowck_add_result(borrow, word_from_int(count), "linear", v4_borrowck_blocked, 999, 7, 11)
+    pilot row = 0
+    repeat until row >= count {
+        v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, "ship.hp", row, 0)
+        row += 1
+    }
+    give back v4_borrowck_result_loans(borrow, result_id) == 999 and borrow_mut_preflight_unchanged(borrow, result_id, mir, body, count)
+}
+
+task borrow_mut_preflight_loans(borrow: int, mir: int, body: int, kind: word, summary: int) -> bool {
+    pilot result_id = v4_borrowck_add_result(borrow, kind, kind, v4_borrowck_clean, summary, 0, 0)
+    -- Physical write order is 3 then 2; the first physical loan is statement 1,
+    -- even though a later row describes an older, overlapping loan at statement 0.
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, "ship.hp", 3, 0)
+    v4_borrowck_add_path(borrow, result_id, kind, "ship.hp", 1, 0)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_write, "ship.hp", 2, 0)
+    v4_borrowck_add_path(borrow, result_id, v4_borrowck_path_loan_mut, "ship", 0, 0)
+    pilot start = v4_borrowck_diag_count(borrow)
+    pilot probes = v4_borrowck_mutable_exclusivity_path_probes
+    pilot conflicts = v4_borrowck_check_mutable_exclusivity(borrow, result_id, mir, body)
+    pilot first = v4_borrowck_diag(borrow, start)
+    pilot second = v4_borrowck_diag(borrow, start + 1)
+    pilot preserved: bool = conflicts == 2 and v4_borrowck_diag_count(borrow) == start + 2 and v4_borrowck_result_status(borrow, result_id) == v4_borrowck_blocked and v4_borrowck_result_loans(borrow, result_id) == summary
+    preserved = preserved and v4_borrowck_mutable_exclusivity_path_probes - probes == 10 and v4_diag_severity(first) == v4_diag_error and v4_diag_severity(second) == v4_diag_error
+    preserved = preserved and v4_diag_message(first) == "Meiya refuses this rewrite while the value is borrowed" and v4_diag_message(second) == "Meiya refuses this rewrite while the value is borrowed"
+    preserved = preserved and v4_diag_span(first) == v4_span_new("27", 300, 301) and v4_diag_span(second) == v4_span_new("27", 200, 201)
+    preserved = preserved and v4_diag_help(first) == "ship.hp stays on loan in block 0 from statement 1, so statement 3 cannot rewrite ship.hp yet" and v4_diag_help(second) == "ship.hp stays on loan in block 0 from statement 1, so statement 2 cannot rewrite ship.hp yet"
+    give back preserved
+}
+
+task borrow_mut_preflight_run() -> void {
+    pilot mir = v4_mir_file_new(27, 0 - 1)
+    pilot body = v4_mir_add_body(mir, "preflight", "preflight", "")
+    v4_mir_add_block(mir, body, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    -- No explicit holder means these stored loan rows retain ordinary liveness.
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "", v4_span_new("27", 100, 101), 0 - 1, 0 - 1)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "", v4_span_new("27", 101, 102), 0 - 1, 0 - 1)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_assign, "ship.hp", "1", v4_span_new("27", 200, 201), 0 - 1, 0 - 1)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_assign, "ship.hp", "2", v4_span_new("27", 300, 301), 0 - 1, 0 - 1)
+    pilot borrow = v4_borrowck_file_new(27, mir)
+    pilot empty_result = v4_borrowck_add_result(borrow, "empty", "empty", v4_borrowck_clean, 17, 0, 0)
+    v4_borrowck_repeat_projection_scan_exhausted_value = true
+    v4_borrowck_repeat_projection_scan_slot_count_value = 29
+    pilot empty: bool = borrow_mut_preflight_unchanged(borrow, empty_result, mir, body, 0)
+    pilot linear256: bool = borrow_mut_preflight_linear(borrow, mir, body, 256)
+    pilot linear512: bool = borrow_mut_preflight_linear(borrow, mir, body, 512)
+    pilot linear1024: bool = borrow_mut_preflight_linear(borrow, mir, body, 1024)
+
+    pilot sparse_result = v4_borrowck_add_result(borrow, "sparse", "sparse", v4_borrowck_clean, 42, 0, 0)
+    v4_borrowck_restore_path_slot(borrow, sparse_result, 31, "LoanMut ", "ship", 1, 0)
+    v4_borrowck_restore_path_slot(borrow, sparse_result, 1, v4_borrowck_path_write, "ship.hp", 3, 0)
+    v4_borrowck_restore_path_slot(borrow, sparse_result, 2, v4_borrowck_path_copy, "ship", 0, 0)
+    v4_borrowck_restore_path_slot(borrow, sparse_result, 3, v4_borrowck_path_move, "ship", 0, 0)
+    v4_borrowck_restore_path_slot(borrow, sparse_result, 4, v4_borrowck_path_drop, "ship", 0 - 1, 0 - 1)
+    v4_borrowck_restore_path_slot(borrow, sparse_result, 5, v4_borrowck_path_drop_if, "ship", 0 - 1, 0 - 1)
+    v4_borrowck_restore_path_slot(borrow, sparse_result, 6, "loan", "ship", 0, 0)
+    v4_borrowck_restore_path_slot(borrow, sparse_result, 7, v4_borrowck_path_return_loan, "ship", 0, 0)
+    v4_borrowck_restore_path_slot(borrow, sparse_result, 9, v4_borrowck_path_return_loan_mut, "ship", 0, 0)
+    pilot sparse: bool = v4_borrowck_result_path_count(borrow, sparse_result) == 32 and borrow_mut_preflight_unchanged(borrow, sparse_result, mir, body, 32)
+    pilot payload = v4_borrowck_snapshot()
+    pilot restored_report = v4_borrowck_snapshot_restore(payload)
+    pilot restored: bool = restored_report.starts_with("borrowck-snapshot-restore ok=1") and v4_borrowck_snapshot() == payload and v4_borrowck_result_loans(borrow, sparse_result) == 42 and borrow_mut_preflight_unchanged(borrow, sparse_result, mir, body, 32)
+    -- Exact Loan/LoanMut kinds with malformed coordinates must disable the gate.
+    v4_borrowck_restore_path_slot(borrow, sparse_result, 31, v4_borrowck_path_loan, "", 0 - 1, 0 - 1)
+    v4_borrowck_set_result_counts(borrow, sparse_result, 0, 0, 0)
+    pilot malformed: bool = borrow_mut_preflight_unchanged(borrow, sparse_result, mir, body, 96)
+    v4_borrowck_restore_path_slot(borrow, sparse_result, 31, v4_borrowck_path_loan_mut, "", 0 - 1, 0 - 1)
+    v4_borrowck_set_result_counts(borrow, sparse_result, 0 - 9, 0, 0)
+    malformed = malformed and borrow_mut_preflight_unchanged(borrow, sparse_result, mir, body, 96)
+
+    pilot shared: bool = borrow_mut_preflight_loans(borrow, mir, body, v4_borrowck_path_loan, 0)
+    pilot mutable: bool = borrow_mut_preflight_loans(borrow, mir, body, v4_borrowck_path_loan_mut, 0 - 9)
+    pilot order: bool = shared and mutable
+    pilot direct = v4_borrowck_add_result(borrow, "direct", "direct", v4_borrowck_clean, 0, 0, 0)
+    v4_borrowck_add_path(borrow, direct, v4_borrowck_path_write, "ship.hp", 3, 0)
+    v4_borrowck_add_path(borrow, direct, v4_borrowck_path_loan, "ship.hp", 1, 0)
+    pilot start = v4_borrowck_diag_count(borrow)
+    pilot probes = v4_borrowck_mutable_exclusivity_path_probes
+    pilot conflicts = v4_borrowck_check_mutable_exclusivity(borrow, direct, mir, body)
+    pilot overwrites: bool = conflicts == 1 and v4_borrowck_diag_count(borrow) == start + 1 and v4_borrowck_mutable_exclusivity_path_probes - probes == 6
+    v4_borrowck_restore_path_slot(borrow, direct, 1, v4_borrowck_path_write, "ship.hp", 1, 0)
+    v4_borrowck_set_result_counts(borrow, direct, 51, 0, 0)
+    overwrites = overwrites and borrow_mut_preflight_unchanged(borrow, direct, mir, body, 2)
+    v4_borrowck_restore_path_slot(borrow, direct, 1, v4_borrowck_path_loan_mut, "ship.hp", 1, 0)
+    v4_borrowck_set_result_counts(borrow, direct, 0 - 1, 0, 0)
+    probes = v4_borrowck_mutable_exclusivity_path_probes
+    conflicts = v4_borrowck_check_mutable_exclusivity(borrow, direct, mir, body)
+    overwrites = overwrites and conflicts == 1 and v4_borrowck_diag_count(borrow) == start + 2 and v4_borrowck_mutable_exclusivity_path_probes - probes == 6 and v4_diag_help(v4_borrowck_diag(borrow, start)) == v4_diag_help(v4_borrowck_diag(borrow, start + 1))
+    v4_borrowck_restore_path_slot(borrow, direct, 1, v4_borrowck_path_write, "ship.hp", 1, 0)
+    overwrites = overwrites and borrow_mut_preflight_unchanged(borrow, direct, mir, body, 2)
+
+    say "borrow-mutable-preflight empty=" + word_from_bool(empty) + " linear256=" + word_from_bool(linear256) + " linear512=" + word_from_bool(linear512) + " linear1024=" + word_from_bool(linear1024)
+    say "borrow-mutable-preflight shared=" + word_from_bool(shared) + " mutable=" + word_from_bool(mutable) + " order=" + word_from_bool(order)
+    say "borrow-mutable-preflight overwrites=" + word_from_bool(overwrites) + " sparse=" + word_from_bool(sparse) + " malformed=" + word_from_bool(malformed) + " restored=" + word_from_bool(restored)
+}
+
+borrow_mut_preflight_run()

@@ -1,0 +1,268 @@
+-- Selective TY doctrine candidates: physical order, cold facts and actual work.
+-- Verification prepends V4 crates; run with 1024 live array handles.
+
+task v4_ty_doctrine_index_source() -> word {
+    pilot src = "doctrine Add {\n"
+    src = src + " task add(self, other: Self) -> Self\n}\n"
+    src = src + "doctrine Value<T> {\n"
+    src = src + " task value(self) -> T\n}\n"
+    src = src + "shape Box<T> {\n"
+    src = src + " value: T\n}\n"
+    src = src + "impl Box<T> {\n"
+    src = src + " task take(self) -> T {\n"
+    src = src + " give back self.value\n }\n}\n"
+    src = src + "impl Add for int {\n"
+    src = src + " task add(self, other: int) -> int {\n"
+    src = src + " give back other\n }\n}\n"
+    src = src + "impl Add for int {\n"
+    src = src + " task add(self, other: int) -> int {\n"
+    src = src + " give back other\n }\n}\n"
+    src = src + "impl Value<int> for Box<int> {\n"
+    src = src + " task value(self) -> int {\n"
+    src = src + " give back self.value\n }\n}\n"
+    src = src + "impl Add for Box<T> {\n"
+    src = src + " task add(self, other: Box<T>) -> Box<T> {\n"
+    src = src + " give back self\n }\n}\n"
+    give back src
+}
+
+task v4_ty_doctrine_index_associated_source() -> word {
+    pilot src = "shape Cargo<T> {\n"
+    src = src + " value: T\n}\n"
+    src = src + "impl Cargo<T> {\n"
+    src = src + " task sum(left: int, right: int) -> int {\n"
+    src = src + " give back left + right\n }\n}\n"
+    src = src + "task main() -> int {\n"
+    src = src + " give back Cargo<int>::sum(1, 2)\n}\n"
+    give back src
+}
+
+task v4_ty_doctrine_index_available_handles() -> int {
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            count += 1
+        }
+    }
+    pilot idx = 0
+    repeat until idx >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, idx)))
+        idx += 1
+    }
+    array_release(holders)
+    give back count
+}
+
+task v4_ty_doctrine_index_matches_raw(ty: int, hir: int) -> bool {
+    pilot after = 0 - 2
+    pilot correct = true
+    repeat until after > v4_hir_item_count(hir) + 1 {
+        if v4_ty_next_doctrine_impl_item(ty, after) != v4_ty_next_doctrine_impl_item_uncached(ty, after) { correct = false }
+        after += 1
+    }
+    give back correct
+}
+
+task v4_ty_doctrine_index_scale(ty: int, hir: int, mir: int, count: int) -> void {
+    pilot node = v4_hir_item_parse_node(hir, 1)
+    pilot span = v4_hir_item_span(hir, 1)
+    pilot idx = 0
+    repeat until idx >= count {
+        v4_hir_add_item(hir, v4_hir_impl, "Cargo<T>", span, node)
+        idx += 1
+    }
+    pilot built = v4_ty_impl_doctrine_candidate_build_items
+    pilot headers = v4_ty_impl_doctrine_header_reads
+    pilot published: bool = v4_ty_item_method_cache_finalize(ty)
+    pilot items = v4_hir_item_count(hir)
+    pilot packed = v4_ty_item_method_cache_handle(hir)
+    pilot construction: bool = v4_ty_impl_doctrine_candidate_build_items - built == items and v4_ty_impl_doctrine_header_reads - headers == items - 2 and word_to_int(array_get(packed, 8)) == 0 and array_len(packed) == 9 + 6 * items + 2 * (items - 2)
+    -- Explicit original traversal proves header-work counters are sensitive.
+    headers = v4_ty_impl_doctrine_header_reads
+    pilot original: bool = v4_ty_next_doctrine_impl_item_uncached(ty, 0 - 1) == 0 - 1
+    pilot control: bool = original and v4_ty_impl_doctrine_header_reads - headers == items - 2
+    headers = v4_ty_impl_doctrine_header_reads
+    pilot kind_reads = v4_hir_item_kind_reads
+    pilot probes = v4_ty_impl_doctrine_candidate_lookup_probes
+    pilot cold = v4_ty_impl_doctrine_candidate_cold_probes
+    pilot builds = v4_ty_item_method_cache_builds
+    pilot available = v4_ty_doctrine_index_available_handles()
+    pilot correct = true
+    idx = 0
+    repeat until idx >= 64 {
+        if v4_ty_next_doctrine_impl_item(ty, 0 - 1) != 0 - 1 { correct = false }
+        -- These actual MIR consumers fail the work assertion with old scans.
+        if v4_mir_binary_operator_overload_ref(mir, "int", v4_mir_bin_add) != "" { correct = false }
+        if v4_mir_binary_operator_overload_ref(mir, "int", v4_mir_bin_mul) != "" { correct = false }
+        if v4_mir_unary_operator_overload_ref(mir, "int", v4_mir_unary_neg) != "" { correct = false }
+        idx += 1
+    }
+    pilot readonly: bool = v4_ty_impl_doctrine_header_reads == headers and v4_hir_item_kind_reads == kind_reads and v4_ty_impl_doctrine_candidate_lookup_probes == probes and v4_ty_impl_doctrine_candidate_cold_probes == cold and v4_ty_item_method_cache_builds == builds and v4_ty_doctrine_index_available_handles() == available
+    say "ty-doctrine-scale" + word_from_int(count) + "-actual-work-bounded=" + word_from_bool(published and construction and control and correct and readonly)
+}
+
+task v4_ty_doctrine_index_run() -> void {
+    pilot invalid: bool = v4_ty_next_doctrine_impl_item(0, 0 - 1) == 0 - 1 and v4_ty_next_doctrine_impl_item(0 - 1, 0) == 0 - 1 and v4_ty_next_doctrine_impl_item(999999, 0) == 0 - 1
+    say "ty-doctrine-invalid-readonly=" + word_from_bool(invalid and v4_ty_ready == 0 and v4_resolve_ready == 0 and v4_hir_ready == 0 and v4_expand_ready == 0 and v4_parse_ready == 0 and v4_lex_ready == 0)
+    pilot orphan = v4_ty_file_new(0, 0 - 1)
+    pilot parentless: bool = v4_ty_next_doctrine_impl_item(orphan, 0 - 1) == 0 - 1 and v4_resolve_ready == 0 and v4_hir_ready == 0
+    pilot bare_hir = v4_hir_file_new(0, 0 - 1)
+    v4_hir_add_item(bare_hir, v4_hir_impl, "bare", V4_NO_SPAN, 0 - 1)
+    pilot bare_resolve = v4_resolve_new(0, bare_hir)
+    pilot bare_ty = v4_ty_file_new(0, bare_resolve)
+    pilot absent_syntax: bool = v4_ty_next_doctrine_impl_item(bare_ty, 0 - 1) == 0 - 1 and v4_expand_ready == 0 and v4_parse_ready == 0 and v4_lex_ready == 0
+    say "ty-doctrine-absent-parent-readonly=" + word_from_bool(parentless and absent_syntax)
+    -- Reuse this HIR high-water slot with a real complete syntax parent below.
+    v4_hir_begin_snapshot_restore()
+    pilot source = v4_ty_doctrine_index_source()
+    pilot file = v4_source_add("ty-doctrine-candidates.fk", source)
+    pilot stream = v4_lex_text(file, source)
+    pilot tree = v4_parse_stream(file, stream)
+    pilot hir = v4_hir_lower_tree(file, tree)
+    pilot resolved = v4_resolve_lower_hir(file, hir)
+    pilot ty = v4_ty_lower_resolve(file, resolved)
+    pilot mir = v4_mir_file_new(file, ty)
+    pilot packed = v4_ty_item_method_cache_handle(hir)
+    pilot baseline = v4_hir_snapshot()
+    say "ty-doctrine-clean-source=" + word_from_bool(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_ty_diag_count(ty) == 0)
+    pilot ordered: bool = v4_ty_next_doctrine_impl_item(ty, 0 - 2) == 4 and v4_ty_next_doctrine_impl_item(ty, 3) == 4 and v4_ty_next_doctrine_impl_item(ty, 4) == 5 and v4_ty_next_doctrine_impl_item(ty, 5) == 6 and v4_ty_next_doctrine_impl_item(ty, 6) == 7 and v4_ty_next_doctrine_impl_item(ty, 7) == 0 - 1 and v4_ty_next_doctrine_impl_item(ty, 999999) == 0 - 1
+    say "ty-doctrine-first-physical-order=" + word_from_bool(ordered and word_to_int(array_get(packed, 8)) == 4 and v4_ty_doctrine_index_matches_raw(ty, hir))
+    pilot int_ref = v4_mir_binary_operator_overload_ref(mir, "int", v4_mir_bin_add)
+    pilot primitive: bool = int_ref == v4_mir_method_ref(4, 0) and v4_mir_binary_operator_overload_ref(mir, "tiny", v4_mir_bin_add) == int_ref and v4_mir_binary_operator_overload_ref(mir, "uint", v4_mir_bin_add) == int_ref
+    pilot generic_ref = v4_mir_binary_operator_overload_ref(mir, "Box<int>", v4_mir_bin_add)
+    pilot generic: bool = generic_ref == v4_mir_method_ref(7, 0) and v4_ty_impl_method_return_type_for_owner(ty, 7, 0, "Box<int>") == "Box<int>" and v4_ty_impl_method_explicit_param_type_for_owner(ty, 7, 0, 0, "Box<int>") == "Box<int>"
+    pilot generic_doctrine: bool = v4_mir_find_doctrine_impl_method_ref(mir, "Box<int>", "Value<int>", "value") == v4_mir_method_ref(6, 0) and v4_mir_find_doctrine_impl_method_ref(mir, "Box<int>", "Value<word>", "value") == ""
+    say "ty-doctrine-matching-unchanged=" + word_from_bool(primitive and generic and generic_doctrine)
+    pilot headers = v4_ty_impl_doctrine_header_reads
+    pilot kind_reads = v4_hir_item_kind_reads
+    pilot probes = v4_ty_impl_doctrine_candidate_lookup_probes
+    pilot idx = 0
+    repeat until idx >= 64 {
+        if v4_ty_next_doctrine_impl_item(ty, 5) != 6 { ordered = false }
+        idx += 1
+    }
+    say "ty-doctrine-warm-upper-bound-readonly=" + word_from_bool(ordered and v4_ty_impl_doctrine_header_reads == headers and v4_hir_item_kind_reads == kind_reads and v4_ty_impl_doctrine_candidate_lookup_probes - probes <= 3 * 64)
+
+    pilot builds = v4_ty_item_method_cache_builds
+    pilot first_start = v4_ty_hir_item_start_token(hir, 4)
+    pilot first_open = v4_ty_impl_body_open_token_from_hir(ty, 4)
+    pilot for_token = v4_ty_find_token_value(stream, first_start, first_open, "for")
+    array_set(v4_lex_values_handle(stream), for_token, "none")
+    v4_lex_note_stream_mutation(stream)
+    pilot token_cold: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_ty_next_doctrine_impl_item(ty, 3) == 5 and v4_ty_next_doctrine_impl_item(ty, 3) == v4_ty_next_doctrine_impl_item_uncached(ty, 3) and v4_ty_item_method_cache_builds == builds
+    array_set(v4_lex_values_handle(stream), for_token, "for")
+    v4_lex_note_stream_mutation(stream)
+    pilot token_bounds: bool = v4_lex_rebuild_boundaries(stream)
+    pilot token_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-doctrine-token-overwrite-cold-recover=" + word_from_bool(token_cold and token_bounds and token_publish and v4_ty_next_doctrine_impl_item(ty, 3) == 4)
+
+    pilot node = v4_hir_item_parse_node(hir, 3)
+    pilot node_kind = v4_parse_node_kind(tree, node)
+    pilot node_value = v4_parse_node_value(tree, node)
+    pilot node_span = v4_parse_node_span(tree, node)
+    pilot parent = v4_parse_node_parent(tree, node)
+    pilot qualified_node = v4_hir_item_parse_node(hir, 4)
+    builds = v4_ty_item_method_cache_builds
+    v4_parse_restore_node_slot(tree, node, node_kind, node_value, v4_parse_node_span(tree, qualified_node), parent)
+    pilot parse_cold: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 3 and v4_ty_item_method_cache_builds == builds
+    v4_parse_restore_node_slot(tree, node, node_kind, node_value, node_span, parent)
+    pilot parse_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-doctrine-parse-overwrite-cold-recover=" + word_from_bool(parse_cold and parse_publish and v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 4)
+    pilot plain_name = v4_hir_item_name(hir, 3)
+    pilot plain_def = v4_hir_item_def(hir, 3)
+    pilot plain_span = v4_hir_item_span(hir, 3)
+    builds = v4_ty_item_method_cache_builds
+    v4_hir_restore_item_slot(hir, 3, v4_hir_impl, plain_name, plain_def, plain_span, qualified_node, "", V4_NO_SPAN)
+    pilot hir_cold: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 3 and v4_ty_item_method_cache_builds == builds
+    v4_hir_restore_item_slot(hir, 3, v4_hir_impl, plain_name, plain_def, plain_span, node, "", V4_NO_SPAN)
+    pilot hir_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-doctrine-hir-overwrite-cold-recover=" + word_from_bool(hir_cold and hir_publish and v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 4)
+
+    pilot first_sig = v4_ty_doctrine_signature_id_for_name(ty, "Add")
+    builds = v4_ty_item_method_cache_builds
+    v4_ty_restore_signature_slot(ty, first_sig, v4_ty_signature_def(ty, first_sig), v4_ty_signature_kind(ty, first_sig), v4_ty_signature_name(ty, first_sig), v4_ty_signature_display(ty, first_sig), v4_ty_signature_hir_item(ty, first_sig))
+    pilot direct_cold: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 4 and v4_ty_item_method_cache_builds == builds
+    pilot direct_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-doctrine-direct-ty-restore-cold=" + word_from_bool(direct_cold and direct_publish)
+    pilot ty_snapshot = v4_ty_snapshot()
+    pilot rejected = v4_ty_snapshot_restore("not-a-snapshot")
+    say "ty-doctrine-rejected-restore-stable=" + word_from_bool(rejected.starts_with("ty-snapshot-restore ok=0") and v4_ty_snapshot() == ty_snapshot and v4_ty_item_method_cache_is_ready(hir) and v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 4)
+
+    -- Missing optional epoch facts leave valid token owners on cold readers.
+    pilot lex_revision = v4_lex_stream_revision(stream)
+    array_set(v4_lex_stream_revisions, stream, "-1")
+    builds = v4_ty_item_method_cache_builds
+    pilot unavailable: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 4 and not v4_ty_item_method_cache_finalize(ty) and v4_ty_item_method_cache_builds == builds
+    array_set(v4_lex_stream_revisions, stream, word_from_int(lex_revision))
+    v4_lex_note_stream_mutation(stream)
+    pilot epoch_bounds: bool = v4_lex_rebuild_boundaries(stream)
+    pilot epoch_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-doctrine-unavailable-epoch-cold-recover=" + word_from_bool(unavailable and epoch_bounds and epoch_publish and v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 4)
+
+    pilot available = v4_ty_doctrine_index_available_handles()
+    pilot stable = true
+    idx = 0
+    repeat until idx >= 4 {
+        pilot restored = v4_hir_snapshot_restore(baseline)
+        if not restored.starts_with("hir-snapshot-restore ok=1") or v4_ty_item_method_cache_is_ready(hir) or v4_ty_next_doctrine_impl_item(ty, 0 - 1) != 4 { stable = false }
+        if not v4_ty_item_method_cache_finalize(ty) or v4_ty_item_method_cache_handle(hir) != packed or v4_hir_snapshot() != baseline { stable = false }
+        idx += 1
+    }
+    say "ty-doctrine-whole-restore-handle-byte-stable=" + word_from_bool(stable and available > 0 and available < 2048 and v4_ty_doctrine_index_available_handles() == available)
+    pilot revision = v4_hir_revision(hir)
+    pilot expansion = v4_hir_expansion_id(hir)
+    pilot retained_span = v4_hir_item_span(hir, 4)
+    pilot retained_def = v4_hir_item_def(hir, 4)
+    v4_hir_begin_snapshot_restore()
+    v4_hir_restore_file_slot(hir, file, expansion)
+    v4_hir_restore_item_slot(hir, 0, v4_hir_impl, "Add", retained_def, retained_span, qualified_node, "", V4_NO_SPAN)
+    pilot reused_cold: bool = v4_hir_revision(hir) > revision and not v4_ty_item_method_cache_is_ready(hir) and v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 0 and v4_ty_next_doctrine_impl_item(ty, 0) == 0 - 1
+    pilot reused_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-doctrine-shortened-owner-reuse=" + word_from_bool(reused_cold and reused_publish and word_to_int(array_get(packed, 8)) == 1 and v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 0 and v4_ty_next_doctrine_impl_item(ty, 0) == 0 - 1)
+    v4_hir_snapshot_restore(baseline)
+    v4_ty_item_method_cache_finalize(ty)
+
+    array_release(v4_ty_item_method_cache_handle(hir))
+    array_set(v4_ty_item_method_caches, hir, "-1")
+    pilot holders = array_new()
+    pilot exhausted = false
+    idx = 0
+    repeat until exhausted or idx >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            idx += 1
+        }
+    }
+    builds = v4_ty_item_method_cache_builds
+    pilot denied: bool = not v4_ty_item_method_cache_finalize(ty)
+    pilot pressure_correct: bool = v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 4 and v4_ty_next_doctrine_impl_item(ty, 4) == 5 and v4_ty_next_doctrine_impl_item(ty, 7) == 0 - 1
+    say "ty-doctrine-exhaustion-cold-readonly=" + word_from_bool(exhausted and denied and pressure_correct and v4_ty_item_method_cache_handle(hir) < 0 and v4_ty_item_method_cache_builds == builds)
+    idx = 0
+    repeat until idx >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, idx)))
+        idx += 1
+    }
+    array_release(holders)
+    pilot still_cold: bool = v4_ty_next_doctrine_impl_item(ty, 0 - 1) == 4 and v4_ty_item_method_cache_handle(hir) < 0
+    pilot pressure_publish: bool = v4_ty_item_method_cache_finalize(ty)
+    say "ty-doctrine-exhaustion-explicit-recover=" + word_from_bool(still_cold and pressure_publish and v4_ty_doctrine_index_matches_raw(ty, hir))
+
+    pilot associated_source = v4_ty_doctrine_index_associated_source()
+    pilot associated_file = v4_source_add("ty-doctrine-associated.fk", associated_source)
+    pilot associated_stream = v4_lex_text(associated_file, associated_source)
+    pilot associated_tree = v4_parse_stream(associated_file, associated_stream)
+    pilot associated_hir = v4_hir_lower_tree(associated_file, associated_tree)
+    pilot associated_resolve = v4_resolve_lower_hir(associated_file, associated_hir)
+    pilot associated_ty = v4_ty_lower_resolve(associated_file, associated_resolve)
+    pilot associated_mir = v4_mir_lower_ty(associated_file, associated_ty)
+    say "ty-doctrine-associated-source-clean=" + word_from_bool(v4_parse_diag_count(associated_tree) == 0 and v4_ty_diag_count(associated_ty) == 0 and v4_mir_diag_count(associated_mir) == 0)
+    v4_ty_doctrine_index_scale(associated_ty, associated_hir, associated_mir, 200)
+    v4_ty_doctrine_index_scale(associated_ty, associated_hir, associated_mir, 800)
+}
+
+v4_ty_doctrine_index_run()

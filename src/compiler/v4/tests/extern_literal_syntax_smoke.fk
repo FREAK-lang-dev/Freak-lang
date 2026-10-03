@@ -1,0 +1,30 @@
+-- Extern syntax scans preserve quoted arrows, delimiters and keywords as data.
+task v4_extern_literal_assert(condition: bool, label: word) -> void {
+    if not condition { panic("extern literal syntax: " + label) }
+}
+
+task v4_extern_literal_run() -> void {
+    pilot open_brace = "{"
+    pilot close_brace = "}"
+    pilot source = "extern [C] " + open_brace + "\n \"task\" ghost() -> void;\n task literal_arrow() \"->\" int;\n task literal_fallback() \"=>\" true;\n task literal_open() -> \"" + open_brace + "\";\n task literal_close() -> \"" + close_brace + "\";\n task literal_done() -> \"done\";\n task body() -> int " + open_brace + " say \"" + open_brace + "\"; say \"" + close_brace + "\"; say \"done\"; give back 1 " + close_brace + "\n task after() -> void;\n" + close_brace + "\n"
+    pilot hir = v4_hir_text_cached("extern-literal-syntax.fk", source)
+    pilot ty = v4_ty_text_cached("extern-literal-syntax.fk", source)
+    pilot tree = v4_hir_tree_id(hir)
+    pilot item = 0
+    pilot node = v4_hir_item_parse_node(hir, item)
+    v4_extern_literal_assert(v4_hir_item_kind(hir, item) == v4_hir_extern and v4_parse_extern_member_count(tree, node) == 7 and v4_hir_extern_member_count(hir, item) == 7, "quoted task is not a declaration")
+    v4_extern_literal_assert(v4_hir_extern_member_name(hir, item, 0) == "literal_arrow" and v4_hir_extern_member_name(hir, item, 6) == "after", "successor names retained")
+    say "extern-literal members=true successors=true"
+    v4_extern_literal_assert(v4_hir_extern_member_return_surface_type(hir, item, 0) == "" and v4_hir_extern_member_return_span(hir, item, 0) == V4_NO_SPAN and not v4_hir_extern_member_return_has_arrow_fallback(hir, item, 1), "quoted arrows are not return syntax")
+    v4_extern_literal_assert(v4_ty_extern_member_return_surface_from_hir(hir, item, 0) == v4_ty_unknown and v4_ty_extern_member_return_surface_from_hir(hir, item, 1) == v4_ty_unknown, "quoted arrows stay unknown")
+    say "extern-literal arrows=true fallback=true"
+    v4_extern_literal_assert(v4_hir_extern_member_return_surface_type(hir, item, 2) == "{" and v4_hir_extern_member_return_surface_type(hir, item, 3) == "}" and v4_hir_extern_member_return_surface_type(hir, item, 4) == "done", "raw type payload retained")
+    pilot body_span = v4_hir_extern_member_span(hir, item, 5)
+    v4_extern_literal_assert(v4_slice(source, v4_span_start(body_span), v4_span_end(body_span)).ends_with("give back 1 }") and v4_hir_extern_member_return_surface_type(hir, item, 6) == "void", "quoted body recovery tokens do not truncate")
+    say "extern-literal payload=true body=true"
+    pilot before = v4_hir_snapshot()
+    v4_extern_literal_assert(v4_hir_snapshot_restore(before).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == before and v4_hir_extern_member_count(hir, item) == 7, "v10 exact restore")
+    say "extern-literal snapshot=true"
+}
+
+v4_extern_literal_run()

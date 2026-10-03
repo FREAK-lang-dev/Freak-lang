@@ -1,0 +1,30 @@
+-- Execute zero, one and several callback parameters, including a returned
+-- callback target whose producer prints once for each actual evaluation.
+@extern_callback("C")
+task zero() -> std::ffi::c_isize { give back 7 }
+
+@extern_callback("C")
+task one(value: std::ffi::c_isize) -> std::ffi::c_isize { give back value + 1 }
+
+@extern_callback("C")
+task many(a: std::ffi::c_isize, b: std::ffi::c_isize, c: std::ffi::c_isize) -> std::ffi::c_isize {
+    give back a + b + c
+}
+
+task invoke(cb_zero: extern [C] task() -> std::ffi::c_isize, cb_one: extern [C] task(value: std::ffi::c_isize) -> std::ffi::c_isize, cb_many: extern [C] task(a: std::ffi::c_isize, b: std::ffi::c_isize, c: std::ffi::c_isize) -> std::ffi::c_isize) -> std::ffi::c_isize {
+    give back cb_zero() + cb_one(4) + cb_many(1, 2, 3)
+}
+
+task current() -> extern [C] task() -> std::ffi::c_isize {
+    say "callback target evaluated"
+    give back zero
+}
+
+task main() -> int {
+    pilot local = zero
+    pilot returned = current()
+    pilot answer = invoke(local, one, many)
+    answer += returned()
+    answer += current()()
+    give back answer + 10
+}

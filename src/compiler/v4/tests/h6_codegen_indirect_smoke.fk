@@ -1,0 +1,62 @@
+-- The returned callback target must be evaluated once; zero payload must stay
+-- empty. Check the actual body instructions rather than only the call plan.
+task h6_indirect_assert(condition: bool, label: word) -> void {
+    if not condition { panic("h6 indirect: " + label) }
+}
+
+task h6_indirect_occurrences(text: word, needle: word) -> int {
+    if needle == "" { give back 0 }
+    pilot count = 0
+    pilot offset = 0
+    repeat until offset + needle.length() > text.length() {
+        if v4_slice(text, offset, offset + needle.length()) == needle {
+            count += 1
+            offset += needle.length()
+        } else { offset += 1 }
+    }
+    give back count
+}
+
+task h6_indirect_run() -> void {
+    pilot source = "extern [C] {\n" + " task current() -> extern [C] task() -> std::ffi::c_isize\n" + "}\n"
+    source = source + "task zero(cb: extern [C] task() -> int) -> int {\n" + " give back cb()\n" + "}\n"
+    source = source + "task one(cb: extern [C] task(a: int) -> int) -> int {\n" + " give back cb(5)\n" + "}\n"
+    source = source + "task many(cb: extern [C] task(a: int, b: int, c: int) -> int) -> int {\n" + " give back cb(5, 6, 7)\n" + "}\n"
+    source = source + "task returned() -> int {\n" + " pilot cb = current()\n give back cb()\n" + "}\n"
+    source = source + "task computed() -> int {\n" + " give back current()()\n" + "}\n"
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    h6_indirect_assert(v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 5, "valid owner and callback bodies")
+    pilot codegen = v4_codegen_llvm_lower_mir(0, mir)
+    pilot errors = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_borrowck_diag_count(borrow) + v4_codegen_llvm_diag_count(codegen)
+    h6_indirect_assert(errors == 0, "clean frontend")
+    h6_indirect_assert(v4_codegen_llvm_native_module_error(codegen) == "", "native support")
+    pilot zero = v4_codegen_llvm_body_line(codegen, v4_codegen_llvm_find_body(codegen, "zero"))
+    pilot one = v4_codegen_llvm_body_line(codegen, v4_codegen_llvm_find_body(codegen, "one"))
+    pilot many = v4_codegen_llvm_body_line(codegen, v4_codegen_llvm_find_body(codegen, "many"))
+    pilot returned = v4_codegen_llvm_body_line(codegen, v4_codegen_llvm_find_body(codegen, "returned"))
+    pilot computed = v4_codegen_llvm_body_line(codegen, v4_codegen_llvm_find_body(codegen, "computed"))
+    h6_indirect_assert(zero.contains("call ccc i64 %rv.0.0() nounwind") and not zero.contains("(ptr %rv."), "zero has no callee argument")
+    h6_indirect_assert(h6_indirect_occurrences(zero, " = load ptr,") == 1, "zero target loaded once")
+    h6_indirect_assert(one.contains("(i64 5) nounwind") and h6_indirect_occurrences(one, " = load ptr,") == 1, "one payload")
+    h6_indirect_assert(many.contains("(i64 5, i64 6, i64 7) nounwind") and h6_indirect_occurrences(many, " = load ptr,") == 1, "several payloads")
+    h6_indirect_assert(h6_indirect_occurrences(returned, "call ccc ptr @current() nounwind") == 1 and h6_indirect_occurrences(returned, " = load ptr,") == 1, "returned local")
+    h6_indirect_assert(h6_indirect_occurrences(computed, "call ccc ptr @current() nounwind") == 1 and computed.contains("call ccc i64 %rv.") and not computed.contains("(ptr %rv."), "computed target evaluated once")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    h6_indirect_assert(v4_codegen_llvm_module_text(codegen, target) != "", "library module needs no main")
+    pilot snapshot = v4_mir_snapshot()
+    h6_indirect_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "wire valid")
+    h6_indirect_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "wire restored")
+    pilot again = v4_codegen_llvm_lower_mir(0, mir)
+    h6_indirect_assert(v4_codegen_llvm_module_text(again, target) == v4_codegen_llvm_module_text(codegen, target), "snapshot module exact")
+    say "h6-indirect zero=true one=true many=true callee-excluded=true"
+    say "h6-indirect local=true returned=true computed-once=true"
+    say "h6-indirect library=true snapshot=true module-exact=true"
+}
+
+h6_indirect_run()

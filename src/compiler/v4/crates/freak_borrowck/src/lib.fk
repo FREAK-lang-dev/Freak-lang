@@ -123,6 +123,14 @@ pilot v4_borrowck_call_projection_relation_limit_value = 1024
 pilot v4_borrowck_repeat_projection_scan_limit_value = 4096
 pilot v4_borrowck_repeat_projection_scan_exhausted_value = false
 pilot v4_borrowck_repeat_projection_scan_slot_count_value = 0
+-- Optional per-result statement/path chains, derived from physical path rows.
+-- One registry per file and one packed table per result; snapshots omit them.
+pilot v4_borrowck_stmt_path_indexes = 0 - 1
+pilot v4_borrowck_stmt_path_index_probes = 0
+pilot v4_borrowck_stmt_path_index_visits = 0
+pilot v4_borrowck_stmt_path_linear_steps = 0
+pilot v4_borrowck_stmt_path_index_rebuilds = 0
+pilot v4_borrowck_mutable_exclusivity_path_probes = 0
 pilot v4_borrowck_ready = 0
 
 task v4_borrowck_init() -> void {
@@ -176,6 +184,7 @@ task v4_borrowck_init() -> void {
         v4_borrowck_copy_cache_sig_ids = array_new()
         v4_borrowck_copy_cache_types = array_new()
         v4_borrowck_copy_cache_values = array_new()
+        v4_borrowck_stmt_path_indexes = array_new()
         v4_borrowck_ready = 1
     }
 }
@@ -203,6 +212,7 @@ task v4_borrowck_file_new(file_id: int, mir_id: int) -> int {
     array_push(v4_borrowck_fixed_point_converged_by_file, "true")
     array_push(v4_borrowck_resource_exhausted_by_file, "false")
     array_push(v4_borrowck_fixed_point_work_items_by_file, "0")
+    if v4_borrowck_stmt_path_indexes >= 0 { array_push(v4_borrowck_stmt_path_indexes, word_from_int(array_new())) }
     give back borrow_id
 }
 
@@ -304,6 +314,214 @@ task v4_borrowck_result_path_block_ids_handle(borrow_id: int, result_id: int) ->
     give back word_to_int(array_get(v4_borrowck_path_block_ids_index_handle(borrow_id), result_id))
 }
 
+-- Packed layout: indexed path count; bucket capacity; C statement keys;
+-- C heads; C tails; C counts; P next links. Empty buckets have a negative head.
+-- Numeric keys include -1 and extreme/sparse restored IDs; capacity depends on
+-- observed path count, never on the largest statement ID.
+task v4_borrowck_stmt_path_index_new(capacity: int) -> int {
+    pilot index = array_new()
+    if index < 0 { give back 0 - 1 }
+    array_push(index, "0")
+    array_push(index, word_from_int(capacity))
+    pilot cell = 0
+    repeat until cell >= capacity * 4 {
+        array_push(index, "-1")
+        cell += 1
+    }
+    give back index
+}
+
+-- Index queries must not initialize Meiya or interpret default handle 0 as an
+-- owner. Keep these checks separate from file_exists, which initializes it.
+task v4_borrowck_stmt_path_file_exists(borrow_id: int) -> bool {
+    give back v4_borrowck_ready != 0 and borrow_id >= 0 and borrow_id < array_len(v4_borrowck_files)
+}
+
+task v4_borrowck_stmt_path_result_exists(borrow_id: int, result_id: int) -> bool {
+    if not v4_borrowck_stmt_path_file_exists(borrow_id) or result_id < 0 { give back false }
+    if borrow_id >= array_len(v4_borrowck_body_defs) or borrow_id >= array_len(v4_borrowck_path_kinds) or borrow_id >= array_len(v4_borrowck_path_stmt_ids) { give back false }
+    pilot defs = v4_borrowck_defs_handle(borrow_id)
+    pilot kinds = v4_borrowck_path_kinds_index_handle(borrow_id)
+    pilot stmts = v4_borrowck_path_stmt_ids_index_handle(borrow_id)
+    if defs < 0 or kinds < 0 or stmts < 0 or result_id >= array_len(defs) or result_id >= array_len(kinds) or result_id >= array_len(stmts) { give back false }
+    give back word_to_int(array_get(kinds, result_id)) >= 0 and word_to_int(array_get(stmts, result_id)) >= 0
+}
+
+task v4_borrowck_stmt_path_indexes_handle(borrow_id: int) -> int {
+    if not v4_borrowck_stmt_path_file_exists(borrow_id) { give back 0 - 1 }
+    if v4_borrowck_stmt_path_indexes < 0 or borrow_id < 0 or borrow_id >= array_len(v4_borrowck_stmt_path_indexes) { give back 0 - 1 }
+    give back word_to_int(array_get(v4_borrowck_stmt_path_indexes, borrow_id))
+}
+
+task v4_borrowck_stmt_path_index_handle(borrow_id: int, result_id: int) -> int {
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back 0 - 1 }
+    pilot owner = v4_borrowck_stmt_path_indexes_handle(borrow_id)
+    if owner < 0 or result_id < 0 or result_id >= array_len(owner) { give back 0 - 1 }
+    give back word_to_int(array_get(owner, result_id))
+}
+
+task v4_borrowck_stmt_path_index_is_ready(borrow_id: int, result_id: int) -> bool {
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back false }
+    pilot index = v4_borrowck_stmt_path_index_handle(borrow_id, result_id)
+    if index < 0 { give back false }
+    pilot count = v4_borrowck_result_path_count(borrow_id, result_id)
+    pilot capacity = word_to_int(array_get(index, 1))
+    give back capacity > 0 and array_len(index) == 2 + capacity * 4 + count and word_to_int(array_get(index, 0)) == count
+}
+
+task v4_borrowck_invalidate_stmt_path_index(borrow_id: int, result_id: int) -> void {
+    pilot index = v4_borrowck_stmt_path_index_handle(borrow_id, result_id)
+    if index >= 0 { array_set(index, 0, "-1") }
+}
+
+task v4_borrowck_stmt_path_index_bucket(index: int, stmt_id: int) -> int {
+    pilot capacity = word_to_int(array_get(index, 1))
+    pilot bucket = stmt_id % capacity
+    if bucket < 0 { bucket += capacity }
+    -- Spread consecutive statements and mix sparse high IDs without abs(INT_MIN).
+    pilot upper = (stmt_id / capacity) % capacity
+    if upper < 0 { upper += capacity }
+    bucket = (bucket * 33 % capacity + upper) % capacity
+    pilot visited = 0
+    repeat until visited >= capacity {
+        v4_borrowck_stmt_path_index_probes += 1
+        if word_to_int(array_get(index, 2 + capacity + bucket)) < 0 or word_to_int(array_get(index, 2 + bucket)) == stmt_id {
+            give back bucket
+        }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back 0 - 1
+}
+
+-- Append to a statement chain in physical path order, retaining every row.
+task v4_borrowck_stmt_path_index_insert(borrow_id: int, result_id: int, index: int, path_id: int) -> bool {
+    pilot capacity = word_to_int(array_get(index, 1))
+    pilot stmt_id = v4_borrowck_path_stmt(borrow_id, result_id, path_id)
+    pilot bucket = v4_borrowck_stmt_path_index_bucket(index, stmt_id)
+    if bucket < 0 { give back false }
+    array_push(index, "-1")
+    pilot head = word_to_int(array_get(index, 2 + capacity + bucket))
+    if head < 0 {
+        array_set(index, 2 + bucket, word_from_int(stmt_id))
+        array_set(index, 2 + capacity + bucket, word_from_int(path_id))
+        array_set(index, 2 + capacity * 3 + bucket, "1")
+    } else {
+        pilot tail = word_to_int(array_get(index, 2 + capacity * 2 + bucket))
+        array_set(index, 2 + capacity * 4 + tail, word_from_int(path_id))
+        pilot count = word_to_int(array_get(index, 2 + capacity * 3 + bucket))
+        array_set(index, 2 + capacity * 3 + bucket, word_from_int(count + 1))
+    }
+    array_set(index, 2 + capacity * 2 + bucket, word_from_int(path_id))
+    give back true
+}
+
+-- Full restoration can reorder/repeat rows. Rebuild only after the authoritative
+-- slots are populated; direct mutation leaves cold scans correct meanwhile.
+task v4_borrowck_finalize_stmt_path_index(borrow_id: int, result_id: int) -> bool {
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back false }
+    pilot owner = v4_borrowck_stmt_path_indexes_handle(borrow_id)
+    if owner < 0 or result_id >= array_len(owner) { give back false }
+    pilot count = v4_borrowck_result_path_count(borrow_id, result_id)
+    pilot capacity = 16
+    repeat until capacity >= count * 2 { capacity *= 2 }
+    pilot index = v4_borrowck_stmt_path_index_new(capacity)
+    if index < 0 { give back false }
+    pilot path_id = 0
+    pilot valid: bool = true
+    repeat until path_id >= count or valid == false {
+        valid = v4_borrowck_stmt_path_index_insert(borrow_id, result_id, index, path_id)
+        path_id += 1
+    }
+    if not valid {
+        array_release(index)
+        give back false
+    }
+    array_set(index, 0, word_from_int(count))
+    pilot previous = v4_borrowck_stmt_path_index_handle(borrow_id, result_id)
+    array_set(owner, result_id, word_from_int(index))
+    array_release(previous)
+    v4_borrowck_stmt_path_index_rebuilds += 1
+    give back true
+}
+
+task v4_borrowck_stmt_path_first(borrow_id: int, result_id: int, stmt_id: int) -> int {
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back 0 - 1 }
+    if v4_borrowck_stmt_path_index_is_ready(borrow_id, result_id) {
+        pilot index = v4_borrowck_stmt_path_index_handle(borrow_id, result_id)
+        pilot bucket = v4_borrowck_stmt_path_index_bucket(index, stmt_id)
+        if bucket < 0 { give back 0 - 1 }
+        pilot capacity = word_to_int(array_get(index, 1))
+        pilot first = word_to_int(array_get(index, 2 + capacity + bucket))
+        if first >= 0 { v4_borrowck_stmt_path_index_visits += 1 }
+        give back first
+    }
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        v4_borrowck_stmt_path_linear_steps += 1
+        if v4_borrowck_path_stmt(borrow_id, result_id, path_id) == stmt_id {
+            v4_borrowck_stmt_path_index_visits += 1
+            give back path_id
+        }
+        path_id += 1
+    }
+    give back 0 - 1
+}
+
+task v4_borrowck_stmt_path_next(borrow_id: int, result_id: int, stmt_id: int, path_id: int) -> int {
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back 0 - 1 }
+    if path_id < 0 or path_id >= v4_borrowck_result_path_count(borrow_id, result_id) { give back 0 - 1 }
+    if v4_borrowck_stmt_path_index_is_ready(borrow_id, result_id) and v4_borrowck_path_stmt(borrow_id, result_id, path_id) == stmt_id {
+        pilot index = v4_borrowck_stmt_path_index_handle(borrow_id, result_id)
+        pilot capacity = word_to_int(array_get(index, 1))
+        pilot next = word_to_int(array_get(index, 2 + capacity * 4 + path_id))
+        if next >= 0 { v4_borrowck_stmt_path_index_visits += 1 }
+        give back next
+    }
+    pilot next = path_id + 1
+    repeat until next >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        v4_borrowck_stmt_path_linear_steps += 1
+        if v4_borrowck_path_stmt(borrow_id, result_id, next) == stmt_id {
+            v4_borrowck_stmt_path_index_visits += 1
+            give back next
+        }
+        next += 1
+    }
+    give back 0 - 1
+}
+
+task v4_borrowck_stmt_path_count(borrow_id: int, result_id: int, stmt_id: int) -> int {
+    if not v4_borrowck_stmt_path_result_exists(borrow_id, result_id) { give back 0 }
+    if v4_borrowck_stmt_path_index_is_ready(borrow_id, result_id) {
+        pilot index = v4_borrowck_stmt_path_index_handle(borrow_id, result_id)
+        pilot bucket = v4_borrowck_stmt_path_index_bucket(index, stmt_id)
+        if bucket < 0 { give back 0 }
+        pilot capacity = word_to_int(array_get(index, 1))
+        if word_to_int(array_get(index, 2 + capacity + bucket)) < 0 { give back 0 }
+        give back word_to_int(array_get(index, 2 + capacity * 3 + bucket))
+    }
+    pilot count = 0
+    pilot path_id = 0
+    repeat until path_id >= v4_borrowck_result_path_count(borrow_id, result_id) {
+        v4_borrowck_stmt_path_linear_steps += 1
+        if v4_borrowck_path_stmt(borrow_id, result_id, path_id) == stmt_id { count += 1 }
+        path_id += 1
+    }
+    give back count
+}
+
+task v4_borrowck_release_stmt_path_indexes(borrow_id: int) -> void {
+    if not v4_borrowck_stmt_path_file_exists(borrow_id) { give back }
+    pilot owner = v4_borrowck_stmt_path_indexes_handle(borrow_id)
+    pilot result_id = 0
+    repeat until result_id >= array_len(owner) {
+        array_release(word_to_int(array_get(owner, result_id)))
+        result_id += 1
+    }
+    array_release(owner)
+    if v4_borrowck_stmt_path_indexes >= 0 and borrow_id >= 0 and borrow_id < array_len(v4_borrowck_stmt_path_indexes) { array_set(v4_borrowck_stmt_path_indexes, borrow_id, "-1") }
+}
+
 task v4_borrowck_result_def(borrow_id: int, result_id: int) -> word {
     give back array_get(v4_borrowck_defs_handle(borrow_id), result_id)
 }
@@ -381,6 +599,8 @@ task v4_borrowck_add_result(borrow_id: int, def_id: word, body_name: word, statu
     array_push(v4_borrowck_path_texts_index_handle(borrow_id), word_from_int(path_texts_handle))
     array_push(v4_borrowck_path_stmt_ids_index_handle(borrow_id), word_from_int(path_stmt_ids_handle))
     array_push(v4_borrowck_path_block_ids_index_handle(borrow_id), word_from_int(path_block_ids_handle))
+    pilot indexes = v4_borrowck_stmt_path_indexes_handle(borrow_id)
+    if indexes >= 0 { array_push(indexes, word_from_int(v4_borrowck_stmt_path_index_new(16))) }
     give back result_id
 }
 
@@ -396,10 +616,22 @@ task v4_borrowck_set_result_status(borrow_id: int, result_id: int, status: word)
 
 task v4_borrowck_add_path(borrow_id: int, result_id: int, path_kind: word, path_text: word, stmt_id: int, block_id: int) -> int {
     pilot path_id = array_len(v4_borrowck_result_path_kinds_handle(borrow_id, result_id))
+    pilot indexed: bool = v4_borrowck_stmt_path_index_is_ready(borrow_id, result_id)
     array_push(v4_borrowck_result_path_kinds_handle(borrow_id, result_id), path_kind)
     array_push(v4_borrowck_result_path_texts_handle(borrow_id, result_id), path_text)
     array_push(v4_borrowck_result_path_stmt_ids_handle(borrow_id, result_id), word_from_int(stmt_id))
     array_push(v4_borrowck_result_path_block_ids_handle(borrow_id, result_id), word_from_int(block_id))
+    if indexed {
+        pilot index = v4_borrowck_stmt_path_index_handle(borrow_id, result_id)
+        pilot capacity = word_to_int(array_get(index, 1))
+        if (path_id + 1) * 2 > capacity {
+            v4_borrowck_invalidate_stmt_path_index(borrow_id, result_id)
+            v4_borrowck_finalize_stmt_path_index(borrow_id, result_id)
+        } else {
+            pilot inserted: bool = v4_borrowck_stmt_path_index_insert(borrow_id, result_id, index, path_id)
+            if inserted { array_set(index, 0, word_from_int(path_id + 1)) } else { v4_borrowck_invalidate_stmt_path_index(borrow_id, result_id) }
+        }
+    }
     give back path_id
 }
 
@@ -3096,6 +3328,10 @@ task v4_borrowck_check_returned_lends(borrow_id: int, result_id: int, mir_id: in
                                     message = "Meiya refuses to return a loan of an owned value"
                                     if return_projection != "" { message = "Meiya refuses to return an aggregate loan of an owned value" }
                                     help = v4_borrowck_return_owned_help(body_name, source_text)
+                                    if sig_id < 0 and v4_mir_body_impl_method_index(mir_id, body_id, 0) >= 0 {
+                                        message = "Meiya cannot prove an impl method borrowed return yet"
+                                        help = "impl callable facts do not provide ordinary task returned-loan source contracts yet"
+                                    }
                                 } else {
                                     pilot contract_id = 0
                                     repeat until contract_id >= contract_count or message != "" {
@@ -3695,17 +3931,16 @@ task v4_borrowck_write_repairs_move(move_text: word, write_text: word) -> bool {
 }
 
 task v4_borrowck_stmt_repairs_move(borrow_id: int, result_id: int, move_text: word, stmt_id: int, block_id: int) -> bool {
-    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
-    pilot path_idx = 0
-    repeat until path_idx >= path_count {
+    pilot path_idx = v4_borrowck_stmt_path_first(borrow_id, result_id, stmt_id)
+    repeat until path_idx < 0 {
         if v4_borrowck_path_kind(borrow_id, result_id, path_idx) == v4_borrowck_path_write {
-            if v4_borrowck_path_stmt(borrow_id, result_id, path_idx) == stmt_id and v4_borrowck_path_block(borrow_id, result_id, path_idx) == block_id {
+            if v4_borrowck_path_block(borrow_id, result_id, path_idx) == block_id {
                 if v4_borrowck_write_repairs_move(move_text, v4_borrowck_path_text(borrow_id, result_id, path_idx)) {
                     give back true
                 }
             }
         }
-        path_idx += 1
+        path_idx = v4_borrowck_stmt_path_next(borrow_id, result_id, stmt_id, path_idx)
     }
     give back false
 }
@@ -3760,10 +3995,9 @@ task v4_borrowck_move_repaired_on_all_paths_seen(borrow_id: int, result_id: int,
     seen = v4_mir_name_list_add(seen, key)
 
     pilot current_repaired = repaired
-    pilot stmt_id = 0
-    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
-    repeat until stmt_id >= stmt_count {
-        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id and stmt_id > start_stmt {
+    pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, block_id)
+    repeat until stmt_id < 0 {
+        if stmt_id > start_stmt {
             if block_id == use_block and stmt_id == use_stmt {
                 give back current_repaired
             }
@@ -3771,7 +4005,7 @@ task v4_borrowck_move_repaired_on_all_paths_seen(borrow_id: int, result_id: int,
                 current_repaired = true
             }
         }
-        stmt_id += 1
+        stmt_id = v4_mir_block_next_stmt(mir_id, body_id, block_id, stmt_id)
     }
 
     pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
@@ -4763,13 +4997,12 @@ task v4_borrowck_holder_reaches_stmt_without_rebind_depth(mir_id: int, body_id: 
                 reaches = true
             } else if block_id == wanted_block and wanted_stmt < block_start_stmt and v4_borrowck_block_can_cycle(mir_id, body_id, block_id) {
                 pilot blocked_after_start = false
-                pilot trailing_stmt = 0
-                pilot trailing_count = v4_mir_body_stmt_count(mir_id, body_id)
-                repeat until trailing_stmt >= trailing_count or blocked_after_start {
-                    if v4_mir_stmt_block(mir_id, body_id, trailing_stmt) == block_id and trailing_stmt > block_start_stmt and trailing_stmt != provenance_stmt and v4_borrowck_stmt_rebinds_holder_at(mir_id, body_id, trailing_stmt, holder, alias_depth) {
+                pilot trailing_stmt = v4_mir_block_first_stmt(mir_id, body_id, block_id)
+                repeat until trailing_stmt < 0 or blocked_after_start {
+                    if trailing_stmt > block_start_stmt and trailing_stmt != provenance_stmt and v4_borrowck_stmt_rebinds_holder_at(mir_id, body_id, trailing_stmt, holder, alias_depth) {
                         blocked_after_start = true
                     }
-                    trailing_stmt += 1
+                    trailing_stmt = v4_mir_block_next_stmt(mir_id, body_id, block_id, trailing_stmt)
                 }
                 if not blocked_after_start {
                     pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
@@ -4786,17 +5019,16 @@ task v4_borrowck_holder_reaches_stmt_without_rebind_depth(mir_id: int, body_id: 
             } else {
                 v4_borrowck_mark_seen_index(seen, block_id)
                 pilot blocked = false
-                pilot stmt_id = 0
-                pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
-                repeat until stmt_id >= stmt_count or blocked or reaches {
-                    if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id and stmt_id > block_start_stmt {
+                pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, block_id)
+                repeat until stmt_id < 0 or blocked or reaches {
+                    if stmt_id > block_start_stmt {
                         if block_id == wanted_block and stmt_id == wanted_stmt {
                             reaches = true
                         } else if stmt_id != provenance_stmt and v4_borrowck_stmt_rebinds_holder_at(mir_id, body_id, stmt_id, holder, alias_depth) {
                             blocked = true
                         }
                     }
-                    stmt_id += 1
+                    stmt_id = v4_mir_block_next_stmt(mir_id, body_id, block_id, stmt_id)
                 }
                 if not blocked and not reaches {
                     pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
@@ -5403,17 +5635,12 @@ task v4_borrowck_path_exact_local(path_text: word, local_name: word) -> bool {
 }
 
 task v4_borrowck_stmt_has_exact_local_path(borrow_id: int, result_id: int, stmt_id: int, local_name: word, wanted_kind: word) -> bool {
-    pilot path_id = 0
-    pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
-    repeat until path_id >= path_count {
-        if v4_borrowck_path_stmt(borrow_id, result_id, path_id) == stmt_id {
-            if v4_borrowck_path_kind(borrow_id, result_id, path_id) == wanted_kind {
-                if v4_borrowck_path_exact_local(v4_borrowck_path_text(borrow_id, result_id, path_id), local_name) {
-                    give back true
-                }
-            }
+    pilot path_id = v4_borrowck_stmt_path_first(borrow_id, result_id, stmt_id)
+    repeat until path_id < 0 {
+        if v4_borrowck_path_kind(borrow_id, result_id, path_id) == wanted_kind {
+            if v4_borrowck_path_exact_local(v4_borrowck_path_text(borrow_id, result_id, path_id), local_name) { give back true }
         }
-        path_id += 1
+        path_id = v4_borrowck_stmt_path_next(borrow_id, result_id, stmt_id, path_id)
     }
     give back false
 }
@@ -5428,18 +5655,15 @@ task v4_borrowck_drop_state_index(block_id: int, initialized: bool) -> int {
 
 task v4_borrowck_local_state_after_block(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word, block_id: int, initialized: bool) -> bool {
     pilot current_initialized = initialized
-    pilot stmt_id = 0
-    pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
-    repeat until stmt_id >= stmt_count {
-        if v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
-            if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
-                current_initialized = false
-            }
-            if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
-                current_initialized = true
-            }
+    pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, block_id)
+    repeat until stmt_id < 0 {
+        if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_move) {
+            current_initialized = false
         }
-        stmt_id += 1
+        if v4_borrowck_stmt_has_exact_local_path(borrow_id, result_id, stmt_id, local_name, v4_borrowck_path_write) {
+            current_initialized = true
+        }
+        stmt_id = v4_mir_block_next_stmt(mir_id, body_id, block_id, stmt_id)
     }
     give back current_initialized
 }
@@ -5581,14 +5805,26 @@ task v4_borrowck_collect_body_paths(borrow_id: int, result_id: int, mir_id: int,
 task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
+    -- Summary counts are populated after checking and can be loose restored
+    -- facts. Reject loan-free bodies from their actual stored path kinds only.
+    pilot has_loan: bool = false
+    pilot path_idx = 0
+    repeat until path_idx >= path_count or has_loan {
+        v4_borrowck_mutable_exclusivity_path_probes += 1
+        has_loan = v4_borrowck_path_is_loan_kind(v4_borrowck_path_kind(borrow_id, result_id, path_idx))
+        path_idx += 1
+    }
+    if not has_loan { give back 0 }
     pilot write_idx = 0
     repeat until write_idx >= path_count {
+        v4_borrowck_mutable_exclusivity_path_probes += 1
         if v4_borrowck_path_kind(borrow_id, result_id, write_idx) == v4_borrowck_path_write {
             pilot write_stmt = v4_borrowck_path_stmt(borrow_id, result_id, write_idx)
             pilot write_block = v4_borrowck_path_block(borrow_id, result_id, write_idx)
             pilot write_text = v4_borrowck_path_text(borrow_id, result_id, write_idx)
             pilot loan_idx = 0
             repeat until loan_idx >= path_count {
+                v4_borrowck_mutable_exclusivity_path_probes += 1
                 if v4_borrowck_path_is_loan_kind(v4_borrowck_path_kind(borrow_id, result_id, loan_idx)) {
                     pilot loan_stmt = v4_borrowck_path_stmt(borrow_id, result_id, loan_idx)
                     pilot loan_block = v4_borrowck_path_block(borrow_id, result_id, loan_idx)
@@ -6277,6 +6513,7 @@ task v4_borrowck_restore_file_slot(borrow_id: int, file_id: int, mir_id: int) ->
         v4_borrowck_file_new(0, 0)
     }
 
+    v4_borrowck_release_stmt_path_indexes(borrow_id)
     array_set(v4_borrowck_files, borrow_id, word_from_int(file_id))
     array_set(v4_borrowck_mirs, borrow_id, word_from_int(mir_id))
     array_set(v4_borrowck_body_defs, borrow_id, word_from_int(array_new()))
@@ -6296,6 +6533,7 @@ task v4_borrowck_restore_file_slot(borrow_id: int, file_id: int, mir_id: int) ->
     array_set(v4_borrowck_fixed_point_converged_by_file, borrow_id, "true")
     array_set(v4_borrowck_resource_exhausted_by_file, borrow_id, "false")
     array_set(v4_borrowck_fixed_point_work_items_by_file, borrow_id, "0")
+    if v4_borrowck_stmt_path_indexes >= 0 { array_set(v4_borrowck_stmt_path_indexes, borrow_id, word_from_int(array_new())) }
     give back borrow_id
 }
 
@@ -6318,6 +6556,7 @@ task v4_borrowck_restore_result_slot(borrow_id: int, result_id: int, def_id: wor
         v4_borrowck_add_result(borrow_id, "", "", v4_borrowck_clean, 0, 0, 0)
     }
 
+    array_release(v4_borrowck_stmt_path_index_handle(borrow_id, result_id))
     array_set(v4_borrowck_defs_handle(borrow_id), result_id, def_id)
     array_set(v4_borrowck_names_handle(borrow_id), result_id, body_name)
     array_set(v4_borrowck_statuses_handle(borrow_id), result_id, status)
@@ -6328,6 +6567,8 @@ task v4_borrowck_restore_result_slot(borrow_id: int, result_id: int, def_id: wor
     array_set(v4_borrowck_path_texts_index_handle(borrow_id), result_id, word_from_int(array_new()))
     array_set(v4_borrowck_path_stmt_ids_index_handle(borrow_id), result_id, word_from_int(array_new()))
     array_set(v4_borrowck_path_block_ids_index_handle(borrow_id), result_id, word_from_int(array_new()))
+    pilot indexes = v4_borrowck_stmt_path_indexes_handle(borrow_id)
+    if indexes >= 0 { array_set(indexes, result_id, word_from_int(v4_borrowck_stmt_path_index_new(16))) }
     give back 1
 }
 
@@ -6342,6 +6583,7 @@ task v4_borrowck_restore_path_slot(borrow_id: int, result_id: int, path_id: int,
     if v4_borrowck_result_slot_exists(borrow_id, result_id) == false {
         give back 0
     }
+    v4_borrowck_invalidate_stmt_path_index(borrow_id, result_id)
     repeat until v4_borrowck_result_path_count(borrow_id, result_id) > path_id {
         array_push(v4_borrowck_result_path_kinds_handle(borrow_id, result_id), "")
         array_push(v4_borrowck_result_path_texts_handle(borrow_id, result_id), "")
@@ -6446,6 +6688,18 @@ task v4_borrowck_snapshot_restore(payload: word) -> word {
             }
         }
         line_id += 1
+    }
+
+    pilot borrow_id = 0
+    repeat until borrow_id >= v4_borrowck_file_count() {
+        pilot result_id = 0
+        repeat until result_id >= v4_borrowck_result_count(borrow_id) {
+            if v4_borrowck_stmt_path_index_is_ready(borrow_id, result_id) == false {
+                v4_borrowck_finalize_stmt_path_index(borrow_id, result_id)
+            }
+            result_id += 1
+        }
+        borrow_id += 1
     }
 
     pilot out = "borrowck-snapshot-restore ok=1"

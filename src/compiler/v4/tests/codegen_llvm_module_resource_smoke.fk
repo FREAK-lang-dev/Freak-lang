@@ -1,0 +1,46 @@
+-- Isolate module assembly from frontend storage. The old retained-prefix
+-- implementation exceeds 128 MiB with these 800 four-KiB LLVM bodies.
+task v4_llvm_module_resource_assert(condition: bool, label: word) -> void {
+    if not condition { panic("LLVM module resource: " + label) }
+}
+
+task v4_llvm_module_resource_run() -> void {
+    pilot padding_parts = array_new()
+    pilot line = 0
+    repeat until line >= 64 {
+        array_push(padding_parts, "  ; 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\n")
+        line += 1
+    }
+    pilot padding = word_join(padding_parts)
+    pilot codegen = v4_codegen_llvm_file_new(0, 0 - 1)
+    pilot body = 0
+    repeat until body >= 800 {
+        pilot name = "resource." + word_from_int(body)
+        pilot symbol = "@" + name
+        pilot text = "define ccc i64 " + symbol + "() {\nentry:\n" + padding + "  ret i64 " + word_from_int(body) + "\n}"
+        v4_codegen_llvm_add_body(codegen, name, symbol, text)
+        body += 1
+    }
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot module = v4_codegen_llvm_module_text(codegen, target)
+    pilot header = "target triple = \"x86_64-unknown-linux-gnu\"\n\n"
+    v4_llvm_module_resource_assert(module.starts_with(header), "target header")
+    pilot offset = header.length()
+    body = 0
+    repeat until body >= 800 {
+        pilot text = v4_codegen_llvm_body_line(codegen, body)
+        v4_llvm_module_resource_assert(module.char_at(offset) == "\n", "body separator")
+        offset += 1
+        v4_llvm_module_resource_assert(v4_slice(module, offset, offset + text.length()) == text, "every body byte and order")
+        offset += text.length()
+        v4_llvm_module_resource_assert(module.char_at(offset) == "\n", "body newline")
+        offset += 1
+        body += 1
+    }
+    v4_llvm_module_resource_assert(module.length() == offset + 1 and module.char_at(offset) == "\n", "exact module end")
+    v4_llvm_module_resource_assert(v4_codegen_llvm_body_count(codegen) == 800 and module.length() > 3300000, "large complete plan")
+    v4_llvm_module_resource_assert(v4_codegen_llvm_body_line(codegen, 0).contains("ret i64 0") and v4_codegen_llvm_body_line(codegen, 799).contains("ret i64 799"), "borrowed body facts retained")
+    say "llvm-module-resource bodies=800 bytes-over=3300000 order=true exact=true retained=true"
+}
+
+v4_llvm_module_resource_run()

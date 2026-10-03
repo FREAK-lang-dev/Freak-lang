@@ -312,6 +312,47 @@ task v4_mir_wire_single_try_propagation(mir_id: int, body_id: int, block_id: int
     give back continue_block
 }
 
+task v4_mir_rvalue_needs_control_flow(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    if rvalue_id < 0 { give back false }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if kind == v4_mir_rvalue_try { give back true }
+    if kind == v4_mir_rvalue_binary {
+        pilot op = v4_mir_rvalue_op(mir_id, body_id, rvalue_id)
+        if op == v4_mir_bin_and or op == v4_mir_bin_or { give back true }
+    }
+    if not v4_mir_rvalue_can_contain_child_tries(kind) { give back false }
+    if v4_mir_rvalue_needs_control_flow(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)) { give back true }
+    if v4_mir_rvalue_needs_control_flow(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)) { give back true }
+    if kind == v4_mir_rvalue_call {
+        pilot arg_id = 0
+        repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
+            if v4_mir_rvalue_needs_control_flow(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id)) { give back true }
+            arg_id += 1
+        }
+    }
+    give back false
+}
+
+-- Values evaluated before a later CFG expression must survive that expression
+-- without replaying calls or reloading locals after its side effects.
+task v4_mir_capture_control_flow_value(mir_id: int, body_id: int, block_id: int, stmt_span: word, rvalue_id: int) -> int {
+    if rvalue_id < 0 { give back rvalue_id }
+    pilot temp_name = v4_mir_unique_local_name(mir_id, body_id, "_eval_sc")
+    pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
+    pilot temp_local = v4_mir_add_local(mir_id, body_id, temp_name, value_ty, stmt_span)
+    pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_local, temp_name, 0 - 1, stmt_span, value_ty)
+    -- Keep parent-before-capture identities valid for the snapshot's prior-ref
+    -- contract: evaluate a later clone, then rewrite the original ID as a leaf.
+    pilot value_span = v4_mir_rvalue_span(mir_id, body_id, rvalue_id)
+    pilot evaluated = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_kind(mir_id, body_id, rvalue_id), v4_mir_rvalue_text(mir_id, body_id, rvalue_id), v4_mir_rvalue_op(mir_id, body_id, rvalue_id), v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id), value_span, value_ty)
+    v4_mir_set_rvalue_abi(mir_id, body_id, evaluated, v4_mir_rvalue_abi(mir_id, body_id, rvalue_id))
+    v4_mir_set_rvalue_args_payload(mir_id, body_id, evaluated, v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id))
+    v4_mir_set_rvalue_builtin_method(mir_id, body_id, evaluated, v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id))
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, temp_name, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_span, temp_place, evaluated)
+    v4_mir_restore_rvalue_slot(mir_id, body_id, rvalue_id, v4_mir_rvalue_use_local, temp_name, temp_name, 0 - 1, 0 - 1, value_span, value_ty, "", "", "")
+    give back rvalue_id
+}
+
 task v4_mir_wire_control_flow_rvalue(mir_id: int, body_id: int, block_id: int, stmt_span: word, rvalue_id: int) -> int {
     if rvalue_id < 0 {
         give back block_id
@@ -360,10 +401,35 @@ task v4_mir_wire_control_flow_rvalue(mir_id: int, body_id: int, block_id: int, s
     }
 
     pilot current_block = block_id
+    if kind == v4_mir_rvalue_call and v4_mir_rvalue_needs_control_flow(mir_id, body_id, rvalue_id) {
+        pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        pilot first_arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, 0)
+        if lhs >= 0 and lhs != first_arg {
+            current_block = v4_mir_wire_control_flow_rvalue(mir_id, body_id, current_block, stmt_span, lhs)
+            lhs = v4_mir_capture_control_flow_value(mir_id, body_id, current_block, stmt_span, lhs)
+        }
+        pilot payload = ""
+        pilot arg_id = 0
+        repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
+            pilot arg = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id)
+            current_block = v4_mir_wire_control_flow_rvalue(mir_id, body_id, current_block, stmt_span, arg)
+            pilot captured = v4_mir_capture_control_flow_value(mir_id, body_id, current_block, stmt_span, arg)
+            if lhs == arg { lhs = captured }
+            payload = v4_mir_call_args_payload_append(payload, captured)
+            arg_id += 1
+        }
+        v4_mir_set_rvalue_children(mir_id, body_id, rvalue_id, lhs, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id))
+        v4_mir_set_rvalue_args_payload(mir_id, body_id, rvalue_id, payload)
+        give back current_block
+    }
     if v4_mir_rvalue_can_contain_child_tries(kind) {
         pilot left = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
         pilot right = v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id)
         current_block = v4_mir_wire_control_flow_rvalue(mir_id, body_id, current_block, stmt_span, left)
+        if left >= 0 and v4_mir_rvalue_needs_control_flow(mir_id, body_id, right) {
+            left = v4_mir_capture_control_flow_value(mir_id, body_id, current_block, stmt_span, left)
+            v4_mir_set_rvalue_children(mir_id, body_id, rvalue_id, left, right)
+        }
         current_block = v4_mir_wire_control_flow_rvalue(mir_id, body_id, current_block, stmt_span, right)
     }
     if kind == v4_mir_rvalue_try {
@@ -423,16 +489,7 @@ task v4_mir_skip_trivia(stream_id: int, token_id: int) -> int {
 }
 
 task v4_mir_first_token_at_or_after(stream_id: int, offset: int) -> int {
-    pilot idx = 0
-    pilot count = v4_lex_token_count(stream_id)
-    repeat until idx >= count {
-        pilot token_span = v4_lex_token_span(stream_id, idx)
-        if v4_span_start(token_span) >= offset {
-            give back idx
-        }
-        idx += 1
-    }
-    give back count
+    give back v4_ty_first_token_at_or_after(stream_id, offset)
 }
 
 task v4_mir_span_from_tokens(stream_id: int, start_token: int, end_token: int) -> word {
@@ -458,7 +515,7 @@ task v4_mir_find_token_value(stream_id: int, start_token: int, end_token: int, w
     pilot idx = start_token
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            if v4_lex_token_value(stream_id, idx) == wanted {
+            if v4_lex_token_syntax_value(stream_id, idx) == wanted {
                 give back idx
             }
         }
@@ -470,8 +527,8 @@ task v4_mir_find_token_value(stream_id: int, start_token: int, end_token: int, w
 task v4_mir_find_body_token(stream_id: int, start_token: int, end_token: int) -> int {
     pilot idx = start_token
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_type(stream_id, idx) != v4_tok_string and v4_lex_token_type(stream_id, idx) != v4_tok_char {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == "{" or val == "=>" {
                 give back idx
             }
@@ -485,8 +542,8 @@ task v4_mir_find_matching_brace(stream_id: int, open_token: int, end_token: int)
     pilot idx = open_token
     pilot depth = 0
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_type(stream_id, idx) != v4_tok_string and v4_lex_token_type(stream_id, idx) != v4_tok_char {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == "{" {
                 depth += 1
             } else if val == "}" {
@@ -505,8 +562,8 @@ task v4_mir_find_matching_paren(stream_id: int, open_token: int, end_token: int)
     pilot idx = open_token
     pilot depth = 0
     repeat until idx >= end_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_type(stream_id, idx) != v4_tok_string and v4_lex_token_type(stream_id, idx) != v4_tok_char {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == "(" {
                 depth += 1
             } else if val == ")" {
@@ -525,8 +582,8 @@ task v4_mir_find_open_paren_token(stream_id: int, start_token: int, close_token:
     pilot idx = close_token
     pilot depth = 0
     repeat until idx < start_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_type(stream_id, idx) != v4_tok_string and v4_lex_token_type(stream_id, idx) != v4_tok_char {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == ")" {
                 depth += 1
             } else if val == "(" {
@@ -545,8 +602,8 @@ task v4_mir_find_open_brace_token(stream_id: int, start_token: int, close_token:
     pilot idx = close_token
     pilot depth = 0
     repeat until idx < start_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_lex_token_type(stream_id, idx) != v4_tok_string and v4_lex_token_type(stream_id, idx) != v4_tok_char {
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == "}" {
                 depth += 1
             } else if val == "{" {
@@ -566,9 +623,9 @@ task v4_mir_statement_end(stream_id: int, start_token: int, end_token: int) -> i
     pilot depth = 0
     repeat until idx >= end_token {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
 
-        if tok_type != v4_tok_trivia {
+        if tok_type != v4_tok_trivia and tok_type != v4_tok_string and tok_type != v4_tok_char {
             if val == "(" or val == "[" or val == "{" {
                 depth += 1
             } else if val == ")" or val == "]" {
@@ -583,7 +640,7 @@ task v4_mir_statement_end(stream_id: int, start_token: int, end_token: int) -> i
                     give back idx
                 }
             }
-        } else if val == "\n" {
+        } else if tok_type == v4_tok_trivia and v4_lex_token_value(stream_id, idx) == "\n" {
             if depth == 0 {
                 give back idx
             }
@@ -602,6 +659,30 @@ task v4_mir_expr_text(stream_id: int, start_token: int, end_token: int) -> word 
                 out = out + " "
             }
             out = out + v4_lex_token_value(stream_id, idx)
+        }
+        idx += 1
+    }
+    give back out
+}
+
+-- Pattern text crosses a token boundary into the existing compact pattern
+-- readers. Preserve literal quotes so their delimiters remain data there too.
+task v4_mir_pattern_text(stream_id: int, start_token: int, end_token: int) -> word {
+    pilot out = ""
+    pilot idx = start_token
+    repeat until idx >= end_token {
+        pilot tok_type = v4_lex_token_type(stream_id, idx)
+        if tok_type != v4_tok_trivia {
+            if out != "" { out = out + " " }
+            pilot value = v4_lex_token_value(stream_id, idx)
+            if tok_type == v4_tok_string {
+                out = out + "\"" + value + "\""
+            } else if tok_type == v4_tok_char {
+                if value == "'" { value = "\\'" }
+                out = out + "'" + value + "'"
+            } else {
+                out = out + value
+            }
         }
         idx += 1
     }
@@ -643,7 +724,7 @@ task v4_mir_prev_nontrivia(stream_id: int, token_id: int, start_token: int) -> i
 
 task v4_mir_token_can_end_expr(stream_id: int, token_id: int) -> bool {
     pilot tok_type = v4_lex_token_type(stream_id, token_id)
-    pilot val = v4_lex_token_value(stream_id, token_id)
+    pilot val = v4_lex_token_syntax_value(stream_id, token_id)
     if tok_type == v4_tok_ident or tok_type == v4_tok_int or tok_type == v4_tok_float or tok_type == v4_tok_string or tok_type == v4_tok_bool or tok_type == v4_tok_char {
         give back true
     }
@@ -666,7 +747,7 @@ task v4_mir_generic_method_type_arg_open_for_close(stream_id: int, start_token: 
     pilot depth = 0
     repeat until idx < start_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == ">" {
                 depth += 1
             } else if val == "<" {
@@ -675,7 +756,7 @@ task v4_mir_generic_method_type_arg_open_for_close(stream_id: int, start_token: 
                     pilot method_token = v4_mir_prev_nontrivia(stream_id, idx - 1, start_token)
                     pilot separator_token = v4_mir_prev_nontrivia(stream_id, method_token - 1, start_token)
                     if method_token >= start_token and separator_token >= start_token {
-                        pilot separator = v4_lex_token_value(stream_id, separator_token)
+                        pilot separator = v4_lex_token_syntax_value(stream_id, separator_token)
                         pilot method_tok_type = v4_lex_token_type(stream_id, method_token)
                         if (separator == "." or separator == "::") and (method_tok_type == v4_tok_ident or method_tok_type == v4_tok_keyword) {
                             give back idx
@@ -714,7 +795,7 @@ task v4_mir_find_binary_op(stream_id: int, start_token: int, end_token: int, tie
     pilot depth = 0
     repeat until idx < start_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == ")" or val == "]" or val == "}" {
                 depth += 1
             } else if val == "(" or val == "[" or val == "{" {
@@ -750,7 +831,7 @@ task v4_mir_has_top_level_binary_op(stream_id: int, start_token: int, end_token:
 }
 
 task v4_mir_is_generic_instance_method_call_shape(stream_id: int, first: int, last: int) -> bool {
-    if v4_lex_token_value(stream_id, last) != ")" {
+    if v4_lex_token_syntax_value(stream_id, last) != ")" {
         give back false
     }
     pilot open_token = v4_mir_find_open_paren_token(stream_id, first, last)
@@ -769,7 +850,7 @@ task v4_mir_is_generic_instance_method_call_shape(stream_id: int, first: int, la
         give back false
     }
     pilot type_open = v4_mir_skip_trivia(stream_id, method_token + 1)
-    give back type_open < open_token and v4_lex_token_value(stream_id, type_open) == "<"
+    give back type_open < open_token and v4_lex_token_syntax_value(stream_id, type_open) == "<"
 }
 
 task v4_mir_find_or_else_op(stream_id: int, start_token: int, end_token: int) -> int {
@@ -777,7 +858,7 @@ task v4_mir_find_or_else_op(stream_id: int, start_token: int, end_token: int) ->
     pilot depth = 0
     repeat until idx < start_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == ")" or val == "]" or val == "}" {
                 depth += 1
             } else if val == "(" or val == "[" or val == "{" {
@@ -786,7 +867,7 @@ task v4_mir_find_or_else_op(stream_id: int, start_token: int, end_token: int) ->
                 }
             } else if depth == 0 and val == "else" {
                 pilot maybe_or = v4_mir_prev_nontrivia(stream_id, idx - 1, start_token)
-                if maybe_or >= start_token and v4_lex_token_value(stream_id, maybe_or) == "or" and v4_mir_binary_candidate_has_left_operand(stream_id, start_token, maybe_or) {
+                if maybe_or >= start_token and v4_lex_token_syntax_value(stream_id, maybe_or) == "or" and v4_mir_binary_candidate_has_left_operand(stream_id, start_token, maybe_or) {
                     give back maybe_or
                 }
             }
@@ -1282,7 +1363,7 @@ task v4_mir_call_arg_count(stream_id: int, open_token: int, close_token: int) ->
     pilot idx = open_token + 1
     repeat until idx >= close_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and val == "," {
                 count += 1
             } else {
@@ -1299,7 +1380,7 @@ task v4_mir_call_arg_end(stream_id: int, start_token: int, close_token: int) -> 
     pilot idx = start_token
     repeat until idx >= close_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and val == "," {
                 give back idx
             }
@@ -1315,7 +1396,7 @@ task v4_mir_call_arg_named_colon(stream_id: int, start_token: int, end_token: in
     pilot depth = 0
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and val == ":" {
                 give back idx
             }
@@ -1345,7 +1426,7 @@ task v4_mir_call_arg_label(stream_id: int, start_token: int, end_token: int) -> 
         }
         idx += 1
     }
-    give back v4_lex_token_value(stream_id, first)
+    give back v4_lex_token_syntax_value(stream_id, first)
 }
 
 task v4_mir_call_arg_value_start(stream_id: int, start_token: int, end_token: int) -> int {
@@ -2089,9 +2170,8 @@ task v4_mir_find_method_ref(mir_id: int, owner_ty: word, method_name: word, want
         give back ""
     }
 
-    pilot hir_item = 0
-    pilot hir_count = v4_hir_item_count(hir_id)
-    repeat until hir_item >= hir_count {
+    pilot hir_item = v4_ty_next_impl_item(ty_id, 0 - 1)
+    repeat until hir_item < 0 {
         if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl {
             if v4_ty_impl_matches_owner(ty_id, hir_item, owner_ty) {
                 pilot method_id = 0
@@ -2106,7 +2186,7 @@ task v4_mir_find_method_ref(mir_id: int, owner_ty: word, method_name: word, want
                 }
             }
         }
-        hir_item += 1
+        hir_item = v4_ty_next_impl_item(ty_id, hir_item)
     }
     give back ""
 }
@@ -2248,9 +2328,8 @@ task v4_mir_find_any_method_ref(mir_id: int, owner_ty: word, method_name: word) 
         give back ""
     }
 
-    pilot hir_item = 0
-    pilot hir_count = v4_hir_item_count(hir_id)
-    repeat until hir_item >= hir_count {
+    pilot hir_item = v4_ty_next_impl_item(ty_id, 0 - 1)
+    repeat until hir_item < 0 {
         if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl {
             if v4_ty_impl_matches_owner(ty_id, hir_item, owner_ty) {
                 pilot method_id = 0
@@ -2263,7 +2342,7 @@ task v4_mir_find_any_method_ref(mir_id: int, owner_ty: word, method_name: word) 
                 }
             }
         }
-        hir_item += 1
+        hir_item = v4_ty_next_impl_item(ty_id, hir_item)
     }
     give back ""
 }
@@ -2276,9 +2355,8 @@ task v4_mir_find_doctrine_impl_method_ref(mir_id: int, owner_ty: word, doctrine_
         give back ""
     }
 
-    pilot hir_item = 0
-    pilot hir_count = v4_hir_item_count(hir_id)
-    repeat until hir_item >= hir_count {
+    pilot hir_item = v4_ty_next_doctrine_impl_item(ty_id, 0 - 1)
+    repeat until hir_item < 0 {
         if v4_hir_item_kind(hir_id, hir_item) == v4_hir_impl {
             pilot impl_doctrine = v4_ty_impl_doctrine_name_from_hir(v4_mir_ty_id(mir_id), hir_item)
             if v4_ty_doctrine_refs_match(doctrine_name, impl_doctrine) and v4_ty_impl_matches_owner(v4_mir_ty_id(mir_id), hir_item, owner_ty) {
@@ -2294,7 +2372,7 @@ task v4_mir_find_doctrine_impl_method_ref(mir_id: int, owner_ty: word, doctrine_
                 }
             }
         }
-        hir_item += 1
+        hir_item = v4_ty_next_doctrine_impl_item(ty_id, hir_item)
     }
     give back ""
 }
@@ -3023,7 +3101,7 @@ task v4_mir_raw_pointer_method_arg_count_error(mir_id: int, body_id: int, stream
 
 task v4_mir_method_type_arg_open(stream_id: int, method_token: int, open_token: int) -> int {
     pilot next_token = v4_mir_skip_trivia(stream_id, method_token + 1)
-    if next_token < open_token and v4_lex_token_value(stream_id, next_token) == "<" {
+    if next_token < open_token and v4_lex_token_syntax_value(stream_id, next_token) == "<" {
         give back next_token
     }
     give back 0 - 1
@@ -3038,7 +3116,7 @@ task v4_mir_raw_pointer_method_type_arg_close(stream_id: int, type_open: int, op
     pilot depth = 0
     repeat until idx >= open_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot value = v4_lex_token_value(stream_id, idx)
+            pilot value = v4_lex_token_syntax_value(stream_id, idx)
             if value == "<" {
                 depth += 1
             } else if value == ">" {
@@ -3076,7 +3154,7 @@ task v4_mir_cast_target_starts_like_type(stream_id: int, target_start: int, type
     if token_type == v4_tok_ident or token_type == v4_tok_keyword or token_type == v4_tok_lifetime {
         give back true
     }
-    pilot token_value = v4_lex_token_value(stream_id, target_start)
+    pilot token_value = v4_lex_token_syntax_value(stream_id, target_start)
     give back token_value == "*" or token_value == "(" or token_value == "["
 }
 
@@ -3406,7 +3484,7 @@ task v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id: int, body_id: 
 }
 
 task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
-    if v4_lex_token_value(stream_id, last) != ")" {
+    if v4_lex_token_syntax_value(stream_id, last) != ")" {
         give back 0 - 1
     }
 
@@ -3427,7 +3505,7 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
 
     pilot receiver_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first, dot_token)
     pilot receiver_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver_rvalue)
-    pilot method_name = v4_lex_token_value(stream_id, method_token)
+    pilot method_name = v4_lex_token_syntax_value(stream_id, method_token)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     pilot raw_pointer_builtin = v4_mir_try_lower_builtin_raw_pointer_instance_method(mir_id, body_id, stream_id, receiver_rvalue, receiver_ty, method_name, method_token, open_token, last, expr_span, expr_text)
     if raw_pointer_builtin >= 0 {
@@ -3502,7 +3580,7 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
 }
 
 task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
-    if v4_lex_token_value(stream_id, last) != ")" {
+    if v4_lex_token_syntax_value(stream_id, last) != ")" {
         give back 0 - 1
     }
 
@@ -3510,6 +3588,10 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
     if open_token <= first or open_token > last {
         give back 0 - 1
     }
+    -- A completed call/group before this '(' is a computed callee. Its
+    -- inner associated call must be lowered before invoking the result.
+    pilot callee_end = v4_mir_prev_nontrivia(stream_id, open_token - 1, first)
+    if v4_lex_token_syntax_value(stream_id, callee_end) == ")" { give back 0 - 1 }
 
     pilot scope_token = v4_mir_find_top_level_token(stream_id, first, open_token, "::")
     if scope_token <= first {
@@ -3532,7 +3614,7 @@ task v4_mir_try_lower_associated_method_call(mir_id: int, body_id: int, stream_i
     if method_token >= open_token {
         give back 0 - 1
     }
-    pilot method_name = v4_lex_token_value(stream_id, method_token)
+    pilot method_name = v4_lex_token_syntax_value(stream_id, method_token)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
     v4_mir_reject_method_type_args(mir_id, stream_id, expr_span, owner_ty, method_name, "::", method_token, open_token)
     pilot shared_builtin = v4_mir_try_lower_builtin_shared_associated_method(mir_id, body_id, stream_id, lookup_owner_ty, method_name, open_token, last, expr_span, expr_text)
@@ -3617,7 +3699,7 @@ task v4_mir_shape_ctor_name_end(stream_id: int, start_token: int, open_token: in
     pilot last_name = 0 - 1
     repeat until idx >= open_token {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type != v4_tok_trivia {
             if tok_type == v4_tok_ident or tok_type == v4_tok_keyword {
                 last_name = idx
@@ -3676,7 +3758,7 @@ task v4_mir_constructor_head_is_valid(stream_id: int, start_token: int, end_toke
     pilot saw_token = false
     repeat until idx >= end_token {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type != v4_tok_trivia {
             saw_token = true
             if tok_type == v4_tok_ident or tok_type == v4_tok_keyword or tok_type == v4_tok_lifetime or tok_type == v4_tok_int or tok_type == v4_tok_float {
@@ -3704,7 +3786,7 @@ task v4_mir_constructor_head_name(stream_id: int, start_token: int, end_token: i
 }
 
 task v4_mir_try_lower_named_call(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
-    if v4_lex_token_value(stream_id, last) != ")" {
+    if v4_lex_token_syntax_value(stream_id, last) != ")" {
         give back 0 - 1
     }
 
@@ -3745,7 +3827,7 @@ task v4_mir_shape_ctor_field_end(stream_id: int, start_token: int, close_token: 
     pilot idx = start_token
     repeat until idx >= close_token {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type != v4_tok_trivia {
             if depth == 0 and val == "," {
                 give back idx
@@ -3837,7 +3919,7 @@ task v4_mir_check_shape_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
             pilot name_token = v4_mir_skip_trivia(stream_id, field_start)
             pilot field_name = ""
             if name_token < field_end {
-                field_name = v4_lex_token_value(stream_id, name_token)
+                field_name = v4_lex_token_syntax_value(stream_id, name_token)
             }
             pilot colon_token = v4_mir_find_top_level_token(stream_id, field_start, field_end, ":")
             if colon_token < 0 or field_name == "" {
@@ -4063,7 +4145,7 @@ task v4_mir_check_fixed_array_literal(mir_id: int, body_id: int, stream_id: int,
 }
 
 task v4_mir_try_lower_array_literal(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
-    if v4_lex_token_value(stream_id, first) != "[" or v4_lex_token_value(stream_id, last) != "]" {
+    if v4_lex_token_syntax_value(stream_id, first) != "[" or v4_lex_token_syntax_value(stream_id, last) != "]" {
         give back 0 - 1
     }
 
@@ -4095,7 +4177,7 @@ task v4_mir_list_element_end(stream_id: int, start_token: int, close_token: int)
     pilot idx = start_token
     repeat until idx >= close_token {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type != v4_tok_trivia {
             if depth == 0 and val == "," {
                 give back idx
@@ -4167,7 +4249,7 @@ task v4_mir_check_list_literal(mir_id: int, body_id: int, stream_id: int, expr_s
 
 task v4_mir_try_lower_list_literal(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
 
-    if v4_lex_token_value(stream_id, first) != "[" or v4_lex_token_value(stream_id, last) != "]" {
+    if v4_lex_token_syntax_value(stream_id, first) != "[" or v4_lex_token_syntax_value(stream_id, last) != "]" {
         give back 0 - 1
     }
 
@@ -4190,7 +4272,7 @@ task v4_mir_tuple_type_add(tuple_ty: word, element_ty: word) -> word {
 }
 
 task v4_mir_try_lower_tuple_literal(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
-    if v4_lex_token_value(stream_id, first) != "(" or v4_lex_token_value(stream_id, last) != ")" {
+    if v4_lex_token_syntax_value(stream_id, first) != "(" or v4_lex_token_syntax_value(stream_id, last) != ")" {
         give back 0 - 1
     }
 
@@ -4229,7 +4311,7 @@ task v4_mir_try_lower_tuple_literal(mir_id: int, body_id: int, stream_id: int, f
     }
 
     pilot tail_token = v4_mir_prev_nontrivia(stream_id, last - 1, first + 1)
-    if tail_token > first and v4_lex_token_value(stream_id, tail_token) == "," {
+    if tail_token > first and v4_lex_token_syntax_value(stream_id, tail_token) == "," {
         v4_mir_add_type_error(mir_id, expr_span, "tuple slot missing", "expected another element after ','")
         has_unknown = true
     }
@@ -4325,7 +4407,7 @@ task v4_mir_check_map_literal(mir_id: int, body_id: int, stream_id: int, expr_sp
 }
 
 task v4_mir_try_lower_map_literal(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
-    if v4_lex_token_value(stream_id, first) != "{" or v4_lex_token_value(stream_id, last) != "}" {
+    if v4_lex_token_syntax_value(stream_id, first) != "{" or v4_lex_token_syntax_value(stream_id, last) != "}" {
         give back 0 - 1
     }
 
@@ -4341,7 +4423,7 @@ task v4_mir_try_lower_map_literal(mir_id: int, body_id: int, stream_id: int, fir
 }
 
 task v4_mir_try_lower_shape_ctor(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
-    if v4_lex_token_value(stream_id, last) != "}" {
+    if v4_lex_token_syntax_value(stream_id, last) != "}" {
         give back 0 - 1
     }
 
@@ -4647,7 +4729,7 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
             pilot name_token = v4_mir_skip_trivia(stream_id, field_start)
             pilot field_name = ""
             if name_token < field_end {
-                field_name = v4_lex_token_value(stream_id, name_token)
+                field_name = v4_lex_token_syntax_value(stream_id, name_token)
             }
             pilot colon_token = v4_mir_find_top_level_token(stream_id, field_start, field_end, ":")
             if colon_token < 0 or field_name == "" {
@@ -4702,7 +4784,7 @@ task v4_mir_check_route_ctor_fields(mir_id: int, body_id: int, stream_id: int, e
 }
 
 task v4_mir_try_lower_route_payload_ctor(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
-    if v4_lex_token_value(stream_id, last) != "}" {
+    if v4_lex_token_syntax_value(stream_id, last) != "}" {
         give back 0 - 1
     }
 
@@ -4815,7 +4897,7 @@ task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int,
     }
 
     if first == last and v4_ty_is_route_type(ty_id, expected_ty) {
-        pilot first_value = v4_lex_token_value(stream_id, first)
+        pilot first_value = v4_lex_token_syntax_value(stream_id, first)
         if v4_mir_find_local_visible_at(mir_id, body_id, first_value, v4_span_start(expr_span)) >= 0 {
             give back 0 - 1
         }
@@ -4831,7 +4913,7 @@ task v4_mir_try_lower_route_case_expr(mir_id: int, body_id: int, stream_id: int,
 }
 
 task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
-    pilot first_value = v4_lex_token_value(stream_id, first)
+    pilot first_value = v4_lex_token_syntax_value(stream_id, first)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
 
     if first == last and first_value == "nobody" {
@@ -4843,7 +4925,7 @@ task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: in
     }
 
     pilot next_token = v4_mir_next_nontrivia(stream_id, first + 1, last + 1)
-    if next_token > last or v4_lex_token_value(stream_id, next_token) != "(" or (first_value != "some" and first_value != "ok" and first_value != "err") {
+    if next_token > last or v4_lex_token_syntax_value(stream_id, next_token) != "(" or (first_value != "some" and first_value != "ok" and first_value != "err") {
         give back 0 - 1
     }
 
@@ -4910,7 +4992,7 @@ task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: in
 }
 
 task v4_mir_try_lower_try_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
-    if v4_lex_token_value(stream_id, last) != "?" {
+    if v4_lex_token_syntax_value(stream_id, last) != "?" {
         give back 0 - 1
     }
     if first >= last {
@@ -4955,7 +5037,7 @@ task v4_mir_try_lower_or_else_expr(mir_id: int, body_id: int, stream_id: int, fi
         give back 0 - 1
     }
     pilot else_token = v4_mir_next_nontrivia(stream_id, or_token + 1, last + 1)
-    if else_token > last or v4_lex_token_value(stream_id, else_token) != "else" {
+    if else_token > last or v4_lex_token_syntax_value(stream_id, else_token) != "else" {
         give back 0 - 1
     }
 
@@ -5035,7 +5117,7 @@ task v4_mir_closure_type_for_body_offset(mir_id: int, body_id: int, closure_offs
 
 task v4_mir_closure_receiver_call_is_mutating(mir_id: int, body_id: int, stream_id: int, occurrence_token: int, body_end: int, capture_ty: word) -> bool {
     pilot dot_token = v4_mir_next_nontrivia(stream_id, occurrence_token + 1, body_end)
-    if dot_token >= body_end or v4_lex_token_value(stream_id, dot_token) != "." {
+    if dot_token >= body_end or v4_lex_token_syntax_value(stream_id, dot_token) != "." {
         give back false
     }
     pilot method_token = v4_mir_next_nontrivia(stream_id, dot_token + 1, body_end)
@@ -5043,11 +5125,11 @@ task v4_mir_closure_receiver_call_is_mutating(mir_id: int, body_id: int, stream_
         give back false
     }
     pilot open_token = v4_mir_next_nontrivia(stream_id, method_token + 1, body_end)
-    if open_token >= body_end or v4_lex_token_value(stream_id, open_token) != "(" {
+    if open_token >= body_end or v4_lex_token_syntax_value(stream_id, open_token) != "(" {
         give back false
     }
 
-    pilot method_name = v4_lex_token_value(stream_id, method_token)
+    pilot method_name = v4_lex_token_syntax_value(stream_id, method_token)
     pilot shared_base = v4_mir_nominal_builtin_shared_base(mir_id, capture_ty)
     if shared_base != "" and (method_name == "borrow_mut" or method_name == "get_mut") {
         give back true
@@ -5079,7 +5161,7 @@ task v4_mir_closure_occurrence_is_mutated(mir_id: int, body_id: int, stream_id: 
     pilot depth = 0
     repeat until idx >= body_end {
         pilot token_type = v4_lex_token_type(stream_id, idx)
-        pilot value = v4_lex_token_value(stream_id, idx)
+        pilot value = v4_lex_token_syntax_value(stream_id, idx)
         if token_type != v4_tok_trivia {
             if value == "(" or value == "[" {
                 depth += 1
@@ -5090,7 +5172,7 @@ task v4_mir_closure_occurrence_is_mutated(mir_id: int, body_id: int, stream_id: 
             } else if depth == 0 and (value == ";" or value == "}" or value == "{") {
                 give back false
             }
-        } else if value == "\n" and depth == 0 {
+        } else if v4_lex_token_value(stream_id, idx) == "\n" and depth == 0 {
             give back false
         }
         idx += 1
@@ -5099,7 +5181,7 @@ task v4_mir_closure_occurrence_is_mutated(mir_id: int, body_id: int, stream_id: 
 }
 
 task v4_mir_closure_local_decl_name_token(stream_id: int, token_id: int, body_end: int) -> int {
-    if token_id < 0 or token_id >= body_end or v4_lex_token_value(stream_id, token_id) != "pilot" {
+    if token_id < 0 or token_id >= body_end or v4_lex_token_syntax_value(stream_id, token_id) != "pilot" {
         give back 0 - 1
     }
     pilot name_token = v4_mir_next_nontrivia(stream_id, token_id + 1, body_end)
@@ -5118,7 +5200,7 @@ task v4_mir_closure_identifier_is_member_name(stream_id: int, token_id: int, bod
     if previous < body_start {
         give back false
     }
-    pilot previous_value = v4_lex_token_value(stream_id, previous)
+    pilot previous_value = v4_lex_token_syntax_value(stream_id, previous)
     give back previous_value == "." or previous_value == "::"
 }
 
@@ -5163,7 +5245,7 @@ task v4_mir_closure_capture_is_mutated(mir_id: int, body_id: int, stream_id: int
     pilot idx = body_start
     repeat until idx >= body_end {
         pilot token_type = v4_lex_token_type(stream_id, idx)
-        pilot token_value = v4_lex_token_value(stream_id, idx)
+        pilot token_value = v4_lex_token_syntax_value(stream_id, idx)
         if token_value == "{" {
             scope_depth += 1
             idx += 1
@@ -5174,7 +5256,7 @@ task v4_mir_closure_capture_is_mutated(mir_id: int, body_id: int, stream_id: int
         } else {
             pilot decl_name_token = v4_mir_closure_local_decl_name_token(stream_id, idx, body_end)
             if decl_name_token >= 0 {
-                v4_mir_closure_scope_store(local_names_handle, local_depths_handle, local_active, v4_lex_token_value(stream_id, decl_name_token), scope_depth)
+                v4_mir_closure_scope_store(local_names_handle, local_depths_handle, local_active, v4_lex_token_syntax_value(stream_id, decl_name_token), scope_depth)
                 local_active += 1
                 idx = decl_name_token + 1
             } else {
@@ -5217,12 +5299,12 @@ task v4_mir_closure_capture_diag(mir_id: int, mode: word, capture_name: word, ca
 task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
     pilot mode = v4_ty_closure_mode_borrow
     pilot open_token = first
-    pilot first_value = v4_lex_token_value(stream_id, first)
+    pilot first_value = v4_lex_token_syntax_value(stream_id, first)
     if first_value == v4_ty_closure_mode_copy or first_value == v4_ty_closure_mode_move or first_value == v4_ty_closure_mode_mut {
         mode = first_value
         open_token = v4_mir_next_nontrivia(stream_id, first + 1, last + 1)
     }
-    if open_token > last or v4_lex_token_value(stream_id, open_token) != "|" {
+    if open_token > last or v4_lex_token_syntax_value(stream_id, open_token) != "|" {
         give back 0 - 1
     }
 
@@ -5234,14 +5316,14 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
     if body_marker > last {
         give back 0 - 1
     }
-    pilot marker_value = v4_lex_token_value(stream_id, body_marker)
+    pilot marker_value = v4_lex_token_syntax_value(stream_id, body_marker)
     if marker_value != "=>" and marker_value != "{" {
         give back 0 - 1
     }
 
     pilot body_start = v4_mir_next_nontrivia(stream_id, body_marker + 1, last + 1)
     pilot body_end = last + 1
-    if marker_value == "{" and v4_lex_token_value(stream_id, last) == "}" {
+    if marker_value == "{" and v4_lex_token_syntax_value(stream_id, last) == "}" {
         body_end = last
     }
     pilot closure_offset = v4_span_start(v4_lex_token_span(stream_id, first))
@@ -5255,7 +5337,7 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
     pilot idx = body_start
     repeat until idx >= body_end {
         pilot token_type = v4_lex_token_type(stream_id, idx)
-        pilot token_value = v4_lex_token_value(stream_id, idx)
+        pilot token_value = v4_lex_token_syntax_value(stream_id, idx)
         if token_value == "{" {
             scope_depth += 1
             idx += 1
@@ -5266,7 +5348,7 @@ task v4_mir_try_lower_closure_expr(mir_id: int, body_id: int, stream_id: int, fi
         } else {
             pilot decl_name_token = v4_mir_closure_local_decl_name_token(stream_id, idx, body_end)
             if decl_name_token >= 0 {
-                v4_mir_closure_scope_store(local_names_handle, local_depths_handle, local_active, v4_lex_token_value(stream_id, decl_name_token), scope_depth)
+                v4_mir_closure_scope_store(local_names_handle, local_depths_handle, local_active, v4_lex_token_syntax_value(stream_id, decl_name_token), scope_depth)
                 local_active += 1
                 idx = decl_name_token + 1
             } else {
@@ -5310,14 +5392,14 @@ task v4_mir_lend_source_is_place(mir_id: int, body_id: int, rvalue_id: int) -> b
 }
 
 task v4_mir_try_lower_lend_expr(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word, expected_ty: word) -> int {
-    if v4_lex_token_value(stream_id, first) != "lend" {
+    if v4_lex_token_syntax_value(stream_id, first) != "lend" {
         give back 0 - 1
     }
 
     pilot mode = v4_ty_param_mode_lend
     pilot rvalue_kind = v4_mir_rvalue_lend
     pilot operand_start = v4_mir_next_nontrivia(stream_id, first + 1, last + 1)
-    if operand_start <= last and v4_lex_token_value(stream_id, operand_start) == "mut" {
+    if operand_start <= last and v4_lex_token_syntax_value(stream_id, operand_start) == "mut" {
         mode = v4_ty_param_mode_lend_mut
         rvalue_kind = v4_mir_rvalue_lend_mut
         operand_start = v4_mir_next_nontrivia(stream_id, operand_start + 1, last + 1)
@@ -5346,6 +5428,35 @@ task v4_mir_try_lower_lend_expr(mir_id: int, body_id: int, stream_id: int, first
     give back v4_mir_add_rvalue(mir_id, body_id, rvalue_kind, expr_text, mode, operand_id, 0 - 1, expr_span, result_ty)
 }
 
+task v4_mir_try_lower_computed_call(mir_id: int, body_id: int, stream_id: int, first: int, last: int, expr_span: word) -> int {
+    if v4_lex_token_syntax_value(stream_id, last) != ")" { give back 0 - 1 }
+    pilot open_token = v4_mir_find_open_paren_token(stream_id, first, last)
+    if open_token <= first { give back 0 - 1 }
+    pilot callee_end = v4_mir_prev_nontrivia(stream_id, open_token - 1, first)
+    if v4_lex_token_syntax_value(stream_id, callee_end) != ")" { give back 0 - 1 }
+
+    -- Keep the computed target as one child, preceding its arguments and
+    -- the outer Call. Empty arguments remain an explicitly empty payload.
+    pilot callee_text = v4_mir_expr_text(stream_id, first, open_token)
+    pilot callee_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first, open_token)
+    pilot callee_ty = v4_mir_rvalue_ty(mir_id, body_id, callee_rvalue)
+    pilot callable_ty = callee_ty
+    if v4_ty_is_closure_type(callee_ty) { callable_ty = v4_ty_closure_as_task_type(callee_ty) }
+    if v4_ty_is_surface_task_function_type(callee_ty) or v4_ty_is_closure_type(callee_ty) {
+        pilot args_payload = v4_mir_check_callback_call_args(mir_id, body_id, stream_id, expr_span, callee_text, callable_ty, open_token, last)
+        pilot return_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_function_type_return_text(callable_ty))
+        pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, v4_mir_expr_text(stream_id, first, last + 1), callee_text, callee_rvalue, 0 - 1, expr_span, return_ty)
+        if v4_ty_is_surface_task_function_type(callee_ty) {
+            v4_mir_set_rvalue_abi(mir_id, body_id, call_rvalue, v4_ty_function_type_call_abi(callee_ty))
+        }
+        v4_mir_set_rvalue_args_payload(mir_id, body_id, call_rvalue, args_payload)
+        give back call_rvalue
+    }
+    v4_mir_add_type_error(mir_id, expr_span, "call target is not callable", callee_text + " has type " + callee_ty + "; only tasks and extern callback values can be called")
+    v4_mir_lower_ignored_call_args(mir_id, body_id, stream_id, open_token, last)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, v4_mir_expr_text(stream_id, first, last + 1), "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+}
+
 task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start_token: int, end_token: int, expected_ty: word) -> int {
     pilot first = v4_mir_skip_trivia(stream_id, start_token)
     pilot last = v4_mir_last_nontrivia_before(stream_id, end_token)
@@ -5364,7 +5475,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back tuple_rvalue
     }
 
-    if v4_lex_token_value(stream_id, first) == "(" and v4_lex_token_value(stream_id, last) == ")" {
+    if v4_lex_token_syntax_value(stream_id, first) == "(" and v4_lex_token_syntax_value(stream_id, last) == ")" {
         pilot close_group = v4_mir_find_matching_paren(stream_id, first, last + 1)
         if close_group == last {
             give back v4_mir_lower_expr_expected(mir_id, body_id, stream_id, first + 1, last, expected_ty)
@@ -5412,7 +5523,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         if op_token > first and op_token < last {
             pilot left_id = v4_mir_lower_expr(mir_id, body_id, stream_id, first, op_token)
             pilot right_id = v4_mir_lower_expr(mir_id, body_id, stream_id, op_token + 1, last + 1)
-            pilot op_text = v4_lex_token_value(stream_id, op_token)
+            pilot op_text = v4_lex_token_syntax_value(stream_id, op_token)
             pilot op_kind = v4_mir_operator_kind(op_text)
             pilot left_ty = v4_mir_rvalue_ty(mir_id, body_id, left_id)
             pilot right_ty = v4_mir_rvalue_ty(mir_id, body_id, right_id)
@@ -5431,7 +5542,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     pilot first_type = v4_lex_token_type(stream_id, first)
     pilot first_value = v4_lex_token_value(stream_id, first)
     pilot next_token = v4_mir_next_nontrivia(stream_id, first + 1, last + 1)
-    pilot unary_kind = v4_mir_unary_op_kind(first_value)
+    pilot unary_kind = v4_mir_unary_op_kind(v4_lex_token_syntax_value(stream_id, first))
     if unary_kind == "" and v4_mir_is_generic_instance_method_call_shape(stream_id, first, last) {
         pilot generic_instance_method_rvalue = v4_mir_try_lower_instance_method_call(mir_id, body_id, stream_id, first, last, expr_span)
         if generic_instance_method_rvalue >= 0 {
@@ -5466,7 +5577,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_word)
     }
     if first_type == v4_tok_bool {
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_bool)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, v4_mir_bool_literal_value(first_value), "", 0 - 1, 0 - 1, expr_span, v4_ty_bool)
     }
     if first_type == v4_tok_char {
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_char, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_char)
@@ -5492,6 +5603,9 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back maybe_result_rvalue
     }
 
+    pilot computed_call = v4_mir_try_lower_computed_call(mir_id, body_id, stream_id, first, last, expr_span)
+    if computed_call >= 0 { give back computed_call }
+
     pilot named_call_rvalue = v4_mir_try_lower_named_call(mir_id, body_id, stream_id, first, last, expr_span)
     if named_call_rvalue >= 0 {
         give back named_call_rvalue
@@ -5503,7 +5617,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     }
 
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
-    if next_token <= last and v4_lex_token_value(stream_id, next_token) == "(" {
+    if next_token <= last and v4_lex_token_syntax_value(stream_id, next_token) == "(" {
         pilot close_token = v4_mir_find_matching_paren(stream_id, next_token, last + 1)
         pilot sig_id = v4_mir_signature_id_for_name(mir_id, first_value)
         if sig_id >= 0 {
@@ -5523,7 +5637,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
 
         pilot callee_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first, next_token)
         pilot callee_ty = v4_mir_rvalue_ty(mir_id, body_id, callee_rvalue)
-        if v4_ty_is_surface_extern_function_pointer_type(callee_ty) {
+        if v4_ty_is_surface_task_function_type(callee_ty) {
             pilot args_payload = v4_mir_check_callback_call_args(mir_id, body_id, stream_id, expr_span, v4_mir_expr_text(stream_id, first, next_token), callee_ty, next_token, close_token)
             pilot return_ty = v4_ty_canonical_type(v4_mir_ty_id(mir_id), v4_ty_function_type_return_text(callee_ty))
             pilot call_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, expr_text, v4_mir_rvalue_text(mir_id, body_id, callee_rvalue), callee_rvalue, 0 - 1, expr_span, return_ty)
@@ -5578,7 +5692,7 @@ task v4_mir_find_top_level_token(stream_id: int, start_token: int, end_token: in
     pilot depth = 0
     repeat until idx < start_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == ")" or val == "]" or val == "}" {
                 depth += 1
             } else if val == "(" or val == "[" or val == "{" {
@@ -5599,7 +5713,7 @@ task v4_mir_find_open_index_token(stream_id: int, start_token: int, close_token:
     pilot depth = 0
     repeat until idx < start_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == "]" {
                 depth += 1
             } else if val == "[" {
@@ -5662,7 +5776,7 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
         give back v4_mir_add_place(mir_id, body_id, v4_mir_place_unknown, "", 0 - 1, "", 0 - 1, place_span, v4_ty_unknown)
     }
 
-    if v4_lex_token_value(stream_id, first) == "*" and first < last {
+    if v4_lex_token_syntax_value(stream_id, first) == "*" and first < last {
         pilot ptr_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, first + 1, last + 1)
         pilot ptr_ty = v4_mir_rvalue_ty(mir_id, body_id, ptr_rvalue)
         pilot deref_text = v4_mir_expr_text(stream_id, first, last + 1)
@@ -5684,7 +5798,7 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
     }
 
     pilot place_text = v4_mir_expr_text(stream_id, first, last + 1)
-    if v4_lex_token_value(stream_id, last) == "]" {
+    if v4_lex_token_syntax_value(stream_id, last) == "]" {
         pilot open_index = v4_mir_find_open_index_token(stream_id, first, last)
         if open_index > first {
             pilot base_place = v4_mir_lower_place(mir_id, body_id, stream_id, first, open_index)
@@ -5720,7 +5834,7 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
         pilot field_token = v4_mir_next_nontrivia(stream_id, dot_token + 1, last + 1)
         pilot field_name = ""
         if field_token <= last {
-            field_name = v4_lex_token_value(stream_id, field_token)
+            field_name = v4_lex_token_syntax_value(stream_id, field_token)
         }
         pilot base_ty = v4_mir_place_ty(mir_id, body_id, base_place)
         pilot projected_ty = base_ty
@@ -5778,7 +5892,7 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
     }
 
     if first == last {
-        pilot local_name = v4_lex_token_value(stream_id, first)
+        pilot local_name = v4_lex_token_syntax_value(stream_id, first)
         pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, local_name, v4_span_start(place_span))
         if local_id >= 0 {
             give back v4_mir_add_place(mir_id, body_id, v4_mir_place_local, local_name, 0 - 1, local_name, 0 - 1, place_span, v4_mir_local_ty(mir_id, body_id, local_id))
@@ -5793,7 +5907,7 @@ task v4_mir_find_else_token(stream_id: int, start_token: int, end_token: int) ->
     pilot depth = 0
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == "{" {
                 depth += 1
             } else if val == "}" {
@@ -5829,7 +5943,7 @@ task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: i
 
     if else_token >= 0 {
         pilot else_head = v4_mir_skip_trivia(stream_id, else_token + 1)
-        if else_head < stmt_end and v4_lex_token_value(stream_id, else_head) == "if" {
+        if else_head < stmt_end and v4_lex_token_syntax_value(stream_id, else_head) == "if" {
             else_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
             pilot nested_after = v4_mir_lower_if_stmt(mir_id, body_id, else_block, stream_id, else_head, stmt_end)
             v4_mir_seal_block_goto_if_live(mir_id, body_id, nested_after, after_block)
@@ -5871,19 +5985,18 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
             v4_mir_add_type_error(mir_id, stmt_span, "repeat N times count must be int", "got " + count_ty)
         }
 
-        -- Synthetic counter local: _repeat_i (pick unique name based on block count)
-        pilot counter_name = "_repeat_i"
-        if v4_mir_find_local(mir_id, body_id, counter_name) >= 0 {
-            counter_name = "_repeat_i2"
-        }
-        pilot counter_local = v4_mir_add_local(mir_id, body_id, counter_name, v4_ty_int, stmt_span)
+        -- Allocate a fresh identity, including for siblings and arbitrary nesting.
+        -- The internal display name cannot be spelled as a source identifier.
+        pilot counter_name = "$repeat_i#" + word_from_int(v4_mir_body_local_count(mir_id, body_id))
+        pilot counter_local = v4_mir_add_local_at_scope(mir_id, body_id, counter_name, v4_ty_int, stmt_span, v4_mir_current_scope_span(stmt_span))
+        pilot counter_identity = "local#" + word_from_int(counter_local)
         pilot counter_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
         pilot count_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, count_rvalue)
         v4_mir_add_stmt(mir_id, body_id, count_block, v4_mir_stmt_local, counter_name, count_text, stmt_span, counter_place, count_rvalue)
 
         -- Loop check: _repeat_i > 0
         pilot zero_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "0", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
-        pilot counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_name, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+        pilot counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_identity, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
         pilot check_cond_text = counter_name + " > 0"
         pilot check_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, check_cond_text, "Gt", counter_use, zero_rvalue, stmt_span, v4_ty_bool)
         pilot loop_lhs = "repeat " + count_text + " times"
@@ -5903,7 +6016,7 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
 
         -- Decrement counter in body block: _repeat_i = _repeat_i - 1
         if v4_mir_block_terminator(v4_mir_body_block(mir_id, body_id, body_tail)) == v4_mir_term_return and not v4_mir_block_has_return_stmt(mir_id, body_id, body_tail) {
-            pilot dec_counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_name, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+            pilot dec_counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_identity, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot one_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot dec_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, counter_name + " - 1", "Sub", dec_counter_use, one_rvalue, stmt_span, v4_ty_int)
             pilot dec_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
@@ -5911,7 +6024,7 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
         }
         v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, condition_block)
         if v4_mir_body_block_predecessor_count(mir_id, body_id, continue_block) > 0 and not v4_mir_block_has_return_stmt(mir_id, body_id, continue_block) {
-            pilot continue_counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_name, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
+            pilot continue_counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, counter_identity, 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot continue_one = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot continue_dec = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, counter_name + " - 1", "Sub", continue_counter_use, continue_one, stmt_span, v4_ty_int)
             pilot continue_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
@@ -5924,7 +6037,7 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
 
     pilot condition_start = repeat_token + 1
     if next_kw < open_token {
-        if v4_lex_token_value(stream_id, next_kw) == "until" {
+        if v4_lex_token_syntax_value(stream_id, next_kw) == "until" {
             condition_start = next_kw + 1
         }
     }
@@ -5953,7 +6066,7 @@ task v4_mir_pattern_is_simple_local(pattern: word) -> bool {
     if pattern == "" {
         give back false
     }
-    if v4_lex_is_bool_word(pattern) {
+    if v4_mir_when_pattern_is_bool_literal(pattern) {
         give back false
     }
     if not v4_lex_is_ident_start(pattern.char_at(0)) {
@@ -5969,16 +6082,56 @@ task v4_mir_pattern_is_simple_local(pattern: word) -> bool {
     give back true
 }
 
+task v4_mir_pattern_literal_end(pattern: word, start_pos: int, end_pos: int) -> int {
+    if start_pos < 0 or start_pos >= end_pos or start_pos >= pattern.length() { give back start_pos }
+    pilot quote = pattern.char_at(start_pos)
+    if quote != "\"" and quote != "'" { give back start_pos }
+    pilot idx = start_pos + 1
+    repeat until idx >= end_pos or idx >= pattern.length() {
+        pilot ch = pattern.char_at(idx)
+        if ch == "\\" {
+            idx += 2
+        } else if ch == quote {
+            give back idx + 1
+        } else {
+            idx += 1
+        }
+    }
+    give back start_pos
+}
+
 task v4_mir_pattern_find_top_level_char(pattern: word, wanted: word, start_pos: int, end_pos: int) -> int {
     pilot depth = 0
     pilot idx = start_pos
     repeat until idx >= end_pos {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == wanted {
-            give back idx
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, end_pos)
+        if literal_end > idx {
+            idx = literal_end
+        } else {
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == wanted {
+                give back idx
+            }
+            depth = v4_ty_type_depth_after_char(depth, ch)
+            idx += 1
         }
-        depth = v4_ty_type_depth_after_char(depth, ch)
-        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_mir_pattern_scope_separator(pattern: word) -> int {
+    pilot idx = 0
+    pilot depth = 0
+    repeat until idx + 1 >= pattern.length() {
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length())
+        if literal_end > idx {
+            idx = literal_end
+        } else {
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == ":" and pattern.char_at(idx + 1) == ":" { give back idx }
+            depth = v4_ty_type_depth_after_char(depth, ch)
+            idx += 1
+        }
     }
     give back 0 - 1
 }
@@ -6015,13 +6168,18 @@ task v4_mir_tuple_pattern_slot_count(pattern: word) -> int {
     pilot depth = 0
     pilot idx = 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            count += 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                count += 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
     give back count
 }
@@ -6037,17 +6195,22 @@ task v4_mir_tuple_pattern_slot(pattern: word, slot_id: int) -> word {
     pilot depth = 0
     pilot idx = 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            if current == slot_id {
-                give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
-            }
-            current += 1
-            segment_start = idx + 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                if current == slot_id {
+                    give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
+                }
+                current += 1
+                segment_start = idx + 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
 
     if current == slot_id and segment_start < pattern.length() - 1 {
@@ -6072,13 +6235,18 @@ task v4_mir_bracket_pattern_slot_count(pattern: word) -> int {
     pilot depth = 0
     pilot idx = 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            count += 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                count += 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
     give back count
 }
@@ -6094,17 +6262,22 @@ task v4_mir_bracket_pattern_slot(pattern: word, slot_id: int) -> word {
     pilot depth = 0
     pilot idx = 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            if current == slot_id {
-                give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
-            }
-            current += 1
-            segment_start = idx + 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                if current == slot_id {
+                    give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
+                }
+                current += 1
+                segment_start = idx + 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
 
     if current == slot_id and segment_start < pattern.length() - 1 {
@@ -6153,13 +6326,18 @@ task v4_mir_named_brace_pattern_field_count(pattern: word) -> int {
     pilot depth = 0
     pilot idx = open_pos + 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            count += 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                count += 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
     give back count
 }
@@ -6176,17 +6354,22 @@ task v4_mir_named_brace_pattern_field(pattern: word, field_id: int) -> word {
     pilot depth = 0
     pilot idx = open_pos + 1
     repeat until idx >= pattern.length() - 1 {
-        pilot ch = pattern.char_at(idx)
-        if depth == 0 and ch == "," {
-            if current == field_id {
-                give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
-            }
-            current += 1
-            segment_start = idx + 1
+        pilot literal_end = v4_mir_pattern_literal_end(pattern, idx, pattern.length() - 1)
+        if literal_end > idx {
+            idx = literal_end
         } else {
-            depth = v4_ty_type_depth_after_char(depth, ch)
+            pilot ch = pattern.char_at(idx)
+            if depth == 0 and ch == "," {
+                if current == field_id {
+                    give back v4_mir_pattern_trim(v4_slice(pattern, segment_start, idx))
+                }
+                current += 1
+                segment_start = idx + 1
+            } else {
+                depth = v4_ty_type_depth_after_char(depth, ch)
+            }
+            idx += 1
         }
-        idx += 1
     }
 
     if current == field_id and segment_start < pattern.length() - 1 {
@@ -6227,7 +6410,7 @@ task v4_mir_is_route_destructure_pattern(pattern: word) -> bool {
     if v4_mir_named_brace_pattern_head(pattern) != "" {
         give back true
     }
-    give back v4_mir_path_scope_separator(pattern) >= 0
+    give back v4_mir_pattern_scope_separator(pattern) >= 0
 }
 
 task v4_mir_destructure_pattern_kind(pattern: word) -> word {
@@ -6554,7 +6737,7 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
     }
 
     pilot each_token = v4_mir_skip_trivia(stream_id, for_token + 1)
-    if each_token >= open_token or v4_lex_token_value(stream_id, each_token) != "each" {
+    if each_token >= open_token or v4_lex_token_syntax_value(stream_id, each_token) != "each" {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, for_token, stmt_end)
     }
 
@@ -6563,7 +6746,7 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, for_token, stmt_end)
     }
 
-    pilot loop_pattern = v4_mir_expr_text(stream_id, each_token + 1, in_token)
+    pilot loop_pattern = v4_mir_pattern_text(stream_id, each_token + 1, in_token)
     pilot iterable_text = v4_mir_expr_text(stream_id, in_token + 1, open_token)
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, for_token, stmt_end)
     pilot loop_scope_span = v4_mir_span_from_tokens(stream_id, open_token, stmt_end)
@@ -6607,7 +6790,7 @@ task v4_mir_find_assignment_operator_token(stream_id: int, start_token: int, end
     pilot depth = 0
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and v4_mir_assignment_operator(val) {
                 give back idx
             }
@@ -6627,7 +6810,7 @@ task v4_mir_find_matching_bracket(stream_id: int, open_token: int, end_token: in
     pilot depth = 0
     repeat until idx >= end_token {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if val == "[" {
                 depth += 1
             } else if val == "]" {
@@ -6655,7 +6838,7 @@ task v4_mir_condition_place_prefix_end(stream_id: int, first_token: int, conditi
         if next_token >= condition_end {
             give back condition_end
         }
-        pilot next_val = v4_lex_token_value(stream_id, next_token)
+        pilot next_val = v4_lex_token_syntax_value(stream_id, next_token)
         if next_val == "." or next_val == "::" {
             pilot member_token = v4_mir_skip_trivia(stream_id, next_token + 1)
             if member_token >= condition_end {
@@ -6684,7 +6867,7 @@ task v4_mir_condition_subject_place(stream_id: int, condition_start: int, condit
     if first >= condition_end {
         give back ""
     }
-    if v4_lex_token_value(stream_id, first) == "(" {
+    if v4_lex_token_syntax_value(stream_id, first) == "(" {
         pilot close_paren = v4_mir_find_matching_paren(stream_id, first, condition_end)
         if close_paren > first {
             give back v4_mir_condition_subject_place(stream_id, first + 1, close_paren)
@@ -6698,7 +6881,7 @@ task v4_mir_condition_subject_place(stream_id: int, condition_start: int, condit
     pilot depth = 0
     repeat until idx >= condition_end {
         if v4_lex_token_type(stream_id, idx) != v4_tok_trivia {
-            pilot val = v4_lex_token_value(stream_id, idx)
+            pilot val = v4_lex_token_syntax_value(stream_id, idx)
             if depth == 0 and v4_mir_growth_condition_boundary(val) {
                 give back v4_mir_compact_type_text(v4_mir_expr_text(stream_id, first, idx))
             }
@@ -6746,9 +6929,9 @@ task v4_mir_assignment_lhs_start(stream_id: int, lower_bound: int, op_token: int
     pilot idx = op_token - 1
     repeat until idx < lower_bound {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type == v4_tok_trivia {
-            if val == "\n" {
+            if v4_lex_token_value(stream_id, idx) == "\n" {
                 give back idx + 1
             }
         } else if val == ";" or val == "{" or val == "}" or val == "=>" or val == "->" {
@@ -6767,7 +6950,7 @@ task v4_mir_body_mutates_place(stream_id: int, open_token: int, close_token: int
 
     pilot idx = open_token + 1
     repeat until idx >= close_token {
-        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_mir_assignment_operator(v4_lex_token_value(stream_id, idx)) {
+        if v4_lex_token_type(stream_id, idx) != v4_tok_trivia and v4_mir_assignment_operator(v4_lex_token_syntax_value(stream_id, idx)) {
             pilot lhs_start = v4_mir_assignment_lhs_start(stream_id, open_token + 1, idx)
             pilot lhs_text = v4_mir_compact_type_text(v4_mir_expr_text(stream_id, lhs_start, idx))
             if v4_mir_growth_place_prefix_matches(lhs_text, wanted) {
@@ -6786,7 +6969,7 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
     }
 
     pilot arc_token = v4_mir_skip_trivia(stream_id, training_token + 1)
-    if arc_token >= open_token or v4_lex_token_value(stream_id, arc_token) != "arc" {
+    if arc_token >= open_token or v4_lex_token_syntax_value(stream_id, arc_token) != "arc" {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, training_token, stmt_end)
     }
 
@@ -6814,7 +6997,7 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
     pilot has_growth = false
     if with_token >= 0 {
         pilot growth_token = v4_mir_skip_trivia(stream_id, with_token + 1)
-        if growth_token < open_token and v4_lex_token_value(stream_id, growth_token) == "growth" {
+        if growth_token < open_token and v4_lex_token_syntax_value(stream_id, growth_token) == "growth" {
             has_growth = true
         }
     }
@@ -6873,7 +7056,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         declared_ty = v4_ty_impl_local_annotation_type_at_offset(ty_id, v4_mir_body_def(mir_id, body_id), pilot_offset)
     }
 
-    pilot pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, pattern_start, pattern_end))
+    pilot pattern = v4_mir_pattern_trim(v4_mir_pattern_text(stream_id, pattern_start, pattern_end))
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, pilot_token, stmt_end)
     if v4_ty_is_known(declared_ty) {
         if not v4_mir_validate_type_contract(mir_id, v4_mir_body_signature_id(mir_id, body_id), stmt_span, declared_ty, "invalid local annotation type", "local declaration " + pattern) {
@@ -6952,13 +7135,20 @@ task v4_mir_lower_return_stmt(mir_id: int, body_id: int, block_id: int, stream_i
     pilot back_token = v4_mir_skip_trivia(stream_id, give_token + 1)
     pilot rhs_start = give_token + 1
     if back_token < stmt_end {
-        if v4_lex_token_value(stream_id, back_token) == "back" {
+        if v4_lex_token_syntax_value(stream_id, back_token) == "back" {
             rhs_start = back_token + 1
         }
     }
 
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, give_token, stmt_end)
     pilot rhs = v4_mir_expr_text(stream_id, rhs_start, stmt_end)
+    if v4_mir_next_nontrivia(stream_id, rhs_start, stmt_end) >= stmt_end {
+        v4_mir_check_return_type(mir_id, body_id, stmt_span, v4_ty_void)
+        pilot return_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_return, "_return", 0 - 1, "_return", 0 - 1, stmt_span, v4_ty_void)
+        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_return, "_return", "", stmt_span, return_place, 0 - 1)
+        v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_return, 0 - 1, 0 - 1, ""))
+        give back block_id
+    }
     pilot rvalue_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, rhs_start, stmt_end, v4_mir_expected_return_type(mir_id, body_id))
     pilot actual_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     v4_mir_check_return_type(mir_id, body_id, stmt_span, actual_ty)
@@ -6999,7 +7189,7 @@ task v4_mir_find_arrow_token(stream_id: int, start: int, end_token: int) -> int 
     pilot depth = 0
     repeat until idx >= end_token {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type != v4_tok_trivia {
             if val == "(" or val == "[" {
                 depth += 1
@@ -7019,14 +7209,14 @@ task v4_mir_when_arm_body_end(stream_id: int, after_arrow: int, when_close: int)
     if first >= when_close {
         give back when_close
     }
-    if v4_lex_token_value(stream_id, first) == "{" {
+    if v4_lex_token_syntax_value(stream_id, first) == "{" {
         give back v4_mir_find_matching_brace(stream_id, first, when_close) + 1
     }
     pilot idx = after_arrow
     pilot depth = 0
     repeat until idx >= when_close {
         pilot tok_type = v4_lex_token_type(stream_id, idx)
-        pilot val = v4_lex_token_value(stream_id, idx)
+        pilot val = v4_lex_token_syntax_value(stream_id, idx)
         if tok_type != v4_tok_trivia {
             if val == "(" or val == "[" or val == "{" {
                 depth += 1
@@ -7036,7 +7226,7 @@ task v4_mir_when_arm_body_end(stream_id: int, after_arrow: int, when_close: int)
                 if depth == 0 { give back idx }
                 depth -= 1
             }
-        } else if val == "\n" {
+        } else if v4_lex_token_value(stream_id, idx) == "\n" {
             if depth == 0 { give back idx }
         }
         idx += 1
@@ -7045,14 +7235,12 @@ task v4_mir_when_arm_body_end(stream_id: int, after_arrow: int, when_close: int)
 }
 
 task v4_mir_when_pattern_is_bool_literal(pattern: word) -> bool {
-    give back pattern == "true" or pattern == "false" or pattern == "yes" or pattern == "no" or pattern == "hai" or pattern == "iie"
+    pilot lower = pattern.to_lower()
+    give back lower == "true" or lower == "false" or lower == "yes" or lower == "no" or lower == "hai" or lower == "iie"
 }
 
 task v4_mir_when_pattern_bool_text(pattern: word) -> word {
-    if pattern == "false" or pattern == "no" or pattern == "iie" {
-        give back "false"
-    }
-    give back "true"
+    give back v4_mir_bool_literal_value(pattern)
 }
 
 task v4_mir_when_pattern_is_string_literal(pattern: word) -> bool {
@@ -7129,7 +7317,7 @@ task v4_mir_when_pattern_literal_rvalue(mir_id: int, body_id: int, pattern: word
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, v4_mir_when_pattern_bool_text(pattern), "", 0 - 1, 0 - 1, stmt_span, v4_ty_bool)
     }
     if v4_mir_when_pattern_is_string_literal(pattern) {
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, pattern, "", 0 - 1, 0 - 1, stmt_span, v4_ty_word)
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, v4_slice(pattern, 1, pattern.length() - 1), "", 0 - 1, 0 - 1, stmt_span, v4_ty_word)
     }
     if v4_mir_when_pattern_is_numeric_literal(pattern) {
         if v4_index_of_from(pattern, ".", 0) >= 0 {
@@ -7290,7 +7478,7 @@ task v4_mir_try_lower_route_pattern_condition(mir_id: int, body_id: int, stmt_sp
         give back cond_rvalue
     }
 
-    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
+    pilot route_pattern_sep = v4_mir_pattern_scope_separator(pattern)
     pilot treat_simple_name_as_route = bare_names_are_route_candidates and v4_mir_pattern_is_simple_local(pattern)
     if route_pattern_sep >= 0 or (v4_ty_is_route_type(ty_id, source_ty) and v4_ty_route_has_case(ty_id, source_ty, pattern)) or treat_simple_name_as_route {
         if v4_ty_is_known(source_ty) and not v4_ty_is_route_type(ty_id, source_ty) {
@@ -7563,7 +7751,7 @@ task v4_mir_when_pattern_is_irrefutable(mir_id: int, pattern: word, source_ty: w
         give back true
     }
 
-    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
+    pilot route_pattern_sep = v4_mir_pattern_scope_separator(pattern)
     if route_pattern_sep >= 0 or (v4_ty_is_route_type(ty_id, source_ty) and v4_ty_route_has_case(ty_id, source_ty, pattern)) {
         pilot route_name = source_ty
         pilot case_name = pattern
@@ -7649,7 +7837,7 @@ task v4_mir_when_pattern_route_case(mir_id: int, pattern: word, source_ty: word)
         give back case_name
     }
 
-    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
+    pilot route_pattern_sep = v4_mir_pattern_scope_separator(pattern)
     if route_pattern_sep >= 0 or v4_ty_route_has_case(ty_id, source_ty, pattern) {
         pilot route_name = source_ty
         pilot case_name = pattern
@@ -7738,7 +7926,7 @@ task v4_mir_route_missing_cases_text(mir_id: int, route_name: word, covered_case
 task v4_mir_lower_arm_body(mir_id: int, body_id: int, block_id: int, stream_id: int, arrow_token: int, arm_end: int) -> int {
     pilot first_body = v4_mir_skip_trivia(stream_id, arrow_token + 1)
     if first_body < arm_end {
-        if v4_lex_token_value(stream_id, first_body) == "{" {
+        if v4_lex_token_syntax_value(stream_id, first_body) == "{" {
             give back v4_mir_lower_block_body(mir_id, body_id, block_id, stream_id, first_body, arm_end)
         } else {
             give back v4_mir_lower_statement(mir_id, body_id, block_id, stream_id, first_body, arm_end)
@@ -7847,7 +8035,7 @@ task v4_mir_try_lower_route_pattern_bindings(mir_id: int, body_id: int, block_id
         give back true
     }
 
-    pilot route_pattern_sep = v4_mir_path_scope_separator(pattern)
+    pilot route_pattern_sep = v4_mir_pattern_scope_separator(pattern)
     if route_pattern_sep >= 0 or (v4_ty_is_route_type(ty_id, source_ty) and v4_ty_route_has_case(ty_id, source_ty, pattern)) or (bare_names_are_route_candidates and v4_mir_pattern_is_simple_local(pattern)) {
         give back true
     }
@@ -7895,13 +8083,13 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
             pilot arm_first = v4_mir_skip_trivia(stream_id, idx)
             pilot arm_head = ""
             if arm_first < arrow {
-                arm_head = v4_lex_token_value(stream_id, arm_first)
+                arm_head = v4_lex_token_syntax_value(stream_id, arm_first)
             }
               if arm_head == "got" {
                   if got_arrow >= 0 {
                       v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe duplicate got arm", "got already appears in this check")
                   } else {
-                      got_pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, arm_first + 1, arrow))
+                      got_pattern = v4_mir_pattern_trim(v4_mir_pattern_text(stream_id, arm_first + 1, arrow))
                       if not v4_mir_checked_pattern_supported(got_pattern) {
                           v4_mir_add_type_error(mir_id, v4_mir_span_from_tokens(stream_id, idx, arm_end), "check maybe arm malformed", "use got pattern -> ...")
                       } else {
@@ -7962,7 +8150,7 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
 task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, check_token: int, stmt_end: int) -> int {
     pilot result_token = v4_mir_skip_trivia(stream_id, check_token + 1)
     pilot open_token = v4_mir_find_token_value(stream_id, result_token, stmt_end, "{")
-    if result_token >= stmt_end or v4_lex_token_value(stream_id, result_token) != "result" or open_token < 0 {
+    if result_token >= stmt_end or v4_lex_token_syntax_value(stream_id, result_token) != "result" or open_token < 0 {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, check_token, stmt_end)
     }
 
@@ -8002,7 +8190,7 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
             pilot arm_first = v4_mir_skip_trivia(stream_id, idx)
             pilot arm_head = ""
             if arm_first < arrow {
-                arm_head = v4_lex_token_value(stream_id, arm_first)
+                arm_head = v4_lex_token_syntax_value(stream_id, arm_first)
             }
             pilot head_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
             pilot head_last = v4_mir_last_nontrivia_before(stream_id, arrow)
@@ -8010,14 +8198,14 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
               pilot malformed = false
               if arm_head == "ok" or arm_head == "err" {
                   pilot open_paren = v4_mir_skip_trivia(stream_id, arm_first + 1)
-                  if open_paren >= arrow or v4_lex_token_value(stream_id, open_paren) != "(" {
+                  if open_paren >= arrow or v4_lex_token_syntax_value(stream_id, open_paren) != "(" {
                       malformed = true
                   } else {
                       pilot close_paren = v4_mir_find_matching_paren(stream_id, open_paren, arrow)
                       if close_paren != head_last {
                           malformed = true
                       } else {
-                          bind_pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, open_paren + 1, close_paren))
+                          bind_pattern = v4_mir_pattern_trim(v4_mir_pattern_text(stream_id, open_paren + 1, close_paren))
                           if not v4_mir_checked_pattern_supported(bind_pattern) {
                               malformed = true
                           }
@@ -8095,7 +8283,7 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
 task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, check_token: int, stmt_end: int) -> int {
     pilot route_token = v4_mir_skip_trivia(stream_id, check_token + 1)
     pilot open_token = v4_mir_find_token_value(stream_id, route_token, stmt_end, "{")
-    if route_token >= stmt_end or v4_lex_token_value(stream_id, route_token) != "route" or open_token < 0 {
+    if route_token >= stmt_end or v4_lex_token_syntax_value(stream_id, route_token) != "route" or open_token < 0 {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, check_token, stmt_end)
     }
 
@@ -8128,7 +8316,7 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
             idx = check_close
         }
         if idx < check_close {
-            pilot pattern = v4_mir_expr_text(stream_id, idx, arrow)
+            pilot pattern = v4_mir_pattern_text(stream_id, idx, arrow)
             pilot arm_end = v4_mir_when_arm_body_end(stream_id, arrow + 1, check_close)
             pilot arm_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
             pilot trimmed_pattern = v4_mir_pattern_trim(pattern)
@@ -8194,7 +8382,7 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
 
 task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, only_token: int, stmt_end: int) -> int {
     pilot on_token = v4_mir_skip_trivia(stream_id, only_token + 1)
-    if on_token >= stmt_end or v4_lex_token_value(stream_id, on_token) != "on" {
+    if on_token >= stmt_end or v4_lex_token_syntax_value(stream_id, on_token) != "on" {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, only_token, stmt_end)
     }
 
@@ -8211,7 +8399,7 @@ task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_
         give back block_id
     }
 
-    pilot pattern = v4_mir_pattern_trim(v4_mir_expr_text(stream_id, on_token + 1, from_token))
+    pilot pattern = v4_mir_pattern_trim(v4_mir_pattern_text(stream_id, on_token + 1, from_token))
     pilot subject_text = v4_mir_expr_text(stream_id, from_token + 1, open_token)
     if pattern == "" or subject_text == "" {
         v4_mir_add_type_error(mir_id, stmt_span, "only on statement malformed", "use only on Route::Case from value with a guarded block")
@@ -8250,7 +8438,7 @@ task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_
 task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, trust_token: int, stmt_end: int) -> int {
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, trust_token, stmt_end)
     pilot me_token = v4_mir_skip_trivia(stream_id, trust_token + 1)
-    if me_token >= stmt_end or v4_lex_token_value(stream_id, me_token) != "me" {
+    if me_token >= stmt_end or v4_lex_token_syntax_value(stream_id, me_token) != "me" {
         v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs me keyword", "write 'trust me \"reason\" on my honor as .level' followed by a braced body")
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, trust_token, stmt_end)
     }
@@ -8260,23 +8448,23 @@ task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream
         cursor = v4_mir_skip_trivia(stream_id, cursor + 1)
     }
     pilot honor_rank = v4_mir_honor_rank("cadet")
-    if cursor < stmt_end and v4_lex_token_value(stream_id, cursor) == "on" {
+    if cursor < stmt_end and v4_lex_token_syntax_value(stream_id, cursor) == "on" {
         pilot honor_diag = ""
         pilot honor_msg = "trust me honor clause malformed"
         pilot my_token = v4_mir_skip_trivia(stream_id, cursor + 1)
-        if my_token >= stmt_end or v4_lex_token_value(stream_id, my_token) != "my" {
+        if my_token >= stmt_end or v4_lex_token_syntax_value(stream_id, my_token) != "my" {
             honor_diag = "use on my honor as .level"
         }
         pilot honor_token = v4_mir_skip_trivia(stream_id, my_token + 1)
-        if honor_diag == "" and (honor_token >= stmt_end or v4_lex_token_value(stream_id, honor_token) != "honor") {
+        if honor_diag == "" and (honor_token >= stmt_end or v4_lex_token_syntax_value(stream_id, honor_token) != "honor") {
             honor_diag = "use on my honor as .level"
         }
         pilot as_token = v4_mir_skip_trivia(stream_id, honor_token + 1)
-        if honor_diag == "" and (as_token >= stmt_end or v4_lex_token_value(stream_id, as_token) != "as") {
+        if honor_diag == "" and (as_token >= stmt_end or v4_lex_token_syntax_value(stream_id, as_token) != "as") {
             honor_diag = "use on my honor as .level"
         }
         pilot dot_token = v4_mir_skip_trivia(stream_id, as_token + 1)
-        if honor_diag == "" and (dot_token >= stmt_end or v4_lex_token_value(stream_id, dot_token) != ".") {
+        if honor_diag == "" and (dot_token >= stmt_end or v4_lex_token_syntax_value(stream_id, dot_token) != ".") {
             honor_diag = "follow as with .level, e.g. as .pilot"
         }
         pilot level_token = v4_mir_skip_trivia(stream_id, dot_token + 1)
@@ -8294,7 +8482,7 @@ task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream
             honor_diag = "name the honor level after the dot, e.g. .pilot"
         }
         if honor_diag == "" {
-            pilot parsed_level = v4_lex_token_value(stream_id, level_token)
+            pilot parsed_level = v4_lex_token_syntax_value(stream_id, level_token)
             honor_rank = v4_mir_honor_rank(parsed_level)
             if honor_rank == 0 {
                 honor_msg = "trust me honor level unknown"
@@ -8309,7 +8497,7 @@ task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream
             v4_mir_add_type_error(mir_id, stmt_span, honor_msg, honor_diag)
             -- Skip past the malformed honor clause to the next opening brace so the body still lowers.
             pilot brace_scan = cursor
-            repeat until brace_scan >= stmt_end or v4_lex_token_value(stream_id, brace_scan) == "{" {
+            repeat until brace_scan >= stmt_end or v4_lex_token_syntax_value(stream_id, brace_scan) == "{" {
                 brace_scan += 1
             }
             cursor = brace_scan
@@ -8318,7 +8506,7 @@ task v4_mir_lower_trust_me_stmt(mir_id: int, body_id: int, block_id: int, stream
         }
     }
 
-    if cursor >= stmt_end or v4_lex_token_value(stream_id, cursor) != "{" {
+    if cursor >= stmt_end or v4_lex_token_syntax_value(stream_id, cursor) != "{" {
         v4_mir_add_type_error(mir_id, stmt_span, "trust me block needs body", "open the trust me block with a brace after the optional reason and honor clause")
         give back block_id
     }
@@ -8365,7 +8553,7 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
             idx = when_close
         }
         if idx < when_close {
-            pilot pattern = v4_mir_expr_text(stream_id, idx, arrow)
+            pilot pattern = v4_mir_pattern_text(stream_id, idx, arrow)
             pilot arm_end = v4_mir_when_arm_body_end(stream_id, arrow + 1, when_close)
             pilot arm_span = v4_mir_span_from_tokens(stream_id, idx, arm_end)
             pilot pattern_route_case = ""
@@ -8445,9 +8633,10 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, stmt_start, stmt_end)
     if eq_token > stmt_start {
         pilot lhs = v4_mir_expr_text(stream_id, stmt_start, eq_token)
+        pilot lhs_pattern = v4_mir_pattern_text(stream_id, stmt_start, eq_token)
         pilot rhs = v4_mir_expr_text(stream_id, eq_token + 1, stmt_end)
-        pilot op_text = v4_lex_token_value(stream_id, eq_token)
-        pilot pattern_kind = v4_mir_destructure_pattern_kind(lhs)
+        pilot op_text = v4_lex_token_syntax_value(stream_id, eq_token)
+        pilot pattern_kind = v4_mir_destructure_pattern_kind(lhs_pattern)
         if pattern_kind != "" {
             if op_text != "=" {
                 v4_mir_add_type_error(mir_id, stmt_span, "destructure assignment only supports =", "use = with tuple or sequence patterns")
@@ -8471,7 +8660,7 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
             pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_id, temp_name, 0 - 1, stmt_span, source_ty)
             pilot value_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, source_rvalue)
             v4_mir_add_stmt(mir_id, body_id, value_block, v4_mir_stmt_local, temp_name, rhs, stmt_span, temp_place, source_rvalue)
-            v4_mir_lower_destructure_assignment_pattern(mir_id, body_id, value_block, stmt_span, pattern_kind, lhs, temp_place, source_ty)
+            v4_mir_lower_destructure_assignment_pattern(mir_id, body_id, value_block, stmt_span, pattern_kind, lhs_pattern, temp_place, source_ty)
             give back value_block
         }
         pilot place_id = v4_mir_lower_place(mir_id, body_id, stream_id, stmt_start, eq_token)
@@ -8521,18 +8710,51 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
     give back block_id
 }
 
+task v4_mir_lower_say_literal_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> int {
+    pilot literal_token = v4_mir_skip_trivia(stream_id, stmt_start + 1)
+    pilot last = v4_mir_last_nontrivia_before(stream_id, stmt_end)
+    pilot stmt_span = v4_mir_span_from_tokens(stream_id, stmt_start, stmt_end)
+    if literal_token >= stmt_end or literal_token != last or v4_lex_token_type(stream_id, literal_token) != v4_tok_string {
+        v4_mir_add_type_error(mir_id, stmt_span, "say nonliteral is not yet supported", "W1 say requires exactly one static word literal; word values, expressions, and methods need the later word runtime slices")
+        give back block_id
+    }
+    pilot raw = v4_lex_token_value(stream_id, literal_token)
+    pilot issue = v4_ty_word_literal_issue(raw)
+    pilot literal_span = v4_mir_span_from_tokens(stream_id, literal_token, literal_token + 1)
+    if issue == "nul" {
+        v4_mir_add_type_error(mir_id, literal_span, "say literal contains embedded NUL", "W1 say uses a null-terminated static word; remove byte zero until the sized word slice lands")
+        give back block_id
+    }
+    if issue == "escape" {
+        v4_mir_add_type_error(mir_id, literal_span, "say literal escape is not yet supported", "W1 supports escaped newline, carriage return, tab, double quote, and backslash")
+        give back block_id
+    }
+    if issue == "interpolation" {
+        v4_mir_add_type_error(mir_id, literal_span, "say interpolation is not yet supported", "path holes need the later persisted interpolation plan; W1 say accepts a static literal")
+        give back block_id
+    }
+    pilot value = v4_ty_word_literal_value(raw)
+    pilot literal = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, value, "", 0 - 1, 0 - 1, literal_span, v4_ty_word)
+    pilot call = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, "say", v4_mir_call_say_literal, 0 - 1, 0 - 1, stmt_span, v4_ty_void)
+    v4_mir_set_rvalue_args_payload(mir_id, body_id, call, word_from_int(literal))
+    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_expr, "", "say", stmt_span, 0 - 1, call)
+    give back block_id
+}
+
 task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> int {
     pilot first = v4_mir_skip_trivia(stream_id, stmt_start)
     if first >= stmt_end {
         give back block_id
     }
 
-    pilot first_val = v4_lex_token_value(stream_id, first)
-    if first_val == "pilot" {
+    pilot first_val = v4_lex_token_syntax_value(stream_id, first)
+    if first_val == "say" and v4_lex_token_type(stream_id, first) == v4_tok_keyword {
+        give back v4_mir_lower_say_literal_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
+    } else if first_val == "pilot" {
         give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "fixed" {
         pilot maybe_pilot = v4_mir_skip_trivia(stream_id, first + 1)
-        if maybe_pilot < stmt_end and v4_lex_token_value(stream_id, maybe_pilot) == "pilot" {
+        if maybe_pilot < stmt_end and v4_lex_token_syntax_value(stream_id, maybe_pilot) == "pilot" {
             give back v4_mir_lower_pilot_stmt(mir_id, body_id, block_id, stream_id, maybe_pilot, stmt_end)
         } else {
             give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
@@ -8545,10 +8767,10 @@ task v4_mir_lower_statement(mir_id: int, body_id: int, block_id: int, stream_id:
         give back v4_mir_lower_continue_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
     } else if first_val == "check" {
         pilot next_token = v4_mir_skip_trivia(stream_id, first + 1)
-        if next_token < stmt_end and v4_lex_token_value(stream_id, next_token) == "result" {
+        if next_token < stmt_end and v4_lex_token_syntax_value(stream_id, next_token) == "result" {
             give back v4_mir_lower_check_result_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
         }
-        if next_token < stmt_end and v4_lex_token_value(stream_id, next_token) == "route" {
+        if next_token < stmt_end and v4_lex_token_syntax_value(stream_id, next_token) == "route" {
             give back v4_mir_lower_check_route_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
         }
         give back v4_mir_lower_check_maybe_stmt(mir_id, body_id, block_id, stream_id, first, stmt_end)
@@ -8624,12 +8846,13 @@ task v4_mir_lower_task_body_token_range(mir_id: int, body_id: int, stream_id: in
 
     v4_mir_clear_loop_context()
     v4_mir_clear_scope_context()
-    pilot body_marker = v4_lex_token_value(stream_id, body_token)
+    pilot body_marker = v4_lex_token_syntax_value(stream_id, body_token)
     if body_marker == "{" {
         pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, 0, stream_id, body_token, end_token)
     } else if body_marker == "=>" {
         pilot body_tail = v4_mir_lower_arrow_body(mir_id, body_id, 0, stream_id, body_token, end_token)
     }
+    v4_mir_finalize_block_stmt_index(mir_id, body_id)
     v4_mir_validate_body_cfg(mir_id, body_id, item_span)
     v4_mir_validate_body_return_coverage(mir_id, body_id, item_span)
 }
@@ -8737,5 +8960,6 @@ task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {
         hir_item += 1
     }
 
+    v4_mir_finalize_lookup_indexes(mir_id)
     give back mir_id
 }

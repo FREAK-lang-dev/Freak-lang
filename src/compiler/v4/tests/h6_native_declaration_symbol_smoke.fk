@@ -1,0 +1,169 @@
+-- Two authored pipelines; mutate only fixture-owned sealed rows for the
+-- namespace, publication, pressure and restoration matrix.
+task h6_decl_assert(condition: bool, label: word) -> void {
+    if not condition { panic("h6 native declaration symbol: " + label) }
+}
+
+-- The shared span index helper searches one character; this oracle must
+-- find the complete declaration including its signature and newline.
+task h6_decl_find_text(text: word, needle: word, start: int) -> int {
+    if start < 0 or needle == "" { give back 0 - 1 }
+    pilot idx = start
+    repeat until idx + needle.length() > text.length() {
+        pilot part = 0
+        pilot matches: bool = true
+        repeat until part >= needle.length() or not matches {
+            if text.char_at(idx + part) != needle.char_at(part) { matches = false }
+            part += 1
+        }
+        if matches { give back idx }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task h6_decl_lower(file_id: int, source: word) -> int {
+    pilot stream = v4_lex_text(file_id, source)
+    pilot tree = v4_parse_stream(file_id, stream)
+    pilot hir = v4_hir_lower_tree(file_id, tree)
+    pilot resolve = v4_resolve_lower_hir(file_id, hir)
+    pilot ty = v4_ty_lower_resolve(file_id, resolve)
+    pilot mir = v4_mir_lower_ty(file_id, ty)
+    pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir)
+    h6_decl_assert(total == 0 and v4_mir_file_exists(mir), "clean source owners")
+    pilot plan = v4_codegen_llvm_lower_mir(file_id, mir)
+    h6_decl_assert(plan >= 0 and v4_codegen_llvm_diag_count(plan) == 0, "valid sealed plan")
+    give back plan
+}
+
+task h6_decl_handles() -> int {
+    pilot holders = array_new()
+    h6_decl_assert(holders >= 0, "capacity counter owner")
+    pilot exhausted: bool = false
+    pilot count = 0
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)); count += 1 }
+    }
+    h6_decl_assert(exhausted, "unchanged handle ceiling")
+    pilot idx = 0
+    repeat until idx >= count { array_release(word_to_int(array_get(holders, idx))); idx += 1 }
+    array_release(holders)
+    give back count
+}
+
+task h6_decl_run() -> void {
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot source = "extern [C] " + "{" + "\n @link_name(\"native_same\")\n task first() -> std::ffi::c_isize\n @link_name(\"native_same\")\n task second(value: std::ffi::c_isize) -> std::ffi::c_isize\n" + "}" + "\n"
+    source = source + "task probe() -> int " + "{" + "\n give back first()\n" + "}" + "\n"
+    pilot rejected = h6_decl_lower(0, source)
+    pilot reason = "native declaration symbol has incompatible signatures: @native_same"
+    h6_decl_assert(v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_native_target_error(rejected, target) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "authored incompatible aliases reject before publication")
+    h6_decl_assert(v4_codegen_llvm_find_decl(rejected, "first") >= 0 and v4_codegen_llvm_find_decl(rejected, "second") >= 0 and v4_codegen_llvm_find_call(rejected, "probe", "first") >= 0, "rejected plan aliases and calls retained")
+    say "h6-native-declaration incompatible=true named=true no-module=true aliases-retained=true"
+
+    source = "extern [C] " + "{" + "\n @link_name(\"native_same\")\n task first() -> std::ffi::c_isize\n @link_name(\"native_same\")\n task second() -> std::ffi::c_isize\n @link_name(\"native_other24\")\n task third() -> std::ffi::c_isize\n @link_name(\"native_other24\")\n task fourth() -> std::ffi::c_isize\n" + "}" + "\n"
+    source = source + "task main() -> int " + "{" + "\n say \"literal\"\n say \"second literal\"\n give back first() + second()\n" + "}" + "\n"
+    pilot plan = h6_decl_lower(1, source)
+    pilot mir = word_to_int(array_get(v4_codegen_llvm_mirs, plan))
+    pilot first = v4_codegen_llvm_find_decl(plan, "first")
+    pilot second = v4_codegen_llvm_find_decl(plan, "second")
+    pilot third = v4_codegen_llvm_find_decl(plan, "third")
+    pilot fourth = v4_codegen_llvm_find_decl(plan, "fourth")
+    h6_decl_assert(first >= 0 and second > first and third > second and fourth > third and v4_mir_rvalue_kind(mir, 0, 0) == v4_mir_rvalue_const_word, "real aliases and literal zero")
+    pilot before = v4_codegen_llvm_module_text(plan, target)
+    pilot declaration = "declare ccc i64 @native_same() nounwind\n"
+    pilot first_pos = h6_decl_find_text(before, declaration, 0)
+    h6_decl_assert(v4_codegen_llvm_native_module_error(plan) == "" and before != "" and first_pos >= 0 and h6_decl_find_text(before, declaration, first_pos + declaration.length()) < 0, "compatible aliases publish exactly once")
+    h6_decl_assert(v4_codegen_llvm_call_name(plan, v4_codegen_llvm_find_call(plan, "main", "first")) == "first" and v4_codegen_llvm_call_name(plan, v4_codegen_llvm_find_call(plan, "main", "second")) == "second", "source call aliases retained")
+    h6_decl_assert(v4_codegen_llvm_decl_symbol(plan, first) != v4_codegen_llvm_decl_symbol(plan, third) and v4_codegen_llvm_decl_symbol(plan, first).checksum() % 16 == v4_codegen_llvm_decl_symbol(plan, third).checksum() % 16, "distinct full symbol keys share a bucket")
+    pilot capacity = h6_decl_handles()
+    pilot second_params = v4_codegen_llvm_decl_params(plan, second)
+    array_set(v4_codegen_llvm_decl_params_handle(plan), second, "i64")
+    h6_decl_assert(v4_codegen_llvm_decl_params(plan, second) == "i64" and v4_codegen_llvm_native_declaration_symbol_error(plan) == reason, "exact parameter metadata distinguishes signatures")
+    array_set(v4_codegen_llvm_decl_params_handle(plan), fourth, "i64")
+    h6_decl_assert(v4_codegen_llvm_native_declaration_symbol_error(plan) == reason, "first incompatible declaration wins over shared bucket order")
+    array_set(v4_codegen_llvm_decl_params_handle(plan), second, second_params)
+    h6_decl_assert(v4_codegen_llvm_native_declaration_symbol_error(plan) == "native declaration symbol has incompatible signatures: @native_other24", "later conflicting pair independently rejects")
+    array_set(v4_codegen_llvm_decl_params_handle(plan), fourth, "")
+    array_set(v4_codegen_llvm_decl_params_handle(plan), second, "i64")
+    array_set(v4_codegen_llvm_native_errors, plan, reason)
+    h6_decl_assert(v4_codegen_llvm_module_text(plan, target) == "", "sealed incompatible metadata prevents publication")
+    array_set(v4_codegen_llvm_decl_params_handle(plan), second, second_params)
+    array_set(v4_codegen_llvm_native_errors, plan, "")
+    h6_decl_assert(v4_codegen_llvm_native_declaration_symbol_error(plan) == "" and v4_codegen_llvm_module_text(plan, target) == before, "compatible recovery byte exact")
+    array_set(v4_codegen_llvm_decl_returns_handle(plan), second, "void")
+    h6_decl_assert(v4_codegen_llvm_native_declaration_symbol_error(plan) == reason, "return metadata is exact")
+    array_set(v4_codegen_llvm_decl_returns_handle(plan), second, "i64")
+    array_set(v4_codegen_llvm_decl_ccs_handle(plan), second, "x86_64_sysvcc")
+    h6_decl_assert(v4_codegen_llvm_native_declaration_symbol_error(plan) == reason, "calling convention metadata is exact")
+    array_set(v4_codegen_llvm_decl_ccs_handle(plan), second, "ccc")
+    array_set(v4_codegen_llvm_decl_params_handle(plan), second, "...")
+    h6_decl_assert(v4_codegen_llvm_native_declaration_symbol_error(plan) == reason, "variadic signature metadata is exact")
+    array_set(v4_codegen_llvm_decl_params_handle(plan), second, second_params)
+    h6_decl_assert(v4_codegen_llvm_module_text(plan, target) == before, "all metadata recovers")
+    say "h6-native-declaration compatible=true dedupe=true metadata-exact=true hash-exact=true declaration-order=true recovery=true"
+
+    pilot third_symbol = v4_codegen_llvm_decl_symbol(plan, third)
+    pilot third_line = v4_codegen_llvm_decl_line(plan, third)
+    pilot literal_symbol = v4_codegen_llvm_symbol(".str.0.0")
+    pilot literal_reason = "native literal global symbol conflicts with callable symbol: " + literal_symbol
+    pilot later_literal = 1
+    repeat until later_literal >= v4_mir_body_rvalue_count(mir, 0) or v4_mir_rvalue_kind(mir, 0, later_literal) == v4_mir_rvalue_const_word { later_literal += 1 }
+    h6_decl_assert(later_literal < v4_mir_body_rvalue_count(mir, 0), "second authored literal exists")
+    pilot later_symbol = v4_codegen_llvm_symbol(".str.0." + word_from_int(later_literal))
+    pilot first_symbol = v4_codegen_llvm_decl_symbol(plan, first)
+    pilot first_line = v4_codegen_llvm_decl_line(plan, first)
+    array_set(v4_codegen_llvm_decl_symbols_handle(plan), first, later_symbol)
+    array_set(v4_codegen_llvm_decl_symbols_handle(plan), third, literal_symbol)
+    array_set(v4_codegen_llvm_decl_lines_handle(plan), third, "declare ccc i64 " + literal_symbol + "() nounwind")
+    h6_decl_assert(v4_codegen_llvm_decl_symbol(plan, third) == "@\".str.0.0\"" and before.contains("@.str.0.0 = private"), "quoted declaration and unquoted literal share LLVM identity")
+    h6_decl_assert(v4_codegen_llvm_native_literal_symbol_error(plan, mir) == literal_reason, "earliest generated literal wins over declaration order")
+    array_set(v4_codegen_llvm_decl_symbols_handle(plan), first, first_symbol)
+    array_set(v4_codegen_llvm_decl_lines_handle(plan), first, first_line)
+    h6_decl_assert(v4_codegen_llvm_native_literal_symbol_error(plan, mir) == literal_reason, "literal namespace rejects callable declaration")
+    array_set(v4_codegen_llvm_native_errors, plan, literal_reason)
+    h6_decl_assert(v4_codegen_llvm_native_target_error(plan, target) == literal_reason and v4_codegen_llvm_module_text(plan, target) == "", "sealed literal collision blocks publication")
+    array_set(v4_codegen_llvm_decl_symbols_handle(plan), third, third_symbol)
+    array_set(v4_codegen_llvm_decl_lines_handle(plan), third, third_line)
+    pilot body_symbol = v4_codegen_llvm_body_symbol(plan, 0)
+    array_set(v4_codegen_llvm_body_symbols_handle(plan), 0, literal_symbol)
+    h6_decl_assert(v4_codegen_llvm_body_symbol(plan, 0) == literal_symbol and v4_codegen_llvm_native_literal_symbol_error(plan, mir) == literal_reason, "literal namespace includes actual definitions")
+    array_set(v4_codegen_llvm_body_symbols_handle(plan), 0, body_symbol)
+    array_set(v4_codegen_llvm_native_errors, plan, "")
+    h6_decl_assert(v4_codegen_llvm_native_literal_symbol_error(plan, mir) == "" and v4_codegen_llvm_module_text(plan, target) == before and h6_decl_handles() == capacity, "literal namespace recovery and scratch cleanup")
+    say "h6-native-declaration literal=true quoted-identity=true definitions=true literal-order=true recovery=true"
+
+    -- Fail after partial construction, then exhaust every scratch handle.
+    array_set(v4_codegen_llvm_decl_symbols_handle(plan), third, "")
+    array_set(v4_codegen_llvm_decl_params_handle(plan), second, "i64")
+    h6_decl_assert(v4_codegen_llvm_native_declaration_symbol_error(plan) == reason and h6_decl_handles() == capacity, "partial construction releases declaration index")
+    array_set(v4_codegen_llvm_decl_symbols_handle(plan), third, literal_symbol)
+    array_set(v4_codegen_llvm_body_symbols_handle(plan), 0, "")
+    h6_decl_assert(v4_codegen_llvm_native_literal_symbol_error(plan, mir) == literal_reason and h6_decl_handles() == capacity, "partial namespace construction falls back exactly")
+    array_set(v4_codegen_llvm_body_symbols_handle(plan), 0, body_symbol)
+    pilot holders = array_new()
+    pilot exhausted: bool = false
+    repeat until exhausted {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)) }
+    }
+    h6_decl_assert(v4_codegen_llvm_native_declaration_symbol_error(plan) == reason and v4_codegen_llvm_native_literal_symbol_error(plan, mir) == literal_reason and array_new() < 0, "exhaustion exact rejection without scratch")
+    array_set(v4_codegen_llvm_decl_params_handle(plan), second, second_params)
+    array_set(v4_codegen_llvm_decl_symbols_handle(plan), third, third_symbol)
+    h6_decl_assert(v4_codegen_llvm_native_declaration_symbol_error(plan) == "" and v4_codegen_llvm_native_literal_symbol_error(plan, mir) == "" and array_new() < 0, "exhaustion exact compatible acceptance")
+    pilot slot = 0
+    repeat until slot >= array_len(holders) { array_release(word_to_int(array_get(holders, slot))); slot += 1 }
+    array_release(holders)
+    h6_decl_assert(v4_codegen_llvm_module_text(plan, target) == before and h6_decl_handles() == capacity, "pressure recovery byte exact and handles stable")
+    say "h6-native-declaration pressure=true construction-failure=true fallback=true handles-stable=true"
+
+    pilot snapshot = v4_mir_snapshot()
+    h6_decl_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "MIR owner identities restored")
+    array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "changed literal")
+    h6_decl_assert(v4_mir_rvalue_text(mir, 0, 0) == "changed literal" and v4_codegen_llvm_module_text(plan, target) == before, "safe publication uses sealed globals across restored MIR reuse")
+    h6_decl_assert(v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "rejection remains sealed across restore")
+    say "h6-native-declaration restore=true changed-facts=true sealed=true"
+}
+
+h6_decl_run()

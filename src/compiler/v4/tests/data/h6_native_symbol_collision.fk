@@ -1,0 +1,24 @@
+shape A {
+    marker: int
+}
+
+impl A {
+    task b() -> int {
+        give back 25
+    }
+}
+
+@extern_callback("C")
+task A_b() -> std::ffi::c_isize {
+    give back 17
+}
+
+task invoke(cb: extern [C] task() -> std::ffi::c_isize) -> std::ffi::c_isize {
+    give back cb()
+}
+
+task main() -> int {
+    if A_b() != 17 { give back 1 }
+    if A::b() != 25 { give back 2 }
+    give back invoke(A_b) + A::b()
+}

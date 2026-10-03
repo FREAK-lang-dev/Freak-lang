@@ -107,7 +107,7 @@ task v4_extern_return_boundary_run() -> void {
     pilot recovery = "extern [C] " + v4_extern_return_braces("\n task quoted() -> \"\"\n task quoted_arrow() -> \"\" => 7\n task inferred() => true\n task nested_arrow(x: extern[C]task(y:int) => 7)\n task multiline(x: (int,\n int)) -> int\n task semicolon() -> int;\n task token_arrow() \"->\" std::ffi::c_int\n \"task\" quoted_member() -> void\n") + "\n"
     pilot recovery_hir = v4_hir_text_cached("extern-return-recovery.fk", recovery)
     pilot recovery_item = v4_extern_return_item(recovery_hir, 0)
-    say "extern-return-boundary-recovery-parity=" + word_from_bool(v4_extern_return_old_parity(recovery_hir, recovery_item) and v4_hir_extern_member_count(recovery_hir, recovery_item) == 8)
+    say "extern-return-boundary-recovery-parity=" + word_from_bool(v4_extern_return_old_parity(recovery_hir, recovery_item) and v4_hir_extern_member_count(recovery_hir, recovery_item) == 7)
     pilot quoted_span = v4_hir_extern_member_return_span(recovery_hir, recovery_item, 0)
     say "extern-return-boundary-quoted=" + word_from_bool(v4_hir_extern_member_return_surface_type(recovery_hir, recovery_item, 0) == "" and v4_slice(recovery, v4_span_start(quoted_span), v4_span_end(quoted_span)) == "\"\"" and not v4_hir_extern_member_return_has_arrow_fallback(recovery_hir, recovery_item, 0) and v4_hir_extern_member_return_has_arrow_fallback(recovery_hir, recovery_item, 1) and v4_ty_extern_member_return_surface_from_hir(recovery_hir, recovery_item, 1) == "int" and v4_ty_extern_member_return_surface_from_hir(recovery_hir, recovery_item, 2) == "bool" and v4_ty_extern_member_return_surface_from_hir(recovery_hir, recovery_item, 3) == "int")
     pilot unclosed = "extern [C] {\n task lost() -> int\n"

@@ -1,0 +1,122 @@
+-- Bootstrap entrypoint for the V4 LLVM build command. Compiler crates own
+-- lowering; this tool reads input, reports diagnostics, and prints module text.
+-- Fail before the next stage on errors, including unsupported root syntax.
+task v4_build_llvm_abort(errors: int, stage: word) -> bool {
+    if errors <= 0 { give back false }
+    say "v4-errors=" + word_from_int(errors)
+    say "v4-aborted-after=" + stage
+    give back true
+}
+
+task v4_build_llvm_source(source: word) -> void {
+    pilot errors = 0
+    pilot stream = v4_lex_text(0, source)
+    say "v4-build-stage=lex diagnostics=" + word_from_int(v4_lex_diag_count(stream))
+    pilot diag_stream = 0
+    repeat until diag_stream >= v4_lex_diag_count(stream) {
+        say v4_lex_diag(stream, diag_stream)
+        if v4_diag_severity(v4_lex_diag(stream, diag_stream)) >= v4_diag_error { errors += 1 }
+        diag_stream += 1
+    }
+    if v4_build_llvm_abort(errors, "lex") { give back }
+    pilot tree = v4_parse_stream(0, stream)
+    say "v4-build-stage=parse diagnostics=" + word_from_int(v4_parse_diag_count(tree))
+    pilot diag_tree = 0
+    repeat until diag_tree >= v4_parse_diag_count(tree) {
+        say v4_parse_diag(tree, diag_tree)
+        if v4_diag_severity(v4_parse_diag(tree, diag_tree)) >= v4_diag_error { errors += 1 }
+        diag_tree += 1
+    }
+    if v4_build_llvm_abort(errors, "parse") { give back }
+    pilot hir = v4_hir_lower_tree(0, tree)
+    say "v4-build-stage=hir diagnostics=" + word_from_int(v4_hir_diag_count(hir))
+    pilot diag_hir = 0
+    repeat until diag_hir >= v4_hir_diag_count(hir) {
+        say v4_hir_diag(hir, diag_hir)
+        if v4_diag_severity(v4_hir_diag(hir, diag_hir)) >= v4_diag_error { errors += 1 }
+        diag_hir += 1
+    }
+    if v4_build_llvm_abort(errors, "hir") { give back }
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    say "v4-build-stage=resolve diagnostics=" + word_from_int(v4_resolve_diag_count(resolve))
+    pilot diag_resolve = 0
+    repeat until diag_resolve >= v4_resolve_diag_count(resolve) {
+        say v4_resolve_diag(resolve, diag_resolve)
+        if v4_diag_severity(v4_resolve_diag(resolve, diag_resolve)) >= v4_diag_error { errors += 1 }
+        diag_resolve += 1
+    }
+    if v4_build_llvm_abort(errors, "resolve") { give back }
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    say "v4-build-stage=ty diagnostics=" + word_from_int(v4_ty_diag_count(ty))
+    pilot diag_ty = 0
+    repeat until diag_ty >= v4_ty_diag_count(ty) {
+        say v4_ty_diag(ty, diag_ty)
+        if v4_diag_severity(v4_ty_diag(ty, diag_ty)) >= v4_diag_error { errors += 1 }
+        diag_ty += 1
+    }
+    if v4_build_llvm_abort(errors, "ty") { give back }
+    pilot mir = v4_mir_lower_ty(0, ty)
+    say "v4-build-stage=mir diagnostics=" + word_from_int(v4_mir_diag_count(mir))
+    pilot diag_mir = 0
+    repeat until diag_mir >= v4_mir_diag_count(mir) {
+        say v4_mir_diag(mir, diag_mir)
+        if v4_diag_severity(v4_mir_diag(mir, diag_mir)) >= v4_diag_error { errors += 1 }
+        diag_mir += 1
+    }
+    if v4_build_llvm_abort(errors, "mir") { give back }
+    pilot borrowck = v4_borrowck_check_mir(0, mir)
+    say "v4-build-stage=borrowck diagnostics=" + word_from_int(v4_borrowck_diag_count(borrowck))
+    pilot diag_borrowck = 0
+    repeat until diag_borrowck >= v4_borrowck_diag_count(borrowck) {
+        say v4_borrowck_diag(borrowck, diag_borrowck)
+        if v4_diag_severity(v4_borrowck_diag(borrowck, diag_borrowck)) >= v4_diag_error { errors += 1 }
+        diag_borrowck += 1
+    }
+    if v4_build_llvm_abort(errors, "borrowck") { give back }
+    pilot codegen = v4_codegen_llvm_lower_mir(0, mir)
+    errors += v4_codegen_llvm_diag_count(codegen)
+    say "v4-build-stage=codegen diagnostics=" + word_from_int(v4_codegen_llvm_diag_count(codegen))
+    pilot diag_codegen = 0
+    repeat until diag_codegen >= v4_codegen_llvm_diag_count(codegen) {
+        say v4_codegen_llvm_diag(codegen, diag_codegen)
+        diag_codegen += 1
+    }
+    pilot target_spec = v4_target_spec_new(process::arg(2))
+    pilot native_error = v4_codegen_llvm_native_target_error(codegen, target_spec)
+    if native_error != "" {
+        say "v4-native-contract-error=" + native_error
+        errors += 1
+    }
+    if native_error == "" and v4_codegen_llvm_find_mir_body(mir, "main") < 0 {
+        say "v4-native-contract-error=native build requires task main"
+        errors += 1
+    }
+    if v4_build_llvm_abort(errors, "codegen") { give back }
+    say "v4-diagnostics lex=" + word_from_int(v4_lex_diag_count(stream)) + " parse=" + word_from_int(v4_parse_diag_count(tree)) + " hir=" + word_from_int(v4_hir_diag_count(hir)) + " resolve=" + word_from_int(v4_resolve_diag_count(resolve)) + " ty=" + word_from_int(v4_ty_diag_count(ty)) + " mir=" + word_from_int(v4_mir_diag_count(mir)) + " borrowck=" + word_from_int(v4_borrowck_diag_count(borrowck)) + " codegen=" + word_from_int(v4_codegen_llvm_diag_count(codegen))
+    say "v4-errors=" + word_from_int(errors)
+    if errors != 0 { give back }
+    pilot module = v4_codegen_llvm_module_text(codegen, target_spec)
+    if module == "" { say "v4-module-rejected" give back }
+    say "@@V4-MODULE"
+    say module
+}
+
+-- Checked reads distinguish ok("") from missing, directories and failed I/O.
+-- No compiler stage or module is published for a failed source read.
+task v4_build_llvm_run() -> void {
+    if process::args_count() < 3 {
+        say "v4-source-read-error=expected source path and target"
+        v4_build_llvm_abort(1, "source")
+        give back
+    }
+    pilot source_read = fs::read_checked(process::arg(1))
+    check result source_read {
+        ok(source) -> { v4_build_llvm_source(source) }
+        err(error) -> {
+            say "v4-source-read-error=" + process::arg(1) + ": " + error
+            v4_build_llvm_abort(1, "source")
+        }
+    }
+}
+
+v4_build_llvm_run()

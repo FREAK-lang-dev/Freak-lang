@@ -1,0 +1,70 @@
+-- Old v5 snapshots keep source spelling. Codegen reads their semantic bool
+-- through MIR's canonical reader and never prints an alias into LLVM.
+task h6_bool_assert(condition: bool, label: word) -> void {
+    if not condition { panic("h6 restored bool: " + label) }
+}
+
+task h6_bool_run() -> void {
+    pilot stream = v4_lex_text(0, "task probe() -> bool {\n" + " give back true\n" + "}\n")
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    h6_bool_assert(v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 1 and v4_mir_body_rvalue_count(mir, 0) == 1, "valid authored owner/body")
+    h6_bool_assert(v4_mir_rvalue_kind(mir, 0, 0) == v4_mir_rvalue_const_bool and v4_mir_rvalue_ty(mir, 0, 0) == v4_ty_bool, "authored bool kind and type")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot aliases = array_new()
+    array_push(aliases, "yes")
+    array_push(aliases, "no")
+    array_push(aliases, "hai")
+    array_push(aliases, "iie")
+    array_push(aliases, "true")
+    array_push(aliases, "false")
+    array_push(aliases, "YES")
+    array_push(aliases, "NO")
+    array_push(aliases, "HAI")
+    array_push(aliases, "IIE")
+    array_push(aliases, "TRUE")
+    array_push(aliases, "FALSE")
+    array_push(aliases, "Yes")
+    array_push(aliases, "No")
+    array_push(aliases, "Hai")
+    array_push(aliases, "Iie")
+    array_push(aliases, "True")
+    array_push(aliases, "False")
+    array_push(aliases, "1")
+    array_push(aliases, "0")
+    pilot alias_id = 0
+    repeat until alias_id >= array_len(aliases) {
+        pilot alias: word = array_get(aliases, alias_id)
+        pilot expected = "true"
+        if alias_id % 2 == 1 { expected = "false" }
+        array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, alias)
+        h6_bool_assert(v4_mir_rvalue_text(mir, 0, 0) == alias, "authored alias spelling")
+        pilot codegen = v4_codegen_llvm_lower_mir(0, mir)
+        h6_bool_assert(v4_codegen_llvm_native_module_error(codegen) == "", "accepted alias " + alias)
+        h6_bool_assert(v4_codegen_llvm_module_text(codegen, target).contains("ret i1 " + expected + "\n"), "canonical LLVM " + alias)
+        alias_id += 1
+    }
+    array_release(aliases)
+    say "h6-restored-bool aliases=20 canonical=true casing=true numeric=true"
+
+    array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "Hai")
+    pilot snapshot = v4_mir_snapshot()
+    h6_bool_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v5|"), "wire version unchanged")
+    h6_bool_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "old alias valid on wire")
+    h6_bool_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "old alias restored")
+    pilot restored = v4_codegen_llvm_lower_mir(0, mir)
+    h6_bool_assert(v4_mir_rvalue_text(mir, 0, 0) == "Hai", "authoritative old spelling retained")
+    h6_bool_assert(v4_codegen_llvm_module_text(restored, target).contains("ret i1 true\n"), "restored canonical emission")
+    pilot sealed = v4_codegen_llvm_module_text(restored, target)
+    array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "perhaps")
+    pilot rejected = v4_codegen_llvm_lower_mir(0, mir)
+    h6_bool_assert(v4_codegen_llvm_native_module_error(rejected) == "invalid native boolean literal", "invalid bool named error")
+    h6_bool_assert(v4_codegen_llvm_module_text(rejected, target) == "", "invalid bool no module")
+    h6_bool_assert(v4_codegen_llvm_module_text(restored, target) == sealed, "old plan sealed")
+    say "h6-restored-bool snapshot=true spelling-retained=true invalid-rejected=true sealed=true"
+}
+
+h6_bool_run()

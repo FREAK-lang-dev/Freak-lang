@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from typing import Dict, List, Optional, Set
 
 from .parser import (
@@ -865,8 +865,25 @@ class CEmitter:
         target.append(f"{self._ind()}}}")
 
     def _emit_check_result(self, stmt: CheckResult, target: List[str]) -> None:
-        """check result expr { ok(x) -> ... err(e) -> ... } -> if (subj.is_ok)"""
+        """Match a supported result expression once, retaining its selected payload."""
         subject_c = self._expr_to_c(stmt.subject)
+        result_type = self._infer_c_type_of_expr(stmt.subject)
+        capture = not isinstance(stmt.subject, Ident) and result_type in {
+            "freak_result_int_word", "freak_result_num_word",
+            "freak_result_bool_word", "freak_result_word_word",
+        }
+        if capture:
+            referenced = self._result_match_idents(stmt)
+            referenced.update((stmt.ok_name, stmt.err_name))
+            temporary = self._next_temp("__check_result")
+            while temporary in self.vars or temporary in referenced:
+                temporary = self._next_temp("__check_result")
+            # A struct copy borrows its payload; matching adds no allocation or
+            # release. Keep the temporary local to this statement's C scope.
+            target.append(f"{self._ind()}{{")
+            self.indent += 1
+            target.append(f"{self._ind()}{result_type} {temporary} = {subject_c};")
+            subject_c = temporary
         target.append(f"{self._ind()}/* check result */")
         target.append(f"{self._ind()}if ({subject_c}.is_ok) {{")
         self.indent += 1
@@ -892,6 +909,21 @@ class CEmitter:
         self.vars = saved_vars
         self.indent -= 1
         target.append(f"{self._ind()}}}")
+
+        if capture:
+            self.indent -= 1
+            target.append(f"{self._ind()}}}")
+
+    def _result_match_idents(self, node) -> set:
+        """Collect all references that a statement-local result binding could shadow."""
+        if isinstance(node, Ident):
+            return {node.name}
+        if isinstance(node, (list, tuple)):
+            return set().union(*(self._result_match_idents(item) for item in node))
+        if is_dataclass(node):
+            return set().union(*(self._result_match_idents(getattr(node, field.name))
+                                 for field in fields(node)))
+        return set()
 
     def _emit_annotation(self, stmt: Annotation, target: List[str]) -> None:
         """@name declaration -> C comment + emit the decorated declaration."""
@@ -1317,6 +1349,7 @@ class CEmitter:
             # std::fs mapping
             fs_map = {
                 "fs::read": "freak_fs_read",
+                "fs::read_checked": "freak_fs_read_checked",
                 "fs::write": "freak_fs_write",
                 "fs::append": "freak_fs_append",
                 "fs::exists": "freak_fs_exists",
@@ -1798,6 +1831,8 @@ class CEmitter:
             tcp_socket_signature = TCP_SOCKET_SIGNATURES.get(fq_name)
             if tcp_socket_signature is not None:
                 return _word_builder_c_type(tcp_socket_signature.return_type.name)
+            if fq_name == "fs::read_checked":
+                return "freak_result_word_word"
             if fq_name in ("fs::read",):
                 return "freak_word"
             return "int64_t"
@@ -1899,6 +1934,7 @@ class CEmitter:
                 # std::fs return types
                 _FS_RET = {
                     "fs::read": "freak_word",
+                    "fs::read_checked": "freak_result_word_word",
                     "fs::write": "void",
                     "fs::append": "void",
                     "fs::exists": "bool",

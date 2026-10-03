@@ -96,7 +96,7 @@ task v4_extern_return_snapshot_resource_retry(payload: word, before: word) -> bo
         array_push(held, word_from_int(handle))
         handle = array_new()
     }
-    -- Release enough for validators but less than seven fresh 39-handle files.
+    -- Release enough for validators but less than seven fresh 41-handle files.
     pilot count = array_len(held)
     pilot release = 0
     repeat until release >= 40 or count <= 0 {

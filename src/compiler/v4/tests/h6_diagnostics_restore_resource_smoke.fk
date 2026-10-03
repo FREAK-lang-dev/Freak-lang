@@ -1,0 +1,153 @@
+-- Diagnostics storage replacement and snapshot transactions under 1024 handles.
+task h6_diag_available_handles() -> int {
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted: bool = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            count += 1
+        }
+    }
+    pilot index = 0
+    repeat until index >= count {
+        array_release(word_to_int(array_get(holders, index)))
+        index += 1
+    }
+    array_release(holders)
+    give back count
+}
+
+task h6_diag_pressure() -> int {
+    pilot holders = array_new()
+    pilot exhausted: bool = false
+    repeat until exhausted or array_len(holders) >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)) }
+    }
+    give back holders
+}
+
+task h6_diag_release_pressure(holders: int) -> void {
+    pilot index = 0
+    repeat until index >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, index)))
+        index += 1
+    }
+    array_release(holders)
+}
+
+task h6_diag_payload(records: word) -> word {
+    give back "diagnostics-snapshot|format=freak-diagnostics-snapshot-v1|sets=0|diagnostics=0\n" + records + "\nend|freak-diagnostics-snapshot-v1"
+}
+
+task h6_diag_rejected(payload: word, before: word) -> bool {
+    pilot validation = v4_diagnostics_snapshot_validate(payload)
+    pilot restored = v4_diagnostics_snapshot_restore(payload)
+    give back validation.starts_with("diagnostics-snapshot-import ok=0") and restored.starts_with("diagnostics-snapshot-restore ok=0") and v4_diagnostics_snapshot() == before
+}
+
+task h6_diagnostics_restore_resource() -> void {
+    -- Failed initialization must release its first outer column and be retryable.
+    v4_session_init()
+    v4_query_init()
+    pilot pressure = h6_diag_pressure()
+    array_release(word_to_int(array_get(pressure, array_len(pressure) - 1)))
+    array_set(pressure, array_len(pressure) - 1, "-1")
+    pilot cold: bool = v4_driver_diag_set_new("never-published.fk") < 0 and v4_driver_ready == 0
+    pilot retry_probe = array_new()
+    cold = cold and retry_probe >= 0
+    array_release(retry_probe)
+    h6_diag_release_pressure(pressure)
+    v4_driver_init()
+    cold = cold and v4_driver_ready == 1 and v4_diagnostics_set_count() == 0
+
+    pilot negative: bool = v4_diagnostics_restore_set_slot(0 - 1, "bad") < 0 and v4_diagnostics_restore_diag_slot(0 - 1, 0, "bad") == 0
+    pilot set_id = v4_driver_diag_set_new("restore|source.fk")
+    pilot diag = v4_diag_new(v4_diag_error, v4_span_new("7", 11, 19), "test|diagnostic", "help%with\nline")
+    v4_diagnostics_add(set_id, diag)
+    pilot before = v4_diagnostics_snapshot()
+    pilot capacity = h6_diag_available_handles()
+    pilot direct: bool = true
+    pilot iteration = 0
+    repeat until iteration >= 600 {
+        if v4_diagnostics_restore_set_slot(set_id, "restore|source.fk") != set_id { direct = false }
+        if v4_diagnostics_restore_diag_slot(set_id, 0, diag) != 1 { direct = false }
+        if v4_diagnostics_diag(set_id, 0) != diag { direct = false }
+        iteration += 1
+    }
+    direct = direct and v4_diagnostics_snapshot() == before and h6_diag_available_handles() == capacity
+    pilot whole: bool = true
+    iteration = 0
+    repeat until iteration >= 600 {
+        if not v4_diagnostics_snapshot_restore(before).starts_with("diagnostics-snapshot-restore ok=1") { whole = false }
+        if v4_diagnostics_diag(set_id, 0) != diag { whole = false }
+        iteration += 1
+    }
+    pilot exact: bool = v4_diagnostics_snapshot() == before
+    pilot stable: bool = h6_diag_available_handles() == capacity
+    say "h6-diagnostics-restore cold=" + word_from_bool(cold) + " direct600=" + word_from_bool(direct) + " snapshot600=" + word_from_bool(whole) + " exact=" + word_from_bool(exact) + " handles=" + word_from_bool(stable)
+
+    negative = negative and v4_diagnostics_restore_diag_slot(set_id, 0 - 1, "bad") == 0 and v4_diagnostics_snapshot() == before
+    pilot sparse: bool = v4_diagnostics_restore_set_slot(5, "sparse.fk") == 5 and v4_diagnostics_set_count() == 6
+    sparse = sparse and v4_diagnostics_restore_diag_slot(5, 3, "last") == 1 and v4_diagnostics_count(5) == 4 and v4_diagnostics_diag(5, 0) == "" and v4_diagnostics_diag(5, 3) == "last"
+    before = v4_diagnostics_snapshot()
+    pilot huge: bool = v4_diagnostics_restore_set_slot(9223372036854775807, "bad") < 0 and v4_diagnostics_restore_diag_slot(set_id, 9223372036854775807, "bad") == 0 and v4_diagnostics_snapshot() == before
+    huge = huge and h6_diag_rejected(h6_diag_payload("diagnostics|9223372036854775807|bad|0"), before) and h6_diag_rejected(h6_diag_payload("diagnostic|0|9223372036854775807|bad"), before)
+    pilot overflow: bool = h6_diag_rejected(h6_diag_payload("diagnostics|9223372036854775808|bad|0"), before) and h6_diag_rejected(h6_diag_payload("diagnostic|0|999999999999999999999999|bad"), before)
+    negative = negative and h6_diag_rejected(h6_diag_payload("diagnostics|-1|bad|0"), before) and h6_diag_rejected(h6_diag_payload("diagnostic|0|-1|bad"), before) and h6_diag_rejected(h6_diag_payload("diagnostics|not-an-id|bad|0"), before)
+    -- Duplicate rows keep the previous loose overlay semantics in wire order.
+    pilot overlay = h6_diag_payload("diagnostics|0|first|1\ndiagnostic|0|0|first\ndiagnostics|0|last|1\ndiagnostic|0|0|second\ndiagnostic|0|0|final")
+    pilot duplicate: bool = v4_diagnostics_snapshot_restore(overlay).starts_with("diagnostics-snapshot-restore ok=1") and v4_diagnostics_path(0) == "last" and v4_diagnostics_diag(0, 0) == "final" and v4_diagnostics_path(5) == "sparse.fk" and v4_diagnostics_diag(5, 3) == "last"
+    -- Dense diagnostic rows can cross the sparse-gap budget; it is not a total.
+    pilot paths = array_new()
+    pilot items = array_new()
+    pilot dense: bool = v4_driver_diag_restore_set_into(paths, items, 0, "dense") == 0
+    dense = dense and v4_driver_diag_restore_diag_into(paths, items, 0, 65536, "a") == 1 and v4_driver_diag_restore_diag_into(paths, items, 0, 65537, "b") == 1 and array_len(word_to_int(array_get(items, 0))) == 65538
+    v4_driver_diag_arena_release(paths, items)
+    say "h6-diagnostics-coordinates negative=" + word_from_bool(negative) + " sparse=" + word_from_bool(sparse) + " huge=" + word_from_bool(huge) + " overflow=" + word_from_bool(overflow) + " duplicate-overlay=" + word_from_bool(duplicate) + " dense-growth=" + word_from_bool(dense)
+
+    pilot admitted: bool = v4_diagnostics_restore_diag_slot(0, 65536, "a") == 1 and v4_diagnostics_restore_diag_slot(0, 65537, "b") == 1
+    pilot reordered = h6_diag_payload("diagnostics|0|reordered|0\ndiagnostic|0|65537|tail\ndiagnostic|0|0|head")
+    admitted = admitted and v4_diagnostics_snapshot_validate(reordered).starts_with("diagnostics-snapshot-import ok=1")
+    admitted = admitted and v4_diagnostics_snapshot_restore(reordered).starts_with("diagnostics-snapshot-restore ok=1") and v4_diagnostics_count(0) == 65538 and v4_diagnostics_diag(0, 65537) == "tail" and v4_diagnostics_diag(0, 0) == "head"
+    pilot reset = h6_diag_payload("diagnostics|0|last|1\ndiagnostic|0|0|final")
+    admitted = admitted and v4_diagnostics_snapshot_restore(reset).starts_with("diagnostics-snapshot-restore ok=1")
+    say "h6-diagnostics-replay admitted=true" + " ordered=" + word_from_bool(admitted)
+
+    before = v4_diagnostics_snapshot()
+    capacity = h6_diag_available_handles()
+    pressure = h6_diag_pressure()
+    pilot old_count = v4_diagnostics_set_count()
+    pilot old_child = v4_driver_diag_items_handle(0)
+    pilot exhausted: bool = v4_diagnostics_restore_set_slot(0, "bad") < 0 and v4_driver_diag_set_new("bad") < 0 and v4_diagnostics_restore_set_slot(20, "bad") < 0
+    exhausted = exhausted and v4_diagnostics_snapshot_restore(before).starts_with("diagnostics-snapshot-restore ok=0 reason=resource-exhausted") and v4_diagnostics_set_count() == old_count and v4_driver_diag_items_handle(0) == old_child and v4_diagnostics_path(0) == "last" and v4_diagnostics_diag(0, 0) == "final"
+    -- Allow only part of a sparse/staged reservation, then force rollback.
+    pilot released = 0
+    repeat until released >= 5 {
+        pilot slot = array_len(pressure) - 1 - released
+        array_release(word_to_int(array_get(pressure, slot)))
+        array_set(pressure, slot, "-1")
+        released += 1
+    }
+    pilot partial: bool = v4_diagnostics_restore_set_slot(20, "bad") < 0 and v4_diagnostics_set_count() == old_count
+    partial = partial and v4_diagnostics_snapshot_restore(before).starts_with("diagnostics-snapshot-restore ok=0 reason=resource-exhausted") and v4_driver_diag_items_handle(0) == old_child
+    pilot slots = 0
+    repeat until slots >= 5 {
+        pilot handle = array_new()
+        if handle < 0 { partial = false } else { array_push(pressure, word_from_int(handle)) }
+        slots += 1
+    }
+    partial = partial and array_new() < 0
+    h6_diag_release_pressure(pressure)
+    pilot preserved: bool = v4_diagnostics_snapshot() == before
+    stable = h6_diag_available_handles() == capacity
+    pilot recovery: bool = v4_diagnostics_snapshot_restore(before).starts_with("diagnostics-snapshot-restore ok=1") and v4_diagnostics_snapshot() == before and h6_diag_available_handles() == capacity
+    -- A later invalid reference must not publish earlier valid rows.
+    pilot bad_reference = h6_diag_payload("diagnostics|0|would-change|0\ndiagnostic|99|0|orphan")
+    preserved = preserved and v4_diagnostics_snapshot_restore(bad_reference).starts_with("diagnostics-snapshot-restore ok=0") and v4_diagnostics_snapshot() == before
+    say "h6-diagnostics-failure exhausted=" + word_from_bool(exhausted) + " partial=" + word_from_bool(partial) + " preserved=" + word_from_bool(preserved) + " handles=" + word_from_bool(stable) + " recovery=" + word_from_bool(recovery)
+}
+
+h6_diagnostics_restore_resource()

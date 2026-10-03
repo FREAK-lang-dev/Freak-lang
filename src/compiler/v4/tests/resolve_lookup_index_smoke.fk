@@ -1,0 +1,184 @@
+-- Derived resolver indexes retain the exact original linear lookup contracts.
+task resolve_index_reference(resolve_id: int, name: word, kind: word, typed: bool) -> int {
+    pilot symbol_id = 0
+    repeat until symbol_id >= v4_resolve_symbol_count(resolve_id) {
+        pilot matches: bool = v4_resolve_symbol_name(resolve_id, symbol_id) == name
+        if typed { matches = matches and v4_resolve_symbol_kind(resolve_id, symbol_id) == kind }
+        if matches { give back symbol_id }
+        symbol_id += 1
+    }
+    give back 0 - 1
+}
+
+task resolve_index_matches(resolve_id: int, name: word, kind: word) -> bool {
+    give back v4_resolve_lookup_any(resolve_id, name) == resolve_index_reference(resolve_id, name, kind, false) and v4_resolve_lookup_symbol(resolve_id, name, kind) == resolve_index_reference(resolve_id, name, kind, true)
+}
+
+task resolve_index_checks(resolve_id: int) -> bool {
+    pilot checks: bool = resolve_index_matches(resolve_id, "same", v4_hir_task) and resolve_index_matches(resolve_id, "same", v4_hir_shape) and resolve_index_matches(resolve_id, "same", v4_hir_import)
+    checks = checks and resolve_index_matches(resolve_id, "", "") and resolve_index_matches(resolve_id, "", v4_hir_task)
+    checks = checks and resolve_index_matches(resolve_id, "util::math::same", v4_hir_task) and resolve_index_matches(resolve_id, "missing", v4_hir_task)
+    give back checks
+}
+
+task resolve_index_run() -> void {
+    pilot owner = v4_resolve_new(0, 0)
+    pilot partial: bool = v4_resolve_lookup_any(owner, "same") < 0 and v4_resolve_lookup_symbol(owner, "", "") < 0
+    v4_resolve_add_symbol(owner, "same", v4_hir_task, "first", 0)
+    partial = partial and v4_resolve_lookup_any(owner, "same") == 0 and v4_resolve_lookup_symbol(owner, "same", v4_hir_shape) < 0
+    v4_resolve_add_symbol(owner, "same", v4_hir_shape, "shape", 1)
+    v4_resolve_add_symbol(owner, "same", v4_hir_task, "duplicate", 2)
+    v4_resolve_add_symbol(owner, "", "", "empty", 3)
+    v4_resolve_add_symbol(owner, "util::math::same", v4_hir_task, "qualified", 4)
+    pilot duplicates: bool = partial and resolve_index_checks(owner) and v4_resolve_lookup_any(owner, "same") == 0 and v4_resolve_lookup_symbol(owner, "same", v4_hir_shape) == 1 and v4_resolve_symbol_count(owner) == 5
+    pilot other = v4_resolve_new(1, 1)
+    v4_resolve_add_symbol(other, "same", v4_hir_import, "other", 0)
+    pilot independent: bool = v4_resolve_lookup_symbol(other, "same", v4_hir_task) < 0 and v4_resolve_lookup_symbol(other, "same", v4_hir_import) == 0 and resolve_index_checks(owner)
+
+    -- Deliberate name collisions must compare the original key columns.
+    pilot collision = v4_resolve_new(2, 2)
+    pilot first = "collision0"
+    pilot second = ""
+    pilot candidate_id = 1
+    repeat until second != "" or candidate_id >= 256 {
+        pilot candidate = "collision" + word_from_int(candidate_id)
+        if candidate.checksum() % 16 == first.checksum() % 16 { second = candidate }
+        candidate_id += 1
+    }
+    v4_resolve_add_symbol(collision, first, v4_hir_task, "collision-first", 0)
+    v4_resolve_add_symbol(collision, second, v4_hir_task, "collision-second", 1)
+    v4_resolve_add_symbol(collision, first, v4_hir_shape, "collision-kind", 2)
+    v4_resolve_add_symbol(collision, first, v4_hir_task, "collision-duplicate", 3)
+    pilot collisions: bool = second != "" and first != second and v4_resolve_lookup_any(collision, first) == 0 and v4_resolve_lookup_any(collision, second) == 1 and v4_resolve_lookup_symbol(collision, first, v4_hir_shape) == 2 and v4_resolve_lookup_symbol(collision, first, v4_hir_task) == 0
+    collisions = collisions and resolve_index_matches(collision, first, v4_hir_task) and resolve_index_matches(collision, second, v4_hir_shape)
+
+    pilot payload = v4_resolve_snapshot()
+    pilot restored = v4_resolve_snapshot_restore(payload)
+    pilot snapshot: bool = restored.starts_with("resolve-snapshot-restore ok=1") and v4_resolve_snapshot() == payload and resolve_index_checks(owner) and v4_resolve_lookup_index_is_ready(owner)
+
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot stable_index = v4_resolve_lookup_index_handle(owner)
+    pilot stable_rebuilds = v4_resolve_lookup_index_rebuilds
+    pilot rejected = v4_resolve_snapshot_restore(payload + "\nsymbol")
+    pilot invalid: bool = rejected.starts_with("resolve-snapshot-restore ok=0") and v4_resolve_snapshot() == payload and v4_session_semantic_restore_generation() == generation and v4_resolve_lookup_index_handle(owner) == stable_index and v4_resolve_lookup_index_rebuilds == stable_rebuilds and resolve_index_checks(owner)
+    pilot round = 0
+    pilot repeated: bool = true
+    repeat until round >= 8 {
+        pilot old_owner_index = v4_resolve_lookup_index_handle(owner)
+        pilot old_other_index = v4_resolve_lookup_index_handle(other)
+        pilot old_collision_index = v4_resolve_lookup_index_handle(collision)
+        pilot report = v4_resolve_snapshot_restore(payload)
+        repeated = repeated and report.starts_with("resolve-snapshot-restore ok=1") and v4_resolve_snapshot() == payload and resolve_index_checks(owner)
+        repeated = repeated and array_len(old_owner_index) == 0 and array_len(old_other_index) == 0 and array_len(old_collision_index) == 0
+        repeated = repeated and array_len(v4_resolve_lookup_index_handle(owner)) == 34 and array_len(v4_resolve_lookup_index_handle(other)) == 34 and array_len(v4_resolve_lookup_index_handle(collision)) == 34
+        round += 1
+    }
+
+    -- Loose v1 import applies rows in wire order; repeated IDs overwrite.
+    -- Indexes use the final physical order, including sparse empty slots.
+    pilot loose = v4_resolve_snapshot_header() + "\nresolve|" + word_from_int(other) + "|9|9|4|0\n"
+    loose = loose + "symbol|" + word_from_int(other) + "|3|same|Task|late|3\n"
+    loose = loose + "symbol|" + word_from_int(other) + "|0|same|Task|early|0\n"
+    loose = loose + "symbol|" + word_from_int(other) + "|3|same|Shape|overwritten|3\n"
+    loose = loose + "end|" + v4_resolve_snapshot_format
+    pilot loose_result = v4_resolve_snapshot_restore(loose)
+    pilot overwritten: bool = loose_result.starts_with("resolve-snapshot-restore ok=1") and v4_resolve_lookup_index_is_ready(other) and v4_resolve_lookup_any(other, "same") == 0 and v4_resolve_lookup_symbol(other, "same", v4_hir_shape) == 3 and v4_resolve_lookup_any(other, "") == 1 and v4_resolve_symbol_def(other, 3) == "overwritten"
+    overwritten = overwritten and resolve_index_checks(other)
+
+    -- Direct restore calls deliberately retain a cold linear fallback until a
+    -- complete owner can be finalized, without query-time cache mutation.
+    v4_resolve_restore_symbol_slot(other, 0, "changed", v4_hir_task, "changed-def", 0)
+    pilot rebuilds = v4_resolve_lookup_index_rebuilds
+    pilot cold: bool = v4_resolve_lookup_index_is_ready(other) == false and v4_resolve_lookup_any(other, "same") == 3 and v4_resolve_lookup_symbol(other, "same", v4_hir_task) < 0 and v4_resolve_lookup_any(other, "changed") == 0
+    v4_resolve_add_symbol(other, "tail", v4_hir_task, "tail-def", 4)
+    cold = cold and resolve_index_matches(other, "tail", v4_hir_task) and resolve_index_checks(other) and v4_resolve_lookup_index_rebuilds == rebuilds
+    pilot finalized: bool = v4_resolve_finalize_lookup_index(other)
+    cold = cold and finalized and v4_resolve_lookup_index_is_ready(other) and resolve_index_checks(other) and resolve_index_matches(other, "changed", v4_hir_task)
+
+    pilot previous_index = v4_resolve_lookup_index_handle(other)
+    v4_resolve_restore_index_slot(other, 10, 10)
+    v4_resolve_add_symbol(other, "reused", v4_hir_const, "reused-def", 0)
+    pilot reused: bool = v4_resolve_lookup_index_is_ready(other) and array_len(previous_index) == 0 and v4_resolve_lookup_any(other, "changed") < 0 and v4_resolve_lookup_any(other, "same") < 0 and v4_resolve_lookup_symbol(other, "reused", v4_hir_const) == 0
+
+    -- Exercise actual lowering: duplicate checks query before every append;
+    -- extern members and glob-import leaf additions share the same index.
+    pilot source = "task repeated() => 1\nshape repeated " + "{" + "\n" + "}" + "\ntask repeated() => 2\n"
+    source = source + "task util::leaf() => 3\nuse util::*\nextern [C] " + "{" + "\n task repeated() -> int\n" + "}" + "\n"
+    pilot stream = v4_lex_text(11, source)
+    pilot tree = v4_parse_stream(11, stream)
+    pilot hir = v4_hir_lower_tree(11, tree)
+    pilot lowered = v4_resolve_lower_hir(11, hir)
+    pilot lowering: bool = v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_lookup_index_is_ready(lowered) and v4_resolve_lookup_symbol(lowered, "repeated", v4_hir_task) == 0 and v4_resolve_lookup_symbol(lowered, "repeated", v4_hir_shape) == 1 and v4_resolve_diag_count(lowered) == 2 and v4_resolve_expand_import_name(lowered, "leaf") == "util::leaf"
+    lowering = lowering and v4_diag_message(v4_resolve_diag(lowered, 0)) == "duplicate definition" and v4_diag_help(v4_resolve_diag(lowered, 0)) == "repeated" and v4_diag_message(v4_resolve_diag(lowered, 1)) == "duplicate definition" and v4_diag_help(v4_resolve_diag(lowered, 1)) == "repeated"
+
+    pilot large = v4_resolve_new(12, 12)
+    pilot names = array_new()
+    pilot index = 0
+    pilot linear_before = v4_resolve_lookup_linear_steps
+    pilot construction: bool = true
+    repeat until index >= 2048 {
+        pilot name = "large" + word_from_int(index)
+        array_push(names, name)
+        construction = construction and v4_resolve_lookup_any(large, name) < 0 and v4_resolve_lookup_symbol(large, name, v4_hir_task) < 0
+        v4_resolve_add_symbol(large, name, v4_hir_task, name, index)
+        construction = construction and v4_resolve_lookup_symbol(large, name, v4_hir_task) == index
+        index += 1
+    }
+    construction = construction and v4_resolve_lookup_index_is_ready(large) and v4_resolve_lookup_linear_steps == linear_before and word_to_int(array_get(v4_resolve_lookup_index_handle(large), 1)) == 4096
+    pilot probes = v4_resolve_lookup_index_probes
+    linear_before = v4_resolve_lookup_linear_steps
+    index = 0
+    pilot queries: bool = true
+    repeat until index >= 2048 {
+        pilot name: word = array_get(names, index)
+        queries = queries and v4_resolve_lookup_any(large, name) == index and v4_resolve_lookup_symbol(large, name, v4_hir_task) == index and v4_resolve_lookup_symbol(large, name, v4_hir_shape) < 0 and v4_resolve_lookup_any(large, "absent::" + name) < 0
+        index += 1
+    }
+    pilot probe_delta = v4_resolve_lookup_index_probes - probes
+    queries = queries and v4_resolve_lookup_linear_steps == linear_before and probe_delta >= 8192 and probe_delta < 65536
+
+    -- The harness compiles this fixture with its 1,024-live-array limit.
+    -- Failed replacement keeps cold lookup correct and does not publish a table.
+    pilot holders = array_new()
+    pilot held = 0
+    pilot exhausted: bool = false
+    repeat until exhausted or held >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            held += 1
+        }
+    }
+    v4_resolve_invalidate_lookup_index(large)
+    pilot failed: bool = v4_resolve_finalize_lookup_index(large) == false
+    pilot fallback: bool = exhausted and failed and v4_resolve_lookup_index_is_ready(large) == false and v4_resolve_lookup_symbol(large, "large2047", v4_hir_task) == 2047 and v4_resolve_lookup_any(large, "absent") < 0
+    v4_resolve_add_symbol(large, "after-exhaustion", v4_hir_task, "after", 2048)
+    fallback = fallback and v4_resolve_lookup_any(large, "after-exhaustion") == 2048
+    index = 0
+    repeat until index >= held {
+        array_release(word_to_int(array_get(holders, index)))
+        index += 1
+    }
+    array_release(holders)
+    pilot recovered: bool = v4_resolve_finalize_lookup_index(large)
+    recovered = recovered and v4_resolve_lookup_index_is_ready(large) and v4_resolve_lookup_any(large, "after-exhaustion") == 2048 and v4_resolve_lookup_symbol(large, "large2047", v4_hir_task) == 2047
+    array_release(names)
+
+    say "resolve-index duplicates=" + word_from_bool(duplicates) + " independent=" + word_from_bool(independent) + " collisions=" + word_from_bool(collisions)
+    say "resolve-index snapshot=" + word_from_bool(snapshot) + " overwritten=" + word_from_bool(overwritten) + " cold=" + word_from_bool(cold) + " reused=" + word_from_bool(reused) + " invalid=" + word_from_bool(invalid) + " repeated=" + word_from_bool(repeated)
+    say "resolve-index lowering=" + word_from_bool(lowering) + " incremental=" + word_from_bool(construction) + " bounded=" + word_from_bool(queries)
+    say "resolve-index exhausted=" + word_from_bool(fallback) + " recovered=" + word_from_bool(recovered)
+}
+
+task resolve_index_extern_marker_checks() -> void {
+    pilot marker = v4_resolve_extern_member_marker
+    pilot absent: bool = v4_resolve_extern_member_marker_index("") < 0 and v4_resolve_extern_member_marker_index("ordinary::item#7") < 0 and v4_resolve_extern_member_marker_index("prefix::extern-member") < 0
+    absent = absent and not v4_resolve_is_extern_member_def("ordinary::item#7") and v4_resolve_extern_member_id_from_def("ordinary::item#7") < 0
+    pilot first: bool = v4_resolve_extern_member_marker_index(marker + "7" + marker + "9") == 0 and v4_resolve_extern_member_marker_index("prefix" + marker + "7") == 6
+    pilot suffix: bool = v4_resolve_extern_member_id_from_def("prefix" + marker + "7") == 7 and v4_resolve_extern_member_id_from_def(marker) < 0 and v4_resolve_extern_member_id_from_def(marker + "-2") == 0 - 2
+    suffix = suffix and v4_resolve_is_extern_member_def(marker) and v4_resolve_is_extern_member_def("prefix" + marker + "garbage")
+    say "resolve-index extern-marker-miss=" + word_from_bool(absent) + " first=" + word_from_bool(first) + " suffix=" + word_from_bool(suffix)
+}
+
+resolve_index_run()
+resolve_index_extern_marker_checks()

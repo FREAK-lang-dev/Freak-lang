@@ -128,6 +128,7 @@ say "only-on-held-ty=" + v4_mir_rvalue_ty(v4_mir_only_on_mir, v4_mir_only_on_sco
 say "only-on-held-source-field=" + v4_mir_place_field(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_held_place)
 say "only-on-held-source-ty=" + v4_mir_place_ty(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_held_place)
 say "only-on-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_only_on_mir))
+say "only-on-good-message=" + v4_diag_message(v4_mir_diag(v4_mir_only_on_mir, 0))
 
 pilot v4_mir_only_on_bad_nonroute_stream = v4_lex_text(1, v4_mir_only_on_bad_nonroute_source())
 pilot v4_mir_only_on_bad_nonroute_tree = v4_parse_stream(1, v4_mir_only_on_bad_nonroute_stream)

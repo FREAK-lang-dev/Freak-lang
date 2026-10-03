@@ -1,0 +1,6 @@
+task two(left: int, right: int) -> int { give back left + right }
+task current2() -> task(left: int, right: int) -> int { give back two }
+task main() -> int {
+    if current2()(4, 5) != 9 { give back 3 }
+    give back 42
+}

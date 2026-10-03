@@ -1,5 +1,5 @@
 -- One bounded HIR/TY pipeline proves optional extern semicolon separators.
--- Quoted token-value and malformed no-semicolon recovery remain unchanged.
+-- Quoted payload stays out of grammar; malformed no-semicolon recovery remains.
 task v4_extern_separator_braces(body: word) -> word { give back "{" + body + "}" }
 
 task v4_extern_separator_item(hir: int, ordinal: int) -> int {
@@ -193,7 +193,7 @@ task v4_extern_separator_run() -> void {
     pilot restored = v4_hir_snapshot_restore(snapshot)
     say "extern-return-separator-snapshot=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == snapshot and v4_hir_extern_member_count(hir, item) == 5 and v4_hir_extern_member_return_span(hir, item, 1) == second_span and v4_hir_extern_member_return_surface_type(hir, quoted, 0) == ";")
     say "extern-return-separator-arrow-snapshot=" + word_from_bool(restored.starts_with("hir-snapshot-restore ok=1") and v4_hir_extern_member_count(hir, arrows) == 10 and v4_hir_extern_member_return_has_arrow_fallback(hir, arrows, 0) and v4_hir_extern_member_return_has_arrow_fallback(hir, arrows, 5) and v4_hir_extern_member_return_has_arrow_fallback(hir, arrows, 1) == false and v4_hir_extern_member_return_surface_type(hir, arrows, 1) == "void" and v4_hir_extern_member_return_surface_type(hir, arrows, 6) == array_type and v4_hir_extern_member_return_surface_type(hir, arrows, 8) == "maybe<int;int>" and v4_hir_extern_member_name(hir, arrows, 9) == "after_arrow")
-    say "extern-return-separator-recovery=" + word_from_bool(v4_hir_extern_member_count(hir, recovery) == 6 and v4_extern_separator_legacy_recovery(hir, recovery) and v4_hir_extern_member_return_span(hir, recovery, 0) == V4_NO_SPAN and v4_ty_extern_member_return_surface_from_hir(hir, recovery, 0) == v4_ty_unknown and v4_hir_extern_member_return_surface_type(hir, recovery, 1) == "std::ffi::c_int" and v4_hir_extern_member_name(hir, recovery, 2) == "recovered" and v4_ty_extern_member_return_surface_from_hir(hir, recovery, 3) == "int" and v4_hir_extern_member_return_surface_type(hir, recovery, 5) == "int")
+    say "extern-return-separator-recovery=" + word_from_bool(v4_hir_extern_member_count(hir, recovery) == 5 and v4_extern_separator_legacy_recovery(hir, recovery) and v4_hir_extern_member_return_span(hir, recovery, 0) == V4_NO_SPAN and v4_ty_extern_member_return_surface_from_hir(hir, recovery, 0) == v4_ty_unknown and v4_hir_extern_member_return_surface_type(hir, recovery, 1) == "" and v4_hir_extern_member_return_span(hir, recovery, 1) == V4_NO_SPAN and v4_hir_extern_member_name(hir, recovery, 2) == "nested_arrow" and v4_ty_extern_member_return_surface_from_hir(hir, recovery, 2) == "int" and v4_hir_extern_member_return_surface_type(hir, recovery, 4) == "int")
     say "extern-return-separator-unclosed=" + word_from_bool(unclosed >= 0 and v4_hir_extern_member_count(hir, unclosed) == 0)
     pilot many_node = v4_hir_item_parse_node(hir, many)
     pilot many_close = v4_parse_extern_body_close_token(tree, many_node)

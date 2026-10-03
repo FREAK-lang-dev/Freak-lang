@@ -1,0 +1,215 @@
+-- Derived impl candidates and monotonic HIR owner revisions. Run with 1,024
+-- live handles and 64 MiB. Synthetic facts isolate the structural candidate
+-- contract; TY remains responsible for doctrine, numeric and generic matching.
+
+task v4_hir_impl_smoke_assert(condition: bool, label: word) -> void {
+    if not condition { panic("HIR impl candidate smoke: " + label) }
+}
+
+task v4_hir_impl_smoke_restore(hir: int, item: int, kind: word) -> int {
+    give back v4_hir_restore_item_slot(hir, item, kind, "duplicate", "def" + word_from_int(item), "77@0:100", 0, "", V4_NO_SPAN)
+}
+
+task v4_hir_impl_smoke_revisions() -> void {
+    v4_hir_impl_smoke_assert(v4_hir_revision(0) < 0 and v4_hir_revision(0 - 1) < 0 and v4_hir_next_impl_item(0, 0 - 1) < 0 and v4_hir_impl_index_is_ready(0) == false and v4_hir_ready == 0, "invalid queries never initialize")
+    pilot hir = v4_hir_file_new(77, 0)
+    pilot revision = v4_hir_revision(hir)
+    pilot item = v4_hir_add_item(hir, v4_hir_task, "main", "77@0:100", 0)
+    v4_hir_impl_smoke_assert(v4_hir_revision(hir) > revision, "item append advances revision")
+    revision = v4_hir_revision(hir)
+    v4_hir_add_task_param_owner(hir, item, 0)
+    v4_hir_impl_smoke_assert(v4_hir_revision(hir) > revision, "parameter owner advances revision")
+    revision = v4_hir_revision(hir)
+    v4_hir_add_task_return(hir, item, v4_hir_task_return_explicit, "int", "77@12:15")
+    v4_hir_impl_smoke_assert(v4_hir_revision(hir) > revision, "return facts advance revision")
+    revision = v4_hir_revision(hir)
+    v4_hir_add_local_annotation(hir, item, "77@30:40", "int", "77@33:36")
+    v4_hir_impl_smoke_assert(v4_hir_revision(hir) > revision, "annotation facts advance revision")
+    pilot impl_item = v4_hir_add_item(hir, v4_hir_impl, "Ops", "77@0:100", 0)
+    revision = v4_hir_revision(hir)
+    v4_hir_impl_smoke_assert(v4_hir_finalize_lookup_indexes(hir) and v4_hir_revision(hir) == revision and v4_hir_next_impl_item(hir, 0 - 1) == impl_item and v4_hir_revision(hir) == revision, "publication and reads preserve revision")
+    pilot items = v4_hir_item_count(hir)
+    v4_hir_impl_smoke_restore(hir, impl_item, v4_hir_impl)
+    v4_hir_impl_smoke_assert(v4_hir_item_count(hir) == items and v4_hir_revision(hir) > revision and v4_hir_impl_index_is_ready(hir) == false and v4_hir_next_impl_item(hir, 0 - 1) == impl_item, "same-size overwrite advances revision")
+    revision = v4_hir_revision(hir)
+    v4_hir_begin_snapshot_restore()
+    v4_hir_impl_smoke_assert(v4_hir_revision(hir) < 0, "logical clear hides retained revisions")
+    pilot reused = v4_hir_file_new(77, 0)
+    v4_hir_impl_smoke_assert(reused == hir and v4_hir_revision(reused) > revision and v4_hir_next_impl_item(reused, 0 - 1) < 0, "reuse advances retained revision")
+    say "hir-impl-index revision-monotonic=true invalid-readonly=true same-size=true reuse=true"
+}
+
+task v4_hir_impl_smoke_construction() -> void {
+    pilot hir = 0
+    v4_hir_impl_smoke_restore(hir, 9, v4_hir_impl)
+    v4_hir_impl_smoke_restore(hir, 2, v4_hir_impl)
+    v4_hir_impl_candidate_cold_probes = 0
+    v4_hir_impl_smoke_assert(v4_hir_next_impl_item(hir, 0 - 1) == 2 and v4_hir_next_impl_item(hir, 2) == 9 and v4_hir_next_impl_item(hir, 9) < 0 and v4_hir_impl_candidate_cold_probes == 10, "cold walk scans each physical ID once")
+    v4_hir_impl_smoke_assert(v4_hir_next_impl_item(hir, 0 - 999999) == 2 and v4_hir_next_impl_item(hir, 3) == 9 and v4_hir_next_impl_item(hir, 999999) < 0, "cold cursor bounds")
+    v4_hir_impl_index_build_probes = 0
+    v4_hir_impl_smoke_assert(v4_hir_finalize_lookup_indexes(hir) and v4_hir_impl_index_build_probes == 10 and array_len(v4_hir_impl_index_handle(hir)) == 5, "observed candidate storage")
+    v4_hir_impl_smoke_assert(v4_hir_next_impl_item(hir, 0 - 1) == 2 and v4_hir_next_impl_item(hir, 2) == 9 and v4_hir_next_impl_item(hir, 9) < 0, "published duplicates retain physical order")
+    v4_hir_impl_smoke_restore(hir, 2, v4_hir_error)
+    v4_hir_impl_smoke_assert(v4_hir_impl_index_is_ready(hir) == false and v4_hir_next_impl_item(hir, 0 - 1) == 9 and v4_hir_finalize_lookup_indexes(hir), "kind overwrite invalidates")
+    v4_hir_impl_smoke_assert(array_len(v4_hir_impl_index_handle(hir)) == 5 and v4_hir_next_impl_item(hir, 9) < 0, "logical count excludes stale tail")
+    pilot added = v4_hir_add_item(hir, v4_hir_impl, "duplicate", "77@0:100", 0)
+    v4_hir_impl_smoke_assert(added == 10 and v4_hir_next_impl_item(hir, 9) == 10 and v4_hir_finalize_lookup_indexes(hir), "append invalidates")
+    array_set(v4_hir_kinds_handle(hir), 9, v4_hir_error)
+    v4_hir_bump_revision(hir)
+    v4_hir_impl_smoke_assert(v4_hir_impl_index_is_ready(hir) == false and v4_hir_next_impl_item(hir, 0 - 1) == 10, "explicit revision hook invalidates derived view")
+    v4_hir_impl_smoke_restore(hir, 10, v4_hir_error)
+    v4_hir_impl_smoke_assert(v4_hir_finalize_lookup_indexes(hir) and v4_hir_next_impl_item(hir, 0 - 1) < 0, "all candidates removed")
+    say "hir-impl-index cold-linear=true sparse=true duplicates=true overwrite=true stale-tail=true"
+}
+
+task v4_hir_impl_smoke_bounds() -> void {
+    v4_hir_begin_snapshot_restore()
+    pilot hir = v4_hir_file_new(77, 0)
+    pilot item = 0
+    repeat until item >= 1024 {
+        v4_hir_add_item(hir, v4_hir_error, "empty", "77@0:100", 0)
+        item += 1
+    }
+    v4_hir_impl_smoke_assert(v4_hir_finalize_lookup_indexes(hir) and array_len(v4_hir_impl_index_handle(hir)) == 3, "empty index is constant size")
+    v4_hir_impl_candidate_lookup_probes = 0
+    v4_hir_impl_candidate_cold_probes = 0
+    pilot revision = v4_hir_revision(hir)
+    pilot lookup = 0
+    repeat until lookup >= 4096 {
+        v4_hir_impl_smoke_assert(v4_hir_next_impl_item(hir, 0 - 1) < 0, "empty lookup")
+        lookup += 1
+    }
+    v4_hir_impl_smoke_assert(v4_hir_impl_candidate_lookup_probes == 0 and v4_hir_impl_candidate_cold_probes == 0 and v4_hir_revision(hir) == revision, "empty lookups do no item work")
+    item = 0
+    repeat until item >= 1024 {
+        if item % 2 == 1 { v4_hir_impl_smoke_restore(hir, item, v4_hir_impl) }
+        item += 1
+    }
+    v4_hir_impl_index_build_probes = 0
+    v4_hir_impl_smoke_assert(v4_hir_finalize_lookup_indexes(hir) and v4_hir_impl_index_build_probes == 1024 and array_len(v4_hir_impl_index_handle(hir)) == 515, "linear build and compact observed capacity")
+    v4_hir_impl_candidate_lookup_probes = 0
+    v4_hir_impl_candidate_cold_probes = 0
+    pilot after = 0 - 1
+    pilot candidate = 0
+    repeat until candidate >= 512 {
+        pilot next = v4_hir_next_impl_item(hir, after)
+        v4_hir_impl_smoke_assert(next == 2 * candidate + 1, "published ascending IDs")
+        after = next
+        candidate += 1
+    }
+    v4_hir_impl_smoke_assert(v4_hir_next_impl_item(hir, after) < 0 and v4_hir_impl_candidate_lookup_probes <= 513 * 10 and v4_hir_impl_candidate_cold_probes == 0, "logarithmic published probes")
+    pilot probes = v4_hir_impl_candidate_lookup_probes
+    v4_hir_impl_smoke_assert(v4_hir_next_impl_item(hir, 999999999) < 0 and v4_hir_impl_candidate_lookup_probes == probes and array_len(v4_hir_impl_index_handle(hir)) == 515, "large cursor never sizes storage")
+    v4_hir_bump_revision(hir)
+    after = 0 - 1
+    candidate = 0
+    v4_hir_impl_candidate_cold_probes = 0
+    repeat until candidate >= 512 {
+        after = v4_hir_next_impl_item(hir, after)
+        v4_hir_impl_smoke_assert(after == 2 * candidate + 1, "cold ascending IDs")
+        candidate += 1
+    }
+    v4_hir_impl_smoke_assert(v4_hir_next_impl_item(hir, after) < 0 and v4_hir_impl_candidate_cold_probes == 1024, "cold traversal remains linear")
+    say "hir-impl-index 1024-items=true 512-impls=true logarithmic=true zero-impl-constant=true"
+}
+
+task v4_hir_impl_smoke_payload(files: int) -> word {
+    pilot parts = array_new()
+    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v10|files=" + word_from_int(files) + "|items=" + word_from_int(files * 4) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|shape-owners=0|shape-fields=0|const-annotations=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|diagnostics=0")
+    pilot file = files - 1
+    repeat until file < 0 {
+        pilot item = 3
+        repeat until item < 0 {
+            pilot kind = v4_hir_error
+            if item % 2 == 1 { kind = v4_hir_impl }
+            array_push(parts, "\nhir-item|" + word_from_int(file) + "|" + word_from_int(item) + "|" + kind + "|duplicate|def" + word_from_int(item) + "|77@0:100|0||" + V4_NO_SPAN)
+            item -= 1
+        }
+        array_push(parts, "\nhir|" + word_from_int(file) + "|77|0|4|0")
+        file -= 1
+    }
+    array_push(parts, "\nend|freak-hir-snapshot-v10")
+    pilot payload = word_join(parts)
+    array_release(parts)
+    give back payload
+}
+
+task v4_hir_impl_smoke_exhaust() -> int {
+    pilot held = array_new()
+    pilot exhausted: bool = false
+    repeat until exhausted or array_len(held) >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(held, word_from_int(handle)) }
+    }
+    give back held
+}
+
+task v4_hir_impl_smoke_free_tail(held: int, count: int) -> void {
+    pilot index = 0
+    repeat until index >= count {
+        array_release(word_to_int(array_get(held, array_len(held) - 1 - index)))
+        index += 1
+    }
+}
+
+task v4_hir_impl_smoke_free_rest(held: int, tail: int) -> void {
+    pilot index = 0
+    repeat until index >= array_len(held) - tail {
+        array_release(word_to_int(array_get(held, index)))
+        index += 1
+    }
+    array_release(held)
+}
+
+task v4_hir_impl_smoke_capacity() -> int {
+    pilot held = v4_hir_impl_smoke_exhaust()
+    pilot count = array_len(held)
+    v4_hir_impl_smoke_free_rest(held, 0)
+    give back count
+}
+
+task v4_hir_impl_smoke_snapshots() -> void {
+    pilot payload = v4_hir_impl_smoke_payload(1)
+    v4_hir_impl_smoke_assert(v4_hir_snapshot_validate(payload).starts_with("hir-snapshot-import ok=1 ") and v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=1 "), "shuffled snapshot accepted")
+    v4_hir_impl_smoke_assert(v4_hir_impl_index_is_ready(0) and v4_hir_next_impl_item(0, 0 - 1) == 1 and v4_hir_next_impl_item(0, 1) == 3 and v4_hir_next_impl_item(0, 3) < 0, "restore rebuilds ordered index")
+    pilot before = v4_hir_snapshot()
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot revision = v4_hir_revision(0)
+    pilot rejected = payload.replace("hir-item|0|1|", "hir-item|0|999999999|")
+    v4_hir_impl_smoke_assert(v4_hir_snapshot_restore(rejected).starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_hir_snapshot() == before and v4_session_semantic_restore_generation() == generation and v4_hir_revision(0) == revision and v4_hir_impl_index_is_ready(0), "invalid restore is atomic")
+    pilot capacity = v4_hir_impl_smoke_capacity()
+    pilot iteration = 0
+    repeat until iteration >= 16 {
+        revision = v4_hir_revision(0)
+        v4_hir_impl_smoke_assert(v4_hir_snapshot_restore(before).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == before and v4_hir_revision(0) > revision and v4_hir_impl_index_is_ready(0), "byte-stable repeated restore rebuilds with new revision")
+        iteration += 1
+    }
+    v4_hir_impl_smoke_assert(v4_hir_impl_smoke_capacity() == capacity and before.starts_with("hir-snapshot|format=freak-hir-snapshot-v10|"), "snapshot vocabulary and handle capacity stable")
+    say "hir-impl-index snapshot-v10=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true"
+
+    pilot held = v4_hir_impl_smoke_exhaust()
+    v4_hir_impl_smoke_assert(v4_hir_next_impl_item(0, 0 - 1) == 1, "published reader needs no handles")
+    v4_hir_impl_smoke_free_tail(held, 1)
+    v4_hir_impl_smoke_assert(v4_hir_finalize_lookup_indexes(0) == false and v4_hir_impl_index_is_ready(0) == false and v4_hir_next_impl_item(0, 0 - 1) == 1, "failed finalizer leaves live cold facts")
+    v4_hir_impl_smoke_free_rest(held, 1)
+    v4_hir_impl_smoke_assert(v4_hir_snapshot() == before and v4_hir_finalize_lookup_indexes(0) and v4_hir_impl_smoke_capacity() == capacity, "failed finalizer recovers without leaks")
+    say "hir-impl-index resource-readonly=true build-failure-cold=true recovery=true"
+
+    pilot fresh = v4_hir_impl_smoke_payload(2)
+    held = v4_hir_impl_smoke_exhaust()
+    v4_hir_impl_smoke_free_tail(held, 20)
+    generation = v4_session_semantic_restore_generation()
+    revision = v4_hir_revision(0)
+    pilot valid = v4_hir_snapshot_validate(fresh).starts_with("hir-snapshot-import ok=1 ")
+    pilot restored = v4_hir_snapshot_restore(fresh)
+    v4_hir_impl_smoke_assert(valid and restored == "hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted" and v4_hir_revision(0) == revision and v4_hir_impl_index_is_ready(0) and v4_session_semantic_restore_generation() == generation and v4_hir_file_len == 1, "fresh-owner preflight failure is atomic")
+    v4_hir_impl_smoke_free_rest(held, 20)
+    v4_hir_impl_smoke_assert(v4_hir_snapshot() == before and v4_hir_impl_smoke_capacity() == capacity, "reservation cleanup preserves capacity")
+    v4_hir_impl_smoke_assert(v4_hir_snapshot_restore(fresh).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_impl_index_is_ready(1) and v4_hir_next_impl_item(1, 0 - 1) == 1 and capacity - v4_hir_impl_smoke_capacity() == 41, "fresh owner uses exactly forty-one children")
+    say "hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=41"
+}
+
+v4_hir_impl_smoke_revisions()
+v4_hir_impl_smoke_construction()
+v4_hir_impl_smoke_bounds()
+v4_hir_impl_smoke_snapshots()

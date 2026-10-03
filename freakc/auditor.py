@@ -1626,11 +1626,11 @@ def _hir_extern_return_probe_errors(tests: Path, harness: Path) -> List[str]:
 def _hir_lookup_scaling_errors(fixture: Path, harness: Path) -> List[str]:
     return _hir_lookup_probe_errors(fixture, harness, (
         "hir-scaling-annotation-duplicate-start", "hir-scaling-annotation-surplus-fields",
-        "hir-scaling-fresh-slot-thirty-nine-handles", "hir-scaling-file-slot-capacity-stable",
+        "hir-scaling-fresh-slot-forty-one-handles", "hir-scaling-file-slot-capacity-stable",
     ), (
         "v4_hir_scaling_annotation_checks(before)",
         "v4_hir_scaling_file_slots(sample, before)",
-        "capacity_before - capacity_fresh == 39",
+        "capacity_before - capacity_fresh == 41",
         'array_push(v4_hir_route_owner_values_handle(hir_id), "old")',
         'array_push(v4_hir_route_case_values_handle(hir_id), "old")',
         'array_push(v4_hir_route_field_values_handle(hir_id), "old")',
@@ -3249,7 +3249,7 @@ def audit_conformance(paths: List[Path]) -> int:
             "task parameter index guard accepted helper-indirected rescan",
             '"hir-scaling-512-params=true"',
             '"hir-scaling-param-missing-owner=true"',
-            '"hir-scaling-fresh-slot-thirty-nine-handles=true"',
+            '"hir-scaling-fresh-slot-forty-one-handles=true"',
         ):
             if needle not in harness_src:
                 task_param_boundary_missing.append(f"check_v4.py: {needle}")
@@ -5715,7 +5715,8 @@ def audit_conformance(paths: List[Path]) -> int:
         "contract_region_forwarding_boundary_negative_smoke.fk": (
             "contract-region-forwarding-method-ty-diagnostics=0",
             "contract-region-forwarding-method-mir-diagnostics=1",
-            "contract-region-forwarding-method-borrow-diagnostics=2",
+            "contract-region-forwarding-method-borrow-diagnostics=3",
+            "contract-region-forwarding-method-impl-return-unsupported=1",
             "contract-region-forwarding-method-status=blocked",
             "contract-region-forwarding-method-invocation-diagnostic-count=1",
             "contract-region-forwarding-method-invocation-message=Meiya cannot establish the origin of this returned loan",
@@ -5725,7 +5726,8 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-method-silently-accepted=false",
             "contract-region-forwarding-dynamic-ty-diagnostics=0",
             "contract-region-forwarding-dynamic-mir-diagnostics=1",
-            "contract-region-forwarding-dynamic-borrow-diagnostics=2",
+            "contract-region-forwarding-dynamic-borrow-diagnostics=3",
+            "contract-region-forwarding-dynamic-impl-return-unsupported=1",
             "contract-region-forwarding-dynamic-status=blocked",
             "contract-region-forwarding-dynamic-invocation-diagnostic-count=1",
             "contract-region-forwarding-dynamic-invocation-message=Meiya cannot establish the origin of this returned loan",
@@ -5735,10 +5737,10 @@ def audit_conformance(paths: List[Path]) -> int:
             "contract-region-forwarding-dynamic-silently-accepted=false",
             "contract-region-forwarding-callback-ty-diagnostics=1",
             "contract-region-forwarding-callback-mir-diagnostics=2",
-            "contract-region-forwarding-callback-borrow-diagnostics=2",
-            "contract-region-forwarding-callback-status=clean",
+            "contract-region-forwarding-callback-borrow-diagnostics=3",
+            "contract-region-forwarding-callback-status=blocked",
             "contract-region-forwarding-callback-invocation-diagnostic-count=1",
-            "contract-region-forwarding-callback-invocation-message=call target is not callable",
+            "contract-region-forwarding-callback-invocation-message=Meiya cannot establish the origin of this returned loan",
             "contract-region-forwarding-callback-invocation-source-path=contract-region-forwarding-callback.fk",
             "contract-region-forwarding-callback-invocation-range=136:150",
             "contract-region-forwarding-callback-rejected=true",

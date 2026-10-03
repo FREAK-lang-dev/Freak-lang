@@ -1,0 +1,159 @@
+-- Reuse five fixture-owned sealed plans rather than allocate per matrix cell.
+-- Expected target families below are explicit and independent of target query.
+task h6_target_assert(condition: bool, label: word) -> void {
+    if not condition { panic("h6 native target convention: " + label) }
+}
+
+task h6_target_expected(abi: word, target_id: int) -> bool {
+    if abi == "" or abi == "C" or abi == "cdecl" or abi == "system" { give back true }
+    if abi == "sysv64" { give back target_id == 0 }
+    if abi == "win64" or abi == "vectorcall" { give back target_id == 3 }
+    give back false
+}
+
+task h6_target_set_plan(plan: int, context: int, abi: word) -> void {
+    pilot cc = v4_codegen_llvm_calling_convention(abi)
+    if context == 0 {
+        array_set(v4_codegen_llvm_decl_abis_handle(plan), 0, abi)
+        array_set(v4_codegen_llvm_decl_ccs_handle(plan), 0, cc)
+        array_set(v4_codegen_llvm_decl_lines_handle(plan), 0, "declare " + cc + " i64 @outside()")
+        h6_target_assert(v4_codegen_llvm_decl_abi(plan, 0) == abi and v4_codegen_llvm_decl_cc(plan, 0) == cc, "authored declaration ABI and convention")
+    }
+    if context == 1 or context == 2 {
+        array_set(v4_codegen_llvm_call_abis_handle(plan), 0, abi)
+        array_set(v4_codegen_llvm_call_ccs_handle(plan), 0, cc)
+        pilot symbol = "@outside"
+        if context == 2 { symbol = "%callback" }
+        array_set(v4_codegen_llvm_call_lines_handle(plan), 0, "call " + cc + " i64 " + symbol + "()")
+        h6_target_assert(v4_codegen_llvm_call_abi(plan, 0) == abi and v4_codegen_llvm_call_cc(plan, 0) == cc and v4_codegen_llvm_call_symbol(plan, 0) == symbol, "authored direct or indirect call ABI and convention")
+    }
+    if context == 3 or context == 4 {
+        pilot symbol = "@body"
+        if context == 4 { symbol = "@body.extern_cb" }
+        pilot line = "define " + cc + " i64 " + symbol + "() {\nentry:\n"
+        line = line + " ret i64 1\n" + "}\n"
+        array_set(v4_codegen_llvm_body_lines_handle(plan), 0, line)
+        h6_target_assert(v4_codegen_llvm_sealed_body_calling_convention(v4_codegen_llvm_body_line(plan, 0)) == cc, "authored body or callback convention")
+    }
+}
+
+task h6_target_run() -> void {
+    pilot targets = array_new()
+    array_push(targets, v4_target_spec_new("x86_64-unknown-linux-gnu"))
+    array_push(targets, v4_target_spec_new("aarch64-unknown-linux-gnu"))
+    array_push(targets, v4_target_spec_new("aarch64-apple-darwin"))
+    array_push(targets, v4_target_spec_new("x86_64-w64-windows-gnu"))
+    pilot abis = array_new()
+    array_push(abis, "")
+    array_push(abis, "C")
+    array_push(abis, "cdecl")
+    array_push(abis, "system")
+    array_push(abis, "sysv64")
+    array_push(abis, "win64")
+    array_push(abis, "vectorcall")
+    array_push(abis, "stdcall")
+    array_push(abis, "fastcall")
+    array_push(abis, "thiscall")
+    pilot plans = array_new()
+    pilot context = 0
+    repeat until context >= 5 {
+        pilot plan = v4_codegen_llvm_file_new(context, 0 - 1)
+        if context == 0 { v4_codegen_llvm_add_decl(plan, "outside", "@outside", "outside", "C", "ccc", "i64", "", "declare ccc i64 @outside()") }
+        if context == 1 { v4_codegen_llvm_add_call(plan, "body", "outside", "@outside", "outside", "C", "ccc", "i64", "outside()", "call ccc i64 @outside()") }
+        if context == 2 { v4_codegen_llvm_add_call(plan, "body", "callback", "%callback", "", "C", "ccc", "i64", "callback()", "call ccc i64 %callback()") }
+        if context == 3 { v4_codegen_llvm_add_body(plan, "body", "@body", "") }
+        if context == 4 { v4_codegen_llvm_add_body(plan, "body#extern_callback", "@body.extern_cb", "") }
+        array_push(plans, word_from_int(plan))
+        h6_target_assert(plan >= 0 and plan < array_len(v4_codegen_llvm_files) and v4_codegen_llvm_native_module_error(plan) == "", "valid fixture-owned sealed plan")
+        if context == 0 { h6_target_assert(v4_codegen_llvm_decl_count(plan) == 1 and v4_codegen_llvm_decl_name(plan, 0) == "outside", "authored declaration") }
+        if context == 1 or context == 2 { h6_target_assert(v4_codegen_llvm_call_count(plan) == 1 and v4_codegen_llvm_call_abi(plan, 0) == "C", "authored direct or indirect call") }
+        if context == 3 or context == 4 { h6_target_assert(v4_codegen_llvm_body_count(plan) == 1, "authored body or callback") }
+        context += 1
+    }
+    pilot case_id = 0
+    repeat until case_id >= array_len(abis) {
+        pilot abi: word = array_get(abis, case_id)
+        context = 0
+        repeat until context >= 5 {
+            pilot plan = word_to_int(array_get(plans, context))
+            h6_target_set_plan(plan, context, abi)
+            pilot target_id = 0
+            repeat until target_id >= array_len(targets) {
+                pilot target: word = array_get(targets, target_id)
+                h6_target_assert(v4_target_spec_valid(target), "valid target record")
+                pilot error = v4_codegen_llvm_native_target_error(plan, target)
+                pilot module = v4_codegen_llvm_module_text(plan, target)
+                if h6_target_expected(abi, target_id) {
+                    h6_target_assert(error == "" and module != "", "allowed family/target/context")
+                } else {
+                    h6_target_assert(error == "native target calling convention not supported: " + abi + " for " + v4_target_spec_triple(target) and module == "", "named rejected family/target/context")
+                }
+                target_id += 1
+            }
+            context += 1
+        }
+        case_id += 1
+    }
+    say "h6-native-target abi-spellings=10 targets=4 contexts=5 matrix=true"
+
+    pilot invalid_abis = array_new()
+    array_push(invalid_abis, "mystery")
+    array_push(invalid_abis, "FREAK")
+    array_push(invalid_abis, "C,cdecl")
+    case_id = 0
+    repeat until case_id >= array_len(invalid_abis) {
+        pilot abi: word = array_get(invalid_abis, case_id)
+        context = 0
+        repeat until context >= 3 {
+            pilot plan = word_to_int(array_get(plans, context))
+            h6_target_set_plan(plan, context, abi)
+            pilot target: word = array_get(targets, 0)
+            h6_target_assert(v4_codegen_llvm_native_target_error(plan, target) == "native target calling convention not supported: " + abi + " for x86_64-unknown-linux-gnu", "unknown raw ABI rejected")
+            h6_target_assert(v4_codegen_llvm_module_text(plan, target) == "", "unknown raw ABI publishes no module")
+            context += 1
+        }
+        case_id += 1
+    }
+    pilot declaration = word_to_int(array_get(plans, 0))
+    h6_target_set_plan(declaration, 0, "C")
+    array_set(v4_codegen_llvm_decl_ccs_handle(declaration), 0, "win64cc")
+    pilot linux_target: word = array_get(targets, 0)
+    h6_target_assert(v4_codegen_llvm_native_target_error(declaration, linux_target) == "invalid sealed native calling convention metadata" and v4_codegen_llvm_module_text(declaration, linux_target) == "", "sealed metadata mismatch rejected")
+    context = 3
+    repeat until context >= 5 {
+        pilot plan = word_to_int(array_get(plans, context))
+        array_set(v4_codegen_llvm_body_lines_handle(plan), 0, "define mysterycc i64 @body()")
+        h6_target_assert(v4_codegen_llvm_native_target_error(plan, linux_target) == "invalid sealed native body calling convention" and v4_codegen_llvm_module_text(plan, linux_target) == "", "unknown body or callback convention rejected")
+        context += 1
+    }
+    say "h6-native-target unknown-abi=true comma-injection=true unknown-header=true mismatch=true"
+
+    pilot source = "@extern_callback(\"win64\")\n"
+    source = source + "task callback(seed: std::ffi::c_isize) -> std::ffi::c_isize {\n"
+    source = source + " give back seed\n" + "}\n"
+    pilot stream = v4_lex_text(9, source)
+    pilot tree = v4_parse_stream(9, stream)
+    pilot hir = v4_hir_lower_tree(9, tree)
+    pilot resolve = v4_resolve_lower_hir(9, hir)
+    pilot ty = v4_ty_lower_resolve(9, resolve)
+    pilot mir = v4_mir_lower_ty(9, ty)
+    h6_target_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0, "clean callback source owners")
+    h6_target_assert(v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 1 and v4_mir_body_name(mir, 0) == "callback" and v4_mir_rvalue_kind(mir, 0, 0) == v4_mir_rvalue_use_local, "authored callback body and local")
+    pilot old = v4_codegen_llvm_lower_mir(9, mir)
+    h6_target_assert(v4_codegen_llvm_native_module_error(old) == "" and v4_codegen_llvm_call_count(old) == 0 and v4_codegen_llvm_body_count(old) == 2, "source callback-only sealed plan")
+    pilot windows_target: word = array_get(targets, 3)
+    pilot before = v4_codegen_llvm_module_text(old, windows_target)
+    pilot rejected = v4_codegen_llvm_native_target_error(old, linux_target)
+    h6_target_assert(before != "" and before.contains("define win64cc") and rejected == "native target calling convention not supported: win64 for x86_64-unknown-linux-gnu" and v4_codegen_llvm_module_text(old, linux_target) == "", "actual callback header target gate")
+    pilot snapshot = v4_mir_snapshot()
+    h6_target_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "callback snapshot valid")
+    h6_target_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "callback snapshot restored")
+    h6_target_assert(v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 1, "restored reused MIR identity")
+    array_set(v4_mir_names_handle(mir), 0, "changed_callback")
+    v4_mir_set_rvalue_ty(mir, 0, 0, v4_ty_unknown)
+    h6_target_assert(v4_mir_body_name(mir, 0) == "changed_callback" and v4_mir_rvalue_ty(mir, 0, 0) == v4_ty_unknown, "restored facts changed")
+    h6_target_assert(v4_codegen_llvm_native_target_error(old, linux_target) == rejected and v4_codegen_llvm_module_text(old, windows_target) == before and v4_codegen_llvm_module_text(old, linux_target) == "", "old plan target gate and module stay sealed after MIR reuse")
+    say "h6-native-target callback-only=true restore=true changed-facts=true sealed=true"
+}
+
+h6_target_run()

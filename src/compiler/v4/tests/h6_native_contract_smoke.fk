@@ -1,0 +1,176 @@
+-- Exercise unsupported Built-MIR facts directly so each native rvalue/place/
+-- type family is fenced even when a snapshot is structurally well formed.
+task h6_contract_assert(condition: bool, label: word) -> void {
+    if not condition { panic("h6 native contract: " + label) }
+}
+
+-- This fixture owns these short-lived rejected plans. Release their children
+-- between cases to keep the test inside the unchanged 1024-handle ceiling.
+task h6_contract_release_plan(codegen: int) -> void {
+    array_release(v4_codegen_llvm_decl_names_handle(codegen))
+    array_release(v4_codegen_llvm_decl_symbols_handle(codegen))
+    array_release(v4_codegen_llvm_decl_links_handle(codegen))
+    array_release(v4_codegen_llvm_decl_abis_handle(codegen))
+    array_release(v4_codegen_llvm_decl_ccs_handle(codegen))
+    array_release(v4_codegen_llvm_decl_returns_handle(codegen))
+    array_release(v4_codegen_llvm_decl_params_handle(codegen))
+    array_release(v4_codegen_llvm_decl_lines_handle(codegen))
+    array_release(v4_codegen_llvm_call_bodies_handle(codegen))
+    array_release(v4_codegen_llvm_call_names_handle(codegen))
+    array_release(v4_codegen_llvm_call_symbols_handle(codegen))
+    array_release(v4_codegen_llvm_call_links_handle(codegen))
+    array_release(v4_codegen_llvm_call_abis_handle(codegen))
+    array_release(v4_codegen_llvm_call_ccs_handle(codegen))
+    array_release(v4_codegen_llvm_call_returns_handle(codegen))
+    array_release(v4_codegen_llvm_call_exprs_handle(codegen))
+    array_release(v4_codegen_llvm_call_lines_handle(codegen))
+    array_release(v4_codegen_llvm_body_names_handle(codegen))
+    array_release(v4_codegen_llvm_body_symbols_handle(codegen))
+    array_release(v4_codegen_llvm_body_lines_handle(codegen))
+    array_release(v4_codegen_llvm_diags_handle(codegen))
+}
+
+task h6_contract_rejected(mir: int, target: word, expected: word) -> void {
+    h6_contract_assert(v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 1 and v4_mir_body_rvalue_count(mir, 0) == 1, "valid MIR owner and body")
+    pilot codegen = v4_codegen_llvm_lower_mir(0, mir)
+    h6_contract_assert(v4_codegen_llvm_native_module_error(codegen) == expected, "named error: " + expected)
+    h6_contract_assert(v4_codegen_llvm_module_text(codegen, target) == "", "no LLVM module: " + expected)
+    h6_contract_release_plan(codegen)
+}
+
+task h6_contract_run() -> void {
+    pilot source = "task probe() -> int {\n" + " give back 1\n" + "}\n"
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    h6_contract_assert(v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 1 and v4_mir_body_rvalue_count(mir, 0) == 1, "authored scalar body")
+    h6_contract_assert(v4_mir_rvalue_kind(mir, 0, 0) == v4_mir_rvalue_const_int and v4_mir_rvalue_ty(mir, 0, 0) == v4_ty_int, "authored scalar fact")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot old = v4_codegen_llvm_lower_mir(0, mir)
+    pilot before = v4_codegen_llvm_module_text(old, target)
+    h6_contract_assert(before != "" and v4_codegen_llvm_native_module_error(old) == "", "supported scalar library")
+    pilot kinds = array_new()
+    array_push(kinds, v4_mir_rvalue_use_place)
+    array_push(kinds, v4_mir_rvalue_construct)
+    array_push(kinds, v4_mir_rvalue_array)
+    array_push(kinds, v4_mir_rvalue_list)
+    array_push(kinds, v4_mir_rvalue_tuple)
+    array_push(kinds, v4_mir_rvalue_map)
+    array_push(kinds, v4_mir_rvalue_loop_item)
+    array_push(kinds, v4_mir_rvalue_some)
+    array_push(kinds, v4_mir_rvalue_nobody)
+    array_push(kinds, v4_mir_rvalue_ok)
+    array_push(kinds, v4_mir_rvalue_err)
+    array_push(kinds, v4_mir_rvalue_check)
+    array_push(kinds, v4_mir_rvalue_or_else)
+    array_push(kinds, v4_mir_rvalue_try)
+    array_push(kinds, v4_mir_rvalue_lend)
+    array_push(kinds, v4_mir_rvalue_lend_mut)
+    array_push(kinds, v4_mir_rvalue_closure)
+    array_push(kinds, v4_mir_rvalue_capture_borrow)
+    array_push(kinds, v4_mir_rvalue_capture_borrow_mut)
+    array_push(kinds, v4_mir_rvalue_capture_copy)
+    array_push(kinds, v4_mir_rvalue_capture_move)
+    array_push(kinds, v4_mir_rvalue_unknown)
+    array_push(kinds, "ForeignKind")
+    pilot case_id = 0
+    repeat until case_id >= array_len(kinds) {
+        pilot kind: word = array_get(kinds, case_id)
+        array_set(v4_mir_body_rvalue_kinds_handle(mir, 0), 0, kind)
+        h6_contract_assert(v4_mir_rvalue_kind(mir, 0, 0) == kind, "authored unsupported kind")
+        h6_contract_rejected(mir, target, "native rvalue not yet supported: " + kind)
+        case_id += 1
+    }
+    array_release(kinds)
+    array_set(v4_mir_body_rvalue_kinds_handle(mir, 0), 0, v4_mir_rvalue_const_int)
+    say "h6-native-contract rvalues=23 named=true no-module=true"
+
+    pilot original_places = v4_mir_body_place_count(mir, 0)
+    pilot place = v4_mir_add_place(mir, 0, v4_mir_place_field, "p.x", 0 - 1, "x", 0 - 1, V4_NO_SPAN, v4_ty_int)
+    h6_contract_assert(place == original_places and v4_mir_body_place_count(mir, 0) == original_places + 1 and v4_mir_place_kind(mir, 0, place) == v4_mir_place_field, "authored field place")
+    h6_contract_rejected(mir, target, "native place not yet supported: Field")
+    array_set(v4_mir_body_place_kinds_handle(mir, 0), place, v4_mir_place_index)
+    h6_contract_assert(v4_mir_place_kind(mir, 0, place) == v4_mir_place_index, "authored index place")
+    h6_contract_rejected(mir, target, "native place not yet supported: Index")
+    array_set(v4_mir_body_place_kinds_handle(mir, 0), place, v4_mir_place_unknown)
+    h6_contract_assert(v4_mir_place_kind(mir, 0, place) == v4_mir_place_unknown, "authored unknown place")
+    h6_contract_rejected(mir, target, "native place not yet supported: Unknown")
+    array_set(v4_mir_body_place_kinds_handle(mir, 0), place, v4_mir_place_return)
+    say "h6-native-contract places=3 named=true no-module=true"
+
+    pilot types = array_new()
+    array_push(types, "P")
+    array_push(types, "(int,int)")
+    array_push(types, "[int;2]")
+    array_push(types, "List<int>")
+    array_push(types, "Map<int,int>")
+    array_push(types, "Route")
+    array_push(types, "maybe<int>")
+    array_push(types, "result<int,int>")
+    array_push(types, "Shared<int>")
+    array_push(types, "dyn Doctrine")
+    array_push(types, "closure[Callable,copy]")
+    array_push(types, v4_ty_big)
+    array_push(types, v4_ty_unknown)
+    array_push(types, v4_ty_void)
+    case_id = 0
+    repeat until case_id >= array_len(types) {
+        pilot type_text: word = array_get(types, case_id)
+        v4_mir_set_rvalue_ty(mir, 0, 0, type_text)
+        h6_contract_assert(v4_mir_rvalue_ty(mir, 0, 0) == type_text, "authored unsupported type")
+        h6_contract_rejected(mir, target, "native type not yet supported: " + type_text)
+        case_id += 1
+    }
+    array_release(types)
+    v4_mir_set_rvalue_ty(mir, 0, 0, v4_ty_int)
+    say "h6-native-contract types=14 named=true no-module=true"
+
+    v4_mir_set_rvalue_ty(mir, 0, 0, "*const int")
+    pilot literal_snapshot = v4_mir_snapshot()
+    h6_contract_assert(v4_mir_snapshot_validate(literal_snapshot).starts_with("mir-snapshot-import ok=1"), "literal type wire valid")
+    h6_contract_assert(v4_mir_snapshot_restore_component(literal_snapshot).starts_with("mir-snapshot-restore ok=1"), "literal type restored")
+    h6_contract_rejected(mir, target, "invalid native integer literal type: *const int")
+    array_set(v4_mir_body_rvalue_kinds_handle(mir, 0), 0, v4_mir_rvalue_const_float)
+    array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "1.5")
+    v4_mir_set_rvalue_ty(mir, 0, 0, v4_ty_int)
+    h6_contract_rejected(mir, target, "invalid native float literal type: int")
+    array_set(v4_mir_body_rvalue_kinds_handle(mir, 0), 0, v4_mir_rvalue_const_char)
+    array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "a")
+    v4_mir_set_rvalue_ty(mir, 0, 0, "*const int")
+    h6_contract_rejected(mir, target, "invalid native char literal type: *const int")
+    array_set(v4_mir_body_rvalue_kinds_handle(mir, 0), 0, v4_mir_rvalue_const_word)
+    array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "data")
+    v4_mir_set_rvalue_ty(mir, 0, 0, v4_ty_bool)
+    h6_contract_rejected(mir, target, "invalid native word literal type: bool")
+    literal_snapshot = v4_mir_snapshot()
+    h6_contract_assert(v4_mir_snapshot_validate(literal_snapshot).starts_with("mir-snapshot-import ok=1"), "word bool type wire valid")
+    h6_contract_assert(v4_mir_snapshot_restore_component(literal_snapshot).starts_with("mir-snapshot-restore ok=1"), "word bool type restored")
+    h6_contract_rejected(mir, target, "invalid native word literal type: bool")
+    v4_mir_set_rvalue_ty(mir, 0, 0, "task()->int")
+    h6_contract_rejected(mir, target, "invalid native word literal type: task()->int")
+    literal_snapshot = v4_mir_snapshot()
+    h6_contract_assert(v4_mir_snapshot_validate(literal_snapshot).starts_with("mir-snapshot-import ok=1"), "word task type wire valid")
+    h6_contract_assert(v4_mir_snapshot_restore_component(literal_snapshot).starts_with("mir-snapshot-restore ok=1"), "word task type restored")
+    h6_contract_rejected(mir, target, "invalid native word literal type: task()->int")
+    array_set(v4_mir_body_rvalue_kinds_handle(mir, 0), 0, v4_mir_rvalue_const_int)
+    array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "1")
+    v4_mir_set_rvalue_ty(mir, 0, 0, v4_ty_int)
+    say "h6-native-contract literal-types=5 restored=true no-module=true"
+
+    array_set(v4_mir_body_rvalue_kinds_handle(mir, 0), 0, v4_mir_rvalue_binary)
+    v4_mir_set_rvalue_children(mir, 0, 0, 0, 0)
+    h6_contract_rejected(mir, target, "invalid native rvalue references: Binary")
+    v4_mir_set_rvalue_children(mir, 0, 0, 0 - 1, 0 - 1)
+    array_set(v4_mir_body_rvalue_kinds_handle(mir, 0), 0, v4_mir_rvalue_unknown)
+    pilot snapshot = v4_mir_snapshot()
+    h6_contract_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "unsupported facts valid on wire")
+    h6_contract_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "unsupported facts restored")
+    h6_contract_rejected(mir, target, "native rvalue not yet supported: Unknown")
+    h6_contract_assert(v4_codegen_llvm_native_module_error(old) == "" and v4_codegen_llvm_module_text(old, target) == before, "old plan sealed across MIR reuse")
+    say "h6-native-contract malformed=true snapshot=true sealed=true"
+}
+
+h6_contract_run()

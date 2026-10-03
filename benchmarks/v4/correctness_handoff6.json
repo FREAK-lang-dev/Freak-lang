@@ -1,0 +1,635 @@
+{
+  "schema": "freak-v4-correctness-handoff6-v1",
+  "date": "2026-10-02",
+  "integration_base": "5cb1d2b2ad1653efc5b116a8a6e3d03bf371b85c",
+  "baseline": {
+    "repository_head": "3db07fb68e8d370fef3551d074c843418ce4e705",
+    "generated_c_sha256": "93de066a283bed8bcfca76d8c00f1a82477a701ef72739b09029a650f8e37fef",
+    "instrumented_c_sha256": "93f3410eb5baf7c4ca00748ed609cae9037d81ddec46ee15ed1849fa6122b30f",
+    "tool_sha256": "cd09fbd4d90032eb04094fd860b50b1ce53e2a769e569d3ce45ca25b72540b55",
+    "clang_version": "Debian clang version 19.1.7 (3+b1)\nTarget: x86_64-pc-linux-gnu\nThread model: posix\nInstalledDir: /workspace/v4-backend-profile/toolchain/usr/lib/llvm-19/bin\n",
+    "compiler_flags": [
+      "-O2"
+    ],
+    "runtime_hashes": {
+      "freak_runtime.c": "b3ef09a2809056bb262f501c79ccdadcc8c74967bb12d82a13d588b7c8c5f157",
+      "freak_llvm_runtime.c": "cd7ec60942aaea32ad8795a0d2fcc0639135324d2369f4ecf56ef92b04e8dfc1",
+      "freak_runtime.h": "2ebbe52f1965e4b24077039e197898c2366056d71631f1ec6981d729ce992fd4"
+    }
+  },
+  "baseline_manifest_sha256": "e6110a583829731b35c8c984579a8850d7213578f854496710a48bec210a5e33",
+  "reproductions": [
+    {
+      "case": "repeat3",
+      "source_sha256": "5386e15571516dfd21e0e63d9bd1e536e48deeedfe3d70e6172139d57c694333",
+      "expected_exit": 24,
+      "compiler_exit": 0,
+      "diagnostics": "v4-build-stage=lex diagnostics=0\nv4-build-stage=parse diagnostics=0\nv4-build-stage=hir diagnostics=0\nv4-build-stage=resolve diagnostics=0\nv4-build-stage=ty diagnostics=0\nv4-build-stage=mir diagnostics=0\nv4-build-stage=borrowck diagnostics=0\nv4-build-stage=codegen diagnostics=0\nv4-diagnostics lex=0 parse=0 hir=0 resolve=0 ty=0 mir=0 borrowck=0 codegen=0\nv4-errors=0\n",
+      "module_emitted": true,
+      "clang_exit": 0,
+      "clang_error": "warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]\n1 warning generated.\n",
+      "actual_exit": 8,
+      "stdout": "",
+      "stderr": "",
+      "finding": "F02",
+      "post_fix_regression": "h6_repeat_identity_native.fk",
+      "resolution_policy": "Program asserts depth3=24 before exit42",
+      "source": "task main() -> int {\n    pilot hits = 0\n    repeat 2 times {\n    repeat 3 times {\n    repeat 4 times {\n    hits += 1\n}\n}\n}\n    give back hits\n}\n"
+    },
+    {
+      "case": "repeat4",
+      "source_sha256": "fa7457c38396ca3db1c913cd8f4c6ffc4271b7a62a4f5e6dc54137b474307f8a",
+      "expected_exit": 16,
+      "compiler_exit": 0,
+      "diagnostics": "v4-build-stage=lex diagnostics=0\nv4-build-stage=parse diagnostics=0\nv4-build-stage=hir diagnostics=0\nv4-build-stage=resolve diagnostics=0\nv4-build-stage=ty diagnostics=0\nv4-build-stage=mir diagnostics=0\nv4-build-stage=borrowck diagnostics=0\nv4-build-stage=codegen diagnostics=0\nv4-diagnostics lex=0 parse=0 hir=0 resolve=0 ty=0 mir=0 borrowck=0 codegen=0\nv4-errors=0\n",
+      "module_emitted": true,
+      "clang_exit": 0,
+      "clang_error": "warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]\n1 warning generated.\n",
+      "actual_exit": 4,
+      "stdout": "",
+      "stderr": "",
+      "finding": "F02",
+      "post_fix_regression": "h6_repeat_identity_native.fk",
+      "resolution_policy": "Program asserts depth4=16 before exit42",
+      "source": "task main() -> int {\n    pilot hits = 0\n    repeat 2 times {\n    repeat 2 times {\n    repeat 2 times {\n    repeat 2 times {\n    hits += 1\n}\n}\n}\n}\n    give back hits\n}\n"
+    },
+    {
+      "case": "bool_yes",
+      "source_sha256": "d5adbd98db40298e9d59e5efd5778199b7647834b50cac23896ebfa4ab6a31c1",
+      "expected_exit": 42,
+      "compiler_exit": 0,
+      "diagnostics": "v4-build-stage=lex diagnostics=0\nv4-build-stage=parse diagnostics=0\nv4-build-stage=hir diagnostics=0\nv4-build-stage=resolve diagnostics=0\nv4-build-stage=ty diagnostics=0\nv4-build-stage=mir diagnostics=0\nv4-build-stage=borrowck diagnostics=0\nv4-build-stage=codegen diagnostics=0\nv4-diagnostics lex=0 parse=0 hir=0 resolve=0 ty=0 mir=0 borrowck=0 codegen=0\nv4-errors=0\n",
+      "module_emitted": true,
+      "clang_exit": 1,
+      "clang_error": "bool_yes.ll:9:10: error: expected value token\n    9 |   ret i1 yes\n      |          ^\n1 error generated.\n",
+      "finding": "F06",
+      "post_fix_regression": "h6_bool_aliases_native.fk",
+      "resolution_policy": "Canonical LLVM values execute; source checks preserve spelling",
+      "source": "task a() -> bool {\n    give back yes\n}\ntask main() -> int {\n    if a() {\n    give back 42\n}\n    give back 1\n}\n"
+    },
+    {
+      "case": "callback_zero",
+      "source_sha256": "43f3f6ae6a453f5376688cbab139c165d5fda0de2148db02a7db7131cb28d66f",
+      "expected_exit": 0,
+      "compiler_exit": 0,
+      "diagnostics": "v4-build-stage=lex diagnostics=0\nv4-build-stage=parse diagnostics=0\nv4-build-stage=hir diagnostics=0\nv4-build-stage=resolve diagnostics=0\nv4-build-stage=ty diagnostics=0\nv4-build-stage=mir diagnostics=0\nv4-build-stage=borrowck diagnostics=0\nv4-build-stage=codegen diagnostics=0\nv4-diagnostics lex=0 parse=0 hir=0 resolve=0 ty=0 mir=0 borrowck=0 codegen=0\nv4-errors=0\n",
+      "module_emitted": true,
+      "clang_exit": 1,
+      "clang_error": "callback_zero.ll:12:3: error: multiple definition of local value named 'rv.0.0'\n   12 |   %rv.0.0 = load ptr, ptr %local.0.addr\n      |   ^\n1 error generated.\n",
+      "finding": "F04",
+      "post_fix_regression": "indirect_calls.fk",
+      "resolution_policy": "Zero/one/multiple callback payloads execute; producer stdout is exact",
+      "source": "task probe(cb: extern [C] task() -> int) -> int {\n    give back cb()\n}\ntask main() -> int {\n    give back 0\n}\n"
+    },
+    {
+      "case": "aggregate_field",
+      "source_sha256": "873dc282c7f5c6fc02942990ec1699d17cceb9fddaf532d3c59919b12442a607",
+      "expected_exit": 3,
+      "compiler_exit": 0,
+      "diagnostics": "v4-build-stage=lex diagnostics=0\nv4-build-stage=parse diagnostics=0\nv4-build-stage=hir diagnostics=0\nv4-build-stage=resolve diagnostics=0\nv4-build-stage=ty diagnostics=0\nv4-build-stage=mir diagnostics=0\nv4-build-stage=borrowck diagnostics=0\nv4-build-stage=codegen diagnostics=0\nv4-diagnostics lex=0 parse=0 hir=0 resolve=0 ty=0 mir=0 borrowck=0 codegen=0\nv4-errors=0\n",
+      "module_emitted": true,
+      "clang_exit": 1,
+      "clang_error": "aggregate_field.ll:7:26: error: Cannot allocate unsized type\n    7 |   %local.0.addr = alloca %P\n      |                          ^\n1 error generated.\n",
+      "finding": "F08",
+      "post_fix_regression": "h6_native_field_callback_smoke.fk",
+      "resolution_policy": "Named unsupported aggregate/field contract; no native module is emitted",
+      "source": "shape P { x: int\n}\ntask main() -> int {\n    pilot p = P { x: 3\n}\n    give back p.x\n}\n"
+    },
+    {
+      "case": "literal_comma",
+      "source_sha256": "6bfbbaddbc0827d47d1eab72ff3a2d174f559a42181fa4d3c26e6d1fae75901d",
+      "expected_exit": 1,
+      "compiler_exit": 0,
+      "diagnostics": "v4-build-stage=lex diagnostics=0\nv4-build-stage=parse diagnostics=0\nv4-build-stage=hir diagnostics=0\nv4-build-stage=resolve diagnostics=0\nv4-build-stage=ty diagnostics=0\nv4-build-stage=mir diagnostics=1\n2|0@88:102|call arity mismatch|two expects 2 arguments but got 3\nv4-errors=1\nv4-aborted-after=mir\n",
+      "module_emitted": false,
+      "clang_error": "",
+      "finding": "F03",
+      "post_fix_regression": "h6_mir_literal_grammar_smoke.fk",
+      "resolution_policy": "Literal data remains one MIR child per argument; broader native words stay fenced",
+      "source": "task two(a: word, b: word) -> int {\n    give back 1\n}\ntask main() -> int {\n    give back two(\",\", \")\")\n}\n"
+    }
+  ],
+  "verification": {
+    "status": "passed",
+    "compiler_and_harness_commit": "cd8b82d63faf74cefacb9a8e37f483c9647f5351",
+    "registered_smokes": 302,
+    "new_h6_smokes": 20,
+    "native_programs": [
+      {
+        "name": "h6_repeat_identity_native.fk",
+        "expected_exit": 42,
+        "expected_stdout": "",
+        "expected_stderr": "",
+        "source_sha256": "7b94f9396f4f27868f8a5bf35c6f545b38b9681caf3977ff88a580117cacd5fe",
+        "module_sha256": "107cb500bc333592a9e8b3b66d1fed501eced9e425082bec36f976051eeba91c",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "h6_bool_aliases_native.fk",
+        "expected_exit": 42,
+        "expected_stdout": "",
+        "expected_stderr": "",
+        "source_sha256": "db818ce1cbeffa44c074c654376c7d1999fdef6ab786f34d040d1d67e3b536fc",
+        "module_sha256": "0e29b557132c8e2f6bc9fc4a9c89c42b7142c9c55ef6ff0ab83075eb27ffed76",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "indirect_calls.fk",
+        "expected_exit": 42,
+        "expected_stdout": "callback target evaluated\ncallback target evaluated\n",
+        "expected_stderr": "",
+        "source_sha256": "59b79d6749811a7fecd7ec4be129f16e6ef8387ed51b239325c59c90a43c9cd3",
+        "module_sha256": "00a75b7174a6c3c5ebb708edefc56bd9d032b06a4446c13544cbddc73169effd",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "h6_computed_callbacks_native.fk",
+        "expected_exit": 42,
+        "expected_stdout": "",
+        "expected_stderr": "",
+        "source_sha256": "ee8541b978ad0be69fc3f74673bf337b79efc192a523c2d1ad13a6096d8a1b98",
+        "module_sha256": "a3b68bd0a6cfee0fa0ae92c96a2e25d7c2da47ab6f5489ccde084a87b71f4439",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "h6_computed_many_native.fk",
+        "expected_exit": 42,
+        "expected_stdout": "",
+        "expected_stderr": "",
+        "source_sha256": "c37cb1716b934f790a0f8b80c0e64fa90fb42eb267cec12471f13e8fac49bdb6",
+        "module_sha256": "95c271d57f90f70b093255130fec22c6138d789f001047b7ac6ea6c9774c6869",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "fib_collatz.fk",
+        "expected_exit": 166,
+        "expected_stdout": "",
+        "expected_stderr": "",
+        "source_sha256": "b712cb8a528d19bb6565aff4c9673d643fdc7a47d9af13b7b48eb07475efa2b4",
+        "module_sha256": "bc0460cf5a596520c5249cb38fdefd872f230d73827ff0b837104e1b8b421fb7",
+        "actual_exit": 166,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "scalar_locals.fk",
+        "expected_exit": 42,
+        "expected_stdout": "",
+        "expected_stderr": "",
+        "source_sha256": "6ccae161dea3bf9062270685733d1d2768aa157226d1000dd7c22a05750f4b7f",
+        "module_sha256": "d3a9f38bf256107e35f799154fc04e20f1af58b9bb96f4f5207ea1a04a45e24f",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "short_circuit.fk",
+        "expected_exit": 42,
+        "expected_stdout": "",
+        "expected_stderr": "",
+        "source_sha256": "7bb2e2a7bc12f3faa9074eb20b6a29560e665c4f091222a65d07104aa8125917",
+        "module_sha256": "9554b0ad7fd2af0f76505fdc44af9f992ca379cbf197c69eb18cf74f155f58cd",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "short_circuit_order.fk",
+        "expected_exit": 42,
+        "expected_stdout": "ABCD",
+        "expected_stderr": "",
+        "source_sha256": "5065e43d3976affadc940784c0d72cadff37128124e4e2cbaa2b9eaa03b16d87",
+        "module_sha256": "552e2c364e5aeadafc1df3ebb309779463f5a5888a0c34659e93495a1dbf274f",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "scalar_numeric.fk",
+        "expected_exit": 42,
+        "expected_stdout": "",
+        "expected_stderr": "",
+        "source_sha256": "51e6d404762ab642c5d0cf9f6b83361a1134d7b6e8fc16cf21f1f0ad8538a01d",
+        "module_sha256": "27a0d9d97a653357465974284f7bf247e2bf4a8c0576614f5ce0c5711572669e",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "scalar_coercions.fk",
+        "expected_exit": 42,
+        "expected_stdout": "",
+        "expected_stderr": "",
+        "source_sha256": "7f6679d86f88c3e80cb7f255cae4e304954470ba9c3c327f48480c5ec27cdf47",
+        "module_sha256": "b79ee9f4d96474c46cf15e3d12f5e436b5be2c2809dddd15eeb7e7dfbbd02969",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "impl_scalar.fk",
+        "expected_exit": 42,
+        "expected_stdout": "",
+        "expected_stderr": "",
+        "source_sha256": "abeb5fab284cf8954f02ac5f3cd6dae2a2094a11016bee290435137625d188d4",
+        "module_sha256": "926e622329916013badfacf92e71363a9261a1466c4e205bc449212aafcb69af",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "raw_pointer_coercions.fk",
+        "expected_exit": 42,
+        "expected_stdout": "",
+        "expected_stderr": "",
+        "source_sha256": "91fa586bdec357e2c1faf3e1c39d54158a6326a40b5dae86d00b14812598f6d8",
+        "module_sha256": "ad2390791f994fb0bebb3153eb7417603cd804532812f4d2e7cb3e25e201033d",
+        "actual_exit": 42,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "hello_world.fk",
+        "expected_exit": 0,
+        "expected_stdout": "Hello, world!\n",
+        "expected_stderr": "",
+        "source_sha256": "bf1dd82ea668244d1d3913f82036aece12718632413b282cadef81b5514c8deb",
+        "module_sha256": "d14cd08a84d458a28b7af3b69b300fcf5bd436b7fc9fcc52f8397f0f0c9960b5",
+        "actual_exit": 0,
+        "stdout_stderr_exact": true
+      },
+      {
+        "name": "literal_say.fk",
+        "expected_exit": 0,
+        "expected_stdout": "line1\nline2\t\"quoted\"\\tail\n\nliteral {1 + 2} and unmatched {\nUTF-8: caf\u00e9 \u65e5\u672c\n{\n}\n;\n(\n)\n[\n]\ntask\n",
+        "expected_stderr": "",
+        "source_sha256": "b0a15f5b4028a1c0ef0bab66da857c4b908321bee7025f3c0f761337bdecc388",
+        "module_sha256": "7f7ba49f207516df64ea8fa14030d3f0d2199c62588acec9a1d6bdf577123f01",
+        "actual_exit": 0,
+        "stdout_stderr_exact": true
+      }
+    ],
+    "h6_fixtures": [
+      {
+        "fixture": "h6_mir_repeat_identity_smoke.fk",
+        "expect_exact_lines": [
+          "h6-repeat depths=true siblings=true flow=true",
+          "h6-repeat source-locals=true diagnostics=0",
+          "h6-repeat snapshot=true",
+          "h6-repeat invalid-identity=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "0ba75c9606a83fd82abb5a842606f3773841758e7e4d942ca1131458e41098ab"
+      },
+      {
+        "fixture": "h6_mir_bool_aliases_smoke.fk",
+        "expect_exact_lines": [
+          "h6-bool returns=true canonical=true diagnostics=0",
+          "h6-bool old-facts=true invalid=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "0b2c7abf3e42c6549e690e701ae71b076496ffc33fcea4abccfda4d8ba11d8cf"
+      },
+      {
+        "fixture": "h6_grammar_literal_smoke.fk",
+        "expect_exact_lines": [
+          "h6-grammar-cold-readonly=true",
+          "h6-grammar-literal-projection=true",
+          "h6-grammar-delimiters-and-arity=true",
+          "h6-grammar-constant-literal-types=true",
+          "h6-grammar-method-cache-equivalence=true",
+          "h6-grammar-closure-keyword-data=true",
+          "h6-grammar-restore-and-display=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "3f7a19e4f3e42a7ae159774ae9e8cc16ec20e4b80628f294939a2f3dd368a814"
+      },
+      {
+        "fixture": "h6_mir_literal_grammar_smoke.fk",
+        "expect_exact_lines": [
+          "h6-literal diagnostics=0",
+          "h6-literal lists=true chars=true",
+          "h6-literal tuple=true constructor=true",
+          "h6-literal array=true map=true",
+          "h6-literal call=true",
+          "h6-literal keyword=true condition=true",
+          "h6-literal matching=true arg-count=20",
+          "h6-literal keyword-scans=true",
+          "h6-literal operator-scans=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "62ed0f382d181b1cb47234c0889c1085aa45ac7ee377438d36886ef29b51169b"
+      },
+      {
+        "fixture": "h6_codegen_indirect_smoke.fk",
+        "expect_exact_lines": [
+          "h6-indirect zero=true one=true many=true callee-excluded=true",
+          "h6-indirect local=true returned=true computed-once=true",
+          "h6-indirect library=true snapshot=true module-exact=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "2165b8c802e0180d39a3d90f286e4b5c807217d39b9030990e3dcbe4084348d4"
+      },
+      {
+        "fixture": "h6_native_contract_smoke.fk",
+        "expect_exact_lines": [
+          "h6-native-contract rvalues=23 named=true no-module=true",
+          "h6-native-contract places=3 named=true no-module=true",
+          "h6-native-contract types=14 named=true no-module=true",
+          "h6-native-contract malformed=true snapshot=true sealed=true",
+          "h6-native-contract literal-types=5 restored=true no-module=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "8ef06adc63a81b856c424c58a90b93c7f310f4d2239684e9e2234973f4e1a615"
+      },
+      {
+        "fixture": "h6_codegen_bool_restore_smoke.fk",
+        "expect_exact_lines": [
+          "h6-restored-bool aliases=20 canonical=true casing=true numeric=true",
+          "h6-restored-bool snapshot=true spelling-retained=true invalid-rejected=true sealed=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "d6e1b8cb2e19c36622555d3fed85990ab05f8bc1a63821d88eaccdeb5c2085c0"
+      },
+      {
+        "fixture": "h6_native_field_callback_smoke.fk",
+        "expect_exact_lines": [
+          "h6-native-aggregate shape=true field-callback=true named=true no-module=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "e235bd449407c8532c5095c58401d972bc24d46ed1fe71a5c98e616aac089d51"
+      },
+      {
+        "fixture": "h6_diagnostics_restore_resource_smoke.fk",
+        "expect_exact_lines": [
+          "h6-diagnostics-restore cold=true direct600=true snapshot600=true exact=true handles=true",
+          "h6-diagnostics-coordinates negative=true sparse=true huge=true overflow=true duplicate-overlay=true dense-growth=true",
+          "h6-diagnostics-failure exhausted=true partial=true preserved=true handles=true recovery=true",
+          "h6-diagnostics-replay admitted=true ordered=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "01fab3f04c4588f3015b45169bd3b7b6e265fb76a559ced03bdcbf77c6fb1fa1"
+      },
+      {
+        "fixture": "h6_driver_file_read_smoke.fk",
+        "expect_exact_lines": [
+          "h6-source-read empty=true cached=true readable=true",
+          "h6-source-errors missing=true directory=true unpublished=true stale-retained=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "1464c987607c82aa175d160bb5d81139102bc9cc6a83251b1cb93bf39151325b"
+      },
+      {
+        "fixture": "h6_mir_pattern_literal_smoke.fk",
+        "expect_exact_lines": [
+          "h6-pattern diagnostics=0",
+          "h6-pattern semantic=true",
+          "h6-pattern tuple=true bracket=true",
+          "h6-pattern fields=true escaped=true",
+          "h6-pattern scopes=true",
+          "h6-pattern chars=true nested=true",
+          "h6-pattern keyword-data=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "567c97108f3472d993a61fa29a47414a1b1069341549d927327ecd3a5f5fd531"
+      },
+      {
+        "fixture": "h6_mir_assignment_literal_smoke.fk",
+        "expect_exact_lines": [
+          "h6-assignment literal-diagnostics=true",
+          "h6-assignment strings=true chars=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "f0406a0fc7f2fe185cae29de14e6c0a871a14b04d5ca62206fc8d5adb496b0c4"
+      },
+      {
+        "fixture": "h6_mir_bool_binding_smoke.fk",
+        "expect_exact_lines": [
+          "h6-bool-binding parameters=true declarations=18",
+          "h6-bool-binding locals=true local-count=0"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "0fa8a1e15da2779668c21c9fb08280484a0563f57d8eabd6bafc129de4a44763"
+      },
+      {
+        "fixture": "h6_mir_computed_call_smoke.fk",
+        "expect_exact_lines": [
+          "h6-computed extern=true diagnostics=0",
+          "h6-computed ordinary=true grouped=true direct=true",
+          "h6-computed snapshot=true",
+          "h6-computed bad-target=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "e5f724d0d5ed05d366615019152866b1668486b065c801e9f5d806dd436ccd20"
+      },
+      {
+        "fixture": "h6_native_repeat_execute_smoke.fk",
+        "expect_exact_lines": [
+          "h6-repeat-execute diagnostics=0",
+          "h6-repeat-execute contract=true",
+          "h6-repeat-execute module=true",
+          "h6-repeat-execute snapshot-valid=true",
+          "h6-repeat-execute snapshot-restored=true",
+          "h6-repeat-execute module-exact=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "6b2fd88c89ab51f1abc02dfd55e4016b1074dc4ec2b1553059b630e3fbe452d1"
+      },
+      {
+        "fixture": "h6_native_bool_execute_smoke.fk",
+        "expect_exact_lines": [
+          "h6-bool-execute diagnostics=0",
+          "h6-bool-execute contract=true",
+          "h6-bool-execute module=true",
+          "h6-bool-execute snapshot-valid=true",
+          "h6-bool-execute snapshot-restored=true",
+          "h6-bool-execute module-exact=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "141b4c11529bbe9563778e4d73f949a267a3002deebcd746f05f3571cca5ace1"
+      },
+      {
+        "fixture": "h6_native_indirect_execute_smoke.fk",
+        "expect_exact_lines": [
+          "h6-indirect-execute diagnostics=0",
+          "h6-indirect-execute contract=true",
+          "h6-indirect-execute module=true",
+          "h6-indirect-execute snapshot-valid=true",
+          "h6-indirect-execute snapshot-restored=true",
+          "h6-indirect-execute module-exact=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "d98dbdec0ba4a8d3bb99addba3b128dc85b3f5d452cfae45a381b6bc93f23bcd"
+      },
+      {
+        "fixture": "h6_native_computed_execute_smoke.fk",
+        "expect_exact_lines": [
+          "h6-computed-execute diagnostics=0",
+          "h6-computed-execute contract=true",
+          "h6-computed-execute module=true",
+          "h6-computed-execute snapshot-valid=true",
+          "h6-computed-execute snapshot-restored=true",
+          "h6-computed-execute module-exact=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "568f3c7cee6587177681722a354c525ce4259107a942d0ee86876389d2b514dd"
+      },
+      {
+        "fixture": "h6_native_computed_many_execute_smoke.fk",
+        "expect_exact_lines": [
+          "h6-computed-many-execute diagnostics=0",
+          "h6-computed-many-execute contract=true",
+          "h6-computed-many-execute module=true",
+          "h6-computed-many-execute snapshot-valid=true",
+          "h6-computed-many-execute snapshot-restored=true",
+          "h6-computed-many-execute module-exact=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "0c83c476b90163c75da311e1834aaeb8f3bbb253a7bf5c79412574dc8b45f80e"
+      },
+      {
+        "fixture": "h6_mir_void_return_smoke.fk",
+        "expect_exact_lines": [
+          "h6-void implicit=true explicit=true alias=true branch=true",
+          "h6-void value-preserved=true",
+          "h6-void missing-nonvoid=true",
+          "h6-void snapshot=true"
+        ],
+        "memory_limit_mb": 64,
+        "live_array_limit": 1024,
+        "source_sha256": "45384b4ceed3f84f4813e9438d9c7a8955d3cd54485900149ac443f5b1cb7fc4"
+      }
+    ],
+    "source_hashes": {
+      "src/compiler/v4/crates/freak_arena/src/lib.fk": "27e5062ba02263a8fd54eae7baadfe2a9d8488e377f546d66c40bf983d34a42a",
+      "src/compiler/v4/crates/freak_borrowck/src/lib.fk": "b603d29ad270021d62ccf3436e9f9c3ae2a76908db2fa18021445c0bcc494517",
+      "src/compiler/v4/crates/freak_codegen_llvm/src/lib.fk": "0bc61a5e3b5ae36e626b83afefa32aeab30ce26b6b0c9cb4f422f692eaf28bf0",
+      "src/compiler/v4/crates/freak_diag/src/lib.fk": "e3b925c19b770429a4367bdd792693ab09414ee15273b93ac310598276dbe215",
+      "src/compiler/v4/crates/freak_driver/src/lib.fk": "bf71ae40675fc8179f4680c8e0ed42f1ca46e81ee6faa7dd4d60bc2c8c4d9e74",
+      "src/compiler/v4/crates/freak_editor/src/lib.fk": "48958cbcd8bb9b9bf39eda9463787d9b65e8652fdc2b8a95e9e7412400d55786",
+      "src/compiler/v4/crates/freak_expand/src/lib.fk": "70cef5ca94b5b20de4095bf4fccfde2742e08def73a11864c8ac322efd7270a6",
+      "src/compiler/v4/crates/freak_hir/src/lib.fk": "0c89c3c926b1b52ee42569ba4e82caea0a177dd44d1c09434e96b3672617f721",
+      "src/compiler/v4/crates/freak_intern/src/lib.fk": "3acf169d29703b9b3afb9d0129ae4b73af09f6859b1eedca5cb3d7541c5227af",
+      "src/compiler/v4/crates/freak_lex/src/lib.fk": "962b001aff89b69cf2c933ede2e3ae5af4afa4e8f78563e5946897a5a3a09cd7",
+      "src/compiler/v4/crates/freak_lsp/src/lib.fk": "ce98807cb6920e36632d66cd68b3ac5bea841dcdd40463bc639a3e2aa10ff283",
+      "src/compiler/v4/crates/freak_macro_api/src/lib.fk": "9f0076ad851e19b0af8a3be64ea3b6b134a3ce8ed699e14b6cf9e4d4218c582e",
+      "src/compiler/v4/crates/freak_mir/src/lib.fk": "02bedeeed0f8e8453da2e0d5df9ae7919b38408751d16617bbdddee3f0d1707f",
+      "src/compiler/v4/crates/freak_mir_build/src/lib.fk": "8c0c57f38d136e0304b6c852c81d52c5a405e0a9a4bb3deca64007efc8094389",
+      "src/compiler/v4/crates/freak_parse/src/lib.fk": "1f7e94f58511dc0f3d75ff76479f53081c7a02f4f3a7dacf2c70442221b6c337",
+      "src/compiler/v4/crates/freak_query/src/lib.fk": "3520668f88f198c46356a9339e943698325845dccf31115b3e8ce70bce9c596c",
+      "src/compiler/v4/crates/freak_resolve/src/lib.fk": "1c80aae693fbbeb400328629c10500dfe4aa22b415969c9e20b6f9d9f76f7841",
+      "src/compiler/v4/crates/freak_session/src/lib.fk": "9a29186efb795d482ce22cb2db883e4fae675ffa69e86e7378e8dd24cd63be3e",
+      "src/compiler/v4/crates/freak_snapshot/src/lib.fk": "9c36b4164dfdf383dad862fd581f69210b904b4d178da19098df0ef67b773dd1",
+      "src/compiler/v4/crates/freak_span/src/lib.fk": "1d8b8001784597ab5451ed1310f263f41d7abe16abf98f3de19010ebed46fc5f",
+      "src/compiler/v4/crates/freak_target/src/lib.fk": "5fba2e3b39226cb6451db82d87fff4363697180d13c9ca4c7efe9104b4e2f5d6",
+      "src/compiler/v4/crates/freak_ty/src/lib.fk": "e6bdc0fe202d11d4a035ada04486c6795c9608639416add516280edd211ed435",
+      "src/compiler/v4/check_v4.py": "f594deccd3e1838e7b78d6c3f9490f67610a4dc7723ce7f9bd0d3e8f6c76f16f",
+      "src/compiler/v4/build_v4.py": "2bba5916d72fb1a20044a82b2de9fbff0ec79deb41a4d010fd402b92250f59dc",
+      "src/compiler/v4/tools/build_llvm.fk": "a5c64b88e9c44a2405d530837a59dbe48015760d3654ad114bcecc74472dd739",
+      "freakc/emitter.py": "2afcdb444baa206e93faefcf18bb5a2b9fd198e45ebc2d1b8db189dcfc918eb7",
+      "freakc/runtime/freak_runtime.c": "76e2155e599ab6bca72ac8fd9586a0907ef65d6ba91a2b03913dab68cb98734c",
+      "freakc/runtime/freak_runtime.h": "cae9296b2f562e8d838bec1c8f03e09203de479e9c122afd278affb523f9d7ec",
+      "freakc/runtime/freak_llvm_runtime.c": "cd7ec60942aaea32ad8795a0d2fcc0639135324d2369f4ecf56ef92b04e8dfc1",
+      ".gitattributes": "6606ba3b986a48483d3646e767e1d61c9592c18904e4df44b77800936011de61",
+      "freakc/auditor.py": "237760d7a21c08dca325e4822cfd26280ed6226843a12867e7c44d9609426fb4"
+    },
+    "independent_review": {
+      "reviewed_commit": "00b51831f1b550ecc12279aa95b5ef1d37d3f4d5",
+      "verdict": "No unresolved actionable findings",
+      "resolved_findings": [
+        "Reject restored/manual ConstWord facts with non-word types",
+        "Pin exact checked-read source fixture to LF on Windows checkouts"
+      ],
+      "review_sha256": "b4c9242081d3576929907bcb9ae7347cafaef4cf8e6c909f26a9b69871c3ce0e"
+    },
+    "conformance_commit": "00b51831f1b550ecc12279aa95b5ef1d37d3f4d5",
+    "platform": "x86_64 Linux",
+    "clang_version": "Debian clang version 19.1.7",
+    "command": "python -u src/compiler/v4/check_v4.py",
+    "exit_code": 0,
+    "completed_smokes": 302,
+    "completed_native_programs": 15,
+    "runner_peak_retained_mib": 107.9,
+    "runner_limit_mib": 256,
+    "gate_log_sha256": "d106b445603d6dfe69763e3122bde49db558fe204e866b505d8ca4fe483eb01c",
+    "compiler_optimization_level": 0,
+    "native_link_optimization_level": 2,
+    "bootstrap_tool": {
+      "build_llvm": "ecb8333807f6246c839207fc39d56ae431632bd40180a7cf73bafb25d91731d0",
+      "build_llvm.fk.c": "2e5175b5f18c3d916e779a5f4c4da3ee354ff0186d3ff4cb5dcc83bb3b476b1e",
+      "build_llvm.compile.sha256": "7d78143a85c4dd6cd4f9381ac6cb00969108831eae78aa1fda8d7006c25d01f7"
+    },
+    "conformance": {
+      "exit_code": 0,
+      "log_sha256": "63101374638de2e85406dd79fa4bb0eccdc0840eb2362be2b28d7539abfe65d3",
+      "existing_warning": "Shipping native CLI is not built in this workspace"
+    },
+    "version": {
+      "exit_code": 0,
+      "log_sha256": "65f83b74e8c454a1032c588b6994a3a05174c97cbb9b4a31553f6c9f4670ac51"
+    },
+    "release_version": "0.14.2"
+  },
+  "deferred": [
+    "B01 target-width C ABI fidelity",
+    "General authoritative MIR/Meiya restoration lifetime and handle-exhaustion recovery",
+    "General native word/result ownership and aggregate layout",
+    "Windows native execution validation"
+  ],
+  "quota_observations": {
+    "larger_bool_fixture": {
+      "result": "timeout in Meiya after MIR; 20 bodies",
+      "live_array_limit": 1024,
+      "memory_limit_mb": 64,
+      "correction": "One selector task retains all18 returned aliases; three bodies total"
+    },
+    "larger_indirect_fixture": {
+      "result": "MIR restore stalls after validation; guard terminates process",
+      "live_array_limit": 1024,
+      "memory_limit_mb": 64,
+      "correction": "One invocation task with3callback parameters retains0/1/3payloads; six bodies total"
+    },
+    "larger_ordinary_computed_fixture": {
+      "result": "MIR restore stalls after validation; guard terminates process",
+      "live_array_limit": 1024,
+      "memory_limit_mb": 64,
+      "correction": "Split0/1and2parameter programs into independent fixture processes; alloriginalchecks retained"
+    }
+  },
+  "scope": {
+    "addressed": [
+      "F02",
+      "F03",
+      "F04",
+      "F06",
+      "F08",
+      "F09",
+      "F10"
+    ],
+    "preserved": [
+      "F01",
+      "F05",
+      "F07",
+      "F11 literal-say rejection"
+    ],
+    "deferred": [
+      "B01"
+    ]
+  }
+}

@@ -7,6 +7,91 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**V4 token-boundary scaling (2026-10-02):** a derived lexer-owned start/end index
+removes repeated full-stream scans from parser, HIR, TY, and MIR construction.
+The existing `start >= offset` and `end > offset` contracts, including unordered
+and malformed restored spans, are compared with the original linear queries by
+`token_boundary_index_smoke.fk`. Snapshot vocabulary and language status are
+unchanged; this optimization does not promote backend or ownership conformance.
+
+**V4 runnable scalar backend (2026-10-02):** local-ID allocas, parameter/local
+loads and stores, computed branch conditions, loop exits, void returns, numeric
+operand widening, and validated-target module assembly now execute through clang
+in `codegen_llvm_execute_smoke.fk`. Fibonacci/Collatz returns 166. Short-circuit
+checks cover an aborting RHS, ordered call arguments, and exact side-effect
+output. TY-owned impl identities now supply MIR callable facts and native scalar
+associated methods, including named arguments and numeric conversion. A native
+pointer-write check covers narrowing to `tiny` and widening on read; the build
+tool stops after a stage with errors while preserving warning-only execution. Generic
+monomorphization, receiver/lend ABI, and impl returned-loan contracts remain
+open; unsupported impl borrowed returns fail explicitly. The handoff's remaining
+word/runtime, global initialization, aggregate, and self-hosting work is not
+promoted by this checkpoint. Root
+runtime initialization is reserved for an explicit bootstrap compatibility mode;
+normal language semantics remain as specified in bible section 17.4.
+
+**V4 literal say / W1 (2026-10-02):** `say` of a static word literal now
+executes through the existing runtime with exact `Hello, world!\n` output and
+exit zero. HIR owns escape decoding, TY exposes the semantic helper, and MIR
+uses a typed compiler-owned Call with one static borrowed word argument. Its
+existing snapshot records preserve decoded bytes and reject malformed reserved
+call shapes. Native entry initializes arguments before the FREAK main task;
+the build command links both runtime C files. The literal and LLVM execution
+smokes cover escapes, empty/UTF-8 strings, malformed brace bodies, snapshot
+roundtrip, void main, and exact output. NUL, interpolation paths, nonliteral
+say, and broader native word values fail explicitly. This narrow backend slice
+does not promote general word ownership, interpolation, methods, globals, or
+self-hosting conformance; the bible's language semantics are unchanged.
+
+**V4 correctness checkpoint (2026-10-02):** counted loops use fresh synthetic
+local identities at every depth; boolean aliases and admitted casing normalize
+to canonical MIR/LLVM values; literal delimiter/keyword data stays out of
+structural token scans. Indirect callbacks keep empty arguments separate from
+the callee and evaluate computed targets once. Native Codegen rejects
+unsupported aggregate, container,
+closure and field/index facts by name before module emission. General aggregate
+layout and C-width ABI lowering remain open. LLVM globals preserve exact
+qualified and explicit ABI names across definitions, direct calls, callback
+targets, and MIR restore; quoted names remain exact without scratch handles.
+Explicit extern ABI declarations that share an ordinary body or callback
+trampoline's exact LLVM symbol receive a sealed native error before publication.
+Collision checks preserve declaration order and the first native error, including
+when temporary array handles are exhausted.
+Generated callback bodies must also have distinct symbols from ordinary bodies
+and other callbacks; repeated definitions fail before module publication.
+Incompatible extern aliases and extern/literal-global name collisions likewise
+fail before publication; compatible aliases emit one LLVM declaration.
+Native C admission currently covers pointer-sized integers, float32/float64,
+void and supported raw pointers on the four 64-bit targets. Unsupported C
+scalar widths and variadic promotions receive named errors, including through
+raw aliases, callback signatures, pointer payloads, local annotations and casts.
+Real C-helper guards check negative and greater-than-32-bit values, floating
+widths, pointer transport and callbacks. General B01 C-width lowering remains open.
+Native character constants retain printable ASCII and admitted control escapes,
+including NUL, and reject unsupported non-ASCII or unknown escapes by name instead of emitting
+zero. This does not promote general native Unicode character lowering.
+Native module publication rejects conventions outside the selected target's
+canonical inventory using sealed declaration, call, body, and callback facts;
+unknown ABI spellings and inconsistent convention metadata fail by name.
+Extern symbols retain exact ABI names. A source entry reserves `main` and
+`freak.user.main`; conflicting extern declarations fail before publication,
+while libraries without an entry may declare an external `main`. This does
+not establish general C-width ABI lowering or cross-target linking.
+Diagnostic v1 restoration preserves
+its overlay/duplicate order through atomic staging and released replacement
+storage. Bootstrap checked source reads distinguish empty regular files from
+I/O errors without publishing failed sources or query results; the executable
+build command requires `main`, while public library Codegen does not. The
+build command rejects canonical and physical-file output aliases of its input
+before bootstrapping and rechecks after compilation, preserving source bytes in
+both native and explicit LLVM output modes.
+C bootstrap captures supported result expressions once before
+examining their tag and payload, including checked reads across file changes.
+The existing word-payload ownership contract is unchanged. These
+fixes retain existing wire versions and language semantics; the additive
+bootstrap checked-read helper does not promote the full standard filesystem or
+native word ownership/result surface.
+
 **V3 process ABI boundary (2026-08-10):** the shipping compiler rejects
 `process::args()`; its conversion to the bible-required `List<word>` remains
 unimplemented even with typed list storage available. V3 callers use `process::args_count()` and
@@ -768,7 +853,7 @@ post-pass `render()` presentation step only).
 |---|---|---|---|
 | FFI-safe types only in extern | ⚠️ | 📖 V4 | V4 rejects bare `word`/`int` extern signatures, raw pointers to non-FFI pointees, validates `extern [C]/[system] task(...) -> T` callback surfaces with explicit missing-`extern`, bad-ABI, and non-FFI callback payload diagnostics, accepts fieldless `@repr(...)` routes/variants as extern params/returns/pointer targets/layout fields, lowers indirect callback calls, rejects non-FFI-safe layout fields, and validates `@extern_callback("ABI")` task signatures against the same FFI-safety rules, but the full section-16 surface is not complete |
 | `extern [C]` (and other ABIs) | ⚠️ | partial — `tests/extern_test.fk` and `tests/extern_llvm_test.fk` (failing in v1 parser per Phase-A) | |
-| V4 declared extern-member return ownership | ⚠️ | 📖 V4 | Declared extern-member surface types, exact declaration/member spans and recovery flags are stored in HIR. Direct-member, synthetic-signature, diagnostic and editor-display TY paths consume those facts without declared-type reconstruction; existing canonicalization entry points and explicitly gated arrow-expression recovery are unchanged. Extern-only boundaries exclude top-level semicolon separators, including same-line members, while preserving nested type semicolons and quoted semicolon/bracket tokens. Quoted braces remain constrained by existing value-based body recovery, which can truncate or leave an extern block unclosed. Callback-parameter arrow recovery outside open generic type syntax preserves following member boundaries after comparisons; arrows inside open generic types retain conservative declaration recovery, and legacy nested-callback return discovery/inference can leave the enclosing member's return unknown. HIR v10 snapshots validate complete Extern owner/member sets, dense ordinals, canonical flags/counts and contained same-file spans before atomic restore. Extern parameters, ABI/layout rules and backend representation remain separate boundaries. |
+| V4 declared extern-member return ownership | ⚠️ | 📖 V4 | Declared extern-member surface types, exact declaration/member spans and recovery flags are stored in HIR. Direct-member, synthetic-signature, diagnostic and editor-display TY paths consume those facts without declared-type reconstruction; existing canonicalization entry points and explicitly gated arrow-expression recovery are unchanged. Extern-only boundaries exclude top-level semicolon separators, including same-line members, while preserving nested type semicolons and quoted semicolon/bracket tokens. Quoted braces, arrows and keywords remain literal data during member and body scans; real declaration punctuation retains its recovery behavior. Callback-parameter arrow recovery outside open generic type syntax preserves following member boundaries after comparisons; arrows inside open generic types retain conservative declaration recovery, and legacy nested-callback return discovery/inference can leave the enclosing member's return unknown. HIR v10 snapshots validate complete Extern owner/member sets, dense ordinals, canonical flags/counts and contained same-file spans before atomic restore. Extern parameters, ABI/layout rules and backend representation remain separate boundaries. |
 | Calling conventions: cdecl, stdcall, fastcall, thiscall, vectorcall, win64, sysv64, system | ⚠️ | 📖 V4 | V4 carries and validates the core ABI list plus duplicate/unknown-option diagnostics; final extern variadics now enforce C-compatible ABI selection, callback surface types plus indirect callback calls reuse the same ABI validation, `@extern_callback("ABI")` task exports normalize through the same list, and the executable smoke lane now proves the full matrix through direct extern calls, callback surface types, indirect callback calls, and LLVM calling-convention lowering, while panic-boundary callback rules still expand |
 | `link="name"` library binding | ⚠️ | 📖 V4 | V4 carries library metadata through TY/codegen/query/LSP and diagnoses malformed or duplicate link entries |
 | `@link_name("symbol")` | ⚠️ | 📖 V4 | V4 carries per-member symbol overrides through TY/codegen/query/LSP and diagnoses malformed or duplicate attributes |

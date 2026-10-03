@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import signal
+import stat
 import shutil
 import subprocess
 import sys
@@ -61,15 +62,55 @@ RUNNER_PEAK_RETAINED_BYTES = 0
 C_ARRAY_HANDLE_RESOURCE_LIMIT = 1024
 C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
     {
+        "extern_literal_syntax_smoke.fk",
         "extern_return_snapshot_smoke.fk",
         "route_snapshot_smoke.fk",
         "const_snapshot_smoke.fk",
         "shape_field_snapshot_smoke.fk",
         "hir_snapshot_scaling_smoke.fk",
         "hir_semantic_index_smoke.fk",
+        "hir_impl_candidate_index_smoke.fk",
+        "mir_lookup_index_smoke.fk",
+        "borrowck_stmt_path_index_smoke.fk",
+        "ty_item_method_cache_smoke.fk",
+        "ty_doctrine_candidate_index_smoke.fk",
+        "lex_mutation_revision_exhaustion_smoke.fk",
+        "mir_impl_candidate_lookup_smoke.fk",
+        "lex_boundary_publication_exhaustion_smoke.fk",
+        "borrowck_mutable_preflight_smoke.fk",
+        "hir_param_index_smoke.fk",
+        "ty_signature_index_smoke.fk",
+        "resolve_lookup_index_smoke.fk",
         "hir_query_resource_smoke.fk",
         "mir_snapshot_resource_smoke.fk",
         "query_invalidation_resource_smoke.fk",
+        "h6_mir_repeat_identity_smoke.fk",
+        "h6_mir_bool_aliases_smoke.fk",
+        "h6_grammar_literal_smoke.fk",
+        "h6_mir_literal_grammar_smoke.fk",
+        "h6_mir_void_return_smoke.fk",
+        "h6_native_repeat_execute_smoke.fk",
+        "h6_native_bool_execute_smoke.fk",
+        "h6_native_indirect_execute_smoke.fk",
+        "h6_native_computed_execute_smoke.fk",
+        "h6_native_computed_many_execute_smoke.fk",
+        "h6_mir_bool_binding_smoke.fk",
+        "h6_mir_computed_call_smoke.fk",
+        "h6_mir_pattern_literal_smoke.fk",
+        "h6_mir_assignment_literal_smoke.fk",
+        "h6_diagnostics_restore_resource_smoke.fk",
+        "h6_driver_file_read_smoke.fk",
+        "h6_codegen_indirect_smoke.fk",
+        "h6_native_contract_smoke.fk",
+        "h6_codegen_bool_restore_smoke.fk",
+        "h6_native_field_callback_smoke.fk",
+        "h6_native_symbol_collision_execute_smoke.fk",
+        "h6_native_unicode_char_smoke.fk",
+        "h6_native_entry_symbol_smoke.fk",
+        "h6_native_target_cc_smoke.fk",
+        "h6_native_body_symbol_smoke.fk",
+        "h6_native_declaration_symbol_smoke.fk",
+        "h6_native_ffi_width_smoke.fk",
     }
 )
 
@@ -494,7 +535,7 @@ MIR_BUILD_TRANSITIONAL_DIRECT_DEPENDENCIES = {
         r"\bv4_lex_[A-Za-z0-9_]+\b",
         frozenset(
             {
-                "v4_lex_is_bool_word",
+                "v4_lex_token_syntax_value",
                 "v4_lex_is_digit",
                 "v4_lex_is_ident_continue",
                 "v4_lex_is_ident_start",
@@ -728,6 +769,234 @@ INVALIDATION_FAMILY_FIELDS = [
 ]
 
 EXECUTABLE_SMOKES = [
+    {
+        "name": "TY qualified Impl candidate index",
+        "fixture": "ty_doctrine_candidate_index_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "ty-doctrine-invalid-readonly=true",
+            "ty-doctrine-absent-parent-readonly=true",
+            "ty-doctrine-clean-source=true",
+            "ty-doctrine-first-physical-order=true",
+            "ty-doctrine-matching-unchanged=true",
+            "ty-doctrine-warm-upper-bound-readonly=true",
+            "ty-doctrine-token-overwrite-cold-recover=true",
+            "ty-doctrine-parse-overwrite-cold-recover=true",
+            "ty-doctrine-hir-overwrite-cold-recover=true",
+            "ty-doctrine-direct-ty-restore-cold=true",
+            "ty-doctrine-rejected-restore-stable=true",
+            "ty-doctrine-unavailable-epoch-cold-recover=true",
+            "ty-doctrine-whole-restore-handle-byte-stable=true",
+            "ty-doctrine-shortened-owner-reuse=true",
+            "ty-doctrine-exhaustion-cold-readonly=true",
+            "ty-doctrine-exhaustion-explicit-recover=true",
+            "ty-doctrine-associated-source-clean=true",
+            "ty-doctrine-scale200-actual-work-bounded=true",
+            "ty-doctrine-scale800-actual-work-bounded=true",
+        ],
+    },
+    {
+        "name": "Meiya mutable conflict no-loan preflight",
+        "fixture": "borrowck_mutable_preflight_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "borrow-mutable-preflight empty=true linear256=true linear512=true linear1024=true",
+            "borrow-mutable-preflight shared=true mutable=true order=true",
+            "borrow-mutable-preflight overwrites=true sparse=true malformed=true restored=true",
+        ],
+    },
+    {
+        "name": "Lex publication without boundary storage",
+        "fixture": "lex_boundary_publication_exhaustion_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "lex-publication-outer-storage-exhausted=true",
+            "lex-publication-empty-fails-without-allocation=true",
+            "lex-publication-nonempty-fails-without-allocation=true",
+            "lex-publication-raw-mutation-cold-correct=true",
+            "lex-publication-repeated-denial-stable=true",
+        ],
+    },
+    {
+        "name": "MIR impl candidate lookup",
+        "fixture": "mir_impl_candidate_lookup_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "mir-candidates-invalid-ty-readonly=true",
+            "mir-candidates-parentless-ty-readonly=true",
+            "mir-candidates-empty-impl-builtin-lowering=true",
+            "mir-candidates-noise200-constant-misses=true",
+            "mir-candidates-noise800-constant-misses=true",
+            "mir-candidates-method-source-clean=true",
+            "mir-candidates-physical-impl-order=true",
+            "mir-candidates-first-duplicate-method-impl=true",
+            "mir-candidates-instance-associated-filter=true",
+            "mir-candidates-generic-substitution=true",
+            "mir-candidates-primitive-numeric-compatible=true",
+            "mir-candidates-actual-call-lowering=true",
+        ],
+    },
+    {
+        "name": "Lex mutation hooks without revision storage",
+        "fixture": "lex_mutation_revision_exhaustion_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "lex-mutation-epoch-storage-exhausted=true",
+            "lex-mutation-missing-epoch-invalidates-offsets=true",
+            "lex-mutation-missing-epoch-explicit-rebuild=true",
+            "lex-mutation-repeated-cold-correct=true",
+        ],
+    },
+    {
+        "name": 'HIR impl derived candidates',
+        "fixture": 'hir_impl_candidate_index_smoke.fk',
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            'hir-impl-index revision-monotonic=true invalid-readonly=true same-size=true reuse=true',
+            'hir-impl-index cold-linear=true sparse=true duplicates=true overwrite=true stale-tail=true',
+            'hir-impl-index 1024-items=true 512-impls=true logarithmic=true zero-impl-constant=true',
+            'hir-impl-index snapshot-v10=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true',
+            'hir-impl-index resource-readonly=true build-failure-cold=true recovery=true',
+            'hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=41',
+        ],
+    },
+    {
+        "name": 'MIR body and block derived indexes',
+        "fixture": 'mir_lookup_index_smoke.fk',
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            'mir-index lowering=true restore=true rejected-atomic=true wire-exact=true retained-plan=true',
+            'mir-index definitions=true duplicates=true empty=true collisions=true append-work=true',
+            'mir-index interleaved=true first-condition=true first-return=true cold-exact=true sparse=true direct-edits=true',
+            'mir-index statements=1024 linear-iteration=true append-work=true rebuild-work=true handles-stable=true',
+            'mir-index exhaustion-cold=true resource-recovery=true derived-handles-bounded=true',
+            'mir-index names=true independent-keys=true cold-exact=true codegen-misses=200,800 bounded-name-reads=true handles-stable=true',
+        ],
+    },
+    {
+        "name": 'Meiya statement path derived indexes',
+        "fixture": 'borrowck_stmt_path_index_smoke.fk',
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            'borrow-path-index groups=true exact=true blocks=true state=true',
+            'borrow-path-index snapshot=true invalid=true repeated=true',
+            'borrow-path-index overwrite=true cold=true reused=true',
+            'borrow-path-index semantic=true incremental=true bounded=true',
+            'borrow-path-index exhausted=true authoritative=true recovered=true absent=true',
+            'borrow-path-index preinit=true invalid-owner=true',
+        ],
+    },
+    {
+        "name": 'TY item and impl method token bounds cache',
+        "fixture": 'ty_item_method_cache_smoke.fk',
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            'ty-bounds-invalid-revisions-readonly=true',
+            'ty-bounds-clean-source=true',
+            'ty-bounds-owner-zero-one-many=true',
+            'ty-bounds-raw-equivalence=true',
+            'ty-bounds-duplicate-identity-order=true',
+            'ty-bounds-generic-alias-returns=true',
+            'ty-bounds-warm-no-walk-or-allocation=true',
+            'ty-bounds-parent-identities-cold=true',
+            'ty-bounds-whole-lex-restore-cold=true',
+            'ty-bounds-whole-parse-restore-cold=true',
+            'ty-bounds-parse-overwrite-cold-recover=true',
+            'ty-bounds-hir-overwrite-cold-recover=true',
+            'ty-bounds-token-overwrite-cold-recover=true',
+            'ty-bounds-direct-ty-restore-cold=true',
+            'ty-bounds-rejected-restore-stable=true',
+            'ty-bounds-whole-hir-restore-rebuild=true',
+            'ty-bounds-republish-handle-stable=true',
+            'ty-bounds-repeated-hir-restore-handle-stable=true',
+            'ty-bounds-exhaustion-cold-readonly=true',
+            'ty-bounds-exhaustion-explicit-recover=true',
+            'ty-bounds-token-append-cold=true',
+            'ty-bounds-incomplete-owner-sentinels=true',
+            'ty-bounds-scale200-linear=true',
+            'ty-bounds-scale800-linear=true',
+        ],
+    },
+    {
+        "name": "Resolve symbol derived indexes",
+        "fixture": "resolve_lookup_index_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "resolve-index duplicates=true independent=true collisions=true",
+            "resolve-index snapshot=true overwritten=true cold=true reused=true invalid=true repeated=true",
+            "resolve-index lowering=true incremental=true bounded=true",
+            "resolve-index exhausted=true recovered=true",
+            "resolve-index extern-marker-miss=true first=true suffix=true",
+        ],
+    },
+    {
+        "name": "TY signature derived indexes",
+        "fixture": "ty_signature_index_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "ty-index-normalized=true",
+            "ty-index-lower-clean=true",
+            "ty-index-first-kind-and-def=true",
+            "ty-index-first-type-union=true",
+            "ty-index-append-after-miss=true",
+            "ty-index-overwrite-name-kind-def=true",
+            "ty-index-sparse-restore=true",
+            "ty-index-invalid-restore-stable=true",
+            "ty-index-invalid-owner=true",
+            "ty-index-full-table-fallback=true",
+            "ty-index-collision=true",
+            "ty-index-resolve-first-extern=true",
+            "ty-index-scale200-correct=true",
+            "ty-index-scale200-bounded=true",
+            "ty-index-scale800-correct=true",
+            "ty-index-scale800-bounded=true",
+            "ty-index-probe-growth=true",
+            "ty-index-whole-restore-shortened=true",
+            "ty-index-restore-handle-capacity-stable=true",
+            "ty-index-restore-snapshot-byte-exact=true",
+            "ty-index-reused-file=true",
+            "ty-index-handle-exhaustion-fallback=true",
+            "ty-index-handle-exhaustion-recovered=true",
+            "ty-index-missing-and-short-storage=true",
+        ],
+    },
+    {
+        "name": "HIR task parameter derived indexes",
+        "fixture": "hir_param_index_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "hir-param-index construction=true duplicates=true sparse=true overwrite=true reuse=true",
+            "hir-param-index 512-owners=true 1024-params=true logarithmic=true build-bounded=true",
+            "hir-param-index 512-ordinals=true empty-owner=true",
+            "hir-param-index snapshot-v10=true roundtrip=true rejected-atomic=true capacity-stable=true",
+            "hir-param-index build-failure-cold=true recovery=true",
+            "hir-param-index restore-resource-atomic=true fresh-recovery=true",
+        ],
+    },
     {
         "name": "target contract",
         "fixture": "target_contract_smoke.fk",
@@ -1039,6 +1308,23 @@ EXECUTABLE_SMOKES = [
             "mir-snapshot-resource-array-probe=true",
             "mir-snapshot-resource-handle-capacity-bounded=true",
             "mir-snapshot-resource-handle-capacity-stable=true",
+        ],
+    },
+    {
+        "name": "token boundary index",
+        "fixture": "token_boundary_index_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "boundary-live=true",
+            "boundary-empty=true",
+            "boundary-unsorted-start=true",
+            "boundary-unsorted-end=true",
+            "boundary-malformed-append=true",
+            "boundary-restored=true",
+            "boundary-snapshot-exact=true",
+            "boundary-no-index=true",
+            "boundary-reused-slot=true",
         ],
     },
     {
@@ -2061,6 +2347,19 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "extern literal syntax boundaries",
+        "fixture": "extern_literal_syntax_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "extern-literal members=true successors=true",
+            "extern-literal arrows=true fallback=true",
+            "extern-literal payload=true body=true",
+            "extern-literal snapshot=true",
+        ],
+    },
+    {
         "name": "extern member return separator boundaries",
         "fixture": "extern_return_separator_smoke.fk",
         "memory_limit_mb": 64,
@@ -2274,7 +2573,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-thirty-nine-handles=true",
+            "hir-scaling-fresh-slot-forty-one-handles=true",
             "hir-scaling-512-params=true",
             "hir-scaling-64-param-files=true",
             "hir-scaling-512-param-tasks=true",
@@ -2747,7 +3046,7 @@ EXECUTABLE_SMOKES = [
             "break-continue-countdown-continue-epilogue-term=Goto",
             "break-continue-countdown-continue-epilogue-target=4",
             "break-continue-countdown-continue-epilogue-kind=Assign",
-            "break-continue-countdown-continue-epilogue-rhs=_repeat_i - 1",
+            "break-continue-countdown-continue-epilogue-rhs=$repeat_i#3 - 1",
             "break-continue-sortie-break-kind=Break",
             "break-continue-sortie-break-target=2",
             "break-continue-sortie-continue-kind=Continue",
@@ -4650,7 +4949,8 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "contract-region-forwarding-method-ty-diagnostics=0",
             "contract-region-forwarding-method-mir-diagnostics=1",
-            "contract-region-forwarding-method-borrow-diagnostics=2",
+            "contract-region-forwarding-method-borrow-diagnostics=3",
+            "contract-region-forwarding-method-impl-return-unsupported=1",
             "contract-region-forwarding-method-status=blocked",
             "contract-region-forwarding-method-invocation-diagnostic-count=1",
             "contract-region-forwarding-method-invocation-message=Meiya cannot establish the origin of this returned loan",
@@ -4660,7 +4960,8 @@ EXECUTABLE_SMOKES = [
             "contract-region-forwarding-method-silently-accepted=false",
             "contract-region-forwarding-dynamic-ty-diagnostics=0",
             "contract-region-forwarding-dynamic-mir-diagnostics=1",
-            "contract-region-forwarding-dynamic-borrow-diagnostics=2",
+            "contract-region-forwarding-dynamic-borrow-diagnostics=3",
+            "contract-region-forwarding-dynamic-impl-return-unsupported=1",
             "contract-region-forwarding-dynamic-status=blocked",
             "contract-region-forwarding-dynamic-invocation-diagnostic-count=1",
             "contract-region-forwarding-dynamic-invocation-message=Meiya cannot establish the origin of this returned loan",
@@ -4670,10 +4971,10 @@ EXECUTABLE_SMOKES = [
             "contract-region-forwarding-dynamic-silently-accepted=false",
             "contract-region-forwarding-callback-ty-diagnostics=1",
             "contract-region-forwarding-callback-mir-diagnostics=2",
-            "contract-region-forwarding-callback-borrow-diagnostics=2",
-            "contract-region-forwarding-callback-status=clean",
+            "contract-region-forwarding-callback-borrow-diagnostics=3",
+            "contract-region-forwarding-callback-status=blocked",
             "contract-region-forwarding-callback-invocation-diagnostic-count=1",
-            "contract-region-forwarding-callback-invocation-message=call target is not callable",
+            "contract-region-forwarding-callback-invocation-message=Meiya cannot establish the origin of this returned loan",
             "contract-region-forwarding-callback-invocation-source-path=contract-region-forwarding-callback.fk",
             "contract-region-forwarding-callback-invocation-range=136:150",
             "contract-region-forwarding-callback-rejected=true",
@@ -6057,8 +6358,8 @@ EXECUTABLE_SMOKES = [
             "extern-callback-call-c-op=hooks . on_tick",
             "extern-callback-call-c-target-kind=UsePlace",
             "extern-callback-call-current-line=call ccc ptr @current() nounwind",
-            "extern-callback-call-cb-line=call ccc i64 %cb(i64 7) nounwind",
-            "extern-callback-call-now-line=call ccc i64 %now(i64 8) nounwind",
+            "extern-callback-call-cb-line=call ccc i64 %rv.0.0(i64 7) nounwind",
+            "extern-callback-call-now-line=call ccc i64 %rv.0.4(i64 8) nounwind",
             "extern-callback-call-field-line=call ccc i64 %hooks_on_tick(i64 9) nounwind",
             "extern-callback-call-bad-target-diag-count=1",
             "extern-callback-call-bad-target-message=call target is not callable",
@@ -6145,7 +6446,7 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "raw-ptr-is-null-good-ty-diag-count=0",
             "raw-ptr-is-null-good-mir-diag-count=0",
-            "= icmp eq ptr %p, null",
+            "= icmp eq ptr %rv.0.1, null",
             "raw-ptr-is-null-bad-mir-diag-count=1",
             "raw-ptr-is-null-bad-diag0-message=is_null takes no arguments",
             "raw-ptr-is-null-bad-diag0-help=*constint.is_null() must be called without arguments",
@@ -6171,7 +6472,7 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "raw-ptr-write-good-ty-diag-count=0",
             "raw-ptr-write-good-mir-diag-count=0",
-            "store i64 %value, ptr %p",
+            "store i64 %rv.0.2, ptr %rv.0.1",
             "raw-ptr-write-outside-mir-diag-count=1",
             "raw-ptr-write-outside-mir-diag0-message=raw-pointer deref needs trust me block",
             "raw-ptr-write-cadet-mir-diag-count=1",
@@ -6191,7 +6492,7 @@ EXECUTABLE_SMOKES = [
             "raw-ptr-method-good-mir-diag-count=0",
             "raw-ptr-method-good-call-count=3",
             "= load i64, ptr",
-            "store i64 %value, ptr %p",
+            "store i64 %rv.1.2, ptr %rv.1.1",
             "call ccc i64 @RawPtrWrite(i64 41)",
             "raw-ptr-method-collide-call-line=call ccc i64 @RawPtrWrite(i64 41)",
             "raw-ptr-method-read-rvalue-kind=Unary",
@@ -6213,8 +6514,10 @@ EXECUTABLE_SMOKES = [
         "expect": [
             "raw-ptr-oc-good-ty-diag-count=0",
             "raw-ptr-oc-good-mir-diag-count=0",
-            "= getelementptr i64, ptr %p, i64 2",
-            "= getelementptr i8, ptr %p, i64 0",
+            "raw-ptr-oc-generic-native-fence=true",
+            "raw-ptr-oc-native-contract=true",
+            "= getelementptr i64, ptr %rv.0.1, i64 2",
+            "= getelementptr i8, ptr %rv.1.1, i64 0",
             "raw-ptr-oc-offset-rvalue-op=PtrOffset",
             "raw-ptr-oc-offset-rvalue-ty=*constint",
             "raw-ptr-oc-cast-rvalue-op=PtrCast",
@@ -6331,11 +6634,11 @@ EXECUTABLE_SMOKES = [
             "abi-matrix-vector-call-line=call x86_vectorcallcc i64 @vector_tick(i64 3) nounwind",
             "abi-matrix-win64-call-line=call win64cc i64 @win64_tick(i64 4) nounwind",
             "abi-matrix-sysv-call-line=call x86_64_sysvcc i64 @sysv_tick(i64 5) nounwind",
-            "abi-matrix-cb-fast-call-line=call x86_fastcallcc i64 %fc(i64 6) nounwind",
-            "abi-matrix-cb-this-call-line=call x86_thiscallcc i64 %tc(i64 7) nounwind",
-            "abi-matrix-cb-vector-call-line=call x86_vectorcallcc i64 %vc(i64 8) nounwind",
-            "abi-matrix-cb-win64-call-line=call win64cc i64 %w64(i64 9) nounwind",
-            "abi-matrix-cb-sysv-call-line=call x86_64_sysvcc i64 %s64(i64 10) nounwind",
+            "abi-matrix-cb-fast-call-line=call x86_fastcallcc i64 %rv.1.0(i64 6) nounwind",
+            "abi-matrix-cb-this-call-line=call x86_thiscallcc i64 %rv.1.3(i64 7) nounwind",
+            "abi-matrix-cb-vector-call-line=call x86_vectorcallcc i64 %rv.1.6(i64 8) nounwind",
+            "abi-matrix-cb-win64-call-line=call win64cc i64 %rv.1.9(i64 9) nounwind",
+            "abi-matrix-cb-sysv-call-line=call x86_64_sysvcc i64 %rv.1.12(i64 10) nounwind",
             "abi-matrix-diag-count=0",
         ],
     },
@@ -6507,9 +6810,9 @@ EXECUTABLE_SMOKES = [
             "codegen-llvm-host-abi=system",
             "codegen-llvm-host-cc=ccc",
             "codegen-llvm-host-line=declare ccc i64 @host_tick(i64)",
-            "codegen-llvm-double-symbol=@util_math_double",
-            "codegen-llvm-double-line=define ccc i64 @util_math_double(i64)",
-            "codegen-llvm-main-line=define ccc i64 @main()",
+            "codegen-llvm-double-symbol=@\"util::math::double\"",
+            "codegen-llvm-double-line=define ccc i64 @\"util::math::double\"(i64)",
+            "codegen-llvm-main-line=define ccc i64 @freak.user.main()",
             "codegen-llvm-call-puts-symbol=@native_tick",
             "codegen-llvm-call-puts-link=msvcrt",
             "codegen-llvm-call-puts-abi=cdecl",
@@ -6522,20 +6825,527 @@ EXECUTABLE_SMOKES = [
             "codegen-llvm-call-host-abi=system",
             "codegen-llvm-call-host-cc=ccc",
             "codegen-llvm-call-host-line=call ccc i64 @host_tick(i64 2)",
-            "codegen-llvm-call-double-symbol=@util_math_double",
-            "codegen-llvm-call-double-line=call ccc i64 @util_math_double(i64 4)",
-            "codegen-llvm-double-body-symbol=@util_math_double",
-            "define ccc i64 @util_math_double(i64 %value) {",
-            "%rv0_2 = add i64 %value, %value",
-            "ret i64 %rv0_2",
-            "codegen-llvm-main-body-symbol=@main",
-            "define ccc i64 @main() {",
-            "%a = call ccc i64 @native_tick(i64 0)",
-            "%b = call x86_stdcallcc i64 @win_tick(i64 1)",
-            "%c = call ccc i64 @host_tick(i64 2)",
-            "%d = call ccc i64 @util_math_double(i64 4)",
-            "ret i64 %rv1_14",
+            "codegen-llvm-call-double-symbol=@\"util::math::double\"",
+            "codegen-llvm-call-double-line=call ccc i64 @\"util::math::double\"(i64 4)",
+            "codegen-llvm-double-body-symbol=@\"util::math::double\"",
+            "define ccc i64 @\"util::math::double\"(i64 %arg.0) {",
+            "%local.0.addr = alloca i64",
+            "store i64 %arg.0, ptr %local.0.addr",
+            "%rv.0.0 = load i64, ptr %local.0.addr",
+            "%rv.0.1 = load i64, ptr %local.0.addr",
+            "%rv.0.2 = add i64 %rv.0.0, %rv.0.1",
+            "ret i64 %rv.0.2",
+            "codegen-llvm-main-body-symbol=@freak.user.main",
+            "define ccc i64 @freak.user.main() {",
+            "%rv.1.1 = call ccc i64 @native_tick(i64 0)",
+            "store i64 %rv.1.1, ptr %local.0.addr",
+            "%rv.1.3 = call x86_stdcallcc i64 @win_tick(i64 1)",
+            "%rv.1.5 = call ccc i64 @host_tick(i64 2)",
+            "%rv.1.7 = call ccc i64 @\"util::math::double\"(i64 4)",
+            "ret i64 %rv.1.14",
         ],
+    },
+    {
+        "name": "LLVM module assembly bounded memory",
+        "fixture": "codegen_llvm_module_resource_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 128,
+        "expect": [
+            "llvm-module-resource bodies=800 bytes-over=3300000 order=true exact=true retained=true",
+        ],
+    },
+    {
+        "name": "LLVM long body assembly bounded memory",
+        "fixture": "codegen_llvm_body_resource_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 128,
+        "expect": [
+            "llvm-body-resource statements=12000 depth=2048 exact=true first-return=true",
+        ],
+    },
+    {
+        "name": "H6 counted loop local identity",
+        "fixture": "h6_mir_repeat_identity_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-repeat depths=true siblings=true flow=true",
+            "h6-repeat source-locals=true diagnostics=0",
+            "h6-repeat snapshot=true",
+            "h6-repeat invalid-identity=true"
+        ]
+    },
+    {
+        "name": "H6 canonical MIR bool aliases",
+        "fixture": "h6_mir_bool_aliases_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-bool returns=true canonical=true diagnostics=0",
+            "h6-bool old-facts=true invalid=true"
+        ]
+    },
+    {
+        "name": "H6 frontend literal grammar",
+        "fixture": "h6_grammar_literal_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-grammar-cold-readonly=true",
+            "h6-grammar-literal-projection=true",
+            "h6-grammar-delimiters-and-arity=true",
+            "h6-grammar-constant-literal-types=true",
+            "h6-grammar-method-cache-equivalence=true",
+            "h6-grammar-closure-keyword-data=true",
+            "h6-grammar-restore-and-display=true",
+            "h6-grammar-literal-decode bounded=true exhausted=true recovered=true"
+        ]
+    },
+    {
+        "name": "H6 MIR literal grammar",
+        "fixture": "h6_mir_literal_grammar_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-literal diagnostics=0",
+            "h6-literal lists=true chars=true",
+            "h6-literal tuple=true constructor=true",
+            "h6-literal array=true map=true",
+            "h6-literal call=true",
+            "h6-literal keyword=true condition=true",
+            "h6-literal matching=true arg-count=20",
+            "h6-literal keyword-scans=true",
+            "h6-literal operator-scans=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 indirect callback payloads",
+        "fixture": "h6_codegen_indirect_smoke.fk",
+        "expect": [
+            "h6-indirect zero=true one=true many=true callee-excluded=true",
+            "h6-indirect local=true returned=true computed-once=true",
+            "h6-indirect library=true snapshot=true module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 sealed native MIR contract",
+        "fixture": "h6_native_contract_smoke.fk",
+        "expect": [
+            "h6-native-contract rvalues=23 named=true no-module=true",
+            "h6-native-contract places=3 named=true no-module=true",
+            "h6-native-contract types=14 named=true no-module=true",
+            "h6-native-contract malformed=true snapshot=true sealed=true",
+            "h6-native-contract literal-types=5 restored=true no-module=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 restored boolean emission",
+        "fixture": "h6_codegen_bool_restore_smoke.fk",
+        "expect": [
+            "h6-restored-bool aliases=20 canonical=true casing=true numeric=true",
+            "h6-restored-bool snapshot=true spelling-retained=true invalid-rejected=true sealed=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 aggregate and field callback rejection",
+        "fixture": "h6_native_field_callback_smoke.fk",
+        "expect": [
+            "h6-native-aggregate shape=true field-callback=true named=true no-module=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 atomic diagnostics restore resources",
+        "fixture": "h6_diagnostics_restore_resource_smoke.fk",
+        "expect": [
+            "h6-diagnostics-restore cold=true direct600=true snapshot600=true exact=true handles=true",
+            "h6-diagnostics-coordinates negative=true sparse=true huge=true overflow=true duplicate-overlay=true dense-growth=true",
+            "h6-diagnostics-failure exhausted=true partial=true preserved=true handles=true recovery=true",
+            "h6-diagnostics-replay admitted=true ordered=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 checked driver source files",
+        "fixture": "h6_driver_file_read_smoke.fk",
+        "source_read_checks": True,
+        "expect": [
+            "h6-source-read empty=true cached=true readable=true",
+            "h6-source-errors missing=true directory=true unpublished=true stale-retained=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 compact pattern literal grammar",
+        "fixture": "h6_mir_pattern_literal_smoke.fk",
+        "expect": [
+            "h6-pattern diagnostics=0",
+            "h6-pattern semantic=true",
+            "h6-pattern tuple=true bracket=true",
+            "h6-pattern fields=true escaped=true",
+            "h6-pattern scopes=true",
+            "h6-pattern chars=true nested=true",
+            "h6-pattern keyword-data=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 reject literal assignment targets",
+        "fixture": "h6_mir_assignment_literal_smoke.fk",
+        "expect": [
+            "h6-assignment literal-diagnostics=true",
+            "h6-assignment strings=true chars=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 reserved boolean declarations",
+        "fixture": "h6_mir_bool_binding_smoke.fk",
+        "expect": [
+            "h6-bool-binding parameters=true declarations=18",
+            "h6-bool-binding locals=true local-count=0"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 computed call MIR identities",
+        "fixture": "h6_mir_computed_call_smoke.fk",
+        "expect": [
+            "h6-computed extern=true diagnostics=0",
+            "h6-computed ordinary=true grouped=true direct=true",
+            "h6-computed snapshot=true",
+            "h6-computed bad-target=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native repeat execution",
+        "fixture": "h6_native_repeat_execute_smoke.fk",
+        "llvm_programs": [
+            [
+                "h6_repeat_identity_native.fk",
+                42,
+                ""
+            ]
+        ],
+        "expect": [
+            "h6-repeat-execute diagnostics=0",
+            "h6-repeat-execute contract=true",
+            "h6-repeat-execute module=true",
+            "h6-repeat-execute snapshot-valid=true",
+            "h6-repeat-execute snapshot-restored=true",
+            "h6-repeat-execute module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native bool execution",
+        "fixture": "h6_native_bool_execute_smoke.fk",
+        "llvm_programs": [
+            [
+                "h6_bool_aliases_native.fk",
+                42,
+                ""
+            ]
+        ],
+        "expect": [
+            "h6-bool-execute diagnostics=0",
+            "h6-bool-execute contract=true",
+            "h6-bool-execute module=true",
+            "h6-bool-execute snapshot-valid=true",
+            "h6-bool-execute snapshot-restored=true",
+            "h6-bool-execute module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native indirect execution",
+        "fixture": "h6_native_indirect_execute_smoke.fk",
+        "llvm_programs": [
+            [
+                "indirect_calls.fk",
+                42,
+                "callback target evaluated\ncallback target evaluated\n"
+            ]
+        ],
+        "expect": [
+            "h6-indirect-execute diagnostics=0",
+            "h6-indirect-execute contract=true",
+            "h6-indirect-execute module=true",
+            "h6-indirect-execute snapshot-valid=true",
+            "h6-indirect-execute snapshot-restored=true",
+            "h6-indirect-execute module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native computed execution",
+        "fixture": "h6_native_computed_execute_smoke.fk",
+        "llvm_programs": [
+            [
+                "h6_computed_callbacks_native.fk",
+                42,
+                ""
+            ]
+        ],
+        "expect": [
+            "h6-computed-execute diagnostics=0",
+            "h6-computed-execute contract=true",
+            "h6-computed-execute module=true",
+            "h6-computed-execute snapshot-valid=true",
+            "h6-computed-execute snapshot-restored=true",
+            "h6-computed-execute module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native multiple-argument computed execution",
+        "fixture": "h6_native_computed_many_execute_smoke.fk",
+        "llvm_programs": [
+            [
+                "h6_computed_many_native.fk",
+                42,
+                ""
+            ]
+        ],
+        "expect": [
+            "h6-computed-many-execute diagnostics=0",
+            "h6-computed-many-execute contract=true",
+            "h6-computed-many-execute module=true",
+            "h6-computed-many-execute snapshot-valid=true",
+            "h6-computed-many-execute snapshot-restored=true",
+            "h6-computed-many-execute module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 explicit void returns without sentinel values",
+        "fixture": "h6_mir_void_return_smoke.fk",
+        "expect": [
+            "h6-void implicit=true explicit=true alias=true branch=true",
+            "h6-void value-preserved=true",
+            "h6-void missing-nonvoid=true",
+            "h6-void snapshot=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native symbol collision execution",
+        "fixture": "h6_native_symbol_collision_execute_smoke.fk",
+        "llvm_programs": [
+            ["../tests/data/h6_native_symbol_collision.fk", 42, ""]
+        ],
+        "expect": [
+            "h6-symbol-execute diagnostics=0 distinct=true direct=true callback=true",
+            "h6-symbol-execute ABI=true digit=true escapes=true utf8=true",
+            "h6-symbol-execute snapshot=true module-exact=true"
+        ]
+    },
+    {
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "name": "H6 native Unicode character rejection",
+        "fixture": "h6_native_unicode_char_smoke.fk",
+        "expect": [
+            "h6-native-char ascii=true nul=true escapes=true",
+            "h6-native-char unicode=3 named=true no-module=true not-zero=true",
+            "h6-native-char snapshot=true unknown-escape=true sealed=true"
+        ]
+    },
+    {
+        "name": "Native entry ABI symbol collisions",
+        "fixture": "h6_native_entry_symbol_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-native-entry collisions=2 named=true no-module=true",
+            "h6-native-entry library-main=true abi-exact=true",
+        ],
+    },
+    {
+        "name": "Native target calling convention fence",
+        "fixture": "h6_native_target_cc_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-native-target abi-spellings=10 targets=4 contexts=5 matrix=true",
+            "h6-native-target unknown-abi=true comma-injection=true unknown-header=true mismatch=true",
+            "h6-native-target callback-only=true restore=true changed-facts=true sealed=true",
+        ],
+    },
+    {
+        "name": "Native body ABI symbol collisions",
+        "fixture": "h6_native_body_symbol_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-native-body source-qualified=true first-error=true no-module=true",
+            "h6-native-body root=true qualified=true callback=true library=true hash-exact=true declaration-order=true recovery=true",
+            "h6-native-body duplicates=true body-order=true no-module=true construction-failure=true recovery=true",
+            "h6-native-body pressure=true fallback=true duplicates=true construction-failure=true handles-stable=true",
+            "h6-native-body restore=true changed-facts=true sealed=true",
+        ],
+    },
+    {
+        "name": "Native declaration and literal symbol collisions",
+        "fixture": "h6_native_declaration_symbol_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-native-declaration incompatible=true named=true no-module=true aliases-retained=true",
+            "h6-native-declaration compatible=true dedupe=true metadata-exact=true hash-exact=true declaration-order=true recovery=true",
+            "h6-native-declaration literal=true quoted-identity=true definitions=true literal-order=true recovery=true",
+            "h6-native-declaration pressure=true construction-failure=true fallback=true handles-stable=true",
+            "h6-native-declaration restore=true changed-facts=true sealed=true",
+        ],
+    },
+    {
+        "name": "Native C scalar width admission fence",
+        "fixture": "h6_native_ffi_width_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-native-ffi-width cast-alias=true impl-raw=true callback-retained=true named=true no-module=true",
+            "h6-native-ffi-width portable=true pointers=true floats=true internal-bool-tiny=true recovery=true",
+            "h6-native-ffi-width aliases=8 nested-params-returns=true pointees=true bare-scalars=true variadic=true",
+            "h6-native-ffi-width locals=true cycles=true depth-bound=true cast-raw=true sealed=true",
+            "h6-native-ffi-width pressure=true restore=true changed-facts=true sealed=true",
+        ],
+    },
+    {
+        "name": "LLVM module facts across MIR restore",
+        "fixture": "codegen_llvm_module_epoch_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "llvm-module-epoch clean=true restore=true old-exact=true fresh-changed=true",
+            "llvm-module-epoch globals=true returns=true",
+            "llvm-module-epoch native-error-sealed=true nul-rejected=true",
+        ],
+    },
+    {
+        "name": "literal say frontend and snapshots",
+        "fixture": "literal_say_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "literal-say frontend calls=27 diagnostics=11 borrowed=true bytes=true",
+            "literal-say errors nonliteral=6 interpolation=2 nul=2 escape=1 spans=true",
+            "literal-say snapshot roundtrip=true forged-rejected=10",
+        ],
+    },
+    {
+        "name": "LLVM module execution",
+        "fixture": "codegen_llvm_execute_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "llvm-execute-diag-0=0", "llvm-execute-diag-1=0", "llvm-execute-diag-2=0",
+            "llvm-execute-invalid-target-0=true", "llvm-execute-invalid-target-1=true",
+            "llvm-execute-invalid-target-2=true",
+            "llvm-execute-diag-3=0", "llvm-execute-diag-4=0",
+            "llvm-execute-invalid-target-3=true", "llvm-execute-invalid-target-4=true",
+            "llvm-execute-diag-5=0", "llvm-execute-invalid-target-5=true",
+            "llvm-execute-diag-6=0", "llvm-execute-invalid-target-6=true",
+            "llvm-execute-diag-7=0", "llvm-execute-invalid-target-7=true",
+            "llvm-execute-snapshot-valid-0=true",
+            "llvm-execute-snapshot-valid-1=true",
+            "llvm-execute-snapshot-valid-2=true",
+            "llvm-execute-snapshot-valid-3=true",
+            "llvm-execute-snapshot-valid-4=true",
+            "llvm-execute-snapshot-valid-5=true",
+            "llvm-execute-snapshot-valid-6=true",
+            "llvm-execute-snapshot-valid-7=true",
+            "llvm-execute-snapshot-restored-0=true",
+            "llvm-execute-snapshot-restored-1=true",
+            "llvm-execute-snapshot-restored-2=true",
+            "llvm-execute-snapshot-restored-3=true",
+            "llvm-execute-snapshot-restored-4=true",
+            "llvm-execute-snapshot-restored-5=true",
+            "llvm-execute-snapshot-restored-6=true",
+            "llvm-execute-snapshot-restored-7=true",
+            "llvm-execute-module-exact-0=true",
+            "llvm-execute-module-exact-1=true",
+            "llvm-execute-module-exact-2=true",
+            "llvm-execute-module-exact-3=true",
+            "llvm-execute-module-exact-4=true",
+            "llvm-execute-module-exact-5=true",
+            "llvm-execute-module-exact-6=true",
+            "llvm-execute-module-exact-7=true",
+            "llvm-execute-diag-8=0", "llvm-execute-invalid-target-8=true",
+            "llvm-execute-snapshot-valid-8=true", "llvm-execute-snapshot-restored-8=true",
+            "llvm-execute-module-exact-8=true",
+            "llvm-execute-diag-9=0", "llvm-execute-invalid-target-9=true",
+            "llvm-execute-snapshot-valid-9=true", "llvm-execute-snapshot-restored-9=true",
+            "llvm-execute-module-exact-9=true",
+            "llvm-execute-module-nonempty-0=true",
+            "llvm-execute-module-nonempty-1=true",
+            "llvm-execute-module-nonempty-2=true",
+            "llvm-execute-module-nonempty-3=true",
+            "llvm-execute-module-nonempty-4=true",
+            "llvm-execute-module-nonempty-5=true",
+            "llvm-execute-module-nonempty-6=true",
+            "llvm-execute-module-nonempty-7=true",
+            "llvm-execute-module-nonempty-8=true",
+            "llvm-execute-module-nonempty-9=true",
+        ],
+        "llvm_programs": [("fib_collatz.fk", 166, ""), ("scalar_locals.fk", 42, ""),
+                          ("short_circuit.fk", 42, ""), ("short_circuit_order.fk", 42, "A\nB\nC\nD\n"),
+                          ("scalar_numeric.fk", 42, ""), ("scalar_coercions.fk", 42, ""),
+                          ("impl_scalar.fk", 42, ""), ("raw_pointer_coercions.fk", 42, ""),
+                          ("hello_world.fk", 0, "Hello, world!\n"),
+                          ("literal_say.fk", 0, 'line1\nline2\t"quoted"\\tail\n\nliteral {1 + 2} and unmatched {\nUTF-8: café 日本\n{\n}\n;\n(\n)\n[\n]\ntask\n')],
+        "llvm_build_checks": True,
     },
     {
         "name": "module paths and import expansion",
@@ -6992,21 +7802,26 @@ EXECUTABLE_SMOKES = [
             "check-result-n-ty=int",
             "check-result-n-source-field=ok",
             "check-result-good-diagnostics=0",
-            "check-maybe-bad-source-diagnostics=1",
+            "check-maybe-bad-source-diagnostics=2",
             "check-maybe-bad-source-message=check needs maybe source",
             "check-maybe-bad-source-help=got int",
-            "check-maybe-missing-arm-diagnostics=1",
+            "check-maybe-bad-source-say-message=say nonliteral is not yet supported",
+            "check-maybe-missing-arm-diagnostics=2",
             "check-maybe-missing-arm-message=check maybe missing nobody arm",
             "check-maybe-missing-arm-help=add nobody -> ...",
+            "check-maybe-missing-arm-say-message=say nonliteral is not yet supported",
             "check-some-bad-payload-diagnostics=1",
             "check-some-bad-payload-message=some payload type mismatch",
             "check-some-bad-payload-help=some expects int but got word",
-            "check-result-bad-source-diagnostics=1",
+            "check-result-bad-source-diagnostics=3",
             "check-result-bad-source-message=check result needs result source",
             "check-result-bad-source-help=got int",
-            "check-result-missing-arm-diagnostics=1",
+            "check-result-bad-source-say-message1=say nonliteral is not yet supported",
+            "check-result-bad-source-say-message2=say nonliteral is not yet supported",
+            "check-result-missing-arm-diagnostics=2",
             "check-result-missing-arm-message=check result missing err arm",
             "check-result-missing-arm-help=add err(pattern) -> ...",
+            "check-result-missing-arm-say-message=say nonliteral is not yet supported",
             "check-ok-bad-payload-diagnostics=1",
             "check-ok-bad-payload-message=ok payload type mismatch",
             "check-ok-bad-payload-help=ok expects int but got word",
@@ -7039,15 +7854,19 @@ EXECUTABLE_SMOKES = [
             "check-destructure-msg-ty=word",
             "check-destructure-msg-source-field=err",
             "check-destructure-msg-source-ty=word",
-            "check-destructure-diagnostics=4",
+            "check-destructure-diagnostics=7",
             "check-destructure-diagnostic0-message=check maybe arm malformed",
             "check-destructure-diagnostic0-help=use got pattern -> ...",
             "check-destructure-diagnostic1-message=check maybe missing got arm",
             "check-destructure-diagnostic1-help=add got pattern -> ...",
             "check-destructure-diagnostic2-message=sequence destructure arity mismatch",
             "check-destructure-diagnostic2-help=pattern wants 3 slots but source has 2",
-            "check-destructure-diagnostic3-message=tuple destructure duplicate binding",
-            "check-destructure-diagnostic3-help=left already exists in this scope",
+            "check-destructure-diagnostic3-message=say nonliteral is not yet supported",
+            "check-destructure-diagnostic3-help=W1 say requires exactly one static word literal; word values, expressions, and methods need the later word runtime slices",
+            "check-destructure-diagnostic4-message=say nonliteral is not yet supported",
+            "check-destructure-diagnostic5-message=tuple destructure duplicate binding",
+            "check-destructure-diagnostic5-help=left already exists in this scope",
+            "check-destructure-diagnostic6-message=say nonliteral is not yet supported",
         ],
     },
     {
@@ -7506,7 +8325,7 @@ EXECUTABLE_SMOKES = [
             "times-entry-term=Goto",
             "times-entry-target=4",
             "times-condition-term=If",
-            "times-condition-cond=_repeat_i > 0",
+            "times-condition-cond=$repeat_i#2 > 0",
             "times-loop-stmt-kind=Loop",
             "times-loop-stmt-lhs=repeat n times",
             "times-loop-rvalue-kind=Binary",
@@ -7788,7 +8607,8 @@ EXECUTABLE_SMOKES = [
             "only-on-held-ty=bool",
             "only-on-held-source-field=repeat",
             "only-on-held-source-ty=bool",
-            "only-on-good-diagnostics=0",
+            "only-on-good-diagnostics=1",
+            "only-on-good-message=say nonliteral is not yet supported",
             "only-on-bad-nonroute-diagnostics=1",
             "only-on-bad-nonroute-message=only on needs route source",
             "only-on-bad-nonroute-help=got int",
@@ -8873,6 +9693,14 @@ EXECUTABLE_SMOKES = [
             "boost-body-found=yes",
             "ace-body-found=yes",
             "boost-body-locals=2",
+            "boost-ordinary-signature=-1",
+            "boost-callable-return=int",
+            "boost-callable-params=2",
+            "boost-callable-param1=bonus:int",
+            "boost-callable-invalid-param=true",
+            "boost-callable-invalid-body=true",
+            "boost-callable-invalid-identity=true",
+            "boost-callable-invalid-part=true",
             "boost-local0-name=self",
             "boost-local0-ty=Pilot",
             "boost-local1-name=bonus",
@@ -10847,7 +11675,7 @@ def check_task_return_hir_boundary() -> None:
 
     allowed_return_token_tasks = {
         "v4_ty_doctrine_method_return_surface_type",
-        "v4_ty_impl_method_return_type",
+        "v4_ty_impl_method_return_surface_type",
         "v4_ty_nonordinary_hir_item_return_fallback",
         "v4_ty_nonordinary_signature_return_fallback",
     }
@@ -11822,15 +12650,55 @@ def check_snapshot_inventories() -> None:
         violations.append("C smoke runtime must mirror the LLVM 1024-handle ceiling")
     if C_ARRAY_HANDLE_RESOURCE_FIXTURES != frozenset(
         {
+            "extern_literal_syntax_smoke.fk",
             "extern_return_snapshot_smoke.fk",
             "route_snapshot_smoke.fk",
             "const_snapshot_smoke.fk",
             "shape_field_snapshot_smoke.fk",
             "hir_snapshot_scaling_smoke.fk",
             "hir_semantic_index_smoke.fk",
+            "hir_impl_candidate_index_smoke.fk",
+            "mir_lookup_index_smoke.fk",
+            "borrowck_stmt_path_index_smoke.fk",
+            "ty_item_method_cache_smoke.fk",
+            "ty_doctrine_candidate_index_smoke.fk",
+            "lex_mutation_revision_exhaustion_smoke.fk",
+            "mir_impl_candidate_lookup_smoke.fk",
+            "lex_boundary_publication_exhaustion_smoke.fk",
+            "borrowck_mutable_preflight_smoke.fk",
+            "hir_param_index_smoke.fk",
+            "ty_signature_index_smoke.fk",
+            "resolve_lookup_index_smoke.fk",
             "hir_query_resource_smoke.fk",
             "mir_snapshot_resource_smoke.fk",
             "query_invalidation_resource_smoke.fk",
+            "h6_mir_repeat_identity_smoke.fk",
+            "h6_mir_bool_aliases_smoke.fk",
+            "h6_grammar_literal_smoke.fk",
+            "h6_mir_literal_grammar_smoke.fk",
+            "h6_mir_void_return_smoke.fk",
+            "h6_native_repeat_execute_smoke.fk",
+            "h6_native_bool_execute_smoke.fk",
+            "h6_native_indirect_execute_smoke.fk",
+            "h6_native_computed_execute_smoke.fk",
+            "h6_native_computed_many_execute_smoke.fk",
+            "h6_mir_bool_binding_smoke.fk",
+            "h6_mir_computed_call_smoke.fk",
+            "h6_mir_pattern_literal_smoke.fk",
+            "h6_mir_assignment_literal_smoke.fk",
+            "h6_diagnostics_restore_resource_smoke.fk",
+            "h6_driver_file_read_smoke.fk",
+            "h6_codegen_indirect_smoke.fk",
+            "h6_native_contract_smoke.fk",
+            "h6_codegen_bool_restore_smoke.fk",
+            "h6_native_field_callback_smoke.fk",
+            "h6_native_symbol_collision_execute_smoke.fk",
+            "h6_native_unicode_char_smoke.fk",
+            "h6_native_entry_symbol_smoke.fk",
+            "h6_native_target_cc_smoke.fk",
+            "h6_native_body_symbol_smoke.fk",
+            "h6_native_declaration_symbol_smoke.fk",
+            "h6_native_ffi_width_smoke.fk",
         }
     ):
         violations.append("scratch-handle resource smoke limit coverage drifted")
@@ -12991,6 +13859,293 @@ if empty_ok and small_ok and large_ok {
     print(f"V3 LLVM substring pipeline: compile={compile_mode}")
 
 
+def checked_source_fixture_paths() -> list[str]:
+    directory = RUNTIME_BUILD_ROOT / "h6_source_directory"
+    directory.mkdir(parents=True, exist_ok=True)
+    missing = directory / "missing.fk"
+    if missing.exists():
+        raise RuntimeError(f"checked source fixture requires an absent path: {missing}")
+    return [
+        str(TESTS_ROOT / "data" / "h6_io_empty_source.fk"),
+        str(TESTS_ROOT / "data" / "h6_io_readable_source.fk"),
+        str(missing),
+        str(directory),
+    ]
+
+
+def expected_native_stdout(text: str) -> str:
+    """Expected bytes decoded from a C text stream, including Windows LF writes."""
+    return text.replace("\n", "\r\n") if sys.platform == "win32" else text
+
+
+def extract_llvm_modules(output: str) -> list[str]:
+    """Accept C text-stream framing while retaining each module's bytes."""
+    return re.findall(r"^@@LLVM-MODULE-BEGIN\r?\n(.*?)\r?\n@@LLVM-MODULE-END\r?$",
+                      output, re.DOTALL | re.MULTILINE)
+
+
+def prepare_source_fifo(fifo: Path) -> None:
+    """Reuse a real FIFO, replacing stale files without following symlinks."""
+    try:
+        mode = fifo.lstat().st_mode
+    except FileNotFoundError:
+        mode = None
+    if mode is not None:
+        if stat.S_ISFIFO(mode):
+            return
+        if stat.S_ISDIR(mode):
+            fifo.rmdir()  # Only an empty generated directory may be replaced.
+        else:
+            fifo.unlink()
+    os.mkfifo(fifo)
+
+
+def check_checked_source_runtime(clang: str) -> None:
+    fixture = TESTS_ROOT / "h6_source_read_checked_runtime.c"
+    executable = RUNTIME_BUILD_ROOT / ("h6_source_read.exe" if sys.platform == "win32" else "h6_source_read")
+    stamp = executable.with_suffix(".compile.sha256")
+    key = hash_text(
+        "checked-source-runtime-v1", clang, read_text(fixture),
+        read_text(RUNTIME_ROOT / "freak_runtime.c"),
+        read_text(RUNTIME_ROOT / "freak_runtime.h"),
+        *runtime_platform_link_args(),
+    )
+    if not executable.exists() or not stamp.exists() or read_text(stamp).strip() != key:
+        compiled = run_with_heartbeat(
+            [clang, str(fixture), "-o", str(executable),
+             f"-DFREAK_ARRAY_LIVE_LIMIT={C_ARRAY_HANDLE_RESOURCE_LIMIT}",
+             *runtime_platform_link_args()],
+            label="checked source runtime compile", timeout_seconds=60,
+            memory_limit_mb=512,
+        )
+        if compiled.returncode != 0:
+            raise RuntimeError(f"checked source runtime compile failed:\n{compiled.stdout}{compiled.stderr}")
+        stamp.write_text(key + "\n", encoding="utf-8")
+    paths = checked_source_fixture_paths()
+    if hasattr(os, "mkfifo"):
+        fifo = RUNTIME_BUILD_ROOT / "h6_source_fifo"
+        prepare_source_fifo(fifo)
+        paths.append(str(fifo))
+    executed = run_with_heartbeat(
+        [str(executable), *paths], label="checked source runtime execute",
+        timeout_seconds=10, memory_limit_mb=64,
+    )
+    expected = "h6-runtime-source-read contents=true errors=true faults=true recovery=true\n"
+    if executed.returncode != 0 or executed.stdout != expected_native_stdout(expected) or executed.stderr:
+        raise RuntimeError(f"checked source runtime failed:\n{executed.stdout}{executed.stderr}")
+    print(expected.strip())
+
+
+def check_v4_build_command() -> None:
+    from build_v4 import bootstrap, host_target
+
+    compiler = bootstrap(shutil.which("clang"))
+    source_paths = checked_source_fixture_paths()
+    for arguments in ([], [source_paths[0]], [source_paths[2], host_target()], [source_paths[3], host_target()]):
+        rejected = run_with_heartbeat(
+            [str(compiler), *arguments], label="V4 bootstrap source rejection",
+            timeout_seconds=10, memory_limit_mb=64,
+        )
+        if (
+            rejected.returncode != 0 or rejected.stderr
+            or "v4-source-read-error=" not in rejected.stdout
+            or "v4-aborted-after=source" not in rejected.stdout
+            or "v4-build-stage=" in rejected.stdout or "@@V4-MODULE" in rejected.stdout
+        ):
+            raise RuntimeError(f"V4 bootstrap published a failed source:\n{rejected.stdout}{rejected.stderr}")
+    library_source = RUNTIME_BUILD_ROOT / "llvm_no_main_library.fk"
+    library_source.write_text("task helper() -> int { give back 7 }\n", encoding="utf-8")
+    warning_source = RUNTIME_BUILD_ROOT / "llvm_warning_only.fk"
+    warning_source.write_text(
+        'extern [C] {\n task _Unwind_Resume(exception: *mut std::ffi::c_void) -> void\n}\n'
+        'task main() -> int { give back 42 }\n', encoding="utf-8",
+    )
+    error_source = RUNTIME_BUILD_ROOT / "llvm_error.fk"
+    error_source.write_text('task main() -> int { give back "wrong" }\n', encoding="utf-8")
+    root_source = RUNTIME_BUILD_ROOT / "llvm_root_error.fk"
+    root_source.write_text('pilot global = 0\n', encoding="utf-8")
+    say_error_source = RUNTIME_BUILD_ROOT / "llvm_say_error.fk"
+    say_error_source.write_text('task main() -> int { say 42\n give back 0 }\n', encoding="utf-8")
+    word_error_source = RUNTIME_BUILD_ROOT / "llvm_word_error.fk"
+    word_error_source.write_text('task main() -> int { pilot text = "owned later"\n give back 0 }\n', encoding="utf-8")
+    main_error_source = RUNTIME_BUILD_ROOT / "llvm_main_error.fk"
+    main_error_source.write_text('task main(value: int) -> int { give back value }\n', encoding="utf-8")
+    runtime_say_error = RUNTIME_BUILD_ROOT / "llvm_runtime_say_error.fk"
+    runtime_say_error.write_text(
+        'extern [C] {\n @link_name("freak_llvm_say")\n task shadow_say(value: std::ffi::c_isize) -> std::ffi::c_isize\n}\n'
+        'task main() -> int { say "hello"\n give back 0 }\n', encoding="utf-8",
+    )
+    runtime_setup_error = RUNTIME_BUILD_ROOT / "llvm_runtime_setup_error.fk"
+    runtime_setup_error.write_text(
+        'extern [C] { task freak_llvm_setup_args(argc: std::ffi::c_isize) -> void }\n'
+        'task main() -> int { give back 0 }\n', encoding="utf-8",
+    )
+    executable = RUNTIME_BUILD_ROOT / ("llvm_warning_only.exe" if sys.platform == "win32" else "llvm_warning_only.native")
+    for source, output, expected_success, abort_stage in (
+        (warning_source, executable, True, None),
+        (error_source, RUNTIME_BUILD_ROOT / "llvm_error.ll", False, "mir"),
+        (root_source, RUNTIME_BUILD_ROOT / "llvm_root_error.ll", False, "parse"),
+        (say_error_source, RUNTIME_BUILD_ROOT / "llvm_say_error.ll", False, "mir"),
+        (word_error_source, RUNTIME_BUILD_ROOT / "llvm_word_error.ll", False, "codegen"),
+        (main_error_source, RUNTIME_BUILD_ROOT / "llvm_main_error.ll", False, "codegen"),
+        (runtime_say_error, RUNTIME_BUILD_ROOT / "llvm_runtime_say_error.ll", False, "codegen"),
+        (runtime_setup_error, RUNTIME_BUILD_ROOT / "llvm_runtime_setup_error.ll", False, "codegen"),
+        (Path(source_paths[0]), RUNTIME_BUILD_ROOT / "llvm_empty_source.ll", False, "codegen"),
+        (library_source, RUNTIME_BUILD_ROOT / "llvm_no_main_library.ll", False, "codegen"),
+        (Path(source_paths[2]), RUNTIME_BUILD_ROOT / "llvm_missing_source.ll", False, None),
+        (Path(source_paths[3]), RUNTIME_BUILD_ROOT / "llvm_directory_source.ll", False, None),
+    ):
+        output.unlink(missing_ok=True)
+        command = [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output)]
+        if not expected_success:
+            command.append("--emit-llvm")
+        result = run_with_heartbeat(command, label="V4 build command", timeout_seconds=180, memory_limit_mb=512)
+        if (result.returncode == 0) != expected_success or output.exists() != expected_success:
+            raise RuntimeError(f"V4 build command rejection mismatch:\n{result.stdout}{result.stderr}")
+        reasons = {
+            say_error_source: "say nonliteral is not yet supported",
+            word_error_source: "native words currently support only literal say operands",
+            main_error_source: "native main parameters are not yet supported",
+            runtime_say_error: "native runtime declaration conflicts with @freak_llvm_say",
+            runtime_setup_error: "native runtime declaration conflicts with @freak_llvm_setup_args",
+            Path(source_paths[0]): "native build requires task main",
+            library_source: "native build requires task main",
+            Path(source_paths[2]): "source file does not exist",
+            Path(source_paths[3]): "source file does not exist",
+        }
+        if source in reasons and reasons[source] not in result.stdout + result.stderr:
+            raise RuntimeError(f"V4 build rejected input without the expected reason: {reasons[source]}")
+        if abort_stage and f"v4-aborted-after={abort_stage}" not in result.stdout + result.stderr:
+            raise RuntimeError("V4 build did not stop at the stage reporting errors")
+        if abort_stage == "parse" and "v4-build-stage=hir" in result.stdout + result.stderr:
+            raise RuntimeError("V4 build lowered unsupported root syntax past parsing")
+        if expected_success and "v4-errors=0" not in result.stdout:
+            raise RuntimeError("warning-only V4 build did not report zero errors")
+        if expected_success and "extern import unwinds across the FFI boundary" not in result.stdout:
+            raise RuntimeError("warning-only V4 build did not retain its unwinder warning")
+    # Exercise the actual bootstrap/tool boundary as well as plan-level facts:
+    # rejected body/entry symbols and cross-target conventions publish no LLVM.
+    contract_cases = [
+        (
+            "declaration_alias", host_target(),
+            'extern [C] {\n @link_name("native_same")\n task first() -> std::ffi::c_isize\n'
+            ' @link_name("native_same")\n task second(value: std::ffi::c_isize) -> std::ffi::c_isize\n}\n'
+            'task main() -> int { give back first() }\n',
+            "native declaration symbol has incompatible signatures: @native_same",
+        ),
+        (
+            "literal_alias", host_target(),
+            'extern [C] {\n @link_name(".str.0.0")\n task outside() -> std::ffi::c_isize\n}\n'
+            'task main() -> int { say "literal"\n give back 0 }\n',
+            'native literal global symbol conflicts with callable symbol: @".str.0.0"',
+        ),
+        (
+            "c_int_width", host_target(),
+            'extern [C] { task echo_c_int(value: std::ffi::c_int) -> std::ffi::c_int }\n'
+            'task main() -> int { if echo_c_int(0 - 1) < 0 { give back 42 }\n give back 7 }\n',
+            "native C scalar ABI not yet supported: std::ffi::c_int",
+        ),
+        (
+            "c_long_width", host_target(),
+            'extern [C] { task outside() -> std::ffi::c_long }\n'
+            'task main() -> int { give back outside() }\n',
+            "native C scalar ABI not yet supported: std::ffi::c_long",
+        ),
+        (
+            "c_width_cast", host_target(),
+            'extern [C] { task probe_ptr() -> *mut tiny }\n'
+            'task main() -> int {\n pilot p = probe_ptr()\n'
+            ' trust me "test raw C width cast" on my honor as .ace {\n'
+            '  pilot value = p.cast<std::ffi::c_int>()\n }\n give back 42\n}\n',
+            "native C scalar ABI not yet supported: std::ffi::c_int",
+        ),
+        (
+            "c_variadic", host_target(),
+            'extern [C] { task outside(value: std::ffi::c_isize, args: ...) -> std::ffi::c_isize }\n'
+            'task main() -> int { give back 42 }\n',
+            "native C variadic ABI not yet supported",
+        ),
+        (
+            "target_cc", "aarch64-apple-darwin",
+            'extern [stdcall] { task outside() -> std::ffi::c_isize }\n'
+            'task main() -> int { give back outside() }\n',
+            "native target calling convention not supported: stdcall for aarch64-apple-darwin",
+        ),
+        (
+            "body_symbol", host_target(),
+            'shape A { marker: int }\n'
+            'impl A { task b() -> int { give back 42 } }\n'
+            'extern [C] {\n @link_name("A::b")\n task outside() -> std::ffi::c_isize\n}\n'
+            'task main() -> int { give back outside() }\n',
+            'native body symbol conflicts with explicit ABI declaration: @"A::b"',
+        ),
+        (
+            "callback_symbol", host_target(),
+            '@extern_callback("C")\n'
+            'task callback() -> std::ffi::c_isize { give back 42 }\n'
+            'extern [C] {\n @link_name("__freak_callback_callback")\n task outside() -> std::ffi::c_isize\n}\n'
+            'task main() -> int { give back outside() }\n',
+            "native body symbol conflicts with explicit ABI declaration: @__freak_callback_callback",
+        ),
+        (
+            "callback_body", host_target(),
+            '@extern_callback("C")\n'
+            'task callback() -> std::ffi::c_isize { give back 42 }\n'
+            'task __freak_callback_callback() -> int { give back 7 }\n'
+            'task main() -> int { give back 0 }\n',
+            "native body symbol has multiple definitions: @__freak_callback_callback",
+        ),
+    ]
+    for label, symbol in (("public_entry", "main"), ("private_entry", "freak.user.main")):
+        contract_cases.append((
+            label, host_target(),
+            f'extern [C] {{\n @link_name("{symbol}")\n task outside() -> std::ffi::c_isize\n}}\n'
+            'task main() -> int { give back outside() }\n',
+            "native entry symbol conflicts with explicit ABI declaration",
+        ))
+    for label, target, source_text, reason in contract_cases:
+        source = RUNTIME_BUILD_ROOT / f"llvm_contract_{label}.fk"
+        output = RUNTIME_BUILD_ROOT / f"llvm_contract_{label}.ll"
+        source.write_text(source_text, encoding="utf-8")
+        output.unlink(missing_ok=True)
+        raw = run_with_heartbeat(
+            [str(compiler), str(source), target], label=f"V4 native contract: {label}",
+            timeout_seconds=30, memory_limit_mb=64,
+        )
+        if (
+            raw.returncode != 0 or raw.stderr or reason not in raw.stdout
+            or "v4-aborted-after=codegen" not in raw.stdout or "@@V4-MODULE" in raw.stdout
+        ):
+            raise RuntimeError(f"V4 bootstrap published an invalid native contract:\n{raw.stdout}{raw.stderr}")
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output),
+             "--emit-llvm", "--target", target],
+            label=f"V4 native contract CLI: {label}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if (
+            rejected.returncode == 0 or output.exists()
+            or reason not in rejected.stdout + rejected.stderr
+            or "@@V4-MODULE" in rejected.stdout + rejected.stderr
+        ):
+            raise RuntimeError(f"V4 CLI native-contract rejection mismatch:\n{rejected.stdout}{rejected.stderr}")
+        print(f"V4 native contract rejection: {label} named=true no-module=true no-output=true")
+    executed = run_with_heartbeat([str(executable)], label="V4 warning-only execute", timeout_seconds=10, memory_limit_mb=128)
+    if executed.returncode != 42 or executed.stdout or executed.stderr:
+        raise RuntimeError("warning-only V4 build did not execute correctly")
+    hello = RUNTIME_BUILD_ROOT / ("hello_world.exe" if sys.platform == "win32" else "hello_world.native")
+    hello.unlink(missing_ok=True)
+    built = run_with_heartbeat(
+        [sys.executable, str(V4_ROOT / "build_v4.py"), str(V4_ROOT / "examples" / "hello_world.fk"), "-o", str(hello)],
+        label="V4 hello world build command", timeout_seconds=180, memory_limit_mb=512,
+    )
+    if built.returncode != 0 or not hello.exists():
+        raise RuntimeError(f"V4 hello world build failed:\n{built.stdout}{built.stderr}")
+    executed = run_with_heartbeat([str(hello)], label="V4 hello world execute", timeout_seconds=10, memory_limit_mb=128)
+    if executed.returncode != 0 or executed.stdout != expected_native_stdout("Hello, world!\n") or executed.stderr:
+        raise RuntimeError("V4 build command hello world stdout/exit mismatch")
+    print("V4 build command: hello world and warning-only execute, errors stop at their owning stage")
+
+
 def check_executable_smokes(
     base_source: str,
     smokes: list[dict[str, object]],
@@ -13008,6 +14163,7 @@ def check_executable_smokes(
     include_arg = f"-I{RUNTIME_ROOT}"
     check_process_tree_guard()
     check_llvm_runtime_primitives(clang, include_arg)
+    check_checked_source_runtime(clang)
     check_native_snapshot_lines(clang)
     check_v3_llvm_substring_pipeline(clang, include_arg)
 
@@ -13037,8 +14193,15 @@ def check_executable_smokes(
         )
         timeout_seconds = int(smoke.get("timeout", 60))
         default_memory_limit_mb = 128 if "snapshot" in fixture.stem else 512
+        command = [str(exe_path)]
+        if smoke.get("source_read_checks"):
+            command += checked_source_fixture_paths()
+        if smoke.get("llvm_programs"):
+            from build_v4 import host_target
+            command += [str(V4_ROOT / "examples" / name) for name, _, _ in smoke["llvm_programs"]]
+            command.append(host_target())
         executed = run_with_heartbeat(
-            [str(exe_path)],
+            command,
             label=f"runtime execute: {label}",
             timeout_seconds=timeout_seconds,
             memory_limit_mb=int(smoke.get("memory_limit_mb", default_memory_limit_mb)),
@@ -13080,6 +14243,33 @@ def check_executable_smokes(
                 )
             print(output[:4000])
             raise SystemExit(1)
+
+        if smoke.get("llvm_programs"):
+            modules = extract_llvm_modules(output)
+            if len(modules) != len(smoke["llvm_programs"]):
+                raise RuntimeError("LLVM module smoke emitted the wrong number of modules")
+            for (name, exit_code, stdout), module in zip(smoke["llvm_programs"], modules, strict=True):
+                ll_path = RUNTIME_BUILD_ROOT / f"{Path(name).stem}.v4.ll"
+                native_path = ll_path.with_suffix(".exe" if sys.platform == "win32" else ".native")
+                ll_path.write_bytes(module.encode("utf-8"))
+                linked = run_with_heartbeat(
+                    [clang, "-w", "-O2", str(ll_path),
+                     str(RUNTIME_ROOT / "freak_llvm_runtime.c"), str(runtime_c),
+                     include_arg, "-o", str(native_path),
+                     *runtime_platform_final_link_args()],
+                    label=f"LLVM module link: {name}", timeout_seconds=120, memory_limit_mb=512,
+                )
+                if linked.returncode != 0:
+                    raise RuntimeError(f"LLVM module link failed: {name}\n{linked.stdout}{linked.stderr}")
+                native = run_with_heartbeat(
+                    [str(native_path)], label=f"LLVM module execute: {name}",
+                    timeout_seconds=10, memory_limit_mb=128,
+                )
+                if native.returncode != exit_code or native.stdout != expected_native_stdout(stdout) or native.stderr:
+                    raise RuntimeError(f"LLVM module execution failed: {name} expected={exit_code} actual={native.returncode}\n{native.stdout}{native.stderr}")
+                print(f"LLVM module execution: {name} exit={exit_code}")
+        if smoke.get("llvm_build_checks"):
+            check_v4_build_command()
 
         compile_mode = "clang" if compiled else "cache"
         print(

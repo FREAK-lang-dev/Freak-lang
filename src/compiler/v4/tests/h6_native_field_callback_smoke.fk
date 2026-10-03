@@ -1,0 +1,26 @@
+task h6_field_assert(condition: bool, label: word) -> void {
+    if not condition { panic("h6 aggregate native: " + label) }
+}
+
+task h6_field_case(file: int, source: word, expected: word) -> void {
+    pilot stream = v4_lex_text(file, source)
+    pilot tree = v4_parse_stream(file, stream)
+    pilot hir = v4_hir_lower_tree(file, tree)
+    pilot resolve = v4_resolve_lower_hir(file, hir)
+    pilot ty = v4_ty_lower_resolve(file, resolve)
+    pilot mir = v4_mir_lower_ty(file, ty)
+    h6_field_assert(v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 1 and v4_mir_body_rvalue_count(mir, 0) > 0, "valid aggregate owner/body")
+    pilot codegen = v4_codegen_llvm_lower_mir(file, mir)
+    pilot errors = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_codegen_llvm_diag_count(codegen)
+    h6_field_assert(errors == 0, "frontend aggregate facts valid")
+    h6_field_assert(v4_codegen_llvm_native_module_error(codegen) == expected, "named aggregate/field error")
+    h6_field_assert(v4_codegen_llvm_module_text(codegen, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "no native module")
+}
+
+task h6_field_run() -> void {
+    h6_field_case(0, "shape P {\n" + " x: int\n" + "}\ntask main() -> int {\n pilot p = P {\n" + " x: 3\n" + "}\n give back p.x\n" + "}\n", "native rvalue not yet supported: Construct")
+    h6_field_case(1, "shape Hook {\n" + " cb: extern [C] task() -> int\n" + "}\ntask probe(hook: Hook) -> int {\n" + " give back hook.cb()\n" + "}\n", "native type not yet supported: Hook")
+    say "h6-native-aggregate shape=true field-callback=true named=true no-module=true"
+}
+
+h6_field_run()

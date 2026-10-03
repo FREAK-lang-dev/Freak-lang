@@ -1,0 +1,4 @@
+task main() -> int {
+    say "Hello, world!"
+    give back 0
+}

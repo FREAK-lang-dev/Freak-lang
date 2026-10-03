@@ -1,0 +1,114 @@
+-- Reserved boolean spellings fail at declarations without requiring a usage.
+task h6_binding_params_source() -> word {
+    pilot src = ""
+    src = src + "task param0(yes: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param1(YES: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param2(Yes: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param3(no: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param4(NO: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param5(No: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param6(hai: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param7(HAI: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param8(Hai: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param9(iie: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param10(IIE: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param11(Iie: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param12(true: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param13(TRUE: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param14(True: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param15(false: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param16(FALSE: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\ntask param17(False: int) -> int "
+    src = src + "{"
+    src = src + "\n give back 0\n"
+    src = src + "}"
+    src = src + "\n"
+    give back src
+}
+task h6_binding_locals_source() -> word {
+    pilot src = ""
+    src = src + "task locals() -> int "
+    src = src + "{"
+    src = src + "\n pilot yes = 1\n pilot YES = 1\n pilot Yes = 1\n pilot no = 1\n pilot NO = 1\n pilot No = 1\n pilot hai = 1\n pilot HAI = 1\n pilot Hai = 1\n pilot iie = 1\n pilot IIE = 1\n pilot Iie = 1\n pilot true = 1\n pilot TRUE = 1\n pilot True = 1\n pilot false = 1\n pilot FALSE = 1\n pilot False = 1\n give back 0\n"
+    src = src + "}"
+    src = src + "\n"
+    give back src
+}
+task h6_bool_binding_run() -> void {
+    pilot params_stream = v4_lex_text(0, h6_binding_params_source())
+    pilot params_tree = v4_parse_stream(0, params_stream)
+    pilot params_hir = v4_hir_lower_tree(0, params_tree)
+    pilot params_ok = v4_hir_diag_count(params_hir) == 18
+    pilot param_diag = 0
+    repeat until param_diag >= v4_hir_diag_count(params_hir) {
+        params_ok = params_ok and v4_diag_message(v4_hir_diag(params_hir, param_diag)) == "invalid ordinary task parameter declaration"
+        param_diag += 1
+    }
+    say "h6-bool-binding parameters=" + word_from_bool(params_ok) + " declarations=" + word_from_int(v4_hir_diag_count(params_hir))
+    pilot local_stream = v4_lex_text(1, h6_binding_locals_source())
+    pilot local_tree = v4_parse_stream(1, local_stream)
+    pilot local_hir = v4_hir_lower_tree(1, local_tree)
+    pilot local_resolve = v4_resolve_lower_hir(1, local_hir)
+    pilot local_ty = v4_ty_lower_resolve(1, local_resolve)
+    pilot local_mir = v4_mir_lower_ty(1, local_ty)
+    pilot local_ok = v4_mir_diag_count(local_mir) == 18
+    pilot local_diag = 0
+    repeat until local_diag >= v4_mir_diag_count(local_mir) {
+        local_ok = local_ok and v4_diag_message(v4_mir_diag(local_mir, local_diag)) == "unsupported local pattern"
+        local_diag += 1
+    }
+    pilot local_body = v4_mir_lookup_body_name(local_mir, "locals")
+    say "h6-bool-binding locals=" + word_from_bool(local_ok) + " local-count=" + word_from_int(v4_mir_body_local_count(local_mir, local_body))
+}
+h6_bool_binding_run()

@@ -1,0 +1,67 @@
+-- Empty returns carry no fake Unknown rvalue and still check declared result types.
+task h6_void_return_source() -> word {
+    pilot src = ""
+    src = src + "alias Empty = void\ntask implicit() -> void "
+    src = src + "{"
+    src = src + " "
+    src = src + "}"
+    src = src + "\ntask explicit() -> void "
+    src = src + "{"
+    src = src + " give back "
+    src = src + "}"
+    src = src + "\ntask aliased() -> Empty "
+    src = src + "{"
+    src = src + " give back "
+    src = src + "}"
+    src = src + "\ntask branch() -> void "
+    src = src + "{"
+    src = src + "\n if true "
+    src = src + "{"
+    src = src + " give back "
+    src = src + "}"
+    src = src + "\n give back\n"
+    src = src + "}"
+    src = src + "\ntask invoke() -> void "
+    src = src + "{"
+    src = src + " give back explicit() "
+    src = src + "}"
+    src = src + "\ntask invalid() -> int "
+    src = src + "{"
+    src = src + " give back "
+    src = src + "}"
+    src = src + "\n"
+    give back src
+}
+task h6_void_absent_operands(mir_id: int, name: word, expected: int) -> bool {
+    pilot body_id = v4_mir_lookup_body_name(mir_id, name)
+    pilot returns = 0
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_return {
+            if v4_mir_stmt_rvalue(mir_id, body_id, stmt_id) != -1 { give back false }
+            returns += 1
+        }
+        stmt_id += 1
+    }
+    pilot value_id = 0
+    repeat until value_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_kind(mir_id, body_id, value_id) == v4_mir_rvalue_unknown { give back false }
+        value_id += 1
+    }
+    give back returns == expected
+}
+task h6_void_return_run() -> void {
+    pilot stream = v4_lex_text(0, h6_void_return_source())
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir_id = v4_hir_lower_tree(0, tree)
+    pilot resolve_id = v4_resolve_lower_hir(0, hir_id)
+    pilot ty_id = v4_ty_lower_resolve(0, resolve_id)
+    pilot mir_id = v4_mir_lower_ty(0, ty_id)
+    say "h6-void implicit=" + word_from_bool(h6_void_absent_operands(mir_id, "implicit", 0)) + " explicit=" + word_from_bool(h6_void_absent_operands(mir_id, "explicit", 1)) + " alias=" + word_from_bool(h6_void_absent_operands(mir_id, "aliased", 1)) + " branch=" + word_from_bool(h6_void_absent_operands(mir_id, "branch", 2))
+    pilot invoke = v4_mir_lookup_body_name(mir_id, "invoke")
+    pilot invoke_value = v4_mir_stmt_rvalue(mir_id, invoke, 0)
+    say "h6-void value-preserved=" + word_from_bool(invoke_value >= 0 and v4_mir_rvalue_kind(mir_id, invoke, invoke_value) == v4_mir_rvalue_call and v4_mir_rvalue_ty(mir_id, invoke, invoke_value) == v4_ty_void)
+    say "h6-void missing-nonvoid=" + word_from_bool(v4_mir_diag_count(mir_id) == 1 and v4_diag_message(v4_mir_diag(mir_id, 0)) == "return type mismatch" and v4_diag_help(v4_mir_diag(mir_id, 0)) == "invalid expects int but got void")
+    say "h6-void snapshot=" + word_from_bool(v4_mir_snapshot_validate(v4_mir_snapshot()).starts_with("mir-snapshot-import ok=1"))
+}
+h6_void_return_run()

@@ -230,6 +230,14 @@ say "method-body-count=" + word_from_int(v4_mir_body_count(v4_mir_method_good_mi
 say "boost-body-found=" + v4_mir_method_boost_found
 say "ace-body-found=" + v4_mir_method_ace_found
 say "boost-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_method_good_mir, v4_mir_method_boost_body))
+say "boost-ordinary-signature=" + word_from_int(v4_mir_body_signature_id(v4_mir_method_good_mir, v4_mir_method_boost_body))
+say "boost-callable-return=" + v4_mir_body_callable_return_type(v4_mir_method_good_mir, v4_mir_method_boost_body)
+say "boost-callable-params=" + word_from_int(v4_mir_body_callable_param_count(v4_mir_method_good_mir, v4_mir_method_boost_body))
+say "boost-callable-param1=" + v4_mir_body_callable_param_name(v4_mir_method_good_mir, v4_mir_method_boost_body, 1) + ":" + v4_mir_body_callable_param_type(v4_mir_method_good_mir, v4_mir_method_boost_body, 1)
+say "boost-callable-invalid-param=" + word_from_bool(v4_mir_body_callable_param_name(v4_mir_method_good_mir, v4_mir_method_boost_body, 2) == "" and v4_mir_body_callable_param_type(v4_mir_method_good_mir, v4_mir_method_boost_body, 0 - 1) == v4_ty_unknown)
+say "boost-callable-invalid-body=" + word_from_bool(v4_mir_body_callable_param_count(v4_mir_method_good_mir, 0 - 1) == 0 and v4_mir_body_callable_return_type(v4_mir_method_good_mir, v4_mir_body_count(v4_mir_method_good_mir)) == v4_ty_unknown)
+say "boost-callable-invalid-identity=" + word_from_bool(v4_ty_impl_method_index_for_def(v4_mir_method_good_ty, v4_mir_body_def(v4_mir_method_good_mir, v4_mir_method_boost_body) + "x", 0) < 0 and v4_ty_impl_method_index_for_def(v4_mir_method_good_ty, "foreign#0:0", 1) < 0)
+say "boost-callable-invalid-part=" + word_from_bool(v4_mir_body_impl_method_index(v4_mir_method_good_mir, v4_mir_method_boost_body, 2) < 0)
 say "boost-local0-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_boost_body, 0)
 say "boost-local0-ty=" + v4_mir_local_ty(v4_mir_method_good_mir, v4_mir_method_boost_body, 0)
 say "boost-local1-name=" + v4_mir_local_name(v4_mir_method_good_mir, v4_mir_method_boost_body, 1)

@@ -1,0 +1,33 @@
+task nothing() -> void { give back }
+
+task locals(entry: int, bb0: int, rv0_0: int) -> int {
+    pilot total = entry
+    pilot copy = total
+    total = bb0
+    total += rv0_0
+    total += copy
+    if true {
+        pilot same = 3
+        total += same
+    }
+    if true {
+        pilot same = 5
+        total += same
+    }
+    pilot n = 0
+    repeat until n == 5 {
+        n += 1
+        if n == 2 { continue }
+        if n == 4 { break }
+        total += n
+    }
+    nothing()
+    give back total
+}
+
+task main() -> int {
+    pilot ready = true
+    ready = not false
+    if ready { give back locals(10, 15, 5) }
+    give back 1
+}

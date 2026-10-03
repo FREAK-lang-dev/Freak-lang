@@ -1,0 +1,133 @@
+-- Quoted pattern data survives token-to-pattern conversion and nested scans.
+task h6_pattern_source() -> word {
+    pilot src = ""
+    src = src + "route Payload "
+    src = src + "{"
+    src = src + "\n Data "
+    src = src + "{"
+    src = src + " x: word, y: word "
+    src = src + "}"
+    src = src + "\n Closed\n"
+    src = src + "}"
+    src = src + "\ntask pair_case(pair: (word, word)) -> int "
+    src = src + "{"
+    src = src + "\n when pair "
+    src = src + "{"
+    src = src + "\n (\",\", \""
+    src = src + "}"
+    src = src + "\") -> give back 1\n _ -> give back 0\n "
+    src = src + "}"
+    src = src + "\n"
+    src = src + "}"
+    src = src + "\ntask row_case(row: [word; 2]) -> int "
+    src = src + "{"
+    src = src + "\n when row "
+    src = src + "{"
+    src = src + "\n [\"else\", \"and\"] -> give back 2\n _ -> give back 0\n "
+    src = src + "}"
+    src = src + "\n"
+    src = src + "}"
+    src = src + "\ntask route_case(item: Payload) -> int "
+    src = src + "{"
+    src = src + "\n when item "
+    src = src + "{"
+    src = src + "\n Payload::Data "
+    src = src + "{"
+    src = src + " x: \",\", y: \""
+    src = src + "}"
+    src = src + "\" "
+    src = src + "}"
+    src = src + " -> give back 3\n _ -> give back 0\n "
+    src = src + "}"
+    src = src + "\n"
+    src = src + "}"
+    src = src + "\ntask word_case(value: word) -> int "
+    src = src + "{"
+    src = src + "\n when value "
+    src = src + "{"
+    src = src + "\n \"nobody\" -> give back 4\n \"or\" -> give back 5\n _ -> give back 0\n "
+    src = src + "}"
+    src = src + "\n"
+    src = src + "}"
+    src = src + "\ntask escaped_case(pair: (word, word)) -> int "
+    src = src + "{"
+    src = src + "\n when pair "
+    src = src + "{"
+    src = src + "\n (\"\\\""
+    src = src + "}"
+    src = src + ",\", \"else\") -> give back 6\n _ -> give back 0\n "
+    src = src + "}"
+    src = src + "\n"
+    src = src + "}"
+    src = src + "\n"
+    give back src
+}
+
+task h6_pattern_word_count(mir_id: int, name: word, expected: int) -> bool {
+    pilot body_id = v4_mir_lookup_body_name(mir_id, name)
+    pilot count = 0
+    pilot value_id = 0
+    repeat until value_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_kind(mir_id, body_id, value_id) == v4_mir_rvalue_const_word { count += 1 }
+        value_id += 1
+    }
+    give back count == expected
+}
+task h6_pattern_run() -> void {
+    pilot h6_pattern_stream = v4_lex_text(0, h6_pattern_source())
+    pilot h6_pattern_tree = v4_parse_stream(0, h6_pattern_stream)
+    pilot h6_pattern_hir = v4_hir_lower_tree(0, h6_pattern_tree)
+    pilot h6_pattern_resolve = v4_resolve_lower_hir(0, h6_pattern_hir)
+    pilot h6_pattern_ty = v4_ty_lower_resolve(0, h6_pattern_resolve)
+    pilot h6_pattern_mir = v4_mir_lower_ty(0, h6_pattern_ty)
+    say "h6-pattern diagnostics=" + word_from_int(v4_lex_diag_count(h6_pattern_stream) + v4_parse_diag_count(h6_pattern_tree) + v4_hir_diag_count(h6_pattern_hir) + v4_resolve_diag_count(h6_pattern_resolve) + v4_ty_diag_count(h6_pattern_ty) + v4_mir_diag_count(h6_pattern_mir))
+    say "h6-pattern semantic=" + word_from_bool(h6_pattern_word_count(h6_pattern_mir, "pair_case", 2) and h6_pattern_word_count(h6_pattern_mir, "row_case", 2) and h6_pattern_word_count(h6_pattern_mir, "route_case", 2) and h6_pattern_word_count(h6_pattern_mir, "word_case", 2) and h6_pattern_word_count(h6_pattern_mir, "escaped_case", 2))
+    pilot h6_pattern_tuple = ""
+    h6_pattern_tuple = h6_pattern_tuple + "(\"a,b\", \""
+    h6_pattern_tuple = h6_pattern_tuple + "}"
+    h6_pattern_tuple = h6_pattern_tuple + "\")"
+    pilot h6_pattern_row = ""
+    h6_pattern_row = h6_pattern_row + "[\""
+    h6_pattern_row = h6_pattern_row + "{"
+    h6_pattern_row = h6_pattern_row + "\", \""
+    h6_pattern_row = h6_pattern_row + "}"
+    h6_pattern_row = h6_pattern_row + "\", \"else\"]"
+    pilot h6_pattern_fields = ""
+    h6_pattern_fields = h6_pattern_fields + "Payload "
+    h6_pattern_fields = h6_pattern_fields + "{"
+    h6_pattern_fields = h6_pattern_fields + " x: \",\", y: \""
+    h6_pattern_fields = h6_pattern_fields + "}"
+    h6_pattern_fields = h6_pattern_fields + "\" "
+    h6_pattern_fields = h6_pattern_fields + "}"
+    pilot h6_pattern_escaped = ""
+    h6_pattern_escaped = h6_pattern_escaped + "(\"\\\""
+    h6_pattern_escaped = h6_pattern_escaped + "}"
+    h6_pattern_escaped = h6_pattern_escaped + ",\", \"else\")"
+    pilot h6_pattern_chars = ""
+    h6_pattern_chars = h6_pattern_chars + "('(', ')', '"
+    h6_pattern_chars = h6_pattern_chars + "{"
+    h6_pattern_chars = h6_pattern_chars + "', '"
+    h6_pattern_chars = h6_pattern_chars + "}"
+    h6_pattern_chars = h6_pattern_chars + "')"
+    pilot h6_pattern_nested = ""
+    h6_pattern_nested = h6_pattern_nested + "(['(', ')'], \"else\")"
+    say "h6-pattern tuple=" + word_from_bool(v4_mir_tuple_pattern_slot_count(h6_pattern_tuple) == 2 and v4_mir_tuple_pattern_slot(h6_pattern_tuple, 0) == "\"a,b\"" and v4_mir_tuple_pattern_slot(h6_pattern_tuple, 1) == "\"}\"") + " bracket=" + word_from_bool(v4_mir_bracket_pattern_slot_count(h6_pattern_row) == 3 and v4_mir_bracket_pattern_slot(h6_pattern_row, 2) == "\"else\"")
+    say "h6-pattern fields=" + word_from_bool(v4_mir_named_brace_pattern_field_count(h6_pattern_fields) == 2 and v4_mir_named_brace_field_name(v4_mir_named_brace_pattern_field(h6_pattern_fields, 0)) == "x" and v4_mir_named_brace_field_pattern(v4_mir_named_brace_pattern_field(h6_pattern_fields, 1)) == "\"}\"") + " escaped=" + word_from_bool(v4_mir_tuple_pattern_slot_count(h6_pattern_escaped) == 2 and v4_mir_tuple_pattern_slot(h6_pattern_escaped, 1) == "\"else\"")
+    say "h6-pattern scopes=" + word_from_bool(v4_mir_pattern_scope_separator("\"Fake::Case\"") == -1 and v4_mir_pattern_scope_separator("Route::Case") == 5)
+    say "h6-pattern chars=" + word_from_bool(v4_mir_tuple_pattern_slot_count(h6_pattern_chars) == 4) + " nested=" + word_from_bool(v4_mir_tuple_pattern_slot_count(h6_pattern_nested) == 2 and v4_mir_bracket_pattern_slot_count(v4_mir_tuple_pattern_slot(h6_pattern_nested, 0)) == 2)
+    pilot h6_pattern_word_body = v4_mir_lookup_body_name(h6_pattern_mir, "word_case")
+    pilot h6_pattern_exact = true
+    pilot h6_pattern_word_counted = 0
+    pilot h6_pattern_value = 0
+    repeat until h6_pattern_value >= v4_mir_body_rvalue_count(h6_pattern_mir, h6_pattern_word_body) {
+        if v4_mir_rvalue_kind(h6_pattern_mir, h6_pattern_word_body, h6_pattern_value) == v4_mir_rvalue_const_word {
+            pilot data = v4_mir_rvalue_text(h6_pattern_mir, h6_pattern_word_body, h6_pattern_value)
+            h6_pattern_exact = h6_pattern_exact and (data == "nobody" or data == "or")
+            h6_pattern_word_counted += 1
+        }
+        h6_pattern_value += 1
+    }
+    say "h6-pattern keyword-data=" + word_from_bool(h6_pattern_exact and h6_pattern_word_counted == 2 and v4_mir_body_local_count(h6_pattern_mir, h6_pattern_word_body) == 2 and v4_mir_local_name(h6_pattern_mir, h6_pattern_word_body, 0) == "value" and v4_mir_local_name(h6_pattern_mir, h6_pattern_word_body, 1) == "_when_subject" and v4_mir_find_local(h6_pattern_mir, h6_pattern_word_body, "nobody") == -1 and v4_mir_find_local(h6_pattern_mir, h6_pattern_word_body, "or") == -1)
+}
+
+h6_pattern_run()

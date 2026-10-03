@@ -1,0 +1,223 @@
+-- Canonical boolean semantic facts retain source statement spelling.
+task h6_bool_source() -> word {
+    pilot src = ""
+    src = src + "task pass(flag: bool) -> bool "
+    src = src + "{"
+    src = src + " give back flag "
+    src = src + "}"
+    src = src + "\ntask value0() -> bool "
+    src = src + "{"
+    src = src + " give back yes "
+    src = src + "}"
+    src = src + "\ntask value1() -> bool "
+    src = src + "{"
+    src = src + " give back YES "
+    src = src + "}"
+    src = src + "\ntask value2() -> bool "
+    src = src + "{"
+    src = src + " give back Yes "
+    src = src + "}"
+    src = src + "\ntask value3() -> bool "
+    src = src + "{"
+    src = src + " give back no "
+    src = src + "}"
+    src = src + "\ntask value4() -> bool "
+    src = src + "{"
+    src = src + " give back NO "
+    src = src + "}"
+    src = src + "\ntask value5() -> bool "
+    src = src + "{"
+    src = src + " give back No "
+    src = src + "}"
+    src = src + "\ntask value6() -> bool "
+    src = src + "{"
+    src = src + " give back hai "
+    src = src + "}"
+    src = src + "\ntask value7() -> bool "
+    src = src + "{"
+    src = src + " give back HAI "
+    src = src + "}"
+    src = src + "\ntask value8() -> bool "
+    src = src + "{"
+    src = src + " give back Hai "
+    src = src + "}"
+    src = src + "\ntask value9() -> bool "
+    src = src + "{"
+    src = src + " give back iie "
+    src = src + "}"
+    src = src + "\ntask value10() -> bool "
+    src = src + "{"
+    src = src + " give back IIE "
+    src = src + "}"
+    src = src + "\ntask value11() -> bool "
+    src = src + "{"
+    src = src + " give back Iie "
+    src = src + "}"
+    src = src + "\ntask value12() -> bool "
+    src = src + "{"
+    src = src + " give back true "
+    src = src + "}"
+    src = src + "\ntask value13() -> bool "
+    src = src + "{"
+    src = src + " give back TRUE "
+    src = src + "}"
+    src = src + "\ntask value14() -> bool "
+    src = src + "{"
+    src = src + " give back True "
+    src = src + "}"
+    src = src + "\ntask value15() -> bool "
+    src = src + "{"
+    src = src + " give back false "
+    src = src + "}"
+    src = src + "\ntask value16() -> bool "
+    src = src + "{"
+    src = src + " give back FALSE "
+    src = src + "}"
+    src = src + "\ntask value17() -> bool "
+    src = src + "{"
+    src = src + " give back False "
+    src = src + "}"
+    src = src + "\ntask contexts() -> int "
+    src = src + "{"
+    src = src + "\npilot flag0 = yes\npass(yes)\nif yes "
+    src = src + "{"
+    src = src + " flag0 = yes "
+    src = src + "}"
+    src = src + "\npilot flag1 = YES\npass(YES)\nif YES "
+    src = src + "{"
+    src = src + " flag1 = YES "
+    src = src + "}"
+    src = src + "\npilot flag2 = Yes\npass(Yes)\nif Yes "
+    src = src + "{"
+    src = src + " flag2 = Yes "
+    src = src + "}"
+    src = src + "\npilot flag3 = no\npass(no)\nif no "
+    src = src + "{"
+    src = src + " flag3 = no "
+    src = src + "}"
+    src = src + "\npilot flag4 = NO\npass(NO)\nif NO "
+    src = src + "{"
+    src = src + " flag4 = NO "
+    src = src + "}"
+    src = src + "\npilot flag5 = No\npass(No)\nif No "
+    src = src + "{"
+    src = src + " flag5 = No "
+    src = src + "}"
+    src = src + "\npilot flag6 = hai\npass(hai)\nif hai "
+    src = src + "{"
+    src = src + " flag6 = hai "
+    src = src + "}"
+    src = src + "\npilot flag7 = HAI\npass(HAI)\nif HAI "
+    src = src + "{"
+    src = src + " flag7 = HAI "
+    src = src + "}"
+    src = src + "\npilot flag8 = Hai\npass(Hai)\nif Hai "
+    src = src + "{"
+    src = src + " flag8 = Hai "
+    src = src + "}"
+    src = src + "\npilot flag9 = iie\npass(iie)\nif iie "
+    src = src + "{"
+    src = src + " flag9 = iie "
+    src = src + "}"
+    src = src + "\npilot flag10 = IIE\npass(IIE)\nif IIE "
+    src = src + "{"
+    src = src + " flag10 = IIE "
+    src = src + "}"
+    src = src + "\npilot flag11 = Iie\npass(Iie)\nif Iie "
+    src = src + "{"
+    src = src + " flag11 = Iie "
+    src = src + "}"
+    src = src + "\npilot flag12 = true\npass(true)\nif true "
+    src = src + "{"
+    src = src + " flag12 = true "
+    src = src + "}"
+    src = src + "\npilot flag13 = TRUE\npass(TRUE)\nif TRUE "
+    src = src + "{"
+    src = src + " flag13 = TRUE "
+    src = src + "}"
+    src = src + "\npilot flag14 = True\npass(True)\nif True "
+    src = src + "{"
+    src = src + " flag14 = True "
+    src = src + "}"
+    src = src + "\npilot flag15 = false\npass(false)\nif false "
+    src = src + "{"
+    src = src + " flag15 = false "
+    src = src + "}"
+    src = src + "\npilot flag16 = FALSE\npass(FALSE)\nif FALSE "
+    src = src + "{"
+    src = src + " flag16 = FALSE "
+    src = src + "}"
+    src = src + "\npilot flag17 = False\npass(False)\nif False "
+    src = src + "{"
+    src = src + " flag17 = False "
+    src = src + "}"
+    src = src + "\ngive back 0\n"
+    src = src + "}"
+    src = src + "\n"
+    give back src
+}
+
+task h6_bool_run() -> void {
+    pilot h6_bool_stream = v4_lex_text(0, h6_bool_source())
+    pilot h6_bool_tree = v4_parse_stream(0, h6_bool_stream)
+    pilot h6_bool_hir = v4_hir_lower_tree(0, h6_bool_tree)
+    pilot h6_bool_resolve = v4_resolve_lower_hir(0, h6_bool_hir)
+    pilot h6_bool_ty = v4_ty_lower_resolve(0, h6_bool_resolve)
+    pilot h6_bool_mir = v4_mir_lower_ty(0, h6_bool_ty)
+    pilot h6_bool_return_ok = true
+    pilot h6_bool_canonical = true
+    pilot h6_bool_count = 0
+    pilot h6_bool_body = 0
+    repeat until h6_bool_body >= v4_mir_body_count(h6_bool_mir) {
+        pilot rvalue_id = 0
+        repeat until rvalue_id >= v4_mir_body_rvalue_count(h6_bool_mir, h6_bool_body) {
+            if v4_mir_rvalue_kind(h6_bool_mir, h6_bool_body, rvalue_id) == v4_mir_rvalue_const_bool {
+                pilot text = v4_mir_rvalue_text(h6_bool_mir, h6_bool_body, rvalue_id)
+                h6_bool_canonical = h6_bool_canonical and (text == "true" or text == "false")
+                h6_bool_count += 1
+            }
+            rvalue_id += 1
+        }
+        h6_bool_body += 1
+    }
+    pilot h6_bool_b0 = v4_mir_lookup_body_name(h6_bool_mir, "value0")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b0, 0) == "true" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b0, 0) == "yes"
+    pilot h6_bool_b1 = v4_mir_lookup_body_name(h6_bool_mir, "value1")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b1, 0) == "true" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b1, 0) == "YES"
+    pilot h6_bool_b2 = v4_mir_lookup_body_name(h6_bool_mir, "value2")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b2, 0) == "true" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b2, 0) == "Yes"
+    pilot h6_bool_b3 = v4_mir_lookup_body_name(h6_bool_mir, "value3")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b3, 0) == "false" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b3, 0) == "no"
+    pilot h6_bool_b4 = v4_mir_lookup_body_name(h6_bool_mir, "value4")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b4, 0) == "false" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b4, 0) == "NO"
+    pilot h6_bool_b5 = v4_mir_lookup_body_name(h6_bool_mir, "value5")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b5, 0) == "false" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b5, 0) == "No"
+    pilot h6_bool_b6 = v4_mir_lookup_body_name(h6_bool_mir, "value6")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b6, 0) == "true" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b6, 0) == "hai"
+    pilot h6_bool_b7 = v4_mir_lookup_body_name(h6_bool_mir, "value7")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b7, 0) == "true" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b7, 0) == "HAI"
+    pilot h6_bool_b8 = v4_mir_lookup_body_name(h6_bool_mir, "value8")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b8, 0) == "true" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b8, 0) == "Hai"
+    pilot h6_bool_b9 = v4_mir_lookup_body_name(h6_bool_mir, "value9")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b9, 0) == "false" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b9, 0) == "iie"
+    pilot h6_bool_b10 = v4_mir_lookup_body_name(h6_bool_mir, "value10")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b10, 0) == "false" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b10, 0) == "IIE"
+    pilot h6_bool_b11 = v4_mir_lookup_body_name(h6_bool_mir, "value11")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b11, 0) == "false" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b11, 0) == "Iie"
+    pilot h6_bool_b12 = v4_mir_lookup_body_name(h6_bool_mir, "value12")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b12, 0) == "true" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b12, 0) == "true"
+    pilot h6_bool_b13 = v4_mir_lookup_body_name(h6_bool_mir, "value13")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b13, 0) == "true" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b13, 0) == "TRUE"
+    pilot h6_bool_b14 = v4_mir_lookup_body_name(h6_bool_mir, "value14")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b14, 0) == "true" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b14, 0) == "True"
+    pilot h6_bool_b15 = v4_mir_lookup_body_name(h6_bool_mir, "value15")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b15, 0) == "false" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b15, 0) == "false"
+    pilot h6_bool_b16 = v4_mir_lookup_body_name(h6_bool_mir, "value16")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b16, 0) == "false" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b16, 0) == "FALSE"
+    pilot h6_bool_b17 = v4_mir_lookup_body_name(h6_bool_mir, "value17")
+    h6_bool_return_ok = h6_bool_return_ok and v4_mir_rvalue_text(h6_bool_mir, h6_bool_b17, 0) == "false" and v4_mir_stmt_rhs(h6_bool_mir, h6_bool_b17, 0) == "False"
+    say "h6-bool returns=" + word_from_bool(h6_bool_return_ok) + " canonical=" + word_from_bool(h6_bool_canonical and h6_bool_count == 90) + " diagnostics=" + word_from_int(v4_mir_diag_count(h6_bool_mir))
+    say "h6-bool old-facts=" + word_from_bool(v4_mir_bool_literal_value("1") == "true" and v4_mir_bool_literal_value("0") == "false") + " invalid=" + word_from_bool(v4_mir_bool_literal_value("") == "" and v4_mir_bool_literal_value("truthy") == "")
+}
+
+h6_bool_run()

@@ -19,6 +19,207 @@ The **Bootstrap V4** finish line is considered met when all of the following rem
 
 Anything beyond this marker belongs to the next phase: richer language coverage, deeper Meiya borrow analysis, and backend/codegen integration. Do not push those concerns back into `freak_driver` to move faster; that is how the rewrite loop returns.
 
+## Runnable LLVM Scalar Checkpoint
+
+`freak_codegen_llvm` now emits entry-block storage per MIR local identity,
+parameter stores, local loads, initializer/assignment stores, computed branch
+conditions, and complete scalar bodies. Internal LLVM values use dotted names
+so source names cannot collide with block labels or temporaries. Sibling scopes
+with the same local name retain separate storage. `break` and `continue` emit
+their MIR edges, and explicit void returns emit `ret void`.
+
+`v4_codegen_llvm_module_text(codegen_id, target_spec)` assembles a module using
+the validated `freak_target` triple, external declarations, and complete bodies;
+definition headers from declaration-plan metadata are not emitted twice.
+Bodies, literal globals, entry text, and native contract errors are sealed
+together during lowering; a retained codegen handle stays byte identical when
+MIR snapshots restore different facts under reused IDs.
+Counted loops allocate fresh synthetic MIR locals with explicit identities in
+`UseLocal` operations; user names and nesting depth cannot reuse their counters.
+Boolean literals use canonical MIR `true`/`false` values. Codegen also normalizes
+older restored alias spellings. Structural token readers exclude String and
+Char payloads while preserving their raw data for display and literal values.
+Native lowering seals named errors for unsupported rvalues, places and type
+families before assembling bodies, so aggregate syntax cannot escape as invalid
+LLVM. Scalar, raw pointer and task pointer support retains its existing boundary.
+Indirect calls keep their callee separate from arguments, including empty
+argument lists. Local, returned and grouped task pointers evaluate their target
+once; unsupported field callback places receive a native-contract error.
+LLVM global names preserve their source or explicit ABI spelling. Qualified
+names use LLVM quoted identifiers, so `A::b` and `A_b` remain distinct across
+definitions, direct calls, and callback targets, including after MIR restore.
+After lowering ordinary bodies and callback trampolines, Codegen rejects an
+explicit extern ABI declaration that shares their exact LLVM symbol. The named
+error is sealed before module publication and preserves the first native error.
+The collision lookup uses one temporary index with exact comparisons, releases
+it on every path, and falls back to a declaration-order scan without a handle.
+When callbacks add generated definitions, Codegen also rejects repeated body
+symbols in sealed body order. That check retains the same exact comparisons,
+temporary-handle cleanup and allocation-failure fallback.
+Explicit declarations that share a symbol must also share their native
+signature and calling convention; compatible aliases emit one declaration.
+Literal global names share LLVM's symbol namespace with callable names, so an
+extern alias to a generated literal receives a sealed error before publication.
+Native C boundaries admit `c_isize`/`isize`, `c_size`/`usize`, `c_float`,
+`c_double`, `c_void` and supported raw pointers on the four 64-bit targets.
+Other C scalar widths and native C variadics fail by name until B01 lowering
+implements their widths, extension rules and promotions. Raw aliases, nested
+callback signatures, pointer payloads, local annotations and explicit casts
+retain that fence. Pure FREAK scalar types retain their internal representation.
+The guard suite links a real C helper to check signed values and nonzero upper
+32 bits, float widths, pointers, void calls and callbacks in both directions.
+Quoted-name escaping preserves complete UTF-8 bytes and remains exact when
+temporary array handles are exhausted. Native character constants currently
+support printable ASCII and the admitted control escapes, including NUL;
+non-ASCII and unknown escapes receive a named error instead of silently becoming zero.
+This character fence does not change the language's Unicode contract.
+Native module publication checks the selected target's canonical calling
+convention inventory against sealed declarations, calls, body headers, and
+callback trampolines. Unsupported conventions, unknown ABI spellings, or
+inconsistent sealed convention metadata receive named errors before LLVM
+publication. Target queries do not consult restored MIR or TY identities.
+Module and body assembly collect borrowed fragments and join once. Expression
+trees append into one shared fragment buffer, so recursive returns do not copy
+complete child prefixes. The registered 128 MiB resource fixtures cover 800
+four-KiB bodies, a 12,000-statement body, and an expression of depth 2,048.
+Invalid targets or codegen IDs yield an empty module. The bootstrap build tool
+keeps emission in the backend and uses clang to verify emitted IR and link
+native programs for the host:
+
+```sh
+python src/compiler/v4/build_v4.py src/compiler/v4/examples/fib_collatz.fk -o build/v4-demo
+python src/compiler/v4/build_v4.py src/compiler/v4/examples/fib_collatz.fk --emit-llvm -o build/v4-demo.ll
+python src/compiler/v4/check_v4.py --smoke "LLVM module execution"
+```
+
+`--compiler-opt 2` optimizes the bootstrapped compiler for faster compilation;
+levels 0 through 3 are accepted, with 0 as the default. Optimized compilers use
+separate cached artifacts under `build/v4_smoke/compiler_O<level>`. Compiler
+flags participate in cache identity. The executable smoke harness keeps its
+existing optimization settings.
+
+The executable gate compiles the emitted modules with clang and checks results,
+not just LLVM substrings: Fibonacci/Collatz returns 166; storage, sibling scopes,
+loop exits, numeric operations, and short-circuit cases return 42. The latter
+include an aborting RHS, a third call argument, and exact `A`, `B`, `C`, `D`
+line ordering through call arguments and ordinary binary operands. MIR retains
+short-circuit ownership and captures earlier operands before a later CFG split.
+Numeric emission follows TY's common operand type with widening conversions,
+floating comparisons, and unsigned comparison/division/remainder opcodes.
+Resolved return, local/assignment, and fixed call-argument types also determine
+numeric conversions; contextually floating integer literals use floating LLVM
+syntax. MIR snapshots validate and restore before each native program executes,
+with byte-identical module output after restoration. Ordered CFG captures keep
+the original child IDs as leaves and evaluate later clones, preserving the
+snapshot's child-before-parent invariant. Build-tool checks prove warning-only
+programs execute and errors stop before the next lowering stage. Native numeric
+pointer-write coverage also checks truncation to `tiny` and widening on read.
+
+MIR callable accessors now describe ordinary tasks and declared impl bodies.
+TY validates impl method identities; MIR does not reach into HIR to recover
+them. LLVM headers, parameter stores, return types, and fixed argument
+conversions use these accessors. The native gate executes scalar associated
+methods with reordered named arguments and an integer-to-float conversion.
+Ordinary signature lookup stays separate for returned-loan contracts. Impl
+borrowed returns receive an explicit unsupported-contract diagnostic; generic
+facts still describe declared types and do not monomorphize an impl.
+
+This is a partial backend checkpoint. General word values, aggregate layout,
+generic monomorphization, receiver/lend ABI, drops, and compiler-crate
+self-hosting remain open. Runtime root initialization will use an explicit
+bootstrap compatibility mode; normal root scope continues to follow bible
+section 17.4. Cross-target module text is available, but only host linking is
+exercised here; the existing FFI metadata checks are not a complete native ABI
+proof.
+
+Source loading uses the additive bootstrap `fs::read_checked` helper, which
+returns the existing C `result<word,word>` representation. Empty regular files
+succeed; open, metadata, seek, read and close failures return errors before any
+source/query publication. The legacy bootstrap `fs::read` ABI is unchanged.
+Size checks use descriptor metadata (`_fstat64` on Windows), retaining complete
+read and trailing-byte checks without a 32-bit `long` size limit.
+The C bootstrap captures a `check result` expression once for its
+four existing scalar/word result layouts, so its status and selected payload
+come from the same evaluation. This includes direct checked-read calls when a
+file changes during matching. The temporary borrows the result payload and
+adds no allocation or automatic release; general native result ownership and
+other result layouts remain outside this bootstrap slice.
+The command requires a source `main`; public Codegen APIs can still emit library
+modules without one. This helper does not complete bible section 7.7's standard
+filesystem API or add a native word-result ABI.
+Native linking writes LLVM input into a private temporary directory, separate
+from the requested executable path even when it ends in `.ll` or `.LL`.
+`--emit-llvm` writes the module to the requested output path.
+Both output modes reject paths that name the input source, including canonical
+path, symlink, hardlink and filesystem case aliases, before bootstrapping. The
+identity check repeats after compilation before output creation; an identity
+error stops the command. This prevents accidental source replacement without
+claiming atomic protection against concurrent filesystem changes.
+
+Diagnostic snapshot restoration stages a copy of the live diagnostic arena,
+applies the v1 overlay in wire order, and publishes only after every allocation
+and row succeeds. Failed restoration preserves live bytes and releases staged
+arrays. Direct replacements release old children. Checked coordinates reject
+negative/overflowing IDs and bound sparse expansion to 65,536 slots relative to
+current logical sizes or observed payload rows; dense arenas can grow beyond
+that size. Repeated restore and allocation-failure fixtures run under the
+existing 1,024 live-array ceiling and 64 MiB memory guard.
+
+The measured before/after results, crate diagnostics, and remaining handoff
+contracts are tracked in [BACKEND_CHECKPOINT.md](BACKEND_CHECKPOINT.md).
+
+### Literal say (W1)
+
+The native word slice supports `say` of one static string literal:
+
+```freak
+task main() -> int {
+    say "Hello, world!"
+    give back 0
+}
+```
+
+```sh
+python src/compiler/v4/build_v4.py src/compiler/v4/examples/hello_world.fk -o build/hello-world-v4
+./build/hello-world-v4
+```
+
+HIR owns escape validation/decoding through a TY facade. MIR stores the decoded
+bytes in a `ConstWord` argument to the compiler-owned `#SayLiteral` Call, with
+one static borrowed `word` argument and a `void` result. LLVM emits a private
+null-terminated global and passes its pointer as the runtime's private `i64`
+handle. Native entry initializes argc/argv, then calls the renamed source task
+`@freak.user.main`; zero-argument `int` and `void` entries are supported. Source
+calls and callback targets retain the FREAK task ABI. Native linking includes
+both `freak_llvm_runtime.c` and `freak_runtime.c`, as the shipping CLI does.
+Explicit extern ABI symbols retain their exact names, including `main`.
+When a source entry exists, extern declarations colliding with `main` or
+`freak.user.main` receive a named error before module publication. A library
+without a source entry may still declare and call an external `main`.
+This is a fixed bootstrap link command, without new runtime-profile facts.
+Compatible explicit runtime extern declarations (including link-name aliases)
+share the generated declaration; incompatible contracts receive a diagnostic.
+
+The literal slice supports UTF-8 bytes, empty strings, escaped newline/carriage
+return/tab/quote/backslash, and literal malformed or unmatched brace bodies.
+Embedded NUL, unsupported escapes, valid interpolation paths, and nonliteral
+`say` operands receive explicit diagnostics. Module assembly also rejects word
+locals, parameters, returns, and other word rvalues until ownership cleanup
+lands. Existing broader plan-only codegen facts remain available.
+The bootstrap literal decoder returns validated plain bytes directly and joins
+decoded escape output once. If no scratch handle is available, it preserves
+exact decoding through the existing slower concatenation fallback.
+
+The MIR wire vocabulary and version stay unchanged: this uses existing
+`ConstWord` and `Call` records, and escaped text survives restoration. The
+reserved intrinsic's exact shape is validated before restore. The registered
+`literal_say_smoke.fk` and LLVM execution gate cover these boundaries, snapshot
+roundtrip, exact hello-world output, runtime argument setup, and the void entry.
+`codegen_llvm_module_epoch_smoke.fk` covers retained/fresh plans across edited
+MIR restore and native rejection of imported NUL text.
+Word values/drops (W2), persisted interpolation (W3), character-indexed methods
+(W4), and explicit bootstrap root initialization remain separate work.
+
 ## Post-Bootstrap Sequencing
 
 After the bootstrap slice, V4 work advances by dependency strata rather than by
@@ -161,8 +362,8 @@ synthetic-signature canonicalization retain their existing distinct entry points
 Extern-only member boundaries exclude top-level semicolon separators, including
 multiple declarations on one line. Semicolons inside nested type forms and quoted
 semicolon/bracket tokens do not split members; ordinary task parsing is unchanged.
-Quoted braces still use the existing value-based body recovery and can truncate
-or leave an extern block unclosed; that recovery limitation is not promoted.
+Quoted braces, arrows and keywords remain literal data during member and body
+scans; real declaration punctuation retains its recovery behavior.
 Callback-parameter arrow recovery outside open generic type syntax preserves
 following member boundaries after comparisons. Arrows inside open generic types
 retain conservative declaration recovery. Legacy nested-callback return
@@ -513,6 +714,18 @@ freak_span -> freak_diag -> freak_macro_api -> freak_arena -> freak_intern -> fr
 
 The boundary shape follows the architecture manifesto even though the initial code uses simple arrays and encoded words. That is deliberate: the first goal is to make the 00-Unit data model executable before replacing the internals with richer shapes, arenas, and persistent caches.
 
+Token-boundary lookup uses a lexer-owned derived index of decoded start/end
+offsets. Each column records its ordering during token construction, so ordinary
+streams use binary search while unordered or malformed restored spans preserve
+the first matching token in original order. Parser queries retain `end > offset`;
+HIR, TY, and MIR construction retain `start >= offset`, including trivia and
+zero-width EOF. Missing index storage falls back to the original span query.
+Append and stream-slot restore maintain the index; restore releases the replaced
+index array. It is derived storage, not an additional snapshot field or a new
+TY/MIR token-facing dependency. `token_boundary_index_smoke.fk` compares both
+contracts against their original linear queries over live, empty, malformed,
+unordered, restored, appended, and reused streams.
+
 `freak_target` is the host-independent authority for the four current release
 target identities and their canonical metadata: architecture, OS/environment,
 pointer width, endianness, C data model, object format, symbolic link/entry
@@ -621,11 +834,11 @@ slots fail validation before restore; wire order may place children before
 owners. Local annotations use the same physical index with bounded owner/item
 metadata and dense per-owner annotation slots; parent span bounds are decoded
 once rather than reparsed for every annotation. File-slot reset owns and reuses
-all thirty-nine child arrays, including the two derived semantic lookup indexes
+all forty-one child arrays, including the four derived semantic lookup indexes
 and three shape-field storage arrays, one packed Const-fact array, three
 packed route declaration arrays, and two packed extern-return arrays.
-Cold initialization owns 41 outer handles;
-each new file owns 39 child handles, and both failure cleanup and slot reuse
+Cold initialization owns 44 outer handles;
+each new file owns 41 child handles, and both failure cleanup and slot reuse
 cover the complete set. The wire
 format is v10: semantic lookup
 indexes are rebuilt from validated stored facts,
@@ -635,6 +848,66 @@ declaration-start lookup in logarithmic work, while ordinal/count and task-retur
 lookups use direct item indexes. Construction helpers invalidate indexes;
 completed lowering and whole-snapshot restoration finalize them before exposing
 semantic queries. Lookup paths do not rebuild indexes or reconstruct syntax.
+Task-parameter owner and `(item, ordinal)` lookups use stable sorted physical
+record IDs and lower-bound search, preserving the first physical duplicate.
+Partial construction and direct slot mutation retain linear first-match lookup
+until finalization; parameters remain visible before their owner record exists.
+HIR also retains ascending physical Impl candidates. A file with no Impl items
+answers a completed candidate walk without inspecting ordinary items. MIR's
+method and operator searches consume that walk through TY and preserve the
+existing doctrine, target, instance and first-method predicates; numeric types
+can still match user impls. This index occupies one packed child per HIR file.
+TY retains one derived hash table per file for signature names, kind families,
+the combined type family, and definition identities. Exact stored keys and
+ascending physical IDs preserve first-match behavior across duplicate kinds.
+Owner creation and ordinary appends maintain ready tables; direct slot
+overwrites invalidate them, and complete lowering/restoration rebuilds from
+active rows. Lookups read ready tables or fall back to authoritative linear
+facts. Explicit owner finalization can recover after handle pressure clears.
+Retained capacity never
+adds inactive signatures to the lookup result or snapshot vocabulary.
+Resolve retains one packed array containing name and name/kind hash tables.
+Appends preserve the first physical symbol and update the tables incrementally.
+Direct row restores invalidate them; complete loose-v1 restoration rebuilds
+from final stored slots, including reordered, repeated and sparse rows.
+Exact-key comparisons handle collisions, and unavailable index storage retains
+linear lookup. Both name indexes remain derived and absent from snapshots.
+The token-facing Impl compatibility boundary additionally uses a TY-owned
+packed cache per observed HIR file: item start/end tokens and ordered Impl
+method start/end tokens and ascending physical IDs for qualified Impl owners.
+Its logical size is `9 + 6I + 2M + Q` cells for I items, M methods and Q
+qualified Impl owners, with one retained child and no scratch handles.
+Doctrine-method lookup walks this qualified list while retaining the existing
+doctrine, owner and method matching rules. Publication
+captures HIR, Parse and Lex owner revisions plus tree/stream identities;
+same-size edits and restored/reused owners make reads cold until explicit
+publication. Supported raw token/node edits call `v4_lex_note_stream_mutation`
+or `v4_parse_note_tree_mutation`; token edits discard Lex offsets, which can
+be republished with `v4_lex_rebuild_boundaries`. An unavailable revision array
+keeps TY cold while Lex's original span scanner remains correct. These epochs
+and token caches add no snapshot fields and do not persist method semantics.
+MIR retains independent body-definition and body-name hash tables in one
+file-local packed child (`3 + 2C` cells for bucket capacity C), plus two packed
+children per body for block summaries and physical statement links. Definition
+and name matches each retain the first physical body; literal `say` variadic
+promotion also uses the name index for its common miss. Construction
+maintains counts/links during live lowering; direct restores invalidate them,
+and complete restoration republishes them. First return/condition ordering
+and cold scans remain unchanged. Added costs are three global registries,
+three file children and two body children, with no per-block handles.
+Meiya retains one packed statement-to-path table per result, after its four
+authoritative path columns, and one registry child per file. Numeric keys
+include negative and sparse statement IDs; allocation follows observed path
+count. Appends maintain physical path order, direct restores stay cold, and
+whole restoration rebuilds. The block consumers use MIR's first/next walk.
+Mutable exclusivity first inspects actual path kinds once. Files without
+`Loan`/`LoanMut` rows skip write-by-path comparisons; stored loan summaries
+cannot justify that shortcut. Loan-bearing comparisons and diagnostic order
+retain their existing behavior.
+These lookup readers never allocate or publish derived indexes, and derived
+replacement children are released. Existing authoritative MIR/Meiya restore
+storage retains its separate lifetime policy; bounded derived storage does
+not imply bounded repeated whole-component restoration.
 The annotation and return records require their exact field widths, and
 duplicate annotation declaration starts within one file/item are rejected
 before restoration. Capacity preflight preserves live facts when the extra

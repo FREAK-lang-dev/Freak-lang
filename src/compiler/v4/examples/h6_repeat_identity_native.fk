@@ -1,0 +1,41 @@
+task depth3() -> int {
+    pilot hits = 0
+    repeat 2 times { repeat 3 times { repeat 4 times { hits += 1 } } }
+    give back hits
+}
+task depth4() -> int {
+    pilot hits = 0
+    repeat 2 times { repeat 2 times { repeat 2 times { repeat 2 times { hits += 1 } } } }
+    give back hits
+}
+task depth5() -> int {
+    pilot hits = 0
+    repeat 2 times { repeat 2 times { repeat 2 times { repeat 2 times { repeat 2 times { hits += 1 } } } } }
+    give back hits
+}
+task siblings() -> int {
+    pilot hits = 0
+    repeat 2 times { hits += 1 }
+    repeat 3 times { hits += 1 }
+    give back hits
+}
+task flow() -> int {
+    pilot _repeat_i = 40
+    pilot _repeat_i2 = 2
+    pilot hits = 0
+    repeat 3 times {
+        repeat 4 times { hits += 1
+            continue }
+        repeat 5 times { hits += 1
+            break }
+    }
+    give back _repeat_i + _repeat_i2 + hits
+}
+task main() -> int {
+    if depth3() != 24 { give back 1 }
+    if depth4() != 16 { give back 2 }
+    if depth5() != 32 { give back 3 }
+    if siblings() != 5 { give back 4 }
+    if flow() != 57 { give back 5 }
+    give back 42
+}

@@ -1,0 +1,146 @@
+-- Literal payload remains data in every frontend structural scan.
+-- Verification prepends the V4 crates before this file.
+
+task v4_h6_grammar_find_item(hir: int, name: word) -> int {
+    pilot idx = 0
+    repeat until idx >= v4_hir_item_count(hir) {
+        if v4_hir_item_name(hir, idx) == name { give back idx }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
+task v4_h6_grammar_const_type(ty: int, resolved: int, name: word) -> word {
+    pilot def = v4_resolve_def_for_name(resolved, name)
+    give back v4_ty_const_value_type_for_sig(ty, v4_ty_lookup_signature(ty, def))
+}
+
+task v4_h6_grammar_source() -> word {
+    pilot src = "fixed pilot LITERALS: List<word> = [\",\", \"tail\"]\n"
+    src = src + "fixed pilot PAIR: (word, word) = (\"a,b\", \"" + "}" + "\")\n"
+    src = src + "fixed pilot TOKEN: char = '" + "}" + "'\n"
+    src = src + "shape Cell " + "{" + "\n value: word\n" + "}" + "\n"
+    src = src + "fixed pilot CELL: Cell = Cell " + "{" + " value: \",\" " + "}" + "\n"
+    src = src + "impl Cell " + "{" + "\n"
+    src = src + " task first(self) -> word " + "{" + " give back \"" + "}" + "\" " + "}" + "\n"
+    src = src + " task second(self) -> word " + "{" + " give back \"task\" " + "}" + "\n"
+    src = src + " task third(self) -> word " + "{" + " give back \"done\" " + "}" + "\n"
+    src = src + " task fourth(self) -> word " + "{" + " give back \"(\" " + "}" + "\n" + "}" + "\n"
+    src = src + "task closures() " + "{" + "\n"
+    src = src + " pilot right = | | " + "{" + " give back \"" + "}" + "\" " + "}" + "\n"
+    src = src + " pilot words = | | " + "{" + "\n  \"give\"\n  \"back\"\n  3\n  give back \")\"\n " + "}" + "\n" + "}" + "\n"
+    src = src + "task main() -> int " + "{" + " give back 0 " + "}" + "\n"
+    give back src
+}
+
+task v4_h6_grammar_run() -> void {
+    pilot cold: bool = v4_lex_token_syntax_value(0, 0) == "" and v4_lex_token_syntax_value(0 - 1, 0) == "" and v4_lex_token_syntax_value(999999, 0) == "" and v4_lex_ready == 0
+    say "h6-grammar-cold-readonly=" + word_from_bool(cold)
+
+    pilot data = "\",\", \"(\", \")\", \"[\", \"]\", \"" + "{" + "\", \"" + "}" + "\", \"give\", \"back\", \"if\", \"task\", \"done\", \",tail\", ')', '" + "}" + "'"
+    pilot paren = v4_lex_text(0, "(" + data + ")")
+    pilot square = v4_lex_text(0, "[" + data + "]")
+    pilot brace = v4_lex_text(0, "{" + data + "}")
+    pilot angle = v4_lex_text(0, "<" + data + ">")
+    pilot end = v4_lex_token_count(paren) - 2
+    pilot projection = true
+    pilot literals = 0
+    pilot idx = 0
+    repeat until idx >= v4_lex_token_count(paren) {
+        pilot kind = v4_lex_token_type(paren, idx)
+        if kind == v4_tok_string or kind == v4_tok_char {
+            literals += 1
+            if v4_lex_token_syntax_value(paren, idx) != "" or v4_lex_token_value(paren, idx) == "" { projection = false }
+        } else if kind == v4_tok_trivia or kind == v4_tok_eof {
+            if v4_lex_token_syntax_value(paren, idx) != "" { projection = false }
+        } else if v4_lex_token_syntax_value(paren, idx) != v4_lex_token_value(paren, idx) {
+            projection = false
+        }
+        idx += 1
+    }
+    say "h6-grammar-literal-projection=" + word_from_bool(projection and literals == 15 and v4_lex_token_syntax_value(paren, 0 - 1) == "" and v4_lex_token_syntax_value(paren, 999999) == "")
+    pilot matched: bool = v4_ty_find_matching_paren(paren, 0, end + 1) == end and v4_ty_find_matching_square(square, 0, end + 1) == end and v4_ty_find_matching_brace(brace, 0, end + 1) == end and v4_ty_find_matching_angle(angle, 0, end + 1) == end
+    pilot parse_matched: bool = v4_parse_find_matching_token(paren, 0, end + 1, "(", ")") == end and v4_parse_find_matching_token(square, 0, end + 1, "[", "]") == end
+    pilot no_keywords: bool = v4_parse_find_token_value(paren, 0, end + 1, "give") == 0 - 1 and v4_ty_find_token_value(paren, 0, end + 1, "task") == 0 - 1 and v4_ty_find_top_level_token(paren, 1, end, "if") == 0 - 1
+    pilot list = v4_lex_text(0, "[\",\", \"tail\"]")
+    pilot list_end = v4_lex_token_count(list) - 2
+    pilot call = v4_lex_text(0, "two(\",\", \")\")")
+    pilot call_end = v4_lex_token_count(call) - 2
+    pilot call_open = v4_ty_find_token_value(call, 0, call_end, "(")
+    pilot split = v4_ty_find_top_level_token(list, 1, list_end, ",")
+    pilot split_data: bool = split > 1 and v4_lex_token_type(list, split) == v4_tok_symbol and v4_lex_token_value(list, v4_ty_skip_trivia(list, split + 1)) == "tail"
+    say "h6-grammar-delimiters-and-arity=" + word_from_bool(matched and parse_matched and no_keywords and v4_ty_param_count_from_tokens(paren, 0, end) == 15 and v4_ty_param_count_from_tokens(list, 0, list_end) == 2 and v4_ty_find_matching_paren(call, call_open, call_end + 1) == call_end and v4_ty_param_count_from_tokens(call, call_open, call_end) == 2 and split_data)
+
+    pilot source = v4_h6_grammar_source()
+    pilot file = v4_source_add("h6-grammar.fk", source)
+    pilot stream = v4_lex_text(file, source)
+    pilot tree = v4_parse_stream(file, stream)
+    pilot hir = v4_hir_lower_tree(file, tree)
+    pilot resolved = v4_resolve_lower_hir(file, hir)
+    pilot ty = v4_ty_lower_resolve(file, resolved)
+    pilot clean: bool = v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_ty_diag_count(ty) == 0
+    pilot const_types: bool = v4_h6_grammar_const_type(ty, resolved, "LITERALS") == "List<word>" and v4_h6_grammar_const_type(ty, resolved, "PAIR") == "(word,word)" and v4_h6_grammar_const_type(ty, resolved, "TOKEN") == "char" and v4_h6_grammar_const_type(ty, resolved, "CELL") == "Cell"
+    say "h6-grammar-constant-literal-types=" + word_from_bool(clean and const_types)
+    pilot owner = 0
+    repeat until owner >= v4_hir_item_count(hir) or v4_hir_item_kind(hir, owner) == v4_hir_impl { owner += 1 }
+    pilot scans = v4_ty_impl_method_cold_scans
+    pilot builds = v4_ty_item_method_cache_builds
+    pilot warm = true
+    idx = 0
+    repeat until idx >= 64 {
+        if v4_ty_impl_method_count(ty, owner) != 4 or v4_ty_impl_method_name(ty, owner, 0) != "first" or v4_ty_impl_method_name(ty, owner, 3) != "fourth" { warm = false }
+        idx += 1
+    }
+    pilot last = v4_ty_impl_method_end_token(ty, owner, 3)
+    pilot warm_only: bool = warm and v4_ty_impl_method_cold_scans == scans and v4_ty_item_method_cache_builds == builds
+    v4_lex_note_stream_mutation(stream)
+    pilot cold_methods: bool = not v4_ty_item_method_cache_is_ready(hir) and v4_ty_impl_method_count(ty, owner) == 4 and v4_ty_impl_method_end_token(ty, owner, 3) == last
+    pilot rebuilt: bool = v4_ty_item_method_cache_finalize(ty)
+    say "h6-grammar-method-cache-equivalence=" + word_from_bool(warm_only and cold_methods and rebuilt and v4_ty_impl_method_count(ty, owner) == 4)
+    pilot closures = v4_h6_grammar_find_item(hir, "closures")
+    pilot closure_types: bool = v4_hir_closure_count(hir, closures) == 2 and v4_ty_closure_return_type(v4_ty_closure_type_at(ty, closures, 0)) == "word" and v4_ty_closure_return_type(v4_ty_closure_type_at(ty, closures, 1)) == "word"
+    say "h6-grammar-closure-keyword-data=" + word_from_bool(closure_types)
+
+    pilot snapshot = v4_lex_snapshot()
+    pilot restored = v4_lex_snapshot_restore(snapshot)
+    pilot preserved: bool = restored.starts_with("lex-snapshot-restore ok=1") and v4_lex_snapshot() == snapshot and v4_lex_token_value(paren, 1) == "," and v4_lex_token_syntax_value(paren, 1) == ""
+    pilot display_kept: bool = v4_parse_text(list, 1, list_end) == ",,tail" and v4_ty_type_text(list, 1, list_end) == ",,tail"
+    say "h6-grammar-restore-and-display=" + word_from_bool(preserved and display_kept and v4_ty_impl_method_count(ty, owner) == 4)
+}
+
+task v4_h6_literal_decode_run() -> void {
+    pilot raw_parts = array_new()
+    pilot expected_parts = array_new()
+    pilot slash = "\\"
+    pilot segment = "x" + slash + "n"
+    pilot idx = 0
+    repeat until idx >= 8192 {
+        array_push(raw_parts, segment)
+        array_push(expected_parts, "x\n")
+        idx += 1
+    }
+    pilot raw = word_join(raw_parts)
+    pilot expected = word_join(expected_parts)
+    -- The fixture retains its 64 MiB limit; per-byte concatenation exceeds it.
+    pilot bounded: bool = expected.length() == 16384 and v4_hir_word_literal_value(raw) == expected and v4_hir_word_literal_value("plain") == "plain" and v4_hir_word_literal_value("") == ""
+    pilot holders = array_new()
+    pilot exhausted = false
+    repeat until exhausted or array_len(holders) >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)) }
+    }
+    pilot short_raw = "a" + slash + "n" + slash + "t" + slash + "r" + slash + "\"" + slash + slash
+    pilot short_expected = "a\n\t\r\"\\"
+    exhausted = exhausted and v4_hir_word_literal_value(short_raw) == short_expected and v4_hir_word_literal_value(slash + "q") == "" and array_new() < 0
+    idx = 0
+    repeat until idx >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, idx)))
+        idx += 1
+    }
+    array_release(holders)
+    pilot recovered: bool = v4_hir_word_literal_value(short_raw) == short_expected
+    say "h6-grammar-literal-decode bounded=" + word_from_bool(bounded) + " exhausted=" + word_from_bool(exhausted) + " recovered=" + word_from_bool(recovered)
+}
+
+v4_h6_grammar_run()
+v4_h6_literal_decode_run()

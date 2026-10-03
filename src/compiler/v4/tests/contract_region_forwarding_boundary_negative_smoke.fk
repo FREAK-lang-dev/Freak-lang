@@ -163,6 +163,9 @@ task v4_contract_region_forwarding_boundary_emit(prefix: word, borrow_id: int, t
     say prefix + "-ty-diagnostics=" + word_from_int(ty_count)
     say prefix + "-mir-diagnostics=" + word_from_int(mir_count)
     say prefix + "-borrow-diagnostics=" + word_from_int(borrow_count)
+    if prefix == "contract-region-forwarding-method" or prefix == "contract-region-forwarding-dynamic" {
+        say prefix + "-impl-return-unsupported=" + word_from_int(v4_contract_region_forwarding_boundary_borrow_diag_count(borrow_id, "Meiya cannot prove an impl method borrowed return yet"))
+    }
     say prefix + "-status=" + status
     say prefix + "-invocation-diagnostic-count=" + word_from_int(invocation_diagnostic_count)
     say prefix + "-invocation-message=" + invocation_message
@@ -204,7 +207,7 @@ task v4_contract_region_forwarding_boundary_emit(prefix: word, borrow_id: int, t
 }
 
 pilot v4_contract_region_forwarding_boundary_unproven_message = "Meiya cannot establish the origin of this returned loan"
-pilot v4_contract_region_forwarding_boundary_callback_message = "call target is not callable"
+pilot v4_contract_region_forwarding_boundary_callback_message = "Meiya cannot establish the origin of this returned loan"
 pilot v4_contract_region_forwarding_boundary_ffi_message = "Meiya cannot forward borrowed values through an FFI callback yet"
 
 pilot v4_contract_region_forwarding_boundary_method_borrow = v4_borrowck_text_cached("contract-region-forwarding-method.fk", v4_contract_region_forwarding_boundary_method_source())
@@ -214,7 +217,7 @@ pilot v4_contract_region_forwarding_boundary_dynamic_borrow = v4_borrowck_text_c
 v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-dynamic", v4_contract_region_forwarding_boundary_dynamic_borrow, "dynamic_forward", "borrowck", v4_contract_region_forwarding_boundary_unproven_message)
 
 pilot v4_contract_region_forwarding_boundary_callback_borrow = v4_borrowck_text_cached("contract-region-forwarding-callback.fk", v4_contract_region_forwarding_boundary_callback_source())
-v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-callback", v4_contract_region_forwarding_boundary_callback_borrow, "callback_forward", "mir", v4_contract_region_forwarding_boundary_callback_message)
+v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-callback", v4_contract_region_forwarding_boundary_callback_borrow, "callback_forward", "borrowck", v4_contract_region_forwarding_boundary_callback_message)
 
 pilot v4_contract_region_forwarding_boundary_extern_borrow = v4_borrowck_text_cached("contract-region-forwarding-extern.fk", v4_contract_region_forwarding_boundary_extern_source())
 v4_contract_region_forwarding_boundary_emit("contract-region-forwarding-extern", v4_contract_region_forwarding_boundary_extern_borrow, "extern_forward", "borrowck", v4_contract_region_forwarding_boundary_unproven_message)

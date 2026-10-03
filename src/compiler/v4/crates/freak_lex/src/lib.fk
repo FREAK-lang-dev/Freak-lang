@@ -27,6 +27,12 @@ pilot v4_lex_stream_spans = 0
 pilot v4_lex_stream_lines = 0
 pilot v4_lex_stream_cols = 0
 pilot v4_lex_stream_diags = 0
+-- Derived offsets: two ordering flags, then start/end pairs in token order.
+-- Snapshots continue to serialize the original spans, rebuilding this index.
+pilot v4_lex_stream_boundaries = 0
+-- Derived owner epochs are monotonic and never serialized.
+pilot v4_lex_stream_revisions = 0
+pilot v4_lex_revision_clock = 0
 pilot v4_lex_ready = 0
 
 task v4_lex_init() -> void {
@@ -38,6 +44,8 @@ task v4_lex_init() -> void {
         v4_lex_stream_lines = array_new()
         v4_lex_stream_cols = array_new()
         v4_lex_stream_diags = array_new()
+        v4_lex_stream_boundaries = array_new()
+        v4_lex_stream_revisions = array_new()
         v4_lex_ready = 1
     }
 }
@@ -52,7 +60,58 @@ task v4_lex_stream_new(file_id: int) -> int {
     array_push(v4_lex_stream_lines, word_from_int(array_new()))
     array_push(v4_lex_stream_cols, word_from_int(array_new()))
     array_push(v4_lex_stream_diags, word_from_int(array_new()))
+    array_push(v4_lex_stream_boundaries, word_from_int(v4_lex_boundaries_new()))
+    v4_lex_advance_stream_revision(stream_id)
     give back stream_id
+}
+
+-- Readonly even for an invalid/cold owner: this getter never initializes.
+task v4_lex_stream_revision(stream_id: int) -> int {
+    if v4_lex_ready == 0 or stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) or stream_id >= array_len(v4_lex_stream_revisions) {
+        give back 0 - 1
+    }
+    give back word_to_int(array_get(v4_lex_stream_revisions, stream_id))
+}
+
+task v4_lex_advance_stream_revision(stream_id: int) -> void {
+    if v4_lex_ready == 0 or stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) { give back }
+    repeat until array_len(v4_lex_stream_revisions) > stream_id {
+        pilot before = array_len(v4_lex_stream_revisions)
+        array_push(v4_lex_stream_revisions, "-1")
+        if array_len(v4_lex_stream_revisions) != before + 1 { give back }
+    }
+    v4_lex_revision_clock += 1
+    array_set(v4_lex_stream_revisions, stream_id, word_from_int(v4_lex_revision_clock))
+}
+
+-- Raw token-handle edits must finish with this owner mutation hook before any
+-- query. Offset pairs may have changed, so discard the disposable Lex index.
+-- Reads remain correct through the linear fallback until explicit publication.
+task v4_lex_note_stream_mutation(stream_id: int) -> void {
+    -- Authoritative owners remain valid if the optional epoch array exhausted.
+    -- A raw edit must still discard offset pairs in that cold-cache state.
+    if v4_lex_ready == 0 or stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) { give back }
+    v4_lex_advance_stream_revision(stream_id)
+    array_release(v4_lex_boundaries_handle(stream_id))
+    array_set(v4_lex_stream_boundaries, stream_id, "-1")
+}
+
+task v4_lex_rebuild_boundaries(stream_id: int) -> bool {
+    if v4_lex_ready == 0 or stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) { give back false }
+    -- Publication needs a usable registry slot before retaining a new child.
+    -- Optional-index exhaustion must neither leak handles nor report success.
+    if v4_lex_stream_boundaries < 0 or stream_id >= array_len(v4_lex_stream_boundaries) { give back false }
+    array_release(v4_lex_boundaries_handle(stream_id))
+    pilot bounds = v4_lex_boundaries_new()
+    array_set(v4_lex_stream_boundaries, stream_id, word_from_int(bounds))
+    if bounds < 0 or array_len(bounds) != 2 { give back false }
+    pilot token_id = 0
+    pilot count = v4_lex_token_count(stream_id)
+    repeat until token_id >= count {
+        v4_lex_index_token_span(stream_id, v4_lex_token_span(stream_id, token_id))
+        token_id += 1
+    }
+    give back array_len(bounds) == 2 + 2 * count
 }
 
 task v4_lex_types_handle(stream_id: int) -> int {
@@ -77,6 +136,81 @@ task v4_lex_cols_handle(stream_id: int) -> int {
 
 task v4_lex_diags_handle(stream_id: int) -> int {
     give back word_to_int(array_get(v4_lex_stream_diags, stream_id))
+}
+
+task v4_lex_boundaries_new() -> int {
+    pilot bounds = array_new()
+    if bounds >= 0 {
+        array_push(bounds, "1")
+        array_push(bounds, "1")
+    }
+    give back bounds
+}
+
+task v4_lex_boundaries_handle(stream_id: int) -> int {
+    if v4_lex_stream_boundaries < 0 or stream_id < 0 or stream_id >= array_len(v4_lex_stream_boundaries) {
+        give back 0 - 1
+    }
+    give back word_to_int(array_get(v4_lex_stream_boundaries, stream_id))
+}
+
+task v4_lex_index_token_span(stream_id: int, span: word) -> void {
+    pilot bounds = v4_lex_boundaries_handle(stream_id)
+    if bounds < 0 { give back }
+    pilot start = v4_span_start(span)
+    pilot end = v4_span_end(span)
+    pilot count = array_len(bounds)
+    if count > 2 {
+        if start < word_to_int(array_get(bounds, count - 2)) {
+            array_set(bounds, 0, "0")
+        }
+        if end < word_to_int(array_get(bounds, count - 1)) {
+            array_set(bounds, 1, "0")
+        }
+    }
+    array_push(bounds, word_from_int(start))
+    array_push(bounds, word_from_int(end))
+}
+
+-- Preserve start >= offset and end > offset as distinct queries. Ordering is
+-- checked during construction, including restored/malformed spans. Unordered
+-- inputs retain the earliest matching token in original token order.
+task v4_lex_first_boundary(stream_id: int, offset: int, use_end: bool) -> int {
+    if not v4_lex_stream_exists(stream_id) { give back 0 }
+    pilot count = v4_lex_token_count(stream_id)
+    pilot bounds = v4_lex_boundaries_handle(stream_id)
+    pilot column = 0
+    if use_end { column = 1 }
+    pilot indexed = bounds >= 0 and array_len(bounds) == 2 + count * 2
+    pilot ordered = word_to_int(array_get(bounds, column))
+    if indexed and ordered == 1 {
+        pilot low = 0
+        pilot high = count
+        repeat until low >= high {
+            pilot mid = low + (high - low) / 2
+            pilot value = word_to_int(array_get(bounds, 2 + mid * 2 + column))
+            pilot matches = value >= offset
+            if use_end { matches = value > offset }
+            if matches { high = mid } else { low = mid + 1 }
+        }
+        give back low
+    }
+    pilot idx = 0
+    repeat until idx >= count {
+        pilot value = 0
+        if indexed {
+            value = word_to_int(array_get(bounds, 2 + idx * 2 + column))
+        } else if use_end {
+            value = v4_span_end(v4_lex_token_span(stream_id, idx))
+        } else {
+            value = v4_span_start(v4_lex_token_span(stream_id, idx))
+        }
+        pilot matches = value >= offset
+        if use_end { matches = value > offset }
+        if matches { give back idx }
+        idx += 1
+    }
+    give back count
 }
 
 task v4_lex_stream_count() -> int {
@@ -109,6 +243,8 @@ task v4_lex_add_token(stream_id: int, tok_type: word, value: word, span: word, l
     array_push(v4_lex_spans_handle(stream_id), span)
     array_push(v4_lex_lines_handle(stream_id), word_from_int(line_no))
     array_push(v4_lex_cols_handle(stream_id), word_from_int(col_no))
+    v4_lex_index_token_span(stream_id, span)
+    v4_lex_advance_stream_revision(stream_id)
 }
 
 task v4_lex_add_diag(stream_id: int, severity: int, span: word, message: word, help: word) -> void {
@@ -129,6 +265,23 @@ task v4_lex_token_type(stream_id: int, token_id: int) -> word {
 
 task v4_lex_token_value(stream_id: int, token_id: int) -> word {
     give back array_get(v4_lex_values_handle(stream_id), token_id)
+}
+
+-- Grammar readers must not interpret literal payload as punctuation or a
+-- keyword. The raw value remains the authority for literals and display.
+-- This projection reads existing facts only, including for cold/invalid IDs.
+task v4_lex_token_syntax_value(stream_id: int, token_id: int) -> word {
+    if v4_lex_ready == 0 or stream_id < 0 or stream_id >= array_len(v4_lex_stream_files) or token_id < 0 {
+        give back ""
+    }
+    if token_id >= v4_lex_token_count(stream_id) {
+        give back ""
+    }
+    pilot kind = v4_lex_token_type(stream_id, token_id)
+    if kind == v4_tok_string or kind == v4_tok_char or kind == v4_tok_trivia or kind == v4_tok_eof {
+        give back ""
+    }
+    give back v4_lex_token_value(stream_id, token_id)
 }
 
 task v4_lex_token_span(stream_id: int, token_id: int) -> word {
@@ -760,6 +913,7 @@ task v4_lex_restore_stream_slot(stream_id: int, file_id: int) -> int {
         array_push(v4_lex_stream_lines, word_from_int(array_new()))
         array_push(v4_lex_stream_cols, word_from_int(array_new()))
         array_push(v4_lex_stream_diags, word_from_int(array_new()))
+        array_push(v4_lex_stream_boundaries, word_from_int(v4_lex_boundaries_new()))
     }
 
     array_set(v4_lex_stream_files, stream_id, word_from_int(file_id))
@@ -769,6 +923,9 @@ task v4_lex_restore_stream_slot(stream_id: int, file_id: int) -> int {
     array_set(v4_lex_stream_lines, stream_id, word_from_int(array_new()))
     array_set(v4_lex_stream_cols, stream_id, word_from_int(array_new()))
     array_set(v4_lex_stream_diags, stream_id, word_from_int(array_new()))
+    array_release(v4_lex_boundaries_handle(stream_id))
+    array_set(v4_lex_stream_boundaries, stream_id, word_from_int(v4_lex_boundaries_new()))
+    v4_lex_advance_stream_revision(stream_id)
     give back stream_id
 }
 

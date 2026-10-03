@@ -1,0 +1,75 @@
+-- Compare public boundary queries with their original linear semantics.
+task boundary_reference(stream: int, offset: int, use_end: bool) -> int {
+    pilot idx = 0
+    pilot count = v4_lex_token_count(stream)
+    repeat until idx >= count {
+        pilot span = v4_lex_token_span(stream, idx)
+        if use_end {
+            if v4_span_end(span) > offset { give back idx }
+        } else if v4_span_start(span) >= offset {
+            give back idx
+        }
+        idx += 1
+    }
+    give back count
+}
+
+task boundary_matches(stream: int, offset: int) -> bool {
+    pilot start = boundary_reference(stream, offset, false)
+    pilot end = boundary_reference(stream, offset, true)
+    give back v4_hir_first_token_at_or_after(stream, offset) == start and v4_ty_first_token_at_or_after(stream, offset) == start and v4_mir_first_token_at_or_after(stream, offset) == start and v4_parse_first_token_at_or_after(stream, offset) == end
+}
+
+task boundary_all_offsets(stream: int, limit: int) -> bool {
+    pilot offset = 0 - 1
+    repeat until offset > limit {
+        if not boundary_matches(stream, offset) { give back false }
+        offset += 1
+    }
+    give back boundary_matches(stream, 9223372036854775807) and boundary_matches(stream, 0 - 9223372036854775807)
+}
+
+-- Keep mutations and snapshot capture in source order under the bootstrap.
+task boundary_run() -> void {
+    pilot boundary_source = "task f(a: int) -> int {\n"
+    boundary_source = boundary_source + " -- trivia\n give back a\n"
+    boundary_source = boundary_source + "}\n"
+    pilot boundary_live = v4_lex_text(0, boundary_source)
+    say "boundary-live=" + word_from_bool(boundary_all_offsets(boundary_live, boundary_source.length() + 2))
+    pilot boundary_empty = v4_lex_stream_new(1)
+    say "boundary-empty=" + word_from_bool(boundary_all_offsets(boundary_empty, 4))
+
+    -- Start and end ordering are independent. Repeated offsets and malformed spans
+    -- keep their decoded values and original token ordinals.
+    pilot boundary_start_unsorted = v4_lex_stream_new(2)
+    v4_lex_add_token(boundary_start_unsorted, v4_tok_ident, "a", "2@5:6", 1, 1)
+    v4_lex_add_token(boundary_start_unsorted, v4_tok_ident, "b", "2@1:7", 1, 2)
+    v4_lex_add_token(boundary_start_unsorted, v4_tok_eof, "", "2@1:7", 1, 3)
+    say "boundary-unsorted-start=" + word_from_bool(boundary_all_offsets(boundary_start_unsorted, 12))
+    pilot boundary_end_unsorted = v4_lex_stream_new(3)
+    v4_lex_add_token(boundary_end_unsorted, v4_tok_ident, "a", "3@5:9", 1, 1)
+    v4_lex_add_token(boundary_end_unsorted, v4_tok_ident, "b", "3@6:7", 1, 2)
+    say "boundary-unsorted-end=" + word_from_bool(boundary_all_offsets(boundary_end_unsorted, 12))
+    v4_lex_add_token(boundary_end_unsorted, v4_tok_unknown, "?", "malformed", 1, 3)
+    say "boundary-malformed-append=" + word_from_bool(boundary_all_offsets(boundary_end_unsorted, 12))
+
+    pilot boundary_payload = v4_lex_snapshot()
+    pilot boundary_restored = v4_lex_snapshot_restore(boundary_payload)
+    pilot boundary_restore_ok = boundary_restored.starts_with("lex-snapshot-restore ok=1")
+    boundary_restore_ok = boundary_restore_ok and boundary_all_offsets(boundary_live, boundary_source.length() + 2) and boundary_all_offsets(boundary_empty, 4) and boundary_all_offsets(boundary_start_unsorted, 12) and boundary_all_offsets(boundary_end_unsorted, 12)
+    say "boundary-restored=" + word_from_bool(boundary_restore_ok)
+    say "boundary-snapshot-exact=" + word_from_bool(v4_lex_snapshot() == boundary_payload)
+
+    -- Losing a derived index must retain the original query behavior.
+    array_release(v4_lex_boundaries_handle(boundary_live))
+    array_set(v4_lex_stream_boundaries, boundary_live, "-1")
+    say "boundary-no-index=" + word_from_bool(boundary_all_offsets(boundary_live, boundary_source.length() + 2))
+
+    -- A reused stream slot must forget both the old offsets and ordering flags.
+    v4_lex_restore_stream_slot(boundary_end_unsorted, 4)
+    v4_lex_add_token(boundary_end_unsorted, v4_tok_ident, "c", "4@20:21", 1, 1)
+    v4_lex_add_token(boundary_end_unsorted, v4_tok_eof, "", "4@21:21", 1, 2)
+    say "boundary-reused-slot=" + word_from_bool(boundary_all_offsets(boundary_end_unsorted, 25))
+}
+
+boundary_run()

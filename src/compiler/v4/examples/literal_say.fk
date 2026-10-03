@@ -1,0 +1,33 @@
+extern [C] {
+    task freak_llvm_process_args_count() -> std::ffi::c_isize
+    -- Compatible explicit runtime declarations share the generated declaration.
+    task freak_llvm_say(value: std::ffi::c_isize) -> void
+    task freak_llvm_setup_args(argc: std::ffi::c_isize, argv: std::ffi::c_isize) -> void
+    @link_name("freak_llvm_setup_args")
+    task setup_alias(argc: std::ffi::c_isize, argv: std::ffi::c_isize) -> void
+}
+
+task greeting() -> void {
+    say "line1\nline2\t\"quoted\"\\tail"
+    say ""
+    say "literal {1 + 2} and unmatched {"
+    say "UTF-8: café 日本"
+    say "{"
+    say "}"
+    say ";"
+    say "("
+    say ")"
+    say "["
+    say "]"
+    say "task"
+}
+
+task main() -> void {
+    greeting()
+    if freak_llvm_process_args_count() != 1 { say "argc setup failed" }
+}
+
+-- Calls from source use the FREAK entry task, including a void return.
+task invoke_main() -> void {
+    main()
+}

@@ -1,0 +1,27 @@
+-- One native program per fixture process keeps ownership inside 1024 handles.
+task h6_bool_execute_run() -> void {
+    pilot source = fs::read(process::arg(1))
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot borrowck = v4_borrowck_check_mir(0, mir)
+    pilot codegen = v4_codegen_llvm_lower_mir(0, mir)
+    pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_borrowck_diag_count(borrowck) + v4_codegen_llvm_diag_count(codegen)
+    say "h6-bool-execute diagnostics=" + word_from_int(total)
+    say "h6-bool-execute contract=" + word_from_bool(v4_codegen_llvm_native_module_error(codegen) == "")
+    pilot target = v4_target_spec_new(process::arg(2))
+    pilot before = v4_codegen_llvm_module_text(codegen, target)
+    say "h6-bool-execute module=" + word_from_bool(before != "" and v4_codegen_llvm_module_text(codegen, "invalid") == "")
+    pilot snapshot = v4_mir_snapshot()
+    say "h6-bool-execute snapshot-valid=" + word_from_bool(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"))
+    say "h6-bool-execute snapshot-restored=" + word_from_bool(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"))
+    pilot restored = v4_codegen_llvm_lower_mir(0, mir)
+    say "h6-bool-execute module-exact=" + word_from_bool(v4_codegen_llvm_module_text(restored, target) == before)
+    say "@@LLVM-MODULE-BEGIN"
+    say v4_codegen_llvm_module_text(restored, target)
+    say "@@LLVM-MODULE-END"
+}
+h6_bool_execute_run()

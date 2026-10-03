@@ -161,6 +161,7 @@ pilot v4_mir_check_bad_maybe_mir = v4_mir_lower_ty(2, v4_mir_check_bad_maybe_ty)
 say "check-maybe-bad-source-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_bad_maybe_mir))
 say "check-maybe-bad-source-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_maybe_mir, 0))
 say "check-maybe-bad-source-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_bad_maybe_mir, 0))
+say "check-maybe-bad-source-say-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_maybe_mir, 1))
 
 pilot v4_mir_check_bad_maybe_missing_stream = v4_lex_text(3, v4_mir_check_bad_maybe_missing_arm_source())
 pilot v4_mir_check_bad_maybe_missing_tree = v4_parse_stream(3, v4_mir_check_bad_maybe_missing_stream)
@@ -171,6 +172,7 @@ pilot v4_mir_check_bad_maybe_missing_mir = v4_mir_lower_ty(3, v4_mir_check_bad_m
 say "check-maybe-missing-arm-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_bad_maybe_missing_mir))
 say "check-maybe-missing-arm-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_maybe_missing_mir, 0))
 say "check-maybe-missing-arm-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_bad_maybe_missing_mir, 0))
+say "check-maybe-missing-arm-say-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_maybe_missing_mir, 1))
 
 pilot v4_mir_check_bad_some_stream = v4_lex_text(4, v4_mir_check_bad_some_payload_source())
 pilot v4_mir_check_bad_some_tree = v4_parse_stream(4, v4_mir_check_bad_some_stream)
@@ -191,6 +193,8 @@ pilot v4_mir_check_bad_result_mir = v4_mir_lower_ty(5, v4_mir_check_bad_result_t
 say "check-result-bad-source-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_bad_result_mir))
 say "check-result-bad-source-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_result_mir, 0))
 say "check-result-bad-source-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_bad_result_mir, 0))
+say "check-result-bad-source-say-message1=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_result_mir, 1))
+say "check-result-bad-source-say-message2=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_result_mir, 2))
 
 pilot v4_mir_check_bad_result_missing_stream = v4_lex_text(6, v4_mir_check_bad_result_missing_arm_source())
 pilot v4_mir_check_bad_result_missing_tree = v4_parse_stream(6, v4_mir_check_bad_result_missing_stream)
@@ -201,6 +205,7 @@ pilot v4_mir_check_bad_result_missing_mir = v4_mir_lower_ty(6, v4_mir_check_bad_
 say "check-result-missing-arm-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_bad_result_missing_mir))
 say "check-result-missing-arm-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_result_missing_mir, 0))
 say "check-result-missing-arm-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_bad_result_missing_mir, 0))
+say "check-result-missing-arm-say-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_bad_result_missing_mir, 1))
 
 pilot v4_mir_check_bad_ok_stream = v4_lex_text(7, v4_mir_check_bad_ok_payload_source())
 pilot v4_mir_check_bad_ok_tree = v4_parse_stream(7, v4_mir_check_bad_ok_stream)
