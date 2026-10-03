@@ -170,7 +170,7 @@ jobs:
         run: python -B -u -m unittest discover -s tests -p test_v4_checked_numeric_codegen.py -v
 
       - name: Checked numeric native lowering at O0, O2 and O3
-        run: python -B -u tests/v4_checked_numeric_codegen.py --plain --snapshot-control --json "${{ runner.temp }}/numeric-codegen-plain.json"
+        run: python -B -u tests/v4_checked_numeric_codegen.py --plain --snapshot-control --work "${{ runner.temp }}/numeric-codegen-plain" --json "${{ runner.temp }}/numeric-codegen-plain.json"
 
       - name: Generated owned word programs with C and LLVM ownership audits
         run: python -B -u tests/v4_owned_word_codegen.py --plain
@@ -207,7 +207,7 @@ jobs:
 
       - name: Checked numeric generated-code sanitizer and ownership gate
         if: runner.os == 'Linux'
-        run: python -B -u tests/v4_checked_numeric_codegen.py --snapshot-control --json "${{ runner.temp }}/numeric-codegen-sanitized.json"
+        run: python -B -u tests/v4_checked_numeric_codegen.py --snapshot-control --work "${{ runner.temp }}/numeric-codegen-sanitized" --json "${{ runner.temp }}/numeric-codegen-sanitized.json"
 
       - name: Preserve Unicode runtime evidence
         if: always()
