@@ -303,7 +303,7 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
             self.assertIs(actual_handle, handle)
             attempts["close"] += 1
             if "close" in fallback_faults or (failure_phase == "close" and (persistent or attempts["close"] == 1)):
-                last_error = 6
+                last_error = 5
                 return 0
             running_group.clear()  # KILL_ON_JOB_CLOSE fallback.
             return 1
@@ -433,7 +433,7 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                 self.assertEqual(fixture.close.call_count, expected_close_count)
                 self.assertEqual(fixture.job.kernel32.CloseHandle.call_count, expected_close_count)
                 fixture.job.ctypes.get_last_error.assert_called_once_with()
-                fixture.job.ctypes.WinError.assert_called_once_with(5 if phase == "terminate" else 6)
+                fixture.job.ctypes.WinError.assert_called_once_with(5)
                 fixture.capture.assert_called_once_with()
                 message = str(failure.exception)
                 self.assertIn("Windows BOOL retry exceeded memory limit: observed=2.0MB limit=1MB", message)
@@ -481,7 +481,7 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                     for stage, errno, enabled in (
                         ("launcher kill", 12, "kill" in faults),
                         ("launcher reap", 13, "wait" in faults),
-                        ("resource close", 6 if platform == "windows" else 14, "close" in faults),
+                        ("resource close", 5 if platform == "windows" else 14, "close" in faults),
                     ):
                         if enabled:
                             self.assertIn((stage, errno), observed)
@@ -502,20 +502,50 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
         for guard in ("output", "timeout"):
             with self.subTest(guard=guard):
                 fixture = self.cleanup_retry_fixture("posix", "terminate", persistent=True, permission_failure=True)
-                fixture.process.stdout = io.BytesIO(b"output" if guard == "output" else b"")
+                stdout_payload = b"A" * (1024 * 1024 + 3000) + b"stdout-final-tail"
+                stderr_payload = b"B" * (1024 * 1024 + 5000) + b"stderr-final-tail"
+                fixture.process.stdout = io.BytesIO(stdout_payload)
+                fixture.process.stderr = io.BytesIO(stderr_payload)
+                command = ["unused", "full-command"]
+                artifacts = self.proc / guard
                 with patch.object(checks.threading, "Thread", side_effect=thread), \
                         patch.object(checks.time, "monotonic", side_effect=[0, 2, 2]), \
                         self.assertRaises(RuntimeError) as failure:
-                    checks.run_with_heartbeat(
-                        ["unused"], label="fallback guard", output_limit_mb=0 if guard == "output" else 8,
-                        timeout_seconds=1 if guard == "timeout" else None,
+                    benchmark.guarded_job(
+                        None, command, artifacts, "fallback guard",
+                        1 if guard == "timeout" else None, None,
+                        1 if guard == "output" else 8, runner=checks.run_with_heartbeat,
                     )
+                error = failure.exception
                 fixture.capture.assert_not_called()
                 self.assertFalse(fixture.running_group - {11})
                 self.assertEqual(fixture.process.returncode, -9)
-                self.assertEqual(failure.exception.__cause__.errno, 1)
-                message = str(failure.exception)
-                self.assertIn("exceeded output limit: limit=0MB-per-stream" if guard == "output" else "exceeded timeout: limit=1s", message)
+                self.assertIs(error.__cause__, error.cleanup_errors[0][1])
+                self.assertEqual(error.__cause__.errno, 1)
+                self.assertEqual(error.guard_trigger, guard)
+                self.assertEqual(error.stdout_total_bytes, len(stdout_payload))
+                self.assertEqual(error.stderr_total_bytes, len(stderr_payload))
+                self.assertEqual(error.guard_error.stdout_total_bytes, len(stdout_payload))
+                self.assertEqual(error.guard_error.stderr_total_bytes, len(stderr_payload))
+                self.assertTrue(error.output.endswith(stdout_payload[-2000:].decode()))
+                self.assertTrue(error.stderr.endswith(stderr_payload[-2000:].decode()))
+                self.assertEqual(error.guard_error.output, error.output)
+                self.assertEqual(error.guard_error.stderr, error.stderr)
+                self.assertEqual((artifacts / "stdout.txt").read_text(), error.output)
+                self.assertEqual((artifacts / "stderr.txt").read_text(), error.stderr)
+                self.assertEqual(json.loads((artifacts / "command.json").read_text())["command"], command)
+                message = str(error)
+                self.assertEqual((artifacts / "failure.txt").read_text(), message)
+                self.assertIn("stdout-tail=" + stdout_payload[-2000:].decode(), message)
+                self.assertIn("stderr-tail=" + stderr_payload[-2000:].decode(), message)
+                if guard == "output":
+                    self.assertIn("exceeded output limit: stdout=1.0MB stderr=1.0MB limit=1MB-per-stream", message)
+                    self.assertIsInstance(error.guard_error, RuntimeError)
+                else:
+                    self.assertIn("exceeded timeout: limit=1s", message)
+                    self.assertIsInstance(error.guard_error, subprocess.TimeoutExpired)
+                    self.assertIs(error.guard_error.cmd, command)
+                    self.assertEqual(error.guard_error.timeout, 1)
                 self.assertIn("tree-closed=False", message)
 
     def test_windows_bool_zero_persistent_failures_keep_handle_and_os_cause(self):
@@ -547,12 +577,153 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                 self.assertEqual(fixture.job.ctypes.get_last_error.call_count, 4 if phase == "close" else 2)
                 self.assertEqual(fixture.job.ctypes.WinError.call_count, 4 if phase == "close" else 2)
                 self.assertIsInstance(failure.exception.__cause__, OSError)
-                self.assertEqual(failure.exception.__cause__.errno, 5 if phase == "terminate" else 6)
+                self.assertEqual(failure.exception.__cause__.errno, 5)
                 message = str(failure.exception)
                 self.assertIn("Windows BOOL persistent process-tree cleanup failed after 2 attempts", message)
                 self.assertIn("exceeded memory limit: peak=2.0MB limit=1MB", message)
                 self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
                 self.assertNotIn("secret", message)
+
+    def test_on_time_completion_cleanup_crossing_deadline_is_not_a_timeout(self):
+        fixture = self.cleanup_retry_fixture("posix", "terminate", persistent=True, permission_failure=True)
+        fixture.process.stdout = io.BytesIO(b"completed-output")
+        fixture.process.stderr = io.BytesIO(b"completed-stderr")
+        original_wait = fixture.process.wait
+
+        def wait(*, timeout):
+            if timeout < 5:
+                fixture.process.returncode = 0
+                fixture.running_group.discard(10)
+                return 0
+            return original_wait(timeout=timeout)
+
+        def thread(*, target, args, daemon):
+            return SimpleNamespace(start=lambda: target(*args), join=lambda timeout: None)
+
+        fixture.process.wait = Mock(side_effect=wait)
+        with patch.object(checks.threading, "Thread", side_effect=thread), \
+                patch.object(checks.time, "monotonic", side_effect=[0, 0.25, 20]), \
+                self.assertRaises(RuntimeError) as failure:
+            checks.run_with_heartbeat(["unused"], label="completed cleanup", timeout_seconds=1)
+        error = failure.exception
+        self.assertEqual(error.guard_trigger, "completed")
+        self.assertIsNone(error.guard_error)
+        self.assertNotIn("exceeded timeout", str(error))
+        self.assertEqual(error.output, "completed-output")
+        self.assertEqual(error.stderr, "completed-stderr")
+        self.assertIs(error.__cause__, error.cleanup_errors[0][1])
+
+    def invalid_windows_job(self, stage, mapped_errno=9):
+        job = self.windows_job_type.__new__(self.windows_job_type)
+        job.handle = 47  # A numeric value could be reused for a different kernel object.
+        error = OSError(mapped_errno, "private Windows error payload")
+        error.winerror = 6
+        job.ctypes = SimpleNamespace(get_last_error=Mock(return_value=6), WinError=Mock(return_value=error))
+        job.kernel32 = SimpleNamespace(
+            TerminateJobObject=Mock(return_value=0 if stage == "terminate" else 1),
+            CloseHandle=Mock(return_value=0 if stage == "close" else 1),
+            AssignProcessToJobObject=Mock(return_value=0 if stage == "assign" else 1),
+            QueryInformationJobObject=Mock(side_effect=AssertionError("retired identity used")),
+        )
+        return job, error
+
+    def test_windows_invalid_handle_is_terminal_without_api_reuse(self):
+        for stage in ("terminate", "close"):
+            for errno in (9, 13):
+                with self.subTest(stage=stage, mapped_errno=errno):
+                    job, error = self.invalid_windows_job(stage, errno)
+                    with self.assertRaises(OSError) as failure:
+                        getattr(job, stage)()
+                    self.assertIs(failure.exception, error)
+                    self.assertIsNone(job.handle)
+                    self.assertIs(job.invalid_handle_error, error)
+                    before = {name: method.call_count for name, method in vars(job.kernel32).items()}
+                    for action in (job.terminate, job.close, lambda: job.assign(SimpleNamespace(_handle=99))):
+                        with self.assertRaises(OSError) as repeated:
+                            action()
+                        self.assertIs(repeated.exception, error)
+                    self.assertIsNone(job.memory_bytes())
+                    self.assertEqual(before, {name: method.call_count for name, method in vars(job.kernel32).items()})
+                    job.ctypes.get_last_error.assert_called_once_with()
+                    job.ctypes.WinError.assert_called_once_with(6)
+
+        job, error = self.invalid_windows_job("assign")
+        with self.assertRaises(OSError) as failure:
+            job.assign(SimpleNamespace(_handle=99))
+        self.assertIs(failure.exception, error)
+        self.assertEqual(job.handle, 47)  # Assign has two handles; the process may be invalid.
+        self.assertIsNone(getattr(job, "invalid_handle_error", None))
+        job.terminate()
+        job.close()
+        self.assertIsNone(job.handle)
+
+        job, error = self.invalid_windows_job("close", mapped_errno=6)
+        error.winerror = 5
+        job.ctypes.get_last_error.return_value = 5
+        with self.assertRaises(OSError):
+            job.close()
+        self.assertEqual(job.handle, 47)  # An errno6 mapping alone is never Win32 invalid6.
+        self.assertIsNone(getattr(job, "invalid_handle_error", None))
+        job.kernel32.CloseHandle.return_value = 1
+        job.close()
+        self.assertIsNone(job.handle)
+
+    def test_windows_invalid_handle_cleanup_is_unconfirmed_and_preserves_cause(self):
+        for stage in ("terminate", "close"):
+            with self.subTest(stage=stage):
+                fixture = self.cleanup_retry_fixture("windows", stage, bool_failure=True, persistent=True)
+                error = OSError(9, "private invalid handle payload")
+                error.winerror = 6
+                fixture.job.ctypes.get_last_error = Mock(return_value=6)
+                fixture.job.ctypes.WinError = Mock(return_value=error)
+                with self.assertRaises(RuntimeError) as failure:
+                    checks.run_with_heartbeat(["unused"], label="invalid Job", memory_limit_mb=1)
+                retained = failure.exception
+                self.assertIs(retained.__cause__, error)
+                self.assertIs(retained.cleanup_errors[0][1], error)
+                self.assertIsNone(fixture.job.handle)
+                self.assertIs(fixture.job.invalid_handle_error, error)
+                self.assertEqual(fixture.job.kernel32.TerminateJobObject.call_count, 1)
+                self.assertEqual(fixture.job.kernel32.CloseHandle.call_count, 1 if stage == "close" else 0)
+                fixture.process.kill.assert_called()
+                if stage == "terminate":
+                    fixture.process.wait.assert_called_once_with(timeout=5)
+                else:
+                    self.assertEqual(fixture.process.wait.call_count, 2)
+                self.assertEqual(fixture.running_group, {11} if stage == "terminate" else set())
+                self.assertIn("tree-closed=False", str(retained))
+                self.assertIn("resource-closed=False", str(retained))
+                self.assertIn("errno=9:winerror=6", str(retained))
+                self.assertNotIn("private invalid handle payload", str(retained))
+                self.assertEqual(len(retained.cleanup_errors), 4)
+
+    def test_cached_invalid_error_clears_launcher_fault_between_attempts(self):
+        fixture = self.cleanup_retry_fixture("windows", "terminate", bool_failure=True, persistent=True)
+        invalid = OSError(9, "private invalid handle payload")
+        invalid.winerror = 6
+        fixture.job.ctypes.get_last_error = Mock(return_value=6)
+        fixture.job.ctypes.WinError = Mock(return_value=invalid)
+        original_kill = fixture.process.kill
+        launcher_fault = OSError(12, "private launcher payload")
+        kill_calls = 0
+
+        def kill():
+            nonlocal kill_calls
+            kill_calls += 1
+            if kill_calls == 1:
+                raise launcher_fault
+            original_kill()
+
+        fixture.process.kill = Mock(side_effect=kill)
+        with self.assertRaises(RuntimeError) as failure:
+            checks.run_with_heartbeat(["unused"], label="cached invalid Job", memory_limit_mb=1)
+        self.assertIs(failure.exception.__cause__, invalid)
+        children = [error for stage, error in failure.exception.cleanup_errors if stage == "launcher kill"]
+        self.assertEqual(children, [launcher_fault])
+        self.assertIsNone(invalid.launcher_cleanup_error)
+        self.assertEqual(fixture.job.kernel32.TerminateJobObject.call_count, 1)
+        fixture.job.kernel32.CloseHandle.assert_not_called()
+        self.assertIn("tree-closed=False", str(failure.exception))
 
     def startup_rollback_fixture(self, phase, faults):
         process = SimpleNamespace(pid=10, _handle=object(), returncode=None)
@@ -631,7 +802,7 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
             self.assertIs(job_handle, handle)
             self.assertIs(job.handle, handle)
             if fails("close"):
-                last_error = 6
+                last_error = 5
                 return 0
             if assigned:
                 exit_requested = True
@@ -699,7 +870,7 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                 if persistent:
                     self.assertIs(fixture.job.handle, fixture.handle)
                     self.assertIn("rollback failed", str(failure.exception))
-                    self.assertEqual(failure.exception.__cause__.errno, 6)
+                    self.assertEqual(failure.exception.__cause__.errno, 5)
                     self.assertIs(failure.exception.__context__, fixture.startup_error)
                 else:
                     self.assertIsNone(fixture.job.handle)
@@ -732,7 +903,42 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                     self.assertFalse(fixture.running_group)
                     self.assertEqual(fixture.process.returncode, -9)
                     self.assertIs(fixture.job.handle, fixture.handle)
-                    self.assertEqual(failure.exception.__cause__.errno, 6)
+                    self.assertEqual(failure.exception.__cause__.errno, 5)
+
+    def test_windows_startup_invalid_handle_close_is_not_reused(self):
+        for phase in ("assign", "resume", "popen"):
+            with self.subTest(phase=phase):
+                fixture = self.startup_rollback_fixture(phase, {"job": None, "close": None})
+                invalid = OSError(9, "private invalid close payload")
+                invalid.winerror = 6
+                original_last_error = fixture.job.ctypes.get_last_error
+                original_win_error = fixture.job.ctypes.WinError
+                original_close = fixture.job.kernel32.CloseHandle
+                close_failed = False
+
+                def close(handle):
+                    nonlocal close_failed
+                    original_close(handle)
+                    close_failed = True
+                    return 0
+
+                fixture.job.kernel32.CloseHandle = Mock(side_effect=close)
+                fixture.job.ctypes.get_last_error = lambda: 6 if close_failed else original_last_error()
+                fixture.job.ctypes.WinError = Mock(side_effect=lambda code: invalid if code == 6 else original_win_error(code))
+                with self.assertRaises(RuntimeError) as failure:
+                    checks.ProcessTree.spawn(["unused"], 1024)
+                self.assertIs(failure.exception.__cause__, invalid)
+                self.assertIs(failure.exception.__context__, fixture.startup_error)
+                self.assertIsNone(fixture.job.handle)
+                self.assertIs(fixture.job.invalid_handle_error, invalid)
+                fixture.job.kernel32.CloseHandle.assert_called_once_with(fixture.handle)
+                self.assertIn("rollback failed after bounded retries", str(failure.exception))
+                if phase == "popen":
+                    fixture.process.kill.assert_not_called()
+                    fixture.process.wait.assert_not_called()
+                else:
+                    fixture.process.kill.assert_called_once_with()
+                    fixture.process.wait.assert_called_once_with(timeout=5)
 
     def test_windows_assigned_launcher_reaps_after_job_close_fallback(self):
         fixture = self.startup_rollback_fixture("resume", {"job": None, "kill": None})
