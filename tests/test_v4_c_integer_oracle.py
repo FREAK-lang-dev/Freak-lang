@@ -94,6 +94,53 @@ class CIntegerOracle(unittest.TestCase):
             with self.subTest(new=new), self.assertRaises(ValueError):
                 oracle.parse_oracle(text.replace(old, new, 1), target)
 
+    def test_comment_only_direct_and_indirect_calls_reject(self):
+        target = "x86_64-unknown-linux-gnu"
+        text = sample(target)
+        for called in ("@oracle_identity_c_int", "%callback"):
+            call = f"%result = call i32 {called}(i32 noundef %value)"
+            for replacement in (f"; {call}", f"ret i32 %value ; {call}",
+                                f"commented_call: ; {call}", f'"{call}":'):
+                with self.subTest(called=called, replacement=replacement), self.assertRaisesRegex(ValueError, "scalar call"):
+                    oracle.parse_oracle(text.replace(call, replacement, 1), target)
+
+    def test_executable_calls_with_inline_comments_and_labels_pass(self):
+        target = "x86_64-unknown-linux-gnu"
+        text = sample(target)
+        expected = oracle.parse_oracle(text, target)
+        for called in ("@oracle_identity_c_int", "%callback"):
+            call = f"%result = call i32 {called}(i32 noundef %value)"
+            modified = text.replace(call, f"{call} ; ignored {call}", 1)
+            modified = modified.replace("  " + call, "entry:\n  " + call, 1)
+            self.assertEqual(oracle.parse_oracle(modified, target), expected)
+
+    def test_default_and_explicit_ccc_signatures_pass(self):
+        target = "x86_64-unknown-linux-gnu"
+        text = sample(target)
+        explicit = text.replace("define dso_local ", "define dso_local ccc ").replace("call i", "call ccc i")
+        self.assertEqual(oracle.parse_oracle(explicit, target), oracle.parse_oracle(text, target))
+
+    def test_coherent_non_c_definitions_and_calls_reject(self):
+        target = "x86_64-unknown-linux-gnu"
+        text = sample(target)
+        for convention in ("fastcc", "coldcc", "win64cc", "x86_64_sysvcc", "cc 8", "cc 10"):
+            modified = text.replace("define dso_local ", f"define dso_local {convention} ").replace("call i", f"call {convention} i")
+            with self.subTest(convention=convention), self.assertRaisesRegex(ValueError, "default-C"):
+                oracle.parse_oracle(modified, target)
+
+    def test_non_c_definition_or_direct_indirect_call_rejects_independently(self):
+        target = "x86_64-unknown-linux-gnu"
+        text = sample(target)
+        for old, new in (
+            ("define dso_local i32 @oracle_identity_c_int", "define dso_local fastcc i32 @oracle_identity_c_int"),
+            ("define dso_local i32 @oracle_direct_c_int", "define dso_local fastcc i32 @oracle_direct_c_int"),
+            ("define dso_local i32 @oracle_indirect_c_int", "define dso_local fastcc i32 @oracle_indirect_c_int"),
+            ("call i32 @oracle_identity_c_int", "call fastcc i32 @oracle_identity_c_int"),
+            ("call i32 %callback", "call fastcc i32 %callback"),
+        ):
+            with self.subTest(new=new), self.assertRaisesRegex(ValueError, "default-C"):
+                oracle.parse_oracle(text.replace(old, new, 1), target)
+
 
 if __name__ == "__main__":
     unittest.main()

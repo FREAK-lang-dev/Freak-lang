@@ -39,11 +39,36 @@ def scalar_operand(operand: str) -> dict[str, object]:
 
 def return_operand(prefix: str) -> dict[str, object]:
     tokens = prefix.split()
+    # This oracle measures ordinary default-C signatures. Fail closed for
+    # named/numeric non-C conventions instead of discarding their tokens.
+    allowed = {"dso_local", "dso_preemptable", "noundef", "signext", "zeroext",
+               "ccc", "i32", "i64"}
+    require(all(token in allowed for token in tokens) and tokens.count("ccc") <= 1,
+            "not a default-C scalar signature")
     carriers = [token for token in tokens if token in ("i32", "i64")]
     require(len(carriers) == 1, "missing or ambiguous return carrier")
     extensions = [token for token in tokens if token in ("signext", "zeroext")]
     require(len(extensions) <= 1, "conflicting return extension attributes")
     return {"carrier": carriers[0], "extension": extensions[0] if extensions else "none"}
+
+
+def without_llvm_comments(body: str) -> str:
+    lines = []
+    for line in body.splitlines():
+        quoted = False
+        escaped = False
+        for index, char in enumerate(line):
+            if escaped:
+                escaped = False
+            elif char == "\\" and quoted:
+                escaped = True
+            elif char == '"':
+                quoted = not quoted
+            elif char == ";" and not quoted:
+                line = line[:index]
+                break
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def target_triple_matches(requested: str, observed: str) -> bool:
@@ -89,7 +114,10 @@ def parse_oracle(text: str, target: str) -> dict[str, object]:
                 require(parameters[0].split()[0] == "ptr", "callback parameter is not a pointer")
             require(return_operand(prefix) == returned and scalar_operand(parameters[-1]) == parameter, f"wrapper signature mismatch: {key}/{mode}")
             called = f"@oracle_identity_{key}" if mode == "direct" else r"%[A-Za-z0-9_.]+"
-            calls = re.findall(rf"\bcall\s+([^\n]+?)\s+({called})\(([^\n)]*)\)", body)
+            # Count executable call instruction lines, never labels, debug
+            # text, or whole/inline comments that happen to contain 'call'.
+            calls = re.findall(rf"^[ \t]*(?:%[A-Za-z0-9_.]+[ \t]*=[ \t]*)?(?:(?:tail|musttail|notail)[ \t]+)?call[ \t]+([^\n]+?)[ \t]+({called})\(([^\n)]*)\)",
+                               without_llvm_comments(body), re.MULTILINE)
             require(len(calls) == 1, f"missing or duplicate scalar call: {key}/{mode}")
             call_return, _, call_parameter = calls[0]
             require(return_operand(call_return) == returned and scalar_operand(call_parameter) == parameter, f"call carrier/extension mismatch: {key}/{mode}")
