@@ -7088,7 +7088,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     pilot inferred_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     if v4_mir_pattern_is_simple_local(pattern) {
         pilot prior_local = v4_mir_find_local_visible_at(mir_id, body_id, pattern, v4_span_start(stmt_span))
-        pilot duplicate_local = prior_local >= 0
+        pilot duplicate_local: bool = prior_local >= 0
         if duplicate_local and inferred_ty == v4_ty_word {
             duplicate_local = v4_mir_local_scope_span(mir_id, body_id, prior_local) == v4_mir_current_scope_span(stmt_span)
         }

@@ -4011,3 +4011,59 @@ task v4_mir_word_intrinsic_kind(mir_id: int, body_id: int, rvalue_id: int) -> wo
     if not v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) { give back "" }
     give back v4_mir_builtin_word_identity_kind(v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id))
 }
+
+
+-- Check graph order before Meiya follows live low-level MIR mutations.
+task v4_mir_word_plan_preflight(mir_id: int) -> word {
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot word_body: bool = false
+        pilot inspect = 0
+        repeat until inspect >= v4_mir_body_local_count(mir_id, body) {
+            if v4_mir_local_ty(mir_id, body, inspect) == v4_ty_word { word_body = true }
+            inspect += 1
+        }
+        inspect = 0
+        repeat until inspect >= v4_mir_body_rvalue_count(mir_id, body) {
+            if v4_mir_rvalue_ty(mir_id, body, inspect) == v4_ty_word or v4_mir_rvalue_ty(mir_id, body, inspect) == "lend word" { word_body = true }
+            inspect += 1
+        }
+        pilot depth_words = array_new()
+        if depth_words < 0 { give back "native word ownership plan scratch exhausted" }
+        pilot value = 0
+        pilot error = ""
+        repeat until value >= v4_mir_body_rvalue_count(mir_id, body) or error != "" {
+            pilot kind = v4_mir_rvalue_kind(mir_id, body, value)
+            pilot lhs = v4_mir_rvalue_lhs(mir_id, body, value)
+            pilot rhs = v4_mir_rvalue_rhs(mir_id, body, value)
+            pilot args = v4_mir_rvalue_args_payload(mir_id, body, value)
+            if not v4_mir_snapshot_rvalue_refs_are_valid(kind, word_from_int(lhs), word_from_int(rhs), args, value, v4_mir_body_place_count(mir_id, body)) {
+                error = "invalid native word ownership rvalue graph"
+            }
+            pilot weight = 1
+            pilot depth = weight
+            if error == "" {
+                if kind != v4_mir_rvalue_use_place and lhs >= 0 { depth = word_to_int(array_get(depth_words, lhs)) + weight }
+                if rhs >= 0 {
+                    pilot right_depth = word_to_int(array_get(depth_words, rhs)) + weight
+                    if right_depth > depth { depth = right_depth }
+                }
+                pilot arg = 0
+                repeat until arg >= v4_mir_call_args_payload_count(args) {
+                    pilot child = word_to_int(v4_mir_snapshot_comma_part(args, arg))
+                    pilot child_depth = word_to_int(array_get(depth_words, child)) + weight
+                    if child_depth > depth { depth = child_depth }
+                    arg += 1
+                }
+                if word_body and depth > 256 { error = "native word ownership expression nesting exceeds supported depth" }
+                array_push(depth_words, word_from_int(depth))
+                if array_len(depth_words) != value + 1 { error = "native word ownership plan scratch exhausted" }
+            }
+            value += 1
+        }
+        array_release(depth_words)
+        if error != "" { give back error }
+        body += 1
+    }
+    give back ""
+}

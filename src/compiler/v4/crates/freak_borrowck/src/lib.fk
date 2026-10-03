@@ -5708,7 +5708,7 @@ task v4_borrowck_local_moved_without_reinit_linear(borrow_id: int, result_id: in
         give back false
     }
 
-    pilot initialized = v4_borrowck_local_initially_initialized(mir_id, body_id, local_name)
+    pilot initialized: bool = v4_borrowck_local_initially_initialized(mir_id, body_id, local_name)
     pilot stmt_id = 0
     pilot stmt_count = v4_mir_body_stmt_count(mir_id, body_id)
     repeat until stmt_id >= stmt_count {
@@ -5735,7 +5735,7 @@ task v4_borrowck_local_has_exit_state(borrow_id: int, result_id: int, mir_id: in
     pilot seen = array_new()
     pilot pending_blocks = array_new()
     pilot pending_states = array_new()
-    pilot initially_initialized = v4_borrowck_local_initially_initialized(mir_id, body_id, local_name)
+    pilot initially_initialized: bool = v4_borrowck_local_initially_initialized(mir_id, body_id, local_name)
     v4_borrowck_enqueue_drop_state(seen, pending_blocks, pending_states, block_count, 0, initially_initialized)
 
     pilot found = false
@@ -6731,7 +6731,14 @@ task v4_borrowck_snapshot_restore(payload: word) -> word {
 
 
 -- Native owned-word plans use MIR binding IDs, never ambiguous display names.
-task v4_borrowck_rvalue_word_local_move_count_mode(mir_id: int, body_id: int, value: int, local_id: int, borrowed: bool) -> int {
+pilot v4_borrowck_word_plan_resource_failed: bool = false
+pilot v4_borrowck_word_plan_visit_budget: int = 0
+task v4_borrowck_rvalue_word_local_move_count_depth(mir_id: int, body_id: int, value: int, local_id: int, borrowed: bool, depth: int) -> int {
+    v4_borrowck_word_plan_visit_budget -= 1
+    if depth > 256 or v4_borrowck_word_plan_visit_budget < 0 {
+        v4_borrowck_word_plan_resource_failed = true
+        give back 0 - 1
+    }
     if value < 0 { give back 0 }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
     if kind == v4_mir_rvalue_use_local {
@@ -6746,13 +6753,13 @@ task v4_borrowck_rvalue_word_local_move_count_mode(mir_id: int, body_id: int, va
         give back 0
     }
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
-        give back v4_borrowck_rvalue_word_local_move_count_mode(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, true)
+        give back v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, true, depth + 1)
     }
     if kind == v4_mir_rvalue_call {
         pilot count = 0
         pilot arg_id = 0
         repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, value) {
-            count += v4_borrowck_rvalue_word_local_move_count_mode(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, value, arg_id), local_id, false)
+            count += v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, value, arg_id), local_id, false, depth + 1)
             arg_id += 1
         }
         give back count
@@ -6761,19 +6768,20 @@ task v4_borrowck_rvalue_word_local_move_count_mode(mir_id: int, body_id: int, va
         pilot count = 0
         pilot child_id = 0
         repeat until child_id >= v4_mir_rvalue_aggregate_child_count(mir_id, body_id, value) {
-            count += v4_borrowck_rvalue_word_local_move_count_mode(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, value, child_id), local_id, false)
+            count += v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, value, child_id), local_id, false, depth + 1)
             child_id += 1
         }
         give back count
     }
-    pilot read_only = kind == v4_mir_rvalue_binary
-    pilot count = v4_borrowck_rvalue_word_local_move_count_mode(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, read_only)
-    count += v4_borrowck_rvalue_word_local_move_count_mode(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, read_only)
+    pilot read_only: bool = kind == v4_mir_rvalue_binary
+    pilot count = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, read_only, depth + 1)
+    count += v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, read_only, depth + 1)
     give back count
 }
 
 task v4_borrowck_rvalue_word_local_move_count(mir_id: int, body_id: int, value: int, local_id: int) -> int {
-    give back v4_borrowck_rvalue_word_local_move_count_mode(mir_id, body_id, value, local_id, false)
+    v4_borrowck_word_plan_visit_budget = 8192
+    give back v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, value, local_id, false, 0)
 }
 
 task v4_borrowck_stmt_word_local_move_count(mir_id: int, body_id: int, stmt_id: int, local_id: int) -> int {
@@ -6787,24 +6795,39 @@ task v4_borrowck_word_stmt_initializes_local(mir_id: int, body_id: int, stmt_id:
     give back place >= 0 and v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_local and v4_mir_place_base(mir_id, body_id, place) == local_id
 }
 
-task v4_borrowck_word_local_has_exit_state(mir_id: int, body_id: int, local_id: int, wanted_initialized: bool) -> bool {
+task v4_borrowck_word_local_exit_state(mir_id: int, body_id: int, local_id: int, wanted_initialized: bool) -> int {
     pilot blocks = array_new()
     pilot states = array_new()
     pilot seen = array_new()
+    if blocks < 0 or states < 0 or seen < 0 {
+        array_release(seen)
+        array_release(states)
+        array_release(blocks)
+        give back 0 - 1
+    }
     pilot block_count = v4_mir_body_block_count(mir_id, body_id)
-    pilot initially_initialized = local_id < v4_mir_body_callable_param_count(mir_id, body_id)
-    v4_borrowck_enqueue_drop_state(seen, blocks, states, block_count, 0, initially_initialized)
+    pilot initially_initialized: bool = local_id < v4_mir_body_callable_param_count(mir_id, body_id)
+    pilot prepared = 0
+    pilot queue_failed: bool = false
+    repeat until prepared >= block_count * 2 or queue_failed {
+        array_push(seen, "0")
+        if array_len(seen) != prepared + 1 { queue_failed = true }
+        prepared += 1
+    }
+    if not queue_failed { queue_failed = not v4_borrowck_word_enqueue_state(seen, blocks, states, block_count, 0, initially_initialized) }
     pilot cursor = 0
     pilot found = false
-    repeat until cursor >= array_len(blocks) or found {
+    repeat until cursor >= array_len(blocks) or found or queue_failed {
         pilot block = word_to_int(array_get(blocks, cursor))
         pilot state_text: word = array_get(states, cursor)
-        pilot initialized = state_text == "true"
+        pilot initialized: bool = state_text == "true"
         pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, block)
         pilot previous = 0 - 1
         repeat until stmt_id < 0 {
             if previous >= 0 and v4_mir_word_local_scope_exits_before_stmt(mir_id, body_id, local_id, previous, stmt_id) { initialized = false }
-            if v4_borrowck_stmt_word_local_move_count(mir_id, body_id, stmt_id, local_id) > 0 { initialized = false }
+            pilot moves = v4_borrowck_stmt_word_local_move_count(mir_id, body_id, stmt_id, local_id)
+            if moves < 0 { queue_failed = true }
+            if moves > 0 { initialized = false }
             if v4_borrowck_word_stmt_initializes_local(mir_id, body_id, stmt_id, local_id) { initialized = true }
             previous = stmt_id
             stmt_id = v4_mir_block_next_stmt(mir_id, body_id, block, stmt_id)
@@ -6813,14 +6836,14 @@ task v4_borrowck_word_local_has_exit_state(mir_id: int, body_id: int, local_id: 
         pilot term = v4_mir_block_terminator(record)
         if term == v4_mir_term_goto or term == v4_mir_term_if {
             pilot target = v4_mir_block_target(record)
-            pilot target_initialized = initialized
+            pilot target_initialized: bool = initialized
             if v4_mir_word_local_scope_exits_on_edge(mir_id, body_id, local_id, block, target) { target_initialized = false }
-            v4_borrowck_enqueue_drop_state(seen, blocks, states, block_count, target, target_initialized)
+            if not v4_borrowck_word_enqueue_state(seen, blocks, states, block_count, target, target_initialized) { queue_failed = true }
             if term == v4_mir_term_if {
                 target = v4_mir_block_else_target(record)
                 target_initialized = initialized
                 if v4_mir_word_local_scope_exits_on_edge(mir_id, body_id, local_id, block, target) { target_initialized = false }
-                v4_borrowck_enqueue_drop_state(seen, blocks, states, block_count, target, target_initialized)
+                if not v4_borrowck_word_enqueue_state(seen, blocks, states, block_count, target, target_initialized) { queue_failed = true }
             }
         } else if term != v4_mir_term_unreachable and initialized == wanted_initialized { found = true }
         cursor += 1
@@ -6828,13 +6851,39 @@ task v4_borrowck_word_local_has_exit_state(mir_id: int, body_id: int, local_id: 
     array_release(seen)
     array_release(states)
     array_release(blocks)
-    give back found
+    if queue_failed or v4_borrowck_word_plan_resource_failed { give back 0 - 1 }
+    if found { give back 1 }
+    give back 0
 }
 
 task v4_borrowck_word_local_drop_kind(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_id: int) -> word {
     if v4_borrowck_mir_id(borrow_id) != mir_id or v4_borrowck_result_def(borrow_id, result_id) != v4_mir_body_def(mir_id, body_id) { give back "invalid" }
     if v4_mir_local_ty(mir_id, body_id, local_id) != v4_ty_word or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value { give back "" }
-    if not v4_borrowck_word_local_has_exit_state(mir_id, body_id, local_id, true) { give back "" }
-    if v4_borrowck_word_local_has_exit_state(mir_id, body_id, local_id, false) { give back v4_borrowck_path_drop_if }
+    v4_borrowck_word_plan_resource_failed = false
+    pilot alive = v4_borrowck_word_local_exit_state(mir_id, body_id, local_id, true)
+    if alive < 0 { give back "invalid" }
+    if alive == 0 { give back "" }
+    pilot moved = v4_borrowck_word_local_exit_state(mir_id, body_id, local_id, false)
+    if moved < 0 { give back "invalid" }
+    if moved == 1 { give back v4_borrowck_path_drop_if }
     give back v4_borrowck_path_drop
+}
+
+
+
+task v4_borrowck_word_enqueue_state(seen: int, blocks: int, states: int, block_count: int, block: int, initialized: bool) -> bool {
+    if block < 0 or block >= block_count { give back false }
+    pilot index = v4_borrowck_drop_state_index(block, initialized)
+    if index < 0 or index >= array_len(seen) { give back false }
+    pilot previous: word = array_get(seen, index)
+    if previous == "1" { give back true }
+    pilot count = array_len(blocks)
+    if count != array_len(states) { give back false }
+    array_push(blocks, word_from_int(block))
+    if array_len(blocks) != count + 1 { give back false }
+    array_push(states, word_from_bool(initialized))
+    if array_len(states) != count + 1 { give back false }
+    array_set(seen, index, "1")
+    pilot stored: word = array_get(seen, index)
+    give back stored == "1"
 }
