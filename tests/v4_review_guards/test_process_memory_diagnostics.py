@@ -244,6 +244,145 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
         self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
         self.assertNotIn("secret", message)
 
+    def cleanup_retry_fixture(self, platform, failure_phase, *, persistent=False):
+        process = SimpleNamespace(pid=10, returncode=None, stdout=io.BytesIO(), stderr=io.BytesIO())
+        process.poll = lambda: process.returncode
+        events = []
+        running_group = {10, 11}
+        reaped = False
+        attempts = {"terminate": 0, "wait": 0}
+        handle = object()
+        job = None
+
+        if platform == "windows":
+            # Exercise the real WindowsJob terminate/close methods through a
+            # mocked kernel API; ctypes and a Windows host are unnecessary.
+            job = checks.WindowsJob.__new__(checks.WindowsJob)
+            job.handle = handle
+
+        def terminate(*args):
+            events.append("job-terminate" if job is not None else "killpg")
+            if job is not None:
+                self.assertEqual(args, (handle, 1))
+                self.assertIs(job.handle, handle)
+            else:
+                self.assertEqual(args, (10, 9))
+            attempts["terminate"] += 1
+            if failure_phase == "terminate" and (persistent or attempts["terminate"] == 1):
+                raise OSError("temporary termination failure")
+            running_group.clear()
+            return 1
+
+        def wait():
+            nonlocal reaped
+            events.append("wait")
+            if job is not None:
+                self.assertIs(job.handle, handle)
+            attempts["wait"] += 1
+            if failure_phase == "wait" and (persistent or attempts["wait"] == 1):
+                raise OSError("temporary reaping failure")
+            process.returncode = -9
+            reaped = True
+            return process.returncode
+
+        def close_handle(actual_handle):
+            events.append("job-close")
+            self.assertIs(actual_handle, handle)
+            self.assertFalse(running_group)
+            self.assertTrue(reaped)
+            return 1
+
+        if job is not None:
+            job.kernel32 = SimpleNamespace(
+                TerminateJobObject=Mock(side_effect=terminate),
+                CloseHandle=Mock(side_effect=close_handle),
+            )
+        process.kill = Mock(side_effect=lambda: events.append("kill"))
+        process.wait = Mock(side_effect=wait)
+        tree = checks.ProcessTree(process, job)
+        original_close = tree.close
+
+        def close():
+            events.append("close")
+            self.assertFalse(running_group)
+            self.assertTrue(reaped)
+            original_close()
+
+        def diagnostic():
+            events.append("diagnostic")
+            raise TypeError("secret persistent serialization payload")
+
+        self.enterContext(patch.object(checks.ProcessTree, "spawn", return_value=tree))
+        self.enterContext(patch.object(tree, "memory_bytes", return_value=2 * 1024 * 1024))
+        capture = self.enterContext(patch.object(tree, "memory_diagnostics", side_effect=diagnostic))
+        close_mock = self.enterContext(patch.object(tree, "close", side_effect=close))
+        # Both paths must be exercised on every host, including Windows CI.
+        self.enterContext(patch.object(checks.os, "killpg", side_effect=terminate, create=True))
+        self.enterContext(patch.object(checks.signal, "SIGKILL", 9, create=True))
+        return SimpleNamespace(
+            process=process, tree=tree, job=job, handle=handle, events=events,
+            running_group=running_group, attempts=attempts, capture=capture, close=close_mock,
+        )
+
+    def test_transient_termination_and_reaping_failures_retry_before_closing(self):
+        for platform in ("posix", "windows"):
+            for phase in ("terminate", "wait"):
+                with self.subTest(platform=platform, failure=phase):
+                    fixture = self.cleanup_retry_fixture(platform, phase)
+                    with self.assertRaises(RuntimeError) as failure:
+                        checks.run_with_heartbeat(["unused"], label="retry limit", memory_limit_mb=1)
+                    terminate_event = "job-terminate" if platform == "windows" else "killpg"
+                    expected = ["diagnostic", terminate_event]
+                    if phase == "wait":
+                        expected += ["kill", "wait"]
+                    expected += [terminate_event, "kill", "wait", "close"]
+                    if platform == "windows":
+                        expected += ["job-close"]
+                        fixture.job.kernel32.CloseHandle.assert_called_once_with(fixture.handle)
+                        self.assertIsNone(fixture.job.handle)
+                    self.assertEqual(fixture.events, expected)
+                    self.assertFalse(fixture.running_group)
+                    self.assertEqual(fixture.process.returncode, -9)
+                    fixture.close.assert_called_once_with()
+                    fixture.capture.assert_called_once_with()
+                    self.assertEqual(fixture.attempts["terminate"], 2)
+                    self.assertEqual(fixture.attempts["wait"], 2 if phase == "wait" else 1)
+                    message = str(failure.exception)
+                    self.assertIn("retry limit exceeded memory limit: observed=2.0MB limit=1MB", message)
+                    self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
+                    self.assertNotIn("secret", message)
+
+    def test_persistent_cleanup_failure_retains_retryable_handle_and_is_bounded(self):
+        for platform in ("posix", "windows"):
+            for phase in ("terminate", "wait"):
+                with self.subTest(platform=platform, failure=phase):
+                    fixture = self.cleanup_retry_fixture(platform, phase, persistent=True)
+                    with self.assertRaises(RuntimeError) as failure:
+                        checks.run_with_heartbeat(["unused"], label="persistent limit", memory_limit_mb=1)
+                    terminate_event = "job-terminate" if platform == "windows" else "killpg"
+                    attempt_events = [terminate_event]
+                    if phase == "wait":
+                        attempt_events += ["kill", "wait"]
+                    # Two attempts inside each closure invocation. The outer
+                    # exception handler can still retry the same open tree.
+                    self.assertEqual(fixture.events, ["diagnostic"] + attempt_events * 4)
+                    self.assertEqual(fixture.attempts["terminate"], 4)
+                    self.assertEqual(fixture.attempts["wait"], 4 if phase == "wait" else 0)
+                    fixture.close.assert_not_called()
+                    fixture.capture.assert_called_once_with()
+                    self.assertIsNone(fixture.process.returncode)
+                    self.assertEqual(bool(fixture.running_group), phase == "terminate")
+                    if platform == "windows":
+                        fixture.job.kernel32.CloseHandle.assert_not_called()
+                        self.assertIs(fixture.job.handle, fixture.handle)
+                    self.assertIsInstance(failure.exception.__cause__, OSError)
+                    self.assertIn("temporary", str(failure.exception.__cause__))
+                    message = str(failure.exception)
+                    self.assertIn("persistent limit process-tree cleanup failed after 2 attempts", message)
+                    self.assertIn("exceeded memory limit: peak=2.0MB limit=1MB", message)
+                    self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
+                    self.assertNotIn("secret", message)
+
 
 class SymbolInventoryProvenance(unittest.TestCase):
     def test_failure_context_keeps_tool_and_object_identity_after_temp_deletion(self):
