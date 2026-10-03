@@ -1,0 +1,200 @@
+-- Cold HIR admission conserves exact state at the 1,024-live-array guard.
+-- Helpers inspect globals directly so observation never warms the cold arena.
+task cold_hir_assert(condition: bool, label: word) -> void {
+    if not condition { panic("cold-hir " + label) }
+}
+
+task cold_hir_available() -> int {
+    pilot held = array_new()
+    cold_hir_assert(held >= 0, "capacity tracker admitted")
+    pilot exhausted = false
+    repeat until exhausted or array_len(held) >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(held, word_from_int(handle)) }
+    }
+    pilot count = array_len(held) + 1
+    pilot index = 0
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+    cold_hir_assert(exhausted, "bounded capacity probe")
+    give back count
+}
+
+task cold_hir_hold(free_count: int) -> int {
+    pilot held = array_new()
+    cold_hir_assert(held >= 0, "pressure tracker admitted")
+    pilot exhausted = false
+    repeat until exhausted or array_len(held) >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(held, word_from_int(handle)) }
+    }
+    cold_hir_assert(exhausted and array_len(held) >= free_count, "bounded pressure setup")
+    pilot index = 0
+    repeat until index >= free_count { array_release(word_to_int(array_get(held, index))) index += 1 }
+    give back held
+}
+
+task cold_hir_release_pressure(held: int, free_count: int) -> void {
+    pilot index = free_count
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+}
+
+task cold_hir_sentinels() -> int {
+    pilot kept = array_new()
+    cold_hir_assert(kept >= 0, "sentinel tracker admitted")
+    pilot index = 0
+    repeat until index >= 45 {
+        pilot handle = array_new()
+        cold_hir_assert(handle >= 0, "sentinel admitted")
+        array_push(handle, "sentinel-" + word_from_int(index))
+        array_push(kept, word_from_int(handle))
+        index += 1
+    }
+    give back kept
+}
+
+task cold_hir_set_sentinels(kept: int) -> void {
+    v4_hir_extern_return_owner_values = word_to_int(array_get(kept, 0))
+    v4_hir_extern_return_values = word_to_int(array_get(kept, 1))
+    v4_hir_route_owner_values = word_to_int(array_get(kept, 2))
+    v4_hir_route_case_values = word_to_int(array_get(kept, 3))
+    v4_hir_route_field_values = word_to_int(array_get(kept, 4))
+    v4_hir_const_annotation_values = word_to_int(array_get(kept, 5))
+    v4_hir_word_plans = word_to_int(array_get(kept, 6))
+    v4_hir_shape_field_starts = word_to_int(array_get(kept, 7))
+    v4_hir_shape_field_counts = word_to_int(array_get(kept, 8))
+    v4_hir_shape_field_values = word_to_int(array_get(kept, 9))
+    v4_hir_files = word_to_int(array_get(kept, 10))
+    v4_hir_expansions = word_to_int(array_get(kept, 11))
+    v4_hir_revisions = word_to_int(array_get(kept, 12))
+    v4_hir_item_kinds = word_to_int(array_get(kept, 13))
+    v4_hir_item_names = word_to_int(array_get(kept, 14))
+    v4_hir_item_defs = word_to_int(array_get(kept, 15))
+    v4_hir_item_spans = word_to_int(array_get(kept, 16))
+    v4_hir_item_parse_nodes = word_to_int(array_get(kept, 17))
+    v4_hir_alias_target_types = word_to_int(array_get(kept, 18))
+    v4_hir_alias_target_spans = word_to_int(array_get(kept, 19))
+    v4_hir_local_annotation_items = word_to_int(array_get(kept, 20))
+    v4_hir_local_annotation_stmt_spans = word_to_int(array_get(kept, 21))
+    v4_hir_local_annotation_types = word_to_int(array_get(kept, 22))
+    v4_hir_local_annotation_type_spans = word_to_int(array_get(kept, 23))
+    v4_hir_task_return_items = word_to_int(array_get(kept, 24))
+    v4_hir_task_return_forms = word_to_int(array_get(kept, 25))
+    v4_hir_task_return_types = word_to_int(array_get(kept, 26))
+    v4_hir_task_return_spans = word_to_int(array_get(kept, 27))
+    v4_hir_annotation_indexes = word_to_int(array_get(kept, 28))
+    v4_hir_return_indexes = word_to_int(array_get(kept, 29))
+    v4_hir_task_param_indexes = word_to_int(array_get(kept, 30))
+    v4_hir_impl_indexes = word_to_int(array_get(kept, 31))
+    v4_hir_task_param_owner_items = word_to_int(array_get(kept, 32))
+    v4_hir_task_param_owner_counts = word_to_int(array_get(kept, 33))
+    v4_hir_task_param_items = word_to_int(array_get(kept, 34))
+    v4_hir_task_param_ordinals = word_to_int(array_get(kept, 35))
+    v4_hir_task_param_names = word_to_int(array_get(kept, 36))
+    v4_hir_task_param_name_spans = word_to_int(array_get(kept, 37))
+    v4_hir_task_param_modes = word_to_int(array_get(kept, 38))
+    v4_hir_task_param_lifetimes = word_to_int(array_get(kept, 39))
+    v4_hir_task_param_lifetime_spans = word_to_int(array_get(kept, 40))
+    v4_hir_task_param_types = word_to_int(array_get(kept, 41))
+    v4_hir_task_param_type_spans = word_to_int(array_get(kept, 42))
+    v4_hir_task_param_segment_spans = word_to_int(array_get(kept, 43))
+    v4_hir_diags = word_to_int(array_get(kept, 44))
+    v4_hir_file_len = 37
+    v4_hir_ready = 0
+}
+
+task cold_hir_state() -> word {
+    pilot out = word_from_int(v4_hir_ready) + ":" + word_from_int(v4_hir_file_len)
+    out = out + ":" + word_from_int(v4_hir_extern_return_owner_values)
+    out = out + ":" + word_from_int(v4_hir_extern_return_values)
+    out = out + ":" + word_from_int(v4_hir_route_owner_values)
+    out = out + ":" + word_from_int(v4_hir_route_case_values)
+    out = out + ":" + word_from_int(v4_hir_route_field_values)
+    out = out + ":" + word_from_int(v4_hir_const_annotation_values)
+    out = out + ":" + word_from_int(v4_hir_word_plans)
+    out = out + ":" + word_from_int(v4_hir_shape_field_starts)
+    out = out + ":" + word_from_int(v4_hir_shape_field_counts)
+    out = out + ":" + word_from_int(v4_hir_shape_field_values)
+    out = out + ":" + word_from_int(v4_hir_files)
+    out = out + ":" + word_from_int(v4_hir_expansions)
+    out = out + ":" + word_from_int(v4_hir_revisions)
+    out = out + ":" + word_from_int(v4_hir_item_kinds)
+    out = out + ":" + word_from_int(v4_hir_item_names)
+    out = out + ":" + word_from_int(v4_hir_item_defs)
+    out = out + ":" + word_from_int(v4_hir_item_spans)
+    out = out + ":" + word_from_int(v4_hir_item_parse_nodes)
+    out = out + ":" + word_from_int(v4_hir_alias_target_types)
+    out = out + ":" + word_from_int(v4_hir_alias_target_spans)
+    out = out + ":" + word_from_int(v4_hir_local_annotation_items)
+    out = out + ":" + word_from_int(v4_hir_local_annotation_stmt_spans)
+    out = out + ":" + word_from_int(v4_hir_local_annotation_types)
+    out = out + ":" + word_from_int(v4_hir_local_annotation_type_spans)
+    out = out + ":" + word_from_int(v4_hir_task_return_items)
+    out = out + ":" + word_from_int(v4_hir_task_return_forms)
+    out = out + ":" + word_from_int(v4_hir_task_return_types)
+    out = out + ":" + word_from_int(v4_hir_task_return_spans)
+    out = out + ":" + word_from_int(v4_hir_annotation_indexes)
+    out = out + ":" + word_from_int(v4_hir_return_indexes)
+    out = out + ":" + word_from_int(v4_hir_task_param_indexes)
+    out = out + ":" + word_from_int(v4_hir_impl_indexes)
+    out = out + ":" + word_from_int(v4_hir_task_param_owner_items)
+    out = out + ":" + word_from_int(v4_hir_task_param_owner_counts)
+    out = out + ":" + word_from_int(v4_hir_task_param_items)
+    out = out + ":" + word_from_int(v4_hir_task_param_ordinals)
+    out = out + ":" + word_from_int(v4_hir_task_param_names)
+    out = out + ":" + word_from_int(v4_hir_task_param_name_spans)
+    out = out + ":" + word_from_int(v4_hir_task_param_modes)
+    out = out + ":" + word_from_int(v4_hir_task_param_lifetimes)
+    out = out + ":" + word_from_int(v4_hir_task_param_lifetime_spans)
+    out = out + ":" + word_from_int(v4_hir_task_param_types)
+    out = out + ":" + word_from_int(v4_hir_task_param_type_spans)
+    out = out + ":" + word_from_int(v4_hir_task_param_segment_spans)
+    out = out + ":" + word_from_int(v4_hir_diags)
+    give back out
+}
+
+task cold_hir_sentinels_intact(kept: int) -> bool {
+    pilot index = 0
+    repeat until index >= 45 {
+        pilot handle = word_to_int(array_get(kept, index))
+        pilot value: word = array_get(handle, 0)
+        if array_len(handle) != 1 or value != "sentinel-" + word_from_int(index) { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task cold_hir_constructor_smoke() -> void {
+    pilot source = v4_source_add("cold-hir-constructor.fk", "alias Kept = int\n")
+    pilot source_revision = v4_source_revision(source)
+    pilot fingerprint = v4_source_fingerprint(source)
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot kept = cold_hir_sentinels()
+    cold_hir_set_sentinels(kept)
+    pilot original = cold_hir_state()
+    pilot capacity = cold_hir_available()
+    pilot free_count = 0
+    repeat until free_count >= 45 {
+        pilot held = cold_hir_hold(free_count)
+        v4_hir_init()
+        cold_hir_assert(cold_hir_state() == original and cold_hir_sentinels_intact(kept), "failed constructor preserves all 45 references and length")
+        cold_hir_release_pressure(held, free_count)
+        cold_hir_assert(cold_hir_available() == capacity, "partial constructor handles retired")
+        cold_hir_assert(v4_session_semantic_restore_generation() == generation and v4_source_revision(source) == source_revision and v4_source_fingerprint(source) == fingerprint, "failed constructor preserves source and generation")
+        free_count += 1
+    }
+    pilot held = cold_hir_hold(45)
+    v4_hir_init()
+    cold_hir_assert(v4_hir_ready == 1 and v4_hir_file_len == 0, "exact 45-handle constructor admitted")
+    cold_hir_release_pressure(held, 45)
+    cold_hir_assert(cold_hir_available() == capacity - 45 and cold_hir_sentinels_intact(kept), "constructor owns exactly 45 handles")
+    pilot published = cold_hir_state()
+    v4_hir_init()
+    cold_hir_assert(cold_hir_state() == published and cold_hir_available() == capacity - 45, "warm constructor does not allocate or replace")
+    cold_hir_assert(v4_session_semantic_restore_generation() == generation and v4_source_revision(source) == source_revision and v4_source_fingerprint(source) == fingerprint, "successful constructor leaves source and generation")
+    say "cold-hir-constructor rejected=45 exact-refs=true capacity-stable=true source-stable=true"
+    say "cold-hir-constructor admitted=45 warm-stable=true original-sentinels=true"
+}
+
+cold_hir_constructor_smoke()

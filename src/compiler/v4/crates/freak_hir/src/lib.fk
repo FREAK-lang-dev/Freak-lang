@@ -96,99 +96,146 @@ pilot v4_hir_ready = 0
 
 task v4_hir_init() -> void {
     if v4_hir_ready == 0 {
-        v4_hir_extern_return_owner_values = array_new()
-        v4_hir_extern_return_values = array_new()
-        v4_hir_route_owner_values = array_new()
-        v4_hir_route_case_values = array_new()
-        v4_hir_route_field_values = array_new()
-        v4_hir_const_annotation_values = array_new()
-        v4_hir_word_plans = array_new()
-        v4_hir_shape_field_starts = array_new()
-        v4_hir_shape_field_counts = array_new()
-        v4_hir_shape_field_values = array_new()
-        v4_hir_files = array_new()
-        v4_hir_expansions = array_new()
-        v4_hir_revisions = array_new()
-        v4_hir_item_kinds = array_new()
-        v4_hir_item_names = array_new()
-        v4_hir_item_defs = array_new()
-        v4_hir_item_spans = array_new()
-        v4_hir_item_parse_nodes = array_new()
-        v4_hir_alias_target_types = array_new()
-        v4_hir_alias_target_spans = array_new()
-        v4_hir_local_annotation_items = array_new()
-        v4_hir_local_annotation_stmt_spans = array_new()
-        v4_hir_local_annotation_types = array_new()
-        v4_hir_local_annotation_type_spans = array_new()
-        v4_hir_task_return_items = array_new()
-        v4_hir_task_return_forms = array_new()
-        v4_hir_task_return_types = array_new()
-        v4_hir_task_return_spans = array_new()
-        v4_hir_annotation_indexes = array_new()
-        v4_hir_return_indexes = array_new()
-        v4_hir_task_param_indexes = array_new()
-        v4_hir_impl_indexes = array_new()
-        v4_hir_task_param_owner_items = array_new()
-        v4_hir_task_param_owner_counts = array_new()
-        v4_hir_task_param_items = array_new()
-        v4_hir_task_param_ordinals = array_new()
-        v4_hir_task_param_names = array_new()
-        v4_hir_task_param_name_spans = array_new()
-        v4_hir_task_param_modes = array_new()
-        v4_hir_task_param_lifetimes = array_new()
-        v4_hir_task_param_lifetime_spans = array_new()
-        v4_hir_task_param_types = array_new()
-        v4_hir_task_param_type_spans = array_new()
-        v4_hir_task_param_segment_spans = array_new()
-        v4_hir_diags = array_new()
-        if v4_hir_word_plans < 0 or v4_hir_extern_return_owner_values < 0 or v4_hir_extern_return_values < 0 or v4_hir_route_owner_values < 0 or v4_hir_route_case_values < 0 or v4_hir_route_field_values < 0 or v4_hir_const_annotation_values < 0 or v4_hir_shape_field_starts < 0 or v4_hir_shape_field_counts < 0 or v4_hir_shape_field_values < 0 or v4_hir_files < 0 or v4_hir_expansions < 0 or v4_hir_revisions < 0 or v4_hir_item_kinds < 0 or v4_hir_item_names < 0 or v4_hir_item_defs < 0 or v4_hir_item_spans < 0 or v4_hir_item_parse_nodes < 0 or v4_hir_alias_target_types < 0 or v4_hir_alias_target_spans < 0 or v4_hir_local_annotation_items < 0 or v4_hir_local_annotation_stmt_spans < 0 or v4_hir_local_annotation_types < 0 or v4_hir_local_annotation_type_spans < 0 or v4_hir_task_return_items < 0 or v4_hir_task_return_forms < 0 or v4_hir_task_return_types < 0 or v4_hir_task_return_spans < 0 or v4_hir_annotation_indexes < 0 or v4_hir_return_indexes < 0 or v4_hir_task_param_indexes < 0 or v4_hir_impl_indexes < 0 or v4_hir_task_param_owner_items < 0 or v4_hir_task_param_owner_counts < 0 or v4_hir_task_param_items < 0 or v4_hir_task_param_ordinals < 0 or v4_hir_task_param_names < 0 or v4_hir_task_param_name_spans < 0 or v4_hir_task_param_modes < 0 or v4_hir_task_param_lifetimes < 0 or v4_hir_task_param_lifetime_spans < 0 or v4_hir_task_param_types < 0 or v4_hir_task_param_type_spans < 0 or v4_hir_task_param_segment_spans < 0 or v4_hir_diags < 0 {
-            array_release(v4_hir_extern_return_owner_values)
-            array_release(v4_hir_extern_return_values)
-            array_release(v4_hir_route_owner_values)
-            array_release(v4_hir_route_case_values)
-            array_release(v4_hir_route_field_values)
-            array_release(v4_hir_const_annotation_values)
-            array_release(v4_hir_word_plans)
-            array_release(v4_hir_shape_field_starts)
-            array_release(v4_hir_shape_field_counts)
-            array_release(v4_hir_shape_field_values)
-            array_release(v4_hir_files)
-            array_release(v4_hir_expansions)
-            array_release(v4_hir_revisions)
-            array_release(v4_hir_item_kinds)
-            array_release(v4_hir_item_names)
-            array_release(v4_hir_item_defs)
-            array_release(v4_hir_item_spans)
-            array_release(v4_hir_item_parse_nodes)
-            array_release(v4_hir_alias_target_types)
-            array_release(v4_hir_alias_target_spans)
-            array_release(v4_hir_local_annotation_items)
-            array_release(v4_hir_local_annotation_stmt_spans)
-            array_release(v4_hir_local_annotation_types)
-            array_release(v4_hir_local_annotation_type_spans)
-            array_release(v4_hir_task_return_items)
-            array_release(v4_hir_task_return_forms)
-            array_release(v4_hir_task_return_types)
-            array_release(v4_hir_task_return_spans)
-            array_release(v4_hir_annotation_indexes)
-            array_release(v4_hir_return_indexes)
-            array_release(v4_hir_task_param_indexes)
-            array_release(v4_hir_impl_indexes)
-            array_release(v4_hir_task_param_owner_items)
-            array_release(v4_hir_task_param_owner_counts)
-            array_release(v4_hir_task_param_items)
-            array_release(v4_hir_task_param_ordinals)
-            array_release(v4_hir_task_param_names)
-            array_release(v4_hir_task_param_name_spans)
-            array_release(v4_hir_task_param_modes)
-            array_release(v4_hir_task_param_lifetimes)
-            array_release(v4_hir_task_param_lifetime_spans)
-            array_release(v4_hir_task_param_types)
-            array_release(v4_hir_task_param_type_spans)
-            array_release(v4_hir_task_param_segment_spans)
-            array_release(v4_hir_diags)
+        -- Admission is private until every constructor handle is available.
+        -- Failed construction leaves the original global references untouched.
+        pilot new_extern_return_owner_values = array_new()
+        pilot new_extern_return_values = array_new()
+        pilot new_route_owner_values = array_new()
+        pilot new_route_case_values = array_new()
+        pilot new_route_field_values = array_new()
+        pilot new_const_annotation_values = array_new()
+        pilot new_word_plans = array_new()
+        pilot new_shape_field_starts = array_new()
+        pilot new_shape_field_counts = array_new()
+        pilot new_shape_field_values = array_new()
+        pilot new_files = array_new()
+        pilot new_expansions = array_new()
+        pilot new_revisions = array_new()
+        pilot new_item_kinds = array_new()
+        pilot new_item_names = array_new()
+        pilot new_item_defs = array_new()
+        pilot new_item_spans = array_new()
+        pilot new_item_parse_nodes = array_new()
+        pilot new_alias_target_types = array_new()
+        pilot new_alias_target_spans = array_new()
+        pilot new_local_annotation_items = array_new()
+        pilot new_local_annotation_stmt_spans = array_new()
+        pilot new_local_annotation_types = array_new()
+        pilot new_local_annotation_type_spans = array_new()
+        pilot new_task_return_items = array_new()
+        pilot new_task_return_forms = array_new()
+        pilot new_task_return_types = array_new()
+        pilot new_task_return_spans = array_new()
+        pilot new_annotation_indexes = array_new()
+        pilot new_return_indexes = array_new()
+        pilot new_task_param_indexes = array_new()
+        pilot new_impl_indexes = array_new()
+        pilot new_task_param_owner_items = array_new()
+        pilot new_task_param_owner_counts = array_new()
+        pilot new_task_param_items = array_new()
+        pilot new_task_param_ordinals = array_new()
+        pilot new_task_param_names = array_new()
+        pilot new_task_param_name_spans = array_new()
+        pilot new_task_param_modes = array_new()
+        pilot new_task_param_lifetimes = array_new()
+        pilot new_task_param_lifetime_spans = array_new()
+        pilot new_task_param_types = array_new()
+        pilot new_task_param_type_spans = array_new()
+        pilot new_task_param_segment_spans = array_new()
+        pilot new_diags = array_new()
+        if new_word_plans < 0 or new_extern_return_owner_values < 0 or new_extern_return_values < 0 or new_route_owner_values < 0 or new_route_case_values < 0 or new_route_field_values < 0 or new_const_annotation_values < 0 or new_shape_field_starts < 0 or new_shape_field_counts < 0 or new_shape_field_values < 0 or new_files < 0 or new_expansions < 0 or new_revisions < 0 or new_item_kinds < 0 or new_item_names < 0 or new_item_defs < 0 or new_item_spans < 0 or new_item_parse_nodes < 0 or new_alias_target_types < 0 or new_alias_target_spans < 0 or new_local_annotation_items < 0 or new_local_annotation_stmt_spans < 0 or new_local_annotation_types < 0 or new_local_annotation_type_spans < 0 or new_task_return_items < 0 or new_task_return_forms < 0 or new_task_return_types < 0 or new_task_return_spans < 0 or new_annotation_indexes < 0 or new_return_indexes < 0 or new_task_param_indexes < 0 or new_impl_indexes < 0 or new_task_param_owner_items < 0 or new_task_param_owner_counts < 0 or new_task_param_items < 0 or new_task_param_ordinals < 0 or new_task_param_names < 0 or new_task_param_name_spans < 0 or new_task_param_modes < 0 or new_task_param_lifetimes < 0 or new_task_param_lifetime_spans < 0 or new_task_param_types < 0 or new_task_param_type_spans < 0 or new_task_param_segment_spans < 0 or new_diags < 0 {
+            array_release(new_extern_return_owner_values)
+            array_release(new_extern_return_values)
+            array_release(new_route_owner_values)
+            array_release(new_route_case_values)
+            array_release(new_route_field_values)
+            array_release(new_const_annotation_values)
+            array_release(new_word_plans)
+            array_release(new_shape_field_starts)
+            array_release(new_shape_field_counts)
+            array_release(new_shape_field_values)
+            array_release(new_files)
+            array_release(new_expansions)
+            array_release(new_revisions)
+            array_release(new_item_kinds)
+            array_release(new_item_names)
+            array_release(new_item_defs)
+            array_release(new_item_spans)
+            array_release(new_item_parse_nodes)
+            array_release(new_alias_target_types)
+            array_release(new_alias_target_spans)
+            array_release(new_local_annotation_items)
+            array_release(new_local_annotation_stmt_spans)
+            array_release(new_local_annotation_types)
+            array_release(new_local_annotation_type_spans)
+            array_release(new_task_return_items)
+            array_release(new_task_return_forms)
+            array_release(new_task_return_types)
+            array_release(new_task_return_spans)
+            array_release(new_annotation_indexes)
+            array_release(new_return_indexes)
+            array_release(new_task_param_indexes)
+            array_release(new_impl_indexes)
+            array_release(new_task_param_owner_items)
+            array_release(new_task_param_owner_counts)
+            array_release(new_task_param_items)
+            array_release(new_task_param_ordinals)
+            array_release(new_task_param_names)
+            array_release(new_task_param_name_spans)
+            array_release(new_task_param_modes)
+            array_release(new_task_param_lifetimes)
+            array_release(new_task_param_lifetime_spans)
+            array_release(new_task_param_types)
+            array_release(new_task_param_type_spans)
+            array_release(new_task_param_segment_spans)
+            array_release(new_diags)
             give back
         }
+        v4_hir_extern_return_owner_values = new_extern_return_owner_values
+        v4_hir_extern_return_values = new_extern_return_values
+        v4_hir_route_owner_values = new_route_owner_values
+        v4_hir_route_case_values = new_route_case_values
+        v4_hir_route_field_values = new_route_field_values
+        v4_hir_const_annotation_values = new_const_annotation_values
+        v4_hir_word_plans = new_word_plans
+        v4_hir_shape_field_starts = new_shape_field_starts
+        v4_hir_shape_field_counts = new_shape_field_counts
+        v4_hir_shape_field_values = new_shape_field_values
+        v4_hir_files = new_files
+        v4_hir_expansions = new_expansions
+        v4_hir_revisions = new_revisions
+        v4_hir_item_kinds = new_item_kinds
+        v4_hir_item_names = new_item_names
+        v4_hir_item_defs = new_item_defs
+        v4_hir_item_spans = new_item_spans
+        v4_hir_item_parse_nodes = new_item_parse_nodes
+        v4_hir_alias_target_types = new_alias_target_types
+        v4_hir_alias_target_spans = new_alias_target_spans
+        v4_hir_local_annotation_items = new_local_annotation_items
+        v4_hir_local_annotation_stmt_spans = new_local_annotation_stmt_spans
+        v4_hir_local_annotation_types = new_local_annotation_types
+        v4_hir_local_annotation_type_spans = new_local_annotation_type_spans
+        v4_hir_task_return_items = new_task_return_items
+        v4_hir_task_return_forms = new_task_return_forms
+        v4_hir_task_return_types = new_task_return_types
+        v4_hir_task_return_spans = new_task_return_spans
+        v4_hir_annotation_indexes = new_annotation_indexes
+        v4_hir_return_indexes = new_return_indexes
+        v4_hir_task_param_indexes = new_task_param_indexes
+        v4_hir_impl_indexes = new_impl_indexes
+        v4_hir_task_param_owner_items = new_task_param_owner_items
+        v4_hir_task_param_owner_counts = new_task_param_owner_counts
+        v4_hir_task_param_items = new_task_param_items
+        v4_hir_task_param_ordinals = new_task_param_ordinals
+        v4_hir_task_param_names = new_task_param_names
+        v4_hir_task_param_name_spans = new_task_param_name_spans
+        v4_hir_task_param_modes = new_task_param_modes
+        v4_hir_task_param_lifetimes = new_task_param_lifetimes
+        v4_hir_task_param_lifetime_spans = new_task_param_lifetime_spans
+        v4_hir_task_param_types = new_task_param_types
+        v4_hir_task_param_type_spans = new_task_param_type_spans
+        v4_hir_task_param_segment_spans = new_task_param_segment_spans
+        v4_hir_diags = new_diags
         v4_hir_file_len = 0
         v4_hir_ready = 1
     }
@@ -3099,8 +3146,6 @@ task v4_hir_lookup_handles_available(needed: int) -> bool {
 }
 
 task v4_hir_snapshot_restore(payload: word) -> word {
-    v4_hir_init()
-    if v4_hir_ready == 0 { give back "hir-snapshot-restore ok=0 reason=hir-initialization-resource-exhausted" }
     pilot validation = v4_hir_snapshot_validate(payload)
     if validation.starts_with("hir-snapshot-import ok=1") == false {
         give back "hir-snapshot-restore ok=0 reason=validation-failed\n" + validation
@@ -3115,7 +3160,156 @@ task v4_hir_snapshot_restore(payload: word) -> word {
         array_release(records)
         give back "hir-snapshot-restore ok=0 reason=word-plan-resource-exhausted"
     }
+    -- Validation and request-owned staging must not warm a cold arena.
+    -- Only this call's admitted constructor may be rolled back on rejection.
+    pilot admitted_cold = v4_hir_ready == 0
+    pilot original_file_len = v4_hir_file_len
+    pilot original_extern_return_owner_values = v4_hir_extern_return_owner_values
+    pilot original_extern_return_values = v4_hir_extern_return_values
+    pilot original_route_owner_values = v4_hir_route_owner_values
+    pilot original_route_case_values = v4_hir_route_case_values
+    pilot original_route_field_values = v4_hir_route_field_values
+    pilot original_const_annotation_values = v4_hir_const_annotation_values
+    pilot original_word_plans = v4_hir_word_plans
+    pilot original_shape_field_starts = v4_hir_shape_field_starts
+    pilot original_shape_field_counts = v4_hir_shape_field_counts
+    pilot original_shape_field_values = v4_hir_shape_field_values
+    pilot original_files = v4_hir_files
+    pilot original_expansions = v4_hir_expansions
+    pilot original_revisions = v4_hir_revisions
+    pilot original_item_kinds = v4_hir_item_kinds
+    pilot original_item_names = v4_hir_item_names
+    pilot original_item_defs = v4_hir_item_defs
+    pilot original_item_spans = v4_hir_item_spans
+    pilot original_item_parse_nodes = v4_hir_item_parse_nodes
+    pilot original_alias_target_types = v4_hir_alias_target_types
+    pilot original_alias_target_spans = v4_hir_alias_target_spans
+    pilot original_local_annotation_items = v4_hir_local_annotation_items
+    pilot original_local_annotation_stmt_spans = v4_hir_local_annotation_stmt_spans
+    pilot original_local_annotation_types = v4_hir_local_annotation_types
+    pilot original_local_annotation_type_spans = v4_hir_local_annotation_type_spans
+    pilot original_task_return_items = v4_hir_task_return_items
+    pilot original_task_return_forms = v4_hir_task_return_forms
+    pilot original_task_return_types = v4_hir_task_return_types
+    pilot original_task_return_spans = v4_hir_task_return_spans
+    pilot original_annotation_indexes = v4_hir_annotation_indexes
+    pilot original_return_indexes = v4_hir_return_indexes
+    pilot original_task_param_indexes = v4_hir_task_param_indexes
+    pilot original_impl_indexes = v4_hir_impl_indexes
+    pilot original_task_param_owner_items = v4_hir_task_param_owner_items
+    pilot original_task_param_owner_counts = v4_hir_task_param_owner_counts
+    pilot original_task_param_items = v4_hir_task_param_items
+    pilot original_task_param_ordinals = v4_hir_task_param_ordinals
+    pilot original_task_param_names = v4_hir_task_param_names
+    pilot original_task_param_name_spans = v4_hir_task_param_name_spans
+    pilot original_task_param_modes = v4_hir_task_param_modes
+    pilot original_task_param_lifetimes = v4_hir_task_param_lifetimes
+    pilot original_task_param_lifetime_spans = v4_hir_task_param_lifetime_spans
+    pilot original_task_param_types = v4_hir_task_param_types
+    pilot original_task_param_type_spans = v4_hir_task_param_type_spans
+    pilot original_task_param_segment_spans = v4_hir_task_param_segment_spans
+    pilot original_diags = v4_hir_diags
+    v4_hir_init()
+    if v4_hir_ready == 0 {
+        array_release(records)
+        v4_hir_word_snapshot_release(word_ticket)
+        give back "hir-snapshot-restore ok=0 reason=hir-initialization-resource-exhausted"
+    }
     if v4_hir_restore_indexes_have_capacity(records) == false {
+        if admitted_cold {
+            array_release(v4_hir_extern_return_owner_values)
+            array_release(v4_hir_extern_return_values)
+            array_release(v4_hir_route_owner_values)
+            array_release(v4_hir_route_case_values)
+            array_release(v4_hir_route_field_values)
+            array_release(v4_hir_const_annotation_values)
+            array_release(v4_hir_word_plans)
+            array_release(v4_hir_shape_field_starts)
+            array_release(v4_hir_shape_field_counts)
+            array_release(v4_hir_shape_field_values)
+            array_release(v4_hir_files)
+            array_release(v4_hir_expansions)
+            array_release(v4_hir_revisions)
+            array_release(v4_hir_item_kinds)
+            array_release(v4_hir_item_names)
+            array_release(v4_hir_item_defs)
+            array_release(v4_hir_item_spans)
+            array_release(v4_hir_item_parse_nodes)
+            array_release(v4_hir_alias_target_types)
+            array_release(v4_hir_alias_target_spans)
+            array_release(v4_hir_local_annotation_items)
+            array_release(v4_hir_local_annotation_stmt_spans)
+            array_release(v4_hir_local_annotation_types)
+            array_release(v4_hir_local_annotation_type_spans)
+            array_release(v4_hir_task_return_items)
+            array_release(v4_hir_task_return_forms)
+            array_release(v4_hir_task_return_types)
+            array_release(v4_hir_task_return_spans)
+            array_release(v4_hir_annotation_indexes)
+            array_release(v4_hir_return_indexes)
+            array_release(v4_hir_task_param_indexes)
+            array_release(v4_hir_impl_indexes)
+            array_release(v4_hir_task_param_owner_items)
+            array_release(v4_hir_task_param_owner_counts)
+            array_release(v4_hir_task_param_items)
+            array_release(v4_hir_task_param_ordinals)
+            array_release(v4_hir_task_param_names)
+            array_release(v4_hir_task_param_name_spans)
+            array_release(v4_hir_task_param_modes)
+            array_release(v4_hir_task_param_lifetimes)
+            array_release(v4_hir_task_param_lifetime_spans)
+            array_release(v4_hir_task_param_types)
+            array_release(v4_hir_task_param_type_spans)
+            array_release(v4_hir_task_param_segment_spans)
+            array_release(v4_hir_diags)
+            v4_hir_extern_return_owner_values = original_extern_return_owner_values
+            v4_hir_extern_return_values = original_extern_return_values
+            v4_hir_route_owner_values = original_route_owner_values
+            v4_hir_route_case_values = original_route_case_values
+            v4_hir_route_field_values = original_route_field_values
+            v4_hir_const_annotation_values = original_const_annotation_values
+            v4_hir_word_plans = original_word_plans
+            v4_hir_shape_field_starts = original_shape_field_starts
+            v4_hir_shape_field_counts = original_shape_field_counts
+            v4_hir_shape_field_values = original_shape_field_values
+            v4_hir_files = original_files
+            v4_hir_expansions = original_expansions
+            v4_hir_revisions = original_revisions
+            v4_hir_item_kinds = original_item_kinds
+            v4_hir_item_names = original_item_names
+            v4_hir_item_defs = original_item_defs
+            v4_hir_item_spans = original_item_spans
+            v4_hir_item_parse_nodes = original_item_parse_nodes
+            v4_hir_alias_target_types = original_alias_target_types
+            v4_hir_alias_target_spans = original_alias_target_spans
+            v4_hir_local_annotation_items = original_local_annotation_items
+            v4_hir_local_annotation_stmt_spans = original_local_annotation_stmt_spans
+            v4_hir_local_annotation_types = original_local_annotation_types
+            v4_hir_local_annotation_type_spans = original_local_annotation_type_spans
+            v4_hir_task_return_items = original_task_return_items
+            v4_hir_task_return_forms = original_task_return_forms
+            v4_hir_task_return_types = original_task_return_types
+            v4_hir_task_return_spans = original_task_return_spans
+            v4_hir_annotation_indexes = original_annotation_indexes
+            v4_hir_return_indexes = original_return_indexes
+            v4_hir_task_param_indexes = original_task_param_indexes
+            v4_hir_impl_indexes = original_impl_indexes
+            v4_hir_task_param_owner_items = original_task_param_owner_items
+            v4_hir_task_param_owner_counts = original_task_param_owner_counts
+            v4_hir_task_param_items = original_task_param_items
+            v4_hir_task_param_ordinals = original_task_param_ordinals
+            v4_hir_task_param_names = original_task_param_names
+            v4_hir_task_param_name_spans = original_task_param_name_spans
+            v4_hir_task_param_modes = original_task_param_modes
+            v4_hir_task_param_lifetimes = original_task_param_lifetimes
+            v4_hir_task_param_lifetime_spans = original_task_param_lifetime_spans
+            v4_hir_task_param_types = original_task_param_types
+            v4_hir_task_param_type_spans = original_task_param_type_spans
+            v4_hir_task_param_segment_spans = original_task_param_segment_spans
+            v4_hir_diags = original_diags
+            v4_hir_file_len = original_file_len
+            v4_hir_ready = 0
+        }
         array_release(records)
         v4_hir_word_snapshot_release(word_ticket)
         give back "hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted"
