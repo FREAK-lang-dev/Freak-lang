@@ -1321,8 +1321,8 @@ class SymbolInventoryProvenance(unittest.TestCase):
             obj.write_bytes(b"tiny object")
             commands = []
 
-            def job(build, command, work, label, timeout, memory, output):
-                commands.append((command, timeout, memory, output))
+            def job(build, command, work, label, timeout, memory, output, *, executable=None):
+                commands.append((command, timeout, memory, output, executable))
                 if command[1] == "--version":
                     return subprocess.CompletedProcess(command, 0, "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n", "")
                 raise RuntimeError('native symbol inventory exceeded memory limit: observed=134.3MB limit=128MB\nmemory-sample={"processes":[]}')
@@ -1338,6 +1338,7 @@ class SymbolInventoryProvenance(unittest.TestCase):
             self.assertEqual(metadata["nm_version"], "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n")
             self.assertEqual(commands[1][0], [str(nm.resolve()), "-g", "--defined-only", str(obj)])
             self.assertEqual([command[2] for command in commands], [128, 128])
+            self.assertEqual([command[4] for command in commands], [str(nm.resolve())] * 2)
             self.assertEqual(commands[0][1], 5)
             self.assertEqual(commands[1][1], 10)
         self.assertIn(hashlib.sha256(b"tiny object").hexdigest(), message)
@@ -1358,7 +1359,8 @@ class SymbolInventoryProvenance(unittest.TestCase):
             self.assertIn("original tool version limit", message)
             self.assertIn("unavailable within unchanged resource limits", message)
             job.assert_called_once_with(None, [str(nm.resolve()), "--version"],
-                directory / "diagnostic/tool-selection/tool-version", "LLVM symbol tool version", 1, 128, 1)
+                directory / "diagnostic/tool-selection/tool-version", "LLVM symbol tool version", 1, 128, 1,
+                executable=str(nm.resolve()))
 
     def test_success_keeps_collision_symbols_with_validated_llvm_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1376,6 +1378,8 @@ class SymbolInventoryProvenance(unittest.TestCase):
             self.assertEqual(job.call_args.args,
                 (None, [str(nm.resolve()), "-g", "--defined-only", str(obj)],
                  directory / "work", "native symbol inventory", 10, 128, 8))
+            self.assertEqual([call.kwargs for call in job.call_args_list],
+                             [{"executable": str(nm.resolve())}] * 2)
 
     def test_alias_spelling_executes_and_hashes_the_resolved_image(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1409,6 +1413,8 @@ class SymbolInventoryProvenance(unittest.TestCase):
                                  {"main", "bench_collision"})
             self.assertEqual([call.args[1][0] for call in job.call_args_list],
                              [str(selected), str(selected)])
+            self.assertEqual([call.kwargs for call in job.call_args_list],
+                             [{"executable": str(resolved)}] * 2)
             metadata = json.loads((directory / "work/provenance.json").read_text())
             self.assertEqual(metadata["requested_nm"], str(alias))
             self.assertEqual(metadata["selected_nm"], str(selected))
