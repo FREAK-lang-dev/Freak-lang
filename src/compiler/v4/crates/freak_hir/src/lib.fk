@@ -6278,6 +6278,8 @@ task v4_hir_word_plan_scan_literal(hir_id: int, item: int, stream: int, token: i
     pilot token_span = v4_lex_token_span(stream, token)
     pilot interior = v4_span_new(v4_span_file(token_span), v4_span_start(token_span) + 1, v4_span_start(token_span) + 1 + raw.length())
     pilot issue = v4_hir_word_plan_escape_issue(raw)
+    -- Lexer recovery omits the closing quote; persist that fact explicitly.
+    if v4_span_end(interior) == v4_span_end(token_span) { issue = "unterminated" }
     pilot literal = v4_hir_word_build_literal_cursor
     pilot first_piece = v4_hir_word_build_piece_cursor
     if issue == "" {
@@ -6311,6 +6313,29 @@ task v4_hir_word_plan_scan_literal(hir_id: int, item: int, stream: int, token: i
     v4_hir_word_build_literal_cursor += 1
 }
 
+-- Attributes are HIR-owned source metadata; bound recovery to this owner.
+task v4_hir_word_attribute_end(stream: int, start: int, limit: int) -> int {
+    pilot name = start + 1
+    repeat until name >= limit or v4_lex_token_type(stream, name) != v4_tok_trivia { name += 1 }
+    if name >= limit { give back limit }
+    pilot open = name + 1
+    repeat until open >= limit or v4_lex_token_type(stream, open) != v4_tok_trivia { open += 1 }
+    if open >= limit or v4_lex_token_syntax_value(stream, open) != "(" { give back name + 1 }
+    pilot depth = 0
+    pilot index = open
+    repeat until index >= limit {
+        if v4_lex_token_type(stream, index) == v4_tok_symbol {
+            pilot value = v4_lex_token_syntax_value(stream, index)
+            if value == "(" { depth += 1 } else if value == ")" {
+                depth -= 1
+                if depth == 0 { give back index + 1 }
+            }
+        }
+        index += 1
+    }
+    give back limit
+}
+
 -- Scan each owner range once per construction pass. Method headers and metadata
 -- are not word expressions; braces inside a string token cannot change this state.
 task v4_hir_word_plan_scan_item(hir_id: int, item: int, fill: bool) -> void {
@@ -6326,27 +6351,26 @@ task v4_hir_word_plan_scan_item(hir_id: int, item: int, fill: bool) -> void {
     pilot depth = 0
     pilot method_depth = 0
     pilot arrow: bool = false
-    pilot annotation_depth = 0
     repeat until index >= limit or v4_hir_word_build_failed {
         pilot token_type = v4_lex_token_type(stream, index)
         pilot value = v4_lex_token_syntax_value(stream, index)
-        if phase == 2 and annotation_depth == 0 and token_type == v4_tok_string {
+        if token_type == v4_tok_symbol and value == "@" {
+            -- Attribute argument strings are metadata in every owner phase.
+            pilot after = v4_hir_word_attribute_end(stream, index, limit)
+            if after > limit { after = limit }
+            index = after - 1
+        } else if phase == 2 and token_type == v4_tok_string {
             v4_hir_word_plan_scan_literal(hir_id, item, stream, index, fill)
         } else if token_type == v4_tok_symbol {
-            if phase == 2 and value == "#" { annotation_depth = 1 } else if annotation_depth > 0 {
-                if value == "[" { annotation_depth += 1 }
-                if value == "]" { annotation_depth -= 1 if annotation_depth == 1 { annotation_depth = 0 } }
-            } else {
                 if phase == 1 and depth == method_depth {
                     if kind == v4_hir_const and value == "=" { phase = 2 } else if kind != v4_hir_const and (value == "{" or value == "=>") { phase = 2 arrow = value == "=>" }
                 }
                 if value == "(" or value == "[" or value == "{" { depth += 1 } else if value == ")" or value == "]" or value == "}" { depth -= 1 }
                 if kind == v4_hir_impl and phase == 2 and not arrow and value == "}" and depth == method_depth { phase = 0 }
-            }
         } else if kind == v4_hir_impl and phase == 0 and depth == 1 and token_type == v4_tok_keyword and value == "task" {
             phase = 1
             method_depth = depth
-        } else if kind == v4_hir_impl and phase == 2 and arrow and depth == method_depth and token_type == v4_tok_trivia and value == "\n" { phase = 0 }
+        } else if kind == v4_hir_impl and phase == 2 and arrow and depth == method_depth and token_type == v4_tok_trivia and v4_lex_token_value(stream, index) == "\n" { phase = 0 }
         index += 1
     }
 }
@@ -6451,6 +6475,12 @@ task v4_hir_word_snapshot_reserve(values: int, cells: int) -> bool {
 task v4_hir_word_snapshot_record_is_valid(line: word) -> bool {
     pilot kind = v4_hir_snapshot_field_raw(line, 0)
     if v4_hir_snapshot_field_count(line) != v4_hir_snapshot_record_expected_fields(kind) { give back false }
+    pilot escaped_field = 0
+    repeat until escaped_field >= v4_hir_snapshot_field_count(line) {
+        pilot raw_field = v4_hir_snapshot_field_raw(line, escaped_field)
+        if v4_hir_snapshot_escape(v4_hir_snapshot_field(line, escaped_field)) != raw_field { give back false }
+        escaped_field += 1
+    }
     pilot last = 3
     if kind == "hir-word-piece" { last = 4 }
     if kind == "hir-word-path-part" { last = 5 }
@@ -6461,7 +6491,7 @@ task v4_hir_word_snapshot_record_is_valid(line: word) -> bool {
     }
     if kind == "hir-word-literal" {
         pilot issue = v4_hir_snapshot_field(line, 6)
-        give back (issue == "" or issue == "escape") and v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 7))
+        give back (issue == "" or issue == "escape" or issue == "unterminated") and v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 7))
     }
     if kind == "hir-word-piece" {
         pilot piece_kind = v4_hir_snapshot_field(line, 5)
@@ -6719,7 +6749,9 @@ task v4_hir_word_snapshot_crossfacts(ticket: int) -> bool {
         pilot first = word_to_int(array_get(ls, base + 4))
         pilot count = word_to_int(array_get(ls, base + 5))
         if not v4_hir_word_snapshot_contains(token, outer, false) or v4_span_file(token) != source or not v4_hir_word_snapshot_span_valid(interior, true) { give back false }
-        if v4_span_file(interior) != source or v4_span_start(interior) != v4_span_start(token) + 1 or v4_span_end(interior) != v4_span_end(token) - 1 { give back false }
+        pilot interior_end = v4_span_end(token) - 1
+        if issue == "unterminated" { interior_end = v4_span_end(token) }
+        if v4_span_file(interior) != source or v4_span_start(interior) != v4_span_start(token) + 1 or v4_span_end(interior) != interior_end { give back false }
         if index > word_to_int(array_get(its, owner * 7 + 2)) {
             pilot previous: word = array_get(ls, (index - 1) * 7 + 1)
             if v4_span_end(previous) > v4_span_start(token) { give back false }

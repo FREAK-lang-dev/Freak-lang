@@ -5581,7 +5581,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_float, literal_value, "", 0 - 1, 0 - 1, expr_span, literal_ty)
     }
     if first_type == v4_tok_string and first == last {
-        give back v4_mir_lower_word_plan(mir_id, body_id, expr_span)
+        give back v4_mir_lower_word_plan(mir_id, body_id, v4_lex_token_span(stream_id, first))
     }
     if first_type == v4_tok_bool and first == last {
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, v4_mir_bool_literal_value(first_value), "", 0 - 1, 0 - 1, expr_span, v4_ty_bool)
@@ -9192,8 +9192,9 @@ task v4_mir_word_plan_path(mir: int, body: int, hir: int, literal: int, piece: i
             place = v4_mir_add_place(mir, body, v4_mir_place_local, name, local, "", -1, root_span, value_type)
         }
     } else {
-        if count != 1 { give back v4_mir_word_plan_error(mir, body, span, "interpolation field root must be a visible local " + name) }
-        value = v4_mir_word_plan_const_value(mir, body, name, span)
+        if count != 1 { give back v4_mir_word_plan_error(mir, body, root_span, "interpolation field root must be a visible local " + name) }
+        value = v4_mir_word_plan_const_value(mir, body, name, root_span)
+        if v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_unknown { give back value }
         value_type = v4_mir_rvalue_ty(mir, body, value)
     }
     pilot part = 1
@@ -9203,7 +9204,7 @@ task v4_mir_word_plan_path(mir: int, body: int, hir: int, literal: int, piece: i
         pilot projected_type = value_type
         if v4_ty_is_lend_type(projected_type) { projected_type = v4_ty_lend_target_type(projected_type) }
         value_type = v4_ty_shape_field_type_for_name(v4_mir_ty_id(mir), projected_type, field)
-        if not v4_ty_is_known(value_type) { give back v4_mir_word_plan_error(mir, body, span, "unknown interpolation field " + path + "." + field) }
+        if not v4_ty_is_known(value_type) { give back v4_mir_word_plan_error(mir, body, field_span, "unknown interpolation field " + path + "." + field) }
         path = path + "." + field
         place = v4_mir_add_place(mir, body, v4_mir_place_field, path, place, field, -1, field_span, value_type)
         part += 1

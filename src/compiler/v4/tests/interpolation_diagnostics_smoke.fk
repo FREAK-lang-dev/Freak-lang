@@ -1,0 +1,22 @@
+task v4_interp_diag_assert(condition: bool, label: word) -> void {
+    if not condition { panic("interpolation-diagnostics " + label) }
+}
+task v4_interp_diag_component(mir: int, name: word, part: int) -> word {
+    pilot body = v4_mir_lookup_body_name(mir, name)
+    pilot ty = v4_mir_ty_id(mir)
+    pilot item = v4_ty_signature_hir_item(ty, v4_mir_body_signature_id(mir, body))
+    pilot hir = v4_ty_word_plan_hir_id(ty)
+    pilot literal = v4_hir_word_literal_start(hir, item)
+    if part < 0 { give back v4_hir_word_piece_span(hir, literal, 0) }
+    give back v4_hir_word_path_part_span(hir, literal, 0, part)
+}
+pilot interpolation_diag_source = "shape Box<T> " + chr(123) + " field: T " + chr(125) + "\ntask missing_field(lend box: Box<int>) -> word " + chr(123) + " give back \"" + chr(123) + "box.missing" + chr(125) + "\" " + chr(125) + "\ntask missing_root() -> word " + chr(123) + " give back \"" + chr(123) + "absent" + chr(125) + "\" " + chr(125) + "\ntask bad_terminal(value: uint) -> word " + chr(123) + " give back \"" + chr(123) + "value" + chr(125) + "\" " + chr(125) + "\n"
+pilot interpolation_diag_mir = v4_mir_text_cached("interpolation-diagnostics.fk", interpolation_diag_source)
+v4_interp_diag_assert(v4_ty_diag_count(v4_mir_ty_id(interpolation_diag_mir)) == 0 and v4_mir_diag_count(interpolation_diag_mir) == 3, "one diagnostic per failed hole")
+pilot interpolation_diag_field = v4_mir_diag(interpolation_diag_mir, 0)
+pilot interpolation_diag_root = v4_mir_diag(interpolation_diag_mir, 1)
+pilot interpolation_diag_terminal = v4_mir_diag(interpolation_diag_mir, 2)
+v4_interp_diag_assert(v4_diag_message(interpolation_diag_field) == "unknown interpolation field box.missing" and v4_diag_span(interpolation_diag_field) == v4_interp_diag_component(interpolation_diag_mir, "missing_field", 1), "field component span")
+v4_interp_diag_assert(v4_diag_message(interpolation_diag_root) == "unknown interpolation root absent" and v4_diag_span(interpolation_diag_root) == v4_interp_diag_component(interpolation_diag_mir, "missing_root", 0), "root component span")
+v4_interp_diag_assert(v4_diag_message(interpolation_diag_terminal) == "unsupported interpolation terminal type uint" and v4_diag_span(interpolation_diag_terminal) == v4_interp_diag_component(interpolation_diag_mir, "bad_terminal", -1), "terminal whole-hole span")
+say "interpolation-diagnostics count=true root-span=true field-span=true terminal-span=true"
