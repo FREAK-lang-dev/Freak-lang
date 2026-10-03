@@ -2412,6 +2412,34 @@ task v4_hir_snapshot_bounded_id(raw: word, limit: int) -> int {
     give back id
 }
 
+-- Scalar-only reads use the same raw byte field boundaries without creating
+-- an owned Word which would immediately be discarded after conversion.
+-- Percent escapes remain raw here, just as for field_raw followed by parsing.
+task v4_hir_snapshot_nonnegative_field(line: word, wanted: int) -> int {
+    if wanted < 0 { give back -1 }
+    pilot field = 0
+    pilot start = 0
+    repeat until field >= wanted {
+        pilot separator = v4_index_of_from(line, "|", start)
+        if separator < 0 { give back -1 }
+        start = separator + 1
+        field += 1
+    }
+    pilot end = v4_index_of_from(line, "|", start)
+    if end < 0 { end = line.length() }
+    pilot value = v4_nonnegative_int_range(line, start, end)
+    if value < 0 or (end - start > 1 and line.char_at(start) == "0") {
+        give back -1
+    }
+    give back value
+}
+
+task v4_hir_snapshot_bounded_field_id(line: word, wanted: int, limit: int) -> int {
+    pilot id = v4_hir_snapshot_nonnegative_field(line, wanted)
+    if id < 0 or id >= limit { give back -1 }
+    give back id
+}
+
 task v4_hir_snapshot_slots_are_valid(records: int, files: int, items: int, diagnostics: int) -> bool {
     pilot no_file = V4_NO_FILE
     pilot owner_files = array_new()
@@ -4311,6 +4339,26 @@ task v4_hir_snapshot_task_param_owner_is_valid(line: word) -> bool {
     give back v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 1)) and v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 2)) and v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 3)) and v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 4))
 }
 
+-- Private equality-only read of the same sized file prefix as v4_span_file.
+-- Keep its first-@ and missing-delimiter fallback without an owned substring.
+task v4_hir_snapshot_span_file_equals(span: word, source_file: word) -> bool {
+    pilot at_pos = v4_index_of_from(span, "@", 0)
+    if at_pos < 0 {
+        give back source_file == V4_NO_FILE
+    }
+    if at_pos != source_file.length() {
+        give back false
+    }
+    pilot index = 0
+    repeat until index >= at_pos {
+        if span.char_at(index) != source_file.char_at(index) {
+            give back false
+        }
+        index += 1
+    }
+    give back true
+}
+
 task v4_hir_snapshot_span_is_canonical_nonempty(span: word) -> bool {
     -- Validate decimal spelling in place instead of allocating a reconstructed
     -- span on every parameter field and every validation iteration.
@@ -4389,7 +4437,7 @@ task v4_hir_snapshot_task_param_name_is_valid(name: word) -> bool {
 }
 
 task v4_hir_snapshot_task_param_is_valid(line: word) -> bool {
-    if v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 1)) == false or v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 2)) == false or v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 3)) == false or v4_hir_snapshot_nonnegative_int_is_valid(v4_hir_snapshot_field_raw(line, 4)) == false {
+    if v4_hir_snapshot_nonnegative_field(line, 1) < 0 or v4_hir_snapshot_nonnegative_field(line, 2) < 0 or v4_hir_snapshot_nonnegative_field(line, 3) < 0 or v4_hir_snapshot_nonnegative_field(line, 4) < 0 {
         give back false
     }
     pilot name = v4_hir_snapshot_field(line, 5)
@@ -4580,7 +4628,7 @@ task v4_hir_snapshot_task_param_slots_are_valid(records: int, files: int, items:
             if owner < 0 {
                 valid = false
             } else {
-                pilot record_id = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(owner_counts, owner)))
+                pilot record_id = v4_hir_snapshot_bounded_field_id(line, 2, word_to_int(array_get(owner_counts, owner)))
                 pilot item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 3), word_to_int(array_get(item_counts, owner)))
                 pilot count = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), params + 1)
                 if record_id < 0 or item < 0 or count < 0 {
@@ -4629,14 +4677,14 @@ task v4_hir_snapshot_task_param_slots_are_valid(records: int, files: int, items:
             if owner < 0 {
                 valid = false
             } else {
-                pilot record_id = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 2), word_to_int(array_get(param_counts, owner)))
+                pilot record_id = v4_hir_snapshot_bounded_field_id(line, 2, word_to_int(array_get(param_counts, owner)))
                 pilot item = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 3), word_to_int(array_get(item_counts, owner)))
                 if record_id < 0 or item < 0 {
                     valid = false
                 } else {
                     pilot record_slot = word_to_int(array_get(param_offsets, owner)) + record_id
                     pilot item_slot = word_to_int(array_get(item_offsets, owner)) + item
-                    pilot ordinal = v4_hir_snapshot_bounded_id(v4_hir_snapshot_field_raw(line, 4), word_to_int(array_get(item_param_counts, item_slot)))
+                    pilot ordinal = v4_hir_snapshot_bounded_field_id(line, 4, word_to_int(array_get(item_param_counts, item_slot)))
                     pilot task_seen: word = array_get(item_owner_seen, item_slot)
                     if ordinal < 0 or task_seen != "1" {
                         valid = false
@@ -4655,7 +4703,7 @@ task v4_hir_snapshot_task_param_slots_are_valid(records: int, files: int, items:
                             pilot source_file: word = array_get(owner_files, owner)
                             pilot parent_start = word_to_int(array_get(item_starts, item_slot))
                             pilot parent_end = word_to_int(array_get(item_ends, item_slot))
-                            if v4_span_file(segment) != source_file or v4_span_start(segment) < parent_start or v4_span_end(segment) > parent_end {
+                            if v4_hir_snapshot_span_file_equals(segment, source_file) == false or v4_span_start(segment) < parent_start or v4_span_end(segment) > parent_end {
                                 valid = false
                             }
                         }
