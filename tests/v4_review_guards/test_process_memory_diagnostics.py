@@ -1426,6 +1426,31 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
 
 
 class SymbolInventoryProvenance(unittest.TestCase):
+    def setUp(self):
+        # These portable tests exercise retained provenance, not Linux FD
+        # execution. The selector suite checks the real pinned launch separately.
+        class SimulatedPinnedLaunch:
+            def __init__(self, provenance):
+                self.provenance = provenance
+
+            def __enter__(self):
+                argv0 = benchmark.require_frozen_symbol_tool(self.provenance)
+                target = Path(self.provenance["resolved_nm"])
+                metadata = target.stat()
+                image = dict(
+                    resolved_nm=str(target), argv0=argv0, executable="/proc/self/fd/37",
+                    device=metadata.st_dev, inode=metadata.st_ino,
+                    size_bytes=self.provenance["nm_file"]["size_bytes"],
+                    sha256=self.provenance["nm_file"]["sha256"],
+                    descriptor_lifetime="simulated pinned launch for portable provenance tests",
+                )
+                return dict(argv0=argv0, executable=image["executable"], pass_fds=(37,), image=image)
+
+            def __exit__(self, kind, value, traceback):
+                return False
+
+        self.enterContext(patch.object(benchmark, "frozen_symbol_tool_launch", side_effect=SimulatedPinnedLaunch))
+
     def test_failure_context_keeps_tool_and_object_identity_after_temp_deletion(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary).resolve()
@@ -1434,8 +1459,8 @@ class SymbolInventoryProvenance(unittest.TestCase):
             obj.write_bytes(b"tiny object")
             commands = []
 
-            def job(build, command, work, label, timeout, memory, output, *, executable=None):
-                commands.append((command, timeout, memory, output, executable))
+            def job(build, command, work, label, timeout, memory, output, *, executable=None, pass_fds=()):
+                commands.append((command, timeout, memory, output, executable, pass_fds))
                 if command[1] == "--version":
                     return subprocess.CompletedProcess(command, 0, "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n", "")
                 raise RuntimeError('native symbol inventory exceeded memory limit: observed=134.3MB limit=128MB\nmemory-sample={"processes":[]}')
@@ -1451,7 +1476,12 @@ class SymbolInventoryProvenance(unittest.TestCase):
             self.assertEqual(metadata["nm_version"], "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n")
             self.assertEqual(commands[1][0], [str(nm.resolve()), "-g", "--defined-only", str(obj)])
             self.assertEqual([command[2] for command in commands], [128, 128])
-            self.assertEqual([command[4] for command in commands], [str(nm.resolve())] * 2)
+            self.assertEqual([command[4] for command in commands], ["/proc/self/fd/37"] * 2)
+            self.assertEqual([command[5] for command in commands], [(37,)] * 2)
+            image = json.loads((directory / "diagnostic/image.json").read_text())
+            self.assertEqual(image["sha256"], hashlib.sha256(b"fake tool").hexdigest())
+            self.assertEqual(image["resolved_nm"], str(nm.resolve()))
+            self.assertEqual((image["device"], image["inode"]), (nm.stat().st_dev, nm.stat().st_ino))
             self.assertEqual(commands[0][1], 5)
             self.assertEqual(commands[1][1], 10)
         self.assertIn(hashlib.sha256(b"tiny object").hexdigest(), message)
@@ -1473,7 +1503,7 @@ class SymbolInventoryProvenance(unittest.TestCase):
             self.assertIn("unavailable within unchanged resource limits", message)
             job.assert_called_once_with(None, [str(nm.resolve()), "--version"],
                 directory / "diagnostic/tool-selection/tool-version", "LLVM symbol tool version", 1, 128, 1,
-                executable=str(nm.resolve()))
+                executable="/proc/self/fd/37", pass_fds=(37,))
 
     def test_success_keeps_collision_symbols_with_validated_llvm_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1492,7 +1522,7 @@ class SymbolInventoryProvenance(unittest.TestCase):
                 (None, [str(nm.resolve()), "-g", "--defined-only", str(obj)],
                  directory / "work", "native symbol inventory", 10, 128, 8))
             self.assertEqual([call.kwargs for call in job.call_args_list],
-                             [{"executable": str(nm.resolve())}] * 2)
+                             [{"executable": "/proc/self/fd/37", "pass_fds": (37,)}] * 2)
 
     def test_alias_spelling_executes_and_hashes_the_resolved_image(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1527,13 +1557,17 @@ class SymbolInventoryProvenance(unittest.TestCase):
             self.assertEqual([call.args[1][0] for call in job.call_args_list],
                              [str(selected), str(selected)])
             self.assertEqual([call.kwargs for call in job.call_args_list],
-                             [{"executable": str(resolved)}] * 2)
+                             [{"executable": "/proc/self/fd/37", "pass_fds": (37,)}] * 2)
             metadata = json.loads((directory / "work/provenance.json").read_text())
             self.assertEqual(metadata["requested_nm"], str(alias))
             self.assertEqual(metadata["selected_nm"], str(selected))
             self.assertEqual(metadata["resolved_nm"], str(resolved))
             self.assertEqual(metadata["nm_file"]["sha256"],
                              hashlib.sha256(tool.read_bytes()).hexdigest())
+            image = json.loads((directory / "work/image.json").read_text())
+            self.assertEqual(image["argv0"], str(selected))
+            self.assertEqual(image["resolved_nm"], str(resolved))
+            self.assertEqual(image["sha256"], metadata["nm_file"]["sha256"])
 
 
 if __name__ == "__main__":
