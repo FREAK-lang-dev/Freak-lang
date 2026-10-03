@@ -1079,37 +1079,37 @@ EXECUTABLE_SMOKES = [
      'name': 'target C integer scalar descriptors',
      'expect_mode': 'line',
      'expect_unique': True,
-     'expect_exact': ['target-c-integer=x86_64-unknown-linux-gnu key=c_int descriptor=c-signed32 width=32 '
+     'expect_exact': ['target-c-integer-x86_64-unknown-linux-gnu-c_int=descriptor=c-signed32 width=32 '
                       'signed=1 size=4 align=4 carrier=i32',
-                      'target-c-integer=x86_64-unknown-linux-gnu key=c_uint descriptor=c-unsigned32 width=32 '
+                      'target-c-integer-x86_64-unknown-linux-gnu-c_uint=descriptor=c-unsigned32 width=32 '
                       'signed=0 size=4 align=4 carrier=i32',
-                      'target-c-integer=x86_64-unknown-linux-gnu key=c_long descriptor=c-signed64 width=64 '
+                      'target-c-integer-x86_64-unknown-linux-gnu-c_long=descriptor=c-signed64 width=64 '
                       'signed=1 size=8 align=8 carrier=i64',
-                      'target-c-integer=x86_64-unknown-linux-gnu key=c_ulong descriptor=c-unsigned64 width=64 '
+                      'target-c-integer-x86_64-unknown-linux-gnu-c_ulong=descriptor=c-unsigned64 width=64 '
                       'signed=0 size=8 align=8 carrier=i64',
-                      'target-c-integer=aarch64-unknown-linux-gnu key=c_int descriptor=c-signed32 width=32 '
+                      'target-c-integer-aarch64-unknown-linux-gnu-c_int=descriptor=c-signed32 width=32 '
                       'signed=1 size=4 align=4 carrier=i32',
-                      'target-c-integer=aarch64-unknown-linux-gnu key=c_uint descriptor=c-unsigned32 width=32 '
+                      'target-c-integer-aarch64-unknown-linux-gnu-c_uint=descriptor=c-unsigned32 width=32 '
                       'signed=0 size=4 align=4 carrier=i32',
-                      'target-c-integer=aarch64-unknown-linux-gnu key=c_long descriptor=c-signed64 width=64 '
+                      'target-c-integer-aarch64-unknown-linux-gnu-c_long=descriptor=c-signed64 width=64 '
                       'signed=1 size=8 align=8 carrier=i64',
-                      'target-c-integer=aarch64-unknown-linux-gnu key=c_ulong descriptor=c-unsigned64 width=64 '
+                      'target-c-integer-aarch64-unknown-linux-gnu-c_ulong=descriptor=c-unsigned64 width=64 '
                       'signed=0 size=8 align=8 carrier=i64',
-                      'target-c-integer=aarch64-apple-darwin key=c_int descriptor=c-signed32 width=32 signed=1 '
+                      'target-c-integer-aarch64-apple-darwin-c_int=descriptor=c-signed32 width=32 signed=1 '
                       'size=4 align=4 carrier=i32',
-                      'target-c-integer=aarch64-apple-darwin key=c_uint descriptor=c-unsigned32 width=32 '
+                      'target-c-integer-aarch64-apple-darwin-c_uint=descriptor=c-unsigned32 width=32 '
                       'signed=0 size=4 align=4 carrier=i32',
-                      'target-c-integer=aarch64-apple-darwin key=c_long descriptor=c-signed64 width=64 signed=1 '
+                      'target-c-integer-aarch64-apple-darwin-c_long=descriptor=c-signed64 width=64 signed=1 '
                       'size=8 align=8 carrier=i64',
-                      'target-c-integer=aarch64-apple-darwin key=c_ulong descriptor=c-unsigned64 width=64 '
+                      'target-c-integer-aarch64-apple-darwin-c_ulong=descriptor=c-unsigned64 width=64 '
                       'signed=0 size=8 align=8 carrier=i64',
-                      'target-c-integer=x86_64-w64-windows-gnu key=c_int descriptor=c-signed32 width=32 signed=1 '
+                      'target-c-integer-x86_64-w64-windows-gnu-c_int=descriptor=c-signed32 width=32 signed=1 '
                       'size=4 align=4 carrier=i32',
-                      'target-c-integer=x86_64-w64-windows-gnu key=c_uint descriptor=c-unsigned32 width=32 '
+                      'target-c-integer-x86_64-w64-windows-gnu-c_uint=descriptor=c-unsigned32 width=32 '
                       'signed=0 size=4 align=4 carrier=i32',
-                      'target-c-integer=x86_64-w64-windows-gnu key=c_long descriptor=c-signed32 width=32 '
+                      'target-c-integer-x86_64-w64-windows-gnu-c_long=descriptor=c-signed32 width=32 '
                       'signed=1 size=4 align=4 carrier=i32',
-                      'target-c-integer=x86_64-w64-windows-gnu key=c_ulong descriptor=c-unsigned32 width=32 '
+                      'target-c-integer-x86_64-w64-windows-gnu-c_ulong=descriptor=c-unsigned32 width=32 '
                       'signed=0 size=4 align=4 carrier=i32',
                       'target-c-integer-forged-all17-fields=true',
                       'target-c-integer-unknown-keys=true',
@@ -11343,6 +11343,16 @@ def check_smoke_inventory(fixtures: list[Path]) -> None:
             for name in duplicates:
                 print(f"smoke inventory duplicate: {name}")
         raise SystemExit(1)
+
+    for smoke in EXECUTABLE_SMOKES:
+        if smoke.get("expect_unique"):
+            registered = [*smoke["expect"], *smoke.get("expect_exact", [])]
+            failures = unique_output_failures(registered, Counter(registered))
+            if failures:
+                print(f"smoke inventory non-unique output contract: {smoke['fixture']}")
+                for line, *_ in failures:
+                    print(f"non-unique registered output: {line}")
+                raise SystemExit(1)
 
     print(f"smoke inventory: {len(smoke_names)} fixtures")
 

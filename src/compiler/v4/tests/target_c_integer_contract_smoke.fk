@@ -42,7 +42,7 @@ repeat until v4_c_integer_smoke_target >= v4_target_spec_count() {
     repeat until key_id >= 4 {
         pilot key = v4_c_integer_smoke_key(key_id)
         pilot descriptor = v4_target_c_integer_descriptor(spec, key)
-        say "target-c-integer=" + v4_target_spec_triple(spec) + " key=" + key + " descriptor=" + descriptor + " width=" + word_from_int(v4_target_c_integer_width(descriptor)) + " signed=" + word_from_int(v4_target_c_integer_signedness(descriptor)) + " size=" + word_from_int(v4_target_c_integer_size(descriptor)) + " align=" + word_from_int(v4_target_c_integer_alignment(descriptor)) + " carrier=" + v4_target_c_integer_llvm_carrier(descriptor)
+        say "target-c-integer-" + v4_target_spec_triple(spec) + "-" + key + "=descriptor=" + descriptor + " width=" + word_from_int(v4_target_c_integer_width(descriptor)) + " signed=" + word_from_int(v4_target_c_integer_signedness(descriptor)) + " size=" + word_from_int(v4_target_c_integer_size(descriptor)) + " align=" + word_from_int(v4_target_c_integer_alignment(descriptor)) + " carrier=" + v4_target_c_integer_llvm_carrier(descriptor)
         key_id += 1
     }
     pilot field_id = 0
