@@ -13451,16 +13451,32 @@ def run_with_heartbeat(
         try:
             capture_memory()
         finally:
+            # Retry a transient OS failure before propagating the original
+            # guard failure. Keep the Job handle and the cleanup state usable
+            # until termination and reaping have both succeeded.
+            for attempt in range(2):
+                try:
+                    process_tree.terminate()
+                    if process.poll() is None:
+                        process.wait()
+                    break
+                except Exception as error:
+                    if attempt == 1:
+                        memory_context = ""
+                        if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes:
+                            memory_context = (
+                                f"; exceeded memory limit: peak={peak_memory_bytes / (1024 * 1024):.1f}MB "
+                                f"limit={memory_limit_mb}MB\n"
+                                f"memory-sample={memory_diagnostic}"
+                            )
+                        raise RuntimeError(
+                            f"{label} process-tree cleanup failed after 2 attempts{memory_context}"
+                        ) from error
             try:
-                process_tree.terminate()
-                if process.poll() is None:
-                    process.wait()
                 capture_memory()
             finally:
-                try:
-                    process_tree.close()
-                finally:
-                    process_tree_closed = True
+                process_tree.close()
+                process_tree_closed = True
 
     def captured_text() -> tuple[str, str]:
         stdout_thread.join(timeout=5)
