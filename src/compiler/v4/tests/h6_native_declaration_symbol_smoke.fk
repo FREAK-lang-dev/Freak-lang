@@ -4,6 +4,24 @@ task h6_decl_assert(condition: bool, label: word) -> void {
     if not condition { panic("h6 native declaration symbol: " + label) }
 }
 
+-- The shared span index helper searches one character; this oracle must
+-- find the complete declaration including its signature and newline.
+task h6_decl_find_text(text: word, needle: word, start: int) -> int {
+    if start < 0 or needle == "" { give back 0 - 1 }
+    pilot idx = start
+    repeat until idx + needle.length() > text.length() {
+        pilot part = 0
+        pilot matches: bool = true
+        repeat until part >= needle.length() or not matches {
+            if text.char_at(idx + part) != needle.char_at(part) { matches = false }
+            part += 1
+        }
+        if matches { give back idx }
+        idx += 1
+    }
+    give back 0 - 1
+}
+
 task h6_decl_lower(file_id: int, source: word) -> int {
     pilot stream = v4_lex_text(file_id, source)
     pilot tree = v4_parse_stream(file_id, stream)
@@ -55,8 +73,8 @@ task h6_decl_run() -> void {
     h6_decl_assert(first >= 0 and second > first and third > second and fourth > third and v4_mir_rvalue_kind(mir, 0, 0) == v4_mir_rvalue_const_word, "real aliases and literal zero")
     pilot before = v4_codegen_llvm_module_text(plan, target)
     pilot declaration = "declare ccc i64 @native_same() nounwind\n"
-    pilot first_pos = v4_index_of_from(before, declaration, 0)
-    h6_decl_assert(v4_codegen_llvm_native_module_error(plan) == "" and before != "" and first_pos >= 0 and v4_index_of_from(before, declaration, first_pos + declaration.length()) < 0, "compatible aliases publish exactly once")
+    pilot first_pos = h6_decl_find_text(before, declaration, 0)
+    h6_decl_assert(v4_codegen_llvm_native_module_error(plan) == "" and before != "" and first_pos >= 0 and h6_decl_find_text(before, declaration, first_pos + declaration.length()) < 0, "compatible aliases publish exactly once")
     h6_decl_assert(v4_codegen_llvm_call_name(plan, v4_codegen_llvm_find_call(plan, "main", "first")) == "first" and v4_codegen_llvm_call_name(plan, v4_codegen_llvm_find_call(plan, "main", "second")) == "second", "source call aliases retained")
     h6_decl_assert(v4_codegen_llvm_decl_symbol(plan, first) != v4_codegen_llvm_decl_symbol(plan, third) and v4_codegen_llvm_decl_symbol(plan, first).checksum() % 16 == v4_codegen_llvm_decl_symbol(plan, third).checksum() % 16, "distinct full symbol keys share a bucket")
     pilot capacity = h6_decl_handles()

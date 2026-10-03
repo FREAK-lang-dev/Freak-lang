@@ -7268,10 +7268,12 @@ task v4_ty_raw_pointer_cast_target_surface(expr_text: word) -> word {
     if expr_text.contains("--") { give back v4_ty_unknown }
     pilot text = v4_ty_compact_const_expr_text(expr_text)
     pilot start = 0 - 1
-    pilot next = v4_index_of_from(text, ".cast<", 0)
-    repeat until next < 0 {
-        start = next + 6
-        next = v4_index_of_from(text, ".cast<", start)
+    pilot marker = 0
+    -- index_of_from searches one character, so match this complete marker
+    -- directly. Keep the final cast in a receiver chain without a new arena.
+    repeat until marker + 6 > text.length() {
+        if text.char_at(marker) == "." and text.char_at(marker + 1) == "c" and text.char_at(marker + 2) == "a" and text.char_at(marker + 3) == "s" and text.char_at(marker + 4) == "t" and text.char_at(marker + 5) == "<" { start = marker + 6 }
+        marker += 1
     }
     if start < 0 { give back v4_ty_unknown }
     pilot depth = 1
