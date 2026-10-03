@@ -183,6 +183,15 @@ connect(host: "localhost", port: 8080, timeout: 30)
 | *const T    | C-style spelling alias for `*T` in FFI signatures.             |
 | *mut T      | Raw mutable pointer. Only inside trust-me blocks.              |
 
+The V4 native integer contract is checked arithmetic for `int`, `uint`, and
+`tiny`: addition, subtraction, multiplication, negation, division and remainder
+must report a runtime error when the mathematical result is outside the type's
+range. Division and remainder by zero also report a runtime error. Signed
+minimum divided by, or reduced modulo, `-1` is an overflow error. These rules
+apply at every optimization level, without an opt-in checking flag. Native
+compiler integration and boundary proofs remain release gates; this contract
+does not claim that the shipping V3 backend has adopted these rules.
+
 ### 1.4 Types — Compound
 
 ```
