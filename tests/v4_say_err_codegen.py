@@ -94,7 +94,7 @@ def extract_module(result, case: int, *, platform: str = sys.platform) -> str:
     calls = re.findall(r"(?m)^\s*call void @freak_v4_word_say_err\(i64 [^\n]+\)\s*$", module)
     if len(calls) != CALL_COUNTS[case]:
         raise GateError("stderr module has the wrong actual closed call count")
-    if case == 2 and not re.search(r"(?m)^\s*call void @say_err\(i64 [^\n]+\)\s*$", module):
+    if case == 2 and not re.search(r"(?m)^\s*call (?:ccc )?void @say_err\(i64 [^\n]+\)\s*$", module):
         raise GateError("ordinary say_err shadow has no actual ordinary call")
     return module
 

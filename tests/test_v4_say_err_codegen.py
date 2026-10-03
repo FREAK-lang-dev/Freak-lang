@@ -29,7 +29,7 @@ def result(stdout="", stderr="", status=0):
 def module(case):
     instructions = "  call void @freak_v4_word_say_err(i64 %w)\n" * gate.CALL_COUNTS[case]
     if case == 2:
-        instructions += "  call void @say_err(i64 %w)\n"
+        instructions += "  call ccc void @say_err(i64 %w)\n"
     return "define i32 @main(i32 %argc, ptr %argv) {\n" + instructions + "  ret i32 0\n}\n"
 
 
@@ -101,8 +101,11 @@ class SayErrOracles(unittest.TestCase):
             with self.subTest(malformed=malformed), self.assertRaises(gate.GateError):
                 gate.extract_module(malformed, 0, platform="linux")
         gate.extract_module(result(clean.stdout.replace("\n", "\r\n")), 0, platform="win32")
+        gate.extract_module(compiler(2, module(2).replace("call ccc void", "call void")), 2)
         with self.assertRaises(gate.GateError):
-            gate.extract_module(compiler(2, module(2).replace("  call void @say_err", "  ; call void @say_err")), 2)
+            gate.extract_module(compiler(2, module(2).replace("  call ccc void @say_err", "  ; call ccc void @say_err")), 2)
+        with self.assertRaises(gate.GateError):
+            gate.extract_module(compiler(2, module(2).replace("call ccc void", "call fastcc void")), 2)
 
     def test_fixture_table_is_closed_and_receiver_borrow_is_observable(self):
         text = FIXTURE.read_text(encoding="utf-8")
