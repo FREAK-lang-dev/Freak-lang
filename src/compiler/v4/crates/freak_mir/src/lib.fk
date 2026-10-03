@@ -3094,7 +3094,9 @@ task v4_mir_word_scope_fact_is_valid(scope: word, file_id: int, body_span: word,
     if scope == (V4_NO_SPAN) { give back not required and inner == V4_NO_SPAN }
     if not v4_mir_scope_span_is_valid(scope) or v4_span_file(scope) != word_from_int(file_id) { give back false }
     if body_span != V4_NO_SPAN and not v4_mir_scope_contains(body_span, scope) { give back false }
-    if inner != V4_NO_SPAN and not v4_mir_scope_contains(scope, inner) { give back false }
+    if inner != (V4_NO_SPAN) {
+        if not v4_mir_span_fact_is_valid(inner) or not v4_mir_scope_contains(scope, inner) { give back false }
+    }
     if required and inner == (V4_NO_SPAN) { give back false }
     give back true
 }
@@ -4218,4 +4220,14 @@ task v4_mir_word_plan_preflight(mir_id: int) -> word {
         body += 1
     }
     give back ""
+}
+
+-- Ordinary facts may use a canonical zero-width anchor; scopes must be nonempty.
+task v4_mir_span_fact_is_valid(span: word) -> bool {
+    if span == (V4_NO_SPAN) { give back true }
+    pilot file = v4_span_file(span)
+    if not v4_mir_snapshot_nonnegative_int_is_valid(file) { give back false }
+    pilot start = v4_span_start(span)
+    pilot end = v4_span_end(span)
+    give back start >= 0 and end >= start and v4_span_new(file, start, end) == span
 }

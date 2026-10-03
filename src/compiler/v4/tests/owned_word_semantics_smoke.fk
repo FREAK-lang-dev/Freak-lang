@@ -1,0 +1,302 @@
+-- Owned word plans follow binding IDs, ordered RHS events and exact lexical facts.
+task v4_owned_semantics_source() -> word {
+    pilot src = ""
+    src = src + "task consume(v: word) -> int {\n"
+    src = src + "    say v\n"
+    src = src + "    give back 1\n"
+    src = src + "}\n"
+    src = src + "task replace(v: word) -> word {\n"
+    src = src + "    give back \"new\"\n"
+    src = src + "}\n"
+    src = src + "task take(v: word) -> word {\n"
+    src = src + "    give back v\n"
+    src = src + "}\n"
+    src = src + "task shadow_good(flag: bool) -> int {\n"
+    src = src + "    pilot x = \"outer\"\n"
+    src = src + "    if flag {\n"
+    src = src + "        pilot x = \"inner\"\n"
+    src = src + "        consume(x)\n"
+    src = src + "    }\n"
+    src = src + "    say x\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task shadow_bad(flag: bool) -> int {\n"
+    src = src + "    pilot x = \"outer\"\n"
+    src = src + "    consume(x)\n"
+    src = src + "    if flag {\n"
+    src = src + "        pilot x = \"inner\"\n"
+    src = src + "        say x\n"
+    src = src + "    }\n"
+    src = src + "    say x\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task twice_bad() -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    give back consume(x) + consume(x)\n"
+    src = src + "}\n"
+    src = src + "task observe_after_move_bad() -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    give back consume(x) + x.length()\n"
+    src = src + "}\n"
+    src = src + "task observe_before_move_good() -> int {\n"
+    src = src + "    pilot x = \"x\"\n"
+    src = src + "    give back x.length() + consume(x)\n"
+    src = src + "}\n"
+    src = src + "task rebind_good() -> int {\n"
+    src = src + "    pilot mut x: word = \"a\\0b\"\n"
+    src = src + "    x = take(x)\n"
+    src = src + "    say x + \"tail\"\n"
+    src = src + "    give back x.bytes()\n"
+    src = src + "}\n"
+    src = src + "task lend_shadow_good(lend x: word, flag: bool) -> int {\n"
+    src = src + "    if flag {\n"
+    src = src + "        pilot x = \"owned\"\n"
+    src = src + "        consume(x)\n"
+    src = src + "    }\n"
+    src = src + "    say x\n"
+    src = src + "    give back 0\n"
+    src = src + "}\n"
+    src = src + "task lend_move_bad(lend x: word) -> int {\n"
+    src = src + "    give back consume(x)\n"
+    src = src + "}\n"
+    give back src
+}
+
+task v4_owned_semantics_assert(condition: bool, label: word) -> void {
+    if not condition { panic("owned-word-semantics " + label) }
+}
+
+task v4_owned_semantics_status(borrow_id: int, name: word, wanted: word) -> bool {
+    pilot mir_id = v4_borrowck_mir_id(borrow_id)
+    pilot body_id = v4_mir_lookup_body_name(mir_id, name)
+    pilot result_id = v4_borrowck_lookup_result(borrow_id, v4_mir_body_def(mir_id, body_id))
+    give back result_id >= 0 and v4_borrowck_result_status(borrow_id, result_id) == wanted
+}
+
+task v4_owned_semantics_replace_field(line: word, field: int, value: word) -> word {
+    pilot parts = array_new()
+    pilot index = 0
+    repeat until index >= v4_mir_snapshot_field_count(line) {
+        if index > 0 { array_push(parts, "|") }
+        if index == field { array_push(parts, v4_mir_snapshot_escape(value)) } else { array_push(parts, v4_mir_snapshot_field_raw(line, index)) }
+        index += 1
+    }
+    pilot out = word_join(parts)
+    array_release(parts)
+    give back out
+}
+
+task v4_owned_semantics_mutation(payload: word, mode: word) -> word {
+    pilot parts = array_new()
+    pilot changed: bool = false
+    pilot line_id = 0
+    repeat until line_id >= v4_mir_snapshot_line_count(payload) {
+        pilot line = v4_mir_snapshot_line(payload, line_id)
+        pilot kind = v4_mir_snapshot_field_raw(line, 0)
+        if not changed {
+            if kind == "mir-block" and (mode == "foreign-scope" or mode == "missing-scope") {
+                pilot record = v4_mir_snapshot_field(line, 4)
+                pilot scope_span = v4_mir_block_part(record, 5)
+                if mode == "foreign-scope" { scope_span = v4_span_new("999", v4_span_start(scope_span), v4_span_end(scope_span)) } else { scope_span = V4_NO_SPAN }
+                line = v4_owned_semantics_replace_field(line, 4, v4_mir_block_with_scope(record, scope_span))
+                changed = true
+            } else if kind == "mir-local" and v4_mir_snapshot_field(line, 5) == v4_ty_word and (mode == "local-span-malformed" or mode == "local-span-reversed") {
+                pilot span = "0@12:oops"
+                if mode == "local-span-reversed" { span = "0@12:1" }
+                line = v4_owned_semantics_replace_field(line, 7, span)
+                changed = true
+            } else if kind == "mir-stmt" and (mode == "stmt-span-malformed" or mode == "stmt-span-reversed") {
+                pilot span = "0@12:oops"
+                if mode == "stmt-span-reversed" { span = "0@12:1" }
+                line = v4_owned_semantics_replace_field(line, 7, span)
+                changed = true
+            } else if kind == "mir-rvalue" {
+                if v4_mir_builtin_word_identity_kind(v4_mir_snapshot_field(line, 13)) != "" {
+                    if mode == "builtin-op" { line = v4_owned_semantics_replace_field(line, 6, "ordinary_forgery") changed = true }
+                    if mode == "builtin-abi" { line = v4_owned_semantics_replace_field(line, 11, "C") changed = true }
+                    if mode == "builtin-result" { line = v4_owned_semantics_replace_field(line, 10, "word") changed = true }
+                    if mode == "builtin-arity" { line = v4_owned_semantics_replace_field(line, 12, "") changed = true }
+                }
+                if v4_mir_snapshot_field(line, 4) == v4_mir_rvalue_lend and v4_mir_snapshot_field(line, 10) == "lend word" and mode == "builtin-mut-lend" {
+                    line = v4_owned_semantics_replace_field(line, 4, v4_mir_rvalue_lend_mut)
+                    changed = true
+                }
+                if v4_mir_snapshot_field(line, 4) == v4_mir_rvalue_use_local and v4_mir_snapshot_field(line, 10) == v4_ty_word and mode == "local-id-text" {
+                    line = v4_owned_semantics_replace_field(line, 5, "forged_binding")
+                    changed = true
+                }
+            }
+        }
+        if line_id > 0 { array_push(parts, "\n") }
+        array_push(parts, line)
+        line_id += 1
+    }
+    v4_owned_semantics_assert(changed, "mutation reached its target " + mode)
+    pilot out = word_join(parts)
+    array_release(parts)
+    give back out
+}
+
+task v4_owned_semantics_rejects(payload: word, before: word) -> bool {
+    pilot rejected = v4_mir_snapshot_restore(payload)
+    give back rejected.starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == before
+}
+
+task v4_owned_semantics_capacity() -> int {
+    pilot held = array_new()
+    pilot count = 0
+    pilot exhausted: bool = false
+    repeat until exhausted {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else { array_push(held, word_from_int(candidate)) count += 1 }
+    }
+    pilot index = 0
+    repeat until index >= count {
+        array_release(word_to_int(array_get(held, index)))
+        index += 1
+    }
+    array_release(held)
+    give back count
+}
+
+task v4_owned_semantics_swap_graph(mir_id: int, body_id: int) -> int {
+    pilot indexes = array_new()
+    array_push(indexes, word_from_int(v4_mir_rvalue_kinds_index_handle(mir_id)))
+    array_push(indexes, word_from_int(v4_mir_rvalue_texts_index_handle(mir_id)))
+    array_push(indexes, word_from_int(v4_mir_rvalue_ops_index_handle(mir_id)))
+    array_push(indexes, word_from_int(v4_mir_rvalue_lhs_index_handle(mir_id)))
+    array_push(indexes, word_from_int(v4_mir_rvalue_rhs_index_handle(mir_id)))
+    array_push(indexes, word_from_int(v4_mir_rvalue_spans_index_handle(mir_id)))
+    array_push(indexes, word_from_int(v4_mir_rvalue_tys_index_handle(mir_id)))
+    array_push(indexes, word_from_int(v4_mir_rvalue_abis_index_handle(mir_id)))
+    array_push(indexes, word_from_int(v4_mir_rvalue_args_index_handle(mir_id)))
+    array_push(indexes, word_from_int(v4_mir_rvalue_builtin_methods_index_handle(mir_id)))
+    pilot ticket = array_new()
+    pilot index = 0
+    repeat until index >= array_len(indexes) {
+        pilot arena = word_to_int(array_get(indexes, index))
+        pilot original = word_to_int(array_get(arena, body_id))
+        pilot copied = array_new()
+        pilot row = 0
+        repeat until row >= array_len(original) {
+            array_push(copied, array_get(original, row))
+            row += 1
+        }
+        array_push(ticket, word_from_int(arena) + "|" + word_from_int(original) + "|" + word_from_int(copied))
+        array_set(arena, body_id, word_from_int(copied))
+        index += 1
+    }
+    array_release(indexes)
+    give back ticket
+}
+
+task v4_owned_semantics_restore_graph(ticket: int, body_id: int) -> void {
+    pilot index = 0
+    repeat until index >= array_len(ticket) {
+        pilot row: word = array_get(ticket, index)
+        pilot arena = word_to_int(v4_mir_snapshot_field_raw(row, 0))
+        pilot original = word_to_int(v4_mir_snapshot_field_raw(row, 1))
+        pilot copied = word_to_int(v4_mir_snapshot_field_raw(row, 2))
+        array_set(arena, body_id, word_from_int(original))
+        array_release(copied)
+        index += 1
+    }
+    array_release(ticket)
+}
+
+task v4_owned_semantics_run() -> void {
+    pilot borrow_id = v4_borrowck_text_cached("owned-word-semantics.fk", v4_owned_semantics_source())
+    pilot mir_id = v4_borrowck_mir_id(borrow_id)
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    v4_owned_semantics_assert(v4_ty_diag_count(ty_id) == 0 and v4_mir_diag_count(mir_id) == 0, "front end")
+    v4_owned_semantics_assert(v4_owned_semantics_status(borrow_id, "shadow_good", v4_borrowck_clean), "inner move preserves outer")
+    v4_owned_semantics_assert(v4_owned_semantics_status(borrow_id, "shadow_bad", v4_borrowck_blocked), "inner initialization does not repair moved outer")
+    v4_owned_semantics_assert(v4_owned_semantics_status(borrow_id, "twice_bad", v4_borrowck_blocked), "two consuming arguments")
+    v4_owned_semantics_assert(v4_owned_semantics_status(borrow_id, "observe_after_move_bad", v4_borrowck_blocked), "consume then observe")
+    v4_owned_semantics_assert(v4_owned_semantics_status(borrow_id, "observe_before_move_good", v4_borrowck_clean), "observe then consume")
+    v4_owned_semantics_assert(v4_owned_semantics_status(borrow_id, "rebind_good", v4_borrowck_clean), "RHS move then destination initialization")
+    v4_owned_semantics_assert(v4_owned_semantics_status(borrow_id, "lend_shadow_good", v4_borrowck_clean), "inner owner preserves outer lend")
+    v4_owned_semantics_assert(v4_owned_semantics_status(borrow_id, "lend_move_bad", v4_borrowck_blocked), "borrowed parameter cannot move")
+    say "owned-word-semantics ordered-events=true binding-ids=true shadowed-lend=true"
+    pilot payload = v4_mir_snapshot()
+    v4_owned_semantics_assert(v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1"), "valid snapshot")
+    pilot modes = array_new()
+    array_push(modes, "foreign-scope")
+    array_push(modes, "missing-scope")
+    array_push(modes, "local-span-malformed")
+    array_push(modes, "local-span-reversed")
+    array_push(modes, "stmt-span-malformed")
+    array_push(modes, "stmt-span-reversed")
+    array_push(modes, "builtin-op")
+    array_push(modes, "builtin-abi")
+    array_push(modes, "builtin-result")
+    array_push(modes, "builtin-arity")
+    array_push(modes, "builtin-mut-lend")
+    array_push(modes, "local-id-text")
+    pilot index = 0
+    repeat until index >= array_len(modes) {
+        pilot mode: word = array_get(modes, index)
+        v4_owned_semantics_assert(v4_owned_semantics_rejects(v4_owned_semantics_mutation(payload, mode), payload), "atomic rejection " + mode)
+        index += 1
+    }
+    array_release(modes)
+    v4_owned_semantics_assert(v4_owned_semantics_rejects(payload.replace("freak-mir-snapshot-v6", "freak-mir-snapshot-v5"), payload), "old wire version rejection")
+    say "owned-word-semantics snapshot-crossfacts=true atomic-rejection=true old-version-rejected=true"
+    pilot body_id = v4_mir_lookup_body_name(mir_id, "rebind_good")
+    pilot local_id = v4_mir_find_local(mir_id, body_id, "x")
+    pilot result_id = v4_borrowck_lookup_result(borrow_id, v4_mir_body_def(mir_id, body_id))
+    pilot baseline = v4_borrowck_word_local_drop_kind(borrow_id, result_id, mir_id, body_id, local_id)
+    v4_owned_semantics_assert(baseline != "invalid" and baseline != "", "owned local has cleanup")
+    pilot original_scope = v4_mir_stmt_scope_span(mir_id, body_id, 0)
+    v4_mir_set_stmt_scope_span(mir_id, body_id, 0, "999@1:2")
+    v4_owned_semantics_assert(v4_mir_word_plan_preflight(mir_id) != "", "live foreign scope rejected")
+    v4_mir_set_stmt_scope_span(mir_id, body_id, 0, original_scope)
+    v4_owned_semantics_assert(v4_mir_word_plan_preflight(mir_id) == "", "live scope recovery")
+    pilot original_span = v4_mir_stmt_span(mir_id, body_id, 0)
+    array_set(v4_mir_body_stmt_spans_handle(mir_id, body_id), 0, "0@12:oops")
+    v4_owned_semantics_assert(v4_mir_word_plan_preflight(mir_id) != "", "live malformed inner span rejected")
+    array_set(v4_mir_body_stmt_spans_handle(mir_id, body_id), 0, original_span)
+    pilot graph_ticket = v4_owned_semantics_swap_graph(mir_id, body_id)
+    pilot graph_leaf = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", -1, -1, original_span, v4_ty_int)
+    pilot graph_tail = graph_leaf
+    index = 0
+    repeat until index >= 35 {
+        graph_tail = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, "bounded-dag", "Add", graph_tail, graph_tail, original_span, v4_ty_int)
+        index += 1
+    }
+    v4_owned_semantics_assert(v4_mir_word_plan_preflight(mir_id) == "native word ownership expression traversal exceeds supported budget", "shared scalar DAG bounded in word body")
+    pilot blocked_graph = v4_borrowck_check_mir(0, mir_id)
+    v4_owned_semantics_assert(v4_borrowck_diag_count(blocked_graph) == 1, "direct Meiya graph gate")
+    v4_owned_semantics_restore_graph(graph_ticket, body_id)
+    v4_owned_semantics_assert(v4_mir_snapshot() == payload, "graph restoration recovery")
+    graph_ticket = v4_owned_semantics_swap_graph(mir_id, body_id)
+    graph_tail = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", -1, -1, original_span, v4_ty_int)
+    index = 0
+    repeat until index >= 270 {
+        graph_tail = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, "bounded-depth", v4_mir_unary_neg, graph_tail, -1, original_span, v4_ty_int)
+        index += 1
+    }
+    v4_owned_semantics_assert(v4_mir_word_plan_preflight(mir_id) == "native word ownership expression nesting exceeds supported depth", "scalar wrapper depth bounded in word body")
+    v4_owned_semantics_restore_graph(graph_ticket, body_id)
+    v4_owned_semantics_assert(v4_mir_snapshot() == payload, "depth restoration recovery")
+    pilot before_capacity = v4_owned_semantics_capacity()
+    pilot held = array_new()
+    pilot exhausted: bool = false
+    repeat until exhausted {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else { array_push(held, word_from_int(candidate)) }
+    }
+    pilot scratch_failure: bool = v4_mir_word_plan_preflight(mir_id) == "native word ownership plan scratch exhausted"
+    pilot drop_failure: bool = v4_borrowck_word_local_drop_kind(borrow_id, result_id, mir_id, body_id, local_id) == "invalid"
+    index = 0
+    repeat until index >= array_len(held) {
+        array_release(word_to_int(array_get(held, index)))
+        index += 1
+    }
+    array_release(held)
+    v4_owned_semantics_assert(scratch_failure and drop_failure, "handle exhaustion fails closed")
+    v4_owned_semantics_assert(v4_mir_word_plan_preflight(mir_id) == "" and v4_borrowck_word_local_drop_kind(borrow_id, result_id, mir_id, body_id, local_id) == baseline, "scratch recovery")
+    v4_owned_semantics_assert(v4_owned_semantics_capacity() == before_capacity, "scratch handles released")
+    say "owned-word-semantics live-crossfacts=true scratch-failure-closed=true recovery=true"
+}
+v4_owned_semantics_run()
