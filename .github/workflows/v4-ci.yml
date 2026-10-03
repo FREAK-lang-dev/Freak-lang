@@ -132,6 +132,8 @@ jobs:
           --smoke codegen_llvm_execute
           --smoke extern_literal_syntax
           --smoke extern_return
+          --smoke hir_snapshot_scaling_smoke.fk
+          --smoke hir_scalar_fields_smoke.fk
 
   v4-benchmark:
     name: V4 benchmark instrumentation
