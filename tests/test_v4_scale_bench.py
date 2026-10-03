@@ -140,6 +140,28 @@ class SymbolToolSelection(unittest.TestCase):
                                    directory / "tool-version", "LLVM symbol tool version", 5, 128, 1,
                                    **self.launch_kwargs(job))
 
+    def test_missing_frozen_identity_fields_fail_by_name_with_inventory_provenance(self):
+        valid = {"requested_nm": str(self.tool), "selected_nm": str(self.tool),
+                 "resolved_nm": str(self.tool), "nm_version": LLVM_VERSION,
+                 "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        for missing in ("selected_nm", "resolved_nm", "all"):
+            selected = {} if missing == "all" else {key: value for key, value in valid.items() if key != missing}
+            directory = self.work / ("missing-identity-" + missing)
+            with self.subTest(missing=missing), \
+                    patch.object(self.benchmark, "llvm_symbol_tool", side_effect=AssertionError("explicit provenance must not select a new tool")) as selection, \
+                    patch.object(self.benchmark.os, "open", side_effect=AssertionError("malformed image must not open")) as opened, \
+                    patch.object(self.benchmark, "guarded_job") as job:
+                with self.assertRaisesRegex(RuntimeError, "frozen LLVM symbol tool provenance lacks selected/resolved identity") as failure:
+                    self.benchmark.defined_symbols(None, self.obj, directory, 10, symbol_tool=selected)
+                self.assertIn("symbol-inventory-provenance=", str(failure.exception))
+                self.assertIsInstance(failure.exception.__cause__, RuntimeError)
+                self.assertIsInstance(failure.exception.__cause__.__cause__, KeyError)
+                metadata = json.loads((directory / "provenance.json").read_text())
+                self.assertEqual(metadata, {"object": self.benchmark.symbol_file_provenance(self.obj), **selected})
+                selection.assert_not_called()
+                opened.assert_not_called()
+                job.assert_not_called()
+
     def test_frozen_image_change_stops_before_symbol_reader_execution(self):
         selected = {"requested_nm": str(self.tool), "selected_nm": str(self.tool),
                     "resolved_nm": str(self.tool),

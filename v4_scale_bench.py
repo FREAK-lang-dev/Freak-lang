@@ -342,8 +342,11 @@ def llvm_symbol_tool(build, directory: Path, timeout: float) -> dict:
 
 
 def require_frozen_symbol_mapping(provenance: dict) -> str:
-    selected = Path(provenance["selected_nm"])
-    tool = Path(provenance["resolved_nm"])
+    try:
+        selected = Path(provenance["selected_nm"])
+        tool = Path(provenance["resolved_nm"])
+    except KeyError as error:
+        raise RuntimeError("frozen LLVM symbol tool provenance lacks selected/resolved identity") from error
     try:
         observed_target = selected.resolve(strict=True)
     except (OSError, RuntimeError) as error:
@@ -431,7 +434,7 @@ def defined_symbols(build, path: Path, directory: Path, timeout: float,
                     *, symbol_tool: dict | None = None) -> set[str]:
     provenance = {"object": symbol_file_provenance(path)}
     try:
-        selected = symbol_tool or llvm_symbol_tool(build, directory / "tool-selection", timeout)
+        selected = symbol_tool if symbol_tool is not None else llvm_symbol_tool(build, directory / "tool-selection", timeout)
         provenance.update(selected)
         with frozen_symbol_tool_launch(selected) as launch:
             save_json(directory / "provenance.json", provenance)
