@@ -192,7 +192,13 @@ class SayErrOracles(unittest.TestCase):
                     return result("", diagnostic, 88)
                 case = int(Path(command[0]).name.split(".")[0].split("-")[1])
                 return result(*gate.OUTPUTS[case])
-        with patch.object(gate, "load_build", return_value=build), patch.object(gate, "Runner", MockRunner):
+        # Sanitized mock orchestration models the supported Linux host on every
+        # test platform. The separate off-Linux test still rejects real defaults.
+        with ExitStack() as mocks:
+            mocks.enter_context(patch.object(gate, "load_build", return_value=build))
+            mocks.enter_context(patch.object(gate, "Runner", MockRunner))
+            if not plain:
+                mocks.enter_context(patch.object(gate.sys, "platform", "linux"))
             code = gate.main(["--clang", "mock-clang", "--work", str(directory), *( ["--plain"] if plain else [])])
         return code, json.loads((directory / "results.json").read_text()), commands
 
