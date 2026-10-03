@@ -66,6 +66,13 @@ Other C scalar widths and native C variadics fail by name until B01 lowering
 implements their widths, extension rules and promotions. Raw aliases, nested
 callback signatures, pointer payloads, local annotations and explicit casts
 retain that fence. Pure FREAK scalar types retain their internal representation.
+`freak_target` now supplies validated scalar layout descriptors for `c_int`,
+`c_uint`, `c_long` and `c_ulong`: C int is 32 bits on all four targets; C long
+is 32 bits on Windows and 64 bits on the three LP64 targets. Signedness,
+size, alignment and LLVM carrier readers reject unknown descriptors. These
+layout facts preserve TargetSpec v1 and do not admit the fenced C types into
+native signatures. A header-free Clang oracle checks storage and ordinary C
+direct/indirect signatures on all four targets; foreign binaries are not executed.
 The guard suite links a real C helper to check signed values and nonzero upper
 32 bits, float widths, pointers, void calls and callbacks in both directions.
 Quoted-name escaping preserves complete UTF-8 bytes and remains exact when

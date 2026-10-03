@@ -80,6 +80,7 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "lex_boundary_publication_exhaustion_smoke.fk",
         "borrowck_mutable_preflight_smoke.fk",
         "hir_param_index_smoke.fk",
+        "target_c_integer_contract_smoke.fk",
         "ty_signature_index_smoke.fk",
         "resolve_lookup_index_smoke.fk",
         "hir_query_resource_smoke.fk",
@@ -1073,6 +1074,53 @@ EXECUTABLE_SMOKES = [
         ],
         "expect": [],
     },
+    {'fixture': 'target_c_integer_contract_smoke.fk',
+     'name': 'target C integer scalar descriptors',
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect_exact': ['target-c-integer=x86_64-unknown-linux-gnu key=c_int descriptor=c-signed32 width=32 '
+                      'signed=1 size=4 align=4 carrier=i32',
+                      'target-c-integer=x86_64-unknown-linux-gnu key=c_uint descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer=x86_64-unknown-linux-gnu key=c_long descriptor=c-signed64 width=64 '
+                      'signed=1 size=8 align=8 carrier=i64',
+                      'target-c-integer=x86_64-unknown-linux-gnu key=c_ulong descriptor=c-unsigned64 width=64 '
+                      'signed=0 size=8 align=8 carrier=i64',
+                      'target-c-integer=aarch64-unknown-linux-gnu key=c_int descriptor=c-signed32 width=32 '
+                      'signed=1 size=4 align=4 carrier=i32',
+                      'target-c-integer=aarch64-unknown-linux-gnu key=c_uint descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer=aarch64-unknown-linux-gnu key=c_long descriptor=c-signed64 width=64 '
+                      'signed=1 size=8 align=8 carrier=i64',
+                      'target-c-integer=aarch64-unknown-linux-gnu key=c_ulong descriptor=c-unsigned64 width=64 '
+                      'signed=0 size=8 align=8 carrier=i64',
+                      'target-c-integer=aarch64-apple-darwin key=c_int descriptor=c-signed32 width=32 signed=1 '
+                      'size=4 align=4 carrier=i32',
+                      'target-c-integer=aarch64-apple-darwin key=c_uint descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer=aarch64-apple-darwin key=c_long descriptor=c-signed64 width=64 signed=1 '
+                      'size=8 align=8 carrier=i64',
+                      'target-c-integer=aarch64-apple-darwin key=c_ulong descriptor=c-unsigned64 width=64 '
+                      'signed=0 size=8 align=8 carrier=i64',
+                      'target-c-integer=x86_64-w64-windows-gnu key=c_int descriptor=c-signed32 width=32 signed=1 '
+                      'size=4 align=4 carrier=i32',
+                      'target-c-integer=x86_64-w64-windows-gnu key=c_uint descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer=x86_64-w64-windows-gnu key=c_long descriptor=c-signed32 width=32 '
+                      'signed=1 size=4 align=4 carrier=i32',
+                      'target-c-integer=x86_64-w64-windows-gnu key=c_ulong descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer-forged-all17-fields=true',
+                      'target-c-integer-unknown-keys=true',
+                      'target-c-integer-unknown-descriptors=true',
+                      'target-c-integer-cold-unknown-target=true',
+                      'target-c-integer-malformed-frame=true',
+                      'target-c-integer-oversized-rejected=true',
+                      'target-c-integer-v1-wire-byte-exact=true',
+                      'target-c-integer-roundtrip=true'],
+     'memory_limit_mb': 64,
+     'expect': [],
+     'timeout_seconds': 60},
     {
         "name": "macro API contract",
         "fixture": "macro_api_contract_smoke.fk",
@@ -13209,6 +13257,7 @@ def check_snapshot_inventories() -> None:
             "lex_boundary_publication_exhaustion_smoke.fk",
             "borrowck_mutable_preflight_smoke.fk",
             "hir_param_index_smoke.fk",
+            "target_c_integer_contract_smoke.fk",
             "ty_signature_index_smoke.fk",
             "resolve_lookup_index_smoke.fk",
             "hir_query_resource_smoke.fk",

@@ -82,6 +82,12 @@ scalar widths and variadic promotions receive named errors, including through
 raw aliases, callback signatures, pointer payloads, local annotations and casts.
 Real C-helper guards check negative and greater-than-32-bit values, floating
 widths, pointer transport and callbacks. General B01 C-width lowering remains open.
+Validated target layout descriptors now distinguish signed/unsigned C int32
+from LP64 long64 and Windows LLP64 long32, without changing TargetSpec v1.
+The four-target header-free Clang IR/object oracle agrees with these storage
+facts and ordinary C direct/indirect signature carriers. This prerequisite
+does not implement target-bound TY identity, checked 32-bit arithmetic,
+pointer storage compatibility or native C-width admission.
 Native character constants retain printable ASCII and admitted control escapes,
 including NUL, and reject unsupported non-ASCII or unknown escapes by name instead of emitting
 zero. This does not promote general native Unicode character lowering.

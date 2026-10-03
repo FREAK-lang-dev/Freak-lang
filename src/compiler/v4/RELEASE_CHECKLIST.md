@@ -102,6 +102,12 @@ separate plain matrix and both ownership audits. Whole-inventory and platform
 gates remain pending. Native aggregate fields and typed OS Result wiring remain fenced.
 The explicit panic-abort runtime has private native byte/borrow controls;
 compiler mode/never/CFG wiring and default unwinding remain pending.
+The reviewed target C integer prerequisite (`2c91aa4`) exposes validated
+int32/LP64-long64/Windows-long32 layout descriptors and agrees with four actual
+Clang IR/object pairs. Its strengthened oracle rejects commented calls and
+non-C conventions. One fixture is registered (341 total), and all-OS oracle
+CI is wired; integrated and platform checks remain pending. B01 native C-width
+admission remains fenced until target-bound typing and lowering are complete.
 
 Broader native words retain the owned/borrowed contracts and cleanup described
 in the V4 README.

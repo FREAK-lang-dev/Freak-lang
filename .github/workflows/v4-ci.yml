@@ -157,6 +157,12 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install llvm -y
 
+      - name: Target C integer oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_c_integer_oracle.py -v
+
+      - name: Target C integer layouts against four-target Clang IR
+        run: python -B -u tests/v4_c_integer_oracle.py --output "${{ runner.temp }}/c-integer-oracle"
+
       - name: Owned UTF-8 word runtime portability and ownership audits
         run: python -B -u tests/v4_word_runtime.py --plain
 
@@ -227,6 +233,14 @@ jobs:
       - name: Checked numeric generated-code sanitizer and ownership gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_checked_numeric_codegen.py --snapshot-control --work "${{ runner.temp }}/numeric-codegen-sanitized" --json "${{ runner.temp }}/numeric-codegen-sanitized.json"
+
+      - name: Preserve target C integer oracle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-c-integer-oracle-${{ matrix.os }}
+          path: ${{ runner.temp }}/c-integer-oracle
+          if-no-files-found: warn
 
       - name: Preserve Unicode lowercase generated-code evidence
         if: always()

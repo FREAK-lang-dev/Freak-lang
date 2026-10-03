@@ -3012,6 +3012,12 @@ payload variants, and any shape without an explicit layout annotation.
 Yuuko note: "A FREAK `word` is not a `char*`. If you hand it to C raw,
 the BETA are no longer the main threat."
 
+V4 implementation status: validated target descriptors now expose signedness,
+size, alignment and LLVM carriers for C int32, LP64 long64 and Windows LLP64
+long32. Four header-free Clang IR/object pairs verify those layout facts and
+ordinary C direct/indirect signatures. Native admission of these C-width aliases
+still requires target-bound typing and lowering; the existing named fences remain.
+
 ### 16.2 extern Blocks and Calling Conventions
 
 ```
