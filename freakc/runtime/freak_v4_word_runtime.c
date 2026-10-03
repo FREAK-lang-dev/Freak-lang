@@ -183,6 +183,45 @@ int64_t freak_v4_word_to_int(int64_t value) {
     return freak_word_to_int(freak_llvm_word_view(value));
 }
 
+void freak_v4_word_parse_int_checked(int64_t value, int64_t* out_is_some,
+                                     int64_t* out_value) {
+    if (!out_is_some || !out_value || out_is_some == out_value) {
+        freak_v4_word_panic("invalid checked integer result slots");
+    }
+    size_t length = freak_v4_word_size(value);
+    if (length == SIZE_MAX) freak_v4_word_panic("byte length overflow");
+    const unsigned char* data = freak_v4_word_data(value);
+    (void)freak_v4_word_count(data, length);
+
+    size_t offset = 0;
+    bool negative = false;
+    if (offset < length && (data[offset] == '+' || data[offset] == '-')) {
+        negative = data[offset] == '-';
+        offset++;
+    }
+    uint64_t magnitude = 0;
+    uint64_t limit = negative ? (uint64_t)INT64_MAX + 1u : (uint64_t)INT64_MAX;
+    bool valid = offset < length;
+    while (valid && offset < length) {
+        unsigned char byte = data[offset++];
+        if (byte < '0' || byte > '9') {
+            valid = false;
+        } else {
+            unsigned digit = (unsigned)(byte - '0');
+            if (magnitude > (limit - digit) / 10u) valid = false;
+            else magnitude = magnitude * 10u + digit;
+        }
+    }
+    int64_t result = 0;
+    if (valid) {
+        if (!negative) result = (int64_t)magnitude;
+        else if (magnitude == (uint64_t)INT64_MAX + 1u) result = INT64_MIN;
+        else result = -(int64_t)magnitude;
+    }
+    *out_value = result;
+    *out_is_some = valid ? 1 : 0;
+}
+
 int64_t freak_v4_word_length(int64_t value) {
     return (int64_t)freak_v4_word_scalar_count(value);
 }

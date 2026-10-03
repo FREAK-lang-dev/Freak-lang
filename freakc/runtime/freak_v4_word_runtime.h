@@ -33,6 +33,17 @@ int64_t freak_v4_word_from_num(double value);
 /* Legacy lenient word_to_int alias, not the bible maybe<int> method. */
 int64_t freak_v4_word_to_int(int64_t value);
 
+/* Private checked integer parsing prerequisite, not a public FREAK maybe ABI.
+   Borrows a live sized UTF-8 owner without allocation or parse-status mutation.
+   An optional ASCII sign followed by one or more decimal digits must consume
+   the entire byte input and fit int64_t; leading zeros are valid. Success writes
+   tag 1 and the integer. Invalid text (including NUL) or range writes tag 0 and
+   zero. Required nonnull output pointers designate distinct writable slots.
+   Invalid private slots, owners, UTF-8 or metadata cause a named panic-abort.
+   The lenient word_to_int and V3 sticky checked-parser APIs are unchanged. */
+void freak_v4_word_parse_int_checked(int64_t value, int64_t* out_is_some,
+                                     int64_t* out_value);
+
 /* Count Unicode scalars, not grapheme clusters or UTF-8 bytes. */
 int64_t freak_v4_word_length(int64_t value);
 int64_t freak_v4_word_bytes(int64_t value);
