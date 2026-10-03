@@ -18,6 +18,122 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGES = ["lex", "parse", "hir", "resolve", "ty", "mir", "borrowck", "codegen", "module"]
+LLVM_VERSION = "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n"
+
+
+class SymbolToolSelection(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.work = Path(temporary.name)
+        self.tool = self.work / "llvm-nm-real"
+        self.tool.write_bytes(b"LLVM tool image")
+        self.obj = self.work / "module.o"
+        self.obj.write_bytes(b"native object")
+        spec = importlib.util.spec_from_file_location("symbol_tool_benchmark", ROOT / "v4_scale_bench.py")
+        self.benchmark = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.benchmark)
+
+    def test_missing_llvm_reader_fails_without_using_gnu_nm(self):
+        with patch.object(self.benchmark.shutil, "which",
+                          side_effect=lambda name: "/usr/bin/nm" if name == "nm" else None) as which, \
+                patch.object(self.benchmark, "guarded_job") as job:
+            with self.assertRaisesRegex(RuntimeError, "llvm-nm is required.*install LLVM tools"):
+                self.benchmark.llvm_symbol_tool(None, self.work / "selection", 10)
+        which.assert_called_once_with("llvm-nm")
+        job.assert_not_called()
+
+    def test_selection_records_actual_canonical_image_and_llvm_version(self):
+        alias = self.work / "llvm-nm"
+        alias.symlink_to(self.tool)
+        result = subprocess.CompletedProcess([], 0, LLVM_VERSION, "")
+        with patch.object(self.benchmark.shutil, "which", return_value=str(alias)), \
+                patch.object(self.benchmark, "guarded_job", return_value=result) as job:
+            selected = self.benchmark.llvm_symbol_tool(None, self.work / "selection", 20)
+        self.assertEqual(selected["requested_nm"], str(alias))
+        self.assertEqual(selected["resolved_nm"], str(self.tool))
+        self.assertEqual(selected["nm_version"], LLVM_VERSION)
+        self.assertEqual(selected["nm_file"]["sha256"], hashlib.sha256(self.tool.read_bytes()).hexdigest())
+        job.assert_called_once_with(None, [str(self.tool), "--version"],
+                                    self.work / "selection/tool-version",
+                                    "LLVM symbol tool version", 5, 128, 1)
+        self.assertEqual(json.loads((self.work / "selection/provenance.json").read_text()), selected)
+
+    def test_name_without_llvm_implementation_is_rejected_before_inventory(self):
+        result = subprocess.CompletedProcess([], 0, "GNU nm (GNU Binutils) 2.42\n", "")
+        with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark, "guarded_job", return_value=result) as job:
+            with self.assertRaisesRegex(RuntimeError, "does not report an LLVM symbol reader"):
+                self.benchmark.defined_symbols(None, self.obj, self.work / "symbols", 10)
+        self.assertEqual(job.call_count, 1)
+        self.assertEqual(job.call_args.args[1], [str(self.tool), "--version"])
+        metadata = json.loads((self.work / "symbols/tool-selection/provenance.json").read_text())
+        self.assertEqual(metadata["nm_version"], result.stdout)
+
+    def test_version_permission_error_keeps_pinned_tool_provenance(self):
+        error = PermissionError(13, "selected symbol reader cannot execute")
+        directory = self.work / "selection"
+        with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark, "guarded_job", side_effect=error) as job, \
+                self.assertRaises(RuntimeError) as failure:
+            self.benchmark.llvm_symbol_tool(None, directory, 20)
+        self.assertIs(failure.exception.__cause__, error)
+        self.assertIn("selected symbol reader cannot execute", str(failure.exception))
+        self.assertIn("symbol-tool-provenance=", str(failure.exception))
+        metadata = json.loads((directory / "provenance.json").read_text())
+        self.assertEqual(metadata["requested_nm"], str(self.tool))
+        self.assertEqual(metadata["resolved_nm"], str(self.tool))
+        self.assertEqual(metadata["nm_file"]["sha256"], hashlib.sha256(self.tool.read_bytes()).hexdigest())
+        self.assertEqual(metadata["nm_version"], "unavailable within unchanged resource limits")
+        job.assert_called_once_with(None, [str(self.tool), "--version"],
+                                   directory / "tool-version", "LLVM symbol tool version", 5, 128, 1)
+
+    def test_version_nonzero_exit_keeps_stderr_and_pinned_provenance(self):
+        result = subprocess.CompletedProcess([], 2, LLVM_VERSION, "version loader failed")
+        directory = self.work / "selection"
+        with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark, "guarded_job", return_value=result) as job, \
+                self.assertRaises(RuntimeError) as failure:
+            self.benchmark.llvm_symbol_tool(None, directory, 20)
+        self.assertIn("version loader failed", str(failure.exception))
+        self.assertIn("symbol-tool-provenance=", str(failure.exception))
+        self.assertIsInstance(failure.exception.__cause__, RuntimeError)
+        metadata = json.loads((directory / "provenance.json").read_text())
+        self.assertEqual(metadata["resolved_nm"], str(self.tool))
+        self.assertEqual(metadata["nm_file"]["sha256"], hashlib.sha256(self.tool.read_bytes()).hexdigest())
+        self.assertEqual(metadata["nm_version"], "unavailable within unchanged resource limits")
+        job.assert_called_once_with(None, [str(self.tool), "--version"],
+                                   directory / "tool-version", "LLVM symbol tool version", 5, 128, 1)
+
+    def test_frozen_image_change_stops_before_symbol_reader_execution(self):
+        selected = {"requested_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool),
+                    "nm_version": LLVM_VERSION}
+        self.tool.write_bytes(b"different executable image")
+        with patch.object(self.benchmark, "guarded_job") as job:
+            with self.assertRaisesRegex(RuntimeError, "frozen LLVM symbol tool changed"):
+                self.benchmark.defined_symbols(None, self.obj, self.work / "symbols", 10,
+                                               symbol_tool=selected)
+        job.assert_not_called()
+
+    def test_pinned_selection_keeps_exports_and_unchanged_inventory_limits(self):
+        version = subprocess.CompletedProcess([], 0, LLVM_VERSION, "")
+        inventory = subprocess.CompletedProcess([], 0,
+            "00000000 T main\n00000008 T bench_collision\n00000010 W weak_export\n", "")
+        with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)) as which, \
+                patch.object(self.benchmark, "guarded_job", side_effect=[version, inventory]) as job:
+            selected = self.benchmark.llvm_symbol_tool(None, self.work / "selection", 10)
+            exports = self.benchmark.defined_symbols(None, self.obj, self.work / "symbols", 10,
+                                                    symbol_tool=selected)
+        which.assert_called_once_with("llvm-nm")
+        self.assertEqual(exports, {"main", "bench_collision", "weak_export"})
+        self.assertEqual(job.call_count, 2)
+        self.assertEqual(job.call_args.args,
+            (None, [str(self.tool), "-g", "--defined-only", str(self.obj)],
+             self.work / "symbols", "native symbol inventory", 10, 128, 8))
+        metadata = json.loads((self.work / "symbols/provenance.json").read_text())
+        self.assertEqual(metadata["nm_file"], selected["nm_file"])
+        self.assertEqual(metadata["object"]["sha256"], hashlib.sha256(self.obj.read_bytes()).hexdigest())
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "Linux benchmark")
@@ -175,7 +291,7 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, freak_word 
             state = stat.read_text().split(")", 1)[1].split()[0]
             self.assertEqual(state, "Z", f"descendant {pid} still running")
 
-    @unittest.skipUnless(shutil.which("clang") and shutil.which("nm"), "clang and nm required")
+    @unittest.skipUnless(shutil.which("clang"), "clang required")
     def test_wrong_native_exit_fails_check(self):
         tool = self.fake_tool(self.emitted_program(exit_code=42))
         result, rows = self.run_bench(tool, "--check")
@@ -184,7 +300,7 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, freak_word 
         self.assertEqual(rows[0]["status"], "native-check-failed", context)
         self.assertIn("native-mismatch:exit=42", rows[0]["check"], context)
 
-    @unittest.skipUnless(shutil.which("clang") and shutil.which("nm"), "clang and nm required")
+    @unittest.skipUnless(shutil.which("clang"), "clang required")
     def test_duplicate_native_symbol_fails_before_compatibility_link(self):
         source, obj = self.work / "runtime.c", self.work / "runtime.o"
         source.write_text("long bench_collision(void) { return 2; }\n")
@@ -197,6 +313,53 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, freak_word 
         self.assertEqual(rows[0].get("status"), "native-check-failed", context)
         self.assertIn("unexpected-symbol-collisions", rows[0]["check"], context)
         self.assertFalse((Path(rows[0]["artifacts"]) / "native").exists())
+
+    @unittest.skipUnless(shutil.which("clang"), "clang required")
+    def test_native_inventory_matches_independent_elf_exports_on_the_same_object(self):
+        spec = importlib.util.spec_from_file_location("native_symbol_benchmark", ROOT / "v4_scale_bench.py")
+        benchmark = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(benchmark)
+        build = benchmark.load_build(ROOT)
+        source, obj = self.work / "exports.c", self.work / "exports.o"
+        source.write_text(
+            "int global_data = 3;\n"
+            "int common_data __attribute__((common));\n"
+            "static int local_helper(void) { return 1; }\n"
+            "int bench_collision(void) { return local_helper(); }\n"
+            "__attribute__((weak)) int weak_export(void) { return global_data; }\n"
+            "extern int undefined_export(void);\n"
+            "int calls_undefined(void) { return undefined_export(); }\n")
+        compiled = benchmark.guarded_job(build,
+            [shutil.which("clang"), "-O0", "-c", str(source), "-o", str(obj)],
+            self.work / "exports-build", "native export control", 10, 1024)
+        self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+        exported = benchmark.defined_symbols(build, obj, self.work / "exports-symbols", 10)
+        readelf = shutil.which("readelf")
+        self.assertIsNotNone(readelf, "readelf is required for independent same-object ELF parity")
+        reference = benchmark.guarded_job(build, [readelf, "--wide", "--syms", str(obj)],
+                                         self.work / "elf-reference", "ELF symbol reference", 10, 128, 8)
+        self.assertEqual(reference.returncode, 0, reference.stdout + reference.stderr)
+        expected = set()
+        for line in reference.stdout.splitlines():
+            fields = line.split()
+            if len(fields) >= 8 and fields[4] in {"GLOBAL", "WEAK"} and fields[6] != "UND":
+                expected.add(fields[7])
+        self.assertEqual(expected, {"global_data", "common_data", "bench_collision",
+                                    "weak_export", "calls_undefined"})
+        self.assertEqual(exported, expected)
+
+    @unittest.skipUnless(shutil.which("clang"), "clang required")
+    def test_noncolliding_native_exports_link_and_execute(self):
+        source, obj = self.work / "runtime.c", self.work / "runtime.o"
+        source.write_text("long other_export(void) { return 2; }\n")
+        subprocess.run([shutil.which("clang"), "-c", str(source), "-o", str(obj)],
+                       check=True, capture_output=True, timeout=10)
+        tool = self.fake_tool(self.emitted_program(), [obj], ["other_export"])
+        result, rows = self.run_bench(tool, "--check")
+        context = json.dumps(rows, indent=2) + "\n" + result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, context)
+        self.assertEqual(rows[0]["status"], "ok", context)
+        self.assertEqual(rows[0]["check"], "pass", context)
 
 
 if __name__ == "__main__":

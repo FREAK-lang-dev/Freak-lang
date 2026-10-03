@@ -13009,12 +13009,13 @@ class WindowsJob:
         return max(int(info.PeakProcessMemoryUsed), int(info.PeakJobMemoryUsed))
 
     def terminate(self) -> None:
-        if self.handle:
-            self.kernel32.TerminateJobObject(self.handle, 1)
+        if self.handle and not self.kernel32.TerminateJobObject(self.handle, 1):
+            raise self.ctypes.WinError(self.ctypes.get_last_error())
 
     def close(self) -> None:
         if self.handle:
-            self.kernel32.CloseHandle(self.handle)
+            if not self.kernel32.CloseHandle(self.handle):
+                raise self.ctypes.WinError(self.ctypes.get_last_error())
             self.handle = None
 
 
@@ -13167,6 +13168,53 @@ class ProcessTree:
         self.windows_job = windows_job
         self.peak_memory_sample: dict = {}
 
+    @staticmethod
+    def _rollback_spawn(process: subprocess.Popen[bytes] | None, windows_job: WindowsJob | None) -> None:
+        if windows_job is None:
+            return
+
+        def retry_cleanup(action) -> Exception | None:
+            for attempt in range(2):
+                try:
+                    action()
+                    return None
+                except Exception as error:
+                    if attempt == 1:
+                        return error
+            return None
+
+        wait_error = None
+        close_error = None
+        try:
+            if process is not None:
+                try:
+                    retry_cleanup(windows_job.terminate)
+                finally:
+                    try:
+                        def kill_launcher() -> None:
+                            if process.poll() is None:
+                                process.kill()
+
+                        retry_cleanup(kill_launcher)
+                    finally:
+                        wait_error = retry_cleanup(lambda: process.wait(timeout=5))
+        finally:
+            close_error = retry_cleanup(windows_job.close)
+        if wait_error is not None and close_error is None:
+            # Closing a KILL_ON_JOB_CLOSE handle is also a termination path.
+            # Reap again after that fallback when direct termination failed.
+            wait_error = retry_cleanup(lambda: process.wait(timeout=5))
+        failure = close_error if close_error is not None else wait_error
+        if failure is not None:
+            failed_steps = []
+            if wait_error is not None:
+                failed_steps.append("launcher reaping")
+            if close_error is not None:
+                failed_steps.append("Job handle close")
+            raise RuntimeError(
+                "Windows process startup rollback failed after bounded retries: " + ", ".join(failed_steps)
+            ) from failure
+
     @classmethod
     def spawn(
         cls,
@@ -13188,19 +13236,14 @@ class ProcessTree:
                 **popen_kwargs,
             )
         except BaseException:
-            if windows_job is not None:
-                windows_job.close()
+            cls._rollback_spawn(None, windows_job)
             raise
         if windows_job is not None:
             try:
                 windows_job.assign(process)
                 windows_job.resume(process)
             except BaseException:
-                windows_job.terminate()
-                if process.poll() is None:
-                    process.kill()
-                process.wait()
-                windows_job.close()
+                cls._rollback_spawn(process, windows_job)
                 raise
         return cls(process, windows_job)
 
@@ -13219,15 +13262,57 @@ class ProcessTree:
         return process_memory_diagnostics(self.peak_memory_sample)
 
     def terminate(self) -> None:
-        if self.windows_job is not None:
-            self.windows_job.terminate()
-        else:
+        group_error = None
+        try:
+            if self.windows_job is not None:
+                self.windows_job.terminate()
+            else:
+                try:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        except Exception as error:
+            group_error = error
+            raise
+        finally:
+            # A failed group/Job operation must not bypass launcher cleanup.
             try:
-                os.killpg(self.process.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-        if self.process.poll() is None:
-            self.process.kill()
+                if self.process.poll() is None:
+                    self.process.kill()
+            except Exception as error:
+                if group_error is None:
+                    raise
+                # Preserve the first group failure and retain the independent
+                # launcher error without replacing it or formatting payloads.
+                group_error.launcher_cleanup_error = error
+
+    def _final_cleanup(self) -> tuple[bool, bool, tuple[tuple[str, Exception], ...]]:
+        errors: list[tuple[str, Exception]] = []
+
+        def retry_cleanup(stage, action) -> bool:
+            for _ in range(2):
+                try:
+                    action()
+                    return True
+                except Exception as error:
+                    errors.append((stage, error))
+            return False
+
+        closed = False
+        reaped = False
+        try:
+            def kill_launcher() -> None:
+                if self.process.poll() is None:
+                    self.process.kill()
+
+            retry_cleanup("launcher kill", kill_launcher)
+        finally:
+            try:
+                # KILL_ON_JOB_CLOSE is independent of TerminateJobObject.
+                closed = retry_cleanup("resource close", self.close)
+            finally:
+                reaped = retry_cleanup("launcher reap", lambda: self.process.wait(timeout=5))
+        return closed, reaped, tuple(errors)
 
     def close(self) -> None:
         if self.windows_job is not None:
@@ -13268,29 +13353,92 @@ def run_with_heartbeat(
     next_heartbeat = started + 30.0
     peak_memory_bytes = process_tree.memory_bytes() or 0
     process_tree_closed = False
+    process_tree_cleanup_failure = None
     memory_diagnostic = ""
 
     def stop_process_tree() -> None:
-        nonlocal peak_memory_bytes, process_tree_closed, memory_diagnostic
+        nonlocal peak_memory_bytes, process_tree_closed, process_tree_cleanup_failure, memory_diagnostic
         if process_tree_closed:
             return
-        measured = process_tree.memory_bytes()
-        if measured is not None:
-            peak_memory_bytes = max(peak_memory_bytes, measured)
-        if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes:
-            # Capture while contributors still exist, before termination removes
-            # the executable, maps and command-line identity from procfs.
-            memory_diagnostic = process_tree.memory_diagnostics()
-        process_tree.terminate()
-        if process.poll() is None:
-            process.wait()
-        measured = process_tree.memory_bytes()
-        if measured is not None:
-            peak_memory_bytes = max(peak_memory_bytes, measured)
-        if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes and not memory_diagnostic:
-            memory_diagnostic = process_tree.memory_diagnostics()
-        process_tree.close()
-        process_tree_closed = True
+        if process_tree_cleanup_failure is not None:
+            raise process_tree_cleanup_failure
+
+        def capture_memory() -> None:
+            nonlocal peak_memory_bytes, memory_diagnostic
+            try:
+                measured = process_tree.memory_bytes()
+                if measured is not None:
+                    peak_memory_bytes = max(peak_memory_bytes, measured)
+                if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes and not memory_diagnostic:
+                    # Capture before termination removes contributor identity.
+                    memory_diagnostic = process_tree.memory_diagnostics()
+            except Exception:
+                # Optional evidence must neither prevent cleanup nor replace a
+                # resource-limit failure. Do not format potentially sensitive
+                # exception payloads or invoke the failed serializer again.
+                if not memory_diagnostic:
+                    memory_diagnostic = '{"diagnostic_error":"capture unavailable"}'
+
+        try:
+            capture_memory()
+        finally:
+            # Retry a transient OS failure before propagating the original
+            # guard failure. Keep the Job handle and the cleanup state usable
+            # until termination, reaping, and resource release have succeeded.
+            errors: list[tuple[str, Exception]] = []
+            group_terminated = False
+            for attempt in range(2):
+                stage = "group termination"
+                try:
+                    process_tree.terminate()
+                    group_terminated = True
+                    stage = "launcher reap"
+                    if process.poll() is None:
+                        process.wait(timeout=5)
+                    try:
+                        capture_memory()
+                    finally:
+                        stage = "resource close"
+                        process_tree.close()
+                        process_tree_closed = True
+                    break
+                except Exception as error:
+                    errors.append((stage, error))
+                    launcher_error = getattr(error, "launcher_cleanup_error", None)
+                    if launcher_error is not None:
+                        errors.append(("launcher kill", launcher_error))
+            else:
+                try:
+                    capture_memory()
+                finally:
+                    closed, reaped, fallback_errors = process_tree._final_cleanup()
+                errors.extend(fallback_errors)
+                process_tree_closed = closed and reaped and (
+                    group_terminated or process_tree.windows_job is not None
+                )
+                guard_context = ""
+                if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes:
+                    guard_context = (
+                        f"; exceeded memory limit: peak={peak_memory_bytes / (1024 * 1024):.1f}MB "
+                        f"limit={memory_limit_mb}MB\n"
+                        f"memory-sample={memory_diagnostic}"
+                    )
+                elif stdout_capture.snapshot()[1] or stderr_capture.snapshot()[1]:
+                    guard_context = f"; exceeded output limit: limit={output_limit_mb}MB-per-stream"
+                elif timeout_seconds is not None and time.monotonic() - started >= timeout_seconds:
+                    guard_context = f"; exceeded timeout: limit={timeout_seconds}s"
+                summary = ", ".join(
+                    f"{step}:{type(error).__name__}:errno={getattr(error, 'errno', None)}"
+                    for step, error in errors
+                )
+                process_tree_cleanup_failure = RuntimeError(
+                    f"{label} process-tree cleanup failed after 2 attempts; "
+                    f"final fallback resource-closed={closed} launcher-reaped={reaped} "
+                    f"tree-closed={process_tree_closed}; "
+                    f"failures={summary}{guard_context}"
+                )
+                process_tree_cleanup_failure.cleanup_errors = tuple(errors)
+                raise process_tree_cleanup_failure from errors[0][1]
 
     def captured_text() -> tuple[str, str]:
         stdout_thread.join(timeout=5)
@@ -13395,7 +13543,8 @@ def run_with_heartbeat(
                     )
                     next_heartbeat = now + 30.0
     except BaseException:
-        stop_process_tree()
+        if process_tree_cleanup_failure is None:
+            stop_process_tree()
         raise
 
 
