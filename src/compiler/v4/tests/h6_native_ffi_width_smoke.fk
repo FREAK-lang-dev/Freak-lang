@@ -1,0 +1,128 @@
+-- Two pipelines prove authored cast rejection and portable recovery. Raw
+-- surface readers and fixture-owned rows cover the rest without new arenas.
+task h6_width_assert(condition: bool, label: word) -> void {
+    if not condition { panic("h6 native ffi width: " + label) }
+}
+
+task h6_width_lower(file_id: int, source: word) -> int {
+    pilot stream = v4_lex_text(file_id, source)
+    pilot tree = v4_parse_stream(file_id, stream)
+    pilot hir = v4_hir_lower_tree(file_id, tree)
+    pilot resolve = v4_resolve_lower_hir(file_id, hir)
+    pilot ty = v4_ty_lower_resolve(file_id, resolve)
+    pilot mir = v4_mir_lower_ty(file_id, ty)
+    pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir)
+    h6_width_assert(total == 0 and v4_mir_file_exists(mir), "clean source owners")
+    pilot plan = v4_codegen_llvm_lower_mir(file_id, mir)
+    h6_width_assert(plan >= 0 and v4_codegen_llvm_diag_count(plan) == 0, "valid sealed plan")
+    give back plan
+}
+
+task h6_width_run() -> void {
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot aliases = "alias Bad = std::ffi::c_int\nalias Hidden = Bad\nalias Size = std::ffi::c_size\n"
+    pilot source = aliases + "extern [C] {\n task source_ptr() -> *mut std::ffi::c_void\n}\n"
+    source = source + "task probe() -> int {\n pilot p = source_ptr()\n trust me \"inspect C storage\" on my honor as .ace {\n pilot q = p.cast<Hidden>()\n give back q.read()\n }\n}\n"
+    source = source + "shape A { marker: int }\nimpl A {\n task width(value: Hidden) -> Hidden {\n pilot local: Hidden = value\n give back local\n }\n}\n"
+    source = source + "@extern_callback(\"C\")\ntask callback(value: std::ffi::c_isize) -> std::ffi::c_isize {\n give back value\n}\n"
+    pilot rejected = h6_width_lower(0, source)
+    pilot rejected_mir = word_to_int(array_get(v4_codegen_llvm_mirs, rejected))
+    pilot rejected_ty = v4_mir_ty_id(rejected_mir)
+    pilot reason = "native C scalar ABI not yet supported: std::ffi::c_int"
+    h6_width_assert(v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_native_target_error(rejected, target) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "inferred cast aliases reject before publication")
+    h6_width_assert(v4_codegen_llvm_find_body(rejected, "probe") >= 0 and v4_codegen_llvm_find_body(rejected, "__freak_callback_callback") >= 0 and v4_codegen_llvm_find_call(rejected, "probe", "source_ptr") >= 0, "ordinary callback and call plan oracles retained")
+    pilot impl_body = v4_codegen_llvm_find_body(rejected, "A::width")
+    h6_width_assert(impl_body >= 0, "raw impl body retained")
+    pilot impl_item = v4_mir_body_impl_method_index(rejected_mir, impl_body, 0)
+    pilot impl_method = v4_mir_body_impl_method_index(rejected_mir, impl_body, 1)
+    h6_width_assert(v4_ty_impl_method_param_surface_type(rejected_ty, impl_item, impl_method, 0) == "Hidden" and v4_ty_impl_method_return_surface_type(rejected_ty, impl_item, impl_method) == "Hidden" and v4_ty_impl_method_param_type(rejected_ty, impl_item, impl_method, 0) == v4_ty_int, "raw impl surfaces preserve erased aliases")
+    h6_width_assert(v4_ty_impl_method_local_annotation_count(rejected_ty, impl_item) == 1 and v4_ty_impl_method_local_annotation_surface_type(rejected_ty, impl_item, 0) == "Hidden", "raw impl local annotation retained")
+    say "h6-native-ffi-width cast-alias=true impl-raw=true callback-retained=true named=true no-module=true"
+
+    source = aliases + "extern [C] {\n task source_ptr() -> *mut std::ffi::c_void\n task signed_width(value: std::ffi::c_isize) -> std::ffi::isize\n task unsigned_width(value: std::ffi::c_size) -> std::ffi::usize\n task float_width(value: std::ffi::c_float) -> std::ffi::c_float\n task double_width(value: std::ffi::c_double) -> std::ffi::c_double\n task sink(value: *mut tiny) -> std::ffi::c_void\n}\n"
+    source = source + "task byte_view() -> *mut tiny {\n pilot p = source_ptr()\n trust me \"view storage bytes\" on my honor as .ace {\n give back p.cast<tiny>()\n }\n}\n"
+    source = source + "task internal(value: tiny) -> tiny {\n give back value\n}\n"
+    source = source + "@extern_callback(\"C\")\ntask callback(value: std::ffi::c_isize) -> std::ffi::c_isize {\n give back value\n}\n"
+    source = source + "task main() -> int {\n pilot count: Size = 1\n pilot flag: bool = true\n if flag { give back 0 }\n give back 1\n}\n"
+    pilot plan = h6_width_lower(1, source)
+    pilot mir = word_to_int(array_get(v4_codegen_llvm_mirs, plan))
+    pilot ty = v4_mir_ty_id(mir)
+    pilot hir = v4_ty_signature_hir_id(ty)
+    pilot before = v4_codegen_llvm_module_text(plan, target)
+    h6_width_assert(before != "" and v4_codegen_llvm_native_module_error(plan) == "" and v4_codegen_llvm_native_c_width_error(mir, ty) == "", "portable scalars and correct pointers admit publication")
+    h6_width_assert(before.contains("declare ccc i64 @signed_width(i64)") and before.contains("declare ccc i64 @unsigned_width(i64)") and before.contains("declare ccc float @float_width(float)") and before.contains("declare ccc double @double_width(double)") and before.contains("declare ccc void @sink(ptr)"), "retained LLVM widths explicit")
+    h6_width_assert(before.contains("define ccc i8 @internal(i8") and before.contains("alloca i1") and before.contains("@__freak_callback_callback"), "internal tiny bool and portable callback retained")
+    say "h6-native-ffi-width portable=true pointers=true floats=true internal-bool-tiny=true recovery=true"
+
+    pilot bad = array_new()
+    array_push(bad, "c_int")
+    array_push(bad, "c_uint")
+    array_push(bad, "c_long")
+    array_push(bad, "c_ulong")
+    array_push(bad, "wchar")
+    array_push(bad, "c_char")
+    array_push(bad, "c_uchar")
+    array_push(bad, "c_bool")
+    pilot case_id = 0
+    repeat until case_id >= array_len(bad) {
+        pilot surface: word = array_get(bad, case_id)
+        pilot qualified = "std::ffi::" + surface
+        h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, surface, true) == "native C scalar ABI not yet supported: " + surface and v4_codegen_llvm_native_c_surface_error(ty, qualified, false) == "native C scalar ABI not yet supported: " + qualified, "unproved aliases reject qualified and internal raw uses")
+        h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "*mut" + qualified, false) == "native C scalar ABI not yet supported: " + qualified and v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task(x:" + qualified + ")->std::ffi::c_isize", false) == "native C scalar ABI not yet supported: " + qualified and v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task()->" + qualified, false) == "native C scalar ABI not yet supported: " + qualified, "raw pointees and nested extern parameter return surfaces fenced")
+        case_id += 1
+    }
+    array_release(bad)
+    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "bool", true) == "native C scalar ABI not yet supported: bool" and v4_codegen_llvm_native_c_surface_error(ty, "tiny", true) == "native C scalar ABI not yet supported: tiny" and v4_codegen_llvm_native_c_surface_error(ty, "char", true) == "native C scalar ABI not yet supported: char", "bare extension scalars fenced at C boundary")
+    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "task(x:bool)->tiny", false) == "" and v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task(x:bool)->std::ffi::c_isize", false) == "native C scalar ABI not yet supported: bool", "language task and nested C task distinguish extension ABI")
+    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "extern[C]task(x:std::ffi::c_isize,args:...)->std::ffi::c_isize", false) == "native C variadic ABI not yet supported", "C default promotions remain fenced")
+    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "Hidden", false) == reason and v4_codegen_llvm_native_c_surface_error(ty, "*mutHidden", false) == reason, "recursive aliases preserve forbidden widths")
+    say "h6-native-ffi-width aliases=8 nested-params-returns=true pointees=true bare-scalars=true variadic=true"
+
+    pilot annotation = 0 - 1
+    -- The two authored main annotations have exact record order.
+    pilot count_annotation = 0
+    repeat until count_annotation >= v4_hir_local_annotation_record_count(hir) {
+        pilot value: word = array_get(v4_hir_local_annotation_types_handle(hir), count_annotation)
+        if value == "Size" { annotation = count_annotation }
+        count_annotation += 1
+    }
+    h6_width_assert(annotation >= 0, "source annotation record exists")
+    pilot local_surface: word = array_get(v4_hir_local_annotation_types_handle(hir), annotation)
+    h6_width_assert(local_surface == "Size", "raw source local annotation found")
+    array_set(v4_hir_local_annotation_types_handle(hir), annotation, "Hidden")
+    h6_width_assert(v4_codegen_llvm_native_c_width_error(mir, ty) == reason and v4_codegen_llvm_module_text(plan, target) == before, "raw local catches erased width while old publication stays sealed")
+    array_set(v4_hir_local_annotation_types_handle(hir), annotation, local_surface)
+    pilot hidden_sig = v4_ty_alias_signature_id_for_name(ty, "Hidden")
+    pilot hidden_item = v4_ty_signature_hir_item(ty, hidden_sig)
+    pilot hidden_target = v4_ty_alias_target_type(ty, "Hidden")
+    array_set(v4_hir_alias_target_types_handle(hir), hidden_item, "Hidden")
+    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "Hidden", false) == "native C ABI surface nesting exceeds supported depth", "alias cycles fail closed with finite bound")
+    array_set(v4_hir_alias_target_types_handle(hir), hidden_item, hidden_target)
+    pilot nested = "std::ffi::c_isize"
+    case_id = 0
+    repeat until case_id >= 34 { nested = "*mut" + nested; case_id += 1 }
+    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, nested, false) == "native C ABI surface nesting exceeds supported depth", "deep pointee surfaces fail closed")
+    h6_width_assert(v4_ty_raw_pointer_cast_target_surface("p.cast < extern [C] task(x: Hidden) -> std::ffi::c_isize >()") == "extern[C]task(x:Hidden)->std::ffi::c_isize" and v4_ty_raw_pointer_cast_target_surface("p.cast<tiny>().cast<Hidden>()") == "Hidden" and v4_ty_raw_pointer_cast_target_surface("p.cast<Hidden>()junk") == v4_ty_unknown, "cast target raw recovery handles nested arrow chains and malformed text")
+    h6_width_assert(v4_codegen_llvm_native_c_width_error(mir, ty) == "" and v4_codegen_llvm_module_text(plan, target) == before, "raw source facts recover")
+    say "h6-native-ffi-width locals=true cycles=true depth-bound=true cast-raw=true sealed=true"
+
+    pilot holders = array_new()
+    h6_width_assert(holders >= 0, "pressure owner")
+    pilot exhausted: bool = false
+    repeat until exhausted {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)) }
+    }
+    h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, "std::ffi::c_int", true) == reason and v4_codegen_llvm_native_c_surface_error(ty, "std::ffi::c_isize", true) == "" and v4_codegen_llvm_native_module_error(rejected) == reason and array_new() < 0, "surface and sealed error readers need no scratch under pressure")
+    pilot slot = 0
+    repeat until slot >= array_len(holders) { array_release(word_to_int(array_get(holders, slot))); slot += 1 }
+    array_release(holders)
+    pilot snapshot = v4_mir_snapshot()
+    h6_width_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "MIR identities restored")
+    array_set(v4_mir_names_handle(mir), 0, "changed_byte_view")
+    array_set(v4_mir_names_handle(rejected_mir), 0, "changed_probe")
+    h6_width_assert(v4_mir_body_name(mir, 0) == "changed_byte_view" and v4_mir_body_name(rejected_mir, 0) == "changed_probe" and v4_codegen_llvm_module_text(plan, target) == before and v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "accepted and rejected plans remain sealed across reused MIR identities")
+    say "h6-native-ffi-width pressure=true restore=true changed-facts=true sealed=true"
+}
+
+h6_width_run()

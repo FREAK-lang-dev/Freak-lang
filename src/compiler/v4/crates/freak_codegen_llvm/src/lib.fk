@@ -1552,6 +1552,103 @@ task v4_codegen_llvm_native_type_error(type_text: word, allow_void: bool) -> wor
     give back v4_codegen_llvm_native_type_error_depth(type_text, allow_void, 0)
 }
 
+-- Canonical MIR types erase the declared C widths. Inspect raw TY surfaces
+-- only while sealing, after bodies/callbacks have retained their plan oracles.
+-- The current native scalar ABI proves pointer-width integers and floats;
+-- C32/platform integers and extension attributes remain conservatively fenced.
+task v4_codegen_llvm_native_c_surface_error_depth(ty_id: int, surface: word, c_boundary: bool, depth: int) -> word {
+    if depth > 32 { give back "native C ABI surface nesting exceeds supported depth" }
+    pilot alias_name = v4_ty_surface_ffi_alias_name(surface)
+    if alias_name == "c_int" or alias_name == "c_uint" or alias_name == "c_long" or alias_name == "c_ulong" or alias_name == "wchar" or alias_name == "c_char" or alias_name == "c_uchar" or alias_name == "c_bool" { give back "native C scalar ABI not yet supported: " + surface }
+    if c_boundary and (surface == v4_ty_bool or surface == v4_ty_tiny or surface == v4_ty_char) { give back "native C scalar ABI not yet supported: " + surface }
+    if v4_ty_is_surface_ffi_alias_type(surface) { give back "" }
+    if v4_ty_is_raw_pointer_type(surface) { give back v4_codegen_llvm_native_c_surface_error_depth(ty_id, v4_ty_raw_pointer_target_type(surface), false, depth + 1) }
+    if v4_ty_is_surface_task_function_type(surface) {
+        pilot nested_boundary: bool = v4_ty_is_surface_extern_function_pointer_type(surface)
+        if nested_boundary and v4_ty_function_type_variadic_param_id(surface) >= 0 { give back "native C variadic ABI not yet supported" }
+        pilot error = v4_codegen_llvm_native_c_surface_error_depth(ty_id, v4_ty_function_type_return_text(surface), nested_boundary, depth + 1)
+        if error != "" { give back error }
+        pilot param = 0
+        repeat until param >= v4_ty_function_type_fixed_param_count(surface) {
+            error = v4_codegen_llvm_native_c_surface_error_depth(ty_id, v4_ty_function_type_param_surface(surface, param), nested_boundary, depth + 1)
+            if error != "" { give back error }
+            param += 1
+        }
+        give back ""
+    }
+    if v4_ty_is_fixed_array_type(surface) { give back v4_codegen_llvm_native_c_surface_error_depth(ty_id, v4_ty_fixed_array_element_type(surface), c_boundary, depth + 1) }
+    pilot alias_lookup = v4_ty_alias_lookup_type_from_surface_type(ty_id, surface)
+    if alias_lookup != "" {
+        pilot target = v4_ty_alias_target_type(ty_id, alias_lookup)
+        if target == "" or target == v4_ty_unknown { give back "native C ABI alias target is unresolved: " + surface }
+        give back v4_codegen_llvm_native_c_surface_error_depth(ty_id, target, c_boundary, depth + 1)
+    }
+    give back ""
+}
+
+task v4_codegen_llvm_native_c_surface_error(ty_id: int, surface: word, c_boundary: bool) -> word {
+    give back v4_codegen_llvm_native_c_surface_error_depth(ty_id, surface, c_boundary, 0)
+}
+
+task v4_codegen_llvm_native_c_width_error(mir_id: int, ty_id: int) -> word {
+    pilot sig = 0
+    repeat until sig >= v4_ty_signature_count(ty_id) {
+        if v4_codegen_llvm_signature_is_callable(ty_id, sig) {
+            pilot boundary: bool = v4_ty_signature_call_abi(ty_id, sig) != "" or v4_ty_signature_has_extern_callback(ty_id, sig)
+            if boundary and v4_ty_signature_is_variadic(ty_id, sig) { give back "native C variadic ABI not yet supported" }
+            pilot error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_signature_return_surface_type(ty_id, sig), boundary)
+            if error != "" { give back error }
+            pilot param = 0
+            repeat until param >= v4_ty_signature_fixed_param_count(ty_id, sig) {
+                error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_signature_param_surface_type(ty_id, sig, param), boundary)
+                if error != "" { give back error }
+                param += 1
+            }
+            pilot annotation = 0
+            repeat until annotation >= v4_ty_signature_local_annotation_count(ty_id, sig) {
+                error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_signature_local_annotation_surface_type(ty_id, sig, annotation), false)
+                if error != "" { give back error }
+                annotation += 1
+            }
+        }
+        sig += 1
+    }
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) {
+        pilot rvalue = 0
+        repeat until rvalue >= v4_mir_body_rvalue_count(mir_id, body) {
+            if v4_mir_rvalue_kind(mir_id, body, rvalue) == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir_id, body, rvalue) == v4_mir_unary_ptr_cast {
+                pilot target_surface = v4_ty_raw_pointer_cast_target_surface(v4_mir_rvalue_text(mir_id, body, rvalue))
+                if target_surface == v4_ty_unknown { give back "native C ABI pointer cast surface is unresolved" }
+                pilot error = v4_codegen_llvm_native_c_surface_error(ty_id, target_surface, false)
+                if error != "" { give back error }
+            }
+            rvalue += 1
+        }
+        if v4_mir_body_signature_id(mir_id, body) < 0 {
+            pilot item = v4_mir_body_impl_method_index(mir_id, body, 0)
+            pilot method = v4_mir_body_impl_method_index(mir_id, body, 1)
+            if item < 0 or method < 0 { give back "native C ABI callable surface is unresolved" }
+            pilot error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_impl_method_return_surface_type(ty_id, item, method), false)
+            if error != "" { give back error }
+            pilot param = 0
+            repeat until param >= v4_ty_impl_method_param_count(ty_id, item, method) {
+                error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_impl_method_param_surface_type(ty_id, item, method, param), false)
+                if error != "" { give back error }
+                param += 1
+            }
+            pilot annotation = 0
+            repeat until annotation >= v4_ty_impl_method_local_annotation_count(ty_id, item) {
+                error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_impl_method_local_annotation_surface_type(ty_id, item, annotation), false)
+                if error != "" { give back error }
+                annotation += 1
+            }
+        }
+        body += 1
+    }
+    give back ""
+}
+
 task v4_codegen_llvm_native_binary_op_supported(op: word) -> bool {
     give back op == v4_mir_bin_add or op == v4_mir_bin_sub or op == v4_mir_bin_mul or op == v4_mir_bin_div or op == v4_mir_bin_mod or op == v4_mir_bin_gt or op == v4_mir_bin_lt or op == v4_mir_bin_ge or op == v4_mir_bin_le or op == v4_mir_bin_eq or op == v4_mir_bin_ne or op == v4_mir_bin_and or op == v4_mir_bin_or
 }
@@ -1702,6 +1799,7 @@ task v4_codegen_llvm_lower_mir(file_id: int, mir_id: int) -> int {
     pilot native_error = v4_codegen_llvm_native_word_error(mir_id)
     if native_error == "" { native_error = v4_codegen_llvm_native_mir_error(mir_id) }
     if native_error == "" { native_error = v4_codegen_llvm_native_entry_error(mir_id) }
+    if native_error == "" { native_error = v4_codegen_llvm_native_declaration_symbol_error(codegen_id) }
     if native_error == "" and v4_codegen_llvm_find_mir_body(mir_id, "main") >= 0 { native_error = v4_codegen_llvm_native_entry_symbol_error(codegen_id) }
     array_set(v4_codegen_llvm_native_errors, codegen_id, native_error)
     if native_error == "" {
@@ -1712,6 +1810,8 @@ task v4_codegen_llvm_lower_mir(file_id: int, mir_id: int) -> int {
         -- Ordinary-only modules need no additional uniqueness index.
         native_error = v4_codegen_llvm_native_body_symbol_error(codegen_id)
         if native_error == "" and v4_codegen_llvm_body_count(codegen_id) > ordinary_body_count { native_error = v4_codegen_llvm_native_duplicate_body_error(codegen_id) }
+        if native_error == "" { native_error = v4_codegen_llvm_native_literal_symbol_error(codegen_id, mir_id) }
+        if native_error == "" { native_error = v4_codegen_llvm_native_c_width_error(mir_id, ty_id) }
         pilot globals = v4_codegen_llvm_word_globals(mir_id)
         pilot entry = v4_codegen_llvm_native_entry(mir_id)
         if native_error == "" and entry != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_setup_args", "i64, i64") }
@@ -1838,8 +1938,12 @@ task v4_codegen_llvm_native_module_error(codegen_id: int) -> word {
 task v4_codegen_llvm_body_symbol_index_insert(codegen_id: int, index: int, body_id: int) -> bool {
     pilot capacity = array_len(index)
     if capacity <= 0 { give back false }
-    pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body_id)
-    if symbol == "" { give back false }
+    give back v4_codegen_llvm_symbol_index_insert(index, v4_codegen_llvm_body_symbol(codegen_id, body_id))
+}
+
+task v4_codegen_llvm_symbol_index_insert(index: int, symbol: word) -> bool {
+    pilot capacity = array_len(index)
+    if capacity <= 0 or symbol == "" { give back false }
     pilot bucket = symbol.checksum() % capacity
     pilot visited = 0
     repeat until visited >= capacity {
@@ -1975,6 +2079,141 @@ task v4_codegen_llvm_native_body_symbol_error(codegen_id: int) -> word {
     give back error
 }
 
+-- A declaration index stores the first row for each exact symbol. Keep every
+-- alias row in the plan; publication alone suppresses compatible repeats.
+task v4_codegen_llvm_decl_symbol_previous(codegen_id: int, decl_id: int) -> int {
+    pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl_id)
+    pilot previous = 0
+    repeat until previous >= decl_id {
+        if v4_codegen_llvm_decl_line(codegen_id, previous).starts_with("declare ") and v4_codegen_llvm_decl_symbol(codegen_id, previous) == symbol { give back previous }
+        previous += 1
+    }
+    give back 0 - 1
+}
+
+task v4_codegen_llvm_decl_symbol_index_lookup(codegen_id: int, index: int, symbol: word) -> int {
+    pilot capacity = array_len(index)
+    if capacity <= 0 { give back 0 - 1 }
+    pilot bucket = symbol.checksum() % capacity
+    pilot visited = 0
+    repeat until visited >= capacity {
+        pilot stored: word = array_get(index, bucket)
+        if stored == "" { give back 0 - 1 }
+        pilot row = word_to_int(stored) - 1
+        if v4_codegen_llvm_decl_symbol(codegen_id, row) == symbol { give back row }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back 0 - 1
+}
+
+task v4_codegen_llvm_decl_symbol_index_insert(codegen_id: int, index: int, decl_id: int) -> bool {
+    pilot capacity = array_len(index)
+    pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl_id)
+    if capacity <= 0 or symbol == "" { give back false }
+    pilot bucket = symbol.checksum() % capacity
+    pilot visited = 0
+    repeat until visited >= capacity {
+        pilot previous: word = array_get(index, bucket)
+        if previous == "" {
+            pilot value = word_from_int(decl_id + 1)
+            array_set(index, bucket, value)
+            pilot stored: word = array_get(index, bucket)
+            give back stored == value
+        }
+        if v4_codegen_llvm_decl_symbol(codegen_id, word_to_int(previous) - 1) == symbol { give back true }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back false
+}
+
+task v4_codegen_llvm_decl_symbol_index_new(codegen_id: int) -> int {
+    pilot index = v4_codegen_llvm_body_symbol_index_empty_new(v4_codegen_llvm_decl_count(codegen_id))
+    if index < 0 { give back 0 - 1 }
+    pilot decl_id = 0
+    repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
+        if v4_codegen_llvm_decl_line(codegen_id, decl_id).starts_with("declare ") {
+            if not v4_codegen_llvm_decl_symbol_index_insert(codegen_id, index, decl_id) { array_release(index); give back 0 - 1 }
+        }
+        decl_id += 1
+    }
+    give back index
+}
+
+task v4_codegen_llvm_decl_signature_matches(codegen_id: int, first: int, second: int) -> bool {
+    give back v4_codegen_llvm_decl_cc(codegen_id, first) == v4_codegen_llvm_decl_cc(codegen_id, second) and v4_codegen_llvm_decl_return(codegen_id, first) == v4_codegen_llvm_decl_return(codegen_id, second) and v4_codegen_llvm_decl_params(codegen_id, first) == v4_codegen_llvm_decl_params(codegen_id, second) and v4_codegen_llvm_ffi_call_suffix(v4_codegen_llvm_decl_abi(codegen_id, first)) == v4_codegen_llvm_ffi_call_suffix(v4_codegen_llvm_decl_abi(codegen_id, second))
+}
+
+task v4_codegen_llvm_native_declaration_symbol_error(codegen_id: int) -> word {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "invalid codegen ID" }
+    pilot index = v4_codegen_llvm_decl_symbol_index_new(codegen_id)
+    pilot error = ""
+    pilot decl_id = 0
+    repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) or error != "" {
+        if v4_codegen_llvm_decl_line(codegen_id, decl_id).starts_with("declare ") {
+            pilot previous = 0 - 1
+            if index >= 0 { previous = v4_codegen_llvm_decl_symbol_index_lookup(codegen_id, index, v4_codegen_llvm_decl_symbol(codegen_id, decl_id)) } else { previous = v4_codegen_llvm_decl_symbol_previous(codegen_id, decl_id) }
+            if previous >= 0 and previous < decl_id and not v4_codegen_llvm_decl_signature_matches(codegen_id, previous, decl_id) { error = "native declaration symbol has incompatible signatures: " + v4_codegen_llvm_decl_symbol(codegen_id, decl_id) }
+        }
+        decl_id += 1
+    }
+    if index >= 0 { array_release(index) }
+    give back error
+}
+
+-- Build one exact namespace over sealed declarations and actual definitions.
+-- Generated literal spellings remain unchanged in IR; comparison uses the
+-- canonical symbol of the raw generated name, including LLVM quote identity.
+task v4_codegen_llvm_native_namespace_index_new(codegen_id: int) -> int {
+    pilot index = v4_codegen_llvm_body_symbol_index_empty_new(v4_codegen_llvm_decl_count(codegen_id) + v4_codegen_llvm_body_count(codegen_id))
+    if index < 0 { give back 0 - 1 }
+    pilot row = 0
+    repeat until row >= v4_codegen_llvm_decl_count(codegen_id) {
+        if not v4_codegen_llvm_symbol_index_insert(index, v4_codegen_llvm_decl_symbol(codegen_id, row)) { array_release(index); give back 0 - 1 }
+        row += 1
+    }
+    row = 0
+    repeat until row >= v4_codegen_llvm_body_count(codegen_id) {
+        if not v4_codegen_llvm_body_symbol_index_insert(codegen_id, index, row) { array_release(index); give back 0 - 1 }
+        row += 1
+    }
+    give back index
+}
+
+task v4_codegen_llvm_native_namespace_linear_contains(codegen_id: int, symbol: word) -> bool {
+    pilot row = 0
+    repeat until row >= v4_codegen_llvm_decl_count(codegen_id) {
+        if v4_codegen_llvm_decl_symbol(codegen_id, row) == symbol { give back true }
+        row += 1
+    }
+    give back v4_codegen_llvm_body_symbol_linear_contains(codegen_id, symbol)
+}
+
+task v4_codegen_llvm_native_literal_symbol_error(codegen_id: int, mir_id: int) -> word {
+    pilot index = v4_codegen_llvm_native_namespace_index_new(codegen_id)
+    pilot error = ""
+    pilot body_id = 0
+    repeat until body_id >= v4_mir_body_count(mir_id) or error != "" {
+        pilot rvalue_id = 0
+        repeat until rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) or error != "" {
+            if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_const_word {
+                pilot raw_name = ".str." + word_from_int(body_id) + "." + word_from_int(rvalue_id)
+                pilot symbol = ""
+                -- This fixed alphabet needs no escape buffer on failure.
+                if index >= 0 { symbol = v4_codegen_llvm_symbol(raw_name) } else { symbol = "@\"" + raw_name + "\"" }
+                pilot collision: bool = false
+                if index >= 0 { collision = v4_codegen_llvm_body_symbol_index_contains(codegen_id, index, symbol) } else { collision = v4_codegen_llvm_native_namespace_linear_contains(codegen_id, symbol) }
+                if collision { error = "native literal global symbol conflicts with callable symbol: " + symbol }
+            }
+            rvalue_id += 1
+        }
+        body_id += 1
+    }
+    if index >= 0 { array_release(index) }
+    give back error
+}
+
 -- Target checks read only sealed codegen facts. MIR/TY identities may already
 -- have been reused, so neither authority is consulted during module queries.
 -- Read the canonical target convention inventory once per query, avoiding a
@@ -2045,6 +2284,7 @@ task v4_codegen_llvm_native_target_error(codegen_id: int, target_spec: word) -> 
 }
 
 task v4_codegen_llvm_runtime_symbol_error(codegen_id: int, symbol: word, params: word) -> word {
+    if v4_codegen_llvm_body_symbol_linear_contains(codegen_id, symbol) { give back "native runtime declaration conflicts with " + symbol }
     pilot decl_id = 0
     repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
         if v4_codegen_llvm_decl_symbol(codegen_id, decl_id) == symbol {
@@ -2088,17 +2328,26 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
         array_push(parts, "declare void @freak_llvm_say(i64)\n")
         array_push(parts, globals)
     }
+    pilot declaration_index = v4_codegen_llvm_decl_symbol_index_new(codegen_id)
     pilot decl_id = 0
     repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
         pilot line = v4_codegen_llvm_decl_line(codegen_id, decl_id)
         pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl_id)
         pilot supplied: bool = (entry != "" and symbol == "@freak_llvm_setup_args") or (globals != "" and symbol == "@freak_llvm_say")
-        if v4_codegen_llvm_starts_with(line, "declare ") and not supplied {
+        pilot first = decl_id
+        if line.starts_with("declare ") {
+            if declaration_index >= 0 { first = v4_codegen_llvm_decl_symbol_index_lookup(codegen_id, declaration_index, symbol) } else {
+                pilot previous = v4_codegen_llvm_decl_symbol_previous(codegen_id, decl_id)
+                if previous >= 0 { first = previous }
+            }
+        }
+        if v4_codegen_llvm_starts_with(line, "declare ") and not supplied and first == decl_id {
             array_push(parts, line)
             array_push(parts, "\n")
         }
         decl_id += 1
     }
+    if declaration_index >= 0 { array_release(declaration_index) }
     pilot body_id = 0
     repeat until body_id >= v4_codegen_llvm_body_count(codegen_id) {
         array_push(parts, "\n")

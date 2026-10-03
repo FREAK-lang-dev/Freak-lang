@@ -7259,6 +7259,30 @@ task v4_ty_const_cycle_seen_append(seen_consts: word, const_name: word) -> word 
     give back seen_consts + "|" + const_name
 }
 
+-- MIR preserves the raw cast expression even after its result type is
+-- canonicalized. Recover its final method type argument without a new lexer
+-- arena; malformed/unrecognized text fails closed at the native ABI boundary.
+task v4_ty_raw_pointer_cast_target_surface(expr_text: word) -> word {
+    pilot text = v4_ty_compact_const_expr_text(expr_text)
+    pilot start = 0 - 1
+    pilot next = v4_index_of_from(text, ".cast<", 0)
+    repeat until next < 0 {
+        start = next + 6
+        next = v4_index_of_from(text, ".cast<", start)
+    }
+    if start < 0 { give back v4_ty_unknown }
+    pilot depth = 1
+    pilot idx = start
+    repeat until idx >= text.length() or depth == 0 {
+        pilot ch = text.char_at(idx)
+        if ch == "<" { depth += 1 }
+        if ch == ">" and text.char_at(idx - 1) != "-" { depth -= 1 }
+        if depth > 0 { idx += 1 }
+    }
+    if depth != 0 or idx <= start or v4_slice(text, idx + 1, text.length()) != "()" { give back v4_ty_unknown }
+    give back v4_slice(text, start, idx)
+}
+
 task v4_ty_compact_const_expr_text(expr: word) -> word {
     pilot out = ""
     pilot idx = 0
@@ -8072,7 +8096,8 @@ task v4_ty_impl_method_param_mode(ty_id: int, hir_item: int, method_id: int, par
     give back v4_ty_param_mode_from_tokens(stream_id, start_token, end_token)
 }
 
-task v4_ty_impl_method_param_type(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+-- Preserve declared aliases for consumers that must inspect the ABI surface.
+task v4_ty_impl_method_param_type_read(ty_id: int, hir_item: int, method_id: int, param_id: int, canonical: bool) -> word {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 {
         give back v4_ty_unknown
@@ -8087,7 +8112,17 @@ task v4_ty_impl_method_param_type(ty_id: int, hir_item: int, method_id: int, par
     if param_name == "self" {
         give back v4_ty_impl_target_type_from_hir(ty_id, hir_item)
     }
-    give back v4_ty_canonical_type(ty_id, v4_ty_param_type_from_tokens(stream_id, start_token, end_token))
+    pilot surface_type = v4_ty_param_type_from_tokens(stream_id, start_token, end_token)
+    if canonical { give back v4_ty_canonical_type(ty_id, surface_type) }
+    give back surface_type
+}
+
+task v4_ty_impl_method_param_surface_type(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+    give back v4_ty_impl_method_param_type_read(ty_id, hir_item, method_id, param_id, false)
+}
+
+task v4_ty_impl_method_param_type(ty_id: int, hir_item: int, method_id: int, param_id: int) -> word {
+    give back v4_ty_impl_method_param_type_read(ty_id, hir_item, method_id, param_id, true)
 }
 
 task v4_ty_impl_method_is_instance(ty_id: int, hir_item: int, method_id: int) -> bool {
@@ -8272,14 +8307,32 @@ task v4_ty_impl_method_explicit_param_type_for_owner(ty_id: int, hir_item: int, 
     give back v4_ty_canonical_type(ty_id, v4_ty_apply_impl_generics(ty_id, hir_item, owner_ty, v4_ty_impl_method_explicit_param_type(ty_id, hir_item, method_id, param_id)))
 }
 
-task v4_ty_impl_method_return_type(ty_id: int, hir_item: int, method_id: int) -> word {
+task v4_ty_impl_method_return_surface_type(ty_id: int, hir_item: int, method_id: int) -> word {
     pilot hir_id = v4_ty_signature_hir_id(ty_id)
     if hir_id < 0 {
         give back v4_ty_unknown
     }
     pilot tree_id = v4_hir_tree_id(hir_id)
     pilot stream_id = v4_parse_stream_id(tree_id)
-    give back v4_ty_canonical_type(ty_id, v4_ty_task_return_from_tokens(stream_id, v4_ty_impl_method_start_token(ty_id, hir_item, method_id), v4_ty_impl_method_end_token(ty_id, hir_item, method_id)))
+    give back v4_ty_task_return_from_tokens(stream_id, v4_ty_impl_method_start_token(ty_id, hir_item, method_id), v4_ty_impl_method_end_token(ty_id, hir_item, method_id))
+}
+
+-- Raw owner annotations preserve aliases erased by canonical MIR locals.
+-- Methods share the impl owner annotation table, just like signature readers.
+task v4_ty_impl_method_local_annotation_count(ty_id: int, hir_item: int) -> int {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or hir_item < 0 { give back 0 }
+    give back v4_hir_local_annotation_count(hir_id, hir_item)
+}
+
+task v4_ty_impl_method_local_annotation_surface_type(ty_id: int, hir_item: int, annotation_id: int) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 or hir_item < 0 { give back "" }
+    give back v4_hir_local_annotation_type(hir_id, hir_item, annotation_id)
+}
+
+task v4_ty_impl_method_return_type(ty_id: int, hir_item: int, method_id: int) -> word {
+    give back v4_ty_canonical_type(ty_id, v4_ty_impl_method_return_surface_type(ty_id, hir_item, method_id))
 }
 
 task v4_ty_impl_method_return_type_for_owner(ty_id: int, hir_item: int, method_id: int, owner_ty: word) -> word {
