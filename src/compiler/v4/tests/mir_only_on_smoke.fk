@@ -128,7 +128,12 @@ say "only-on-held-ty=" + v4_mir_rvalue_ty(v4_mir_only_on_mir, v4_mir_only_on_sco
 say "only-on-held-source-field=" + v4_mir_place_field(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_held_place)
 say "only-on-held-source-ty=" + v4_mir_place_ty(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_held_place)
 say "only-on-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_only_on_mir))
-say "only-on-good-message=" + v4_diag_message(v4_mir_diag(v4_mir_only_on_mir, 0))
+-- The guarded bool binding lowers to a legal display call.
+pilot v4_mir_only_on_display_stmt = v4_mir_only_on_find_stmt(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_stmt_expr, "")
+pilot v4_mir_only_on_display = v4_mir_stmt_rvalue(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_display_stmt)
+say "only-on-display-kind=" + v4_mir_rvalue_kind(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_display)
+say "only-on-display-intrinsic=" + v4_mir_builtin_word_identity_kind(v4_mir_rvalue_builtin_method(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_display))
+say "only-on-display-result=" + v4_mir_rvalue_ty(v4_mir_only_on_mir, v4_mir_only_on_score_body, v4_mir_only_on_display)
 
 pilot v4_mir_only_on_bad_nonroute_stream = v4_lex_text(1, v4_mir_only_on_bad_nonroute_source())
 pilot v4_mir_only_on_bad_nonroute_tree = v4_parse_stream(1, v4_mir_only_on_bad_nonroute_stream)

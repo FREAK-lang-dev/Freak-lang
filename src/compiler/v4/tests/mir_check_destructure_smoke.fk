@@ -12,6 +12,19 @@ task v4_mir_check_destructure_find_stmt(mir_id: int, body_id: int, kind: word, l
     give back 0 - 1
 }
 
+task v4_mir_check_destructure_find_display(mir_id: int, body_id: int, wanted: int) -> int {
+    pilot stmt_id = 0
+    pilot ordinal = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_expr and v4_mir_stmt_rhs(mir_id, body_id, stmt_id) == "say" {
+            if ordinal == wanted { give back stmt_id }
+            ordinal += 1
+        }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
 task v4_mir_check_destructure_source() -> word {
     pilot src = "alias Pair = (int,word)\n"
     src = src + "alias Wing = [int;2]\n"
@@ -109,7 +122,13 @@ say "check-destructure-diagnostic2-message=" + v4_diag_message(v4_mir_diag(v4_mi
 say "check-destructure-diagnostic2-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_destructure_mir, 2))
 say "check-destructure-diagnostic3-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 3))
 say "check-destructure-diagnostic3-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_destructure_mir, 3))
-say "check-destructure-diagnostic4-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 4))
-say "check-destructure-diagnostic5-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 5))
-say "check-destructure-diagnostic5-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_destructure_mir, 5))
-say "check-destructure-diagnostic6-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_destructure_mir, 6))
+-- Bad arity still reports its pattern error; its int and word bindings display.
+pilot v4_mir_check_destructure_display_body = v4_mir_lookup_body_name(v4_mir_check_destructure_mir, "bad_result")
+pilot v4_mir_check_destructure_int_display_stmt = v4_mir_check_destructure_find_display(v4_mir_check_destructure_mir, v4_mir_check_destructure_display_body, 0)
+pilot v4_mir_check_destructure_word_display_stmt = v4_mir_check_destructure_find_display(v4_mir_check_destructure_mir, v4_mir_check_destructure_display_body, 1)
+pilot v4_mir_check_destructure_int_display = v4_mir_stmt_rvalue(v4_mir_check_destructure_mir, v4_mir_check_destructure_display_body, v4_mir_check_destructure_int_display_stmt)
+pilot v4_mir_check_destructure_word_display = v4_mir_stmt_rvalue(v4_mir_check_destructure_mir, v4_mir_check_destructure_display_body, v4_mir_check_destructure_word_display_stmt)
+say "check-destructure-int-display-kind=" + v4_mir_rvalue_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_display_body, v4_mir_check_destructure_int_display)
+say "check-destructure-int-display-intrinsic=" + v4_mir_builtin_word_identity_kind(v4_mir_rvalue_builtin_method(v4_mir_check_destructure_mir, v4_mir_check_destructure_display_body, v4_mir_check_destructure_int_display))
+say "check-destructure-word-display-kind=" + v4_mir_rvalue_kind(v4_mir_check_destructure_mir, v4_mir_check_destructure_display_body, v4_mir_check_destructure_word_display)
+say "check-destructure-word-display-intrinsic=" + v4_mir_builtin_word_identity_kind(v4_mir_rvalue_builtin_method(v4_mir_check_destructure_mir, v4_mir_check_destructure_display_body, v4_mir_check_destructure_word_display))
