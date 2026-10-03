@@ -224,7 +224,7 @@ INSTRUMENTATION_POINTS = [
     ("ty", "int64_t ty = freak_v4_ty_lower_resolve(((int64_t)0), resolve);", "freak_v4_ty_diag_count(ty)"),
     ("mir", "int64_t mir = freak_v4_mir_lower_ty(((int64_t)0), ty);", "freak_v4_mir_diag_count(mir)"),
     ("borrowck", "int64_t borrowck = freak_v4_borrowck_check_mir(((int64_t)0), mir);", "freak_v4_borrowck_diag_count(borrowck)"),
-    ("codegen", "int64_t codegen = freak_v4_codegen_llvm_lower_owned_mir(((int64_t)0), mir);", "freak_v4_codegen_llvm_diag_count(codegen)"),
+    ("codegen", "int64_t codegen = freak_v4_codegen_llvm_lower_owned_mir_with_panic(((int64_t)0), mir, freak_v4_build_llvm_panic_policy());", "freak_v4_codegen_llvm_diag_count(codegen)"),
     ("module", "freak_word module = freak_v4_codegen_llvm_module_text(codegen, target_spec);", "0"),
 ]
 

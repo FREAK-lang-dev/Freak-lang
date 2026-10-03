@@ -73,9 +73,14 @@ def bootstrap(clang: str, compiler_opt: int = 0) -> Path:
     return executable
 
 
-def emit_module(compiler: Path, source: Path, target: str) -> str:
+def emit_module(compiler: Path, source: Path, target: str, panic: str = "unwind") -> str:
+    if panic not in ("unwind", "abort"):
+        raise RuntimeError(f"unsupported V4 panic policy: {panic}")
+    command = [str(compiler), str(source.resolve()), target]
+    if panic != "unwind":
+        command.append(panic)
     result = checks.run_with_heartbeat(
-        [str(compiler), str(source.resolve()), target],
+        command,
         label=f"V4 compile: {source.name}", timeout_seconds=900,
         memory_limit_mb=2048,
     )
@@ -97,6 +102,8 @@ def main() -> int:
     parser.add_argument("--target", default=None, help="canonical freak_target triple")
     parser.add_argument("--compiler-opt", type=int, choices=(0, 1, 2, 3), default=0,
                         help="bootstrap compiler optimization level (default: 0)")
+    parser.add_argument("--panic", choices=("unwind", "abort"), default="unwind",
+                        help="program panic policy (default: unwind; native panic requires abort)")
     args = parser.parse_args()
     clang = shutil.which("clang")
     if clang is None:
@@ -108,7 +115,11 @@ def main() -> int:
         parser.error("native linking currently supports the host TargetSpec; use --emit-llvm for cross targets")
     try:
         require_distinct_output(args.source, args.output)
-        module = emit_module(bootstrap(clang, args.compiler_opt), args.source, target)
+        compiler = bootstrap(clang, args.compiler_opt)
+        if args.panic == "unwind":
+            module = emit_module(compiler, args.source, target)
+        else:
+            module = emit_module(compiler, args.source, target, args.panic)
         # Compilation can take time; recheck an output that changed after the
         # initial preflight before creating directories, writing or linking.
         require_distinct_output(args.source, args.output)
