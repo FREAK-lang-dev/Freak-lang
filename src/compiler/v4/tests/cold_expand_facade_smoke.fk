@@ -1,0 +1,96 @@
+-- Baseline-compatible joint cold expansion/query facade regression.
+task v4_cold_expand_facade_assert(condition: bool, label: word) -> void {
+    if not condition { panic("cold-expand-facade " + label) }
+}
+
+task v4_cold_expand_facade_capacity() -> int {
+    pilot held = array_new()
+    v4_cold_expand_facade_assert(held >= 0, "capacity tracker")
+    pilot count = 0
+    pilot exhausted = false
+    repeat until exhausted or count >= 2048 {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else { array_push(held, word_from_int(candidate)) count += 1 }
+    }
+    pilot index = 0
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+    v4_cold_expand_facade_assert(exhausted, "1024 guard reached")
+    give back count
+}
+
+task v4_cold_expand_facade_hold(free_count: int) -> int {
+    pilot held = array_new()
+    v4_cold_expand_facade_assert(held >= 0, "pressure tracker")
+    pilot exhausted = false
+    repeat until exhausted {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else { array_push(held, word_from_int(candidate)) }
+    }
+    v4_cold_expand_facade_assert(array_len(held) >= free_count, "pressure headroom")
+    pilot index = 0
+    repeat until index >= free_count { array_release(word_to_int(array_get(held, index))) index += 1 }
+    give back held
+}
+
+task v4_cold_expand_facade_release(held: int, free_count: int) -> void {
+    pilot index = free_count
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+}
+
+task v4_cold_expand_facade_original_facts() -> word {
+    pilot out = ""
+    out = out + ":" + word_from_int(v4_query_keys)
+    out = out + ":" + word_from_int(v4_query_inputs)
+    out = out + ":" + word_from_int(v4_query_outputs)
+    out = out + ":" + word_from_int(v4_query_states)
+    out = out + ":" + word_from_int(v4_query_entry_generations)
+    out = out + ":" + word_from_int(v4_query_entry_last_generations)
+    out = out + ":" + word_from_int(v4_query_entry_last_events)
+    out = out + ":" + word_from_int(v4_query_dep_from)
+    out = out + ":" + word_from_int(v4_query_dep_to)
+    out = out + ":" + word_from_int(v4_query_generation_reasons)
+    out = out + ":" + word_from_int(v4_query_invalidated_keys)
+    out = out + ":" + word_from_int(v4_query_invalidated_generations)
+    out = out + ":" + word_from_int(v4_query_invalidated_reasons)
+    out = out + ":" + word_from_int(v4_query_telemetry_keys)
+    out = out + ":" + word_from_int(v4_query_telemetry_hits)
+    out = out + ":" + word_from_int(v4_query_telemetry_misses)
+    out = out + ":" + word_from_int(v4_query_telemetry_stores)
+    out = out + ":" + word_from_int(v4_query_entry_len)
+    out = out + ":" + word_from_int(v4_query_dep_len)
+    out = out + ":" + word_from_int(v4_query_hit_total)
+    out = out + ":" + word_from_int(v4_query_miss_total)
+    out = out + ":" + word_from_int(v4_query_store_total)
+    out = out + ":" + word_from_int(v4_query_ready)
+    out = out + ":" + word_from_int(v4_query_revision)
+    give back out
+}
+
+
+-- Baseline-compatible joint-cold negative control: raw expansion used to
+-- consume four handles before unchecked query initialization consumed 17.
+task v4_cold_expand_facade_run() -> void {
+    v4_cold_expand_facade_assert(v4_query_ready == 0 and v4_expand_ready == 0, "starts jointly cold")
+    pilot query_original = v4_cold_expand_facade_original_facts()
+    pilot files = v4_expand_files
+    pilot trees = v4_expand_trees
+    pilot provenance = v4_expand_provenance_kinds
+    pilot generations = v4_expand_generations
+    pilot epoch = v4_session_semantic_restore_generation()
+    pilot capacity = v4_cold_expand_facade_capacity()
+    pilot held = v4_cold_expand_facade_hold(20)
+    pilot payload = "expand-snapshot|format=freak-expand-snapshot-v1|files=0\nend|freak-expand-snapshot-v1"
+    pilot restore_result = v4_expand_snapshot_restore_with_queries(payload)
+    say "cold-expand-facade 20-free result=" + restore_result
+    say "cold-expand-facade 20-free query-ready=" + word_from_int(v4_query_ready) + " expand-ready=" + word_from_int(v4_expand_ready)
+    v4_cold_expand_facade_assert(restore_result == "expand-snapshot-restore ok=0 reason=expand-initialization-resource-exhausted", "joint rejection before raw mutation")
+    v4_cold_expand_facade_assert(v4_cold_expand_facade_original_facts() == query_original and v4_expand_ready == 0 and v4_expand_files == files and v4_expand_trees == trees and v4_expand_provenance_kinds == provenance and v4_expand_generations == generations and v4_expand_file_len == 0 and v4_session_semantic_restore_generation() == epoch, "joint cold facts unchanged")
+    v4_cold_expand_facade_release(held, 20)
+    v4_cold_expand_facade_assert(v4_cold_expand_facade_capacity() == capacity, "joint partial stages retired")
+    v4_cold_expand_facade_assert(v4_expand_snapshot_restore_with_queries(payload).starts_with("expand-snapshot-restore ok=1") and v4_query_ready == 1 and v4_expand_ready == 1 and v4_query_revision == 2 and v4_session_semantic_restore_generation() == epoch + 1, "joint recovery")
+    say "cold-expand-facade failure-atomic=true handles-conserved=true recovery=true"
+}
+
+v4_cold_expand_facade_run()

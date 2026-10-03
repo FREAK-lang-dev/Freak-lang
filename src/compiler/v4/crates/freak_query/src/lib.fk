@@ -34,32 +34,111 @@ pilot v4_query_store_total = 0
 pilot v4_query_ready = 0
 pilot v4_query_revision = 1
 
-task v4_query_init() -> void {
-    if v4_query_ready == 0 {
-        v4_query_keys = array_new()
-        v4_query_inputs = array_new()
-        v4_query_outputs = array_new()
-        v4_query_states = array_new()
-        v4_query_entry_generations = array_new()
-        v4_query_entry_last_generations = array_new()
-        v4_query_entry_last_events = array_new()
-        v4_query_dep_from = array_new()
-        v4_query_dep_to = array_new()
-        v4_query_generation_reasons = array_new()
-        v4_query_invalidated_keys = array_new()
-        v4_query_invalidated_generations = array_new()
-        v4_query_invalidated_reasons = array_new()
-        v4_query_telemetry_keys = array_new()
-        v4_query_telemetry_hits = array_new()
-        v4_query_telemetry_misses = array_new()
-        v4_query_telemetry_stores = array_new()
-        array_push(v4_query_generation_reasons, "bootstrap")
-        v4_query_ready = 1
+-- Exactly the seventeen persistent query arrays, never an extra collector.
+task v4_query_release_init_arrays(keys: int, inputs: int, outputs: int, states: int, entry_generations: int, entry_last_generations: int, entry_last_events: int, dep_from: int, dep_to: int, generation_reasons: int, invalidated_keys: int, invalidated_generations: int, invalidated_reasons: int, telemetry_keys: int, telemetry_hits: int, telemetry_misses: int, telemetry_stores: int) -> void {
+    array_release(keys)
+    array_release(inputs)
+    array_release(outputs)
+    array_release(states)
+    array_release(entry_generations)
+    array_release(entry_last_generations)
+    array_release(entry_last_events)
+    array_release(dep_from)
+    array_release(dep_to)
+    array_release(generation_reasons)
+    array_release(invalidated_keys)
+    array_release(invalidated_generations)
+    array_release(invalidated_reasons)
+    array_release(telemetry_keys)
+    array_release(telemetry_hits)
+    array_release(telemetry_misses)
+    array_release(telemetry_stores)
+}
+
+-- Private component-restore guard: called only when this facade admitted a
+-- previously cold query, then raw arena restoration failed before publication.
+-- Admission/raw restore do not mutate query counters or revision.
+task v4_query_rollback_cold_init(keys: int, inputs: int, outputs: int, states: int, entry_generations: int, entry_last_generations: int, entry_last_events: int, dep_from: int, dep_to: int, generation_reasons: int, invalidated_keys: int, invalidated_generations: int, invalidated_reasons: int, telemetry_keys: int, telemetry_hits: int, telemetry_misses: int, telemetry_stores: int) -> void {
+    v4_query_release_init_arrays(v4_query_keys, v4_query_inputs, v4_query_outputs, v4_query_states, v4_query_entry_generations, v4_query_entry_last_generations, v4_query_entry_last_events, v4_query_dep_from, v4_query_dep_to, v4_query_generation_reasons, v4_query_invalidated_keys, v4_query_invalidated_generations, v4_query_invalidated_reasons, v4_query_telemetry_keys, v4_query_telemetry_hits, v4_query_telemetry_misses, v4_query_telemetry_stores)
+    v4_query_keys = keys
+    v4_query_inputs = inputs
+    v4_query_outputs = outputs
+    v4_query_states = states
+    v4_query_entry_generations = entry_generations
+    v4_query_entry_last_generations = entry_last_generations
+    v4_query_entry_last_events = entry_last_events
+    v4_query_dep_from = dep_from
+    v4_query_dep_to = dep_to
+    v4_query_generation_reasons = generation_reasons
+    v4_query_invalidated_keys = invalidated_keys
+    v4_query_invalidated_generations = invalidated_generations
+    v4_query_invalidated_reasons = invalidated_reasons
+    v4_query_telemetry_keys = telemetry_keys
+    v4_query_telemetry_hits = telemetry_hits
+    v4_query_telemetry_misses = telemetry_misses
+    v4_query_telemetry_stores = telemetry_stores
+    v4_query_ready = 0
+}
+
+task v4_query_try_init() -> bool {
+    if v4_query_ready != 0 { give back true }
+    -- Stage only in locals. Failure leaves every original global/counter and
+    -- revision untouched; negative candidates are safe to release.
+    pilot next_keys = array_new()
+    pilot next_inputs = array_new()
+    pilot next_outputs = array_new()
+    pilot next_states = array_new()
+    pilot next_entry_generations = array_new()
+    pilot next_entry_last_generations = array_new()
+    pilot next_entry_last_events = array_new()
+    pilot next_dep_from = array_new()
+    pilot next_dep_to = array_new()
+    pilot next_generation_reasons = array_new()
+    pilot next_invalidated_keys = array_new()
+    pilot next_invalidated_generations = array_new()
+    pilot next_invalidated_reasons = array_new()
+    pilot next_telemetry_keys = array_new()
+    pilot next_telemetry_hits = array_new()
+    pilot next_telemetry_misses = array_new()
+    pilot next_telemetry_stores = array_new()
+    if next_keys < 0 or next_inputs < 0 or next_outputs < 0 or next_states < 0 or next_entry_generations < 0 or next_entry_last_generations < 0 or next_entry_last_events < 0 or next_dep_from < 0 or next_dep_to < 0 or next_generation_reasons < 0 or next_invalidated_keys < 0 or next_invalidated_generations < 0 or next_invalidated_reasons < 0 or next_telemetry_keys < 0 or next_telemetry_hits < 0 or next_telemetry_misses < 0 or next_telemetry_stores < 0 {
+        v4_query_release_init_arrays(next_keys, next_inputs, next_outputs, next_states, next_entry_generations, next_entry_last_generations, next_entry_last_events, next_dep_from, next_dep_to, next_generation_reasons, next_invalidated_keys, next_invalidated_generations, next_invalidated_reasons, next_telemetry_keys, next_telemetry_hits, next_telemetry_misses, next_telemetry_stores)
+        give back false
     }
+    array_push(next_generation_reasons, "bootstrap")
+    if array_len(next_generation_reasons) != 1 {
+        v4_query_release_init_arrays(next_keys, next_inputs, next_outputs, next_states, next_entry_generations, next_entry_last_generations, next_entry_last_events, next_dep_from, next_dep_to, next_generation_reasons, next_invalidated_keys, next_invalidated_generations, next_invalidated_reasons, next_telemetry_keys, next_telemetry_hits, next_telemetry_misses, next_telemetry_stores)
+        give back false
+    }
+    v4_query_keys = next_keys
+    v4_query_inputs = next_inputs
+    v4_query_outputs = next_outputs
+    v4_query_states = next_states
+    v4_query_entry_generations = next_entry_generations
+    v4_query_entry_last_generations = next_entry_last_generations
+    v4_query_entry_last_events = next_entry_last_events
+    v4_query_dep_from = next_dep_from
+    v4_query_dep_to = next_dep_to
+    v4_query_generation_reasons = next_generation_reasons
+    v4_query_invalidated_keys = next_invalidated_keys
+    v4_query_invalidated_generations = next_invalidated_generations
+    v4_query_invalidated_reasons = next_invalidated_reasons
+    v4_query_telemetry_keys = next_telemetry_keys
+    v4_query_telemetry_hits = next_telemetry_hits
+    v4_query_telemetry_misses = next_telemetry_misses
+    v4_query_telemetry_stores = next_telemetry_stores
+    v4_query_ready = 1
+    give back true
+}
+
+-- Existing callers may ignore readiness; every query reader/mutator below
+-- admits the complete registry before accessing its persistent arrays.
+task v4_query_init() -> void {
+    v4_query_try_init()
 }
 
 task v4_query_telemetry_index(key: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 - 1 }
     pilot idx = 0
     pilot count = array_len(v4_query_telemetry_keys)
     repeat until idx >= count {
@@ -79,7 +158,7 @@ task v4_query_telemetry_index(key: word) -> int {
 }
 
 task v4_query_record_hit(key: word) -> void {
-    v4_query_init()
+    if v4_query_try_init() == false { give back }
     v4_query_hit_total += 1
     pilot idx = v4_query_telemetry_index(key)
     pilot hits = word_to_int(array_get(v4_query_telemetry_hits, idx)) + 1
@@ -87,7 +166,7 @@ task v4_query_record_hit(key: word) -> void {
 }
 
 task v4_query_record_miss(key: word) -> void {
-    v4_query_init()
+    if v4_query_try_init() == false { give back }
     v4_query_miss_total += 1
     pilot idx = v4_query_telemetry_index(key)
     pilot misses = word_to_int(array_get(v4_query_telemetry_misses, idx)) + 1
@@ -95,7 +174,7 @@ task v4_query_record_miss(key: word) -> void {
 }
 
 task v4_query_record_store(key: word) -> void {
-    v4_query_init()
+    if v4_query_try_init() == false { give back }
     v4_query_store_total += 1
     pilot idx = v4_query_telemetry_index(key)
     pilot stores = word_to_int(array_get(v4_query_telemetry_stores, idx)) + 1
@@ -107,12 +186,12 @@ task v4_query_bump_revision() -> int {
 }
 
 task v4_query_generation() -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back v4_query_revision }
     give back v4_query_revision
 }
 
 task v4_query_generation_reason(generation: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     if generation <= 0 {
         give back ""
     }
@@ -124,26 +203,26 @@ task v4_query_generation_reason(generation: int) -> word {
 }
 
 task v4_query_generation_count() -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     give back array_len(v4_query_generation_reasons)
 }
 
 task v4_query_bump_generation(reason: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back v4_query_revision }
     v4_query_revision += 1
     array_push(v4_query_generation_reasons, reason)
     give back v4_query_revision
 }
 
 task v4_query_record_invalidation(key: word, generation: int, reason: word) -> void {
-    v4_query_init()
+    if v4_query_try_init() == false { give back }
     array_push(v4_query_invalidated_keys, key)
     array_push(v4_query_invalidated_generations, word_from_int(generation))
     array_push(v4_query_invalidated_reasons, reason)
 }
 
 task v4_query_find(key: word, input_fingerprint: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 - 1 }
     pilot i = 0
     pilot count = v4_query_entry_len
     repeat until i >= count {
@@ -160,6 +239,7 @@ task v4_query_find(key: word, input_fingerprint: word) -> int {
 }
 
 task v4_query_get(key: word, input_fingerprint: word) -> word {
+    if v4_query_try_init() == false { give back "" }
     pilot idx = v4_query_find(key, input_fingerprint)
     if idx < 0 {
         v4_query_record_miss(key)
@@ -179,7 +259,7 @@ task v4_query_get(key: word, input_fingerprint: word) -> word {
 }
 
 task v4_query_store(key: word, input_fingerprint: word, output: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 - 1 }
     pilot idx = v4_query_find(key, input_fingerprint)
     if idx >= 0 {
         array_set(v4_query_outputs, idx, output)
@@ -215,7 +295,7 @@ task v4_query_store(key: word, input_fingerprint: word, output: word) -> int {
 }
 
 task v4_query_mark_dirty_key(key: word) -> void {
-    v4_query_init()
+    if v4_query_try_init() == false { give back }
     pilot i = 0
     pilot count = v4_query_entry_len
     repeat until i >= count {
@@ -230,7 +310,7 @@ task v4_query_mark_dirty_key(key: word) -> void {
 }
 
 task v4_query_mark_dirty_key_at_generation(key: word, generation: int, reason: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     pilot dirtied = 0
     pilot i = 0
     pilot count = v4_query_entry_len
@@ -252,7 +332,7 @@ task v4_query_mark_dirty_key_at_generation(key: word, generation: int, reason: w
 }
 
 task v4_query_dirtyable_prefix_count(prefix: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     pilot dirtied = 0
     pilot i = 0
     pilot count = v4_query_entry_len
@@ -270,7 +350,7 @@ task v4_query_dirtyable_prefix_count(prefix: word) -> int {
 }
 
 task v4_query_invalidate_prefix_at_generation(prefix: word, generation: int, reason: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     pilot dirtied = 0
     pilot i = 0
     pilot count = v4_query_entry_len
@@ -305,7 +385,7 @@ task v4_query_invalidate_prefix_at_generation(prefix: word, generation: int, rea
 }
 
 task v4_query_invalidate_prefix(prefix: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     if v4_query_dirtyable_prefix_count(prefix) == 0 {
         give back 0
     }
@@ -314,7 +394,7 @@ task v4_query_invalidate_prefix(prefix: word) -> int {
 }
 
 task v4_query_record_dep(from_key: word, to_key: word) -> void {
-    v4_query_init()
+    if v4_query_try_init() == false { give back }
     pilot i = 0
     pilot count = v4_query_dep_len
     repeat until i >= count {
@@ -338,17 +418,17 @@ task v4_query_record_dep(from_key: word, to_key: word) -> void {
 }
 
 task v4_query_dep_count() -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     give back v4_query_dep_len
 }
 
 task v4_query_dep_from_key(dep_id: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     give back array_get(v4_query_dep_from, dep_id)
 }
 
 task v4_query_dep_to_key(dep_id: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     give back array_get(v4_query_dep_to, dep_id)
 }
 
@@ -374,7 +454,7 @@ task v4_query_enqueue_unique(words: int, key: word) -> int {
 }
 
 task v4_query_direct_dependency_count(key: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     pilot found = 0
     pilot dep_id = 0
     pilot dep_count = v4_query_dep_len
@@ -389,7 +469,7 @@ task v4_query_direct_dependency_count(key: word) -> int {
 }
 
 task v4_query_direct_dependent_count(key: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     pilot found = 0
     pilot dep_id = 0
     pilot dep_count = v4_query_dep_len
@@ -404,7 +484,7 @@ task v4_query_direct_dependent_count(key: word) -> int {
 }
 
 task v4_query_direct_dependency_at(key: word, wanted: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     pilot found = 0
     pilot dep_id = 0
     pilot dep_count = v4_query_dep_len
@@ -422,7 +502,7 @@ task v4_query_direct_dependency_at(key: word, wanted: int) -> word {
 }
 
 task v4_query_direct_dependent_at(key: word, wanted: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     pilot found = 0
     pilot dep_id = 0
     pilot dep_count = v4_query_dep_len
@@ -440,7 +520,7 @@ task v4_query_direct_dependent_at(key: word, wanted: int) -> word {
 }
 
 task v4_query_invalidate_dependents_at_generation(root_key: word, generation: int, reason: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     pilot work = array_new()
     pilot seen = array_new()
     array_push(work, root_key)
@@ -471,7 +551,7 @@ task v4_query_invalidate_dependents_at_generation(root_key: word, generation: in
 }
 
 task v4_query_invalidate_dependents(root_key: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     if v4_query_direct_dependent_count(root_key) == 0 {
         give back 0
     }
@@ -493,7 +573,7 @@ task v4_query_dependency_summary(key: word) -> word {
 }
 
 task v4_query_graph_summary() -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     pilot roots = 0
     pilot leaves = 0
     pilot key_id = 0
@@ -519,7 +599,7 @@ task v4_query_graph_summary() -> word {
 }
 
 task v4_query_entry_count_for_key(key: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     pilot found = 0
     pilot entry_id = 0
     pilot entry_count = v4_query_entry_len
@@ -534,7 +614,7 @@ task v4_query_entry_count_for_key(key: word) -> int {
 }
 
 task v4_query_entry_at_key(key: word, wanted: int) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 - 1 }
     pilot found = 0
     pilot entry_id = 0
     pilot entry_count = v4_query_entry_len
@@ -552,42 +632,42 @@ task v4_query_entry_at_key(key: word, wanted: int) -> int {
 }
 
 task v4_query_entry_key(entry_id: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     give back array_get(v4_query_keys, entry_id)
 }
 
 task v4_query_entry_input(entry_id: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     give back array_get(v4_query_inputs, entry_id)
 }
 
 task v4_query_entry_output(entry_id: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     give back array_get(v4_query_outputs, entry_id)
 }
 
 task v4_query_entry_state(entry_id: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     give back array_get(v4_query_states, entry_id)
 }
 
 task v4_query_entry_store_generation(entry_id: int) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     give back word_to_int(array_get(v4_query_entry_generations, entry_id))
 }
 
 task v4_query_entry_last_generation(entry_id: int) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     give back word_to_int(array_get(v4_query_entry_last_generations, entry_id))
 }
 
 task v4_query_entry_last_event(entry_id: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     give back array_get(v4_query_entry_last_events, entry_id)
 }
 
 task v4_query_entry_is_restored_dirty(entry_id: int) -> bool {
-    v4_query_init()
+    if v4_query_try_init() == false { give back false }
     if v4_query_entry_state(entry_id) != v4_query_dirty {
         give back false
     }
@@ -595,7 +675,7 @@ task v4_query_entry_is_restored_dirty(entry_id: int) -> bool {
 }
 
 task v4_query_confirm_entry_input(entry_id: int, input_fingerprint: word, reason: word, allow_promote: int) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     if entry_id < 0 {
         give back 0
     }
@@ -624,7 +704,7 @@ task v4_query_confirm_entry_input(entry_id: int, input_fingerprint: word, reason
 }
 
 task v4_query_confirm_key_input(key: word, input_fingerprint: word, reason: word, allow_promote: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     pilot entries = 0
     pilot matched = 0
     pilot promoted = 0
@@ -672,7 +752,7 @@ task v4_query_confirm_key_input(key: word, input_fingerprint: word, reason: word
 }
 
 task v4_query_telemetry_find(key: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 - 1 }
     pilot telemetry_id = 0
     pilot telemetry_count = array_len(v4_query_telemetry_keys)
     repeat until telemetry_id >= telemetry_count {
@@ -710,7 +790,7 @@ task v4_query_stores_for_key(key: word) -> int {
 }
 
 task v4_query_invalidation_count_for_key(key: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     pilot found = 0
     pilot invalidation_id = 0
     pilot invalidation_count = array_len(v4_query_invalidated_keys)
@@ -725,7 +805,7 @@ task v4_query_invalidation_count_for_key(key: word) -> int {
 }
 
 task v4_query_latest_invalidation_generation(key: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     pilot latest = 0
     pilot invalidation_id = 0
     pilot invalidation_count = array_len(v4_query_invalidated_keys)
@@ -740,7 +820,7 @@ task v4_query_latest_invalidation_generation(key: word) -> int {
 }
 
 task v4_query_latest_invalidation_reason(key: word) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     pilot latest = ""
     pilot invalidation_id = 0
     pilot invalidation_count = array_len(v4_query_invalidated_keys)
@@ -755,7 +835,7 @@ task v4_query_latest_invalidation_reason(key: word) -> word {
 }
 
 task v4_query_explain(key: word) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     pilot out = "query-explain key=" + key
     out = out + " generation=" + word_from_int(v4_query_generation())
     out = out + " entries=" + word_from_int(v4_query_entry_count_for_key(key))
@@ -819,32 +899,32 @@ task v4_query_explain(key: word) -> word {
 }
 
 task v4_query_cache_size() -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     give back v4_query_entry_len
 }
 
 task v4_query_invalidated_count() -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     give back array_len(v4_query_invalidated_keys)
 }
 
 task v4_query_invalidated_key(invalidation_id: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     give back array_get(v4_query_invalidated_keys, invalidation_id)
 }
 
 task v4_query_invalidated_generation(invalidation_id: int) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     give back word_to_int(array_get(v4_query_invalidated_generations, invalidation_id))
 }
 
 task v4_query_invalidated_reason(invalidation_id: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     give back array_get(v4_query_invalidated_reasons, invalidation_id)
 }
 
 task v4_query_dirty_count() -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     pilot dirty = 0
     pilot i = 0
     pilot count = v4_query_entry_len
@@ -859,42 +939,42 @@ task v4_query_dirty_count() -> int {
 }
 
 task v4_query_hit_count() -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back v4_query_hit_total }
     give back v4_query_hit_total
 }
 
 task v4_query_miss_count() -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back v4_query_miss_total }
     give back v4_query_miss_total
 }
 
 task v4_query_store_count() -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back v4_query_store_total }
     give back v4_query_store_total
 }
 
 task v4_query_telemetry_key_count() -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     give back array_len(v4_query_telemetry_keys)
 }
 
 task v4_query_telemetry_key(telemetry_id: int) -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     give back array_get(v4_query_telemetry_keys, telemetry_id)
 }
 
 task v4_query_telemetry_hits_for(telemetry_id: int) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     give back word_to_int(array_get(v4_query_telemetry_hits, telemetry_id))
 }
 
 task v4_query_telemetry_misses_for(telemetry_id: int) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     give back word_to_int(array_get(v4_query_telemetry_misses, telemetry_id))
 }
 
 task v4_query_telemetry_stores_for(telemetry_id: int) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 }
     give back word_to_int(array_get(v4_query_telemetry_stores, telemetry_id))
 }
 
@@ -1028,7 +1108,7 @@ task v4_query_snapshot_telemetry_line(telemetry_id: int) -> word {
 }
 
 task v4_query_snapshot() -> word {
-    v4_query_init()
+    if v4_query_try_init() == false { give back "" }
     pilot parts = array_new()
     array_push(parts, v4_query_snapshot_header())
 
@@ -1281,7 +1361,7 @@ task v4_query_snapshot_validate_is_ok(payload: word) -> bool {
 }
 
 task v4_query_begin_snapshot_restore() -> void {
-    v4_query_init()
+    if v4_query_try_init() == false { give back }
 
     pilot entry_id = 0
     pilot entry_capacity = array_len(v4_query_keys)
@@ -1308,7 +1388,7 @@ task v4_query_begin_snapshot_restore() -> void {
 }
 
 task v4_query_restore_entry_slot(entry_id: int, key: word, input_fingerprint: word, output: word, stored_generation: int, imported_event: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 - 1 }
     if entry_id < 0 or entry_id != v4_query_entry_len {
         give back 0 - 1
     }
@@ -1341,7 +1421,7 @@ task v4_query_restore_entry_slot(entry_id: int, key: word, input_fingerprint: wo
 }
 
 task v4_query_restore_dep_slot(dep_id: int, from_key: word, to_key: word) -> int {
-    v4_query_init()
+    if v4_query_try_init() == false { give back 0 - 1 }
     if dep_id < 0 or dep_id != v4_query_dep_len {
         give back 0 - 1
     }
@@ -1400,6 +1480,9 @@ task v4_query_snapshot_restore(payload: word) -> word {
         give back "query-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    if v4_query_try_init() == false {
+        give back "query-snapshot-restore ok=0 reason=query-initialization-resource-exhausted"
+    }
     pilot restore_generation = v4_query_bump_generation("snapshot-restore")
     v4_query_begin_snapshot_restore()
     pilot restored_entries = 0

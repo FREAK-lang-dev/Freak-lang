@@ -1,0 +1,186 @@
+-- Cold query construction must be atomic at every unchanged handle boundary.
+task v4_cold_query_assert(condition: bool, label: word) -> void {
+    if not condition { panic("cold-query-admission " + label) }
+}
+
+task v4_cold_query_capacity() -> int {
+    pilot held = array_new()
+    v4_cold_query_assert(held >= 0, "capacity tracker")
+    pilot count = 0
+    pilot exhausted = false
+    repeat until exhausted or count >= 2048 {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else { array_push(held, word_from_int(candidate)) count += 1 }
+    }
+    pilot index = 0
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+    v4_cold_query_assert(exhausted, "1024 guard reached")
+    give back count
+}
+
+task v4_cold_query_hold(free_count: int) -> int {
+    pilot held = array_new()
+    v4_cold_query_assert(held >= 0, "pressure tracker")
+    pilot exhausted = false
+    repeat until exhausted {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else { array_push(held, word_from_int(candidate)) }
+    }
+    v4_cold_query_assert(array_len(held) >= free_count, "pressure headroom")
+    pilot index = 0
+    repeat until index >= free_count { array_release(word_to_int(array_get(held, index))) index += 1 }
+    give back held
+}
+
+task v4_cold_query_release(held: int, free_count: int) -> void {
+    pilot index = free_count
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+}
+
+-- Deliberately distinct cold sentinels detect any partial global publication.
+task v4_cold_query_seed_sentinels() -> void {
+    v4_query_keys = 0 - 101
+    v4_query_inputs = 0 - 102
+    v4_query_outputs = 0 - 103
+    v4_query_states = 0 - 104
+    v4_query_entry_generations = 0 - 105
+    v4_query_entry_last_generations = 0 - 106
+    v4_query_entry_last_events = 0 - 107
+    v4_query_dep_from = 0 - 108
+    v4_query_dep_to = 0 - 109
+    v4_query_generation_reasons = 0 - 110
+    v4_query_invalidated_keys = 0 - 111
+    v4_query_invalidated_generations = 0 - 112
+    v4_query_invalidated_reasons = 0 - 113
+    v4_query_telemetry_keys = 0 - 114
+    v4_query_telemetry_hits = 0 - 115
+    v4_query_telemetry_misses = 0 - 116
+    v4_query_telemetry_stores = 0 - 117
+    v4_query_entry_len = 11
+    v4_query_dep_len = 12
+    v4_query_hit_total = 13
+    v4_query_miss_total = 14
+    v4_query_store_total = 15
+    v4_query_ready = 0
+    v4_query_revision = 37
+}
+
+task v4_cold_query_original_facts() -> word {
+    pilot out = ""
+    out = out + ":" + word_from_int(v4_query_keys)
+    out = out + ":" + word_from_int(v4_query_inputs)
+    out = out + ":" + word_from_int(v4_query_outputs)
+    out = out + ":" + word_from_int(v4_query_states)
+    out = out + ":" + word_from_int(v4_query_entry_generations)
+    out = out + ":" + word_from_int(v4_query_entry_last_generations)
+    out = out + ":" + word_from_int(v4_query_entry_last_events)
+    out = out + ":" + word_from_int(v4_query_dep_from)
+    out = out + ":" + word_from_int(v4_query_dep_to)
+    out = out + ":" + word_from_int(v4_query_generation_reasons)
+    out = out + ":" + word_from_int(v4_query_invalidated_keys)
+    out = out + ":" + word_from_int(v4_query_invalidated_generations)
+    out = out + ":" + word_from_int(v4_query_invalidated_reasons)
+    out = out + ":" + word_from_int(v4_query_telemetry_keys)
+    out = out + ":" + word_from_int(v4_query_telemetry_hits)
+    out = out + ":" + word_from_int(v4_query_telemetry_misses)
+    out = out + ":" + word_from_int(v4_query_telemetry_stores)
+    out = out + ":" + word_from_int(v4_query_entry_len)
+    out = out + ":" + word_from_int(v4_query_dep_len)
+    out = out + ":" + word_from_int(v4_query_hit_total)
+    out = out + ":" + word_from_int(v4_query_miss_total)
+    out = out + ":" + word_from_int(v4_query_store_total)
+    out = out + ":" + word_from_int(v4_query_ready)
+    out = out + ":" + word_from_int(v4_query_revision)
+    give back out
+}
+
+task v4_cold_query_failed_mutators() -> void {
+    v4_query_init()
+    v4_cold_query_assert(v4_query_bump_generation("must-not-publish") == 37 and v4_query_bump_revision() == 37, "failed generation unchanged")
+    v4_query_record_hit("key")
+    v4_query_record_miss("key")
+    v4_query_record_store("key")
+    v4_query_record_invalidation("key", 38, "must-not-publish")
+    v4_query_record_dep("dependent", "key")
+    v4_query_mark_dirty_key("key")
+    v4_query_begin_snapshot_restore()
+    v4_cold_query_assert(v4_query_telemetry_index("key") < 0 and v4_query_find("key", "fingerprint") < 0, "failed indices")
+    v4_cold_query_assert(v4_query_get("key", "fingerprint") == "" and v4_query_store("key", "fingerprint", "value") < 0, "failed cache access")
+    v4_cold_query_assert(v4_query_mark_dirty_key_at_generation("key", 38, "must-not-publish") == 0, "failed dirty")
+    v4_cold_query_assert(v4_query_invalidate_prefix("key") == 0 and v4_query_invalidate_dependents("key") == 0, "failed invalidation")
+    v4_cold_query_assert(v4_query_invalidate_prefix_at_generation("key", 38, "must-not-publish") == 0 and v4_query_invalidate_dependents_at_generation("key", 38, "must-not-publish") == 0, "failed explicit invalidation")
+    v4_cold_query_assert(v4_query_confirm_entry_input(0, "fingerprint", "must-not-publish", 1) == 0, "failed confirmation")
+    v4_cold_query_assert(v4_query_restore_entry_slot(0, "key", "fingerprint", "value", 1, "event") < 0 and v4_query_restore_dep_slot(0, "dependent", "key") < 0, "failed restore slots")
+    v4_cold_query_assert(v4_query_snapshot() == "", "failed serializer admits no collector")
+}
+
+task v4_cold_query_admission_run() -> void {
+    v4_cold_query_assert(v4_query_ready == 0, "starts cold")
+    pilot capacity = v4_cold_query_capacity()
+    v4_cold_query_assert(capacity == 1023, "actual 1024 live-array ceiling")
+    pilot cycle = 0
+    repeat until cycle >= 3 {
+        pilot free_count = 0
+        repeat until free_count > 17 {
+            v4_cold_query_seed_sentinels()
+            pilot original = v4_cold_query_original_facts()
+            pilot held = v4_cold_query_hold(free_count)
+            pilot admitted = v4_query_try_init()
+            if free_count < 17 {
+                v4_cold_query_assert(not admitted and v4_cold_query_original_facts() == original, "all seventeen failure positions atomic")
+                v4_cold_query_failed_mutators()
+                v4_cold_query_assert(v4_cold_query_original_facts() == original, "all failed mutations preserve globals and counters")
+            } else {
+                v4_cold_query_assert(admitted and v4_query_ready == 1, "exact seventeen success")
+                v4_cold_query_assert(v4_query_keys >= 0 and v4_query_inputs >= 0 and v4_query_outputs >= 0 and v4_query_states >= 0 and v4_query_entry_generations >= 0 and v4_query_entry_last_generations >= 0 and v4_query_entry_last_events >= 0 and v4_query_dep_from >= 0 and v4_query_dep_to >= 0 and v4_query_generation_reasons >= 0 and v4_query_invalidated_keys >= 0 and v4_query_invalidated_generations >= 0 and v4_query_invalidated_reasons >= 0 and v4_query_telemetry_keys >= 0 and v4_query_telemetry_hits >= 0 and v4_query_telemetry_misses >= 0 and v4_query_telemetry_stores >= 0, "all seventeen admitted")
+                pilot bootstrap_reason: word = array_get(v4_query_generation_reasons, 0)
+                v4_cold_query_assert(array_len(v4_query_generation_reasons) == 1 and bootstrap_reason == "bootstrap", "checked bootstrap row")
+                v4_query_rollback_cold_init(0 - 101, 0 - 102, 0 - 103, 0 - 104, 0 - 105, 0 - 106, 0 - 107, 0 - 108, 0 - 109, 0 - 110, 0 - 111, 0 - 112, 0 - 113, 0 - 114, 0 - 115, 0 - 116, 0 - 117)
+                v4_cold_query_assert(v4_cold_query_original_facts() == original, "private guard restores exact prior cold refs")
+            }
+            v4_cold_query_release(held, free_count)
+            v4_cold_query_assert(v4_cold_query_capacity() == capacity, "all partial stages retired")
+            free_count += 1
+        }
+        cycle += 1
+    }
+
+    v4_query_keys = 0
+    v4_query_inputs = 0
+    v4_query_outputs = 0
+    v4_query_states = 0
+    v4_query_entry_generations = 0
+    v4_query_entry_last_generations = 0
+    v4_query_entry_last_events = 0
+    v4_query_dep_from = 0
+    v4_query_dep_to = 0
+    v4_query_generation_reasons = 0
+    v4_query_invalidated_keys = 0
+    v4_query_invalidated_generations = 0
+    v4_query_invalidated_reasons = 0
+    v4_query_telemetry_keys = 0
+    v4_query_telemetry_hits = 0
+    v4_query_telemetry_misses = 0
+    v4_query_telemetry_stores = 0
+    v4_query_entry_len = 0
+    v4_query_dep_len = 0
+    v4_query_hit_total = 0
+    v4_query_miss_total = 0
+    v4_query_store_total = 0
+    v4_query_ready = 0
+    v4_query_revision = 1
+    v4_cold_query_assert(v4_query_try_init(), "recovery without source invalidation")
+    v4_cold_query_assert(v4_query_store("root", "fp", "root-output") == 0 and v4_query_store("dependent", "fp", "dependent-output") == 1, "warm stores")
+    v4_query_record_dep("dependent", "root")
+    v4_cold_query_assert(v4_query_get("root", "fp") == "root-output" and v4_query_get("missing", "fp") == "", "warm telemetry")
+    v4_cold_query_assert(v4_query_hit_count() == 1 and v4_query_miss_count() == 1 and v4_query_store_count() == 2, "warm exact counters")
+    v4_cold_query_assert(v4_query_invalidate_dependents("root") == 1 and v4_query_generation() == 2, "warm transitive invalidation")
+    v4_cold_query_assert(v4_query_entry_state(0) == v4_query_valid and v4_query_entry_state(1) == v4_query_dirty and v4_query_invalidated_count() == 1, "warm exact states")
+    v4_cold_query_assert(v4_query_snapshot_validate(v4_query_snapshot()).starts_with("query-snapshot-import ok=1"), "warm snapshot still valid")
+    say "cold-query-admission positions=17 exact-capacity=true failed-mutations-atomic=true"
+    say "cold-query-admission cycles=3 handles-conserved=true recovery=true warm-facts=true"
+}
+
+v4_cold_query_admission_run()

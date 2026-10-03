@@ -20,24 +20,54 @@ pilot v4_expand_generations = 0
 pilot v4_expand_file_len = 0
 pilot v4_expand_ready = 0
 
-task v4_expand_init() -> void {
-    if v4_expand_ready == 0 {
-        v4_expand_files = array_new()
-        v4_expand_trees = array_new()
-        v4_expand_provenance_kinds = array_new()
-        v4_expand_generations = array_new()
-        v4_expand_file_len = 0
-        v4_expand_ready = 1
+task v4_expand_release_init_arrays(files: int, trees: int, provenance_kinds: int, generations: int) -> void {
+    array_release(files)
+    array_release(trees)
+    array_release(provenance_kinds)
+    array_release(generations)
+}
+
+-- Private cold admission guard; restoring saved refs needs no collector.
+task v4_expand_rollback_cold_init(files: int, trees: int, provenance_kinds: int, generations: int, file_len: int) -> void {
+    v4_expand_release_init_arrays(v4_expand_files, v4_expand_trees, v4_expand_provenance_kinds, v4_expand_generations)
+    v4_expand_files = files
+    v4_expand_trees = trees
+    v4_expand_provenance_kinds = provenance_kinds
+    v4_expand_generations = generations
+    v4_expand_file_len = file_len
+    v4_expand_ready = 0
+}
+
+task v4_expand_try_init() -> bool {
+    if v4_expand_ready != 0 { give back true }
+    pilot next_files = array_new()
+    pilot next_trees = array_new()
+    pilot next_provenance_kinds = array_new()
+    pilot next_generations = array_new()
+    if next_files < 0 or next_trees < 0 or next_provenance_kinds < 0 or next_generations < 0 {
+        v4_expand_release_init_arrays(next_files, next_trees, next_provenance_kinds, next_generations)
+        give back false
     }
+    v4_expand_files = next_files
+    v4_expand_trees = next_trees
+    v4_expand_provenance_kinds = next_provenance_kinds
+    v4_expand_generations = next_generations
+    v4_expand_file_len = 0
+    v4_expand_ready = 1
+    give back true
+}
+
+task v4_expand_init() -> void {
+    v4_expand_try_init()
 }
 
 task v4_expand_file_count() -> int {
-    v4_expand_init()
+    if v4_expand_try_init() == false { give back 0 }
     give back v4_expand_file_len
 }
 
 task v4_expand_file_exists(expansion_id: int) -> bool {
-    v4_expand_init()
+    if v4_expand_try_init() == false { give back false }
     if expansion_id < 0 { give back false }
     if expansion_id >= v4_expand_file_len { give back false }
     give back true
@@ -91,7 +121,7 @@ task v4_expand_contract_generated_provenance(expanded_file_id: int, origin_span:
 }
 
 task v4_expand_find_identity(file_id: int, tree_id: int) -> int {
-    v4_expand_init()
+    if v4_expand_try_init() == false { give back 0 - 1 }
     pilot expansion_id = 0
     repeat until expansion_id >= v4_expand_file_count() {
         if v4_expand_file_id(expansion_id) == file_id and v4_expand_parse_tree_id(expansion_id) == tree_id {
@@ -105,7 +135,7 @@ task v4_expand_find_identity(file_id: int, tree_id: int) -> int {
 }
 
 task v4_expand_identity(file_id: int, tree_id: int) -> int {
-    v4_expand_init()
+    if v4_expand_try_init() == false { give back 0 - 1 }
     if v4_parse_tree_exists(tree_id) == false { give back 0 - 1 }
     if v4_parse_file_id(tree_id) != file_id { give back 0 - 1 }
 
@@ -348,7 +378,7 @@ task v4_expand_snapshot_file_line(expansion_id: int) -> word {
 }
 
 task v4_expand_snapshot() -> word {
-    v4_expand_init()
+    if v4_expand_try_init() == false { give back "" }
     pilot parts = array_new()
     array_push(parts, v4_expand_snapshot_header())
     pilot expansion_id = 0
@@ -446,7 +476,7 @@ task v4_expand_snapshot_validate(payload: word) -> word {
 }
 
 task v4_expand_restore_file_slot(expansion_id: int, file_id: int, tree_id: int, provenance_kind: word) -> int {
-    v4_expand_init()
+    if v4_expand_try_init() == false { give back 0 }
     repeat until array_len(v4_expand_files) > expansion_id {
         array_push(v4_expand_files, "0")
         array_push(v4_expand_trees, "0")
@@ -462,7 +492,7 @@ task v4_expand_restore_file_slot(expansion_id: int, file_id: int, tree_id: int, 
 }
 
 task v4_expand_begin_snapshot_restore() -> void {
-    v4_expand_init()
+    if v4_expand_try_init() == false { give back }
     v4_session_semantic_restore_generation_advance()
     v4_expand_file_len = 0
 }
@@ -479,6 +509,9 @@ task v4_expand_snapshot_restore(payload: word) -> word {
         give back "expand-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    if v4_expand_try_init() == false {
+        give back "expand-snapshot-restore ok=0 reason=expand-initialization-resource-exhausted"
+    }
     v4_expand_begin_snapshot_restore()
     pilot restored_files = 0
     pilot skipped_other = 0
