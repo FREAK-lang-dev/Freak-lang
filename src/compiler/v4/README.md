@@ -125,6 +125,11 @@ filesystem API or add a native word-result ABI.
 Native linking writes LLVM input into a private temporary directory, separate
 from the requested executable path even when it ends in `.ll` or `.LL`.
 `--emit-llvm` writes the module to the requested output path.
+Both output modes reject paths that name the input source, including canonical
+path, symlink, hardlink and filesystem case aliases, before bootstrapping. The
+identity check repeats after compilation before output creation; an identity
+error stops the command. This prevents accidental source replacement without
+claiming atomic protection against concurrent filesystem changes.
 
 Diagnostic snapshot restoration stages a copy of the live diagnostic arena,
 applies the v1 overlay in wire order, and publishes only after every allocation

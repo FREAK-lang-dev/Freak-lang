@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import platform
 import re
@@ -10,6 +11,21 @@ import sys
 import tempfile
 
 import check_v4 as checks
+
+
+def require_distinct_output(source: Path, output: Path) -> None:
+    """Reject canonical-path and physical-file aliases before modifying output."""
+    try:
+        aliases = source.resolve() == output.resolve()
+        source_metadata = source.stat()
+        try:
+            output_metadata = output.stat()
+        except FileNotFoundError:
+            output_metadata = None
+        if aliases or (output_metadata is not None and os.path.samestat(source_metadata, output_metadata)):
+            raise RuntimeError(f"output aliases source file: {output}")
+    except OSError as exc:
+        raise RuntimeError(f"could not establish source/output identity: {exc}") from exc
 
 
 def native_link_command(clang: str, llvm_path: Path, output: Path) -> list[str]:
@@ -91,7 +107,11 @@ def main() -> int:
     if not args.emit_llvm and target != host_target():
         parser.error("native linking currently supports the host TargetSpec; use --emit-llvm for cross targets")
     try:
+        require_distinct_output(args.source, args.output)
         module = emit_module(bootstrap(clang, args.compiler_opt), args.source, target)
+        # Compilation can take time; recheck an output that changed after the
+        # initial preflight before creating directories, writing or linking.
+        require_distinct_output(args.source, args.output)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         if args.emit_llvm:
             llvm_path = args.output

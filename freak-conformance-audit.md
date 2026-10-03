@@ -61,6 +61,9 @@ its overlay/duplicate order through atomic staging and released replacement
 storage. Bootstrap checked source reads distinguish empty regular files from
 I/O errors without publishing failed sources or query results; the executable
 build command requires `main`, while public library Codegen does not. The
+build command rejects canonical and physical-file output aliases of its input
+before bootstrapping and rechecks after compilation, preserving source bytes in
+both native and explicit LLVM output modes.
 C bootstrap captures supported result expressions once before
 examining their tag and payload, including checked reads across file changes.
 The existing word-payload ownership contract is unchanged. These
