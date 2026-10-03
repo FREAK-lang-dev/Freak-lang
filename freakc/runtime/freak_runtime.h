@@ -97,6 +97,10 @@ int64_t freak_llvm_word_adopt(int64_t pointer);
    invalid lengths/conflicting metadata are fatal, like allocation failure. */
 int64_t freak_llvm_word_adopt_sized(int64_t pointer, size_t length);
 size_t freak_llvm_word_size(int64_t pointer);
+/* Checked private bridge for V4: inspect registry metadata without dereferencing
+   unknown or consumed pointers. Returns 1 and writes length only for a live
+   owned value; otherwise returns 0 and leaves the output unchanged. */
+int64_t freak_llvm_word_owned_size(int64_t pointer, size_t* length);
 freak_word freak_llvm_word_view(int64_t pointer);
 /* Consumes the C owner bookkeeping when heap=true; borrowed results must be
    C strings or the runtime's static char_at byte words. */

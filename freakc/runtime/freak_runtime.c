@@ -2631,6 +2631,14 @@ int64_t freak_llvm_word_adopt_sized(int64_t pointer, size_t length) {
     return adopted;
 }
 
+int64_t freak_llvm_word_owned_size(int64_t pointer, size_t* length) {
+    if (!pointer || !length) return 0;
+    freak_llvm_owned_word* owned = freak_llvm_owned_find((void*)(uintptr_t)pointer, NULL);
+    if (!owned) return 0;
+    *length = owned->length;
+    return 1;
+}
+
 size_t freak_llvm_word_size(int64_t pointer) {
     if (!pointer) return 0;
     freak_llvm_owned_word* owned = freak_llvm_owned_find((void*)pointer, NULL);
