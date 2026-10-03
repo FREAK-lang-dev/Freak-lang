@@ -129,6 +129,8 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "cold_expand_admission_smoke.fk",
         "cold_expand_facade_smoke.fk",
         "cold_hir_facade_smoke.fk",
+        "cold_hir_constructor_resource_smoke.fk",
+        "cold_hir_restore_resource_smoke.fk",
         "h6_native_declaration_symbol_smoke.fk",
         "h6_native_ffi_width_smoke.fk",
     }
@@ -10852,6 +10854,31 @@ EXECUTABLE_SMOKES = [
             "cold-hir-facade warm-facts=true transitive-invalidation=true source-preserved=true",
         ],
     },
+    {
+        "name": "Cold HIR constructor admission and exact state preservation",
+        "fixture": "cold_hir_constructor_resource_smoke.fk",
+        "timeout": 60,
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-hir-constructor rejected=45 exact-refs=true capacity-stable=true source-stable=true",
+            "cold-hir-constructor admitted=45 warm-stable=true original-sentinels=true",
+        ],
+    },
+    {
+        "name": "Cold HIR restore validation and admission rollback",
+        "fixture": "cold_hir_restore_resource_smoke.fk",
+        "timeout": 60,
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-hir-restore malformed=true v10=true cold-refs=true capacity-stable=true",
+            "cold-hir-restore init-boundary=true lookup-rollback=true nonempty-exact=true handles=87",
+            "cold-hir-restore empty-exact=true handles=45 warm-pressure=true high-water=true recovery=true",
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:
@@ -13040,6 +13067,8 @@ def check_snapshot_inventories() -> None:
             "cold_expand_admission_smoke.fk",
             "cold_expand_facade_smoke.fk",
             "cold_hir_facade_smoke.fk",
+            "cold_hir_constructor_resource_smoke.fk",
+            "cold_hir_restore_resource_smoke.fk",
             "h6_native_declaration_symbol_smoke.fk",
             "h6_native_ffi_width_smoke.fk",
         }
