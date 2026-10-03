@@ -210,7 +210,7 @@ INSTRUMENTATION_POINTS = [
     ("ty", "int64_t ty = freak_v4_ty_lower_resolve(((int64_t)0), resolve);", "freak_v4_ty_diag_count(ty)"),
     ("mir", "int64_t mir = freak_v4_mir_lower_ty(((int64_t)0), ty);", "freak_v4_mir_diag_count(mir)"),
     ("borrowck", "int64_t borrowck = freak_v4_borrowck_check_mir(((int64_t)0), mir);", "freak_v4_borrowck_diag_count(borrowck)"),
-    ("codegen", "int64_t codegen = freak_v4_codegen_llvm_lower_mir(((int64_t)0), mir);", "freak_v4_codegen_llvm_diag_count(codegen)"),
+    ("codegen", "int64_t codegen = freak_v4_codegen_llvm_lower_owned_mir(((int64_t)0), mir);", "freak_v4_codegen_llvm_diag_count(codegen)"),
     ("module", "freak_word module = freak_v4_codegen_llvm_module_text(codegen, target_spec);", "0"),
 ]
 
@@ -361,7 +361,8 @@ def build_tool(repo, work, profile, timeout, build):
     measured.write_text(instrument(frozen.read_text()), encoding="utf-8")
     runtime = compiler_dir / "runtime"
     runtime.mkdir(exist_ok=True)
-    for name in ("freak_runtime.c", "freak_llvm_runtime.c", "freak_runtime.h"):
+    from freakc.v4_native_runtime import SOURCE_NAMES, HEADER_NAMES
+    for name in (*SOURCE_NAMES, *HEADER_NAMES):
         (runtime / name).write_bytes((repo / "freakc/runtime" / name).read_bytes())
     flags = ["-pg", "-O1", "-fno-inline"] if profile else ["-O2"]
     tool = compiler_dir / ("v4c_pg" if profile else "v4c")
@@ -375,7 +376,8 @@ def build_tool(repo, work, profile, timeout, build):
     # Native linking retains the shared adapter-before-core platform contract.
     # Audit exports first so its compatibility linker flags cannot hide duplicates.
     runtime_objects = []
-    for name in ("freak_llvm_runtime", "freak_runtime"):
+    for source_name in SOURCE_NAMES:
+        name = Path(source_name).stem
         obj = runtime / f"{name}.o"
         result = guarded_job(build, [clang, "-w", "-O2", "-c", str(runtime / f"{name}.c"),
                              f"-I{runtime}", "-o", str(obj)], compiler_dir / f"build-{name}",
@@ -384,7 +386,11 @@ def build_tool(repo, work, profile, timeout, build):
         runtime_objects.append(obj)
     symbols = [defined_symbols(build, obj, compiler_dir / f"symbols-{obj.stem}", timeout)
                for obj in runtime_objects]
-    duplicates = sorted(symbols[0] & symbols[1])
+    counts = {}
+    for exported in symbols:
+        for symbol in exported:
+            counts[symbol] = counts.get(symbol, 0) + 1
+    duplicates = sorted(symbol for symbol, count in counts.items() if count > 1)
     if duplicates:
         raise RuntimeError(f"unexpected runtime symbol collisions: {duplicates}")
     manifest = {"repository_head": head,
@@ -392,10 +398,10 @@ def build_tool(repo, work, profile, timeout, build):
                 "tool_sha256": sha256(tool), "tool": str(tool), "clang": clang,
                 "clang_version": version.stdout, "compiler_flags": flags, "profile": profile,
                 "runtime_hashes": {name: sha256(runtime / name) for name in
-                    ("freak_runtime.c", "freak_llvm_runtime.c", "freak_runtime.h")},
+                    (*SOURCE_NAMES, *HEADER_NAMES)},
                 "runtime_objects": [str(obj) for obj in runtime_objects],
                 "runtime_object_hashes": {str(obj): sha256(obj) for obj in runtime_objects},
-                "runtime_symbols": sorted(symbols[0] | symbols[1]), "runtime_collisions": duplicates,
+                "runtime_symbols": sorted(counts), "runtime_collisions": duplicates,
                 "stage_peak_scope": "cumulative native Linux VmHWM; current RSS sampled inside compiler"}
     save_json(tool.with_suffix(".manifest.json"), manifest)
     return tool, manifest

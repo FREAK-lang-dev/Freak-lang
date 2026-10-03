@@ -13,11 +13,77 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 STAGES = ["lex", "parse", "hir", "resolve", "ty", "mir", "borrowck", "codegen", "module"]
+
+
+class FrozenRuntimeInventory(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.work = Path(temporary.name)
+        self.repo = self.work / "repo"
+        from freakc.v4_native_runtime import SOURCE_NAMES, HEADER_NAMES
+        self.sources, self.headers = SOURCE_NAMES, HEADER_NAMES
+        runtime = self.repo / "freakc/runtime"
+        runtime.mkdir(parents=True)
+        for name in (*self.sources, *self.headers):
+            (runtime / name).write_text(f"frozen contents for {name}\n")
+        original = self.repo / "build/v4_smoke/build_llvm.fk.c"
+        original.parent.mkdir(parents=True)
+        original.write_text("original compiler\n")
+        spec = importlib.util.spec_from_file_location("frozen_runtime_benchmark", ROOT / "v4_scale_bench.py")
+        self.benchmark = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.benchmark)
+        self.build = SimpleNamespace(checks=SimpleNamespace(run_with_heartbeat=object()),
+                                     bootstrap=lambda clang: None)
+        self.jobs = []
+
+        def job(build, command, directory, label, *args, **kwargs):
+            self.jobs.append(command)
+            if "-o" in command:
+                artifact = Path(command[command.index("-o") + 1])
+                artifact.write_bytes((artifact.name + " compiled").encode())
+            return subprocess.CompletedProcess(command, 0, "test Clang version\n", "")
+
+        self.enterContext(patch.object(self.benchmark, "guarded_job", side_effect=job))
+        self.enterContext(patch.object(self.benchmark, "instrument", return_value="measured compiler\n"))
+        self.enterContext(patch.object(self.benchmark.shutil, "which", return_value="test-clang"))
+        self.enterContext(patch.object(self.benchmark.subprocess, "check_output", return_value="pinned-head\n"))
+
+    def test_later_runtime_object_collision_stops_before_manifest_publication(self):
+        exports = [{f"unique_{i}"} for i in range(len(self.sources))]
+        exports[2].add("later_collision")
+        exports[5].add("later_collision")
+        with patch.object(self.benchmark, "defined_symbols", side_effect=exports) as symbols:
+            with self.assertRaisesRegex(RuntimeError, "unexpected runtime symbol collisions.*later_collision"):
+                self.benchmark.build_tool(self.repo, self.work / "runs", False, 30, self.build)
+        self.assertEqual(symbols.call_count, len(self.sources))
+        self.assertFalse(list((self.work / "runs").rglob("*.manifest.json")))
+
+    def test_manifest_freezes_hashes_and_symbols_for_every_runtime_input(self):
+        exports = [{f"unique_{i}"} for i in range(len(self.sources))]
+        with patch.object(self.benchmark, "defined_symbols", side_effect=exports):
+            tool, manifest = self.benchmark.build_tool(self.repo, self.work / "runs", False, 30, self.build)
+        self.assertEqual(len(manifest["runtime_objects"]), 6)
+        self.assertEqual(set(manifest["runtime_hashes"]), set((*self.sources, *self.headers)))
+        self.assertEqual(len(manifest["runtime_hashes"]), 12)
+        self.assertEqual(manifest["runtime_symbols"], [f"unique_{i}" for i in range(6)])
+        self.assertEqual(manifest["runtime_collisions"], [])
+        for name, digest in manifest["runtime_hashes"].items():
+            frozen = tool.parent / "runtime" / name
+            self.assertEqual(digest, hashlib.sha256(frozen.read_bytes()).hexdigest())
+            (self.repo / "freakc/runtime" / name).write_text("source changed after freezing\n")
+            self.assertEqual(digest, hashlib.sha256(frozen.read_bytes()).hexdigest())
+        self.assertEqual(set(manifest["runtime_object_hashes"]), set(manifest["runtime_objects"]))
+        for name, digest in manifest["runtime_object_hashes"].items():
+            self.assertEqual(digest, hashlib.sha256(Path(name).read_bytes()).hexdigest())
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "Linux benchmark")
@@ -78,7 +144,7 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, freak_word 
             ("parse", "parse_stream"), ("hir", "hir_lower_tree"),
             ("resolve", "resolve_lower_hir"), ("ty", "ty_lower_resolve"),
             ("mir", "mir_lower_ty"), ("borrowck", "borrowck_check_mir"),
-            ("codegen", "codegen_llvm_lower_mir"),
+            ("codegen", "codegen_llvm_lower_owned_mir"),
         ):
             declarations += f"static int64_t freak_v4_{function}(int64_t id, int64_t previous) {{ return id; }}\n"
         for stage in STAGES[:-1]:

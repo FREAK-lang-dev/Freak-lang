@@ -114,6 +114,9 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "release_native_ordinary_qualified_and_impl_smoke.fk",
         "release_native_ordinary_two_impls_smoke.fk",
         "release_native_ordinary_same_impl_smoke.fk",
+        "owned_word_semantics_smoke.fk",
+        "owned_word_contract_smoke.fk",
+        "owned_word_execute_smoke.fk",
         "h6_native_declaration_symbol_smoke.fk",
         "h6_native_ffi_width_smoke.fk",
     }
@@ -302,7 +305,7 @@ CRATE_BOUNDARY_REQUIRED = {
     "freak_mir": [
         ("representation ownership comment", "-- freak_mir - persistent V4 Built-MIR representation"),
         ("explicit-scope local primitive", "task v4_mir_add_local_at_scope("),
-        ("snapshot v5 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v5"'),
+        ("snapshot v6 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v6"'),
     ],
     "freak_mir_build": [
         ("construction ownership comment", "-- freak_mir_build - stateless V4 HIR+TY to Built-MIR construction"),
@@ -9921,7 +9924,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "mir_snapshot_smoke.fk",
         "expect": [
             "mir-snapshot-bytes=",
-            "mir-snapshot|format=freak-mir-snapshot-v5",
+            "mir-snapshot|format=freak-mir-snapshot-v6",
             "mir-snapshot-restore ok=1",
             "ok|workspace/mirSnapshotRestore",
             "borrowck-ok borrow=",
@@ -10576,6 +10579,60 @@ EXECUTABLE_SMOKES = [
             "task-param-invalidation-after-editor=num",
         ],
     },
+    {
+        "name": "owned word semantic and snapshot contracts",
+        "fixture": "owned_word_semantics_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "owned-word-semantics ordered-events=true binding-ids=true shadowed-lend=true",
+            "owned-word-semantics snapshot-crossfacts=true atomic-rejection=true old-version-rejected=true",
+            "owned-word-semantics live-crossfacts=true scratch-failure-closed=true recovery=true",
+        ],
+    },
+    {
+        "name": "owned word codegen contract cases",
+        "fixture": "owned_word_contract_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["owned-word-contract-case-0=passed"],
+        "runtime_cases": [
+            {"argv": ["0"], "expect": ["owned-word-contract-case-0=passed"]},
+            {"argv": ["1"], "expect": ["owned-word-contract-case-1=passed"]},
+            {"argv": ["2"], "expect": ["owned-word-contract-case-2=passed"]},
+            {"argv": ["3"], "expect": ["owned-word-contract-case-3=passed"]},
+            {"argv": ["4"], "expect": ["owned-word-contract-case-4=passed"]},
+            {"argv": ["5"], "expect": ["owned-word-contract-case-5=passed"]},
+            {"argv": ["6"], "expect": ["owned-word-contract-case-6=passed"]},
+            {"argv": ["7"], "expect": ["owned-word-contract-case-7=passed"]},
+        ],
+    },
+    {
+        "name": "owned word native execution and MIR restoration",
+        "fixture": "owned_word_execute_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "owned-word-diag-0=0",
+            "owned-word-module-nonempty-0=true",
+            "owned-word-error-0=",
+            "owned-word-snapshot-valid-0=true",
+            "owned-word-snapshot-restored-0=true",
+            "owned-word-sealed-stable-0=true",
+            "owned-word-module-exact-0=true",
+        ],
+        "runtime_cases": [
+            {"llvm_programs": [("owned_words.fk", 0,
+                "café 🐱\ncafé 🐱\ncafé 🐱!\ncafé 🐱!!\ncafé 🐱\n\nA\0B\n-42\ntrue\n12.5\n")]},
+            {"llvm_programs": [("owned_word_scopes.fk", 0,
+                "shadow\ninner\nsurvivor\nreplacement\ndefault return cleanup\n")]},
+            {"llvm_programs": [("owned_word_return_temporary.fk", 0,
+                "first\nsecond\ntransfer\ntransfer\n")]},
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:
@@ -10585,6 +10642,7 @@ from freakc.__main__ import transpile  # noqa: E402
 from freakc.parser import Parser  # noqa: E402
 from freakc.lexer import Lexer, LexerError, TokenType  # noqa: E402
 from freakc.type_checker import TypeChecker  # noqa: E402
+from freakc.v4_native_runtime import SOURCE_NAMES as V4_NATIVE_RUNTIME_SOURCES  # noqa: E402
 
 
 def rel(path: Path) -> str:
@@ -10626,6 +10684,8 @@ def runtime_platform_final_link_args(
     link_args = runtime_platform_link_args(platform)
     if platform.startswith("linux"):
         return (*link_args, "-Wl,-z,muldefs")
+    if platform.startswith("win"):
+        return (*link_args, "-lshell32")
     return link_args
 
 
@@ -10669,7 +10729,7 @@ def check_runtime_platform_link_contract() -> None:
             )
 
     expected_final = {
-        "win32": ("-lws2_32",),
+        "win32": ("-lws2_32", "-lshell32"),
         "linux": ("-lm", "-Wl,-z,muldefs"),
         "darwin": (),
         "freebsd": (),
@@ -12746,6 +12806,9 @@ def check_snapshot_inventories() -> None:
             "release_native_ordinary_qualified_and_impl_smoke.fk",
             "release_native_ordinary_two_impls_smoke.fk",
             "release_native_ordinary_same_impl_smoke.fk",
+            "owned_word_semantics_smoke.fk",
+            "owned_word_contract_smoke.fk",
+            "owned_word_execute_smoke.fk",
             "h6_native_declaration_symbol_smoke.fk",
             "h6_native_ffi_width_smoke.fk",
         }
@@ -14325,6 +14388,24 @@ def check_v4_build_command() -> None:
     print("V4 build command: hello world and warning-only execute, errors stop at their owning stage")
 
 
+def smoke_execution_cases(smokes: list[dict[str, object]]):
+    """Keep independent resource cases in separate guarded native processes."""
+    for smoke in smokes:
+        if "runtime_cases" not in smoke:
+            yield smoke
+            continue
+        cases = smoke["runtime_cases"]
+        if not isinstance(cases, list) or not cases:
+            raise ValueError("runtime_cases must be a nonempty list")
+        for index, case in enumerate(cases):
+            if not isinstance(case, dict) or case.keys() - {"argv", "expect", "llvm_programs"}:
+                raise ValueError("runtime case may only select arguments and expected execution")
+            expanded = {key: value for key, value in smoke.items() if key != "runtime_cases"}
+            expanded.update(case)
+            expanded["name"] = f"{smoke['name']} ({index + 1}/{len(cases)})"
+            yield expanded
+
+
 def check_executable_smokes(
     base_source: str,
     smokes: list[dict[str, object]],
@@ -14346,7 +14427,7 @@ def check_executable_smokes(
     check_native_snapshot_lines(clang)
     check_v3_llvm_substring_pipeline(clang, include_arg)
 
-    for smoke in smokes:
+    for smoke in smoke_execution_cases(smokes):
         fixture = TESTS_ROOT / str(smoke["fixture"])
         label = rel(fixture)
         c_source, uses_ui = transpile_fixture(base_source, fixture)
@@ -14373,6 +14454,7 @@ def check_executable_smokes(
         timeout_seconds = int(smoke.get("timeout", 60))
         default_memory_limit_mb = 128 if "snapshot" in fixture.stem else 512
         command = [str(exe_path)]
+        command += smoke.get("argv", [])
         if smoke.get("source_read_checks"):
             command += checked_source_fixture_paths()
         if smoke.get("llvm_programs"):
@@ -14433,7 +14515,7 @@ def check_executable_smokes(
                 ll_path.write_bytes(module.encode("utf-8"))
                 linked = run_with_heartbeat(
                     [clang, "-w", "-O2", str(ll_path),
-                     str(RUNTIME_ROOT / "freak_llvm_runtime.c"), str(runtime_c),
+                     *(str(RUNTIME_ROOT / source) for source in V4_NATIVE_RUNTIME_SOURCES),
                      include_arg, "-o", str(native_path),
                      *runtime_platform_final_link_args()],
                     label=f"LLVM module link: {name}", timeout_seconds=120, memory_limit_mb=512,
