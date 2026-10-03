@@ -109,6 +109,10 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "h6_native_entry_symbol_smoke.fk",
         "h6_native_target_cc_smoke.fk",
         "h6_native_body_symbol_smoke.fk",
+        "release_native_ordinary_distinct_owners_smoke.fk",
+        "release_native_ordinary_qualified_and_impl_smoke.fk",
+        "release_native_ordinary_two_impls_smoke.fk",
+        "release_native_ordinary_same_impl_smoke.fk",
         "h6_native_declaration_symbol_smoke.fk",
         "h6_native_ffi_width_smoke.fk",
     }
@@ -7235,6 +7239,46 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "Ordinary native symbol same_impl",
+        "fixture": "release_native_ordinary_same_impl_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "release-ordinary-symbol same_impl authored=true callbacks=0 physical-duplicates=2 named=true targets=4 no-module=true sealed=true"
+        ]
+    },
+    {
+        "name": "Ordinary native symbol two_impls",
+        "fixture": "release_native_ordinary_two_impls_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "release-ordinary-symbol two_impls authored=true callbacks=0 physical-duplicates=2 named=true targets=4 no-module=true sealed=true"
+        ]
+    },
+    {
+        "name": "Ordinary native symbol qualified_and_impl",
+        "fixture": "release_native_ordinary_qualified_and_impl_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "release-ordinary-symbol qualified_and_impl authored=true callbacks=0 physical-duplicates=2 named=true targets=4 no-module=true sealed=true"
+        ]
+    },
+    {
+        "name": "Ordinary native symbol distinct_owners",
+        "fixture": "release_native_ordinary_distinct_owners_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "release-ordinary-symbol distinct_owners authored=true callbacks=0 definitions=3 exact=true module=true sealed=true"
+        ]
+    },
+    {
         "name": "Native declaration and literal symbol collisions",
         "fixture": "h6_native_declaration_symbol_smoke.fk",
         "expect_mode": "line",
@@ -12697,6 +12741,10 @@ def check_snapshot_inventories() -> None:
             "h6_native_entry_symbol_smoke.fk",
             "h6_native_target_cc_smoke.fk",
             "h6_native_body_symbol_smoke.fk",
+            "release_native_ordinary_distinct_owners_smoke.fk",
+            "release_native_ordinary_qualified_and_impl_smoke.fk",
+            "release_native_ordinary_two_impls_smoke.fk",
+            "release_native_ordinary_same_impl_smoke.fk",
             "h6_native_declaration_symbol_smoke.fk",
             "h6_native_ffi_width_smoke.fk",
         }
@@ -14096,6 +14144,17 @@ def check_v4_build_command() -> None:
             "native body symbol has multiple definitions: @__freak_callback_callback",
         ),
     ]
+    contract_cases.extend([
+        ("ordinary_same_impl", host_target(),
+         'shape A { marker: int }\nimpl A {\n task value() -> int { give back 2 }\n task value() -> int { give back 3 }\n}\ntask main() -> int { give back 42 }\n',
+         'native body symbol has multiple definitions: @"A::value"'),
+        ("ordinary_two_impls", host_target(),
+         'shape A { marker: int }\nimpl A { task value() -> int { give back 2 } }\nimpl A { task value() -> int { give back 3 } }\ntask main() -> int { give back 42 }\n',
+         'native body symbol has multiple definitions: @"A::value"'),
+        ("ordinary_qualified_and_impl", host_target(),
+         'shape A { marker: int }\ntask A::value() -> int { give back 2 }\nimpl A { task value() -> int { give back 3 } }\ntask main() -> int { give back 42 }\n',
+         'native body symbol has multiple definitions: @"A::value"'),
+    ])
     for label, symbol in (("public_entry", "main"), ("private_entry", "freak.user.main")):
         contract_cases.append((
             label, host_target(),
