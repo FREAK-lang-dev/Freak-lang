@@ -673,7 +673,7 @@ class SymbolInventoryProvenance(unittest.TestCase):
             self.assertEqual(metadata["object"]["size_bytes"], 11)
             self.assertEqual(metadata["object"]["sha256"], hashlib.sha256(b"tiny object").hexdigest())
             self.assertEqual(metadata["nm_version"], "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n")
-            self.assertEqual(commands[1][0], [str(nm), "-g", "--defined-only", str(obj)])
+            self.assertEqual(commands[1][0], [str(nm.resolve()), "-g", "--defined-only", str(obj)])
             self.assertEqual([command[2] for command in commands], [128, 128])
             self.assertEqual(commands[0][1], 5)
             self.assertEqual(commands[1][1], 10)
@@ -694,7 +694,7 @@ class SymbolInventoryProvenance(unittest.TestCase):
             message = str(failure.exception)
             self.assertIn("original tool version limit", message)
             self.assertIn("unavailable within unchanged resource limits", message)
-            job.assert_called_once_with(None, [str(nm), "--version"],
+            job.assert_called_once_with(None, [str(nm.resolve()), "--version"],
                 directory / "diagnostic/tool-selection/tool-version", "LLVM symbol tool version", 1, 128, 1)
 
     def test_success_keeps_collision_symbols_with_validated_llvm_identity(self):
@@ -711,8 +711,41 @@ class SymbolInventoryProvenance(unittest.TestCase):
                                  {"main", "bench_collision"})
             self.assertEqual(job.call_count, 2)
             self.assertEqual(job.call_args.args,
-                (None, [str(nm), "-g", "--defined-only", str(obj)],
+                (None, [str(nm.resolve()), "-g", "--defined-only", str(obj)],
                  directory / "work", "native symbol inventory", 10, 128, 8))
+
+    def test_alias_spelling_executes_and_hashes_the_resolved_image(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            alias = directory / "short-spelling" / "llvm-nm"
+            tool = directory / "canonical-llvm-nm"
+            obj = directory / "module.o"
+            tool.write_bytes(b"canonical LLVM executable")
+            obj.write_bytes(b"object")
+            resolved = tool.resolve()
+            original_resolve = Path.resolve
+
+            def resolve(path, *args, **kwargs):
+                if path == alias:
+                    return resolved
+                return original_resolve(path, *args, **kwargs)
+
+            version = subprocess.CompletedProcess([], 0,
+                "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n", "")
+            inventory = subprocess.CompletedProcess([], 0,
+                "00000000 T main\n00000008 T bench_collision\n", "")
+            with patch.object(benchmark.shutil, "which", return_value=str(alias)), \
+                    patch.object(Path, "resolve", resolve), \
+                    patch.object(benchmark, "guarded_job", side_effect=[version, inventory]) as job:
+                self.assertEqual(benchmark.defined_symbols(None, obj, directory / "work", 10),
+                                 {"main", "bench_collision"})
+            self.assertEqual([call.args[1][0] for call in job.call_args_list],
+                             [str(resolved), str(resolved)])
+            metadata = json.loads((directory / "work/provenance.json").read_text())
+            self.assertEqual(metadata["requested_nm"], str(alias))
+            self.assertEqual(metadata["resolved_nm"], str(resolved))
+            self.assertEqual(metadata["nm_file"]["sha256"],
+                             hashlib.sha256(tool.read_bytes()).hexdigest())
 
 
 if __name__ == "__main__":
