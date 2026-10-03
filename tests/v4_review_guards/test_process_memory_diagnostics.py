@@ -27,6 +27,7 @@ def stat_record(pid, pgid, start=100):
 
 class ProcessMemoryDiagnostics(unittest.TestCase):
     def setUp(self):
+        self.windows_job_type = checks.WindowsJob
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.proc = Path(temporary.name)
@@ -456,6 +457,196 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                 self.assertIn("exceeded memory limit: peak=2.0MB limit=1MB", message)
                 self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
                 self.assertNotIn("secret", message)
+
+    def startup_rollback_fixture(self, phase, faults):
+        process = SimpleNamespace(pid=10, _handle=object(), returncode=None)
+        process.poll = lambda: process.returncode
+        events = []
+        running_group = set() if phase == "popen" else {10}
+        attempts = {"job": 0, "kill": 0, "wait": 0, "close": 0}
+        assigned = False
+        exit_requested = False
+        last_error = 0
+        handle = object()
+        job = self.windows_job_type.__new__(self.windows_job_type)
+        job.handle = handle
+        startup_error = OSError({"assign": 7, "resume": 8, "popen": 10}[phase], "original startup failure")
+
+        def fails(step):
+            attempts[step] += 1
+            count = faults.get(step, 0)
+            return count is None or attempts[step] <= count
+
+        def win_error(code):
+            return startup_error if code == startup_error.errno else OSError(code, "cleanup API failure")
+
+        def assign(job_handle, process_handle):
+            nonlocal last_error, assigned
+            events.append("assign")
+            self.assertIs(job_handle, handle)
+            self.assertIs(process_handle, process._handle)
+            if phase == "assign":
+                last_error = 7
+                return 0
+            assigned = True
+            running_group.add(11)
+            return 1
+
+        def resume(process_handle):
+            events.append("resume")
+            self.assertIs(process_handle, process._handle)
+            return -1
+
+        def terminate(job_handle, code):
+            nonlocal last_error, exit_requested
+            events.append("job-terminate")
+            self.assertIs(job_handle, handle)
+            self.assertIs(job.handle, handle)
+            self.assertEqual(code, 1)
+            if fails("job"):
+                last_error = 5
+                return 0
+            if assigned:
+                exit_requested = True
+                running_group.clear()
+            return 1
+
+        def kill():
+            nonlocal exit_requested
+            events.append("kill")
+            if fails("kill"):
+                raise OSError(11, "direct kill failure")
+            exit_requested = True
+            running_group.discard(10)
+
+        def wait(*, timeout):
+            events.append("wait")
+            self.assertEqual(timeout, 5)
+            if fails("wait"):
+                raise OSError(9, "reaping failure")
+            if not exit_requested:
+                raise subprocess.TimeoutExpired(["unused"], timeout)
+            process.returncode = -9
+            return process.returncode
+
+        def close(job_handle):
+            nonlocal last_error, exit_requested
+            events.append("job-close")
+            self.assertIs(job_handle, handle)
+            self.assertIs(job.handle, handle)
+            if fails("close"):
+                last_error = 6
+                return 0
+            if assigned:
+                exit_requested = True
+                running_group.clear()
+            return 1
+
+        def popen(command, **kwargs):
+            events.append("popen")
+            self.assertEqual(command, ["unused"])
+            self.assertEqual(kwargs["creationflags"], 0x00000004)
+            self.assertNotIn("start_new_session", kwargs)
+            if phase == "popen":
+                raise startup_error
+            return process
+
+        job.ctypes = SimpleNamespace(get_last_error=lambda: last_error, WinError=Mock(side_effect=win_error))
+        job.kernel32 = SimpleNamespace(
+            AssignProcessToJobObject=Mock(side_effect=assign),
+            TerminateJobObject=Mock(side_effect=terminate),
+            CloseHandle=Mock(side_effect=close),
+        )
+        job.ntdll = SimpleNamespace(NtResumeProcess=Mock(side_effect=resume), RtlNtStatusToDosError=Mock(return_value=8))
+        process.kill = Mock(side_effect=kill)
+        process.wait = Mock(side_effect=wait)
+        self.enterContext(patch.object(checks.sys, "platform", "win32"))
+        self.enterContext(patch.object(checks, "WindowsJob", return_value=job))
+        self.enterContext(patch.object(checks.subprocess, "Popen", side_effect=popen))
+        return SimpleNamespace(
+            job=job, process=process, handle=handle, events=events,
+            attempts=attempts, running_group=running_group, startup_error=startup_error,
+        )
+
+    def test_windows_startup_failure_rolls_back_despite_job_bool_zero(self):
+        for phase in ("assign", "resume"):
+            for transient in (None, "kill", "wait", "close"):
+                with self.subTest(startup=phase, transient=transient):
+                    faults = {"job": None}
+                    if transient is not None:
+                        faults[transient] = 1
+                    fixture = self.startup_rollback_fixture(phase, faults)
+                    with self.assertRaises(OSError) as failure:
+                        checks.ProcessTree.spawn(["unused"], 1024)
+                    prefix = ["popen", "assign"] + (["resume"] if phase == "resume" else [])
+                    expected = prefix + ["job-terminate"] * 2 + ["kill"] * (2 if transient == "kill" else 1)
+                    expected += ["wait"] * (2 if transient == "wait" else 1)
+                    expected += ["job-close"] * (2 if transient == "close" else 1)
+                    self.assertEqual(fixture.events, expected)
+                    self.assertIs(failure.exception, fixture.startup_error)
+                    self.assertFalse(fixture.running_group)
+                    self.assertEqual(fixture.process.returncode, -9)
+                    self.assertIsNone(fixture.job.handle)
+                    if phase == "assign":
+                        fixture.job.ntdll.NtResumeProcess.assert_not_called()
+
+    def test_windows_popen_failure_retries_job_close_and_preserves_original_error(self):
+        for persistent in (False, True):
+            with self.subTest(persistent=persistent):
+                fixture = self.startup_rollback_fixture("popen", {"close": None if persistent else 1})
+                with self.assertRaises((RuntimeError, OSError)) as failure:
+                    checks.ProcessTree.spawn(["unused"], 1024)
+                self.assertEqual(fixture.events, ["popen", "job-close", "job-close"])
+                fixture.process.kill.assert_not_called()
+                fixture.process.wait.assert_not_called()
+                fixture.job.kernel32.TerminateJobObject.assert_not_called()
+                if persistent:
+                    self.assertIs(fixture.job.handle, fixture.handle)
+                    self.assertIn("rollback failed", str(failure.exception))
+                    self.assertEqual(failure.exception.__cause__.errno, 6)
+                    self.assertIs(failure.exception.__context__, fixture.startup_error)
+                else:
+                    self.assertIsNone(fixture.job.handle)
+                    self.assertIs(failure.exception, fixture.startup_error)
+
+    def test_windows_startup_persistent_faults_are_bounded_and_all_cleanup_is_attempted(self):
+        for failed_step in ("kill", "wait", "close"):
+            with self.subTest(failure=failed_step):
+                fixture = self.startup_rollback_fixture("assign", {"job": None, failed_step: None})
+                with self.assertRaises(RuntimeError) as failure:
+                    checks.ProcessTree.spawn(["unused"], 1024)
+                expected = ["popen", "assign", "job-terminate", "job-terminate"]
+                expected += ["kill"] * (2 if failed_step == "kill" else 1)
+                expected += ["wait"] * (2 if failed_step in ("kill", "wait") else 1)
+                expected += ["job-close"] * (2 if failed_step == "close" else 1)
+                if failed_step in ("kill", "wait"):
+                    expected += ["wait", "wait"]
+                self.assertEqual(fixture.events, expected)
+                self.assertIn("rollback failed after bounded retries", str(failure.exception))
+                self.assertIs(failure.exception.__context__, fixture.startup_error)
+                if failed_step == "kill":
+                    self.assertEqual(fixture.running_group, {10})
+                    self.assertIsNone(fixture.process.returncode)
+                    self.assertIsInstance(failure.exception.__cause__, subprocess.TimeoutExpired)
+                elif failed_step == "wait":
+                    self.assertFalse(fixture.running_group)
+                    self.assertIsNone(fixture.process.returncode)
+                    self.assertEqual(failure.exception.__cause__.errno, 9)
+                else:
+                    self.assertFalse(fixture.running_group)
+                    self.assertEqual(fixture.process.returncode, -9)
+                    self.assertIs(fixture.job.handle, fixture.handle)
+                    self.assertEqual(failure.exception.__cause__.errno, 6)
+
+    def test_windows_assigned_launcher_reaps_after_job_close_fallback(self):
+        fixture = self.startup_rollback_fixture("resume", {"job": None, "kill": None})
+        with self.assertRaises(OSError) as failure:
+            checks.ProcessTree.spawn(["unused"], 1024)
+        self.assertIs(failure.exception, fixture.startup_error)
+        self.assertEqual(fixture.events, ["popen", "assign", "resume", "job-terminate", "job-terminate", "kill", "kill", "wait", "wait", "job-close", "wait"])
+        self.assertFalse(fixture.running_group)
+        self.assertEqual(fixture.process.returncode, -9)
+        self.assertIsNone(fixture.job.handle)
 
 
 class SymbolInventoryProvenance(unittest.TestCase):

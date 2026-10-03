@@ -13325,6 +13325,53 @@ class ProcessTree:
         self.windows_job = windows_job
         self.peak_memory_sample: dict = {}
 
+    @staticmethod
+    def _rollback_spawn(process: subprocess.Popen[bytes] | None, windows_job: WindowsJob | None) -> None:
+        if windows_job is None:
+            return
+
+        def retry_cleanup(action) -> Exception | None:
+            for attempt in range(2):
+                try:
+                    action()
+                    return None
+                except Exception as error:
+                    if attempt == 1:
+                        return error
+            return None
+
+        wait_error = None
+        close_error = None
+        try:
+            if process is not None:
+                try:
+                    retry_cleanup(windows_job.terminate)
+                finally:
+                    try:
+                        def kill_launcher() -> None:
+                            if process.poll() is None:
+                                process.kill()
+
+                        retry_cleanup(kill_launcher)
+                    finally:
+                        wait_error = retry_cleanup(lambda: process.wait(timeout=5))
+        finally:
+            close_error = retry_cleanup(windows_job.close)
+        if wait_error is not None and close_error is None:
+            # Closing a KILL_ON_JOB_CLOSE handle is also a termination path.
+            # Reap again after that fallback when direct termination failed.
+            wait_error = retry_cleanup(lambda: process.wait(timeout=5))
+        failure = close_error if close_error is not None else wait_error
+        if failure is not None:
+            failed_steps = []
+            if wait_error is not None:
+                failed_steps.append("launcher reaping")
+            if close_error is not None:
+                failed_steps.append("Job handle close")
+            raise RuntimeError(
+                "Windows process startup rollback failed after bounded retries: " + ", ".join(failed_steps)
+            ) from failure
+
     @classmethod
     def spawn(
         cls,
@@ -13346,19 +13393,14 @@ class ProcessTree:
                 **popen_kwargs,
             )
         except BaseException:
-            if windows_job is not None:
-                windows_job.close()
+            cls._rollback_spawn(None, windows_job)
             raise
         if windows_job is not None:
             try:
                 windows_job.assign(process)
                 windows_job.resume(process)
             except BaseException:
-                windows_job.terminate()
-                if process.poll() is None:
-                    process.kill()
-                process.wait()
-                windows_job.close()
+                cls._rollback_spawn(process, windows_job)
                 raise
         return cls(process, windows_job)
 
