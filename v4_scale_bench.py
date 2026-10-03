@@ -531,7 +531,26 @@ def frozen_symbol_tool_launch(provenance: dict):
     try:
         Path(temporary.name).chmod(0o700)
         original_descriptor = os.open(tool, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
-        with os.fdopen(original_descriptor, "rb", buffering=0) as source:
+        try:
+            source = os.fdopen(original_descriptor, "rb", buffering=0)
+        except BaseException as adoption_error:
+            # The raw descriptor remains ours until fdopen returns its owner.
+            # Wrapper construction can fail even after os.open succeeded.
+            try:
+                close_symbol_descriptor(original_descriptor)
+            except OSError as close_error:
+                # One attempt only: Linux can release the FD before EINTR.
+                # Keep allocation failures and cancellation as the first cause.
+                try:
+                    number = close_error.errno if isinstance(close_error.errno, int) else None
+                    detail = close_error.strerror
+                    detail = detail[:256] if isinstance(detail, str) else "unavailable"
+                    BaseException.add_note(adoption_error,
+                        f"secondary LLVM symbol reader original adoption close failure: errno={number}; {detail}")
+                except BaseException:
+                    pass
+            raise
+        with source:
             before = os.fstat(source.fileno())
             if not stat.S_ISREG(before.st_mode):
                 raise RuntimeError("pinned LLVM symbol reader must be a regular ELF image")
