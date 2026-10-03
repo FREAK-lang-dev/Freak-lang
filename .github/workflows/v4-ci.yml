@@ -133,6 +133,43 @@ jobs:
           --smoke extern_literal_syntax
           --smoke extern_return
 
+  v4-runtime-helpers:
+    name: V4 native runtime helpers (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Clang (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm -y
+
+      - name: Owned UTF-8 word runtime portability and ownership audits
+        run: python -B -u tests/v4_word_runtime.py --plain
+
+      - name: Checked numeric helpers at O0, O2 and O3
+        run: python -B -u tests/v4_numeric_runtime.py
+
+      - name: Owned word AddressSanitizer and UndefinedBehaviorSanitizer gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_word_runtime.py
+
+      - name: Checked numeric UndefinedBehaviorSanitizer gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_numeric_runtime.py --optimization 2 --sanitize
+
   v4-benchmark:
     name: V4 benchmark instrumentation
     runs-on: ubuntu-latest
