@@ -1,0 +1,154 @@
+-- All independent native failure cases are selected into one source per process.
+task v4_checked_numeric_native_source(case_id: int) -> word {
+    if case_id == 0 { give back "\ntask main() -> int " + "{" + " pilot left=9223372036854775807; pilot right=1; left + right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 1 { give back "\ntask main() -> int " + "{" + " pilot left=-9223372036854775808; pilot right=1; left - right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 2 { give back "\ntask main() -> int " + "{" + " pilot left=9223372036854775807; pilot right=2; left * right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 3 { give back "\ntask main() -> int " + "{" + " pilot value=-9223372036854775808; -value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 4 { give back "\ntask main() -> int " + "{" + " pilot left=1; pilot right=0; left / right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 5 { give back "\ntask main() -> int " + "{" + " pilot left=1; pilot right=0; left % right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 6 { give back "\ntask main() -> int " + "{" + " pilot left=-9223372036854775808; pilot right=-1; left / right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 7 { give back "\ntask main() -> int " + "{" + " pilot left=-9223372036854775808; pilot right=-1; left % right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 8 { give back "\ntask main() -> int " + "{" + " pilot left=18446744073709551615u; pilot right=1u; left + right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 9 { give back "\ntask main() -> int " + "{" + " pilot left=0u; pilot right=1u; left - right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 10 { give back "\ntask main() -> int " + "{" + " pilot left=18446744073709551615u; pilot right=2u; left * right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 11 { give back "\ntask main() -> int " + "{" + " pilot value=1u; -value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 12 { give back "\ntask main() -> int " + "{" + " pilot left=1u; pilot right=0u; left / right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 13 { give back "\ntask main() -> int " + "{" + " pilot left=1u; pilot right=0u; left % right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 14 { give back "\ntask main() -> int " + "{" + " pilot left=255t; pilot right=1t; left + right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 15 { give back "\ntask main() -> int " + "{" + " pilot left=0t; pilot right=1t; left - right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 16 { give back "\ntask main() -> int " + "{" + " pilot left=255t; pilot right=2t; left * right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 17 { give back "\ntask main() -> int " + "{" + " pilot value=1t; -value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 18 { give back "\ntask main() -> int " + "{" + " pilot left=1t; pilot right=0t; left / right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 19 { give back "\ntask main() -> int " + "{" + " pilot left=1t; pilot right=0t; left % right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 20 { give back "\ntask main() -> int " + "{" + " pilot value: int = -1; pilot converted: uint = value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 21 { give back "\ntask main() -> int " + "{" + " pilot value: int = 256; pilot converted: tiny = value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 22 { give back "\ntask main() -> int " + "{" + " pilot value: uint = 9223372036854775808u; pilot converted: int = value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 23 { give back "\ntask main() -> int " + "{" + " pilot value: uint = 256u; pilot converted: tiny = value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 24 { give back "\ntask main() -> int " + "{" + " pilot value: num = 9223372036854775808.0; pilot converted: int = value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 25 { give back "\ntask main() -> int " + "{" + " pilot value: num = 18446744073709551616.0; pilot converted: uint = value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 26 { give back "\ntask main() -> int " + "{" + " pilot value: num = 256.0; pilot converted: tiny = value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 27 { give back "\ntask main() -> int " + "{" + " pilot zero: num=0.0; pilot value: num=zero / zero; pilot converted: int=value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 28 { give back "\ntask main() -> int " + "{" + " pilot zero: num=0.0; pilot value: num=1.0 / zero; pilot converted: uint=value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 29 { give back "\ntask main() -> int " + "{" + " pilot zero: num=0.0; pilot value: num=-1.0 / zero; pilot converted: tiny=value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 30 { give back "\ntask main() -> int " + "{" + " pilot value: float32=9223372036854775808.0; pilot converted: int=value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 31 { give back "\ntask main() -> int " + "{" + " pilot value: float32=256.0; pilot converted: tiny=value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 32 { give back "\ntask main() -> int " + "{" + " pilot zero: float32=0.0; pilot value: float32=zero / zero; pilot converted: uint=value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 33 { give back "task numeric_case_int(value: int) -> int " + "{" + " give back value " + "}" + "\n\n\ntask main() -> int " + "{" + " pilot value: num=9223372036854775808.0; numeric_case_int(value);\n give back 0 " + "}" + "\n\n" }
+    if case_id == 34 { give back "task numeric_case_return(value: num) -> int " + "{" + " give back value " + "}" + "\n\n\ntask main() -> int " + "{" + " numeric_case_return(9223372036854775808.0);\n give back 0 " + "}" + "\n\n" }
+    if case_id == 35 { give back "\ntask main() -> int " + "{" + " pilot mut result_value: int=0; pilot value: num=9223372036854775808.0; result_value = value;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 36 { give back "\ntask main() -> int " + "{" + " pilot left=1; pilot right=9223372036854775808u; left + right;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 37 { give back "task numeric_case_int(value: int) -> int " + "{" + " give back value " + "}" + "\n\ntask numeric_case_indirect(callback: task(value: int) -> int, value: num) -> int " + "{" + " give back callback(value) " + "}" + "\n\n\ntask main() -> int " + "{" + " numeric_case_indirect(numeric_case_int,9223372036854775808.0);\n give back 0 " + "}" + "\n\n" }
+    if case_id == 38 { give back "extern [C] " + "{" + " task numeric_case_storage() -> *mut tiny " + "}" + "\n\n\ntask main() -> int " + "{" + " pilot pointer=numeric_case_storage(); pilot value: num=256.0; trust me \"checked store\" on my honor as .ace " + "{" + " pointer.write(value); " + "}" + "\n\n give back 0 " + "}" + "\n\n" }
+    if case_id == 39 { give back "extern [C] " + "{" + " task numeric_case_storage() -> *mut tiny " + "}" + "\n\n\ntask main() -> int " + "{" + " pilot pointer=numeric_case_storage(); pilot value: num=256.0; trust me \"checked store\" on my honor as .ace " + "{" + " *pointer = value; " + "}" + "\n\n give back 0 " + "}" + "\n\n" }
+    if case_id == 40 { give back "\ntask main() -> int " + "{" + " pilot zero: num=0.0; pilot nan=zero / zero; if nan != nan " + "{" + " give back 0 " + "}" + "\n give back 1;\n give back 0 " + "}" + "\n\n" }
+    if case_id == 41 { give back "\ntask main() -> int " + "{" + " pilot zero: num=0.0; pilot negative=-zero; if 1.0 / negative > 0.0 " + "{" + " give back 1 " + "}" + "\n\n give back 0 " + "}" + "\n\n" }
+    if case_id == 42 { give back "\ntask main() -> int " + "{" + " pilot zero: float32=0.0; pilot negative=-zero; if 1.0 / negative > 0.0 " + "{" + " give back 1 " + "}" + "\n\n give back 0 " + "}" + "\n\n" }
+    if case_id == 43 { give back "\ntask main() -> int " + "{" + " pilot value: num=-9223372036854775808.0; pilot converted: int=value; if converted != -9223372036854775808 " + "{" + " give back 1 " + "}" + "\n\n give back 0 " + "}" + "\n\n" }
+    if case_id == 44 { give back "\ntask main() -> int " + "{" + " pilot value=18446744073709551615u; pilot byte=255t; if value <= 9223372036854775807u or byte != 255t " + "{" + " give back 1 " + "}" + "\n\n give back 0 " + "}" + "\n\n" }
+    if case_id == 45 { give back "\ntask main() -> int " + "{" + " pilot fractional: float32=0.1; pilot integer: int=fractional; if integer != 0 " + "{" + " give back 1 " + "}" + "\n\n give back 0 " + "}" + "\n\n" }
+    if case_id == 46 { give back "\ntask main() -> int " + "{" + " pilot fractional: float32=16777217; pilot integer: int=fractional; if integer != 16777216 " + "{" + " give back 1 " + "}" + "\n\n give back 0 " + "}" + "\n\n" }
+    panic("unknown checked numeric native case")
+}
+
+task v4_checked_numeric_native_stderr(case_id: int) -> word {
+    if case_id == 0 { give back "FREAK V4: int addition overflow\n" }
+    if case_id == 1 { give back "FREAK V4: int subtraction overflow\n" }
+    if case_id == 2 { give back "FREAK V4: int multiplication overflow\n" }
+    if case_id == 3 { give back "FREAK V4: int negation overflow\n" }
+    if case_id == 4 { give back "FREAK V4: int division by zero\n" }
+    if case_id == 5 { give back "FREAK V4: int remainder by zero\n" }
+    if case_id == 6 { give back "FREAK V4: int division overflow\n" }
+    if case_id == 7 { give back "FREAK V4: int remainder overflow\n" }
+    if case_id == 8 { give back "FREAK V4: uint addition overflow\n" }
+    if case_id == 9 { give back "FREAK V4: uint subtraction underflow\n" }
+    if case_id == 10 { give back "FREAK V4: uint multiplication overflow\n" }
+    if case_id == 11 { give back "FREAK V4: uint negation underflow\n" }
+    if case_id == 12 { give back "FREAK V4: uint division by zero\n" }
+    if case_id == 13 { give back "FREAK V4: uint remainder by zero\n" }
+    if case_id == 14 { give back "FREAK V4: tiny addition overflow\n" }
+    if case_id == 15 { give back "FREAK V4: tiny subtraction underflow\n" }
+    if case_id == 16 { give back "FREAK V4: tiny multiplication overflow\n" }
+    if case_id == 17 { give back "FREAK V4: tiny negation underflow\n" }
+    if case_id == 18 { give back "FREAK V4: tiny division by zero\n" }
+    if case_id == 19 { give back "FREAK V4: tiny remainder by zero\n" }
+    if case_id == 20 { give back "FREAK V4: int to uint conversion out of range\n" }
+    if case_id == 21 { give back "FREAK V4: int to tiny conversion out of range\n" }
+    if case_id == 22 { give back "FREAK V4: uint to int conversion out of range\n" }
+    if case_id == 23 { give back "FREAK V4: uint to tiny conversion out of range\n" }
+    if case_id == 24 { give back "FREAK V4: num to int conversion out of range\n" }
+    if case_id == 25 { give back "FREAK V4: num to uint conversion out of range\n" }
+    if case_id == 26 { give back "FREAK V4: num to tiny conversion out of range\n" }
+    if case_id == 27 { give back "FREAK V4: num to int conversion out of range\n" }
+    if case_id == 28 { give back "FREAK V4: num to uint conversion out of range\n" }
+    if case_id == 29 { give back "FREAK V4: num to tiny conversion out of range\n" }
+    if case_id == 30 { give back "FREAK V4: num to int conversion out of range\n" }
+    if case_id == 31 { give back "FREAK V4: num to tiny conversion out of range\n" }
+    if case_id == 32 { give back "FREAK V4: num to uint conversion out of range\n" }
+    if case_id == 33 { give back "FREAK V4: num to int conversion out of range\n" }
+    if case_id == 34 { give back "FREAK V4: num to int conversion out of range\n" }
+    if case_id == 35 { give back "FREAK V4: num to int conversion out of range\n" }
+    if case_id == 36 { give back "FREAK V4: uint to int conversion out of range\n" }
+    if case_id == 37 { give back "FREAK V4: num to int conversion out of range\n" }
+    if case_id == 38 { give back "FREAK V4: num to tiny conversion out of range\n" }
+    if case_id == 39 { give back "FREAK V4: num to tiny conversion out of range\n" }
+    give back ""
+}
+
+-- One program per process. The native harness checks exact exit/stdout/stderr
+-- at O0/O2/O3; small contract programs own snapshot restoration separately.
+task v4_checked_numeric_execute_run() -> void {
+    pilot source = ""
+    pilot target_arg = 2
+    if process::arg(1) == "--case" {
+        source = v4_checked_numeric_native_source(word_to_int(process::arg(2)))
+        target_arg = 3
+    } else { source = fs::read(process::arg(1)) }
+    say_err("checked-numeric-phase=lex")
+    pilot stream = v4_lex_text(0, source)
+    say_err("checked-numeric-phase=parse")
+    pilot tree = v4_parse_stream(0, stream)
+    say_err("checked-numeric-phase=hir")
+    pilot hir = v4_hir_lower_tree(0, tree)
+    say_err("checked-numeric-phase=resolve")
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    say_err("checked-numeric-phase=ty")
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    say_err("checked-numeric-phase=mir")
+    pilot mir = v4_mir_lower_ty(0, ty)
+    say_err("checked-numeric-phase=codegen")
+    pilot codegen = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_codegen_llvm_diag_count(codegen)
+    say "checked-numeric-diag=" + word_from_int(total)
+    say "checked-numeric-body-count=" + word_from_int(v4_mir_body_count(mir))
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        say "checked-numeric-body-" + word_from_int(body) + "=" + v4_mir_body_name(mir, body) + " rvalues=" + word_from_int(v4_mir_body_rvalue_count(mir, body)) + " statements=" + word_from_int(v4_mir_body_stmt_count(mir, body)) + " locals=" + word_from_int(v4_mir_body_local_count(mir, body))
+        body += 1
+    }
+    pilot diag = 0
+    repeat until diag >= v4_ty_diag_count(ty) { say v4_ty_diag(ty, diag); diag += 1 }
+    diag = 0
+    repeat until diag >= v4_mir_diag_count(mir) { say v4_mir_diag(mir, diag); diag += 1 }
+    say "checked-numeric-error=" + v4_codegen_llvm_native_module_error(codegen)
+    say_err("checked-numeric-phase=module")
+    pilot target = v4_target_spec_new(process::arg(target_arg))
+    pilot module = v4_codegen_llvm_module_text(codegen, target)
+    if process::args_count() > target_arg + 1 and process::arg(target_arg + 1) == "--snapshot" {
+        say_err("checked-numeric-phase=snapshot-build")
+        pilot snapshot = v4_mir_snapshot()
+        say "checked-numeric-snapshot-bytes=" + word_from_int(snapshot.length())
+        if process::args_count() > target_arg + 2 { fs::write(process::arg(target_arg + 2), snapshot) }
+        say_err("checked-numeric-phase=snapshot-validate")
+        say "checked-numeric-snapshot-valid=" + word_from_bool(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"))
+        say_err("checked-numeric-phase=snapshot-restore")
+        say "checked-numeric-snapshot-restored=" + word_from_bool(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"))
+        say_err("checked-numeric-phase=snapshot-done")
+    }
+    say "checked-numeric-module-nonempty=" + word_from_bool(module != "")
+    say "@@LLVM-MODULE-BEGIN"
+    say module
+    say "@@LLVM-MODULE-END"
+    say_err("checked-numeric-phase=done")
+}
+
+v4_checked_numeric_execute_run()
