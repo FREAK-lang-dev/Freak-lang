@@ -61,19 +61,36 @@ The integration harness now executes the three owned-word fixture groups as
 MIR restoration/sealed-module/native outputs. Six runtime objects and all 12
 source/header inputs are frozen, hashed and collision-checked by the benchmark;
 its ten regressions and a real one-task LLVM link/execute pass. These are
-integration checkpoints, not preview completion. Numeric codegen, allocation
-failure and hostile MIR controls still have active fixes. A 13-task snapshot
-restore failure is tracked in [#139](https://github.com/FREAK-lang-dev/Freak-lang/issues/139):
-duplicate raw-body allocation and unchecked handle exhaustion require an
-atomic admission/retirement repair before broader validation.
+integration checkpoints, not preview completion. The reviewed numeric emitter
+`1b8e221` and repository driver `13a0991` now pass 141 compiler contracts,
+147 native executions at O0/O2/O3 and eight real sanitizer/audit capability
+controls. The registered numeric/restore gate adds 61 process-isolated cases
+at the original limits. The long-body checked-helper fixture passes at
+84.8 MiB against 128 MiB.
 
-Broader native words require ownership and borrowed
-intrinsic contracts together with cleanup before adding interpolation.
+The repair for [#139](https://github.com/FREAK-lang-dev/Freak-lang/issues/139)
+is implemented in reviewed `80520d5`: checked transactional admission precedes
+retirement, repeated 13-body restores conserve handles, and malformed/pressure
+failures preserve retained raw facts and sealed modules. The original numeric
+snapshot now restores and produces an identical fresh module at 64 MiB and
+1,024 handles. The issue remains open pending delivery and broader integration.
+
+Interpolation's reviewed `67598fe` milestone has packed HIR v11 plans, targeted
+component diagnostics and exact NUL/UTF-8 native output at O0/O2 with sanitizers
+and both audits. Editor and dedicated resource/query controls are still active,
+and native aggregate fields remain fenced. A cold query-initialization allocation
+failure in the component-restore facade is being repaired before readiness.
+The explicit panic-abort runtime has private native byte/borrow controls;
+compiler mode/never/CFG wiring and default unwinding remain pending.
+
+Broader native words retain the owned/borrowed contracts and cleanup described
+in the V4 README.
 Unicode character indexing follows the bible. Root initialization is planned
 as an explicit bootstrap compatibility mode with strict language mode as the default.
 The maintainer selected checked native integer arithmetic at every optimization
-level: overflow and division by zero must report runtime errors. Implementation
-and executable boundary coverage remain required before that row is checked.
+level: overflow and division by zero report runtime errors. Checked arithmetic
+and conversion native boundaries are covered; the combined row remains open
+for the remaining bounds and complete compiler/platform integration gates.
 
 `docs/bootstrap-map.md` distinguishes V3 parity from its broader A–F
 bible-conformance sequence. Concurrency and advanced features that V3 never

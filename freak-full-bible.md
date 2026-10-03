@@ -601,7 +601,7 @@ Rules:
 > ordered cases, payload presence, and payload-field names, surface types, and
 > exact spans. TY and editor declaration readers consume these stored facts;
 > generic substitution, alias canonicalization, and recovery behavior are
-> unchanged. HIR v10 snapshots validate complete owner/case/field records before
+> unchanged. HIR v11 snapshots validate complete owner/case/field records before
 > atomic restore. Discriminant token ranges come from stored HIR case spans;
 > evaluation and constructor/pattern syntax remain
 > separately syntax-facing. This ownership change does not define a new layout
@@ -3045,7 +3045,7 @@ Rules:
 
 > V4 ownership status: declared extern-member return surface types and exact
 > spans are stored in HIR and consumed by direct and synthetic TY signatures,
-> diagnostics and editor displays. HIR v10 snapshots validate complete ordered
+> diagnostics and editor displays. HIR v11 snapshots validate complete ordered
 > extern-return owner/member facts before atomic restoration. Missing returns
 > remain unknown; the existing arrow-expression recovery is explicitly gated
 > by its stored HIR flag. Optional semicolon separators terminate extern-member

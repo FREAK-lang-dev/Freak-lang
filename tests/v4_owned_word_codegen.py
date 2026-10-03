@@ -26,6 +26,7 @@ EXPECTED = {
     "owned_words.fk": "café 🐱\ncafé 🐱\ncafé 🐱!\ncafé 🐱!!\ncafé 🐱\n\nA\0B\n-42\ntrue\n12.5\n",
     "owned_word_scopes.fk": "shadow\ninner\nsurvivor\nreplacement\ndefault return cleanup\n",
     "owned_word_return_temporary.fk": "first\nsecond\ntransfer\ntransfer\n",
+    "word_interpolation.fk": "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n",
 }
 
 

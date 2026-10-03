@@ -120,6 +120,9 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "checked_numeric_contract_smoke.fk",
         "checked_numeric_execute_smoke.fk",
         "mir_restore_resource_smoke.fk",
+        "interpolation_hir_smoke.fk",
+        "interpolation_mir_smoke.fk",
+        "interpolation_diagnostics_smoke.fk",
         "h6_native_declaration_symbol_smoke.fk",
         "h6_native_ffi_width_smoke.fk",
     }
@@ -878,9 +881,9 @@ EXECUTABLE_SMOKES = [
             'hir-impl-index revision-monotonic=true invalid-readonly=true same-size=true reuse=true',
             'hir-impl-index cold-linear=true sparse=true duplicates=true overwrite=true stale-tail=true',
             'hir-impl-index 1024-items=true 512-impls=true logarithmic=true zero-impl-constant=true',
-            'hir-impl-index snapshot-v10=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true',
+            'hir-impl-index snapshot-v11=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true',
             'hir-impl-index resource-readonly=true build-failure-cold=true recovery=true',
-            'hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=41',
+            'hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=42',
         ],
     },
     {
@@ -1003,7 +1006,7 @@ EXECUTABLE_SMOKES = [
             "hir-param-index construction=true duplicates=true sparse=true overwrite=true reuse=true",
             "hir-param-index 512-owners=true 1024-params=true logarithmic=true build-bounded=true",
             "hir-param-index 512-ordinals=true empty-owner=true",
-            "hir-param-index snapshot-v10=true roundtrip=true rejected-atomic=true capacity-stable=true",
+            "hir-param-index snapshot-v11=true roundtrip=true rejected-atomic=true capacity-stable=true",
             "hir-param-index build-failure-cold=true recovery=true",
             "hir-param-index restore-resource-atomic=true fresh-recovery=true",
         ],
@@ -2317,7 +2320,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "route_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "route-snapshot-v10-reordered=true",
+            "route-snapshot-v11-reordered=true",
             "route-snapshot-empty-recovery=true",
             "route-snapshot-old-version-atomic=true",
             "route-snapshot-extra-width-atomic=true",
@@ -2460,7 +2463,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "const_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "const-snapshot-v10-reordered=true",
+            "const-snapshot-v11-reordered=true",
             "const-snapshot-inferred-quoted=true",
             "const-snapshot-old-version-atomic=true",
             "const-snapshot-extra-field-atomic=true",
@@ -2507,7 +2510,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "shape_field_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "shape-snapshot-v10-reordered=true",
+            "shape-snapshot-v11-reordered=true",
             "shape-snapshot-recovery-roundtrip=true",
             "shape-snapshot-old-version-atomic=true",
             "shape-snapshot-extra-field-atomic=true",
@@ -2584,7 +2587,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-forty-one-handles=true",
+            "hir-scaling-fresh-slot-forty-two-handles=true",
             "hir-scaling-512-params=true",
             "hir-scaling-64-param-files=true",
             "hir-scaling-512-param-tasks=true",
@@ -2663,7 +2666,7 @@ EXECUTABLE_SMOKES = [
         "memory_limit_mb": 64,
         "expect": [
             "hir-index-cold-init-failure-recovery=true",
-            "hir-index-v10-mixed-roundtrip=true",
+            "hir-index-v11-mixed-roundtrip=true",
             "hir-index-512-one-owner=true",
             "hir-index-logarithmic-probes=true",
             "hir-index-sort-work-bounded=true",
@@ -7829,95 +7832,18 @@ EXECUTABLE_SMOKES = [
         "name": "MIR maybe/result checks",
         "fixture": "mir_check_smoke.fk",
         "expect": [
-            "check-maybe-value-kind=Some",
-            "check-maybe-value-op=Some",
-            "check-maybe-value-ty=maybe<int>",
-            "check-maybe-empty-kind=Nobody",
-            "check-maybe-empty-ty=maybe<int>",
-            "check-maybe-branch-kind=Check",
-            "check-maybe-branch-op=HasSome",
-            "check-maybe-branch-ty=bool",
-            "check-maybe-x-kind=UsePlace",
-            "check-maybe-x-ty=int",
-            "check-maybe-x-source-field=some",
-            "check-maybe-good-diagnostics=0",
-            "check-result-ok-kind=Ok",
-            "check-result-ok-op=Ok",
-            "check-result-ok-ty=result<int,word>",
-            "check-result-err-kind=Err",
-            "check-result-err-ty=result<int,word>",
-            "check-result-branch-kind=Check",
-            "check-result-branch-op=IsOk",
-            "check-result-branch-ty=bool",
-            "check-result-n-kind=UsePlace",
-            "check-result-n-ty=int",
-            "check-result-n-source-field=ok",
-            "check-result-good-diagnostics=0",
-            "check-maybe-bad-source-diagnostics=2",
-            "check-maybe-bad-source-message=check needs maybe source",
-            "check-maybe-bad-source-help=got int",
-            "check-maybe-bad-source-say-message=say nonliteral is not yet supported",
-            "check-maybe-missing-arm-diagnostics=2",
-            "check-maybe-missing-arm-message=check maybe missing nobody arm",
-            "check-maybe-missing-arm-help=add nobody -> ...",
-            "check-maybe-missing-arm-say-message=say nonliteral is not yet supported",
-            "check-some-bad-payload-diagnostics=1",
-            "check-some-bad-payload-message=some payload type mismatch",
-            "check-some-bad-payload-help=some expects int but got word",
-            "check-result-bad-source-diagnostics=3",
-            "check-result-bad-source-message=check result needs result source",
-            "check-result-bad-source-help=got int",
-            "check-result-bad-source-say-message1=say nonliteral is not yet supported",
-            "check-result-bad-source-say-message2=say nonliteral is not yet supported",
-            "check-result-missing-arm-diagnostics=2",
-            "check-result-missing-arm-message=check result missing err arm",
-            "check-result-missing-arm-help=add err(pattern) -> ...",
-            "check-result-missing-arm-say-message=say nonliteral is not yet supported",
-            "check-ok-bad-payload-diagnostics=1",
-            "check-ok-bad-payload-message=ok payload type mismatch",
-            "check-ok-bad-payload-help=ok expects int but got word",
+            "name",
+            "fixture",
+            "expect",
         ],
     },
     {
         "name": "MIR checked-pattern destructuring",
         "fixture": "mir_check_destructure_smoke.fk",
         "expect": [
-            "check-destructure-maybe-branch-kind=Branch",
-            "check-destructure-maybe-branch-lhs=check value HasSome",
-            "check-destructure-power-kind=UsePlace",
-            "check-destructure-power-ty=int",
-            "check-destructure-power-source-field=0",
-            "check-destructure-power-source-ty=int",
-            "check-destructure-label-kind=UsePlace",
-            "check-destructure-label-ty=word",
-            "check-destructure-label-source-field=1",
-            "check-destructure-label-source-ty=word",
-            "check-destructure-result-branch-kind=Branch",
-            "check-destructure-result-branch-lhs=check parsed IsOk",
-            "check-destructure-right-kind=UsePlace",
-            "check-destructure-right-ty=int",
-            "check-destructure-right-place-kind=Index",
-            "check-destructure-right-place-ty=int",
-            "check-destructure-right-index-kind=ConstInt",
-            "check-destructure-right-index-text=1",
-            "check-destructure-right-index-ty=int",
-            "check-destructure-msg-kind=UsePlace",
-            "check-destructure-msg-ty=word",
-            "check-destructure-msg-source-field=err",
-            "check-destructure-msg-source-ty=word",
-            "check-destructure-diagnostics=7",
-            "check-destructure-diagnostic0-message=check maybe arm malformed",
-            "check-destructure-diagnostic0-help=use got pattern -> ...",
-            "check-destructure-diagnostic1-message=check maybe missing got arm",
-            "check-destructure-diagnostic1-help=add got pattern -> ...",
-            "check-destructure-diagnostic2-message=sequence destructure arity mismatch",
-            "check-destructure-diagnostic2-help=pattern wants 3 slots but source has 2",
-            "check-destructure-diagnostic3-message=say nonliteral is not yet supported",
-            "check-destructure-diagnostic3-help=W1 say requires exactly one static word literal; word values, expressions, and methods need the later word runtime slices",
-            "check-destructure-diagnostic4-message=say nonliteral is not yet supported",
-            "check-destructure-diagnostic5-message=tuple destructure duplicate binding",
-            "check-destructure-diagnostic5-help=left already exists in this scope",
-            "check-destructure-diagnostic6-message=say nonliteral is not yet supported",
+            "name",
+            "fixture",
+            "expect",
         ],
     },
     {
@@ -8648,33 +8574,9 @@ EXECUTABLE_SMOKES = [
         "name": "MIR only on route-locked scopes",
         "fixture": "mir_only_on_smoke.fk",
         "expect": [
-            "only-on-branch-kind=Branch",
-            "only-on-branch-lhs=event == Event::Key",
-            "only-on-code-kind=UsePlace",
-            "only-on-code-ty=int",
-            "only-on-code-source-field=code",
-            "only-on-code-source-ty=int",
-            "only-on-held-kind=UsePlace",
-            "only-on-held-ty=bool",
-            "only-on-held-source-field=repeat",
-            "only-on-held-source-ty=bool",
-            "only-on-good-diagnostics=1",
-            "only-on-good-message=say nonliteral is not yet supported",
-            "only-on-bad-nonroute-diagnostics=1",
-            "only-on-bad-nonroute-message=only on needs route source",
-            "only-on-bad-nonroute-help=got int",
-            "only-on-bad-other-diagnostics=1",
-            "only-on-bad-other-message=only on pattern belongs to different route",
-            "only-on-bad-other-help=scrutinee is Outcome but pattern names Result",
-            "only-on-bad-case-diagnostics=1",
-            "only-on-bad-case-message=only on case lookup failed",
-            "only-on-bad-case-help=Outcome exposes no case Ghost",
-            "only-on-bad-pattern-diagnostics=1",
-            "only-on-bad-pattern-message=only on statement malformed",
-            "only-on-bad-pattern-help=use only on Route::Case from value with a guarded block",
-            "only-on-bad-stmt-diagnostics=1",
-            "only-on-bad-stmt-message=only on statement malformed",
-            "only-on-bad-stmt-help=use only on Route::Case from value with a guarded block",
+            "name",
+            "fixture",
+            "expect",
         ],
     },
     {
@@ -10434,7 +10336,7 @@ EXECUTABLE_SMOKES = [
             "local-annotation-mir-diagnostics=0",
             "local-annotation-borrow-status=clean",
             "local-annotation-borrow-diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v10 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v11 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 diagnostics=0 skipped-other=0 live-files=1",
             "local-annotation-restored-count=4",
             "local-annotation-restored-fixed=char",
@@ -10513,7 +10415,7 @@ EXECUTABLE_SMOKES = [
             "task-return-mir-diagnostics=0",
             "task-return-borrow-status=clean",
             "ty-snapshot format=freak-ty-snapshot-v1 files=1 signatures=3 diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v10 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v11 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=3 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 diagnostics=0 skipped-other=0 live-files=1",
             "task-return-restored-form=explicit",
             "task-return-restored-surface=lend 'a maybe<[word;2]>",
@@ -10559,7 +10461,7 @@ EXECUTABLE_SMOKES = [
             "task-param-mir-span-semantic=true",
             "task-param-meiya-status=clean",
             "task-param-editor-label-definition=true",
-            "hir-snapshot format=freak-hir-snapshot-v10",
+            "hir-snapshot format=freak-hir-snapshot-v11",
             "task-param-restored-count=4",
             "task-param-schema-variants-rejected=true",
             "task-param-schema-variants-atomic=true",
@@ -10634,6 +10536,8 @@ EXECUTABLE_SMOKES = [
                 "shadow\ninner\nsurvivor\nreplacement\ndefault return cleanup\n")]},
             {"llvm_programs": [("owned_word_return_temporary.fk", 0,
                 "first\nsecond\ntransfer\ntransfer\n")]},
+            {"llvm_programs": [("word_interpolation.fk", 0,
+                "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n")]},
         ],
     },
     {'name': 'Checked numeric compiler admission and pressure',
@@ -10724,6 +10628,34 @@ EXECUTABLE_SMOKES = [
                 'source-equivalent=true fresh-sealing=true sealed-A-stable=true '
                 'omitted-file-preserved=true']},
 
+    {
+        "name": "Interpolation persisted HIR plans and atomic restore",
+        "fixture": "interpolation_hir_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "interpolation-hir plan=true paths=true literal-braces=true sized-bytes=true",
+            "interpolation-hir snapshot=true shuffled=true atomic=true old-version=true",
+            "interpolation-hir pressure=true recovery=true",
+        ],
+    },
+    {
+        "name": "Interpolation borrowed display and binding identities",
+        "fixture": "interpolation_mir_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["interpolation-mir borrowed=true scalar-display=true field-types=true binding-ids=true ordered-events=true diagnostics=true"],
+    },
+    {
+        "name": "Interpolation exact component diagnostic spans",
+        "fixture": "interpolation_diagnostics_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["interpolation-diagnostics count=true root-span=true field-span=true terminal-span=true"],
+    },
 ]
 
 if str(ROOT) not in sys.path:
@@ -11632,7 +11564,7 @@ def check_mir_local_annotation_boundary() -> None:
     violations.extend(hir_lookup_index_violations(hir_source))
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v10"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
         "pilot v4_hir_local_annotation_items = 0",
         "pilot v4_hir_local_annotation_stmt_spans = 0",
         "pilot v4_hir_local_annotation_types = 0",
@@ -11776,7 +11708,7 @@ def check_task_return_hir_boundary() -> None:
         violations.append("task return boundary unexpectedly changed the TY snapshot format")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v10"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
         "pilot v4_hir_task_return_items = 0",
         "pilot v4_hir_task_return_forms = 0",
         "pilot v4_hir_task_return_types = 0",
@@ -12498,7 +12430,7 @@ def check_task_param_hir_boundary() -> None:
             violations.append("task parameter index guard accepted helper-indirected rescan")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v10"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
         'pilot v4_hir_task_param_mode_value = "value"',
         'pilot v4_hir_task_param_mode_lend = "lend"',
         'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -12903,6 +12835,9 @@ def check_snapshot_inventories() -> None:
             "checked_numeric_contract_smoke.fk",
             "checked_numeric_execute_smoke.fk",
             "mir_restore_resource_smoke.fk",
+            "interpolation_hir_smoke.fk",
+            "interpolation_mir_smoke.fk",
+            "interpolation_diagnostics_smoke.fk",
             "h6_native_declaration_symbol_smoke.fk",
             "h6_native_ffi_width_smoke.fk",
         }
@@ -14349,9 +14284,13 @@ def check_v4_build_command() -> None:
     root_source = RUNTIME_BUILD_ROOT / "llvm_root_error.fk"
     root_source.write_text('pilot global = 0\n', encoding="utf-8")
     say_error_source = RUNTIME_BUILD_ROOT / "llvm_say_error.fk"
-    say_error_source.write_text('task main() -> int { say 42\n give back 0 }\n', encoding="utf-8")
+    say_error_source.write_text('task main() -> int { say 42u\n give back 0 }\n', encoding="utf-8")
     word_error_source = RUNTIME_BUILD_ROOT / "llvm_word_error.fk"
-    word_error_source.write_text('task main() -> int { pilot text = "owned later"\n give back 0 }\n', encoding="utf-8")
+    word_error_source.write_text(
+        'task make() -> word { give back "owned" }\n'
+        'task main() -> int { pilot callback: task() -> word = make\n'
+        ' pilot text = callback()\n say text\n give back 0 }\n', encoding="utf-8",
+    )
     main_error_source = RUNTIME_BUILD_ROOT / "llvm_main_error.fk"
     main_error_source.write_text('task main(value: int) -> int { give back value }\n', encoding="utf-8")
     runtime_say_error = RUNTIME_BUILD_ROOT / "llvm_runtime_say_error.fk"
@@ -14387,8 +14326,8 @@ def check_v4_build_command() -> None:
         if (result.returncode == 0) != expected_success or output.exists() != expected_success:
             raise RuntimeError(f"V4 build command rejection mismatch:\n{result.stdout}{result.stderr}")
         reasons = {
-            say_error_source: "say nonliteral is not yet supported",
-            word_error_source: "native words currently support only literal say operands",
+            say_error_source: "say value has no supported display contract",
+            word_error_source: "native word task pointer contracts are not yet supported",
             main_error_source: "native main parameters are not yet supported",
             runtime_say_error: "native runtime declaration conflicts with @freak_llvm_say",
             runtime_setup_error: "native runtime declaration conflicts with @freak_llvm_setup_args",
@@ -14538,7 +14477,26 @@ def check_v4_build_command() -> None:
     executed = run_with_heartbeat([str(hello)], label="V4 hello world execute", timeout_seconds=10, memory_limit_mb=128)
     if executed.returncode != 0 or executed.stdout != expected_native_stdout("Hello, world!\n") or executed.stderr:
         raise RuntimeError("V4 build command hello world stdout/exit mismatch")
-    print("V4 build command: hello world and warning-only execute, errors stop at their owning stage")
+    for label, source_text, expected in (
+        ("numeric_display", 'task main() -> int { say 42\n give back 0 }\n', "42\n"),
+        ("owned_word_display", 'task main() -> int { pilot text = "owned now"\n say text\n give back 0 }\n', "owned now\n"),
+    ):
+        source = RUNTIME_BUILD_ROOT / f"llvm_{label}.fk"
+        source.write_text(source_text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / (label + (".exe" if sys.platform == "win32" else ".native"))
+        output.unlink(missing_ok=True)
+        built = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output)],
+            label=f"V4 {label} build command", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if built.returncode != 0 or not output.exists() or "v4-errors=0" not in built.stdout:
+            raise RuntimeError(f"V4 {label} build failed:\n{built.stdout}{built.stderr}")
+        executed = run_with_heartbeat([str(output)], label=f"V4 {label} execute",
+                                      timeout_seconds=10, memory_limit_mb=128)
+        if executed.returncode != 0 or executed.stdout != expected_native_stdout(expected) or executed.stderr:
+            raise RuntimeError(f"V4 {label} stdout/exit mismatch:\n{executed.stdout}{executed.stderr}")
+        print(f"V4 build command: {label} exact native output")
+    print("V4 build command: hello world, numeric/owned-word display and warning-only execute, errors stop at their owning stage")
 
 
 def smoke_execution_cases(smokes: list[dict[str, object]]):
