@@ -274,13 +274,52 @@ def instrument(source: str) -> str:
     return source
 
 
+def symbol_file_provenance(path: Path) -> dict:
+    """Hash without retaining complete tools or object files in memory."""
+    metadata = {"name": path.name[:128]}
+    try:
+        metadata["size_bytes"] = path.stat().st_size
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            while chunk := stream.read(64 * 1024):
+                digest.update(chunk)
+        metadata["sha256"] = digest.hexdigest()
+    except OSError:
+        metadata["unavailable"] = True
+    return metadata
+
+
 def defined_symbols(build, path: Path, directory: Path, timeout: float) -> set[str]:
     nm = shutil.which("nm")
     if not nm:
         raise RuntimeError("nm is required for the native symbol collision check")
-    result = guarded_job(build, [nm, "-g", "--defined-only", str(path)],
-                         directory, "native symbol inventory", timeout, 128, 8)
-    require_success(result, "nm")
+    try:
+        result = guarded_job(build, [nm, "-g", "--defined-only", str(path)],
+                             directory, "native symbol inventory", timeout, 128, 8)
+        require_success(result, "nm")
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        # Failed test scratch directories are removed; retain attribution in
+        # the exception that the benchmark row and assertion context preserve.
+        tool = Path(nm)
+        try:
+            resolved_nm = str(tool.resolve())[:160]
+        except (OSError, RuntimeError):
+            resolved_nm = "unavailable"
+        provenance = {"requested_nm": str(tool)[:160], "resolved_nm": resolved_nm,
+                      "nm_file": symbol_file_provenance(tool), "object": symbol_file_provenance(path)}
+        try:
+            version = guarded_job(build, [nm, "--version"], directory / "tool-version",
+                                  "nm version diagnostic", min(timeout, 5), 128, 1)
+            require_success(version, "nm version diagnostic")
+            provenance["nm_version"] = version.stdout[:512]
+        except (OSError, RuntimeError, subprocess.TimeoutExpired):
+            provenance["nm_version"] = "unavailable within unchanged resource limits"
+        try:
+            save_json(directory / "provenance.json", provenance)
+        except OSError:
+            provenance["artifact_write_failed"] = True
+        raise RuntimeError(f"{error}\nsymbol-inventory-provenance="
+                           + json.dumps(provenance, ensure_ascii=True, separators=(",", ":"))) from error
     return {line.split()[-1] for line in result.stdout.splitlines() if len(line.split()) >= 2}
 
 
