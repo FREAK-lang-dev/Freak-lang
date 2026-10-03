@@ -289,31 +289,62 @@ def symbol_file_provenance(path: Path) -> dict:
     return metadata
 
 
-def defined_symbols(build, path: Path, directory: Path, timeout: float) -> set[str]:
-    nm = shutil.which("nm")
+def llvm_symbol_tool(build, directory: Path, timeout: float) -> dict:
+    """Require LLVM's reader instead of GNU nm's automatic plugin loading."""
+    nm = shutil.which("llvm-nm")
     if not nm:
-        raise RuntimeError("nm is required for the native symbol collision check")
+        raise RuntimeError("llvm-nm is required for native symbol collision checks; "
+                           "install LLVM tools (for example: apt-get install llvm) "
+                           "and put llvm-nm on PATH")
+    tool = Path(nm).resolve()
+    provenance = {"requested_nm": nm, "resolved_nm": str(tool),
+                  "nm_file": symbol_file_provenance(tool),
+                  "nm_version": "unavailable within unchanged resource limits"}
     try:
+        if "sha256" not in provenance["nm_file"]:
+            raise RuntimeError("cannot pin llvm-nm executable identity")
+        version = guarded_job(build, [str(tool), "--version"], directory / "tool-version",
+                              "LLVM symbol tool version", min(timeout, 5), 128, 1)
+        require_success(version, "llvm-nm version")
+        provenance["nm_version"] = version.stdout[:512]
+        if not (version.stdout.startswith("llvm-nm") and
+                re.search(r"(?m)^.*\bLLVM version \d", version.stdout)):
+            raise RuntimeError("selected llvm-nm does not report an LLVM symbol reader")
+        save_json(directory / "provenance.json", provenance)
+        return provenance
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        try:
+            save_json(directory / "provenance.json", provenance)
+        except OSError:
+            provenance["artifact_write_failed"] = True
+        raise RuntimeError(f"{error}\nsymbol-tool-provenance="
+                           + json.dumps(provenance, ensure_ascii=True, separators=(",", ":"))) from error
+
+
+def require_frozen_symbol_tool(provenance: dict) -> str:
+    tool = Path(provenance["resolved_nm"])
+    observed = symbol_file_provenance(tool)
+    expected = provenance["nm_file"]
+    if ("sha256" not in observed or observed["sha256"] != expected["sha256"]
+            or observed["size_bytes"] != expected["size_bytes"]):
+        raise RuntimeError("frozen LLVM symbol tool changed or became unavailable")
+    return str(tool)
+
+
+def defined_symbols(build, path: Path, directory: Path, timeout: float,
+                    *, symbol_tool: dict | None = None) -> set[str]:
+    provenance = {"object": symbol_file_provenance(path)}
+    try:
+        selected = symbol_tool or llvm_symbol_tool(build, directory / "tool-selection", timeout)
+        provenance.update(selected)
+        nm = require_frozen_symbol_tool(selected)
+        save_json(directory / "provenance.json", provenance)
         result = guarded_job(build, [nm, "-g", "--defined-only", str(path)],
                              directory, "native symbol inventory", timeout, 128, 8)
-        require_success(result, "nm")
+        require_success(result, "llvm-nm")
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
         # Failed test scratch directories are removed; retain attribution in
         # the exception that the benchmark row and assertion context preserve.
-        tool = Path(nm)
-        try:
-            resolved_nm = str(tool.resolve())[:160]
-        except (OSError, RuntimeError):
-            resolved_nm = "unavailable"
-        provenance = {"requested_nm": str(tool)[:160], "resolved_nm": resolved_nm,
-                      "nm_file": symbol_file_provenance(tool), "object": symbol_file_provenance(path)}
-        try:
-            version = guarded_job(build, [nm, "--version"], directory / "tool-version",
-                                  "nm version diagnostic", min(timeout, 5), 128, 1)
-            require_success(version, "nm version diagnostic")
-            provenance["nm_version"] = version.stdout[:512]
-        except (OSError, RuntimeError, subprocess.TimeoutExpired):
-            provenance["nm_version"] = "unavailable within unchanged resource limits"
         try:
             save_json(directory / "provenance.json", provenance)
         except OSError:
@@ -335,6 +366,7 @@ def build_tool(repo, work, profile, timeout, build):
     # Each invocation retains its compiler/runtime evidence independently.
     compiler_dir = work / "compiler" / str(time.time_ns())
     compiler_dir.mkdir(parents=True)
+    symbol_tool = llvm_symbol_tool(build, compiler_dir / "symbol-tool", timeout)
     # Bound the existing bootstrap's child compiler, without changing the
     # shared smoke harness or its O0 cache/flags.
     original_runner = build.checks.run_with_heartbeat
@@ -384,7 +416,8 @@ def build_tool(repo, work, profile, timeout, build):
                              f"native {name} build", timeout, 1024)
         require_success(result, name)
         runtime_objects.append(obj)
-    symbols = [defined_symbols(build, obj, compiler_dir / f"symbols-{obj.stem}", timeout)
+    symbols = [defined_symbols(build, obj, compiler_dir / f"symbols-{obj.stem}", timeout,
+                               symbol_tool=symbol_tool)
                for obj in runtime_objects]
     counts = {}
     for exported in symbols:
@@ -397,6 +430,7 @@ def build_tool(repo, work, profile, timeout, build):
                 "generated_c_sha256": sha256(frozen), "instrumented_c_sha256": sha256(measured),
                 "tool_sha256": sha256(tool), "tool": str(tool), "clang": clang,
                 "clang_version": version.stdout, "compiler_flags": flags, "profile": profile,
+                "symbol_tool": symbol_tool,
                 "runtime_hashes": {name: sha256(runtime / name) for name in
                     (*SOURCE_NAMES, *HEADER_NAMES)},
                 "runtime_objects": [str(obj) for obj in runtime_objects],
@@ -457,7 +491,8 @@ def check_program(build, manifest, directory, expect_exit, expect_out, timeout):
     result = guarded_job(build, [clang, "-w", "-O2", "-c", str(directory / "module.ll"),
                          "-o", str(obj)], directory / "native-compile", "LLVM native compile", timeout, 1024)
     require_success(result, "LLVM native compile")
-    symbols = defined_symbols(build, obj, directory / "native-symbols", timeout)
+    symbols = defined_symbols(build, obj, directory / "native-symbols", timeout,
+                              symbol_tool=manifest.get("symbol_tool"))
     collisions = sorted(symbols & set(manifest["runtime_symbols"]))
     save_json(directory / "symbol-collisions.json", collisions)
     if collisions:
