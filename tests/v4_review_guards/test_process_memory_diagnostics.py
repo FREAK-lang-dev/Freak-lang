@@ -184,7 +184,8 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                 process.kill = Mock(side_effect=lambda: events.append("kill"))
                 process.wait = Mock(side_effect=wait)
                 with patch.object(checks.ProcessTree, "spawn", return_value=tree), \
-                        patch.object(checks.os, "killpg", side_effect=kill_group) as killpg, \
+                        patch.object(checks.os, "killpg", side_effect=kill_group, create=True) as killpg, \
+                        patch.object(checks.signal, "SIGKILL", 9, create=True), \
                         patch.object(tree, "close", side_effect=lambda: events.append("close")) as close, \
                         patch.object(tree, "memory_diagnostics", side_effect=diagnostic) as capture, \
                         patch.object(target, attribute, side_effect=error) as fault, \
@@ -224,7 +225,8 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
         process.kill = Mock()
         with patch.object(checks.ProcessTree, "spawn", return_value=tree), \
                 patch.object(tree, "memory_bytes", side_effect=[0, 0, 0, 2 * 1024 * 1024]), \
-                patch.object(checks.os, "killpg", side_effect=kill_group) as killpg, \
+                patch.object(checks.os, "killpg", side_effect=kill_group, create=True) as killpg, \
+                patch.object(checks.signal, "SIGKILL", 9, create=True), \
                 patch.object(tree, "close", side_effect=lambda: events.append("close")) as close, \
                 patch.object(checks.json, "dumps", side_effect=TypeError("secret serialization payload")) as serialize, \
                 self.assertRaises(RuntimeError) as failure:
