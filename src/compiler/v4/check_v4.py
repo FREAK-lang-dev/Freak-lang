@@ -6923,7 +6923,7 @@ EXECUTABLE_SMOKES = [
             "store i64 %arg.0, ptr %local.0.addr",
             "%rv.0.0 = load i64, ptr %local.0.addr",
             "%rv.0.1 = load i64, ptr %local.0.addr",
-            "%rv.0.2 = add i64 %rv.0.0, %rv.0.1",
+            "%rv.0.2 = call i64 @freak_v4_int_add(i64 %rv.0.0, i64 %rv.0.1)",
             "ret i64 %rv.0.2",
             "codegen-llvm-main-body-symbol=@freak.user.main",
             "define ccc i64 @freak.user.main() {",
@@ -11346,7 +11346,11 @@ def check_smoke_inventory(fixtures: list[Path]) -> None:
 
     for smoke in EXECUTABLE_SMOKES:
         if smoke.get("expect_unique"):
-            registered = [*smoke["expect"], *smoke.get("expect_exact", [])]
+            # Pass immutable strings in a fresh list, preserving the literal
+            # manifest's container ownership through the static escape audit.
+            registered = [
+                line + "" for line in (*smoke["expect"], *smoke.get("expect_exact", []))
+            ]
             failures = unique_output_failures(registered, Counter(registered))
             if failures:
                 print(f"smoke inventory non-unique output contract: {smoke['fixture']}")
