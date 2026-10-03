@@ -18,9 +18,23 @@ import os
 from pathlib import Path
 import random
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+
+
+def assert_named_panic(result: subprocess.CompletedProcess[bytes], diagnostic: str,
+                       *, platform: str = sys.platform) -> None:
+    # POSIX abort must terminate with SIGABRT; Microsoft CRT abort exits 3.
+    # The probe suppresses Windows abort reporting. Exact output also rejects
+    # sanitizer reports, ownership audits and a crash after the diagnostic.
+    expected = (3 if platform == "win32" else -signal.SIGABRT,
+                b"", diagnostic.encode("ascii"))
+    actual = (result.returncode, result.stdout,
+              result.stderr.replace(b"\r\n", b"\n"))
+    if actual != expected:
+        raise AssertionError(f"expected named panic {expected!r}; actual {actual!r}")
 
 
 def reference(inputs: dict[str, str]) -> tuple[dict[int, tuple[int, ...]], set[int], set[int]]:
@@ -199,15 +213,14 @@ def main() -> int:
             assert result == wanted, (cases[index][1], cases[index][0].encode("unicode_escape"), result, wanted)
         for mode, diagnostic in rejected.items():
             failed = execute(mode)
-            assert failed.returncode not in (0, 85, 86, 98, 99), (mode, failed.returncode, failed.stdout, failed.stderr)
-            assert not failed.stdout and failed.stderr.replace(b"\r\n", b"\n").startswith(diagnostic.encode("ascii")), (mode, failed.stdout, failed.stderr)
-            assert b"ERROR: AddressSanitizer" not in failed.stderr and b"runtime error:" not in failed.stderr, (mode, failed.stderr)
+            assert_named_panic(failed, diagnostic)
     report = {
         "unicode_version": generator.VERSION, "mode": "plain" if args.plain else "ASan+UBSan", "status": "pass",
         "reference_inputs_sha256": generator.INPUT_SHA256, "official_ucd": generator.OFFICIAL_BASE, "official_mirror": generator.MIRROR_BASE,
         "cases": len(cases), "source_scalars": sum(len(source) for source, _ in cases), "categories": dict(Counter(label for _, label in cases)),
         "all_unicode_scalars": 0x110000 - 0x800, "cased_property_scalars": len(cased), "case_ignorable_property_scalars": len(ignorable), "property_overlap": len(cased & ignorable),
-        "named_failures": len(rejected), "large_word_cleanup_iterations": 32, "both_ownership_audits": True,
+        "named_failures": len(rejected), "exact_panic_status_and_output": True,
+        "large_word_cleanup_iterations": 32, "both_ownership_audits": True,
         "source_sha256": {str(path.relative_to(repo)) if path.is_relative_to(repo) else str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in [generator_path, Path(__file__).resolve(), repo / "tests/v4_unicode_runtime_probe.c", runtime / "freak_v4_unicode_runtime.c", runtime / "freak_v4_unicode_runtime.h", runtime / "freak_v4_unicode_lower_tables.h", runtime / "freak_v4_word_runtime.c", runtime / "freak_v4_word_runtime.h", runtime / "freak_runtime.c", runtime / "freak_runtime.h"]},
     }
     if args.report:

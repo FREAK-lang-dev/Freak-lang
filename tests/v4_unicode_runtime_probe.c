@@ -146,6 +146,10 @@ static void v4_unicode_batch(void) {
 }
 
 int main(int argc, char **argv) {
+#ifdef _WIN32
+    /* Keep deliberate abort tests noninteractive with one exact diagnostic. */
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
     if (argc > 1 && !strcmp(argv[1], "--batch")) {
         v4_unicode_batch();
         return 0;
