@@ -1,0 +1,23 @@
+fixed pilot GREETING: word = "hi"
+
+task display(lend name: word, count: int, rate: num, ready: bool) -> word {
+    give back "{name}: count={count}; rate={rate}; ready={ready}"
+}
+
+task main() -> int {
+    pilot name = "Ada"
+    pilot message = display(lend name, 7, 1.25, true)
+    say message
+    say name
+    if true {
+        pilot name = "inner"
+        say "{name}"
+    }
+    say "{name}"
+    say "{GREETING} {name}"
+    pilot sized = "left\0right é"
+    say "{sized}"
+    say "{} {{name}} {name()}"
+    say "open {name"
+    give back 0
+}
