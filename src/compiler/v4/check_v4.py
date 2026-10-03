@@ -1120,7 +1120,7 @@ EXECUTABLE_SMOKES = [
                       'target-c-integer-roundtrip=true'],
      'memory_limit_mb': 64,
      'expect': [],
-     'timeout_seconds': 60},
+     'timeout': 60},
     {
         "name": "macro API contract",
         "fixture": "macro_api_contract_smoke.fk",
