@@ -40,14 +40,17 @@ task h6_width_run() -> void {
     say "h6-native-ffi-width cast-alias=true impl-raw=true callback-retained=true named=true no-module=true"
 
     source = aliases + "extern [C] " + "{" + "\n task source_ptr() -> *mut std::ffi::c_void\n task signed_width(value: std::ffi::c_isize) -> std::ffi::isize\n task unsigned_width(value: std::ffi::c_size) -> std::ffi::usize\n task float_width(value: std::ffi::c_float) -> std::ffi::c_float\n task double_width(value: std::ffi::c_double) -> std::ffi::c_double\n task sink(value: *mut tiny) -> std::ffi::c_void\n" + "}" + "\n"
-    source = source + "task byte_view() -> *mut tiny " + "{" + "\n pilot p = source_ptr()\n trust me \"view storage bytes\" on my honor as .ace " + "{" + "\n give back p.cast<tiny>()\n " + "}" + "\n" + "}" + "\n"
-    source = source + "task internal(value: tiny) -> tiny " + "{" + "\n give back value\n" + "}" + "\n"
+    -- One body proves both admitted raw casts and internal tiny scalars.
+    source = source + "task internal(value: tiny) -> tiny " + "{" + "\n pilot p = source_ptr()\n trust me \"view storage bytes\" on my honor as .ace " + "{" + "\n pilot q = p.cast<tiny>()\n give back value\n " + "}" + "\n" + "}" + "\n"
     source = source + "@extern_callback(\"C\")\ntask callback(value: std::ffi::c_isize) -> std::ffi::c_isize " + "{" + "\n give back value\n" + "}" + "\n"
     source = source + "task main() -> int " + "{" + "\n pilot count: Size = 1\n pilot flag: bool = true\n if flag " + "{" + " give back 0 " + "}" + "\n give back 1\n" + "}" + "\n"
     pilot plan = h6_width_lower(1, source)
     pilot mir = word_to_int(array_get(v4_codegen_llvm_mirs, plan))
     pilot ty = v4_mir_ty_id(mir)
     pilot hir = v4_ty_signature_hir_id(ty)
+    pilot admitted_cast = 0
+    repeat until admitted_cast >= v4_mir_body_rvalue_count(mir, 0) or (v4_mir_rvalue_kind(mir, 0, admitted_cast) == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir, 0, admitted_cast) == v4_mir_unary_ptr_cast) { admitted_cast += 1 }
+    h6_width_assert(v4_mir_body_name(mir, 0) == "internal" and admitted_cast < v4_mir_body_rvalue_count(mir, 0) and v4_ty_raw_pointer_target_type(v4_mir_rvalue_ty(mir, 0, admitted_cast)) == v4_ty_tiny, "merged authored body retains real admitted tiny cast")
     pilot before = v4_codegen_llvm_module_text(plan, target)
     h6_width_assert(before != "" and v4_codegen_llvm_native_module_error(plan) == "" and v4_codegen_llvm_native_c_width_error(mir, ty) == "", "portable scalars and correct pointers admit publication")
     h6_width_assert(before.contains("declare ccc i64 @signed_width(i64)") and before.contains("declare ccc i64 @unsigned_width(i64)") and before.contains("declare ccc float @float_width(float)") and before.contains("declare ccc double @double_width(double)") and before.contains("declare ccc void @sink(ptr)"), "retained LLVM widths explicit")
@@ -119,9 +122,9 @@ task h6_width_run() -> void {
     array_release(holders)
     pilot snapshot = v4_mir_snapshot()
     h6_width_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "MIR identities restored")
-    array_set(v4_mir_names_handle(mir), 0, "changed_byte_view")
+    array_set(v4_mir_names_handle(mir), 0, "changed_internal")
     array_set(v4_mir_names_handle(rejected_mir), 0, "changed_probe")
-    h6_width_assert(v4_mir_body_name(mir, 0) == "changed_byte_view" and v4_mir_body_name(rejected_mir, 0) == "changed_probe" and v4_codegen_llvm_module_text(plan, target) == before and v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "accepted and rejected plans remain sealed across reused MIR identities")
+    h6_width_assert(v4_mir_body_name(mir, 0) == "changed_internal" and v4_mir_body_name(rejected_mir, 0) == "changed_probe" and v4_codegen_llvm_module_text(plan, target) == before and v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "accepted and rejected plans remain sealed across reused MIR identities")
     say "h6-native-ffi-width pressure=true restore=true changed-facts=true sealed=true"
 }
 
