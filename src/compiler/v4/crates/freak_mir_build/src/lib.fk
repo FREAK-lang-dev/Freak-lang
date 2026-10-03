@@ -6763,7 +6763,11 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
     pilot loop_pattern = v4_mir_pattern_text(stream_id, each_token + 1, in_token)
     pilot iterable_text = v4_mir_expr_text(stream_id, in_token + 1, open_token)
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, for_token, stmt_end)
-    pilot loop_scope_span = v4_mir_span_from_tokens(stream_id, open_token, stmt_end)
+    -- The loop binding is declared in the header, before the opening brace.
+    -- Its synthetic declarations and Loop statement retain this whole-for
+    -- span, so their lexical scope must include both header and body. The
+    -- closing brace still ends visibility; body-only locals get child scopes.
+    pilot loop_scope_span = stmt_span
     pilot iterable_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, in_token + 1, open_token)
     pilot iterable_ty = v4_mir_rvalue_ty(mir_id, body_id, iterable_rvalue)
 

@@ -1,0 +1,63 @@
+-- Header bindings belong to the whole for-each lexical scope, not just braces.
+task v4_for_each_scope_assert(condition: bool, label: word) -> void {
+    if not condition { panic("for-each-scope " + label) }
+}
+task v4_for_each_scope_run() -> void {
+    pilot mode = process::arg(1)
+    pilot source = "task rows(value: word) -> [word; 1] { give back [value] }\ntask main() -> int { pilot source = \"first\"; for each item in rows(source) { source = \"again\" }; give back 0 }\n"
+    if mode == "1" { source = "task rows() -> List<int> { give back [1, 2] }\ntask main() -> int { pilot total = 0; for each item in rows() { total += item }; give back total }\n" }
+    if mode == "2" { source = "task main() -> int { pilot pairs = [(7, \"ace\"), (9, \"beta\")]; for each (power, label) in pairs { pilot seen = power }; give back 0 }\n" }
+    if mode == "3" { source = "task main() -> int { pilot rows = [1, 2]; for each item in rows { pilot nested = item }; pilot after = 0; give back after }\n" }
+    pilot mir = v4_mir_text_cached("for-each-scope.fk", source)
+    v4_for_each_scope_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
+    v4_for_each_scope_assert(v4_mir_word_plan_preflight(mir) == "", "live scope preflight")
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    pilot header = -1
+    pilot row = 0
+    repeat until row >= v4_mir_body_stmt_count(mir, body) or header >= 0 {
+        if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_loop { header = row }
+        row += 1
+    }
+    v4_for_each_scope_assert(header >= 0, "actual for-each header")
+    pilot loop_scope = v4_mir_stmt_scope_span(mir, body, header)
+    pilot loop_span = v4_mir_stmt_span(mir, body, header)
+    v4_for_each_scope_assert(loop_scope == loop_span, "loop scope includes binding header")
+    pilot local_name = "item"
+    if mode == "2" { local_name = "label" }
+    pilot local = v4_mir_find_local(mir, body, local_name)
+    v4_for_each_scope_assert(local >= 0 and v4_mir_local_scope_span(mir, body, local) == loop_scope and v4_mir_scope_contains(loop_scope, v4_mir_local_span(mir, body, local)), "binding declaration contained")
+    v4_for_each_scope_assert(v4_mir_find_local_visible_at(mir, body, local_name, v4_span_end(loop_scope) - 1) == local and v4_mir_find_local_visible_at(mir, body, local_name, v4_span_end(loop_scope) + 1) < 0, "binding visible inside and absent after loop")
+    pilot block = v4_mir_stmt_block(mir, body, header)
+    pilot record = v4_mir_body_block(mir, body, block)
+    v4_for_each_scope_assert(not v4_mir_word_local_scope_exits_on_edge(mir, body, local, v4_mir_block_target(record), block) and v4_mir_word_local_scope_exits_on_edge(mir, body, local, block, v4_mir_block_else_target(record)), "binding persists on backedge and exits to after")
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    v4_for_each_scope_assert(v4_borrowck_diag_count(borrow) == 0, "Meiya scope plan is usable")
+    if mode == "0" {
+        pilot result_id = v4_borrowck_lookup_result(borrow, v4_mir_body_def(mir, body))
+        pilot paths = v4_borrowck_result_path_count(borrow, result_id)
+        pilot moves = 0
+        pilot move_block = -1
+        row = 0
+        repeat until row >= paths {
+            if v4_borrowck_path_kind(borrow, result_id, row) == v4_borrowck_path_move and v4_borrowck_path_text(borrow, result_id, row) == "source" { moves += 1; move_block = v4_borrowck_path_block(borrow, result_id, row) }
+            row += 1
+        }
+        pilot capture = -1
+        row = 0
+        repeat until row >= v4_mir_body_stmt_count(mir, body) or capture >= 0 {
+            if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_local and v4_mir_stmt_lhs(mir, body, row) == "_for_each_source" { capture = row }
+            row += 1
+        }
+        v4_for_each_scope_assert(capture >= 0 and moves == 1 and move_block == v4_mir_stmt_block(mir, body, capture) and move_block != block, "iterable moved exactly once in preheader")
+    }
+    if mode == "2" {
+        pilot power = v4_mir_find_local(mir, body, "power")
+        v4_for_each_scope_assert(power >= 0 and v4_mir_local_ty(mir, body, power) == v4_ty_int and v4_mir_local_ty(mir, body, local) == v4_ty_word and v4_mir_local_scope_span(mir, body, power) == loop_scope, "tuple binding types and lexical scope")
+    }
+    pilot snapshot = v4_mir_snapshot()
+    v4_for_each_scope_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot and v4_mir_word_plan_preflight(mir) == "", "scope wire roundtrip exact")
+    pilot fresh = v4_borrowck_check_mir(0, mir)
+    v4_for_each_scope_assert(v4_borrowck_diag_count(fresh) == 0, "fresh restored Meiya plan")
+    say "for-each-scope case=" + mode + " frontend=true preflight=true binding=true visibility=true edges=true Meiya=true restore=true"
+}
+v4_for_each_scope_run()
