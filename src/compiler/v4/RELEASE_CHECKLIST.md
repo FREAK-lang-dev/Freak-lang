@@ -25,8 +25,16 @@ original handoff. The merged baseline already includes the scaling joins and
 indexes described in [BACKEND_CHECKPOINT.md](BACKEND_CHECKPOINT.md#handoff-4-whole-module-memory-and-lookup-scaling).
 `build_v4.py --compiler-opt 2` selects an optimized bootstrap compiler and
 keeps its cache separate from the default smoke build. The historical large
-input measurements retain their original compiler pins; the combined resource
-row stays open until its current-head evidence is recorded.
+input measurements retain their original compiler pins. The refreshed scalar
+resource proof at `47f9354a0ddb434099d55a82e6dbf27a97d6dd9c` compiles all
+22,403 lines / 3,200 tasks in 6.09 seconds with a native VmHWM of 596 MiB
+under the unchanged 2 GiB process-tree guard, zero diagnostics in all nine
+stages, real LLVM link/execute and expected exit 6. The byte-identical merged
+baseline's 800-body resource fixture passed at 15.3 MiB against its fixed
+128 MiB ceiling; the long-body fixture passed at 35.2 MiB.
+[Refreshed scalar report](../../../benchmarks/v4/release_preview_scaling.json)
+records compiler/source/module hashes. Reverify affected resource contracts
+after the owned-word changes; this single size does not measure growth.
 
 PR [#136](https://github.com/FREAK-lang-dev/Freak-lang/pull/136) merged after
 [V4 CI](https://github.com/FREAK-lang-dev/Freak-lang/actions/runs/37122646691)
@@ -38,13 +46,24 @@ and 12 negative contracts. Each platform's fast lane passed 122 guards and
 transpiled all 314 fixtures exactly once. These results belong to that head;
 new compiler changes require fresh verification.
 
-Before broader native word admission, fix the confirmed ordinary-method
-symbol collision: duplicate owner/name definitions currently reach Clang
-without a FREAK diagnostic. Native publication must reject them while distinct
-owners remain valid. Then implement word ownership and borrowed intrinsic
-contracts together with cleanup before adding word operations and interpolation.
+The confirmed ordinary-method symbol collision is fixed on the integration
+branch and submitted separately in [PR #138](https://github.com/FREAK-lang-dev/Freak-lang/pull/138).
+Three authored rejection shapes now stop at Codegen with a named error and no
+LLVM/output; distinct owners link and execute. Four process-isolated fixtures
+pass at 64 MiB / 1,024 handles, existing collision/resource coverage passes,
+and an independent exact-head review is clear. Cross-platform CI remains
+pending on that PR. Broader native words require ownership and borrowed
+intrinsic contracts together with cleanup before adding interpolation.
 Unicode character indexing follows the bible. Root initialization remains an
 explicit bootstrap compatibility mode with strict language mode as the default.
+The maintainer selected checked native integer arithmetic at every optimization
+level: overflow and division by zero must report runtime errors. Implementation
+and executable boundary coverage remain required before that row is checked.
+
+The original handoff's replacement-tier table and `docs/bootstrap-map.md`'s
+A–F replacement definition disagree: D/E include features that V3 never shipped.
+The preview gate is unaffected. Reconcile that document boundary explicitly
+before claiming a V3 replacement; do not mark A–F complete from V3 parity alone.
 Release version, public tags and distribution changes wait for their executable
 gates and the maintainer's release choice.
 
@@ -82,7 +101,7 @@ Scaling (from handoff 4):
 - [x] **M** Name index for `v4_ty_*_signature_id_for_name` (alias, route, shape, type)
 - [x] **M** Index for HIR task-param owner and record lookups
 - [x] **M** Index for `v4_resolve_lookup_symbol` / `lookup_any`
-- [ ] **S** Resource smoke: 800+ bodies under a memory ceiling; 22,403-line file completes
+- [x] **S** Resource smoke: 800+ bodies under a memory ceiling; 22,403-line file completes
 - [x] **S** `-O2` option for the V4 tool build in `build_v4.py`
 
 Words (checkpoint W2 to W4):
@@ -98,7 +117,7 @@ Words (checkpoint W2 to W4):
 - [ ] **L** Interpolation: packed HIR plan, snapshot version bump, `say "x = {x}"`
 - [ ] **M** Interpolation coverage: unmatched braces, shadowing, invalid paths, restore, invalidation
 - [ ] **M** Word methods: `length`, `char_at`, `substring`, `starts_with`, `ends_with`, `contains`, `to_lower`
-- [ ] **S** Decision: byte or character semantics for index and slice (bible says character)
+- [x] **S** Decision: byte or character semantics for index and slice (bible §7.2 specifies character semantics)
 - [ ] **S** `say_err` (stderr)
 
 Entry and build:
