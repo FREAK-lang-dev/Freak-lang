@@ -6301,9 +6301,11 @@ def audit_conformance(paths: List[Path]) -> int:
         drop_flag_missing.append("freak_borrowck/src/lib.fk missing")
     if v4_mir_build_src is not None:
         mir_src = v4_mir_build_src
-        if mir_src.count("pilot loop_entry_block = v4_mir_add_block") < 2:
+        if mir_src.count("pilot loop_entry_block = v4_mir_build_add_scoped_block") < 2:
             drop_flag_missing.append("freak_mir_build: repeat/training loop preheaders")
         for needle in (
+            "task v4_mir_build_add_scoped_block",
+            "v4_mir_set_block_scope_span(mir_id, body_id, block_id",
             "count_block, condition_block",
             "body_tail, condition_block",
             "iterable_block, loop_header",
