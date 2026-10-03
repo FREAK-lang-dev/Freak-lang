@@ -13274,23 +13274,36 @@ def run_with_heartbeat(
         nonlocal peak_memory_bytes, process_tree_closed, memory_diagnostic
         if process_tree_closed:
             return
-        measured = process_tree.memory_bytes()
-        if measured is not None:
-            peak_memory_bytes = max(peak_memory_bytes, measured)
-        if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes:
-            # Capture while contributors still exist, before termination removes
-            # the executable, maps and command-line identity from procfs.
-            memory_diagnostic = process_tree.memory_diagnostics()
-        process_tree.terminate()
-        if process.poll() is None:
-            process.wait()
-        measured = process_tree.memory_bytes()
-        if measured is not None:
-            peak_memory_bytes = max(peak_memory_bytes, measured)
-        if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes and not memory_diagnostic:
-            memory_diagnostic = process_tree.memory_diagnostics()
-        process_tree.close()
-        process_tree_closed = True
+
+        def capture_memory() -> None:
+            nonlocal peak_memory_bytes, memory_diagnostic
+            try:
+                measured = process_tree.memory_bytes()
+                if measured is not None:
+                    peak_memory_bytes = max(peak_memory_bytes, measured)
+                if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes and not memory_diagnostic:
+                    # Capture before termination removes contributor identity.
+                    memory_diagnostic = process_tree.memory_diagnostics()
+            except Exception:
+                # Optional evidence must neither prevent cleanup nor replace a
+                # resource-limit failure. Do not format potentially sensitive
+                # exception payloads or invoke the failed serializer again.
+                if not memory_diagnostic:
+                    memory_diagnostic = '{"diagnostic_error":"capture unavailable"}'
+
+        try:
+            capture_memory()
+        finally:
+            try:
+                process_tree.terminate()
+                if process.poll() is None:
+                    process.wait()
+                capture_memory()
+            finally:
+                try:
+                    process_tree.close()
+                finally:
+                    process_tree_closed = True
 
     def captured_text() -> tuple[str, str]:
         stdout_thread.join(timeout=5)
