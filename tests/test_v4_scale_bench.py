@@ -191,8 +191,10 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, freak_word 
                        check=True, capture_output=True, timeout=10)
         tool = self.fake_tool(self.emitted_program(collision=True), [obj], ["bench_collision"])
         result, rows = self.run_bench(tool, "--check")
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("unexpected-symbol-collisions", rows[0]["check"])
+        context = json.dumps(rows, indent=2) + "\n" + result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, context)
+        self.assertEqual(rows[0].get("status"), "native-check-failed", context)
+        self.assertIn("unexpected-symbol-collisions", rows[0]["check"], context)
         self.assertFalse((Path(rows[0]["artifacts"]) / "native").exists())
 
 
