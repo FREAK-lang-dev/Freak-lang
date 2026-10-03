@@ -71,8 +71,8 @@ typedef struct { const char *data; int64_t len; } freak_word;
 static const char *freak_argv[] = {"tool", "source", "target"};
 static freak_word freak_word_lit(const char *text) { return (freak_word){text, 0}; }
 static int64_t freak_v4_lex_text(int64_t id, freak_word source) { return id; }
-static int64_t freak_v4_target_spec_new(freak_word target) { return 0; }
-static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, int64_t target) { return (freak_word){0}; }
+static freak_word freak_v4_target_spec_new(freak_word target) { return target; }
+static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, freak_word target) { return (freak_word){0}; }
 """
         for stage, function in (
             ("parse", "parse_stream"), ("hir", "hir_lower_tree"),
@@ -85,6 +85,7 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, int64_t tar
             prefix = "codegen_llvm" if stage == "codegen" else stage
             declarations += f"static int64_t freak_v4_{prefix}_diag_count(int64_t id) {{ return 0; }}\n"
         source = declarations + "static void freak_v4_build_llvm_source(freak_word source) {\n"
+        source += 'freak_word target_spec = freak_v4_target_spec_new(freak_word_lit("target"));\n'
         source += "\n".join(statement for _, statement, _ in benchmark.INSTRUMENTATION_POINTS)
         source += "\n}\nstatic void freak_v4_build_llvm_run(void) {\n"
         source += "freak_v4_build_llvm_source((freak_word){0});\n}\n"
@@ -102,6 +103,27 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, int64_t tar
         self.assertEqual([line.split()[1] for line in records[:-1]],
                          [f"stage={stage}" for stage in STAGES])
         self.assertRegex(records[-1], r"^V4BENCH final peak_bytes=[1-9][0-9]*$")
+
+    def test_instrumentation_matches_the_production_bootstrap(self):
+        """Catch statement drift in the real generated source before native CI."""
+        spec = importlib.util.spec_from_file_location("v4_benchmark_production", ROOT / "v4_scale_bench.py")
+        benchmark = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(benchmark)
+        build = benchmark.load_build(ROOT)
+        generated, uses_ui = build.checks.transpile_fixture(
+            build.checks.flattened_crates(), build.checks.V4_ROOT / "tools" / "build_llvm.fk",
+        )
+        self.assertFalse(uses_ui)
+        measured = benchmark.instrument(generated)
+        for stage in STAGES:
+            self.assertEqual(measured.count(f'v4_bench_report("{stage}",'), 1)
+        source_entry = "static void freak_v4_build_llvm_source(freak_word source) {"
+        self.assertLess(measured.index("static double v4_bench_clock"), measured.index(source_entry))
+        self.assertIn("static void freak_v4_build_llvm_run(void) {\n    atexit(v4_bench_final);", measured)
+        module_statement = "freak_word module = freak_v4_codegen_llvm_module_text(codegen, target_spec);"
+        self.assertIn(module_statement, measured)
+        with self.assertRaisesRegex(RuntimeError, "generated C module boundary changed"):
+            benchmark.instrument(generated.replace(module_statement, module_statement.replace("target_spec", "changed_target")))
 
     def test_diagnostics_fail_even_with_zero_compiler_exit(self):
         tool = self.fake_tool("print('v4-build-stage=lex diagnostics=1')\n")

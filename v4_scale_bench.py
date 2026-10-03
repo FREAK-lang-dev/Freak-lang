@@ -211,7 +211,7 @@ INSTRUMENTATION_POINTS = [
     ("mir", "int64_t mir = freak_v4_mir_lower_ty(((int64_t)0), ty);", "freak_v4_mir_diag_count(mir)"),
     ("borrowck", "int64_t borrowck = freak_v4_borrowck_check_mir(((int64_t)0), mir);", "freak_v4_borrowck_diag_count(borrowck)"),
     ("codegen", "int64_t codegen = freak_v4_codegen_llvm_lower_mir(((int64_t)0), mir);", "freak_v4_codegen_llvm_diag_count(codegen)"),
-    ("module", "freak_word module = freak_v4_codegen_llvm_module_text(codegen, freak_v4_target_spec_new(freak_word_lit(freak_argv[((int64_t)2)])));", "0"),
+    ("module", "freak_word module = freak_v4_codegen_llvm_module_text(codegen, target_spec);", "0"),
 ]
 
 NATIVE_MEASUREMENT = r'''
