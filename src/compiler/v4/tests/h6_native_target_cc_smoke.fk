@@ -117,13 +117,13 @@ task h6_target_run() -> void {
     pilot declaration = word_to_int(array_get(plans, 0))
     h6_target_set_plan(declaration, 0, "C")
     array_set(v4_codegen_llvm_decl_ccs_handle(declaration), 0, "win64cc")
-    pilot linux: word = array_get(targets, 0)
-    h6_target_assert(v4_codegen_llvm_native_target_error(declaration, linux) == "invalid sealed native calling convention metadata" and v4_codegen_llvm_module_text(declaration, linux) == "", "sealed metadata mismatch rejected")
+    pilot linux_target: word = array_get(targets, 0)
+    h6_target_assert(v4_codegen_llvm_native_target_error(declaration, linux_target) == "invalid sealed native calling convention metadata" and v4_codegen_llvm_module_text(declaration, linux_target) == "", "sealed metadata mismatch rejected")
     context = 3
     repeat until context >= 5 {
         pilot plan = word_to_int(array_get(plans, context))
         array_set(v4_codegen_llvm_body_lines_handle(plan), 0, "define mysterycc i64 @body()")
-        h6_target_assert(v4_codegen_llvm_native_target_error(plan, linux) == "invalid sealed native body calling convention" and v4_codegen_llvm_module_text(plan, linux) == "", "unknown body or callback convention rejected")
+        h6_target_assert(v4_codegen_llvm_native_target_error(plan, linux_target) == "invalid sealed native body calling convention" and v4_codegen_llvm_module_text(plan, linux_target) == "", "unknown body or callback convention rejected")
         context += 1
     }
     say "h6-native-target unknown-abi=true comma-injection=true unknown-header=true mismatch=true"
@@ -141,10 +141,10 @@ task h6_target_run() -> void {
     h6_target_assert(v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 1 and v4_mir_body_name(mir, 0) == "callback" and v4_mir_rvalue_kind(mir, 0, 0) == v4_mir_rvalue_use_local, "authored callback body and local")
     pilot old = v4_codegen_llvm_lower_mir(9, mir)
     h6_target_assert(v4_codegen_llvm_native_module_error(old) == "" and v4_codegen_llvm_call_count(old) == 0 and v4_codegen_llvm_body_count(old) == 2, "source callback-only sealed plan")
-    pilot windows: word = array_get(targets, 3)
-    pilot before = v4_codegen_llvm_module_text(old, windows)
-    pilot rejected = v4_codegen_llvm_native_target_error(old, linux)
-    h6_target_assert(before != "" and before.contains("define win64cc") and rejected == "native target calling convention not supported: win64 for x86_64-unknown-linux-gnu" and v4_codegen_llvm_module_text(old, linux) == "", "actual callback header target gate")
+    pilot windows_target: word = array_get(targets, 3)
+    pilot before = v4_codegen_llvm_module_text(old, windows_target)
+    pilot rejected = v4_codegen_llvm_native_target_error(old, linux_target)
+    h6_target_assert(before != "" and before.contains("define win64cc") and rejected == "native target calling convention not supported: win64 for x86_64-unknown-linux-gnu" and v4_codegen_llvm_module_text(old, linux_target) == "", "actual callback header target gate")
     pilot snapshot = v4_mir_snapshot()
     h6_target_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "callback snapshot valid")
     h6_target_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "callback snapshot restored")
@@ -152,7 +152,7 @@ task h6_target_run() -> void {
     array_set(v4_mir_names_handle(mir), 0, "changed_callback")
     v4_mir_set_rvalue_ty(mir, 0, 0, v4_ty_unknown)
     h6_target_assert(v4_mir_body_name(mir, 0) == "changed_callback" and v4_mir_rvalue_ty(mir, 0, 0) == v4_ty_unknown, "restored facts changed")
-    h6_target_assert(v4_codegen_llvm_native_target_error(old, linux) == rejected and v4_codegen_llvm_module_text(old, windows) == before and v4_codegen_llvm_module_text(old, linux) == "", "old plan target gate and module stay sealed after MIR reuse")
+    h6_target_assert(v4_codegen_llvm_native_target_error(old, linux_target) == rejected and v4_codegen_llvm_module_text(old, windows_target) == before and v4_codegen_llvm_module_text(old, linux_target) == "", "old plan target gate and module stay sealed after MIR reuse")
     say "h6-native-target callback-only=true restore=true changed-facts=true sealed=true"
 }
 

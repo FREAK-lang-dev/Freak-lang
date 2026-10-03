@@ -56,6 +56,13 @@ targets, and MIR restore; quoted names remain exact without scratch handles.
 Native character constants retain printable ASCII and admitted control escapes,
 including NUL, and reject unsupported non-ASCII or unknown escapes by name instead of emitting
 zero. This does not promote general native Unicode character lowering.
+Native module publication rejects conventions outside the selected target's
+canonical inventory using sealed declaration, call, body, and callback facts;
+unknown ABI spellings and inconsistent convention metadata fail by name.
+Extern symbols retain exact ABI names. A source entry reserves `main` and
+`freak.user.main`; conflicting extern declarations fail before publication,
+while libraries without an entry may declare an external `main`. This does
+not establish general C-width ABI lowering or cross-target linking.
 Diagnostic v1 restoration preserves
 its overlay/duplicate order through atomic staging and released replacement
 storage. Bootstrap checked source reads distinguish empty regular files from

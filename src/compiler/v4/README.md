@@ -53,6 +53,11 @@ temporary array handles are exhausted. Native character constants currently
 support printable ASCII and the admitted control escapes, including NUL;
 non-ASCII and unknown escapes receive a named error instead of silently becoming zero.
 This character fence does not change the language's Unicode contract.
+Native module publication checks the selected target's canonical calling
+convention inventory against sealed declarations, calls, body headers, and
+callback trampolines. Unsupported conventions, unknown ABI spellings, or
+inconsistent sealed convention metadata receive named errors before LLVM
+publication. Target queries do not consult restored MIR or TY identities.
 Module and body assembly collect borrowed fragments and join once. Expression
 trees append into one shared fragment buffer, so recursive returns do not copy
 complete child prefixes. The registered 128 MiB resource fixtures cover 800
@@ -167,6 +172,10 @@ handle. Native entry initializes argc/argv, then calls the renamed source task
 `@freak.user.main`; zero-argument `int` and `void` entries are supported. Source
 calls and callback targets retain the FREAK task ABI. Native linking includes
 both `freak_llvm_runtime.c` and `freak_runtime.c`, as the shipping CLI does.
+Explicit extern ABI symbols retain their exact names, including `main`.
+When a source entry exists, extern declarations colliding with `main` or
+`freak.user.main` receive a named error before module publication. A library
+without a source entry may still declare and call an external `main`.
 This is a fixed bootstrap link command, without new runtime-profile facts.
 Compatible explicit runtime extern declarations (including link-name aliases)
 share the generated declaration; incompatible contracts receive a diagnostic.

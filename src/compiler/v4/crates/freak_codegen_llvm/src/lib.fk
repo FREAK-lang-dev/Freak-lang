@@ -1835,7 +1835,7 @@ task v4_codegen_llvm_native_module_error(codegen_id: int) -> word {
 task v4_codegen_llvm_native_target_abi_error(abi: word, llvm_cc: word, supported: word, triple: word) -> word {
     pilot canonical = abi
     if canonical == "" { canonical = "C" }
-    pilot known = canonical == "C" or canonical == "cdecl" or canonical == "system" or canonical == "stdcall" or canonical == "fastcall" or canonical == "thiscall" or canonical == "vectorcall" or canonical == "win64" or canonical == "sysv64"
+    pilot known: bool = canonical == "C" or canonical == "cdecl" or canonical == "system" or canonical == "stdcall" or canonical == "fastcall" or canonical == "thiscall" or canonical == "vectorcall" or canonical == "win64" or canonical == "sysv64"
     if not known or not supported.contains("," + canonical + ",") {
         give back "native target calling convention not supported: " + canonical + " for " + triple
     }

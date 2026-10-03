@@ -106,6 +106,8 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "h6_native_field_callback_smoke.fk",
         "h6_native_symbol_collision_execute_smoke.fk",
         "h6_native_unicode_char_smoke.fk",
+        "h6_native_entry_symbol_smoke.fk",
+        "h6_native_target_cc_smoke.fk",
     }
 )
 
@@ -7193,6 +7195,29 @@ EXECUTABLE_SMOKES = [
         ]
     },
     {
+        "name": "Native entry ABI symbol collisions",
+        "fixture": "h6_native_entry_symbol_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-native-entry collisions=2 named=true no-module=true",
+            "h6-native-entry library-main=true abi-exact=true",
+        ],
+    },
+    {
+        "name": "Native target calling convention fence",
+        "fixture": "h6_native_target_cc_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-native-target abi-spellings=10 targets=4 contexts=5 matrix=true",
+            "h6-native-target unknown-abi=true comma-injection=true unknown-header=true mismatch=true",
+            "h6-native-target callback-only=true restore=true changed-facts=true sealed=true",
+        ],
+    },
+    {
         "name": "LLVM module facts across MIR restore",
         "fixture": "codegen_llvm_module_epoch_smoke.fk",
         "expect_mode": "line",
@@ -12624,6 +12649,8 @@ def check_snapshot_inventories() -> None:
             "h6_native_field_callback_smoke.fk",
             "h6_native_symbol_collision_execute_smoke.fk",
             "h6_native_unicode_char_smoke.fk",
+            "h6_native_entry_symbol_smoke.fk",
+            "h6_native_target_cc_smoke.fk",
         }
     ):
         violations.append("scratch-handle resource smoke limit coverage drifted")
@@ -13946,6 +13973,49 @@ def check_v4_build_command() -> None:
             raise RuntimeError("V4 build lowered unsupported root syntax past parsing")
         if expected_success and "v4-errors=0" not in result.stdout:
             raise RuntimeError("warning-only V4 build did not report zero errors")
+    # Exercise the actual bootstrap/tool boundary as well as plan-level facts:
+    # rejected entry symbols and cross-target conventions publish no LLVM.
+    contract_cases = [
+        (
+            "target_cc", "aarch64-apple-darwin",
+            'extern [stdcall] { task outside() -> std::ffi::c_isize }\n'
+            'task main() -> int { give back outside() }\n',
+            "native target calling convention not supported: stdcall for aarch64-apple-darwin",
+        ),
+    ]
+    for label, symbol in (("public_entry", "main"), ("private_entry", "freak.user.main")):
+        contract_cases.append((
+            label, host_target(),
+            f'extern [C] {{\n @link_name("{symbol}")\n task outside() -> std::ffi::c_isize\n}}\n'
+            'task main() -> int { give back outside() }\n',
+            "native entry symbol conflicts with explicit ABI declaration",
+        ))
+    for label, target, source_text, reason in contract_cases:
+        source = RUNTIME_BUILD_ROOT / f"llvm_contract_{label}.fk"
+        output = RUNTIME_BUILD_ROOT / f"llvm_contract_{label}.ll"
+        source.write_text(source_text, encoding="utf-8")
+        output.unlink(missing_ok=True)
+        raw = run_with_heartbeat(
+            [str(compiler), str(source), target], label=f"V4 native contract: {label}",
+            timeout_seconds=30, memory_limit_mb=64,
+        )
+        if (
+            raw.returncode != 0 or raw.stderr or reason not in raw.stdout
+            or "v4-aborted-after=codegen" not in raw.stdout or "@@V4-MODULE" in raw.stdout
+        ):
+            raise RuntimeError(f"V4 bootstrap published an invalid native contract:\n{raw.stdout}{raw.stderr}")
+        rejected = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output),
+             "--emit-llvm", "--target", target],
+            label=f"V4 native contract CLI: {label}", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if (
+            rejected.returncode == 0 or output.exists()
+            or reason not in rejected.stdout + rejected.stderr
+            or "@@V4-MODULE" in rejected.stdout + rejected.stderr
+        ):
+            raise RuntimeError(f"V4 CLI native-contract rejection mismatch:\n{rejected.stdout}{rejected.stderr}")
+        print(f"V4 native contract rejection: {label} named=true no-module=true no-output=true")
     executed = run_with_heartbeat([str(executable)], label="V4 warning-only execute", timeout_seconds=10, memory_limit_mb=128)
     if executed.returncode != 42 or executed.stdout or executed.stderr:
         raise RuntimeError("warning-only V4 build did not execute correctly")

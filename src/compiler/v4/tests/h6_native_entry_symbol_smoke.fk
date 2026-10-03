@@ -6,7 +6,7 @@ task h6_entry_assert(condition: bool, label: word) -> void {
 
 task h6_entry_plan(file_id: int, link_symbol: word, entry: bool) -> int {
     pilot source = "extern [C] {\n"
-    source = source + " @link_name(\"" + link_symbol + "\")\n task outside() -> int\n"
+    source = source + " @link_name(\"" + link_symbol + "\")\n task outside() -> std::ffi::c_isize\n"
     source = source + "}\n"
     pilot task_name = "probe"
     if entry { task_name = "main" }
