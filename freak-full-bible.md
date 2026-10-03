@@ -1206,7 +1206,7 @@ the rest is V4.
 > outlives-bound references exist. Definitions target the declared binder even
 > when it appears later in the generic list or is referenced repeatedly, and
 > restored snapshots preserve those distinct definition spans. Declaration-order
-> aggregate children require `freak-mir-snapshot-v6`; v4 and v5 are rejected. Component
+> aggregate children require `freak-mir-snapshot-v7`; v4/v5/v6 are rejected. Component
 > restore, 00-Unit restore, and standalone `workspace/mirSnapshotRestore` each
 > start a fresh provenance scratch generation, and the query smoke
 > proves `A -> B -> restore A` with MIR, borrowck, and editor IDs re-resolved.
