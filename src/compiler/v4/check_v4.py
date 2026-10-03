@@ -12972,6 +12972,7 @@ class WindowsJob:
         self.ntdll.RtlNtStatusToDosError.argtypes = [ctypes.c_long]
         self.ntdll.RtlNtStatusToDosError.restype = wintypes.ULONG
 
+        self.invalid_handle_error: OSError | None = None
         self.handle = self.kernel32.CreateJobObjectW(None, None)
         if not self.handle:
             raise ctypes.WinError(ctypes.get_last_error())
@@ -12989,6 +12990,7 @@ class WindowsJob:
             raise error
 
     def assign(self, process: subprocess.Popen[bytes]) -> None:
+        self._raise_if_invalid()
         if not self.kernel32.AssignProcessToJobObject(self.handle, process._handle):
             raise self.ctypes.WinError(self.ctypes.get_last_error())
 
@@ -12999,7 +13001,7 @@ class WindowsJob:
             raise self.ctypes.WinError(error)
 
     def memory_bytes(self) -> int | None:
-        if not self.handle:
+        if getattr(self, "invalid_handle_error", None) is not None or not self.handle:
             return None
         info = self.info_type()
         if not self.kernel32.QueryInformationJobObject(
@@ -13009,14 +13011,31 @@ class WindowsJob:
         return max(int(info.PeakProcessMemoryUsed), int(info.PeakJobMemoryUsed))
 
     def terminate(self) -> None:
+        self._raise_if_invalid()
         if self.handle and not self.kernel32.TerminateJobObject(self.handle, 1):
-            raise self.ctypes.WinError(self.ctypes.get_last_error())
+            self._raise_job_api_error()
 
     def close(self) -> None:
+        self._raise_if_invalid()
         if self.handle:
             if not self.kernel32.CloseHandle(self.handle):
-                raise self.ctypes.WinError(self.ctypes.get_last_error())
+                self._raise_job_api_error()
             self.handle = None
+
+    def _raise_if_invalid(self) -> None:
+        error = getattr(self, "invalid_handle_error", None)
+        if error is not None:
+            # An invalidated identity is not proof of descendant termination
+            # or successful resource close. Never send its value to an API again.
+            raise error
+
+    def _raise_job_api_error(self) -> None:
+        code = self.ctypes.get_last_error()
+        error = self.ctypes.WinError(code)
+        if code == 6:  # ERROR_INVALID_HANDLE; CRT errno may instead be 9 or 13.
+            self.handle = None
+            self.invalid_handle_error = error
+        raise error
 
 
 POSIX_PROC_ROOT = Path("/proc")
@@ -13270,9 +13289,13 @@ class ProcessTree:
                 try:
                     os.killpg(self.process.pid, signal.SIGKILL)
                 except ProcessLookupError:
+                    # The group is already gone; launcher cleanup still runs below.
                     pass
         except Exception as error:
             group_error = error
+            # A retired Windows Job re-raises its cached OS error. A launcher
+            # failure belongs only to this attempt, not an earlier retry.
+            group_error.launcher_cleanup_error = None
             raise
         finally:
             # A failed group/Job operation must not bypass launcher cleanup.
@@ -13355,6 +13378,67 @@ def run_with_heartbeat(
     process_tree_closed = False
     process_tree_cleanup_failure = None
     memory_diagnostic = ""
+    guard_trigger = None
+    guard_kind = None
+    guard_error = None
+    guard_observed_memory = None
+
+    def refresh_guard_error() -> tuple[str, str]:
+        nonlocal guard_error
+        stdout_total, _, stdout_bytes = stdout_capture.snapshot()
+        stderr_total, _, stderr_bytes = stderr_capture.snapshot()
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
+        tails = f"stdout-tail={stdout[-2000:]}\nstderr-tail={stderr[-2000:]}"
+        if guard_kind == "output":
+            message = (
+                f"{label} exceeded output limit: "
+                f"stdout={stdout_total / (1024 * 1024):.1f}MB "
+                f"stderr={stderr_total / (1024 * 1024):.1f}MB "
+                f"limit={output_limit_mb}MB-per-stream\n{tails}"
+            )
+        elif guard_kind == "memory":
+            metric = "observed" if guard_observed_memory is not None else "peak"
+            amount = guard_observed_memory if guard_observed_memory is not None else peak_memory_bytes
+            message = (
+                f"{label} exceeded memory limit: {metric}={amount / (1024 * 1024):.1f}MB "
+                f"limit={memory_limit_mb}MB\nmemory-sample={memory_diagnostic}\n{tails}"
+            )
+        else:
+            message = None
+        if message is not None:
+            if guard_error is None:
+                guard_error = RuntimeError(message)
+            else:
+                guard_error.args = (message,)
+        elif guard_kind == "timeout" and guard_error is None:
+            guard_error = subprocess.TimeoutExpired(command, timeout_seconds, output=stdout, stderr=stderr)
+        if guard_error is not None:
+            guard_error.output = stdout
+            guard_error.stderr = stderr
+            guard_error.stdout_total_bytes = stdout_total
+            guard_error.stderr_total_bytes = stderr_total
+            guard_error.guard_trigger = guard_trigger
+            guard_error.guard_kind = guard_kind
+        return stdout, stderr
+
+    def record_guard(kind: str, observed_memory: int | None = None) -> None:
+        nonlocal guard_trigger, guard_kind, guard_observed_memory
+        if guard_trigger is None:
+            guard_trigger = kind
+        guard_kind = kind
+        guard_observed_memory = observed_memory
+        # Snapshot without joining reader threads: preserve the original trigger
+        # before termination, without delaying enforcement on a live process.
+        refresh_guard_error()
+
+    def retain_completed_guard() -> None:
+        if guard_trigger == "completed" and guard_error is None:
+            if stdout_capture.snapshot()[1] or stderr_capture.snapshot()[1]:
+                record_guard("output")
+            elif memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes:
+                record_guard("memory")
+
 
     def stop_process_tree() -> None:
         nonlocal peak_memory_bytes, process_tree_closed, process_tree_cleanup_failure, memory_diagnostic
@@ -13416,19 +13500,25 @@ def run_with_heartbeat(
                 process_tree_closed = closed and reaped and (
                     group_terminated or process_tree.windows_job is not None
                 )
-                guard_context = ""
-                if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes:
-                    guard_context = (
-                        f"; exceeded memory limit: peak={peak_memory_bytes / (1024 * 1024):.1f}MB "
-                        f"limit={memory_limit_mb}MB\n"
-                        f"memory-sample={memory_diagnostic}"
+                retain_completed_guard()
+                stdout, stderr = refresh_guard_error()
+                guard_context = f"; guard-origin={guard_trigger}"
+                if guard_kind == "timeout":
+                    guard_context += (
+                        f"; exceeded timeout: limit={timeout_seconds}s\n"
+                        f"stdout-tail={stdout[-2000:]}\nstderr-tail={stderr[-2000:]}"
                     )
-                elif stdout_capture.snapshot()[1] or stderr_capture.snapshot()[1]:
-                    guard_context = f"; exceeded output limit: limit={output_limit_mb}MB-per-stream"
-                elif timeout_seconds is not None and time.monotonic() - started >= timeout_seconds:
-                    guard_context = f"; exceeded timeout: limit={timeout_seconds}s"
+                elif guard_kind is not None:
+                    guard_context += "; " + str(guard_error)
+                if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes and guard_observed_memory is not None:
+                    # Retain the post-cleanup peak alongside the original observed guard.
+                    guard_context += (
+                        f"; exceeded memory limit: peak={peak_memory_bytes / (1024 * 1024):.1f}MB "
+                        f"limit={memory_limit_mb}MB\nmemory-sample={memory_diagnostic}"
+                    )
                 summary = ", ".join(
                     f"{step}:{type(error).__name__}:errno={getattr(error, 'errno', None)}"
+                    f":winerror={getattr(error, 'winerror', None)}"
                     for step, error in errors
                 )
                 process_tree_cleanup_failure = RuntimeError(
@@ -13438,6 +13528,12 @@ def run_with_heartbeat(
                     f"failures={summary}{guard_context}"
                 )
                 process_tree_cleanup_failure.cleanup_errors = tuple(errors)
+                process_tree_cleanup_failure.guard_error = guard_error
+                process_tree_cleanup_failure.guard_trigger = guard_trigger
+                process_tree_cleanup_failure.output = stdout
+                process_tree_cleanup_failure.stderr = stderr
+                process_tree_cleanup_failure.stdout_total_bytes = stdout_capture.snapshot()[0]
+                process_tree_cleanup_failure.stderr_total_bytes = stderr_capture.snapshot()[0]
                 raise process_tree_cleanup_failure from errors[0][1]
 
     def captured_text() -> tuple[str, str]:
@@ -13455,71 +13551,43 @@ def run_with_heartbeat(
             stdout_total, stdout_exceeded, _ = stdout_capture.snapshot()
             stderr_total, stderr_exceeded, _ = stderr_capture.snapshot()
             if stdout_exceeded or stderr_exceeded:
+                record_guard("output")
                 stop_process_tree()
-                stdout, stderr = captured_text()
-                raise RuntimeError(
-                    f"{label} exceeded output limit: "
-                    f"stdout={stdout_total / (1024 * 1024):.1f}MB "
-                    f"stderr={stderr_total / (1024 * 1024):.1f}MB "
-                    f"limit={output_limit_mb}MB-per-stream\n"
-                    f"stdout-tail={stdout[-2000:]}\n"
-                    f"stderr-tail={stderr[-2000:]}"
-                )
+                captured_text()
+                refresh_guard_error()
+                raise guard_error
 
             measured_memory = process_tree.memory_bytes()
             if measured_memory is not None:
                 peak_memory_bytes = max(peak_memory_bytes, measured_memory)
                 if memory_limit_bytes is not None and measured_memory > memory_limit_bytes:
+                    record_guard("memory", measured_memory)
                     stop_process_tree()
-                    stdout, stderr = captured_text()
-                    raise RuntimeError(
-                        f"{label} exceeded memory limit: "
-                        f"observed={measured_memory / (1024 * 1024):.1f}MB "
-                        f"limit={memory_limit_mb}MB\n"
-                        f"memory-sample={memory_diagnostic}\n"
-                        f"stdout-tail={stdout[-2000:]}\n"
-                        f"stderr-tail={stderr[-2000:]}"
-                    )
+                    captured_text()
+                    refresh_guard_error()
+                    raise guard_error
 
             wait_seconds = 0.25
             if timeout_seconds is not None:
                 elapsed = time.monotonic() - started
                 remaining = timeout_seconds - elapsed
                 if remaining <= 0:
+                    record_guard("timeout")
                     stop_process_tree()
-                    stdout, stderr = captured_text()
-                    raise subprocess.TimeoutExpired(
-                        command,
-                        timeout_seconds,
-                        output=stdout,
-                        stderr=stderr,
-                    )
+                    captured_text()
+                    refresh_guard_error()
+                    raise guard_error
                 wait_seconds = min(wait_seconds, remaining)
 
             try:
                 process.wait(timeout=wait_seconds)
+                guard_trigger = "completed"
                 stop_process_tree()
                 stdout, stderr = captured_text()
-                stdout_total, stdout_exceeded, _ = stdout_capture.snapshot()
-                stderr_total, stderr_exceeded, _ = stderr_capture.snapshot()
-                if stdout_exceeded or stderr_exceeded:
-                    raise RuntimeError(
-                        f"{label} exceeded output limit: "
-                        f"stdout={stdout_total / (1024 * 1024):.1f}MB "
-                        f"stderr={stderr_total / (1024 * 1024):.1f}MB "
-                        f"limit={output_limit_mb}MB-per-stream\n"
-                        f"stdout-tail={stdout[-2000:]}\n"
-                        f"stderr-tail={stderr[-2000:]}"
-                    )
-                if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes:
-                    raise RuntimeError(
-                        f"{label} exceeded memory limit: "
-                        f"peak={peak_memory_bytes / (1024 * 1024):.1f}MB "
-                        f"limit={memory_limit_mb}MB\n"
-                        f"memory-sample={memory_diagnostic}\n"
-                        f"stdout-tail={stdout[-2000:]}\n"
-                        f"stderr-tail={stderr[-2000:]}"
-                    )
+                retain_completed_guard()
+                if guard_error is not None:
+                    refresh_guard_error()
+                    raise guard_error
                 elapsed_seconds = time.monotonic() - started
                 print(
                     f"{label} complete elapsed={elapsed_seconds:.1f}s "
