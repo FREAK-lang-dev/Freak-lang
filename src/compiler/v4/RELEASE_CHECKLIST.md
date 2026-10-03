@@ -88,8 +88,15 @@ conservation and transitive editor invalidation at 9.0 MiB under 64 MiB.
 Nine existing HIR fixtures pass 257 expectations at `b080c64`, including v10
 atomic rejection and v11 storage reuse. Reviewed transactional cold query,
 expansion and HIR admission fixes are integrated. All 335 fixtures transpiled
-at `55678bc`, but native HIR snapshot scaling reached 66.8 MiB against its
-unchanged 64 MiB ceiling; that resource gate remains open. At `5608f27`, all
+at `55678bc`, where native HIR snapshot scaling reached 66.8 MiB against its
+unchanged 64 MiB ceiling. The reviewed allocation-free scalar/prefix reads at
+`ea1ebe8` preserve HIR v11 and all 122 original scaling assertions. Four exact
+field-equivalence controls, the original plain scaling fixture and its complete
+instrumented run pass at 64 MiB / 1,024 handles; the maximum recorded VmHWM is
+65,597,440 bytes (62.56 MiB), distinct from the lower final-row value. Original
+failed attempts and their stale failure-file disposition remain preserved as
+historical evidence. One differential fixture is registered (342 total);
+current integrated and platform checks remain pending. At `5608f27`, all
 80 selected merged word/cold/interpolation/resource/legacy-MIR cases pass,
 and 129 cold-query/expansion case executions cover 42 allocation-fault positions
 and one bootstrap-row failure scenario over three recovery cycles under the original
