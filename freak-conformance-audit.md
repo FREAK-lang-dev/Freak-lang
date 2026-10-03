@@ -57,8 +57,13 @@ Explicit extern ABI declarations that share an ordinary body or callback
 trampoline's exact LLVM symbol receive a sealed native error before publication.
 Collision checks preserve declaration order and the first native error, including
 when temporary array handles are exhausted.
-Generated callback bodies must also have distinct symbols from ordinary bodies
-and other callbacks; repeated definitions fail before module publication.
+All ordinary and generated callback bodies share one exact LLVM definition
+namespace. Same-owner methods, repeated impl methods and qualified-task/impl
+collisions now receive a named native error before publication, including
+modules with no callbacks. Distinct owners remain valid. Four authored-source
+fixtures cover all four target plans, MIR restore and sealed publication, and
+the build-command gate covers all three rejection shapes. Exact-symbol
+collision and scratch-handle fallback checks remain in force.
 Incompatible extern aliases and extern/literal-global name collisions likewise
 fail before publication; compatible aliases emit one LLVM declaration.
 Native C admission currently covers pointer-sized integers, float32/float64,

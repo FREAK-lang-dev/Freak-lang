@@ -128,6 +128,7 @@ jobs:
         run: >
           python -u src/compiler/v4/check_v4.py
           --smoke h6_
+          --smoke release_native_ordinary_
           --smoke codegen_llvm_execute
           --smoke extern_literal_syntax
           --smoke extern_return

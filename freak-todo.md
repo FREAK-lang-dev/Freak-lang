@@ -342,3 +342,7 @@ their implemented status is unchanged by these bootstrap checklist corrections.
 - Default PR merge method is now rebase-merge: PR #110 (`935bda7`).
 - Issues closed with evidence: #103, #105, #106, #108. #87 deferred (still open; ASan-revert verdict recorded). #104 open (needs V4 design).
 - v0.14.1 "Maverick" tagged; v0.14.2 in prep: PR #115 (`VERSION` 0.14.2).
+
+## V4 release follow-through
+
+- [x] Reject duplicate ordinary LLVM body symbols before native publication, including modules without callbacks; authored source and CLI regressions retain distinct-owner acceptance.
