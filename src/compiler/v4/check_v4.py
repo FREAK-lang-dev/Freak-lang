@@ -13526,6 +13526,12 @@ class WindowsJob:
         if not self.kernel32.QueryInformationJobObject(
             self.handle, 9, self.ctypes.byref(info), self.ctypes.sizeof(info), None
         ):
+            # Optional measurement can fail transiently, but an invalid identity
+            # must be retired before cleanup can send its numeric value again.
+            code = self.ctypes.get_last_error()
+            if code == 6:
+                self.handle = None
+                self.invalid_handle_error = self.ctypes.WinError(code)
             return None
         return max(int(info.PeakProcessMemoryUsed), int(info.PeakJobMemoryUsed))
 
@@ -13758,6 +13764,8 @@ class ProcessTree:
         cls,
         command: list[str],
         memory_limit_bytes: int | None,
+        *,
+        executable: str | None = None,
     ) -> ProcessTree:
         windows_job = WindowsJob(memory_limit_bytes) if sys.platform.startswith("win") else None
         popen_kwargs: dict[str, object] = {}
@@ -13765,6 +13773,8 @@ class ProcessTree:
             popen_kwargs["creationflags"] = 0x00000004  # CREATE_SUSPENDED
         else:
             popen_kwargs["start_new_session"] = True
+        if executable is not None:
+            popen_kwargs["executable"] = executable
         try:
             process = subprocess.Popen(
                 command,
@@ -13868,11 +13878,15 @@ def run_with_heartbeat(
     timeout_seconds: int | None = None,
     memory_limit_mb: int | None = None,
     output_limit_mb: int = 8,
+    executable: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     memory_limit_bytes = None
     if memory_limit_mb is not None:
         memory_limit_bytes = memory_limit_mb * 1024 * 1024
-    process_tree = ProcessTree.spawn(command, memory_limit_bytes)
+    if executable is None:
+        process_tree = ProcessTree.spawn(command, memory_limit_bytes)
+    else:
+        process_tree = ProcessTree.spawn(command, memory_limit_bytes, executable=executable)
     process = process_tree.process
     assert process.stdout is not None
     assert process.stderr is not None
@@ -13902,7 +13916,7 @@ def run_with_heartbeat(
     guard_error = None
     guard_observed_memory = None
 
-    def refresh_guard_error() -> tuple[str, str]:
+    def refresh_guard_error() -> tuple[str, str, int, int]:
         nonlocal guard_error
         stdout_total, _, stdout_bytes = stdout_capture.snapshot()
         stderr_total, _, stderr_bytes = stderr_capture.snapshot()
@@ -13939,9 +13953,9 @@ def run_with_heartbeat(
             guard_error.stderr_total_bytes = stderr_total
             guard_error.guard_trigger = guard_trigger
             guard_error.guard_kind = guard_kind
-        return stdout, stderr
+        return stdout, stderr, stdout_total, stderr_total
 
-    def record_guard(kind: str, observed_memory: int | None = None) -> None:
+    def record_guard(kind: str, observed_memory: int | None = None) -> RuntimeError | subprocess.TimeoutExpired:
         nonlocal guard_trigger, guard_kind, guard_observed_memory
         if guard_trigger is None:
             guard_trigger = kind
@@ -13950,6 +13964,9 @@ def run_with_heartbeat(
         # Snapshot without joining reader threads: preserve the original trigger
         # before termination, without delaying enforcement on a live process.
         refresh_guard_error()
+        # Callers select a concrete guard kind; retain the same timeout object.
+        assert guard_error is not None
+        return guard_error
 
     def retain_completed_guard() -> None:
         if guard_trigger == "completed" and guard_error is None:
@@ -14024,7 +14041,7 @@ def run_with_heartbeat(
                 # before freezing the original guard and failure evidence.
                 captured_text()
                 retain_completed_guard()
-                stdout, stderr = refresh_guard_error()
+                stdout, stderr, stdout_total, stderr_total = refresh_guard_error()
                 guard_context = f"; guard-origin={guard_trigger}"
                 if guard_kind == "timeout":
                     guard_context += (
@@ -14055,8 +14072,8 @@ def run_with_heartbeat(
                 process_tree_cleanup_failure.guard_trigger = guard_trigger
                 process_tree_cleanup_failure.output = stdout
                 process_tree_cleanup_failure.stderr = stderr
-                process_tree_cleanup_failure.stdout_total_bytes = stdout_capture.snapshot()[0]
-                process_tree_cleanup_failure.stderr_total_bytes = stderr_capture.snapshot()[0]
+                process_tree_cleanup_failure.stdout_total_bytes = stdout_total
+                process_tree_cleanup_failure.stderr_total_bytes = stderr_total
                 raise process_tree_cleanup_failure from errors[0][1]
 
     def captured_text() -> tuple[str, str]:
@@ -14074,32 +14091,32 @@ def run_with_heartbeat(
             stdout_total, stdout_exceeded, _ = stdout_capture.snapshot()
             stderr_total, stderr_exceeded, _ = stderr_capture.snapshot()
             if stdout_exceeded or stderr_exceeded:
-                record_guard("output")
+                trigger_error = record_guard("output")
                 stop_process_tree()
                 captured_text()
                 refresh_guard_error()
-                raise guard_error
+                raise trigger_error
 
             measured_memory = process_tree.memory_bytes()
             if measured_memory is not None:
                 peak_memory_bytes = max(peak_memory_bytes, measured_memory)
                 if memory_limit_bytes is not None and measured_memory > memory_limit_bytes:
-                    record_guard("memory", measured_memory)
+                    trigger_error = record_guard("memory", measured_memory)
                     stop_process_tree()
                     captured_text()
                     refresh_guard_error()
-                    raise guard_error
+                    raise trigger_error
 
             wait_seconds = 0.25
             if timeout_seconds is not None:
                 elapsed = time.monotonic() - started
                 remaining = timeout_seconds - elapsed
                 if remaining <= 0:
-                    record_guard("timeout")
+                    trigger_error = record_guard("timeout")
                     stop_process_tree()
                     captured_text()
                     refresh_guard_error()
-                    raise guard_error
+                    raise trigger_error
                 wait_seconds = min(wait_seconds, remaining)
 
             try:
