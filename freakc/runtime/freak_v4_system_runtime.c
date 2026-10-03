@@ -172,6 +172,27 @@ int64_t freak_v4_process_arg(int64_t index) {
                                    (int64_t)argument->length);
 }
 
+void freak_v4_process_arg_checked(int64_t index, int64_t *out_is_ok,
+                                  int64_t *out_payload) {
+    if (!out_is_ok || !out_payload || out_is_ok == out_payload)
+        freak_v4_system_fail("invalid checked argument result slots");
+    /* The immutable snapshot has no entry before setup or after shutdown.
+       Admit the signed index before any snapshot access, including extremes. */
+    int64_t owner;
+    int64_t is_ok;
+    if (index < 0 || (uint64_t)index >= freak_v4_argument_count) {
+        const char message[] = "process argument index is out of range";
+        owner = freak_v4_word_from_bytes((int64_t)(uintptr_t)message,
+                                         (int64_t)(sizeof(message) - 1));
+        is_ok = 0;
+    } else {
+        owner = freak_v4_process_arg(index);
+        is_ok = 1;
+    }
+    *out_payload = owner;
+    *out_is_ok = is_ok;
+}
+
 static void freak_v4_fs_error(int64_t *tag, int64_t *payload, const char *message) {
     int64_t owner = freak_v4_word_from_bytes((int64_t)(uintptr_t)message,
                                            (int64_t)strlen(message));

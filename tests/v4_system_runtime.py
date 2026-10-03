@@ -69,6 +69,10 @@ def main() -> int:
             return subprocess.run([str(binary), *arguments], cwd=temporary,
                                   capture_output=True, timeout=20, env=environment)
 
+        def platform_newlines(data: bytes) -> bytes:
+            # POSIX observations stay byte-exact; only the Windows CRT uses CRLF.
+            return data.replace(b"\r\n", b"\n") if sys.platform == "win32" else data
+
         accepted = execute(parameters)
         assert accepted.returncode == 0, (accepted.returncode, accepted.stdout, accepted.stderr)
         assert accepted.stderr == b"", accepted.stderr
@@ -76,9 +80,13 @@ def main() -> int:
         expected_lines = [f"arg:{index}:{value.encode('utf-8').hex()}".encode()
                           for index, value in enumerate(expected)]
         expected_lines.append(b"v4-system-runtime=ok")
-        assert accepted.stdout.replace(b"\r\n", b"\n").splitlines() == expected_lines, accepted.stdout
+        assert platform_newlines(accepted.stdout) == b"\n".join(expected_lines) + b"\n", accepted.stdout
 
         rejected = {
+            "--checked-null-tag": "invalid checked argument result slots",
+            "--checked-null-payload": "invalid checked argument result slots",
+            "--checked-null-slots": "invalid checked argument result slots",
+            "--checked-aliased-slots": "invalid checked argument result slots",
             "--negative-argc": "invalid argument vector",
             "--huge-argc": "invalid argument vector",
             "--null-argv": "invalid argument vector",
@@ -103,7 +111,7 @@ def main() -> int:
             expected_error = ("FREAK: V4 system runtime: " + reason + "\n").encode()
             assert failed.returncode == 1, (case, failed.returncode, failed.stdout, failed.stderr)
             assert failed.stdout == b"", (case, failed.stdout)
-            assert failed.stderr.replace(b"\r\n", b"\n") == expected_error, (case, failed.stderr)
+            assert platform_newlines(failed.stderr) == expected_error, (case, failed.stderr)
         # Neither POSIX nor Windows process argument vectors can carry NUL.
         try:
             execute(["argument\0cannot-cross-os-argv"])
@@ -113,7 +121,7 @@ def main() -> int:
             raise AssertionError("subprocess admitted an embedded NUL argument")
 
         mode = "plain portability" if args.plain else "AddressSanitizer + UndefinedBehaviorSanitizer"
-        print(f"V4 system runtime: UTF-8 argv/Unicode paths, sized NUL/empty/error reads, "
+        print(f"V4 system runtime: raw/checked owned UTF-8 argv and Unicode paths, sized NUL/empty/error reads, "
               f"pre-read path size rejection, 13 I/O/storage faults, {len(rejected)} named failures, "
               f"zero owners/descriptors; {mode} passed")
     return 0

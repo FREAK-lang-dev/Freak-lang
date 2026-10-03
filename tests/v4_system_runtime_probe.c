@@ -14,6 +14,9 @@ static void *probe_raw[8192];
 static size_t probe_raw_count = 0;
 static bool probe_forbid_path_touch = false;
 static size_t probe_path_scans = 0;
+static bool probe_checked_slots_guard = false;
+static int64_t probe_checked_tag = 117;
+static int64_t probe_checked_payload = 118;
 
 static void probe_untrack(void *pointer) {
     if (!pointer) return;
@@ -162,6 +165,9 @@ static int probe_close_descriptor(int descriptor) {
 #endif
 
 static void probe_exit_clean(void) {
+    if (probe_checked_slots_guard) {
+        assert(probe_checked_tag == 117 && probe_checked_payload == 118);
+    }
     assert(probe_descriptors == 0);
     assert(probe_raw_count == 0);
     assert(freak_llvm_owned_count == 0);
@@ -221,54 +227,145 @@ static void probe_oversized_path(size_t forged_length) {
     freak_v4_word_drop(path);
     assert(freak_llvm_owned_count == before - 1);
 }
+static int64_t probe_checked_argument(int64_t index, int64_t expected_tag,
+                                       const void *bytes, size_t length) {
+    size_t before = freak_llvm_owned_count;
+    int64_t tag = 117, payload = 118;
+    freak_v4_process_arg_checked(index, &tag, &payload);
+    assert(tag == expected_tag && payload && payload != 118);
+    assert(freak_llvm_owned_count == before + 1);
+    if (tag) {
+        probe_bytes(payload, bytes, length);
+    } else {
+        const char message[] = "process argument index is out of range";
+        probe_bytes(payload, message, sizeof(message) - 1);
+        assert(freak_v4_word_bytes(payload) > 0);
+    }
+    return payload;
+}
+static void probe_checked_missing(int64_t index) {
+    size_t before = freak_llvm_owned_count;
+    int64_t first = probe_checked_argument(index, 0, NULL, 0);
+    int64_t second = probe_checked_argument(index, 0, NULL, 0);
+    assert(first != second && freak_llvm_owned_count == before + 2);
+    freak_v4_word_drop(first);
+    const char message[] = "process argument index is out of range";
+    probe_bytes(second, message, sizeof(message) - 1);
+    freak_v4_word_drop(second);
+    assert(freak_llvm_owned_count == before);
+}
 static void probe_arguments(int argc, char **argv, bool print) {
+    /* No snapshot yet: neither index extremes nor zero may touch a null table. */
+    freak_v4_process_shutdown_args();
+    assert(freak_v4_process_args_count() == 0 && probe_raw_count == 0);
+    probe_checked_missing(0);
+    probe_checked_missing(INT64_MIN);
+    probe_checked_missing(INT64_MAX);
     freak_v4_process_setup_args(argc, (int64_t)(uintptr_t)argv);
     assert(freak_v4_process_args_count() == argc);
     for (int64_t index = 0; index < argc; ++index) {
         size_t before = freak_llvm_owned_count;
         int64_t first = freak_v4_process_arg(index), second = freak_v4_process_arg(index);
         assert(first && second && first != second && freak_v4_word_equal(first, second));
-        assert(freak_llvm_owned_count == before + 2);
+        size_t length = freak_llvm_word_size(first);
+        const unsigned char *data = (const unsigned char *)(uintptr_t)first;
+        int64_t checked_first = probe_checked_argument(index, 1, data, length);
+        int64_t checked_second = probe_checked_argument(index, 1, data, length);
+        int64_t owners[] = {first, second, checked_first, checked_second};
+        for (int left = 0; left < 4; ++left)
+            for (int right = left + 1; right < 4; ++right)
+                assert(owners[left] != owners[right]);
+        assert(freak_llvm_owned_count == before + 4);
+        /* Mutating one caller-owned buffer cannot alias another result/snapshot. */
+        if (length) {
+            unsigned char *mutable = (unsigned char *)(uintptr_t)checked_first;
+            unsigned char original = mutable[0];
+            mutable[0] ^= 1;
+            probe_bytes(checked_second, data, length);
+            probe_bytes(second, data, length);
+            mutable[0] = original;
+        }
         if (print) {
             printf("arg:%lld:", (long long)index);
-            size_t length = freak_llvm_word_size(first);
-            const unsigned char *data = (const unsigned char *)(uintptr_t)first;
             for (size_t offset = 0; offset < length; ++offset) printf("%02x", data[offset]);
             putchar('\n');
         }
         freak_v4_word_drop(first);
-        /* A returned copy survives replacing the entire private argument table. */
+        /* All three remaining owners survive replacing and retiring the table. */
         freak_v4_process_setup_args(argc, (int64_t)(uintptr_t)argv);
-        assert(freak_v4_word_bytes(second) >= 0);
+        probe_bytes(checked_first, (void *)(uintptr_t)second, length);
+        probe_bytes(checked_second, (void *)(uintptr_t)second, length);
+        freak_v4_process_shutdown_args();
+        probe_bytes(checked_first, (void *)(uintptr_t)second, length);
+        probe_bytes(checked_second, (void *)(uintptr_t)second, length);
+        freak_v4_word_drop(checked_first);
+        probe_bytes(checked_second, (void *)(uintptr_t)second, length);
+        freak_v4_word_drop(checked_second);
         freak_v4_word_drop(second);
-        assert(freak_llvm_owned_count == before);
+        assert(freak_llvm_owned_count == before && probe_raw_count == 0);
+        freak_v4_process_setup_args(argc, (int64_t)(uintptr_t)argv);
     }
-    int64_t low = freak_v4_process_arg(-1), end = freak_v4_process_arg(argc);
-    int64_t huge = freak_v4_process_arg(INT64_MAX);
-    assert(low != end && low != huge && end != huge);
-    probe_bytes(low, "", 0); probe_bytes(end, "", 0); probe_bytes(huge, "", 0);
-    freak_v4_word_drop(low); freak_v4_word_drop(end); freak_v4_word_drop(huge);
+    int64_t invalid[] = {-1, INT64_MIN, argc, INT64_MAX};
+    int64_t raw_invalid[4];
+    for (size_t index = 0; index < sizeof(invalid) / sizeof(invalid[0]); ++index) {
+        raw_invalid[index] = freak_v4_process_arg(invalid[index]);
+        probe_bytes(raw_invalid[index], "", 0);
+        for (size_t previous = 0; previous < index; ++previous)
+            assert(raw_invalid[index] != raw_invalid[previous]);
+        probe_checked_missing(invalid[index]);
+    }
+    for (size_t index = 0; index < 4; ++index) freak_v4_word_drop(raw_invalid[index]);
 #ifndef _WIN32
     char program[] = "program", text[] = "A\xc3\xa9";
     char *injected[] = {program, text, ""};
     freak_v4_process_setup_args(3, (int64_t)(uintptr_t)injected);
     memset(text, 'x', sizeof(text) - 1);
     int64_t copy = freak_v4_process_arg(1);
+    int64_t checked_copy = probe_checked_argument(1, 1, "A\xc3\xa9", 3);
+    int64_t checked_empty = probe_checked_argument(2, 1, "", 0);
     probe_bytes(copy, "A\xc3\xa9", 3);
+    char *replacement[] = {"replacement", "new value"};
+    freak_v4_process_setup_args(2, (int64_t)(uintptr_t)replacement);
+    int64_t future = probe_checked_argument(1, 1, "new value", 9);
+    probe_bytes(copy, "A\xc3\xa9", 3);
+    probe_bytes(checked_copy, "A\xc3\xa9", 3);
+    probe_bytes(checked_empty, "", 0);
+    freak_v4_word_drop(future);
     freak_v4_process_shutdown_args();
     probe_bytes(copy, "A\xc3\xa9", 3);
+    probe_bytes(checked_copy, "A\xc3\xa9", 3);
+    probe_bytes(checked_empty, "", 0);
     freak_v4_word_drop(copy);
+    freak_v4_word_drop(checked_copy);
+    freak_v4_word_drop(checked_empty);
     freak_v4_process_setup_args(0, 0);
     assert(freak_v4_process_args_count() == 0);
+    probe_checked_missing(0);
 #endif
     freak_v4_process_shutdown_args();
     assert(freak_v4_process_args_count() == 0 && probe_raw_count == 0);
+    probe_checked_missing(0);
+    probe_checked_missing(INT64_MIN);
+    probe_checked_missing(INT64_MAX);
     int64_t empty = freak_v4_process_arg(0);
     probe_bytes(empty, "", 0);
     freak_v4_word_drop(empty);
+    assert(freak_llvm_owned_count == 0);
 }
 static int probe_failure(const char *mode, int argc, char **argv) {
-    if (!strcmp(mode, "--negative-argc")) freak_v4_process_setup_args(-1, 0);
+    if (!strcmp(mode, "--checked-null-tag")) {
+        probe_checked_slots_guard = true;
+        freak_v4_process_arg_checked(0, NULL, &probe_checked_payload);
+    } else if (!strcmp(mode, "--checked-null-payload")) {
+        probe_checked_slots_guard = true;
+        freak_v4_process_arg_checked(0, &probe_checked_tag, NULL);
+    } else if (!strcmp(mode, "--checked-null-slots")) {
+        probe_checked_slots_guard = true;
+        freak_v4_process_arg_checked(0, NULL, NULL);
+    } else if (!strcmp(mode, "--checked-aliased-slots")) {
+        probe_checked_slots_guard = true;
+        freak_v4_process_arg_checked(0, &probe_checked_tag, &probe_checked_tag);
+    } else if (!strcmp(mode, "--negative-argc")) freak_v4_process_setup_args(-1, 0);
     else if (!strcmp(mode, "--huge-argc")) freak_v4_process_setup_args(INT64_MAX, 0);
     else if (!strcmp(mode, "--null-argv")) freak_v4_process_setup_args(1, 0);
     else if (!strcmp(mode, "--snapshot-allocation")) {
