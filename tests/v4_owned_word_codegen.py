@@ -30,6 +30,17 @@ EXPECTED = {
 }
 
 
+def assert_native_output(result, expected: str, *, platform: str | None = None) -> str:
+    """Require exact output; normalize only the Windows CRT text newlines."""
+    platform = sys.platform if platform is None else platform
+    actual = result.stdout.replace("\r\n", "\n") if platform == "win32" else result.stdout
+    if (result.returncode, actual, result.stderr) != (0, expected, ""):
+        raise RuntimeError(
+            "expected exit0, exact output and empty stderr; "
+            f"actual exit={result.returncode}, stdout={result.stdout!r}, stderr={result.stderr!r}")
+    return actual
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--clang", default=os.environ.get("FREAK_CLANG") or shutil.which("clang"))
@@ -77,11 +88,7 @@ def main() -> int:
                     [str(binary)], label=f"owned word native execute: {name}",
                     timeout_seconds=30, memory_limit_mb=128,
                 )
-                actual = native.stdout.replace("\r\n", "\n")
-                if (native.returncode, actual, native.stderr) != (0, expected, ""):
-                    raise RuntimeError(
-                        f"{name} expected exit0, exact output and empty stderr; "
-                        f"actual exit={native.returncode}, stdout={actual!r}, stderr={native.stderr!r}")
+                actual = assert_native_output(native, expected)
                 report["programs"].append({
                     "source": name,
                     "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
