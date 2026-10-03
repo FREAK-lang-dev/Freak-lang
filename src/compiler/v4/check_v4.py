@@ -14050,8 +14050,13 @@ def run_with_heartbeat(
                     )
                 elif guard_kind is not None:
                     guard_context += "; " + str(guard_error)
-                if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes and guard_observed_memory is not None:
-                    # Retain the post-cleanup peak alongside the original observed guard.
+                if (
+                    memory_limit_bytes is not None
+                    and peak_memory_bytes > memory_limit_bytes
+                    and (guard_kind != "memory" or guard_observed_memory is not None)
+                ):
+                    # Keep a measured cleanup peak alongside the original trigger.
+                    # A completed memory guard already includes this same peak.
                     guard_context += (
                         f"; exceeded memory limit: peak={peak_memory_bytes / (1024 * 1024):.1f}MB "
                         f"limit={memory_limit_mb}MB\nmemory-sample={memory_diagnostic}"
