@@ -5,6 +5,7 @@ import argparse
 import ast
 import copy
 import itertools
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -239,49 +240,74 @@ class WordParseOracleTests(unittest.TestCase):
                 gate.validate_completion(self.completed_report(True), True)
 
     def test_full_driver_matrix_with_mocked_processes_and_fixed_budgets(self):
-        for plain in (False, True):
-            with tempfile.TemporaryDirectory() as temporary:
+        # Reload under each platform: the driver binds its oracle defaults at
+        # import time, as it does on a real host. Changing sys.platform alone
+        # would leave Windows abort status and CRT newline checks untested.
+        for platform, plain in itertools.product(("linux", "darwin", "win32"), (False, True)):
+            with self.subTest(platform=platform, plain=plain), tempfile.TemporaryDirectory() as temporary:
                 directory = Path(temporary)
                 clang = directory / "clang.mock"
                 clang.write_bytes(b"mock compiler image")
+                alias_parent = directory / "tool-alias"
+                alias_parent.mkdir()
+                requested_clang = alias_parent / ".." / clang.name
+                canonical_clang = clang.resolve(strict=True)
+                self.assertNotEqual(str(requested_clang), str(canonical_clang))
                 calls = []
+                with mock.patch.object(gate.sys, "platform", platform):
+                    spec = importlib.util.spec_from_file_location("word_parse_platform_matrix", gate.__file__)
+                    driver = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(driver)
 
-                def run(command, **keywords):
-                    calls.append((command, keywords))
-                    compiler = command[0] == str(clang)
-                    self.assertEqual(keywords["timeout_seconds"], 120 if compiler else 20)
-                    self.assertEqual(keywords["memory_limit_mb"], 1024 if compiler else 64)
-                    if compiler:
-                        gate.validate_build_flags(command, not plain)
-                        Path(command[command.index("-o") + 1]).write_bytes(b"mock binary")
-                        return self.result()
-                    if len(command) == 1:
-                        if "legacy-negative" in command[0]:
-                            return self.result(stdout=self.legacy_stdout())
-                        return self.result(stdout=gate.expected_stdout())
-                    mode = command[1]
-                    if mode in gate.rejection_cases():
-                        return self.result(-signal.SIGABRT, stderr=("FREAK: V4 word panic: " + gate.rejection_cases()[mode] + "\n").encode())
-                    if mode.startswith("audit-"):
-                        kind = mode[6:]
-                        return self.result(87 if kind == "C" else 86, stderr=f"FREAK: {kind} ownership audit found 1 unreleased word allocation(s)\n".encode())
-                    if mode == "cap-observer":
-                        return self.result(90, stderr=b"word-parse-probe: parser allocated or freed storage\n")
-                    if mode == "cap-address":
-                        return self.result(88, stderr=b"ERROR: AddressSanitizer: heap-use-after-free\nSUMMARY: AddressSanitizer:\n")
-                    if mode == "cap-undefined":
-                        return self.result(88, stderr=b"runtime error: signed integer overflow\nSUMMARY: UndefinedBehaviorSanitizer:\n")
-                    self.fail(f"unknown mock command {command}")
+                    def host_bytes(data):
+                        return data.replace(b"\n", b"\r\n") if platform == "win32" else data
 
-                checks = mock.Mock()
-                checks.run_with_heartbeat.side_effect = run
-                report = {"sanitized": not plain, "flags": {}, "matrices": [], "rejections": [], "capabilities": []}
-                with mock.patch.object(gate, "load_checks", return_value=checks), mock.patch.object(gate.sys, "platform", "linux"):
-                    gate.run_gate(argparse.Namespace(clang=str(clang), plain=plain), directory, report)
-                gate.validate_completion(report, not plain)
-                self.assertEqual(sum("-o" in command for command, _ in calls), 10)
-                self.assertEqual(len(report["rejections"]), 180)
-                self.assertEqual(len(report["capabilities"]), 10 if plain else 12)
+                    def run(command, **keywords):
+                        calls.append((command, keywords))
+                        compiler = "-o" in command
+                        self.assertEqual(keywords["timeout_seconds"], 120 if compiler else 20)
+                        self.assertEqual(keywords["memory_limit_mb"], 1024 if compiler else 64)
+                        if compiler:
+                            self.assertEqual(command[0], str(canonical_clang))
+                            driver.validate_build_flags(command, not plain)
+                            if "-c" not in command:
+                                self.assertEqual(command[-1], "-lws2_32" if platform == "win32" else "-lm")
+                            Path(command[command.index("-o") + 1]).write_bytes(b"mock binary")
+                            return self.result()
+                        self.assertEqual(Path(command[0]).parent, directory)
+                        self.assertEqual(Path(command[0]).suffix == ".exe", platform == "win32")
+                        if len(command) == 1:
+                            if "legacy-negative" in command[0]:
+                                return self.result(stdout=host_bytes(self.legacy_stdout()))
+                            return self.result(stdout=host_bytes(driver.expected_stdout()))
+                        mode = command[1]
+                        if mode in driver.rejection_cases():
+                            status = 3 if platform == "win32" else -signal.SIGABRT
+                            diagnostic = ("FREAK: V4 word panic: " + driver.rejection_cases()[mode] + "\n").encode()
+                            return self.result(status, stderr=host_bytes(diagnostic))
+                        if mode.startswith("audit-"):
+                            kind = mode[6:]
+                            return self.result(87 if kind == "C" else 86,
+                                               stderr=host_bytes(f"FREAK: {kind} ownership audit found 1 unreleased word allocation(s)\n".encode()))
+                        if mode == "cap-observer":
+                            return self.result(90, stderr=host_bytes(b"word-parse-probe: parser allocated or freed storage\n"))
+                        if mode == "cap-address":
+                            return self.result(88, stderr=host_bytes(b"ERROR: AddressSanitizer: heap-use-after-free\nSUMMARY: AddressSanitizer:\n"))
+                        if mode == "cap-undefined":
+                            return self.result(88, stderr=host_bytes(b"runtime error: signed integer overflow\nSUMMARY: UndefinedBehaviorSanitizer:\n"))
+                        self.fail(f"unknown mock command {command}")
+
+                    checks = mock.Mock()
+                    checks.run_with_heartbeat.side_effect = run
+                    report = {"sanitized": not plain, "flags": {}, "matrices": [], "rejections": [], "capabilities": []}
+                    with mock.patch.object(driver, "load_checks", return_value=checks):
+                        driver.run_gate(argparse.Namespace(clang=str(requested_clang), plain=plain), directory, report)
+                    driver.validate_completion(report, not plain)
+                    self.assertEqual(report["clang"]["requested"], str(requested_clang))
+                    self.assertEqual(report["clang"]["resolved"], str(canonical_clang))
+                    self.assertEqual(sum("-o" in command for command, _ in calls), 10)
+                    self.assertEqual(len(report["rejections"]), 180)
+                    self.assertEqual(len(report["capabilities"]), 10 if plain else 12)
 
     def test_runner_forwards_fixed_budgets_and_preserves_guard_failure_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:
