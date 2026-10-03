@@ -13009,12 +13009,13 @@ class WindowsJob:
         return max(int(info.PeakProcessMemoryUsed), int(info.PeakJobMemoryUsed))
 
     def terminate(self) -> None:
-        if self.handle:
-            self.kernel32.TerminateJobObject(self.handle, 1)
+        if self.handle and not self.kernel32.TerminateJobObject(self.handle, 1):
+            raise self.ctypes.WinError(self.ctypes.get_last_error())
 
     def close(self) -> None:
         if self.handle:
-            self.kernel32.CloseHandle(self.handle)
+            if not self.kernel32.CloseHandle(self.handle):
+                raise self.ctypes.WinError(self.ctypes.get_last_error())
             self.handle = None
 
 
@@ -13296,12 +13297,17 @@ def run_with_heartbeat(
         finally:
             # Retry a transient OS failure before propagating the original
             # guard failure. Keep the Job handle and the cleanup state usable
-            # until termination and reaping have both succeeded.
+            # until termination, reaping, and resource release have succeeded.
             for attempt in range(2):
                 try:
                     process_tree.terminate()
                     if process.poll() is None:
                         process.wait()
+                    try:
+                        capture_memory()
+                    finally:
+                        process_tree.close()
+                        process_tree_closed = True
                     break
                 except Exception as error:
                     if attempt == 1:
@@ -13315,11 +13321,6 @@ def run_with_heartbeat(
                         raise RuntimeError(
                             f"{label} process-tree cleanup failed after 2 attempts{memory_context}"
                         ) from error
-            try:
-                capture_memory()
-            finally:
-                process_tree.close()
-                process_tree_closed = True
 
     def captured_text() -> tuple[str, str]:
         stdout_thread.join(timeout=5)
