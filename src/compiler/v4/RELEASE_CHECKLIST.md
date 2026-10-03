@@ -89,11 +89,16 @@ Nine existing HIR fixtures pass 257 expectations at `b080c64`, including v10
 atomic rejection and v11 storage reuse. Reviewed transactional cold query,
 expansion and HIR admission fixes are integrated. All 335 fixtures transpiled
 at `55678bc`, but native HIR snapshot scaling reached 66.8 MiB against its
-unchanged 64 MiB ceiling; merged cold/resource execution remains incomplete.
+unchanged 64 MiB ceiling; that resource gate remains open. At `5608f27`, all
+80 selected merged word/cold/interpolation/resource/legacy-MIR cases pass,
+and all 129 cold-query/expansion allocation-fault positions pass three recovery
+cycles under the original limits. This verifies the selected contracts, rather
+than the complete runtime inventory or the failing HIR scaling fixture.
 The W4 lowercase slice adds five registrations (340 total) and 54 focused
-contracts. Its reviewed `361d110` candidate passes O0/O2/O3 with mandatory
-ASan/UBSan and both ownership audits; fresh integrated and platform gates
-remain pending. Native aggregate fields and typed OS Result wiring remain fenced.
+contracts. Its reviewed `361d110` candidate and fresh integrated `5608f27`
+both pass O0/O2/O3; the integrated run includes mandatory ASan/UBSan, a
+separate plain matrix and both ownership audits. Whole-inventory and platform
+gates remain pending. Native aggregate fields and typed OS Result wiring remain fenced.
 The explicit panic-abort runtime has private native byte/borrow controls;
 compiler mode/never/CFG wiring and default unwinding remain pending.
 
