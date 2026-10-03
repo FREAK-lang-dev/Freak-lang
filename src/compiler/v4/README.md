@@ -196,6 +196,11 @@ Explicit extern ABI symbols retain their exact names, including `main`.
 When a source entry exists, extern declarations colliding with `main` or
 `freak.user.main` receive a named error before module publication. A library
 without a source entry may still declare and call an external `main`.
+All actual ordinary and generated body definitions must have unique LLVM
+symbols. Same-owner duplicate methods, repeated impl methods and a qualified
+task colliding with an impl method receive a named error before publication,
+including modules without callbacks. Distinct owners remain valid; sealed
+plans keep the verdict across MIR restore.
 This is a fixed bootstrap link command, without new runtime-profile facts.
 Compatible explicit runtime extern declarations (including link-name aliases)
 share the generated declaration; incompatible contracts receive a diagnostic.
