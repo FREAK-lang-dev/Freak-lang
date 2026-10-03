@@ -427,6 +427,65 @@ task v4_editor_local_def(owner_def: word, local_id: int, local_name: word) -> wo
     give back owner_def + "::Local::" + word_from_int(local_id) + "::" + local_name
 }
 
+task v4_editor_local_id_for_def(mir_id: int, body_id: int, def_id: word) -> int {
+    if def_id == "" { give back -1 }
+    pilot local_id = 0
+    repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
+        if v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, v4_mir_local_name(mir_id, body_id, local_id)) == def_id { give back local_id }
+        local_id += 1
+    }
+    give back -1
+}
+
+-- Interpolation lowering records the actual binding at each HIR root span.
+-- Re-resolving a completed local arena by name could select the destination
+-- of a shadowing declaration whose RHS still refers to the outer binding.
+task v4_editor_word_root_local(mir_id: int, body_id: int, name: word, span: word) -> int {
+    if body_id < 0 { give back -1 }
+    pilot rvalue_id = 0
+    repeat until rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) == v4_mir_rvalue_use_local and v4_mir_rvalue_text(mir_id, body_id, rvalue_id) == name and v4_mir_rvalue_span(mir_id, body_id, rvalue_id) == span {
+            give back v4_mir_rvalue_local_id(mir_id, body_id, rvalue_id)
+        }
+        rvalue_id += 1
+    }
+    pilot place_id = 0
+    repeat until place_id >= v4_mir_body_place_count(mir_id, body_id) {
+        if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local and v4_mir_place_text(mir_id, body_id, place_id) == name and v4_mir_place_span(mir_id, body_id, place_id) == span {
+            pilot local_id = v4_mir_place_base(mir_id, body_id, place_id)
+            if local_id >= 0 and local_id < v4_mir_body_local_count(mir_id, body_id) and v4_mir_local_name(mir_id, body_id, local_id) == name { give back local_id }
+        }
+        place_id += 1
+    }
+    give back -1
+}
+
+task v4_editor_word_root_param_def(ty_id: int, mir_id: int, body_id: int, local_id: int) -> word {
+    pilot name = v4_mir_local_name(mir_id, body_id, local_id)
+    pilot local_span = v4_mir_local_span(mir_id, body_id, local_id)
+    pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
+    if sig_id >= 0 {
+        pilot param_id = v4_editor_signature_param_id_for_name(ty_id, sig_id, name)
+        if param_id >= 0 and v4_ty_signature_param_segment_span(ty_id, sig_id, param_id) == local_span {
+            give back v4_editor_param_def(v4_mir_body_def(mir_id, body_id), name)
+        }
+    } else {
+        pilot param_id = 0
+        repeat until param_id >= v4_mir_body_callable_param_count(mir_id, body_id) {
+            if param_id == local_id and v4_mir_body_callable_param_name(mir_id, body_id, param_id) == name {
+                give back v4_editor_param_def(v4_mir_body_def(mir_id, body_id), name)
+            }
+            param_id += 1
+        }
+    }
+    give back ""
+}
+
+task v4_editor_shape_field_def(ty_id: int, sig_id: int, field_id: int) -> word {
+    if sig_id < 0 or field_id < 0 { give back "" }
+    give back v4_ty_signature_def(ty_id, sig_id) + "::ShapeField::" + v4_ty_shape_field_name(ty_id, sig_id, field_id)
+}
+
 task v4_editor_param_def(owner_def: word, param_name: word) -> word {
     if owner_def == "" or param_name == "" {
         give back ""
@@ -1766,7 +1825,61 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
             type_display = v4_ty_signature_display(ty_id, item_sig_id)
         }
     }
-    if token_kind == v4_tok_lifetime and hir_item >= 0 {
+    if token_kind == v4_tok_string {
+        -- Keep the real whole-string token as provenance. Only stored HIR
+        -- DisplayPath components select semantic identities inside it.
+        name = token_value
+        kind = token_kind
+        def_id = ""
+        type_display = v4_ty_unknown
+        symbol_id = -1
+        pilot plan_hir = v4_ty_word_plan_hir_id(ty_id)
+        pilot literal = v4_ty_word_plan_literal_at_span(ty_id, hir_item, token_span)
+        pilot piece = v4_hir_word_piece_at_offset(plan_hir, literal, offset)
+        pilot part = v4_hir_word_path_part_at_offset(plan_hir, literal, offset)
+        if plan_hir == hir_id and literal >= 0 and v4_hir_word_literal_issue_at(plan_hir, literal) == "" and piece >= 0 and part >= 0 and v4_hir_word_piece_kind(plan_hir, literal, piece) == "DisplayPath" {
+            name = v4_hir_word_path_part_name(plan_hir, literal, piece, part)
+            kind = "InterpolationPath"
+            pilot root_name = v4_hir_word_path_part_name(plan_hir, literal, piece, 0)
+            pilot root_span = v4_hir_word_path_part_span(plan_hir, literal, piece, 0)
+            pilot body_id = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
+            pilot local_id = v4_editor_word_root_local(mir_id, body_id, root_name, root_span)
+            pilot value_type = v4_ty_unknown
+            if local_id >= 0 {
+                value_type = v4_mir_local_ty(mir_id, body_id, local_id)
+                if part == 0 {
+                    kind = "Local"
+                    def_id = v4_editor_local_def(v4_mir_body_def(mir_id, body_id), local_id, root_name)
+                    pilot param_def = v4_editor_word_root_param_def(ty_id, mir_id, body_id, local_id)
+                    if param_def != "" { kind = "Parameter" def_id = param_def }
+                    type_display = v4_editor_local_type_display_at(mir_id, body_id, local_id, offset)
+                }
+            } else if part == 0 and v4_hir_word_path_part_count(plan_hir, literal, piece) == 1 {
+                pilot const_sig = v4_ty_const_signature_id_for_name(ty_id, root_name)
+                if const_sig >= 0 {
+                    kind = "Const"
+                    def_id = v4_ty_signature_def(ty_id, const_sig)
+                    type_display = v4_ty_const_value_type_for_sig(ty_id, const_sig)
+                    symbol_id = v4_resolve_lookup_any(resolve_id, root_name)
+                }
+            }
+            pilot field_part = 1
+            repeat until field_part > part {
+                if v4_ty_is_lend_type(value_type) { value_type = v4_ty_lend_target_type(value_type) }
+                pilot field_name = v4_hir_word_path_part_name(plan_hir, literal, piece, field_part)
+                pilot shape_sig = v4_ty_shape_signature_id_for_name(ty_id, value_type)
+                pilot field_id = v4_ty_shape_field_id_for_name(ty_id, value_type, field_name)
+                pilot field_type = v4_ty_shape_field_type_for_name(ty_id, value_type, field_name)
+                if field_part == part and shape_sig >= 0 and field_id >= 0 and v4_ty_is_known(field_type) {
+                    kind = "ShapeField"
+                    def_id = v4_editor_shape_field_def(ty_id, shape_sig, field_id)
+                    type_display = field_type
+                }
+                value_type = field_type
+                field_part += 1
+            }
+        }
+    } else if token_kind == v4_tok_lifetime and hir_item >= 0 {
         pilot lifetime_sig_id = v4_editor_ty_signature_for_hir_item(ty_id, hir_item)
         if lifetime_sig_id >= 0 {
             name = token_value
@@ -2393,6 +2506,22 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
                 }
             }
         }
+    } else if kind == "ShapeField" {
+        pilot sig_id = 0
+        repeat until sig_id >= v4_ty_signature_count(ty_id) {
+            if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_shape_sig {
+                pilot field_id = 0
+                repeat until field_id >= v4_ty_shape_field_count(ty_id, sig_id) {
+                    if v4_editor_shape_field_def(ty_id, sig_id, field_id) == def_id {
+                        hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
+                        span = v4_ty_shape_field_name_span(ty_id, sig_id, field_id)
+                        if v4_span_end(span) > v4_span_start(span) { found = 1 }
+                    }
+                    field_id += 1
+                }
+            }
+            sig_id += 1
+        }
     } else if kind == "RouteField" {
         pilot case_def = v4_editor_route_field_case_def(def_id)
         pilot field_name = v4_editor_route_field_name_from_def(def_id)
@@ -2417,7 +2546,7 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
         hir_item = v4_semantic_at_hir_item(semantic_id)
         pilot body_id = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
         if body_id >= 0 {
-            pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, name, offset)
+            pilot local_id = v4_editor_local_id_for_def(mir_id, body_id, def_id)
             if local_id >= 0 {
                 span = v4_mir_local_span(mir_id, body_id, local_id)
                 span = v4_editor_local_decl_span(stream_id, span, name)
@@ -3288,5 +3417,3 @@ task v4_completion_file(path: word, offset: int) -> word {
     }
     give back v4_completion_text(path, text, offset)
 }
-
-
