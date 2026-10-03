@@ -2956,9 +2956,7 @@ task v4_mir_snapshot() -> word {
     }
     array_push(parts, "\nend|")
     array_push(parts, v4_mir_snapshot_format)
-    pilot out = word_join(parts)
-    array_release(parts)
-    give back out
+    give back word_join(parts)
 }
 
 task v4_mir_snapshot_record_expected_fields(kind: word) -> int {
