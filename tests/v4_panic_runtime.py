@@ -20,9 +20,11 @@ import tempfile
 
 def assert_exact_abort(result: subprocess.CompletedProcess[bytes], diagnostic: bytes,
                        *, platform: str = sys.platform) -> None:
-    expected = (3 if platform == "win32" else -signal.SIGABRT, b"",
-                diagnostic.replace(b"\r\n", b"\n"))
-    actual = (result.returncode, result.stdout, result.stderr.replace(b"\r\n", b"\n"))
+    # Panic sets binary stderr on Windows before validating private owners.
+    # Every fatal diagnostic is therefore exact bytes on every platform;
+    # normalizing CRLF would hide changed message or private-error bytes.
+    expected = (3 if platform == "win32" else -signal.SIGABRT, b"", diagnostic)
+    actual = (result.returncode, result.stdout, result.stderr)
     if actual != expected:
         raise AssertionError(
             f"expected abort exit={expected[0]}, stdout empty, stderr({len(expected[2])})={expected[2][:160]!r}; "
@@ -95,9 +97,6 @@ def main() -> int:
                 failed = execute(case)
                 diagnostic = b"PANIC: " + message + b"\n"
                 assert_exact_abort(failed, diagnostic)
-                # Binary stderr on Windows preserves the sized payload exactly,
-                # including an intentional CRLF and NUL, beyond normalization.
-                assert failed.stderr == diagnostic, (variant, case, len(failed.stderr), len(diagnostic))
             for case, reason in rejected.items():
                 failed = execute(case)
                 assert_exact_abort(failed, ("FREAK: V4 word panic: " + reason + "\n").encode())

@@ -10,19 +10,29 @@ from tests.v4_panic_runtime import assert_exact_abort
 
 class PanicAbortOracleTests(unittest.TestCase):
     diagnostics = (b"PANIC: \n", "PANIC: café 中😀\n".encode(), b"PANIC: A\0B\n",
+                   b"PANIC: first\r\nsecond\n",
                    b"FREAK: V4 word panic: word value is not live owned storage\n")
 
     @staticmethod
     def result(status: int, stderr: bytes, stdout: bytes = b"") -> subprocess.CompletedProcess[bytes]:
         return subprocess.CompletedProcess(["panic-probe"], status, stdout, stderr)
 
-    def test_exact_abort_and_crlf_diagnostics(self) -> None:
+    def test_exact_abort_and_binary_diagnostics(self) -> None:
         for platform in ("linux", "darwin", "win32"):
             status = 3 if platform == "win32" else -signal.SIGABRT
             for diagnostic in self.diagnostics:
-                for stderr in (diagnostic, diagnostic.replace(b"\n", b"\r\n")):
+                with self.subTest(platform=platform, diagnostic=diagnostic):
+                    assert_exact_abort(self.result(status, diagnostic), diagnostic, platform=platform)
+
+    def test_changed_newline_bytes_are_rejected(self) -> None:
+        for platform in ("linux", "darwin", "win32"):
+            status = 3 if platform == "win32" else -signal.SIGABRT
+            for diagnostic in self.diagnostics:
+                changed = {diagnostic.replace(b"\n", b"\r\n"), diagnostic.replace(b"\r\n", b"\n")}
+                for stderr in changed - {diagnostic}:
                     with self.subTest(platform=platform, diagnostic=diagnostic, stderr=stderr):
-                        assert_exact_abort(self.result(status, stderr), diagnostic, platform=platform)
+                        with self.assertRaises(AssertionError):
+                            assert_exact_abort(self.result(status, stderr), diagnostic, platform=platform)
 
     def test_wrong_exit_or_signal_is_rejected(self) -> None:
         statuses = {0, 1, 2, 3, 4, 85, 86, 87, 98, 99, -signal.SIGABRT, -signal.SIGSEGV, -signal.SIGILL}
