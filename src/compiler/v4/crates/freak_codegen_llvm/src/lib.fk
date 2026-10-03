@@ -67,9 +67,8 @@ task v4_codegen_llvm_fragment_push(parts: int, text: word) -> void {
 }
 
 task v4_codegen_llvm_fragment_finish(parts: int) -> word {
-    pilot text = word_join(parts)
-    array_release(parts)
-    give back text
+    -- word_join consumes the temporary collector and borrows its elements.
+    give back word_join(parts)
 }
 
 task v4_codegen_llvm_init() -> void {
