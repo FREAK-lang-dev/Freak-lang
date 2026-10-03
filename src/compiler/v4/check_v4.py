@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import gc
 import hashlib
+import json
 import os
 import re
 import signal
@@ -13017,36 +13018,69 @@ class WindowsJob:
             self.handle = None
 
 
-def posix_process_group_memory_bytes(group_id: int) -> int | None:
-    proc_root = Path("/proc")
+POSIX_PROC_ROOT = Path("/proc")
+MEMORY_DIAGNOSTIC_PROCESS_LIMIT = 8
+
+
+def linux_process_identity(entry: Path) -> tuple[int, int, int] | None:
+    """PID, group and start tick authenticate a procfs row across reads."""
+    try:
+        text = (entry / "stat").read_text(encoding="ascii", errors="replace")
+        close_paren = text.rfind(")")
+        if close_paren < 0:
+            return None
+        fields = text[close_paren + 2 :].split()
+        if len(fields) < 20:
+            return None
+        identity = (int(text.split(" ", 1)[0]), int(fields[2]), int(fields[19]))
+        return identity if identity[0] == int(entry.name) else None
+    except (OSError, ValueError):
+        return None
+
+
+def posix_process_group_memory_bytes(group_id: int, *, sample: dict | None = None) -> int | None:
+    proc_root = POSIX_PROC_ROOT
     try:
         if proc_root.exists():
             total_kb = 0
-            found = False
+            process_count = 0
+            contributors = []
             for entry in proc_root.iterdir():
                 if not entry.name.isdigit():
                     continue
-                try:
-                    stat = (entry / "stat").read_text(encoding="ascii", errors="replace")
-                except OSError:
+                identity = linux_process_identity(entry)
+                if identity is None or identity[1] != group_id:
                     continue
-                close_paren = stat.rfind(")")
-                if close_paren < 0:
-                    continue
-                fields = stat[close_paren + 2 :].split()
-                if len(fields) < 3 or int(fields[2]) != group_id:
-                    continue
-                found = True
                 try:
                     status_lines = (entry / "status").read_text(
                         encoding="ascii", errors="replace"
                     ).splitlines()
                 except OSError:
                     continue
+                memory_kb = {"VmRSS:": 0, "VmSwap:": 0}
                 for line in status_lines:
-                    if line.startswith("VmRSS:") or line.startswith("VmSwap:"):
-                        total_kb += int(line.split()[1])
-            return total_kb * 1024 if found else None
+                    fields = line.split()
+                    if fields and fields[0] in memory_kb:
+                        memory_kb[fields[0]] = int(fields[1])
+                # A recycled PID or a group change must not attribute another
+                # process's status bytes to the group selected by the first stat.
+                if linux_process_identity(entry) != identity:
+                    continue
+                rss, swap = memory_kb["VmRSS:"], memory_kb["VmSwap:"]
+                total_kb += rss + swap
+                process_count += 1
+                if sample is not None:
+                    contributors.append({"pid": identity[0], "pgid": identity[1],
+                                         "start_ticks": identity[2], "rss_bytes": rss * 1024,
+                                         "swap_bytes": swap * 1024})
+                    contributors.sort(key=lambda row: row["rss_bytes"] + row["swap_bytes"], reverse=True)
+                    del contributors[MEMORY_DIAGNOSTIC_PROCESS_LIMIT:]
+            measured_bytes = total_kb * 1024 if process_count else None
+            if sample is not None:
+                sample.update(sampler="linux-proc", pgid=group_id, memory_bytes=measured_bytes,
+                              process_count=process_count, processes=contributors,
+                              processes_omitted=max(0, process_count - len(contributors)))
+            return measured_bytes
 
         measured = subprocess.run(
             ["ps", "-axo", "pgid=,rss="],
@@ -13063,10 +13097,64 @@ def posix_process_group_memory_bytes(group_id: int) -> int | None:
                 if len(fields) == 2 and int(fields[0]) == group_id:
                     found = True
                     rss_kb += int(fields[1])
-            return rss_kb * 1024 if found else None
+            measured_bytes = rss_kb * 1024 if found else None
+            if sample is not None:
+                sample.update(sampler="ps-rss", pgid=group_id, memory_bytes=measured_bytes,
+                              processes=[])
+            return measured_bytes
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
     return None
+
+
+def process_memory_diagnostics(sample: dict) -> str:
+    """Enrich the retained peak sample before killing, with bounded, redacted data."""
+    diagnostic = dict(sample)
+    diagnostic["sample_scope"] = "retained peak process-group sample"
+    rows = []
+    for original in sample.get("processes", [])[:MEMORY_DIAGNOSTIC_PROCESS_LIMIT]:
+        row = dict(original)
+        entry = POSIX_PROC_ROOT / str(row["pid"])
+        identity = (row["pid"], row["pgid"], row["start_ticks"])
+        if linux_process_identity(entry) != identity:
+            row["identity_status"] = "changed-or-gone"
+            rows.append(row)
+            continue
+        details = {}
+        try:
+            details["exe"] = os.readlink(entry / "exe")[:160]
+        except OSError:
+            details["exe"] = "unavailable"
+        try:
+            with (entry / "cmdline").open("rb") as stream:
+                command = stream.read(513)
+            # Do not print user arguments or environment. Counts still identify
+            # a wrapper or plugin launcher without disclosing its payload.
+            details["cmdline"] = {"arguments": "redacted", "argc_sampled": command[:512].count(b"\0"),
+                                  "truncated": len(command) > 512}
+        except OSError:
+            details["cmdline"] = "unavailable"
+        try:
+            with (entry / "maps").open("rb") as stream:
+                mappings = stream.read(16385)
+            names = set()
+            for line in mappings[:16384].decode("utf-8", errors="replace").splitlines():
+                fields = line.split(None, 5)
+                if len(fields) == 6 and ".so" in fields[5]:
+                    names.add(Path(fields[5]).name[:80])
+            # Keep LLVM/LTO plugin identities visible when many libraries load.
+            libraries = sorted(names, key=lambda name: (not any(part in name.lower() for part in ("llvm", "lto", "gold")), name))
+            details["libraries"] = libraries[:8]
+            details["libraries_truncated"] = len(mappings) > 16384 or len(libraries) > 8
+        except OSError:
+            details["libraries"] = "unavailable"
+        if linux_process_identity(entry) == identity:
+            row.update(details, identity_status="matched")
+        else:
+            row["identity_status"] = "changed-during-diagnostics"
+        rows.append(row)
+    diagnostic["processes"] = rows
+    return json.dumps(diagnostic, ensure_ascii=True, separators=(",", ":"))
 
 
 class ProcessTree:
@@ -13077,6 +13165,7 @@ class ProcessTree:
     ) -> None:
         self.process = process
         self.windows_job = windows_job
+        self.peak_memory_sample: dict = {}
 
     @classmethod
     def spawn(
@@ -13116,9 +13205,18 @@ class ProcessTree:
         return cls(process, windows_job)
 
     def memory_bytes(self) -> int | None:
+        sample: dict = {}
         if self.windows_job is not None:
-            return self.windows_job.memory_bytes()
-        return posix_process_group_memory_bytes(self.process.pid)
+            measured = self.windows_job.memory_bytes()
+            sample.update(sampler="windows-job", pid=self.process.pid, memory_bytes=measured)
+        else:
+            measured = posix_process_group_memory_bytes(self.process.pid, sample=sample)
+        if measured is not None and measured >= self.peak_memory_sample.get("memory_bytes", 0):
+            self.peak_memory_sample = sample
+        return measured
+
+    def memory_diagnostics(self) -> str:
+        return process_memory_diagnostics(self.peak_memory_sample)
 
     def terminate(self) -> None:
         if self.windows_job is not None:
@@ -13170,20 +13268,27 @@ def run_with_heartbeat(
     next_heartbeat = started + 30.0
     peak_memory_bytes = process_tree.memory_bytes() or 0
     process_tree_closed = False
+    memory_diagnostic = ""
 
     def stop_process_tree() -> None:
-        nonlocal peak_memory_bytes, process_tree_closed
+        nonlocal peak_memory_bytes, process_tree_closed, memory_diagnostic
         if process_tree_closed:
             return
         measured = process_tree.memory_bytes()
         if measured is not None:
             peak_memory_bytes = max(peak_memory_bytes, measured)
+        if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes:
+            # Capture while contributors still exist, before termination removes
+            # the executable, maps and command-line identity from procfs.
+            memory_diagnostic = process_tree.memory_diagnostics()
         process_tree.terminate()
         if process.poll() is None:
             process.wait()
         measured = process_tree.memory_bytes()
         if measured is not None:
             peak_memory_bytes = max(peak_memory_bytes, measured)
+        if memory_limit_bytes is not None and peak_memory_bytes > memory_limit_bytes and not memory_diagnostic:
+            memory_diagnostic = process_tree.memory_diagnostics()
         process_tree.close()
         process_tree_closed = True
 
@@ -13223,6 +13328,7 @@ def run_with_heartbeat(
                         f"{label} exceeded memory limit: "
                         f"observed={measured_memory / (1024 * 1024):.1f}MB "
                         f"limit={memory_limit_mb}MB\n"
+                        f"memory-sample={memory_diagnostic}\n"
                         f"stdout-tail={stdout[-2000:]}\n"
                         f"stderr-tail={stderr[-2000:]}"
                     )
@@ -13262,6 +13368,7 @@ def run_with_heartbeat(
                         f"{label} exceeded memory limit: "
                         f"peak={peak_memory_bytes / (1024 * 1024):.1f}MB "
                         f"limit={memory_limit_mb}MB\n"
+                        f"memory-sample={memory_diagnostic}\n"
                         f"stdout-tail={stdout[-2000:]}\n"
                         f"stderr-tail={stderr[-2000:]}"
                     )
