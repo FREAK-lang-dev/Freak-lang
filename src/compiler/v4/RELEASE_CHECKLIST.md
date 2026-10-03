@@ -46,13 +46,28 @@ and 12 negative contracts. Each platform's fast lane passed 122 guards and
 transpiled all 314 fixtures exactly once. These results belong to that head;
 new compiler changes require fresh verification.
 
-The confirmed ordinary-method symbol collision is fixed on the integration
-branch and submitted separately in [PR #138](https://github.com/FREAK-lang-dev/Freak-lang/pull/138).
-Three authored rejection shapes now stop at Codegen with a named error and no
-LLVM/output; distinct owners link and execute. Four process-isolated fixtures
-pass at 64 MiB / 1,024 handles, existing collision/resource coverage passes,
-and an independent exact-head review is clear. Cross-platform CI remains
-pending on that PR. Broader native words require ownership and borrowed
+The confirmed ordinary-method symbol collision merged in
+[PR #138](https://github.com/FREAK-lang-dev/Freak-lang/pull/138) at
+`59a27d4c30c452b0005936346d2ab55111e9692e`. Its 23 CI jobs passed at
+`56e6840a4b66554d191df391d46b127aa0e798a0`, including macOS, Windows and
+the guarded benchmark. Four authored collision fixtures pass at
+64 MiB / 1,024 handles. The subsequent automatic review identified a
+conditional optional-diagnostic cleanup failure; the independently reviewed
+fix is in [PR #140](https://github.com/FREAK-lang-dev/Freak-lang/pull/140),
+with fresh CI pending. The real parent/descendant cleanup control passes.
+
+The integration harness now executes the three owned-word fixture groups as
+12 independent resource cases, preserving 64 MiB / 1,024 handles and exact
+MIR restoration/sealed-module/native outputs. Six runtime objects and all 12
+source/header inputs are frozen, hashed and collision-checked by the benchmark;
+its ten regressions and a real one-task LLVM link/execute pass. These are
+integration checkpoints, not preview completion. Numeric codegen, allocation
+failure and hostile MIR controls still have active fixes. A 13-task snapshot
+restore failure is tracked in [#139](https://github.com/FREAK-lang-dev/Freak-lang/issues/139):
+duplicate raw-body allocation and unchecked handle exhaustion require an
+atomic admission/retirement repair before broader validation.
+
+Broader native words require ownership and borrowed
 intrinsic contracts together with cleanup before adding interpolation.
 Unicode character indexing follows the bible. Root initialization remains an
 explicit bootstrap compatibility mode with strict language mode as the default.
@@ -376,7 +391,7 @@ FFI completion (phase C):
 - [ ] **S** `compiler-v3-final` tag after V3's Last Sortie gates
 - [ ] **M** Security review of generated-code memory safety claims before the README says "memory safe"
 - [ ] **S** Rename `crates/` if you are going to (cheapest before release)
-- [ ] **S** Remove committed build outputs (`.exe`, `.pdb`, `.ilk` under `tests/` and `self_hosted/`)
+- [x] **S** Remove committed build outputs (`.exe`, `.pdb`, `.ilk` under `tests/` and `self_hosted/`): 68 baseline-verified generated files removed; authored fixtures and V3 bootstrap seed preserved
 
 ## Open decisions only the maintainers can make
 

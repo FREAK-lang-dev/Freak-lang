@@ -124,9 +124,9 @@ Ordinary signature lookup stays separate for returned-loan contracts. Impl
 borrowed returns receive an explicit unsupported-contract diagnostic; generic
 facts still describe declared types and do not monomorphize an impl.
 
-This is a partial backend checkpoint. General word values, aggregate layout,
-generic monomorphization, receiver/lend ABI, drops, and compiler-crate
-self-hosting remain open. Runtime root initialization will use an explicit
+This is a partial backend checkpoint. Owned word values have a focused native
+path described below. Aggregate layout, generic monomorphization, general
+receiver/lend ABI, aggregate drops and compiler-crate self-hosting remain open. Runtime root initialization will use an explicit
 bootstrap compatibility mode; normal root scope continues to follow bible
 section 17.4. Cross-target module text is available, but only host linking is
 exercised here; the existing FFI metadata checks are not a complete native ABI
@@ -168,9 +168,37 @@ existing 1,024 live-array ceiling and 64 MiB memory guard.
 The measured before/after results, crate diagnostics, and remaining handoff
 contracts are tracked in [BACKEND_CHECKPOINT.md](BACKEND_CHECKPOINT.md).
 
+### Owned word checkpoint (W2)
+
+The build tool uses `v4_codegen_llvm_lower_owned_mir`, which obtains fresh
+Meiya facts before sealing a module. This path carries sized UTF-8/NUL word
+values through locals, ordinary value parameters and returns, assignment,
+concatenation, equality, display and the closed read-only intrinsic inventory.
+Each returned word owns its bytes; observer inputs are borrowed. Ordinary
+lender calls currently require an explicit `lend` of a named place. Borrowed
+returns, externally supplied words, callback word contracts and native
+aggregate fields remain unsupported.
+
+MIR snapshot v6 stores lexical statement scopes and validates their relation
+to bindings, body ranges and closed builtin IDs before publication. The
+focused semantic fixture covers shadowing, ordered consume/lend events,
+atomic snapshot rejection and exhaustion recovery at 64 MiB/1,024 handles.
+Three authored native programs exercise embedded NUL, moves, reassignment,
+branch/loop exits and temporary returns under ASan/UBSan and both ownership
+audits. Final codegen allocation-failure and recursive-input findings are
+still being resolved; those focused passes do not declare the preview complete.
+The dedicated generated-word gate is `python tests/v4_owned_word_codegen.py`.
+
+Private runtime helpers also implement Unicode 17 default lowercase and
+checked process/filesystem adapters. They have separate C runtime probes;
+`to_lower` and typed `fs::read` are not yet wired through the native compiler.
+The centralized `freakc.v4_native_runtime` inventory determines native link
+inputs and benchmark provenance. Root initialization continues to use an
+explicit bootstrap compatibility mode with strict language mode the default.
+
 ### Literal say (W1)
 
-The native word slice supports `say` of one static string literal:
+The retained legacy `v4_codegen_llvm_lower_mir` entrypoint supports `say` of one static string literal:
 
 ```freak
 task main() -> int {
@@ -610,7 +638,7 @@ beyond declared relations and general lexical region inference remain open.
 Fixed-layout editor facts, MIR/borrowck snapshots, restore, and
 source-change invalidation use the existing query families and 00-Unit
 protocols; no aggregate-specific LSP endpoint or snapshot section is added.
-Declaration-order aggregate children require `freak-mir-snapshot-v5`; v4 is
+Declaration-order aggregate children require `freak-mir-snapshot-v6`; v4 and v5 are
 rejected rather than reinterpreted. Component restore, 00-Unit restore, and the
 standalone `workspace/mirSnapshotRestore` path each start a fresh borrowck
 provenance scratch generation. The query smoke proves `A -> B -> restore A` with
@@ -745,7 +773,7 @@ parsing, bounding bootstrap word-scanning work on malformed records.
 
 `freak_mir` owns the persistent Built-MIR representation: stable file/body and
 node identities, CFG/local/place/rvalue storage, validation, diagnostics, and
-the byte-stable MIR snapshot v5 protocol. `freak_mir_build` is the stateless
+the byte-stable MIR snapshot v6 protocol. `freak_mir_build` is the stateless
 construction policy layer over HIR and TY. It keeps only request-scoped loop,
 scope, and trust-lowering scratch and preserves `v4_mir_lower_ty` as the public
 driver entrypoint. Meiya, codegen, query, and snapshot code consume the

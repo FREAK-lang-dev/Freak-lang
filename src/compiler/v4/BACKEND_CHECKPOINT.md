@@ -193,8 +193,9 @@ scan as a cold control; MIR's name fixture observes actual literal-say variadic
 promotion. Its 200/800 identity-column-only rows exercise name lookup and are
 explicitly excluded from valid-MIR snapshot or native-execution claims.
 
-Current source allocation counts and fixture budgets agree with README.
-HIR's 39-child budget is also guarded by conformance. HIR has 42 global
+At the pinned handoff-4 checkpoint, source allocation counts and fixture
+budgets agreed with README. HIR's then-current 39-child budget was also guarded
+by conformance. HIR has 42 global
 registries, 39 file children and four finalizer scratch handles;
 MIR has 39 globals, 37 file children and 32 children per body; Meiya has
 50 globals, 12 file children and five children per result (four authoritative
@@ -204,6 +205,13 @@ children. The qualified and body-name extensions add cells to existing
 children, with no added handles. Derived replacement children are released;
 authoritative restore-storage lifetimes and process-lifetime bootstrap Words
 retain their existing separate policy.
+
+The owned-word checkpoint changes the current inventory to HIR: 44 global
+registries and 41 file children; MIR: 40 global registries, 38 file children
+and 33 children per body. MIR snapshot v6 adds lexical statement scopes and
+validates their live and restored cross-facts atomically; v4/v5 snapshots are
+rejected. These counts supersede the historical handoff-4 counts above.
+Interpolation has not yet changed the published HIR protocol.
 
 ### Remaining scaling boundaries
 
