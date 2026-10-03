@@ -40,6 +40,14 @@ task v4_say_err_proof_run(case_id: int, target_name: word, emit: bool) -> void {
     }
     v4_say_err_proof_assert(found == expected, "exact builtin call count and ordinary shadow")
     pilot codegen = v4_codegen_llvm_lower_owned_mir(0, mir)
+    if v4_codegen_llvm_diag_count(codegen) != 0 or v4_codegen_llvm_native_module_error(codegen) != "" {
+        say "say-err-proof native-error=" + v4_codegen_llvm_native_module_error(codegen)
+        pilot native_diag = 0
+        repeat until native_diag >= v4_codegen_llvm_diag_count(codegen) { say v4_codegen_llvm_diag(codegen, native_diag); native_diag += 1 }
+        pilot borrow = v4_borrowck_check_mir(0, mir)
+        pilot borrow_diag = 0
+        repeat until borrow_diag >= v4_borrowck_diag_count(borrow) { say v4_borrowck_diag(borrow, borrow_diag); borrow_diag += 1 }
+    }
     v4_say_err_proof_assert(v4_codegen_llvm_diag_count(codegen) == 0 and v4_codegen_llvm_native_module_error(codegen) == "", "native ownership seal")
     pilot target = v4_target_spec_new(target_name)
     pilot before = v4_codegen_llvm_module_text(codegen, target)
