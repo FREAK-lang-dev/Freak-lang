@@ -548,6 +548,60 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                     self.assertEqual(error.guard_error.timeout, 1)
                 self.assertIn("tree-closed=False", message)
 
+    def test_failed_cleanup_retains_late_memory_peak_with_output_or_timeout_origin(self):
+        def thread(*, target, args, daemon):
+            return SimpleNamespace(start=lambda: target(*args), join=lambda timeout: None)
+
+        for guard in ("output", "timeout"):
+            with self.subTest(guard=guard):
+                fixture = self.cleanup_retry_fixture(
+                    "posix", "terminate", persistent=True, permission_failure=True,
+                )
+                fixture.process.stdout = io.BytesIO(b"original-output")
+                fixture.process.stderr = io.BytesIO(b"original-stderr")
+                # Initial sampling and enforcement see no breach. Only the
+                # cleanup sample after failed group termination observes it.
+                def memory():
+                    return 2 * 1024 * 1024 if "killpg" in fixture.events else 0
+
+                artifacts = self.proc / ("late-memory-" + guard)
+                command = ["unused", "late-memory"]
+                with patch.object(fixture.tree, "memory_bytes", side_effect=memory), \
+                        patch.object(checks.threading, "Thread", side_effect=thread), \
+                        patch.object(checks.time, "monotonic", side_effect=[0, 2, 2]), \
+                        self.assertRaises(RuntimeError) as failure:
+                    benchmark.guarded_job(
+                        None, command, artifacts, "late cleanup peak",
+                        1 if guard == "timeout" else None, 1,
+                        0 if guard == "output" else 8, runner=checks.run_with_heartbeat,
+                    )
+                error = failure.exception
+                message = str(error)
+                self.assertEqual(error.guard_trigger, guard)
+                self.assertIs(error.__cause__, error.cleanup_errors[0][1])
+                self.assertEqual(error.__cause__.errno, 1)
+                self.assertIn("guard-origin=" + guard, message)
+                self.assertIn("exceeded memory limit: peak=2.0MB limit=1MB", message)
+                self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
+                self.assertNotIn("secret", message)
+                self.assertEqual((artifacts / "failure.txt").read_text(), message)
+                self.assertEqual(error.output, "original-output")
+                self.assertEqual(error.stderr, "original-stderr")
+                self.assertEqual(error.guard_error.output, error.output)
+                self.assertEqual(error.guard_error.stderr, error.stderr)
+                self.assertEqual(error.stdout_total_bytes, len(b"original-output"))
+                self.assertEqual(error.stderr_total_bytes, len(b"original-stderr"))
+                if guard == "timeout":
+                    self.assertIsInstance(error.guard_error, subprocess.TimeoutExpired)
+                    self.assertIs(error.guard_error.cmd, command)
+                    self.assertEqual(error.guard_error.timeout, 1)
+                else:
+                    self.assertIsInstance(error.guard_error, RuntimeError)
+                    self.assertIn("exceeded output limit:", message)
+                self.assertNotIn("exceeded memory limit", str(error.guard_error))
+                self.assertIn("tree-closed=False", message)
+                self.assertEqual(fixture.process.returncode, -9)
+
     def test_failed_cleanup_joins_deferred_readers_before_freezing_guard_evidence(self):
         for guard in ("output", "timeout"):
             with self.subTest(guard=guard):
