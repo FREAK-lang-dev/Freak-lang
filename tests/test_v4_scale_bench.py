@@ -135,6 +135,9 @@ class FrozenRuntimeInventory(unittest.TestCase):
 
         self.enterContext(patch.object(self.benchmark, "guarded_job", side_effect=job))
         self.enterContext(patch.object(self.benchmark, "instrument", return_value="measured compiler\n"))
+        self.symbol_tool = {"resolved_nm": "verified-test-llvm-nm", "nm_version": LLVM_VERSION,
+                            "nm_file": {"sha256": "pinned-test-image"}}
+        self.enterContext(patch.object(self.benchmark, "llvm_symbol_tool", return_value=self.symbol_tool))
         self.enterContext(patch.object(self.benchmark.shutil, "which", return_value="test-clang"))
         self.enterContext(patch.object(self.benchmark.subprocess, "check_output", return_value="pinned-head\n"))
 
@@ -157,6 +160,7 @@ class FrozenRuntimeInventory(unittest.TestCase):
         self.assertEqual(len(manifest["runtime_hashes"]), 12)
         self.assertEqual(manifest["runtime_symbols"], [f"unique_{i}" for i in range(6)])
         self.assertEqual(manifest["runtime_collisions"], [])
+        self.assertEqual(manifest["symbol_tool"], self.symbol_tool)
         for name, digest in manifest["runtime_hashes"].items():
             frozen = tool.parent / "runtime" / name
             self.assertEqual(digest, hashlib.sha256(frozen.read_bytes()).hexdigest())
