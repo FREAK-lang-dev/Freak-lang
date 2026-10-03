@@ -296,14 +296,20 @@ def llvm_symbol_tool(build, directory: Path, timeout: float) -> dict:
         raise RuntimeError("llvm-nm is required for native symbol collision checks; "
                            "install LLVM tools (for example: apt-get install llvm) "
                            "and put llvm-nm on PATH")
-    tool = Path(nm).resolve()
-    provenance = {"requested_nm": nm, "resolved_nm": str(tool),
-                  "nm_file": symbol_file_provenance(tool),
+    provenance = {"requested_nm": nm, "selected_nm": nm,
                   "nm_version": "unavailable within unchanged resource limits"}
     try:
+        # LLVM multicall tools dispatch by argv[0]. Canonicalize the parent
+        # (including Windows short directory names), but preserve that leaf.
+        requested = Path(nm)
+        selected = requested.parent.resolve(strict=True) / requested.name
+        tool = selected.resolve(strict=True)
+        provenance.update(selected_nm=str(selected), resolved_nm=str(tool),
+                          nm_file=symbol_file_provenance(tool))
         if "sha256" not in provenance["nm_file"]:
             raise RuntimeError("cannot pin llvm-nm executable identity")
-        version = guarded_job(build, [str(tool), "--version"], directory / "tool-version",
+        executable = require_frozen_symbol_tool(provenance)
+        version = guarded_job(build, [executable, "--version"], directory / "tool-version",
                               "LLVM symbol tool version", min(timeout, 5), 128, 1)
         require_success(version, "llvm-nm version")
         provenance["nm_version"] = version.stdout[:512]
@@ -322,13 +328,20 @@ def llvm_symbol_tool(build, directory: Path, timeout: float) -> dict:
 
 
 def require_frozen_symbol_tool(provenance: dict) -> str:
+    selected = Path(provenance["selected_nm"])
     tool = Path(provenance["resolved_nm"])
+    try:
+        observed_target = selected.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise RuntimeError("frozen LLVM symbol tool alias mapping became unavailable") from error
+    if observed_target != tool:
+        raise RuntimeError("frozen LLVM symbol tool alias mapping changed")
     observed = symbol_file_provenance(tool)
     expected = provenance["nm_file"]
     if ("sha256" not in observed or observed["sha256"] != expected["sha256"]
             or observed["size_bytes"] != expected["size_bytes"]):
         raise RuntimeError("frozen LLVM symbol tool changed or became unavailable")
-    return str(tool)
+    return str(selected)
 
 
 def defined_symbols(build, path: Path, directory: Path, timeout: float,
