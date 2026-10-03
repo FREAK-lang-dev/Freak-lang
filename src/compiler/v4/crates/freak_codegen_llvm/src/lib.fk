@@ -1810,12 +1810,11 @@ task v4_codegen_llvm_lower_mir(file_id: int, mir_id: int) -> int {
     array_set(v4_codegen_llvm_native_errors, codegen_id, native_error)
     if native_error == "" {
         v4_codegen_llvm_lower_bodies(codegen_id, mir_id)
-        pilot ordinary_body_count = v4_codegen_llvm_body_count(codegen_id)
         v4_codegen_llvm_lower_callback_trampolines(codegen_id, mir_id, ty_id)
-        -- Callback bodies introduce generated names outside source resolution.
-        -- Ordinary-only modules need no additional uniqueness index.
+        -- Ordinary impls and qualified tasks can share linkage names even
+        -- without callbacks. Check every actual sealed definition together.
         native_error = v4_codegen_llvm_native_body_symbol_error(codegen_id)
-        if native_error == "" and v4_codegen_llvm_body_count(codegen_id) > ordinary_body_count { native_error = v4_codegen_llvm_native_duplicate_body_error(codegen_id) }
+        if native_error == "" { native_error = v4_codegen_llvm_native_duplicate_body_error(codegen_id) }
         if native_error == "" { native_error = v4_codegen_llvm_native_literal_symbol_error(codegen_id, mir_id) }
         if native_error == "" { native_error = v4_codegen_llvm_native_c_width_error(mir_id, ty_id) }
         pilot globals = v4_codegen_llvm_word_globals(mir_id)
@@ -2036,7 +2035,7 @@ task v4_codegen_llvm_duplicate_body_linear_error(codegen_id: int) -> word {
     give back ""
 }
 
--- Generated callback names must also be unique among actual definitions.
+-- Ordinary and generated callback names share one definition namespace.
 -- Report the earliest repeated body in sealed order, even without scratch.
 task v4_codegen_llvm_native_duplicate_body_error(codegen_id: int) -> word {
     if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "invalid codegen ID" }
