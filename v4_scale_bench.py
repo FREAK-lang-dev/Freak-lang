@@ -37,8 +37,10 @@ import math
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -367,43 +369,225 @@ def require_frozen_symbol_tool(provenance: dict) -> str:
     return selected
 
 
+def symbol_elf_origin_paths(stream, size: int, origin: Path) -> list[str]:
+    """Admit bounded ELF origin paths without changing loader search semantics."""
+    def read(offset, count):
+        if offset < 0 or count < 0 or offset + count > size:
+            raise RuntimeError("LLVM symbol reader ELF range is outside its verified image")
+        stream.seek(offset)
+        data = stream.read(count)
+        if len(data) != count:
+            raise RuntimeError("LLVM symbol reader ELF image changed while reading metadata")
+        return data
+
+    ident = read(0, min(size, 16))
+    if len(ident) != 16 or ident[:4] != b"\x7fELF":
+        raise RuntimeError("pinned LLVM symbol reader must be a native ELF image; shebang tools are unsupported")
+    if ident[4] not in (1, 2) or ident[5] not in (1, 2) or ident[6] != 1:
+        raise RuntimeError("unsupported LLVM symbol reader ELF encoding")
+    endian = "<" if ident[5] == 1 else ">"
+    wide = ident[4] == 2
+    header_format = endian + ("16sHHIQQQIHHHHHH" if wide else "16sHHIIIIIHHHHHH")
+    header = struct.unpack(header_format, read(0, struct.calcsize(header_format)))
+    entry_format = endian + ("IIQQQQQQ" if wide else "IIIIIIII")
+    entry_size = struct.calcsize(entry_format)
+    offset, stride, count = header[5], header[9], header[10]
+    if header[1] not in (2, 3) or header[3] != 1 or stride != entry_size or count > 128:
+        raise RuntimeError("unsupported LLVM symbol reader ELF program headers")
+    segments, dynamic = [], []
+    for index in range(count):
+        row = struct.unpack(entry_format, read(offset + index * stride, entry_size))
+        kind, file_offset, address, file_size, memory_size = (
+            (row[0], row[2], row[3], row[5], row[6]) if wide else
+            (row[0], row[1], row[2], row[4], row[5]))
+        if file_size > memory_size or file_offset + file_size > size:
+            raise RuntimeError("invalid LLVM symbol reader ELF segment bounds")
+        if kind == 1:
+            segments.append((address, file_offset, file_size))
+        if kind == 2:
+            dynamic.append((file_offset, file_size))
+    if not dynamic:
+        return []
+    if len(dynamic) != 1:
+        raise RuntimeError("ambiguous LLVM symbol reader ELF dynamic table")
+    entry_format = endian + ("qQ" if wide else "iI")
+    entry_size = struct.calcsize(entry_format)
+    offset, length = dynamic[0]
+    if length % entry_size or length > 128 * 1024:
+        raise RuntimeError("unsupported LLVM symbol reader ELF dynamic table size")
+    tags = []
+    for index in range(length // entry_size):
+        tag, value = struct.unpack(entry_format, read(offset + index * entry_size, entry_size))
+        if tag == 0:
+            break
+        tags.append((tag, value))
+    else:
+        raise RuntimeError("unterminated LLVM symbol reader ELF dynamic table")
+    paths = [value for tag, value in tags if tag in (15, 29)]
+    if not paths and not any(tag == 1 for tag, _ in tags):
+        return []
+    tables = [value for tag, value in tags if tag == 5]
+    sizes = [value for tag, value in tags if tag == 10]
+    if len(tables) != 1 or len(sizes) != 1 or sizes[0] > 4 * 1024 * 1024:
+        raise RuntimeError("unsupported LLVM symbol reader ELF string table")
+    locations = [file_offset + tables[0] - address for address, file_offset, file_size in segments
+                 if address <= tables[0] and tables[0] + sizes[0] <= address + file_size]
+    if len(locations) != 1:
+        raise RuntimeError("ambiguous LLVM symbol reader ELF string table range")
+    if any(sum(tag == wanted for tag, _ in tags) > 1 for wanted in (15, 29)):
+        raise RuntimeError("duplicate LLVM symbol reader ELF origin path")
+
+    def text(index):
+        if index >= sizes[0]:
+            raise RuntimeError("invalid LLVM symbol reader ELF string offset")
+        value = read(locations[0] + index, min(sizes[0] - index, 4097))
+        end = value.find(b"\0")
+        if end < 0 or end > 4096:
+            raise RuntimeError("oversized LLVM symbol reader ELF origin string")
+        try:
+            return value[:end].decode("ascii")
+        except UnicodeDecodeError as error:
+            raise RuntimeError("unsupported LLVM symbol reader ELF origin encoding") from error
+
+    def validate(value):
+        if "$" not in value:
+            return
+        match = re.fullmatch(r"(?:\$ORIGIN|\$\{ORIGIN\})(/.*)?", value)
+        if not match or "$" in (match[1] or ""):
+            raise RuntimeError("unsupported LLVM symbol reader ELF origin expansion")
+        depth = len(origin.parts) - 1
+        for part in (match[1] or "").split("/"):
+            if part in ("", "."):
+                continue
+            if part == "..":
+                depth -= 1
+                if depth < 0:
+                    raise RuntimeError("LLVM symbol reader ELF origin path escapes the shadow root")
+            elif re.fullmatch(r"[A-Za-z0-9_.+-]+", part):
+                depth += 1
+            else:
+                raise RuntimeError("unsupported LLVM symbol reader ELF origin component")
+
+    result = []
+    for value in paths:
+        path = text(value)
+        for entry in path.split(":"):
+            validate(entry)
+        result.append(path)
+    for tag, value in tags:
+        if tag == 1:
+            validate(text(value))
+    return result
+
+
+def symbol_shadow_origin(tool: Path, private_root: Path) -> tuple[Path, int]:
+    """Mirror only the canonical ancestor spine; sibling links are not copied."""
+    if not tool.is_absolute() or len(tool.parts) > 64:
+        raise RuntimeError("unsupported LLVM symbol reader shadow-origin path depth")
+    original, shadow = Path(tool.anchor), private_root / "tree"
+    shadow.mkdir(mode=0o700)
+    entries = 0
+    for index, component in enumerate(tool.parts[1:]):
+        final = index == len(tool.parts) - 2
+        # A bounded point-in-time name inventory preserves origin lookup order.
+        # Library bytes remain external to the executable identity guarantee.
+        for sibling in original.iterdir():
+            entries += 1
+            if entries > 8192:
+                raise RuntimeError("LLVM symbol reader shadow-origin entry limit exceeded")
+            if sibling.name != component:
+                try:
+                    (shadow / sibling.name).symlink_to(sibling)
+                except FileExistsError as error:
+                    raise RuntimeError("LLVM symbol reader shadow-origin slot collision") from error
+        if final:
+            return shadow / component, entries
+        original = original / component
+        shadow = shadow / component
+        shadow.mkdir(mode=0o700)
+    raise RuntimeError("invalid LLVM symbol reader shadow-origin image path")
+
+
+def close_symbol_descriptor(descriptor: int) -> None:
+    """One close attempt for this call's launch descriptor, separate from rmtree."""
+    os.close(descriptor)
+
+
 @contextmanager
 def frozen_symbol_tool_launch(provenance: dict):
-    """Pin the verified Linux ELF inode across pathname replacement and spawn."""
+    """Launch a private copy immune to writes/replacement of the selected original.
+
+    This does not seal libraries or defend against deliberate same-UID writes
+    to private scratch. All ELF bytes and loader settings remain unchanged.
+    """
     if not sys.platform.startswith("linux"):
         raise RuntimeError("pinned LLVM symbol reader execution requires Linux proc-fd support")
     argv0 = require_frozen_symbol_mapping(provenance)
     tool = Path(provenance["resolved_nm"])
-    descriptor = os.open(tool, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    temporary = tempfile.TemporaryDirectory(prefix="freak-llvm-nm-")
+    descriptor = None
     primary_error = None
+    close_failure = None
     try:
-        before = os.fstat(descriptor)
-        if not stat.S_ISREG(before.st_mode):
-            raise RuntimeError("pinned LLVM symbol reader must be a regular ELF image")
-        prefix = os.read(descriptor, 4)
-        digest = hashlib.sha256(prefix)
+        Path(temporary.name).chmod(0o700)
+        original_descriptor = os.open(tool, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(original_descriptor, "rb", buffering=0) as source:
+            before = os.fstat(source.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise RuntimeError("pinned LLVM symbol reader must be a regular ELF image")
+            if before.st_size > 128 * 1024 * 1024:
+                raise RuntimeError("LLVM symbol reader private image exceeds the 128 MiB image limit")
+            snapshot, shadow_entries = symbol_shadow_origin(tool, Path(temporary.name))
+            digest = hashlib.sha256()
+            source.seek(0)
+            copied = 0
+            with snapshot.open("xb") as writer:
+                while chunk := source.read(64 * 1024):
+                    copied += len(chunk)
+                    if copied > before.st_size:
+                        raise RuntimeError("frozen LLVM symbol tool changed while copying its image")
+                    digest.update(chunk)
+                    writer.write(chunk)
+            after = os.fstat(source.fileno())
+            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                    after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                raise RuntimeError("frozen LLVM symbol tool changed while pinning its image")
+            expected = provenance["nm_file"]
+            if copied != expected["size_bytes"] or digest.hexdigest() != expected["sha256"]:
+                raise RuntimeError("frozen LLVM symbol tool changed or became unavailable")
+            with snapshot.open("rb") as image_stream:
+                origin_paths = symbol_elf_origin_paths(image_stream, copied, tool.parent)
+        # The original reader and the private writer are closed before launch.
+        snapshot.chmod(0o500)
+        if os.statvfs(snapshot).f_flag & os.ST_NOEXEC:
+            raise RuntimeError("LLVM symbol reader private-copy storage is mounted noexec")
+        descriptor = os.open(snapshot, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+        copied_stat = os.fstat(descriptor)
+        copied_digest = hashlib.sha256()
         while chunk := os.read(descriptor, 64 * 1024):
-            digest.update(chunk)
-        after = os.fstat(descriptor)
-        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
-                after.st_size, after.st_mtime_ns, after.st_ctime_ns):
-            raise RuntimeError("frozen LLVM symbol tool changed while pinning its image")
-        expected = provenance["nm_file"]
-        if after.st_size != expected["size_bytes"] or digest.hexdigest() != expected["sha256"]:
-            raise RuntimeError("frozen LLVM symbol tool changed or became unavailable")
-        if prefix != b"\x7fELF":
-            raise RuntimeError("pinned LLVM symbol reader must be a native ELF image; shebang tools are unsupported")
+            copied_digest.update(chunk)
+        if (copied_stat.st_size != copied or copied_digest.hexdigest() != expected["sha256"]
+                or (copied_stat.st_dev, copied_stat.st_ino) == (after.st_dev, after.st_ino)):
+            raise RuntimeError("LLVM symbol reader private copy identity mismatch")
         executable = f"/proc/self/fd/{descriptor}"
         try:
             proc_image = os.stat(executable)
         except OSError as error:
             raise RuntimeError("pinned LLVM symbol reader execution requires Linux proc-fd support") from error
-        if (proc_image.st_dev, proc_image.st_ino) != (after.st_dev, after.st_ino):
+        if (proc_image.st_dev, proc_image.st_ino) != (copied_stat.st_dev, copied_stat.st_ino):
             raise RuntimeError("pinned LLVM symbol reader proc-fd identity mismatch")
         os.lseek(descriptor, 0, os.SEEK_SET)
         image = {"resolved_nm": str(tool), "argv0": argv0, "executable": executable,
-                 "device": after.st_dev, "inode": after.st_ino,
-                 "size_bytes": after.st_size, "sha256": digest.hexdigest(),
+                 "device": copied_stat.st_dev, "inode": copied_stat.st_ino,
+                 "size_bytes": copied_stat.st_size, "sha256": copied_digest.hexdigest(),
+                 "private_copy": str(snapshot), "private_root": temporary.name,
+                 "private_directory_mode": "0700", "image_mode": "0500",
+                 "sealed": False, "shadow_entries": shadow_entries, "origin_paths": origin_paths,
+                 "original_image": {"device": after.st_dev, "inode": after.st_ino,
+                                    "size_bytes": after.st_size, "sha256": digest.hexdigest()},
+                 "identity_guarantee": "private copy is independent of selected-original writes/replacement; "
+                                       "malicious same-UID scratch writes and library contents are not sealed; "
+                                       "shadow sibling names are a point-in-time inventory",
                  "descriptor_lifetime": "inherited during this guarded job; closed after completion"}
         yield {"argv0": argv0, "executable": executable,
                "pass_fds": (descriptor,), "image": image}
@@ -414,10 +598,12 @@ def frozen_symbol_tool_launch(provenance: dict):
         try:
             # Linux may already have released this descriptor on close failure.
             # A retry could close a descriptor subsequently reused by the caller.
-            os.close(descriptor)
+            if descriptor is not None:
+                close_symbol_descriptor(descriptor)
         except OSError as close_error:
             if primary_error is None:
-                raise RuntimeError("pinned LLVM symbol reader descriptor close failed") from close_error
+                close_failure = RuntimeError("pinned LLVM symbol reader descriptor close failed")
+                raise close_failure from close_error
             # Cleanup attribution must not replace a resource/launch failure,
             # even if adding its bounded secondary note itself fails.
             try:
@@ -428,6 +614,21 @@ def frozen_symbol_tool_launch(provenance: dict):
                     f"secondary LLVM symbol reader descriptor close failure: errno={number}; {detail}")
             except BaseException:
                 pass
+        finally:
+            # Only this call's private tree is removed; sibling links are never
+            # traversed. Preserve an already attributed launch/close failure.
+            active_error = primary_error if primary_error is not None else close_failure
+            try:
+                temporary.cleanup()
+            except OSError as cleanup_error:
+                if active_error is None:
+                    raise RuntimeError("LLVM symbol reader private-copy cleanup failed") from cleanup_error
+                try:
+                    BaseException.add_note(active_error,
+                        "secondary LLVM symbol reader private-copy cleanup failure: "
+                        f"errno={cleanup_error.errno if isinstance(cleanup_error.errno, int) else None}")
+                except BaseException:
+                    pass
 
 
 def defined_symbols(build, path: Path, directory: Path, timeout: float,
