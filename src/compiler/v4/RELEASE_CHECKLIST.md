@@ -56,8 +56,10 @@ conditional optional-diagnostic cleanup failure; the independently reviewed
 fix is in [PR #140](https://github.com/FREAK-lang-dev/Freak-lang/pull/140).
 PR #140 merged at `af1d10b` after all 23 CI jobs passed at `807ecff`.
 The follow-up [PR #142](https://github.com/FREAK-lang-dev/Freak-lang/pull/142)
-passed all 23 jobs at `4a48fd7`; subsequent confirmed tool-alias and guard
-evidence findings require a reviewed successor and fresh current-head CI.
+passed all 23 jobs at `4a48fd7`. Reviewed successor `51d960d` fixes subsequent
+tool-image and cleanup-evidence findings and the confirmed HIR memory failure.
+Its complete 37-method Linux benchmark and 125 registered HIR expectations pass;
+fresh current-head CI and automatic reviews remain pending.
 The earlier real parent/descendant cleanup control passes.
 
 The integration harness now executes the three owned-word fixture groups as
@@ -95,8 +97,11 @@ field-equivalence controls, the original plain scaling fixture and its complete
 instrumented run pass at 64 MiB / 1,024 handles; the maximum recorded VmHWM is
 65,597,440 bytes (62.56 MiB), distinct from the lower final-row value. Original
 failed attempts and their stale failure-file disposition remain preserved as
-historical evidence. One differential fixture is registered (342 total);
-current integrated and platform checks remain pending. At `5608f27`, all
+historical evidence. One differential fixture is registered (342 total).
+At `678fea7`, all four selected HIR/target fixtures pass their 190 registered
+expectations, including the original 122-row HIR scaling fixture at its unchanged
+64 MiB / 1,024-handle ceiling. The complete inventory and hosted platform gates
+remain pending. At `5608f27`, all
 80 selected merged word/cold/interpolation/resource/legacy-MIR cases pass,
 and 129 cold-query/expansion case executions cover 42 allocation-fault positions
 and one bootstrap-row failure scenario over three recovery cycles under the original
@@ -112,9 +117,14 @@ compiler mode/never/CFG wiring and default unwinding remain pending.
 The reviewed target C integer prerequisite (`2c91aa4`) exposes validated
 int32/LP64-long64/Windows-long32 layout descriptors and agrees with four actual
 Clang IR/object pairs. Its strengthened oracle rejects commented calls and
-non-C conventions. One fixture is registered (341 total), and all-OS oracle
-CI is wired; integrated and platform checks remain pending. B01 native C-width
-admission remains fenced until target-bound typing and lowering are complete.
+non-C conventions. Its fixture joins the current 342-fixture inventory. At
+`678fea7`, all 64 registered target expectations and nine mandatory Clang
+identity/IR/object commands pass for the four explicit targets; no foreign
+binary is executed. Distinct per-target/type output keys preserve the exact
+unique-output gate, and impossible unique-output registrations fail before
+compilation. All-OS oracle CI is wired; hosted platform checks remain pending.
+B01 native C-width admission remains fenced until target-bound typing and
+lowering are complete.
 
 Broader native words retain the owned/borrowed contracts and cleanup described
 in the V4 README.
