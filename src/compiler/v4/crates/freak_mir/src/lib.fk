@@ -3,7 +3,7 @@
 -- ===================================================================
 -- Depends on freak_span, freak_diag, and freak_ty.
 -- Owns Built-MIR storage, stable ids, CFG/local/place/rvalue accessors,
--- validation, diagnostics storage, and the byte-stable snapshot v5
+-- validation, diagnostics storage, and the byte-stable snapshot v6
 -- format. Source construction policy lives in freak_mir_build.
 
 pilot v4_mir_term_return = "Return"
@@ -104,7 +104,7 @@ pilot v4_mir_place_index = "Index"
 pilot v4_mir_place_deref = "Deref"
 pilot v4_mir_place_return = "Return"
 pilot v4_mir_place_unknown = "Unknown"
-pilot v4_mir_snapshot_format = "freak-mir-snapshot-v5"
+pilot v4_mir_snapshot_format = "freak-mir-snapshot-v6"
 
 pilot v4_mir_files = 0
 pilot v4_mir_tys = 0
@@ -121,6 +121,7 @@ pilot v4_mir_body_stmt_kinds = 0
 pilot v4_mir_body_stmt_lhs = 0
 pilot v4_mir_body_stmt_rhs = 0
 pilot v4_mir_body_stmt_spans = 0
+pilot v4_mir_body_stmt_scope_spans = 0
 pilot v4_mir_body_stmt_blocks = 0
 pilot v4_mir_body_stmt_places = 0
 pilot v4_mir_body_stmt_rvalues = 0
@@ -144,7 +145,7 @@ pilot v4_mir_body_rvalue_builtin_methods = 0
 pilot v4_mir_diags = 0
 pilot v4_mir_ready = 0
 
--- Optional derived indexes. They never enter snapshot v5 or allocate in readers.
+-- Optional derived indexes. They never enter snapshot v6 or allocate in readers.
 -- Body identity child: ready/capacity/count, definition buckets, name buckets.
 pilot v4_mir_body_lookup_indexes = 0 - 1
 pilot v4_mir_block_stmt_indexes = 0 - 1
@@ -174,6 +175,7 @@ task v4_mir_init() -> void {
         v4_mir_body_stmt_lhs = array_new()
         v4_mir_body_stmt_rhs = array_new()
         v4_mir_body_stmt_spans = array_new()
+        v4_mir_body_stmt_scope_spans = array_new()
         v4_mir_body_stmt_blocks = array_new()
         v4_mir_body_stmt_places = array_new()
         v4_mir_body_stmt_rvalues = array_new()
@@ -218,6 +220,7 @@ task v4_mir_file_new(file_id: int, ty_id: int) -> int {
     array_push(v4_mir_body_stmt_lhs, word_from_int(array_new()))
     array_push(v4_mir_body_stmt_rhs, word_from_int(array_new()))
     array_push(v4_mir_body_stmt_spans, word_from_int(array_new()))
+    array_push(v4_mir_body_stmt_scope_spans, word_from_int(array_new()))
     array_push(v4_mir_body_stmt_blocks, word_from_int(array_new()))
     array_push(v4_mir_body_stmt_places, word_from_int(array_new()))
     array_push(v4_mir_body_stmt_rvalues, word_from_int(array_new()))
@@ -697,6 +700,10 @@ task v4_mir_stmt_spans_index_handle(mir_id: int) -> int {
     give back word_to_int(array_get(v4_mir_body_stmt_spans, mir_id))
 }
 
+task v4_mir_stmt_scope_spans_index_handle(mir_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_body_stmt_scope_spans, mir_id))
+}
+
 task v4_mir_stmt_blocks_index_handle(mir_id: int) -> int {
     give back word_to_int(array_get(v4_mir_body_stmt_blocks, mir_id))
 }
@@ -864,6 +871,10 @@ task v4_mir_body_stmt_rhs_handle(mir_id: int, body_id: int) -> int {
 
 task v4_mir_body_stmt_spans_handle(mir_id: int, body_id: int) -> int {
     give back word_to_int(array_get(v4_mir_stmt_spans_index_handle(mir_id), body_id))
+}
+
+task v4_mir_body_stmt_scope_spans_handle(mir_id: int, body_id: int) -> int {
+    give back word_to_int(array_get(v4_mir_stmt_scope_spans_index_handle(mir_id), body_id))
 }
 
 task v4_mir_body_stmt_blocks_handle(mir_id: int, body_id: int) -> int {
@@ -1138,7 +1149,7 @@ task v4_mir_add_type_warning(mir_id: int, span: word, message: word, help: word)
 }
 
 task v4_mir_block_new_full(block_id: int, terminator: word, target: int, else_target: int, condition: word) -> word {
-    give back word_from_int(block_id) + "|" + terminator + "|" + word_from_int(target) + "|" + word_from_int(else_target) + "|" + condition
+    give back word_from_int(block_id) + "|" + terminator + "|" + word_from_int(target) + "|" + word_from_int(else_target) + "|" + v4_mir_snapshot_escape(condition) + "|" + V4_NO_SPAN
 }
 
 task v4_mir_block_new(block_id: int, terminator: word, target: int) -> word {
@@ -1194,7 +1205,7 @@ task v4_mir_block_else_target(block_record: word) -> int {
 }
 
 task v4_mir_block_condition(block_record: word) -> word {
-    give back v4_mir_block_part(block_record, 4)
+    give back v4_mir_snapshot_unescape(v4_mir_block_part(block_record, 4))
 }
 
 task v4_mir_body_block(mir_id: int, body_id: int, block_id: int) -> word {
@@ -1202,6 +1213,10 @@ task v4_mir_body_block(mir_id: int, body_id: int, block_id: int) -> word {
 }
 
 task v4_mir_set_body_block(mir_id: int, body_id: int, block_id: int, block_record: word) -> void {
+    pilot old_scope = v4_mir_block_scope_span(mir_id, body_id, block_id)
+    if v4_mir_block_part(block_record, 5) == V4_NO_SPAN and old_scope != (V4_NO_SPAN) {
+        block_record = v4_mir_block_with_scope(block_record, old_scope)
+    }
     array_set(v4_mir_body_blocks_handle(mir_id, body_id), block_id, block_record)
 }
 
@@ -1594,6 +1609,7 @@ task v4_mir_add_stmt(mir_id: int, body_id: int, block_id: int, stmt_kind: word, 
     array_push(v4_mir_body_stmt_lhs_handle(mir_id, body_id), lhs)
     array_push(v4_mir_body_stmt_rhs_handle(mir_id, body_id), rhs)
     array_push(v4_mir_body_stmt_spans_handle(mir_id, body_id), span)
+    array_push(v4_mir_body_stmt_scope_spans_handle(mir_id, body_id), v4_mir_block_scope_span(mir_id, body_id, block_id))
     array_push(v4_mir_body_stmt_blocks_handle(mir_id, body_id), word_from_int(block_id))
     array_push(v4_mir_body_stmt_places_handle(mir_id, body_id), word_from_int(place_id))
     array_push(v4_mir_body_stmt_rvalues_handle(mir_id, body_id), word_from_int(rvalue_id))
@@ -1613,6 +1629,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     pilot stmt_lhs_handle = array_new()
     pilot stmt_rhs_handle = array_new()
     pilot stmt_spans_handle = array_new()
+    pilot stmt_scope_spans_handle = array_new()
     pilot stmt_blocks_handle = array_new()
     pilot stmt_places_handle = array_new()
     pilot stmt_rvalues_handle = array_new()
@@ -1647,6 +1664,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     array_push(v4_mir_stmt_lhs_index_handle(mir_id), word_from_int(stmt_lhs_handle))
     array_push(v4_mir_stmt_rhs_index_handle(mir_id), word_from_int(stmt_rhs_handle))
     array_push(v4_mir_stmt_spans_index_handle(mir_id), word_from_int(stmt_spans_handle))
+    array_push(v4_mir_stmt_scope_spans_index_handle(mir_id), word_from_int(stmt_scope_spans_handle))
 
     array_push(v4_mir_stmt_blocks_index_handle(mir_id), word_from_int(stmt_blocks_handle))
     array_push(v4_mir_stmt_places_index_handle(mir_id), word_from_int(stmt_places_handle))
@@ -2631,6 +2649,7 @@ task v4_mir_snapshot_stmt_line(mir_id: int, body_id: int, stmt_id: int) -> word 
     out = out + "|" + word_from_int(v4_mir_stmt_block(mir_id, body_id, stmt_id))
     out = out + "|" + word_from_int(v4_mir_stmt_place(mir_id, body_id, stmt_id))
     out = out + "|" + word_from_int(v4_mir_stmt_rvalue(mir_id, body_id, stmt_id))
+    out = out + "|" + v4_mir_snapshot_escape(v4_mir_stmt_scope_span(mir_id, body_id, stmt_id))
     give back out
 }
 
@@ -2752,7 +2771,7 @@ task v4_mir_snapshot_record_expected_fields(kind: word) -> int {
     if kind == "mir-body" { give back 11 }
     if kind == "mir-block" { give back 5 }
     if kind == "mir-local" { give back 9 }
-    if kind == "mir-stmt" { give back 11 }
+    if kind == "mir-stmt" { give back 12 }
     if kind == "mir-place" { give back 11 }
     if kind == "mir-rvalue" { give back 14 }
     if kind == "mir-diag" { give back 4 }
@@ -2849,6 +2868,8 @@ task v4_mir_snapshot_rvalue_kind_is_known(kind: word) -> bool {
 }
 
 task v4_mir_snapshot_block_record_is_valid(block_record: word, block_id: int, block_count: int) -> bool {
+    if not v4_mir_scope_span_is_valid(v4_mir_block_part(block_record, 5)) { give back false }
+    if v4_mir_block_part(block_record, 6) != "" { give back false }
     pilot raw_id = v4_mir_block_part(block_record, 0)
     pilot terminator = v4_mir_block_part(block_record, 1)
     pilot raw_target = v4_mir_block_part(block_record, 2)
@@ -3273,6 +3294,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if word_to_int(raw_child_id) != body_statements { malformed += 1 }
                 if body_phase > 3 { malformed += 1 }
                 pilot stmt_kind = v4_mir_snapshot_field(line, 4)
+                if not v4_mir_scope_span_is_valid(v4_mir_snapshot_field(line, 11)) { malformed += 1 }
                 pilot raw_stmt_block = v4_mir_snapshot_field_raw(line, 8)
                 pilot raw_stmt_place = v4_mir_snapshot_field_raw(line, 9)
                 pilot raw_stmt_rvalue = v4_mir_snapshot_field_raw(line, 10)
@@ -3331,7 +3353,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 array_push(body_graph_rvalue_rhs, raw_rhs)
                 array_push(body_graph_rvalue_args, args_payload)
                 pilot builtin_method = v4_mir_snapshot_field(line, 13)
-                if builtin_method != "" and not v4_mir_builtin_shared_method_identity_is_known(builtin_method) {
+                if builtin_method != "" and not v4_mir_builtin_method_identity_is_known(builtin_method) {
                     malformed += 1
                 }
                 if builtin_method != "" and rvalue_kind != v4_mir_rvalue_call { malformed += 1 }
@@ -3440,6 +3462,7 @@ task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
     array_set(v4_mir_body_stmt_lhs, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_stmt_rhs, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_stmt_spans, mir_id, word_from_int(array_new()))
+    array_set(v4_mir_body_stmt_scope_spans, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_stmt_blocks, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_stmt_places, mir_id, word_from_int(array_new()))
     array_set(v4_mir_body_stmt_rvalues, mir_id, word_from_int(array_new()))
@@ -3489,6 +3512,7 @@ task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name
     array_set(v4_mir_stmt_lhs_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_stmt_rhs_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_stmt_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+    array_set(v4_mir_stmt_scope_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_stmt_blocks_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_stmt_places_index_handle(mir_id), body_id, word_from_int(array_new()))
     array_set(v4_mir_stmt_rvalues_index_handle(mir_id), body_id, word_from_int(array_new()))
@@ -3567,6 +3591,7 @@ task v4_mir_restore_stmt_slot(mir_id: int, body_id: int, stmt_id: int, stmt_kind
         array_push(v4_mir_body_stmt_lhs_handle(mir_id, body_id), "")
         array_push(v4_mir_body_stmt_rhs_handle(mir_id, body_id), "")
         array_push(v4_mir_body_stmt_spans_handle(mir_id, body_id), V4_NO_SPAN)
+        array_push(v4_mir_body_stmt_scope_spans_handle(mir_id, body_id), V4_NO_SPAN)
         array_push(v4_mir_body_stmt_blocks_handle(mir_id, body_id), word_from_int(0 - 1))
         array_push(v4_mir_body_stmt_places_handle(mir_id, body_id), word_from_int(0 - 1))
         array_push(v4_mir_body_stmt_rvalues_handle(mir_id, body_id), word_from_int(0 - 1))
@@ -3607,7 +3632,7 @@ task v4_mir_restore_place_slot(mir_id: int, body_id: int, place_id: int, place_k
 
 task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalue_kind: word, text: word, op: word, lhs: int, rhs: int, span: word, rvalue_ty: word, rvalue_abi: word, rvalue_args: word, builtin_method: word) -> int {
     if rvalue_id < 0 { give back 0 }
-    pilot builtin_method_code = v4_mir_builtin_shared_method_identity_code(builtin_method)
+    pilot builtin_method_code = v4_mir_builtin_method_identity_code(builtin_method)
     if builtin_method != "" and builtin_method_code == 0 { give back 0 }
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
@@ -3639,6 +3664,8 @@ task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalu
         array_set(builtin_methods_handle, rvalue_id, v4_mir_builtin_shared_get_mut)
     } else if builtin_method_code == 7 {
         array_set(builtin_methods_handle, rvalue_id, v4_mir_builtin_weak_upgrade)
+    } else if builtin_method_code >= 101 {
+        array_set(builtin_methods_handle, rvalue_id, builtin_method)
     } else {
         array_set(builtin_methods_handle, rvalue_id, "")
     }
@@ -3718,7 +3745,9 @@ task v4_mir_snapshot_restore_stmt_line(line: word) -> int {
     pilot block_id = word_to_int(v4_mir_snapshot_field_raw(line, 8))
     pilot place_id = word_to_int(v4_mir_snapshot_field_raw(line, 9))
     pilot rvalue_id = word_to_int(v4_mir_snapshot_field_raw(line, 10))
-    give back v4_mir_restore_stmt_slot(mir_id, body_id, stmt_id, stmt_kind, lhs, rhs, span, block_id, place_id, rvalue_id)
+    pilot restored = v4_mir_restore_stmt_slot(mir_id, body_id, stmt_id, stmt_kind, lhs, rhs, span, block_id, place_id, rvalue_id)
+    if restored == 1 { v4_mir_set_stmt_scope_span(mir_id, body_id, stmt_id, v4_mir_snapshot_field(line, 11)) }
+    give back restored
 }
 
 
@@ -3851,4 +3880,134 @@ task v4_mir_snapshot_restore_component(payload: word) -> word {
     out = out + " failures=" + word_from_int(restore_failures)
     out = out + " live-files=" + word_from_int(v4_mir_file_count())
     give back out
+}
+
+
+-- Lexical scope ownership is a semantic MIR fact, including empty CFG joins.
+task v4_mir_scope_span_is_valid(span: word) -> bool {
+    if span == (V4_NO_SPAN) { give back true }
+    pilot start = v4_span_start(span)
+    pilot end = v4_span_end(span)
+    give back start >= 0 and end > start and v4_span_new(v4_span_file(span), start, end) == span
+}
+
+task v4_mir_scope_contains(outer: word, inner: word) -> bool {
+    if outer == V4_NO_SPAN or inner == (V4_NO_SPAN) { give back false }
+    give back v4_span_file(outer) == v4_span_file(inner) and v4_span_start(outer) <= v4_span_start(inner) and v4_span_end(outer) >= v4_span_end(inner)
+}
+
+task v4_mir_block_with_scope(record: word, scope: word) -> word {
+    give back v4_mir_block_part(record, 0) + "|" + v4_mir_block_part(record, 1) + "|" + v4_mir_block_part(record, 2) + "|" + v4_mir_block_part(record, 3) + "|" + v4_mir_block_part(record, 4) + "|" + scope
+}
+
+task v4_mir_block_scope_span(mir_id: int, body_id: int, block_id: int) -> word {
+    if block_id < 0 or block_id >= v4_mir_body_block_count(mir_id, body_id) { give back V4_NO_SPAN }
+    give back v4_mir_block_part(v4_mir_body_block(mir_id, body_id, block_id), 5)
+}
+
+task v4_mir_set_block_scope_span(mir_id: int, body_id: int, block_id: int, scope: word) -> void {
+    array_set(v4_mir_body_blocks_handle(mir_id, body_id), block_id, v4_mir_block_with_scope(v4_mir_body_block(mir_id, body_id, block_id), scope))
+}
+
+task v4_mir_stmt_scope_span(mir_id: int, body_id: int, stmt_id: int) -> word {
+    if stmt_id < 0 or stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) { give back V4_NO_SPAN }
+    give back array_get(v4_mir_body_stmt_scope_spans_handle(mir_id, body_id), stmt_id)
+}
+
+task v4_mir_set_stmt_scope_span(mir_id: int, body_id: int, stmt_id: int, scope: word) -> void {
+    array_set(v4_mir_body_stmt_scope_spans_handle(mir_id, body_id), stmt_id, scope)
+}
+
+task v4_mir_word_local_scope_exits_before_stmt(mir_id: int, body_id: int, local_id: int, previous_stmt: int, next_stmt: int) -> bool {
+    pilot local_scope = v4_mir_local_scope_span(mir_id, body_id, local_id)
+    give back v4_mir_scope_contains(local_scope, v4_mir_stmt_scope_span(mir_id, body_id, previous_stmt)) and not v4_mir_scope_contains(local_scope, v4_mir_stmt_scope_span(mir_id, body_id, next_stmt))
+}
+
+task v4_mir_word_local_scope_exits_on_edge(mir_id: int, body_id: int, local_id: int, source_block: int, target_block: int) -> bool {
+    pilot source_scope = v4_mir_block_scope_span(mir_id, body_id, source_block)
+    pilot stmt_id = v4_mir_block_first_stmt(mir_id, body_id, source_block)
+    repeat until stmt_id < 0 {
+        source_scope = v4_mir_stmt_scope_span(mir_id, body_id, stmt_id)
+        stmt_id = v4_mir_block_next_stmt(mir_id, body_id, source_block, stmt_id)
+    }
+    pilot target_scope = v4_mir_block_scope_span(mir_id, body_id, target_block)
+    stmt_id = v4_mir_block_first_stmt(mir_id, body_id, target_block)
+    if stmt_id >= 0 { target_scope = v4_mir_stmt_scope_span(mir_id, body_id, stmt_id) }
+    pilot local_scope = v4_mir_local_scope_span(mir_id, body_id, local_id)
+    give back v4_mir_scope_contains(local_scope, source_scope) and not v4_mir_scope_contains(local_scope, target_scope)
+}
+
+
+task v4_mir_word_intrinsic_identity(kind: word) -> word {
+    if not v4_ty_word_intrinsic_known(kind) { give back "" }
+    give back "builtin::word::" + kind
+}
+
+task v4_mir_builtin_word_identity_kind(identity: word) -> word {
+    if not identity.starts_with("builtin::word::") { give back "" }
+    pilot kind = v4_slice(identity, 15, identity.length())
+    if not v4_ty_word_intrinsic_known(kind) { give back "" }
+    give back kind
+}
+
+task v4_mir_builtin_method_identity_is_known(identity: word) -> bool {
+    give back v4_mir_builtin_shared_method_identity_is_known(identity) or v4_mir_builtin_word_identity_kind(identity) != ""
+}
+
+task v4_mir_builtin_method_identity_code(identity: word) -> int {
+    pilot shared = v4_mir_builtin_shared_method_identity_code(identity)
+    if shared > 0 { give back shared }
+    pilot kind = v4_mir_builtin_word_identity_kind(identity)
+    if kind == "concat" { give back 101 }
+    if kind == "equal" { give back 102 }
+    if kind == "not_equal" { give back 103 }
+    if kind == "say" { give back 104 }
+    if kind == "say_err" { give back 105 }
+    if kind == "from_int" { give back 106 }
+    if kind == "from_bool" { give back 107 }
+    if kind == "from_num" { give back 108 }
+    if kind == "to_int" { give back 109 }
+    if kind == "length" { give back 110 }
+    if kind == "bytes" { give back 111 }
+    if kind == "char_at" { give back 112 }
+    if kind == "slice" { give back 113 }
+    if kind == "substring" { give back 114 }
+    if kind == "starts_with" { give back 115 }
+    if kind == "ends_with" { give back 116 }
+    if kind == "contains" { give back 117 }
+    if kind == "clone" { give back 118 }
+    give back 0
+}
+
+task v4_mir_word_intrinsic_argument_is_borrowed(kind: word, arg_id: int) -> bool {
+    give back v4_ty_word_intrinsic_param_type(kind, arg_id) == v4_ty_word
+}
+
+-- Intrinsic identity is never inferred from ordinary user-visible call text.
+task v4_mir_rvalue_is_builtin_word(mir_id: int, body_id: int, rvalue_id: int) -> bool {
+    pilot identity = v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id)
+    pilot kind = v4_mir_builtin_word_identity_kind(identity)
+    if kind == "" or v4_mir_rvalue_kind(mir_id, body_id, rvalue_id) != v4_mir_rvalue_call { give back false }
+    if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) != identity or v4_mir_rvalue_abi(mir_id, body_id, rvalue_id) != "" { give back false }
+    if v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id) >= 0 or v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id) >= 0 { give back false }
+    if v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) != v4_ty_word_intrinsic_result_type(kind) { give back false }
+    if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) != v4_ty_word_intrinsic_param_count(kind) { give back false }
+    pilot arg_id = 0
+    repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
+        pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, rvalue_id, arg_id)
+        pilot expected = v4_ty_word_intrinsic_param_type(kind, arg_id)
+        if child < 0 or child >= rvalue_id { give back false }
+        if expected == v4_ty_word {
+            if v4_mir_rvalue_kind(mir_id, body_id, child) != v4_mir_rvalue_lend or v4_mir_rvalue_ty(mir_id, body_id, child) != "lend word" or v4_mir_rvalue_rhs(mir_id, body_id, child) >= 0 { give back false }
+            pilot value = v4_mir_rvalue_lhs(mir_id, body_id, child)
+            if value < 0 or value >= child or v4_mir_rvalue_ty(mir_id, body_id, value) != v4_ty_word { give back false }
+        } else if not v4_ty_types_compatible(expected, v4_mir_rvalue_ty(mir_id, body_id, child)) { give back false }
+        arg_id += 1
+    }
+    give back true
+}
+
+task v4_mir_word_intrinsic_kind(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    if not v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) { give back "" }
+    give back v4_mir_builtin_word_identity_kind(v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id))
 }

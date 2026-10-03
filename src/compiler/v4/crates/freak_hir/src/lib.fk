@@ -5992,3 +5992,61 @@ task v4_hir_shape_type_text(stream_id: int, start_token: int, end_token: int) ->
     }
     give back out
 }
+
+
+-- Sized owned literals admit U+0000; W1 retains its static C-string contract.
+task v4_hir_owned_word_literal_issue(raw: word) -> word {
+    -- chr builds a sized word, so this also catches an actual byte zero in
+    -- source loaded from a file rather than just the spelling backslash-zero.
+    pilot nul = chr(0)
+    pilot idx = 0
+    repeat until idx >= raw.length() {
+        pilot ch = raw.char_at(idx)
+        if ch == "\\" {
+            idx += 1
+            if idx >= raw.length() { give back "escape" }
+            pilot escaped = raw.char_at(idx)
+            if escaped != "0" and escaped != "n" and escaped != "r" and escaped != "t" and escaped != "\"" and escaped != "\\" {
+                give back "escape"
+            }
+        }
+        idx += 1
+    }
+
+    idx = 0
+    repeat until idx >= raw.length() {
+        if raw.char_at(idx) == "{" {
+            pilot close = idx + 1
+            repeat until close >= raw.length() or raw.char_at(close) == "}" { close += 1 }
+            if close < raw.length() {
+                if v4_hir_word_literal_path_is_valid(v4_slice(raw, idx + 1, close)) { give back "interpolation" }
+                -- A matched body that is not a path stays entirely literal.
+                idx = close
+            }
+        }
+        idx += 1
+    }
+    give back ""
+}
+
+task v4_hir_owned_word_literal_value(raw: word) -> word {
+    if v4_hir_owned_word_literal_issue(raw) != "" { give back "" }
+    if not raw.contains("\\") { give back raw }
+    -- Join once in normal operation. Preserve exact decoding if no scratch
+    -- handle is available instead of silently publishing an empty literal.
+    pilot parts = array_new()
+    pilot value = ""
+    pilot idx = 0
+    repeat until idx >= raw.length() {
+        pilot ch = raw.char_at(idx)
+        if ch == "\\" {
+            idx += 1
+            pilot escaped = raw.char_at(idx)
+            if escaped == "0" { ch = chr(0) } else if escaped == "n" { ch = "\n" } else if escaped == "r" { ch = "\r" } else if escaped == "t" { ch = "\t" } else { ch = escaped }
+        }
+        if parts >= 0 { array_push(parts, ch) } else { value = value + ch }
+        idx += 1
+    }
+    if parts >= 0 { give back word_join(parts) }
+    give back value
+}

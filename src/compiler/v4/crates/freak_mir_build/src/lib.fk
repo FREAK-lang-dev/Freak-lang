@@ -279,7 +279,7 @@ task v4_mir_add_try_propagation_return(mir_id: int, body_id: int, block_id: int,
     }
 
     pilot return_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_return, "_return", 0 - 1, "_return", 0 - 1, stmt_span, return_ty)
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_return, "_return", return_text, stmt_span, return_place, return_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_return, "_return", return_text, stmt_span, return_place, return_rvalue)
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_return, 0 - 1, 0 - 1, ""))
 }
 
@@ -302,12 +302,12 @@ task v4_mir_wire_single_try_propagation(mir_id: int, body_id: int, block_id: int
 
     pilot source_id = v4_mir_rvalue_lhs(mir_id, body_id, try_rvalue)
     pilot source_text = v4_mir_rvalue_text(mir_id, body_id, source_id)
-    pilot continue_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot propagate_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot continue_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot propagate_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot cond_text = "try " + source_text + " " + condition_op
     pilot cond_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_check, cond_text, condition_op, source_id, 0 - 1, stmt_span, v4_ty_bool)
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, continue_block, propagate_block, cond_text))
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "continue#" + word_from_int(continue_block) + " propagate#" + word_from_int(propagate_block), stmt_span, 0 - 1, cond_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "continue#" + word_from_int(continue_block) + " propagate#" + word_from_int(propagate_block), stmt_span, 0 - 1, cond_rvalue)
     v4_mir_add_try_propagation_return(mir_id, body_id, propagate_block, stmt_span, try_rvalue)
     give back continue_block
 }
@@ -348,7 +348,7 @@ task v4_mir_capture_control_flow_value(mir_id: int, body_id: int, block_id: int,
     v4_mir_set_rvalue_abi(mir_id, body_id, evaluated, v4_mir_rvalue_abi(mir_id, body_id, rvalue_id))
     v4_mir_set_rvalue_args_payload(mir_id, body_id, evaluated, v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id))
     v4_mir_set_rvalue_builtin_method(mir_id, body_id, evaluated, v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id))
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, temp_name, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_span, temp_place, evaluated)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, temp_name, v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_span, temp_place, evaluated)
     v4_mir_restore_rvalue_slot(mir_id, body_id, rvalue_id, v4_mir_rvalue_use_local, temp_name, temp_name, 0 - 1, 0 - 1, value_span, value_ty, "", "", "")
     give back rvalue_id
 }
@@ -369,9 +369,9 @@ task v4_mir_wire_control_flow_rvalue(mir_id: int, body_id: int, block_id: int, s
             pilot temp_name = v4_mir_unique_local_name(mir_id, body_id, "_bool_sc")
             pilot temp_local = v4_mir_add_local(mir_id, body_id, temp_name, result_ty, stmt_span)
             pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_local, temp_name, 0 - 1, stmt_span, result_ty)
-            pilot right_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-            pilot short_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-            pilot join_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+            pilot right_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+            pilot short_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+            pilot join_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
             pilot left_text = v4_mir_rvalue_text(mir_id, body_id, left_id)
             pilot branch_rhs = "eval#" + word_from_int(right_block) + " short#" + word_from_int(short_block)
             pilot true_target = right_block
@@ -383,16 +383,16 @@ task v4_mir_wire_control_flow_rvalue(mir_id: int, body_id: int, block_id: int, s
             }
 
             v4_mir_set_body_block(mir_id, body_id, current_block, v4_mir_block_new_full(current_block, v4_mir_term_if, true_target, false_target, left_text))
-            v4_mir_add_stmt(mir_id, body_id, current_block, v4_mir_stmt_branch, left_text, branch_rhs, stmt_span, 0 - 1, left_id)
+            v4_mir_build_add_scoped_stmt(mir_id, body_id, current_block, v4_mir_stmt_branch, left_text, branch_rhs, stmt_span, 0 - 1, left_id)
 
             pilot short_text = v4_mir_short_circuit_const_text(op)
             pilot short_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, short_text, "", 0 - 1, 0 - 1, stmt_span, v4_ty_bool)
-            v4_mir_add_stmt(mir_id, body_id, short_block, v4_mir_stmt_assign, temp_name, short_text, stmt_span, temp_place, short_rvalue)
+            v4_mir_build_add_scoped_stmt(mir_id, body_id, short_block, v4_mir_stmt_assign, temp_name, short_text, stmt_span, temp_place, short_rvalue)
             v4_mir_set_body_block(mir_id, body_id, short_block, v4_mir_block_new_full(short_block, v4_mir_term_goto, join_block, 0 - 1, ""))
 
             pilot right_tail = v4_mir_wire_control_flow_rvalue(mir_id, body_id, right_block, stmt_span, right_id)
             pilot right_text = v4_mir_rvalue_text(mir_id, body_id, right_id)
-            v4_mir_add_stmt(mir_id, body_id, right_tail, v4_mir_stmt_assign, temp_name, right_text, stmt_span, temp_place, right_id)
+            v4_mir_build_add_scoped_stmt(mir_id, body_id, right_tail, v4_mir_stmt_assign, temp_name, right_text, stmt_span, temp_place, right_id)
             v4_mir_set_body_block(mir_id, body_id, right_tail, v4_mir_block_new_full(right_tail, v4_mir_term_goto, join_block, 0 - 1, ""))
 
             v4_mir_restore_rvalue_slot(mir_id, body_id, rvalue_id, v4_mir_rvalue_use_local, temp_name, temp_name, 0 - 1, 0 - 1, v4_mir_rvalue_span(mir_id, body_id, rvalue_id), result_ty, v4_mir_rvalue_abi(mir_id, body_id, rvalue_id), v4_mir_rvalue_args_payload(mir_id, body_id, rvalue_id), "")
@@ -3512,6 +3512,8 @@ task v4_mir_try_lower_instance_method_call(mir_id: int, body_id: int, stream_id:
         give back raw_pointer_builtin
     }
     v4_mir_reject_method_type_args(mir_id, stream_id, expr_span, receiver_ty, method_name, ".", method_token, open_token)
+    pilot word_builtin = v4_mir_try_lower_word_instance_intrinsic(mir_id, body_id, stream_id, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
+    if word_builtin >= 0 { give back word_builtin }
     pilot shared_builtin = v4_mir_try_lower_builtin_shared_instance_method(mir_id, body_id, stream_id, receiver_rvalue, receiver_ty, method_name, open_token, last, expr_span, expr_text)
     if shared_builtin >= 0 {
         give back shared_builtin
@@ -5534,6 +5536,8 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
             if overload_rvalue >= 0 {
                 give back overload_rvalue
             }
+            pilot word_binary = v4_mir_try_lower_word_binary(mir_id, body_id, left_id, right_id, op_kind, expr_text, expr_span)
+            if word_binary >= 0 { give back word_binary }
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, expr_text, op_kind, left_id, right_id, expr_span, result_ty)
         }
         tier += 1
@@ -5563,20 +5567,25 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unary, expr_text, unary_kind, operand_id, 0 - 1, expr_span, result_ty)
     }
 
-    if first_type == v4_tok_int {
+    if first_type == v4_tok_int and first == last {
         pilot literal_ty = v4_ty_int_literal_type(first_value, expected_ty)
         pilot literal_value = v4_ty_numeric_literal_value(first_value)
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, literal_value, "", 0 - 1, 0 - 1, expr_span, literal_ty)
     }
-    if first_type == v4_tok_float {
+    if first_type == v4_tok_float and first == last {
         pilot literal_ty = v4_ty_float_literal_type(first_value, expected_ty)
         pilot literal_value = v4_ty_numeric_literal_value(first_value)
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_float, literal_value, "", 0 - 1, 0 - 1, expr_span, literal_ty)
     }
-    if first_type == v4_tok_string {
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_word)
+    if first_type == v4_tok_string and first == last {
+        pilot issue = v4_hir_owned_word_literal_issue(first_value)
+        if issue != "" {
+            v4_mir_add_type_error(mir_id, expr_span, "owned word literal " + issue + " is not yet supported", "use supported escapes and a static literal; interpolation requires its persisted HIR plan")
+            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_unknown, first_value, "", 0 - 1, 0 - 1, expr_span, v4_ty_unknown)
+        }
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, v4_hir_owned_word_literal_value(first_value), "", 0 - 1, 0 - 1, expr_span, v4_ty_word)
     }
-    if first_type == v4_tok_bool {
+    if first_type == v4_tok_bool and first == last {
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, v4_mir_bool_literal_value(first_value), "", 0 - 1, 0 - 1, expr_span, v4_ty_bool)
     }
     if first_type == v4_tok_char {
@@ -5602,6 +5611,11 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     if maybe_result_rvalue >= 0 {
         give back maybe_result_rvalue
     }
+
+    pilot word_named = v4_mir_try_lower_word_named_intrinsic(mir_id, body_id, stream_id, first, last, expr_span)
+    if word_named >= 0 { give back word_named }
+    pilot word_property = v4_mir_try_lower_word_property(mir_id, body_id, stream_id, first, last, expr_span)
+    if word_property >= 0 { give back word_property }
 
     pilot computed_call = v4_mir_try_lower_computed_call(mir_id, body_id, stream_id, first, last, expr_span)
     if computed_call >= 0 { give back computed_call }
@@ -5670,7 +5684,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
     if first == last {
         pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, first_value, v4_span_start(expr_span))
         if local_id >= 0 {
-            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_mir_local_ty(mir_id, body_id, local_id))
+            give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, first_value, "local#" + word_from_int(local_id), 0 - 1, 0 - 1, expr_span, v4_mir_local_ty(mir_id, body_id, local_id))
         }
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_symbol, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_mir_symbol_value_type(mir_id, first_value))
     }
@@ -5934,8 +5948,8 @@ task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: i
     pilot then_close = v4_mir_find_matching_brace(stream_id, open_token, stmt_end)
     pilot else_token = v4_mir_find_else_token(stream_id, then_close + 1, stmt_end)
     pilot condition = v4_mir_expr_text(stream_id, if_token + 1, open_token)
-    pilot then_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot then_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot else_block = after_block
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, if_token, stmt_end)
     pilot condition_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, if_token + 1, open_token)
@@ -5944,13 +5958,13 @@ task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: i
     if else_token >= 0 {
         pilot else_head = v4_mir_skip_trivia(stream_id, else_token + 1)
         if else_head < stmt_end and v4_lex_token_syntax_value(stream_id, else_head) == "if" {
-            else_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+            else_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
             pilot nested_after = v4_mir_lower_if_stmt(mir_id, body_id, else_block, stream_id, else_head, stmt_end)
             v4_mir_seal_block_goto_if_live(mir_id, body_id, nested_after, after_block)
         } else {
             pilot else_open = v4_mir_find_token_value(stream_id, else_token, stmt_end, "{")
             if else_open >= 0 {
-                else_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+                else_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
                 pilot else_tail = v4_mir_lower_block_body(mir_id, body_id, else_block, stream_id, else_open, stmt_end)
                 v4_mir_seal_block_goto_if_live(mir_id, body_id, else_tail, after_block)
             }
@@ -5959,7 +5973,7 @@ task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: i
 
     pilot condition_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, condition_rvalue)
     v4_mir_set_body_block(mir_id, body_id, condition_block, v4_mir_block_new_full(condition_block, v4_mir_term_if, then_block, else_block, condition))
-    v4_mir_add_stmt(mir_id, body_id, condition_block, v4_mir_stmt_branch, condition, "then#" + word_from_int(then_block) + " else#" + word_from_int(else_block), stmt_span, 0 - 1, condition_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, condition_block, v4_mir_stmt_branch, condition, "then#" + word_from_int(then_block) + " else#" + word_from_int(else_block), stmt_span, 0 - 1, condition_rvalue)
     pilot then_tail = v4_mir_lower_block_body(mir_id, body_id, then_block, stream_id, open_token, then_close + 1)
     v4_mir_seal_block_goto_if_live(mir_id, body_id, then_tail, after_block)
 
@@ -5992,7 +6006,7 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
         pilot counter_identity = "local#" + word_from_int(counter_local)
         pilot counter_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
         pilot count_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, count_rvalue)
-        v4_mir_add_stmt(mir_id, body_id, count_block, v4_mir_stmt_local, counter_name, count_text, stmt_span, counter_place, count_rvalue)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, count_block, v4_mir_stmt_local, counter_name, count_text, stmt_span, counter_place, count_rvalue)
 
         -- Loop check: _repeat_i > 0
         pilot zero_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "0", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
@@ -6000,14 +6014,14 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
         pilot check_cond_text = counter_name + " > 0"
         pilot check_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, check_cond_text, "Gt", counter_use, zero_rvalue, stmt_span, v4_ty_bool)
         pilot loop_lhs = "repeat " + count_text + " times"
-        pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-        pilot continue_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-        pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-        pilot condition_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+        pilot body_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+        pilot continue_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+        pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+        pilot condition_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
 
         v4_mir_seal_block_goto_if_live(mir_id, body_id, count_block, condition_block)
         v4_mir_set_body_block(mir_id, body_id, condition_block, v4_mir_block_new_full(condition_block, v4_mir_term_if, body_block, after_block, check_cond_text))
-        v4_mir_add_stmt(mir_id, body_id, condition_block, v4_mir_stmt_loop, loop_lhs, "body#" + word_from_int(body_block) + " exit#" + word_from_int(after_block), stmt_span, 0 - 1, check_rvalue)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, condition_block, v4_mir_stmt_loop, loop_lhs, "body#" + word_from_int(body_block) + " exit#" + word_from_int(after_block), stmt_span, 0 - 1, check_rvalue)
 
         -- Lower body
         v4_mir_push_loop_context(after_block, continue_block)
@@ -6020,7 +6034,7 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
             pilot one_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot dec_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, counter_name + " - 1", "Sub", dec_counter_use, one_rvalue, stmt_span, v4_ty_int)
             pilot dec_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
-            v4_mir_add_stmt(mir_id, body_id, body_tail, v4_mir_stmt_assign, counter_name, counter_name + " - 1", stmt_span, dec_place, dec_rvalue)
+            v4_mir_build_add_scoped_stmt(mir_id, body_id, body_tail, v4_mir_stmt_assign, counter_name, counter_name + " - 1", stmt_span, dec_place, dec_rvalue)
         }
         v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, condition_block)
         if v4_mir_body_block_predecessor_count(mir_id, body_id, continue_block) > 0 and not v4_mir_block_has_return_stmt(mir_id, body_id, continue_block) {
@@ -6028,7 +6042,7 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
             pilot continue_one = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", 0 - 1, 0 - 1, stmt_span, v4_ty_int)
             pilot continue_dec = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, counter_name + " - 1", "Sub", continue_counter_use, continue_one, stmt_span, v4_ty_int)
             pilot continue_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, 0 - 1, stmt_span, v4_ty_int)
-            v4_mir_add_stmt(mir_id, body_id, continue_block, v4_mir_stmt_assign, counter_name, counter_name + " - 1", stmt_span, continue_place, continue_dec)
+            v4_mir_build_add_scoped_stmt(mir_id, body_id, continue_block, v4_mir_stmt_assign, counter_name, counter_name + " - 1", stmt_span, continue_place, continue_dec)
             v4_mir_set_body_block(mir_id, body_id, continue_block, v4_mir_block_new_full(continue_block, v4_mir_term_goto, condition_block, 0 - 1, ""))
         }
 
@@ -6043,16 +6057,16 @@ task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, st
     }
 
     pilot condition = v4_mir_expr_text(stream_id, condition_start, open_token)
-    pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot loop_entry_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot body_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot loop_entry_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     v4_mir_seal_block_goto_if_live(mir_id, body_id, block_id, loop_entry_block)
     pilot condition_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, condition_start, open_token)
     v4_mir_check_condition_type(mir_id, stmt_span, "repeat-until", v4_mir_rvalue_ty(mir_id, body_id, condition_rvalue))
 
     pilot condition_block = v4_mir_wire_try_propagation(mir_id, body_id, loop_entry_block, stmt_span, condition_rvalue)
     v4_mir_set_body_block(mir_id, body_id, condition_block, v4_mir_block_new_full(condition_block, v4_mir_term_if, after_block, body_block, "until " + condition))
-    v4_mir_add_stmt(mir_id, body_id, condition_block, v4_mir_stmt_loop, condition, "body#" + word_from_int(body_block) + " exit#" + word_from_int(after_block), stmt_span, 0 - 1, condition_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, condition_block, v4_mir_stmt_loop, condition, "body#" + word_from_int(body_block) + " exit#" + word_from_int(after_block), stmt_span, 0 - 1, condition_rvalue)
     v4_mir_push_loop_context(after_block, loop_entry_block)
     pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
     v4_mir_pop_loop_context()
@@ -6463,7 +6477,7 @@ task v4_mir_lower_destructure_pattern(mir_id: int, body_id: int, block_id: int, 
         pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
         pilot local_id = v4_mir_add_local(mir_id, body_id, pattern, source_ty, stmt_span)
         pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, pattern, local_id, pattern, 0 - 1, stmt_span, source_ty)
-        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, pattern, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, place_id, source_rvalue)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, pattern, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, place_id, source_rvalue)
         give back
     }
 
@@ -6579,7 +6593,7 @@ task v4_mir_lower_destructure_assignment_pattern(mir_id: int, body_id: int, bloc
         pilot target_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, pattern, local_id, pattern, 0 - 1, stmt_span, target_ty)
         pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
         v4_mir_check_assignment_types(mir_id, body_id, stmt_span, target_place, target_ty, source_ty)
-        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_assign, pattern, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, target_place, source_rvalue)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_assign, pattern, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, target_place, source_rvalue)
         give back
     }
 
@@ -6706,7 +6720,7 @@ task v4_mir_lower_for_each_binding(mir_id: int, body_id: int, block_id: int, stm
     pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_id, temp_name, 0 - 1, stmt_span, element_ty)
     pilot item_text = "item of " + iterable_text
     pilot item_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_loop_item, item_text, "LoopItem", 0 - 1, 0 - 1, stmt_span, element_ty)
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, temp_name, item_text, stmt_span, temp_place, item_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, temp_name, item_text, stmt_span, temp_place, item_rvalue)
 
     if v4_mir_pattern_is_simple_local(loop_pattern) {
         if v4_mir_find_local_visible_at(mir_id, body_id, loop_pattern, v4_span_start(stmt_span)) >= 0 {
@@ -6716,7 +6730,7 @@ task v4_mir_lower_for_each_binding(mir_id: int, body_id: int, block_id: int, stm
         pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, temp_place, stmt_span)
         pilot local_id = v4_mir_add_local(mir_id, body_id, loop_pattern, element_ty, stmt_span)
         pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, loop_pattern, local_id, loop_pattern, 0 - 1, stmt_span, element_ty)
-        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, loop_pattern, item_text, stmt_span, place_id, source_rvalue)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, loop_pattern, item_text, stmt_span, place_id, source_rvalue)
         give back place_id
     }
 
@@ -6759,19 +6773,19 @@ task v4_mir_lower_for_each_stmt(mir_id: int, body_id: int, block_id: int, stream
     pilot iterable_local = v4_mir_add_local(mir_id, body_id, iterable_name, iterable_ty, stmt_span)
     pilot iterable_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, iterable_name, iterable_local, iterable_name, 0 - 1, stmt_span, iterable_ty)
     pilot iterable_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, iterable_rvalue)
-    v4_mir_add_stmt(mir_id, body_id, iterable_block, v4_mir_stmt_local, iterable_name, iterable_text, stmt_span, iterable_place, iterable_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, iterable_block, v4_mir_stmt_local, iterable_name, iterable_text, stmt_span, iterable_place, iterable_rvalue)
     pilot iterable_read = v4_mir_place_read_rvalue(mir_id, body_id, iterable_place, stmt_span)
 
-    pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot loop_header = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot body_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot loop_header = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot loop_condition = "for each " + loop_pattern + " in " + iterable_text
     v4_mir_push_scope_span(loop_scope_span)
     pilot loop_place = v4_mir_lower_for_each_binding(mir_id, body_id, body_block, stmt_span, loop_pattern, iterable_text, iterable_ty)
 
     v4_mir_seal_block_goto_if_live(mir_id, body_id, iterable_block, loop_header)
     v4_mir_set_body_block(mir_id, body_id, loop_header, v4_mir_block_new_full(loop_header, v4_mir_term_if, body_block, after_block, loop_condition))
-    v4_mir_add_stmt(mir_id, body_id, loop_header, v4_mir_stmt_loop, loop_pattern, iterable_text, stmt_span, loop_place, iterable_read)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, loop_header, v4_mir_stmt_loop, loop_pattern, iterable_text, stmt_span, loop_place, iterable_read)
     v4_mir_push_loop_context(after_block, loop_header)
     pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
     v4_mir_pop_loop_context()
@@ -7008,9 +7022,9 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
         }
     }
 
-    pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot loop_entry_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot body_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot loop_entry_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     v4_mir_seal_block_goto_if_live(mir_id, body_id, block_id, loop_entry_block)
     pilot loop_condition = "training arc until " + condition_text + " max " + max_text
     if has_growth {
@@ -7019,7 +7033,7 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
 
     pilot condition_block = v4_mir_wire_try_propagation(mir_id, body_id, loop_entry_block, stmt_span, condition_rvalue)
     v4_mir_set_body_block(mir_id, body_id, condition_block, v4_mir_block_new_full(condition_block, v4_mir_term_if, after_block, body_block, loop_condition))
-    v4_mir_add_stmt(mir_id, body_id, condition_block, v4_mir_stmt_loop, condition_text, "max " + max_text, stmt_span, 0 - 1, condition_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, condition_block, v4_mir_stmt_loop, condition_text, "max " + max_text, stmt_span, 0 - 1, condition_rvalue)
     v4_mir_push_loop_context(after_block, loop_entry_block)
     pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
     v4_mir_pop_loop_context()
@@ -7073,7 +7087,12 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
     pilot rvalue_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, rhs_start, stmt_end, declared_ty)
     pilot inferred_ty = v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)
     if v4_mir_pattern_is_simple_local(pattern) {
-        if v4_mir_find_local_visible_at(mir_id, body_id, pattern, v4_span_start(stmt_span)) >= 0 {
+        pilot prior_local = v4_mir_find_local_visible_at(mir_id, body_id, pattern, v4_span_start(stmt_span))
+        pilot duplicate_local = prior_local >= 0
+        if duplicate_local and inferred_ty == v4_ty_word {
+            duplicate_local = v4_mir_local_scope_span(mir_id, body_id, prior_local) == v4_mir_current_scope_span(stmt_span)
+        }
+        if duplicate_local {
             v4_mir_add_type_error(mir_id, stmt_span, "duplicate local declaration", pattern + " already exists in this scope")
             give back block_id
         }
@@ -7090,7 +7109,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         pilot local_id = v4_mir_add_local(mir_id, body_id, pattern, local_ty, stmt_span)
         pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, pattern, local_id, pattern, 0 - 1, stmt_span, local_ty)
         pilot value_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, rvalue_id)
-        v4_mir_add_stmt(mir_id, body_id, value_block, v4_mir_stmt_local, pattern, rhs, stmt_span, place_id, rvalue_id)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, value_block, v4_mir_stmt_local, pattern, rhs, stmt_span, place_id, rvalue_id)
         give back value_block
     }
 
@@ -7122,7 +7141,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         pilot temp_id = v4_mir_add_local(mir_id, body_id, temp_name, source_ty, stmt_span)
         pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_id, temp_name, 0 - 1, stmt_span, source_ty)
         pilot value_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, rvalue_id)
-        v4_mir_add_stmt(mir_id, body_id, value_block, v4_mir_stmt_local, temp_name, rhs, stmt_span, temp_place, rvalue_id)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, value_block, v4_mir_stmt_local, temp_name, rhs, stmt_span, temp_place, rvalue_id)
         v4_mir_lower_destructure_pattern(mir_id, body_id, value_block, stmt_span, destructure_kind, pattern, temp_place, source_ty)
         give back value_block
     }
@@ -7145,7 +7164,7 @@ task v4_mir_lower_return_stmt(mir_id: int, body_id: int, block_id: int, stream_i
     if v4_mir_next_nontrivia(stream_id, rhs_start, stmt_end) >= stmt_end {
         v4_mir_check_return_type(mir_id, body_id, stmt_span, v4_ty_void)
         pilot return_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_return, "_return", 0 - 1, "_return", 0 - 1, stmt_span, v4_ty_void)
-        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_return, "_return", "", stmt_span, return_place, 0 - 1)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_return, "_return", "", stmt_span, return_place, 0 - 1)
         v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_return, 0 - 1, 0 - 1, ""))
         give back block_id
     }
@@ -7155,7 +7174,7 @@ task v4_mir_lower_return_stmt(mir_id: int, body_id: int, block_id: int, stream_i
     pilot return_ty = v4_mir_coerced_value_type(mir_id, body_id, v4_mir_expected_return_type(mir_id, body_id), actual_ty)
     pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_return, "_return", 0 - 1, "_return", 0 - 1, stmt_span, return_ty)
     pilot return_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, rvalue_id)
-    v4_mir_add_stmt(mir_id, body_id, return_block, v4_mir_stmt_return, "_return", rhs, stmt_span, place_id, rvalue_id)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, return_block, v4_mir_stmt_return, "_return", rhs, stmt_span, place_id, rvalue_id)
     v4_mir_set_body_block(mir_id, body_id, return_block, v4_mir_block_new_full(return_block, v4_mir_term_return, 0 - 1, 0 - 1, ""))
     give back return_block
 }
@@ -7167,7 +7186,7 @@ task v4_mir_lower_break_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         v4_mir_add_type_error(mir_id, stmt_span, "break outside loop", "Yuuko cannot cut away from a loop that is not active")
         give back block_id
     }
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_break, "break", "exit#" + word_from_int(break_target), stmt_span, 0 - 1, 0 - 1)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_break, "break", "exit#" + word_from_int(break_target), stmt_span, 0 - 1, 0 - 1)
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_goto, break_target, 0 - 1, ""))
     give back block_id
 }
@@ -7179,7 +7198,7 @@ task v4_mir_lower_continue_stmt(mir_id: int, body_id: int, block_id: int, stream
         v4_mir_add_type_error(mir_id, stmt_span, "continue outside loop", "Meiya cannot advance a loop that never started")
         give back block_id
     }
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_continue, "continue", "loop#" + word_from_int(continue_target), stmt_span, 0 - 1, 0 - 1)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_continue, "continue", "loop#" + word_from_int(continue_target), stmt_span, 0 - 1, 0 - 1)
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_goto, continue_target, 0 - 1, ""))
     give back block_id
 }
@@ -7643,7 +7662,7 @@ task v4_mir_lower_when_pattern_bindings(mir_id: int, body_id: int, block_id: int
         pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
         pilot local_id = v4_mir_add_local(mir_id, body_id, pattern, source_ty, stmt_span)
         pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, pattern, local_id, pattern, 0 - 1, stmt_span, source_ty)
-        v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, pattern, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, place_id, source_rvalue)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, pattern, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, place_id, source_rvalue)
         give back
     }
 
@@ -7952,7 +7971,7 @@ task v4_mir_lower_checked_binding(mir_id: int, body_id: int, block_id: int, stmt
     pilot source_rvalue = v4_mir_place_read_rvalue(mir_id, body_id, source_place, stmt_span)
     pilot local_id = v4_mir_add_local(mir_id, body_id, local_name, source_ty, stmt_span)
     pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, local_name, local_id, local_name, 0 - 1, stmt_span, source_ty)
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, local_name, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, place_id, source_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, local_name, v4_mir_place_text(mir_id, body_id, source_place), stmt_span, place_id, source_rvalue)
 }
 
 task v4_mir_checked_pattern_supported(pattern: word) -> bool {
@@ -8060,7 +8079,7 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
     pilot subject_name = v4_mir_unique_local_name(mir_id, body_id, "_check_subject")
     pilot subject_id = v4_mir_add_local(mir_id, body_id, subject_name, subject_ty, stmt_span)
     pilot subject_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, subject_name, subject_id, subject_name, 0 - 1, stmt_span, subject_ty)
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, subject_text, stmt_span, subject_place, subject_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, subject_text, stmt_span, subject_place, subject_rvalue)
 
     pilot got_arrow = 0 - 1
     pilot got_end = 0 - 1
@@ -8120,13 +8139,13 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
         v4_mir_add_type_error(mir_id, stmt_span, "check maybe missing nobody arm", "add nobody -> ...")
     }
 
-    pilot got_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot nobody_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot got_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot nobody_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot cond_rvalue = v4_mir_check_condition_rvalue(mir_id, body_id, stmt_span, "HasSome", subject_place, subject_text)
     pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, got_block, nobody_block, cond_text))
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "got#" + word_from_int(got_block) + " nobody#" + word_from_int(nobody_block), stmt_span, 0 - 1, cond_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "got#" + word_from_int(got_block) + " nobody#" + word_from_int(nobody_block), stmt_span, 0 - 1, cond_rvalue)
 
       if got_arrow >= 0 {
           pilot value_ty = v4_ty_maybe_value_type(subject_ty)
@@ -8166,7 +8185,7 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
     pilot subject_name = v4_mir_unique_local_name(mir_id, body_id, "_check_result_subject")
     pilot subject_id = v4_mir_add_local(mir_id, body_id, subject_name, subject_ty, stmt_span)
     pilot subject_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, subject_name, subject_id, subject_name, 0 - 1, stmt_span, subject_ty)
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, subject_text, stmt_span, subject_place, subject_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, subject_text, stmt_span, subject_place, subject_rvalue)
 
     pilot ok_arrow = 0 - 1
     pilot ok_end = 0 - 1
@@ -8249,14 +8268,14 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
         v4_mir_add_type_error(mir_id, stmt_span, "check result missing err arm", "add err(pattern) -> ...")
     }
 
-    pilot ok_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot err_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot ok_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot err_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot cond_rvalue = v4_mir_check_condition_rvalue(mir_id, body_id, stmt_span, "IsOk", subject_place, subject_text)
     pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
 
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, ok_block, err_block, cond_text))
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "ok#" + word_from_int(ok_block) + " err#" + word_from_int(err_block), stmt_span, 0 - 1, cond_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "ok#" + word_from_int(ok_block) + " err#" + word_from_int(err_block), stmt_span, 0 - 1, cond_rvalue)
 
       if ok_arrow >= 0 {
           pilot ok_ty = v4_ty_result_ok_type(subject_ty)
@@ -8290,7 +8309,7 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
     pilot check_close = v4_mir_find_matching_brace(stream_id, open_token, stmt_end)
     pilot subject_text = v4_mir_expr_text(stream_id, route_token + 1, open_token)
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, check_token, stmt_end)
-    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot subject_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, route_token + 1, open_token)
     pilot subject_ty = v4_mir_rvalue_ty(mir_id, body_id, subject_rvalue)
     if v4_ty_is_known(subject_ty) and not v4_ty_is_route_type(v4_mir_ty_id(mir_id), subject_ty) {
@@ -8300,7 +8319,7 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
     pilot subject_name = v4_mir_unique_local_name(mir_id, body_id, "_check_route_subject")
     pilot subject_id = v4_mir_add_local(mir_id, body_id, subject_name, subject_ty, stmt_span)
     pilot subject_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, subject_name, subject_id, subject_name, 0 - 1, stmt_span, subject_ty)
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, subject_text, stmt_span, subject_place, subject_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, subject_text, stmt_span, subject_place, subject_rvalue)
 
     pilot route_covered_cases = ""
     pilot current_check = block_id
@@ -8323,7 +8342,7 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
             pilot pattern_full_route_case = v4_mir_when_pattern_full_route_case(mir_id, trimmed_pattern, subject_ty)
             pilot pattern_catch_all: bool = trimmed_pattern == "_"
             pilot route_all_covered = v4_mir_route_all_cases_covered(mir_id, subject_ty, route_covered_cases)
-            pilot arm_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+            pilot arm_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
             pilot arm_unreachable = false
             pilot arm_help = ""
             if not current_check_live {
@@ -8348,9 +8367,9 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
                     cond_rvalue = v4_mir_when_pattern_false_rvalue(mir_id, body_id, stmt_span)
                 }
                 pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
-                pilot next_check = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+                pilot next_check = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
                 v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_if, arm_block, next_check, cond_text))
-                v4_mir_add_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
+                v4_mir_build_add_scoped_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
                 current_check = next_check
             }
             v4_mir_push_scope_span(arm_span)
@@ -8412,10 +8431,10 @@ task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_
     pilot subject_name = v4_mir_unique_local_name(mir_id, body_id, "_only_on_subject")
     pilot subject_id = v4_mir_add_local(mir_id, body_id, subject_name, subject_ty, stmt_span)
     pilot subject_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, subject_name, subject_id, subject_name, 0 - 1, stmt_span, subject_ty)
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, subject_text, stmt_span, subject_place, subject_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, subject_text, stmt_span, subject_place, subject_rvalue)
 
-    pilot body_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot body_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot cond_rvalue = v4_mir_try_lower_route_pattern_condition(mir_id, body_id, stmt_span, pattern, subject_place, subject_text, subject_ty, "only on", true)
     if cond_rvalue < 0 {
         v4_mir_add_type_error(mir_id, stmt_span, "only on statement malformed", "use only on Route::Case from value with a guarded block")
@@ -8423,7 +8442,7 @@ task v4_mir_lower_only_on_stmt(mir_id: int, body_id: int, block_id: int, stream_
     }
     pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, body_block, after_block, cond_text))
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "body#" + word_from_int(body_block) + " after#" + word_from_int(after_block), stmt_span, 0 - 1, cond_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_branch, cond_text, "body#" + word_from_int(body_block) + " after#" + word_from_int(after_block), stmt_span, 0 - 1, cond_rvalue)
 
     pilot body_scope = v4_mir_span_from_tokens(stream_id, open_token, stmt_end)
     pilot pattern_span = v4_mir_span_from_tokens(stream_id, on_token + 1, from_token)
@@ -8529,13 +8548,13 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
     pilot when_close = v4_mir_find_matching_brace(stream_id, open_token, stmt_end)
     pilot scrutinee = v4_mir_expr_text(stream_id, when_token + 1, open_token)
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, when_token, stmt_end)
-    pilot after_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot scrutinee_rvalue = v4_mir_lower_expr(mir_id, body_id, stream_id, when_token + 1, open_token)
     pilot scrutinee_ty = v4_mir_rvalue_ty(mir_id, body_id, scrutinee_rvalue)
     pilot subject_name = v4_mir_unique_local_name(mir_id, body_id, "_when_subject")
     pilot subject_id = v4_mir_add_local(mir_id, body_id, subject_name, scrutinee_ty, stmt_span)
     pilot subject_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, subject_name, subject_id, subject_name, 0 - 1, stmt_span, scrutinee_ty)
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, scrutinee, stmt_span, subject_place, scrutinee_rvalue)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, subject_name, scrutinee, stmt_span, subject_place, scrutinee_rvalue)
 
     pilot ty_id = v4_mir_ty_id(mir_id)
     pilot route_when = v4_ty_is_route_type(ty_id, scrutinee_ty)
@@ -8571,7 +8590,7 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
             if route_when {
                 route_all_covered = v4_mir_route_all_cases_covered(mir_id, scrutinee_ty, route_covered_cases)
             }
-            pilot arm_block = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+            pilot arm_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
             pilot arm_unreachable = false
             pilot arm_help = ""
             if not current_check_live {
@@ -8596,9 +8615,9 @@ task v4_mir_lower_when_stmt(mir_id: int, body_id: int, block_id: int, stream_id:
             } else {
                 pilot cond_rvalue = v4_mir_lower_when_pattern_condition(mir_id, body_id, stmt_span, pattern, subject_place, scrutinee, scrutinee_ty)
                 pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
-                pilot next_check = v4_mir_add_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+                pilot next_check = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
                 v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_if, arm_block, next_check, cond_text))
-                v4_mir_add_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
+                v4_mir_build_add_scoped_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
                 current_check = next_check
             }
             v4_mir_push_scope_span(arm_span)
@@ -8659,7 +8678,7 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
 
             pilot temp_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, temp_name, temp_id, temp_name, 0 - 1, stmt_span, source_ty)
             pilot value_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, source_rvalue)
-            v4_mir_add_stmt(mir_id, body_id, value_block, v4_mir_stmt_local, temp_name, rhs, stmt_span, temp_place, source_rvalue)
+            v4_mir_build_add_scoped_stmt(mir_id, body_id, value_block, v4_mir_stmt_local, temp_name, rhs, stmt_span, temp_place, source_rvalue)
             v4_mir_lower_destructure_assignment_pattern(mir_id, body_id, value_block, stmt_span, pattern_kind, lhs_pattern, temp_place, source_ty)
             give back value_block
         }
@@ -8685,7 +8704,10 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
                 if overload_rvalue >= 0 {
                     rvalue_id = overload_rvalue
                 } else {
+                    pilot word_binary = v4_mir_try_lower_word_binary(mir_id, body_id, left_rvalue, value_rvalue, v4_mir_compound_assignment_op_kind(op_text), binary_text, stmt_span)
+                    if word_binary >= 0 { rvalue_id = word_binary } else {
                     rvalue_id = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, binary_text, v4_mir_compound_assignment_op_kind(op_text), left_rvalue, value_rvalue, stmt_span, result_ty)
+                    }
                 }
             }
         }
@@ -8696,14 +8718,14 @@ task v4_mir_lower_assign_or_expr_stmt(mir_id: int, body_id: int, block_id: int, 
             }
         }
         pilot value_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, rvalue_id)
-        v4_mir_add_stmt(mir_id, body_id, value_block, v4_mir_stmt_assign, lhs, rhs, stmt_span, place_id, rvalue_id)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, value_block, v4_mir_stmt_assign, lhs, rhs, stmt_span, place_id, rvalue_id)
         give back value_block
     } else {
         pilot expr = v4_mir_expr_text(stream_id, stmt_start, stmt_end)
         if expr != "" {
             pilot rvalue_id = v4_mir_lower_expr(mir_id, body_id, stream_id, stmt_start, stmt_end)
             pilot value_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, rvalue_id)
-            v4_mir_add_stmt(mir_id, body_id, value_block, v4_mir_stmt_expr, "", expr, stmt_span, 0 - 1, rvalue_id)
+            v4_mir_build_add_scoped_stmt(mir_id, body_id, value_block, v4_mir_stmt_expr, "", expr, stmt_span, 0 - 1, rvalue_id)
             give back value_block
         }
     }
@@ -8715,15 +8737,13 @@ task v4_mir_lower_say_literal_stmt(mir_id: int, body_id: int, block_id: int, str
     pilot last = v4_mir_last_nontrivia_before(stream_id, stmt_end)
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, stmt_start, stmt_end)
     if literal_token >= stmt_end or literal_token != last or v4_lex_token_type(stream_id, literal_token) != v4_tok_string {
-        v4_mir_add_type_error(mir_id, stmt_span, "say nonliteral is not yet supported", "W1 say requires exactly one static word literal; word values, expressions, and methods need the later word runtime slices")
-        give back block_id
+        give back v4_mir_lower_say_value_stmt(mir_id, body_id, block_id, stream_id, stmt_start, stmt_end)
     }
     pilot raw = v4_lex_token_value(stream_id, literal_token)
     pilot issue = v4_ty_word_literal_issue(raw)
     pilot literal_span = v4_mir_span_from_tokens(stream_id, literal_token, literal_token + 1)
     if issue == "nul" {
-        v4_mir_add_type_error(mir_id, literal_span, "say literal contains embedded NUL", "W1 say uses a null-terminated static word; remove byte zero until the sized word slice lands")
-        give back block_id
+        give back v4_mir_lower_say_value_stmt(mir_id, body_id, block_id, stream_id, stmt_start, stmt_end)
     }
     if issue == "escape" {
         v4_mir_add_type_error(mir_id, literal_span, "say literal escape is not yet supported", "W1 supports escaped newline, carriage return, tab, double quote, and backslash")
@@ -8737,7 +8757,7 @@ task v4_mir_lower_say_literal_stmt(mir_id: int, body_id: int, block_id: int, str
     pilot literal = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_word, value, "", 0 - 1, 0 - 1, literal_span, v4_ty_word)
     pilot call = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, "say", v4_mir_call_say_literal, 0 - 1, 0 - 1, stmt_span, v4_ty_void)
     v4_mir_set_rvalue_args_payload(mir_id, body_id, call, word_from_int(literal))
-    v4_mir_add_stmt(mir_id, body_id, block_id, v4_mir_stmt_expr, "", "say", stmt_span, 0 - 1, call)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_expr, "", "say", stmt_span, 0 - 1, call)
     give back block_id
 }
 
@@ -8798,6 +8818,7 @@ task v4_mir_lower_block_body(mir_id: int, body_id: int, block_id: int, stream_id
     pilot close_token = v4_mir_find_matching_brace(stream_id, open_token, end_token)
     pilot block_span = v4_mir_span_from_tokens(stream_id, open_token, close_token + 1)
     v4_mir_push_scope_span(block_span)
+    v4_mir_set_block_scope_span(mir_id, body_id, block_id, block_span)
     pilot idx = open_token + 1
     pilot current_block = block_id
     repeat until idx >= close_token {
@@ -8822,6 +8843,7 @@ task v4_mir_lower_block_body(mir_id: int, body_id: int, block_id: int, stream_id
 
 task v4_mir_lower_arrow_body(mir_id: int, body_id: int, block_id: int, stream_id: int, arrow_token: int, end_token: int) -> int {
     pilot stmt_span = v4_mir_span_from_tokens(stream_id, arrow_token, end_token)
+    v4_mir_set_block_scope_span(mir_id, body_id, block_id, stmt_span)
     pilot rhs = v4_mir_expr_text(stream_id, arrow_token + 1, end_token)
     if rhs != "" {
         pilot rvalue_id = v4_mir_lower_expr(mir_id, body_id, stream_id, arrow_token + 1, end_token)
@@ -8830,7 +8852,7 @@ task v4_mir_lower_arrow_body(mir_id: int, body_id: int, block_id: int, stream_id
         pilot return_ty = v4_mir_coerced_value_type(mir_id, body_id, v4_mir_expected_return_type(mir_id, body_id), actual_ty)
         pilot place_id = v4_mir_add_place(mir_id, body_id, v4_mir_place_return, "_return", 0 - 1, "_return", 0 - 1, stmt_span, return_ty)
         pilot return_block = v4_mir_wire_try_propagation(mir_id, body_id, block_id, stmt_span, rvalue_id)
-        v4_mir_add_stmt(mir_id, body_id, return_block, v4_mir_stmt_return, "_return", rhs, stmt_span, place_id, rvalue_id)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, return_block, v4_mir_stmt_return, "_return", rhs, stmt_span, place_id, rvalue_id)
         v4_mir_set_body_block(mir_id, body_id, return_block, v4_mir_block_new_full(return_block, v4_mir_term_return, 0 - 1, 0 - 1, ""))
         give back return_block
     }
@@ -8962,4 +8984,133 @@ task v4_mir_lower_ty(file_id: int, ty_id: int) -> int {
 
     v4_mir_finalize_lookup_indexes(mir_id)
     give back mir_id
+}
+
+
+task v4_mir_build_add_scoped_block(mir_id: int, body_id: int, terminator: word, target: int, else_target: int, condition: word) -> int {
+    pilot block_id = v4_mir_add_block(mir_id, body_id, terminator, target, else_target, condition)
+    v4_mir_set_block_scope_span(mir_id, body_id, block_id, v4_mir_current_scope_span(V4_NO_SPAN))
+    give back block_id
+}
+
+task v4_mir_build_add_scoped_stmt(mir_id: int, body_id: int, block_id: int, stmt_kind: word, lhs: word, rhs: word, span: word, place_id: int, rvalue_id: int) -> int {
+    pilot stmt_id = v4_mir_add_stmt(mir_id, body_id, block_id, stmt_kind, lhs, rhs, span, place_id, rvalue_id)
+    v4_mir_set_stmt_scope_span(mir_id, body_id, stmt_id, v4_mir_current_scope_span(span))
+    give back stmt_id
+}
+
+
+-- Word intrinsic arguments are explicit loans, never an accidental call receiver.
+task v4_mir_word_borrow_argument(mir_id: int, body_id: int, value: int, span: word) -> int {
+    pilot text = v4_mir_rvalue_text(mir_id, body_id, value)
+    give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_lend, text, text, value, 0 - 1, span, "lend word")
+}
+
+task v4_mir_add_word_intrinsic(mir_id: int, body_id: int, kind: word, args: word, text: word, span: word) -> int {
+    pilot identity = v4_mir_word_intrinsic_identity(kind)
+    pilot call = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_call, text, identity, 0 - 1, 0 - 1, span, v4_ty_word_intrinsic_result_type(kind))
+    v4_mir_set_rvalue_args_payload(mir_id, body_id, call, args)
+    v4_mir_set_rvalue_builtin_method(mir_id, body_id, call, identity)
+    give back call
+}
+
+task v4_mir_try_lower_word_binary(mir_id: int, body_id: int, left: int, right: int, op: word, text: word, span: word) -> int {
+    if v4_mir_rvalue_ty(mir_id, body_id, left) != v4_ty_word or v4_mir_rvalue_ty(mir_id, body_id, right) != v4_ty_word { give back 0 - 1 }
+    pilot kind = ""
+    if op == v4_mir_bin_add { kind = "concat" }
+    if op == v4_mir_bin_eq { kind = "equal" }
+    if op == v4_mir_bin_ne { kind = "not_equal" }
+    if kind == "" { give back 0 - 1 }
+    pilot left_loan = v4_mir_word_borrow_argument(mir_id, body_id, left, span)
+    pilot right_loan = v4_mir_word_borrow_argument(mir_id, body_id, right, span)
+    pilot args = v4_mir_call_args_payload_append("", left_loan)
+    args = v4_mir_call_args_payload_append(args, right_loan)
+    give back v4_mir_add_word_intrinsic(mir_id, body_id, kind, args, text, span)
+}
+
+task v4_mir_lower_word_intrinsic_args(mir_id: int, body_id: int, stream_id: int, kind: word, receiver: int, open_token: int, close_token: int, span: word) -> word {
+    pilot first_param = 0
+    pilot args = ""
+    if receiver >= 0 {
+        if v4_mir_word_intrinsic_argument_is_borrowed(kind, 0) { receiver = v4_mir_word_borrow_argument(mir_id, body_id, receiver, span) }
+        args = v4_mir_call_args_payload_append(args, receiver)
+        first_param = 1
+    }
+    pilot actual = v4_mir_call_arg_count(stream_id, open_token, close_token)
+    pilot expected = v4_ty_word_intrinsic_param_count(kind) - first_param
+    if actual != expected {
+        v4_mir_add_type_error(mir_id, span, "word intrinsic argument count mismatch", kind + " expects " + word_from_int(expected) + " arguments, got " + word_from_int(actual))
+    }
+    pilot idx = 0
+    pilot start_token = v4_mir_skip_trivia(stream_id, open_token + 1)
+    repeat until idx >= actual {
+        pilot end_token = v4_mir_call_arg_end(stream_id, start_token, close_token)
+        if v4_mir_call_arg_label(stream_id, start_token, end_token) != "" {
+            v4_mir_add_type_error(mir_id, span, "word intrinsic named arguments are not yet supported", "use positional arguments for " + kind)
+        }
+        pilot value_start = v4_mir_call_arg_value_start(stream_id, start_token, end_token)
+        pilot param_type = v4_ty_word_intrinsic_param_type(kind, first_param + idx)
+        pilot value = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, value_start, end_token, param_type)
+        pilot actual_type = v4_mir_rvalue_ty(mir_id, body_id, value)
+        if not v4_ty_types_compatible(param_type, actual_type) {
+            v4_mir_add_type_error(mir_id, span, "word intrinsic argument type mismatch", kind + " wants " + param_type + ", got " + actual_type)
+        }
+        if param_type == v4_ty_word and actual_type == v4_ty_word { value = v4_mir_word_borrow_argument(mir_id, body_id, value, span) }
+        args = v4_mir_call_args_payload_append(args, value)
+        idx += 1
+        start_token = v4_mir_skip_trivia(stream_id, end_token + 1)
+    }
+    give back args
+}
+
+task v4_mir_try_lower_word_named_intrinsic(mir_id: int, body_id: int, stream_id: int, first: int, last: int, span: word) -> int {
+    if v4_lex_token_type(stream_id, first) != v4_tok_ident or v4_lex_token_syntax_value(stream_id, last) != ")" { give back 0 - 1 }
+    pilot name = v4_lex_token_syntax_value(stream_id, first)
+    pilot kind = v4_ty_word_intrinsic_named_kind(name)
+    if kind == "" { give back 0 - 1 }
+    if v4_mir_signature_id_for_name(mir_id, name) >= 0 or v4_mir_find_local_visible_at(mir_id, body_id, name, v4_span_start(span)) >= 0 { give back 0 - 1 }
+    pilot open_token = v4_mir_next_nontrivia(stream_id, first + 1, last + 1)
+    if v4_lex_token_syntax_value(stream_id, open_token) != "(" or v4_mir_find_matching_paren(stream_id, open_token, last + 1) != last { give back 0 - 1 }
+    pilot args = v4_mir_lower_word_intrinsic_args(mir_id, body_id, stream_id, kind, 0 - 1, open_token, last, span)
+    give back v4_mir_add_word_intrinsic(mir_id, body_id, kind, args, v4_mir_expr_text(stream_id, first, last + 1), span)
+}
+
+task v4_mir_try_lower_word_instance_intrinsic(mir_id: int, body_id: int, stream_id: int, receiver: int, receiver_ty: word, method: word, open_token: int, close_token: int, span: word, text: word) -> int {
+    pilot kind = v4_ty_word_intrinsic_member_kind(receiver_ty, method)
+    if kind == "" { give back 0 - 1 }
+    pilot args = v4_mir_lower_word_intrinsic_args(mir_id, body_id, stream_id, kind, receiver, open_token, close_token, span)
+    give back v4_mir_add_word_intrinsic(mir_id, body_id, kind, args, text, span)
+}
+
+task v4_mir_try_lower_word_property(mir_id: int, body_id: int, stream_id: int, first: int, last: int, span: word) -> int {
+    pilot name = v4_lex_token_syntax_value(stream_id, last)
+    if name != "length" and name != "bytes" { give back 0 - 1 }
+    pilot dot_token = v4_mir_find_top_level_token(stream_id, first, last, ".")
+    if dot_token <= first or v4_mir_next_nontrivia(stream_id, dot_token + 1, last + 1) != last { give back 0 - 1 }
+    pilot receiver = v4_mir_lower_expr(mir_id, body_id, stream_id, first, dot_token)
+    if v4_mir_rvalue_ty(mir_id, body_id, receiver) != v4_ty_word { give back 0 - 1 }
+    pilot loan = v4_mir_word_borrow_argument(mir_id, body_id, receiver, span)
+    give back v4_mir_add_word_intrinsic(mir_id, body_id, name, v4_mir_call_args_payload_append("", loan), v4_mir_expr_text(stream_id, first, last + 1), span)
+}
+
+task v4_mir_lower_say_value_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, stmt_start: int, stmt_end: int) -> int {
+    pilot span = v4_mir_span_from_tokens(stream_id, stmt_start, stmt_end)
+    pilot value = v4_mir_lower_expr(mir_id, body_id, stream_id, stmt_start + 1, stmt_end)
+    pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value)
+    pilot conversion = ""
+    if value_ty == v4_ty_int { conversion = "from_int" }
+    if value_ty == v4_ty_bool { conversion = "from_bool" }
+    if value_ty == v4_ty_num { conversion = "from_num" }
+    if conversion != "" {
+        value = v4_mir_add_word_intrinsic(mir_id, body_id, conversion, v4_mir_call_args_payload_append("", value), "say display", span)
+        value_ty = v4_ty_word
+    }
+    if value_ty != v4_ty_word {
+        v4_mir_add_type_error(mir_id, span, "say value has no supported display contract", "say currently displays word, int, num, or bool; got " + value_ty)
+        give back block_id
+    }
+    pilot loan = v4_mir_word_borrow_argument(mir_id, body_id, value, span)
+    pilot call = v4_mir_add_word_intrinsic(mir_id, body_id, "say", v4_mir_call_args_payload_append("", loan), "say value", span)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_expr, "", "say", span, 0 - 1, call)
+    give back block_id
 }

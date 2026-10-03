@@ -13699,3 +13699,151 @@ task v4_ty_word_literal_issue(raw: word) -> word {
 task v4_ty_word_literal_value(raw: word) -> word {
     give back v4_hir_word_literal_value(raw)
 }
+
+
+-- Compiler-owned word intrinsic contracts; source spelling is resolved by MIR.
+task v4_ty_word_intrinsic_known(kind: word) -> bool {
+    give back kind == "concat" or kind == "equal" or kind == "not_equal" or kind == "say" or kind == "say_err" or kind == "from_int" or kind == "from_bool" or kind == "from_num" or kind == "to_int" or kind == "length" or kind == "bytes" or kind == "char_at" or kind == "slice" or kind == "substring" or kind == "starts_with" or kind == "ends_with" or kind == "contains" or kind == "clone"
+}
+
+task v4_ty_word_intrinsic_result_type(kind: word) -> word {
+    if kind == "concat" { give back v4_ty_word }
+    if kind == "equal" { give back v4_ty_bool }
+    if kind == "not_equal" { give back v4_ty_bool }
+    if kind == "say" { give back v4_ty_void }
+    if kind == "say_err" { give back v4_ty_void }
+    if kind == "from_int" { give back v4_ty_word }
+    if kind == "from_bool" { give back v4_ty_word }
+    if kind == "from_num" { give back v4_ty_word }
+    if kind == "to_int" { give back v4_ty_int }
+    if kind == "length" { give back v4_ty_int }
+    if kind == "bytes" { give back v4_ty_int }
+    if kind == "char_at" { give back v4_ty_word }
+    if kind == "slice" { give back v4_ty_word }
+    if kind == "substring" { give back v4_ty_word }
+    if kind == "starts_with" { give back v4_ty_bool }
+    if kind == "ends_with" { give back v4_ty_bool }
+    if kind == "contains" { give back v4_ty_bool }
+    if kind == "clone" { give back v4_ty_word }
+    give back v4_ty_unknown
+}
+
+task v4_ty_word_intrinsic_param_count(kind: word) -> int {
+    if kind == "concat" { give back 2 }
+    if kind == "equal" { give back 2 }
+    if kind == "not_equal" { give back 2 }
+    if kind == "say" { give back 1 }
+    if kind == "say_err" { give back 1 }
+    if kind == "from_int" { give back 1 }
+    if kind == "from_bool" { give back 1 }
+    if kind == "from_num" { give back 1 }
+    if kind == "to_int" { give back 1 }
+    if kind == "length" { give back 1 }
+    if kind == "bytes" { give back 1 }
+    if kind == "char_at" { give back 2 }
+    if kind == "slice" { give back 3 }
+    if kind == "substring" { give back 3 }
+    if kind == "starts_with" { give back 2 }
+    if kind == "ends_with" { give back 2 }
+    if kind == "contains" { give back 2 }
+    if kind == "clone" { give back 1 }
+    give back 0 - 1
+}
+
+task v4_ty_word_intrinsic_param_type(kind: word, param_id: int) -> word {
+    if kind == "concat" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "equal" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "not_equal" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "say" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "say_err" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "from_int" {
+        if param_id == 0 { give back v4_ty_int }
+    }
+    if kind == "from_bool" {
+        if param_id == 0 { give back v4_ty_bool }
+    }
+    if kind == "from_num" {
+        if param_id == 0 { give back v4_ty_num }
+    }
+    if kind == "to_int" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "length" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "bytes" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "char_at" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_int }
+    }
+    if kind == "slice" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_int }
+        if param_id == 2 { give back v4_ty_int }
+    }
+    if kind == "substring" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_int }
+        if param_id == 2 { give back v4_ty_int }
+    }
+    if kind == "starts_with" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "ends_with" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "contains" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "clone" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_word_intrinsic_named_kind(name: word) -> word {
+    if name == "word_from_int" { give back "from_int" }
+    if name == "word_from_bool" { give back "from_bool" }
+    if name == "format_num" { give back "from_num" }
+    if name == "word_to_int" { give back "to_int" }
+    if name == "say_err" { give back "say_err" }
+    give back ""
+}
+
+task v4_ty_word_intrinsic_member_kind(receiver_ty: word, method_name: word) -> word {
+    if receiver_ty == v4_ty_word {
+        if method_name == "length" { give back "length" }
+        if method_name == "bytes" { give back "bytes" }
+        if method_name == "char_at" { give back "char_at" }
+        if method_name == "slice" { give back "slice" }
+        if method_name == "substring" { give back "substring" }
+        if method_name == "starts_with" { give back "starts_with" }
+        if method_name == "ends_with" { give back "ends_with" }
+        if method_name == "contains" { give back "contains" }
+        if method_name == "clone" { give back "clone" }
+    }
+    if method_name == "to_word" {
+        if receiver_ty == v4_ty_int { give back "from_int" }
+        if receiver_ty == v4_ty_bool { give back "from_bool" }
+        if receiver_ty == v4_ty_num { give back "from_num" }
+    }
+    give back ""
+}
