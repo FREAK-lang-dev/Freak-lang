@@ -102,7 +102,7 @@ task h6_width_run() -> void {
     case_id = 0
     repeat until case_id >= 34 { nested = "*mut" + nested; case_id += 1 }
     h6_width_assert(v4_codegen_llvm_native_c_surface_error(ty, nested, false) == "native C ABI surface nesting exceeds supported depth", "deep pointee surfaces fail closed")
-    h6_width_assert(v4_ty_raw_pointer_cast_target_surface("p.cast < extern [C] task(x: Hidden) -> std::ffi::c_isize >()") == "extern[C]task(x:Hidden)->std::ffi::c_isize" and v4_ty_raw_pointer_cast_target_surface("p.cast<tiny>().cast<Hidden>()") == "Hidden" and v4_ty_raw_pointer_cast_target_surface("p.cast<Hidden>()junk") == v4_ty_unknown, "cast target raw recovery handles nested arrow chains and malformed text")
+    h6_width_assert(v4_ty_raw_pointer_cast_target_surface("p.cast < extern [C] task(x: Hidden) -> std::ffi::c_isize >()") == "extern[C]task(x:Hidden)->std::ffi::c_isize" and v4_ty_raw_pointer_cast_target_surface("p.cast<tiny>().cast<Hidden>()") == "Hidden" and v4_ty_raw_pointer_cast_target_surface("p.cast<Hidden>()junk") == v4_ty_unknown and v4_ty_raw_pointer_cast_target_surface("p.cast<Hidden -- obscure alias\n>()") == v4_ty_unknown, "cast target raw recovery handles nested arrow chains and malformed text")
     h6_width_assert(v4_codegen_llvm_native_c_width_error(mir, ty) == "" and v4_codegen_llvm_module_text(plan, target) == before, "raw source facts recover")
     say "h6-native-ffi-width locals=true cycles=true depth-bound=true cast-raw=true sealed=true"
 

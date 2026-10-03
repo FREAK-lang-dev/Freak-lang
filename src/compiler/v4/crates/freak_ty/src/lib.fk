@@ -7263,6 +7263,9 @@ task v4_ty_const_cycle_seen_append(seen_consts: word, const_name: word) -> word 
 -- canonicalized. Recover its final method type argument without a new lexer
 -- arena; malformed/unrecognized text fails closed at the native ABI boundary.
 task v4_ty_raw_pointer_cast_target_surface(expr_text: word) -> word {
+    -- Trivia-bearing raw expressions cannot be reconstructed by compaction.
+    -- Reject rather than silently treat a comment-obscured alias as opaque.
+    if expr_text.contains("--") { give back v4_ty_unknown }
     pilot text = v4_ty_compact_const_expr_text(expr_text)
     pilot start = 0 - 1
     pilot next = v4_index_of_from(text, ".cast<", 0)
