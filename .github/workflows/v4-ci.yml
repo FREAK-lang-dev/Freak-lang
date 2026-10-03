@@ -173,6 +173,9 @@ jobs:
         run: python -B -u tests/v4_checked_numeric_codegen.py --plain --snapshot-control --work "${{ runner.temp }}/numeric-codegen-plain" --json "${{ runner.temp }}/numeric-codegen-plain.json"
 
       - name: Generated owned word programs with C and LLVM ownership audits
+        run: python -B -u -m unittest discover -s tests -p test_v4_owned_word_codegen.py -v
+
+      - name: Generated owned word native portability
         run: python -B -u tests/v4_owned_word_codegen.py --plain
 
       - name: Owned process and checked filesystem runtime portability
