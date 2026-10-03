@@ -133,6 +133,10 @@ jobs:
           --smoke codegen_llvm_execute
           --smoke extern_literal_syntax
           --smoke extern_return
+          --smoke hir_snapshot_scaling_smoke.fk
+          --smoke hir_scalar_fields_smoke.fk
+          --smoke target_contract_smoke.fk
+          --smoke target_c_integer_contract_smoke.fk
 
   v4-runtime-helpers:
     name: V4 native runtime helpers (${{ matrix.os }})
@@ -165,6 +169,12 @@ jobs:
 
       - name: Owned UTF-8 word runtime portability and ownership audits
         run: python -B -u tests/v4_word_runtime.py --plain
+
+      - name: Checked word integer parser oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_word_parse_runtime.py -v
+
+      - name: Checked word integer parser portability and ownership audits
+        run: python -B -u tests/v4_word_parse_runtime.py --plain --work "${{ runner.temp }}/word-parse-plain"
 
       - name: Unicode fatal-error oracle regressions
         run: python -B -u -m unittest discover -s tests -p test_v4_unicode_runtime.py -v
@@ -210,6 +220,10 @@ jobs:
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_word_runtime.py
 
+      - name: Checked word integer parser sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_word_parse_runtime.py --work "${{ runner.temp }}/word-parse-sanitized"
+
       - name: Generated owned word AddressSanitizer and UndefinedBehaviorSanitizer gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_owned_word_codegen.py
@@ -240,6 +254,14 @@ jobs:
         with:
           name: v4-c-integer-oracle-${{ matrix.os }}
           path: ${{ runner.temp }}/c-integer-oracle
+          if-no-files-found: warn
+
+      - name: Preserve checked word integer parser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-word-parse-${{ matrix.os }}
+          path: ${{ runner.temp }}/word-parse-*/
           if-no-files-found: warn
 
       - name: Preserve Unicode lowercase generated-code evidence

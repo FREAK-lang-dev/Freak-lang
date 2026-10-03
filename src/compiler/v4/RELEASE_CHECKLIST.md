@@ -56,10 +56,13 @@ conditional optional-diagnostic cleanup failure; the independently reviewed
 fix is in [PR #140](https://github.com/FREAK-lang-dev/Freak-lang/pull/140).
 PR #140 merged at `af1d10b` after all 23 CI jobs passed at `807ecff`.
 The follow-up [PR #142](https://github.com/FREAK-lang-dev/Freak-lang/pull/142)
-passed all 23 jobs at `4a48fd7`. Reviewed successor `51d960d` fixes subsequent
-tool-image and cleanup-evidence findings and the confirmed HIR memory failure.
-Its complete 37-method Linux benchmark and 125 registered HIR expectations pass;
-fresh current-head CI and automatic reviews remain pending.
+passed all 23 jobs at `4a48fd7`. Reviewed successor `2424c7f` fixes subsequent
+tool-image, missing-identity and cleanup-evidence findings and the confirmed HIR
+memory failure. Its complete 38-method Linux benchmark passes; the 125 registered
+HIR expectations passed separately at `51d960d` on unchanged compiler/runtime
+sources. Current-head Mac and Windows native-backend jobs pass, while complete CI
+and a new mutable-inode image finding remain pending. CodeRabbit's incremental
+review was rate limited; its earlier review belongs to `51d960d`.
 The earlier real parent/descendant cleanup control passes.
 
 The integration harness now executes the three owned-word fixture groups as
@@ -114,6 +117,17 @@ separate plain matrix and both ownership audits. Whole-inventory and platform
 gates remain pending. Native aggregate fields and typed OS Result wiring remain fenced.
 The explicit panic-abort runtime has private native byte/borrow controls;
 compiler mode/never/CFG wiring and default unwinding remain pending.
+The reviewed checked integer parser prerequisite (`433270a`) borrows a sized
+UTF-8 word without allocation or legacy status mutation. Strict ASCII signed
+decimal text must consume the full input and fit int64; invalid text or range
+returns a private none/zero pair. Historical Linux sanitized and separate plain
+O0/O2/O3 runs on source-identical committed bytes each pass six matrices, 234
+semantic rows and 180 named private-boundary failures, with real ownership and
+capability controls. All 1,678 retained artifact records and eight input hashes
+passed independent review; these runs do not establish a fresh integrated-head
+or hosted-platform result. Fifteen process-free oracle methods pass. All-OS plain
+and Linux sanitizer gates are wired; public `word.to_int() -> maybe<int>` typing,
+ownership, snapshot and native lowering remain pending.
 The reviewed target C integer prerequisite (`2c91aa4`) exposes validated
 int32/LP64-long64/Windows-long32 layout descriptors and agrees with four actual
 Clang IR/object pairs. Its strengthened oracle rejects commented calls and
