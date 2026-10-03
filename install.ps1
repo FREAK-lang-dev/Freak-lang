@@ -684,6 +684,9 @@ exit 1
 "@
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($apply))
     $helper = Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encoded" -WindowStyle Hidden -PassThru
+    if ($env:FREAK_INSTALL_TEST_HELPER_IDENTITY) {
+        Set-Content -LiteralPath $env:FREAK_INSTALL_TEST_HELPER_IDENTITY -Value "$($helper.Id)|$($helper.StartTime.ToFileTimeUtc())" -Encoding UTF8
+    }
     if ($env:FREAK_INSTALL_TEST_HELPER_PID) {
         Set-Content -LiteralPath $env:FREAK_INSTALL_TEST_HELPER_PID -Value $helper.Id -Encoding UTF8
     }

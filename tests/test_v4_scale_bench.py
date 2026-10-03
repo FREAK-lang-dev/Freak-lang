@@ -179,9 +179,10 @@ static freak_word freak_v4_codegen_llvm_module_text(int64_t codegen, freak_word 
     def test_wrong_native_exit_fails_check(self):
         tool = self.fake_tool(self.emitted_program(exit_code=42))
         result, rows = self.run_bench(tool, "--check")
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertEqual(rows[0]["status"], "native-check-failed")
-        self.assertIn("native-mismatch:exit=42", rows[0]["check"])
+        context = json.dumps(rows, indent=2) + "\n" + result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, context)
+        self.assertEqual(rows[0]["status"], "native-check-failed", context)
+        self.assertIn("native-mismatch:exit=42", rows[0]["check"], context)
 
     @unittest.skipUnless(shutil.which("clang") and shutil.which("nm"), "clang and nm required")
     def test_duplicate_native_symbol_fails_before_compatibility_link(self):

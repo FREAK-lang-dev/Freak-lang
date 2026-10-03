@@ -708,7 +708,8 @@ def check_offline_installer(
         deferred_runtime_sentinel = deferred_runtime / "freak_runtime.c"
         deferred_runtime_sentinel.write_bytes(b"old runtime before pending barrier\n")
 
-        create_file = ctypes.windll.kernel32.CreateFileW
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        create_file = kernel32.CreateFileW
         create_file.argtypes = [
             ctypes.wintypes.LPCWSTR, ctypes.wintypes.DWORD,
             ctypes.wintypes.DWORD, ctypes.wintypes.LPVOID,
@@ -716,17 +717,88 @@ def check_offline_installer(
             ctypes.wintypes.HANDLE,
         ]
         create_file.restype = ctypes.wintypes.HANDLE
-        close_handle = ctypes.windll.kernel32.CloseHandle
+        close_handle = kernel32.CloseHandle
         close_handle.argtypes = [ctypes.wintypes.HANDLE]
         close_handle.restype = ctypes.wintypes.BOOL
-        open_process = ctypes.windll.kernel32.OpenProcess
+        open_process = kernel32.OpenProcess
         open_process.argtypes = [
             ctypes.wintypes.DWORD, ctypes.wintypes.BOOL, ctypes.wintypes.DWORD,
         ]
         open_process.restype = ctypes.wintypes.HANDLE
-        wait_for_single_object = ctypes.windll.kernel32.WaitForSingleObject
+        wait_for_single_object = kernel32.WaitForSingleObject
         wait_for_single_object.argtypes = [ctypes.wintypes.HANDLE, ctypes.wintypes.DWORD]
         wait_for_single_object.restype = ctypes.wintypes.DWORD
+        get_process_times = kernel32.GetProcessTimes
+        get_process_times.argtypes = [ctypes.wintypes.HANDLE] + [
+            ctypes.POINTER(ctypes.wintypes.FILETIME)
+        ] * 4
+        get_process_times.restype = ctypes.wintypes.BOOL
+        terminate_process = kernel32.TerminateProcess
+        terminate_process.argtypes = [ctypes.wintypes.HANDLE, ctypes.wintypes.UINT]
+        terminate_process.restype = ctypes.wintypes.BOOL
+
+        def read_helper_identity(path: Path) -> tuple[int, int]:
+            """Reject incomplete ownership records rather than trusting a PID."""
+            parts = tuple(map(int, path.read_text(encoding="utf-8-sig").strip().split("|")))
+            assert len(parts) == 2 and parts[0] > 0 and parts[1] > 0, parts
+            return parts
+
+        def process_start_token(process_handle) -> int:
+            """Read creation time from the retained kernel process object."""
+            created, exited, kernel, user = [ctypes.wintypes.FILETIME() for _ in range(4)]
+            if not get_process_times(process_handle, ctypes.byref(created),
+                                     ctypes.byref(exited), ctypes.byref(kernel), ctypes.byref(user)):
+                raise AssertionError(f"GetProcessTimes: Windows error {ctypes.get_last_error()}")
+            return (created.dwHighDateTime << 32) | created.dwLowDateTime
+
+        def terminate_recorded_helper(pid: int, start_token: int) -> str:
+            """Terminate only the recorded process, even after PID reuse."""
+            process_handle = open_process(0x00101001, False, pid)
+            if not process_handle:
+                error = ctypes.get_last_error()
+                assert error == 87, f"OpenProcess({pid}): Windows error {error}"
+                return "gone"
+            try:
+                if process_start_token(process_handle) != start_token:
+                    return "stale"
+                state = wait_for_single_object(process_handle, 0)
+                if state == 0:
+                    return "exited"
+                assert state == 258, f"helper {pid}: wait result {state}"
+                if not terminate_process(process_handle, 1):
+                    error = ctypes.get_last_error()
+                    if wait_for_single_object(process_handle, 0) == 0:
+                        return "exited"
+                    raise AssertionError(f"TerminateProcess({pid}): Windows error {error}")
+                assert wait_for_single_object(process_handle, 10_000) == 0
+                return "terminated"
+            finally:
+                assert close_handle(process_handle)
+
+        # A stale token must preserve a live replacement. Authentic live and
+        # already-exited identities must both be safe to clean up.
+        probe = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.buffer.read(1)"],
+                                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+        try:
+            probe_handle = open_process(0x00101000, False, probe.pid)
+            assert probe_handle
+            try:
+                probe_start = process_start_token(probe_handle)
+            finally:
+                assert close_handle(probe_handle)
+            assert terminate_recorded_helper(probe.pid, probe_start + 1) == "stale"
+            assert probe.poll() is None
+            assert terminate_recorded_helper(probe.pid, probe_start) == "terminated"
+            probe.wait(timeout=10)
+            assert terminate_recorded_helper(probe.pid, probe_start) in ("gone", "exited")
+        finally:
+            if probe.poll() is None:
+                probe.kill()
+            probe.wait(timeout=10)
+            if probe.stdin:
+                probe.stdin.close()
+        print("Windows helper cleanup: stale identity preserved; live and exited owners handled")
 
         install_lock_path = install_root / ".freak-install.lock"
         install_lock_handle = create_file(
@@ -909,19 +981,19 @@ def check_offline_installer(
             str(orphan_freak), 0x80000000, 0x00000001, None, 3, 0x00000080, None
         )
         assert orphan_lock != ctypes.wintypes.HANDLE(-1).value
-        helper_pid_path = root / "orphan-helper-pid.txt"
+        helper_identity_path = root / "orphan-helper-identity.txt"
         orphan_env = env.copy()
         orphan_env["FREAK_HOME"] = str(orphan_root)
-        orphan_env["FREAK_INSTALL_TEST_HELPER_PID"] = str(helper_pid_path)
-        contender_helper_pid_path = root / "orphan-contender-helper-pid.txt"
+        orphan_env["FREAK_INSTALL_TEST_HELPER_IDENTITY"] = str(helper_identity_path)
+        contender_helper_identity_path = root / "orphan-contender-helper-identity.txt"
         contender_env = orphan_env.copy()
-        contender_env["FREAK_INSTALL_TEST_HELPER_PID"] = str(contender_helper_pid_path)
-        helper_pid = None
+        contender_env["FREAK_INSTALL_TEST_HELPER_IDENTITY"] = str(contender_helper_identity_path)
+        helper_identity = None
         helper_process_handle = None
 
         def helper_state() -> str:
             """Keep evidence of unexpected helper exit or live-lock bypass."""
-            state = {"helper_pid": helper_pid}
+            state = {"helper_identity": helper_identity}
             if helper_process_handle:
                 state["helper_wait"] = wait_for_single_object(helper_process_handle, 0)
             for name in (".freak-upgrade-helper.ready", ".freak-upgrade-pending",
@@ -937,16 +1009,15 @@ def check_offline_installer(
                 [*command, "-Upgrade"], cwd=repo, env=orphan_env,
                 capture_output=True, text=True, errors="replace", timeout=120,
             )
-            if helper_pid_path.is_file():
-                helper_pid = int(
-                    helper_pid_path.read_text(encoding="utf-8-sig").strip()
-                )
+            if helper_identity_path.is_file():
+                helper_identity = read_helper_identity(helper_identity_path)
             assert orphan_staged.returncode == 0, (
                 orphan_staged.stdout + orphan_staged.stderr
             )
-            assert helper_pid is not None
-            helper_process_handle = open_process(0x00100000, False, helper_pid)
+            assert helper_identity is not None and len(helper_identity) == 2
+            helper_process_handle = open_process(0x00101000, False, helper_identity[0])
             assert helper_process_handle, helper_state()
+            assert process_start_token(helper_process_handle) == helper_identity[1], helper_state()
             assert wait_for_single_object(helper_process_handle, 0) == 258, helper_state()
             assert (orphan_bin / ".freak-upgrade-pending").is_file()
             live_contender = subprocess.run(
@@ -965,31 +1036,19 @@ def check_offline_installer(
             ), evidence
         finally:
             try:
-                helper_pids = set()
+                helper_identities = set()
                 cleanup_errors = []
-                if helper_pid is not None:
-                    helper_pids.add(helper_pid)
-                for pid_path in (helper_pid_path, contender_helper_pid_path):
+                if helper_identity is not None:
+                    helper_identities.add(helper_identity)
+                for identity_path in (helper_identity_path, contender_helper_identity_path):
                     try:
-                        if pid_path.is_file():
-                            helper_pids.add(int(pid_path.read_text(
-                                encoding="utf-8-sig").strip()))
-                    except (OSError, ValueError) as error:
-                        cleanup_errors.append(f"{pid_path}: {error}")
-                for owned_pid in helper_pids:
+                        if identity_path.is_file():
+                            helper_identities.add(read_helper_identity(identity_path))
+                    except (AssertionError, OSError, ValueError) as error:
+                        cleanup_errors.append(f"{identity_path}: {error}")
+                for owned_pid, start_token in helper_identities:
                     try:
-                        process_handle = open_process(0x00100000, False, owned_pid)
-                        if process_handle:
-                            try:
-                                terminated = subprocess.run(
-                                    ["taskkill.exe", "/PID", str(owned_pid), "/F"],
-                                    capture_output=True, text=True, errors="replace", timeout=30,
-                                )
-                                assert wait_for_single_object(process_handle, 10_000) == 0, (
-                                    terminated.stdout + terminated.stderr
-                                )
-                            finally:
-                                assert close_handle(process_handle)
+                        terminate_recorded_helper(owned_pid, start_token)
                     except (AssertionError, OSError, subprocess.TimeoutExpired) as error:
                         cleanup_errors.append(f"helper {owned_pid}: {error}")
                 assert not cleanup_errors, "\n".join(cleanup_errors)
@@ -1000,7 +1059,7 @@ def check_offline_installer(
                 finally:
                     assert close_handle(orphan_lock)
 
-        orphan_env.pop("FREAK_INSTALL_TEST_HELPER_PID")
+        orphan_env.pop("FREAK_INSTALL_TEST_HELPER_IDENTITY")
         resumed = subprocess.run(
             [*command, "-Upgrade"], cwd=repo, env=orphan_env,
             capture_output=True, text=True, errors="replace", timeout=120,
