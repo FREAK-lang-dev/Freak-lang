@@ -141,7 +141,7 @@ def render(inputs: dict[str, str]) -> str:
              f" * Official UCD: {OFFICIAL_BASE}",
              f" * Official Unicode organization mirror: {MIRROR_BASE}"]
     lines += [f" * {name} SHA256 {digest}" for name, digest in INPUT_SHA256.items()]
-    lines += [f" * License source: {LICENSE_URL}", " * Unicode data copyright 2025 Unicode, Inc.", " *", *[" * " + line for line in inputs["LICENSE.txt"].splitlines()], " */", "",
+    lines += [f" * License source: {LICENSE_URL}", " * Unicode data copyright 2025 Unicode, Inc.", " *", *[(" * " + line).rstrip() for line in inputs["LICENSE.txt"].splitlines()], " */", "",
               "#ifndef FREAK_V4_UNICODE_LOWER_TABLES_H", "#define FREAK_V4_UNICODE_LOWER_TABLES_H", "", "#include <stdint.h>", "",
               '#define FREAK_V4_UNICODE_LOWER_VERSION "17.0.0"',
               "typedef struct { uint32_t source, first, second; uint8_t length; } freak_v4_unicode_lower_mapping;",
