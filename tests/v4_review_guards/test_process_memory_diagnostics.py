@@ -257,7 +257,7 @@ class SymbolInventoryProvenance(unittest.TestCase):
             def job(build, command, work, label, timeout, memory, output):
                 commands.append((command, timeout, memory, output))
                 if command[1] == "--version":
-                    return subprocess.CompletedProcess(command, 0, "GNU nm test-version\n", "")
+                    return subprocess.CompletedProcess(command, 0, "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n", "")
                 raise RuntimeError('native symbol inventory exceeded memory limit: observed=134.3MB limit=128MB\nmemory-sample={"processes":[]}')
 
             with patch.object(benchmark.shutil, "which", return_value=str(nm)), \
@@ -268,36 +268,47 @@ class SymbolInventoryProvenance(unittest.TestCase):
             metadata = json.loads(message.split("symbol-inventory-provenance=", 1)[1])
             self.assertEqual(metadata["object"]["size_bytes"], 11)
             self.assertEqual(metadata["object"]["sha256"], hashlib.sha256(b"tiny object").hexdigest())
-            self.assertEqual(metadata["nm_version"], "GNU nm test-version\n")
-            self.assertEqual(commands[0][0], [str(nm), "-g", "--defined-only", str(obj)])
+            self.assertEqual(metadata["nm_version"], "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n")
+            self.assertEqual(commands[1][0], [str(nm), "-g", "--defined-only", str(obj)])
             self.assertEqual([command[2] for command in commands], [128, 128])
-            self.assertEqual(commands[1][1], 5)
+            self.assertEqual(commands[0][1], 5)
+            self.assertEqual(commands[1][1], 10)
         self.assertIn(hashlib.sha256(b"tiny object").hexdigest(), message)
         self.assertIn("observed=134.3MB limit=128MB", message)
 
-    def test_failed_version_diagnostic_does_not_replace_original_failure(self):
+    def test_failed_version_validation_retains_original_failure_and_stops_inventory(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
+            nm = directory / "selected-llvm-nm"
+            nm.write_bytes(b"LLVM tool")
             obj = directory / "module.o"
             obj.write_bytes(b"object")
-            failures = [RuntimeError("original inventory limit"), RuntimeError("version limit")]
-            with patch.object(benchmark.shutil, "which", return_value=str(directory / "gone-nm")), \
-                    patch.object(benchmark, "guarded_job", side_effect=failures), \
+            with patch.object(benchmark.shutil, "which", return_value=str(nm)), \
+                    patch.object(benchmark, "guarded_job", side_effect=RuntimeError("original tool version limit")) as job, \
                     self.assertRaises(RuntimeError) as failure:
                 benchmark.defined_symbols(None, obj, directory / "diagnostic", 1)
             message = str(failure.exception)
-            self.assertIn("original inventory limit", message)
-            self.assertNotIn("version limit", message)
+            self.assertIn("original tool version limit", message)
             self.assertIn("unavailable within unchanged resource limits", message)
+            job.assert_called_once_with(None, [str(nm), "--version"],
+                directory / "diagnostic/tool-selection/tool-version", "LLVM symbol tool version", 1, 128, 1)
 
-    def test_success_keeps_collision_symbols_and_does_not_launch_extra_job(self):
-        result = subprocess.CompletedProcess([], 0, "00000000 T main\n00000008 T bench_collision\n", "")
-        with patch.object(benchmark.shutil, "which", return_value="nm"), \
-                patch.object(benchmark, "guarded_job", return_value=result) as job:
-            self.assertEqual(benchmark.defined_symbols(None, Path("object"), Path("work"), 10),
-                             {"main", "bench_collision"})
-        job.assert_called_once_with(None, ["nm", "-g", "--defined-only", "object"],
-                                     Path("work"), "native symbol inventory", 10, 128, 8)
+    def test_success_keeps_collision_symbols_with_validated_llvm_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            nm, obj = directory / "llvm-nm", directory / "module.o"
+            nm.write_bytes(b"LLVM tool")
+            obj.write_bytes(b"object")
+            version = subprocess.CompletedProcess([], 0, "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n", "")
+            inventory = subprocess.CompletedProcess([], 0, "00000000 T main\n00000008 T bench_collision\n", "")
+            with patch.object(benchmark.shutil, "which", return_value=str(nm)), \
+                    patch.object(benchmark, "guarded_job", side_effect=[version, inventory]) as job:
+                self.assertEqual(benchmark.defined_symbols(None, obj, directory / "work", 10),
+                                 {"main", "bench_collision"})
+            self.assertEqual(job.call_count, 2)
+            self.assertEqual(job.call_args.args,
+                (None, [str(nm), "-g", "--defined-only", str(obj)],
+                 directory / "work", "native symbol inventory", 10, 128, 8))
 
 
 if __name__ == "__main__":
