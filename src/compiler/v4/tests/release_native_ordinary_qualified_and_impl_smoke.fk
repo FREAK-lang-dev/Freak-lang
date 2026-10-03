@@ -1,0 +1,71 @@
+-- One authored pipeline per process: ordinary names must be unique before
+-- native publication even when no callback trampoline is generated.
+task release_symbol_assert(condition: bool, label: word) -> void {
+    if not condition { panic("release ordinary symbol: " + label) }
+}
+
+task release_symbol_run() -> void {
+    pilot source = "shape A "
+    source = source + "{"
+    source = source + " marker: int "
+    source = source + "}"
+    source = source + "\ntask A::value() -> int "
+    source = source + "{"
+    source = source + " give back 2 "
+    source = source + "}"
+    source = source + "\nimpl A "
+    source = source + "{"
+    source = source + " task value() -> int "
+    source = source + "{"
+    source = source + " give back 3 "
+    source = source + "}"
+    source = source + " "
+    source = source + "}"
+    source = source + "\ntask main() -> int "
+    source = source + "{"
+    source = source + " give back 42 "
+    source = source + "}"
+    source = source + "\n"
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot borrowck = v4_borrowck_check_mir(0, mir)
+    release_symbol_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0 and v4_borrowck_diag_count(borrowck) == 0, "clean authored source through Meiya")
+    release_symbol_assert(v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 3, "three physical authored bodies")
+    pilot plan = v4_codegen_llvm_lower_mir(0, mir)
+    release_symbol_assert(plan >= 0 and v4_codegen_llvm_body_count(plan) == 3 and v4_codegen_llvm_diag_count(plan) == 0, "all ordinary bodies sealed without generated callbacks")
+    pilot a_count = 0
+    pilot b_count = 0
+    pilot row = 0
+    repeat until row >= v4_codegen_llvm_body_count(plan) {
+        pilot symbol = v4_codegen_llvm_body_symbol(plan, row)
+        if symbol == "@\"A::value\"" { a_count += 1 }
+        if symbol == "@\"B::value\"" { b_count += 1 }
+        row += 1
+    }
+    release_symbol_assert(a_count == 2 and b_count == 0, "exact duplicated linkage name retained in physical rows")
+    pilot reason = "native body symbol has multiple definitions: @\"A::value\""
+    release_symbol_assert(v4_codegen_llvm_native_module_error(plan) == reason, "lowering seals exact named ordinary-body diagnostic")
+    pilot targets = array_new()
+    array_push(targets, "x86_64-unknown-linux-gnu")
+    array_push(targets, "aarch64-unknown-linux-gnu")
+    array_push(targets, "aarch64-apple-darwin")
+    array_push(targets, "x86_64-w64-windows-gnu")
+    row = 0
+    repeat until row >= array_len(targets) {
+        pilot target = v4_target_spec_new(array_get(targets, row))
+        release_symbol_assert(v4_codegen_llvm_native_target_error(plan, target) == reason and v4_codegen_llvm_module_text(plan, target) == "", "all native targets reject before module publication")
+        row += 1
+    }
+    array_release(targets)
+    pilot snapshot = v4_mir_snapshot()
+    release_symbol_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "authored MIR restored")
+    array_set(v4_mir_names_handle(mir), 0, "changed_after_sealing")
+    release_symbol_assert(v4_codegen_llvm_native_module_error(plan) == reason and v4_codegen_llvm_module_text(plan, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "sealed rejection survives restored identity reuse")
+    say "release-ordinary-symbol qualified_and_impl authored=true callbacks=0 physical-duplicates=2 named=true targets=4 no-module=true sealed=true"
+}
+
+release_symbol_run()
