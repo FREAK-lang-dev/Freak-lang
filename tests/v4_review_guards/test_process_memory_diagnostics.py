@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -151,6 +151,95 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
         self.assertIn('"exe":"/usr/bin/nm"', message)
         self.assertIn('"rss_bytes":2097152', message)
         self.assertNotIn("secret-token", message)
+
+    def test_persistent_optional_capture_failures_cannot_bypass_tree_cleanup(self):
+        self.process(10, 10, 2048)
+        faults = (
+            (checks, "process_memory_diagnostics", RuntimeError("secret diagnostic payload")),
+            (checks.os, "readlink", RuntimeError("secret enrichment payload")),
+            (checks.json, "dumps", TypeError("secret serialization payload")),
+        )
+        for target, attribute, error in faults:
+            with self.subTest(failure=attribute):
+                process = SimpleNamespace(pid=10, returncode=None, stdout=io.BytesIO(), stderr=io.BytesIO())
+                process.poll = lambda: process.returncode
+                tree = checks.ProcessTree(process, None)
+                events = []
+                running_group = {10, 11}
+                original_diagnostic = tree.memory_diagnostics
+
+                def diagnostic():
+                    events.append("diagnostic")
+                    return original_diagnostic()
+
+                def kill_group(group_id, signal):
+                    events.append("killpg")
+                    running_group.clear()
+
+                def wait():
+                    events.append("wait")
+                    process.returncode = -9
+                    return process.returncode
+
+                process.kill = Mock(side_effect=lambda: events.append("kill"))
+                process.wait = Mock(side_effect=wait)
+                with patch.object(checks.ProcessTree, "spawn", return_value=tree), \
+                        patch.object(checks.os, "killpg", side_effect=kill_group) as killpg, \
+                        patch.object(tree, "close", side_effect=lambda: events.append("close")) as close, \
+                        patch.object(tree, "memory_diagnostics", side_effect=diagnostic) as capture, \
+                        patch.object(target, attribute, side_effect=error) as fault, \
+                        self.assertRaises(RuntimeError) as failure:
+                    checks.run_with_heartbeat(["unused"], label="test limit", memory_limit_mb=1)
+                self.assertEqual(events, ["diagnostic", "killpg", "kill", "wait", "close"])
+                killpg.assert_called_once_with(10, checks.signal.SIGKILL)
+                process.kill.assert_called_once_with()
+                process.wait.assert_called_once_with()
+                close.assert_called_once_with()
+                capture.assert_called_once_with()
+                fault.assert_called_once()
+                self.assertFalse(running_group)
+                self.assertEqual(process.returncode, -9)
+                message = str(failure.exception)
+                self.assertIn("test limit exceeded memory limit: observed=2.0MB limit=1MB", message)
+                self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
+                self.assertNotIn("secret", message)
+
+    def test_post_termination_peak_breach_survives_failed_serialization(self):
+        process = SimpleNamespace(pid=10, returncode=None, stdout=io.BytesIO(), stderr=io.BytesIO())
+        process.poll = lambda: process.returncode
+        tree = checks.ProcessTree(process, None)
+        events = []
+        running_group = {11}
+
+        def wait(*, timeout):
+            events.append("wait")
+            process.returncode = 0
+            return process.returncode
+
+        def kill_group(group_id, signal):
+            events.append("killpg")
+            running_group.clear()
+
+        process.wait = Mock(side_effect=wait)
+        process.kill = Mock()
+        with patch.object(checks.ProcessTree, "spawn", return_value=tree), \
+                patch.object(tree, "memory_bytes", side_effect=[0, 0, 0, 2 * 1024 * 1024]), \
+                patch.object(checks.os, "killpg", side_effect=kill_group) as killpg, \
+                patch.object(tree, "close", side_effect=lambda: events.append("close")) as close, \
+                patch.object(checks.json, "dumps", side_effect=TypeError("secret serialization payload")) as serialize, \
+                self.assertRaises(RuntimeError) as failure:
+            checks.run_with_heartbeat(["unused"], label="late peak", memory_limit_mb=1)
+        self.assertEqual(events, ["wait", "killpg", "close"])
+        killpg.assert_called_once_with(10, checks.signal.SIGKILL)
+        process.wait.assert_called_once_with(timeout=0.25)
+        process.kill.assert_not_called()
+        close.assert_called_once_with()
+        serialize.assert_called_once()
+        self.assertFalse(running_group)
+        message = str(failure.exception)
+        self.assertIn("late peak exceeded memory limit: peak=2.0MB limit=1MB", message)
+        self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
+        self.assertNotIn("secret", message)
 
 
 class SymbolInventoryProvenance(unittest.TestCase):
