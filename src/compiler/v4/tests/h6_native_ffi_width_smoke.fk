@@ -21,10 +21,10 @@ task h6_width_lower(file_id: int, source: word) -> int {
 task h6_width_run() -> void {
     pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
     pilot aliases = "alias Bad = std::ffi::c_int\nalias Hidden = Bad\nalias Size = std::ffi::c_size\n"
-    pilot source = aliases + "extern [C] {\n task source_ptr() -> *mut std::ffi::c_void\n}\n"
-    source = source + "task probe() -> int {\n pilot p = source_ptr()\n trust me \"inspect C storage\" on my honor as .ace {\n pilot q = p.cast<Hidden>()\n give back q.read()\n }\n}\n"
-    source = source + "shape A { marker: int }\nimpl A {\n task width(value: Hidden) -> Hidden {\n pilot local: Hidden = value\n give back local\n }\n}\n"
-    source = source + "@extern_callback(\"C\")\ntask callback(value: std::ffi::c_isize) -> std::ffi::c_isize {\n give back value\n}\n"
+    pilot source = aliases + "extern [C] " + "{" + "\n task source_ptr() -> *mut std::ffi::c_void\n" + "}" + "\n"
+    source = source + "task probe() -> int " + "{" + "\n pilot p = source_ptr()\n trust me \"inspect C storage\" on my honor as .ace " + "{" + "\n pilot q = p.cast<Hidden>()\n give back q.read()\n " + "}" + "\n" + "}" + "\n"
+    source = source + "shape A " + "{" + " marker: int " + "}" + "\nimpl A " + "{" + "\n task width(value: Hidden) -> Hidden " + "{" + "\n pilot local: Hidden = value\n give back local\n " + "}" + "\n" + "}" + "\n"
+    source = source + "@extern_callback(\"C\")\ntask callback(value: std::ffi::c_isize) -> std::ffi::c_isize " + "{" + "\n give back value\n" + "}" + "\n"
     pilot rejected = h6_width_lower(0, source)
     pilot rejected_mir = word_to_int(array_get(v4_codegen_llvm_mirs, rejected))
     pilot rejected_ty = v4_mir_ty_id(rejected_mir)
@@ -39,11 +39,11 @@ task h6_width_run() -> void {
     h6_width_assert(v4_ty_impl_method_local_annotation_count(rejected_ty, impl_item) == 1 and v4_ty_impl_method_local_annotation_surface_type(rejected_ty, impl_item, 0) == "Hidden", "raw impl local annotation retained")
     say "h6-native-ffi-width cast-alias=true impl-raw=true callback-retained=true named=true no-module=true"
 
-    source = aliases + "extern [C] {\n task source_ptr() -> *mut std::ffi::c_void\n task signed_width(value: std::ffi::c_isize) -> std::ffi::isize\n task unsigned_width(value: std::ffi::c_size) -> std::ffi::usize\n task float_width(value: std::ffi::c_float) -> std::ffi::c_float\n task double_width(value: std::ffi::c_double) -> std::ffi::c_double\n task sink(value: *mut tiny) -> std::ffi::c_void\n}\n"
-    source = source + "task byte_view() -> *mut tiny {\n pilot p = source_ptr()\n trust me \"view storage bytes\" on my honor as .ace {\n give back p.cast<tiny>()\n }\n}\n"
-    source = source + "task internal(value: tiny) -> tiny {\n give back value\n}\n"
-    source = source + "@extern_callback(\"C\")\ntask callback(value: std::ffi::c_isize) -> std::ffi::c_isize {\n give back value\n}\n"
-    source = source + "task main() -> int {\n pilot count: Size = 1\n pilot flag: bool = true\n if flag { give back 0 }\n give back 1\n}\n"
+    source = aliases + "extern [C] " + "{" + "\n task source_ptr() -> *mut std::ffi::c_void\n task signed_width(value: std::ffi::c_isize) -> std::ffi::isize\n task unsigned_width(value: std::ffi::c_size) -> std::ffi::usize\n task float_width(value: std::ffi::c_float) -> std::ffi::c_float\n task double_width(value: std::ffi::c_double) -> std::ffi::c_double\n task sink(value: *mut tiny) -> std::ffi::c_void\n" + "}" + "\n"
+    source = source + "task byte_view() -> *mut tiny " + "{" + "\n pilot p = source_ptr()\n trust me \"view storage bytes\" on my honor as .ace " + "{" + "\n give back p.cast<tiny>()\n " + "}" + "\n" + "}" + "\n"
+    source = source + "task internal(value: tiny) -> tiny " + "{" + "\n give back value\n" + "}" + "\n"
+    source = source + "@extern_callback(\"C\")\ntask callback(value: std::ffi::c_isize) -> std::ffi::c_isize " + "{" + "\n give back value\n" + "}" + "\n"
+    source = source + "task main() -> int " + "{" + "\n pilot count: Size = 1\n pilot flag: bool = true\n if flag " + "{" + " give back 0 " + "}" + "\n give back 1\n" + "}" + "\n"
     pilot plan = h6_width_lower(1, source)
     pilot mir = word_to_int(array_get(v4_codegen_llvm_mirs, plan))
     pilot ty = v4_mir_ty_id(mir)

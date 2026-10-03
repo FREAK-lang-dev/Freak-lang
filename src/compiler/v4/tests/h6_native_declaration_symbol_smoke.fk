@@ -36,16 +36,16 @@ task h6_decl_handles() -> int {
 
 task h6_decl_run() -> void {
     pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
-    pilot source = "extern [C] {\n @link_name(\"native_same\")\n task first() -> std::ffi::c_isize\n @link_name(\"native_same\")\n task second(value: std::ffi::c_isize) -> std::ffi::c_isize\n}\n"
-    source = source + "task probe() -> int {\n give back first()\n}\n"
+    pilot source = "extern [C] " + "{" + "\n @link_name(\"native_same\")\n task first() -> std::ffi::c_isize\n @link_name(\"native_same\")\n task second(value: std::ffi::c_isize) -> std::ffi::c_isize\n" + "}" + "\n"
+    source = source + "task probe() -> int " + "{" + "\n give back first()\n" + "}" + "\n"
     pilot rejected = h6_decl_lower(0, source)
     pilot reason = "native declaration symbol has incompatible signatures: @native_same"
     h6_decl_assert(v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_native_target_error(rejected, target) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "authored incompatible aliases reject before publication")
     h6_decl_assert(v4_codegen_llvm_find_decl(rejected, "first") >= 0 and v4_codegen_llvm_find_decl(rejected, "second") >= 0 and v4_codegen_llvm_find_call(rejected, "probe", "first") >= 0, "rejected plan aliases and calls retained")
     say "h6-native-declaration incompatible=true named=true no-module=true aliases-retained=true"
 
-    source = "extern [C] {\n @link_name(\"native_same\")\n task first() -> std::ffi::c_isize\n @link_name(\"native_same\")\n task second() -> std::ffi::c_isize\n @link_name(\"native_other24\")\n task third() -> std::ffi::c_isize\n @link_name(\"native_other24\")\n task fourth() -> std::ffi::c_isize\n}\n"
-    source = source + "task main() -> int {\n say \"literal\"\n say \"second literal\"\n give back first() + second()\n}\n"
+    source = "extern [C] " + "{" + "\n @link_name(\"native_same\")\n task first() -> std::ffi::c_isize\n @link_name(\"native_same\")\n task second() -> std::ffi::c_isize\n @link_name(\"native_other24\")\n task third() -> std::ffi::c_isize\n @link_name(\"native_other24\")\n task fourth() -> std::ffi::c_isize\n" + "}" + "\n"
+    source = source + "task main() -> int " + "{" + "\n say \"literal\"\n say \"second literal\"\n give back first() + second()\n" + "}" + "\n"
     pilot plan = h6_decl_lower(1, source)
     pilot mir = word_to_int(array_get(v4_codegen_llvm_mirs, plan))
     pilot first = v4_codegen_llvm_find_decl(plan, "first")
