@@ -244,13 +244,14 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
         self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
         self.assertNotIn("secret", message)
 
-    def cleanup_retry_fixture(self, platform, failure_phase, *, persistent=False):
+    def cleanup_retry_fixture(self, platform, failure_phase, *, persistent=False, bool_failure=False):
         process = SimpleNamespace(pid=10, returncode=None, stdout=io.BytesIO(), stderr=io.BytesIO())
         process.poll = lambda: process.returncode
         events = []
         running_group = {10, 11}
         reaped = False
-        attempts = {"terminate": 0, "wait": 0}
+        attempts = {"terminate": 0, "wait": 0, "close": 0}
+        last_error = 0
         handle = object()
         job = None
 
@@ -261,6 +262,7 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
             job.handle = handle
 
         def terminate(*args):
+            nonlocal last_error
             events.append("job-terminate" if job is not None else "killpg")
             if job is not None:
                 self.assertEqual(args, (handle, 1))
@@ -269,6 +271,9 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                 self.assertEqual(args, (10, 9))
             attempts["terminate"] += 1
             if failure_phase == "terminate" and (persistent or attempts["terminate"] == 1):
+                if bool_failure:
+                    last_error = 5
+                    return 0
                 raise OSError("temporary termination failure")
             running_group.clear()
             return 1
@@ -286,13 +291,22 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
             return process.returncode
 
         def close_handle(actual_handle):
+            nonlocal last_error
             events.append("job-close")
             self.assertIs(actual_handle, handle)
             self.assertFalse(running_group)
             self.assertTrue(reaped)
+            attempts["close"] += 1
+            if failure_phase == "close" and (persistent or attempts["close"] == 1):
+                last_error = 6
+                return 0
             return 1
 
         if job is not None:
+            job.ctypes = SimpleNamespace(
+                get_last_error=Mock(side_effect=lambda: last_error),
+                WinError=Mock(side_effect=lambda code: OSError(code, "Windows API failure")),
+            )
             job.kernel32 = SimpleNamespace(
                 TerminateJobObject=Mock(side_effect=terminate),
                 CloseHandle=Mock(side_effect=close_handle),
@@ -382,6 +396,66 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                     self.assertIn("exceeded memory limit: peak=2.0MB limit=1MB", message)
                     self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
                     self.assertNotIn("secret", message)
+
+    def test_windows_bool_zero_transient_failures_retry_with_original_guard(self):
+        for phase in ("terminate", "close"):
+            with self.subTest(failure=phase):
+                fixture = self.cleanup_retry_fixture("windows", phase, bool_failure=True)
+                with self.assertRaises(RuntimeError) as failure:
+                    checks.run_with_heartbeat(["unused"], label="Windows BOOL retry", memory_limit_mb=1)
+                if phase == "terminate":
+                    expected = ["diagnostic", "job-terminate", "job-terminate", "kill", "wait", "close", "job-close"]
+                    expected_close_count = 1
+                else:
+                    expected = ["diagnostic", "job-terminate", "kill", "wait", "close", "job-close", "job-terminate", "close", "job-close"]
+                    expected_close_count = 2
+                self.assertEqual(fixture.events, expected)
+                self.assertFalse(fixture.running_group)
+                self.assertEqual(fixture.process.returncode, -9)
+                self.assertIsNone(fixture.job.handle)
+                self.assertEqual(fixture.close.call_count, expected_close_count)
+                self.assertEqual(fixture.job.kernel32.CloseHandle.call_count, expected_close_count)
+                fixture.job.ctypes.get_last_error.assert_called_once_with()
+                fixture.job.ctypes.WinError.assert_called_once_with(5 if phase == "terminate" else 6)
+                fixture.capture.assert_called_once_with()
+                message = str(failure.exception)
+                self.assertIn("Windows BOOL retry exceeded memory limit: observed=2.0MB limit=1MB", message)
+                self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
+                self.assertNotIn("secret", message)
+
+    def test_windows_bool_zero_persistent_failures_keep_handle_and_os_cause(self):
+        for phase in ("terminate", "close"):
+            with self.subTest(failure=phase):
+                fixture = self.cleanup_retry_fixture("windows", phase, bool_failure=True, persistent=True)
+                with self.assertRaises(RuntimeError) as failure:
+                    checks.run_with_heartbeat(["unused"], label="Windows BOOL persistent", memory_limit_mb=1)
+                if phase == "terminate":
+                    expected = ["diagnostic"] + ["job-terminate"] * 4
+                    self.assertEqual(fixture.running_group, {10, 11})
+                    self.assertIsNone(fixture.process.returncode)
+                    fixture.process.wait.assert_not_called()
+                    fixture.close.assert_not_called()
+                    fixture.job.kernel32.CloseHandle.assert_not_called()
+                else:
+                    expected = ["diagnostic", "job-terminate", "kill", "wait", "close", "job-close"]
+                    expected += ["job-terminate", "close", "job-close"] * 3
+                    self.assertFalse(fixture.running_group)
+                    self.assertEqual(fixture.process.returncode, -9)
+                    fixture.process.wait.assert_called_once_with()
+                    self.assertEqual(fixture.close.call_count, 4)
+                    self.assertEqual(fixture.job.kernel32.CloseHandle.call_count, 4)
+                self.assertEqual(fixture.events, expected)
+                self.assertIs(fixture.job.handle, fixture.handle)
+                fixture.capture.assert_called_once_with()
+                self.assertEqual(fixture.job.ctypes.get_last_error.call_count, 4)
+                self.assertEqual(fixture.job.ctypes.WinError.call_count, 4)
+                self.assertIsInstance(failure.exception.__cause__, OSError)
+                self.assertEqual(failure.exception.__cause__.errno, 5 if phase == "terminate" else 6)
+                message = str(failure.exception)
+                self.assertIn("Windows BOOL persistent process-tree cleanup failed after 2 attempts", message)
+                self.assertIn("exceeded memory limit: peak=2.0MB limit=1MB", message)
+                self.assertIn('memory-sample={"diagnostic_error":"capture unavailable"}', message)
+                self.assertNotIn("secret", message)
 
 
 class SymbolInventoryProvenance(unittest.TestCase):
