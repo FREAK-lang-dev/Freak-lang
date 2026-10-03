@@ -1,0 +1,181 @@
+-- Transactional MIR replacement conserves handles at the public 1024 ceiling.
+task v4_restore_resource_assert(condition: bool, label: word) -> void {
+    if not condition { panic("mir-restore-resource " + label) }
+}
+
+task v4_restore_resource_source() -> word {
+    pilot src = ""
+    pilot index = 0
+    repeat until index >= 12 {
+        src = src + "task helper" + word_from_int(index) + "(lend value: word) -> word " + chr(123) + " give back value.clone() " + chr(125) + "\n"
+        index += 1
+    }
+    src = src + "task main() -> int " + chr(123) + "\n    pilot seed = \"payload\"\n"
+    index = 0
+    repeat until index >= 12 {
+        src = src + "    helper" + word_from_int(index) + "(lend seed)\n"
+        index += 1
+    }
+    give back src + "    give back 0\n" + chr(125) + "\n"
+}
+
+task v4_restore_resource_capacity() -> int {
+    pilot held = array_new()
+    if held < 0 { give back 0 }
+    pilot exhausted = false
+    repeat until exhausted {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(held, word_from_int(handle)) }
+    }
+    pilot count = array_len(held) + 1
+    pilot index = 0
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+    give back count
+}
+
+task v4_restore_resource_replace(line: word, field: int, value: word) -> word {
+    pilot parts = array_new()
+    pilot index = 0
+    repeat until index >= v4_mir_snapshot_field_count(line) {
+        if index > 0 { array_push(parts, "|") }
+        if index == field { array_push(parts, v4_mir_snapshot_escape(value)) } else { array_push(parts, v4_mir_snapshot_field_raw(line, index)) }
+        index += 1
+    }
+    pilot out = word_join(parts)
+    array_release(parts)
+    give back out
+}
+
+task v4_restore_resource_grow(payload: word) -> word {
+    pilot lines = payload.snapshot_lines()
+    pilot cloned = array_new()
+    pilot blocks = 0
+    pilot locals = 0
+    pilot statements = 0
+    pilot places = 0
+    pilot rvalues = 0
+    pilot index = 0
+    repeat until index >= array_len(lines) {
+        pilot line: word = array_get(lines, index)
+        pilot kind = v4_mir_snapshot_field_raw(line, 0)
+        if kind == "mir-body" or kind == "mir-block" or kind == "mir-local" or kind == "mir-stmt" or kind == "mir-place" or kind == "mir-rvalue" {
+            if v4_mir_snapshot_field_raw(line, 2) == "0" {
+                array_push(cloned, v4_restore_resource_replace(line, 2, "13"))
+                if kind == "mir-block" { blocks += 1 }
+                if kind == "mir-local" { locals += 1 }
+                if kind == "mir-stmt" { statements += 1 }
+                if kind == "mir-place" { places += 1 }
+                if kind == "mir-rvalue" { rvalues += 1 }
+            }
+        }
+        index += 1
+    }
+    pilot out = array_new()
+    index = 0
+    repeat until index >= array_len(lines) {
+        pilot line: word = array_get(lines, index)
+        pilot kind = v4_mir_snapshot_field_raw(line, 0)
+        if kind == "mir-snapshot" {
+            line = v4_restore_resource_replace(line, 3, "bodies=14")
+            line = v4_restore_resource_replace(line, 4, "blocks=" + word_from_int(word_to_int(v4_mir_snapshot_key_value(line, "blocks")) + blocks))
+            line = v4_restore_resource_replace(line, 5, "locals=" + word_from_int(word_to_int(v4_mir_snapshot_key_value(line, "locals")) + locals))
+            line = v4_restore_resource_replace(line, 6, "statements=" + word_from_int(word_to_int(v4_mir_snapshot_key_value(line, "statements")) + statements))
+            line = v4_restore_resource_replace(line, 7, "places=" + word_from_int(word_to_int(v4_mir_snapshot_key_value(line, "places")) + places))
+            line = v4_restore_resource_replace(line, 8, "rvalues=" + word_from_int(word_to_int(v4_mir_snapshot_key_value(line, "rvalues")) + rvalues))
+        }
+        if kind == "mir" { line = v4_restore_resource_replace(line, 4, "14") }
+        if kind == "end" {
+            pilot child = 0
+            repeat until child >= array_len(cloned) {
+                if array_len(out) > 0 { array_push(out, "\n") }
+                array_push(out, array_get(cloned, child))
+                child += 1
+            }
+        }
+        if array_len(out) > 0 { array_push(out, "\n") }
+        array_push(out, line)
+        index += 1
+    }
+    pilot result_payload = word_join(out)
+    array_release(out) array_release(cloned) array_release(lines)
+    give back result_payload
+}
+
+task v4_restore_resource_run() -> void {
+    pilot path = "mir-restore-resource.fk"
+    pilot mir = v4_mir_text_cached(path, v4_restore_resource_source())
+    v4_restore_resource_assert(mir == 0 and v4_mir_body_count(mir) == 13 and v4_mir_diag_count(mir) == 0 and v4_ty_diag_count(v4_mir_ty_id(mir)) == 0, "13 authored task bodies")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot sealed = v4_codegen_llvm_lower_owned_mir(v4_mir_file_id(mir), mir)
+    pilot module_a = v4_codegen_llvm_module_text(sealed, target)
+    v4_restore_resource_assert(module_a != "", "sealed module A")
+    pilot payload = v4_mir_snapshot()
+    v4_restore_resource_assert(v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1"), "valid base snapshot")
+    pilot entry = v4_query_entry_at_key(v4_mir_query_key(path), 0)
+    pilot query_state = v4_query_entry_state(entry)
+    pilot query_output = v4_query_entry_output(entry)
+    pilot query_generation = v4_query_generation()
+    pilot source_revision = v4_source_revision(v4_mir_file_id(mir))
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot malformed = payload.replace("end|freak-mir-snapshot-v6", "end|freak-mir-snapshot-v5")
+    v4_restore_resource_assert(v4_mir_snapshot_restore(malformed).starts_with("mir-snapshot-restore ok=0"), "late malformed rejection")
+    v4_restore_resource_assert(v4_mir_snapshot() == payload and v4_session_semantic_restore_generation() == generation and v4_source_revision(v4_mir_file_id(mir)) == source_revision and v4_query_generation() == query_generation and v4_query_entry_state(entry) == query_state and v4_query_entry_output(entry) == query_output, "malformed atomicity")
+    v4_restore_resource_assert(v4_codegen_llvm_module_text(sealed, target) == module_a, "malformed keeps sealed A")
+    pilot capacity = v4_restore_resource_capacity()
+    pilot index = 0
+    repeat until index >= 4 {
+        pilot old_names = v4_mir_body_local_names_handle(mir, 0)
+        v4_restore_resource_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "repeated restore")
+        v4_restore_resource_assert(v4_mir_snapshot() == payload and v4_restore_resource_capacity() == capacity, "byte and handle conservation")
+        v4_restore_resource_assert(old_names != v4_mir_body_local_names_handle(mir, 0) and array_len(old_names) == 0, "replaced private handles stale")
+        index += 1
+    }
+    say "mir-restore-resource bodies=13 repeated=true handles-conserved=true old-handles-stale=true"
+    pilot grown = v4_restore_resource_grow(payload)
+    v4_restore_resource_assert(v4_mir_snapshot_validate(grown).starts_with("mir-snapshot-import ok=1"), "valid 14-body storage growth control")
+    generation = v4_session_semantic_restore_generation()
+    query_generation = v4_query_generation()
+    capacity = v4_restore_resource_capacity()
+    v4_restore_resource_assert(capacity > 21, "pressure setup")
+    pilot held = array_new()
+    repeat until array_len(held) >= capacity - 21 {
+        pilot handle = array_new()
+        v4_restore_resource_assert(handle >= 0, "pressure reservation")
+        array_push(held, word_from_int(handle))
+    }
+    pilot rejected = v4_mir_snapshot_restore(grown)
+    index = 0
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+    v4_restore_resource_assert(rejected == "mir-snapshot-restore ok=0 reason=arena-handle-resource-exhausted", "positive delta admission rejects before retirement")
+    v4_restore_resource_assert(v4_mir_snapshot() == payload and v4_restore_resource_capacity() == capacity and v4_session_semantic_restore_generation() == generation and v4_source_revision(v4_mir_file_id(mir)) == source_revision and v4_query_generation() == query_generation and v4_query_entry_state(entry) == query_state and v4_query_entry_output(entry) == query_output, "pressure atomicity and capacity recovery")
+    v4_restore_resource_assert(v4_codegen_llvm_module_text(sealed, target) == module_a, "pressure keeps sealed A")
+    capacity = v4_restore_resource_capacity()
+    v4_restore_resource_assert(v4_mir_snapshot_restore(grown).starts_with("mir-snapshot-restore ok=1") and v4_mir_body_count(mir) == 14, "growth recovery")
+    v4_restore_resource_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_body_count(mir) == 13 and v4_mir_snapshot() == payload and v4_restore_resource_capacity() == capacity, "shrink restores exact tail counts and capacity")
+    say "mir-restore-resource late-malformed-atomic=true positive-delta-admission=true growth-shrink=true pressure-recovery=true"
+    capacity = v4_restore_resource_capacity()
+    held = array_new()
+    pilot exhausted = false
+    repeat until exhausted {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else { array_push(held, word_from_int(handle)) }
+    }
+    pilot before_bodies = v4_mir_body_count(mir)
+    pilot body_failure = v4_mir_restore_body_slot(mir, 13, "", "", "") == 0
+    pilot file_failure = v4_mir_restore_file_slot(1, 0, v4_mir_ty_id(mir)) == 0
+    pilot replacement_failure = v4_mir_restore_file_slot(mir, 0, v4_mir_ty_id(mir)) == 0
+    index = 0
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+    v4_restore_resource_assert(body_failure and file_failure and replacement_failure and v4_mir_file_count() == 1 and v4_mir_body_count(mir) == before_bodies and v4_mir_snapshot() == payload and v4_restore_resource_capacity() == capacity, "failed owner allocation makes no progress or partial facts")
+    pilot fresh = v4_codegen_llvm_lower_owned_mir(v4_mir_file_id(mir), mir)
+    v4_restore_resource_assert(v4_codegen_llvm_module_text(fresh, target) == module_a and v4_codegen_llvm_module_text(sealed, target) == module_a, "fresh sealing and immutable A survive restore")
+    pilot omitted = v4_mir_file_new(v4_mir_file_id(mir), v4_mir_ty_id(mir))
+    pilot omitted_names = v4_mir_names_handle(omitted)
+    pilot omitted_index = v4_mir_body_lookup_index_handle(omitted)
+    v4_restore_resource_assert(omitted == 1 and v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_file_count() == 2 and v4_mir_names_handle(omitted) == omitted_names and v4_mir_body_lookup_index_handle(omitted) == omitted_index, "omitted owner lifetime preserved")
+    say "mir-restore-resource failed-growth-closed=true source-equivalent=true fresh-sealing=true sealed-A-stable=true omitted-file-preserved=true"
+}
+v4_restore_resource_run()

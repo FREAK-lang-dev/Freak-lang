@@ -144,6 +144,7 @@ pilot v4_mir_body_rvalue_args = 0
 pilot v4_mir_body_rvalue_builtin_methods = 0
 pilot v4_mir_diags = 0
 pilot v4_mir_ready = 0
+pilot v4_mir_restore_building: bool = false
 
 -- Optional derived indexes. They never enter snapshot v6 or allocate in readers.
 -- Body identity child: ready/capacity/count, definition buckets, name buckets.
@@ -197,6 +198,83 @@ task v4_mir_init() -> void {
         v4_mir_body_rvalue_args = array_new()
         v4_mir_body_rvalue_builtin_methods = array_new()
         v4_mir_diags = array_new()
+        if v4_mir_files < 0 or v4_mir_tys < 0 or v4_mir_body_defs < 0 or v4_mir_body_names < 0 or v4_mir_body_sigs < 0 or v4_mir_body_blocks < 0 or v4_mir_body_local_names < 0 or v4_mir_body_local_tys < 0 or v4_mir_body_local_modes < 0 or v4_mir_body_local_spans < 0 or v4_mir_body_local_scope_spans < 0 or v4_mir_body_stmt_kinds < 0 or v4_mir_body_stmt_lhs < 0 or v4_mir_body_stmt_rhs < 0 or v4_mir_body_stmt_spans < 0 or v4_mir_body_stmt_scope_spans < 0 or v4_mir_body_stmt_blocks < 0 or v4_mir_body_stmt_places < 0 or v4_mir_body_stmt_rvalues < 0 or v4_mir_body_place_kinds < 0 or v4_mir_body_place_texts < 0 or v4_mir_body_place_bases < 0 or v4_mir_body_place_fields < 0 or v4_mir_body_place_indices < 0 or v4_mir_body_place_spans < 0 or v4_mir_body_place_tys < 0 or v4_mir_body_rvalue_kinds < 0 or v4_mir_body_rvalue_texts < 0 or v4_mir_body_rvalue_ops < 0 or v4_mir_body_rvalue_lhs < 0 or v4_mir_body_rvalue_rhs < 0 or v4_mir_body_rvalue_spans < 0 or v4_mir_body_rvalue_tys < 0 or v4_mir_body_rvalue_abis < 0 or v4_mir_body_rvalue_args < 0 or v4_mir_body_rvalue_builtin_methods < 0 or v4_mir_diags < 0 {
+            array_release(v4_mir_files)
+            v4_mir_files = -1
+            array_release(v4_mir_tys)
+            v4_mir_tys = -1
+            array_release(v4_mir_body_defs)
+            v4_mir_body_defs = -1
+            array_release(v4_mir_body_names)
+            v4_mir_body_names = -1
+            array_release(v4_mir_body_sigs)
+            v4_mir_body_sigs = -1
+            array_release(v4_mir_body_blocks)
+            v4_mir_body_blocks = -1
+            array_release(v4_mir_body_local_names)
+            v4_mir_body_local_names = -1
+            array_release(v4_mir_body_local_tys)
+            v4_mir_body_local_tys = -1
+            array_release(v4_mir_body_local_modes)
+            v4_mir_body_local_modes = -1
+            array_release(v4_mir_body_local_spans)
+            v4_mir_body_local_spans = -1
+            array_release(v4_mir_body_local_scope_spans)
+            v4_mir_body_local_scope_spans = -1
+            array_release(v4_mir_body_stmt_kinds)
+            v4_mir_body_stmt_kinds = -1
+            array_release(v4_mir_body_stmt_lhs)
+            v4_mir_body_stmt_lhs = -1
+            array_release(v4_mir_body_stmt_rhs)
+            v4_mir_body_stmt_rhs = -1
+            array_release(v4_mir_body_stmt_spans)
+            v4_mir_body_stmt_spans = -1
+            array_release(v4_mir_body_stmt_scope_spans)
+            v4_mir_body_stmt_scope_spans = -1
+            array_release(v4_mir_body_stmt_blocks)
+            v4_mir_body_stmt_blocks = -1
+            array_release(v4_mir_body_stmt_places)
+            v4_mir_body_stmt_places = -1
+            array_release(v4_mir_body_stmt_rvalues)
+            v4_mir_body_stmt_rvalues = -1
+            array_release(v4_mir_body_place_kinds)
+            v4_mir_body_place_kinds = -1
+            array_release(v4_mir_body_place_texts)
+            v4_mir_body_place_texts = -1
+            array_release(v4_mir_body_place_bases)
+            v4_mir_body_place_bases = -1
+            array_release(v4_mir_body_place_fields)
+            v4_mir_body_place_fields = -1
+            array_release(v4_mir_body_place_indices)
+            v4_mir_body_place_indices = -1
+            array_release(v4_mir_body_place_spans)
+            v4_mir_body_place_spans = -1
+            array_release(v4_mir_body_place_tys)
+            v4_mir_body_place_tys = -1
+            array_release(v4_mir_body_rvalue_kinds)
+            v4_mir_body_rvalue_kinds = -1
+            array_release(v4_mir_body_rvalue_texts)
+            v4_mir_body_rvalue_texts = -1
+            array_release(v4_mir_body_rvalue_ops)
+            v4_mir_body_rvalue_ops = -1
+            array_release(v4_mir_body_rvalue_lhs)
+            v4_mir_body_rvalue_lhs = -1
+            array_release(v4_mir_body_rvalue_rhs)
+            v4_mir_body_rvalue_rhs = -1
+            array_release(v4_mir_body_rvalue_spans)
+            v4_mir_body_rvalue_spans = -1
+            array_release(v4_mir_body_rvalue_tys)
+            v4_mir_body_rvalue_tys = -1
+            array_release(v4_mir_body_rvalue_abis)
+            v4_mir_body_rvalue_abis = -1
+            array_release(v4_mir_body_rvalue_args)
+            v4_mir_body_rvalue_args = -1
+            array_release(v4_mir_body_rvalue_builtin_methods)
+            v4_mir_body_rvalue_builtin_methods = -1
+            array_release(v4_mir_diags)
+            v4_mir_diags = -1
+            give back
+        }
         v4_mir_ready = 1
         v4_mir_lookup_outer_ensure()
     }
@@ -204,46 +282,122 @@ task v4_mir_init() -> void {
 
 task v4_mir_file_new(file_id: int, ty_id: int) -> int {
     v4_mir_init()
+    if v4_mir_ready == 0 { give back -1 }
     pilot mir_id = array_len(v4_mir_files)
+    pilot new_v4_mir_body_defs = array_new()
+    pilot new_v4_mir_body_names = array_new()
+    pilot new_v4_mir_body_sigs = array_new()
+    pilot new_v4_mir_body_blocks = array_new()
+    pilot new_v4_mir_body_local_names = array_new()
+    pilot new_v4_mir_body_local_tys = array_new()
+    pilot new_v4_mir_body_local_modes = array_new()
+    pilot new_v4_mir_body_local_spans = array_new()
+    pilot new_v4_mir_body_local_scope_spans = array_new()
+    pilot new_v4_mir_body_stmt_kinds = array_new()
+    pilot new_v4_mir_body_stmt_lhs = array_new()
+    pilot new_v4_mir_body_stmt_rhs = array_new()
+    pilot new_v4_mir_body_stmt_spans = array_new()
+    pilot new_v4_mir_body_stmt_scope_spans = array_new()
+    pilot new_v4_mir_body_stmt_blocks = array_new()
+    pilot new_v4_mir_body_stmt_places = array_new()
+    pilot new_v4_mir_body_stmt_rvalues = array_new()
+    pilot new_v4_mir_body_place_kinds = array_new()
+    pilot new_v4_mir_body_place_texts = array_new()
+    pilot new_v4_mir_body_place_bases = array_new()
+    pilot new_v4_mir_body_place_fields = array_new()
+    pilot new_v4_mir_body_place_indices = array_new()
+    pilot new_v4_mir_body_place_spans = array_new()
+    pilot new_v4_mir_body_place_tys = array_new()
+    pilot new_v4_mir_body_rvalue_kinds = array_new()
+    pilot new_v4_mir_body_rvalue_texts = array_new()
+    pilot new_v4_mir_body_rvalue_ops = array_new()
+    pilot new_v4_mir_body_rvalue_lhs = array_new()
+    pilot new_v4_mir_body_rvalue_rhs = array_new()
+    pilot new_v4_mir_body_rvalue_spans = array_new()
+    pilot new_v4_mir_body_rvalue_tys = array_new()
+    pilot new_v4_mir_body_rvalue_abis = array_new()
+    pilot new_v4_mir_body_rvalue_args = array_new()
+    pilot new_v4_mir_body_rvalue_builtin_methods = array_new()
+    pilot new_v4_mir_diags = array_new()
+    if new_v4_mir_body_defs < 0 or new_v4_mir_body_names < 0 or new_v4_mir_body_sigs < 0 or new_v4_mir_body_blocks < 0 or new_v4_mir_body_local_names < 0 or new_v4_mir_body_local_tys < 0 or new_v4_mir_body_local_modes < 0 or new_v4_mir_body_local_spans < 0 or new_v4_mir_body_local_scope_spans < 0 or new_v4_mir_body_stmt_kinds < 0 or new_v4_mir_body_stmt_lhs < 0 or new_v4_mir_body_stmt_rhs < 0 or new_v4_mir_body_stmt_spans < 0 or new_v4_mir_body_stmt_scope_spans < 0 or new_v4_mir_body_stmt_blocks < 0 or new_v4_mir_body_stmt_places < 0 or new_v4_mir_body_stmt_rvalues < 0 or new_v4_mir_body_place_kinds < 0 or new_v4_mir_body_place_texts < 0 or new_v4_mir_body_place_bases < 0 or new_v4_mir_body_place_fields < 0 or new_v4_mir_body_place_indices < 0 or new_v4_mir_body_place_spans < 0 or new_v4_mir_body_place_tys < 0 or new_v4_mir_body_rvalue_kinds < 0 or new_v4_mir_body_rvalue_texts < 0 or new_v4_mir_body_rvalue_ops < 0 or new_v4_mir_body_rvalue_lhs < 0 or new_v4_mir_body_rvalue_rhs < 0 or new_v4_mir_body_rvalue_spans < 0 or new_v4_mir_body_rvalue_tys < 0 or new_v4_mir_body_rvalue_abis < 0 or new_v4_mir_body_rvalue_args < 0 or new_v4_mir_body_rvalue_builtin_methods < 0 or new_v4_mir_diags < 0 {
+        array_release(new_v4_mir_body_defs)
+        array_release(new_v4_mir_body_names)
+        array_release(new_v4_mir_body_sigs)
+        array_release(new_v4_mir_body_blocks)
+        array_release(new_v4_mir_body_local_names)
+        array_release(new_v4_mir_body_local_tys)
+        array_release(new_v4_mir_body_local_modes)
+        array_release(new_v4_mir_body_local_spans)
+        array_release(new_v4_mir_body_local_scope_spans)
+        array_release(new_v4_mir_body_stmt_kinds)
+        array_release(new_v4_mir_body_stmt_lhs)
+        array_release(new_v4_mir_body_stmt_rhs)
+        array_release(new_v4_mir_body_stmt_spans)
+        array_release(new_v4_mir_body_stmt_scope_spans)
+        array_release(new_v4_mir_body_stmt_blocks)
+        array_release(new_v4_mir_body_stmt_places)
+        array_release(new_v4_mir_body_stmt_rvalues)
+        array_release(new_v4_mir_body_place_kinds)
+        array_release(new_v4_mir_body_place_texts)
+        array_release(new_v4_mir_body_place_bases)
+        array_release(new_v4_mir_body_place_fields)
+        array_release(new_v4_mir_body_place_indices)
+        array_release(new_v4_mir_body_place_spans)
+        array_release(new_v4_mir_body_place_tys)
+        array_release(new_v4_mir_body_rvalue_kinds)
+        array_release(new_v4_mir_body_rvalue_texts)
+        array_release(new_v4_mir_body_rvalue_ops)
+        array_release(new_v4_mir_body_rvalue_lhs)
+        array_release(new_v4_mir_body_rvalue_rhs)
+        array_release(new_v4_mir_body_rvalue_spans)
+        array_release(new_v4_mir_body_rvalue_tys)
+        array_release(new_v4_mir_body_rvalue_abis)
+        array_release(new_v4_mir_body_rvalue_args)
+        array_release(new_v4_mir_body_rvalue_builtin_methods)
+        array_release(new_v4_mir_diags)
+        give back -1
+    }
     array_push(v4_mir_files, word_from_int(file_id))
     array_push(v4_mir_tys, word_from_int(ty_id))
-    array_push(v4_mir_body_defs, word_from_int(array_new()))
-    array_push(v4_mir_body_names, word_from_int(array_new()))
-    array_push(v4_mir_body_sigs, word_from_int(array_new()))
-    array_push(v4_mir_body_blocks, word_from_int(array_new()))
-    array_push(v4_mir_body_local_names, word_from_int(array_new()))
-    array_push(v4_mir_body_local_tys, word_from_int(array_new()))
-    array_push(v4_mir_body_local_modes, word_from_int(array_new()))
-    array_push(v4_mir_body_local_spans, word_from_int(array_new()))
-    array_push(v4_mir_body_local_scope_spans, word_from_int(array_new()))
-    array_push(v4_mir_body_stmt_kinds, word_from_int(array_new()))
-    array_push(v4_mir_body_stmt_lhs, word_from_int(array_new()))
-    array_push(v4_mir_body_stmt_rhs, word_from_int(array_new()))
-    array_push(v4_mir_body_stmt_spans, word_from_int(array_new()))
-    array_push(v4_mir_body_stmt_scope_spans, word_from_int(array_new()))
-    array_push(v4_mir_body_stmt_blocks, word_from_int(array_new()))
-    array_push(v4_mir_body_stmt_places, word_from_int(array_new()))
-    array_push(v4_mir_body_stmt_rvalues, word_from_int(array_new()))
-    array_push(v4_mir_body_place_kinds, word_from_int(array_new()))
-    array_push(v4_mir_body_place_texts, word_from_int(array_new()))
-    array_push(v4_mir_body_place_bases, word_from_int(array_new()))
-    array_push(v4_mir_body_place_fields, word_from_int(array_new()))
-    array_push(v4_mir_body_place_indices, word_from_int(array_new()))
-    array_push(v4_mir_body_place_spans, word_from_int(array_new()))
-    array_push(v4_mir_body_place_tys, word_from_int(array_new()))
-    array_push(v4_mir_body_rvalue_kinds, word_from_int(array_new()))
-    array_push(v4_mir_body_rvalue_texts, word_from_int(array_new()))
-    array_push(v4_mir_body_rvalue_ops, word_from_int(array_new()))
-    array_push(v4_mir_body_rvalue_lhs, word_from_int(array_new()))
-    array_push(v4_mir_body_rvalue_rhs, word_from_int(array_new()))
-    array_push(v4_mir_body_rvalue_spans, word_from_int(array_new()))
-    array_push(v4_mir_body_rvalue_tys, word_from_int(array_new()))
-    array_push(v4_mir_body_rvalue_abis, word_from_int(array_new()))
-    array_push(v4_mir_body_rvalue_args, word_from_int(array_new()))
-    array_push(v4_mir_body_rvalue_builtin_methods, word_from_int(array_new()))
-    array_push(v4_mir_diags, word_from_int(array_new()))
-    v4_mir_lookup_file_ensure(mir_id)
-    v4_mir_finalize_body_lookup_index(mir_id)
+    array_push(v4_mir_body_defs, word_from_int(new_v4_mir_body_defs))
+    array_push(v4_mir_body_names, word_from_int(new_v4_mir_body_names))
+    array_push(v4_mir_body_sigs, word_from_int(new_v4_mir_body_sigs))
+    array_push(v4_mir_body_blocks, word_from_int(new_v4_mir_body_blocks))
+    array_push(v4_mir_body_local_names, word_from_int(new_v4_mir_body_local_names))
+    array_push(v4_mir_body_local_tys, word_from_int(new_v4_mir_body_local_tys))
+    array_push(v4_mir_body_local_modes, word_from_int(new_v4_mir_body_local_modes))
+    array_push(v4_mir_body_local_spans, word_from_int(new_v4_mir_body_local_spans))
+    array_push(v4_mir_body_local_scope_spans, word_from_int(new_v4_mir_body_local_scope_spans))
+    array_push(v4_mir_body_stmt_kinds, word_from_int(new_v4_mir_body_stmt_kinds))
+    array_push(v4_mir_body_stmt_lhs, word_from_int(new_v4_mir_body_stmt_lhs))
+    array_push(v4_mir_body_stmt_rhs, word_from_int(new_v4_mir_body_stmt_rhs))
+    array_push(v4_mir_body_stmt_spans, word_from_int(new_v4_mir_body_stmt_spans))
+    array_push(v4_mir_body_stmt_scope_spans, word_from_int(new_v4_mir_body_stmt_scope_spans))
+    array_push(v4_mir_body_stmt_blocks, word_from_int(new_v4_mir_body_stmt_blocks))
+    array_push(v4_mir_body_stmt_places, word_from_int(new_v4_mir_body_stmt_places))
+    array_push(v4_mir_body_stmt_rvalues, word_from_int(new_v4_mir_body_stmt_rvalues))
+    array_push(v4_mir_body_place_kinds, word_from_int(new_v4_mir_body_place_kinds))
+    array_push(v4_mir_body_place_texts, word_from_int(new_v4_mir_body_place_texts))
+    array_push(v4_mir_body_place_bases, word_from_int(new_v4_mir_body_place_bases))
+    array_push(v4_mir_body_place_fields, word_from_int(new_v4_mir_body_place_fields))
+    array_push(v4_mir_body_place_indices, word_from_int(new_v4_mir_body_place_indices))
+    array_push(v4_mir_body_place_spans, word_from_int(new_v4_mir_body_place_spans))
+    array_push(v4_mir_body_place_tys, word_from_int(new_v4_mir_body_place_tys))
+    array_push(v4_mir_body_rvalue_kinds, word_from_int(new_v4_mir_body_rvalue_kinds))
+    array_push(v4_mir_body_rvalue_texts, word_from_int(new_v4_mir_body_rvalue_texts))
+    array_push(v4_mir_body_rvalue_ops, word_from_int(new_v4_mir_body_rvalue_ops))
+    array_push(v4_mir_body_rvalue_lhs, word_from_int(new_v4_mir_body_rvalue_lhs))
+    array_push(v4_mir_body_rvalue_rhs, word_from_int(new_v4_mir_body_rvalue_rhs))
+    array_push(v4_mir_body_rvalue_spans, word_from_int(new_v4_mir_body_rvalue_spans))
+    array_push(v4_mir_body_rvalue_tys, word_from_int(new_v4_mir_body_rvalue_tys))
+    array_push(v4_mir_body_rvalue_abis, word_from_int(new_v4_mir_body_rvalue_abis))
+    array_push(v4_mir_body_rvalue_args, word_from_int(new_v4_mir_body_rvalue_args))
+    array_push(v4_mir_body_rvalue_builtin_methods, word_from_int(new_v4_mir_body_rvalue_builtin_methods))
+    array_push(v4_mir_diags, word_from_int(new_v4_mir_diags))
+    if not v4_mir_restore_building {
+        v4_mir_lookup_file_ensure(mir_id)
+        v4_mir_finalize_body_lookup_index(mir_id)
+    }
     give back mir_id
 }
 
@@ -625,8 +779,9 @@ task v4_mir_finalize_lookup_indexes(mir_id: int) -> bool {
     give back ready
 }
 
--- File restore drops only derived children. Authoritative storage retains its
--- existing lifetime policy; repeated finalization itself reuses these arrays.
+-- Release only this file's optional lookup owners. Snapshot replacement
+-- separately retires its raw children after handle admission; Word elements
+-- and omitted files retain their existing lifetime policy.
 task v4_mir_release_lookup_indexes(mir_id: int) -> void {
     if not v4_mir_lookup_owner_exists(mir_id) { give back }
     array_release(v4_mir_body_lookup_index_handle(mir_id))
@@ -1618,6 +1773,7 @@ task v4_mir_add_stmt(mir_id: int, body_id: int, block_id: int, stmt_kind: word, 
 }
 
 task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word) -> int {
+    if not v4_mir_file_exists(mir_id) { give back -1 }
     pilot body_id = array_len(v4_mir_defs_handle(mir_id))
     pilot blocks_handle = array_new()
     pilot local_names_handle = array_new()
@@ -1650,7 +1806,43 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     pilot rvalue_abis_handle = array_new()
     pilot rvalue_args_handle = array_new()
     pilot rvalue_builtin_methods_handle = array_new()
-    array_push(blocks_handle, v4_mir_block_new(0, v4_mir_term_return, 0 - 1))
+    if blocks_handle < 0 or local_names_handle < 0 or local_tys_handle < 0 or local_modes_handle < 0 or local_spans_handle < 0 or local_scope_spans_handle < 0 or stmt_kinds_handle < 0 or stmt_lhs_handle < 0 or stmt_rhs_handle < 0 or stmt_spans_handle < 0 or stmt_scope_spans_handle < 0 or stmt_blocks_handle < 0 or stmt_places_handle < 0 or stmt_rvalues_handle < 0 or place_kinds_handle < 0 or place_texts_handle < 0 or place_bases_handle < 0 or place_fields_handle < 0 or place_indices_handle < 0 or place_spans_handle < 0 or place_tys_handle < 0 or rvalue_kinds_handle < 0 or rvalue_texts_handle < 0 or rvalue_ops_handle < 0 or rvalue_lhs_handle < 0 or rvalue_rhs_handle < 0 or rvalue_spans_handle < 0 or rvalue_tys_handle < 0 or rvalue_abis_handle < 0 or rvalue_args_handle < 0 or rvalue_builtin_methods_handle < 0 {
+        array_release(blocks_handle)
+        array_release(local_names_handle)
+        array_release(local_tys_handle)
+        array_release(local_modes_handle)
+        array_release(local_spans_handle)
+        array_release(local_scope_spans_handle)
+        array_release(stmt_kinds_handle)
+        array_release(stmt_lhs_handle)
+        array_release(stmt_rhs_handle)
+        array_release(stmt_spans_handle)
+        array_release(stmt_scope_spans_handle)
+        array_release(stmt_blocks_handle)
+        array_release(stmt_places_handle)
+        array_release(stmt_rvalues_handle)
+        array_release(place_kinds_handle)
+        array_release(place_texts_handle)
+        array_release(place_bases_handle)
+        array_release(place_fields_handle)
+        array_release(place_indices_handle)
+        array_release(place_spans_handle)
+        array_release(place_tys_handle)
+        array_release(rvalue_kinds_handle)
+        array_release(rvalue_texts_handle)
+        array_release(rvalue_ops_handle)
+        array_release(rvalue_lhs_handle)
+        array_release(rvalue_rhs_handle)
+        array_release(rvalue_spans_handle)
+        array_release(rvalue_tys_handle)
+        array_release(rvalue_abis_handle)
+        array_release(rvalue_args_handle)
+        array_release(rvalue_builtin_methods_handle)
+        give back -1
+    }
+    if not v4_mir_restore_building {
+        array_push(blocks_handle, v4_mir_block_new(0, v4_mir_term_return, 0 - 1))
+    }
     array_push(v4_mir_defs_handle(mir_id), def_id)
     array_push(v4_mir_names_handle(mir_id), body_name)
     array_push(v4_mir_sigs_handle(mir_id), signature)
@@ -1686,8 +1878,10 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     array_push(v4_mir_rvalue_abis_index_handle(mir_id), word_from_int(rvalue_abis_handle))
     array_push(v4_mir_rvalue_args_index_handle(mir_id), word_from_int(rvalue_args_handle))
     array_push(v4_mir_rvalue_builtin_methods_index_handle(mir_id), word_from_int(rvalue_builtin_methods_handle))
-    v4_mir_body_lookup_added(mir_id, body_id)
-    v4_mir_finalize_block_stmt_index(mir_id, body_id)
+    if not v4_mir_restore_building {
+        v4_mir_body_lookup_added(mir_id, body_id)
+        v4_mir_finalize_block_stmt_index(mir_id, body_id)
+    }
     give back body_id
 }
 
@@ -2762,7 +2956,9 @@ task v4_mir_snapshot() -> word {
     }
     array_push(parts, "\nend|")
     array_push(parts, v4_mir_snapshot_format)
-    give back word_join(parts)
+    pilot out = word_join(parts)
+    array_release(parts)
+    give back out
 }
 
 task v4_mir_snapshot_record_expected_fields(kind: word) -> int {
@@ -3543,49 +3739,68 @@ task v4_mir_snapshot_validate(payload: word) -> word {
 task v4_mir_restore_file_slot(mir_id: int, file_id: int, ty_id: int) -> int {
     if mir_id < 0 or file_id < 0 or ty_id < 0 { give back 0 }
     v4_mir_init()
-    repeat until array_len(v4_mir_files) > mir_id {
-        v4_mir_file_new(0, 0)
+    if v4_mir_ready == 0 { give back 0 }
+    pilot fresh = mir_id >= array_len(v4_mir_files)
+    if not v4_mir_restore_building {
+        pilot needed = 35 - v4_mir_restore_raw_handle_count(mir_id)
+        if fresh { needed = 35 * (mir_id - array_len(v4_mir_files) + 1) }
+        if not v4_mir_restore_reserve_needed(needed) { give back 0 }
     }
+    pilot previous_mode = v4_mir_restore_building
+    v4_mir_restore_building = true
+    repeat until array_len(v4_mir_files) > mir_id {
+        pilot previous = array_len(v4_mir_files)
+        v4_mir_file_new(0, 0)
+        if array_len(v4_mir_files) <= previous {
+            v4_mir_restore_building = previous_mode
+            give back 0
+        }
+    }
+    v4_mir_restore_building = previous_mode
 
     v4_mir_release_lookup_indexes(mir_id)
     array_set(v4_mir_files, mir_id, word_from_int(file_id))
     array_set(v4_mir_tys, mir_id, word_from_int(ty_id))
-    array_set(v4_mir_body_defs, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_names, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_sigs, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_blocks, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_local_names, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_local_tys, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_local_modes, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_local_spans, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_local_scope_spans, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_stmt_kinds, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_stmt_lhs, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_stmt_rhs, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_stmt_spans, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_stmt_scope_spans, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_stmt_blocks, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_stmt_places, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_stmt_rvalues, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_place_kinds, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_place_texts, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_place_bases, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_place_fields, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_place_indices, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_place_spans, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_place_tys, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_rvalue_kinds, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_rvalue_texts, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_rvalue_ops, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_rvalue_lhs, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_rvalue_rhs, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_rvalue_spans, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_rvalue_tys, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_rvalue_abis, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_rvalue_args, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_body_rvalue_builtin_methods, mir_id, word_from_int(array_new()))
-    array_set(v4_mir_diags, mir_id, word_from_int(array_new()))
-    v4_mir_lookup_file_ensure(mir_id)
+    if not fresh {
+        if not v4_mir_restore_building { v4_mir_restore_release_file_raw(mir_id) }
+        array_set(v4_mir_body_defs, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_names, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_sigs, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_blocks, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_local_names, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_local_tys, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_local_modes, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_local_spans, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_local_scope_spans, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_stmt_kinds, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_stmt_lhs, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_stmt_rhs, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_stmt_spans, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_stmt_scope_spans, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_stmt_blocks, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_stmt_places, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_stmt_rvalues, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_place_kinds, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_place_texts, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_place_bases, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_place_fields, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_place_indices, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_place_spans, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_place_tys, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_rvalue_kinds, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_rvalue_texts, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_rvalue_ops, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_rvalue_lhs, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_rvalue_rhs, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_rvalue_spans, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_rvalue_tys, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_rvalue_abis, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_rvalue_args, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_body_rvalue_builtin_methods, mir_id, word_from_int(array_new()))
+        array_set(v4_mir_diags, mir_id, word_from_int(array_new()))
+    }
+    if not v4_mir_restore_building { v4_mir_lookup_file_ensure(mir_id) }
+    if word_to_int(array_get(v4_mir_body_defs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_names, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_sigs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_blocks, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_names, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_tys, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_modes, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_local_scope_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_kinds, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_lhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_rhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_scope_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_blocks, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_places, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_stmt_rvalues, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_kinds, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_texts, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_bases, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_fields, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_indices, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_place_tys, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_kinds, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_texts, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_ops, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_lhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_rhs, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_spans, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_tys, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_abis, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_args, mir_id)) < 0 or word_to_int(array_get(v4_mir_body_rvalue_builtin_methods, mir_id)) < 0 or word_to_int(array_get(v4_mir_diags, mir_id)) < 0 { give back 0 }
     give back 1
 }
 
@@ -3594,46 +3809,64 @@ task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name
     if v4_mir_file_exists(mir_id) == false {
         give back 0
     }
-    repeat until v4_mir_body_count(mir_id) > body_id {
-        v4_mir_add_body(mir_id, "", "", "")
+    pilot fresh = body_id >= v4_mir_body_count(mir_id)
+    if not v4_mir_restore_building {
+        pilot needed = 0
+        if fresh { needed = 31 * (body_id - v4_mir_body_count(mir_id) + 1) }
+        if not v4_mir_restore_reserve_needed(needed) { give back 0 }
     }
+    pilot previous_mode = v4_mir_restore_building
+    v4_mir_restore_building = true
+    repeat until v4_mir_body_count(mir_id) > body_id {
+        pilot previous = v4_mir_body_count(mir_id)
+        pilot added = v4_mir_add_body(mir_id, "", "", "")
+        if added < 0 or v4_mir_body_count(mir_id) <= previous {
+            v4_mir_restore_building = previous_mode
+            give back 0
+        }
+    }
+    v4_mir_restore_building = previous_mode
 
     v4_mir_invalidate_body_lookup_index(mir_id)
     v4_mir_invalidate_block_stmt_index(mir_id, body_id)
     array_set(v4_mir_defs_handle(mir_id), body_id, def_id)
     array_set(v4_mir_names_handle(mir_id), body_id, body_name)
     array_set(v4_mir_sigs_handle(mir_id), body_id, signature)
-    array_set(v4_mir_blocks_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_local_names_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_local_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_local_modes_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_local_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_local_scope_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_stmt_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_stmt_lhs_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_stmt_rhs_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_stmt_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_stmt_scope_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_stmt_blocks_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_stmt_places_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_stmt_rvalues_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_place_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_place_texts_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_place_bases_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_place_fields_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_place_indices_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_place_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_place_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_rvalue_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_rvalue_texts_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_rvalue_ops_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_rvalue_lhs_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_rvalue_rhs_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_rvalue_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_rvalue_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_rvalue_abis_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_rvalue_args_index_handle(mir_id), body_id, word_from_int(array_new()))
-    array_set(v4_mir_rvalue_builtin_methods_index_handle(mir_id), body_id, word_from_int(array_new()))
+    if not fresh {
+        v4_mir_restore_release_body_raw(mir_id, body_id)
+        array_set(v4_mir_blocks_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_local_names_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_local_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_local_modes_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_local_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_local_scope_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_stmt_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_stmt_lhs_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_stmt_rhs_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_stmt_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_stmt_scope_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_stmt_blocks_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_stmt_places_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_stmt_rvalues_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_place_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_place_texts_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_place_bases_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_place_fields_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_place_indices_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_place_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_place_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_rvalue_kinds_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_rvalue_texts_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_rvalue_ops_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_rvalue_lhs_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_rvalue_rhs_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_rvalue_spans_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_rvalue_tys_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_rvalue_abis_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_rvalue_args_index_handle(mir_id), body_id, word_from_int(array_new()))
+        array_set(v4_mir_rvalue_builtin_methods_index_handle(mir_id), body_id, word_from_int(array_new()))
+    }
+    if word_to_int(array_get(v4_mir_blocks_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_names_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_tys_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_modes_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_local_scope_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_kinds_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_lhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_rhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_scope_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_blocks_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_places_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_stmt_rvalues_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_kinds_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_texts_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_bases_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_fields_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_indices_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_place_tys_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_kinds_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_texts_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_ops_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_lhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_rhs_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_spans_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_tys_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_abis_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_args_index_handle(mir_id), body_id)) < 0 or word_to_int(array_get(v4_mir_rvalue_builtin_methods_index_handle(mir_id), body_id)) < 0 { give back 0 }
     give back 1
 }
 
@@ -3650,9 +3883,13 @@ task v4_mir_restore_block_slot(mir_id: int, body_id: int, block_id: int, block_r
         give back 0
     }
     v4_mir_invalidate_block_stmt_index(mir_id, body_id)
+    if v4_mir_body_blocks_handle(mir_id, body_id) < 0 { give back 0 }
     repeat until v4_mir_body_block_count(mir_id, body_id) > block_id {
+        pilot previous = v4_mir_body_block_count(mir_id, body_id)
         pilot next_block = v4_mir_body_block_count(mir_id, body_id)
         array_push(v4_mir_body_blocks_handle(mir_id, body_id), v4_mir_block_new(next_block, v4_mir_term_unreachable, 0 - 1))
+        if v4_mir_body_block_count(mir_id, body_id) <= previous { give back 0 }
+        if array_len(v4_mir_body_blocks_handle(mir_id, body_id)) != previous + 1 { give back 0 }
     }
     array_set(v4_mir_body_blocks_handle(mir_id, body_id), block_id, block_record)
     give back 1
@@ -3666,12 +3903,20 @@ task v4_mir_restore_local_slot(mir_id: int, body_id: int, local_id: int, local_n
     if local_mode == "" {
         local_mode = v4_ty_param_mode_value
     }
+    if v4_mir_body_local_spans_handle(mir_id, body_id) < 0 or v4_mir_body_local_scope_spans_handle(mir_id, body_id) < 0 or v4_mir_body_local_names_handle(mir_id, body_id) < 0 or v4_mir_body_local_modes_handle(mir_id, body_id) < 0 or v4_mir_body_local_tys_handle(mir_id, body_id) < 0 { give back 0 }
     repeat until v4_mir_body_local_count(mir_id, body_id) > local_id {
+        pilot previous = v4_mir_body_local_count(mir_id, body_id)
         array_push(v4_mir_body_local_names_handle(mir_id, body_id), "")
         array_push(v4_mir_body_local_tys_handle(mir_id, body_id), v4_ty_unknown)
         array_push(v4_mir_body_local_modes_handle(mir_id, body_id), v4_ty_param_mode_value)
         array_push(v4_mir_body_local_spans_handle(mir_id, body_id), V4_NO_SPAN)
         array_push(v4_mir_body_local_scope_spans_handle(mir_id, body_id), V4_NO_SPAN)
+        if v4_mir_body_local_count(mir_id, body_id) <= previous { give back 0 }
+        if array_len(v4_mir_body_local_names_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_local_tys_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_local_modes_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_local_spans_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_local_scope_spans_handle(mir_id, body_id)) != previous + 1 { give back 0 }
     }
     array_set(v4_mir_body_local_names_handle(mir_id, body_id), local_id, local_name)
     array_set(v4_mir_body_local_tys_handle(mir_id, body_id), local_id, local_ty)
@@ -3687,7 +3932,9 @@ task v4_mir_restore_stmt_slot(mir_id: int, body_id: int, stmt_id: int, stmt_kind
         give back 0
     }
     v4_mir_invalidate_block_stmt_index(mir_id, body_id)
+    if v4_mir_body_stmt_kinds_handle(mir_id, body_id) < 0 or v4_mir_body_stmt_rhs_handle(mir_id, body_id) < 0 or v4_mir_body_stmt_places_handle(mir_id, body_id) < 0 or v4_mir_body_stmt_rvalues_handle(mir_id, body_id) < 0 or v4_mir_body_stmt_blocks_handle(mir_id, body_id) < 0 or v4_mir_body_stmt_lhs_handle(mir_id, body_id) < 0 or v4_mir_body_stmt_spans_handle(mir_id, body_id) < 0 or v4_mir_body_stmt_scope_spans_handle(mir_id, body_id) < 0 { give back 0 }
     repeat until v4_mir_body_stmt_count(mir_id, body_id) > stmt_id {
+        pilot previous = v4_mir_body_stmt_count(mir_id, body_id)
         array_push(v4_mir_body_stmt_kinds_handle(mir_id, body_id), "")
         array_push(v4_mir_body_stmt_lhs_handle(mir_id, body_id), "")
         array_push(v4_mir_body_stmt_rhs_handle(mir_id, body_id), "")
@@ -3696,6 +3943,15 @@ task v4_mir_restore_stmt_slot(mir_id: int, body_id: int, stmt_id: int, stmt_kind
         array_push(v4_mir_body_stmt_blocks_handle(mir_id, body_id), word_from_int(0 - 1))
         array_push(v4_mir_body_stmt_places_handle(mir_id, body_id), word_from_int(0 - 1))
         array_push(v4_mir_body_stmt_rvalues_handle(mir_id, body_id), word_from_int(0 - 1))
+        if v4_mir_body_stmt_count(mir_id, body_id) <= previous { give back 0 }
+        if array_len(v4_mir_body_stmt_kinds_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_stmt_lhs_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_stmt_rhs_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_stmt_spans_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_stmt_scope_spans_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_stmt_blocks_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_stmt_places_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_stmt_rvalues_handle(mir_id, body_id)) != previous + 1 { give back 0 }
     }
     array_set(v4_mir_body_stmt_kinds_handle(mir_id, body_id), stmt_id, stmt_kind)
     array_set(v4_mir_body_stmt_lhs_handle(mir_id, body_id), stmt_id, lhs)
@@ -3712,7 +3968,9 @@ task v4_mir_restore_place_slot(mir_id: int, body_id: int, place_id: int, place_k
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
     }
+    if v4_mir_body_place_tys_handle(mir_id, body_id) < 0 or v4_mir_body_place_kinds_handle(mir_id, body_id) < 0 or v4_mir_body_place_fields_handle(mir_id, body_id) < 0 or v4_mir_body_place_texts_handle(mir_id, body_id) < 0 or v4_mir_body_place_bases_handle(mir_id, body_id) < 0 or v4_mir_body_place_indices_handle(mir_id, body_id) < 0 or v4_mir_body_place_spans_handle(mir_id, body_id) < 0 { give back 0 }
     repeat until v4_mir_body_place_count(mir_id, body_id) > place_id {
+        pilot previous = v4_mir_body_place_count(mir_id, body_id)
         array_push(v4_mir_body_place_kinds_handle(mir_id, body_id), v4_mir_place_unknown)
         array_push(v4_mir_body_place_texts_handle(mir_id, body_id), "")
         array_push(v4_mir_body_place_bases_handle(mir_id, body_id), word_from_int(0 - 1))
@@ -3720,6 +3978,14 @@ task v4_mir_restore_place_slot(mir_id: int, body_id: int, place_id: int, place_k
         array_push(v4_mir_body_place_indices_handle(mir_id, body_id), word_from_int(0 - 1))
         array_push(v4_mir_body_place_spans_handle(mir_id, body_id), V4_NO_SPAN)
         array_push(v4_mir_body_place_tys_handle(mir_id, body_id), v4_ty_unknown)
+        if v4_mir_body_place_count(mir_id, body_id) <= previous { give back 0 }
+        if array_len(v4_mir_body_place_kinds_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_place_texts_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_place_bases_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_place_fields_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_place_indices_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_place_spans_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_place_tys_handle(mir_id, body_id)) != previous + 1 { give back 0 }
     }
     array_set(v4_mir_body_place_kinds_handle(mir_id, body_id), place_id, place_kind)
     array_set(v4_mir_body_place_texts_handle(mir_id, body_id), place_id, text)
@@ -3738,7 +4004,9 @@ task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalu
     if v4_mir_body_slot_exists(mir_id, body_id) == false {
         give back 0
     }
+    if v4_mir_body_rvalue_lhs_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_abis_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_spans_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_kinds_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_args_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_texts_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_ops_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_rhs_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_tys_handle(mir_id, body_id) < 0 { give back 0 }
     repeat until v4_mir_body_rvalue_count(mir_id, body_id) > rvalue_id {
+        pilot previous = v4_mir_body_rvalue_count(mir_id, body_id)
         array_push(v4_mir_body_rvalue_kinds_handle(mir_id, body_id), v4_mir_rvalue_unknown)
         array_push(v4_mir_body_rvalue_texts_handle(mir_id, body_id), "")
         array_push(v4_mir_body_rvalue_ops_handle(mir_id, body_id), "")
@@ -3749,6 +4017,17 @@ task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalu
         array_push(v4_mir_body_rvalue_abis_handle(mir_id, body_id), "")
         array_push(v4_mir_body_rvalue_args_handle(mir_id, body_id), "")
         array_push(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), "")
+        if v4_mir_body_rvalue_count(mir_id, body_id) <= previous { give back 0 }
+        if array_len(v4_mir_body_rvalue_kinds_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_rvalue_texts_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_rvalue_ops_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_rvalue_lhs_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_rvalue_rhs_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_rvalue_spans_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_rvalue_tys_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_rvalue_abis_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_rvalue_args_handle(mir_id, body_id)) != previous + 1 { give back 0 }
+        if array_len(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id)) != previous + 1 { give back 0 }
     }
     pilot builtin_methods_handle = v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id)
     if builtin_method_code == 1 {
@@ -3787,8 +4066,11 @@ task v4_mir_restore_diag_slot(mir_id: int, diag_id: int, diag: word) -> int {
     if v4_mir_file_exists(mir_id) == false {
         give back 0
     }
+    if v4_mir_diags_handle(mir_id) < 0 { give back 0 }
     repeat until v4_mir_diag_count(mir_id) > diag_id {
+        pilot previous = v4_mir_diag_count(mir_id)
         array_push(v4_mir_diags_handle(mir_id), "")
+        if v4_mir_diag_count(mir_id) <= previous { give back 0 }
     }
     array_set(v4_mir_diags_handle(mir_id), diag_id, diag)
     give back 1
@@ -3897,11 +4179,32 @@ task v4_mir_snapshot_restore_diag_line(line: word) -> int {
 }
 
 task v4_mir_snapshot_restore_component(payload: word) -> word {
+    v4_mir_init()
+    if v4_mir_ready == 0 { give back "mir-snapshot-restore ok=0 reason=mir-initialization-resource-exhausted" }
     pilot validation = v4_mir_snapshot_validate(payload)
     if validation.starts_with("mir-snapshot-import ok=1") == false {
         give back "mir-snapshot-restore ok=0 reason=validation-failed\n" + validation
     }
 
+    pilot records = payload.snapshot_lines()
+    if records < 0 { give back "mir-snapshot-restore ok=0 reason=line-index-resource-exhausted" }
+    if not v4_mir_restore_handles_available(records) {
+        array_release(records)
+        give back "mir-snapshot-restore ok=0 reason=arena-handle-resource-exhausted"
+    }
+    pilot retire = 0
+    repeat until retire >= array_len(records) {
+        pilot line: word = array_get(records, retire)
+        if v4_mir_snapshot_field_raw(line, 0) == "mir" {
+            pilot mir_id = word_to_int(v4_mir_snapshot_field_raw(line, 1))
+            if v4_mir_file_exists(mir_id) {
+                v4_mir_release_lookup_indexes(mir_id)
+                v4_mir_restore_release_file_raw(mir_id)
+            }
+        }
+        retire += 1
+    }
+    v4_mir_restore_building = true
     pilot restored_files = 0
     pilot restored_bodies = 0
     pilot restored_blocks = 0
@@ -3913,9 +4216,9 @@ task v4_mir_snapshot_restore_component(payload: word) -> word {
     pilot skipped_other = 0
     pilot restore_failures = 0
     pilot line_id = 0
-    pilot line_count = v4_mir_snapshot_line_count(payload)
+    pilot line_count = array_len(records)
     repeat until line_id >= line_count {
-        pilot line = v4_mir_snapshot_line(payload, line_id)
+        pilot line: word = array_get(records, line_id)
         if line != "" {
             pilot kind = v4_mir_snapshot_field_raw(line, 0)
             if kind == "mir" {
@@ -3957,15 +4260,22 @@ task v4_mir_snapshot_restore_component(payload: word) -> word {
         line_id += 1
     }
 
+    v4_mir_restore_building = false
+    if restore_failures != 0 { panic("admitted MIR snapshot rebuild invariant failed") }
+
     -- Optional indexes may remain cold under handle pressure; restored facts
     -- stay authoritative. Publish only after the complete component is applied.
     if restore_failures == 0 {
-        pilot mir_id = 0
-        repeat until mir_id >= v4_mir_file_count() {
-            v4_mir_finalize_lookup_indexes(mir_id)
-            mir_id += 1
+        pilot finalized = 0
+        repeat until finalized >= array_len(records) {
+            pilot line: word = array_get(records, finalized)
+            if v4_mir_snapshot_field_raw(line, 0) == "mir" {
+                v4_mir_finalize_lookup_indexes(word_to_int(v4_mir_snapshot_field_raw(line, 1)))
+            }
+            finalized += 1
         }
     }
+    array_release(records)
     pilot restore_ok = 1
     if restore_failures > 0 { restore_ok = 0 }
     pilot out = "mir-snapshot-restore ok=" + word_from_int(restore_ok)
@@ -4215,4 +4525,265 @@ task v4_mir_span_fact_is_valid(span: word) -> bool {
     pilot start = v4_span_start(span)
     pilot end = v4_span_end(span)
     give back start >= 0 and end >= start and v4_span_new(file, start, end) == span
+}
+
+
+-- Snapshot commit retires replaced private arrays. Generation-tagged old
+-- handles become stale; immutable Word values and omitted MIR owners survive.
+task v4_mir_restore_release_body_raw(mir_id: int, body_id: int) -> void {
+    array_release(word_to_int(array_get(v4_mir_blocks_handle(mir_id), body_id)))
+    array_set(v4_mir_blocks_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_local_names_index_handle(mir_id), body_id)))
+    array_set(v4_mir_local_names_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_local_tys_index_handle(mir_id), body_id)))
+    array_set(v4_mir_local_tys_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_local_modes_index_handle(mir_id), body_id)))
+    array_set(v4_mir_local_modes_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body_id)))
+    array_set(v4_mir_local_spans_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_local_scope_spans_index_handle(mir_id), body_id)))
+    array_set(v4_mir_local_scope_spans_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_stmt_kinds_index_handle(mir_id), body_id)))
+    array_set(v4_mir_stmt_kinds_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_stmt_lhs_index_handle(mir_id), body_id)))
+    array_set(v4_mir_stmt_lhs_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_stmt_rhs_index_handle(mir_id), body_id)))
+    array_set(v4_mir_stmt_rhs_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_stmt_spans_index_handle(mir_id), body_id)))
+    array_set(v4_mir_stmt_spans_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_stmt_scope_spans_index_handle(mir_id), body_id)))
+    array_set(v4_mir_stmt_scope_spans_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_stmt_blocks_index_handle(mir_id), body_id)))
+    array_set(v4_mir_stmt_blocks_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_stmt_places_index_handle(mir_id), body_id)))
+    array_set(v4_mir_stmt_places_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_stmt_rvalues_index_handle(mir_id), body_id)))
+    array_set(v4_mir_stmt_rvalues_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_place_kinds_index_handle(mir_id), body_id)))
+    array_set(v4_mir_place_kinds_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_place_texts_index_handle(mir_id), body_id)))
+    array_set(v4_mir_place_texts_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_place_bases_index_handle(mir_id), body_id)))
+    array_set(v4_mir_place_bases_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_place_fields_index_handle(mir_id), body_id)))
+    array_set(v4_mir_place_fields_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_place_indices_index_handle(mir_id), body_id)))
+    array_set(v4_mir_place_indices_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_place_spans_index_handle(mir_id), body_id)))
+    array_set(v4_mir_place_spans_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_place_tys_index_handle(mir_id), body_id)))
+    array_set(v4_mir_place_tys_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_rvalue_kinds_index_handle(mir_id), body_id)))
+    array_set(v4_mir_rvalue_kinds_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_rvalue_texts_index_handle(mir_id), body_id)))
+    array_set(v4_mir_rvalue_texts_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_rvalue_ops_index_handle(mir_id), body_id)))
+    array_set(v4_mir_rvalue_ops_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_rvalue_lhs_index_handle(mir_id), body_id)))
+    array_set(v4_mir_rvalue_lhs_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_rvalue_rhs_index_handle(mir_id), body_id)))
+    array_set(v4_mir_rvalue_rhs_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_rvalue_spans_index_handle(mir_id), body_id)))
+    array_set(v4_mir_rvalue_spans_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_rvalue_tys_index_handle(mir_id), body_id)))
+    array_set(v4_mir_rvalue_tys_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_rvalue_abis_index_handle(mir_id), body_id)))
+    array_set(v4_mir_rvalue_abis_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_rvalue_args_index_handle(mir_id), body_id)))
+    array_set(v4_mir_rvalue_args_index_handle(mir_id), body_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_rvalue_builtin_methods_index_handle(mir_id), body_id)))
+    array_set(v4_mir_rvalue_builtin_methods_index_handle(mir_id), body_id, "-1")
+}
+
+task v4_mir_restore_release_file_raw(mir_id: int) -> void {
+    pilot body_id = 0
+    pilot count = v4_mir_body_count(mir_id)
+    repeat until body_id >= count {
+        v4_mir_restore_release_body_raw(mir_id, body_id)
+        body_id += 1
+    }
+    array_release(word_to_int(array_get(v4_mir_body_defs, mir_id)))
+    array_set(v4_mir_body_defs, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_names, mir_id)))
+    array_set(v4_mir_body_names, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_sigs, mir_id)))
+    array_set(v4_mir_body_sigs, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_blocks, mir_id)))
+    array_set(v4_mir_body_blocks, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_local_names, mir_id)))
+    array_set(v4_mir_body_local_names, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_local_tys, mir_id)))
+    array_set(v4_mir_body_local_tys, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_local_modes, mir_id)))
+    array_set(v4_mir_body_local_modes, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_local_spans, mir_id)))
+    array_set(v4_mir_body_local_spans, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_local_scope_spans, mir_id)))
+    array_set(v4_mir_body_local_scope_spans, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_stmt_kinds, mir_id)))
+    array_set(v4_mir_body_stmt_kinds, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_stmt_lhs, mir_id)))
+    array_set(v4_mir_body_stmt_lhs, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_stmt_rhs, mir_id)))
+    array_set(v4_mir_body_stmt_rhs, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_stmt_spans, mir_id)))
+    array_set(v4_mir_body_stmt_spans, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_stmt_scope_spans, mir_id)))
+    array_set(v4_mir_body_stmt_scope_spans, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_stmt_blocks, mir_id)))
+    array_set(v4_mir_body_stmt_blocks, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_stmt_places, mir_id)))
+    array_set(v4_mir_body_stmt_places, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_stmt_rvalues, mir_id)))
+    array_set(v4_mir_body_stmt_rvalues, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_place_kinds, mir_id)))
+    array_set(v4_mir_body_place_kinds, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_place_texts, mir_id)))
+    array_set(v4_mir_body_place_texts, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_place_bases, mir_id)))
+    array_set(v4_mir_body_place_bases, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_place_fields, mir_id)))
+    array_set(v4_mir_body_place_fields, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_place_indices, mir_id)))
+    array_set(v4_mir_body_place_indices, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_place_spans, mir_id)))
+    array_set(v4_mir_body_place_spans, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_place_tys, mir_id)))
+    array_set(v4_mir_body_place_tys, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_rvalue_kinds, mir_id)))
+    array_set(v4_mir_body_rvalue_kinds, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_rvalue_texts, mir_id)))
+    array_set(v4_mir_body_rvalue_texts, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_rvalue_ops, mir_id)))
+    array_set(v4_mir_body_rvalue_ops, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_rvalue_lhs, mir_id)))
+    array_set(v4_mir_body_rvalue_lhs, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_rvalue_rhs, mir_id)))
+    array_set(v4_mir_body_rvalue_rhs, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_rvalue_spans, mir_id)))
+    array_set(v4_mir_body_rvalue_spans, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_rvalue_tys, mir_id)))
+    array_set(v4_mir_body_rvalue_tys, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_rvalue_abis, mir_id)))
+    array_set(v4_mir_body_rvalue_abis, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_rvalue_args, mir_id)))
+    array_set(v4_mir_body_rvalue_args, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_body_rvalue_builtin_methods, mir_id)))
+    array_set(v4_mir_body_rvalue_builtin_methods, mir_id, "-1")
+    array_release(word_to_int(array_get(v4_mir_diags, mir_id)))
+    array_set(v4_mir_diags, mir_id, "-1")
+}
+
+task v4_mir_restore_raw_handle_count(mir_id: int) -> int {
+    if not v4_mir_file_exists(mir_id) { give back 0 }
+    pilot total = 0
+    if word_to_int(array_get(v4_mir_body_defs, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_names, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_sigs, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_blocks, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_local_names, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_local_tys, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_local_modes, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_local_spans, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_local_scope_spans, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_stmt_kinds, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_stmt_lhs, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_stmt_rhs, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_stmt_spans, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_stmt_scope_spans, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_stmt_blocks, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_stmt_places, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_stmt_rvalues, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_place_kinds, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_place_texts, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_place_bases, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_place_fields, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_place_indices, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_place_spans, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_place_tys, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_rvalue_kinds, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_rvalue_texts, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_rvalue_ops, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_rvalue_lhs, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_rvalue_rhs, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_rvalue_spans, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_rvalue_tys, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_rvalue_abis, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_rvalue_args, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_body_rvalue_builtin_methods, mir_id)) >= 0 { total += 1 }
+    if word_to_int(array_get(v4_mir_diags, mir_id)) >= 0 { total += 1 }
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir_id) {
+        if word_to_int(array_get(v4_mir_blocks_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_local_names_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_local_tys_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_local_modes_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_local_spans_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_local_scope_spans_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_stmt_kinds_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_stmt_lhs_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_stmt_rhs_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_stmt_spans_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_stmt_scope_spans_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_stmt_blocks_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_stmt_places_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_stmt_rvalues_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_place_kinds_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_place_texts_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_place_bases_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_place_fields_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_place_indices_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_place_spans_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_place_tys_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_rvalue_kinds_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_rvalue_texts_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_rvalue_ops_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_rvalue_lhs_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_rvalue_rhs_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_rvalue_spans_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_rvalue_tys_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_rvalue_abis_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_rvalue_args_index_handle(mir_id), body)) >= 0 { total += 1 }
+        if word_to_int(array_get(v4_mir_rvalue_builtin_methods_index_handle(mir_id), body)) >= 0 { total += 1 }
+        body += 1
+    }
+    give back total
+}
+
+-- array_new's live-handle guard is the recoverable failure class. Heap growth
+-- is fatal in the runtime, so this contract does not promise heap-OOM recovery.
+task v4_mir_restore_handles_available(records: int) -> bool {
+    pilot required = 0
+    pilot reclaimable = 0
+    pilot index = 0
+    repeat until index >= array_len(records) {
+        pilot line: word = array_get(records, index)
+        pilot kind = v4_mir_snapshot_field_raw(line, 0)
+        if kind == "mir" {
+            required += 35
+            reclaimable += v4_mir_restore_raw_handle_count(word_to_int(v4_mir_snapshot_field_raw(line, 1)))
+        } else if kind == "mir-body" { required += 31 }
+        index += 1
+    }
+    give back v4_mir_restore_reserve_needed(required - reclaimable)
+}
+
+
+task v4_mir_restore_reserve_needed(needed: int) -> bool {
+    if needed < 0 { needed = 0 }
+    pilot reservations = array_new()
+    if reservations < 0 { give back false }
+    pilot held = 0
+    pilot available = true
+    repeat until held >= needed or not available {
+        pilot handle = array_new()
+        if handle < 0 { available = false } else {
+            array_push(reservations, word_from_int(handle))
+            if array_len(reservations) != held + 1 { array_release(handle) available = false } else { held += 1 }
+        }
+    }
+    pilot index = 0
+    repeat until index >= held { array_release(word_to_int(array_get(reservations, index))) index += 1 }
+    array_release(reservations)
+    give back available
 }
