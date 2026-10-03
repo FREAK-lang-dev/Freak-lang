@@ -22,17 +22,20 @@ task h6_width_run() -> void {
     pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
     pilot aliases = "alias Bad = std::ffi::c_int\nalias Hidden = Bad\nalias Size = std::ffi::c_size\n"
     pilot source = aliases + "extern [C] " + "{" + "\n task source_ptr() -> *mut std::ffi::c_void\n" + "}" + "\n"
-    source = source + "task probe() -> int " + "{" + "\n pilot p = source_ptr()\n trust me \"inspect C storage\" on my honor as .ace " + "{" + "\n pilot q = p.cast<Hidden>()\n give back q.read()\n " + "}" + "\n" + "}" + "\n"
-    source = source + "shape A " + "{" + " marker: int " + "}" + "\nimpl A " + "{" + "\n task width(value: Hidden) -> Hidden " + "{" + "\n pilot local: Hidden = value\n give back local\n " + "}" + "\n" + "}" + "\n"
+    -- One impl body carries the rejected inferred cast and raw method surfaces.
+    source = source + "shape A " + "{" + " marker: int " + "}" + "\nimpl A " + "{" + "\n task width(value: Hidden) -> Hidden " + "{" + "\n pilot local: Hidden = value\n pilot p = source_ptr()\n trust me \"inspect C storage\" on my honor as .ace " + "{" + "\n pilot q = p.cast<Hidden>()\n give back q.read()\n " + "}" + "\n" + "}" + "\n" + "}" + "\n"
     source = source + "@extern_callback(\"C\")\ntask callback(value: std::ffi::c_isize) -> std::ffi::c_isize " + "{" + "\n give back value\n" + "}" + "\n"
     pilot rejected = h6_width_lower(0, source)
     pilot rejected_mir = word_to_int(array_get(v4_codegen_llvm_mirs, rejected))
     pilot rejected_ty = v4_mir_ty_id(rejected_mir)
     pilot reason = "native C scalar ABI not yet supported: std::ffi::c_int"
     h6_width_assert(v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_native_target_error(rejected, target) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "inferred cast aliases reject before publication")
-    h6_width_assert(v4_codegen_llvm_find_body(rejected, "probe") >= 0 and v4_codegen_llvm_find_body(rejected, "__freak_callback_callback") >= 0 and v4_codegen_llvm_find_call(rejected, "probe", "source_ptr") >= 0, "ordinary callback and call plan oracles retained")
+    h6_width_assert(v4_codegen_llvm_find_body(rejected, "A::width") >= 0 and v4_codegen_llvm_find_body(rejected, "__freak_callback_callback") >= 0 and v4_codegen_llvm_find_call(rejected, "A::width", "source_ptr") >= 0, "ordinary callback and call plan oracles retained")
     pilot impl_body = v4_codegen_llvm_find_body(rejected, "A::width")
     h6_width_assert(impl_body >= 0, "raw impl body retained")
+    pilot rejected_cast = 0
+    repeat until rejected_cast >= v4_mir_body_rvalue_count(rejected_mir, impl_body) or (v4_mir_rvalue_kind(rejected_mir, impl_body, rejected_cast) == v4_mir_rvalue_unary and v4_mir_rvalue_op(rejected_mir, impl_body, rejected_cast) == v4_mir_unary_ptr_cast) { rejected_cast += 1 }
+    h6_width_assert(rejected_cast < v4_mir_body_rvalue_count(rejected_mir, impl_body) and v4_ty_raw_pointer_cast_target_surface(v4_mir_rvalue_text(rejected_mir, impl_body, rejected_cast)) == "Hidden" and v4_ty_raw_pointer_target_type(v4_mir_rvalue_ty(rejected_mir, impl_body, rejected_cast)) == v4_ty_int, "merged impl retains raw cast alias despite erased MIR width")
     pilot impl_item = v4_mir_body_impl_method_index(rejected_mir, impl_body, 0)
     pilot impl_method = v4_mir_body_impl_method_index(rejected_mir, impl_body, 1)
     h6_width_assert(v4_ty_impl_method_param_surface_type(rejected_ty, impl_item, impl_method, 0) == "Hidden" and v4_ty_impl_method_return_surface_type(rejected_ty, impl_item, impl_method) == "Hidden" and v4_ty_impl_method_param_type(rejected_ty, impl_item, impl_method, 0) == v4_ty_int, "raw impl surfaces preserve erased aliases")
@@ -123,8 +126,8 @@ task h6_width_run() -> void {
     pilot snapshot = v4_mir_snapshot()
     h6_width_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "MIR identities restored")
     array_set(v4_mir_names_handle(mir), 0, "changed_internal")
-    array_set(v4_mir_names_handle(rejected_mir), 0, "changed_probe")
-    h6_width_assert(v4_mir_body_name(mir, 0) == "changed_internal" and v4_mir_body_name(rejected_mir, 0) == "changed_probe" and v4_codegen_llvm_module_text(plan, target) == before and v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "accepted and rejected plans remain sealed across reused MIR identities")
+    array_set(v4_mir_names_handle(rejected_mir), impl_body, "changed_width")
+    h6_width_assert(v4_mir_body_name(mir, 0) == "changed_internal" and v4_mir_body_name(rejected_mir, impl_body) == "changed_width" and v4_codegen_llvm_module_text(plan, target) == before and v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "accepted and rejected plans remain sealed across reused MIR identities")
     say "h6-native-ffi-width pressure=true restore=true changed-facts=true sealed=true"
 }
 
