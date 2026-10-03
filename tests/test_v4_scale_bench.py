@@ -14,7 +14,7 @@ import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,7 +60,8 @@ class SymbolToolSelection(unittest.TestCase):
         self.assertEqual(selected["nm_file"]["sha256"], hashlib.sha256(self.tool.read_bytes()).hexdigest())
         job.assert_called_once_with(None, [str(alias), "--version"],
                                     self.work / "selection/tool-version",
-                                    "LLVM symbol tool version", 5, 128, 1)
+                                    "LLVM symbol tool version", 5, 128, 1,
+                                    executable=str(self.tool))
         self.assertEqual(json.loads((self.work / "selection/provenance.json").read_text()), selected)
 
     def test_parent_is_canonicalized_without_resolving_dispatch_leaf(self):
@@ -77,6 +78,7 @@ class SymbolToolSelection(unittest.TestCase):
         self.assertEqual(selected["selected_nm"], str(alias))
         self.assertEqual(selected["resolved_nm"], str(self.tool))
         self.assertEqual(job.call_args.args[1], [str(alias), "--version"])
+        self.assertEqual(job.call_args.kwargs, {"executable": str(self.tool)})
 
     def test_name_without_llvm_implementation_is_rejected_before_inventory(self):
         result = subprocess.CompletedProcess([], 0, "GNU nm (GNU Binutils) 2.42\n", "")
@@ -106,7 +108,8 @@ class SymbolToolSelection(unittest.TestCase):
         self.assertEqual(metadata["nm_file"]["sha256"], hashlib.sha256(self.tool.read_bytes()).hexdigest())
         self.assertEqual(metadata["nm_version"], "unavailable within unchanged resource limits")
         job.assert_called_once_with(None, [str(self.tool), "--version"],
-                                   directory / "tool-version", "LLVM symbol tool version", 5, 128, 1)
+                                   directory / "tool-version", "LLVM symbol tool version", 5, 128, 1,
+                                   executable=str(self.tool))
 
     def test_version_nonzero_exit_keeps_stderr_and_pinned_provenance(self):
         result = subprocess.CompletedProcess([], 2, LLVM_VERSION, "version loader failed")
@@ -123,7 +126,8 @@ class SymbolToolSelection(unittest.TestCase):
         self.assertEqual(metadata["nm_file"]["sha256"], hashlib.sha256(self.tool.read_bytes()).hexdigest())
         self.assertEqual(metadata["nm_version"], "unavailable within unchanged resource limits")
         job.assert_called_once_with(None, [str(self.tool), "--version"],
-                                   directory / "tool-version", "LLVM symbol tool version", 5, 128, 1)
+                                   directory / "tool-version", "LLVM symbol tool version", 5, 128, 1,
+                                   executable=str(self.tool))
 
     def test_frozen_image_change_stops_before_symbol_reader_execution(self):
         selected = {"requested_nm": str(self.tool), "selected_nm": str(self.tool),
@@ -206,46 +210,113 @@ class SymbolToolSelection(unittest.TestCase):
         self.assertEqual(job.call_args.args,
             (None, [str(self.tool), "-g", "--defined-only", str(self.obj)],
              self.work / "symbols", "native symbol inventory", 10, 128, 8))
+        self.assertEqual(job.call_args.kwargs, {"executable": str(self.tool)})
         metadata = json.loads((self.work / "symbols/provenance.json").read_text())
         self.assertEqual(metadata["nm_file"], selected["nm_file"])
         self.assertEqual(metadata["object"]["sha256"], hashlib.sha256(self.obj.read_bytes()).hexdigest())
 
+    def test_guarded_job_forwards_bound_image_and_preserves_dispatch_argv0(self):
+        alias = self.work / "llvm-nm"
+        runner = Mock(return_value=subprocess.CompletedProcess([], 0, LLVM_VERSION, ""))
+        self.benchmark.guarded_job(None, [str(alias), "--version"], self.work / "bound",
+                                   "bound dispatch", 5, 128, 1, runner=runner,
+                                   executable=str(self.tool))
+        runner.assert_called_once_with([str(alias), "--version"], label="bound dispatch",
+                                       timeout_seconds=5, memory_limit_mb=128, output_limit_mb=1,
+                                       executable=str(self.tool))
+        metadata = json.loads((self.work / "bound/command.json").read_text())
+        self.assertEqual(metadata["argv0"], str(alias))
+        self.assertEqual(metadata["executable"], str(self.tool))
+
+    def test_default_guarded_job_does_not_override_executable(self):
+        runner = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+        self.benchmark.guarded_job(None, [str(self.tool)], self.work / "default",
+                                   "default dispatch", 5, 128, 1, runner=runner)
+        runner.assert_called_once_with([str(self.tool)], label="default dispatch",
+                                       timeout_seconds=5, memory_limit_mb=128, output_limit_mb=1)
+        metadata = json.loads((self.work / "default/command.json").read_text())
+        self.assertNotIn("executable", metadata)
+
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux multicall dispatch control")
     def test_real_multicall_alias_dispatch_and_resolved_image_negative_control(self):
-        calls = self.work / "dispatch.jsonl"
-        self.tool.write_text(
-            f"#!{sys.executable}\n"
-            "import json,sys\nfrom pathlib import Path\n"
-            f"with Path({str(calls)!r}).open('a') as stream:\n"
-            "    stream.write(json.dumps(sys.argv) + '\\n')\n"
-            "if Path(sys.argv[0]).name != 'llvm-nm':\n"
-            "    print('wrong multicall dispatch leaf', file=sys.stderr)\n"
-            "    raise SystemExit(64)\n"
-            f"if sys.argv[1:] == ['--version']: print({LLVM_VERSION!r}, end='')\n"
-            "elif sys.argv[1:3] == ['-g', '--defined-only']:\n"
-            "    print('00000000 T multicall_export')\n"
-            "else: raise SystemExit(65)\n")
-        self.tool.chmod(0o755)
+        clang = shutil.which("clang")
+        self.assertIsNotNone(clang, "native multicall regression prerequisite missing: clang; install Clang")
+        calls = self.work / "dispatch.txt"
+        source = self.work / "multicall.c"
+        source.write_text(
+            '#include <stdio.h>\n#include <string.h>\n'
+            '#ifndef IMAGE_MARKER\n#define IMAGE_MARKER "pinned"\n#endif\n'
+            '#ifndef EXPORT_NAME\n#define EXPORT_NAME "multicall_export"\n#endif\n'
+            'int main(int argc, char **argv) {\n'
+            f'    FILE *log = fopen({json.dumps(str(calls))}, "a");\n'
+            '    if (!log) return 70;\n'
+            '    fprintf(log, "%s|%s|%s\\n", IMAGE_MARKER, argv[0], argc > 1 ? argv[1] : "");\n'
+            '    if (fclose(log)) return 71;\n'
+            '    const char *leaf = strrchr(argv[0], \'/\');\n'
+            '    leaf = leaf ? leaf + 1 : argv[0];\n'
+            '    if (strcmp(leaf, "llvm-nm")) {\n'
+            '        fputs("wrong multicall dispatch leaf\\n", stderr); return 64;\n'
+            '    }\n'
+            '    if (argc == 2 && !strcmp(argv[1], "--version")) {\n'
+            f'        fputs({json.dumps(LLVM_VERSION)}, stdout); return 0;\n'
+            '    }\n'
+            '    if (argc == 4 && !strcmp(argv[1], "-g") && !strcmp(argv[2], "--defined-only")) {\n'
+            '        printf("00000000 T %s\\n", EXPORT_NAME); return 0;\n'
+            '    }\n'
+            '    return 65;\n}\n')
+        replacement = self.work / "replacement-image"
+        build = self.benchmark.load_build(ROOT)
+        for image, flags in ((self.tool, []), (replacement,
+                ['-DIMAGE_MARKER="replacement"', '-DEXPORT_NAME="unverified_export"'])):
+            compiled = self.benchmark.guarded_job(build,
+                [clang, "-std=c11", *flags, str(source), "-o", str(image)],
+                self.work / (image.name + "-build"), "native multicall image", 10, 128, 8)
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
         alias = self.work / "llvm-nm"
         alias.symlink_to(self.tool)
-        build = self.benchmark.load_build(ROOT)
         negative = self.benchmark.guarded_job(build, [str(self.tool), "--version"],
             self.work / "resolved-negative", "resolved multicall negative", 5, 128, 1)
         self.assertEqual(negative.returncode, 64, negative.stdout + negative.stderr)
         self.assertIn("wrong multicall dispatch leaf", negative.stderr)
-        with patch.object(self.benchmark.shutil, "which", return_value=str(alias)):
+        alias.unlink()
+        alias.symlink_to(replacement)
+        old_path = self.benchmark.guarded_job(build, [str(alias), "--version"],
+            self.work / "unbound-alias-negative", "unbound alias negative", 5, 128, 1)
+        self.assertEqual(old_path.returncode, 0, old_path.stdout + old_path.stderr)
+        self.assertEqual(calls.read_text().splitlines()[-1].split("|"),
+                         ["replacement", str(alias), "--version"])
+        alias.unlink()
+        alias.symlink_to(self.tool)
+        original_job = self.benchmark.guarded_job
+
+        def retarget_after_validation(*args, **kwargs):
+            self.assertEqual(args[1][0], str(alias))
+            self.assertEqual(kwargs.get("executable"), str(self.tool))
+            alias.unlink()
+            alias.symlink_to(replacement)
+            return original_job(*args, **kwargs)
+
+        with patch.object(self.benchmark.shutil, "which", return_value=str(alias)), \
+                patch.object(self.benchmark, "guarded_job", side_effect=retarget_after_validation):
             selected = self.benchmark.llvm_symbol_tool(build, self.work / "selection", 10)
-        exports = self.benchmark.defined_symbols(build, self.obj, self.work / "symbols", 10,
-                                                symbol_tool=selected)
+        alias.unlink()
+        alias.symlink_to(self.tool)
+        with patch.object(self.benchmark, "guarded_job", side_effect=retarget_after_validation):
+            exports = self.benchmark.defined_symbols(build, self.obj, self.work / "symbols", 10,
+                                                    symbol_tool=selected)
         self.assertEqual(exports, {"multicall_export"})
-        invocations = [json.loads(line) for line in calls.read_text().splitlines()]
-        self.assertEqual([call[0] for call in invocations],
-                         [str(self.tool), str(alias), str(alias)])
-        self.assertEqual(invocations[1][1:], ["--version"])
-        self.assertEqual(invocations[2][1:], ["-g", "--defined-only", str(self.obj)])
+        invocations = [line.split("|") for line in calls.read_text().splitlines()]
+        self.assertEqual(invocations, [["pinned", str(self.tool), "--version"],
+                                      ["replacement", str(alias), "--version"],
+                                      ["pinned", str(alias), "--version"],
+                                      ["pinned", str(alias), "-g"]])
+        self.assertEqual(selected["nm_file"]["sha256"], hashlib.sha256(self.tool.read_bytes()).hexdigest())
+        self.assertNotEqual(selected["nm_file"]["sha256"], hashlib.sha256(replacement.read_bytes()).hexdigest())
         for directory, output in (("selection/tool-version", 1), ("symbols", 8)):
             command = json.loads((self.work / directory / "command.json").read_text())
             self.assertEqual(command["command"][0], str(alias))
+            self.assertEqual(command["argv0"], str(alias))
+            self.assertEqual(command["executable"], str(self.tool))
             self.assertEqual(command["memory_limit_mib"], 128)
             self.assertEqual(command["output_limit_mib"], output)
 

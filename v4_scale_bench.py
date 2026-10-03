@@ -172,15 +172,22 @@ def save_json(path: Path, value) -> None:
     temporary.replace(path)
 
 
-def guarded_job(build, command, directory, label, timeout, memory, output=64, runner=None):
+def guarded_job(build, command, directory, label, timeout, memory, output=64, runner=None,
+                *, executable=None):
     """All child jobs share V4's continuously polled, bounded process guard."""
     directory.mkdir(parents=True, exist_ok=True)
-    save_json(directory / "command.json", {"command": command, "timeout": timeout,
-              "memory_limit_mib": memory, "output_limit_mib": output})
+    metadata = {"command": command, "timeout": timeout,
+                "memory_limit_mib": memory, "output_limit_mib": output}
+    execution = {}
+    if executable is not None:
+        metadata.update(executable=executable, argv0=command[0])
+        execution["executable"] = executable
+    save_json(directory / "command.json", metadata)
     try:
         result = (runner or build.checks.run_with_heartbeat)(
             command, label=label, timeout_seconds=timeout,
             memory_limit_mb=memory, output_limit_mb=output,
+            **execution,
         )
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         # The shared guard retains bounded tails when a limit is exceeded.
@@ -308,9 +315,11 @@ def llvm_symbol_tool(build, directory: Path, timeout: float) -> dict:
                           nm_file=symbol_file_provenance(tool))
         if "sha256" not in provenance["nm_file"]:
             raise RuntimeError("cannot pin llvm-nm executable identity")
-        executable = require_frozen_symbol_tool(provenance)
-        version = guarded_job(build, [executable, "--version"], directory / "tool-version",
-                              "LLVM symbol tool version", min(timeout, 5), 128, 1)
+        argv0 = require_frozen_symbol_tool(provenance)
+        # Bind image selection independently of the mutable dispatch alias.
+        version = guarded_job(build, [argv0, "--version"], directory / "tool-version",
+                              "LLVM symbol tool version", min(timeout, 5), 128, 1,
+                              executable=provenance["resolved_nm"])
         require_success(version, "llvm-nm version")
         provenance["nm_version"] = version.stdout[:512]
         if not (version.stdout.startswith("llvm-nm") and
@@ -353,7 +362,8 @@ def defined_symbols(build, path: Path, directory: Path, timeout: float,
         nm = require_frozen_symbol_tool(selected)
         save_json(directory / "provenance.json", provenance)
         result = guarded_job(build, [nm, "-g", "--defined-only", str(path)],
-                             directory, "native symbol inventory", timeout, 128, 8)
+                             directory, "native symbol inventory", timeout, 128, 8,
+                             executable=selected["resolved_nm"])
         require_success(result, "llvm-nm")
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
         # Failed test scratch directories are removed; retain attribution in
