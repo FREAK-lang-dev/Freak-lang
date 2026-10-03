@@ -847,6 +847,65 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                     terminate.assert_called_once_with()
                     close.assert_called_once_with()
 
+    def test_spawn_inherits_only_explicit_posix_descriptors(self):
+        for platform in ("linux", "darwin"):
+            with self.subTest(platform=platform):
+                command = ["selected-llvm-nm", "--version"]
+                process = SimpleNamespace(pid=10)
+                with patch.object(checks.sys, "platform", platform), \
+                        patch.object(checks, "WindowsJob") as job, \
+                        patch.object(checks.subprocess, "Popen", return_value=process) as popen, \
+                        patch.object(checks.ProcessTree, "_rollback_spawn") as rollback:
+                    tree = checks.ProcessTree.spawn(
+                        command, 123, executable="/proc/self/fd/37", pass_fds=(37,),
+                    )
+                self.assertIs(tree.process, process)
+                self.assertIs(popen.call_args.args[0], command)
+                popen.assert_called_once_with(
+                    command, cwd=checks.ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    start_new_session=True, executable="/proc/self/fd/37", pass_fds=(37,),
+                )
+                job.assert_not_called()
+                rollback.assert_not_called()
+
+    def test_runner_retains_descriptor_and_command_through_guarded_spawn(self):
+        process = SimpleNamespace(pid=10, returncode=0, stdout=io.BytesIO(b"bound-image"), stderr=io.BytesIO())
+        process.poll = lambda: process.returncode
+        process.wait = Mock(return_value=0)
+        tree = checks.ProcessTree(process, None)
+        command = ["selected-llvm-nm", "--version"]
+        def thread(*, target, args, daemon):
+            return SimpleNamespace(start=lambda: target(*args), join=lambda timeout: None)
+        with patch.object(checks.ProcessTree, "spawn", return_value=tree) as spawn, \
+                patch.object(tree, "memory_bytes", return_value=0), \
+                patch.object(tree, "terminate") as terminate, \
+                patch.object(tree, "close") as close, \
+                patch.object(checks.threading, "Thread", side_effect=thread), \
+                patch.object(checks.os, "close") as descriptor_close:
+            result = checks.run_with_heartbeat(
+                command, label="bound descriptor", executable="/proc/self/fd/37", pass_fds=(37,),
+            )
+        spawn.assert_called_once_with(command, None, executable="/proc/self/fd/37", pass_fds=(37,))
+        self.assertIs(result.args, command)
+        self.assertEqual(result.stdout, "bound-image")
+        terminate.assert_called_once_with()
+        close.assert_called_once_with()
+        descriptor_close.assert_not_called()  # The caller owns the borrowed descriptor.
+
+    def test_windows_descriptor_rejection_precedes_job_creation(self):
+        for entry in (checks.ProcessTree.spawn, checks.run_with_heartbeat):
+            with self.subTest(entry=entry.__name__), \
+                    patch.object(checks.sys, "platform", "win32"), \
+                    patch.object(checks, "WindowsJob") as job, \
+                    patch.object(checks.subprocess, "Popen") as popen, \
+                    self.assertRaisesRegex(RuntimeError, "inherited file descriptors require a POSIX process"):
+                if entry == checks.ProcessTree.spawn:
+                    entry(["unused"], None, pass_fds=(37,))
+                else:
+                    entry(["unused"], label="Windows descriptor", pass_fds=(37,))
+            job.assert_not_called()
+            popen.assert_not_called()
+
     def test_windows_bool_zero_persistent_failures_keep_handle_and_os_cause(self):
         for phase in ("terminate", "close"):
             with self.subTest(failure=phase):

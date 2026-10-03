@@ -13766,7 +13766,10 @@ class ProcessTree:
         memory_limit_bytes: int | None,
         *,
         executable: str | None = None,
+        pass_fds: tuple[int, ...] = (),
     ) -> ProcessTree:
+        if pass_fds and sys.platform.startswith("win"):
+            raise RuntimeError("inherited file descriptors require a POSIX process")
         windows_job = WindowsJob(memory_limit_bytes) if sys.platform.startswith("win") else None
         popen_kwargs: dict[str, object] = {}
         if windows_job is not None:
@@ -13775,6 +13778,8 @@ class ProcessTree:
             popen_kwargs["start_new_session"] = True
         if executable is not None:
             popen_kwargs["executable"] = executable
+        if pass_fds:
+            popen_kwargs["pass_fds"] = pass_fds
         try:
             process = subprocess.Popen(
                 command,
@@ -13879,14 +13884,17 @@ def run_with_heartbeat(
     memory_limit_mb: int | None = None,
     output_limit_mb: int = 8,
     executable: str | None = None,
+    pass_fds: tuple[int, ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     memory_limit_bytes = None
     if memory_limit_mb is not None:
         memory_limit_bytes = memory_limit_mb * 1024 * 1024
-    if executable is None:
-        process_tree = ProcessTree.spawn(command, memory_limit_bytes)
-    else:
-        process_tree = ProcessTree.spawn(command, memory_limit_bytes, executable=executable)
+    spawn_kwargs: dict[str, object] = {}
+    if executable is not None:
+        spawn_kwargs["executable"] = executable
+    if pass_fds:
+        spawn_kwargs["pass_fds"] = pass_fds
+    process_tree = ProcessTree.spawn(command, memory_limit_bytes, **spawn_kwargs)
     process = process_tree.process
     assert process.stdout is not None
     assert process.stderr is not None
