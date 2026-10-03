@@ -68,7 +68,10 @@ static size_t freak_v4_word_count(const unsigned char* data, size_t length) {
 
 static size_t freak_v4_word_size(int64_t value) {
     if (!value) freak_v4_word_panic("word value has been consumed");
-    size_t length = freak_llvm_word_size(value);
+    size_t length;
+    if (!freak_llvm_word_owned_size(value, &length)) {
+        freak_v4_word_panic("word value is not live owned storage");
+    }
     if (length > (size_t)INT64_MAX) freak_v4_word_panic("byte length overflow");
     return length;
 }
@@ -152,6 +155,8 @@ void freak_v4_word_say_err(int64_t value) {
 }
 
 void freak_v4_word_drop(int64_t value) {
+    if (!value) return;
+    (void)freak_v4_word_size(value);
     freak_llvm_word_release_replaced(value, 0);
 }
 

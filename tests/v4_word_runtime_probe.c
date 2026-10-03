@@ -37,6 +37,16 @@ static int v4_probe_failure(const char* mode) {
     if (!strcmp(mode, "null-source")) { freak_v4_word_from_bytes(0, 1); return 99; }
     if (!strcmp(mode, "source-overflow")) { freak_v4_word_from_bytes(-1, 1); return 99; }
     if (!strcmp(mode, "consumed-word")) { freak_v4_word_length(0); return 99; }
+    if (!strcmp(mode, "foreign-observe")) { freak_v4_word_length((int64_t)(uintptr_t)"foreign"); return 99; }
+    if (!strcmp(mode, "unknown-pointer")) { freak_v4_word_length(1); return 99; }
+    if (!strcmp(mode, "foreign-drop")) { freak_v4_word_drop((int64_t)(uintptr_t)"foreign"); return 99; }
+    if (!strcmp(mode, "released-word") || !strcmp(mode, "double-drop")) {
+        int64_t released = v4_probe_owner("released", 8);
+        freak_v4_word_drop(released);
+        if (!strcmp(mode, "released-word")) freak_v4_word_length(released);
+        else freak_v4_word_drop(released);
+        return 99;
+    }
 
     int64_t value = v4_probe_owner("A\xc3\xa9\xf0\x9f\x98\x80", 7);
     if (!strcmp(mode, "char-negative")) freak_v4_word_char_at(value, -1);
@@ -55,6 +65,10 @@ static int v4_probe_failure(const char* mode) {
 }
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    /* Keep deliberate abort checks noninteractive and stderr deterministic. */
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
     if (argc > 1) return v4_probe_failure(argv[1]);
     assert(freak_llvm_owned_count == 0);
     int64_t owners[128];

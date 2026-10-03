@@ -12,9 +12,23 @@ import argparse
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+
+
+def assert_named_panic(result: subprocess.CompletedProcess[bytes], reason: str,
+                       *, platform: str = sys.platform) -> None:
+    # Microsoft CRT abort exits3. The probe disables abort report/UI behavior;
+    # POSIX abort terminates with SIGABRT. Sanitizer/audit exits are never proof
+    # of a successful bounds or UTF-8 rejection.
+    expected_exit = 3 if platform == "win32" else -signal.SIGABRT
+    diagnostic = ("FREAK: V4 word panic: " + reason + "\n").encode()
+    actual = (result.returncode, result.stdout, result.stderr.replace(b"\r\n", b"\n"))
+    expected = (expected_exit, b"", diagnostic)
+    if actual != expected:
+        raise AssertionError(f"expected named panic {expected!r}; actual {actual!r}")
 
 
 def main() -> int:
@@ -60,6 +74,11 @@ def main() -> int:
         rejected.update({
             "negative-length": "negative byte length", "null-source": "null byte source",
             "source-overflow": "byte source range overflow", "consumed-word": "word value has been consumed",
+            "foreign-observe": "word value is not live owned storage",
+            "unknown-pointer": "word value is not live owned storage",
+            "released-word": "word value is not live owned storage",
+            "foreign-drop": "word value is not live owned storage",
+            "double-drop": "word value is not live owned storage",
             "char-negative": "character index out of bounds", "char-end": "character index out of bounds",
             "char-overflow": "character index out of bounds", "slice-negative": "slice range out of bounds",
             "slice-reversed": "slice range out of bounds", "slice-end": "slice range out of bounds",
@@ -69,12 +88,7 @@ def main() -> int:
         })
         for case, reason in rejected.items():
             failed = execute(case)
-            diagnostic = ("FREAK: V4 word panic: " + reason + "\n").encode()
-            assert failed.returncode not in (0, 98, 99), (case, failed.returncode, failed.stdout, failed.stderr)
-            assert failed.stdout == b"", (case, failed.stdout)
-            assert failed.stderr.startswith(diagnostic), (case, failed.stderr)
-            assert b"ERROR: AddressSanitizer" not in failed.stderr, (case, failed.stderr)
-            assert b"runtime error:" not in failed.stderr, (case, failed.stderr)
+            assert_named_panic(failed, reason)
         mode = "plain portability" if args.plain else "AddressSanitizer + UndefinedBehaviorSanitizer"
         print(f"V4 word runtime: owned UTF-8/NUL/scalar bounds, {len(rejected)} named panic cases, zero owners; {mode} passed")
     return 0
