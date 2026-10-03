@@ -97,13 +97,21 @@ class SmokeExecutionCases(unittest.TestCase):
                       if smoke["fixture"].startswith("owned_word_")]
         before = repr(registered)
         expanded = list(guard.smoke_execution_cases(registered))
-        self.assertEqual(len(expanded), 12)
+        self.assertEqual(len(expanded), 13)
         contracts = [smoke for smoke in expanded if smoke["fixture"] == "owned_word_contract_smoke.fk"]
         self.assertEqual([smoke["argv"] for smoke in contracts], [[str(i)] for i in range(8)])
         programs = [smoke for smoke in expanded if smoke["fixture"] == "owned_word_execute_smoke.fk"]
         self.assertEqual([smoke["llvm_programs"][0][0] for smoke in programs],
-                         ["owned_words.fk", "owned_word_scopes.fk", "owned_word_return_temporary.fk"])
+                         ["owned_words.fk", "owned_word_scopes.fk", "owned_word_return_temporary.fk",
+                          "word_interpolation.fk"])
         self.assertIn("A\0B\n", programs[0]["llvm_programs"][0][2])
+        interpolation = programs[3]["llvm_programs"][0]
+        self.assertEqual(interpolation, (
+            "word_interpolation.fk", 0,
+            "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\n"
+            "left\0right é\n{} {{name}} {name()}\nopen {name\n",
+        ))
+        self.assertEqual(len(interpolation[2].encode("utf-8")), 103)
         for smoke in expanded:
             self.assertEqual(smoke["memory_limit_mb"], 64)
             self.assertIn(smoke["fixture"], guard.C_ARRAY_HANDLE_RESOURCE_FIXTURES)
