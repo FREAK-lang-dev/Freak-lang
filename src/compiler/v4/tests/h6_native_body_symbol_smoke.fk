@@ -1,0 +1,168 @@
+-- One real qualified collision plus one safe library pipeline. Reuse the
+-- library's owned sealed rows for exact-symbol, scratch-pressure and recovery.
+task h6_body_assert(condition: bool, label: word) -> void {
+    if not condition { panic("h6 native body symbol: " + label) }
+}
+
+task h6_body_lower(file_id: int, source: word, bodies: int) -> int {
+    pilot stream = v4_lex_text(file_id, source)
+    pilot tree = v4_parse_stream(file_id, stream)
+    pilot hir = v4_hir_lower_tree(file_id, tree)
+    pilot resolve = v4_resolve_lower_hir(file_id, hir)
+    pilot ty = v4_ty_lower_resolve(file_id, resolve)
+    pilot mir = v4_mir_lower_ty(file_id, ty)
+    pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir)
+    h6_body_assert(total == 0 and v4_mir_file_exists(mir) and v4_mir_body_count(mir) == bodies, "clean authored source owners and bodies")
+    pilot plan = v4_codegen_llvm_lower_mir(file_id, mir)
+    h6_body_assert(plan >= 0 and plan < array_len(v4_codegen_llvm_files) and v4_codegen_llvm_diag_count(plan) == 0, "valid sealed codegen owner")
+    give back plan
+}
+
+task h6_body_available_handles() -> int {
+    pilot holders = array_new()
+    h6_body_assert(holders >= 0, "capacity counter owner")
+    pilot count = 0
+    pilot exhausted: bool = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true }
+        else { array_push(holders, word_from_int(handle)); count += 1 }
+    }
+    h6_body_assert(exhausted, "unchanged bounded handle ceiling")
+    pilot slot = 0
+    repeat until slot >= count {
+        array_release(word_to_int(array_get(holders, slot)))
+        slot += 1
+    }
+    array_release(holders)
+    give back count
+}
+
+task h6_body_set_decl(plan: int, decl: int, symbol: word) -> void {
+    array_set(v4_codegen_llvm_decl_symbols_handle(plan), decl, symbol)
+    array_set(v4_codegen_llvm_decl_lines_handle(plan), decl, "declare ccc i64 " + symbol + "() nounwind")
+    h6_body_assert(v4_codegen_llvm_decl_symbol(plan, decl) == symbol and v4_codegen_llvm_decl_line(plan, decl).starts_with("declare ccc i64 "), "authored external declaration symbol")
+}
+
+task h6_body_run() -> void {
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot collision_source = "extern [C] {\n"
+    collision_source = collision_source + " @link_name(\"A::b\")\n task outside() -> std::ffi::c_isize\n" + "}\n"
+    collision_source = collision_source + "task A::b() -> int {\n" + " give back 7\n" + "}\n"
+    collision_source = collision_source + "task main() -> int {\n" + " give back outside()\n" + "}\n"
+    pilot rejected = h6_body_lower(0, collision_source, 2)
+    pilot rejected_mir = word_to_int(array_get(v4_codegen_llvm_mirs, rejected))
+    pilot rejected_decl = v4_codegen_llvm_find_decl(rejected, "outside")
+    pilot rejected_body = v4_codegen_llvm_find_body(rejected, "A::b")
+    pilot rejected_call = v4_codegen_llvm_find_call(rejected, "main", "outside")
+    h6_body_assert(rejected_decl >= 0 and rejected_body >= 0 and rejected_call >= 0 and v4_codegen_llvm_body_count(rejected) == 2, "actual qualified declaration, definition and direct call")
+    h6_body_assert(v4_codegen_llvm_decl_symbol(rejected, rejected_decl) == "@\"A::b\"" and v4_codegen_llvm_body_symbol(rejected, rejected_body) == "@\"A::b\"" and v4_codegen_llvm_call_symbol(rejected, rejected_call) == "@\"A::b\"", "actual matching LLVM identities")
+    h6_body_assert(v4_mir_rvalue_kind(rejected_mir, 1, 0) == v4_mir_rvalue_call and v4_mir_rvalue_ty(rejected_mir, 1, 0) == v4_ty_int, "actual authored call fact")
+    pilot reason = "native body symbol conflicts with explicit ABI declaration: @\"A::b\""
+    h6_body_assert(v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_native_target_error(rejected, target) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "actual lowering seals named qualified collision")
+    pilot entry: word = array_get(v4_codegen_llvm_native_entry_lines, rejected)
+    h6_body_assert(entry.contains("define i32 @main") and v4_codegen_llvm_native_module_error(rejected) == reason, "entry runtime check preserves first body error")
+    say "h6-native-body source-qualified=true first-error=true no-module=true"
+
+    pilot safe_source = "extern [C] {\n"
+    safe_source = safe_source + " @link_name(\"native_safe4\")\n task outside() -> std::ffi::c_isize\n"
+    safe_source = safe_source + " @link_name(\"native_other\")\n task another() -> std::ffi::c_isize\n" + "}\n"
+    safe_source = safe_source + "task root() -> int {\n" + " give back 1\n" + "}\n"
+    safe_source = safe_source + "task A::b() -> int {\n" + " give back 2\n" + "}\n"
+    safe_source = safe_source + "@extern_callback(\"C\")\ntask callback() -> std::ffi::c_isize {\n" + " give back 3\n" + "}\n"
+    pilot plan = h6_body_lower(1, safe_source, 3)
+    pilot mir = word_to_int(array_get(v4_codegen_llvm_mirs, plan))
+    pilot decl = v4_codegen_llvm_find_decl(plan, "outside")
+    pilot other_decl = v4_codegen_llvm_find_decl(plan, "another")
+    pilot root_body = v4_codegen_llvm_find_body(plan, "root")
+    pilot qualified_body = v4_codegen_llvm_find_body(plan, "A::b")
+    pilot callback_body = v4_codegen_llvm_find_body(plan, "callback")
+    pilot trampoline_body = v4_codegen_llvm_find_body(plan, "__freak_callback_callback")
+    h6_body_assert(decl >= 0 and other_decl > decl and root_body >= 0 and qualified_body >= 0 and callback_body >= 0 and trampoline_body >= 0 and v4_codegen_llvm_body_count(plan) == 4, "actual ordered declarations, root, qualified and generated callback bodies")
+    h6_body_assert(v4_codegen_llvm_body_line(plan, root_body).starts_with("define ccc i64 @root()") and v4_codegen_llvm_body_line(plan, qualified_body).starts_with("define ccc i64 @\"A::b\"()") and v4_codegen_llvm_body_line(plan, trampoline_body).starts_with("define ccc i64 @__freak_callback_callback()"), "authored body headers")
+    pilot original_symbol = v4_codegen_llvm_decl_symbol(plan, decl)
+    pilot original_line = v4_codegen_llvm_decl_line(plan, decl)
+    pilot other_symbol = v4_codegen_llvm_decl_symbol(plan, other_decl)
+    pilot other_line = v4_codegen_llvm_decl_line(plan, other_decl)
+    pilot before = v4_codegen_llvm_module_text(plan, target)
+    h6_body_assert(v4_codegen_llvm_native_module_error(plan) == "" and before != "" and before.contains("declare ccc i64 @native_safe4()") and not before.contains("define i32 @main"), "safe distinct external ABI in no-main library")
+    pilot callback_symbol = v4_codegen_llvm_body_symbol(plan, callback_body)
+    pilot trampoline_symbol = v4_codegen_llvm_body_symbol(plan, trampoline_body)
+    h6_body_assert(callback_symbol != trampoline_symbol and callback_symbol.checksum() % 16 == trampoline_symbol.checksum() % 16 and original_symbol.checksum() % 16 == callback_symbol.checksum() % 16, "independent exact keys share one hash bucket")
+    pilot capacity_before = h6_body_available_handles()
+    pilot symbols = array_new()
+    array_push(symbols, v4_codegen_llvm_body_symbol(plan, root_body))
+    array_push(symbols, v4_codegen_llvm_body_symbol(plan, qualified_body))
+    array_push(symbols, trampoline_symbol)
+    pilot case_id = 0
+    repeat until case_id >= array_len(symbols) {
+        pilot symbol: word = array_get(symbols, case_id)
+        h6_body_set_decl(plan, decl, symbol)
+        pilot error = v4_codegen_llvm_native_body_symbol_error(plan)
+        h6_body_assert(error == "native body symbol conflicts with explicit ABI declaration: " + symbol, "root, qualified or generated callback collision named")
+        array_set(v4_codegen_llvm_native_errors, plan, error)
+        h6_body_assert(v4_codegen_llvm_native_target_error(plan, target) == error and v4_codegen_llvm_module_text(plan, target) == "", "newly sealed collision blocks publication")
+        array_set(v4_codegen_llvm_decl_symbols_handle(plan), decl, original_symbol)
+        array_set(v4_codegen_llvm_decl_lines_handle(plan), decl, original_line)
+        array_set(v4_codegen_llvm_native_errors, plan, "")
+        h6_body_assert(v4_codegen_llvm_native_body_symbol_error(plan) == "" and v4_codegen_llvm_module_text(plan, target) == before, "safe declaration and byte-exact module recover")
+        case_id += 1
+    }
+    array_release(symbols)
+    h6_body_set_decl(plan, decl, v4_codegen_llvm_body_symbol(plan, qualified_body))
+    h6_body_set_decl(plan, other_decl, v4_codegen_llvm_body_symbol(plan, root_body))
+    pilot first_error = v4_codegen_llvm_native_body_symbol_error(plan)
+    h6_body_assert(first_error == "native body symbol conflicts with explicit ABI declaration: @\"A::b\"", "declaration order wins over body and hash order")
+    array_set(v4_codegen_llvm_native_errors, plan, first_error)
+    h6_body_assert(v4_codegen_llvm_native_target_error(plan, target) == first_error and v4_codegen_llvm_module_text(plan, target) == "", "first declaration collision blocks publication")
+    array_set(v4_codegen_llvm_decl_symbols_handle(plan), decl, original_symbol)
+    array_set(v4_codegen_llvm_decl_lines_handle(plan), decl, original_line)
+    array_set(v4_codegen_llvm_decl_symbols_handle(plan), other_decl, other_symbol)
+    array_set(v4_codegen_llvm_decl_lines_handle(plan), other_decl, other_line)
+    array_set(v4_codegen_llvm_native_errors, plan, "")
+    h6_body_assert(v4_codegen_llvm_native_body_symbol_error(plan) == "" and v4_codegen_llvm_module_text(plan, target) == before, "both declarations recover byte-exact output")
+    h6_body_assert(h6_body_available_handles() == capacity_before, "normal sealing leaves no scratch handle")
+    say "h6-native-body root=true qualified=true callback=true library=true hash-exact=true declaration-order=true recovery=true"
+
+    h6_body_set_decl(plan, decl, v4_codegen_llvm_body_symbol(plan, root_body))
+    pilot root_error = "native body symbol conflicts with explicit ABI declaration: @root"
+    -- A partially constructed scratch index must be released before fallback.
+    pilot qualified_symbol = v4_codegen_llvm_body_symbol(plan, qualified_body)
+    array_set(v4_codegen_llvm_body_symbols_handle(plan), qualified_body, "")
+    h6_body_assert(v4_codegen_llvm_native_body_symbol_error(plan) == root_error, "failed index construction still rejects exact collision")
+    array_set(v4_codegen_llvm_body_symbols_handle(plan), qualified_body, qualified_symbol)
+    h6_body_assert(h6_body_available_handles() == capacity_before, "failed construction releases scratch handle")
+    pilot holders = array_new()
+    h6_body_assert(holders >= 0, "pressure holder available")
+    pilot exhausted: bool = false
+    repeat until exhausted {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true }
+        else { array_push(holders, word_from_int(handle)) }
+    }
+    h6_body_assert(v4_codegen_llvm_native_body_symbol_error(plan) == root_error and array_new() < 0, "handle exhaustion exact fallback rejects without allocation")
+    array_set(v4_codegen_llvm_decl_symbols_handle(plan), decl, original_symbol)
+    array_set(v4_codegen_llvm_decl_lines_handle(plan), decl, original_line)
+    h6_body_assert(v4_codegen_llvm_native_body_symbol_error(plan) == "" and array_new() < 0, "handle exhaustion exact fallback accepts distinct symbol")
+    pilot slot = 0
+    repeat until slot >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, slot)))
+        slot += 1
+    }
+    array_release(holders)
+    h6_body_assert(v4_codegen_llvm_native_body_symbol_error(plan) == "" and v4_codegen_llvm_module_text(plan, target) == before and h6_body_available_handles() == capacity_before, "index recovers with unchanged handles and module")
+    say "h6-native-body pressure=true fallback=true construction-failure=true handles-stable=true"
+
+    pilot snapshot = v4_mir_snapshot()
+    h6_body_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "both source snapshots valid")
+    h6_body_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "both MIR identities restored")
+    h6_body_assert(v4_mir_file_exists(mir) and v4_mir_file_exists(rejected_mir) and v4_mir_body_count(mir) == 3 and v4_mir_body_count(rejected_mir) == 2, "restored owner identities valid")
+    array_set(v4_mir_names_handle(mir), 0, "changed_root")
+    array_set(v4_mir_names_handle(rejected_mir), 0, "Changed::b")
+    h6_body_assert(v4_mir_body_name(mir, 0) == "changed_root" and v4_mir_body_name(rejected_mir, 0) == "Changed::b", "restored body facts changed")
+    h6_body_assert(v4_codegen_llvm_native_body_symbol_error(plan) == "" and v4_codegen_llvm_module_text(plan, target) == before, "safe plan remains sealed across reused MIR")
+    h6_body_assert(v4_codegen_llvm_native_body_symbol_error(rejected) == reason and v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_native_target_error(rejected, target) == reason and v4_codegen_llvm_module_text(rejected, target) == "", "rejected plan remains sealed across reused MIR")
+    say "h6-native-body restore=true changed-facts=true sealed=true"
+}
+
+h6_body_run()

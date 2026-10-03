@@ -1707,9 +1707,10 @@ task v4_codegen_llvm_lower_mir(file_id: int, mir_id: int) -> int {
     if native_error == "" {
         v4_codegen_llvm_lower_bodies(codegen_id, mir_id)
         v4_codegen_llvm_lower_callback_trampolines(codegen_id, mir_id, ty_id)
+        native_error = v4_codegen_llvm_native_body_symbol_error(codegen_id)
         pilot globals = v4_codegen_llvm_word_globals(mir_id)
         pilot entry = v4_codegen_llvm_native_entry(mir_id)
-        if entry != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_setup_args", "i64, i64") }
+        if native_error == "" and entry != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_setup_args", "i64, i64") }
         if native_error == "" and globals != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_say", "i64") }
         array_set(v4_codegen_llvm_word_global_lines, codegen_id, globals)
         array_set(v4_codegen_llvm_native_entry_lines, codegen_id, entry)
@@ -1826,6 +1827,103 @@ task v4_codegen_llvm_native_entry_symbol_error(codegen_id: int) -> word {
 task v4_codegen_llvm_native_module_error(codegen_id: int) -> word {
     if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "invalid codegen ID" }
     give back array_get(v4_codegen_llvm_native_errors, codegen_id)
+}
+
+-- Scratch indexes borrow complete sealed symbols, so hash equality is never
+-- identity. They are private to one sealing query and retain no owner handle.
+task v4_codegen_llvm_body_symbol_index_insert(codegen_id: int, index: int, body_id: int) -> bool {
+    pilot capacity = array_len(index)
+    if capacity <= 0 { give back false }
+    pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body_id)
+    if symbol == "" { give back false }
+    pilot bucket = symbol.checksum() % capacity
+    pilot visited = 0
+    repeat until visited >= capacity {
+        pilot previous: word = array_get(index, bucket)
+        if previous == "" {
+            array_set(index, bucket, symbol)
+            give back array_get(index, bucket) == symbol
+        }
+        if previous == symbol { give back true }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back false
+}
+
+task v4_codegen_llvm_body_symbol_index_new(codegen_id: int) -> int {
+    pilot count = v4_codegen_llvm_body_count(codegen_id)
+    -- Larger capacities cannot be useful under the existing array budgets;
+    -- retain exact linear semantics rather than overflow capacity arithmetic.
+    if count <= 0 or count > 268435456 { give back 0 - 1 }
+    pilot capacity = 16
+    repeat until capacity >= count * 2 { capacity *= 2 }
+    pilot index = array_new()
+    if index < 0 { give back 0 - 1 }
+    pilot bucket = 0
+    repeat until bucket >= capacity {
+        array_push(index, "")
+        if array_len(index) != bucket + 1 { array_release(index); give back 0 - 1 }
+        bucket += 1
+    }
+    pilot body_id = 0
+    repeat until body_id >= count {
+        if not v4_codegen_llvm_body_symbol_index_insert(codegen_id, index, body_id) {
+            array_release(index)
+            give back 0 - 1
+        }
+        body_id += 1
+    }
+    give back index
+}
+
+task v4_codegen_llvm_body_symbol_index_contains(codegen_id: int, index: int, symbol: word) -> bool {
+    pilot capacity = array_len(index)
+    if capacity <= 0 { give back false }
+    pilot bucket = symbol.checksum() % capacity
+    pilot visited = 0
+    repeat until visited >= capacity {
+        pilot previous: word = array_get(index, bucket)
+        if previous == "" { give back false }
+        if previous == symbol { give back true }
+        bucket = (bucket + 1) % capacity
+        visited += 1
+    }
+    give back false
+}
+
+task v4_codegen_llvm_body_symbol_linear_contains(codegen_id: int, symbol: word) -> bool {
+    pilot body_id = 0
+    repeat until body_id >= v4_codegen_llvm_body_count(codegen_id) {
+        if v4_codegen_llvm_body_symbol(codegen_id, body_id) == symbol { give back true }
+        body_id += 1
+    }
+    give back false
+}
+
+-- Check actual definitions after ordinary bodies and callback trampolines are
+-- sealed. Source-level names and mutable MIR/TY facts cannot decide linkage.
+task v4_codegen_llvm_native_body_symbol_error(codegen_id: int) -> word {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "invalid codegen ID" }
+    if v4_codegen_llvm_body_count(codegen_id) == 0 { give back "" }
+    pilot decl_id = 0
+    repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) or v4_codegen_llvm_decl_line(codegen_id, decl_id).starts_with("declare ") { decl_id += 1 }
+    if decl_id >= v4_codegen_llvm_decl_count(codegen_id) { give back "" }
+    pilot index = v4_codegen_llvm_body_symbol_index_new(codegen_id)
+    pilot error = ""
+    -- Declaration order controls the first diagnostic, independent of buckets.
+    repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) or error != "" {
+        if v4_codegen_llvm_decl_line(codegen_id, decl_id).starts_with("declare ") {
+            pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl_id)
+            pilot collision: bool = false
+            if index >= 0 { collision = v4_codegen_llvm_body_symbol_index_contains(codegen_id, index, symbol) }
+            else { collision = v4_codegen_llvm_body_symbol_linear_contains(codegen_id, symbol) }
+            if collision { error = "native body symbol conflicts with explicit ABI declaration: " + symbol }
+        }
+        decl_id += 1
+    }
+    if index >= 0 { array_release(index) }
+    give back error
 }
 
 -- Target checks read only sealed codegen facts. MIR/TY identities may already
