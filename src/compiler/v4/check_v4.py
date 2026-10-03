@@ -13823,6 +13823,10 @@ def run_with_heartbeat(
                 process_tree_closed = closed and reaped and (
                     group_terminated or process_tree.windows_job is not None
                 )
+                # Cleanup has already attempted termination and final reaping.
+                # Let deferred readers retain their last bounded pipe bytes
+                # before freezing the original guard and failure evidence.
+                captured_text()
                 retain_completed_guard()
                 stdout, stderr = refresh_guard_error()
                 guard_context = f"; guard-origin={guard_trigger}"
