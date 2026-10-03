@@ -3071,6 +3071,77 @@ task v4_mir_snapshot_release_body_graph_arrays(place_kinds: int, place_bases: in
     array_release(place_kinds)
 }
 
+task v4_mir_word_source_body_span(ty_id: int, def_id: word) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 { give back V4_NO_SPAN }
+    pilot signature = v4_ty_lookup_signature(ty_id, def_id)
+    if signature >= 0 { give back v4_hir_item_span(hir_id, v4_ty_signature_hir_item(ty_id, signature)) }
+    pilot item = 0
+    repeat until item >= v4_hir_item_count(hir_id) {
+        if v4_hir_item_kind(hir_id, item) == v4_hir_impl {
+            pilot method = 0
+            repeat until method >= v4_ty_impl_method_count(ty_id, item) {
+                if v4_ty_impl_method_def(ty_id, item, method) == def_id { give back v4_ty_impl_method_source_span(ty_id, item, method) }
+                method += 1
+            }
+        }
+        item += 1
+    }
+    give back V4_NO_SPAN
+}
+
+task v4_mir_word_scope_fact_is_valid(scope: word, file_id: int, body_span: word, inner: word, required: bool) -> bool {
+    if scope == (V4_NO_SPAN) { give back not required and inner == V4_NO_SPAN }
+    if not v4_mir_scope_span_is_valid(scope) or v4_span_file(scope) != word_from_int(file_id) { give back false }
+    if body_span != V4_NO_SPAN and not v4_mir_scope_contains(body_span, scope) { give back false }
+    if inner != V4_NO_SPAN and not v4_mir_scope_contains(scope, inner) { give back false }
+    if required and inner == (V4_NO_SPAN) { give back false }
+    give back true
+}
+
+task v4_mir_snapshot_word_intrinsic_is_valid(line: word, kinds: int, types: int, lhs: int, rhs: int) -> bool {
+    pilot identity = v4_mir_snapshot_field(line, 13)
+    pilot kind = v4_mir_builtin_word_identity_kind(identity)
+    if kind == "" { give back false }
+    if v4_mir_snapshot_field(line, 4) != v4_mir_rvalue_call or v4_mir_snapshot_field(line, 6) != identity or v4_mir_snapshot_field(line, 11) != "" { give back false }
+    if v4_mir_snapshot_field_raw(line, 7) != "-1" or v4_mir_snapshot_field_raw(line, 8) != "-1" { give back false }
+    if v4_mir_snapshot_field(line, 10) != v4_ty_word_intrinsic_result_type(kind) { give back false }
+    pilot args = v4_mir_snapshot_field(line, 12)
+    if v4_mir_call_args_payload_count(args) != v4_ty_word_intrinsic_param_count(kind) { give back false }
+    pilot arg = 0
+    repeat until arg >= v4_mir_call_args_payload_count(args) {
+        pilot child = word_to_int(v4_mir_snapshot_comma_part(args, arg))
+        if child < 0 or child >= array_len(kinds) { give back false }
+        pilot child_kind: word = array_get(kinds, child)
+        pilot child_ty: word = array_get(types, child)
+        pilot expected = v4_ty_word_intrinsic_param_type(kind, arg)
+        if expected == v4_ty_word {
+            pilot child_rhs: word = array_get(rhs, child)
+            if child_kind != v4_mir_rvalue_lend or child_ty != "lend word" or child_rhs != "-1" { give back false }
+            pilot inner_raw: word = array_get(lhs, child)
+            pilot inner = word_to_int(inner_raw)
+            if inner < 0 or inner >= child { give back false }
+            pilot inner_ty: word = array_get(types, inner)
+            if inner_ty != v4_ty_word { give back false }
+        } else if not v4_ty_types_compatible(expected, child_ty) { give back false }
+        arg += 1
+    }
+    give back true
+}
+
+task v4_mir_snapshot_word_local_use_is_valid(line: word, names: int, types: int) -> bool {
+    if v4_mir_snapshot_field(line, 4) != v4_mir_rvalue_use_local or v4_mir_snapshot_field(line, 10) != v4_ty_word { give back true }
+    pilot op = v4_mir_snapshot_field(line, 6)
+    if not op.starts_with("local#") { give back false }
+    pilot raw = op.substring(6, op.length() - 6)
+    if not v4_mir_snapshot_nonnegative_int_is_valid(raw) { give back false }
+    pilot local_id = word_to_int(raw)
+    if local_id >= array_len(names) or local_id >= array_len(types) { give back false }
+    pilot name: word = array_get(names, local_id)
+    pilot local_ty: word = array_get(types, local_id)
+    give back name == v4_mir_snapshot_field(line, 5) and local_ty == v4_ty_word
+}
+
 task v4_mir_snapshot_validate(payload: word) -> word {
     pilot lines = v4_mir_snapshot_line_count(payload)
     pilot files = 0
@@ -3096,6 +3167,11 @@ task v4_mir_snapshot_validate(payload: word) -> word {
 
     pilot current_mir = 0 - 1
     pilot current_body = 0 - 1
+    pilot current_file_id = 0 - 1
+    pilot current_ty_id = 0 - 1
+    pilot body_source_span = V4_NO_SPAN
+    pilot body_has_word: bool = false
+    pilot body_scope_missing: bool = false
     pilot file_declared_bodies = 0
     pilot file_declared_diagnostics = 0
     pilot file_bodies = 0
@@ -3120,6 +3196,9 @@ task v4_mir_snapshot_validate(payload: word) -> word {
     pilot body_graph_rvalue_rhs = array_new()
     pilot body_graph_rvalue_args = array_new()
     pilot body_say_literal_types = array_new()
+    pilot body_word_local_names = array_new()
+    pilot body_word_local_types = array_new()
+    if body_word_local_names < 0 or body_word_local_types < 0 { malformed += 1 }
 
     pilot line_id = 0
     repeat until line_id >= lines {
@@ -3163,6 +3242,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
             } else if kind == "mir" {
                 if saw_header != 1 { malformed += 1 }
                 if current_body >= 0 {
+                    if body_has_word and body_scope_missing { malformed += 1 }
                     if body_blocks != body_declared_blocks { malformed += 1 }
                     if body_locals != body_declared_locals { malformed += 1 }
                     if body_statements != body_declared_statements { malformed += 1 }
@@ -3189,6 +3269,8 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if word_to_int(raw_mir_id) != files { malformed += 1 }
 
                 current_mir = word_to_int(raw_mir_id)
+                current_file_id = word_to_int(raw_file_id)
+                current_ty_id = word_to_int(raw_ty_id)
                 file_declared_bodies = word_to_int(raw_body_count)
                 file_declared_diagnostics = word_to_int(raw_diag_count)
                 file_bodies = 0
@@ -3197,6 +3279,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 files += 1
             } else if kind == "mir-body" {
                 if current_body >= 0 {
+                    if body_has_word and body_scope_missing { malformed += 1 }
                     if body_blocks != body_declared_blocks { malformed += 1 }
                     if body_locals != body_declared_locals { malformed += 1 }
                     if body_statements != body_declared_statements { malformed += 1 }
@@ -3207,6 +3290,8 @@ task v4_mir_snapshot_validate(payload: word) -> word {
 
                 v4_mir_snapshot_release_body_graph_arrays(body_graph_place_kinds, body_graph_place_bases, body_graph_place_indexes, body_graph_rvalue_kinds, body_graph_rvalue_lhs, body_graph_rvalue_rhs, body_graph_rvalue_args)
                 array_release(body_say_literal_types)
+                array_release(body_word_local_names)
+                array_release(body_word_local_types)
 
                 pilot raw_mir_id = v4_mir_snapshot_field_raw(line, 1)
                 pilot raw_body_id = v4_mir_snapshot_field_raw(line, 2)
@@ -3228,6 +3313,9 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if file_phase != 0 { malformed += 1 }
 
                 current_body = word_to_int(raw_body_id)
+                body_source_span = v4_mir_word_source_body_span(current_ty_id, v4_mir_snapshot_field(line, 3))
+                body_has_word = false
+                body_scope_missing = false
                 body_declared_blocks = word_to_int(raw_block_count)
                 body_declared_locals = word_to_int(raw_local_count)
                 body_declared_statements = word_to_int(raw_stmt_count)
@@ -3247,6 +3335,9 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 body_graph_rvalue_rhs = array_new()
                 body_graph_rvalue_args = array_new()
                 body_say_literal_types = array_new()
+                body_word_local_names = array_new()
+                body_word_local_types = array_new()
+                if body_word_local_names < 0 or body_word_local_types < 0 { malformed += 1 }
                 file_bodies += 1
                 bodies += 1
             } else if kind == "mir-block" {
@@ -3263,6 +3354,9 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if body_phase > 1 { malformed += 1 }
                 pilot block_record = v4_mir_snapshot_field(line, 4)
                 if not v4_mir_snapshot_block_record_is_valid(block_record, word_to_int(raw_child_id), body_declared_blocks) { malformed += 1 }
+                pilot block_scope = v4_mir_block_part(block_record, 5)
+                if block_scope == (V4_NO_SPAN) { body_scope_missing = true }
+                if not v4_mir_word_scope_fact_is_valid(block_scope, current_file_id, body_source_span, V4_NO_SPAN, false) { malformed += 1 }
                 body_phase = 1
                 body_blocks += 1
                 blocks += 1
@@ -3278,6 +3372,15 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if word_to_int(raw_body_id) != current_body { malformed += 1 }
                 if word_to_int(raw_child_id) != body_locals { malformed += 1 }
                 if body_phase > 2 { malformed += 1 }
+                pilot local_scope = v4_mir_snapshot_field(line, 8)
+                pilot local_span = v4_mir_snapshot_field(line, 7)
+                pilot local_ty = v4_mir_snapshot_field(line, 5)
+                if local_scope == (V4_NO_SPAN) { body_scope_missing = true }
+                if local_ty == v4_ty_word { body_has_word = true }
+                if not v4_mir_word_scope_fact_is_valid(local_scope, current_file_id, body_source_span, local_span, local_ty == v4_ty_word) { malformed += 1 }
+                array_push(body_word_local_names, v4_mir_snapshot_field(line, 4))
+                array_push(body_word_local_types, local_ty)
+                if array_len(body_word_local_names) != body_locals + 1 or array_len(body_word_local_types) != body_locals + 1 { malformed += 1 }
                 body_phase = 2
                 body_locals += 1
                 locals += 1
@@ -3294,7 +3397,9 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if word_to_int(raw_child_id) != body_statements { malformed += 1 }
                 if body_phase > 3 { malformed += 1 }
                 pilot stmt_kind = v4_mir_snapshot_field(line, 4)
-                if not v4_mir_scope_span_is_valid(v4_mir_snapshot_field(line, 11)) { malformed += 1 }
+                pilot statement_scope = v4_mir_snapshot_field(line, 11)
+                if statement_scope == (V4_NO_SPAN) { body_scope_missing = true }
+                if not v4_mir_word_scope_fact_is_valid(statement_scope, current_file_id, body_source_span, v4_mir_snapshot_field(line, 7), false) { malformed += 1 }
                 pilot raw_stmt_block = v4_mir_snapshot_field_raw(line, 8)
                 pilot raw_stmt_place = v4_mir_snapshot_field_raw(line, 9)
                 pilot raw_stmt_rvalue = v4_mir_snapshot_field_raw(line, 10)
@@ -3347,6 +3452,11 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 if v4_mir_snapshot_field(line, 6) == v4_mir_call_say_literal {
                     if not v4_mir_snapshot_say_literal_is_valid(line, body_graph_rvalue_kinds, body_say_literal_types) { malformed += 1 }
                 }
+                if v4_mir_snapshot_field(line, 10) == v4_ty_word or v4_mir_snapshot_field(line, 10) == "lend word" { body_has_word = true }
+                if not v4_mir_snapshot_word_local_use_is_valid(line, body_word_local_names, body_word_local_types) { malformed += 1 }
+                if v4_mir_builtin_word_identity_kind(v4_mir_snapshot_field(line, 13)) != "" {
+                    if not v4_mir_snapshot_word_intrinsic_is_valid(line, body_graph_rvalue_kinds, body_say_literal_types, body_graph_rvalue_lhs, body_graph_rvalue_rhs) { malformed += 1 }
+                }
                 array_push(body_graph_rvalue_kinds, rvalue_kind)
                 array_push(body_say_literal_types, v4_mir_snapshot_field(line, 10))
                 array_push(body_graph_rvalue_lhs, raw_lhs)
@@ -3362,6 +3472,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 rvalues += 1
             } else if kind == "mir-diag" {
                 if current_body >= 0 {
+                    if body_has_word and body_scope_missing { malformed += 1 }
                     if body_blocks != body_declared_blocks { malformed += 1 }
                     if body_locals != body_declared_locals { malformed += 1 }
                     if body_statements != body_declared_statements { malformed += 1 }
@@ -3382,6 +3493,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                 diagnostics += 1
             } else if kind == "end" {
                 if current_body >= 0 {
+                    if body_has_word and body_scope_missing { malformed += 1 }
                     if body_blocks != body_declared_blocks { malformed += 1 }
                     if body_locals != body_declared_locals { malformed += 1 }
                     if body_statements != body_declared_statements { malformed += 1 }
@@ -3406,6 +3518,8 @@ task v4_mir_snapshot_validate(payload: word) -> word {
 
     v4_mir_snapshot_release_body_graph_arrays(body_graph_place_kinds, body_graph_place_bases, body_graph_place_indexes, body_graph_rvalue_kinds, body_graph_rvalue_lhs, body_graph_rvalue_rhs, body_graph_rvalue_args)
     array_release(body_say_literal_types)
+    array_release(body_word_local_names)
+    array_release(body_word_local_types)
 
     if files != declared_files { malformed += 1 }
     if bodies != declared_bodies { malformed += 1 }
@@ -3886,9 +4000,11 @@ task v4_mir_snapshot_restore_component(payload: word) -> word {
 -- Lexical scope ownership is a semantic MIR fact, including empty CFG joins.
 task v4_mir_scope_span_is_valid(span: word) -> bool {
     if span == (V4_NO_SPAN) { give back true }
+    pilot file = v4_span_file(span)
+    if not v4_mir_snapshot_nonnegative_int_is_valid(file) { give back false }
     pilot start = v4_span_start(span)
     pilot end = v4_span_end(span)
-    give back start >= 0 and end > start and v4_span_new(v4_span_file(span), start, end) == span
+    give back start >= 0 and end > start and v4_span_new(file, start, end) == span
 }
 
 task v4_mir_scope_contains(outer: word, inner: word) -> bool {
@@ -4028,8 +4144,33 @@ task v4_mir_word_plan_preflight(mir_id: int) -> word {
             if v4_mir_rvalue_ty(mir_id, body, inspect) == v4_ty_word or v4_mir_rvalue_ty(mir_id, body, inspect) == "lend word" { word_body = true }
             inspect += 1
         }
+        if word_body {
+            pilot body_span = v4_mir_word_source_body_span(v4_mir_ty_id(mir_id), v4_mir_body_def(mir_id, body))
+            pilot file_id = v4_mir_file_id(mir_id)
+            inspect = 0
+            repeat until inspect >= v4_mir_body_block_count(mir_id, body) {
+                pilot scope = v4_mir_block_scope_span(mir_id, body, inspect)
+                if scope == V4_NO_SPAN or not v4_mir_word_scope_fact_is_valid(scope, file_id, body_span, V4_NO_SPAN, false) { give back "invalid native word ownership block scope" }
+                inspect += 1
+            }
+            inspect = 0
+            repeat until inspect >= v4_mir_body_local_count(mir_id, body) {
+                if not v4_mir_word_scope_fact_is_valid(v4_mir_local_scope_span(mir_id, body, inspect), file_id, body_span, v4_mir_local_span(mir_id, body, inspect), true) { give back "invalid native word ownership local scope" }
+                inspect += 1
+            }
+            inspect = 0
+            repeat until inspect >= v4_mir_body_stmt_count(mir_id, body) {
+                if not v4_mir_word_scope_fact_is_valid(v4_mir_stmt_scope_span(mir_id, body, inspect), file_id, body_span, v4_mir_stmt_span(mir_id, body, inspect), true) { give back "invalid native word ownership statement scope" }
+                inspect += 1
+            }
+        }
         pilot depth_words = array_new()
-        if depth_words < 0 { give back "native word ownership plan scratch exhausted" }
+        pilot cost_words = array_new()
+        if depth_words < 0 or cost_words < 0 {
+            array_release(cost_words)
+            array_release(depth_words)
+            give back "native word ownership plan scratch exhausted"
+        }
         pilot value = 0
         pilot error = ""
         repeat until value >= v4_mir_body_rvalue_count(mir_id, body) or error != "" {
@@ -4042,25 +4183,36 @@ task v4_mir_word_plan_preflight(mir_id: int) -> word {
             }
             pilot weight = 1
             pilot depth = weight
+            pilot cost = 1
             if error == "" {
-                if kind != v4_mir_rvalue_use_place and lhs >= 0 { depth = word_to_int(array_get(depth_words, lhs)) + weight }
+                if kind != v4_mir_rvalue_use_place and lhs >= 0 {
+                    depth = word_to_int(array_get(depth_words, lhs)) + weight
+                    cost += word_to_int(array_get(cost_words, lhs))
+                }
                 if rhs >= 0 {
                     pilot right_depth = word_to_int(array_get(depth_words, rhs)) + weight
                     if right_depth > depth { depth = right_depth }
+                    cost += word_to_int(array_get(cost_words, rhs))
                 }
                 pilot arg = 0
                 repeat until arg >= v4_mir_call_args_payload_count(args) {
                     pilot child = word_to_int(v4_mir_snapshot_comma_part(args, arg))
                     pilot child_depth = word_to_int(array_get(depth_words, child)) + weight
                     if child_depth > depth { depth = child_depth }
+                    cost += word_to_int(array_get(cost_words, child))
+                    if cost > 8192 { cost = 8193 }
                     arg += 1
                 }
+                if cost > 8192 { cost = 8193 }
                 if word_body and depth > 256 { error = "native word ownership expression nesting exceeds supported depth" }
+                if word_body and cost > 8192 { error = "native word ownership expression traversal exceeds supported budget" }
                 array_push(depth_words, word_from_int(depth))
-                if array_len(depth_words) != value + 1 { error = "native word ownership plan scratch exhausted" }
+                array_push(cost_words, word_from_int(cost))
+                if array_len(depth_words) != value + 1 or array_len(cost_words) != value + 1 { error = "native word ownership plan scratch exhausted" }
             }
             value += 1
         }
+        array_release(cost_words)
         array_release(depth_words)
         if error != "" { give back error }
         body += 1
