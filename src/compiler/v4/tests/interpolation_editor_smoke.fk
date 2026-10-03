@@ -216,7 +216,33 @@ task v4_interp_editor_edit(path: word, source: word, hir: int, item: int) -> voi
     say "interpolation-editor source-invalidation=true fresh-type=true stable-binding=true"
 }
 
+task v4_interp_editor_duplicate_field() -> void {
+    pilot path = "interpolation-editor-duplicate.fk"
+    pilot source = "shape Pair " + chr(123) + "\n field: int\n field: bool\n" + chr(125) + "\n"
+    source = source + "task show(lend boxed: Pair) -> word " + chr(123) + " give back \"" + v4_interp_editor_hole("boxed.field") + "\" " + chr(125) + "\n"
+    pilot mir = v4_mir_text_cached(path, source)
+    pilot ty = v4_mir_ty_id(mir)
+    pilot hir = v4_ty_word_plan_hir_id(ty)
+    pilot item = v4_interp_editor_item(hir, "show")
+    pilot sig = v4_ty_shape_signature_id_for_name(ty, "Pair")
+    pilot first = v4_ty_shape_field_name_span(ty, sig, 0)
+    pilot second = v4_ty_shape_field_name_span(ty, sig, 1)
+    v4_interp_editor_assert(v4_ty_shape_field_count(ty, sig) == 2 and v4_ty_shape_field_name(ty, sig, 0) == "field" and v4_ty_shape_field_name(ty, sig, 1) == "field", "duplicate field declarations")
+    v4_interp_editor_assert(v4_ty_shape_field_type(ty, sig, 0) == "int" and v4_ty_shape_field_type(ty, sig, 1) == "bool" and first != second and v4_span_start(first) < v4_span_start(second), "duplicate field types and distinct spans")
+    v4_interp_editor_assert(v4_ty_shape_field_id_for_name(ty, "Pair", "field") == 0, "TY chooses first duplicate")
+    pilot literal = v4_hir_word_literal_start(hir, item)
+    v4_interp_editor_fact(path, source, hir, literal, 0, 1, "field", "ShapeField", "int", v4_editor_shape_field_def(ty, sig, 0), first)
+    pilot definition = v4_definition_at_text_cached(path, source, v4_interp_editor_offset(hir, literal, 0, 1))
+    v4_interp_editor_assert(v4_definition_at_span(definition) != second, "definition excludes later bool field")
+    say "interpolation-editor duplicate-field=true hover-first-int=true definition-first=true later-bool-excluded=true"
+}
+
 task v4_interp_editor_run() -> void {
+    pilot selected = word_to_int(process::arg(1))
+    if selected == 6 {
+        v4_interp_editor_duplicate_field()
+        give back
+    }
     pilot path = "interpolation-editor.fk"
     pilot source = v4_interp_editor_source()
     pilot mir = v4_mir_text_cached(path, source)
@@ -231,7 +257,6 @@ task v4_interp_editor_run() -> void {
     }
     v4_interp_editor_assert(v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0 and item >= 0 and body >= 0, "clean source")
     v4_interp_editor_assert(v4_hir_word_literal_count(hir, item) == 6, "literal plans exclude metadata")
-    pilot selected = word_to_int(process::arg(1))
     if selected == 0 { v4_interp_editor_roots(path, source, hir, item, mir, body) } else if selected == 1 { v4_interp_editor_shadows(path, source, hir, item, mir, body) } else if selected == 2 { v4_interp_editor_fields(path, source, hir, item, mir, body) } else if selected == 3 { v4_interp_editor_negatives(path, source, hir, item) } else if selected == 4 { v4_interp_editor_restore(path, source, hir, item) } else if selected == 5 { v4_interp_editor_edit(path, source, hir, item) } else { panic("interpolation-editor unknown case") }
 }
 v4_interp_editor_run()

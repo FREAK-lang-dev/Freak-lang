@@ -2508,11 +2508,16 @@ task v4_definition_at_text_cached(path: word, text: word, offset: int) -> int {
         }
     } else if kind == "ShapeField" {
         pilot sig_id = 0
-        repeat until sig_id >= v4_ty_signature_count(ty_id) {
+        pilot matched = false
+        -- TY field lookup selects the first declaration, including recovery
+        -- documents with duplicate names. Navigation must select that same
+        -- declaration rather than overwrite it with a later duplicate.
+        repeat until sig_id >= v4_ty_signature_count(ty_id) or matched {
             if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_shape_sig {
                 pilot field_id = 0
-                repeat until field_id >= v4_ty_shape_field_count(ty_id, sig_id) {
+                repeat until field_id >= v4_ty_shape_field_count(ty_id, sig_id) or matched {
                     if v4_editor_shape_field_def(ty_id, sig_id, field_id) == def_id {
+                        matched = true
                         hir_item = v4_ty_signature_hir_item(ty_id, sig_id)
                         span = v4_ty_shape_field_name_span(ty_id, sig_id, field_id)
                         if v4_span_end(span) > v4_span_start(span) { found = 1 }
