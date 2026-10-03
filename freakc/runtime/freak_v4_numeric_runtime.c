@@ -1,7 +1,11 @@
 #include "freak_v4_numeric_runtime.h"
 
+#include <float.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+_Static_assert(sizeof(double) == 8 && DBL_MANT_DIG == 53 && DBL_MAX_EXP == 1024,
+               "V4 num requires IEEE 754 binary64 double");
 
 #if defined(_MSC_VER)
 #define FREAK_V4_NUMERIC_NORETURN __declspec(noreturn)
@@ -163,4 +167,78 @@ uint8_t freak_v4_tiny_mod(uint8_t lhs, uint8_t rhs) {
         freak_v4_numeric_fail("tiny remainder by zero");
     }
     return (uint8_t)((uint32_t)lhs % (uint32_t)rhs);
+}
+
+int64_t freak_v4_int_from_uint(uint64_t value) {
+    if (value > (uint64_t)INT64_MAX) {
+        freak_v4_numeric_fail("uint to int conversion out of range");
+    }
+    return (int64_t)value;
+}
+
+uint64_t freak_v4_uint_from_int(int64_t value) {
+    if (value < 0) {
+        freak_v4_numeric_fail("int to uint conversion out of range");
+    }
+    return (uint64_t)value;
+}
+
+uint8_t freak_v4_tiny_from_int(int64_t value) {
+    if (value < 0 || value > UINT8_MAX) {
+        freak_v4_numeric_fail("int to tiny conversion out of range");
+    }
+    return (uint8_t)value;
+}
+
+uint8_t freak_v4_tiny_from_uint(uint64_t value) {
+    if (value > UINT8_MAX) {
+        freak_v4_numeric_fail("uint to tiny conversion out of range");
+    }
+    return (uint8_t)value;
+}
+
+int64_t freak_v4_int_from_tiny(uint8_t value) {
+    return (int64_t)value;
+}
+
+uint64_t freak_v4_uint_from_tiny(uint8_t value) {
+    return (uint64_t)value;
+}
+
+int64_t freak_v4_int_from_num(double value) {
+    /* Both power-of-two bounds are exactly representable. Converting
+     * INT64_MAX to double would round up and accept an undefined C cast. */
+    if (value != value || value < -9223372036854775808.0 ||
+        value >= 9223372036854775808.0) {
+        freak_v4_numeric_fail("num to int conversion out of range");
+    }
+    return (int64_t)value;
+}
+
+uint64_t freak_v4_uint_from_num(double value) {
+    /* Check the range of the truncated result: (-1, 0) truncates to zero.
+     * NaN fails explicitly; both infinities fail the ordered bound checks. */
+    if (value != value || value <= -1.0 || value >= 18446744073709551616.0) {
+        freak_v4_numeric_fail("num to uint conversion out of range");
+    }
+    return (uint64_t)value;
+}
+
+uint8_t freak_v4_tiny_from_num(double value) {
+    if (value != value || value <= -1.0 || value >= 256.0) {
+        freak_v4_numeric_fail("num to tiny conversion out of range");
+    }
+    return (uint8_t)value;
+}
+
+double freak_v4_num_from_int(int64_t value) {
+    return (double)value;
+}
+
+double freak_v4_num_from_uint(uint64_t value) {
+    return (double)value;
+}
+
+double freak_v4_num_from_tiny(uint8_t value) {
+    return (double)value;
 }

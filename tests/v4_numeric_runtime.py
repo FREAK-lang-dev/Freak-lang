@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Verify V4 checked integer helpers against an arbitrary-precision oracle.
+"""Verify V4 checked arithmetic and conversions against numerical oracles.
 
 Each optimization level links the actual runtime as a separate C translation
 unit. Successful boundary/random vectors run in a batch; named failures run in
-fresh processes and must exit 1 with exactly one fixed diagnostic. --sanitize
-adds an UndefinedBehaviorSanitizer build without replacing any ordinary build.
+fresh processes and must exit 1 with exactly one fixed diagnostic. Conversion
+vectors carry exact binary64 bits, including NaNs and boundary-adjacent values.
+--sanitize adds an UndefinedBehaviorSanitizer/float-cast-overflow build without
+replacing any ordinary build.
 This is a helper ABI test; FREAK compiler/operator integration is a separate gate.
 """
 
@@ -13,18 +15,22 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import dataclass
+import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import random
 import shutil
 import subprocess
+import struct
 import tempfile
 
 
 LIMITS = {"int": (-(1 << 63), (1 << 63) - 1), "uint": (0, (1 << 64) - 1), "tiny": (0, 255)}
 OPERATIONS = ("add", "sub", "mul", "neg", "div", "mod")
 LABELS = {"add": "addition", "sub": "subtraction", "mul": "multiplication", "neg": "negation", "div": "division", "mod": "remainder"}
+CONVERSIONS = (("int", "uint"), ("uint", "int"), ("tiny", "int"), ("tiny", "uint"), ("int", "tiny"), ("uint", "tiny"), ("int", "num"), ("uint", "num"), ("tiny", "num"), ("num", "int"), ("num", "uint"), ("num", "tiny"))
 
 
 @dataclass(frozen=True)
@@ -41,6 +47,52 @@ class Case:
     @property
     def line(self) -> str:
         return f"{self.helper} {self.lhs} {self.rhs}"
+
+
+@dataclass(frozen=True)
+class ConversionCase:
+    target: str
+    source: str
+    value: int  # IEEE 754 bits when source is num; numerical value otherwise.
+
+    @property
+    def helper(self) -> str:
+        return f"{self.target}_from_{self.source}"
+
+    @property
+    def line(self) -> str:
+        value = f"{self.value:016x}" if self.source == "num" else str(self.value)
+        return f"{self.helper} {value} 0"
+
+
+def num_bits(value: float) -> int:
+    return struct.unpack(">Q", struct.pack(">d", value))[0]
+
+
+def bits_num(value: int) -> float:
+    return struct.unpack(">d", struct.pack(">Q", value))[0]
+
+
+def conversion_oracle(case: ConversionCase) -> tuple[str | None, str | None]:
+    if case.target == "num":
+        return f"{num_bits(float(case.value)):016x}", None
+    value = bits_num(case.value) if case.source == "num" else case.value
+    message = f"FREAK V4: {case.source} to {case.target} conversion out of range\n"
+    if case.source == "num":
+        if not math.isfinite(value):
+            return None, message
+        value = math.trunc(value)
+    lower, upper = LIMITS[case.target]
+    if not lower <= value <= upper:
+        return None, message
+    return str(value), None
+
+
+def expected(case: Case | ConversionCase) -> tuple[str | None, str | None]:
+    if isinstance(case, ConversionCase):
+        return conversion_oracle(case)
+    value, message = oracle(case)
+    return str(value) if value is not None else None, message
 
 
 def oracle(case: Case) -> tuple[int | None, str | None]:
@@ -140,6 +192,63 @@ def cases() -> tuple[list[Case], list[Case]]:
     return successful, list(rejected)
 
 
+def conversion_cases() -> tuple[list[ConversionCase], list[ConversionCase]]:
+    vectors: dict[ConversionCase, None] = {}
+    priority: dict[ConversionCase, None] = {}
+    for target, source in CONVERSIONS:
+        if source == "num":
+            numeric_values = [
+                0.0, -0.0, 0.5, -0.5, 1.0, -1.0,
+                math.nextafter(-1.0, 0.0), math.nextafter(-1.0, -math.inf),
+                2.9, -2.9, 255.0, 255.9, 256.0,
+                math.nextafter(256.0, 0.0), math.nextafter(256.0, math.inf),
+                -(2.0 ** 63), math.nextafter(-(2.0 ** 63), -math.inf),
+                math.nextafter(-(2.0 ** 63), 0.0),
+                2.0 ** 63, math.nextafter(2.0 ** 63, 0.0),
+                math.nextafter(2.0 ** 63, math.inf),
+                2.0 ** 64, math.nextafter(2.0 ** 64, 0.0),
+                math.nextafter(2.0 ** 64, math.inf),
+                math.nan, math.inf, -math.inf,
+            ]
+            values = [num_bits(value) for value in numeric_values]
+            # Quiet/signaling NaNs of both signs and varied payloads are checked
+            # as inputs through memcpy, without platform text-parser behavior.
+            values.extend([0x7FF8000000000042, 0xFFF8000000000042, 0x7FF0000000000001, 0xFFF0000000000001])
+        else:
+            lower, upper = LIMITS[source]
+            values = sorted({lower, lower + 1, upper, upper - 1, 0, 1, 2, 254, 255, 256, (1 << 53) - 1, 1 << 53, (1 << 53) + 1, (1 << 63) - 1})
+            if source == "int":
+                values.extend([-1, -2, -255, -256, -((1 << 53) + 1)])
+            if source == "uint":
+                values.extend([1 << 63, (1 << 63) + 1])
+            values = [value for value in values if lower <= value <= upper]
+        for value in values:
+            case = ConversionCase(target, source, value)
+            priority[case] = None
+            vectors[case] = None
+        random_source = random.Random(f"FREAK V4 checked conversion {target} {source}")
+        if source == "tiny":
+            samples = range(256)
+        elif source == "num":
+            samples = [random_source.getrandbits(64) for _ in range(400)]
+        else:
+            samples = [random_source.randint(*LIMITS[source]) for _ in range(400)]
+        for value in samples:
+            vectors[ConversionCase(target, source, value)] = None
+    successful = []
+    rejected = {case: None for case in priority if conversion_oracle(case)[1]}
+    extra_failures: Counter[str] = Counter()
+    for case in vectors:
+        if conversion_oracle(case)[1] is None:
+            successful.append(case)
+        elif case not in rejected and extra_failures[case.helper] < 12:
+            rejected[case] = None
+            extra_failures[case.helper] += 1
+    assert {case.helper for case in successful} == {f"{target}_from_{source}" for target, source in CONVERSIONS}
+    assert {case.helper for case in rejected} == {"int_from_uint", "uint_from_int", "tiny_from_int", "tiny_from_uint", "int_from_num", "uint_from_num", "tiny_from_num"}
+    return successful, list(rejected)
+
+
 def driver_source() -> str:
     declarations = []
     for kind in LIMITS:
@@ -157,6 +266,23 @@ def driver_source() -> str:
             declarations.append(f'''    if (strcmp(operation, "{kind}_{op}") == 0) {{
         {checks}
         {c_type} result = freak_v4_{kind}_{op}({operands});
+        {formatter}
+        return;
+    }}''')
+    for target, source in CONVERSIONS:
+        c_type = {"int": "int64_t", "uint": "uint64_t", "tiny": "uint8_t", "num": "double"}
+        parser = {"int": "signed_value", "uint": "unsigned_value", "tiny": "unsigned_value", "num": "num_value"}[source]
+        operands = f"({c_type[source]}){parser}(lhs)"
+        checks = 'if (unsigned_value(lhs) > UINT8_MAX) exit(2);' if source == "tiny" else ''
+        formatter = {
+            "int": 'printf("%" PRId64 "\\n", (int64_t)result);',
+            "uint": 'printf("%" PRIu64 "\\n", (uint64_t)result);',
+            "tiny": 'printf("%" PRIu64 "\\n", (uint64_t)result);',
+            "num": 'print_num(result);',
+        }[target]
+        declarations.append(f'''    if (strcmp(operation, "{target}_from_{source}") == 0) {{
+        {checks}
+        {c_type[target]} result = freak_v4_{target}_from_{source}({operands});
         {formatter}
         return;
     }}''')
@@ -186,6 +312,26 @@ static uint64_t unsigned_value(const char *text) {
     return (uint64_t)value;
 }
 
+static double num_value(const char *text) {
+    char *end;
+    uintmax_t parsed;
+    uint64_t bits;
+    double value;
+    errno = 0;
+    if (*text == '-') exit(2);
+    parsed = strtoumax(text, &end, 16);
+    if (errno || *end || parsed > UINT64_MAX) exit(2);
+    bits = (uint64_t)parsed;
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+static void print_num(double value) {
+    uint64_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    printf("%016" PRIx64 "\n", bits);
+}
+
 static void execute(const char *operation, const char *lhs, const char *rhs) {
 ''' + "\n".join(declarations) + r'''
     exit(2);
@@ -211,24 +357,24 @@ def run(command: list[str], *, source: str | None = None, timeout: int = 30, env
     return subprocess.run(command, input=source, capture_output=True, text=True, timeout=timeout, env=env)
 
 
-def verify(binary: Path, successes: list[Case], failures: list[Case], env: dict[str, str]) -> dict:
+def verify(binary: Path, successes: list[Case | ConversionCase], failures: list[Case | ConversionCase], env: dict[str, str]) -> dict:
     output = run([str(binary), "--batch"], source="\n".join(case.line for case in successes) + "\n", env=env)
     assert output.returncode == 0 and not output.stderr, f"successful vectors failed: exit {output.returncode}\n{output.stderr}"
     actual = output.stdout.splitlines()
     assert len(actual) == len(successes), f"missing successful vector results: {len(actual)} of {len(successes)}"
     for case, value in zip(successes, actual):
-        expected = str(oracle(case)[0])
-        assert value == expected, f"{case.line}: expected {expected}, got {value}"
+        wanted = expected(case)[0]
+        assert value == wanted, f"{case.line}: expected {wanted}, got {value}"
     # Repeat every named failure in a new process: no state or previous failure
     # may change the diagnostic, exit status, or absence of a result.
     for case in failures:
-        expected = oracle(case)[1]
+        wanted = expected(case)[1]
         for _ in range(2):
-            rejected = run([str(binary), case.helper, str(case.lhs), str(case.rhs)], timeout=10, env=env)
+            rejected = run([str(binary), *case.line.split()], timeout=10, env=env)
             assert rejected.returncode == 1, f"{case.line}: expected exit 1, got {rejected.returncode}\n{rejected.stderr}"
             assert rejected.stdout == "", f"{case.line}: failed operation produced a result: {rejected.stdout!r}"
-            assert rejected.stderr == expected, f"{case.line}: expected {expected!r}, got {rejected.stderr!r}"
-    return {"successful_vectors": len(successes), "rejected_vectors": len(failures), "rejected_processes": 2 * len(failures), "helpers": 18}
+            assert rejected.stderr == wanted, f"{case.line}: expected {wanted!r}, got {rejected.stderr!r}"
+    return {"successful_vectors": len(successes), "successful_arithmetic_vectors": sum(isinstance(case, Case) for case in successes), "successful_conversion_vectors": sum(isinstance(case, ConversionCase) for case in successes), "rejected_vectors": len(failures), "rejected_processes": 2 * len(failures), "helpers": len({case.helper for case in successes})}
 
 
 def main() -> int:
@@ -248,13 +394,18 @@ def main() -> int:
     repo = Path(__file__).resolve().parents[1]
     runtime = repo / "freakc" / "runtime"
     successful, rejected = cases()
+    converted, conversion_rejected = conversion_cases()
+    successful = successful + converted
+    rejected = rejected + conversion_rejected
     runtime_env = dict(os.environ)
     runtime_env["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1"
-    report = {"compiler": compiler, "scope": "native checked integer helper ABI", "builds": []}
+    tested_sources = [runtime / "freak_v4_numeric_runtime.c", runtime / "freak_v4_numeric_runtime.h", Path(__file__).resolve()]
+    report = {"compiler": compiler, "scope": "native checked arithmetic and numerical conversion helper ABI", "source_sha256": {str(path.relative_to(repo)): hashlib.sha256(path.read_bytes()).hexdigest() for path in tested_sources}, "builds": []}
     with tempfile.TemporaryDirectory(prefix="freak-v4-numeric-") as temporary:
         root = Path(temporary)
         source = root / "numeric_driver.c"
         source.write_text(driver_source(), encoding="utf-8")
+        report["driver_sha256"] = hashlib.sha256(source.read_bytes()).hexdigest()
         builds = [(level, False) for level in dict.fromkeys(optimizations)]
         if args.sanitize:
             builds.append(("2", True))
@@ -266,7 +417,7 @@ def main() -> int:
             else:
                 command = [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic", f"-O{level}", f"-I{runtime}", str(source), str(runtime / "freak_v4_numeric_runtime.c"), "-o", str(binary)]
                 if sanitize:
-                    command.extend(["-g", "-fsanitize=undefined", "-fno-sanitize-recover=all"])
+                    command.extend(["-g", "-fsanitize=undefined,float-cast-overflow", "-fno-sanitize-recover=all"])
             compiled = run(command, timeout=120)
             assert compiled.returncode == 0, f"{name} build failed\n{compiled.stdout}\n{compiled.stderr}"
             result = verify(binary, successful, rejected, runtime_env)

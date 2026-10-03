@@ -34,6 +34,28 @@ uint8_t freak_v4_tiny_neg(uint8_t value);
 uint8_t freak_v4_tiny_div(uint8_t lhs, uint8_t rhs);
 uint8_t freak_v4_tiny_mod(uint8_t lhs, uint8_t rhs);
 
+/* Checked integer conversions preserve numerical value and reject narrowing
+ * or sign changes outside the target range. Tiny parameters/results have the
+ * same C zero-extension contract as the arithmetic helpers above. */
+int64_t freak_v4_int_from_uint(uint64_t value);
+uint64_t freak_v4_uint_from_int(int64_t value);
+uint8_t freak_v4_tiny_from_int(int64_t value);
+uint8_t freak_v4_tiny_from_uint(uint64_t value);
+int64_t freak_v4_int_from_tiny(uint8_t value);
+uint64_t freak_v4_uint_from_tiny(uint8_t value);
+
+/* num and float use the same binary64 ABI. Integer conversion truncates toward
+ * zero, then checks representability; NaN and infinities fail. A fractional
+ * value strictly between -1 and 0 therefore converts to unsigned zero. A
+ * float32 caller first extends its value to double. Integer-to-num conversion
+ * may lose precision; the full integer domain remains finite in binary64. */
+int64_t freak_v4_int_from_num(double value);
+uint64_t freak_v4_uint_from_num(double value);
+uint8_t freak_v4_tiny_from_num(double value);
+double freak_v4_num_from_int(int64_t value);
+double freak_v4_num_from_uint(uint64_t value);
+double freak_v4_num_from_tiny(uint8_t value);
+
 #ifdef __cplusplus
 }
 #endif
