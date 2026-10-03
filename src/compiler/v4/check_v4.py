@@ -12881,7 +12881,17 @@ def task_param_snapshot_index_violations(hir_source: str) -> list[str]:
     else:
         raw_fields = re.findall(r"v4_hir_snapshot_field_raw\(([^)]*)\)", child_arm)
         value_fields = re.findall(r"v4_hir_snapshot_field\(([^)]*)\)", child_arm)
-        if raw_fields != ["line, 1", "line, 2", "line, 3", "line, 4"] or value_fields != ["line, 12"]:
+        scalar_fields = re.findall(r"v4_hir_snapshot_bounded_field_id\(([^,]+), ([^,]+),", child_arm)
+        cached_reads = (
+            "v4_hir_snapshot_bounded_field_id(line, 2, word_to_int(array_get(param_counts, owner)))",
+            "v4_hir_snapshot_bounded_field_id(line, 4, word_to_int(array_get(item_param_counts, item_slot)))",
+        )
+        if (
+            raw_fields != ["line, 1", "line, 3"]
+            or value_fields != ["line, 12"]
+            or scalar_fields != [("line", "2"), ("line", "4")]
+            or any(child_arm.count(call) != 1 for call in cached_reads)
+        ):
             violations.append("task parameter child pass must consume cached scalar parent metadata")
     return violations
 
@@ -12904,6 +12914,22 @@ def check_task_param_hir_boundary() -> None:
         mutated_source += '\ntask v4_hir_bad_index_helper() -> void {\n    v4_hir_snapshot_line("", 0)\n}\n'
         if not any("must not rescan" in finding for finding in task_param_snapshot_index_violations(mutated_source)):
             violations.append("task parameter index guard accepted helper-indirected rescan")
+        for original, replacement in (
+            (
+                "v4_hir_snapshot_bounded_field_id(line, 2, word_to_int(array_get(param_counts, owner)))",
+                "v4_hir_snapshot_bounded_field_id(line, 3, word_to_int(array_get(param_counts, owner)))",
+            ),
+            (
+                "v4_hir_snapshot_bounded_field_id(line, 4, word_to_int(array_get(item_param_counts, item_slot)))",
+                "v4_hir_snapshot_bounded_field_id(line, 4, word_to_int(array_get(owner_counts, owner)))",
+            ),
+        ):
+            if hir_source.count(original) != 1:
+                violations.append("task parameter scalar-read guard self-test cannot locate cached read")
+                continue
+            mutated_source = hir_source.replace(original, replacement, 1)
+            if not any("cached scalar parent metadata" in finding for finding in task_param_snapshot_index_violations(mutated_source)):
+                violations.append("task parameter scalar-read guard accepted changed field or cached bound")
 
     for marker in (
         'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
