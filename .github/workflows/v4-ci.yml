@@ -166,6 +166,12 @@ jobs:
       - name: Checked numeric helpers at O0, O2 and O3
         run: python -B -u tests/v4_numeric_runtime.py
 
+      - name: Checked numeric native gate oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_checked_numeric_codegen.py -v
+
+      - name: Checked numeric native lowering at O0, O2 and O3
+        run: python -B -u tests/v4_checked_numeric_codegen.py --plain --snapshot-control --json "${{ runner.temp }}/numeric-codegen-plain.json"
+
       - name: Generated owned word programs with C and LLVM ownership audits
         run: python -B -u tests/v4_owned_word_codegen.py --plain
 
@@ -199,12 +205,24 @@ jobs:
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_numeric_runtime.py --optimization 2 --sanitize
 
+      - name: Checked numeric generated-code sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_checked_numeric_codegen.py --snapshot-control --json "${{ runner.temp }}/numeric-codegen-sanitized.json"
+
       - name: Preserve Unicode runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: v4-unicode-runtime-${{ matrix.os }}
           path: ${{ runner.temp }}/unicode-lower-*.json
+          if-no-files-found: warn
+
+      - name: Preserve checked numeric compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-numeric-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/numeric-codegen-*.json
           if-no-files-found: warn
 
   v4-benchmark:
