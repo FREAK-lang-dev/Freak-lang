@@ -75,10 +75,9 @@ The maintainer selected checked native integer arithmetic at every optimization
 level: overflow and division by zero must report runtime errors. Implementation
 and executable boundary coverage remain required before that row is checked.
 
-The original handoff's replacement-tier table and `docs/bootstrap-map.md`'s
-A–F replacement definition disagree: D/E include features that V3 never shipped.
-The preview gate is unaffected. Reconcile that document boundary explicitly
-before claiming a V3 replacement; do not mark A–F complete from V3 parity alone.
+`docs/bootstrap-map.md` distinguishes V3 parity from its broader A–F
+bible-conformance sequence. Concurrency and advanced features that V3 never
+shipped remain later gates; V3 parity does not mark A–F complete.
 Release version, public tags and distribution changes wait for their executable
 gates and the maintainer's release choice.
 
@@ -91,8 +90,9 @@ gates and the maintainer's release choice.
 | Replaces V3 | 1 to 4, 8 | "V4 release": everything V3 ships today, on the new compiler |
 | Bible-complete | 1 to 8 | The 1.0 the audit describes |
 
-Tier 4 is the definition in `docs/bootstrap-map.md`: V4 replaces V3 only
-when phases A to F hold and the V3 preservation tests stay green.
+The replacement line requires tiers 1–4 and 8, including the self-hosting
+fixed point and V3 preservation tests. The broader A–F sequence in
+`docs/bootstrap-map.md` describes complete bible conformance.
 
 ## Tier 0: done
 
