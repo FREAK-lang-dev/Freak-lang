@@ -109,6 +109,7 @@ class SayErrOracles(unittest.TestCase):
         sources = gate.fixture_sources(text)
         self.assertEqual(len(sources), 3)
         self.assertIn('report(lend value)', sources[0])
+        self.assertIn('repeat until index >= 2', sources[0])
         self.assertIn('say value\n early()', sources[0])
         self.assertIn('receiver("LEFT") + receiver("RIGHT")', sources[1])
         self.assertIn('task say_err(value: word)', sources[2])
