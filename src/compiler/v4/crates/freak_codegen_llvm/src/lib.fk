@@ -640,6 +640,15 @@ task v4_codegen_llvm_signature_symbol_name(ty_id: int, sig_id: int) -> word {
     give back v4_ty_signature_symbol_name(ty_id, sig_id)
 }
 
+-- Explicit extern ABI names must bypass the private source-main rewrite.
+task v4_codegen_llvm_signature_symbol(mir_id: int, ty_id: int, sig_id: int) -> word {
+    pilot name = v4_codegen_llvm_signature_symbol_name(ty_id, sig_id)
+    if v4_ty_signature_kind(ty_id, sig_id) == v4_ty_extern_sig or v4_ty_signature_extern_member_id(ty_id, sig_id) >= 0 {
+        give back v4_codegen_llvm_symbol(name)
+    }
+    give back v4_codegen_llvm_callable_symbol(mir_id, name)
+}
+
 task v4_codegen_llvm_signature_link_name(ty_id: int, sig_id: int) -> word {
     give back v4_ty_signature_link_library(ty_id, sig_id)
 }
@@ -657,7 +666,7 @@ task v4_codegen_llvm_signature_line(mir_id: int, ty_id: int, sig_id: int) -> wor
     pilot cc = v4_codegen_llvm_calling_convention(abi)
     pilot return_ty = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_id))
     pilot params = v4_codegen_llvm_signature_params(ty_id, sig_id)
-    pilot symbol = v4_codegen_llvm_callable_symbol(mir_id, v4_codegen_llvm_signature_symbol_name(ty_id, sig_id))
+    pilot symbol = v4_codegen_llvm_signature_symbol(mir_id, ty_id, sig_id)
     pilot suffix = ""
     if line_kind == "declare" and abi != "" {
         suffix = v4_codegen_llvm_ffi_call_suffix(abi)
@@ -773,6 +782,8 @@ task v4_codegen_llvm_use_symbol_value(mir_id: int, text: word) -> word {
     if trampoline != "" {
         give back v4_codegen_llvm_symbol(trampoline)
     }
+    pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, text)
+    if sig_id >= 0 { give back v4_codegen_llvm_signature_symbol(mir_id, ty_id, sig_id) }
     give back v4_codegen_llvm_callable_symbol(mir_id, text)
 }
 
@@ -1085,9 +1096,8 @@ task v4_codegen_llvm_call_instruction(mir_id: int, body_id: int, rvalue_id: int,
         call_symbol = v4_codegen_llvm_rvalue_value(mir_id, body_id, target_rvalue)
     } else {
         if call_sig >= 0 {
-            call_symbol_name = v4_codegen_llvm_signature_symbol_name(ty_id, call_sig)
-        }
-        call_symbol = v4_codegen_llvm_callable_symbol(mir_id, call_symbol_name)
+            call_symbol = v4_codegen_llvm_signature_symbol(mir_id, ty_id, call_sig)
+        } else { call_symbol = v4_codegen_llvm_callable_symbol(mir_id, call_symbol_name) }
     }
     pilot call_args = v4_codegen_llvm_call_args(mir_id, body_id, rvalue_id)
     pilot call_text = "call " + call_cc + " " + call_return + " " + call_symbol + "(" + call_args + ")" + v4_codegen_llvm_ffi_call_suffix(call_abi)
@@ -1265,7 +1275,7 @@ task v4_codegen_llvm_lower_signatures(codegen_id: int, mir_id: int, ty_id: int) 
             pilot sig_cc = v4_codegen_llvm_calling_convention(sig_abi)
             pilot sig_return = v4_codegen_llvm_type(v4_ty_signature_return_type(ty_id, sig_idx))
             pilot sig_params = v4_codegen_llvm_signature_params(ty_id, sig_idx)
-            pilot sig_symbol = v4_codegen_llvm_callable_symbol(mir_id, v4_codegen_llvm_signature_symbol_name(ty_id, sig_idx))
+            pilot sig_symbol = v4_codegen_llvm_signature_symbol(mir_id, ty_id, sig_idx)
             pilot sig_link = v4_codegen_llvm_signature_link_name(ty_id, sig_idx)
             pilot sig_line = v4_codegen_llvm_signature_line(mir_id, ty_id, sig_idx)
             v4_codegen_llvm_add_decl(codegen_id, sig_name, sig_symbol, sig_link, sig_abi, sig_cc, sig_return, sig_params, sig_line)
@@ -1297,10 +1307,9 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                         call_symbol = v4_codegen_llvm_rvalue_value(mir_id, body_idx, target_rvalue)
                     } else {
                         if call_sig >= 0 {
-                            call_symbol_name = v4_codegen_llvm_signature_symbol_name(v4_mir_ty_id(mir_id), call_sig)
                             call_link = v4_codegen_llvm_signature_link_name(v4_mir_ty_id(mir_id), call_sig)
-                        }
-                        call_symbol = v4_codegen_llvm_callable_symbol(mir_id, call_symbol_name)
+                            call_symbol = v4_codegen_llvm_signature_symbol(mir_id, v4_mir_ty_id(mir_id), call_sig)
+                        } else { call_symbol = v4_codegen_llvm_callable_symbol(mir_id, call_symbol_name) }
                         if call_name == v4_mir_call_say_literal { call_symbol = "@freak_llvm_say" }
                     }
                     pilot call_expr = v4_mir_rvalue_text(mir_id, body_idx, rvalue_idx)
@@ -1693,6 +1702,7 @@ task v4_codegen_llvm_lower_mir(file_id: int, mir_id: int) -> int {
     pilot native_error = v4_codegen_llvm_native_word_error(mir_id)
     if native_error == "" { native_error = v4_codegen_llvm_native_mir_error(mir_id) }
     if native_error == "" { native_error = v4_codegen_llvm_native_entry_error(mir_id) }
+    if native_error == "" and v4_codegen_llvm_find_mir_body(mir_id, "main") >= 0 { native_error = v4_codegen_llvm_native_entry_symbol_error(codegen_id) }
     array_set(v4_codegen_llvm_native_errors, codegen_id, native_error)
     if native_error == "" {
         v4_codegen_llvm_lower_bodies(codegen_id, mir_id)
@@ -1796,9 +1806,95 @@ task v4_codegen_llvm_native_entry_error(mir_id: int) -> word {
     give back ""
 }
 
+-- The generated entry owns both the C ABI name and the private source-task
+-- name. A library without an entry may still declare an external main.
+task v4_codegen_llvm_native_entry_symbol_error(codegen_id: int) -> word {
+    pilot private_symbol = v4_codegen_llvm_symbol("freak.user.main")
+    pilot decl_id = 0
+    repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
+        if v4_codegen_llvm_starts_with(v4_codegen_llvm_decl_line(codegen_id, decl_id), "declare ") {
+            pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl_id)
+            if symbol == "@main" or symbol == "@freak.user.main" or symbol == private_symbol {
+                give back "native entry symbol conflicts with explicit ABI declaration: " + symbol
+            }
+        }
+        decl_id += 1
+    }
+    give back ""
+}
+
 task v4_codegen_llvm_native_module_error(codegen_id: int) -> word {
     if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "invalid codegen ID" }
     give back array_get(v4_codegen_llvm_native_errors, codegen_id)
+}
+
+-- Target checks read only sealed codegen facts. MIR/TY identities may already
+-- have been reused, so neither authority is consulted during module queries.
+-- Read the canonical target convention inventory once per query, avoiding a
+-- fresh target-record construction for every declaration, call and body.
+task v4_codegen_llvm_native_target_abi_error(abi: word, llvm_cc: word, supported: word, triple: word) -> word {
+    pilot canonical = abi
+    if canonical == "" { canonical = "C" }
+    pilot known = canonical == "C" or canonical == "cdecl" or canonical == "system" or canonical == "stdcall" or canonical == "fastcall" or canonical == "thiscall" or canonical == "vectorcall" or canonical == "win64" or canonical == "sysv64"
+    if not known or not supported.contains("," + canonical + ",") {
+        give back "native target calling convention not supported: " + canonical + " for " + triple
+    }
+    if llvm_cc != v4_codegen_llvm_calling_convention(abi) { give back "invalid sealed native calling convention metadata" }
+    give back ""
+}
+
+task v4_codegen_llvm_sealed_body_calling_convention(line: word) -> word {
+    if not line.starts_with("define ") { give back "" }
+    pilot end_pos = 7
+    repeat until end_pos >= line.length() or line.char_at(end_pos) == " " or line.char_at(end_pos) == "\n" or line.char_at(end_pos) == "\r" or line.char_at(end_pos) == "\t" {
+        end_pos += 1
+    }
+    if end_pos <= 7 or end_pos >= line.length() or line.char_at(end_pos) != " " { give back "" }
+    pilot cc = v4_slice(line, 7, end_pos)
+    if cc == "ccc" or cc == "x86_stdcallcc" or cc == "x86_fastcallcc" or cc == "x86_thiscallcc" or cc == "x86_vectorcallcc" or cc == "win64cc" or cc == "x86_64_sysvcc" { give back cc }
+    give back ""
+}
+
+task v4_codegen_llvm_abi_for_llvm_calling_convention(cc: word) -> word {
+    if cc == "ccc" { give back "C" }
+    if cc == "x86_stdcallcc" { give back "stdcall" }
+    if cc == "x86_fastcallcc" { give back "fastcall" }
+    if cc == "x86_thiscallcc" { give back "thiscall" }
+    if cc == "x86_vectorcallcc" { give back "vectorcall" }
+    if cc == "win64cc" { give back "win64" }
+    if cc == "x86_64_sysvcc" { give back "sysv64" }
+    give back ""
+}
+
+task v4_codegen_llvm_native_target_error(codegen_id: int, target_spec: word) -> word {
+    if not v4_target_spec_valid(target_spec) { give back "invalid native target specification" }
+    if v4_codegen_llvm_ready == 0 or codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "invalid codegen ID" }
+    pilot native_error = v4_codegen_llvm_native_module_error(codegen_id)
+    if native_error != "" { give back native_error }
+    if v4_codegen_llvm_diag_count(codegen_id) != 0 { give back "codegen diagnostics prevent native module" }
+    pilot supported = "," + v4_target_spec_calling_conventions(target_spec) + ","
+    pilot triple = v4_target_spec_triple(target_spec)
+    pilot decl_id = 0
+    repeat until decl_id >= v4_codegen_llvm_decl_count(codegen_id) {
+        native_error = v4_codegen_llvm_native_target_abi_error(v4_codegen_llvm_decl_abi(codegen_id, decl_id), v4_codegen_llvm_decl_cc(codegen_id, decl_id), supported, triple)
+        if native_error != "" { give back native_error }
+        decl_id += 1
+    }
+    pilot call_id = 0
+    repeat until call_id >= v4_codegen_llvm_call_count(codegen_id) {
+        native_error = v4_codegen_llvm_native_target_abi_error(v4_codegen_llvm_call_abi(codegen_id, call_id), v4_codegen_llvm_call_cc(codegen_id, call_id), supported, triple)
+        if native_error != "" { give back native_error }
+        call_id += 1
+    }
+    pilot body_id = 0
+    repeat until body_id >= v4_codegen_llvm_body_count(codegen_id) {
+        pilot cc = v4_codegen_llvm_sealed_body_calling_convention(v4_codegen_llvm_body_line(codegen_id, body_id))
+        if cc == "" { give back "invalid sealed native body calling convention" }
+        native_error = v4_codegen_llvm_native_target_abi_error(v4_codegen_llvm_abi_for_llvm_calling_convention(cc), cc, supported, triple)
+        if native_error != "" { give back native_error }
+        body_id += 1
+    }
+    give back ""
 }
 
 task v4_codegen_llvm_runtime_symbol_error(codegen_id: int, symbol: word, params: word) -> word {
@@ -1835,7 +1931,7 @@ task v4_codegen_llvm_module_text(codegen_id: int, target_spec: word) -> word {
     if not v4_target_spec_valid(target_spec) { give back "" }
     if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "" }
     if v4_codegen_llvm_diag_count(codegen_id) != 0 { give back "" }
-    if v4_codegen_llvm_native_module_error(codegen_id) != "" { give back "" }
+    if v4_codegen_llvm_native_target_error(codegen_id, target_spec) != "" { give back "" }
     pilot parts = array_new()
     array_push(parts, "target triple = \"" + v4_target_spec_triple(target_spec) + "\"\n\n")
     pilot entry: word = array_get(v4_codegen_llvm_native_entry_lines, codegen_id)

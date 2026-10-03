@@ -1,0 +1,51 @@
+-- Explicit ABI names must not inherit source-main routing. Native entries
+-- reserve both generated names; ordinary library declarations keep their ABI.
+task h6_entry_assert(condition: bool, label: word) -> void {
+    if not condition { panic("h6 native entry symbol: " + label) }
+}
+
+task h6_entry_plan(file_id: int, link_symbol: word, entry: bool) -> int {
+    pilot source = "extern [C] {\n"
+    source = source + " @link_name(\"" + link_symbol + "\")\n task outside() -> int\n"
+    source = source + "}\n"
+    pilot task_name = "probe"
+    if entry { task_name = "main" }
+    source = source + "task " + task_name + "() -> int {\n"
+    source = source + " give back outside()\n" + "}\n"
+    pilot stream = v4_lex_text(file_id, source)
+    pilot tree = v4_parse_stream(file_id, stream)
+    pilot hir = v4_hir_lower_tree(file_id, tree)
+    pilot resolve = v4_resolve_lower_hir(file_id, hir)
+    pilot ty = v4_ty_lower_resolve(file_id, resolve)
+    pilot mir = v4_mir_lower_ty(file_id, ty)
+    h6_entry_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0, "clean source owners")
+    h6_entry_assert(v4_mir_file_exists(mir) and v4_mir_body_count(mir) == 1 and v4_mir_body_name(mir, 0) == task_name, "authored valid owner and body")
+    h6_entry_assert(v4_mir_body_rvalue_count(mir, 0) > 0 and v4_mir_rvalue_kind(mir, 0, 0) == v4_mir_rvalue_call, "authored direct call")
+    pilot codegen = v4_codegen_llvm_lower_mir(file_id, mir)
+    pilot decl = v4_codegen_llvm_find_decl(codegen, "outside")
+    pilot call = v4_codegen_llvm_find_call(codegen, task_name, "outside")
+    h6_entry_assert(decl >= 0 and call >= 0 and v4_codegen_llvm_diag_count(codegen) == 0, "valid sealed declaration and call")
+    pilot symbol = v4_codegen_llvm_symbol(link_symbol)
+    h6_entry_assert(v4_codegen_llvm_decl_symbol(codegen, decl) == symbol and v4_codegen_llvm_call_symbol(codegen, call) == symbol, "explicit declaration and direct call names stay exact")
+    give back codegen
+}
+
+task h6_entry_run() -> void {
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot entry = h6_entry_plan(0, "main", true)
+    h6_entry_assert(v4_codegen_llvm_native_module_error(entry) == "native entry symbol conflicts with explicit ABI declaration: @main", "public entry collision named")
+    h6_entry_assert(v4_codegen_llvm_module_text(entry, target) == "", "public entry collision publishes no module")
+    pilot private_entry = h6_entry_plan(1, "freak.user.main", true)
+    h6_entry_assert(v4_codegen_llvm_native_module_error(private_entry) == "native entry symbol conflicts with explicit ABI declaration: " + v4_codegen_llvm_symbol("freak.user.main"), "quoted private entry collision named")
+    h6_entry_assert(v4_codegen_llvm_module_text(private_entry, target) == "", "private entry collision publishes no module")
+    say "h6-native-entry collisions=2 named=true no-module=true"
+
+    pilot library = h6_entry_plan(2, "main", false)
+    pilot module = v4_codegen_llvm_module_text(library, target)
+    h6_entry_assert(v4_codegen_llvm_native_module_error(library) == "" and v4_codegen_llvm_native_target_error(library, target) == "", "library external main permitted")
+    h6_entry_assert(module.contains("declare ccc i64 @main()") and module.contains("call ccc i64 @main()"), "library external main declaration and call exact")
+    h6_entry_assert(not module.contains("freak.user.main") and not module.contains("define i32 @main"), "library has no native entry")
+    say "h6-native-entry library-main=true abi-exact=true"
+}
+
+h6_entry_run()
