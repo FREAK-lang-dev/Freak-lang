@@ -192,7 +192,8 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                         self.assertRaises(RuntimeError) as failure:
                     checks.run_with_heartbeat(["unused"], label="test limit", memory_limit_mb=1)
                 self.assertEqual(events, ["diagnostic", "killpg", "kill", "wait", "close"])
-                killpg.assert_called_once_with(10, checks.signal.SIGKILL)
+                # This fixture models POSIX cleanup even on a Windows host.
+                killpg.assert_called_once_with(10, 9)
                 process.kill.assert_called_once_with()
                 process.wait.assert_called_once_with()
                 close.assert_called_once_with()
@@ -232,7 +233,7 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                 self.assertRaises(RuntimeError) as failure:
             checks.run_with_heartbeat(["unused"], label="late peak", memory_limit_mb=1)
         self.assertEqual(events, ["wait", "killpg", "close"])
-        killpg.assert_called_once_with(10, checks.signal.SIGKILL)
+        killpg.assert_called_once_with(10, 9)
         process.wait.assert_called_once_with(timeout=0.25)
         process.kill.assert_not_called()
         close.assert_called_once_with()
