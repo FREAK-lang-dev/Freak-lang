@@ -29,12 +29,14 @@ nonzero; raw evidence and source/runtime/toolchain provenance are retained.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 import hashlib
 import math
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -173,7 +175,7 @@ def save_json(path: Path, value) -> None:
 
 
 def guarded_job(build, command, directory, label, timeout, memory, output=64, runner=None,
-                *, executable=None):
+                *, executable=None, pass_fds=()):
     """All child jobs share V4's continuously polled, bounded process guard."""
     directory.mkdir(parents=True, exist_ok=True)
     metadata = {"command": command, "timeout": timeout,
@@ -182,6 +184,9 @@ def guarded_job(build, command, directory, label, timeout, memory, output=64, ru
     if executable is not None:
         metadata.update(executable=executable, argv0=command[0])
         execution["executable"] = executable
+    if pass_fds:
+        metadata["pass_fds"] = list(pass_fds)
+        execution["pass_fds"] = pass_fds
     save_json(directory / "command.json", metadata)
     try:
         result = (runner or build.checks.run_with_heartbeat)(
@@ -315,11 +320,11 @@ def llvm_symbol_tool(build, directory: Path, timeout: float) -> dict:
                           nm_file=symbol_file_provenance(tool))
         if "sha256" not in provenance["nm_file"]:
             raise RuntimeError("cannot pin llvm-nm executable identity")
-        argv0 = require_frozen_symbol_tool(provenance)
-        # Bind image selection independently of the mutable dispatch alias.
-        version = guarded_job(build, [argv0, "--version"], directory / "tool-version",
-                              "LLVM symbol tool version", min(timeout, 5), 128, 1,
-                              executable=provenance["resolved_nm"])
+        with frozen_symbol_tool_launch(provenance) as launch:
+            save_json(directory / "tool-version/image.json", launch["image"])
+            version = guarded_job(build, [launch["argv0"], "--version"], directory / "tool-version",
+                                  "LLVM symbol tool version", min(timeout, 5), 128, 1,
+                                  executable=launch["executable"], pass_fds=launch["pass_fds"])
         require_success(version, "llvm-nm version")
         provenance["nm_version"] = version.stdout[:512]
         if not (version.stdout.startswith("llvm-nm") and
@@ -336,7 +341,7 @@ def llvm_symbol_tool(build, directory: Path, timeout: float) -> dict:
                            + json.dumps(provenance, ensure_ascii=True, separators=(",", ":"))) from error
 
 
-def require_frozen_symbol_tool(provenance: dict) -> str:
+def require_frozen_symbol_mapping(provenance: dict) -> str:
     selected = Path(provenance["selected_nm"])
     tool = Path(provenance["resolved_nm"])
     try:
@@ -345,12 +350,61 @@ def require_frozen_symbol_tool(provenance: dict) -> str:
         raise RuntimeError("frozen LLVM symbol tool alias mapping became unavailable") from error
     if observed_target != tool:
         raise RuntimeError("frozen LLVM symbol tool alias mapping changed")
+    return str(selected)
+
+
+def require_frozen_symbol_tool(provenance: dict) -> str:
+    selected = require_frozen_symbol_mapping(provenance)
+    tool = Path(provenance["resolved_nm"])
     observed = symbol_file_provenance(tool)
     expected = provenance["nm_file"]
     if ("sha256" not in observed or observed["sha256"] != expected["sha256"]
             or observed["size_bytes"] != expected["size_bytes"]):
         raise RuntimeError("frozen LLVM symbol tool changed or became unavailable")
-    return str(selected)
+    return selected
+
+
+@contextmanager
+def frozen_symbol_tool_launch(provenance: dict):
+    """Pin the verified Linux ELF inode across pathname replacement and spawn."""
+    if not sys.platform.startswith("linux"):
+        raise RuntimeError("pinned LLVM symbol reader execution requires Linux proc-fd support")
+    argv0 = require_frozen_symbol_mapping(provenance)
+    tool = Path(provenance["resolved_nm"])
+    descriptor = os.open(tool, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise RuntimeError("pinned LLVM symbol reader must be a regular ELF image")
+        prefix = os.read(descriptor, 4)
+        digest = hashlib.sha256(prefix)
+        while chunk := os.read(descriptor, 64 * 1024):
+            digest.update(chunk)
+        after = os.fstat(descriptor)
+        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+            raise RuntimeError("frozen LLVM symbol tool changed while pinning its image")
+        expected = provenance["nm_file"]
+        if after.st_size != expected["size_bytes"] or digest.hexdigest() != expected["sha256"]:
+            raise RuntimeError("frozen LLVM symbol tool changed or became unavailable")
+        if prefix != b"\x7fELF":
+            raise RuntimeError("pinned LLVM symbol reader must be a native ELF image; shebang tools are unsupported")
+        executable = f"/proc/self/fd/{descriptor}"
+        try:
+            proc_image = os.stat(executable)
+        except OSError as error:
+            raise RuntimeError("pinned LLVM symbol reader execution requires Linux proc-fd support") from error
+        if (proc_image.st_dev, proc_image.st_ino) != (after.st_dev, after.st_ino):
+            raise RuntimeError("pinned LLVM symbol reader proc-fd identity mismatch")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        image = {"resolved_nm": str(tool), "argv0": argv0, "executable": executable,
+                 "device": after.st_dev, "inode": after.st_ino,
+                 "size_bytes": after.st_size, "sha256": digest.hexdigest(),
+                 "descriptor_lifetime": "inherited during this guarded job; closed after completion"}
+        yield {"argv0": argv0, "executable": executable,
+               "pass_fds": (descriptor,), "image": image}
+    finally:
+        os.close(descriptor)
 
 
 def defined_symbols(build, path: Path, directory: Path, timeout: float,
@@ -359,11 +413,12 @@ def defined_symbols(build, path: Path, directory: Path, timeout: float,
     try:
         selected = symbol_tool or llvm_symbol_tool(build, directory / "tool-selection", timeout)
         provenance.update(selected)
-        nm = require_frozen_symbol_tool(selected)
-        save_json(directory / "provenance.json", provenance)
-        result = guarded_job(build, [nm, "-g", "--defined-only", str(path)],
-                             directory, "native symbol inventory", timeout, 128, 8,
-                             executable=selected["resolved_nm"])
+        with frozen_symbol_tool_launch(selected) as launch:
+            save_json(directory / "provenance.json", provenance)
+            save_json(directory / "image.json", launch["image"])
+            result = guarded_job(build, [launch["argv0"], "-g", "--defined-only", str(path)],
+                                 directory, "native symbol inventory", timeout, 128, 8,
+                                 executable=launch["executable"], pass_fds=launch["pass_fds"])
         require_success(result, "llvm-nm")
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
         # Failed test scratch directories are removed; retain attribution in
