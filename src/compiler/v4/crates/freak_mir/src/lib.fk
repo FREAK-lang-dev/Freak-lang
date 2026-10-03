@@ -4903,6 +4903,66 @@ task v4_mir_control_static_never_row_is_valid(ty: int, line: word, values: int) 
 
 -- One shared row contract serves staged snapshots and live admission. All
 -- controls must already be terminal roots: hostile MIR is never normalized.
+task v4_mir_control_is_conditional_statement(kind: word) -> bool {
+    give back kind == v4_mir_stmt_branch or kind == v4_mir_stmt_loop
+}
+task v4_mir_control_conditional_statement_error(kind: word, term: word, operand: bool) -> word {
+    if not v4_mir_control_is_conditional_statement(kind) { give back "" }
+    if term != v4_mir_term_if { give back "native conditional statement requires an if terminator" }
+    if not operand { give back "native conditional statement requires an operand" }
+    -- Generic for-each Loop owns an iterable and binding place rather than a
+    -- Bool. Preserve that frontend wire protocol; native admission separately
+    -- checks that its supported branch operands are Bool.
+    give back ""
+}
+task v4_mir_control_live_conditional_error(mir: int, body: int) -> word {
+    pilot count = v4_mir_body_block_count(mir, body)
+    pilot needed: bool = false
+    pilot row = 0
+    repeat until row >= count {
+        if v4_mir_block_terminator(v4_mir_body_block(mir, body, row)) == v4_mir_term_if { needed = true }
+        row += 1
+    }
+    row = 0
+    repeat until row >= v4_mir_body_stmt_count(mir, body) {
+        if v4_mir_control_is_conditional_statement(v4_mir_stmt_kind(mir, body, row)) { needed = true }
+        row += 1
+    }
+    if not needed { give back "" }
+    pilot lasts = array_new()
+    pilot error = ""
+    if lasts < 0 { error = "native control plan scratch exhausted" }
+    row = 0
+    repeat until row >= count or error != "" {
+        if not v4_mir_control_checked_push(lasts, "-1") { error = "native control plan scratch exhausted" }
+        row += 1
+    }
+    row = 0
+    repeat until row >= v4_mir_body_stmt_count(mir, body) or error != "" {
+        pilot block = v4_mir_stmt_block(mir, body, row)
+        if block < 0 or block >= count { error = "invalid native control statement block" } else {
+            pilot prior = word_to_int(array_get(lasts, block))
+            if prior >= 0 and v4_mir_control_is_conditional_statement(v4_mir_stmt_kind(mir, body, prior)) { error = "native statement follows a conditional control" }
+            pilot operand = v4_mir_stmt_rvalue(mir, body, row)
+            pilot conditional_error = v4_mir_control_conditional_statement_error(v4_mir_stmt_kind(mir, body, row), v4_mir_block_terminator(v4_mir_body_block(mir, body, block)), operand >= 0 and operand < v4_mir_body_rvalue_count(mir, body))
+            if error == "" { error = conditional_error }
+            array_set(lasts, block, word_from_int(row))
+        }
+        row += 1
+    }
+    row = 0
+    repeat until row >= count or error != "" {
+        if v4_mir_block_terminator(v4_mir_body_block(mir, body, row)) == v4_mir_term_if {
+            pilot last = word_to_int(array_get(lasts, row))
+            if last < 0 { error = "native if block has no controlling statement" } else {
+                if not v4_mir_control_is_conditional_statement(v4_mir_stmt_kind(mir, body, last)) { error = "native if block has no controlling statement" }
+            }
+        }
+        row += 1
+    }
+    array_release(lasts)
+    give back error
+}
 task v4_mir_control_body_rows_error(ty: int, definition: word, blocks: int, statements: int, places: int, values: int) -> word {
     pilot owners = array_new()
     pilot lasts = array_new()
@@ -4929,13 +4989,26 @@ task v4_mir_control_body_rows_error(ty: int, definition: word, blocks: int, stat
             if prior >= 0 {
                 pilot previous: word = array_get(statements, prior)
                 if v4_mir_control_row_type(values, word_to_int(v4_mir_snapshot_field_raw(previous, 10))) == v4_ty_never { error = "native statement follows a terminal control call" }
+                if v4_mir_control_is_conditional_statement(v4_mir_snapshot_field(previous, 4)) { error = "native statement follows a conditional control" }
             }
+            pilot conditional_error = v4_mir_control_conditional_statement_error(v4_mir_snapshot_field(line, 4), v4_mir_block_terminator(array_get(blocks, block)), value >= 0 and value < array_len(values))
+            if error == "" { error = conditional_error }
             array_set(lasts, block, word_from_int(index))
         }
         if v4_mir_control_row_type(values, value) == v4_ty_never {
             if v4_mir_snapshot_field(line, 4) != v4_mir_stmt_expr or v4_mir_snapshot_field_raw(line, 9) != "-1" { error = "native never value must be a terminal expression" }
             if word_to_int(array_get(owners, value)) >= 0 { error = "native control call has repeated terminal ownership" }
             array_set(owners, value, word_from_int(index))
+        }
+        index += 1
+    }
+    index = 0
+    repeat until index >= array_len(blocks) or error != "" {
+        if v4_mir_block_terminator(array_get(blocks, index)) == v4_mir_term_if {
+            pilot last = word_to_int(array_get(lasts, index))
+            if last < 0 { error = "native if block has no controlling statement" } else {
+                if not v4_mir_control_is_conditional_statement(v4_mir_snapshot_field(array_get(statements, last), 4)) { error = "native if block has no controlling statement" }
+            }
         }
         index += 1
     }
@@ -4980,9 +5053,8 @@ task v4_mir_control_body_rows_error(ty: int, definition: word, blocks: int, stat
         if v4_mir_control_row_type(values, word_to_int(v4_mir_snapshot_field_raw(line, 8))) == v4_ty_never { error = "native never value has an enclosing place" }
         index += 1
     }
-    array_release(lasts)
     array_release(owners)
-    if error != "" { give back error }
+    if error != "" { array_release(lasts); give back error }
     pilot signature = v4_ty_lookup_signature(ty, definition)
     if signature >= 0 and v4_ty_signature_is_ordinary_static_task(ty, signature) and v4_ty_signature_return_type(ty, signature) == v4_ty_never {
         pilot seen = array_new()
@@ -5004,6 +5076,19 @@ task v4_mir_control_body_rows_error(ty: int, definition: word, blocks: int, stat
             pilot record: word = array_get(blocks, block)
             pilot term = v4_mir_block_terminator(record)
             if term == v4_mir_term_return { error = "native never task has a returning path" }
+            if term == v4_mir_term_unreachable {
+                -- Never is a proof of divergence, not permission to emit UB.
+                -- Every reachable terminal edge needs the checked call which
+                -- already uniquely owns the last Expr in this block. Goto/If
+                -- cycles remain genuine closed non-returning paths.
+                pilot terminal = word_to_int(array_get(lasts, block))
+                if terminal < 0 {
+                    error = "native never task has an unproved unreachable path"
+                } else {
+                    pilot statement: word = array_get(statements, terminal)
+                    if v4_mir_control_row_type(values, word_to_int(v4_mir_snapshot_field_raw(statement, 10))) != v4_ty_never { error = "native never task has an unproved unreachable path" }
+                }
+            }
             pilot edge = 0
             pilot edges = 0
             if term == v4_mir_term_goto { edges = 1 }
@@ -5025,6 +5110,7 @@ task v4_mir_control_body_rows_error(ty: int, definition: word, blocks: int, stat
         array_release(queue)
         array_release(seen)
     }
+    array_release(lasts)
     give back error
 }
 
@@ -5038,13 +5124,14 @@ task v4_mir_control_plan_preflight(mir: int) -> word {
             if v4_mir_local_mode(mir, body, local) == "$control-diagnostic" { error = "unpublished source control binding" }
             local += 1
         }
+        if error == "" { error = v4_mir_control_live_conditional_error(mir, body) }
         pilot control: bool = v4_mir_body_callable_return_type(mir, body) == v4_ty_never
         pilot value = 0
         repeat until value >= v4_mir_body_rvalue_count(mir, body) {
             if v4_mir_rvalue_ty(mir, body, value) == v4_ty_never or v4_mir_rvalue_builtin_method(mir, body, value).starts_with("builtin::control::") or v4_mir_rvalue_op(mir, body, value).starts_with("builtin::control::") { control = true }
             value += 1
         }
-        if control {
+        if control and error == "" {
             pilot blocks = array_new()
             pilot statements = array_new()
             pilot places = array_new()

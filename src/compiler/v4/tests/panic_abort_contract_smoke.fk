@@ -5,6 +5,180 @@ task v4_panic_contract_assert(condition: bool, label: word) -> void {
 task v4_panic_contract_source() -> word {
     give back "task main() -> int " + chr(123) + " pilot message = \"live\"; panic(message) " + chr(125) + "\n"
 }
+task v4_panic_contract_clear_column(columns: int, body: int) -> void {
+    pilot old = word_to_int(array_get(columns, body))
+    pilot fresh = array_new()
+    v4_panic_contract_assert(fresh >= 0, "replacement column allocated")
+    array_set(columns, body, word_from_int(fresh))
+    v4_panic_contract_assert(word_to_int(array_get(columns, body)) == fresh, "replacement column published")
+    array_release(old)
+}
+task v4_panic_contract_empty_callee(mir: int, body: int) -> void {
+    v4_panic_contract_clear_column(v4_mir_stmt_kinds_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_stmt_lhs_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_stmt_rhs_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_stmt_spans_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_stmt_scope_spans_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_stmt_blocks_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_stmt_places_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_stmt_rvalues_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_place_kinds_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_place_texts_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_place_bases_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_place_fields_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_place_indices_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_place_spans_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_place_tys_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_rvalue_kinds_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_rvalue_texts_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_rvalue_ops_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_rvalue_lhs_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_rvalue_rhs_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_rvalue_spans_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_rvalue_tys_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_rvalue_abis_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_rvalue_args_index_handle(mir), body)
+    v4_panic_contract_clear_column(v4_mir_rvalue_builtin_methods_index_handle(mir), body)
+    v4_mir_invalidate_block_stmt_index(mir, body)
+}
+task v4_panic_contract_remove_stmt_column(columns: int, body: int, removed: int) -> void {
+    pilot old = word_to_int(array_get(columns, body))
+    pilot fresh = array_new()
+    v4_panic_contract_assert(fresh >= 0 and removed >= 0 and removed < array_len(old), "remove exact statement column setup")
+    pilot row = 0
+    repeat until row >= array_len(old) {
+        if row != removed {
+            pilot before = array_len(fresh)
+            array_push(fresh, array_get(old, row))
+            v4_panic_contract_assert(array_len(fresh) == before + 1, "removed statement column append")
+        }
+        row += 1
+    }
+    v4_panic_contract_assert(array_len(fresh) + 1 == array_len(old), "only selected statement removed")
+    array_set(columns, body, word_from_int(fresh))
+    v4_panic_contract_assert(word_to_int(array_get(columns, body)) == fresh, "removed statement column published")
+    array_release(old)
+}
+task v4_panic_contract_remove_statement(mir: int, body: int, removed: int) -> void {
+    v4_panic_contract_remove_stmt_column(v4_mir_stmt_kinds_index_handle(mir), body, removed)
+    v4_panic_contract_remove_stmt_column(v4_mir_stmt_lhs_index_handle(mir), body, removed)
+    v4_panic_contract_remove_stmt_column(v4_mir_stmt_rhs_index_handle(mir), body, removed)
+    v4_panic_contract_remove_stmt_column(v4_mir_stmt_spans_index_handle(mir), body, removed)
+    v4_panic_contract_remove_stmt_column(v4_mir_stmt_scope_spans_index_handle(mir), body, removed)
+    v4_panic_contract_remove_stmt_column(v4_mir_stmt_blocks_index_handle(mir), body, removed)
+    v4_panic_contract_remove_stmt_column(v4_mir_stmt_places_index_handle(mir), body, removed)
+    v4_panic_contract_remove_stmt_column(v4_mir_stmt_rvalues_index_handle(mir), body, removed)
+    v4_mir_invalidate_block_stmt_index(mir, body)
+}
+task v4_panic_contract_conditional(mode: word) -> void {
+    pilot source = "task main() -> int { if true { give back 1 } else { give back 2 } }\n"
+    if mode == "if-never" or mode == "if-orphan" { source = "task stop(flag: bool) -> never { if flag { panic(\"left\") } else { panic(\"right\") } }\ntask main() -> int { stop(true) }\n" }
+    if mode == "if-int" { source = "task main() -> int { if true { panic(\"left\") } else { panic(\"right\") } }\n" }
+    if mode == "if-void" { source = "task main() -> void { if true { panic(\"left\") } else { panic(\"right\") } }\n" }
+    if mode == "loop-missing" or mode == "counted-wire" { source = "task main() -> int { pilot total = 0; repeat 3 times { total += 1 }; give back total }\n" }
+    if mode == "condition-wire" { source = "task main() -> int { pilot total = 0; repeat until total > 2 { total += 1 }; give back total }\n" }
+    if mode == "foreach-array-wire" { source = "task main() -> int { pilot rows = [1, 2]; pilot total = 0; for each item in rows { total += item }; give back total }\n" }
+    if mode == "foreach-list-wire" { source = "task rows() -> List<int> { give back [1, 2] }\ntask main() -> int { pilot total = 0; for each item in rows() { total += item }; give back total }\n" }
+    pilot mir = v4_mir_text_cached("panic-conditional.fk", source)
+    v4_panic_contract_assert(v4_mir_diag_count(mir) == 0 and v4_ty_diag_count(v4_mir_ty_id(mir)) == 0, "conditional frontend")
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    if mode == "if-never" or mode == "if-orphan" { body = v4_mir_lookup_body_name(mir, "stop") }
+    pilot control = -1
+    pilot row = 0
+    repeat until row >= v4_mir_body_stmt_count(mir, body) or control >= 0 {
+        if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_branch or v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_loop { control = row }
+        row += 1
+    }
+    v4_panic_contract_assert(control >= 0 and v4_mir_control_plan_preflight(mir) == "", "valid controlling statement")
+    pilot block = v4_mir_stmt_block(mir, body, control)
+    pilot record = v4_mir_body_block(mir, body, block)
+    pilot block_scope = v4_mir_block_scope_span(mir, body, block)
+    pilot value = v4_mir_stmt_rvalue(mir, body, control)
+    pilot scope = v4_mir_stmt_scope_span(mir, body, control)
+    pilot span = v4_mir_stmt_span(mir, body, control)
+    pilot snapshot = v4_mir_snapshot()
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    if mode == "counted-wire" or mode == "condition-wire" or mode == "foreach-array-wire" or mode == "foreach-list-wire" {
+        pilot iterable: bool = mode == "foreach-array-wire" or mode == "foreach-list-wire"
+        v4_panic_contract_assert(v4_mir_stmt_kind(mir, body, control) == v4_mir_stmt_loop and v4_mir_block_terminator(record) == v4_mir_term_if, "legacy loop owns if")
+        if iterable {
+            v4_panic_contract_assert(v4_mir_stmt_place(mir, body, control) >= 0 and v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_use_place and v4_mir_rvalue_ty(mir, body, value) != v4_ty_bool, "generic iterable operand and binding preserved")
+        } else {
+            v4_panic_contract_assert(v4_mir_stmt_place(mir, body, control) == -1 and v4_mir_rvalue_ty(mir, body, value) == v4_ty_bool, "scalar loop bool operand preserved")
+        }
+        v4_panic_contract_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot and v4_mir_control_plan_preflight(mir) == "", "legacy loop wire exact restoration")
+        say "panic-contract loop=" + mode + " frontend=true operand=true restore=true preserved=true"
+        give back
+    }
+    pilot accepted = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    pilot before = v4_codegen_llvm_module_text(accepted, target)
+    v4_panic_contract_assert(before != "", "conditional old seal")
+    pilot expected = "native if block has no controlling statement"
+    if mode == "if-orphan" {
+        pilot endpoint = v4_mir_block_target(record)
+        pilot orphan = v4_mir_block_else_target(record)
+        pilot terminal = -1
+        row = 0
+        repeat until row >= v4_mir_body_stmt_count(mir, body) or terminal >= 0 {
+            if v4_mir_stmt_block(mir, body, row) == endpoint and v4_mir_rvalue_ty(mir, body, v4_mir_stmt_rvalue(mir, body, row)) == v4_ty_never { terminal = row }
+            row += 1
+        }
+        v4_panic_contract_assert(terminal >= 0 and endpoint != orphan and v4_mir_block_terminator(v4_mir_body_block(mir, body, endpoint)) == v4_mir_term_unreachable and v4_mir_block_terminator(v4_mir_body_block(mir, body, orphan)) == v4_mir_term_unreachable, "actual two terminal successors")
+        pilot terminal_span = v4_mir_stmt_span(mir, body, terminal)
+        pilot terminal_scope = v4_mir_stmt_scope_span(mir, body, terminal)
+        pilot old_call = v4_mir_stmt_rvalue(mir, body, terminal)
+        pilot old_loan = v4_mir_rvalue_call_arg(mir, body, old_call, 0)
+        pilot literal = v4_mir_rvalue_text(mir, body, v4_mir_rvalue_lhs(mir, body, old_loan))
+        v4_panic_contract_empty_callee(mir, body)
+        pilot flag = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_use_local, "flag", "local#0", -1, -1, span, v4_ty_bool)
+        pilot branch = v4_mir_add_stmt(mir, body, block, v4_mir_stmt_branch, "flag", "", span, -1, flag)
+        v4_mir_set_stmt_scope_span(mir, body, branch, scope)
+        pilot owned = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_word, literal, "", -1, -1, terminal_span, v4_ty_word)
+        pilot loan = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_lend, "message", "", owned, -1, terminal_span, "lend word")
+        pilot call = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_call, "panic(message)", "builtin::control::panic", -1, -1, terminal_span, v4_ty_never)
+        v4_mir_set_rvalue_args_payload(mir, body, call, word_from_int(loan))
+        v4_mir_set_rvalue_builtin_method(mir, body, call, "builtin::control::panic")
+        pilot expr = v4_mir_add_stmt(mir, body, endpoint, v4_mir_stmt_expr, "", "panic", terminal_span, -1, call)
+        v4_mir_set_stmt_scope_span(mir, body, expr, terminal_scope)
+        v4_panic_contract_assert(v4_mir_body_stmt_count(mir, body) == 2 and v4_mir_body_rvalue_count(mir, body) == 4 and v4_mir_body_block(mir, body, block) == record and v4_mir_rvalue_is_builtin_control(mir, body, call), "conditional and one checked endpoint retained")
+        v4_panic_contract_assert(v4_mir_block_first_stmt(mir, body, orphan) < 0 and v4_mir_body_callable_return_type(mir, body) == v4_ty_never, "other reachable endpoint really orphaned")
+        expected = "native never task has an unproved unreachable path"
+    } else if mode == "if-duplicate" or mode == "if-following" {
+        pilot kind = v4_mir_stmt_expr
+        if mode == "if-duplicate" { kind = v4_mir_stmt_branch }
+        pilot extra = v4_mir_add_stmt(mir, body, block, kind, "true", "", span, -1, value)
+        v4_mir_set_stmt_scope_span(mir, body, extra, scope)
+        v4_panic_contract_assert(v4_mir_stmt_block(mir, body, extra) == block and v4_mir_stmt_kind(mir, body, extra) == kind, "extra same-block control or statement actually added")
+        expected = "native statement follows a conditional control"
+    } else if mode == "if-goto" {
+        v4_mir_set_body_block(mir, body, block, v4_mir_block_new_full(block, v4_mir_term_goto, v4_mir_block_target(record), -1, ""))
+        v4_mir_set_block_scope_span(mir, body, block, block_scope)
+        v4_panic_contract_assert(v4_mir_block_terminator(v4_mir_body_block(mir, body, block)) == v4_mir_term_goto and v4_mir_stmt_kind(mir, body, control) == v4_mir_stmt_branch, "real non-if controlling statement")
+        expected = "native conditional statement requires an if terminator"
+    } else if mode == "if-operand" {
+        v4_mir_restore_stmt_slot(mir, body, control, v4_mir_stmt_branch, "true", "", span, block, -1, -1)
+        v4_mir_set_stmt_scope_span(mir, body, control, scope)
+        v4_panic_contract_assert(v4_mir_stmt_rvalue(mir, body, control) == -1 and v4_mir_block_terminator(record) == v4_mir_term_if, "real missing conditional operand")
+        expected = "native conditional statement requires an operand"
+    } else {
+        pilot statements = v4_mir_body_stmt_count(mir, body)
+        pilot values = v4_mir_body_rvalue_count(mir, body)
+        v4_panic_contract_remove_statement(mir, body, control)
+        v4_panic_contract_assert(v4_mir_body_stmt_count(mir, body) + 1 == statements and v4_mir_body_rvalue_count(mir, body) == values and v4_mir_body_block(mir, body, block) == record, "only controlling statement removed; values and edges retained")
+    }
+    pilot malformed = v4_mir_snapshot()
+    v4_panic_contract_assert(malformed != snapshot and v4_mir_control_plan_preflight(mir) == expected, "setup-proven exact conditional rejection")
+    pilot checked = v4_borrowck_check_mir(0, mir)
+    v4_panic_contract_assert(v4_borrowck_diag_count(checked) > 0, "fresh Meiya conditional rejection")
+    pilot rejected = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    v4_panic_contract_assert(v4_codegen_llvm_native_module_error(rejected) == expected and v4_codegen_llvm_module_text(rejected, target) == "", "conditional named no-module")
+    v4_panic_contract_assert(v4_codegen_llvm_module_text(accepted, target) == before, "conditional old seal stable")
+    v4_panic_contract_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "conditional baseline restore")
+    v4_panic_contract_assert(v4_mir_snapshot_restore(malformed).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == snapshot, "conditional atomic wire rejection")
+    pilot recovered = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    v4_panic_contract_assert(v4_codegen_llvm_module_text(recovered, target) == before, "conditional fresh restored seal")
+    say "panic-contract conditional=" + mode + " named-rejected=true no-module=true atomic=true old-seal=true recovery=true"
+}
 task v4_panic_contract_replace(source: word, needle: word, replacement: word) -> word {
     pilot at = 0
     repeat until at + needle.length() > source.length() or source.substring(at, needle.length()) == needle { at += 1 }
@@ -13,8 +187,9 @@ task v4_panic_contract_replace(source: word, needle: word, replacement: word) ->
 }
 task v4_panic_contract_run() -> void {
     pilot mode = process::arg(1)
+    if mode.starts_with("if-") or mode == "loop-missing" or mode.ends_with("-wire") { v4_panic_contract_conditional(mode); give back }
     pilot source = v4_panic_contract_source()
-    pilot static_never: bool = mode == "19" or mode == "20" or mode == "21" or mode == "22"
+    pilot static_never: bool = mode == "19" or mode == "20" or mode == "21" or mode == "22" or mode == "25" or mode == "26" or mode == "closed-loop"
     if static_never { source = "task stop(lend input: word) -> never " + chr(123) + " panic(input) " + chr(125) + "\ntask main() -> int " + chr(123) + " pilot message = \"live\"; stop(lend message) " + chr(125) + "\n" }
     if mode == "22" { source = "task other(value: int, extra: bool) -> never " + chr(123) + " panic(\"other\") " + chr(125) + "\n" + source }
     pilot mir = v4_mir_text_cached("panic-contract.fk", source)
@@ -156,6 +331,39 @@ task v4_panic_contract_run() -> void {
         pilot local = v4_mir_add_local_at_scope(mir, body, "unpublished", v4_ty_int, span, v4_mir_block_scope_span(mir, body, 0))
         v4_mir_set_local_mode(mir, body, local, "$control-diagnostic")
     }
+    if mode == "25" or mode == "26" or mode == "closed-loop" {
+        pilot callee = v4_mir_lookup_body_name(mir, "stop")
+        pilot definition = v4_mir_body_def(mir, callee)
+        pilot callee_scope = v4_mir_block_scope_span(mir, callee, 0)
+        pilot local_span = v4_mir_local_span(mir, callee, 0)
+        pilot callee_span = v4_mir_stmt_span(mir, callee, 0)
+        v4_panic_contract_assert(callee >= 0 and v4_mir_body_stmt_count(mir, callee) > 0 and v4_mir_body_rvalue_count(mir, callee) > 0 and v4_mir_body_block_count(mir, callee) == 1, "actual callee to empty")
+        v4_panic_contract_empty_callee(mir, callee)
+        v4_panic_contract_assert(v4_mir_body_def(mir, callee) == definition and v4_mir_body_callable_return_type(mir, callee) == v4_ty_never and v4_mir_body_callable_param_count(mir, callee) == 1 and v4_mir_body_callable_param_name(mir, callee, 0) == "input" and v4_mir_local_span(mir, callee, 0) == local_span and v4_mir_block_scope_span(mir, callee, 0) == callee_scope, "header parameter and scope preserved")
+        v4_panic_contract_assert(v4_mir_body_stmt_count(mir, callee) == 0 and v4_mir_body_rvalue_count(mir, callee) == 0 and v4_mir_body_place_count(mir, callee) == 0 and v4_mir_block_terminator(v4_mir_body_block(mir, callee, 0)) == v4_mir_term_unreachable and v4_mir_rvalue_is_static_never(mir, body, value), "real empty callee with validated caller")
+        if mode == "26" {
+            pilot scalar = v4_mir_add_rvalue(mir, callee, v4_mir_rvalue_const_bool, "true", "", -1, -1, callee_span, v4_ty_bool)
+            pilot stmt = v4_mir_add_stmt(mir, callee, 0, v4_mir_stmt_expr, "", "true", callee_span, -1, scalar)
+            v4_mir_set_stmt_scope_span(mir, callee, stmt, callee_scope)
+            v4_panic_contract_assert(v4_mir_body_stmt_count(mir, callee) == 1 and v4_mir_body_rvalue_count(mir, callee) == 1 and v4_mir_rvalue_ty(mir, callee, scalar) == v4_ty_bool, "nonterminal last Expr really added")
+        }
+        if mode == "closed-loop" {
+            v4_mir_set_body_block(mir, callee, 0, v4_mir_block_new_full(0, v4_mir_term_goto, 0, -1, ""))
+            v4_mir_set_block_scope_span(mir, callee, 0, callee_scope)
+            v4_panic_contract_assert(v4_mir_block_target(v4_mir_body_block(mir, callee, 0)) == 0 and v4_mir_snapshot() != snapshot and v4_mir_control_plan_preflight(mir) == "", "genuine closed self loop")
+            pilot looping = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+            pilot looping_module = v4_codegen_llvm_module_text(looping, target)
+            pilot looping_body = v4_codegen_llvm_body_line(looping, v4_codegen_llvm_find_body(looping, "stop"))
+            v4_panic_contract_assert(v4_codegen_llvm_native_module_error(looping) == "" and looping_module != "" and looping_body.contains("bb0:\n  br label %bb0") and not looping_body.contains("unreachable"), "closed loop native admission")
+            pilot looping_payload = v4_mir_snapshot()
+            v4_panic_contract_assert(v4_mir_snapshot_restore(looping_payload).starts_with("mir-snapshot-restore ok=1"), "closed loop wire admission")
+            pilot fresh_loop = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+            v4_panic_contract_assert(v4_codegen_llvm_module_text(fresh_loop, target) == looping_module and v4_codegen_llvm_module_text(accepted, target) == before, "loop fresh seal and old seal stable")
+            say "panic-contract closed-loop=true admitted=true restore=true fresh-module=true old-seal=true"
+            give back
+        }
+        v4_panic_contract_assert(v4_mir_control_plan_preflight(mir) == "native never task has an unproved unreachable path", "exact orphan terminal proof rejection")
+    }
     if mode == "0" { v4_panic_contract_assert(v4_mir_rvalue_op(mir, body, value) == "panic", "op mutation") }
     if mode == "1" { v4_panic_contract_assert(v4_mir_rvalue_builtin_method(mir, body, value) == "", "identity cleared") }
     if mode == "2" { v4_panic_contract_assert(v4_mir_rvalue_builtin_method(mir, body, value) == "builtin::control::unknown", "unknown identity mutation") }
@@ -186,6 +394,7 @@ task v4_panic_contract_run() -> void {
     pilot malformed = v4_mir_snapshot()
     v4_panic_contract_assert(malformed != snapshot, "hostile setup must change serialized MIR " + mode)
     pilot rejected = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    if mode == "25" or mode == "26" { v4_panic_contract_assert(v4_codegen_llvm_native_module_error(rejected) == "native never task has an unproved unreachable path", "exact empty callee native rejection") }
     v4_panic_contract_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, target) == "", "hostile no module")
     v4_panic_contract_assert(v4_codegen_llvm_module_text(accepted, target) == before and v4_codegen_llvm_panic_policy(accepted) == "abort", "old sealed identity")
     v4_panic_contract_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "restore baseline")
