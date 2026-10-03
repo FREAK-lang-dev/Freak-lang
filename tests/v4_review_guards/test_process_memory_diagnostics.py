@@ -548,6 +548,104 @@ class ProcessMemoryDiagnostics(unittest.TestCase):
                     self.assertEqual(error.guard_error.timeout, 1)
                 self.assertIn("tree-closed=False", message)
 
+    def test_failed_cleanup_joins_deferred_readers_before_freezing_guard_evidence(self):
+        for guard in ("output", "timeout"):
+            with self.subTest(guard=guard):
+                fixture = self.cleanup_retry_fixture("posix", "terminate", persistent=True, permission_failure=True)
+                stdout_prefix = b"A" * (1024 * 1024 + 3000)
+                stderr_prefix = b"B" * (1024 * 1024 + 5000)
+                stdout_tail = b"DEFERRED-STDOUT-FINAL-TAIL\n"
+                stderr_tail = b"DEFERRED-STDERR-FINAL-TAIL\n"
+                stdout_payload = stdout_prefix + stdout_tail
+                stderr_payload = stderr_prefix + stderr_tail
+                fixture.process.stdout = io.BytesIO(stdout_payload)
+                fixture.process.stderr = io.BytesIO(stderr_payload)
+                workers = []
+
+                def thread(*, target, args, daemon):
+                    pipe = args[0]
+                    prefix_size = len(stdout_prefix) if pipe is fixture.process.stdout else len(stderr_prefix)
+
+                    def start():
+                        # Scheduling a reader does not synchronously drain it.
+                        self.assertEqual(pipe.tell(), 0)
+                        fixture.events.append("reader-start")
+
+                    def join(*, timeout):
+                        self.assertEqual(timeout, 5)
+                        # Reader waits must never delay guard enforcement. Both
+                        # termination attempts and the final fallback preceded
+                        # this bounded wait, even though a descendant remains.
+                        self.assertEqual(fixture.attempts["terminate"], 2)
+                        self.assertEqual(fixture.attempts["kill"], 3)
+                        self.assertEqual(fixture.process.returncode, -9)
+                        fixture.process.wait.assert_called_once_with(timeout=5)
+                        self.assertTrue(fixture.running_group)
+                        fixture.events.append("reader-join")
+                        target(pipe)
+
+                    worker = SimpleNamespace(
+                        start=Mock(side_effect=start), join=Mock(side_effect=join),
+                        target=target, pipe=pipe, prefix_size=prefix_size,
+                    )
+                    workers.append(worker)
+                    return worker
+
+                delivered_prefix = False
+
+                def memory_bytes():
+                    nonlocal delivered_prefix
+                    if not delivered_prefix:
+                        # Model independent scheduling after both starts. The
+                        # final bytes stay pending until join after cleanup.
+                        self.assertEqual(len(workers), 2)
+                        for worker in workers:
+                            worker.start.assert_called_once_with()
+                            worker.target(io.BytesIO(worker.pipe.read(worker.prefix_size)))
+                            worker.join.assert_not_called()
+                        delivered_prefix = True
+                    return 2 * 1024 * 1024
+
+                command = ["unused", "deferred-command"]
+                artifacts = self.proc / ("deferred-" + guard)
+                with patch.object(checks.threading, "Thread", side_effect=thread), \
+                        patch.object(fixture.tree, "memory_bytes", side_effect=memory_bytes), \
+                        patch.object(checks.time, "monotonic", side_effect=[0, 2, 2]), \
+                        patch.object(checks.subprocess, "Popen", side_effect=AssertionError("actual process forbidden")), \
+                        self.assertRaises(RuntimeError) as failure:
+                    benchmark.guarded_job(
+                        None, command, artifacts, "deferred guard",
+                        1 if guard == "timeout" else None, None,
+                        1 if guard == "output" else 8, runner=checks.run_with_heartbeat,
+                    )
+                error = failure.exception
+                for worker in workers:
+                    worker.join.assert_called_once_with(timeout=5)
+                    self.assertTrue(worker.pipe.closed)
+                self.assertLess(fixture.events.index("wait"), fixture.events.index("reader-join"))
+                self.assertIs(error.__cause__, error.cleanup_errors[0][1])
+                self.assertEqual(error.guard_trigger, guard)
+                self.assertEqual(error.stdout_total_bytes, len(stdout_payload))
+                self.assertEqual(error.stderr_total_bytes, len(stderr_payload))
+                self.assertEqual(error.guard_error.stdout_total_bytes, len(stdout_payload))
+                self.assertEqual(error.guard_error.stderr_total_bytes, len(stderr_payload))
+                self.assertTrue(error.output.endswith(stdout_tail.decode()))
+                self.assertTrue(error.stderr.endswith(stderr_tail.decode()))
+                self.assertEqual(error.guard_error.output, error.output)
+                self.assertEqual(error.guard_error.stderr, error.stderr)
+                self.assertEqual((artifacts / "stdout.txt").read_text(), error.output)
+                self.assertEqual((artifacts / "stderr.txt").read_text(), error.stderr)
+                self.assertEqual((artifacts / "failure.txt").read_text(), str(error))
+                self.assertEqual(json.loads((artifacts / "command.json").read_text())["command"], command)
+                self.assertIn("stdout-tail=" + stdout_payload[-2000:].decode(), str(error))
+                self.assertIn("stderr-tail=" + stderr_payload[-2000:].decode(), str(error))
+                if guard == "timeout":
+                    self.assertIsInstance(error.guard_error, subprocess.TimeoutExpired)
+                    self.assertIs(error.guard_error.cmd, command)
+                    self.assertEqual(error.guard_error.timeout, 1)
+                else:
+                    self.assertIsInstance(error.guard_error, RuntimeError)
+
     def test_windows_bool_zero_persistent_failures_keep_handle_and_os_cause(self):
         for phase in ("terminate", "close"):
             with self.subTest(failure=phase):
