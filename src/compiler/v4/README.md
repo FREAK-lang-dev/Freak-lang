@@ -56,6 +56,18 @@ it on every path, and falls back to a declaration-order scan without a handle.
 When callbacks add generated definitions, Codegen also rejects repeated body
 symbols in sealed body order. That check retains the same exact comparisons,
 temporary-handle cleanup and allocation-failure fallback.
+Explicit declarations that share a symbol must also share their native
+signature and calling convention; compatible aliases emit one declaration.
+Literal global names share LLVM's symbol namespace with callable names, so an
+extern alias to a generated literal receives a sealed error before publication.
+Native C boundaries admit `c_isize`/`isize`, `c_size`/`usize`, `c_float`,
+`c_double`, `c_void` and supported raw pointers on the four 64-bit targets.
+Other C scalar widths and native C variadics fail by name until B01 lowering
+implements their widths, extension rules and promotions. Raw aliases, nested
+callback signatures, pointer payloads, local annotations and explicit casts
+retain that fence. Pure FREAK scalar types retain their internal representation.
+The guard suite links a real C helper to check signed values and nonzero upper
+32 bits, float widths, pointers, void calls and callbacks in both directions.
 Quoted-name escaping preserves complete UTF-8 bytes and remains exact when
 temporary array handles are exhausted. Native character constants currently
 support printable ASCII and the admitted control escapes, including NUL;
@@ -89,8 +101,8 @@ existing optimization settings.
 The executable gate compiles the emitted modules with clang and checks results,
 not just LLVM substrings: Fibonacci/Collatz returns 166; storage, sibling scopes,
 loop exits, numeric operations, and short-circuit cases return 42. The latter
-include an aborting RHS, a third call argument, and exact `ABCD` side-effect
-ordering through call arguments and ordinary binary operands. MIR retains
+include an aborting RHS, a third call argument, and exact `A`, `B`, `C`, `D`
+line ordering through call arguments and ordinary binary operands. MIR retains
 short-circuit ownership and captures earlier operands before a later CFG split.
 Numeric emission follows TY's common operand type with widening conversions,
 floating comparisons, and unsigned comparison/division/remainder opcodes.

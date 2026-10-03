@@ -59,6 +59,14 @@ Collision checks preserve declaration order and the first native error, includin
 when temporary array handles are exhausted.
 Generated callback bodies must also have distinct symbols from ordinary bodies
 and other callbacks; repeated definitions fail before module publication.
+Incompatible extern aliases and extern/literal-global name collisions likewise
+fail before publication; compatible aliases emit one LLVM declaration.
+Native C admission currently covers pointer-sized integers, float32/float64,
+void and supported raw pointers on the four 64-bit targets. Unsupported C
+scalar widths and variadic promotions receive named errors, including through
+raw aliases, callback signatures, pointer payloads, local annotations and casts.
+Real C-helper guards check negative and greater-than-32-bit values, floating
+widths, pointer transport and callbacks. General B01 C-width lowering remains open.
 Native character constants retain printable ASCII and admitted control escapes,
 including NUL, and reject unsupported non-ASCII or unknown escapes by name instead of emitting
 zero. This does not promote general native Unicode character lowering.

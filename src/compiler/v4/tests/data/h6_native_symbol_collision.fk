@@ -9,11 +9,11 @@ impl A {
 }
 
 @extern_callback("C")
-task A_b() -> std::ffi::c_int {
+task A_b() -> std::ffi::c_isize {
     give back 17
 }
 
-task invoke(cb: extern [C] task() -> std::ffi::c_int) -> std::ffi::c_int {
+task invoke(cb: extern [C] task() -> std::ffi::c_isize) -> std::ffi::c_isize {
     give back cb()
 }
 

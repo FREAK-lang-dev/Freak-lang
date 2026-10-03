@@ -129,7 +129,7 @@ task h6_target_run() -> void {
     say "h6-native-target unknown-abi=true comma-injection=true unknown-header=true mismatch=true"
 
     pilot source = "@extern_callback(\"win64\")\n"
-    source = source + "task callback(seed: std::ffi::c_int) -> std::ffi::c_int {\n"
+    source = source + "task callback(seed: std::ffi::c_isize) -> std::ffi::c_isize {\n"
     source = source + " give back seed\n" + "}\n"
     pilot stream = v4_lex_text(9, source)
     pilot tree = v4_parse_stream(9, stream)

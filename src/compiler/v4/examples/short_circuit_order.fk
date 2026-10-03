@@ -1,10 +1,12 @@
 extern [C] {
-    task putchar(c: std::ffi::c_int) -> std::ffi::c_int
     task abort() -> void
 }
 
 task mark(c: int) -> bool {
-    putchar(c)
+    if c == 65 { say "A" }
+    if c == 66 { say "B" }
+    if c == 67 { say "C" }
+    if c == 68 { say "D" }
     give back true
 }
 

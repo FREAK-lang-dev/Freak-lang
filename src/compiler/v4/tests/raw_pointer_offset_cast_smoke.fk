@@ -3,11 +3,11 @@
 
 task v4_raw_ptr_oc_good_source(include_generic: bool) -> word {
     pilot src = "extern [C] {\n"
-    src = src + "    task lookup() -> *const std::ffi::c_int\n"
-    src = src + "    task lookup_mut() -> *mut std::ffi::c_int\n"
+    src = src + "    task lookup() -> *const std::ffi::c_isize\n"
+    src = src + "    task lookup_mut() -> *mut std::ffi::c_isize\n"
     src = src + "    task lookup_tiny() -> *const tiny\n"
     src = src + "}\n"
-    src = src + "task offset_read() -> std::ffi::c_int {\n"
+    src = src + "task offset_read() -> std::ffi::c_isize {\n"
     src = src + "    pilot p = lookup()\n"
     src = src + "    trust me \"walk C array\" on my honor as .ace {\n"
     src = src + "        pilot q = p.offset(2)\n"

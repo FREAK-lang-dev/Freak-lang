@@ -109,6 +109,8 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "h6_native_entry_symbol_smoke.fk",
         "h6_native_target_cc_smoke.fk",
         "h6_native_body_symbol_smoke.fk",
+        "h6_native_declaration_symbol_smoke.fk",
+        "h6_native_ffi_width_smoke.fk",
     }
 )
 
@@ -7233,6 +7235,34 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "Native declaration and literal symbol collisions",
+        "fixture": "h6_native_declaration_symbol_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-native-declaration incompatible=true named=true no-module=true aliases-retained=true",
+            "h6-native-declaration compatible=true dedupe=true metadata-exact=true hash-exact=true declaration-order=true recovery=true",
+            "h6-native-declaration literal=true quoted-identity=true definitions=true literal-order=true recovery=true",
+            "h6-native-declaration pressure=true construction-failure=true fallback=true handles-stable=true",
+            "h6-native-declaration restore=true changed-facts=true sealed=true",
+        ],
+    },
+    {
+        "name": "Native C scalar width admission fence",
+        "fixture": "h6_native_ffi_width_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-native-ffi-width cast-alias=true impl-raw=true callback-retained=true named=true no-module=true",
+            "h6-native-ffi-width portable=true pointers=true floats=true internal-bool-tiny=true recovery=true",
+            "h6-native-ffi-width aliases=8 nested-params-returns=true pointees=true bare-scalars=true variadic=true",
+            "h6-native-ffi-width locals=true cycles=true depth-bound=true cast-raw=true sealed=true",
+            "h6-native-ffi-width pressure=true restore=true changed-facts=true sealed=true",
+        ],
+    },
+    {
         "name": "LLVM module facts across MIR restore",
         "fixture": "codegen_llvm_module_epoch_smoke.fk",
         "expect_mode": "line",
@@ -7310,7 +7340,7 @@ EXECUTABLE_SMOKES = [
             "llvm-execute-module-nonempty-9=true",
         ],
         "llvm_programs": [("fib_collatz.fk", 166, ""), ("scalar_locals.fk", 42, ""),
-                          ("short_circuit.fk", 42, ""), ("short_circuit_order.fk", 42, "ABCD"),
+                          ("short_circuit.fk", 42, ""), ("short_circuit_order.fk", 42, "A\nB\nC\nD\n"),
                           ("scalar_numeric.fk", 42, ""), ("scalar_coercions.fk", 42, ""),
                           ("impl_scalar.fk", 42, ""), ("raw_pointer_coercions.fk", 42, ""),
                           ("hello_world.fk", 0, "Hello, world!\n"),
@@ -11645,7 +11675,7 @@ def check_task_return_hir_boundary() -> None:
 
     allowed_return_token_tasks = {
         "v4_ty_doctrine_method_return_surface_type",
-        "v4_ty_impl_method_return_type",
+        "v4_ty_impl_method_return_surface_type",
         "v4_ty_nonordinary_hir_item_return_fallback",
         "v4_ty_nonordinary_signature_return_fallback",
     }
@@ -12667,6 +12697,8 @@ def check_snapshot_inventories() -> None:
             "h6_native_entry_symbol_smoke.fk",
             "h6_native_target_cc_smoke.fk",
             "h6_native_body_symbol_smoke.fk",
+            "h6_native_declaration_symbol_smoke.fk",
+            "h6_native_ffi_width_smoke.fk",
         }
     ):
         violations.append("scratch-handle resource smoke limit coverage drifted")
@@ -13925,7 +13957,7 @@ def check_v4_build_command() -> None:
     library_source.write_text("task helper() -> int { give back 7 }\n", encoding="utf-8")
     warning_source = RUNTIME_BUILD_ROOT / "llvm_warning_only.fk"
     warning_source.write_text(
-        'extern [C] {\n task longjmp(env: *mut tiny, code: std::ffi::c_int) -> void\n}\n'
+        'extern [C] {\n task _Unwind_Resume(exception: *mut std::ffi::c_void) -> void\n}\n'
         'task main() -> int { give back 42 }\n', encoding="utf-8",
     )
     error_source = RUNTIME_BUILD_ROOT / "llvm_error.fk"
@@ -13989,9 +14021,50 @@ def check_v4_build_command() -> None:
             raise RuntimeError("V4 build lowered unsupported root syntax past parsing")
         if expected_success and "v4-errors=0" not in result.stdout:
             raise RuntimeError("warning-only V4 build did not report zero errors")
+        if expected_success and "extern import unwinds across the FFI boundary" not in result.stdout:
+            raise RuntimeError("warning-only V4 build did not retain its unwinder warning")
     # Exercise the actual bootstrap/tool boundary as well as plan-level facts:
     # rejected body/entry symbols and cross-target conventions publish no LLVM.
     contract_cases = [
+        (
+            "declaration_alias", host_target(),
+            'extern [C] {\n @link_name("native_same")\n task first() -> std::ffi::c_isize\n'
+            ' @link_name("native_same")\n task second(value: std::ffi::c_isize) -> std::ffi::c_isize\n}\n'
+            'task main() -> int { give back first() }\n',
+            "native declaration symbol has incompatible signatures: @native_same",
+        ),
+        (
+            "literal_alias", host_target(),
+            'extern [C] {\n @link_name(".str.0.0")\n task outside() -> std::ffi::c_isize\n}\n'
+            'task main() -> int { say "literal"\n give back 0 }\n',
+            'native literal global symbol conflicts with callable symbol: @".str.0.0"',
+        ),
+        (
+            "c_int_width", host_target(),
+            'extern [C] { task echo_c_int(value: std::ffi::c_int) -> std::ffi::c_int }\n'
+            'task main() -> int { if echo_c_int(0 - 1) < 0 { give back 42 }\n give back 7 }\n',
+            "native C scalar ABI not yet supported: std::ffi::c_int",
+        ),
+        (
+            "c_long_width", host_target(),
+            'extern [C] { task outside() -> std::ffi::c_long }\n'
+            'task main() -> int { give back outside() }\n',
+            "native C scalar ABI not yet supported: std::ffi::c_long",
+        ),
+        (
+            "c_width_cast", host_target(),
+            'extern [C] { task probe_ptr() -> *mut tiny }\n'
+            'task main() -> int {\n pilot p = probe_ptr()\n'
+            ' trust me "test raw C width cast" on my honor as .ace {\n'
+            '  pilot value = p.cast<std::ffi::c_int>()\n }\n give back 42\n}\n',
+            "native C scalar ABI not yet supported: std::ffi::c_int",
+        ),
+        (
+            "c_variadic", host_target(),
+            'extern [C] { task outside(value: std::ffi::c_isize, args: ...) -> std::ffi::c_isize }\n'
+            'task main() -> int { give back 42 }\n',
+            "native C variadic ABI not yet supported",
+        ),
         (
             "target_cc", "aarch64-apple-darwin",
             'extern [stdcall] { task outside() -> std::ffi::c_isize }\n'
