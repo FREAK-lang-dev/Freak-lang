@@ -9,6 +9,7 @@
 
 pilot v4_codegen_llvm_files = 0
 pilot v4_codegen_llvm_mirs = 0
+pilot v4_codegen_llvm_panic_policies = 0
 pilot v4_codegen_llvm_decl_names = 0
 pilot v4_codegen_llvm_decl_symbols = 0
 pilot v4_codegen_llvm_decl_links = 0
@@ -72,152 +73,437 @@ task v4_codegen_llvm_fragment_finish(parts: int) -> word {
 }
 
 task v4_codegen_llvm_init() -> void {
-    if v4_codegen_llvm_ready == 0 {
-        v4_codegen_llvm_files = array_new()
-        v4_codegen_llvm_mirs = array_new()
-        v4_codegen_llvm_decl_names = array_new()
-        v4_codegen_llvm_decl_symbols = array_new()
-        v4_codegen_llvm_decl_links = array_new()
-        v4_codegen_llvm_decl_abis = array_new()
-        v4_codegen_llvm_decl_ccs = array_new()
-        v4_codegen_llvm_decl_returns = array_new()
-        v4_codegen_llvm_decl_params = array_new()
-        v4_codegen_llvm_decl_lines = array_new()
-        v4_codegen_llvm_call_bodies = array_new()
-        v4_codegen_llvm_call_names = array_new()
-        v4_codegen_llvm_call_symbols = array_new()
-        v4_codegen_llvm_call_links = array_new()
-        v4_codegen_llvm_call_abis = array_new()
-        v4_codegen_llvm_call_ccs = array_new()
-        v4_codegen_llvm_call_returns = array_new()
-        v4_codegen_llvm_call_exprs = array_new()
-        v4_codegen_llvm_call_lines = array_new()
-        v4_codegen_llvm_body_names = array_new()
-        v4_codegen_llvm_body_symbols = array_new()
-        v4_codegen_llvm_body_lines = array_new()
-        v4_codegen_llvm_word_global_lines = array_new()
-        v4_codegen_llvm_native_entry_lines = array_new()
-        v4_codegen_llvm_word_runtime_lines = array_new()
-        v4_codegen_llvm_native_errors = array_new()
-        v4_codegen_llvm_diags = array_new()
-        v4_codegen_llvm_ready = 1
+    if v4_codegen_llvm_ready != 0 { give back }
+    v4_codegen_llvm_files = array_new()
+    v4_codegen_llvm_mirs = array_new()
+    v4_codegen_llvm_panic_policies = array_new()
+    v4_codegen_llvm_decl_names = array_new()
+    v4_codegen_llvm_decl_symbols = array_new()
+    v4_codegen_llvm_decl_links = array_new()
+    v4_codegen_llvm_decl_abis = array_new()
+    v4_codegen_llvm_decl_ccs = array_new()
+    v4_codegen_llvm_decl_returns = array_new()
+    v4_codegen_llvm_decl_params = array_new()
+    v4_codegen_llvm_decl_lines = array_new()
+    v4_codegen_llvm_call_bodies = array_new()
+    v4_codegen_llvm_call_names = array_new()
+    v4_codegen_llvm_call_symbols = array_new()
+    v4_codegen_llvm_call_links = array_new()
+    v4_codegen_llvm_call_abis = array_new()
+    v4_codegen_llvm_call_ccs = array_new()
+    v4_codegen_llvm_call_returns = array_new()
+    v4_codegen_llvm_call_exprs = array_new()
+    v4_codegen_llvm_call_lines = array_new()
+    v4_codegen_llvm_body_names = array_new()
+    v4_codegen_llvm_body_symbols = array_new()
+    v4_codegen_llvm_body_lines = array_new()
+    v4_codegen_llvm_word_global_lines = array_new()
+    v4_codegen_llvm_native_entry_lines = array_new()
+    v4_codegen_llvm_word_runtime_lines = array_new()
+    v4_codegen_llvm_native_errors = array_new()
+    v4_codegen_llvm_diags = array_new()
+    if v4_codegen_llvm_files < 0 or v4_codegen_llvm_mirs < 0 or v4_codegen_llvm_panic_policies < 0 or v4_codegen_llvm_decl_names < 0 or v4_codegen_llvm_decl_symbols < 0 or v4_codegen_llvm_decl_links < 0 or v4_codegen_llvm_decl_abis < 0 or v4_codegen_llvm_decl_ccs < 0 or v4_codegen_llvm_decl_returns < 0 or v4_codegen_llvm_decl_params < 0 or v4_codegen_llvm_decl_lines < 0 or v4_codegen_llvm_call_bodies < 0 or v4_codegen_llvm_call_names < 0 or v4_codegen_llvm_call_symbols < 0 or v4_codegen_llvm_call_links < 0 or v4_codegen_llvm_call_abis < 0 or v4_codegen_llvm_call_ccs < 0 or v4_codegen_llvm_call_returns < 0 or v4_codegen_llvm_call_exprs < 0 or v4_codegen_llvm_call_lines < 0 or v4_codegen_llvm_body_names < 0 or v4_codegen_llvm_body_symbols < 0 or v4_codegen_llvm_body_lines < 0 or v4_codegen_llvm_word_global_lines < 0 or v4_codegen_llvm_native_entry_lines < 0 or v4_codegen_llvm_word_runtime_lines < 0 or v4_codegen_llvm_native_errors < 0 or v4_codegen_llvm_diags < 0 {
+        array_release(v4_codegen_llvm_files)
+        v4_codegen_llvm_files = -1
+        array_release(v4_codegen_llvm_mirs)
+        v4_codegen_llvm_mirs = -1
+        array_release(v4_codegen_llvm_panic_policies)
+        v4_codegen_llvm_panic_policies = -1
+        array_release(v4_codegen_llvm_decl_names)
+        v4_codegen_llvm_decl_names = -1
+        array_release(v4_codegen_llvm_decl_symbols)
+        v4_codegen_llvm_decl_symbols = -1
+        array_release(v4_codegen_llvm_decl_links)
+        v4_codegen_llvm_decl_links = -1
+        array_release(v4_codegen_llvm_decl_abis)
+        v4_codegen_llvm_decl_abis = -1
+        array_release(v4_codegen_llvm_decl_ccs)
+        v4_codegen_llvm_decl_ccs = -1
+        array_release(v4_codegen_llvm_decl_returns)
+        v4_codegen_llvm_decl_returns = -1
+        array_release(v4_codegen_llvm_decl_params)
+        v4_codegen_llvm_decl_params = -1
+        array_release(v4_codegen_llvm_decl_lines)
+        v4_codegen_llvm_decl_lines = -1
+        array_release(v4_codegen_llvm_call_bodies)
+        v4_codegen_llvm_call_bodies = -1
+        array_release(v4_codegen_llvm_call_names)
+        v4_codegen_llvm_call_names = -1
+        array_release(v4_codegen_llvm_call_symbols)
+        v4_codegen_llvm_call_symbols = -1
+        array_release(v4_codegen_llvm_call_links)
+        v4_codegen_llvm_call_links = -1
+        array_release(v4_codegen_llvm_call_abis)
+        v4_codegen_llvm_call_abis = -1
+        array_release(v4_codegen_llvm_call_ccs)
+        v4_codegen_llvm_call_ccs = -1
+        array_release(v4_codegen_llvm_call_returns)
+        v4_codegen_llvm_call_returns = -1
+        array_release(v4_codegen_llvm_call_exprs)
+        v4_codegen_llvm_call_exprs = -1
+        array_release(v4_codegen_llvm_call_lines)
+        v4_codegen_llvm_call_lines = -1
+        array_release(v4_codegen_llvm_body_names)
+        v4_codegen_llvm_body_names = -1
+        array_release(v4_codegen_llvm_body_symbols)
+        v4_codegen_llvm_body_symbols = -1
+        array_release(v4_codegen_llvm_body_lines)
+        v4_codegen_llvm_body_lines = -1
+        array_release(v4_codegen_llvm_word_global_lines)
+        v4_codegen_llvm_word_global_lines = -1
+        array_release(v4_codegen_llvm_native_entry_lines)
+        v4_codegen_llvm_native_entry_lines = -1
+        array_release(v4_codegen_llvm_word_runtime_lines)
+        v4_codegen_llvm_word_runtime_lines = -1
+        array_release(v4_codegen_llvm_native_errors)
+        v4_codegen_llvm_native_errors = -1
+        array_release(v4_codegen_llvm_diags)
+        v4_codegen_llvm_diags = -1
+        give back
     }
+    v4_codegen_llvm_ready = 1
+}
+
+-- Every new result publishes all columns together. Failed child/outer
+-- allocation leaves previous sealed results and their policies untouched.
+task v4_codegen_llvm_stage_column(column: int, value: word) -> int {
+    pilot staged = array_new()
+    if staged < 0 { give back -1 }
+    pilot row = 0
+    repeat until row >= array_len(column) {
+        pilot before = array_len(staged)
+        array_push(staged, array_get(column, row))
+        if array_len(staged) != before + 1 { array_release(staged); give back -1 }
+        row += 1
+    }
+    pilot before = array_len(staged)
+    array_push(staged, value)
+    if array_len(staged) != before + 1 { array_release(staged); give back -1 }
+    give back staged
 }
 
 task v4_codegen_llvm_file_new(file_id: int, mir_id: int) -> int {
+    give back v4_codegen_llvm_file_new_with_panic(file_id, mir_id, "unwind")
+}
+
+task v4_codegen_llvm_file_new_with_panic(file_id: int, mir_id: int, policy: word) -> int {
     v4_codegen_llvm_init()
+    if v4_codegen_llvm_ready == 0 { give back -2 }
     pilot codegen_id = array_len(v4_codegen_llvm_files)
-    array_push(v4_codegen_llvm_files, word_from_int(file_id))
-    array_push(v4_codegen_llvm_mirs, word_from_int(mir_id))
-    array_push(v4_codegen_llvm_decl_names, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_decl_symbols, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_decl_links, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_decl_abis, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_decl_ccs, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_decl_returns, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_decl_params, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_decl_lines, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_call_bodies, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_call_names, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_call_symbols, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_call_links, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_call_abis, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_call_ccs, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_call_returns, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_call_exprs, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_call_lines, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_body_names, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_body_symbols, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_body_lines, word_from_int(array_new()))
-    array_push(v4_codegen_llvm_word_global_lines, "")
-    array_push(v4_codegen_llvm_native_entry_lines, "")
-    array_push(v4_codegen_llvm_word_runtime_lines, "")
-    array_push(v4_codegen_llvm_native_errors, "")
-    array_push(v4_codegen_llvm_diags, word_from_int(array_new()))
+    pilot child_decl_names = array_new()
+    pilot child_decl_symbols = array_new()
+    pilot child_decl_links = array_new()
+    pilot child_decl_abis = array_new()
+    pilot child_decl_ccs = array_new()
+    pilot child_decl_returns = array_new()
+    pilot child_decl_params = array_new()
+    pilot child_decl_lines = array_new()
+    pilot child_call_bodies = array_new()
+    pilot child_call_names = array_new()
+    pilot child_call_symbols = array_new()
+    pilot child_call_links = array_new()
+    pilot child_call_abis = array_new()
+    pilot child_call_ccs = array_new()
+    pilot child_call_returns = array_new()
+    pilot child_call_exprs = array_new()
+    pilot child_call_lines = array_new()
+    pilot child_body_names = array_new()
+    pilot child_body_symbols = array_new()
+    pilot child_body_lines = array_new()
+    pilot child_diags = array_new()
+    if child_decl_names < 0 or child_decl_symbols < 0 or child_decl_links < 0 or child_decl_abis < 0 or child_decl_ccs < 0 or child_decl_returns < 0 or child_decl_params < 0 or child_decl_lines < 0 or child_call_bodies < 0 or child_call_names < 0 or child_call_symbols < 0 or child_call_links < 0 or child_call_abis < 0 or child_call_ccs < 0 or child_call_returns < 0 or child_call_exprs < 0 or child_call_lines < 0 or child_body_names < 0 or child_body_symbols < 0 or child_body_lines < 0 or child_diags < 0 {
+        array_release(child_decl_names)
+        array_release(child_decl_symbols)
+        array_release(child_decl_links)
+        array_release(child_decl_abis)
+        array_release(child_decl_ccs)
+        array_release(child_decl_returns)
+        array_release(child_decl_params)
+        array_release(child_decl_lines)
+        array_release(child_call_bodies)
+        array_release(child_call_names)
+        array_release(child_call_symbols)
+        array_release(child_call_links)
+        array_release(child_call_abis)
+        array_release(child_call_ccs)
+        array_release(child_call_returns)
+        array_release(child_call_exprs)
+        array_release(child_call_lines)
+        array_release(child_body_names)
+        array_release(child_body_symbols)
+        array_release(child_body_lines)
+        array_release(child_diags)
+        give back -2
+    }
+    pilot staged_files = v4_codegen_llvm_stage_column(v4_codegen_llvm_files, word_from_int(file_id))
+    pilot staged_mirs = v4_codegen_llvm_stage_column(v4_codegen_llvm_mirs, word_from_int(mir_id))
+    pilot staged_panic_policies = v4_codegen_llvm_stage_column(v4_codegen_llvm_panic_policies, policy)
+    pilot staged_decl_names = v4_codegen_llvm_stage_column(v4_codegen_llvm_decl_names, word_from_int(child_decl_names))
+    pilot staged_decl_symbols = v4_codegen_llvm_stage_column(v4_codegen_llvm_decl_symbols, word_from_int(child_decl_symbols))
+    pilot staged_decl_links = v4_codegen_llvm_stage_column(v4_codegen_llvm_decl_links, word_from_int(child_decl_links))
+    pilot staged_decl_abis = v4_codegen_llvm_stage_column(v4_codegen_llvm_decl_abis, word_from_int(child_decl_abis))
+    pilot staged_decl_ccs = v4_codegen_llvm_stage_column(v4_codegen_llvm_decl_ccs, word_from_int(child_decl_ccs))
+    pilot staged_decl_returns = v4_codegen_llvm_stage_column(v4_codegen_llvm_decl_returns, word_from_int(child_decl_returns))
+    pilot staged_decl_params = v4_codegen_llvm_stage_column(v4_codegen_llvm_decl_params, word_from_int(child_decl_params))
+    pilot staged_decl_lines = v4_codegen_llvm_stage_column(v4_codegen_llvm_decl_lines, word_from_int(child_decl_lines))
+    pilot staged_call_bodies = v4_codegen_llvm_stage_column(v4_codegen_llvm_call_bodies, word_from_int(child_call_bodies))
+    pilot staged_call_names = v4_codegen_llvm_stage_column(v4_codegen_llvm_call_names, word_from_int(child_call_names))
+    pilot staged_call_symbols = v4_codegen_llvm_stage_column(v4_codegen_llvm_call_symbols, word_from_int(child_call_symbols))
+    pilot staged_call_links = v4_codegen_llvm_stage_column(v4_codegen_llvm_call_links, word_from_int(child_call_links))
+    pilot staged_call_abis = v4_codegen_llvm_stage_column(v4_codegen_llvm_call_abis, word_from_int(child_call_abis))
+    pilot staged_call_ccs = v4_codegen_llvm_stage_column(v4_codegen_llvm_call_ccs, word_from_int(child_call_ccs))
+    pilot staged_call_returns = v4_codegen_llvm_stage_column(v4_codegen_llvm_call_returns, word_from_int(child_call_returns))
+    pilot staged_call_exprs = v4_codegen_llvm_stage_column(v4_codegen_llvm_call_exprs, word_from_int(child_call_exprs))
+    pilot staged_call_lines = v4_codegen_llvm_stage_column(v4_codegen_llvm_call_lines, word_from_int(child_call_lines))
+    pilot staged_body_names = v4_codegen_llvm_stage_column(v4_codegen_llvm_body_names, word_from_int(child_body_names))
+    pilot staged_body_symbols = v4_codegen_llvm_stage_column(v4_codegen_llvm_body_symbols, word_from_int(child_body_symbols))
+    pilot staged_body_lines = v4_codegen_llvm_stage_column(v4_codegen_llvm_body_lines, word_from_int(child_body_lines))
+    pilot staged_word_global_lines = v4_codegen_llvm_stage_column(v4_codegen_llvm_word_global_lines, "")
+    pilot staged_native_entry_lines = v4_codegen_llvm_stage_column(v4_codegen_llvm_native_entry_lines, "")
+    pilot staged_word_runtime_lines = v4_codegen_llvm_stage_column(v4_codegen_llvm_word_runtime_lines, "")
+    pilot staged_native_errors = v4_codegen_llvm_stage_column(v4_codegen_llvm_native_errors, "")
+    pilot staged_diags = v4_codegen_llvm_stage_column(v4_codegen_llvm_diags, word_from_int(child_diags))
+    if staged_files < 0 or staged_mirs < 0 or staged_panic_policies < 0 or staged_decl_names < 0 or staged_decl_symbols < 0 or staged_decl_links < 0 or staged_decl_abis < 0 or staged_decl_ccs < 0 or staged_decl_returns < 0 or staged_decl_params < 0 or staged_decl_lines < 0 or staged_call_bodies < 0 or staged_call_names < 0 or staged_call_symbols < 0 or staged_call_links < 0 or staged_call_abis < 0 or staged_call_ccs < 0 or staged_call_returns < 0 or staged_call_exprs < 0 or staged_call_lines < 0 or staged_body_names < 0 or staged_body_symbols < 0 or staged_body_lines < 0 or staged_word_global_lines < 0 or staged_native_entry_lines < 0 or staged_word_runtime_lines < 0 or staged_native_errors < 0 or staged_diags < 0 {
+        array_release(staged_files)
+        array_release(staged_mirs)
+        array_release(staged_panic_policies)
+        array_release(staged_decl_names)
+        array_release(staged_decl_symbols)
+        array_release(staged_decl_links)
+        array_release(staged_decl_abis)
+        array_release(staged_decl_ccs)
+        array_release(staged_decl_returns)
+        array_release(staged_decl_params)
+        array_release(staged_decl_lines)
+        array_release(staged_call_bodies)
+        array_release(staged_call_names)
+        array_release(staged_call_symbols)
+        array_release(staged_call_links)
+        array_release(staged_call_abis)
+        array_release(staged_call_ccs)
+        array_release(staged_call_returns)
+        array_release(staged_call_exprs)
+        array_release(staged_call_lines)
+        array_release(staged_body_names)
+        array_release(staged_body_symbols)
+        array_release(staged_body_lines)
+        array_release(staged_word_global_lines)
+        array_release(staged_native_entry_lines)
+        array_release(staged_word_runtime_lines)
+        array_release(staged_native_errors)
+        array_release(staged_diags)
+        array_release(child_decl_names)
+        array_release(child_decl_symbols)
+        array_release(child_decl_links)
+        array_release(child_decl_abis)
+        array_release(child_decl_ccs)
+        array_release(child_decl_returns)
+        array_release(child_decl_params)
+        array_release(child_decl_lines)
+        array_release(child_call_bodies)
+        array_release(child_call_names)
+        array_release(child_call_symbols)
+        array_release(child_call_links)
+        array_release(child_call_abis)
+        array_release(child_call_ccs)
+        array_release(child_call_returns)
+        array_release(child_call_exprs)
+        array_release(child_call_lines)
+        array_release(child_body_names)
+        array_release(child_body_symbols)
+        array_release(child_body_lines)
+        array_release(child_diags)
+        give back -2
+    }
+    pilot old_files = v4_codegen_llvm_files
+    v4_codegen_llvm_files = staged_files
+    pilot old_mirs = v4_codegen_llvm_mirs
+    v4_codegen_llvm_mirs = staged_mirs
+    pilot old_panic_policies = v4_codegen_llvm_panic_policies
+    v4_codegen_llvm_panic_policies = staged_panic_policies
+    pilot old_decl_names = v4_codegen_llvm_decl_names
+    v4_codegen_llvm_decl_names = staged_decl_names
+    pilot old_decl_symbols = v4_codegen_llvm_decl_symbols
+    v4_codegen_llvm_decl_symbols = staged_decl_symbols
+    pilot old_decl_links = v4_codegen_llvm_decl_links
+    v4_codegen_llvm_decl_links = staged_decl_links
+    pilot old_decl_abis = v4_codegen_llvm_decl_abis
+    v4_codegen_llvm_decl_abis = staged_decl_abis
+    pilot old_decl_ccs = v4_codegen_llvm_decl_ccs
+    v4_codegen_llvm_decl_ccs = staged_decl_ccs
+    pilot old_decl_returns = v4_codegen_llvm_decl_returns
+    v4_codegen_llvm_decl_returns = staged_decl_returns
+    pilot old_decl_params = v4_codegen_llvm_decl_params
+    v4_codegen_llvm_decl_params = staged_decl_params
+    pilot old_decl_lines = v4_codegen_llvm_decl_lines
+    v4_codegen_llvm_decl_lines = staged_decl_lines
+    pilot old_call_bodies = v4_codegen_llvm_call_bodies
+    v4_codegen_llvm_call_bodies = staged_call_bodies
+    pilot old_call_names = v4_codegen_llvm_call_names
+    v4_codegen_llvm_call_names = staged_call_names
+    pilot old_call_symbols = v4_codegen_llvm_call_symbols
+    v4_codegen_llvm_call_symbols = staged_call_symbols
+    pilot old_call_links = v4_codegen_llvm_call_links
+    v4_codegen_llvm_call_links = staged_call_links
+    pilot old_call_abis = v4_codegen_llvm_call_abis
+    v4_codegen_llvm_call_abis = staged_call_abis
+    pilot old_call_ccs = v4_codegen_llvm_call_ccs
+    v4_codegen_llvm_call_ccs = staged_call_ccs
+    pilot old_call_returns = v4_codegen_llvm_call_returns
+    v4_codegen_llvm_call_returns = staged_call_returns
+    pilot old_call_exprs = v4_codegen_llvm_call_exprs
+    v4_codegen_llvm_call_exprs = staged_call_exprs
+    pilot old_call_lines = v4_codegen_llvm_call_lines
+    v4_codegen_llvm_call_lines = staged_call_lines
+    pilot old_body_names = v4_codegen_llvm_body_names
+    v4_codegen_llvm_body_names = staged_body_names
+    pilot old_body_symbols = v4_codegen_llvm_body_symbols
+    v4_codegen_llvm_body_symbols = staged_body_symbols
+    pilot old_body_lines = v4_codegen_llvm_body_lines
+    v4_codegen_llvm_body_lines = staged_body_lines
+    pilot old_word_global_lines = v4_codegen_llvm_word_global_lines
+    v4_codegen_llvm_word_global_lines = staged_word_global_lines
+    pilot old_native_entry_lines = v4_codegen_llvm_native_entry_lines
+    v4_codegen_llvm_native_entry_lines = staged_native_entry_lines
+    pilot old_word_runtime_lines = v4_codegen_llvm_word_runtime_lines
+    v4_codegen_llvm_word_runtime_lines = staged_word_runtime_lines
+    pilot old_native_errors = v4_codegen_llvm_native_errors
+    v4_codegen_llvm_native_errors = staged_native_errors
+    pilot old_diags = v4_codegen_llvm_diags
+    v4_codegen_llvm_diags = staged_diags
+    array_release(old_files)
+    array_release(old_mirs)
+    array_release(old_panic_policies)
+    array_release(old_decl_names)
+    array_release(old_decl_symbols)
+    array_release(old_decl_links)
+    array_release(old_decl_abis)
+    array_release(old_decl_ccs)
+    array_release(old_decl_returns)
+    array_release(old_decl_params)
+    array_release(old_decl_lines)
+    array_release(old_call_bodies)
+    array_release(old_call_names)
+    array_release(old_call_symbols)
+    array_release(old_call_links)
+    array_release(old_call_abis)
+    array_release(old_call_ccs)
+    array_release(old_call_returns)
+    array_release(old_call_exprs)
+    array_release(old_call_lines)
+    array_release(old_body_names)
+    array_release(old_body_symbols)
+    array_release(old_body_lines)
+    array_release(old_word_global_lines)
+    array_release(old_native_entry_lines)
+    array_release(old_word_runtime_lines)
+    array_release(old_native_errors)
+    array_release(old_diags)
     give back codegen_id
 }
 
 task v4_codegen_llvm_decl_names_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_decl_names, codegen_id))
 }
 
 task v4_codegen_llvm_decl_symbols_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_decl_symbols, codegen_id))
 }
 
 task v4_codegen_llvm_decl_links_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_decl_links, codegen_id))
 }
 
 task v4_codegen_llvm_decl_abis_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_decl_abis, codegen_id))
 }
 
 task v4_codegen_llvm_decl_ccs_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_decl_ccs, codegen_id))
 }
 
 task v4_codegen_llvm_decl_returns_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_decl_returns, codegen_id))
 }
 
 task v4_codegen_llvm_decl_params_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_decl_params, codegen_id))
 }
 
 task v4_codegen_llvm_decl_lines_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_decl_lines, codegen_id))
 }
 
 task v4_codegen_llvm_call_bodies_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_call_bodies, codegen_id))
 }
 
 task v4_codegen_llvm_call_names_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_call_names, codegen_id))
 }
 
 task v4_codegen_llvm_call_symbols_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_call_symbols, codegen_id))
 }
 
 task v4_codegen_llvm_call_links_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_call_links, codegen_id))
 }
 
 task v4_codegen_llvm_call_abis_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_call_abis, codegen_id))
 }
 
 task v4_codegen_llvm_call_ccs_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_call_ccs, codegen_id))
 }
 
 task v4_codegen_llvm_call_returns_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_call_returns, codegen_id))
 }
 
 task v4_codegen_llvm_call_exprs_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_call_exprs, codegen_id))
 }
 
 task v4_codegen_llvm_call_lines_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_call_lines, codegen_id))
 }
 
 task v4_codegen_llvm_body_names_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_body_names, codegen_id))
 }
 
 task v4_codegen_llvm_body_symbols_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_body_symbols, codegen_id))
 }
 
 task v4_codegen_llvm_body_lines_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_body_lines, codegen_id))
 }
 
 task v4_codegen_llvm_diags_handle(codegen_id: int) -> int {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back -1 }
     give back word_to_int(array_get(v4_codegen_llvm_diags, codegen_id))
 }
 
@@ -556,7 +842,7 @@ task v4_codegen_llvm_type(ty_name: word) -> word {
     if v4_ty_is_surface_task_function_type(ty_name) {
         give back "ptr"
     }
-    if ty_name == v4_ty_void {
+    if ty_name == v4_ty_void or ty_name == v4_ty_never {
         give back "void"
     }
     if ty_name == v4_ty_bool {
@@ -710,6 +996,7 @@ task v4_codegen_llvm_signature_line(mir_id: int, ty_id: int, sig_id: int) -> wor
     if line_kind == "declare" and abi != "" {
         suffix = v4_codegen_llvm_ffi_call_suffix(abi)
     }
+    if v4_ty_signature_return_type(ty_id, sig_id) == v4_ty_never { suffix = suffix + " noreturn" }
     give back line_kind + " " + cc + " " + return_ty + " " + symbol + "(" + params + ")" + suffix
 }
 
@@ -1213,6 +1500,7 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
         give back target + " = load " + local_ty + ", ptr " + v4_codegen_llvm_local_slot(local_id)
     }
     if kind == v4_mir_rvalue_call {
+        if v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) { give back v4_codegen_llvm_panic_instruction(mir_id, body_id, rvalue_id) }
         give back v4_codegen_llvm_call_instruction(mir_id, body_id, rvalue_id, target)
     }
     if kind == v4_mir_rvalue_binary {
@@ -1431,6 +1719,10 @@ task v4_codegen_llvm_lower_calls(codegen_id: int, mir_id: int) -> void {
                         call_symbol = v4_codegen_llvm_word_intrinsic_symbol(v4_mir_word_intrinsic_kind(mir_id, body_idx, rvalue_idx))
                         call_line = v4_codegen_llvm_word_intrinsic_instruction(mir_id, body_idx, rvalue_idx, v4_codegen_llvm_temp_value(body_idx, rvalue_idx))
                     }
+                    if v4_mir_rvalue_is_builtin_control(mir_id, body_idx, rvalue_idx) {
+                        call_symbol = "@freak_v4_panic_abort"
+                        call_line = v4_codegen_llvm_panic_instruction(mir_id, body_idx, rvalue_idx)
+                    }
                     v4_codegen_llvm_add_call(codegen_id, body_name, call_name, call_symbol, call_link, call_abi, call_cc, call_return, call_expr, call_line)
                 }
             }
@@ -1454,7 +1746,9 @@ task v4_codegen_llvm_body_header(mir_id: int, body_id: int) -> word {
         v4_codegen_llvm_fragment_push(parts, v4_codegen_llvm_type(v4_mir_body_callable_param_type(mir_id, body_id, param_id)) + " %arg." + word_from_int(param_id))
         param_id += 1
     }
-    give back "define " + cc + " " + return_ty + " " + v4_codegen_llvm_callable_symbol(mir_id, body_name) + "(" + word_join(parts) + ")"
+    pilot attribute = ""
+    if v4_mir_body_callable_return_type(mir_id, body_id) == v4_ty_never { attribute = " noreturn" }
+    give back "define " + cc + " " + return_ty + " " + v4_codegen_llvm_callable_symbol(mir_id, body_name) + "(" + word_join(parts) + ")" + attribute
 }
 
 task v4_codegen_llvm_find_mir_body(mir_id: int, name: word) -> int {
@@ -1585,6 +1879,7 @@ task v4_codegen_llvm_block_terminator_line(mir_id: int, body_id: int, block_id: 
         give back "  unreachable\n"
     }
     if term == v4_mir_term_return {
+        if v4_mir_body_callable_return_type(mir_id, body_id) == v4_ty_never { give back "  unreachable\n" }
         pilot return_ty = v4_codegen_llvm_type(v4_mir_body_callable_return_type(mir_id, body_id))
         if v4_codegen_llvm_active_owned_mir == mir_id {
             pilot out = v4_codegen_llvm_word_drop_all_lines(mir_id, body_id, "default." + word_from_int(block_id))
@@ -2080,6 +2375,9 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
         if lhs < 0 or v4_mir_rvalue_ty(mir_id, body_id, lhs) != v4_ty_word { give back "invalid native word borrow operand" }
     }
     if kind == v4_mir_rvalue_call {
+        if v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) { give back "" }
+        if op.starts_with("builtin::control::") or v4_mir_rvalue_builtin_method(mir_id, body_id, rvalue_id).starts_with("builtin::control::") { give back "invalid native control intrinsic identity" }
+        if type_text == v4_ty_never and not v4_mir_rvalue_is_static_never(mir_id, body_id, rvalue_id) { give back "unsupported native never call contract" }
         if v4_codegen_llvm_active_owned_mir == mir_id and v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) { give back "" }
         if op.starts_with("builtin::word::") { give back "invalid native word intrinsic identity" }
         if op == v4_mir_call_raw_ptr_write {
@@ -2172,6 +2470,7 @@ task v4_codegen_llvm_native_mir_error(mir_id: int) -> word {
     pilot sig_id = 0
     repeat until sig_id >= v4_ty_signature_count(ty_id) {
         if v4_codegen_llvm_signature_is_callable(ty_id, sig_id) {
+            if v4_ty_signature_return_type(ty_id, sig_id) == v4_ty_never and v4_ty_signature_has_extern_callback(ty_id, sig_id) { give back "native never callback contracts are not yet supported" }
             pilot error = v4_codegen_llvm_native_type_error(v4_ty_signature_return_type(ty_id, sig_id), true)
             if error != "" { give back error }
             pilot param_id = 0
@@ -2197,11 +2496,31 @@ task v4_codegen_llvm_lower_owned_mir(file_id: int, mir_id: int) -> int {
     give back v4_codegen_llvm_lower_mir_mode(file_id, mir_id, true)
 }
 
+task v4_codegen_llvm_lower_owned_mir_with_panic(file_id: int, mir_id: int, policy: word) -> int {
+    give back v4_codegen_llvm_lower_mir_policy(file_id, mir_id, true, policy)
+}
+
+task v4_codegen_llvm_panic_policy(codegen_id: int) -> word {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "" }
+    give back array_get(v4_codegen_llvm_panic_policies, codegen_id)
+}
+
 task v4_codegen_llvm_lower_mir_mode(file_id: int, mir_id: int, owned_words: bool) -> int {
+    give back v4_codegen_llvm_lower_mir_policy(file_id, mir_id, owned_words, "unwind")
+}
+
+task v4_codegen_llvm_lower_mir_policy(file_id: int, mir_id: int, owned_words: bool, policy: word) -> int {
     v4_codegen_llvm_init()
     v4_codegen_llvm_numeric_runtime_used = false
     v4_codegen_llvm_fragment_error = ""
-    pilot codegen_id = v4_codegen_llvm_file_new(file_id, mir_id)
+    pilot sealed_policy = policy
+    if policy != "unwind" and policy != "abort" { sealed_policy = "" }
+    pilot codegen_id = v4_codegen_llvm_file_new_with_panic(file_id, mir_id, sealed_policy)
+    if codegen_id < 0 { give back codegen_id }
+    if sealed_policy == "" {
+        array_set(v4_codegen_llvm_native_errors, codegen_id, "invalid native panic policy: " + policy)
+        give back codegen_id
+    }
     v4_codegen_llvm_active_owned_mir = 0 - 1
     v4_codegen_llvm_active_word_borrow = 0 - 1
     if v4_mir_file_exists(mir_id) == false {
@@ -2212,6 +2531,12 @@ task v4_codegen_llvm_lower_mir_mode(file_id: int, mir_id: int, owned_words: bool
     pilot graph_error = v4_codegen_llvm_native_graph_error(mir_id)
     if graph_error != "" {
         array_set(v4_codegen_llvm_native_errors, codegen_id, graph_error)
+        give back codegen_id
+    }
+    pilot control_error = v4_mir_control_plan_preflight(mir_id)
+    if control_error == "" and v4_codegen_llvm_mir_has_panic(mir_id) and policy == "unwind" { control_error = "native panic unwind is not yet supported; use --panic=abort" }
+    if control_error != "" {
+        array_set(v4_codegen_llvm_native_errors, codegen_id, control_error)
         give back codegen_id
     }
     if owned_words {
@@ -2265,6 +2590,7 @@ task v4_codegen_llvm_lower_mir_mode(file_id: int, mir_id: int, owned_words: bool
         -- Private word helpers are reserved even for scalar-only modules: a
         -- scalar facade must not mint an untracked owned handle through FFI.
         if native_error == "" { native_error = v4_codegen_llvm_word_runtime_symbol_error(codegen_id) }
+        if v4_codegen_llvm_mir_has_panic(mir_id) { runtime = runtime + "declare void @freak_v4_panic_abort(i64) noreturn\n" }
         if v4_codegen_llvm_numeric_runtime_used { runtime = runtime + v4_codegen_llvm_numeric_runtime_declarations() }
         if native_error == "" { native_error = v4_codegen_llvm_numeric_runtime_symbol_error(codegen_id) }
         array_set(v4_codegen_llvm_word_runtime_lines, codegen_id, runtime)
@@ -2419,7 +2745,7 @@ task v4_codegen_llvm_collect_owned_rvalue_lines(parts: int, mir_id: int, body_id
             v4_codegen_llvm_fragment_push(parts, "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n")
         }
     }
-    if kind == v4_mir_rvalue_call {
+    if kind == v4_mir_rvalue_call and v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) != v4_ty_never {
         -- A borrowed result temporary belongs to this full expression, not to
         -- the observer. Release it immediately after its last observer call.
         pilot arg_id = v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) - 1
@@ -2660,7 +2986,7 @@ task v4_codegen_llvm_word_boundary_types_error(mir_id: int, body_id: int) -> wor
             if lhs >= 0 and v4_codegen_llvm_type_is_word_handle(v4_mir_rvalue_ty(mir_id, body_id, lhs)) { give back "native word operators require compiler-owned intrinsic identities" }
             if rhs >= 0 and v4_codegen_llvm_type_is_word_handle(v4_mir_rvalue_ty(mir_id, body_id, rhs)) { give back "native word operators require compiler-owned intrinsic identities" }
         }
-        if kind == v4_mir_rvalue_call and not v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) and v4_mir_rvalue_op(mir_id, body_id, value) != v4_mir_call_say_literal {
+        if kind == v4_mir_rvalue_call and not v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) and not v4_mir_rvalue_is_builtin_control(mir_id, body_id, value) and v4_mir_rvalue_op(mir_id, body_id, value) != v4_mir_call_say_literal {
             pilot call_name = v4_mir_rvalue_op(mir_id, body_id, value)
             if call_name != v4_mir_call_raw_ptr_write {
                 pilot expected_return = v4_codegen_llvm_word_call_return_type(mir_id, body_id, value)
@@ -2756,7 +3082,7 @@ task v4_codegen_llvm_numeric_runtime_declarations() -> word {
 
 task v4_codegen_llvm_numeric_reserved_symbol_error(symbol: word) -> word {
     if symbol.starts_with("@freak_v4_int_") or symbol.starts_with("@freak_v4_uint_") or symbol.starts_with("@freak_v4_tiny_") or symbol.starts_with("@freak_v4_num_") { give back "native numeric runtime symbol conflict: " + symbol }
-    if symbol == "@freak_llvm_word_owned_size" or symbol.starts_with("@freak_v4_process_") or symbol.starts_with("@freak_v4_fs_") { give back "native private runtime symbol conflict: " + symbol }
+    if symbol == "@freak_llvm_word_owned_size" or symbol.starts_with("@freak_v4_process_") or symbol.starts_with("@freak_v4_fs_") or symbol.starts_with("@freak_v4_panic_") { give back "native private runtime symbol conflict: " + symbol }
     give back ""
 }
 
@@ -2888,8 +3214,8 @@ task v4_codegen_llvm_native_entry_error(mir_id: int) -> word {
         give back "native main parameters are not yet supported"
     }
     pilot return_ty = v4_mir_body_callable_return_type(mir_id, main_id)
-    if return_ty != v4_ty_int and return_ty != v4_ty_void {
-        give back "native main must return int or void"
+    if return_ty != v4_ty_int and return_ty != v4_ty_void and return_ty != v4_ty_never {
+        give back "native main must return int, void, or never"
     }
     give back ""
 }
@@ -2912,6 +3238,7 @@ task v4_codegen_llvm_native_entry_symbol_error(codegen_id: int) -> word {
 }
 
 task v4_codegen_llvm_native_module_error(codegen_id: int) -> word {
+    if codegen_id == -2 { give back "native codegen plan arena allocation failed" }
     if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "invalid codegen ID" }
     give back array_get(v4_codegen_llvm_native_errors, codegen_id)
 }
@@ -3287,7 +3614,9 @@ task v4_codegen_llvm_native_entry(mir_id: int) -> word {
     out = out + "  %argc.ext = sext i32 %argc to i64\n  %argv.int = ptrtoint ptr %argv to i64\n"
     out = out + "  call void @freak_llvm_setup_args(i64 %argc.ext, i64 %argv.int)\n"
     pilot cc = v4_codegen_llvm_calling_convention(v4_mir_body_callable_abi(mir_id, main_id))
-    if v4_mir_body_callable_return_type(mir_id, main_id) == v4_ty_void {
+    if v4_mir_body_callable_return_type(mir_id, main_id) == v4_ty_never {
+        out = out + "  call " + cc + " void @freak.user.main() noreturn\n  unreachable\n"
+    } else if v4_mir_body_callable_return_type(mir_id, main_id) == v4_ty_void {
         out = out + "  call " + cc + " void @freak.user.main()\n  ret i32 0\n"
     } else {
         out = out + "  %rc = call " + cc + " i64 @freak.user.main()\n  %rc32 = trunc i64 %rc to i32\n  ret i32 %rc32\n"
@@ -3387,4 +3716,23 @@ task v4_codegen_llvm_summary(codegen_id: int) -> word {
     out = out + " bodies=" + word_from_int(v4_codegen_llvm_body_count(codegen_id))
     out = out + " diagnostics=" + word_from_int(v4_codegen_llvm_diag_count(codegen_id))
     give back out
+}
+
+
+task v4_codegen_llvm_mir_has_panic(mir: int) -> bool {
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+            if v4_mir_rvalue_is_builtin_control(mir, body, value) { give back true }
+            value += 1
+        }
+        body += 1
+    }
+    give back false
+}
+
+task v4_codegen_llvm_panic_instruction(mir: int, body: int, value: int) -> word {
+    pilot message = v4_mir_rvalue_call_arg(mir, body, value, 0)
+    give back "call void @freak_v4_panic_abort(i64 " + v4_codegen_llvm_rvalue_value(mir, body, message) + ") noreturn"
 }

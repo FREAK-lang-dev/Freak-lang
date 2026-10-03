@@ -1,0 +1,66 @@
+-- No-result contracts change returned provenance, never immediate arguments.
+task v4_panic_loan_assert(condition: bool, label: word) -> void { if not condition { panic("panic-loan " + label) } }
+task v4_panic_loan_run() -> void {
+    pilot mode = process::arg(1)
+    pilot body = "pilot message = \"owned\"; panic(message)"
+    pilot helpers = ""
+    pilot named = ""
+    if mode == "1" { helpers = "task consume(value: word) -> int " + chr(123) + " give back value.length() " + chr(125) + "\n"; body = "pilot message = \"owned\"; give back consume(message) + panic(message)"; named = "moved" }
+    if mode == "2" { helpers = "task take(value: word) -> word " + chr(123) + " give back value " + chr(125) + "\n"; body = "pilot message = \"owned\"; give back message.length() + panic(take(message))" }
+    if mode == "3" { helpers = "task take(value: word) -> word " + chr(123) + " give back value " + chr(125) + "\ntask bad(lend value: word) -> never " + chr(123) + " panic(take(value)) " + chr(125) + "\n"; body = "pilot message = \"owned\"; bad(lend message)"; named = "Meiya refuses to move out of a borrowed parameter" }
+    if mode == "4" { helpers = "task bad(lend value: word) -> word " + chr(123) + " give back value " + chr(125) + "\n"; body = "pilot message = \"owned\"; panic(bad(lend message))"; named = "borrowed" }
+    if mode == "5" { body = "panic(reason: \"wrong\")"; named = "unknown panic named argument" }
+    if mode == "6" { body = "panic()"; named = "panic argument count mismatch" }
+    if mode == "7" { body = "panic(msg: \"a\", msg: \"b\")"; named = "panic argument count mismatch" }
+    if mode == "8" { body = "panic(1)"; named = "panic message must be word" }
+    if mode == "9" { body = "pilot outcome = *panic(\"static honor\")"; named = "raw-pointer deref needs trust me block" }
+    if mode == "10" { helpers = "task bad() -> never " + chr(123) + " give back 0 " + chr(125) + "\n"; body = "bad()"; named = "return type mismatch" }
+    if mode == "11" { helpers = "extern [C] " + chr(123) + "\n@link_name(\"freak_v4_panic_abort\") task foreign(value: std::ffi::c_isize) -> std::ffi::c_isize\n" + chr(125) + "\n"; body = "give back foreign(1)"; named = "runtime symbol conflict" }
+    if mode == "12" { body = "if panic(\"c\") " + chr(123) + " give back true " + chr(125) + " else " + chr(123) + " give back 0 " + chr(125); named = "return type mismatch" }
+    if mode == "13" { body = "pilot mut n: int = 0\nif panic(\"c\") " + chr(123) + " give back 0 " + chr(125) + " else " + chr(123) + " n = true " + chr(125); named = "assignment type mismatch" }
+    if mode == "14" { body = "repeat panic(\"n\") times " + chr(123) + " pilot n: int = true " + chr(125); named = "local declaration type mismatch" }
+    if mode == "15" { body = "repeat until panic(\"c\") " + chr(123) + " 1 + true " + chr(125); named = "invalid binary operation" }
+    if mode == "16" { body = "panic(\"first\")\ngive back true"; named = "return type mismatch" }
+    if mode == "17" { body = "pilot n = 1\npilot n = panic(\"duplicate\")"; named = "duplicate local declaration" }
+    if mode == "18" { helpers = "task bad(ptr: *int) -> int " + chr(123) + " panic(\"first\")\ngive back *ptr\n" + chr(125) + "\n"; body = "give back 0"; named = "raw-pointer deref needs trust me block" }
+    if mode == "19" { helpers = "task bad(ptr: *mut int) -> int " + chr(123) + " repeat panic(\"n\") times " + chr(123) + " trust me \"junior\" on my honor as .cadet " + chr(123) + " *ptr = 1 " + chr(125) + " " + chr(125) + "\n" + chr(125) + "\n"; body = "give back 0"; named = "trust me honor level too low" }
+    if mode == "20" { body = "pilot message = \"owned\"\ngive back message + panic(message)"; named = "borrowed argument across control flow is not yet supported" }
+    if mode == "21" { helpers = "task stop() -> never " + chr(123) + " panic(\"callback\") " + chr(125) + "\n"; body = "pilot callback = stop; callback()"; named = "unsupported native never call contract" }
+    if mode == "22" { body = "pilot n: int = panic(\"binding\")\npilot n: int = 1"; named = "duplicate local declaration" }
+    if mode == "23" { body = "pilot mut n: int = panic(\"binding\")\nn = true"; named = "assignment type mismatch" }
+    if mode == "24" { body = "if panic(\"condition\") " + chr(123) + " give back 0; pilot n: int = true " + chr(125); named = "local declaration type mismatch" }
+    if mode == "25" { body = "repeat panic(\"count\") times " + chr(123) + " break; pilot n: int = true " + chr(125); named = "local declaration type mismatch" }
+    if mode == "26" { body = "repeat until panic(\"condition\") " + chr(123) + " continue; 1 + true " + chr(125); named = "invalid binary operation" }
+    if mode == "27" { body = "pilot n = panic(\"binding\")\npilot n = 1"; named = "duplicate local declaration" }
+    pilot source = helpers + "task main() -> int " + chr(123) + body + "\n" + chr(125) + "\n"
+    pilot borrow = v4_borrowck_text_cached("panic-loan.fk", source)
+    pilot mir = v4_borrowck_mir_id(borrow)
+    pilot codegen = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    if named != "" {
+        pilot found: bool = v4_codegen_llvm_native_module_error(codegen).contains(named)
+        pilot index = 0
+        repeat until index >= v4_borrowck_diag_count(borrow) {
+            if v4_borrowck_diag(borrow, index).contains(named) { found = true }
+            index += 1
+        }
+        if not found {
+            index = 0
+            repeat until index >= v4_borrowck_diag_count(borrow) { say v4_borrowck_diag(borrow, index); index += 1 }
+            say v4_codegen_llvm_native_module_error(codegen)
+        }
+        v4_panic_loan_assert(found, "named negative " + mode + " " + named)
+        v4_panic_loan_assert(v4_codegen_llvm_native_module_error(codegen) != "" and v4_codegen_llvm_module_text(codegen, target) == "", "negative cannot seal")
+        say "panic-loan case=" + mode + " named-rejected=true no-module=true"
+    } else {
+        pilot index = 0
+        repeat until index >= v4_borrowck_diag_count(borrow) { say v4_borrowck_diag(borrow, index); index += 1 }
+        v4_panic_loan_assert(v4_borrowck_diag_count(borrow) == 0 and v4_codegen_llvm_native_module_error(codegen) == "" and v4_codegen_llvm_module_text(codegen, target) != "", "clean observer/provenance")
+        if mode == "0" {
+            pilot outcome = v4_borrowck_lookup_result(borrow, v4_mir_body_def(mir, v4_mir_lookup_body_name(mir, "main")))
+            v4_panic_loan_assert(v4_borrowck_result_drops(borrow, outcome) == 0, "abort has no ordinary exit drop")
+        }
+        say "panic-loan case=" + mode + " clean=true observed=true no-result=true"
+    }
+}
+v4_panic_loan_run()

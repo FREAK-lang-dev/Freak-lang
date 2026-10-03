@@ -1,0 +1,199 @@
+-- Hostile live/snapshot admission, old seals and transactional policy pressure.
+task v4_panic_contract_assert(condition: bool, label: word) -> void {
+    if not condition { panic("panic-contract " + label) }
+}
+task v4_panic_contract_source() -> word {
+    give back "task main() -> int " + chr(123) + " pilot message = \"live\"; panic(message) " + chr(125) + "\n"
+}
+task v4_panic_contract_replace(source: word, needle: word, replacement: word) -> word {
+    pilot at = 0
+    repeat until at + needle.length() > source.length() or source.substring(at, needle.length()) == needle { at += 1 }
+    v4_panic_contract_assert(at + needle.length() <= source.length(), "replacement needle must occur")
+    give back v4_slice(source, 0, at) + replacement + v4_slice(source, at + needle.length(), source.length())
+}
+task v4_panic_contract_run() -> void {
+    pilot mode = process::arg(1)
+    pilot source = v4_panic_contract_source()
+    pilot static_never: bool = mode == "19" or mode == "20" or mode == "21" or mode == "22"
+    if static_never { source = "task stop(lend input: word) -> never " + chr(123) + " panic(input) " + chr(125) + "\ntask main() -> int " + chr(123) + " pilot message = \"live\"; stop(lend message) " + chr(125) + "\n" }
+    if mode == "22" { source = "task other(value: int, extra: bool) -> never " + chr(123) + " panic(\"other\") " + chr(125) + "\n" + source }
+    pilot mir = v4_mir_text_cached("panic-contract.fk", source)
+    v4_panic_contract_assert(v4_mir_diag_count(mir) == 0 and v4_ty_diag_count(v4_mir_ty_id(mir)) == 0, "frontend")
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    pilot value = 0
+    pilot selected: bool = false
+    repeat until value >= v4_mir_body_rvalue_count(mir, body) or selected {
+        if static_never and v4_mir_rvalue_is_static_never(mir, body, value) { selected = true }
+        if not static_never and v4_mir_rvalue_is_builtin_control(mir, body, value) { selected = true }
+        if not selected { value += 1 }
+    }
+    v4_panic_contract_assert(value < v4_mir_body_rvalue_count(mir, body), "control row")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot accepted = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    pilot before = v4_codegen_llvm_module_text(accepted, target)
+    v4_panic_contract_assert(before != "", "old seal")
+    pilot snapshot = v4_mir_snapshot()
+    pilot argument = v4_mir_rvalue_call_arg(mir, body, value, 0)
+    pilot message = v4_mir_rvalue_lhs(mir, body, argument)
+    pilot span = v4_mir_rvalue_span(mir, body, value)
+    if mode == "compact-pressure" {
+        pilot retained = array_new()
+        pilot room = word_to_int(process::arg(2))
+        pilot handle = array_new()
+        repeat until handle < 0 { array_push(retained, word_from_int(handle)); handle = array_new() }
+        pilot released = 0
+        repeat until released >= room or released >= array_len(retained) {
+            array_release(word_to_int(array_get(retained, array_len(retained) - 1 - released)))
+            released += 1
+        }
+        v4_panic_contract_assert(released == room, "exact compactor pressure room")
+        pilot failure = v4_mir_compact_body_rvalue_roots(mir, body)
+        v4_panic_contract_assert(failure == "source control compaction scratch exhausted", "checked source compaction failure")
+        pilot row = 0
+        repeat until row >= array_len(retained) { array_release(word_to_int(array_get(retained, row))); row += 1 }
+        array_release(retained)
+        v4_panic_contract_assert(v4_mir_snapshot() == snapshot and v4_codegen_llvm_panic_policy(accepted) == "abort" and v4_codegen_llvm_module_text(accepted, target) == before, "failed compaction leaves MIR and old seal")
+        v4_panic_contract_assert(v4_mir_compact_body_rvalue_roots(mir, body) == "" and v4_mir_snapshot() == snapshot, "checked source compaction recovery")
+        pilot recovered = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+        v4_panic_contract_assert(v4_codegen_llvm_native_module_error(recovered) == "" and v4_codegen_llvm_module_text(recovered, target) == before, "fresh plan after source compaction recovery")
+        say "panic-contract compact-pressure=" + word_from_int(room) + " named-failure=true atomic=true old-seal=true recovery=true"
+        give back
+    }
+    if mode == "pressure" {
+        pilot retained = array_new()
+        pilot room = 0
+        if process::args_count() > 2 { room = word_to_int(process::arg(2)) }
+        pilot handle = array_new()
+        repeat until handle < 0 {
+            array_push(retained, word_from_int(handle))
+            handle = array_new()
+        }
+        pilot released = 0
+        repeat until released >= room or released >= array_len(retained) {
+            array_release(word_to_int(array_get(retained, array_len(retained) - 1 - released)))
+            released += 1
+        }
+        v4_panic_contract_assert(released == room, "exact policy pressure room")
+        pilot pressured = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+        if room < 49 {
+            v4_panic_contract_assert(v4_codegen_llvm_native_module_error(pressured) == "native codegen plan arena allocation failed", "pressure must fail named")
+        } else {
+            v4_panic_contract_assert(room == 49 and v4_codegen_llvm_native_module_error(pressured) == "" and v4_codegen_llvm_panic_policy(pressured) == "abort", "exact constructor capacity admits plan")
+        }
+        pilot row = 0
+        repeat until row >= array_len(retained) { array_release(word_to_int(array_get(retained, row))); row += 1 }
+        array_release(retained)
+        v4_panic_contract_assert(v4_codegen_llvm_panic_policy(accepted) == "abort" and v4_codegen_llvm_module_text(accepted, target) == before, "old seal after allocation failure")
+        if room == 49 { v4_panic_contract_assert(v4_codegen_llvm_module_text(pressured, target) == before, "exact capacity sealed module") }
+        pilot recovered = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+        v4_panic_contract_assert(v4_codegen_llvm_native_module_error(recovered) == "" and v4_codegen_llvm_module_text(recovered, target) == before, "capacity recovery")
+        if room == 49 {
+            say "panic-contract pressure=49 admitted=true old-seal=true recovery=true"
+        } else {
+            say "panic-contract pressure=" + word_from_int(room) + " named-failure=true old-seal=true recovery=true"
+        }
+        give back
+    }
+    if mode == "old-version" {
+        pilot old = v4_panic_contract_replace(snapshot, "freak-mir-snapshot-v8", "freak-mir-snapshot-v7")
+        old = v4_panic_contract_replace(old, "freak-mir-snapshot-v8", "freak-mir-snapshot-v7")
+        v4_panic_contract_assert(old != snapshot and not old.contains("freak-mir-snapshot-v8") and old.contains("freak-mir-snapshot-v7"), "actual old-version payload")
+        v4_panic_contract_assert(v4_mir_snapshot_restore(old).starts_with("mir-snapshot-restore ok=0"), "old version rejection")
+        v4_panic_contract_assert(v4_mir_snapshot() == snapshot, "old version atomic rejection")
+        v4_panic_contract_assert(v4_codegen_llvm_module_text(accepted, target) == before, "old version leaves seal")
+        say "panic-contract old-version=true atomic=true old-seal=true"
+        give back
+    }
+    if mode == "0" { array_set(v4_mir_body_rvalue_ops_handle(mir, body), value, "panic") }
+    if mode == "1" { v4_mir_set_rvalue_builtin_method(mir, body, value, "") }
+    if mode == "2" { array_set(v4_mir_body_rvalue_builtin_methods_handle(mir, body), value, "builtin::control::unknown") }
+    if mode == "3" { v4_mir_set_rvalue_ty(mir, body, value, v4_ty_int) }
+    if mode == "4" { v4_mir_set_rvalue_args_payload(mir, body, value, "") }
+    if mode == "5" { v4_mir_set_rvalue_args_payload(mir, body, value, word_from_int(argument) + "," + word_from_int(argument)) }
+    if mode == "6" { v4_mir_set_rvalue_abi(mir, body, value, "C") }
+    if mode == "7" { v4_mir_restore_rvalue_slot(mir, body, argument, v4_mir_rvalue_lend_mut, "message", "message", message, -1, span, "lend mut word", "", "", "") }
+    if mode == "8" { v4_mir_set_rvalue_ty(mir, body, argument, v4_ty_word) }
+    if mode == "9" { v4_mir_set_rvalue_children(mir, body, value, message, -1) }
+    if mode == "10" { v4_mir_set_body_block(mir, body, 0, v4_mir_block_new_full(0, v4_mir_term_return, -1, -1, "")) }
+    if mode == "11" {
+        pilot scalar = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_bool, "true", "", -1, -1, span, v4_ty_bool)
+        pilot stmt = v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "true", span, -1, scalar)
+        v4_mir_set_stmt_scope_span(mir, body, stmt, v4_mir_block_scope_span(mir, body, 0))
+    }
+    if mode == "12" { v4_mir_add_rvalue(mir, body, v4_mir_rvalue_unary, "-panic", "Neg", value, -1, span, v4_ty_int) }
+    if mode == "13" {
+        pilot place = v4_mir_add_place(mir, body, v4_mir_place_return, "_return", -1, "_return", -1, span, v4_ty_int)
+        pilot terminal = v4_mir_body_stmt_count(mir, body) - 1
+        v4_mir_restore_stmt_slot(mir, body, terminal, v4_mir_stmt_return, "_return", "panic", span, 0, place, value)
+        v4_mir_set_stmt_scope_span(mir, body, terminal, v4_mir_block_scope_span(mir, body, 0))
+    }
+    if mode == "14" {
+        pilot other = v4_mir_add_block(mir, body, v4_mir_term_unreachable, -1, -1, "")
+        v4_mir_set_block_scope_span(mir, body, other, v4_mir_block_scope_span(mir, body, 0))
+        pilot stmt = v4_mir_add_stmt(mir, body, other, v4_mir_stmt_expr, "", "panic", span, -1, value)
+        v4_mir_set_stmt_scope_span(mir, body, stmt, v4_mir_block_scope_span(mir, body, 0))
+    }
+    if mode == "15" { v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_float, "1.0\ncall void @freak_v4_panic_abort(i64 0)", "", -1, -1, span, v4_ty_num) }
+    if mode == "16" { v4_mir_add_rvalue(mir, body, v4_mir_rvalue_use_symbol, "freak_v4_panic_abort", "", -1, -1, span, "task(value: int) -> int") }
+    if mode == "17" { array_set(v4_mir_body_blocks_handle(mir, body), 0, "0|Unreachable|0|-1||" + v4_mir_block_scope_span(mir, body, 0)) }
+    if mode == "18" { array_set(v4_mir_body_rvalue_ops_handle(mir, body), message, "local#999") }
+    if mode == "19" { v4_mir_set_rvalue_ty(mir, body, argument, v4_ty_unknown) }
+    if mode == "20" {
+        array_set(v4_mir_names_handle(mir), v4_mir_lookup_body_name(mir, "stop"), "omitted_stop")
+        v4_mir_invalidate_body_lookup_index(mir)
+        v4_panic_contract_assert(v4_mir_lookup_body_name(mir, "stop") < 0, "target really omitted")
+    }
+    if mode == "21" { v4_mir_restore_rvalue_slot(mir, body, argument, v4_mir_rvalue_use_local, "message", "local#0", -1, -1, span, "lend word", "", "", "") }
+    if mode == "22" {
+        pilot other = v4_mir_lookup_body_name(mir, "other")
+        array_set(v4_mir_names_handle(mir), v4_mir_lookup_body_name(mir, "stop"), "omitted_stop")
+        array_set(v4_mir_names_handle(mir), other, "stop")
+        v4_mir_invalidate_body_lookup_index(mir)
+        v4_panic_contract_assert(v4_mir_lookup_body_name(mir, "stop") == other and v4_ty_signature_fixed_param_count(v4_mir_ty_id(mir), v4_mir_body_signature_id(mir, other)) == 2 and v4_mir_rvalue_call_arg_count(mir, body, value) == 1, "different-arity body really aliases target")
+    }
+    if mode == "23" { v4_mir_set_local_mode(mir, body, 0, "$control-diagnostic") }
+    if mode == "24" {
+        pilot local = v4_mir_add_local_at_scope(mir, body, "unpublished", v4_ty_int, span, v4_mir_block_scope_span(mir, body, 0))
+        v4_mir_set_local_mode(mir, body, local, "$control-diagnostic")
+    }
+    if mode == "0" { v4_panic_contract_assert(v4_mir_rvalue_op(mir, body, value) == "panic", "op mutation") }
+    if mode == "1" { v4_panic_contract_assert(v4_mir_rvalue_builtin_method(mir, body, value) == "", "identity cleared") }
+    if mode == "2" { v4_panic_contract_assert(v4_mir_rvalue_builtin_method(mir, body, value) == "builtin::control::unknown", "unknown identity mutation") }
+    if mode == "3" { v4_panic_contract_assert(v4_mir_rvalue_ty(mir, body, value) == v4_ty_int, "return type mutation") }
+    if mode == "4" { v4_panic_contract_assert(v4_mir_rvalue_call_arg_count(mir, body, value) == 0, "args cleared") }
+    if mode == "5" { v4_panic_contract_assert(v4_mir_rvalue_call_arg_count(mir, body, value) == 2, "extra args mutation") }
+    if mode == "6" { v4_panic_contract_assert(v4_mir_rvalue_abi(mir, body, value) == "C", "ABI mutation") }
+    if mode == "7" { v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, argument) == v4_mir_rvalue_lend_mut and v4_mir_rvalue_ty(mir, body, argument) == "lend mut word", "borrow mode mutation") }
+    if mode == "8" { v4_panic_contract_assert(v4_mir_rvalue_ty(mir, body, argument) == v4_ty_word, "borrow type mutation") }
+    if mode == "9" { v4_panic_contract_assert(v4_mir_rvalue_lhs(mir, body, value) == message, "callee child mutation") }
+    if mode == "10" { v4_panic_contract_assert(v4_mir_block_terminator(v4_mir_body_block(mir, body, 0)) == v4_mir_term_return, "terminal kind mutation") }
+    if mode == "11" { v4_panic_contract_assert(v4_mir_rvalue_ty(mir, body, v4_mir_stmt_rvalue(mir, body, v4_mir_body_stmt_count(mir, body) - 1)) == v4_ty_bool, "appended later stmt") }
+    if mode == "12" { v4_panic_contract_assert(v4_mir_rvalue_lhs(mir, body, v4_mir_body_rvalue_count(mir, body) - 1) == value, "enclosing child mutation") }
+    if mode == "13" { v4_panic_contract_assert(v4_mir_stmt_kind(mir, body, v4_mir_body_stmt_count(mir, body) - 1) == v4_mir_stmt_return and v4_mir_stmt_rvalue(mir, body, v4_mir_body_stmt_count(mir, body) - 1) == value, "return store mutation") }
+    if mode == "14" { v4_panic_contract_assert(v4_mir_body_block_count(mir, body) == 2 and v4_mir_stmt_rvalue(mir, body, v4_mir_body_stmt_count(mir, body) - 1) == value, "repeated terminal mutation") }
+    if mode == "15" { v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, v4_mir_body_rvalue_count(mir, body) - 1) == v4_mir_rvalue_const_float and v4_mir_rvalue_text(mir, body, v4_mir_body_rvalue_count(mir, body) - 1).contains(chr(10)), "raw float text injection") }
+    if mode == "16" { v4_panic_contract_assert(v4_mir_rvalue_text(mir, body, v4_mir_body_rvalue_count(mir, body) - 1) == "freak_v4_panic_abort", "private symbol injection") }
+    if mode == "17" { v4_panic_contract_assert(v4_mir_block_terminator(v4_mir_body_block(mir, body, 0)) == v4_mir_term_unreachable and v4_mir_block_target(v4_mir_body_block(mir, body, 0)) == 0, "terminal target mutation") }
+    if mode == "18" { v4_panic_contract_assert(v4_mir_rvalue_op(mir, body, message) == "local#999" and v4_mir_rvalue_local_id(mir, body, message) < 0, "owner identity mutation") }
+    if mode == "19" { v4_panic_contract_assert(v4_mir_rvalue_ty(mir, body, argument) == v4_ty_unknown, "unknown argument mutation") }
+    if mode == "21" { v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, argument) == v4_mir_rvalue_use_local and v4_mir_rvalue_ty(mir, body, argument) == "lend word", "forged borrow child mutation") }
+    if mode == "23" { v4_panic_contract_assert(v4_mir_local_mode(mir, body, 0) == "$control-diagnostic", "owner private mode mutation") }
+    if mode == "24" { v4_panic_contract_assert(v4_mir_local_mode(mir, body, v4_mir_body_local_count(mir, body) - 1) == "$control-diagnostic", "unused private mode mutation") }
+    if mode == "17" or mode == "18" or mode == "23" or mode == "24" or static_never {
+        pilot checked = v4_borrowck_check_mir(0, mir)
+        v4_panic_contract_assert(v4_borrowck_diag_count(checked) > 0, "fresh Meiya hostile control rejection")
+    }
+    pilot malformed = v4_mir_snapshot()
+    v4_panic_contract_assert(malformed != snapshot, "hostile setup must change serialized MIR " + mode)
+    pilot rejected = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    v4_panic_contract_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, target) == "", "hostile no module")
+    v4_panic_contract_assert(v4_codegen_llvm_module_text(accepted, target) == before and v4_codegen_llvm_panic_policy(accepted) == "abort", "old sealed identity")
+    v4_panic_contract_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "restore baseline")
+    if mode != "15" and mode != "16" {
+        v4_panic_contract_assert(v4_mir_snapshot_restore(malformed).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == snapshot, "hostile atomic restore")
+    }
+    pilot recovered = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    v4_panic_contract_assert(v4_codegen_llvm_native_module_error(recovered) == "" and v4_codegen_llvm_module_text(recovered, target) == before, "fresh restored module")
+    say "panic-contract case=" + mode + " no-module=true old-seal=true restore=true recovery=true"
+}
+v4_panic_contract_run()

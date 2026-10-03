@@ -1903,6 +1903,7 @@ task v4_borrowck_call_borrowed_source_signature_id(mir_id: int, body_id: int, rv
 }
 
 task v4_borrowck_call_return_lend_leaf_count(mir_id: int, body_id: int, rvalue_id: int) -> int {
+    if v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_static_never(mir_id, body_id, rvalue_id) { give back 0 }
     pilot sig_id = v4_borrowck_call_borrowed_source_signature_id(mir_id, body_id, rvalue_id)
     if sig_id < 0 { give back 0 - 1 }
     give back v4_ty_signature_return_lend_leaf_count(v4_mir_ty_id(mir_id), sig_id)
@@ -4233,7 +4234,7 @@ task v4_borrowck_rvalue_resolves_lend_source(mir_id: int, body_id: int, use_stmt
 }
 
 task v4_borrowck_call_lends_source(mir_id: int, body_id: int, call_stmt: int, call_rvalue: int, loan_text: word) -> bool {
-    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, call_rvalue) { give back false }
+    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_static_never(mir_id, body_id, call_rvalue) { give back false }
     if call_rvalue < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_rvalue) != v4_mir_rvalue_call {
         give back false
     }
@@ -4429,6 +4430,7 @@ task v4_borrowck_block_can_cycle(mir_id: int, body_id: int, block_id: int) -> bo
 }
 
 task v4_borrowck_rvalue_returns_holder(mir_id: int, body_id: int, rvalue_id: int, holder: word) -> bool {
+    if v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_static_never(mir_id, body_id, rvalue_id) { give back false }
     if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) { give back false }
     if rvalue_id < 0 {
         give back false
@@ -5838,6 +5840,7 @@ task v4_borrowck_local_moved_without_reinit_linear(borrow_id: int, result_id: in
 
 task v4_borrowck_local_moved_without_reinit(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_name: word) -> bool {
     if v4_mir_body_block_count(mir_id, body_id) == 1 {
+        if v4_mir_block_terminator(v4_mir_body_block(mir_id, body_id, 0)) == v4_mir_term_unreachable { give back true }
         give back v4_borrowck_local_moved_without_reinit_linear(borrow_id, result_id, mir_id, body_id, local_name)
     }
     give back not v4_borrowck_local_has_exit_state(borrow_id, result_id, mir_id, body_id, local_name, true)
@@ -6299,6 +6302,7 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
     pilot borrow_id = v4_borrowck_file_new(file_id, mir_id)
     v4_borrowck_copy_mir_diags(borrow_id, mir_id)
     pilot word_preflight = v4_mir_word_plan_preflight(mir_id)
+    if word_preflight == "" { word_preflight = v4_mir_control_plan_preflight(mir_id) }
     if word_preflight != "" {
         v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, V4_NO_SPAN, word_preflight, "owned word ownership facts must be valid before Meiya traverses the body"))
         pilot blocked_body = 0

@@ -2032,6 +2032,18 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                 named_param_handled = true
             }
         }
+        if not named_param_handled and hir_item >= 0 {
+            pilot control_body = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
+            pilot control = v4_editor_control_call_rvalue_at_token(stream_id, mir_id, control_body, token_id, token_value, offset)
+            if control >= 0 {
+                name = token_value
+                kind = "BuiltinTask"
+                def_id = v4_mir_rvalue_builtin_method(mir_id, control_body, control)
+                type_display = "task panic(lend msg: word) -> " + v4_ty_control_intrinsic_result_type("panic")
+                symbol_id = -1
+                named_param_handled = true
+            }
+        }
         if not named_param_handled {
             if symbol_id < 0 and v4_editor_is_builtin_type_name(token_value) {
                 name = token_value
@@ -3474,4 +3486,24 @@ task v4_completion_file(path: word, offset: int) -> word {
         give back v4_diag_render(diag, "")
     }
     give back v4_completion_text(path, text, offset)
+}
+
+
+task v4_editor_control_call_rvalue_at_token(stream: int, mir: int, body: int, token: int, name: word, offset: int) -> int {
+    if token < 0 or body < 0 or v4_ty_control_intrinsic_named_kind(name) != "panic" { give back -1 }
+    pilot previous = v4_editor_prev_nontrivia_token(stream, token)
+    if previous >= 0 and (v4_lex_token_value(stream, previous) == "." or v4_lex_token_value(stream, previous) == "::") { give back -1 }
+    pilot next = v4_editor_next_nontrivia_token(stream, token)
+    if next < 0 or v4_lex_token_value(stream, next) != "(" { give back -1 }
+    pilot close = v4_mir_find_matching_paren(stream, next, v4_lex_token_count(stream))
+    if close < 0 { give back -1 }
+    pilot value = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+        if v4_mir_control_intrinsic_kind(mir, body, value) == "panic" {
+            pilot span = v4_mir_rvalue_span(mir, body, value)
+            if offset >= v4_span_start(span) and offset < v4_span_end(span) and v4_editor_first_nontrivia_token_in_span(stream, span) == token and v4_editor_last_nontrivia_token_in_span(stream, span) == close { give back value }
+        }
+        value += 1
+    }
+    give back -1
 }

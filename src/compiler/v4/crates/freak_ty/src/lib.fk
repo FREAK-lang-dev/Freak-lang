@@ -3321,6 +3321,7 @@ task v4_ty_numeric_result(left_ty: word, right_ty: word) -> word {
 }
 
 task v4_ty_unary_valid(op: word, operand_ty: word) -> bool {
+    if operand_ty == v4_ty_never { give back true }
     if not v4_ty_is_known(operand_ty) {
         give back true
     }
@@ -3337,6 +3338,7 @@ task v4_ty_unary_valid(op: word, operand_ty: word) -> bool {
 }
 
 task v4_ty_unary_result(op: word, operand_ty: word) -> word {
+    if operand_ty == v4_ty_never { give back v4_ty_never }
     if not v4_ty_unary_valid(op, operand_ty) {
         give back v4_ty_unknown
     }
@@ -3389,6 +3391,11 @@ task v4_ty_unary_operator_method(op: word) -> word {
 }
 
 task v4_ty_binary_valid(op: word, left_ty: word, right_ty: word) -> bool {
+    if left_ty == v4_ty_never { give back true }
+    if right_ty == v4_ty_never {
+        if op == "And" or op == "Or" { give back left_ty == v4_ty_bool }
+        give back true
+    }
     if not v4_ty_is_known(left_ty) or not v4_ty_is_known(right_ty) {
         give back true
     }
@@ -3420,6 +3427,8 @@ task v4_ty_binary_result(op: word, left_ty: word, right_ty: word) -> word {
     if not v4_ty_binary_valid(op, left_ty, right_ty) {
         give back v4_ty_unknown
     }
+    if left_ty == v4_ty_never { give back v4_ty_never }
+    if right_ty == v4_ty_never and op != "And" and op != "Or" { give back v4_ty_never }
     if op == "Eq" or op == "Ne" or op == "Gt" or op == "Lt" or op == "Ge" or op == "Le" {
         give back v4_ty_bool
     }
@@ -10059,6 +10068,8 @@ task v4_ty_signature_return_surface_type(ty_id: int, sig_id: int) -> word {
         give back v4_ty_extern_member_return_surface_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), member_id)
     }
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        pilot control_return = v4_ty_signature_arrow_control_return(ty_id, sig_id)
+        if control_return != v4_ty_unknown { give back control_return }
         give back v4_ty_task_return_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
     }
     give back v4_ty_nonordinary_signature_return_fallback(ty_id, sig_id)
@@ -13879,4 +13890,62 @@ task v4_ty_word_plan_literal_at_span(ty_id: int, item: int, span: word) -> int {
     pilot literal = v4_hir_word_literal_at_offset(hir, item, v4_span_start(span))
     if literal < 0 or v4_hir_word_literal_span(hir, literal) != span { give back -1 }
     give back literal
+}
+
+
+-- Prelude control contracts are semantic facts, independent of build policy.
+task v4_ty_control_intrinsic_known(kind: word) -> bool { give back kind == "panic" }
+task v4_ty_control_intrinsic_named_kind(name: word) -> word {
+    if name == "panic" { give back "panic" }
+    give back ""
+}
+task v4_ty_control_intrinsic_param_count(kind: word) -> int {
+    if kind == "panic" { give back 1 }
+    give back 0
+}
+task v4_ty_control_intrinsic_param_name(kind: word, argument: int) -> word {
+    if kind == "panic" and argument == 0 { give back "msg" }
+    give back ""
+}
+task v4_ty_control_intrinsic_param_type(kind: word, argument: int) -> word {
+    if kind == "panic" and argument == 0 { give back v4_ty_word }
+    give back v4_ty_unknown
+}
+task v4_ty_control_intrinsic_param_mode(kind: word, argument: int) -> word {
+    if kind == "panic" and argument == 0 { give back v4_ty_param_mode_lend }
+    give back ""
+}
+task v4_ty_control_intrinsic_result_type(kind: word) -> word {
+    if kind == "panic" { give back v4_ty_never }
+    give back v4_ty_unknown
+}
+
+-- Only the exact direct prelude call infers Never here. A shadowing signature,
+-- import/constant, or parameter remains an ordinary resolved binding.
+task v4_ty_signature_arrow_control_return(ty_id: int, sig_id: int) -> word {
+    pilot hir = v4_ty_signature_hir_id(ty_id)
+    pilot item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if v4_hir_task_return_form(hir, item) != v4_hir_task_return_arrow { give back v4_ty_unknown }
+    pilot stream = v4_ty_signature_stream_id(ty_id)
+    pilot start = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end = v4_ty_signature_item_end_token(ty_id, sig_id)
+    pilot arrow = v4_ty_find_token_value(stream, start, end, "=>")
+    if arrow < 0 { give back v4_ty_unknown }
+    pilot first = v4_ty_skip_trivia(stream, arrow + 1)
+    if v4_lex_token_syntax_value(stream, first) != "panic" { give back v4_ty_unknown }
+    pilot resolve = v4_ty_resolve_id(ty_id)
+    if resolve >= 0 and v4_resolve_def_for_name(resolve, "panic") != "" { give back v4_ty_unknown }
+    pilot parameter = 0
+    repeat until parameter >= v4_ty_signature_fixed_param_count(ty_id, sig_id) {
+        if v4_ty_signature_param_name(ty_id, sig_id, parameter) == "panic" { give back v4_ty_unknown }
+        parameter += 1
+    }
+    pilot open = v4_ty_skip_trivia(stream, first + 1)
+    if v4_lex_token_syntax_value(stream, open) != "(" { give back v4_ty_unknown }
+    pilot close = v4_ty_find_matching_paren(stream, open, end)
+    if close < 0 { give back v4_ty_unknown }
+    pilot after = v4_ty_skip_trivia(stream, close + 1)
+    if after < end and v4_lex_token_syntax_value(stream, after) == ";" { after = v4_ty_skip_trivia(stream, after + 1) }
+    if after < end { give back v4_ty_unknown }
+    give back v4_ty_never
 }
