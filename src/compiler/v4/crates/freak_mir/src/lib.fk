@@ -3072,22 +3072,7 @@ task v4_mir_snapshot_release_body_graph_arrays(place_kinds: int, place_bases: in
 }
 
 task v4_mir_word_source_body_span(ty_id: int, def_id: word) -> word {
-    pilot hir_id = v4_ty_signature_hir_id(ty_id)
-    if hir_id < 0 { give back V4_NO_SPAN }
-    pilot signature = v4_ty_lookup_signature(ty_id, def_id)
-    if signature >= 0 { give back v4_hir_item_span(hir_id, v4_ty_signature_hir_item(ty_id, signature)) }
-    pilot item = 0
-    repeat until item >= v4_hir_item_count(hir_id) {
-        if v4_hir_item_kind(hir_id, item) == v4_hir_impl {
-            pilot method = 0
-            repeat until method >= v4_ty_impl_method_count(ty_id, item) {
-                if v4_ty_impl_method_def(ty_id, item, method) == def_id { give back v4_ty_impl_method_source_span(ty_id, item, method) }
-                method += 1
-            }
-        }
-        item += 1
-    }
-    give back V4_NO_SPAN
+    give back v4_ty_callable_source_span_for_def(ty_id, def_id)
 }
 
 task v4_mir_word_scope_fact_is_valid(scope: word, file_id: int, body_span: word, inner: word, required: bool) -> bool {
