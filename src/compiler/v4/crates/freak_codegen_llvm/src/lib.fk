@@ -1613,6 +1613,7 @@ task v4_codegen_llvm_native_c_width_error(mir_id: int, ty_id: int) -> word {
         }
         sig += 1
     }
+    pilot last_annotation_owner = 0 - 1
     pilot body = 0
     repeat until body >= v4_mir_body_count(mir_id) {
         pilot rvalue = 0
@@ -1637,11 +1638,16 @@ task v4_codegen_llvm_native_c_width_error(mir_id: int, ty_id: int) -> word {
                 if error != "" { give back error }
                 param += 1
             }
-            pilot annotation = 0
-            repeat until annotation >= v4_ty_impl_method_local_annotation_count(ty_id, item) {
-                error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_impl_method_local_annotation_surface_type(ty_id, item, annotation), false)
-                if error != "" { give back error }
-                annotation += 1
+            -- Methods share the owner's annotation table. Reuse only a
+            -- completed scan; returning to an earlier owner rechecks it.
+            if item != last_annotation_owner {
+                pilot annotation = 0
+                repeat until annotation >= v4_ty_impl_method_local_annotation_count(ty_id, item) {
+                    error = v4_codegen_llvm_native_c_surface_error(ty_id, v4_ty_impl_method_local_annotation_surface_type(ty_id, item, annotation), false)
+                    if error != "" { give back error }
+                    annotation += 1
+                }
+                last_annotation_owner = item
             }
         }
         body += 1
