@@ -193,8 +193,8 @@ Private runtime helpers also implement Unicode 17 default lowercase and
 checked process/filesystem adapters. They have separate C runtime probes;
 `to_lower` and typed `fs::read` are not yet wired through the native compiler.
 The centralized `freakc.v4_native_runtime` inventory determines native link
-inputs and benchmark provenance. Root initialization continues to use an
-explicit bootstrap compatibility mode with strict language mode the default.
+inputs and benchmark provenance. Root initialization is planned as an explicit
+bootstrap compatibility mode; strict language mode remains the default.
 
 ### Literal say (W1)
 

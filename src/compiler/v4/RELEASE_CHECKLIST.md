@@ -69,8 +69,8 @@ atomic admission/retirement repair before broader validation.
 
 Broader native words require ownership and borrowed
 intrinsic contracts together with cleanup before adding interpolation.
-Unicode character indexing follows the bible. Root initialization remains an
-explicit bootstrap compatibility mode with strict language mode as the default.
+Unicode character indexing follows the bible. Root initialization is planned
+as an explicit bootstrap compatibility mode with strict language mode as the default.
 The maintainer selected checked native integer arithmetic at every optimization
 level: overflow and division by zero must report runtime errors. Implementation
 and executable boundary coverage remain required before that row is checked.
