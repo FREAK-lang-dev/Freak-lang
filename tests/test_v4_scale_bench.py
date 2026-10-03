@@ -6,6 +6,7 @@ import contextlib
 import io
 import importlib.util
 import json
+import os
 from pathlib import Path
 import platform
 import shutil
@@ -21,18 +22,27 @@ STAGES = ["lex", "parse", "hir", "resolve", "ty", "mir", "borrowck", "codegen", 
 LLVM_VERSION = "llvm-nm, compatible with GNU nm\nLLVM version 19.1.7\n"
 
 
+@unittest.skipUnless(sys.platform.startswith("linux"), "Linux pinned ELF symbol reader")
 class SymbolToolSelection(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.work = Path(temporary.name).resolve()
         self.tool = self.work / "llvm-nm-real"
-        self.tool.write_bytes(b"LLVM tool image")
+        self.tool.write_bytes(b"\x7fELF LLVM tool image")
         self.obj = self.work / "module.o"
         self.obj.write_bytes(b"native object")
         spec = importlib.util.spec_from_file_location("symbol_tool_benchmark", ROOT / "v4_scale_bench.py")
         self.benchmark = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.benchmark)
+
+    def launch_kwargs(self, job):
+        descriptor, = job.call_args.kwargs["pass_fds"]
+        expected = {"executable": f"/proc/self/fd/{descriptor}", "pass_fds": (descriptor,)}
+        self.assertEqual(job.call_args.kwargs, expected)
+        with self.assertRaises(OSError):
+            os.fstat(descriptor)
+        return expected
 
     def test_missing_llvm_reader_fails_without_using_gnu_nm(self):
         with patch.object(self.benchmark.shutil, "which",
@@ -58,7 +68,7 @@ class SymbolToolSelection(unittest.TestCase):
         job.assert_called_once_with(None, [str(alias), "--version"],
                                     self.work / "selection/tool-version",
                                     "LLVM symbol tool version", 5, 128, 1,
-                                    executable=str(self.tool))
+                                    **self.launch_kwargs(job))
         self.assertEqual(json.loads((self.work / "selection/provenance.json").read_text()), selected)
 
     def test_parent_is_canonicalized_without_resolving_dispatch_leaf(self):
@@ -75,7 +85,7 @@ class SymbolToolSelection(unittest.TestCase):
         self.assertEqual(selected["selected_nm"], str(alias))
         self.assertEqual(selected["resolved_nm"], str(self.tool))
         self.assertEqual(job.call_args.args[1], [str(alias), "--version"])
-        self.assertEqual(job.call_args.kwargs, {"executable": str(self.tool)})
+        self.launch_kwargs(job)
 
     def test_name_without_llvm_implementation_is_rejected_before_inventory(self):
         result = subprocess.CompletedProcess([], 0, "GNU nm (GNU Binutils) 2.42\n", "")
@@ -106,7 +116,7 @@ class SymbolToolSelection(unittest.TestCase):
         self.assertEqual(metadata["nm_version"], "unavailable within unchanged resource limits")
         job.assert_called_once_with(None, [str(self.tool), "--version"],
                                    directory / "tool-version", "LLVM symbol tool version", 5, 128, 1,
-                                   executable=str(self.tool))
+                                   **self.launch_kwargs(job))
 
     def test_version_nonzero_exit_keeps_stderr_and_pinned_provenance(self):
         result = subprocess.CompletedProcess([], 2, LLVM_VERSION, "version loader failed")
@@ -124,7 +134,7 @@ class SymbolToolSelection(unittest.TestCase):
         self.assertEqual(metadata["nm_version"], "unavailable within unchanged resource limits")
         job.assert_called_once_with(None, [str(self.tool), "--version"],
                                    directory / "tool-version", "LLVM symbol tool version", 5, 128, 1,
-                                   executable=str(self.tool))
+                                   **self.launch_kwargs(job))
 
     def test_frozen_image_change_stops_before_symbol_reader_execution(self):
         selected = {"requested_nm": str(self.tool), "selected_nm": str(self.tool),
@@ -207,7 +217,7 @@ class SymbolToolSelection(unittest.TestCase):
         self.assertEqual(job.call_args.args,
             (None, [str(self.tool), "-g", "--defined-only", str(self.obj)],
              self.work / "symbols", "native symbol inventory", 10, 128, 8))
-        self.assertEqual(job.call_args.kwargs, {"executable": str(self.tool)})
+        self.launch_kwargs(job)
         metadata = json.loads((self.work / "symbols/provenance.json").read_text())
         self.assertEqual(metadata["nm_file"], selected["nm_file"])
         self.assertEqual(metadata["object"]["sha256"], hashlib.sha256(self.obj.read_bytes()).hexdigest())
@@ -217,13 +227,14 @@ class SymbolToolSelection(unittest.TestCase):
         runner = Mock(return_value=subprocess.CompletedProcess([], 0, LLVM_VERSION, ""))
         self.benchmark.guarded_job(None, [str(alias), "--version"], self.work / "bound",
                                    "bound dispatch", 5, 128, 1, runner=runner,
-                                   executable=str(self.tool))
+                                   executable="/proc/self/fd/17", pass_fds=(17,))
         runner.assert_called_once_with([str(alias), "--version"], label="bound dispatch",
                                        timeout_seconds=5, memory_limit_mb=128, output_limit_mb=1,
-                                       executable=str(self.tool))
+                                       executable="/proc/self/fd/17", pass_fds=(17,))
         metadata = json.loads((self.work / "bound/command.json").read_text())
         self.assertEqual(metadata["argv0"], str(alias))
-        self.assertEqual(metadata["executable"], str(self.tool))
+        self.assertEqual(metadata["executable"], "/proc/self/fd/17")
+        self.assertEqual(metadata["pass_fds"], [17])
 
     def test_default_guarded_job_does_not_override_executable(self):
         runner = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
@@ -233,9 +244,78 @@ class SymbolToolSelection(unittest.TestCase):
                                        timeout_seconds=5, memory_limit_mb=128, output_limit_mb=1)
         metadata = json.loads((self.work / "default/command.json").read_text())
         self.assertNotIn("executable", metadata)
+        self.assertNotIn("pass_fds", metadata)
 
-    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux multicall dispatch control")
-    def test_real_multicall_alias_dispatch_and_resolved_image_negative_control(self):
+    def test_pinned_descriptor_survives_atomic_path_replacement_and_closes(self):
+        original = self.tool.read_bytes()
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        with self.benchmark.frozen_symbol_tool_launch(selected) as launch:
+            descriptor, = launch["pass_fds"]
+            inode = os.fstat(descriptor).st_ino
+            replacement = self.work / "replacement"
+            replacement.write_bytes(b"\x7fELF another tool image")
+            os.replace(replacement, self.tool)
+            self.assertNotEqual(self.tool.stat().st_ino, inode)
+            self.assertEqual(os.stat(launch["executable"]).st_ino, inode)
+            self.assertEqual(os.read(descriptor, len(original)), original)
+            self.assertEqual(launch["image"]["inode"], inode)
+            self.assertEqual(launch["image"]["sha256"], hashlib.sha256(original).hexdigest())
+        with self.assertRaises(OSError):
+            os.fstat(descriptor)
+
+    def test_shebang_tool_rejected_before_execution(self):
+        self.tool.write_bytes(b"#!/usr/bin/env python3\nprint('LLVM version 19')\n")
+        with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark, "guarded_job") as job:
+            with self.assertRaisesRegex(RuntimeError, "native ELF image; shebang tools are unsupported"):
+                self.benchmark.llvm_symbol_tool(None, self.work / "selection", 10)
+        job.assert_not_called()
+
+    def test_nonlinux_execution_rejected_before_descriptor_or_spawn(self):
+        with patch.object(self.benchmark.sys, "platform", "win32"), \
+                patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark.os, "open") as opened, \
+                patch.object(self.benchmark, "guarded_job") as job:
+            with self.assertRaisesRegex(RuntimeError, "requires Linux proc-fd support"):
+                self.benchmark.llvm_symbol_tool(None, self.work / "selection", 10)
+        opened.assert_not_called()
+        job.assert_not_called()
+
+    def test_descriptor_exhaustion_keeps_provenance_and_stops_before_spawn(self):
+        error = OSError(24, "descriptor limit reached")
+        with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark.os, "open", side_effect=error), \
+                patch.object(self.benchmark, "guarded_job") as job:
+            with self.assertRaisesRegex(RuntimeError, "descriptor limit reached"):
+                self.benchmark.llvm_symbol_tool(None, self.work / "selection", 10)
+        job.assert_not_called()
+        metadata = json.loads((self.work / "selection/provenance.json").read_text())
+        self.assertEqual(metadata["nm_file"]["sha256"], hashlib.sha256(self.tool.read_bytes()).hexdigest())
+
+    def test_missing_proc_fd_namespace_closes_descriptor_before_failure(self):
+        original_stat, original_open = os.stat, os.open
+        opened = []
+        def record_open(*args, **kwargs):
+            descriptor = original_open(*args, **kwargs)
+            opened.append(descriptor)
+            return descriptor
+        def missing_proc(path, *args, **kwargs):
+            if str(path).startswith("/proc/self/fd/"):
+                raise FileNotFoundError("proc fd namespace unavailable")
+            return original_stat(path, *args, **kwargs)
+        with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark.os, "open", side_effect=record_open), \
+                patch.object(self.benchmark.os, "stat", side_effect=missing_proc), \
+                patch.object(self.benchmark, "guarded_job") as job:
+            with self.assertRaisesRegex(RuntimeError, "requires Linux proc-fd support"):
+                self.benchmark.llvm_symbol_tool(None, self.work / "selection", 10)
+        job.assert_not_called()
+        self.assertEqual(len(opened), 1)
+        with self.assertRaises(OSError):
+            os.fstat(opened[0])
+
+    def native_multicall_images(self, *, with_origin=False):
         clang = shutil.which("clang")
         self.assertIsNotNone(clang, "native multicall regression prerequisite missing: clang; install Clang")
         calls = self.work / "dispatch.txt"
@@ -244,7 +324,10 @@ class SymbolToolSelection(unittest.TestCase):
             '#include <stdio.h>\n#include <string.h>\n'
             '#ifndef IMAGE_MARKER\n#define IMAGE_MARKER "pinned"\n#endif\n'
             '#ifndef EXPORT_NAME\n#define EXPORT_NAME "multicall_export"\n#endif\n'
+            + ('extern int bench_fd_origin(void);\n' if with_origin else
+               'static int bench_fd_origin(void) { return 313; }\n') +
             'int main(int argc, char **argv) {\n'
+            '    if (bench_fd_origin() != 313) return 72;\n'
             f'    FILE *log = fopen({json.dumps(str(calls))}, "a");\n'
             '    if (!log) return 70;\n'
             '    fprintf(log, "%s|%s|%s\\n", IMAGE_MARKER, argv[0], argc > 1 ? argv[1] : "");\n'
@@ -263,12 +346,26 @@ class SymbolToolSelection(unittest.TestCase):
             '    return 65;\n}\n')
         replacement = self.work / "replacement-image"
         build = self.benchmark.load_build(ROOT)
+        link_flags = []
+        if with_origin:
+            library_source = self.work / "origin.c"
+            library_source.write_text("int bench_fd_origin(void) { return 313; }\n")
+            library = self.work / "libbench_fd_origin.so"
+            compiled = self.benchmark.guarded_job(build,
+                [clang, "-shared", "-fPIC", str(library_source), "-o", str(library)],
+                self.work / "origin-build", "native origin library", 10, 128, 8)
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            link_flags = ["-L", str(self.work), "-lbench_fd_origin", "-Wl,-rpath,$ORIGIN"]
         for image, flags in ((self.tool, []), (replacement,
                 ['-DIMAGE_MARKER="replacement"', '-DEXPORT_NAME="unverified_export"'])):
             compiled = self.benchmark.guarded_job(build,
-                [clang, "-std=c11", *flags, str(source), "-o", str(image)],
+                [clang, "-std=c11", *flags, str(source), *link_flags, "-o", str(image)],
                 self.work / (image.name + "-build"), "native multicall image", 10, 128, 8)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+        return build, calls, replacement
+
+    def test_real_multicall_alias_dispatch_and_resolved_image_negative_control(self):
+        build, calls, replacement = self.native_multicall_images()
         alias = self.work / "llvm-nm"
         alias.symlink_to(self.tool)
         negative = self.benchmark.guarded_job(build, [str(self.tool), "--version"],
@@ -288,7 +385,9 @@ class SymbolToolSelection(unittest.TestCase):
 
         def retarget_after_validation(*args, **kwargs):
             self.assertEqual(args[1][0], str(alias))
-            self.assertEqual(kwargs.get("executable"), str(self.tool))
+            descriptor, = kwargs["pass_fds"]
+            self.assertEqual(kwargs.get("executable"), f"/proc/self/fd/{descriptor}")
+            self.assertEqual(os.fstat(descriptor).st_ino, self.tool.stat().st_ino)
             alias.unlink()
             alias.symlink_to(replacement)
             return original_job(*args, **kwargs)
@@ -313,7 +412,73 @@ class SymbolToolSelection(unittest.TestCase):
             command = json.loads((self.work / directory / "command.json").read_text())
             self.assertEqual(command["command"][0], str(alias))
             self.assertEqual(command["argv0"], str(alias))
-            self.assertEqual(command["executable"], str(self.tool))
+            self.assertEqual(command["executable"], f'/proc/self/fd/{command["pass_fds"][0]}')
+            self.assertEqual(command["memory_limit_mib"], 128)
+            self.assertEqual(command["output_limit_mib"], output)
+
+    def test_atomic_resolved_replacement_keeps_pinned_image_and_origin_library(self):
+        readelf = shutil.which("readelf")
+        self.assertIsNotNone(readelf, "native origin regression prerequisite missing: readelf; install binutils")
+        build, calls, replacement = self.native_multicall_images(with_origin=True)
+        dynamic = self.benchmark.guarded_job(build, [readelf, "--dynamic", str(self.tool)],
+            self.work / "origin-dynamic", "native origin metadata", 10, 128, 8)
+        self.assertEqual(dynamic.returncode, 0, dynamic.stdout + dynamic.stderr)
+        self.assertIn("$ORIGIN", dynamic.stdout)
+        self.assertIn("libbench_fd_origin.so", dynamic.stdout)
+        alias = self.work / "llvm-nm"
+        alias.symlink_to(self.tool)
+        pinned_bytes, replacement_bytes = self.tool.read_bytes(), replacement.read_bytes()
+        (self.work / "pinned-image").write_bytes(pinned_bytes)
+        (self.work / "replacement-bytes").write_bytes(replacement_bytes)
+        pinned_hash = hashlib.sha256(pinned_bytes).hexdigest()
+        expected = {"selected_nm": str(alias), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        self.benchmark.require_frozen_symbol_tool(expected)
+        os.replace(replacement, self.tool)
+        old_path = self.benchmark.guarded_job(build, [str(alias), "--version"],
+            self.work / "resolved-replacement-negative", "resolved replacement negative", 5, 128, 1,
+            executable=str(self.tool))
+        self.assertEqual(old_path.returncode, 0, old_path.stdout + old_path.stderr)
+        self.assertEqual(calls.read_text().splitlines()[-1].split("|"),
+                         ["replacement", str(alias), "--version"])
+        original_job = self.benchmark.guarded_job
+        observed_inodes = []
+        def restore_pinned_path():
+            temporary = self.work / "pinned-restore"
+            temporary.write_bytes(pinned_bytes)
+            temporary.chmod(0o755)
+            os.replace(temporary, self.tool)
+        def replace_after_validation(*args, **kwargs):
+            descriptor, = kwargs["pass_fds"]
+            observed = os.fstat(descriptor)
+            self.assertEqual(kwargs["executable"], f"/proc/self/fd/{descriptor}")
+            self.assertEqual(observed.st_ino, self.tool.stat().st_ino)
+            replacement.write_bytes(replacement_bytes)
+            replacement.chmod(0o755)
+            os.replace(replacement, self.tool)
+            self.assertNotEqual(observed.st_ino, self.tool.stat().st_ino)
+            self.assertEqual(os.stat(kwargs["executable"]).st_ino, observed.st_ino)
+            observed_inodes.append(observed.st_ino)
+            return original_job(*args, **kwargs)
+        restore_pinned_path()
+        with patch.object(self.benchmark.shutil, "which", return_value=str(alias)), \
+                patch.object(self.benchmark, "guarded_job", side_effect=replace_after_validation):
+            selected = self.benchmark.llvm_symbol_tool(build, self.work / "selection", 10)
+        restore_pinned_path()
+        with patch.object(self.benchmark, "guarded_job", side_effect=replace_after_validation):
+            exports = self.benchmark.defined_symbols(build, self.obj, self.work / "symbols", 10,
+                                                    symbol_tool=selected)
+        self.assertEqual(exports, {"multicall_export"})
+        self.assertEqual([line.split("|") for line in calls.read_text().splitlines()],
+                         [["replacement", str(alias), "--version"],
+                          ["pinned", str(alias), "--version"], ["pinned", str(alias), "-g"]])
+        for index, (directory, output) in enumerate((("selection/tool-version", 1), ("symbols", 8))):
+            image = json.loads((self.work / directory / "image.json").read_text())
+            command = json.loads((self.work / directory / "command.json").read_text())
+            self.assertEqual(image["sha256"], pinned_hash)
+            self.assertEqual(image["inode"], observed_inodes[index])
+            self.assertEqual(command["argv0"], str(alias))
+            self.assertEqual(command["executable"], image["executable"])
             self.assertEqual(command["memory_limit_mib"], 128)
             self.assertEqual(command["output_limit_mib"], output)
 
