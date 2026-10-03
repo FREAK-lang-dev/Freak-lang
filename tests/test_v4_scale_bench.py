@@ -608,6 +608,111 @@ class SymbolToolSelection(unittest.TestCase):
             os.fstat(closed[0])
         self.assertEqual(absent.exception.errno, errno.EBADF)
 
+    @contextlib.contextmanager
+    def failed_original_adoption(self, primary, close_effect=None):
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        original_open, original_close = os.open, os.close
+        original_temporary = tempfile.TemporaryDirectory
+        opened, scratch = [], []
+        def record_open(path, *args, **kwargs):
+            descriptor = original_open(path, *args, **kwargs)
+            if Path(path) == self.tool:
+                opened.append(descriptor)
+            return descriptor
+        def record_temporary(*args, **kwargs):
+            temporary = original_temporary(*args, **kwargs)
+            scratch.append(Path(temporary.name))
+            return temporary
+        try:
+            with patch.object(self.benchmark.os, "open", side_effect=record_open), \
+                    patch.object(self.benchmark.os, "fdopen", side_effect=primary) as adoption, \
+                    patch.object(self.benchmark.tempfile, "TemporaryDirectory", side_effect=record_temporary), \
+                    patch.object(self.benchmark, "close_symbol_descriptor",
+                                 side_effect=close_effect or original_close) as close, \
+                    patch.object(self.benchmark, "guarded_job") as job:
+                with self.assertRaises(type(primary)) as failure:
+                    with self.benchmark.frozen_symbol_tool_launch(selected):
+                        self.fail("failed original adoption reached launch")
+            self.assertIs(failure.exception, primary)
+            self.assertEqual(len(opened), 1)
+            adoption.assert_called_once_with(opened[0], "rb", buffering=0)
+            job.assert_not_called()
+            self.assertEqual(len(scratch), 1)
+            self.assertFalse(scratch[0].exists())
+            yield opened[0], close
+        finally:
+            # Replaying the predecessor must not leak the FD its oracle finds.
+            for descriptor in opened:
+                try:
+                    original_close(descriptor)
+                except OSError as error:
+                    if error.errno != errno.EBADF:
+                        raise
+
+    def test_original_fdopen_failure_closes_raw_descriptor_and_preserves_primary(self):
+        for failure_type in (MemoryError, KeyboardInterrupt):
+            with self.subTest(exception=failure_type.__name__):
+                primary = failure_type("original wrapper construction failed")
+                cause = ValueError("prior attributed cause")
+                primary.__cause__ = cause
+                with self.failed_original_adoption(primary) as (descriptor, close):
+                    # The old helper leaks this actual FD after both failures.
+                    with self.assertRaises(OSError) as absent:
+                        os.fstat(descriptor)
+                    self.assertEqual(absent.exception.errno, errno.EBADF)
+                    close.assert_called_once_with(descriptor)
+                    self.assertIs(primary.__cause__, cause)
+                    self.assertFalse(hasattr(primary, "__notes__"))
+
+    def test_original_adoption_close_eintr_keeps_primary_and_bounded_note(self):
+        original_close = os.close
+        for failure_type in (MemoryError, KeyboardInterrupt):
+            with self.subTest(exception=failure_type.__name__):
+                primary = failure_type("original wrapper construction failed")
+                cause = ValueError("prior attributed cause")
+                primary.__cause__ = cause
+                def close_then_fail(descriptor):
+                    original_close(descriptor)
+                    raise OSError(errno.EINTR, "already closed " + "x" * 1024)
+                with self.failed_original_adoption(primary, close_then_fail) as (descriptor, close):
+                    close.assert_called_once_with(descriptor)
+                    with self.assertRaises(OSError) as absent:
+                        os.fstat(descriptor)
+                    self.assertEqual(absent.exception.errno, errno.EBADF)
+                    self.assertIs(primary.__cause__, cause)
+                    self.assertEqual(len(primary.__notes__), 1)
+                    self.assertIn("original adoption close failure: errno=4", primary.__notes__[0])
+                    self.assertLessEqual(len(primary.__notes__[0]), 350)
+
+    def test_original_adoption_close_failure_never_retries_reused_descriptor(self):
+        original_close, original_open = os.close, os.open
+        primary = KeyboardInterrupt("original wrapper cancellation")
+        reused = []
+        def close_and_reuse(descriptor):
+            original_close(descriptor)
+            replacement = original_open(self.obj, os.O_RDONLY | os.O_CLOEXEC)
+            reused.append(replacement)
+            self.assertEqual(replacement, descriptor)
+            raise OSError(errno.EINTR, "already closed and reused")
+        with self.failed_original_adoption(primary, close_and_reuse) as (descriptor, close):
+            close.assert_called_once_with(descriptor)
+            self.assertEqual(reused, [descriptor])
+            self.assertEqual(os.read(reused[0], self.obj.stat().st_size), self.obj.read_bytes())
+
+    def test_original_adoption_note_failure_cannot_replace_cancellation(self):
+        original_close = os.close
+        primary = KeyboardInterrupt("original wrapper cancellation")
+        primary.__notes__ = object()
+        def close_then_fail(descriptor):
+            original_close(descriptor)
+            raise OSError(errno.EINTR, "already closed")
+        with self.failed_original_adoption(primary, close_then_fail) as (descriptor, close):
+            close.assert_called_once_with(descriptor)
+            with self.assertRaises(OSError) as absent:
+                os.fstat(descriptor)
+            self.assertEqual(absent.exception.errno, errno.EBADF)
+
     def native_multicall_images(self, *, with_origin=False):
         clang = shutil.which("clang")
         self.assertIsNotNone(clang, "native multicall regression prerequisite missing: clang; install Clang")
