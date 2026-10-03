@@ -11,6 +11,7 @@ import sys
 import tempfile
 
 import check_v4 as checks
+from freakc.v4_native_runtime import SOURCE_NAMES
 
 
 def require_distinct_output(source: Path, output: Path) -> None:
@@ -29,10 +30,9 @@ def require_distinct_output(source: Path, output: Path) -> None:
 
 
 def native_link_command(clang: str, llvm_path: Path, output: Path) -> list[str]:
-    # Match the shipping LLVM CLI: the adapter and core runtime are both needed.
+    # Compiler-private V4 helpers supplement the existing adapter/core runtime.
     return [clang, "-w", "-O2", str(llvm_path),
-            str(checks.RUNTIME_ROOT / "freak_llvm_runtime.c"),
-            str(checks.RUNTIME_ROOT / "freak_runtime.c"),
+            *(str(checks.RUNTIME_ROOT / name) for name in SOURCE_NAMES),
             f"-I{checks.RUNTIME_ROOT}", "-o", str(output),
             *checks.runtime_platform_final_link_args()]
 
