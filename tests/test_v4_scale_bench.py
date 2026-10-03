@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import contextlib
+import errno
 import io
 import importlib.util
 import json
@@ -314,6 +315,117 @@ class SymbolToolSelection(unittest.TestCase):
         self.assertEqual(len(opened), 1)
         with self.assertRaises(OSError):
             os.fstat(opened[0])
+
+    def test_secondary_close_error_preserves_version_and_inventory_guard_failures(self):
+        original_close = os.close
+        for phase in ("version", "inventory"):
+            with self.subTest(phase=phase):
+                primary = RuntimeError("peak process memory 129 MB exceeded limit 128 MB")
+                cause = OSError("original guard attribution")
+                primary.__cause__ = cause
+                closed = []
+                def close_then_fail(descriptor):
+                    original_close(descriptor)
+                    closed.append(descriptor)
+                    raise OSError(errno.EINTR, "secondary FD close interrupted " + "x" * 1024)
+                selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                            "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+                with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                        patch.object(self.benchmark, "guarded_job", side_effect=primary) as job, \
+                        patch.object(self.benchmark.os, "close", side_effect=close_then_fail) as close, \
+                        self.assertRaises(RuntimeError) as failure:
+                    if phase == "version":
+                        self.benchmark.llvm_symbol_tool(None, self.work / phase, 10)
+                    else:
+                        self.benchmark.defined_symbols(None, self.obj, self.work / phase, 10,
+                                                       symbol_tool=selected)
+                self.assertIs(failure.exception.__cause__, primary)
+                self.assertIs(primary.__cause__, cause)
+                self.assertIn("129 MB exceeded limit 128 MB", str(failure.exception))
+                self.assertEqual(len(primary.__notes__), 1)
+                self.assertIn("descriptor close failure: errno=4", primary.__notes__[0])
+                self.assertLessEqual(len(primary.__notes__[0]), 350)
+                job.assert_called_once()
+                close.assert_called_once_with(closed[0])
+                with self.assertRaises(OSError) as absent:
+                    os.fstat(closed[0])
+                self.assertEqual(absent.exception.errno, errno.EBADF)
+
+    def test_close_only_failure_is_named_for_version_and_inventory(self):
+        original_close = os.close
+        for phase in ("version", "inventory"):
+            with self.subTest(phase=phase):
+                error = OSError(errno.EINTR, "secondary FD close interrupted")
+                closed = []
+                def close_then_fail(descriptor):
+                    original_close(descriptor)
+                    closed.append(descriptor)
+                    raise error
+                selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                            "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+                result = subprocess.CompletedProcess([], 0, LLVM_VERSION if phase == "version"
+                                                     else "00000000 T exported\n", "")
+                with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                        patch.object(self.benchmark, "guarded_job", return_value=result) as job, \
+                        patch.object(self.benchmark.os, "close", side_effect=close_then_fail) as close, \
+                        self.assertRaisesRegex(RuntimeError, "LLVM symbol reader descriptor close failed") as failure:
+                    if phase == "version":
+                        self.benchmark.llvm_symbol_tool(None, self.work / phase, 10)
+                    else:
+                        self.benchmark.defined_symbols(None, self.obj, self.work / phase, 10,
+                                                       symbol_tool=selected)
+                self.assertIsInstance(failure.exception.__cause__, RuntimeError)
+                self.assertIs(failure.exception.__cause__.__cause__, error)
+                self.assertIn("provenance=", str(failure.exception))
+                job.assert_called_once()
+                close.assert_called_once_with(closed[0])
+                with self.assertRaises(OSError) as absent:
+                    os.fstat(closed[0])
+                self.assertEqual(absent.exception.errno, errno.EBADF)
+
+    def test_close_failure_never_retries_a_reused_descriptor(self):
+        original_close, original_open = os.close, os.open
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        reused = []
+        def close_and_reuse(descriptor):
+            original_close(descriptor)
+            replacement = original_open(self.obj, os.O_RDONLY | os.O_CLOEXEC)
+            reused.append(replacement)
+            self.assertEqual(replacement, descriptor)
+            raise OSError(errno.EINTR, "already closed and reused")
+        try:
+            with patch.object(self.benchmark.os, "close", side_effect=close_and_reuse) as close:
+                with self.assertRaisesRegex(RuntimeError, "LLVM symbol reader descriptor close failed"):
+                    with self.benchmark.frozen_symbol_tool_launch(selected):
+                        pass
+            close.assert_called_once_with(reused[0])
+            self.assertEqual(os.read(reused[0], self.obj.stat().st_size), self.obj.read_bytes())
+        finally:
+            for descriptor in reused:
+                original_close(descriptor)
+
+    def test_secondary_note_failure_cannot_replace_primary_exception(self):
+        original_close = os.close
+        primary = KeyboardInterrupt("original cancellation")
+        # BaseException.add_note rejects a malformed existing notes container.
+        primary.__notes__ = object()
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        closed = []
+        def close_then_fail(descriptor):
+            original_close(descriptor)
+            closed.append(descriptor)
+            raise OSError(errno.EINTR, "secondary FD close interrupted")
+        with patch.object(self.benchmark.os, "close", side_effect=close_then_fail) as close:
+            with self.assertRaises(KeyboardInterrupt) as failure:
+                with self.benchmark.frozen_symbol_tool_launch(selected):
+                    raise primary
+        self.assertIs(failure.exception, primary)
+        close.assert_called_once_with(closed[0])
+        with self.assertRaises(OSError) as absent:
+            os.fstat(closed[0])
+        self.assertEqual(absent.exception.errno, errno.EBADF)
 
     def native_multicall_images(self, *, with_origin=False):
         clang = shutil.which("clang")

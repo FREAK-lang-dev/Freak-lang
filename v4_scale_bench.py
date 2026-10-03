@@ -372,6 +372,7 @@ def frozen_symbol_tool_launch(provenance: dict):
     argv0 = require_frozen_symbol_mapping(provenance)
     tool = Path(provenance["resolved_nm"])
     descriptor = os.open(tool, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    primary_error = None
     try:
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
@@ -403,8 +404,27 @@ def frozen_symbol_tool_launch(provenance: dict):
                  "descriptor_lifetime": "inherited during this guarded job; closed after completion"}
         yield {"argv0": argv0, "executable": executable,
                "pass_fds": (descriptor,), "image": image}
+    except BaseException as error:
+        primary_error = error
+        raise
     finally:
-        os.close(descriptor)
+        try:
+            # Linux may already have released this descriptor on close failure.
+            # A retry could close a descriptor subsequently reused by the caller.
+            os.close(descriptor)
+        except OSError as close_error:
+            if primary_error is None:
+                raise RuntimeError("pinned LLVM symbol reader descriptor close failed") from close_error
+            # Cleanup attribution must not replace a resource/launch failure,
+            # even if adding its bounded secondary note itself fails.
+            try:
+                number = close_error.errno if isinstance(close_error.errno, int) else None
+                detail = close_error.strerror
+                detail = detail[:256] if isinstance(detail, str) else "unavailable"
+                BaseException.add_note(primary_error,
+                    f"secondary LLVM symbol reader descriptor close failure: errno={number}; {detail}")
+            except BaseException:
+                pass
 
 
 def defined_symbols(build, path: Path, directory: Path, timeout: float,
