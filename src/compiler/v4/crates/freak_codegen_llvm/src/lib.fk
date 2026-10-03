@@ -1706,8 +1706,12 @@ task v4_codegen_llvm_lower_mir(file_id: int, mir_id: int) -> int {
     array_set(v4_codegen_llvm_native_errors, codegen_id, native_error)
     if native_error == "" {
         v4_codegen_llvm_lower_bodies(codegen_id, mir_id)
+        pilot ordinary_body_count = v4_codegen_llvm_body_count(codegen_id)
         v4_codegen_llvm_lower_callback_trampolines(codegen_id, mir_id, ty_id)
+        -- Callback bodies introduce generated names outside source resolution.
+        -- Ordinary-only modules need no additional uniqueness index.
         native_error = v4_codegen_llvm_native_body_symbol_error(codegen_id)
+        if native_error == "" and v4_codegen_llvm_body_count(codegen_id) > ordinary_body_count { native_error = v4_codegen_llvm_native_duplicate_body_error(codegen_id) }
         pilot globals = v4_codegen_llvm_word_globals(mir_id)
         pilot entry = v4_codegen_llvm_native_entry(mir_id)
         if native_error == "" and entry != "" { native_error = v4_codegen_llvm_runtime_symbol_error(codegen_id, "@freak_llvm_setup_args", "i64, i64") }
@@ -1842,7 +1846,8 @@ task v4_codegen_llvm_body_symbol_index_insert(codegen_id: int, index: int, body_
         pilot previous: word = array_get(index, bucket)
         if previous == "" {
             array_set(index, bucket, symbol)
-            give back array_get(index, bucket) == symbol
+            pilot stored: word = array_get(index, bucket)
+            give back stored == symbol
         }
         if previous == symbol { give back true }
         bucket = (bucket + 1) % capacity
@@ -1851,8 +1856,7 @@ task v4_codegen_llvm_body_symbol_index_insert(codegen_id: int, index: int, body_
     give back false
 }
 
-task v4_codegen_llvm_body_symbol_index_new(codegen_id: int) -> int {
-    pilot count = v4_codegen_llvm_body_count(codegen_id)
+task v4_codegen_llvm_body_symbol_index_empty_new(count: int) -> int {
     -- Larger capacities cannot be useful under the existing array budgets;
     -- retain exact linear semantics rather than overflow capacity arithmetic.
     if count <= 0 or count > 268435456 { give back 0 - 1 }
@@ -1866,6 +1870,13 @@ task v4_codegen_llvm_body_symbol_index_new(codegen_id: int) -> int {
         if array_len(index) != bucket + 1 { array_release(index); give back 0 - 1 }
         bucket += 1
     }
+    give back index
+}
+
+task v4_codegen_llvm_body_symbol_index_new(codegen_id: int) -> int {
+    pilot count = v4_codegen_llvm_body_count(codegen_id)
+    pilot index = v4_codegen_llvm_body_symbol_index_empty_new(count)
+    if index < 0 { give back 0 - 1 }
     pilot body_id = 0
     repeat until body_id >= count {
         if not v4_codegen_llvm_body_symbol_index_insert(codegen_id, index, body_id) {
@@ -1901,6 +1912,45 @@ task v4_codegen_llvm_body_symbol_linear_contains(codegen_id: int, symbol: word) 
     give back false
 }
 
+task v4_codegen_llvm_duplicate_body_linear_error(codegen_id: int) -> word {
+    pilot body_id = 1
+    repeat until body_id >= v4_codegen_llvm_body_count(codegen_id) {
+        pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body_id)
+        pilot previous = 0
+        repeat until previous >= body_id {
+            if v4_codegen_llvm_body_symbol(codegen_id, previous) == symbol { give back "native body symbol has multiple definitions: " + symbol }
+            previous += 1
+        }
+        body_id += 1
+    }
+    give back ""
+}
+
+-- Generated callback names must also be unique among actual definitions.
+-- Report the earliest repeated body in sealed order, even without scratch.
+task v4_codegen_llvm_native_duplicate_body_error(codegen_id: int) -> word {
+    if codegen_id < 0 or codegen_id >= array_len(v4_codegen_llvm_files) { give back "invalid codegen ID" }
+    pilot count = v4_codegen_llvm_body_count(codegen_id)
+    if count <= 1 { give back "" }
+    pilot index = v4_codegen_llvm_body_symbol_index_empty_new(count)
+    if index < 0 { give back v4_codegen_llvm_duplicate_body_linear_error(codegen_id) }
+    pilot body_id = 0
+    repeat until body_id >= count {
+        pilot symbol = v4_codegen_llvm_body_symbol(codegen_id, body_id)
+        if v4_codegen_llvm_body_symbol_index_contains(codegen_id, index, symbol) {
+            array_release(index)
+            give back "native body symbol has multiple definitions: " + symbol
+        }
+        if not v4_codegen_llvm_body_symbol_index_insert(codegen_id, index, body_id) {
+            array_release(index)
+            give back v4_codegen_llvm_duplicate_body_linear_error(codegen_id)
+        }
+        body_id += 1
+    }
+    array_release(index)
+    give back ""
+}
+
 -- Check actual definitions after ordinary bodies and callback trampolines are
 -- sealed. Source-level names and mutable MIR/TY facts cannot decide linkage.
 task v4_codegen_llvm_native_body_symbol_error(codegen_id: int) -> word {
@@ -1916,8 +1966,7 @@ task v4_codegen_llvm_native_body_symbol_error(codegen_id: int) -> word {
         if v4_codegen_llvm_decl_line(codegen_id, decl_id).starts_with("declare ") {
             pilot symbol = v4_codegen_llvm_decl_symbol(codegen_id, decl_id)
             pilot collision: bool = false
-            if index >= 0 { collision = v4_codegen_llvm_body_symbol_index_contains(codegen_id, index, symbol) }
-            else { collision = v4_codegen_llvm_body_symbol_linear_contains(codegen_id, symbol) }
+            if index >= 0 { collision = v4_codegen_llvm_body_symbol_index_contains(codegen_id, index, symbol) } else { collision = v4_codegen_llvm_body_symbol_linear_contains(codegen_id, symbol) }
             if collision { error = "native body symbol conflicts with explicit ABI declaration: " + symbol }
         }
         decl_id += 1

@@ -108,6 +108,7 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "h6_native_unicode_char_smoke.fk",
         "h6_native_entry_symbol_smoke.fk",
         "h6_native_target_cc_smoke.fk",
+        "h6_native_body_symbol_smoke.fk",
     }
 )
 
@@ -7218,6 +7219,20 @@ EXECUTABLE_SMOKES = [
         ],
     },
     {
+        "name": "Native body ABI symbol collisions",
+        "fixture": "h6_native_body_symbol_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": [
+            "h6-native-body source-qualified=true first-error=true no-module=true",
+            "h6-native-body root=true qualified=true callback=true library=true hash-exact=true declaration-order=true recovery=true",
+            "h6-native-body duplicates=true body-order=true no-module=true construction-failure=true recovery=true",
+            "h6-native-body pressure=true fallback=true duplicates=true construction-failure=true handles-stable=true",
+            "h6-native-body restore=true changed-facts=true sealed=true",
+        ],
+    },
+    {
         "name": "LLVM module facts across MIR restore",
         "fixture": "codegen_llvm_module_epoch_smoke.fk",
         "expect_mode": "line",
@@ -12651,6 +12666,7 @@ def check_snapshot_inventories() -> None:
             "h6_native_unicode_char_smoke.fk",
             "h6_native_entry_symbol_smoke.fk",
             "h6_native_target_cc_smoke.fk",
+            "h6_native_body_symbol_smoke.fk",
         }
     ):
         violations.append("scratch-handle resource smoke limit coverage drifted")
@@ -13974,13 +13990,37 @@ def check_v4_build_command() -> None:
         if expected_success and "v4-errors=0" not in result.stdout:
             raise RuntimeError("warning-only V4 build did not report zero errors")
     # Exercise the actual bootstrap/tool boundary as well as plan-level facts:
-    # rejected entry symbols and cross-target conventions publish no LLVM.
+    # rejected body/entry symbols and cross-target conventions publish no LLVM.
     contract_cases = [
         (
             "target_cc", "aarch64-apple-darwin",
             'extern [stdcall] { task outside() -> std::ffi::c_isize }\n'
             'task main() -> int { give back outside() }\n',
             "native target calling convention not supported: stdcall for aarch64-apple-darwin",
+        ),
+        (
+            "body_symbol", host_target(),
+            'shape A { marker: int }\n'
+            'impl A { task b() -> int { give back 42 } }\n'
+            'extern [C] {\n @link_name("A::b")\n task outside() -> std::ffi::c_isize\n}\n'
+            'task main() -> int { give back outside() }\n',
+            'native body symbol conflicts with explicit ABI declaration: @"A::b"',
+        ),
+        (
+            "callback_symbol", host_target(),
+            '@extern_callback("C")\n'
+            'task callback() -> std::ffi::c_isize { give back 42 }\n'
+            'extern [C] {\n @link_name("__freak_callback_callback")\n task outside() -> std::ffi::c_isize\n}\n'
+            'task main() -> int { give back outside() }\n',
+            "native body symbol conflicts with explicit ABI declaration: @__freak_callback_callback",
+        ),
+        (
+            "callback_body", host_target(),
+            '@extern_callback("C")\n'
+            'task callback() -> std::ffi::c_isize { give back 42 }\n'
+            'task __freak_callback_callback() -> int { give back 7 }\n'
+            'task main() -> int { give back 0 }\n',
+            "native body symbol has multiple definitions: @__freak_callback_callback",
         ),
     ]
     for label, symbol in (("public_entry", "main"), ("private_entry", "freak.user.main")):

@@ -48,6 +48,14 @@ once; unsupported field callback places receive a native-contract error.
 LLVM global names preserve their source or explicit ABI spelling. Qualified
 names use LLVM quoted identifiers, so `A::b` and `A_b` remain distinct across
 definitions, direct calls, and callback targets, including after MIR restore.
+After lowering ordinary bodies and callback trampolines, Codegen rejects an
+explicit extern ABI declaration that shares their exact LLVM symbol. The named
+error is sealed before module publication and preserves the first native error.
+The collision lookup uses one temporary index with exact comparisons, releases
+it on every path, and falls back to a declaration-order scan without a handle.
+When callbacks add generated definitions, Codegen also rejects repeated body
+symbols in sealed body order. That check retains the same exact comparisons,
+temporary-handle cleanup and allocation-failure fallback.
 Quoted-name escaping preserves complete UTF-8 bytes and remains exact when
 temporary array handles are exhausted. Native character constants currently
 support printable ASCII and the admitted control escapes, including NUL;

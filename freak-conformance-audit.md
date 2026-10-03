@@ -53,6 +53,12 @@ closure and field/index facts by name before module emission. General aggregate
 layout and C-width ABI lowering remain open. LLVM globals preserve exact
 qualified and explicit ABI names across definitions, direct calls, callback
 targets, and MIR restore; quoted names remain exact without scratch handles.
+Explicit extern ABI declarations that share an ordinary body or callback
+trampoline's exact LLVM symbol receive a sealed native error before publication.
+Collision checks preserve declaration order and the first native error, including
+when temporary array handles are exhausted.
+Generated callback bodies must also have distinct symbols from ordinary bodies
+and other callbacks; repeated definitions fail before module publication.
 Native character constants retain printable ASCII and admitted control escapes,
 including NUL, and reject unsupported non-ASCII or unknown escapes by name instead of emitting
 zero. This does not promote general native Unicode character lowering.
