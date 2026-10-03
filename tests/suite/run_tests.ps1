@@ -45,16 +45,56 @@ foreach ($fk in $TestFiles) {
 
     # Compile
     $BinPath = Join-Path $SuiteDir "$Name.exe"
-    & $FreakBin build $fk.FullName 2>&1 | Out-Null
+    try {
+        if (Test-Path -LiteralPath $BinPath) {
+            if (-not (Test-Path -LiteralPath $BinPath -PathType Leaf)) {
+                throw "generated output path is not a file"
+            }
+            Remove-Item -LiteralPath $BinPath -Force -ErrorAction Stop
+        }
+    } catch {
+        Write-Host "  FAIL  $Name  (could not remove stale generated output)"
+        $Fail++
+        continue
+    }
 
-    if (-not (Test-Path $BinPath)) {
-        Write-Host "  FAIL  $Name  (build failed)"
+    try {
+        $LASTEXITCODE = $null
+        & $FreakBin build $fk.FullName 2>&1 | Out-Null
+        $BuildExitCode = $LASTEXITCODE
+    } catch {
+        Write-Host "  FAIL  $Name  (compiler invocation failed)"
+        $Fail++
+        continue
+    }
+
+    if ($null -eq $BuildExitCode -or $BuildExitCode -ne 0) {
+        Write-Host "  FAIL  $Name  (compiler failed, exit $BuildExitCode)"
+        $Fail++
+        continue
+    }
+
+    if (-not (Test-Path -LiteralPath $BinPath -PathType Leaf)) {
+        Write-Host "  FAIL  $Name  (build produced no fresh executable)"
         $Fail++
         continue
     }
 
     # Run and compare
-    $Actual = & $BinPath 2>&1 | Out-String
+    try {
+        $LASTEXITCODE = $null
+        $Actual = & $BinPath 2>&1 | Out-String
+        $RunExitCode = $LASTEXITCODE
+    } catch {
+        Write-Host "  FAIL  $Name  (program invocation failed)"
+        $Fail++
+        continue
+    }
+    if ($null -eq $RunExitCode -or $RunExitCode -ne 0) {
+        Write-Host "  FAIL  $Name  (program failed, exit $RunExitCode)"
+        $Fail++
+        continue
+    }
     $Actual = $Actual.TrimEnd("`r`n")
     $Expected = (Get-Content $ExpectedFile -Raw).TrimEnd("`r`n")
 
@@ -76,3 +116,4 @@ Write-Host "  Results: $Pass passed, $Fail failed, $Skip skipped"
 Write-Host ""
 
 if ($Fail -gt 0) { exit 1 }
+exit 0
