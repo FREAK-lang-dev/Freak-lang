@@ -125,6 +125,10 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "interpolation_diagnostics_smoke.fk",
         "interpolation_resource_smoke.fk",
         "interpolation_editor_smoke.fk",
+        "cold_query_admission_smoke.fk",
+        "cold_expand_admission_smoke.fk",
+        "cold_expand_facade_smoke.fk",
+        "cold_hir_facade_smoke.fk",
         "h6_native_declaration_symbol_smoke.fk",
         "h6_native_ffi_width_smoke.fk",
     }
@@ -10801,6 +10805,53 @@ EXECUTABLE_SMOKES = [
             {"argv": ["6"], "expect": ["interpolation-editor duplicate-field=true hover-first-int=true definition-first=true later-bool-excluded=true"]},
         ],
     },
+    {
+        "name": "Cold query initialization admission and recovery",
+        "fixture": "cold_query_admission_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-query-admission positions=17 exact-capacity=true failed-mutations-atomic=true",
+            "cold-query-admission cycles=3 handles-conserved=true recovery=true warm-facts=true",
+        ],
+    },
+    {
+        "name": "Cold expansion and joint query admission",
+        "fixture": "cold_expand_admission_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-expand-admission positions=4 cycles=3 exact-capacity=true failed-mutations-atomic=true",
+            "cold-expand-admission joint=0..21 cycles=2 malformed-atomic=true recovery=true handles-conserved=true",
+        ],
+    },
+    {
+        "name": "Cold expansion facade rollback and recovery",
+        "fixture": "cold_expand_facade_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-expand-facade 20-free result=expand-snapshot-restore ok=0 reason=expand-initialization-resource-exhausted",
+            "cold-expand-facade 20-free query-ready=0 expand-ready=0",
+            "cold-expand-facade failure-atomic=true handles-conserved=true recovery=true",
+        ],
+    },
+    {
+        "name": "Cold query admission before HIR facade publication",
+        "fixture": "cold_hir_facade_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-hir-facade 54-free restore_result=hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted",
+            "cold-hir-facade 54-free query-ready=0 cold-facts=true",
+            "cold-hir-facade early=0..16 cycles=3 malformed-atomic=true recovery=true handles-conserved=true",
+            "cold-hir-facade warm-facts=true transitive-invalidation=true source-preserved=true",
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:
@@ -12985,6 +13036,10 @@ def check_snapshot_inventories() -> None:
             "interpolation_diagnostics_smoke.fk",
             "interpolation_resource_smoke.fk",
             "interpolation_editor_smoke.fk",
+            "cold_query_admission_smoke.fk",
+            "cold_expand_admission_smoke.fk",
+            "cold_expand_facade_smoke.fk",
+            "cold_hir_facade_smoke.fk",
             "h6_native_declaration_symbol_smoke.fk",
             "h6_native_ffi_width_smoke.fk",
         }

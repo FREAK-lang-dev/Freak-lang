@@ -178,6 +178,12 @@ jobs:
       - name: Generated owned word native portability
         run: python -B -u tests/v4_owned_word_codegen.py --plain
 
+      - name: Cold admission fault-proof oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_cold_init_admission.py -v
+
+      - name: Cold query and expansion singleton-fault recovery
+        run: python -B -u tests/v4_cold_init_admission.py --output-dir "${{ runner.temp }}/cold-init-admission"
+
       - name: Owned process and checked filesystem runtime portability
         run: python -B -u tests/v4_system_runtime.py --plain
 
@@ -218,6 +224,14 @@ jobs:
         with:
           name: v4-unicode-runtime-${{ matrix.os }}
           path: ${{ runner.temp }}/unicode-lower-*.json
+          if-no-files-found: warn
+
+      - name: Preserve cold admission source and fault evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-cold-init-admission-${{ matrix.os }}
+          path: ${{ runner.temp }}/cold-init-admission/
           if-no-files-found: warn
 
       - name: Preserve checked numeric compiler and native evidence
