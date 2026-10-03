@@ -23,7 +23,7 @@ task v4_extern_literal_run() -> void {
     v4_extern_literal_assert(v4_slice(source, v4_span_start(body_span), v4_span_end(body_span)).ends_with("give back 1 }") and v4_hir_extern_member_return_surface_type(hir, item, 6) == "void", "quoted body recovery tokens do not truncate")
     say "extern-literal payload=true body=true"
     pilot before = v4_hir_snapshot()
-    v4_extern_literal_assert(v4_hir_snapshot_restore(before).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == before and v4_hir_extern_member_count(hir, item) == 7, "v10 exact restore")
+    v4_extern_literal_assert(v4_hir_snapshot_restore(before).starts_with("hir-snapshot-restore ok=1 ") and v4_hir_snapshot() == before and v4_hir_extern_member_count(hir, item) == 7, "v11 exact restore")
     say "extern-literal snapshot=true"
 }
 

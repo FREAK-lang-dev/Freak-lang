@@ -123,6 +123,8 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "interpolation_hir_smoke.fk",
         "interpolation_mir_smoke.fk",
         "interpolation_diagnostics_smoke.fk",
+        "interpolation_resource_smoke.fk",
+        "interpolation_editor_smoke.fk",
         "h6_native_declaration_symbol_smoke.fk",
         "h6_native_ffi_width_smoke.fk",
     }
@@ -2543,6 +2545,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-field-equality-equivalence=true",
             "hir-scaling-header-key-equivalence=true",
             "hir-scaling-baseline-restored=true",
+            "hir-scaling-old-v10-atomic=true",
             "hir-scaling-64-aliases=true",
             "hir-scaling-512-aliases=true",
             "hir-scaling-64-owners=true",
@@ -10766,6 +10769,38 @@ EXECUTABLE_SMOKES = [
         "expect_unique": True,
         "expect": ["interpolation-diagnostics count=true root-span=true field-span=true terminal-span=true"],
     },
+    {
+        "name": "Interpolation restore capacity and query invalidation",
+        "fixture": "interpolation_resource_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "interpolation-resource malformed-atomic=true ticket-boundary=true fresh-admission=true query-atomic=true restore-boundary=true decoder-conservation=true",
+            "interpolation-resource restores=24 capacity-stable=true retired-plan=true source-stable=true",
+            "interpolation-resource growth=42 shrink-stable=true regrow-stable=true",
+            "interpolation-resource invalidation=true transitive-editor=true regeneration=true recovery=true",
+        ],
+    },
+    {
+        "name": "Interpolation editor components and binding identities",
+        "fixture": "interpolation_editor_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "interpolation-editor roots=true hover=true definitions=true whole-string=true component-interiors=true",
+        ],
+        "runtime_cases": [
+            {"argv": ["0"], "expect": ["interpolation-editor roots=true hover=true definitions=true whole-string=true component-interiors=true"]},
+            {"argv": ["1"], "expect": ["interpolation-editor shadows=true rhs-binding=true local-ID-definition=true"]},
+            {"argv": ["2"], "expect": ["interpolation-editor generic-fields=true nested-fields=true field-declarations=true"]},
+            {"argv": ["3"], "expect": ["interpolation-editor quotes=true literal-bytes=true brace-dot=true malformed-nonpaths=true metadata=true"]},
+            {"argv": ["4"], "expect": ["interpolation-editor fact-snapshots=true hir-invalidation=true fresh-query=true stable-identities=true"]},
+            {"argv": ["5"], "expect": ["interpolation-editor source-invalidation=true fresh-type=true stable-binding=true"]},
+            {"argv": ["6"], "expect": ["interpolation-editor duplicate-field=true hover-first-int=true definition-first=true later-bool-excluded=true"]},
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:
@@ -12948,6 +12983,8 @@ def check_snapshot_inventories() -> None:
             "interpolation_hir_smoke.fk",
             "interpolation_mir_smoke.fk",
             "interpolation_diagnostics_smoke.fk",
+            "interpolation_resource_smoke.fk",
+            "interpolation_editor_smoke.fk",
             "h6_native_declaration_symbol_smoke.fk",
             "h6_native_ffi_width_smoke.fk",
         }

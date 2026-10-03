@@ -1626,6 +1626,7 @@ def _hir_extern_return_probe_errors(tests: Path, harness: Path) -> List[str]:
 def _hir_lookup_scaling_errors(fixture: Path, harness: Path) -> List[str]:
     return _hir_lookup_probe_errors(fixture, harness, (
         "hir-scaling-annotation-duplicate-start", "hir-scaling-annotation-surplus-fields",
+        "hir-scaling-old-v10-atomic",
         "hir-scaling-fresh-slot-forty-two-handles", "hir-scaling-file-slot-capacity-stable",
     ), (
         "v4_hir_scaling_annotation_checks(before)",

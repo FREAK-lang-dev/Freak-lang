@@ -211,9 +211,15 @@ shuffled detached restore, malformed-record atomicity, exhausted-handle recovery
 shadowing, ordered observation/moves and exact diagnostic spans at 64 MiB and
 1,024 handles. `word_interpolation.fk` passed O0/O2 with exact 103-byte output,
 including NUL, ASan/UBSan and both ownership audits at the reviewed `67598fe`
-checkpoint. The generated-word CI gate also includes this program. Editor and
-dedicated repeated resource/query controls are active follow-ups; native aggregate
-field layout remains unsupported, so the complete W3 release row stays open.
+checkpoint. The generated-word CI gate also includes this program. Seven editor
+cases cover component selection, lexical token provenance, binding identities,
+generic/nested field definitions, duplicate-field recovery, snapshots and source
+invalidation at the same limits. The dedicated resource fixture covers 24
+restores, 42-handle growth/shrink/regrowth, constructor boundaries, decoder
+conservation and transitive editor invalidation at 9.0 MiB under 64 MiB.
+These focused proofs are local; integrated platform checks and cold query/expand
+admission repairs remain pending. Native aggregate field layout remains
+unsupported, so the complete W3 release row stays open.
 
 ### Checked numeric checkpoint
 

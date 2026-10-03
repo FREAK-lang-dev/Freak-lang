@@ -53,11 +53,13 @@ The confirmed ordinary-method symbol collision merged in
 the guarded benchmark. Four authored collision fixtures pass at
 64 MiB / 1,024 handles. The subsequent automatic review identified a
 conditional optional-diagnostic cleanup failure; the independently reviewed
-fix is in [PR #140](https://github.com/FREAK-lang-dev/Freak-lang/pull/140),
-with fresh CI pending. The real parent/descendant cleanup control passes.
+fix is in [PR #140](https://github.com/FREAK-lang-dev/Freak-lang/pull/140).
+All 23 CI jobs passed at `c3420da`; a subsequent persistent-cleanup review
+finding has a committed fallback repair awaiting review and fresh CI. The
+earlier real parent/descendant cleanup control passes.
 
 The integration harness now executes the three owned-word fixture groups as
-12 independent resource cases, preserving 64 MiB / 1,024 handles and exact
+13 independent resource cases, preserving 64 MiB / 1,024 handles and exact
 MIR restoration/sealed-module/native outputs. Six runtime objects and all 12
 source/header inputs are frozen, hashed and collision-checked by the benchmark;
 its ten regressions and a real one-task LLVM link/execute pass. These are
@@ -77,9 +79,16 @@ snapshot now restores and produces an identical fresh module at 64 MiB and
 
 Interpolation's reviewed `67598fe` milestone has packed HIR v11 plans, targeted
 component diagnostics and exact NUL/UTF-8 native output at O0/O2 with sanitizers
-and both audits. Editor and dedicated resource/query controls are still active,
-and native aggregate fields remain fenced. A cold query-initialization allocation
-failure in the component-restore facade is being repaired before readiness.
+and both audits. Seven editor cases pass at `6b60100`, including first-field
+navigation when tolerant recovery admits duplicate declarations. The `e492ef1`
+resource fixture passes 24 restores, 42-handle growth/shrink/regrowth, decoder
+conservation and transitive editor invalidation at 9.0 MiB under 64 MiB.
+Nine existing HIR fixtures pass 257 expectations at `b080c64`, including v10
+atomic rejection and v11 storage reuse. The integration registers 329 fixtures;
+these new registrations still need the integrated gate and platform CI.
+Native aggregate fields remain fenced. Cold query and expansion initialization
+allocation failures in the component-restore facade are being repaired before
+readiness.
 The explicit panic-abort runtime has private native byte/borrow controls;
 compiler mode/never/CFG wiring and default unwinding remain pending.
 
