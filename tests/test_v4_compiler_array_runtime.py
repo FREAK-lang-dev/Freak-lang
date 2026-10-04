@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stdout, redirect_stderr
+import ast
 import copy
 import importlib.util
 import io
@@ -127,7 +128,7 @@ class CompilerArrayOracleTests(unittest.TestCase):
         for sanitized in (False, True):
             complete = self.complete_report(sanitized)
             gate.validate_completion(complete, sanitized)
-            self.assertEqual((len(complete["positives"]), len(complete["production"]), len(complete["rejections"])), (18, 12, 33))
+            self.assertEqual((len(complete["positives"]), len(complete["production"]), len(complete["rejections"])), (18, 12, 45))
             for key in ("positives", "production", "rejections", "capabilities"):
                 for index in range(len(complete[key])):
                     changed = copy.deepcopy(complete)
@@ -229,7 +230,7 @@ class CompilerArrayOracleTests(unittest.TestCase):
                         gate.run_gate(args, directory, report, prefix)
                         self.assertTrue(report["final_conservation"])
                     self.assertFalse(prefix.exists())
-                self.assertEqual(len(calls), 83 if sanitized else 81)
+                self.assertEqual(len(calls), 95 if sanitized else 93)
                 for command, kwargs in calls:
                     self.assertEqual(kwargs["output_limit_mb"], 8)
                     expected = (120, 1024) if "-o" in command else (60, 64)
@@ -313,6 +314,52 @@ class CompilerArrayOracleTests(unittest.TestCase):
                         self.fail("cleanup failure was swallowed")
                 self.assertEqual(attempted, list(names))
 
+    def test_cleanup_dispatch_setup_preserves_primary_and_remaining_restores(self):
+        names = ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTIONS", "PYTHONPYCACHEPREFIX", "PYTHONDONTWRITEBYTECODE")
+        for primary_type in (RuntimeError, KeyboardInterrupt):
+            for secondary_type in (MemoryError, KeyboardInterrupt):
+                with self.subTest(primary=primary_type.__name__, secondary=secondary_type.__name__), tempfile.TemporaryDirectory() as tmp:
+                    primary, secondary = primary_type("body"), secondary_type("cleanup setup")
+                    primary.__cause__ = ValueError("original cause")
+                    before = {name: os.environ.get(name) for name in names}
+                    old_prefix, old_write, old_trace = sys.pycache_prefix, sys.dont_write_bytecode, sys.gettrace()
+                    tree = ast.parse(Path(gate.__file__).read_bytes())
+                    function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "proof_environment")
+                    # Exact old1fd replay injects at its allocating local
+                    # function definition; current source injects at the first
+                    # protected dispatch entry, before any action executes.
+                    nested = next((node for node in ast.walk(function) if isinstance(node, ast.FunctionDef) and node.name == "restore"), None)
+                    triggered = []
+                    def trace(frame, event, arg):
+                        if frame.f_code.co_filename == gate.__file__ and not triggered:
+                            old_boundary = nested is not None and event == "line" and frame.f_code.co_name == "proof_environment" and frame.f_lineno == nested.lineno
+                            current_boundary = nested is None and event == "call" and frame.f_code.co_name == "restore_proof_environment"
+                            if old_boundary or current_boundary:
+                                triggered.append(frame.f_lineno)
+                                raise secondary
+                        return trace
+                    try:
+                        sys.settrace(trace)
+                        try:
+                            with gate.proof_environment(Path(tmp), True):
+                                raise primary
+                        except BaseException as propagated:
+                            self.assertIs(propagated, primary)
+                            self.assertIs(propagated.__cause__, primary.__cause__)
+                        else:
+                            self.fail("body failure was swallowed")
+                        self.assertEqual(len(triggered), 1)
+                        self.assertEqual({name: os.environ.get(name) for name in names}, before)
+                        self.assertEqual(sys.dont_write_bytecode, old_write)
+                    finally:
+                        sys.settrace(old_trace)
+                        sys.pycache_prefix, sys.dont_write_bytecode = old_prefix, old_write
+                        for name, value in before.items():
+                            if value is None:
+                                os.environ.pop(name, None)
+                            else:
+                                os.environ[name] = value
+
     def test_each_guarded_job_rejects_transient_source_binary_and_selected_alias_drift(self):
         original_legacy = (gate.ROOT / "freakc/runtime/freak_llvm_runtime.c").read_bytes()
         for mutation in ("source", "binary", "alias"):
@@ -371,7 +418,7 @@ class CompilerArrayOracleTests(unittest.TestCase):
                     with self.assertRaisesRegex(AssertionError, "identity changed"):
                         gate.run_gate(SimpleNamespace(clang=str(selected), plain=True), repo, report, prefix)
                 self.assertNotIn("final_conservation", report)
-                self.assertLess(len(calls), 81, "transient corruption must stop before complete matrix")
+                self.assertLess(len(calls), 93, "transient corruption must stop before complete matrix")
 
     def test_environment_restored_after_cancellation_without_cache_writes(self):
         names = ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTIONS", "PYTHONPYCACHEPREFIX", "PYTHONDONTWRITEBYTECODE")

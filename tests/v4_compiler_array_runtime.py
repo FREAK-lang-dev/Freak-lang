@@ -56,6 +56,10 @@ EXIT_CASES = {
     "fatal-set-resource": "FREAK: V4 compiler arrays: out of memory replacing array word\n",
     "fatal-get-resource": "FREAK: V4 compiler arrays: out of memory copying array word\n",
     "fatal-join-resource": "FREAK: V4 compiler arrays: out of memory joining words\n",
+    "fatal-get-empty-malloc": "FREAK: V4 compiler arrays: out of memory copying array word\n",
+    "fatal-get-empty-adopt": "FREAK: V4 compiler arrays: out of memory copying array word\n",
+    "fatal-join-empty-malloc": "FREAK: V4 compiler arrays: out of memory joining words\n",
+    "fatal-join-empty-adopt": "FREAK: V4 compiler arrays: out of memory joining words\n",
 }
 ABORT_CASES = {
     "fatal-word-null": "word value has been consumed",
@@ -199,11 +203,25 @@ def source_paths() -> tuple[Path, ...]:
     return tuple(ROOT / path for path in relative) + tuple(sorted((ROOT / "freakc").glob("**/*.py")))
 
 
+def restore_proof_environment(kind: str, name: str, value) -> None:
+    """Dispatch pre-created cleanup records inside the caller's error fence."""
+    if kind == "sys":
+        setattr(sys, name, value)
+    elif value is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = value
+
+
 @contextmanager
 def proof_environment(directory: Path, sanitized: bool):
     names = ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTIONS", "PYTHONPYCACHEPREFIX", "PYTHONDONTWRITEBYTECODE")
     previous = {name: os.environ.get(name) for name in names}
     old_prefix, old_write = sys.pycache_prefix, sys.dont_write_bytecode
+    # All restoration records are constructed before any environment mutation
+    # or body execution. No closure/callback is allocated during unwinding.
+    restores = (("sys", "pycache_prefix", old_prefix), ("sys", "dont_write_bytecode", old_write),
+                *(("env", name, previous[name]) for name in names))
     prefix = directory / "unused-source-cache"
     if prefix.exists():
         raise AssertionError("source cache namespace must be virgin")
@@ -221,10 +239,11 @@ def proof_environment(directory: Path, sanitized: bool):
         primary = sys.exception()
         first_cleanup = None
 
-        def restore(action):
-            nonlocal first_cleanup
+        for kind, name, value in restores:
             try:
-                action()
+                # Dispatch setup and the action share one independent fence,
+                # so a failed entry still permits every later restoration.
+                restore_proof_environment(kind, name, value)
             except BaseException as error:
                 if first_cleanup is None:
                     first_cleanup = error
@@ -235,13 +254,6 @@ def proof_environment(directory: Path, sanitized: bool):
                     except BaseException:
                         pass
 
-        restore(lambda: setattr(sys, "pycache_prefix", old_prefix))
-        restore(lambda: setattr(sys, "dont_write_bytecode", old_write))
-        for name, value in previous.items():
-            if value is None:
-                restore(lambda name=name: os.environ.pop(name, None))
-            else:
-                restore(lambda name=name, value=value: os.environ.__setitem__(name, value))
         if primary is None and first_cleanup is not None:
             raise first_cleanup
 
@@ -445,7 +457,7 @@ def main() -> int:
         except BaseException:
             pass
         raise
-    print(f"Private compiler-array prerequisite PASS: 18 positive executions,33 exact rejections, "
+    print(f"Private compiler-array prerequisite PASS: 18 positive executions,45 exact rejections, "
           f"{len(report['capabilities'])} real capabilities; {'plain' if args.plain else 'ASan/UBSan'}", flush=True)
     return 0
 

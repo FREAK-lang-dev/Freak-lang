@@ -282,7 +282,9 @@ int64_t freak_v4_compiler_array_get(int64_t ticket, int64_t index) {
     int64_t status = freak_v4_compiler_array_get_checked(ticket, index, &word);
     if (status == FREAK_V4_COMPILER_ARRAY_OK) return word;
     if (status == FREAK_V4_COMPILER_ARRAY_RESOURCE) v4_array_fail("out of memory copying array word");
-    return freak_v4_word_from_bytes(0, 0);
+    word = v4_array_copy("", 0);
+    if (!word) v4_array_fail("out of memory copying array word");
+    return word;
 }
 
 int64_t freak_v4_compiler_array_join(int64_t ticket) {
@@ -290,7 +292,9 @@ int64_t freak_v4_compiler_array_join(int64_t ticket) {
     int64_t status = freak_v4_compiler_array_join_checked(ticket, &word);
     if (status == FREAK_V4_COMPILER_ARRAY_OK) return word;
     if (status == FREAK_V4_COMPILER_ARRAY_RESOURCE) v4_array_fail("out of memory joining words");
-    return freak_v4_word_from_bytes(0, 0);
+    word = v4_array_copy("", 0);
+    if (!word) v4_array_fail("out of memory joining words");
+    return word;
 }
 
 int64_t freak_v4_compiler_array_snapshot_lines(int64_t word) {

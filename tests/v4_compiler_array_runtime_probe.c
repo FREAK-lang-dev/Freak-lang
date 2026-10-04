@@ -436,6 +436,13 @@ static int probe_fatal(const char *mode) {
         return (int)(max + one);
     }
     if (!strcmp(mode, "fatal-null-out")) { freak_v4_compiler_array_get_checked(-1, 0, NULL); return 99; }
+    if (!strcmp(mode, "fatal-get-empty-malloc") || !strcmp(mode, "fatal-get-empty-adopt") ||
+            !strcmp(mode, "fatal-join-empty-malloc") || !strcmp(mode, "fatal-join-empty-adopt")) {
+        probe_fault(strstr(mode, "malloc") ? 1u : 0u, strstr(mode, "adopt") ? 1u : 0u);
+        if (!strncmp(mode, "fatal-get-", 10)) (void)freak_v4_compiler_array_get(-1, 0);
+        else (void)freak_v4_compiler_array_join(-1);
+        return 99;
+    }
     int64_t array = freak_v4_compiler_array_new();
     assert(array != -1);
     if (!strncmp(mode, "fatal-word-", 11)) {
