@@ -256,7 +256,9 @@ class Checked32FailureControls(unittest.TestCase):
                 raise AssertionError("process API forbidden: " + name)
             self.stack.enter_context(patch.object(subprocess, name, forbidden))
         self.temporary = self.stack.enter_context(tempfile.TemporaryDirectory())
-        self.directory = Path(self.temporary)
+        # The real driver resolves both its compiler and evidence directory.
+        # Match that identity even when a host temp path uses an alias.
+        self.directory = Path(self.temporary).resolve()
 
     def tearDown(self):
         self.stack.close()
