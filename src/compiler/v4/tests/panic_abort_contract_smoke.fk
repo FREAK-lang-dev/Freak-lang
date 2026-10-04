@@ -102,7 +102,37 @@ task v4_panic_contract_conditional(mode: word) -> void {
         pilot iterable: bool = mode == "foreach-array-wire" or mode == "foreach-list-wire"
         v4_panic_contract_assert(v4_mir_stmt_kind(mir, body, control) == v4_mir_stmt_loop and v4_mir_block_terminator(record) == v4_mir_term_if, "legacy loop owns if")
         if iterable {
-            v4_panic_contract_assert(v4_mir_stmt_place(mir, body, control) >= 0 and v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_use_place and v4_mir_rvalue_ty(mir, body, value) != v4_ty_bool, "generic iterable operand and binding preserved")
+            pilot source_local = v4_mir_rvalue_local_id(mir, body, value)
+            v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_use_local and source_local >= 0 and v4_mir_rvalue_op(mir, body, value) == "local#" + word_from_int(source_local) and v4_mir_rvalue_text(mir, body, value) == "_for_each_source" and v4_mir_local_name(mir, body, source_local) == "_for_each_source" and v4_mir_rvalue_ty(mir, body, value) == "List<int>" and v4_mir_local_ty(mir, body, source_local) == "List<int>", "canonical iterable source identity and type preserved")
+            pilot binding_place = v4_mir_stmt_place(mir, body, control)
+            pilot binding_local = v4_mir_place_base(mir, body, binding_place)
+            v4_panic_contract_assert(binding_place >= 0 and v4_mir_place_kind(mir, body, binding_place) == v4_mir_place_local and binding_local >= 0 and binding_local != source_local and v4_mir_place_text(mir, body, binding_place) == "item" and v4_mir_local_name(mir, body, binding_local) == "item" and v4_mir_place_ty(mir, body, binding_place) == v4_ty_int and v4_mir_local_ty(mir, body, binding_local) == v4_ty_int, "exact iterable binding identity and element type preserved")
+            pilot source_decl = -1
+            pilot source_decls = 0
+            pilot binding_decl = -1
+            pilot binding_decls = 0
+            row = 0
+            repeat until row >= v4_mir_body_stmt_count(mir, body) {
+                pilot place = v4_mir_stmt_place(mir, body, row)
+                if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_local and place >= 0 and v4_mir_place_kind(mir, body, place) == v4_mir_place_local {
+                    if v4_mir_place_base(mir, body, place) == source_local { source_decl = row; source_decls += 1 }
+                    if v4_mir_place_base(mir, body, place) == binding_local { binding_decl = row; binding_decls += 1 }
+                }
+                row += 1
+            }
+            v4_panic_contract_assert(source_decls == 1 and source_decl >= 0 and source_decl < control and binding_decls == 1 and binding_decl >= 0, "iterable stored once and binding declared once")
+            pilot feed = v4_mir_stmt_rvalue(mir, body, source_decl)
+            v4_panic_contract_assert(v4_mir_rvalue_ty(mir, body, feed) == "List<int>", "preheader iterable feed keeps declared type")
+            if mode == "foreach-array-wire" {
+                pilot original_local = v4_mir_rvalue_local_id(mir, body, feed)
+                v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, feed) == v4_mir_rvalue_use_local and original_local >= 0 and original_local != source_local and v4_mir_local_name(mir, body, original_local) == "rows" and v4_mir_local_ty(mir, body, original_local) == "List<int>", "array literal source read belongs to rows local")
+            } else {
+                v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, feed) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, feed) == "rows" and v4_mir_rvalue_arg_count(mir, body, feed) == 0, "List task call is evaluated once in preheader")
+            }
+            pilot preheader = v4_mir_stmt_block(mir, body, source_decl)
+            pilot body_block = v4_mir_block_target(record)
+            pilot after_block = v4_mir_block_else_target(record)
+            v4_panic_contract_assert(preheader >= 0 and preheader != block and body_block >= 0 and body_block != block and after_block >= 0 and after_block != block and body_block != after_block and v4_mir_stmt_block(mir, body, binding_decl) == body_block and v4_mir_block_terminator(v4_mir_body_block(mir, body, preheader)) == v4_mir_term_goto and v4_mir_block_target(v4_mir_body_block(mir, body, preheader)) == block and v4_mir_block_terminator(v4_mir_body_block(mir, body, body_block)) == v4_mir_term_goto and v4_mir_block_target(v4_mir_body_block(mir, body, body_block)) == block, "preheader header binding body and exit edges preserved")
         } else {
             v4_panic_contract_assert(v4_mir_stmt_place(mir, body, control) == -1 and v4_mir_rvalue_ty(mir, body, value) == v4_ty_bool, "scalar loop bool operand preserved")
         }
