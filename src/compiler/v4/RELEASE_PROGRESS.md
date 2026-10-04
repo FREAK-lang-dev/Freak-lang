@@ -13,10 +13,10 @@ The public release remains v0.14.2; this work does not create a release.
 | Module/body assembly and lookup scaling | Existing fragment assembly and derived TY/HIR/resolve indexes; one integrated Linux workload with 3,200 tasks and 22,403 lines completed all stages without diagnostics in 12.895 s, peak 806.15 MiB under 2 GiB | Repeat relevant resource tests after compiler changes; no claim of a measured growth rate or other platforms from that run |
 | Optimized compiler build | `build_v4.py --compiler-opt 0\|1\|2\|3`, isolated optimization-specific compiler cache, optimized Hello World checkpoint | Final coherent-head platform CI |
 | Owned Word values | NonCopy locals, parameters, returns, replacements and temporary cleanup; borrowed observers, comparisons, concatenation and display; generated native ownership audits and sanitizer controls | Final coherent-head platform CI |
-| Sized Unicode and interpolation | Embedded NUL, character indexing/slicing, lower-case runtime and HIR interpolation plans with restoration/invalidation coverage | Generated bounds source/pure review and actual generated matrix required before readiness |
+| Sized Unicode and interpolation | Embedded NUL, character indexing/slicing, lower-case runtime and HIR interpolation plans; coherent Linux Word-bounds plain/sanitizer matrix at `4e3847c` passes 715 guarded jobs with independent artifact review | Current-head platform CI and explicit transfer of retained source evidence |
 | Literal/general `say` | Updated fixture passes its 27 static byte cases, seven owned/general positives, seven typed diagnostics, ten forgeries and snapshot roundtrip | Final coherent-head platform CI |
 | `say_err` and hosted runtime portability | Generated owned-message lane and exact raw output tests; source fixes for finite Unicode fixture construction, a known Darwin linker warning and Windows CRT declaration warning | Fresh Linux/macOS/Windows CI on the corrected head |
-| Process arguments and typed OS results | Existing C entry argument setup; the closed `maybe<int>`/`result<word,word>` slice passes all 76 compiler cases, 30 generated O0/O2/O3 programs and eight mandatory audit/sanitizer controls on coherent `94a62d9` | Typed process/FS generated gate and coherent-head platform CI |
+| Process arguments and typed OS results | Existing C entry argument setup; the closed `maybe<int>`/`result<word,word>` slice passes all 76 compiler cases, 30 generated O0/O2/O3 programs and eight mandatory audit/sanitizer controls on coherent `4e3847c` | Typed process/FS generated gate and coherent-head platform CI |
 | Filesystem bridge | Linux plain and ASan/UBSan O0/O2/O3 bridge proof, exact owned Ok/Err slots, Unicode/NUL/nonregular-file controls | Typed result generated gate and macOS/Windows native gates |
 | Integer arithmetic | Checked native overflow and divide-by-zero contract; private C32 arithmetic lane passes hosted Linux/macOS/Windows | Fresh coherent-head CI; C-width native ABI admission remains fenced by B01 |
 | Panic and bounds | Explicit `--panic=abort` path and checked integer/runtime boundaries; isolated private C panic-context runtime passes plain and full sanitizer matrices | Default compiler unwind and cleanup are not implemented; the private panic context still requires compiler/LLVM integration |
@@ -63,10 +63,14 @@ and general deferred cleanup also remain open.
 - Independent review blocked the new Word-bounds driver because it could
   report success after a retained image changed and had first-cause, cleanup,
   deadline and provenance gaps. The driver has independently reviewed fault
-  controls, and all 33 pure methods pass, including LF/CRLF source-table and
-  Windows generated-file regressions. All 24 generated UTF-8 source programs
-  retain their original bytes. Its generated native matrix is required before
-  readiness; pure success does not complete that proof.
+  controls. The coherent `4e3847c` Linux matrix passes 715 guarded jobs across
+  plain and sanitizer stages, including 308 native executions. Independent
+  endpoint review verifies all 6,303 artifacts, exact raw channels, original
+  resource caps, source/tool hashes and process-group cleanup. All 24 generated
+  UTF-8 source programs retain their original bytes. At `b6ea2b0`, Windows CI
+  also passes all 34 pure methods and its plain generated native Word gate.
+  These receipts retain their recorded revision and platform; later changes
+  require explicit source transfer or fresh execution.
 - The official focused MIR check run passes all three matching smokes. Its
   57 Maybe/Result assertions now inspect `SumTake`, `TakeSome`, the source
   `UseLocal` and its canonical `_check_subject` LocalID. The previous fixture
@@ -116,16 +120,26 @@ Linux/macOS/Windows CI, the generated Word-bounds and typed OS matrices,
 independent review and resolved review findings. The PR description and retained
 verification receipts record the candidate SHA and actual gate outcomes.
 
-At `20724a8`, all six shipping jobs and the Windows numeric depth gate pass.
-Four later V4 failures establish the corrective scope: Windows CRLF fixture
-parsing/generated-file hashes, a Linux typed-OS formal-shadow test that expected
-the wrong rejection stage, Darwin IR triple rewriting during a Sum link, and
-the obsolete Maybe MIR expectations. The fixes preserve strict diagnostics,
-output bytes, native resource limits and shipping V3 assertions. A formal
-system-namespace shadow must mint no builtin identity and fail with the exact
-native error before publishing a module. The Darwin Sum link supplies the
-literal triple to the IR frontend while preserving the selected linker target;
-its Apple-toolchain behavior requires macOS CI.
+At `b6ea2b0`, all six shipping jobs pass, including Windows bootstrap and its
+three test suites. The native macOS Sum gate passes all 30 O0/O2/O3 program runs
+and six C/LLVM ownership controls. Its Darwin-only bounded C-to-LLVM probe
+discovers the initialized SDK deployment target. A separate link module changes
+only that target header; original module bodies and layout bytes remain exact.
+This replaces the earlier versionless IR-frontend override. Linux sanitizer
+evidence comes from the separately reviewed `4e3847c` native gate.
+
+The `b6ea2b0` helper failures identify the remaining correction scope: Windows
+Sum tests wrote a fake LLVM module using CRLF and read two UTF-8 source files
+with the default locale, while Linux/macOS typed-operation tests expected the
+wrong rejection stage for valid ordinary shadows. Independent source review
+verifies explicit UTF-8 reads and LF byte writes without changing the production
+parser. The typed diagnostic measures all 25 original contract sources; this
+initial-query report does not establish strict forgery or native readiness.
+Valid root constants and FFI-safe private-symbol declarations must exercise
+their original zero-identity and exact named fences in the strict gate. A closed
+Sum crossing the C ABI must retain both frontend rejection and the named native
+error before any module is published. Current-head strict and generated typed
+gates, platform CI and independent review remain required before PR readiness.
 
 These checks do not complete default compiler unwind, self-hosting or V3
 replacement. The release version remains unchanged; no release tag is created.
