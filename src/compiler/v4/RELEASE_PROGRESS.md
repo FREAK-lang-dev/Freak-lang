@@ -207,5 +207,12 @@ resource limits remain required. Independent source/pure review and fresh
 current-head platform CI are required before readiness; these source corrections
 do not relabel earlier native endpoints as executions of the new driver.
 
+At `44f63bc`, all six shipping jobs and the generated typed OS native gates on
+Linux, macOS and Windows pass. Windows subsequently rejects the generated
+Unicode table header's CRLF checkout bytes against its exact pinned-input
+rendering. An explicit LF attribute for that header preserves the unchanged
+UTF-8 table bytes, generator and strict comparison. Fresh current-head CI
+remains required, including the Windows step after this formerly failing gate.
+
 These checks do not complete default compiler unwind, self-hosting or V3
 replacement. The release version remains unchanged; no release tag is created.

@@ -29,3 +29,6 @@ tests/v4_c_integer_runtime.py text eol=lf
 freakc/lexer.py text eol=lf
 freakc/parser.py text eol=lf
 freakc/type_checker.py text eol=lf
+
+# Unicode generation is checked against the table header's exact UTF-8 LF bytes.
+freakc/runtime/freak_v4_unicode_lower_tables.h text eol=lf
