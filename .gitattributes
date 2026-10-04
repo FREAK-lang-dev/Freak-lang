@@ -21,3 +21,6 @@ packaging/distribution-files.manifest text eol=lf
 
 # Checked-read byte fixture must retain LF in Windows checkouts.
 src/compiler/v4/tests/data/h6_io_readable_source.fk text eol=lf
+
+# FS bridge support is accepted by exact SHA-256; preserve its LF source bytes.
+tests/v4_c_integer_runtime.py text eol=lf
