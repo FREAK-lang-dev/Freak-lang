@@ -55,6 +55,7 @@ class SymbolToolSelection(unittest.TestCase):
         self.work = Path(temporary.name).resolve()
         self.tool = self.work / "llvm-nm-real"
         self.tool.write_bytes(synthetic_elf_image())
+        self.tool.chmod(0o755)
         self.obj = self.work / "module.o"
         self.obj.write_bytes(b"native object")
         spec = importlib.util.spec_from_file_location("symbol_tool_benchmark", ROOT / "v4_scale_bench.py")
@@ -443,6 +444,170 @@ class SymbolToolSelection(unittest.TestCase):
             self.benchmark.llvm_symbol_tool(None, self.work / "private-noexec", 10)
         self.assertIn("symbol-tool-provenance=", str(failure.exception))
         job.assert_not_called()
+
+    def test_close_cancellation_survives_private_cleanup_fault(self):
+        original_close = os.close
+        original_cleanup = self.benchmark.tempfile.TemporaryDirectory.cleanup
+        for failure_type in (MemoryError, KeyboardInterrupt):
+            for malformed_notes in (False, True):
+                with self.subTest(exception=failure_type.__name__, malformed_notes=malformed_notes):
+                    primary = failure_type("descriptor close cancellation")
+                    cause = ValueError("original close cause")
+                    primary.__cause__ = cause
+                    if malformed_notes:
+                        primary.__notes__ = object()
+                    closed, private_roots = [], []
+                    def close_then_cancel(descriptor):
+                        original_close(descriptor)
+                        closed.append(descriptor)
+                        raise primary
+                    def clean_then_fail(temporary):
+                        private_roots.append(Path(temporary.name))
+                        original_cleanup(temporary)
+                        raise OSError(errno.EIO, "secondary private cleanup fault")
+                    observed = None
+                    with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                            patch.object(self.benchmark, "guarded_job", return_value=subprocess.CompletedProcess([], 0, LLVM_VERSION, "")) as job, \
+                            patch.object(self.benchmark, "close_symbol_descriptor", side_effect=close_then_cancel) as close, \
+                            patch.object(self.benchmark.tempfile.TemporaryDirectory, "cleanup", clean_then_fail):
+                        try:
+                            self.benchmark.llvm_symbol_tool(None, self.work / "close-cancellation", 10)
+                        except BaseException as error:
+                            observed = error
+                    self.assertIs(observed, primary)
+                    self.assertIs(primary.__cause__, cause)
+                    self.assertEqual(len(closed), 1)
+                    close.assert_called_once_with(closed[0])
+                    job.assert_called_once()
+                    with self.assertRaises(OSError) as absent:
+                        os.fstat(closed[0])
+                    self.assertEqual(absent.exception.errno, errno.EBADF)
+                    self.assertEqual(len(private_roots), 1)
+                    self.assertFalse(private_roots[0].exists())
+                    if not malformed_notes:
+                        self.assertEqual(len(primary.__notes__), 1)
+                        self.assertIn("private-copy cleanup failure: errno=5", primary.__notes__[0])
+
+    def test_original_execute_permission_revocation_stops_both_jobs(self):
+        for phase in ("version", "inventory"):
+            with self.subTest(phase=phase):
+                self.tool.chmod(0o755)
+                selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                            "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+                self.tool.chmod(0o644)
+                self.assertFalse(os.access(self.tool, os.X_OK, effective_ids=True))
+                with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                        patch.object(self.benchmark, "guarded_job", return_value=subprocess.CompletedProcess([], 0, LLVM_VERSION, "")) as job, \
+                        self.assertRaisesRegex(RuntimeError, "execute permission was revoked or unavailable"):
+                    if phase == "version":
+                        self.benchmark.llvm_symbol_tool(None, self.work / "execute-version", 10)
+                    else:
+                        self.benchmark.defined_symbols(None, self.obj, self.work / "execute-inventory", 10,
+                                                       symbol_tool=selected)
+                job.assert_not_called()
+                self.assertEqual(self.benchmark.symbol_file_provenance(self.tool)["sha256"],
+                                 selected["nm_file"]["sha256"])
+        self.tool.chmod(0o755)
+
+    def test_execute_revocation_during_mirror_is_rechecked_before_copy_runs(self):
+        original_mirror = self.benchmark.symbol_shadow_origin
+        for phase in ("version", "inventory"):
+            with self.subTest(phase=phase):
+                self.tool.chmod(0o755)
+                selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                            "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+                def revoke_after_mirror(*args, **kwargs):
+                    result = original_mirror(*args, **kwargs)
+                    self.tool.chmod(0o644)
+                    return result
+                with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                        patch.object(self.benchmark, "symbol_shadow_origin", side_effect=revoke_after_mirror), \
+                        patch.object(self.benchmark, "guarded_job", return_value=subprocess.CompletedProcess([], 0, LLVM_VERSION, "")) as job, \
+                        self.assertRaisesRegex(RuntimeError, "execute permission was revoked or unavailable"):
+                    if phase == "version":
+                        self.benchmark.llvm_symbol_tool(None, self.work / "late-execute-version", 10)
+                    else:
+                        self.benchmark.defined_symbols(None, self.obj, self.work / "late-execute-inventory", 10,
+                                                       symbol_tool=selected)
+                job.assert_not_called()
+        self.tool.chmod(0o755)
+
+    def test_execute_authorization_uses_opened_inode_after_path_replacement(self):
+        original_fdopen = os.fdopen
+        for original_executable in (False, True):
+            with self.subTest(original_executable=original_executable):
+                self.tool.chmod(0o755 if original_executable else 0o644)
+                selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                            "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+                replacement = self.work / "permission-replacement"
+                replacement.write_bytes(self.tool.read_bytes())
+                replacement.chmod(0o644 if original_executable else 0o755)
+                opened = []
+                def replace_after_open(descriptor, *args, **kwargs):
+                    opened.append(descriptor)
+                    source = original_fdopen(descriptor, *args, **kwargs)
+                    os.replace(replacement, self.tool)
+                    return source
+                with patch.object(self.benchmark.os, "fdopen", side_effect=replace_after_open):
+                    if original_executable:
+                        with self.benchmark.frozen_symbol_tool_launch(selected) as launch:
+                            self.assertEqual(launch["argv0"], str(self.tool))
+                            self.assertFalse(os.access(self.tool, os.X_OK, effective_ids=True))
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "execute permission was revoked or unavailable"):
+                            with self.benchmark.frozen_symbol_tool_launch(selected):
+                                self.fail("nonexecutable opened source reached launch")
+                        self.assertTrue(os.access(self.tool, os.X_OK, effective_ids=True))
+                self.assertEqual(len(opened), 1)
+                with self.assertRaises(OSError) as absent:
+                    os.fstat(opened[0])
+                self.assertEqual(absent.exception.errno, errno.EBADF)
+        self.tool.chmod(0o755)
+
+    def test_no_origin_image_skips_busy_ancestor_inventories(self):
+        def no_scan(path):
+            self.fail("no-origin image scanned sibling directory " + str(path))
+        with patch.dict(os.environ, {key: value for key, value in os.environ.items()
+                                    if not key.startswith("LD_")}, clear=True), \
+                patch.object(Path, "iterdir", no_scan), \
+                patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                patch.object(self.benchmark, "guarded_job", return_value=subprocess.CompletedProcess([], 0, LLVM_VERSION, "")) as job:
+            selected = self.benchmark.llvm_symbol_tool(None, self.work / "no-origin", 10)
+        job.assert_called_once()
+        image = json.loads((self.work / "no-origin/tool-version/image.json").read_text())
+        self.assertEqual(image["shadow_entries"], 0)
+        self.assertFalse(image["origin_mirror_required"])
+        self.assertEqual(image["sha256"], selected["nm_file"]["sha256"])
+        self.assertFalse(Path(image["private_root"]).exists())
+        # A simulated 8,193-name ancestor must likewise remain unobserved.
+        with tempfile.TemporaryDirectory() as shadow, \
+                patch.object(Path, "iterdir", return_value=iter(Path("/busy/" + str(n)) for n in range(8193))) as inventory:
+            copied, count = self.benchmark.symbol_shadow_origin(self.tool, Path(shadow), uses_origin=False)
+            self.assertEqual(count, 0)
+            self.assertTrue(copied.parent.is_dir())
+            inventory.assert_not_called()
+
+    def test_origin_sources_and_unknown_loader_settings_cannot_take_fast_path(self):
+        clean_env = {key: value for key, value in os.environ.items() if not key.startswith("LD_")}
+        for name in ("LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "LD_ORIGIN_PATH"):
+            with self.subTest(name=name), patch.dict(os.environ, {**clean_env, name: "${ORIGIN}/../lib"}, clear=True):
+                self.assertTrue(self.benchmark.symbol_loader_origin(self.tool.parent))
+        for name, value in (("LD_LIBRARY_PATH", "$LIB"), ("LD_PRELOAD", "$ORIGIN/../$PLATFORM"),
+                            ("LD_UNKNOWN", "${ORIGIN}")):
+            with self.subTest(name=name, value=value), patch.dict(os.environ, {**clean_env, name: value}, clear=True), \
+                    self.assertRaisesRegex(RuntimeError, "unsupported LLVM symbol reader.*origin"):
+                self.benchmark.symbol_loader_origin(self.tool.parent)
+        image = bytearray(synthetic_dynamic_elf_image("$ORIGIN/library.so"))
+        # Turn RUNPATH into DT_NEEDED: its origin evidence is not a path-list row.
+        struct.pack_into("<q", image, 64 + 2 * 56 + 2 * 16, 1)
+        evidence = []
+        self.assertEqual(self.benchmark.symbol_elf_origin_paths(io.BytesIO(image), len(image), self.work,
+                                                              origin_evidence=evidence), [])
+        self.assertEqual(evidence, ["$ORIGIN/library.so"])
+        for tag in (0x6ffffefb, 0x6ffffefc, 0x7ffffffd, 0x7fffffff):
+            struct.pack_into("<q", image, 64 + 2 * 56 + 2 * 16, tag)
+            with self.subTest(tag=tag), self.assertRaisesRegex(RuntimeError, "unsupported LLVM symbol reader ELF loader dependency tag"):
+                self.benchmark.symbol_elf_origin_paths(io.BytesIO(image), len(image), self.work)
 
     def test_shebang_tool_rejected_before_execution(self):
         self.tool.write_bytes(b"#!/usr/bin/env python3\nprint('LLVM version 19')\n")
