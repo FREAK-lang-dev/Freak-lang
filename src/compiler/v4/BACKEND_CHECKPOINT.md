@@ -512,7 +512,11 @@ snapshot reference ordering, numeric boundary conversions, floating literal
 syntax and warning rejection. All were fixed with executable regressions. Review
 of the final pointer-write and early-abort changes found no actionable issue.
 
-## Remaining handoff contracts
+## Original handoff contracts
+
+This table records the backend checkpoint before the release follow-up. See
+[`RELEASE_PROGRESS.md`](RELEASE_PROGRESS.md) for the current implemented slices,
+independently verified scopes and remaining release gates.
 
 | Handoff step | Checkpoint status |
 | --- | --- |
