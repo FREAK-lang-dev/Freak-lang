@@ -284,7 +284,8 @@ class WordBoundsOracles(unittest.TestCase):
                 self.assertEqual(len(bootstrap), 1)
                 self.assertEqual(bootstrap[0][2], {'timeout_seconds': 120, 'memory_limit_mb': 1024, 'output_limit_mb': 8})
                 self.assertEqual(len(list((Path(temporary) / str(plain)).glob('*.command.json'))), len(commands))
-                self.assertEqual(len(commands), 356 if plain else 359)
+                runtime_count = len(gate.literal_assignment(ROOT / 'freakc/v4_native_runtime.py', 'SOURCE_NAMES'))
+                self.assertEqual(len(commands), 26 + 3 * (runtime_count + 103) + (0 if plain else 3))
                 for _, label, limits in commands:
                     if label == 'clang identity': expected = (10, 64)
                     elif label.startswith('runtime compile:'): expected = (120, 1024)
@@ -501,6 +502,170 @@ class WordBoundsOracles(unittest.TestCase):
             pins.final_pins()
             self.assertEqual(report['input_hashes'], report['frozen_input_hashes'])
             self.assertEqual(report['image_hashes'], report['final_image_hashes'])
+
+    def test_bootstrap_entry_and_restore_failures_preserve_cause_and_registry(self):
+        def original(*args, **kwargs): raise AssertionError('guard body is forbidden')
+        for primary_kind in (RuntimeError, KeyboardInterrupt):
+            for secondary_kind in (MemoryError, KeyboardInterrupt):
+                primary = primary_kind('body first cause'); cause = ValueError('explicit cause'); primary.__cause__ = cause
+                secondary = secondary_kind('helper restore'); actions = []
+                class Checks:
+                    def __init__(self): self.value = original; self.fail = False
+                    @property
+                    def run_with_heartbeat(self): return self.value
+                    @run_with_heartbeat.setter
+                    def run_with_heartbeat(self, value):
+                        actions.append('restore' if value is original else 'install')
+                        if self.fail and value is original:
+                            self.fail = False; raise secondary
+                        self.value = value
+                checks = Checks(); registry = [(checks, original, gate.function_seal(original))]
+                snapshot = tuple(registry); pins = SimpleNamespace(guards=registry)
+                with self.assertRaises(primary_kind) as raised:
+                    with gate.bootstrap_dispatch(checks, SimpleNamespace(conservation=pins)):
+                        checks.fail = True; raise primary
+                self.assertIs(raised.exception, primary); self.assertIs(primary.__cause__, cause)
+                self.assertIs(checks.value, original); self.assertIs(pins.guards, registry)
+                self.assertEqual(tuple(registry), snapshot); self.assertEqual(actions, ['install', 'restore', 'restore'])
+                self.assertEqual(primary.bounds_secondary_failures[0], {'stage': 'restore-bootstrap-helper', 'type': secondary_kind.__name__})
+        for primary_kind in (MemoryError, KeyboardInterrupt):
+            primary = primary_kind('setup after mutation'); entered = []
+            class EntryChecks:
+                def __init__(self): self.value = original
+                @property
+                def run_with_heartbeat(self): return self.value
+                @run_with_heartbeat.setter
+                def run_with_heartbeat(self, value):
+                    self.value = value
+                    if value is not original: raise primary
+            checks = EntryChecks(); registry = [(checks, original, gate.function_seal(original))]
+            snapshot = tuple(registry); pins = SimpleNamespace(guards=registry)
+            with self.assertRaises(primary_kind) as raised:
+                with gate.bootstrap_dispatch(checks, SimpleNamespace(conservation=pins)): entered.append(True)
+            self.assertIs(raised.exception, primary); self.assertFalse(entered)
+            self.assertIs(checks.value, original); self.assertEqual(tuple(registry), snapshot)
+        tree = ast.parse((ROOT / 'tests/v4_word_bounds_codegen.py').read_bytes())
+        bootstrap = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'bootstrap_dispatch')
+        line = next(node.lineno for node in ast.walk(bootstrap) if isinstance(node, ast.Assign)
+                    and any(isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name)
+                            and target.value.id == 'registry' for target in node.targets))
+        function = gate.bootstrap_dispatch.__wrapped__
+        for primary_kind in (MemoryError, KeyboardInterrupt):
+            primary = primary_kind('setup after helper install'); checks = SimpleNamespace(run_with_heartbeat=original)
+            registry = [(checks, original, gate.function_seal(original))]; snapshot = tuple(registry)
+            pins = SimpleNamespace(guards=registry); entered = []
+            def trace(frame, event, arg):
+                if event == 'line' and frame.f_code is function.__code__ and frame.f_lineno == line: raise primary
+                return trace
+            previous_trace = sys.gettrace()
+            sys.settrace(trace)
+            try:
+                with self.assertRaises(primary_kind) as raised:
+                    with gate.bootstrap_dispatch(checks, SimpleNamespace(conservation=pins)): entered.append(True)
+            finally: sys.settrace(previous_trace)
+            self.assertIs(raised.exception, primary); self.assertFalse(entered)
+            self.assertIs(checks.run_with_heartbeat, original); self.assertEqual(tuple(registry), snapshot)
+
+    def test_bootstrap_registry_restore_is_independent_and_failure_blocks_success(self):
+        def original(*args, **kwargs): raise AssertionError('guard body is forbidden')
+        for secondary_kind in (MemoryError, KeyboardInterrupt):
+            checks = SimpleNamespace(run_with_heartbeat=original); primary = secondary_kind('registry restore')
+            class Registry(list):
+                fail = False
+                def __setitem__(self, key, value):
+                    if self.fail:
+                        self.fail = False; raise primary
+                    return super().__setitem__(key, value)
+            registry = Registry([(checks, original, gate.function_seal(original))]); snapshot = tuple(registry)
+            pins = SimpleNamespace(guards=registry)
+            with self.assertRaises(secondary_kind) as raised:
+                with gate.bootstrap_dispatch(checks, SimpleNamespace(conservation=pins)): registry.fail = True
+            self.assertIs(raised.exception, primary); self.assertIs(checks.run_with_heartbeat, original)
+            self.assertEqual(tuple(registry), snapshot)
+
+    def test_run_gate_runtime_root_entry_and_restore_preserve_first_cause(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for primary_kind in (RuntimeError, KeyboardInterrupt):
+                for secondary_kind in (MemoryError, KeyboardInterrupt):
+                    folder = Path(temporary) / (primary_kind.__name__ + secondary_kind.__name__); folder.mkdir()
+                    old_root = folder / 'caller-root'; primary = primary_kind('pure transpiler first cause')
+                    cause = ValueError('explicit cause'); primary.__cause__ = cause; secondary = secondary_kind('root restoration')
+                    events = []
+                    class Checks(SimpleNamespace):
+                        def __setattr__(self, name, value):
+                            if name == 'RUNTIME_BUILD_ROOT' and self.__dict__.get('fail_restore') and value == old_root:
+                                self.fail_restore = False; events.append('restore-failed'); raise secondary
+                            super().__setattr__(name, value)
+                    def transpile(*args): checks.fail_restore = True; events.append('pure-transpiler'); raise primary
+                    def guard(argv, **kwargs): events.append('inert-identity'); return result('inert identity\n')
+                    checks = Checks(TESTS_ROOT=FIXTURE.parent, RUNTIME_ROOT=ROOT / 'freakc/runtime', RUNTIME_BUILD_ROOT=old_root,
+                                    run_with_heartbeat=guard, read_text=lambda path: path.read_text(),
+                                    check_flattened_crates=lambda: 'inert', transpile_fixture=transpile)
+                    pins = SimpleNamespace(frozen=ROOT, clang=Path('INERT-NOT-EXECUTED'), seal_build=lambda build: None,
+                                           bind=lambda *args: None, check=lambda: None, track=lambda *args, **kwargs: None,
+                                           guards=[], final_pins=lambda: None)
+                    build = SimpleNamespace(checks=checks, host_target=lambda: 'inert-target',
+                                            SOURCE_NAMES=gate.literal_assignment(ROOT / 'freakc/v4_native_runtime.py', 'SOURCE_NAMES'))
+                    with patch.object(gate, 'Conservation', return_value=pins), patch.object(gate, 'load_build', return_value=build), \
+                            self.assertRaises(primary_kind) as raised:
+                        gate.run_gate(SimpleNamespace(work=folder, clang='INERT-NOT-EXECUTED', plain=True), {})
+                    self.assertIs(raised.exception, primary); self.assertIs(primary.__cause__, cause)
+                    self.assertEqual(checks.RUNTIME_BUILD_ROOT, old_root)
+                    self.assertEqual(events, ['inert-identity', 'pure-transpiler', 'restore-failed'])
+                    self.assertEqual(primary.bounds_secondary_failures[0], {'stage': 'restore-runtime-root', 'type': secondary_kind.__name__})
+            for primary_kind in (MemoryError, KeyboardInterrupt):
+                primary = primary_kind('root entry after mutation'); entered = []
+                class EntryChecks:
+                    def __init__(self): self.value = 'caller-root'
+                    @property
+                    def RUNTIME_BUILD_ROOT(self): return self.value
+                    @RUNTIME_BUILD_ROOT.setter
+                    def RUNTIME_BUILD_ROOT(self, value):
+                        self.value = value
+                        if value == 'temporary-root': raise primary
+                checks = EntryChecks()
+                with self.assertRaises(primary_kind) as raised:
+                    with gate.temporary_runtime_root(checks, 'temporary-root'): entered.append(True)
+                self.assertIs(raised.exception, primary); self.assertFalse(entered)
+                self.assertEqual(checks.RUNTIME_BUILD_ROOT, 'caller-root')
+
+    def test_consumed_defaults_descriptors_and_data_are_qualified_before_dispatch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for key, changed in (('timeout', None), ('memory', 512)):
+                folder = Path(temporary) / key; folder.mkdir(); tool = folder / 'inert-clang'; tool.write_bytes(b'never execute')
+                calls = []
+                def guard(argv, **kwargs): calls.append(kwargs); return result()
+                pins = gate.Conservation(SimpleNamespace(work=folder, clang=str(tool)), {})
+                runner = gate.Runner(SimpleNamespace(run_with_heartbeat=guard), folder, pins)
+                defaults = gate.Runner.run.__kwdefaults__; original = defaults[key]
+                try:
+                    defaults[key] = changed
+                    with self.assertRaises(gate.GateError): pins.check()
+                    with self.assertRaises(gate.GateError): runner.run(['INERT-NOT-EXECUTED'], 'emit case 0')
+                    self.assertFalse(calls)
+                finally: defaults[key] = original
+                pins.check()
+                code = gate.Runner.run.__code__
+                try:
+                    gate.Runner.run.__code__ = code.replace()
+                    with self.assertRaises(gate.GateError): pins.check()
+                finally: gate.Runner.run.__code__ = code
+                pins.check()
+                class EqualCallable:
+                    __code__ = gate.Runner.run.__code__
+                    def __eq__(self, other): raise AssertionError('arbitrary equality must not run')
+                with patch.object(gate.Runner, 'run', EqualCallable()), self.assertRaises(gate.GateError): pins.check()
+                holder = SimpleNamespace(config={'seconds': 60}); pins.bind(holder, ('config',))
+                holder.config['seconds'] = None
+                with self.assertRaises(gate.GateError): pins.check()
+                holder.config['seconds'] = 60; pins.check()
+                def helper(seconds=60): return seconds
+                owner = SimpleNamespace(helper=helper); pins.bind(owner, ('helper',))
+                try:
+                    helper.__defaults__ = (None,)
+                    with self.assertRaises(gate.GateError): pins.check()
+                finally: helper.__defaults__ = (60,)
+                pins.check()
 
 
 if __name__ == '__main__': unittest.main()

@@ -14,6 +14,7 @@ from contextlib import contextmanager
 import hashlib
 import importlib.abc
 import importlib.util
+import inspect
 import json
 import os
 from pathlib import Path
@@ -86,6 +87,60 @@ class Evidence:
         if self.first is not None:
             self.attach(self.first)
             raise self.first
+
+
+def restore_once_or_retry(evidence, stage, action):
+    # Retry a one-shot setter failure once. Its first error remains evidence
+    # even if the retry restores the caller's state successfully.
+    def apply():
+        action()
+        return True
+    if evidence.attempt(stage, apply) is not True:
+        evidence.attempt(stage + "-retry", action)
+
+
+@contextmanager
+def temporary_runtime_root(checks, replacement):
+    missing = object()
+    original = missing
+    cleanup = Evidence()
+    def restore():
+        if original is not missing:
+            restore_once_or_retry(cleanup, "restore-runtime-root", lambda: setattr(checks, "RUNTIME_BUILD_ROOT", original))
+    try:
+        original = checks.RUNTIME_BUILD_ROOT
+        checks.RUNTIME_BUILD_ROOT = replacement
+        yield
+    except BaseException as primary:
+        try:
+            restore()
+            cleanup.attach(primary)
+        except BaseException:
+            pass
+        raise
+    else:
+        restore()
+        cleanup.raise_first()
+
+
+def qualified_data(value):
+    """Snapshot canonical default/data contents without arbitrary equality."""
+    kind = type(value)
+    if value is None or kind is bool or kind is int or kind is str or kind is bytes or kind is float:
+        return (id(kind), value)
+    if kind is tuple or kind is list:
+        return (id(kind), tuple(qualified_data(item) for item in value))
+    if kind is dict:
+        return (id(kind), tuple((qualified_data(key), qualified_data(item)) for key, item in value.items()))
+    return (id(kind), id(value))
+
+
+def function_seal(raw):
+    if type(raw) is classmethod or type(raw) is staticmethod or type(raw) is types.MethodType:
+        raw = raw.__func__
+    if type(raw) is types.FunctionType:
+        return (id(raw.__code__), raw.__code__, qualified_data(raw.__defaults__), qualified_data(raw.__kwdefaults__))
+    return None
 
 
 @contextmanager
@@ -210,15 +265,16 @@ class Conservation:
         self.bind(numeric, ("exact_result", "normalized", "require_compile", "sha", "validate_build_flags", "validate_sanitizer_probe"))
         self.bind(sys.modules[__name__], ("numeric", "source_module", "source_names", "load_build", "sha", "exact_result", "validate_report",
                                         "exact_program", "extract_module", "fixture_sources", "prefix", "call_counts", "exit_code",
-                                        "OPTS", "VARIANTS", "NAMES", "OUTPUTS", "GUARD_SOURCE", "ABORT_SETUP_SOURCE", "OUTPUT_MIB"))
+                                        "OPTS", "VARIANTS", "NAMES", "OUTPUTS", "GUARD_SOURCE", "ABORT_SETUP_SOURCE", "OUTPUT_MIB",
+                                        "qualified_data", "function_seal", "bootstrap_dispatch", "temporary_runtime_root"))
         self.bind(Runner, ("run",))
         self.bind(Conservation, ("check", "track", "final_pins"))
         self.check()
 
     def bind(self, owner, names):
         for name in names:
-            value = getattr(owner, name)
-            self.bindings.append((owner, name, value, getattr(value, "__code__", None)))
+            raw = inspect.getattr_static(owner, name)
+            self.bindings.append((owner, name, raw, function_seal(raw), qualified_data(raw)))
 
     def seal_build(self, build):
         self.finder = build.bounds_finder
@@ -259,12 +315,12 @@ class Conservation:
         if self.finder is not None and any(Path(module.__file__) != self.finder.paths[name]
                                           or module.__loader__ is not self.finder for name, module in self.modules.items()):
             raise GateError("loaded bootstrap source/loader attribution changed")
-        if any(checks.run_with_heartbeat is not expected or getattr(expected, "__code__", None) is not code
-               for checks, expected, code in self.guards):
+        if any(checks.run_with_heartbeat is not expected or function_seal(expected) != seal
+               for checks, expected, seal in self.guards):
             raise GateError("original process guard binding changed")
-        for owner, name, value, code in self.bindings:
-            current = getattr(owner, name)
-            if current != value or getattr(current, "__code__", None) is not code:
+        for owner, name, raw, seal, data in self.bindings:
+            current = inspect.getattr_static(owner, name)
+            if current is not raw or function_seal(current) != seal or qualified_data(current) != data:
                 raise GateError("consumed helper binding changed")
         if any(sha(path) != digest for pins in (self.generated, self.images) for path, digest in pins.items()):
             raise GateError("produced bounds source/module/image conservation failed")
@@ -296,7 +352,7 @@ class Runner:
         self.guard = checks.run_with_heartbeat
         if conservation is not None:
             conservation.bind(self, ("guard",))
-            conservation.guards.append((checks, self.guard, getattr(self.guard, "__code__", None)))
+            conservation.guards.append((checks, self.guard, function_seal(self.guard)))
 
     def run(self, argv, label, *, timeout=60, memory=64):
         self.serial += 1
@@ -351,7 +407,9 @@ class Runner:
 
 @contextmanager
 def bootstrap_dispatch(checks, runner):
-    original = checks.run_with_heartbeat
+    missing = object()
+    original = pins = registry = snapshot = missing
+    cleanup = Evidence()
     calls = []
     def bounded(argv, *, label, memory_limit_mb=None, **kwargs):
         if memory_limit_mb != 1024 or kwargs:
@@ -363,18 +421,45 @@ def bootstrap_dispatch(checks, runner):
                 raise GateError("original bootstrap C input changed")
             runner.conservation.track(generated[0])
         return runner.run(argv, label, timeout=120, memory=1024)
-    checks.run_with_heartbeat = bounded
-    pins = runner.conservation
-    if pins is not None:
-        pins.guards[:] = [(owner, bounded, bounded.__code__) if owner is checks else (owner, expected, code)
-                         for owner, expected, code in pins.guards]
+    def restore():
+        # Each independent restoration runs before any retry. A failed helper
+        # setter must not prevent restoration of the exact prior registry.
+        def helper():
+            if original is not missing:
+                checks.run_with_heartbeat = original
+            return True
+        def guards():
+            if snapshot is not missing:
+                pins.guards = registry
+                registry[:] = snapshot
+            return True
+        helper_ok = cleanup.attempt("restore-bootstrap-helper", helper)
+        registry_ok = cleanup.attempt("restore-bootstrap-registry", guards)
+        if helper_ok is not True:
+            cleanup.attempt("restore-bootstrap-helper-retry", helper)
+        if registry_ok is not True:
+            cleanup.attempt("restore-bootstrap-registry-retry", guards)
     try:
-        yield calls
-    finally:
-        checks.run_with_heartbeat = original
+        original = checks.run_with_heartbeat
+        pins = runner.conservation
         if pins is not None:
-            pins.guards[:] = [(owner, original, getattr(original, "__code__", None)) if owner is checks else (owner, expected, code)
-                             for owner, expected, code in pins.guards]
+            registry = pins.guards
+            snapshot = tuple(registry)
+        checks.run_with_heartbeat = bounded
+        if pins is not None:
+            registry[:] = [(owner, bounded, function_seal(bounded)) if owner is checks else (owner, expected, seal)
+                           for owner, expected, seal in snapshot]
+        yield calls
+    except BaseException as primary:
+        try:
+            restore()
+            cleanup.attach(primary)
+        except BaseException:
+            pass
+        raise
+    else:
+        restore()
+        cleanup.raise_first()
 
 OPTS = (0, 2, 3)
 VARIANTS = ("direct", "live")
@@ -676,9 +761,7 @@ def run_gate(args, report: dict) -> Conservation:
         report["source_sha256"] = [hashlib.sha256(source.encode()).hexdigest() for source in sources]
         compiler_dir = directory / "compiler"
         compiler_dir.mkdir()
-        old_root = checks.RUNTIME_BUILD_ROOT
-        checks.RUNTIME_BUILD_ROOT = compiler_dir
-        try:
+        with temporary_runtime_root(checks, compiler_dir):
             pins.check()
             c_source, ui = checks.transpile_fixture(checks.check_flattened_crates(), fixture)
             pins.check()
@@ -700,8 +783,6 @@ def run_gate(args, report: dict) -> Conservation:
                 pins.track(probe, image=True)
             except SystemExit as exc:
                 raise GateError(f"bounds bootstrap compilation failed: {exc.code}") from exc
-        finally:
-            checks.RUNTIME_BUILD_ROOT = old_root
         report["compiler"] = {"path": probe.relative_to(directory).as_posix(), "sha256": sha(probe), "memory_limit_mib": 64, "live_handle_limit": 1024}
         modules = []
         for case in range(len(OUTPUTS)):
