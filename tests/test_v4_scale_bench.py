@@ -688,28 +688,47 @@ class SymbolToolSelection(unittest.TestCase):
                 self.assertEqual(absent.exception.errno, errno.EBADF)
         self.tool.chmod(0o755)
 
-    def test_no_origin_image_skips_busy_ancestor_inventories(self):
-        def no_scan(path):
-            self.fail("no-origin image scanned sibling directory " + str(path))
+    def test_unflagged_image_keeps_private_copy_identity(self):
         with patch.dict(os.environ, {key: value for key, value in os.environ.items()
                                     if not key.startswith("LD_")}, clear=True), \
-                patch.object(Path, "iterdir", no_scan), \
                 patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
                 patch.object(self.benchmark, "guarded_job", return_value=subprocess.CompletedProcess([], 0, LLVM_VERSION, "")) as job:
             selected = self.benchmark.llvm_symbol_tool(None, self.work / "no-origin", 10)
         job.assert_called_once()
         image = json.loads((self.work / "no-origin/tool-version/image.json").read_text())
-        self.assertEqual(image["shadow_entries"], 0)
-        self.assertFalse(image["origin_mirror_required"])
+        self.assertGreater(image["shadow_entries"], 0)
+        self.assertTrue(image["origin_mirror_required"])
+        self.assertEqual(image["origin_evidence"], ["runtime-origin-not-excluded"])
         self.assertEqual(image["sha256"], selected["nm_file"]["sha256"])
+        self.assertEqual(image["original_image"]["sha256"], selected["nm_file"]["sha256"])
+        self.assertNotEqual(image["inode"], self.tool.stat().st_ino)
         self.assertFalse(Path(image["private_root"]).exists())
-        # A simulated 8,193-name ancestor must likewise remain unobserved.
+        # This helper's bare-spine geometry remains bounded, but native reader
+        # admission always requests its full mirror, including unflagged images.
         with tempfile.TemporaryDirectory() as shadow, \
                 patch.object(Path, "iterdir", return_value=iter(Path("/busy/" + str(n)) for n in range(8193))) as inventory:
             copied, count = self.benchmark.symbol_shadow_origin(self.tool, Path(shadow), uses_origin=False)
             self.assertEqual(count, 0)
             self.assertTrue(copied.parent.is_dir())
             inventory.assert_not_called()
+
+    def test_unflagged_image_stops_before_launch_at_shadow_entry_limit(self):
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        for phase in ("version", "inventory"):
+            with self.subTest(phase=phase):
+                result = subprocess.CompletedProcess([], 0, LLVM_VERSION if phase == "version"
+                                                     else "00000000 T exported\n", "")
+                with patch.object(Path, "iterdir", return_value=iter(Path("/busy/" + str(n)) for n in range(8193))), \
+                        patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
+                        patch.object(self.benchmark, "guarded_job", return_value=result) as job, \
+                        self.assertRaisesRegex(RuntimeError, "shadow-origin entry limit exceeded"):
+                    if phase == "version":
+                        self.benchmark.llvm_symbol_tool(None, self.work / "busy-version", 10)
+                    else:
+                        self.benchmark.defined_symbols(None, self.obj, self.work / "busy-inventory", 10,
+                                                       symbol_tool=selected)
+                job.assert_not_called()
 
     def test_origin_sources_and_unknown_loader_settings_cannot_take_fast_path(self):
         clean_env = {key: value for key, value in os.environ.items() if not key.startswith("LD_")}
@@ -762,7 +781,8 @@ class SymbolToolSelection(unittest.TestCase):
                                 while directory.is_relative_to(root):
                                     self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
                                     directory = directory.parent
-                                self.assertEqual(image["origin_mirror_required"], origin)
+                                self.assertTrue(image["origin_mirror_required"])
+                                self.assertIn("runtime-origin-not-excluded", image["origin_evidence"])
                         except OSError as error:
                             self.fail(f"private launch failed under restrictive umask: {error}")
                 finally:
@@ -1644,6 +1664,64 @@ class SymbolToolSelection(unittest.TestCase):
             image = json.loads((self.work / directory / "image.json").read_text())
             self.assertTrue(image["origin_mirror_required"])
             self.assertTrue(set(image["origin_evidence"]) & {"DT_FLAGS:DF_ORIGIN", "DT_FLAGS_1:DF_1_ORIGIN"})
+            self.assertFalse(Path(image["private_root"]).exists())
+
+    def test_unflagged_origin_keeps_adjacent_dlopen_plugin(self):
+        clang = shutil.which("clang")
+        self.assertIsNotNone(clang, "native unflagged origin regression prerequisite missing: clang; install Clang")
+        build = self.benchmark.load_build(ROOT)
+        plugin_source = self.work / "origin-unflagged-plugin.c"
+        plugin_source.write_text("int origin_unflagged_value(void) { return 313; }\n")
+        plugin = self.work / "origin-unflagged-plugin.so"
+        result = self.benchmark.guarded_job(build,
+            [clang, "-shared", "-fPIC", str(plugin_source), "-o", str(plugin)],
+            self.work / "origin-unflagged-plugin-build", "native unflagged origin plugin", 30, 128, 8)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        source = self.work / "origin-unflagged-tool.c"
+        source.write_text(
+            '#include <dlfcn.h>\n#include <stdio.h>\n#include <string.h>\n'
+            'int main(int argc, char **argv) {\n'
+            '    void *plugin = dlopen("$ORIGIN/origin-unflagged-plugin.so", RTLD_NOW);\n'
+            '    if (!plugin) { fputs("origin plugin unavailable\\n", stderr); return 71; }\n'
+            '    int (*value)(void) = (int (*)(void))dlsym(plugin, "origin_unflagged_value");\n'
+            '    if (!value || value() != 313) return 72;\n'
+            '    if (dlclose(plugin)) return 73;\n'
+            '    const char *leaf = strrchr(argv[0], \'/\');\n'
+            '    if (strcmp(leaf ? leaf + 1 : argv[0], "llvm-nm")) return 64;\n'
+            '    if (argc == 2 && !strcmp(argv[1], "--version")) {\n'
+            f'        fputs({json.dumps(LLVM_VERSION)}, stdout); return 0;\n'
+            '    }\n'
+            '    if (argc == 4 && !strcmp(argv[1], "-g") && !strcmp(argv[2], "--defined-only")) {\n'
+            '        puts("00000000 T origin_unflagged_export"); return 0;\n'
+            '    }\n'
+            '    return 65;\n}\n')
+        result = self.benchmark.guarded_job(build,
+            [clang, str(source), "-ldl", "-o", str(self.tool)],
+            self.work / "origin-unflagged-tool-build", "native unflagged origin image", 30, 128, 8)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        alias = self.work / "llvm-nm"
+        alias.symlink_to(self.tool)
+        with self.tool.open("rb") as image:
+            evidence = []
+            self.assertEqual(self.benchmark.symbol_elf_origin_paths(image, self.tool.stat().st_size,
+                                                                  self.tool.parent, origin_evidence=evidence), [])
+        original = self.benchmark.guarded_job(build, [str(alias), "--version"],
+            self.work / "origin-unflagged-original", "original unflagged origin image", 5, 128, 1,
+            executable=str(self.tool))
+        self.assertEqual((original.returncode, original.stdout, original.stderr), (0, LLVM_VERSION, ""))
+        with patch.object(self.benchmark.shutil, "which", return_value=str(alias)):
+            selected = self.benchmark.llvm_symbol_tool(build, self.work / "origin-unflagged-selection", 10)
+        exports = self.benchmark.defined_symbols(build, self.obj, self.work / "origin-unflagged-symbols", 10,
+                                                symbol_tool=selected)
+        self.assertEqual(exports, {"origin_unflagged_export"})
+        self.assertEqual(evidence, [])
+        for directory in ("origin-unflagged-selection/tool-version", "origin-unflagged-symbols"):
+            image = json.loads((self.work / directory / "image.json").read_text())
+            self.assertTrue(image["origin_mirror_required"])
+            self.assertEqual(image["origin_evidence"], ["runtime-origin-not-excluded"])
+            self.assertEqual(image["sha256"], selected["nm_file"]["sha256"])
+            self.assertEqual(image["original_image"]["sha256"], selected["nm_file"]["sha256"])
+            self.assertNotEqual(image["inode"], self.tool.stat().st_ino)
             self.assertFalse(Path(image["private_root"]).exists())
 
     def test_original_inplace_mutation_executes_copy_and_rejects_old_held_inode_strategy(self):
