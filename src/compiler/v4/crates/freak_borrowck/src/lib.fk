@@ -1843,6 +1843,44 @@ task v4_borrowck_owned_word_call_arguments_are_valid(mir_id: int, body_id: int, 
     give back v4_borrowck_owned_word_call_argument_contract_status(mir_id, body_id, rvalue_id, sig_id) == 1
 }
 
+-- This narrow returned-source contract covers ordinary scalar observers and
+-- address selectors used by the native Word slice. A concrete raw pointer to
+-- int has no stored FREAK lend; trust/honor still governs its unsafe use.
+-- Unknown calls and all aggregate, callback, generic and borrowed results
+-- retain their existing opaque provenance.
+task v4_borrowck_empty_scalar_return_type(type_text: word) -> bool {
+    if type_text == v4_ty_int { give back true }
+    give back v4_ty_is_raw_pointer_type(type_text) and v4_ty_raw_pointer_target_type(type_text) == v4_ty_int
+}
+
+-- 1 is a fully checked empty source set, 0 is a malformed eligible facade,
+-- and -1 preserves the existing unsupported/opaque interpretation.
+task v4_borrowck_empty_scalar_call_status(mir_id: int, body_id: int, value: int) -> int {
+    if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) or value < 0 or value >= v4_mir_body_rvalue_count(mir_id, body_id) { give back -1 }
+    if v4_mir_rvalue_kind(mir_id, body_id, value) != v4_mir_rvalue_call or v4_mir_rvalue_lhs(mir_id, body_id, value) != -1 or v4_mir_rvalue_rhs(mir_id, body_id, value) != -1 { give back -1 }
+    pilot ty_id = v4_mir_ty_id(mir_id)
+    pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, v4_mir_rvalue_op(mir_id, body_id, value))
+    if sig_id < 0 or not v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) or v4_ty_signature_generic_count(ty_id, sig_id) != 0 { give back -1 }
+    pilot return_ty = v4_ty_signature_return_type(ty_id, sig_id)
+    if not v4_borrowck_empty_scalar_return_type(return_ty) { give back -1 }
+    if v4_mir_rvalue_ty(mir_id, body_id, value) != return_ty { give back 0 }
+    pilot callee = v4_mir_lookup_body(mir_id, v4_ty_signature_def(ty_id, sig_id))
+    if callee < 0 or v4_mir_body_signature_id(mir_id, callee) != sig_id { give back 0 }
+    if v4_mir_body_name(mir_id, callee) != v4_ty_signature_name(ty_id, sig_id) or v4_mir_body_signature(mir_id, callee) != v4_ty_signature_of(ty_id, v4_ty_signature_def(ty_id, sig_id)) { give back 0 }
+    pilot count = v4_ty_signature_param_count(ty_id, sig_id)
+    if count > 8192 { give back -1 }
+    if v4_mir_body_local_count(mir_id, callee) < count or v4_mir_body_callable_param_count(mir_id, callee) != count { give back 0 }
+    pilot param = 0
+    repeat until param >= count {
+        if v4_mir_local_name(mir_id, callee, param) != v4_ty_signature_param_name(ty_id, sig_id, param) or v4_mir_local_ty(mir_id, callee, param) != v4_ty_signature_param_type(ty_id, sig_id, param) or v4_mir_local_mode(mir_id, callee, param) != v4_ty_signature_param_mode(ty_id, sig_id, param) { give back 0 }
+        param += 1
+    }
+    pilot status = v4_borrowck_owned_word_call_argument_contract_status(mir_id, body_id, value, sig_id)
+    if status == 1 { give back 1 }
+    if status == 0 { give back 0 }
+    give back -1
+}
+
 task v4_borrowck_call_borrowed_source_signature_id(mir_id: int, body_id: int, rvalue_id: int) -> int {
     if not v4_mir_file_exists(mir_id) or body_id < 0 or body_id >= v4_mir_body_count(mir_id) {
         give back 0 - 1
@@ -1883,6 +1921,7 @@ task v4_borrowck_call_borrowed_source_signature_id(mir_id: int, body_id: int, rv
     if signature_return_ty == v4_ty_word and call_return_ty == v4_ty_word and v4_borrowck_owned_word_call_arguments_are_valid(mir_id, body_id, rvalue_id, sig_id) {
         give back sig_id
     }
+    if v4_borrowck_empty_scalar_call_status(mir_id, body_id, rvalue_id) == 1 { give back sig_id }
     pilot signature_leaf_count = v4_ty_fixed_lend_leaf_count(ty_id, signature_return_ty)
     pilot signature_has_lend_schema: bool = v4_ty_type_stores_lend(ty_id, signature_return_ty)
     if signature_leaf_count == 0 and v4_ty_type_contains_lend(signature_return_ty) {
@@ -6251,6 +6290,149 @@ task v4_borrowck_loan_move_conflict_message(loan_block: int, move_block: int) ->
     give back "Meiya carries this loan across a move boundary"
 }
 
+-- A completed call can release its argument loans only when its result has a
+-- checked empty returned-source contract. This is separate from availability:
+-- an earlier outer argument's loan remains live throughout later arguments.
+task v4_borrowck_word_call_result_is_empty(mir_id: int, body_id: int, value: int) -> bool {
+    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, value) or v4_mir_rvalue_is_static_never(mir_id, body_id, value) { give back true }
+    if v4_borrowck_empty_scalar_call_status(mir_id, body_id, value) == 1 { give back true }
+    pilot signature = v4_borrowck_call_borrowed_source_signature_id(mir_id, body_id, value)
+    if signature >= 0 and v4_mir_rvalue_ty(mir_id, body_id, value) == v4_ty_word and v4_ty_signature_return_type(v4_mir_ty_id(mir_id), signature) == v4_ty_word { give back true }
+    -- The existing closed raw-pointer write protocol returns void. Check its
+    -- actual operand roles and concrete scalar pointee before using that fact.
+    if v4_mir_rvalue_kind(mir_id, body_id, value) != v4_mir_rvalue_call or v4_mir_rvalue_op(mir_id, body_id, value) != v4_mir_call_raw_ptr_write or v4_mir_rvalue_ty(mir_id, body_id, value) != v4_ty_void or v4_mir_rvalue_abi(mir_id, body_id, value) != "" or v4_mir_rvalue_builtin_method(mir_id, body_id, value) != "" or v4_mir_rvalue_call_arg_count(mir_id, body_id, value) != 2 or v4_mir_rvalue_rhs(mir_id, body_id, value) != -1 { give back false }
+    pilot receiver = v4_mir_rvalue_call_arg(mir_id, body_id, value, 0)
+    pilot argument = v4_mir_rvalue_call_arg(mir_id, body_id, value, 1)
+    if receiver < 0 or receiver >= value or argument < 0 or argument >= value or v4_mir_rvalue_lhs(mir_id, body_id, value) != receiver { give back false }
+    pilot pointer_ty = v4_mir_rvalue_ty(mir_id, body_id, receiver)
+    give back v4_ty_is_mutable_raw_pointer_type(pointer_ty) and v4_ty_raw_pointer_target_type(pointer_ty) == v4_ty_int and v4_mir_rvalue_ty(mir_id, body_id, argument) == v4_ty_int
+}
+
+-- Allocation-free evaluation proof for one exact Word source. Return 0 when
+-- the value retains no loan, 1 when it retains that source, 2 on a consume
+-- while borrowed, and -1 for an unsupported/malformed/exhausted proof.
+task v4_borrowck_word_loan_place_state(mir_id: int, body_id: int, place: int, local_id: int, active: bool, borrowed: bool, depth: int) -> int {
+    v4_borrowck_word_plan_visit_budget -= 1
+    if depth > 256 or v4_borrowck_word_plan_visit_budget < 0 or place < 0 or place >= v4_mir_body_place_count(mir_id, body_id) { give back -1 }
+    pilot kind = v4_mir_place_kind(mir_id, body_id, place)
+    pilot place_ty = v4_mir_place_ty(mir_id, body_id, place)
+    if place_ty == "" or place_ty == v4_ty_unknown { give back -1 }
+    if kind == v4_mir_place_local {
+        if v4_mir_place_base(mir_id, body_id, place) == local_id {
+            if borrowed { give back 1 }
+            if active or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value { give back 2 }
+        }
+        if v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_place_ty(mir_id, body_id, place)) { give back -1 }
+        give back 0
+    }
+    if kind == v4_mir_place_field or kind == v4_mir_place_index {
+        pilot base = v4_borrowck_word_loan_place_state(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place), local_id, active, true, depth + 1)
+        if base < 0 or base == 2 { give back base }
+        if kind == v4_mir_place_index {
+            pilot index_state = v4_borrowck_word_loan_rvalue_state(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, active or base == 1, false, depth + 1)
+            if index_state < 0 or index_state == 2 { give back index_state }
+            if index_state == 1 { base = 1 }
+        }
+        give back base
+    }
+    if kind == v4_mir_place_deref { give back v4_borrowck_word_loan_rvalue_state(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, active, false, depth + 1) }
+    if kind == v4_mir_place_return { give back 0 }
+    give back -1
+}
+
+task v4_borrowck_word_loan_rvalue_state(mir_id: int, body_id: int, value: int, local_id: int, active: bool, borrowed: bool, depth: int) -> int {
+    v4_borrowck_word_plan_visit_budget -= 1
+    if depth > 256 or v4_borrowck_word_plan_visit_budget < 0 { give back -1 }
+    if value == -1 { give back 0 }
+    if value < -1 or value >= v4_mir_body_rvalue_count(mir_id, body_id) { give back -1 }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
+    pilot value_ty = v4_mir_rvalue_ty(mir_id, body_id, value)
+    if value_ty == "" or value_ty == v4_ty_unknown { give back -1 }
+    if kind == v4_mir_rvalue_use_local {
+        if not v4_borrowck_owned_word_call_local_is_valid(mir_id, body_id, value) { give back -1 }
+        if v4_mir_rvalue_local_id(mir_id, body_id, value) == local_id {
+            if borrowed { give back 1 }
+            if active or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value { give back 2 }
+        }
+        if v4_ty_type_may_store_lend(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, value)) { give back -1 }
+        give back 0
+    }
+    if kind == v4_mir_rvalue_use_place { give back v4_borrowck_word_loan_place_state(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, active, borrowed, depth + 1) }
+    if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+        give back v4_borrowck_word_loan_rvalue_state(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, active, true, depth + 1)
+    }
+    if kind == v4_mir_rvalue_call or v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot held = 0
+        pilot callee = -1
+        if kind == v4_mir_rvalue_call {
+            callee = v4_borrowck_call_callee_rvalue(mir_id, body_id, value)
+            if callee >= 0 {
+                held = v4_borrowck_word_loan_rvalue_state(mir_id, body_id, callee, local_id, active, false, depth + 1)
+                if held < 0 or held == 2 { give back held }
+            }
+        }
+        pilot arg = 0
+        pilot count = v4_mir_rvalue_call_arg_count(mir_id, body_id, value)
+        if v4_mir_rvalue_is_aggregate_kind(kind) { count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, value) }
+        repeat until arg >= count {
+            pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, value, arg)
+            if v4_mir_rvalue_is_aggregate_kind(kind) { child = v4_mir_rvalue_aggregate_child(mir_id, body_id, value, arg) }
+            if child != callee {
+                pilot child_state = v4_borrowck_word_loan_rvalue_state(mir_id, body_id, child, local_id, active or held == 1, false, depth + 1)
+                if child_state < 0 or child_state == 2 { give back child_state }
+                if child_state == 1 { held = 1 }
+            }
+            arg += 1
+        }
+        if kind == v4_mir_rvalue_call and count == 0 and callee < 0 {
+            held = v4_borrowck_word_loan_rvalue_state(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, active, false, depth + 1)
+            if held < 0 or held == 2 { give back held }
+            pilot right = v4_borrowck_word_loan_rvalue_state(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, active or held == 1, false, depth + 1)
+            if right < 0 or right == 2 { give back right }
+            if right == 1 { held = 1 }
+        }
+        if kind == v4_mir_rvalue_call {
+            if v4_borrowck_word_call_result_is_empty(mir_id, body_id, value) { give back 0 }
+            -- Borrowed/aggregate/opaque calls can retain their argument loans;
+            -- absence of a loan leaf is never an empty-source certificate.
+            give back -1
+        }
+        give back held
+    }
+    if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_char or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_use_symbol { give back 0 }
+    if kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_check and kind != v4_mir_rvalue_try and kind != v4_mir_rvalue_some and kind != v4_mir_rvalue_ok and kind != v4_mir_rvalue_err and kind != v4_mir_rvalue_or_else { give back -1 }
+    pilot read_only: bool = kind == v4_mir_rvalue_binary
+    pilot left = v4_borrowck_word_loan_rvalue_state(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, active, read_only, depth + 1)
+    if left < 0 or left == 2 { give back left }
+    pilot right = v4_borrowck_word_loan_rvalue_state(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, active or left == 1, read_only, depth + 1)
+    if right < 0 or right == 2 { give back right }
+    if left == 1 or right == 1 { give back 1 }
+    give back 0
+}
+
+task v4_borrowck_word_temporary_loan_completes_before_move(mir_id: int, body_id: int, stmt: int, loan_text: word, move_text: word) -> bool {
+    if stmt < 0 or stmt >= v4_mir_body_stmt_count(mir_id, body_id) or v4_borrowck_path_canon(loan_text) != v4_borrowck_path_canon(move_text) { give back false }
+    pilot local_id = v4_borrowck_word_path_local(mir_id, body_id, loan_text)
+    if local_id < 0 or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value or v4_borrowck_path_canon(loan_text) != v4_borrowck_word_local_path(mir_id, body_id, local_id) { give back false }
+    v4_borrowck_word_plan_visit_budget = 8192
+    pilot state = v4_borrowck_word_loan_rvalue_state(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt), local_id, false, false, 0)
+    if state != 0 { give back false }
+    pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt)
+    pilot place = v4_mir_stmt_place(mir_id, body_id, stmt)
+    if (kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign) and place >= 0 and v4_mir_place_kind(mir_id, body_id, place) != v4_mir_place_local {
+        state = v4_borrowck_word_loan_place_state(mir_id, body_id, place, local_id, false, true, 0)
+    }
+    if state != 0 { give back false }
+    -- Loan completion does not excuse observing an already transferred owner.
+    -- Keep the existing availability diagnostic/counts for the reverse order.
+    v4_borrowck_word_plan_visit_budget = 8192
+    pilot available = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt), local_id, true, false, 0)
+    if available >= 0 and (kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign) and place >= 0 and v4_mir_place_kind(mir_id, body_id, place) != v4_mir_place_local {
+        available = v4_borrowck_word_place_use_state(mir_id, body_id, place, local_id, available == 1, true, 0)
+    }
+    give back available >= 0
+}
+
 task v4_borrowck_check_explicit_loan_moves(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
@@ -6273,6 +6455,7 @@ task v4_borrowck_check_explicit_loan_moves(borrow_id: int, result_id: int, mir_i
                         if loan_block == move_block {
                             if loan_stmt == move_stmt {
                                 loan_conflicts = true
+                                if holder == "@temporary" and v4_borrowck_word_temporary_loan_completes_before_move(mir_id, body_id, move_stmt, loan_text, move_text) { loan_conflicts = false }
                             } else if loan_stmt < move_stmt or v4_borrowck_block_can_cycle(mir_id, body_id, move_block) {
                                 loan_conflicts = v4_borrowck_explicit_loan_live_at_move(mir_id, body_id, loan_stmt, loan_text, move_stmt, move_block)
                             }
@@ -7267,6 +7450,23 @@ task v4_borrowck_check_word_binding_uses(borrow_id: int, result_id: int, mir_id:
     -- contracts; loan returns and hidden aggregate provenance stay separate.
     pilot value = 0
     repeat until value >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_kind(mir_id, body_id, value) == v4_mir_rvalue_call and v4_mir_rvalue_lhs(mir_id, body_id, value) < 0 and v4_mir_rvalue_rhs(mir_id, body_id, value) < 0 {
+            pilot ty_id = v4_mir_ty_id(mir_id)
+            pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, v4_mir_rvalue_op(mir_id, body_id, value))
+            pilot word_contract: bool = false
+            pilot count = v4_ty_signature_param_count(ty_id, sig_id)
+            if sig_id >= 0 and count <= 8192 and v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) and v4_ty_signature_generic_count(ty_id, sig_id) == 0 and v4_borrowck_empty_scalar_return_type(v4_ty_signature_return_type(ty_id, sig_id)) {
+                pilot param = 0
+                repeat until param >= count or word_contract {
+                    word_contract = v4_ty_signature_param_type(ty_id, sig_id, param) == v4_ty_word
+                    param += 1
+                }
+            }
+            if word_contract and v4_borrowck_empty_scalar_call_status(mir_id, body_id, value) == 0 {
+                v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, v4_mir_rvalue_span(mir_id, body_id, value), "Meiya cannot validate this no-lend scalar call contract", v4_mir_rvalue_op(mir_id, body_id, value)))
+                v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+            }
+        }
         if v4_mir_rvalue_kind(mir_id, body_id, value) == v4_mir_rvalue_call and v4_mir_rvalue_ty(mir_id, body_id, value) == v4_ty_word and not v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) and v4_mir_rvalue_lhs(mir_id, body_id, value) < 0 and v4_mir_rvalue_rhs(mir_id, body_id, value) < 0 {
             pilot ty_id = v4_mir_ty_id(mir_id)
             pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, v4_mir_rvalue_op(mir_id, body_id, value))
