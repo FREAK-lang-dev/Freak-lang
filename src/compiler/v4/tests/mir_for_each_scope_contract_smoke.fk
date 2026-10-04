@@ -7,6 +7,15 @@ task v4_for_each_scope_local_identities(mir: int) -> bool {
     pilot seen = 0
     repeat until body >= v4_mir_body_count(mir) {
         pilot row = 0
+        repeat until row >= v4_mir_body_place_count(mir, body) {
+            if v4_mir_place_kind(mir, body, row) == v4_mir_place_local {
+                pilot local = v4_mir_place_base(mir, body, row)
+                if local < 0 or local >= v4_mir_body_local_count(mir, body) { give back false }
+                if v4_mir_place_text(mir, body, row) != v4_mir_local_name(mir, body, local) or v4_mir_place_ty(mir, body, row) != v4_mir_local_ty(mir, body, local) { give back false }
+            }
+            row += 1
+        }
+        row = 0
         repeat until row >= v4_mir_body_rvalue_count(mir, body) {
             if v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_use_local {
                 pilot local = v4_mir_rvalue_local_id(mir, body, row)

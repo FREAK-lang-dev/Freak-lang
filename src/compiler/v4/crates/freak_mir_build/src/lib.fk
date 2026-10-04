@@ -5976,9 +5976,9 @@ task v4_mir_lower_place(mir_id: int, body_id: int, stream_id: int, start_token: 
         pilot local_name = v4_lex_token_syntax_value(stream_id, first)
         pilot local_id = v4_mir_find_local_visible_at(mir_id, body_id, local_name, v4_span_start(place_span))
         if local_id >= 0 {
-            pilot base = 0 - 1
-            if v4_mir_local_ty(mir_id, body_id, local_id) == v4_ty_word { base = local_id }
-            give back v4_mir_add_place(mir_id, body_id, v4_mir_place_local, local_name, base, local_name, 0 - 1, place_span, v4_mir_local_ty(mir_id, body_id, local_id))
+            -- A resolved LocalPlace always retains its binding ID, including
+            -- scalar compound reads that later become canonical UseLocal.
+            give back v4_mir_add_place(mir_id, body_id, v4_mir_place_local, local_name, local_id, local_name, 0 - 1, place_span, v4_mir_local_ty(mir_id, body_id, local_id))
         }
     }
 
