@@ -97,6 +97,62 @@ class ScalarSumOracle(unittest.TestCase):
         self.assertEqual({k.arg:ast.literal_eval(k.value) for k in call.keywords},{'timeout':120,'memory':512})
         self.assertIn('if result.returncode!=0 or result.stdout or result.stderr',ast.get_source_segment(source,run))
 
+    def test_runtime_audit_and_sanitizer_builds_use_the_native_target(self):
+        run=next(node for node in ast.parse(Path(gate.__file__).read_text()).body
+                 if isinstance(node,ast.FunctionDef) and node.name=='run_gate')
+        loop=next(node for node in ast.walk(run) if isinstance(node,ast.For)
+                  and isinstance(node.target,ast.Name) and node.target.id=='opt')
+        seed=loop.body[0]
+        self.assertIsInstance(seed,ast.Assign)
+        self.assertEqual(seed.targets[0].id,'flags')
+        append_sanitizers=loop.body[1]
+        self.assertIsInstance(append_sanitizers,ast.If)
+        calls={}
+        for node in ast.walk(run):
+            if not isinstance(node,ast.Call) or not isinstance(node.func,ast.Attribute) or node.func.attr!='run':
+                continue
+            label=node.args[1]
+            if isinstance(label,ast.JoinedStr):
+                text=''.join(part.value for part in label.values if isinstance(part,ast.Constant))
+                if text.startswith('scalar Sum runtime '): calls['runtime']=node
+                if text.startswith('scalar Sum audit link O'): calls['audit']=node
+            elif isinstance(label,ast.Constant) and label.value=='scalar Sum sanitizer link':
+                calls['sanitizer']=node
+        self.assertEqual(set(calls),{'runtime','audit','sanitizer'})
+        for call in calls.values():
+            self.assertEqual({key.arg:ast.literal_eval(key.value) for key in call.keywords},
+                             {'timeout':120,'memory':512})
+        def command(expression, values):
+            return eval(compile(ast.Expression(expression),gate.__file__,'eval'),{'__builtins__':{}},values)
+        for target in ('x86_64-unknown-linux-gnu','aarch64-apple-darwin','x86_64-w64-windows-gnu'):
+            for plain in (False,True):
+                for opt in gate.OPTS:
+                    values={'args':SimpleNamespace(clang='clang',plain=plain),'target':target,'opt':opt,
+                            'checks':SimpleNamespace(RUNTIME_ROOT=Path('runtime'),runtime_platform_final_link_args=lambda:['platform-lib']),
+                            'AUDIT_FLAGS':gate.AUDIT_FLAGS,'SANITIZER_FLAGS':gate.SANITIZER_FLAGS,
+                            'path':Path('runtime/source.c'),'output':Path('runtime.o'),'audit':Path('audit.c'),
+                            'probe':Path('sanitizer.c'),'binary':Path('probe'),'objects':{opt:['runtime.o']},'str':str,'list':list}
+                    exec(compile(ast.Module([seed,append_sanitizers],type_ignores=[]),gate.__file__,'exec'),
+                         {'__builtins__':{}},values)
+                    flags=['--target='+target,'-w',f'-O{opt}','-Iruntime',*gate.AUDIT_FLAGS]
+                    if not plain: flags+=list(gate.SANITIZER_FLAGS)
+                    expected={'runtime':['clang',*flags,'-c','runtime/source.c','-o','runtime.o'],
+                              'audit':['clang',*flags,'audit.c','runtime.o','-o','probe','platform-lib'],
+                              'sanitizer':['clang','--target='+target,'-O0',*gate.SANITIZER_FLAGS,'sanitizer.c','-o','probe']}
+                    for role,call in calls.items():
+                        with self.subTest(target=target,plain=plain,opt=opt,role=role):
+                            actual=command(call.args[0],values)
+                            self.assertEqual(actual,expected[role])
+                            self.assertEqual([arg for arg in actual if arg.startswith('--target=')],['--target='+target])
+                    # Exact old default-target stages must fail this oracle.
+                    old_values={**values,'flags':[flag for flag in values['flags'] if not flag.startswith('--target=')]}
+                    for role in ('runtime','audit'):
+                        self.assertNotEqual(command(calls[role].args[0],old_values),expected[role])
+                    old_sanitizer=copy.deepcopy(calls['sanitizer'].args[0])
+                    old_sanitizer.elts=[part for part in old_sanitizer.elts if not (isinstance(part,ast.BinOp)
+                                        and isinstance(part.left,ast.Constant) and part.left.value=='--target=')]
+                    self.assertNotEqual(command(old_sanitizer,values),expected['sanitizer'])
+
     def test_bootstrap_forwarder_preserves_original_options_and_restores(self):
         calls=[]
         def original(*args, **kwargs): calls.append((args,kwargs));return 'original-result'

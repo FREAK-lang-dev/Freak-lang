@@ -157,7 +157,7 @@ int main(int argc,char **argv) {
     objects={}
     with sanitizer_environment(not args.plain):
         for opt in OPTS:
-            flags=['-w',f'-O{opt}',f'-I{checks.RUNTIME_ROOT}',*AUDIT_FLAGS]
+            flags=['--target='+target,'-w',f'-O{opt}',f'-I{checks.RUNTIME_ROOT}',*AUDIT_FLAGS]
             if not args.plain: flags+=list(SANITIZER_FLAGS)
             validate_build_flags(flags,not args.plain);objects[opt]=[]
             for name in build.SOURCE_NAMES:
@@ -178,7 +178,7 @@ int main(int argc,char **argv) {
 int main(int argc,char **argv){if(argc!=2)return 9;if(argv[1][0]=='a'){volatile char *p=malloc(1);free((void*)p);return p[0];}volatile int x=INT_MAX;volatile int one=1;return x+one;}
 ''')
             binary=work/f'sanitizer-probe{suffix}'
-            result=runner.run([args.clang,'-O0',*SANITIZER_FLAGS,str(probe),'-o',str(binary)],'scalar Sum sanitizer link',timeout=120,memory=512)
+            result=runner.run([args.clang,'--target='+target,'-O0',*SANITIZER_FLAGS,str(probe),'-o',str(binary)],'scalar Sum sanitizer link',timeout=120,memory=512)
             if result.returncode!=0:raise RuntimeError('sanitizer capability compile failed')
             for kind in ('address','undefined'):
                 validate_sanitizer_probe(runner.run([str(binary),kind],f'scalar Sum sanitizer {kind}',timeout=30,memory=128),kind)
