@@ -4998,6 +4998,10 @@ task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: in
     pilot first_value = v4_lex_token_syntax_value(stream_id, first)
     pilot expr_text = v4_mir_expr_text(stream_id, first, last + 1)
 
+    if first_value == "some" or first_value == "nobody" or first_value == "ok" or first_value == "err" {
+        if v4_mir_signature_id_for_name(mir_id, first_value) >= 0 or v4_mir_find_local_visible_at(mir_id, body_id, first_value, v4_span_start(expr_span)) >= 0 or v4_resolve_def_for_name(v4_ty_resolve_id(v4_mir_ty_id(mir_id)), first_value) != "" { give back -1 }
+    }
+
     if first == last and first_value == "nobody" {
         pilot result_ty = v4_ty_maybe_type(v4_ty_unknown)
         if v4_ty_is_maybe_type(expected_ty) {
@@ -5692,6 +5696,8 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
 
     pilot control_named = v4_mir_try_lower_control_named_intrinsic(mir_id, body_id, stream_id, first, last, expr_span)
     if control_named >= 0 { give back control_named }
+    pilot system_named = v4_mir_try_lower_system_named_intrinsic(mir_id, body_id, stream_id, first, last, expr_span)
+    if system_named >= 0 { give back system_named }
     pilot word_named = v4_mir_try_lower_word_named_intrinsic(mir_id, body_id, stream_id, first, last, expr_span)
     if word_named >= 0 { give back word_named }
     pilot word_property = v4_mir_try_lower_word_property(mir_id, body_id, stream_id, first, last, expr_span)
@@ -7213,7 +7219,7 @@ task v4_mir_lower_pilot_stmt(mir_id: int, body_id: int, block_id: int, stream_id
         pilot duplicate_local: bool = prior_local >= 0
         pilot binding_ty = inferred_ty
         if inferred_ty == v4_ty_never and v4_ty_is_known(declared_ty) { binding_ty = declared_ty }
-        if duplicate_local and binding_ty == v4_ty_word {
+        if duplicate_local and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), binding_ty) {
             duplicate_local = v4_mir_local_scope_span(mir_id, body_id, prior_local) == v4_mir_current_scope_span(stmt_span)
         }
         if duplicate_local {
@@ -8100,6 +8106,25 @@ task v4_mir_check_condition_rvalue(mir_id: int, body_id: int, stmt_span: word, o
     give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_check, "check " + source_text + " " + op, op, source_rvalue, 0 - 1, stmt_span, v4_ty_bool)
 }
 
+task v4_mir_lower_scalar_sum_binding(mir: int, body: int, block: int, span: word, pattern: word, subject: int, op: word, payload_ty: word) -> void {
+    pattern = v4_mir_pattern_trim(pattern)
+    if pattern == "_" { give back }
+    if not v4_mir_pattern_is_simple_local(pattern) {
+        v4_mir_add_type_error(mir, span, "native scalar sum arm needs a simple binding", "use a local name or _ for this scalar sum payload")
+        give back
+    }
+    pilot prior = v4_mir_find_local_visible_at(mir, body, pattern, v4_span_start(span))
+    if prior >= 0 and v4_mir_local_scope_span(mir, body, prior) == v4_mir_current_scope_span(span) {
+        v4_mir_add_type_error(mir, span, "check scalar sum binding duplicate local", pattern + " already exists in this scope")
+        give back
+    }
+    pilot reference = v4_mir_place_read_rvalue(mir, body, subject, span)
+    pilot take = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_sum_take, "check payload " + pattern, op, reference, -1, span, payload_ty)
+    pilot local = v4_mir_add_local_at_scope(mir, body, pattern, payload_ty, span, v4_mir_current_scope_span(span))
+    pilot place = v4_mir_add_place(mir, body, v4_mir_place_local, pattern, local, pattern, -1, span, payload_ty)
+    v4_mir_build_add_scoped_stmt(mir, body, block, v4_mir_stmt_local, pattern, "check payload", span, place, take)
+}
+
 task v4_mir_lower_checked_binding(mir_id: int, body_id: int, block_id: int, stmt_span: word, local_name: word, source_place: int, source_ty: word, duplicate_message: word) -> void {
     local_name = v4_mir_pattern_trim(local_name)
     if local_name == "" or local_name == "_" {
@@ -8217,6 +8242,10 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
         v4_mir_add_type_error(mir_id, stmt_span, "check needs maybe source", "got " + subject_ty)
     }
 
+    pilot sum_check: bool = v4_mir_scalar_sum_kind(mir_id, subject_ty) == "MaybeInt"
+    pilot outer_scope = v4_mir_current_scope_span(stmt_span)
+    if sum_check { v4_mir_push_scope_span(stmt_span) }
+
     pilot subject_name = v4_mir_unique_local_name(mir_id, body_id, "_check_subject")
     pilot subject_id = v4_mir_add_local(mir_id, body_id, subject_name, subject_ty, stmt_span)
     pilot subject_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, subject_name, subject_id, subject_name, 0 - 1, stmt_span, subject_ty)
@@ -8283,6 +8312,7 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
     pilot got_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot nobody_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    if sum_check { v4_mir_set_block_scope_span(mir_id, body_id, after_block, outer_scope) }
     pilot cond_rvalue = v4_mir_check_condition_rvalue(mir_id, body_id, stmt_span, "HasSome", subject_place, subject_text)
     pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
     v4_mir_set_body_block(mir_id, body_id, block_id, v4_mir_block_new_full(block_id, v4_mir_term_if, got_block, nobody_block, cond_text))
@@ -8290,9 +8320,14 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
 
       if got_arrow >= 0 {
           pilot value_ty = v4_ty_maybe_value_type(subject_ty)
-          pilot value_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".some", subject_place, "some", 0 - 1, stmt_span, value_ty)
           v4_mir_push_scope_span(got_span)
-          v4_mir_lower_checked_pattern(mir_id, body_id, got_block, got_span, got_pattern, value_place, value_ty, "check maybe binding duplicate local", "check maybe arm malformed", "use got pattern -> ...")
+          if sum_check {
+              v4_mir_set_block_scope_span(mir_id, body_id, got_block, got_span)
+              v4_mir_lower_scalar_sum_binding(mir_id, body_id, got_block, got_span, got_pattern, subject_place, "TakeSome", value_ty)
+          } else {
+              pilot value_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".some", subject_place, "some", 0 - 1, stmt_span, value_ty)
+              v4_mir_lower_checked_pattern(mir_id, body_id, got_block, got_span, got_pattern, value_place, value_ty, "check maybe binding duplicate local", "check maybe arm malformed", "use got pattern -> ...")
+          }
           got_block = v4_mir_lower_arm_body(mir_id, body_id, got_block, stream_id, got_arrow, got_end)
           v4_mir_pop_scope_span()
       }
@@ -8300,10 +8335,12 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
 
     if nobody_arrow >= 0 {
         v4_mir_push_scope_span(nobody_span)
+        if sum_check { v4_mir_set_block_scope_span(mir_id, body_id, nobody_block, nobody_span) }
         nobody_block = v4_mir_lower_arm_body(mir_id, body_id, nobody_block, stream_id, nobody_arrow, nobody_end)
         v4_mir_pop_scope_span()
     }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, nobody_block, after_block)
+    if sum_check { v4_mir_pop_scope_span() }
     give back after_block
 }
 
@@ -8322,6 +8359,10 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
     if v4_ty_is_known(subject_ty) and not v4_ty_is_result_type(subject_ty) {
         v4_mir_add_type_error(mir_id, stmt_span, "check result needs result source", "got " + subject_ty)
     }
+
+    pilot sum_check: bool = v4_mir_scalar_sum_kind(mir_id, subject_ty) == "ResultWordWord"
+    pilot outer_scope = v4_mir_current_scope_span(stmt_span)
+    if sum_check { v4_mir_push_scope_span(stmt_span) }
 
     pilot subject_name = v4_mir_unique_local_name(mir_id, body_id, "_check_result_subject")
     pilot subject_id = v4_mir_add_local(mir_id, body_id, subject_name, subject_ty, stmt_span)
@@ -8412,6 +8453,7 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
     pilot ok_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot err_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    if sum_check { v4_mir_set_block_scope_span(mir_id, body_id, after_block, outer_scope) }
     pilot cond_rvalue = v4_mir_check_condition_rvalue(mir_id, body_id, stmt_span, "IsOk", subject_place, subject_text)
     pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
 
@@ -8420,9 +8462,14 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
 
       if ok_arrow >= 0 {
           pilot ok_ty = v4_ty_result_ok_type(subject_ty)
-          pilot ok_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".ok", subject_place, "ok", 0 - 1, stmt_span, ok_ty)
           v4_mir_push_scope_span(ok_span)
-          v4_mir_lower_checked_pattern(mir_id, body_id, ok_block, ok_span, ok_pattern, ok_place, ok_ty, "check result binding duplicate local", "check result arm malformed", "use ok(pattern) -> ...")
+          if sum_check {
+              v4_mir_set_block_scope_span(mir_id, body_id, ok_block, ok_span)
+              v4_mir_lower_scalar_sum_binding(mir_id, body_id, ok_block, ok_span, ok_pattern, subject_place, "TakeOk", ok_ty)
+          } else {
+              pilot ok_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".ok", subject_place, "ok", 0 - 1, stmt_span, ok_ty)
+              v4_mir_lower_checked_pattern(mir_id, body_id, ok_block, ok_span, ok_pattern, ok_place, ok_ty, "check result binding duplicate local", "check result arm malformed", "use ok(pattern) -> ...")
+          }
           ok_block = v4_mir_lower_arm_body(mir_id, body_id, ok_block, stream_id, ok_arrow, ok_end)
           v4_mir_pop_scope_span()
       }
@@ -8430,13 +8477,19 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
 
       if err_arrow >= 0 {
           pilot err_ty = v4_ty_result_err_type(subject_ty)
-          pilot err_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".err", subject_place, "err", 0 - 1, stmt_span, err_ty)
           v4_mir_push_scope_span(err_span)
-          v4_mir_lower_checked_pattern(mir_id, body_id, err_block, err_span, err_pattern, err_place, err_ty, "check result binding duplicate local", "check result arm malformed", "use err(pattern) -> ...")
+          if sum_check {
+              v4_mir_set_block_scope_span(mir_id, body_id, err_block, err_span)
+              v4_mir_lower_scalar_sum_binding(mir_id, body_id, err_block, err_span, err_pattern, subject_place, "TakeErr", err_ty)
+          } else {
+              pilot err_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".err", subject_place, "err", 0 - 1, stmt_span, err_ty)
+              v4_mir_lower_checked_pattern(mir_id, body_id, err_block, err_span, err_pattern, err_place, err_ty, "check result binding duplicate local", "check result arm malformed", "use err(pattern) -> ...")
+          }
           err_block = v4_mir_lower_arm_body(mir_id, body_id, err_block, stream_id, err_arrow, err_end)
           v4_mir_pop_scope_span()
       }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, err_block, after_block)
+    if sum_check { v4_mir_pop_scope_span() }
     give back after_block
 }
 
@@ -9272,6 +9325,43 @@ task v4_mir_try_lower_word_instance_intrinsic(mir_id: int, body_id: int, stream_
     if kind == "" { give back 0 - 1 }
     pilot args = v4_mir_lower_word_intrinsic_args(mir_id, body_id, stream_id, kind, receiver, open_token, close_token, span)
     give back v4_mir_add_word_intrinsic(mir_id, body_id, kind, args, text, span)
+}
+
+task v4_mir_try_lower_system_named_intrinsic(mir: int, body: int, stream: int, first: int, last: int, span: word) -> int {
+    if v4_lex_token_syntax_value(stream, last) != ")" { give back -1 }
+    pilot root = v4_lex_token_syntax_value(stream, first)
+    if root != "process" and root != "fs" { give back -1 }
+    pilot separator = v4_mir_next_nontrivia(stream, first + 1, last + 1)
+    if v4_lex_token_syntax_value(stream, separator) != "::" { give back -1 }
+    pilot member = v4_mir_next_nontrivia(stream, separator + 1, last + 1)
+    pilot opening = v4_mir_next_nontrivia(stream, member + 1, last + 1)
+    if v4_lex_token_syntax_value(stream, opening) != "(" or v4_mir_find_matching_paren(stream, opening, last + 1) != last { give back -1 }
+    pilot name = root + "::" + v4_lex_token_syntax_value(stream, member)
+    pilot kind = v4_ty_system_intrinsic_named_kind(v4_mir_ty_id(mir), name)
+    if kind == "" or v4_mir_find_local_visible_at(mir, body, root, v4_span_start(span)) >= 0 or v4_mir_find_local_visible_at(mir, body, name, v4_span_start(span)) >= 0 { give back -1 }
+    pilot actual = v4_mir_call_arg_count(stream, opening, last)
+    if actual != v4_ty_system_intrinsic_param_count(kind) { v4_mir_add_type_error(mir, span, "system intrinsic argument count mismatch", name + " expects " + word_from_int(v4_ty_system_intrinsic_param_count(kind)) + " arguments, got " + word_from_int(actual)) }
+    pilot args = ""
+    pilot argument = 0
+    pilot start = v4_mir_skip_trivia(stream, opening + 1)
+    repeat until argument >= actual {
+        pilot end = v4_mir_call_arg_end(stream, start, last)
+        if v4_mir_call_arg_label(stream, start, end) != "" { v4_mir_add_type_error(mir, span, "system intrinsic named arguments are not yet supported", "use positional arguments for " + name) }
+        pilot value_start = v4_mir_call_arg_value_start(stream, start, end)
+        pilot expected = v4_ty_system_intrinsic_param_type(kind, argument)
+        pilot value = v4_mir_lower_expr_expected(mir, body, stream, value_start, end, expected)
+        pilot actual_type = v4_mir_rvalue_ty(mir, body, value)
+        if actual_type != expected and actual_type != v4_ty_never { v4_mir_add_type_error(mir, span, "system intrinsic argument type mismatch", name + " requires " + expected + ", got " + actual_type) }
+        if expected == v4_ty_word and actual_type == v4_ty_word { value = v4_mir_word_borrow_argument(mir, body, value, span) }
+        args = v4_mir_call_args_payload_append(args, value)
+        argument += 1
+        start = v4_mir_skip_trivia(stream, end + 1)
+    }
+    pilot identity = v4_mir_system_intrinsic_identity(kind)
+    pilot call = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_call, v4_mir_expr_text(stream, first, last + 1), identity, -1, -1, span, v4_ty_system_intrinsic_result_type(kind))
+    v4_mir_build_set_call_args(mir, body, call, args)
+    v4_mir_set_rvalue_builtin_method(mir, body, call, identity)
+    give back call
 }
 
 task v4_mir_try_lower_word_property(mir_id: int, body_id: int, stream_id: int, first: int, last: int, span: word) -> int {

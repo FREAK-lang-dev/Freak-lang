@@ -1,0 +1,91 @@
+-- Editor facts follow validated MIR descriptors and actual arm-local identities.
+task v4_sum_editor_assert(condition: bool, label: word) -> void {
+    if not condition { panic("scalar-sum-editor " + label) }
+}
+
+task v4_sum_editor_source() -> word {
+    pilot source = "task main() -> int " + chr(123) + "\n pilot text = \"42\"\n pilot parsed = text.to_int()\n check parsed " + chr(123) + " got number -> " + chr(123) + " say number " + chr(125) + " nobody -> " + chr(123) + " " + chr(125) + " " + chr(125) + "\n pilot argument = process::arg(0)\n check result argument " + chr(123) + " ok(payload) -> " + chr(123) + " say payload " + chr(125) + " err(message) -> " + chr(123) + " say message " + chr(125) + " " + chr(125) + "\n pilot count = process::args_count()\n pilot path = \"example.txt\"\n pilot data = fs::read(path)\n check result data " + chr(123) + " ok(_) -> " + chr(123) + " " + chr(125) + " err(_) -> " + chr(123) + " " + chr(125) + " " + chr(125) + "\n give back count\n" + chr(125) + "\n"
+    give back source
+}
+
+task v4_sum_editor_token(stream: int, name: word, ordinal: int) -> int {
+    pilot token = 0
+    pilot seen = 0
+    repeat until token >= v4_lex_token_count(stream) {
+        if v4_lex_token_type(stream, token) == v4_tok_ident and v4_lex_token_value(stream, token) == name {
+            if seen == ordinal { give back token }
+            seen += 1
+        }
+        token += 1
+    }
+    give back -1
+}
+
+task v4_sum_editor_fact(path: word, source: word, token: int, kind: word, identity: word, detail: word) -> int {
+    pilot stream = v4_lex_text_cached(path, source)
+    v4_sum_editor_assert(token >= 0, "actual token exists")
+    pilot offset = v4_span_start(v4_lex_token_span(stream, token))
+    pilot semantic = v4_semantic_at_text_cached(path, source, offset)
+    pilot hover = v4_hover_text_cached(path, source, offset)
+    pilot definition = v4_definition_at_text_cached(path, source, offset)
+    v4_sum_editor_assert(v4_semantic_at_kind(semantic) == kind and v4_semantic_at_def(semantic) == identity and v4_semantic_at_type(semantic) == detail, "authoritative closed descriptor")
+    v4_sum_editor_assert(v4_hover_kind(hover) == kind and v4_hover_type(hover) == detail, "hover contract")
+    v4_sum_editor_assert(v4_definition_at_found(definition) == 0 and v4_definition_at_span(definition) == V4_NO_SPAN, "no fabricated authored builtin declaration")
+    v4_sum_editor_assert(v4_semantic_at_token_id(semantic) == token and v4_semantic_at_token_span(semantic) == v4_lex_token_span(stream, token), "exact lexical provenance")
+    give back semantic
+}
+
+task v4_sum_editor_run() -> void {
+    pilot mode = process::arg(1)
+    pilot path = "scalar-sum-editor.fk"
+    pilot source = v4_sum_editor_source()
+    pilot mir = v4_mir_text_cached(path, source)
+    v4_sum_editor_assert(v4_mir_diag_count(mir) == 0 and v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_word_plan_preflight(mir) == "", "valid typed source")
+    pilot stream = v4_lex_text_cached(path, source)
+    pilot token = v4_sum_editor_token(stream, "to_int", 0)
+    if mode == "0" {
+        v4_sum_editor_fact(path, source, token, "BuiltinMethod", "builtin::word::to_int_maybe", "task word.to_int() -> maybe<int>")
+        v4_sum_editor_fact(path, source, v4_sum_editor_token(stream, "arg", 0), "BuiltinTask", "builtin::system::process_arg", "task process::arg(index: int) -> result<word,word>")
+        v4_sum_editor_fact(path, source, v4_sum_editor_token(stream, "args_count", 0), "BuiltinTask", "builtin::system::args_count", "task process::args_count() -> int")
+        v4_sum_editor_fact(path, source, v4_sum_editor_token(stream, "read", 0), "BuiltinTask", "builtin::system::fs_read", "task fs::read(path: word) -> result<word,word>")
+        say "scalar-sum-editor 0=passed descriptors=true hover=true lexical=true no-fake-definition=true"
+    } else if mode == "1" {
+        pilot index = 0
+        repeat until index >= 3 {
+            pilot name = "number"
+            pilot expected = v4_ty_int
+            if index == 1 { name = "payload"; expected = v4_ty_word }
+            if index == 2 { name = "message"; expected = v4_ty_word }
+            pilot declaration = v4_sum_editor_token(stream, name, 0)
+            pilot use_token = v4_sum_editor_token(stream, name, 1)
+            pilot semantic = v4_semantic_at_text_cached(path, source, v4_span_start(v4_lex_token_span(stream, use_token)))
+            pilot definition = v4_definition_at_text_cached(path, source, v4_span_start(v4_lex_token_span(stream, use_token)))
+            v4_sum_editor_assert(v4_semantic_at_kind(semantic) == "Local" and v4_semantic_at_type(semantic) == expected and not v4_semantic_at_def(semantic).starts_with("builtin::"), "actual payload binding type")
+            v4_sum_editor_assert(v4_definition_at_found(definition) == 1 and v4_definition_at_span(definition) == v4_lex_token_span(stream, declaration), "definition targets exact arm binding")
+            index += 1
+        }
+        say "scalar-sum-editor 1=passed arm-types=true real-arm-definitions=true"
+    } else if mode == "2" {
+        pilot before = v4_sum_editor_fact(path, source, token, "BuiltinMethod", "builtin::word::to_int_maybe", "task word.to_int() -> maybe<int>")
+        pilot offset = v4_span_start(v4_lex_token_span(stream, token))
+        pilot snapshot = v4_hir_snapshot()
+        v4_sum_editor_assert(v4_hir_snapshot_restore_with_queries(snapshot).starts_with("hir-snapshot-restore ok=1"), "official HIR restore facade")
+        pilot fingerprint = v4_source_fingerprint(v4_source_find(path))
+        v4_sum_editor_assert(v4_query_get(v4_semantic_at_query_key(path, offset), fingerprint) == "" and v4_query_get(v4_hover_query_key(path, offset), fingerprint) == "" and v4_query_get(v4_definition_at_query_key(path, offset), fingerprint) == "", "transitive editor invalidation")
+        pilot fresh = v4_sum_editor_fact(path, source, token, "BuiltinMethod", "builtin::word::to_int_maybe", "task word.to_int() -> maybe<int>")
+        v4_sum_editor_assert(fresh != before and v4_semantic_at_def(before) == "builtin::word::to_int_maybe", "fresh generation and immutable old fact")
+        say "scalar-sum-editor 2=passed facade-invalidation=true fresh=true old-fact=true"
+    } else if mode == "3" {
+        pilot before = v4_sum_editor_fact(path, source, token, "BuiltinMethod", "builtin::word::to_int_maybe", "task word.to_int() -> maybe<int>")
+        -- The edited program keeps a valid int consumer; leaving the old
+        -- Maybe check around an int would test tolerant recovery instead.
+        pilot edited = "task main() -> int " + chr(123) + "\n pilot text = \"42\"\n pilot parsed = text.length()\n give back parsed\n" + chr(125) + "\n"
+        pilot changed_mir = v4_mir_text_cached(path, edited)
+        v4_sum_editor_assert(v4_mir_diag_count(changed_mir) == 0 and v4_ty_diag_count(v4_mir_ty_id(changed_mir)) == 0 and v4_mir_word_plan_preflight(changed_mir) == "", "edited source has valid current typed facts")
+        pilot changed_stream = v4_lex_text_cached(path, edited)
+        pilot fresh = v4_sum_editor_fact(path, edited, v4_sum_editor_token(changed_stream, "length", 0), "BuiltinMethod", "builtin::word::length", "task word.length() -> int")
+        v4_sum_editor_assert(fresh != before and v4_semantic_at_def(before) == "builtin::word::to_int_maybe", "edit replaces actual stored descriptor")
+        say "scalar-sum-editor 3=passed source-invalidation=true fresh-descriptor=true old-fact=true"
+    } else { panic("scalar-sum-editor unknown mode") }
+}
+v4_sum_editor_run()

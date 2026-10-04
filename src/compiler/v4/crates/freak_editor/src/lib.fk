@@ -1040,6 +1040,44 @@ task v4_editor_word_method_detail(kind: word, method: word) -> word {
     give back detail + ") -> " + v4_ty_word_intrinsic_result_type(kind)
 }
 
+-- Only a structurally validated closed system Call can supply builtin facts.
+-- Qualified tokens alone are not evidence: ordinary bindings and imports
+-- retain their existing resolution, and builtins have no authored location.
+task v4_editor_system_call_rvalue_at_token(stream: int, mir: int, body: int, token: int, name: word, offset: int) -> int {
+    if token < 0 or body < 0 { give back -1 }
+    pilot expected = ""
+    pilot owner = ""
+    if name == "arg" { expected = "process_arg"; owner = "process" }
+    if name == "args_count" { expected = "args_count"; owner = "process" }
+    if name == "read" { expected = "fs_read"; owner = "fs" }
+    if expected == "" { give back -1 }
+    pilot previous = v4_editor_prev_nontrivia_token(stream, token)
+    pilot next = v4_editor_next_nontrivia_token(stream, token)
+    if previous < 0 or next < 0 or v4_lex_token_value(stream, previous) != "::" or v4_lex_token_value(stream, next) != "(" { give back -1 }
+    pilot root = v4_editor_prev_nontrivia_token(stream, previous)
+    if root < 0 or v4_lex_token_value(stream, root) != owner { give back -1 }
+    pilot close = v4_mir_find_matching_paren(stream, next, v4_lex_token_count(stream))
+    if close < 0 { give back -1 }
+    pilot value = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+        if v4_mir_system_intrinsic_kind(mir, body, value) == expected {
+            pilot span = v4_mir_rvalue_span(mir, body, value)
+            if offset >= v4_span_start(span) and offset < v4_span_end(span) and v4_editor_last_nontrivia_token_in_span(stream, span) == close { give back value }
+        }
+        value += 1
+    }
+    give back -1
+}
+
+task v4_editor_system_call_detail(kind: word, name: word) -> word {
+    if not v4_ty_system_intrinsic_known(kind) { give back v4_ty_unknown }
+    pilot owner = "process"
+    if kind == "fs_read" { owner = "fs" }
+    pilot detail = "task " + owner + "::" + name + "("
+    if v4_ty_system_intrinsic_param_count(kind) == 1 { detail = detail + v4_ty_system_intrinsic_param_name(kind, 0) + ": " + v4_ty_system_intrinsic_param_type(kind, 0) }
+    give back detail + ") -> " + v4_ty_system_intrinsic_result_type(kind)
+}
+
 task v4_editor_method_call_rvalue_at_token(stream_id: int, ty_id: int, mir_id: int, body_id: int, token_id: int, token_value: word, offset: int) -> int {
     if token_id < 0 or token_value == "" or body_id < 0 {
         give back 0 - 1
@@ -2040,6 +2078,18 @@ task v4_semantic_at_text_cached(path: word, text: word, offset: int) -> int {
                 kind = "BuiltinTask"
                 def_id = v4_mir_rvalue_builtin_method(mir_id, control_body, control)
                 type_display = "task panic(lend msg: word) -> " + v4_ty_control_intrinsic_result_type("panic")
+                symbol_id = -1
+                named_param_handled = true
+            }
+        }
+        if not named_param_handled and hir_item >= 0 {
+            pilot system_body = v4_editor_body_for_offset(hir_id, stream_id, ty_id, mir_id, hir_item, offset)
+            pilot system_call = v4_editor_system_call_rvalue_at_token(stream_id, mir_id, system_body, token_id, token_value, offset)
+            if system_call >= 0 {
+                name = token_value
+                kind = "BuiltinTask"
+                def_id = v4_mir_rvalue_builtin_method(mir_id, system_body, system_call)
+                type_display = v4_editor_system_call_detail(v4_mir_system_intrinsic_kind(mir_id, system_body, system_call), token_value)
                 symbol_id = -1
                 named_param_handled = true
             }

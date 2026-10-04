@@ -3,7 +3,7 @@
 -- ===================================================================
 -- Depends on freak_span, freak_diag, and freak_ty.
 -- Owns Built-MIR storage, stable ids, CFG/local/place/rvalue accessors,
--- validation, diagnostics storage, and the byte-stable snapshot v8
+-- validation, diagnostics storage, and the byte-stable snapshot v9
 -- format. Source construction policy lives in freak_mir_build.
 
 pilot v4_mir_term_return = "Return"
@@ -43,6 +43,7 @@ pilot v4_mir_rvalue_nobody = "Nobody"
 pilot v4_mir_rvalue_ok = "Ok"
 pilot v4_mir_rvalue_err = "Err"
 pilot v4_mir_rvalue_check = "Check"
+pilot v4_mir_rvalue_sum_take = "SumTake"
 pilot v4_mir_rvalue_or_else = "OrElse"
 pilot v4_mir_rvalue_try = "Try"
 pilot v4_mir_rvalue_lend = "Lend"
@@ -104,7 +105,8 @@ pilot v4_mir_place_index = "Index"
 pilot v4_mir_place_deref = "Deref"
 pilot v4_mir_place_return = "Return"
 pilot v4_mir_place_unknown = "Unknown"
-pilot v4_mir_snapshot_format = "freak-mir-snapshot-v8"
+pilot v4_mir_snapshot_format = "freak-mir-snapshot-v9"
+pilot v4_mir_sum_visit_budget = 0
 
 pilot v4_mir_files = 0
 pilot v4_mir_tys = 0
@@ -3059,7 +3061,7 @@ task v4_mir_snapshot_place_kind_is_known(kind: word) -> bool {
 }
 
 task v4_mir_snapshot_rvalue_kind_is_known(kind: word) -> bool {
-    give back kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_char or kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_use_symbol or kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_map or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_loop_item or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut or kind == v4_mir_rvalue_closure or kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut or kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move or kind == v4_mir_rvalue_unknown
+    give back kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_char or kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_use_symbol or kind == v4_mir_rvalue_construct or kind == v4_mir_rvalue_array or kind == v4_mir_rvalue_list or kind == v4_mir_rvalue_tuple or kind == v4_mir_rvalue_map or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_binary or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_loop_item or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut or kind == v4_mir_rvalue_closure or kind == v4_mir_rvalue_capture_borrow or kind == v4_mir_rvalue_capture_borrow_mut or kind == v4_mir_rvalue_capture_copy or kind == v4_mir_rvalue_capture_move or kind == v4_mir_rvalue_unknown
 }
 
 task v4_mir_snapshot_block_record_is_valid(block_record: word, block_id: int, block_count: int) -> bool {
@@ -3118,7 +3120,7 @@ task v4_mir_snapshot_rvalue_refs_are_valid(kind: word, raw_lhs: word, raw_rhs: w
     if kind == v4_mir_rvalue_call {
         give back v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_lhs, rvalue_id, true) and v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_rhs, rvalue_id, true) and v4_mir_snapshot_rvalue_payload_is_valid(args_payload, rvalue_id)
     }
-    if kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+    if kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
         give back v4_mir_snapshot_prior_rvalue_ref_is_valid(raw_lhs, rvalue_id, false) and raw_rhs == "-1" and args_payload == ""
     }
     give back raw_lhs == "-1" and raw_rhs == "-1" and args_payload == ""
@@ -3198,7 +3200,7 @@ task v4_mir_snapshot_graph_rvalue_is_ready(rvalue_id: int, place_count: int, sta
         if not v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_rhs, true) { give back false }
         give back v4_mir_snapshot_graph_payload_is_done(states, place_count, args_payload)
     }
-    if kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+    if kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
         give back v4_mir_snapshot_graph_ref_is_done(states, place_count, raw_lhs, false)
     }
     give back true
@@ -4375,12 +4377,67 @@ task v4_mir_builtin_word_identity_kind(identity: word) -> word {
     give back kind
 }
 
+task v4_mir_system_intrinsic_identity(kind: word) -> word {
+    if not v4_ty_system_intrinsic_known(kind) { give back "" }
+    give back "builtin::system::" + kind
+}
+
+task v4_mir_builtin_system_identity_kind(identity: word) -> word {
+    if not identity.starts_with("builtin::system::") { give back "" }
+    pilot kind = v4_slice(identity, 17, identity.length())
+    if not v4_ty_system_intrinsic_known(kind) { give back "" }
+    give back kind
+}
+
+task v4_mir_scalar_sum_kind(mir: int, type_text: word) -> word {
+    give back v4_ty_native_scalar_sum_kind(v4_mir_ty_id(mir), type_text)
+}
+
+task v4_mir_local_reference_is_exact(mir: int, body: int, value: int) -> bool {
+    if value < 0 or value >= v4_mir_body_rvalue_count(mir, body) or v4_mir_rvalue_kind(mir, body, value) != v4_mir_rvalue_use_local { give back false }
+    pilot local = v4_mir_rvalue_local_id(mir, body, value)
+    if local < 0 or local >= v4_mir_body_local_count(mir, body) { give back false }
+    give back v4_mir_rvalue_op(mir, body, value) == "local#" + word_from_int(local) and v4_mir_rvalue_text(mir, body, value) == v4_mir_local_name(mir, body, local) and v4_mir_rvalue_ty(mir, body, value) == v4_mir_local_ty(mir, body, local) and v4_mir_rvalue_lhs(mir, body, value) == -1 and v4_mir_rvalue_rhs(mir, body, value) == -1 and v4_mir_rvalue_abi(mir, body, value) == "" and v4_mir_rvalue_builtin_method(mir, body, value) == "" and v4_mir_rvalue_call_arg_count(mir, body, value) == 0
+}
+
+task v4_mir_rvalue_is_builtin_system(mir: int, body: int, value: int) -> bool {
+    if value < 0 or value >= v4_mir_body_rvalue_count(mir, body) { give back false }
+    pilot identity = v4_mir_rvalue_builtin_method(mir, body, value)
+    pilot kind = v4_mir_builtin_system_identity_kind(identity)
+    if kind == "" or v4_mir_rvalue_kind(mir, body, value) != v4_mir_rvalue_call { give back false }
+    if v4_mir_rvalue_op(mir, body, value) != identity or v4_mir_rvalue_abi(mir, body, value) != "" or v4_mir_rvalue_lhs(mir, body, value) != -1 or v4_mir_rvalue_rhs(mir, body, value) != -1 { give back false }
+    if v4_mir_rvalue_ty(mir, body, value) != v4_ty_system_intrinsic_result_type(kind) or v4_mir_rvalue_call_arg_count(mir, body, value) != v4_ty_system_intrinsic_param_count(kind) { give back false }
+    if kind == "args_count" { give back true }
+    if v4_mir_scalar_sum_kind(mir, v4_mir_rvalue_ty(mir, body, value)) != "ResultWordWord" { give back false }
+    pilot child = v4_mir_rvalue_call_arg(mir, body, value, 0)
+    if child < 0 or child >= value { give back false }
+    if kind == "process_arg" {
+        if v4_mir_rvalue_ty(mir, body, child) != v4_ty_int { give back false }
+        if v4_mir_rvalue_kind(mir, body, child) == v4_mir_rvalue_use_local { give back v4_mir_local_reference_is_exact(mir, body, child) }
+        give back true
+    }
+    if v4_mir_rvalue_kind(mir, body, child) != v4_mir_rvalue_lend or v4_mir_rvalue_ty(mir, body, child) != "lend word" or v4_mir_rvalue_rhs(mir, body, child) != -1 or v4_mir_rvalue_abi(mir, body, child) != "" or v4_mir_rvalue_builtin_method(mir, body, child) != "" or v4_mir_rvalue_call_arg_count(mir, body, child) != 0 { give back false }
+    pilot owner = v4_mir_rvalue_lhs(mir, body, child)
+    if owner < 0 or owner >= child or v4_mir_rvalue_ty(mir, body, owner) != v4_ty_word { give back false }
+    if v4_mir_rvalue_kind(mir, body, owner) == v4_mir_rvalue_use_local { give back v4_mir_local_reference_is_exact(mir, body, owner) }
+    pilot owner_kind = v4_mir_rvalue_kind(mir, body, owner)
+    give back owner_kind == v4_mir_rvalue_const_word or owner_kind == v4_mir_rvalue_call or owner_kind == v4_mir_rvalue_sum_take
+}
+
+task v4_mir_system_intrinsic_kind(mir: int, body: int, value: int) -> word {
+    if not v4_mir_rvalue_is_builtin_system(mir, body, value) { give back "" }
+    give back v4_mir_builtin_system_identity_kind(v4_mir_rvalue_builtin_method(mir, body, value))
+}
+
 task v4_mir_builtin_method_identity_is_known(identity: word) -> bool {
-    give back v4_mir_builtin_shared_method_identity_is_known(identity) or v4_mir_builtin_word_identity_kind(identity) != "" or v4_mir_builtin_control_identity_kind(identity) != ""
+    give back v4_mir_builtin_shared_method_identity_is_known(identity) or v4_mir_builtin_word_identity_kind(identity) != "" or v4_mir_builtin_control_identity_kind(identity) != "" or v4_mir_builtin_system_identity_kind(identity) != ""
 }
 
 task v4_mir_builtin_method_identity_code(identity: word) -> int {
     if identity == "builtin::control::panic" { give back 201 }
+    if identity == "builtin::system::process_arg" { give back 202 }
+    if identity == "builtin::system::args_count" { give back 203 }
+    if identity == "builtin::system::fs_read" { give back 204 }
     pilot shared = v4_mir_builtin_shared_method_identity_code(identity)
     if shared > 0 { give back shared }
     pilot kind = v4_mir_builtin_word_identity_kind(identity)
@@ -4403,6 +4460,7 @@ task v4_mir_builtin_method_identity_code(identity: word) -> int {
     if kind == "contains" { give back 117 }
     if kind == "clone" { give back 118 }
     if kind == "to_lower" { give back 119 }
+    if kind == "to_int_maybe" { give back 120 }
     give back 0
 }
 
@@ -4418,6 +4476,7 @@ task v4_mir_rvalue_is_builtin_word(mir_id: int, body_id: int, rvalue_id: int) ->
     if v4_mir_rvalue_op(mir_id, body_id, rvalue_id) != identity or v4_mir_rvalue_abi(mir_id, body_id, rvalue_id) != "" { give back false }
     if v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id) >= 0 or v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id) >= 0 { give back false }
     if v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) != v4_ty_word_intrinsic_result_type(kind) { give back false }
+    if kind == "to_int_maybe" and v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, rvalue_id)) != "MaybeInt" { give back false }
     if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) != v4_ty_word_intrinsic_param_count(kind) { give back false }
     pilot arg_id = 0
     repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) {
@@ -4447,12 +4506,12 @@ task v4_mir_word_plan_preflight(mir_id: int) -> word {
         pilot word_body: bool = false
         pilot inspect = 0
         repeat until inspect >= v4_mir_body_local_count(mir_id, body) {
-            if v4_mir_local_ty(mir_id, body, inspect) == v4_ty_word { word_body = true }
+            if v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body, inspect)) { word_body = true }
             inspect += 1
         }
         inspect = 0
         repeat until inspect >= v4_mir_body_rvalue_count(mir_id, body) {
-            if v4_mir_rvalue_ty(mir_id, body, inspect) == v4_ty_word or v4_mir_rvalue_ty(mir_id, body, inspect) == "lend word" { word_body = true }
+            if v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body, inspect)) or v4_mir_rvalue_ty(mir_id, body, inspect) == "lend word" { word_body = true }
             inspect += 1
         }
         if word_body {
@@ -4461,7 +4520,7 @@ task v4_mir_word_plan_preflight(mir_id: int) -> word {
             inspect = 0
             repeat until inspect >= v4_mir_body_block_count(mir_id, body) {
                 pilot scope = v4_mir_block_scope_span(mir_id, body, inspect)
-                if scope == V4_NO_SPAN or not v4_mir_word_scope_fact_is_valid(scope, file_id, body_span, V4_NO_SPAN, false) { give back "invalid native word ownership block scope" }
+                if scope == (V4_NO_SPAN) or not v4_mir_word_scope_fact_is_valid(scope, file_id, body_span, V4_NO_SPAN, false) { give back "invalid native word ownership block scope" }
                 inspect += 1
             }
             inspect = 0
@@ -4528,7 +4587,7 @@ task v4_mir_word_plan_preflight(mir_id: int) -> word {
         if error != "" { give back error }
         body += 1
     }
-    give back ""
+    give back v4_mir_scalar_sum_plan_preflight(mir_id)
 }
 
 -- Ordinary facts may use a canonical zero-width anchor; scopes must be nonempty.
@@ -5200,13 +5259,16 @@ task v4_mir_control_plan_preflight(mir: int) -> word {
 -- The staging validator consumes decoded rows without accessing replaced MIR
 -- slots. Failed allocation/append or termination cross-facts reject atomically.
 task v4_mir_snapshot_control_payload_is_valid(payload: word) -> bool {
+    pilot locals = array_new()
+    pilot header = ""
+    pilot file = -1
     pilot blocks = array_new()
     pilot statements = array_new()
     pilot places = array_new()
     pilot values = array_new()
     pilot target_bodies = array_new()
     pilot required_targets = array_new()
-    pilot valid: bool = blocks >= 0 and statements >= 0 and places >= 0 and values >= 0 and target_bodies >= 0 and required_targets >= 0
+    pilot valid: bool = locals >= 0 and blocks >= 0 and statements >= 0 and places >= 0 and values >= 0 and target_bodies >= 0 and required_targets >= 0
     pilot ty = -1
     pilot definition = ""
     pilot file_identity = ""
@@ -5219,11 +5281,14 @@ task v4_mir_snapshot_control_payload_is_valid(payload: word) -> bool {
         if kind == "mir" or kind == "mir-body" or kind == "mir-diag" or kind == "mir-end" {
             if body {
                 valid = v4_mir_control_body_rows_error(ty, definition, blocks, statements, places, values) == ""
+                if valid { valid = v4_mir_scalar_sum_body_rows_error(ty, file, header, blocks, locals, statements, places, values) == "" }
                 body = false
             }
-            if kind == "mir" { ty = word_to_int(v4_mir_snapshot_field_raw(line, 3)); file_identity = v4_mir_snapshot_field_raw(line, 1) }
+            if kind == "mir" { ty = word_to_int(v4_mir_snapshot_field_raw(line, 3)); file = word_to_int(v4_mir_snapshot_field_raw(line, 2)); file_identity = v4_mir_snapshot_field_raw(line, 1) }
             if kind == "mir-body" {
                 if not v4_mir_control_checked_push(target_bodies, line) { valid = false }
+                array_release(locals)
+                locals = array_new()
                 array_release(values)
                 array_release(places)
                 array_release(statements)
@@ -5232,21 +5297,24 @@ task v4_mir_snapshot_control_payload_is_valid(payload: word) -> bool {
                 statements = array_new()
                 places = array_new()
                 values = array_new()
-                if blocks < 0 or statements < 0 or places < 0 or values < 0 { valid = false }
+                if locals < 0 or blocks < 0 or statements < 0 or places < 0 or values < 0 { valid = false }
+                header = line
                 definition = v4_mir_snapshot_field(line, 3)
                 body = true
             }
         } else if kind == "mir-block" {
             if not v4_mir_control_checked_push(blocks, v4_mir_snapshot_field(line, 4)) { valid = false }
+        } else if kind == "mir-local" {
+            if not v4_mir_control_checked_push(locals, line) { valid = false }
         } else if kind == "mir-stmt" {
             if not v4_mir_control_checked_push(statements, line) { valid = false }
         } else if kind == "mir-place" {
             if not v4_mir_control_checked_push(places, line) { valid = false }
         } else if kind == "mir-rvalue" {
-            if v4_mir_snapshot_field(line, 10) == v4_ty_never and v4_mir_snapshot_field(line, 13) == "" {
+            if (v4_mir_snapshot_field(line, 10) == v4_ty_never and v4_mir_snapshot_field(line, 13) == "") or v4_mir_sum_row_call_requires_body(ty, values, line) {
                 pilot signature = v4_ty_task_signature_id_for_name(ty, v4_mir_snapshot_field(line, 6))
                 if signature < 0 { valid = false } else {
-                    pilot target = file_identity + "|" + v4_mir_snapshot_escape(v4_ty_signature_def(ty, signature)) + "|" + v4_mir_snapshot_escape(v4_ty_signature_name(ty, signature))
+                    pilot target = file_identity + "|" + v4_mir_snapshot_escape(v4_ty_signature_def(ty, signature)) + "|" + v4_mir_snapshot_escape(v4_ty_signature_name(ty, signature)) + "|" + v4_mir_snapshot_escape(v4_ty_signature_of(ty, v4_ty_signature_def(ty, signature)))
                     if not v4_mir_control_checked_push(required_targets, target) { valid = false }
                 }
             }
@@ -5254,7 +5322,10 @@ task v4_mir_snapshot_control_payload_is_valid(payload: word) -> bool {
         }
         row += 1
     }
-    if valid and body { valid = v4_mir_control_body_rows_error(ty, definition, blocks, statements, places, values) == "" }
+    if valid and body {
+        valid = v4_mir_control_body_rows_error(ty, definition, blocks, statements, places, values) == ""
+        if valid { valid = v4_mir_scalar_sum_body_rows_error(ty, file, header, blocks, locals, statements, places, values) == "" }
+    }
     row = 0
     repeat until row >= array_len(required_targets) or not valid {
         pilot target: word = array_get(required_targets, row)
@@ -5262,12 +5333,13 @@ task v4_mir_snapshot_control_payload_is_valid(payload: word) -> bool {
         pilot candidate = 0
         repeat until candidate >= array_len(target_bodies) or found {
             pilot header: word = array_get(target_bodies, candidate)
-            found = v4_mir_snapshot_field_raw(header, 1) == v4_mir_snapshot_field_raw(target, 0) and v4_mir_snapshot_field(header, 3) == v4_mir_snapshot_field(target, 1) and v4_mir_snapshot_field(header, 4) == v4_mir_snapshot_field(target, 2)
+            found = v4_mir_snapshot_field_raw(header, 1) == v4_mir_snapshot_field_raw(target, 0) and v4_mir_snapshot_field(header, 3) == v4_mir_snapshot_field(target, 1) and v4_mir_snapshot_field(header, 4) == v4_mir_snapshot_field(target, 2) and v4_mir_snapshot_field(header, 5) == v4_mir_snapshot_field(target, 3)
             candidate += 1
         }
         if not found { valid = false }
         row += 1
     }
+    array_release(locals)
     array_release(required_targets)
     array_release(target_bodies)
     array_release(values)
@@ -5792,4 +5864,623 @@ task v4_mir_rvalue_is_static_never(mir: int, body: int, value: int) -> bool {
         arg += 1
     }
     give back true
+}
+
+-- Scalar Sum admission shares these row readers between live and staged MIR.
+-- No construction flags or proof state are persisted in the wire protocol.
+task v4_mir_sum_row_local(values: int, locals: int, value: int) -> int {
+    if value < 0 or value >= array_len(values) { give back -1 }
+    pilot row: word = array_get(values, value)
+    if v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_use_local { give back -1 }
+    pilot op = v4_mir_snapshot_field(row, 6)
+    if not op.starts_with("local#") { give back -1 }
+    pilot raw = v4_slice(op, 6, op.length())
+    if not v4_mir_snapshot_nonnegative_int_is_valid(raw) { give back -1 }
+    pilot local = word_to_int(raw)
+    if local < 0 or local >= array_len(locals) or word_from_int(local) != raw { give back -1 }
+    pilot binding: word = array_get(locals, local)
+    if v4_mir_snapshot_field(row, 5) != v4_mir_snapshot_field(binding, 4) or v4_mir_snapshot_field(row, 10) != v4_mir_snapshot_field(binding, 5) { give back -1 }
+    if v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" or v4_mir_snapshot_field(row, 11) != "" or v4_mir_snapshot_field(row, 12) != "" or v4_mir_snapshot_field(row, 13) != "" { give back -1 }
+    give back local
+}
+
+task v4_mir_sum_row_word_loan_is_valid(values: int, locals: int, loan: int, parent: int) -> bool {
+    if loan < 0 or loan >= parent or loan >= array_len(values) { give back false }
+    pilot row: word = array_get(values, loan)
+    if v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_lend or v4_mir_snapshot_field(row, 10) != "lend word" or v4_mir_snapshot_field_raw(row, 8) != "-1" or v4_mir_snapshot_field(row, 11) != "" or v4_mir_snapshot_field(row, 12) != "" or v4_mir_snapshot_field(row, 13) != "" { give back false }
+    pilot owner = word_to_int(v4_mir_snapshot_field_raw(row, 7))
+    if owner < 0 or owner >= loan or v4_mir_control_row_type(values, owner) != v4_ty_word { give back false }
+    pilot owning: word = array_get(values, owner)
+    pilot kind = v4_mir_snapshot_field(owning, 4)
+    if kind == v4_mir_rvalue_use_local { give back v4_mir_sum_row_local(values, locals, owner) >= 0 }
+    give back kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_call or kind == v4_mir_rvalue_sum_take
+}
+
+task v4_mir_sum_row_intrinsic_error(ty: int, values: int, locals: int, value: int) -> word {
+    pilot row: word = array_get(values, value)
+    pilot identity = v4_mir_snapshot_field(row, 13)
+    pilot op = v4_mir_snapshot_field(row, 6)
+    pilot system: bool = identity.starts_with("builtin::system::") or op.starts_with("builtin::system::")
+    pilot parser: bool = identity == "builtin::word::to_int_maybe" or op == "builtin::word::to_int_maybe"
+    if not system and not parser { give back "" }
+    pilot kind = v4_mir_builtin_system_identity_kind(identity)
+    if parser { kind = "to_int_maybe" }
+    if kind == "" or identity != op or v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_call or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" or v4_mir_snapshot_field(row, 11) != "" { give back "invalid scalar sum intrinsic identity" }
+    pilot expected = v4_ty_system_intrinsic_result_type(kind)
+    pilot count = v4_ty_system_intrinsic_param_count(kind)
+    if parser { expected = v4_ty_word_intrinsic_result_type(kind); count = 1 }
+    pilot actual = v4_mir_snapshot_field(row, 10)
+    if actual != expected { give back "invalid scalar sum intrinsic result type" }
+    if kind != "args_count" and not v4_ty_is_native_scalar_sum(ty, actual) { give back "scalar sum intrinsic has no prelude carrier origin" }
+    pilot args = v4_mir_snapshot_field(row, 12)
+    if v4_mir_call_args_payload_count(args) != count { give back "invalid scalar sum intrinsic argument count" }
+    if count == 0 { give back "" }
+    pilot child = v4_mir_call_args_payload_at(args, 0)
+    if child < 0 or child >= value { give back "invalid scalar sum intrinsic argument reference" }
+    if kind == "process_arg" {
+        if v4_mir_control_row_type(values, child) != v4_ty_int { give back "process argument index must be int" }
+        pilot child_row: word = array_get(values, child)
+        if v4_mir_snapshot_field(child_row, 4) == v4_mir_rvalue_use_local and v4_mir_sum_row_local(values, locals, child) < 0 { give back "invalid scalar sum intrinsic local identity" }
+    } else if not v4_mir_sum_row_word_loan_is_valid(values, locals, child, value) { give back "scalar sum intrinsic requires an immutable word loan" }
+    give back ""
+}
+
+task v4_mir_sum_row_value_error(ty: int, values: int, locals: int, value: int) -> word {
+    pilot row: word = array_get(values, value)
+    pilot kind = v4_mir_snapshot_field(row, 4)
+    pilot op = v4_mir_snapshot_field(row, 6)
+    pilot carrier = v4_ty_native_scalar_sum_kind(ty, v4_mir_snapshot_field(row, 10))
+    pilot error = v4_mir_sum_row_intrinsic_error(ty, values, locals, value)
+    if error != "" { give back error }
+    if carrier != "" and kind == v4_mir_rvalue_use_local and v4_mir_sum_row_local(values, locals, value) < 0 { give back "invalid scalar sum local identity" }
+    pilot lhs = word_to_int(v4_mir_snapshot_field_raw(row, 7))
+    if carrier != "" and (kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_nobody or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err) {
+        if v4_mir_snapshot_field_raw(row, 8) != "-1" or v4_mir_snapshot_field(row, 11) != "" or v4_mir_snapshot_field(row, 12) != "" or v4_mir_snapshot_field(row, 13) != "" { give back "invalid scalar sum constructor shape" }
+        if kind == v4_mir_rvalue_nobody {
+            if carrier != "MaybeInt" or op != "Nobody" or lhs != -1 { give back "invalid scalar sum Nobody constructor" }
+        } else {
+            if lhs < 0 or lhs >= value { give back "invalid scalar sum constructor operand" }
+            if kind == v4_mir_rvalue_some {
+                if carrier != "MaybeInt" or op != "Some" or v4_mir_control_row_type(values, lhs) != v4_ty_int { give back "scalar Some requires an exact int payload" }
+            } else {
+                if carrier != "ResultWordWord" or v4_mir_control_row_type(values, lhs) != v4_ty_word { give back "scalar Result requires an owned word payload" }
+                if (kind == v4_mir_rvalue_ok and op != "Ok") or (kind == v4_mir_rvalue_err and op != "Err") { give back "invalid scalar Result constructor tag" }
+                pilot payload: word = array_get(values, lhs)
+                pilot payload_kind = v4_mir_snapshot_field(payload, 4)
+                if payload_kind != v4_mir_rvalue_use_local and payload_kind != v4_mir_rvalue_const_word and payload_kind != v4_mir_rvalue_call and payload_kind != v4_mir_rvalue_sum_take { give back "scalar Result requires an owned word expression" }
+                if payload_kind == v4_mir_rvalue_use_local {
+                    pilot binding = v4_mir_sum_row_local(values, locals, lhs)
+                    if binding < 0 { give back "invalid scalar Result payload identity" }
+                    pilot local_row: word = array_get(locals, binding)
+                    if v4_mir_snapshot_field(local_row, 6) != v4_ty_param_mode_value { give back "scalar Result cannot consume a borrowed word" }
+                }
+            }
+        }
+    }
+    pilot source_carrier = v4_ty_native_scalar_sum_kind(ty, v4_mir_control_row_type(values, lhs))
+    if kind == v4_mir_rvalue_sum_take or (kind == v4_mir_rvalue_check and source_carrier != "") {
+        if lhs < 0 or lhs >= value or v4_mir_sum_row_local(values, locals, lhs) < 0 or v4_mir_snapshot_field_raw(row, 8) != "-1" or v4_mir_snapshot_field(row, 11) != "" or v4_mir_snapshot_field(row, 12) != "" or v4_mir_snapshot_field(row, 13) != "" { give back "invalid scalar sum observer or extraction shape" }
+        if kind == v4_mir_rvalue_check {
+            if v4_mir_snapshot_field(row, 10) != v4_ty_bool or (source_carrier == "MaybeInt" and op != "HasSome") or (source_carrier == "ResultWordWord" and op != "IsOk") { give back "invalid scalar sum tag observer" }
+        } else {
+            if source_carrier == "MaybeInt" {
+                if op != "TakeSome" or v4_mir_snapshot_field(row, 10) != v4_ty_int { give back "invalid scalar maybe extraction" }
+            } else if source_carrier == "ResultWordWord" {
+                if (op != "TakeOk" and op != "TakeErr") or v4_mir_snapshot_field(row, 10) != v4_ty_word { give back "invalid scalar Result extraction" }
+            } else { give back "unsupported scalar sum extraction carrier" }
+            pilot source_local = v4_mir_sum_row_local(values, locals, lhs)
+            pilot local_row: word = array_get(locals, source_local)
+            if v4_mir_snapshot_field(local_row, 6) != v4_ty_param_mode_value { give back "scalar sum extraction cannot consume borrowed storage" }
+        }
+    }
+    give back ""
+}
+
+-- Four derived states: absent/moved, live with unknown tag, live true, live
+-- false. Each reachable incoming state is checked independently; joins never
+-- invent a tag proof and loop backedges cannot reuse an earlier extraction.
+task v4_mir_sum_state_error(state: int) -> word {
+    if state == -1 { give back "scalar sum ownership proof exhausted or malformed" }
+    if state == -2 { give back "scalar sum use requires a live owner" }
+    if state == -3 { give back "scalar sum extraction requires the matching branch tag" }
+    give back ""
+}
+
+task v4_mir_sum_place_state(values: int, locals: int, places: int, place: int, local: int, state: int, depth: int) -> int {
+    if state < 0 or place < 0 { give back state }
+    if place >= array_len(places) or depth > 256 or v4_mir_sum_visit_budget <= 0 { give back -1 }
+    v4_mir_sum_visit_budget -= 1
+    pilot row: word = array_get(places, place)
+    pilot kind = v4_mir_snapshot_field(row, 4)
+    if kind == v4_mir_place_local {
+        if word_to_int(v4_mir_snapshot_field_raw(row, 6)) == local and state == 0 { give back -2 }
+        give back state
+    }
+    if kind == v4_mir_place_field or kind == v4_mir_place_index {
+        state = v4_mir_sum_place_state(values, locals, places, word_to_int(v4_mir_snapshot_field_raw(row, 6)), local, state, depth + 1)
+    }
+    if kind == v4_mir_place_index or kind == v4_mir_place_deref {
+        state = v4_mir_sum_value_state(values, locals, places, word_to_int(v4_mir_snapshot_field_raw(row, 8)), local, state, false, depth + 1)
+    }
+    give back state
+}
+
+task v4_mir_sum_place_address_state(values: int, locals: int, places: int, place: int, local: int, state: int, depth: int) -> int {
+    if state < 0 or place < 0 { give back state }
+    if place >= array_len(places) or depth > 256 or v4_mir_sum_visit_budget <= 0 { give back -1 }
+    v4_mir_sum_visit_budget -= 1
+    pilot row: word = array_get(places, place)
+    pilot kind = v4_mir_snapshot_field(row, 4)
+    -- Rebinding a LocalPlace neither observes nor moves its previous owner.
+    if kind == v4_mir_place_local or kind == v4_mir_place_return { give back state }
+    if kind == v4_mir_place_field or kind == v4_mir_place_index {
+        state = v4_mir_sum_place_address_state(values, locals, places, word_to_int(v4_mir_snapshot_field_raw(row, 6)), local, state, depth + 1)
+    }
+    if kind == v4_mir_place_index or kind == v4_mir_place_deref {
+        state = v4_mir_sum_value_state(values, locals, places, word_to_int(v4_mir_snapshot_field_raw(row, 8)), local, state, false, depth + 1)
+    }
+    give back state
+}
+
+task v4_mir_sum_value_state(values: int, locals: int, places: int, value: int, local: int, state: int, borrowed: bool, depth: int) -> int {
+    if state < 0 or value < 0 { give back state }
+    if value >= array_len(values) or depth > 256 or v4_mir_sum_visit_budget <= 0 { give back -1 }
+    v4_mir_sum_visit_budget -= 1
+    pilot row: word = array_get(values, value)
+    pilot kind = v4_mir_snapshot_field(row, 4)
+    pilot lhs = word_to_int(v4_mir_snapshot_field_raw(row, 7))
+    pilot rhs = word_to_int(v4_mir_snapshot_field_raw(row, 8))
+    if kind == v4_mir_rvalue_use_local {
+        if v4_mir_sum_row_local(values, locals, value) == local {
+            if state == 0 { give back -2 }
+            if not borrowed { give back 0 }
+        }
+        give back state
+    }
+    if kind == v4_mir_rvalue_use_place { give back v4_mir_sum_place_state(values, locals, places, lhs, local, state, depth + 1) }
+    if kind == v4_mir_rvalue_sum_take {
+        if v4_mir_sum_row_local(values, locals, lhs) == local {
+            pilot expected = 2
+            if v4_mir_snapshot_field(row, 6) == "TakeErr" { expected = 3 }
+            if state == 0 { give back -2 }
+            if state != expected { give back -3 }
+            give back 0
+        }
+        give back state
+    }
+    if kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
+        give back v4_mir_sum_value_state(values, locals, places, lhs, local, state, true, depth + 1)
+    }
+    pilot args = v4_mir_snapshot_field(row, 12)
+    pilot count = v4_mir_call_args_payload_count(args)
+    pilot callable = -1
+    if kind == v4_mir_rvalue_call {
+        pilot target_type = v4_mir_control_row_type(values, lhs)
+        if v4_ty_is_surface_task_function_type(target_type) or v4_ty_is_closure_type(target_type) { callable = lhs }
+        if callable >= 0 { state = v4_mir_sum_value_state(values, locals, places, callable, local, state, false, depth + 1) }
+        if count == 0 and callable < 0 {
+            state = v4_mir_sum_value_state(values, locals, places, lhs, local, state, false, depth + 1)
+            state = v4_mir_sum_value_state(values, locals, places, rhs, local, state, false, depth + 1)
+        }
+    } else {
+        state = v4_mir_sum_value_state(values, locals, places, lhs, local, state, false, depth + 1)
+        state = v4_mir_sum_value_state(values, locals, places, rhs, local, state, false, depth + 1)
+    }
+    pilot argument = 0
+    repeat until argument >= count or state < 0 {
+        pilot child = v4_mir_call_args_payload_at(args, argument)
+        if child != callable { state = v4_mir_sum_value_state(values, locals, places, child, local, state, false, depth + 1) }
+        argument += 1
+    }
+    give back state
+}
+
+task v4_mir_sum_block_scope(blocks: int, statements: int, block: int, start: bool) -> word {
+    pilot scope = v4_mir_block_part(array_get(blocks, block), 5)
+    pilot row = 0
+    repeat until row >= array_len(statements) {
+        pilot statement: word = array_get(statements, row)
+        if word_to_int(v4_mir_snapshot_field_raw(statement, 8)) == block {
+            scope = v4_mir_snapshot_field(statement, 11)
+            if start { give back scope }
+        }
+        row += 1
+    }
+    give back scope
+}
+
+task v4_mir_sum_queue_state(queue: int, seen: int, block: int, state: int) -> bool {
+    if block < 0 or state < 0 or state > 3 or block * 4 + state >= array_len(seen) { give back false }
+    pilot slot = block * 4 + state
+    pilot prior: word = array_get(seen, slot)
+    if prior == "1" { give back true }
+    if not v4_mir_control_checked_push(queue, word_from_int(slot)) { give back false }
+    array_set(seen, slot, "1")
+    pilot stored: word = array_get(seen, slot)
+    give back stored == "1"
+}
+
+task v4_mir_sum_local_rows_error(ty: int, definition: word, blocks: int, locals: int, statements: int, places: int, values: int, local: int) -> word {
+    pilot queue = array_new()
+    pilot seen = array_new()
+    pilot error = ""
+    if queue < 0 or seen < 0 { error = "scalar sum ownership proof scratch exhausted" }
+    pilot count = array_len(blocks)
+    if count <= 0 or count > 134217727 { error = "scalar sum ownership proof requires bounded CFG blocks" }
+    pilot row = 0
+    repeat until row >= count * 4 or error != "" {
+        if not v4_mir_control_checked_push(seen, "0") { error = "scalar sum ownership proof scratch exhausted" }
+        row += 1
+    }
+    pilot binding: word = array_get(locals, local)
+    pilot local_scope = v4_mir_snapshot_field(binding, 8)
+    pilot initial = 0
+    if local < v4_ty_callable_param_count_for_def(ty, definition) { initial = 1 }
+    if error == "" and not v4_mir_sum_queue_state(queue, seen, 0, initial) { error = "scalar sum ownership proof scratch exhausted" }
+    pilot next = 0
+    repeat until next >= array_len(queue) or error != "" {
+        pilot queued = word_to_int(array_get(queue, next))
+        pilot block = queued / 4
+        pilot state = queued % 4
+        pilot previous_scope = v4_mir_sum_block_scope(blocks, statements, block, true)
+        pilot condition = -1
+        row = 0
+        repeat until row >= array_len(statements) or error != "" {
+            pilot statement: word = array_get(statements, row)
+            if word_to_int(v4_mir_snapshot_field_raw(statement, 8)) == block {
+                pilot scope = v4_mir_snapshot_field(statement, 11)
+                if v4_mir_scope_contains(local_scope, previous_scope) and not v4_mir_scope_contains(local_scope, scope) { state = 0 }
+                previous_scope = scope
+                v4_mir_sum_visit_budget = 8192
+                pilot value = word_to_int(v4_mir_snapshot_field_raw(statement, 10))
+                state = v4_mir_sum_value_state(values, locals, places, value, local, state, false, 0)
+                -- Native assignment evaluates RHS before destination address.
+                pilot place = word_to_int(v4_mir_snapshot_field_raw(statement, 9))
+                state = v4_mir_sum_place_address_state(values, locals, places, place, local, state, 0)
+                error = v4_mir_sum_state_error(state)
+                pilot kind = v4_mir_snapshot_field(statement, 4)
+                if error == "" and (kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign) and place >= 0 and place < array_len(places) {
+                    pilot destination: word = array_get(places, place)
+                    if v4_mir_snapshot_field(destination, 4) == v4_mir_place_local and word_to_int(v4_mir_snapshot_field_raw(destination, 6)) == local { state = 1 }
+                }
+                if v4_mir_control_is_conditional_statement(kind) { condition = value }
+            }
+            row += 1
+        }
+        pilot record: word = array_get(blocks, block)
+        pilot edges = 0
+        pilot term = v4_mir_block_terminator(record)
+        if term == v4_mir_term_goto { edges = 1 }
+        if term == v4_mir_term_if { edges = 2 }
+        pilot edge = 0
+        repeat until edge >= edges or error != "" {
+            pilot target = v4_mir_block_target(record)
+            if edge == 1 { target = v4_mir_block_else_target(record) }
+            pilot outgoing = state
+            pilot selected: bool = true
+            if condition >= 0 and condition < array_len(values) {
+                pilot observer: word = array_get(values, condition)
+                if v4_mir_snapshot_field(observer, 4) == v4_mir_rvalue_check and v4_mir_sum_row_local(values, locals, word_to_int(v4_mir_snapshot_field_raw(observer, 7))) == local {
+                    pilot proven = 2
+                    if edge == 1 { proven = 3 }
+                    if state == 0 { error = "scalar sum tag branch requires a live owner" }
+                    if state == 2 or state == 3 { selected = state == proven }
+                    outgoing = proven
+                }
+            }
+            if target < 0 or target >= count { error = "invalid scalar sum CFG edge" } else {
+                pilot scope = v4_mir_sum_block_scope(blocks, statements, target, true)
+                if v4_mir_scope_contains(local_scope, previous_scope) and not v4_mir_scope_contains(local_scope, scope) { outgoing = 0 }
+                if selected and error == "" and not v4_mir_sum_queue_state(queue, seen, target, outgoing) { error = "scalar sum ownership proof scratch exhausted" }
+            }
+            edge += 1
+        }
+        next += 1
+    }
+    array_release(seen)
+    array_release(queue)
+    give back error
+}
+
+task v4_mir_sum_rows_are_sensitive(ty: int, definition: word, locals: int, values: int) -> bool {
+    if v4_ty_is_native_scalar_sum(ty, v4_ty_callable_return_type_for_def(ty, definition)) { give back true }
+    pilot signature = v4_ty_lookup_signature(ty, definition)
+    pilot parameter = 0
+    if signature >= 0 {
+        repeat until parameter >= v4_ty_signature_fixed_param_count(ty, signature) {
+            if v4_ty_is_native_scalar_sum(ty, v4_ty_signature_param_type(ty, signature, parameter)) { give back true }
+            parameter += 1
+        }
+    }
+    pilot row = 0
+    repeat until row >= array_len(locals) {
+        if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(array_get(locals, row), 5)) { give back true }
+        row += 1
+    }
+    row = 0
+    repeat until row >= array_len(values) {
+        pilot value: word = array_get(values, row)
+        if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(value, 10)) or v4_mir_snapshot_field(value, 4) == v4_mir_rvalue_sum_take { give back true }
+        if v4_mir_snapshot_field(value, 13).starts_with("builtin::system::") or v4_mir_snapshot_field(value, 6).starts_with("builtin::system::") or v4_mir_snapshot_field(value, 13) == "builtin::word::to_int_maybe" or v4_mir_snapshot_field(value, 6) == "builtin::word::to_int_maybe" { give back true }
+        row += 1
+    }
+    give back false
+}
+
+task v4_mir_sum_row_call_error(ty: int, values: int, locals: int, value: int) -> word {
+    pilot row: word = array_get(values, value)
+    if v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_call { give back "" }
+    pilot returned_type = v4_mir_snapshot_field(row, 10)
+    pilot required: bool = v4_ty_is_native_scalar_sum(ty, returned_type)
+    pilot args = v4_mir_snapshot_field(row, 12)
+    pilot count = v4_mir_call_args_payload_count(args)
+    pilot arg = 0
+    repeat until arg >= count {
+        if v4_ty_is_native_scalar_sum(ty, v4_mir_control_row_type(values, v4_mir_call_args_payload_at(args, arg))) { required = true }
+        arg += 1
+    }
+    if not required { give back "" }
+    pilot identity = v4_mir_snapshot_field(row, 13)
+    if v4_mir_builtin_system_identity_kind(identity) != "" or identity == "builtin::word::to_int_maybe" { give back v4_mir_sum_row_intrinsic_error(ty, values, locals, value) }
+    if identity != "" or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" { give back "scalar sum calls require a resolved ordinary static task" }
+    pilot signature = v4_ty_task_signature_id_for_name(ty, v4_mir_snapshot_field(row, 6))
+    if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum calls require a resolved ordinary static task" }
+    if returned_type != v4_ty_signature_return_type(ty, signature) or v4_mir_snapshot_field(row, 11) != v4_ty_signature_call_abi(ty, signature) or count != v4_ty_signature_fixed_param_count(ty, signature) { give back "invalid scalar sum task call contract" }
+    arg = 0
+    repeat until arg >= count {
+        pilot child = v4_mir_call_args_payload_at(args, arg)
+        if child < 0 or child >= value { give back "invalid scalar sum task argument reference" }
+        pilot actual = v4_mir_control_row_type(values, child)
+        pilot expected = v4_ty_signature_param_type(ty, signature, arg)
+        pilot mode = v4_ty_signature_param_mode(ty, signature, arg)
+        pilot child_row: word = array_get(values, child)
+        if v4_ty_is_native_scalar_sum(ty, actual) or v4_ty_is_native_scalar_sum(ty, expected) {
+            if actual != expected or mode != v4_ty_param_mode_value { give back "scalar sum arguments require exact owning value parameters" }
+        } else if mode == v4_ty_param_mode_lend {
+            if expected != v4_ty_word or not v4_mir_sum_row_word_loan_is_valid(values, locals, child, value) { give back "invalid scalar sum task word loan argument" }
+            actual = v4_ty_word
+        } else if mode != v4_ty_param_mode_value { give back "unsupported scalar sum task parameter mode" }
+        if not v4_ty_types_compatible_in_signature(ty, signature, expected, actual) { give back "invalid scalar sum task argument type" }
+        if v4_mir_snapshot_field(child_row, 4) == v4_mir_rvalue_use_local and v4_mir_sum_row_local(values, locals, child) < 0 { give back "invalid scalar sum task argument local identity" }
+        arg += 1
+    }
+    give back ""
+}
+
+task v4_mir_sum_return_rows_error(ty: int, definition: word, blocks: int, statements: int, values: int) -> word {
+    pilot returned_type = v4_ty_callable_return_type_for_def(ty, definition)
+    if not v4_ty_is_native_scalar_sum(ty, returned_type) { give back "" }
+    pilot queue = array_new()
+    pilot seen = array_new()
+    pilot error = ""
+    if queue < 0 or seen < 0 { error = "scalar sum return proof scratch exhausted" }
+    pilot count = array_len(blocks)
+    if count <= 0 { error = "scalar sum task has no body" }
+    pilot row = 0
+    repeat until row >= count or error != "" {
+        if not v4_mir_control_checked_push(seen, "0") { error = "scalar sum return proof scratch exhausted" }
+        row += 1
+    }
+    if error == "" {
+        if not v4_mir_control_checked_push(queue, "0") { error = "scalar sum return proof scratch exhausted" }
+        array_set(seen, 0, "1")
+    }
+    row = 0
+    repeat until row >= array_len(queue) or error != "" {
+        pilot block = word_to_int(array_get(queue, row))
+        pilot record: word = array_get(blocks, block)
+        pilot term = v4_mir_block_terminator(record)
+        if term == v4_mir_term_return {
+            pilot last = -1
+            pilot statement = 0
+            repeat until statement >= array_len(statements) {
+                pilot candidate: word = array_get(statements, statement)
+                if word_to_int(v4_mir_snapshot_field_raw(candidate, 8)) == block { last = statement }
+                statement += 1
+            }
+            if last < 0 { error = "scalar sum return requires an explicit owned value" } else {
+                pilot candidate: word = array_get(statements, last)
+                if v4_mir_snapshot_field(candidate, 4) != v4_mir_stmt_return or v4_mir_control_row_type(values, word_to_int(v4_mir_snapshot_field_raw(candidate, 10))) != returned_type { error = "scalar sum return requires an explicit owned value" }
+            }
+        }
+        pilot edges = 0
+        if term == v4_mir_term_goto { edges = 1 }
+        if term == v4_mir_term_if { edges = 2 }
+        pilot edge = 0
+        repeat until edge >= edges or error != "" {
+            pilot target = v4_mir_block_target(record)
+            if edge == 1 { target = v4_mir_block_else_target(record) }
+            if target < 0 or target >= count { error = "invalid scalar sum return CFG edge" } else {
+                pilot state: word = array_get(seen, target)
+                if state == "0" {
+                    if not v4_mir_control_checked_push(queue, word_from_int(target)) { error = "scalar sum return proof scratch exhausted" }
+                    array_set(seen, target, "1")
+                }
+            }
+            edge += 1
+        }
+        row += 1
+    }
+    array_release(seen)
+    array_release(queue)
+    give back error
+}
+
+task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks: int, locals: int, statements: int, places: int, values: int) -> word {
+    pilot definition = v4_mir_snapshot_field(header, 3)
+    if not v4_mir_sum_rows_are_sensitive(ty, definition, locals, values) { give back "" }
+    pilot signature = v4_ty_lookup_signature(ty, definition)
+    if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back "scalar sum body requires an ordinary nongeneric task" }
+    if v4_mir_snapshot_field(header, 4) != v4_ty_signature_name(ty, signature) or v4_mir_snapshot_field(header, 5) != v4_ty_signature_of(ty, definition) { give back "invalid scalar sum task body identity" }
+    pilot parameters = v4_ty_signature_fixed_param_count(ty, signature)
+    if parameters > array_len(locals) { give back "invalid scalar sum task parameter locals" }
+    pilot body_span = v4_mir_word_source_body_span(ty, definition)
+    if body_span == (V4_NO_SPAN) { give back "scalar sum task requires authoritative source scope" }
+    if v4_span_file(body_span) != word_from_int(file) { give back "scalar sum task source file mismatch" }
+    pilot row = 0
+    repeat until row >= array_len(locals) {
+        pilot binding: word = array_get(locals, row)
+        pilot type_text = v4_mir_snapshot_field(binding, 5)
+        pilot scalar: bool = v4_ty_is_native_scalar_sum(ty, type_text)
+        if not v4_mir_word_scope_fact_is_valid(v4_mir_snapshot_field(binding, 8), file, body_span, v4_mir_snapshot_field(binding, 7), scalar) { give back "invalid scalar sum local scope" }
+        if scalar and v4_mir_snapshot_field(binding, 6) != v4_ty_param_mode_value { give back "borrowed scalar sum storage is not yet supported" }
+        if row < parameters {
+            if v4_mir_snapshot_field(binding, 4) != v4_ty_signature_param_name(ty, signature, row) or type_text != v4_ty_signature_param_type(ty, signature, row) or v4_mir_snapshot_field(binding, 6) != v4_ty_signature_param_mode(ty, signature, row) { give back "invalid scalar sum task parameter identity" }
+        }
+        row += 1
+    }
+    row = 0
+    repeat until row >= array_len(blocks) {
+        pilot scope = v4_mir_block_part(array_get(blocks, row), 5)
+        if scope == (V4_NO_SPAN) or not v4_mir_word_scope_fact_is_valid(scope, file, body_span, V4_NO_SPAN, false) { give back "invalid scalar sum block scope" }
+        row += 1
+    }
+    row = 0
+    repeat until row >= array_len(statements) {
+        pilot statement: word = array_get(statements, row)
+        if not v4_mir_word_scope_fact_is_valid(v4_mir_snapshot_field(statement, 11), file, body_span, v4_mir_snapshot_field(statement, 7), true) { give back "invalid scalar sum statement scope" }
+        pilot place = word_to_int(v4_mir_snapshot_field_raw(statement, 9))
+        pilot value = word_to_int(v4_mir_snapshot_field_raw(statement, 10))
+        if place >= 0 and place < array_len(places) and value >= 0 and value < array_len(values) {
+            pilot destination: word = array_get(places, place)
+            pilot expected = v4_mir_snapshot_field(destination, 10)
+            pilot actual = v4_mir_control_row_type(values, value)
+            if (v4_ty_is_native_scalar_sum(ty, expected) or v4_ty_is_native_scalar_sum(ty, actual)) and expected != actual { give back "scalar sum assignment requires an exact carrier" }
+        }
+        row += 1
+    }
+    row = 0
+    repeat until row >= array_len(places) {
+        pilot place: word = array_get(places, row)
+        if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(place, 10)) {
+            if v4_mir_snapshot_field(place, 4) != v4_mir_place_local and v4_mir_snapshot_field(place, 4) != v4_mir_place_return { give back "scalar sum projection places are not yet supported" }
+            if v4_mir_snapshot_field(place, 4) == v4_mir_place_local {
+                pilot local = word_to_int(v4_mir_snapshot_field_raw(place, 6))
+                if local < 0 or local >= array_len(locals) { give back "invalid scalar sum place local identity" }
+                pilot binding: word = array_get(locals, local)
+                if v4_mir_snapshot_field(place, 5) != v4_mir_snapshot_field(binding, 4) or v4_mir_snapshot_field(place, 10) != v4_mir_snapshot_field(binding, 5) { give back "invalid scalar sum place local identity" }
+            }
+        }
+        row += 1
+    }
+    row = 0
+    repeat until row >= array_len(values) {
+        pilot error = v4_mir_sum_row_value_error(ty, values, locals, row)
+        if error == "" { error = v4_mir_sum_row_call_error(ty, values, locals, row) }
+        if error != "" { give back error }
+        pilot value: word = array_get(values, row)
+        if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(value, 10)) {
+            pilot kind = v4_mir_snapshot_field(value, 4)
+            if kind != v4_mir_rvalue_use_local and kind != v4_mir_rvalue_call and kind != v4_mir_rvalue_some and kind != v4_mir_rvalue_nobody and kind != v4_mir_rvalue_ok and kind != v4_mir_rvalue_err { give back "unsupported scalar sum rvalue" }
+        }
+        row += 1
+    }
+    pilot error = v4_mir_sum_return_rows_error(ty, definition, blocks, statements, values)
+    if error != "" { give back error }
+    row = 0
+    repeat until row >= array_len(locals) {
+        pilot binding: word = array_get(locals, row)
+        if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(binding, 5)) {
+            error = v4_mir_sum_local_rows_error(ty, definition, blocks, locals, statements, places, values, row)
+            if error != "" { give back error }
+        }
+        row += 1
+    }
+    give back ""
+}
+
+task v4_mir_sum_row_call_requires_body(ty: int, values: int, row: word) -> bool {
+    if v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_call or v4_mir_snapshot_field(row, 13) != "" { give back false }
+    if v4_ty_is_native_scalar_sum(ty, v4_mir_snapshot_field(row, 10)) { give back true }
+    pilot args = v4_mir_snapshot_field(row, 12)
+    pilot arg = 0
+    repeat until arg >= v4_mir_call_args_payload_count(args) {
+        if v4_ty_is_native_scalar_sum(ty, v4_mir_control_row_type(values, v4_mir_call_args_payload_at(args, arg))) { give back true }
+        arg += 1
+    }
+    give back false
+}
+
+task v4_mir_body_has_scalar_sum(mir: int, body: int) -> bool {
+    pilot ty = v4_mir_ty_id(mir)
+    if v4_ty_is_native_scalar_sum(ty, v4_mir_body_callable_return_type(mir, body)) { give back true }
+    pilot row = 0
+    repeat until row >= v4_mir_body_callable_param_count(mir, body) {
+        if v4_ty_is_native_scalar_sum(ty, v4_mir_body_callable_param_type(mir, body, row)) { give back true }
+        row += 1
+    }
+    row = 0
+    repeat until row >= v4_mir_body_local_count(mir, body) {
+        if v4_ty_is_native_scalar_sum(ty, v4_mir_local_ty(mir, body, row)) { give back true }
+        row += 1
+    }
+    row = 0
+    repeat until row >= v4_mir_body_rvalue_count(mir, body) {
+        if v4_ty_is_native_scalar_sum(ty, v4_mir_rvalue_ty(mir, body, row)) or v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_sum_take { give back true }
+        if v4_mir_rvalue_builtin_method(mir, body, row).starts_with("builtin::system::") or v4_mir_rvalue_op(mir, body, row).starts_with("builtin::system::") or v4_mir_rvalue_builtin_method(mir, body, row) == "builtin::word::to_int_maybe" or v4_mir_rvalue_op(mir, body, row) == "builtin::word::to_int_maybe" { give back true }
+        row += 1
+    }
+    give back false
+}
+
+task v4_mir_scalar_sum_plan_preflight(mir: int) -> word {
+    if not v4_mir_file_exists(mir) { give back "missing mir for scalar sum plan" }
+    pilot body = 0
+    pilot error = ""
+    repeat until body >= v4_mir_body_count(mir) or error != "" {
+        if v4_mir_body_has_scalar_sum(mir, body) {
+            error = v4_mir_control_live_cfg_error(mir, body)
+            pilot blocks = array_new()
+            pilot locals = array_new()
+            pilot statements = array_new()
+            pilot places = array_new()
+            pilot values = array_new()
+            if blocks < 0 or locals < 0 or statements < 0 or places < 0 or values < 0 { error = "scalar sum plan scratch exhausted" }
+            pilot row = 0
+            repeat until row >= v4_mir_body_block_count(mir, body) or error != "" {
+                if not v4_mir_control_checked_push(blocks, v4_mir_body_block(mir, body, row)) { error = "scalar sum plan scratch exhausted" }
+                row += 1
+            }
+            row = 0
+            repeat until row >= v4_mir_body_local_count(mir, body) or error != "" {
+                if not v4_mir_control_checked_push(locals, v4_mir_snapshot_local_line(mir, body, row)) { error = "scalar sum plan scratch exhausted" }
+                row += 1
+            }
+            row = 0
+            repeat until row >= v4_mir_body_stmt_count(mir, body) or error != "" {
+                if not v4_mir_control_checked_push(statements, v4_mir_snapshot_stmt_line(mir, body, row)) { error = "scalar sum plan scratch exhausted" }
+                row += 1
+            }
+            row = 0
+            repeat until row >= v4_mir_body_place_count(mir, body) or error != "" {
+                if not v4_mir_control_checked_push(places, v4_mir_snapshot_place_line(mir, body, row)) { error = "scalar sum plan scratch exhausted" }
+                row += 1
+            }
+            row = 0
+            repeat until row >= v4_mir_body_rvalue_count(mir, body) or error != "" {
+                if not v4_mir_control_checked_push(values, v4_mir_snapshot_rvalue_line(mir, body, row)) { error = "scalar sum plan scratch exhausted" }
+                row += 1
+            }
+            if error == "" { error = v4_mir_scalar_sum_body_rows_error(v4_mir_ty_id(mir), v4_mir_file_id(mir), v4_mir_snapshot_body_line(mir, body), blocks, locals, statements, places, values) }
+            row = 0
+            repeat until row >= array_len(values) or error != "" {
+                pilot value: word = array_get(values, row)
+                if v4_mir_sum_row_call_requires_body(v4_mir_ty_id(mir), values, value) {
+                    pilot signature = v4_ty_task_signature_id_for_name(v4_mir_ty_id(mir), v4_mir_snapshot_field(value, 6))
+                    pilot target = v4_mir_lookup_body_name(mir, v4_mir_snapshot_field(value, 6))
+                    if signature < 0 or target < 0 { error = "scalar sum task target body is missing" } else {
+                        if v4_mir_body_def(mir, target) != v4_ty_signature_def(v4_mir_ty_id(mir), signature) or v4_mir_body_name(mir, target) != v4_ty_signature_name(v4_mir_ty_id(mir), signature) or v4_mir_body_signature(mir, target) != v4_ty_signature_of(v4_mir_ty_id(mir), v4_ty_signature_def(v4_mir_ty_id(mir), signature)) { error = "scalar sum task target body identity mismatch" }
+                    }
+                }
+                row += 1
+            }
+            array_release(values)
+            array_release(places)
+            array_release(statements)
+            array_release(locals)
+            array_release(blocks)
+        }
+        body += 1
+    }
+    give back error
 }

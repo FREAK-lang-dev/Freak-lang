@@ -2222,6 +2222,51 @@ task v4_ty_is_nominal_prelude_dyn_carrier(ty_id: int, type_text: word) -> bool {
     give back true
 }
 
+-- Carrier spelling alone does not establish prelude ownership or layout.
+task v4_ty_native_scalar_sum_kind(ty_id: int, type_text: word) -> word {
+    if not v4_ty_file_exists(ty_id) { give back "" }
+    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
+    if not v4_ty_is_generic_instance_type(canonical) { give back "" }
+    pilot base = v4_ty_generic_base_name(canonical)
+    if base != "maybe" and base != "result" { give back "" }
+    if v4_ty_type_signature_id_for_name(ty_id, base) >= 0 { give back "" }
+    pilot resolve = v4_ty_resolve_id(ty_id)
+    if resolve >= 0 {
+        pilot expanded = v4_resolve_expand_import_name(resolve, base)
+        if expanded != "" and expanded != base { give back "" }
+        if v4_resolve_def_for_name(resolve, base) != "" { give back "" }
+    }
+    if base == "maybe" and v4_ty_generic_arg_count(canonical) == 1 and v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 0)) == v4_ty_int { give back "MaybeInt" }
+    if base == "result" and v4_ty_generic_arg_count(canonical) == 2 and v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 0)) == v4_ty_word and v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 1)) == v4_ty_word { give back "ResultWordWord" }
+    give back ""
+}
+
+task v4_ty_is_native_scalar_sum(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_native_scalar_sum_kind(ty_id, type_text) != ""
+}
+
+task v4_ty_is_native_owned_value(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_canonical_type(ty_id, type_text) == v4_ty_word or v4_ty_is_native_scalar_sum(ty_id, type_text)
+}
+
+task v4_ty_callable_param_count_for_def(ty_id: int, definition: word) -> int {
+    pilot signature = v4_ty_lookup_signature(ty_id, definition)
+    if signature >= 0 { give back v4_ty_signature_fixed_param_count(ty_id, signature) }
+    pilot item = v4_ty_impl_method_index_for_def(ty_id, definition, 0)
+    pilot method = v4_ty_impl_method_index_for_def(ty_id, definition, 1)
+    if item < 0 or method < 0 { give back 0 }
+    give back v4_ty_impl_method_param_count(ty_id, item, method)
+}
+
+task v4_ty_callable_return_type_for_def(ty_id: int, definition: word) -> word {
+    pilot signature = v4_ty_lookup_signature(ty_id, definition)
+    if signature >= 0 { give back v4_ty_signature_return_type(ty_id, signature) }
+    pilot item = v4_ty_impl_method_index_for_def(ty_id, definition, 0)
+    pilot method = v4_ty_impl_method_index_for_def(ty_id, definition, 1)
+    if item < 0 or method < 0 { give back v4_ty_unknown }
+    give back v4_ty_impl_method_return_type(ty_id, item, method)
+}
+
 task v4_ty_is_shared_type(type_text: word) -> bool {
     give back v4_ty_generic_base_is(type_text, "Shared")
 }
@@ -13718,7 +13763,7 @@ task v4_ty_word_literal_value(raw: word) -> word {
 
 -- Compiler-owned word intrinsic contracts; source spelling is resolved by MIR.
 task v4_ty_word_intrinsic_known(kind: word) -> bool {
-    give back kind == "concat" or kind == "equal" or kind == "not_equal" or kind == "say" or kind == "say_err" or kind == "from_int" or kind == "from_bool" or kind == "from_num" or kind == "to_int" or kind == "length" or kind == "bytes" or kind == "char_at" or kind == "slice" or kind == "substring" or kind == "starts_with" or kind == "ends_with" or kind == "contains" or kind == "clone" or kind == "to_lower"
+    give back kind == "concat" or kind == "equal" or kind == "not_equal" or kind == "say" or kind == "say_err" or kind == "from_int" or kind == "from_bool" or kind == "from_num" or kind == "to_int" or kind == "length" or kind == "bytes" or kind == "char_at" or kind == "slice" or kind == "substring" or kind == "starts_with" or kind == "ends_with" or kind == "contains" or kind == "clone" or kind == "to_lower" or kind == "to_int_maybe"
 }
 
 task v4_ty_word_intrinsic_result_type(kind: word) -> word {
@@ -13741,6 +13786,7 @@ task v4_ty_word_intrinsic_result_type(kind: word) -> word {
     if kind == "contains" { give back v4_ty_bool }
     if kind == "clone" { give back v4_ty_word }
     if kind == "to_lower" { give back v4_ty_word }
+    if kind == "to_int_maybe" { give back v4_ty_maybe_type(v4_ty_int) }
     give back v4_ty_unknown
 }
 
@@ -13764,6 +13810,7 @@ task v4_ty_word_intrinsic_param_count(kind: word) -> int {
     if kind == "contains" { give back 2 }
     if kind == "clone" { give back 1 }
     if kind == "to_lower" { give back 1 }
+    if kind == "to_int_maybe" { give back 1 }
     give back 0 - 1
 }
 
@@ -13836,6 +13883,9 @@ task v4_ty_word_intrinsic_param_type(kind: word, param_id: int) -> word {
     if kind == "to_lower" {
         if param_id == 0 { give back v4_ty_word }
     }
+    if kind == "to_int_maybe" {
+        if param_id == 0 { give back v4_ty_word }
+    }
     give back v4_ty_unknown
 }
 
@@ -13860,12 +13910,68 @@ task v4_ty_word_intrinsic_member_kind(receiver_ty: word, method_name: word) -> w
         if method_name == "contains" { give back "contains" }
         if method_name == "clone" { give back "clone" }
         if method_name == "to_lower" { give back "to_lower" }
+        if method_name == "to_int" { give back "to_int_maybe" }
     }
     if method_name == "to_word" {
         if receiver_ty == v4_ty_int { give back "from_int" }
         if receiver_ty == v4_ty_bool { give back "from_bool" }
         if receiver_ty == v4_ty_num { give back "from_num" }
     }
+    give back ""
+}
+
+-- These descriptors expose language types, not the private C outslot ABI.
+-- MIR construction additionally checks local/parameter namespace shadowing.
+task v4_ty_system_intrinsic_known(kind: word) -> bool {
+    give back kind == "process_arg" or kind == "args_count" or kind == "fs_read"
+}
+
+task v4_ty_system_intrinsic_named_kind(ty_id: int, name: word) -> word {
+    if not v4_ty_file_exists(ty_id) { give back "" }
+    pilot root = ""
+    pilot kind = ""
+    if name == "process::arg" { root = "process"; kind = "process_arg" }
+    if name == "process::args_count" { root = "process"; kind = "args_count" }
+    if name == "fs::read" { root = "fs"; kind = "fs_read" }
+    if kind == "" { give back "" }
+    if v4_ty_task_signature_id_for_name(ty_id, name) >= 0 or v4_ty_const_signature_id_for_name(ty_id, root) >= 0 or v4_ty_type_signature_id_for_name(ty_id, root) >= 0 { give back "" }
+    pilot resolve = v4_ty_resolve_id(ty_id)
+    if resolve < 0 { give back "" }
+    if v4_resolve_def_for_name(resolve, name) != "" or v4_resolve_def_for_name(resolve, root) != "" { give back "" }
+    pilot expanded = v4_resolve_expand_import_name(resolve, name)
+    if expanded != "" and expanded != name { give back "" }
+    expanded = v4_resolve_expand_import_name(resolve, root)
+    if expanded != "" and expanded != root { give back "" }
+    give back kind
+}
+
+task v4_ty_system_intrinsic_result_type(kind: word) -> word {
+    if kind == "process_arg" or kind == "fs_read" { give back v4_ty_result_type(v4_ty_word, v4_ty_word) }
+    if kind == "args_count" { give back v4_ty_int }
+    give back v4_ty_unknown
+}
+
+task v4_ty_system_intrinsic_param_count(kind: word) -> int {
+    if kind == "args_count" { give back 0 }
+    if kind == "process_arg" or kind == "fs_read" { give back 1 }
+    give back -1
+}
+
+task v4_ty_system_intrinsic_param_type(kind: word, parameter: int) -> word {
+    if parameter == 0 and kind == "process_arg" { give back v4_ty_int }
+    if parameter == 0 and kind == "fs_read" { give back v4_ty_word }
+    give back v4_ty_unknown
+}
+
+task v4_ty_system_intrinsic_param_mode(kind: word, parameter: int) -> word {
+    if parameter == 0 and kind == "process_arg" { give back v4_ty_param_mode_value }
+    if parameter == 0 and kind == "fs_read" { give back v4_ty_param_mode_lend }
+    give back ""
+}
+
+task v4_ty_system_intrinsic_param_name(kind: word, parameter: int) -> word {
+    if parameter == 0 and kind == "process_arg" { give back "index" }
+    if parameter == 0 and kind == "fs_read" { give back "path" }
     give back ""
 }
 

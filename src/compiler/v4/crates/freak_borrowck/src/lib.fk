@@ -750,6 +750,7 @@ task v4_borrowck_copy_cache_eviction_count() -> int {
 
 task v4_borrowck_ty_is_copy(mir_id: int, body_id: int, ty_name: word) -> bool {
     pilot ty_id = v4_mir_ty_id(mir_id)
+    if v4_ty_is_native_scalar_sum(ty_id, ty_name) { give back false }
     pilot sig_id = v4_mir_body_signature_id(mir_id, body_id)
     pilot cache_sig_id = sig_id
     if not v4_ty_type_mentions_signature_generics(ty_id, sig_id, ty_name) {
@@ -1921,7 +1922,7 @@ task v4_borrowck_call_borrowed_source_signature_id(mir_id: int, body_id: int, rv
     if signature_return_ty == v4_ty_word and call_return_ty == v4_ty_word and v4_borrowck_owned_word_call_arguments_are_valid(mir_id, body_id, rvalue_id, sig_id) {
         give back sig_id
     }
-    if v4_borrowck_empty_scalar_call_status(mir_id, body_id, rvalue_id) == 1 { give back sig_id }
+    if v4_borrowck_empty_scalar_call_status(mir_id, body_id, rvalue_id) == 1 or v4_borrowck_scalar_sum_call_is_empty(mir_id, body_id, rvalue_id) { give back sig_id }
     pilot signature_leaf_count = v4_ty_fixed_lend_leaf_count(ty_id, signature_return_ty)
     pilot signature_has_lend_schema: bool = v4_ty_type_stores_lend(ty_id, signature_return_ty)
     if signature_leaf_count == 0 and v4_ty_type_contains_lend(signature_return_ty) {
@@ -4186,7 +4187,7 @@ task v4_borrowck_use_diag_span(mir_id: int, body_id: int, stmt_id: int) -> word 
 -- A shadowed owned word has a private binding path, distinct from its display name.
 task v4_borrowck_word_local_path(mir_id: int, body_id: int, local_id: int) -> word {
     pilot name = v4_mir_local_name(mir_id, body_id, local_id)
-    if v4_mir_local_ty(mir_id, body_id, local_id) != v4_ty_word { give back name }
+    if not v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) { give back name }
     pilot candidate = 0
     repeat until candidate >= v4_mir_body_local_count(mir_id, body_id) {
         if candidate != local_id and v4_mir_local_name(mir_id, body_id, candidate) == name { give back "@word-local:" + word_from_int(local_id) }
@@ -4199,16 +4200,16 @@ task v4_borrowck_word_path_local(mir_id: int, body_id: int, text: word) -> int {
     if text.starts_with("@word-local:") {
         pilot raw = text.substring(12, text.length() - 12)
         pilot local_id = word_to_int(raw)
-        if raw == word_from_int(local_id) and local_id >= 0 and local_id < v4_mir_body_local_count(mir_id, body_id) and v4_mir_local_ty(mir_id, body_id, local_id) == v4_ty_word { give back local_id }
+        if raw == word_from_int(local_id) and local_id >= 0 and local_id < v4_mir_body_local_count(mir_id, body_id) and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) { give back local_id }
         give back 0 - 1
     }
     pilot local_id = v4_mir_find_local(mir_id, body_id, text)
-    if local_id >= 0 and v4_mir_local_ty(mir_id, body_id, local_id) == v4_ty_word { give back local_id }
+    if local_id >= 0 and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) { give back local_id }
     give back 0 - 1
 }
 
 task v4_borrowck_rvalue_binding_path(mir_id: int, body_id: int, value: int) -> word {
-    if v4_mir_rvalue_ty(mir_id, body_id, value) == v4_ty_word {
+    if v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, value)) {
         if v4_mir_rvalue_kind(mir_id, body_id, value) == v4_mir_rvalue_use_local {
             pilot local_id = v4_mir_rvalue_local_id(mir_id, body_id, value)
             if local_id >= 0 { give back v4_borrowck_word_local_path(mir_id, body_id, local_id) }
@@ -4226,7 +4227,7 @@ task v4_borrowck_add_place_path(borrow_id: int, result_id: int, mir_id: int, bod
         give back
     }
     pilot text = v4_mir_place_text(mir_id, body_id, place_id)
-    if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local and v4_mir_place_ty(mir_id, body_id, place_id) == v4_ty_word and v4_mir_place_base(mir_id, body_id, place_id) >= 0 { text = v4_borrowck_word_local_path(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id)) }
+    if v4_mir_place_kind(mir_id, body_id, place_id) == v4_mir_place_local and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_place_ty(mir_id, body_id, place_id)) and v4_mir_place_base(mir_id, body_id, place_id) >= 0 { text = v4_borrowck_word_local_path(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place_id)) }
     v4_borrowck_add_path(borrow_id, result_id, path_kind, text, stmt_id, block_id)
 }
 
@@ -4281,7 +4282,7 @@ task v4_borrowck_rvalue_resolves_lend_source(mir_id: int, body_id: int, use_stmt
 }
 
 task v4_borrowck_call_lends_source(mir_id: int, body_id: int, call_stmt: int, call_rvalue: int, loan_text: word) -> bool {
-    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_static_never(mir_id, body_id, call_rvalue) { give back false }
+    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, call_rvalue) or v4_mir_rvalue_is_static_never(mir_id, body_id, call_rvalue) { give back false }
     if call_rvalue < 0 or v4_mir_rvalue_kind(mir_id, body_id, call_rvalue) != v4_mir_rvalue_call {
         give back false
     }
@@ -4478,7 +4479,7 @@ task v4_borrowck_block_can_cycle(mir_id: int, body_id: int, block_id: int) -> bo
 
 task v4_borrowck_rvalue_returns_holder(mir_id: int, body_id: int, rvalue_id: int, holder: word) -> bool {
     if v4_mir_rvalue_is_builtin_control(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_static_never(mir_id, body_id, rvalue_id) { give back false }
-    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) { give back false }
+    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, rvalue_id) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, rvalue_id) { give back false }
     if rvalue_id < 0 {
         give back false
     }
@@ -5754,6 +5755,10 @@ task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: 
     } else if rvalue_kind == v4_mir_rvalue_binary or rvalue_kind == v4_mir_rvalue_or_else {
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id))
+    } else if rvalue_kind == v4_mir_rvalue_check and v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))) != "" {
+        v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+    } else if rvalue_kind == v4_mir_rvalue_sum_take {
+        v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     } else if rvalue_kind == v4_mir_rvalue_unary or rvalue_kind == v4_mir_rvalue_check or rvalue_kind == v4_mir_rvalue_try {
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     } else if rvalue_kind == v4_mir_rvalue_some or rvalue_kind == v4_mir_rvalue_ok or rvalue_kind == v4_mir_rvalue_err {
@@ -5812,6 +5817,8 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
     } else if rvalue_kind == v4_mir_rvalue_binary or rvalue_kind == v4_mir_rvalue_or_else {
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id))
+    } else if rvalue_kind == v4_mir_rvalue_sum_take {
+        v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     } else if rvalue_kind == v4_mir_rvalue_unary or rvalue_kind == v4_mir_rvalue_check or rvalue_kind == v4_mir_rvalue_try {
         v4_borrowck_collect_read_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
     } else if rvalue_kind == v4_mir_rvalue_some or rvalue_kind == v4_mir_rvalue_ok or rvalue_kind == v4_mir_rvalue_err {
@@ -6294,8 +6301,8 @@ task v4_borrowck_loan_move_conflict_message(loan_block: int, move_block: int) ->
 -- checked empty returned-source contract. This is separate from availability:
 -- an earlier outer argument's loan remains live throughout later arguments.
 task v4_borrowck_word_call_result_is_empty(mir_id: int, body_id: int, value: int) -> bool {
-    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, value) or v4_mir_rvalue_is_static_never(mir_id, body_id, value) { give back true }
-    if v4_borrowck_empty_scalar_call_status(mir_id, body_id, value) == 1 { give back true }
+    if v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_system(mir_id, body_id, value) or v4_mir_rvalue_is_builtin_control(mir_id, body_id, value) or v4_mir_rvalue_is_static_never(mir_id, body_id, value) { give back true }
+    if v4_borrowck_empty_scalar_call_status(mir_id, body_id, value) == 1 or v4_borrowck_scalar_sum_call_is_empty(mir_id, body_id, value) { give back true }
     pilot signature = v4_borrowck_call_borrowed_source_signature_id(mir_id, body_id, value)
     if signature >= 0 and v4_mir_rvalue_ty(mir_id, body_id, value) == v4_ty_word and v4_ty_signature_return_type(v4_mir_ty_id(mir_id), signature) == v4_ty_word { give back true }
     -- The existing closed raw-pointer write protocol returns void. Check its
@@ -6402,7 +6409,7 @@ task v4_borrowck_word_loan_rvalue_state(mir_id: int, body_id: int, value: int, l
         give back held
     }
     if kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_char or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_use_symbol { give back 0 }
-    if kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_check and kind != v4_mir_rvalue_try and kind != v4_mir_rvalue_some and kind != v4_mir_rvalue_ok and kind != v4_mir_rvalue_err and kind != v4_mir_rvalue_or_else { give back -1 }
+    if kind != v4_mir_rvalue_unary and kind != v4_mir_rvalue_binary and kind != v4_mir_rvalue_check and kind != v4_mir_rvalue_try and kind != v4_mir_rvalue_some and kind != v4_mir_rvalue_ok and kind != v4_mir_rvalue_err and kind != v4_mir_rvalue_sum_take and kind != v4_mir_rvalue_or_else { give back -1 }
     pilot read_only: bool = kind == v4_mir_rvalue_binary
     pilot left = v4_borrowck_word_loan_rvalue_state(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, active, read_only, depth + 1)
     if left < 0 or left == 2 { give back left }
@@ -7116,7 +7123,7 @@ task v4_borrowck_place_word_local_move_count_depth(mir_id: int, body_id: int, pl
     }
     pilot kind = v4_mir_place_kind(mir_id, body_id, place)
     if kind == v4_mir_place_local {
-        if not borrowed and v4_mir_place_ty(mir_id, body_id, place) == v4_ty_word and v4_mir_place_base(mir_id, body_id, place) == local_id { give back 1 }
+        if not borrowed and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_place_ty(mir_id, body_id, place)) and v4_mir_place_base(mir_id, body_id, place) == local_id { give back 1 }
         give back 0
     }
     if kind == v4_mir_place_field or kind == v4_mir_place_index {
@@ -7147,7 +7154,7 @@ task v4_borrowck_rvalue_word_local_move_count_depth(mir_id: int, body_id: int, v
     }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
     if kind == v4_mir_rvalue_use_local {
-        if borrowed or v4_mir_rvalue_ty(mir_id, body_id, value) != v4_ty_word { give back 0 }
+        if borrowed or not v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, value)) { give back 0 }
         if v4_mir_rvalue_local_id(mir_id, body_id, value) == local_id { give back 1 }
         give back 0
     }
@@ -7192,7 +7199,7 @@ task v4_borrowck_rvalue_word_local_move_count_depth(mir_id: int, body_id: int, v
         }
         give back count
     }
-    pilot read_only: bool = kind == v4_mir_rvalue_binary
+    pilot read_only: bool = kind == v4_mir_rvalue_binary or (kind == v4_mir_rvalue_check and v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value))) != "")
     pilot count = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, read_only, depth + 1)
     if count < 0 { give back count }
     pilot right_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, read_only, depth + 1)
@@ -7328,7 +7335,7 @@ task v4_borrowck_word_local_state_walk(mir_id: int, body_id: int, local_id: int,
 
 task v4_borrowck_word_local_drop_kind(borrow_id: int, result_id: int, mir_id: int, body_id: int, local_id: int) -> word {
     if v4_borrowck_mir_id(borrow_id) != mir_id or v4_borrowck_result_def(borrow_id, result_id) != v4_mir_body_def(mir_id, body_id) { give back "invalid" }
-    if v4_mir_local_ty(mir_id, body_id, local_id) != v4_ty_word or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value { give back "" }
+    if not v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) or v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value { give back "" }
     v4_borrowck_word_plan_resource_failed = false
     pilot alive = v4_borrowck_word_local_exit_state(mir_id, body_id, local_id, true)
     if alive < 0 { give back "invalid" }
@@ -7434,7 +7441,7 @@ task v4_borrowck_word_rvalue_use_state(mir_id: int, body_id: int, value: int, lo
         }
         give back state
     }
-    pilot read_only: bool = kind == v4_mir_rvalue_binary
+    pilot read_only: bool = kind == v4_mir_rvalue_binary or (kind == v4_mir_rvalue_check and v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value))) != "")
     state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, state == 1, read_only, depth + 1)
     if state < 0 { give back state }
     give back v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, state == 1, read_only, depth + 1)
@@ -7468,7 +7475,7 @@ task v4_borrowck_check_word_binding_uses(borrow_id: int, result_id: int, mir_id:
                 v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
             }
         }
-        if v4_mir_rvalue_kind(mir_id, body_id, value) == v4_mir_rvalue_call and v4_mir_rvalue_ty(mir_id, body_id, value) == v4_ty_word and not v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) and v4_mir_rvalue_lhs(mir_id, body_id, value) < 0 and v4_mir_rvalue_rhs(mir_id, body_id, value) < 0 {
+        if v4_mir_rvalue_kind(mir_id, body_id, value) == v4_mir_rvalue_call and v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_rvalue_ty(mir_id, body_id, value)) and not v4_mir_rvalue_is_builtin_word(mir_id, body_id, value) and v4_mir_rvalue_lhs(mir_id, body_id, value) < 0 and v4_mir_rvalue_rhs(mir_id, body_id, value) < 0 {
             pilot ty_id = v4_mir_ty_id(mir_id)
             pilot sig_id = v4_ty_task_signature_id_for_name(ty_id, v4_mir_rvalue_op(mir_id, body_id, value))
             if sig_id >= 0 and v4_ty_signature_is_ordinary_static_task(ty_id, sig_id) and v4_ty_signature_return_type(ty_id, sig_id) == v4_ty_word and v4_ty_signature_generic_count(ty_id, sig_id) == 0 {
@@ -7482,7 +7489,7 @@ task v4_borrowck_check_word_binding_uses(borrow_id: int, result_id: int, mir_id:
     }
     pilot local_id = 0
     repeat until local_id >= v4_mir_body_local_count(mir_id, body_id) {
-        if v4_mir_local_ty(mir_id, body_id, local_id) == v4_ty_word {
+        if v4_ty_is_native_owned_value(v4_mir_ty_id(mir_id), v4_mir_local_ty(mir_id, body_id, local_id)) {
             v4_borrowck_word_plan_resource_failed = false
             pilot state = v4_borrowck_word_local_state_walk(mir_id, body_id, local_id, false, true)
             if state < 0 {
@@ -7494,4 +7501,27 @@ task v4_borrowck_check_word_binding_uses(borrow_id: int, result_id: int, mir_id:
         }
         local_id += 1
     }
+}
+
+-- Exact admitted scalar Sum carriers cannot store a FREAK lend. This fact is
+-- usable only for a fully resolved ordinary call with all argument and actual
+-- callee parameter facts checked; opaque/generic/indirect results remain so.
+task v4_borrowck_scalar_sum_call_is_empty(mir: int, body: int, value: int) -> bool {
+    if value < 0 or value >= v4_mir_body_rvalue_count(mir, body) or v4_mir_rvalue_kind(mir, body, value) != v4_mir_rvalue_call or v4_mir_rvalue_lhs(mir, body, value) != -1 or v4_mir_rvalue_rhs(mir, body, value) != -1 or v4_mir_rvalue_builtin_method(mir, body, value) != "" { give back false }
+    pilot ty = v4_mir_ty_id(mir)
+    pilot returned_type = v4_mir_rvalue_ty(mir, body, value)
+    if not v4_ty_is_native_scalar_sum(ty, returned_type) { give back false }
+    pilot signature = v4_ty_task_signature_id_for_name(ty, v4_mir_rvalue_op(mir, body, value))
+    if signature < 0 or not v4_ty_signature_is_ordinary_static_task(ty, signature) or v4_ty_signature_generic_count(ty, signature) != 0 or v4_ty_signature_is_variadic(ty, signature) { give back false }
+    if returned_type != v4_ty_signature_return_type(ty, signature) or v4_mir_rvalue_abi(mir, body, value) != v4_ty_signature_call_abi(ty, signature) or not v4_borrowck_owned_word_call_arguments_are_valid(mir, body, value, signature) { give back false }
+    pilot target = v4_mir_lookup_body(mir, v4_ty_signature_def(ty, signature))
+    if target < 0 or v4_mir_body_signature_id(mir, target) != signature or v4_mir_body_name(mir, target) != v4_ty_signature_name(ty, signature) or v4_mir_body_signature(mir, target) != v4_ty_signature_of(ty, v4_ty_signature_def(ty, signature)) { give back false }
+    pilot count = v4_ty_signature_fixed_param_count(ty, signature)
+    if count > 8192 or count > v4_mir_body_local_count(mir, target) or count != v4_mir_body_callable_param_count(mir, target) { give back false }
+    pilot parameter = 0
+    repeat until parameter >= count {
+        if v4_mir_local_name(mir, target, parameter) != v4_ty_signature_param_name(ty, signature, parameter) or v4_mir_local_ty(mir, target, parameter) != v4_ty_signature_param_type(ty, signature, parameter) or v4_mir_local_mode(mir, target, parameter) != v4_ty_signature_param_mode(ty, signature, parameter) { give back false }
+        parameter += 1
+    }
+    give back true
 }

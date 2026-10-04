@@ -1,0 +1,122 @@
+-- Setup-proven live and detached forgeries share exact owning-Sum admission.
+task v4_sum_contract_assert(condition: bool, label: word) -> void {
+    if not condition { panic("scalar-sum-contract " + label) }
+}
+
+task v4_sum_contract_source() -> word {
+    pilot source = "task relay(value: result<word,word>) -> result<word,word> " + chr(123) + " give back value " + chr(125) + "\n"
+    source = source + "task main() -> int " + chr(123) + "\n pilot before = 0\n pilot value: result<word,word> = ok(\"payload\")\n pilot output = relay(value)\n check result output " + chr(123) + " ok(text) -> " + chr(123) + " say text " + chr(125) + " err(message) -> " + chr(123) + " say message " + chr(125) + " " + chr(125) + "\n give back 0\n" + chr(125) + "\n"
+    give back source
+}
+
+task v4_sum_contract_find(mir: int, body: int, kind: word, op: word) -> int {
+    pilot value = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+        if v4_mir_rvalue_kind(mir, body, value) == kind and (op == "" or v4_mir_rvalue_op(mir, body, value) == op) { give back value }
+        value += 1
+    }
+    give back -1
+}
+
+task v4_sum_contract_field(line: word, field: int, value: word) -> word {
+    pilot parts = array_new()
+    pilot index = 0
+    repeat until index >= v4_mir_snapshot_field_count(line) {
+        if index > 0 { array_push(parts, "|") }
+        if index == field { array_push(parts, v4_mir_snapshot_escape(value)) } else { array_push(parts, v4_mir_snapshot_field_raw(line, index)) }
+        index += 1
+    }
+    give back word_join(parts)
+}
+
+task v4_sum_contract_old_version(payload: word) -> word {
+    pilot parts = array_new()
+    pilot row = 0
+    repeat until row >= v4_mir_snapshot_line_count(payload) {
+        pilot line = v4_mir_snapshot_line(payload, row)
+        if row == 0 { line = "mir-snapshot|format=freak-mir-snapshot-v8|" + v4_slice(line, "mir-snapshot|format=freak-mir-snapshot-v9|".length(), line.length()) }
+        if row + 1 == v4_mir_snapshot_line_count(payload) { line = "end|freak-mir-snapshot-v8" }
+        if row > 0 { array_push(parts, "\n") }
+        array_push(parts, line)
+        row += 1
+    }
+    give back word_join(parts)
+}
+
+task v4_sum_contract_run() -> void {
+    pilot mode = process::arg(1)
+    pilot mir = v4_mir_text_cached("scalar-sum-contract.fk", v4_sum_contract_source())
+    pilot ty = v4_mir_ty_id(mir)
+    v4_sum_contract_assert(v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0 and v4_mir_word_plan_preflight(mir) == "", "valid baseline frontend and full plan")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot sealed = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot module = v4_codegen_llvm_module_text(sealed, target)
+    v4_sum_contract_assert(module != "" and v4_codegen_llvm_native_module_error(sealed) == "", "baseline module sealed")
+    pilot payload = v4_mir_snapshot()
+    v4_sum_contract_assert(payload.starts_with("mir-snapshot|format=freak-mir-snapshot-v9|") and payload.ends_with("end|freak-mir-snapshot-v9"), "exact current version")
+    if mode == "0" {
+        v4_sum_contract_assert(v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "current detached restore")
+        v4_sum_contract_assert(v4_mir_snapshot() == payload and v4_codegen_llvm_module_text(sealed, target) == module, "wire and old module exact")
+        pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_sum_contract_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module, "fresh restored module exact")
+        say "scalar-sum-contract 0=passed v9=true old-seal=true fresh-module=true"
+        give back
+    }
+    if mode == "old-version" {
+        pilot forged = v4_sum_contract_old_version(payload)
+        v4_sum_contract_assert(forged != payload and forged.starts_with("mir-snapshot|format=freak-mir-snapshot-v8|") and forged.ends_with("end|freak-mir-snapshot-v8"), "old version actually changed at both boundaries")
+        v4_sum_contract_assert(v4_mir_snapshot_restore(forged).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == payload and v4_codegen_llvm_module_text(sealed, target) == module, "old version rejects atomically")
+        say "scalar-sum-contract old-version=passed changed=true atomic=true old-seal=true"
+        give back
+    }
+    if mode == "pressure" {
+        pilot handles = array_new()
+        pilot next = array_new()
+        repeat until next < 0 { array_push(handles, word_from_int(next)); next = array_new() }
+        v4_sum_contract_assert(v4_mir_scalar_sum_plan_preflight(mir) == "scalar sum plan scratch exhausted", "direct Sum proof fails closed at exact scratch boundary")
+        pilot row = 0
+        repeat until row >= array_len(handles) { array_release(word_to_int(array_get(handles, row))); row += 1 }
+        array_release(handles)
+        v4_sum_contract_assert(v4_mir_snapshot() == payload and v4_codegen_llvm_module_text(sealed, target) == module, "pressure preserves source and old module")
+        pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_sum_contract_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module, "resource recovery fresh exact module")
+        say "scalar-sum-contract pressure=passed exact-scratch=true recovered=true old-seal=true"
+        give back
+    }
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    pilot constructor = v4_sum_contract_find(mir, body, v4_mir_rvalue_ok, "Ok")
+    pilot take = v4_sum_contract_find(mir, body, v4_mir_rvalue_sum_take, "TakeOk")
+    pilot observer = v4_sum_contract_find(mir, body, v4_mir_rvalue_check, "IsOk")
+    pilot call = v4_sum_contract_find(mir, body, v4_mir_rvalue_call, "relay")
+    v4_sum_contract_assert(constructor >= 0 and take >= 0 and observer >= 0 and call >= 0, "all forged rows selected by real kind and identity")
+    pilot value = take
+    pilot field = 6
+    pilot replacement = "TakeErr"
+    if mode == "take-result" { field = 10; replacement = "int" } else if mode == "take-source" { field = 7; replacement = word_from_int(v4_mir_rvalue_lhs(mir, body, constructor)) } else if mode == "take-cycle" { field = 7; replacement = word_from_int(take) } else if mode == "take-abi" { field = 11; replacement = "C" } else if mode == "take-args" { field = 12; replacement = "0" } else if mode == "observer-op" { value = observer; replacement = "HasSome" } else if mode == "observer-type" { value = observer; field = 10; replacement = "int" } else if mode == "constructor-tag" { value = constructor; replacement = "Err" } else if mode == "constructor-payload" { value = constructor; field = 7; replacement = "0" } else if mode == "constructor-type" { value = constructor; field = 10; replacement = "maybe<int>" } else if mode == "call-arity" { value = call; field = 12; replacement = "" } else if mode == "call-extra" { value = call; field = 12; replacement = v4_mir_rvalue_args_payload(mir, body, call) + ",0" } else if mode == "call-abi" { value = call; field = 11; replacement = "C" } else if mode == "call-result" { value = call; field = 10; replacement = "maybe<int>" } else if mode == "call-target" { value = call; replacement = "missing_relay" } else if mode == "local-id" { value = v4_mir_rvalue_lhs(mir, body, take); replacement = "local#999" } else if mode == "local-name" { value = v4_mir_rvalue_lhs(mir, body, take); field = 5; replacement = "forged" } else if mode != "take-tag" { panic("scalar-sum-contract unknown mode") }
+    pilot before = v4_mir_snapshot_rvalue_line(mir, body, value)
+    pilot changed = v4_sum_contract_field(before, field, replacement)
+    v4_sum_contract_assert(changed != before, "forgery field actually changes")
+    pilot parts = array_new()
+    pilot row = 0
+    pilot matches = 0
+    repeat until row >= v4_mir_snapshot_line_count(payload) {
+        pilot line = v4_mir_snapshot_line(payload, row)
+        if line == before { line = changed; matches += 1 }
+        if row > 0 { array_push(parts, "\n") }
+        array_push(parts, line)
+        row += 1
+    }
+    pilot forged = word_join(parts)
+    v4_sum_contract_assert(matches == 1 and forged != payload, "exactly one serialized row changed")
+    pilot generation = v4_session_semantic_restore_generation()
+    v4_sum_contract_assert(v4_mir_snapshot_restore(forged).starts_with("mir-snapshot-restore ok=0") and v4_session_semantic_restore_generation() == generation and v4_mir_snapshot() == payload, "detached forgery atomically rejected")
+    if field == 5 { array_set(v4_mir_body_rvalue_texts_handle(mir, body), value, replacement) } else if field == 6 { array_set(v4_mir_body_rvalue_ops_handle(mir, body), value, replacement) } else if field == 7 { array_set(v4_mir_body_rvalue_lhs_handle(mir, body), value, replacement) } else if field == 10 { v4_mir_set_rvalue_ty(mir, body, value, replacement) } else if field == 11 { v4_mir_set_rvalue_abi(mir, body, value, replacement) } else if field == 12 { v4_mir_set_rvalue_args_payload(mir, body, value, replacement) }
+    v4_sum_contract_assert(v4_mir_snapshot_rvalue_line(mir, body, value) == changed and v4_mir_word_plan_preflight(mir) != "", "same live forgery rejected")
+    pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_sum_contract_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, target) == "" and v4_codegen_llvm_module_text(sealed, target) == module, "no new module and old seal exact")
+    v4_sum_contract_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "valid payload recovers")
+    pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_sum_contract_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module, "fresh recovery module exact")
+    say "scalar-sum-contract " + mode + "=passed changed=true atomic=true live-rejected=true old-seal=true recovered=true"
+}
+v4_sum_contract_run()
