@@ -21,7 +21,7 @@ task v4_sum_operator_source(mode: int) -> word {
     give back source + " pilot comparison = " + expression + "\n give back 0\n" + chr(125) + "\n"
 }
 
-task v4_sum_operator_rejected(mir: int, target: int) -> bool {
+task v4_sum_operator_rejected(mir: int, target: word) -> bool {
     pilot codegen = v4_codegen_llvm_lower_owned_mir(0, mir)
     give back v4_codegen_llvm_native_module_error(codegen) == "native scalar sum equality is not yet supported" and v4_codegen_llvm_module_text(codegen, target) == ""
 }
