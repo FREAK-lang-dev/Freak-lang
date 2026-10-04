@@ -289,6 +289,57 @@ class WordBoundsOracles(unittest.TestCase):
         self.assertEqual(gate.GUARD_SOURCE.count('bounds_live(1);'), 3)
         self.assertIn('freak_v4_word_drop(value);\n    bounds_live(0);', gate.GUARD_SOURCE)
 
+    def test_raw_lf_and_crlf_fixture_preserve_program_bytes_and_closed_table(self):
+        lf = FIXTURE.read_bytes().decode("ascii").replace("\r\n", "\n")
+        expected = gate.fixture_sources(lf)
+        crlf = lf.replace("\n", "\r\n")
+        self.assertNotEqual(lf.encode(), crlf.encode())
+        for text in (lf, crlf):
+            with self.subTest(transport="CRLF" if text == crlf else "LF"):
+                self.assertEqual([source.encode("utf-8") for source in gate.fixture_sources(text)],
+                                 [source.encode("utf-8") for source in expected])
+                for faulty in (text.replace("chr(233)", "chr(234)", 1),
+                               text.replace("chr(233)", "chr(True)", 1),
+                               text.replace("chr(233)", "chr(233.0)", 1),
+                               text.replace("chr(233)", "chr(233, 1)", 1),
+                               text.replace("chr(233)", "__import__('os').system('false')", 1),
+                               text.replace("if case_id == 23", "if case_id == 22", 1)):
+                    with self.assertRaises(gate.GateError):
+                        gate.fixture_sources(faulty)
+
+    def test_generated_source_bytes_remain_exact_under_windows_text_io(self):
+        original_write, original_read = Path.write_text, Path.read_text
+        recipe = FIXTURE.read_bytes().decode("ascii").replace("\r\n", "\n")
+        expected = gate.fixture_sources(recipe)
+        def windows_write(path, text, encoding=None, errors=None, newline=None):
+            physical = text.replace("\n", "\r\n") if newline is None else text
+            return original_write(path, physical, encoding=encoding, errors=errors, newline="\n")
+        def raw_fixture_read(path, *args, **kwargs):
+            if path == FIXTURE:
+                return recipe.replace("\n", "\r\n")
+            return original_read(path, *args, **kwargs)
+        with tempfile.TemporaryDirectory() as temporary:
+            for plain in (False, True):
+                directory = Path(temporary) / str(plain)
+                with patch.object(Path, "write_text", windows_write), patch.object(Path, "read_text", raw_fixture_read):
+                    code, report, commands = self.mock_gate(directory, plain=plain)
+                self.assertEqual(code, 0, report.get("error"))
+                self.assertTrue(report["passed"])
+                gate.validate_report(report, not plain)
+                self.assertEqual([hashlib.sha256(source.encode()).hexdigest() for source in expected], report["source_sha256"])
+                for case, source in enumerate(expected):
+                    self.assertEqual((directory / f"case-{case}.fk").read_bytes(), source.encode("utf-8"))
+                    self.assertEqual((directory / f"case-{case}.ll").read_bytes(), module(case).encode("utf-8"))
+                self.assertEqual((directory / "bounds_guard.c").read_bytes(), gate.GUARD_SOURCE.encode("utf-8"))
+                self.assertEqual((directory / "abort_setup.c").read_bytes(), gate.ABORT_SETUP_SOURCE.encode("utf-8"))
+                names = ("audit_probe.c", "bounds_guard.c", "abort_setup.c", "guard_control.c")
+                if not plain:
+                    names += ("sanitizer_probe.c",)
+                for name in names:
+                    self.assertNotIn(b"\r", (directory / name).read_bytes())
+                runtime_count = len(gate.literal_assignment(ROOT / "freakc/v4_native_runtime.py", "SOURCE_NAMES"))
+                self.assertEqual(len(commands), 26 + 3 * (runtime_count + 103) + (0 if plain else 3))
+
     def test_report_rejects_missing_duplicate_flags_controls_or_input_drift(self):
         for sanitize in (False, True):
             valid = complete_report(sanitize); gate.validate_report(valid, sanitize)

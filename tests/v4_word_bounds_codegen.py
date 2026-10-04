@@ -673,6 +673,7 @@ def prefix(case: int) -> str:
 
 def fixture_sources(text: str) -> list[str]:
     """Read the closed literal/brace/Unicode fixture table; never eval source."""
+    text = text.replace("\r\n", "\n")
     def read(node: ast.AST) -> str:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return node.value
@@ -849,7 +850,7 @@ def run_gate(args, report: dict) -> Conservation:
         report["clang_identity"] = identity.stdout
         for case, source in enumerate(sources):
             saved = directory / f"case-{case}.fk"
-            saved.write_text(source, encoding="utf-8")
+            saved.write_text(source, encoding="utf-8", newline="\n")
             generated.append(saved)
             pins.track(saved)
         report["source_sha256"] = [hashlib.sha256(source.encode()).hexdigest() for source in sources]
@@ -883,7 +884,7 @@ def run_gate(args, report: dict) -> Conservation:
             emitted = runner.run([str(probe), str(case), target, "--emit"], f"emit case {case}")
             module = extract_module(emitted, case)
             llvm = directory / f"case-{case}.ll"
-            llvm.write_text(module, encoding="utf-8")
+            llvm.write_text(module, encoding="utf-8", newline="\n")
             modules.append(llvm)
             generated.append(llvm)
             pins.track(llvm)
@@ -892,16 +893,16 @@ def run_gate(args, report: dict) -> Conservation:
         audit.write_text('#include "freak_runtime.h"\n#include "freak_v4_word_runtime.h"\n'
                          'int main(int argc, char **argv) {\n if (argc != 2) return 9;\n'
                          ' if (argv[1][0] == \'C\') { volatile freak_word w = freak_word_from_int(7); (void)w; }\n'
-                         ' else { volatile int64_t w = freak_v4_word_from_int(7); (void)w; }\n return 0;\n}\n', encoding="utf-8")
+                         ' else { volatile int64_t w = freak_v4_word_from_int(7); (void)w; }\n return 0;\n}\n', encoding="utf-8", newline="\n")
         guard = directory / "bounds_guard.c"
-        guard.write_text(GUARD_SOURCE, encoding="utf-8")
+        guard.write_text(GUARD_SOURCE, encoding="utf-8", newline="\n")
         report["guard_source_sha256"] = sha(guard)
         startup = directory / "abort_setup.c"
-        startup.write_text(ABORT_SETUP_SOURCE, encoding="utf-8")
+        startup.write_text(ABORT_SETUP_SOURCE, encoding="utf-8", newline="\n")
         report["abort_setup_sha256"] = sha(startup)
         guard_control = directory / "guard_control.c"
         guard_control.write_text('void word_bounds_guard_control(void);\n'
-                                 'int main(void) { word_bounds_guard_control(); return 99; }\n', encoding="utf-8")
+                                 'int main(void) { word_bounds_guard_control(); return 99; }\n', encoding="utf-8", newline="\n")
         generated += [audit, guard, startup, guard_control]
         for path in (audit, guard, startup, guard_control):
             pins.track(path)
@@ -956,7 +957,7 @@ def run_gate(args, report: dict) -> Conservation:
             source = directory / "sanitizer_probe.c"
             source.write_text('#include <stdlib.h>\n#include <limits.h>\nint main(int argc, char **argv) {\n'
                               ' if (argc != 2) return 9;\n if (argv[1][0] == \'a\') { volatile char *p = malloc(1); free((void*)p); return p[0]; }\n'
-                              ' volatile int value = INT_MAX; volatile int one = 1; return value + one;\n}\n', encoding="utf-8")
+                              ' volatile int value = INT_MAX; volatile int one = 1; return value + one;\n}\n', encoding="utf-8", newline="\n")
             generated.append(source)
             pins.track(source)
             report["generated_input_hashes"][str(source.relative_to(directory))] = sha(source)
