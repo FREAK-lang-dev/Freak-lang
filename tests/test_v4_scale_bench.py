@@ -50,6 +50,19 @@ def synthetic_dynamic_elf_image(origin_path):
     return header + load + dynamic + tags + strings
 
 
+def synthetic_origin_flags_elf_image(tag, value, *, duplicate=False):
+    """Closed flag-only ELF metadata; no executable or loader proof."""
+    rows = [(tag, value)] * (2 if duplicate else 1) + [(0, 0)]
+    offset, length = 64 + 2 * 56, len(rows) * 16
+    size = offset + length
+    ident = b"\x7fELF\x02\x01\x01" + b"\0" * 9
+    header = struct.pack("<16sHHIQQQIHHHHHH", ident, 2, 62, 1, 0, 64, 0, 0,
+                         64, 56, 2, 0, 0, 0)
+    load = struct.pack("<IIQQQQQQ", 1, 4, 0, 0x400000, 0, size, size, 4096)
+    dynamic = struct.pack("<IIQQQQQQ", 2, 6, offset, 0x400000 + offset, 0, length, length, 8)
+    return header + load + dynamic + b"".join(struct.pack("<qQ", *row) for row in rows)
+
+
 @unittest.skipUnless(sys.platform.startswith("linux"), "Linux pinned ELF symbol reader")
 class SymbolToolSelection(unittest.TestCase):
     def setUp(self):
@@ -612,6 +625,167 @@ class SymbolToolSelection(unittest.TestCase):
             with self.subTest(tag=tag), self.assertRaisesRegex(RuntimeError, "unsupported LLVM symbol reader ELF loader dependency tag"):
                 self.benchmark.symbol_elf_origin_paths(io.BytesIO(image), len(image), self.work)
 
+    def test_restrictive_umask_preserves_private_image_and_spine_modes(self):
+        original_umask = os.umask
+        parser = self.benchmark.symbol_elf_origin_paths
+        clean_env = {key: value for key, value in os.environ.items() if not key.startswith("LD_")}
+        for origin in (False, True):
+            with self.subTest(origin=origin):
+                self.tool.write_bytes(synthetic_dynamic_elf_image("$ORIGIN") if origin else synthetic_elf_image())
+                selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                            "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+                modes, roots = [], []
+                def parse(stream, *args, **kwargs):
+                    modes.append(os.fstat(stream.fileno()).st_mode & 0o777)
+                    self.assertEqual(modes[-1], 0o600)
+                    return parser(stream, *args, **kwargs)
+                previous = original_umask(0o777)
+                try:
+                    with patch.dict(os.environ, clean_env, clear=True), \
+                            patch.object(self.benchmark.os, "umask", side_effect=AssertionError("production changed caller umask")), \
+                            patch.object(self.benchmark, "symbol_elf_origin_paths", side_effect=parse):
+                        try:
+                            with self.benchmark.frozen_symbol_tool_launch(selected) as launch:
+                                image = launch["image"]
+                                root, copied = Path(image["private_root"]), Path(image["private_copy"])
+                                roots.append(root)
+                                self.assertEqual(copied.stat().st_mode & 0o777, 0o500)
+                                directory = copied.parent
+                                while directory.is_relative_to(root):
+                                    self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+                                    directory = directory.parent
+                                self.assertEqual(image["origin_mirror_required"], origin)
+                        except OSError as error:
+                            self.fail(f"private launch failed under restrictive umask: {error}")
+                finally:
+                    original_umask(previous)
+                self.assertEqual(modes, [0o600])
+                self.assertEqual(len(roots), 1)
+                self.assertFalse(roots[0].exists())
+
+    @contextlib.contextmanager
+    def faulting_copy_stream(self, stage, close_error, body_error=None):
+        original_fdopen, original_open = os.fdopen, Path.open
+        parser = self.benchmark.symbol_elf_origin_paths
+        streams, closes = [], []
+        class Proxy:
+            def __init__(self, raw):
+                self.raw = raw
+                streams.append(raw)
+            def __getattr__(self, name):
+                return getattr(self.raw, name)
+            def write(self, data):
+                if stage == "private writer" and body_error is not None:
+                    raise body_error
+                return self.raw.write(data)
+            def close(self):
+                closes.append(self.raw.fileno())
+                self.raw.close()
+                raise close_error
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                self.close()
+        def source(descriptor, *args, **kwargs):
+            raw = original_fdopen(descriptor, *args, **kwargs)
+            return Proxy(raw) if stage == "original source" else raw
+        def opened(path, mode="r", *args, **kwargs):
+            raw = original_open(path, mode, *args, **kwargs)
+            if path.name == "image" and ((mode == "xb" and stage == "private writer")
+                                         or (mode == "rb" and stage == "private metadata")):
+                return Proxy(raw)
+            return raw
+        def parsed(*args, **kwargs):
+            if body_error is not None and stage != "private writer":
+                raise body_error
+            return parser(*args, **kwargs)
+        try:
+            with patch.object(self.benchmark.os, "fdopen", side_effect=source), \
+                    patch.object(Path, "open", opened), \
+                    patch.object(self.benchmark, "symbol_elf_origin_paths", side_effect=parsed):
+                yield streams, closes
+        finally:
+            # Exact predecessor replay can mask the primary but must not leak.
+            for raw in streams:
+                if not raw.closed:
+                    raw.close()
+
+    def test_copy_stream_close_fault_preserves_primary_and_cancellation(self):
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        for stage in ("original source", "private writer", "private metadata"):
+            for failure_type in (RuntimeError, MemoryError, KeyboardInterrupt):
+                for bad_notes in (False, True):
+                    with self.subTest(stage=stage, failure=failure_type.__name__, bad_notes=bad_notes):
+                        primary = failure_type("copy or validation failed first")
+                        cause = ValueError("original attributed cause")
+                        primary.__cause__ = cause
+                        if bad_notes:
+                            primary.__notes__ = object()
+                        secondary = OSError(errno.EINTR, "already closed " + "x" * 1024)
+                        with self.faulting_copy_stream(stage, secondary, primary) as (streams, closes), \
+                                self.assertRaises(BaseException) as failure:
+                            with self.benchmark.frozen_symbol_tool_launch(selected):
+                                self.fail("failed stream reached launch")
+                        self.assertIs(failure.exception, primary)
+                        self.assertIs(primary.__cause__, cause)
+                        self.assertEqual(len(streams), 1)
+                        self.assertEqual(len(closes), 1)
+                        self.assertTrue(streams[0].closed)
+                        if not bad_notes:
+                            self.assertEqual(len(primary.__notes__), 1)
+                            self.assertIn(stage + " stream close failure: errno=4", primary.__notes__[0])
+                            self.assertLessEqual(len(primary.__notes__[0]), 380)
+
+    def test_copy_stream_close_only_faults_are_named_or_keep_cancellation(self):
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        for stage in ("original source", "private writer", "private metadata"):
+            for kind in (OSError, MemoryError, KeyboardInterrupt):
+                with self.subTest(stage=stage, close_failure=kind.__name__):
+                    secondary = kind(errno.EINTR, "already closed") if kind is OSError else kind("close cancellation")
+                    with self.faulting_copy_stream(stage, secondary) as (streams, closes), \
+                            self.assertRaises(BaseException) as failure:
+                        with self.benchmark.frozen_symbol_tool_launch(selected):
+                            self.fail("close-only stream failure reached launch")
+                    if kind is OSError:
+                        self.assertIsInstance(failure.exception, RuntimeError)
+                        self.assertIn(stage + " stream close failed", str(failure.exception))
+                        self.assertIs(failure.exception.__cause__, secondary)
+                    else:
+                        self.assertIs(failure.exception, secondary)
+                    self.assertEqual(len(closes), 1)
+                    self.assertEqual(len(streams), 1)
+                    self.assertTrue(streams[0].closed)
+
+    def test_origin_dynamic_flags_require_full_mirror_and_closed_rows(self):
+        clean_env = {key: value for key, value in os.environ.items() if not key.startswith("LD_")}
+        for tag, bit, label in ((30, 1, "DT_FLAGS:DF_ORIGIN"),
+                                (0x6ffffffb, 0x80, "DT_FLAGS_1:DF_1_ORIGIN")):
+            with self.subTest(tag=tag):
+                image = synthetic_origin_flags_elf_image(tag, bit)
+                evidence = []
+                self.assertEqual(self.benchmark.symbol_elf_origin_paths(io.BytesIO(image), len(image), self.work,
+                                                                      origin_evidence=evidence), [])
+                self.assertEqual(evidence, [label])
+                self.tool.write_bytes(image)
+                selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                            "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+                with patch.dict(os.environ, clean_env, clear=True), self.benchmark.frozen_symbol_tool_launch(selected) as launch:
+                    self.assertTrue(launch["image"]["origin_mirror_required"])
+                    self.assertGreater(launch["image"]["shadow_entries"], 0)
+                    self.assertIn(label, launch["image"]["origin_evidence"])
+                no_origin = synthetic_origin_flags_elf_image(tag, 0)
+                evidence = []
+                self.assertEqual(self.benchmark.symbol_elf_origin_paths(io.BytesIO(no_origin), len(no_origin), self.work,
+                                                                      origin_evidence=evidence), [])
+                self.assertEqual(evidence, [])
+                for value, duplicate in ((bit, True), (1 << 32, False)):
+                    invalid = synthetic_origin_flags_elf_image(tag, value, duplicate=duplicate)
+                    with self.subTest(value=value, duplicate=duplicate), \
+                            self.assertRaisesRegex(RuntimeError, "unsupported LLVM symbol reader ELF origin flags"):
+                        self.benchmark.symbol_elf_origin_paths(io.BytesIO(invalid), len(invalid), self.work)
+
     def test_shebang_tool_rejected_before_execution(self):
         self.tool.write_bytes(b"#!/usr/bin/env python3\nprint('LLVM version 19')\n")
         with patch.object(self.benchmark.shutil, "which", return_value=str(self.tool)), \
@@ -999,6 +1173,61 @@ class SymbolToolSelection(unittest.TestCase):
                 self.work / (image.name + "-build"), "native multicall image", 10, 128, 8)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
         return build, calls, replacement
+
+    def test_origin_flag_keeps_adjacent_dlopen_plugin(self):
+        clang = shutil.which("clang")
+        self.assertIsNotNone(clang, "native origin flag regression prerequisite missing: clang; install Clang")
+        build = self.benchmark.load_build(ROOT)
+        plugin_source = self.work / "origin-flag-plugin.c"
+        plugin_source.write_text("int origin_flag_value(void) { return 313; }\n")
+        plugin = self.work / "origin-flag-plugin.so"
+        result = self.benchmark.guarded_job(build,
+            [clang, "-shared", "-fPIC", str(plugin_source), "-o", str(plugin)],
+            self.work / "origin-flag-plugin-build", "native origin flag plugin", 30, 128, 8)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        source = self.work / "origin-flag-tool.c"
+        source.write_text(
+            '#include <dlfcn.h>\n#include <stdio.h>\n#include <string.h>\n'
+            'int main(int argc, char **argv) {\n'
+            '    void *plugin = dlopen("$ORIGIN/origin-flag-plugin.so", RTLD_NOW);\n'
+            '    if (!plugin) { fputs("origin plugin unavailable\\n", stderr); return 71; }\n'
+            '    int (*value)(void) = (int (*)(void))dlsym(plugin, "origin_flag_value");\n'
+            '    if (!value || value() != 313) return 72;\n'
+            '    if (dlclose(plugin)) return 73;\n'
+            '    const char *leaf = strrchr(argv[0], \'/\');\n'
+            '    if (strcmp(leaf ? leaf + 1 : argv[0], "llvm-nm")) return 64;\n'
+            '    if (argc == 2 && !strcmp(argv[1], "--version")) {\n'
+            f'        fputs({json.dumps(LLVM_VERSION)}, stdout); return 0;\n'
+            '    }\n'
+            '    if (argc == 4 && !strcmp(argv[1], "-g") && !strcmp(argv[2], "--defined-only")) {\n'
+            '        puts("00000000 T origin_flag_export"); return 0;\n'
+            '    }\n'
+            '    return 65;\n}\n')
+        result = self.benchmark.guarded_job(build,
+            [clang, str(source), "-Wl,-z,origin", "-ldl", "-o", str(self.tool)],
+            self.work / "origin-flag-tool-build", "native origin flag image", 30, 128, 8)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        alias = self.work / "llvm-nm"
+        alias.symlink_to(self.tool)
+        with self.tool.open("rb") as image:
+            evidence = []
+            self.assertEqual(self.benchmark.symbol_elf_origin_paths(image, self.tool.stat().st_size,
+                                                                  self.tool.parent, origin_evidence=evidence), [])
+        original = self.benchmark.guarded_job(build, [str(alias), "--version"],
+            self.work / "origin-flag-original", "original origin flag image", 5, 128, 1,
+            executable=str(self.tool))
+        self.assertEqual((original.returncode, original.stdout, original.stderr), (0, LLVM_VERSION, ""))
+        with patch.object(self.benchmark.shutil, "which", return_value=str(alias)):
+            selected = self.benchmark.llvm_symbol_tool(build, self.work / "origin-flag-selection", 10)
+        exports = self.benchmark.defined_symbols(build, self.obj, self.work / "origin-flag-symbols", 10,
+                                                symbol_tool=selected)
+        self.assertEqual(exports, {"origin_flag_export"})
+        self.assertTrue(set(evidence) & {"DT_FLAGS:DF_ORIGIN", "DT_FLAGS_1:DF_1_ORIGIN"})
+        for directory in ("origin-flag-selection/tool-version", "origin-flag-symbols"):
+            image = json.loads((self.work / directory / "image.json").read_text())
+            self.assertTrue(image["origin_mirror_required"])
+            self.assertTrue(set(image["origin_evidence"]) & {"DT_FLAGS:DF_ORIGIN", "DT_FLAGS_1:DF_1_ORIGIN"})
+            self.assertFalse(Path(image["private_root"]).exists())
 
     def test_original_inplace_mutation_executes_copy_and_rejects_old_held_inode_strategy(self):
         build, calls, replacement = self.native_multicall_images(with_origin=True)

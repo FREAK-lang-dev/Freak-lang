@@ -457,6 +457,15 @@ def symbol_elf_origin_paths(stream, size: int, origin: Path, *, origin_evidence=
     else:
         raise RuntimeError("unterminated LLVM symbol reader ELF dynamic table")
     paths = [value for tag, value in tags if tag in (15, 29)]
+    # -z origin may authorize later dlopen origin lookups without a path-list
+    # or DT_NEEDED token. Such images require the existing full origin mirror.
+    for wanted, bit, name in ((30, 1, "DT_FLAGS:DF_ORIGIN"),
+                              (0x6ffffffb, 0x80, "DT_FLAGS_1:DF_1_ORIGIN")):
+        values = [value for tag, value in tags if tag == wanted]
+        if len(values) > 1 or any(value > 0xffffffff for value in values):
+            raise RuntimeError("unsupported LLVM symbol reader ELF origin flags")
+        if values and values[0] & bit and origin_evidence is not None:
+            origin_evidence.append(name)
     # Other string-bearing loader-dependency tags need a separate contract;
     # do not misclassify an unmodeled origin source as a no-origin image.
     if any(tag in (0x6ffffefb, 0x6ffffefc, 0x7ffffffd, 0x7fffffff) for tag, _ in tags):
@@ -508,6 +517,7 @@ def symbol_shadow_origin(tool: Path, private_root: Path, *, uses_origin=True) ->
         raise RuntimeError("unsupported LLVM symbol reader shadow-origin path depth")
     original, shadow = Path(tool.anchor), private_root / "tree"
     shadow.mkdir(mode=0o700)
+    shadow.chmod(0o700)
     entries = 0
     for index, component in enumerate(tool.parts[1:]):
         final = index == len(tool.parts) - 2
@@ -529,12 +539,43 @@ def symbol_shadow_origin(tool: Path, private_root: Path, *, uses_origin=True) ->
         original = original / component
         shadow = shadow / component
         shadow.mkdir(mode=0o700)
+        shadow.chmod(0o700)
     raise RuntimeError("invalid LLVM symbol reader shadow-origin image path")
 
 
 def close_symbol_descriptor(descriptor: int) -> None:
     """One close attempt for this call's launch descriptor, separate from rmtree."""
     os.close(descriptor)
+
+
+@contextmanager
+def symbol_copy_stream(stream, stage: str):
+    """Own an adopted stream through one close attempt, retaining first failure."""
+    primary = None
+    try:
+        yield stream
+    except BaseException as error:
+        primary = error
+        raise
+    finally:
+        try:
+            stream.close()
+        except BaseException as close_error:
+            if primary is None:
+                if isinstance(close_error, OSError):
+                    raise RuntimeError(f"LLVM symbol reader {stage} stream close failed") from close_error
+                raise
+            # A buffered writer can fail while flushing; an original/metadata
+            # reader can fail while closing. Never retry a possibly released FD
+            # or replace the copy/validation failure with optional attribution.
+            try:
+                number = close_error.errno if isinstance(close_error, OSError) else None
+                detail = close_error.strerror if isinstance(close_error, OSError) else type(close_error).__name__
+                detail = detail[:256] if isinstance(detail, str) else "unavailable"
+                BaseException.add_note(primary,
+                    f"secondary LLVM symbol reader {stage} stream close failure: errno={number}; {detail}")
+            except BaseException:
+                pass
 
 
 @contextmanager
@@ -574,7 +615,7 @@ def frozen_symbol_tool_launch(provenance: dict):
                 except BaseException:
                     pass
             raise
-        with source:
+        with symbol_copy_stream(source, "original source"):
             before = os.fstat(source.fileno())
             if not stat.S_ISREG(before.st_mode):
                 raise RuntimeError("pinned LLVM symbol reader must be a regular ELF image")
@@ -584,7 +625,8 @@ def frozen_symbol_tool_launch(provenance: dict):
             digest = hashlib.sha256()
             source.seek(0)
             copied = 0
-            with staged_image.open("xb") as writer:
+            with symbol_copy_stream(staged_image.open("xb"), "private writer") as writer:
+                os.fchmod(writer.fileno(), 0o600)
                 while chunk := source.read(64 * 1024):
                     copied += len(chunk)
                     if copied > before.st_size:
@@ -599,7 +641,7 @@ def frozen_symbol_tool_launch(provenance: dict):
             if copied != expected["size_bytes"] or digest.hexdigest() != expected["sha256"]:
                 raise RuntimeError("frozen LLVM symbol tool changed or became unavailable")
             origin_evidence = []
-            with staged_image.open("rb") as image_stream:
+            with symbol_copy_stream(staged_image.open("rb"), "private metadata") as image_stream:
                 origin_paths = symbol_elf_origin_paths(image_stream, copied, tool.parent,
                                                       origin_evidence=origin_evidence)
             uses_origin = symbol_loader_origin(tool.parent) or bool(origin_evidence)
@@ -638,6 +680,7 @@ def frozen_symbol_tool_launch(provenance: dict):
                  "private_directory_mode": "0700", "image_mode": "0500",
                  "sealed": False, "shadow_entries": shadow_entries, "origin_paths": origin_paths,
                  "origin_mirror_required": uses_origin,
+                 "origin_evidence": origin_evidence,
                  "original_image": {"device": after.st_dev, "inode": after.st_ino,
                                     "size_bytes": after.st_size, "sha256": digest.hexdigest()},
                  "identity_guarantee": "private copy is independent of selected-original writes/replacement; "
