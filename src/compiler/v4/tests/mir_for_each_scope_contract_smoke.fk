@@ -2,6 +2,24 @@
 task v4_for_each_scope_assert(condition: bool, label: word) -> void {
     if not condition { panic("for-each-scope " + label) }
 }
+task v4_for_each_scope_local_identities(mir: int) -> bool {
+    pilot body = 0
+    pilot seen = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        pilot row = 0
+        repeat until row >= v4_mir_body_rvalue_count(mir, body) {
+            if v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_use_local {
+                pilot local = v4_mir_rvalue_local_id(mir, body, row)
+                if local < 0 or local >= v4_mir_body_local_count(mir, body) { give back false }
+                if v4_mir_rvalue_op(mir, body, row) != "local#" + word_from_int(local) or v4_mir_rvalue_text(mir, body, row) != v4_mir_local_name(mir, body, local) or v4_mir_rvalue_ty(mir, body, row) != v4_mir_local_ty(mir, body, local) { give back false }
+                seen += 1
+            }
+            row += 1
+        }
+        body += 1
+    }
+    give back seen > 0
+}
 task v4_for_each_scope_run() -> void {
     pilot mode = process::arg(1)
     pilot source = ("task rows(value: word) -> [word; 1] " + chr(123) + " give back [value] " + chr(125) + "\ntask main() -> int " + chr(123) + " pilot source = \"first\"; for each item in rows(source) " + chr(123) + " source = \"again\" " + chr(125) + "; give back 0 " + chr(125) + "\n")
@@ -10,6 +28,7 @@ task v4_for_each_scope_run() -> void {
     if mode == "3" { source = ("task main() -> int " + chr(123) + " pilot rows = [1, 2]; for each item in rows " + chr(123) + " pilot nested = item " + chr(125) + "; pilot after = 0; give back after " + chr(125) + "\n") }
     pilot mir = v4_mir_text_cached("for-each-scope.fk", source)
     v4_for_each_scope_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
+    v4_for_each_scope_assert(v4_for_each_scope_local_identities(mir), "source local identities are canonical")
     v4_for_each_scope_assert(v4_mir_word_plan_preflight(mir) == "", "live scope preflight")
     pilot body = v4_mir_lookup_body_name(mir, "main")
     pilot header = -1
@@ -55,7 +74,10 @@ task v4_for_each_scope_run() -> void {
         v4_for_each_scope_assert(power >= 0 and v4_mir_local_ty(mir, body, power) == v4_ty_int and v4_mir_local_ty(mir, body, local) == v4_ty_word and v4_mir_local_scope_span(mir, body, power) == loop_scope, "tuple binding types and lexical scope")
     }
     pilot snapshot = v4_mir_snapshot()
-    v4_for_each_scope_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot and v4_mir_word_plan_preflight(mir) == "", "scope wire roundtrip exact")
+    pilot restored = v4_mir_snapshot_restore(snapshot)
+    v4_for_each_scope_assert(restored.starts_with("mir-snapshot-restore ok=1"), "scope wire admitted")
+    v4_for_each_scope_assert(v4_mir_snapshot() == snapshot, "scope wire roundtrip exact")
+    v4_for_each_scope_assert(v4_mir_word_plan_preflight(mir) == "" and v4_for_each_scope_local_identities(mir), "restored scope and local identities are canonical")
     pilot fresh = v4_borrowck_check_mir(0, mir)
     v4_for_each_scope_assert(v4_borrowck_diag_count(fresh) == 0, "fresh restored Meiya plan")
     say "for-each-scope case=" + mode + " frontend=true preflight=true binding=true visibility=true edges=true Meiya=true restore=true"

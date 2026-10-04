@@ -1128,7 +1128,10 @@ task v4_mir_place_read_rvalue(mir_id: int, body_id: int, place_id: int, span: wo
     pilot place_text = v4_mir_place_text(mir_id, body_id, place_id)
     pilot place_ty = v4_mir_place_ty(mir_id, body_id, place_id)
     if place_kind == v4_mir_place_local {
-        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, place_text, place_text, 0 - 1, 0 - 1, span, place_ty)
+        -- Synthetic reads carry the same exact identity as expression reads.
+        -- Names remain display text; shadowing and wire admission use the ID.
+        pilot identity = "local#" + word_from_int(v4_mir_place_base(mir_id, body_id, place_id))
+        give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, place_text, identity, 0 - 1, 0 - 1, span, place_ty)
     }
     if place_kind == v4_mir_place_field or place_kind == v4_mir_place_index {
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_place, place_text, place_text, place_id, 0 - 1, span, place_ty)
