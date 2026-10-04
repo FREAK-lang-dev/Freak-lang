@@ -33,13 +33,14 @@ and general deferred cleanup also remain open.
   endpoint. Both `when` and `check route` producers are fixed. Fourteen focused
   cases, including setup-proven hostile snapshots, pass on the integration
   checkout. Structural validation remains strict.
-- The region fixture currently produces 44 diagnostics rather than its old 45.
-  Original and diagnostic-instrumented compiler images produce identical
-  output. Full membership and the old LocalID/PlaceID collision are being
-  checked before an exact regression updates that expectation.
+- The region fixture produces 44 diagnostics rather than its old 45. Original
+  and diagnostic-instrumented images produce identical output. Full membership
+  and actual old/new helper execution establish a false LocalID/PlaceID
+  collision; focused regressions preserve the real loan conflict and reject
+  the false carrier-move error.
 - The drop fixture correctly blocks repeated consumption of an owned Word in
-  a loop. Its exact single diagnostic and local-declaration span are being
-  pinned before replacing the old clean expectation.
+  a loop. Focused execution passes the exact single diagnostic, help and
+  local-declaration span, alongside the preserved drop/DropIf ordering facts.
 - Independent review blocked the first closed Sum checkpoint: native equality
   could emit an invalid aggregate `icmp`, downstream builtin identities omitted
   available binding eligibility, and inner payload aliases had inconsistent
