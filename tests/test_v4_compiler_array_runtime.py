@@ -258,6 +258,121 @@ class CompilerArrayOracleTests(unittest.TestCase):
             self.assertIs(caught.exception, primary)
             self.assertIs(caught.exception.__cause__, primary.__cause__)
 
+    def test_environment_cleanup_preserves_primary_and_attempts_every_restore(self):
+        names = ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTIONS", "PYTHONPYCACHEPREFIX", "PYTHONDONTWRITEBYTECODE")
+        for primary_type in (RuntimeError, KeyboardInterrupt):
+            for cleanup_type in (MemoryError, KeyboardInterrupt):
+                with self.subTest(primary=primary_type.__name__, cleanup=cleanup_type.__name__), tempfile.TemporaryDirectory() as tmp:
+                    primary = primary_type("body")
+                    primary.__cause__ = ValueError("original cause")
+                    secondary = cleanup_type("restore")
+                    attempted = []
+                    saved = {name: "saved-" + name for name in names}
+                    class RestoreFault(dict):
+                        def __setitem__(self, name, value):
+                            if value == saved.get(name):
+                                attempted.append(name)
+                                if name == "ASAN_OPTIONS":
+                                    raise secondary
+                            super().__setitem__(name, value)
+                    with mock.patch.object(gate.os, "environ", RestoreFault(saved)):
+                        try:
+                            with gate.proof_environment(Path(tmp), True):
+                                raise primary
+                        except BaseException as propagated:
+                            self.assertIs(propagated, primary)
+                            self.assertIs(propagated.__cause__, primary.__cause__)
+                        else:
+                            self.fail("body failure was swallowed")
+                    self.assertEqual(attempted, list(names))
+        # With successful body, the first cleanup failure remains primary while
+        # every remaining independent restore is still attempted.
+        for first_type in (MemoryError, KeyboardInterrupt):
+            with self.subTest(success_body_first_cleanup=first_type.__name__), tempfile.TemporaryDirectory() as tmp:
+                saved = {name: "saved-" + name for name in names}
+                first, second = first_type("first restore"), MemoryError("later restore")
+                first.__cause__ = ValueError("first cleanup cause")
+                attempted = []
+                class RestoreFault(dict):
+                    def __setitem__(self, name, value):
+                        if value == saved.get(name):
+                            attempted.append(name)
+                            if name == "ASAN_OPTIONS":
+                                raise first
+                            if name == "LSAN_OPTIONS":
+                                raise second
+                        super().__setitem__(name, value)
+                with mock.patch.object(gate.os, "environ", RestoreFault(saved)):
+                    try:
+                        with gate.proof_environment(Path(tmp), True):
+                            pass
+                    except BaseException as propagated:
+                        self.assertIs(propagated, first)
+                        self.assertIs(propagated.__cause__, first.__cause__)
+                    else:
+                        self.fail("cleanup failure was swallowed")
+                self.assertEqual(attempted, list(names))
+
+    def test_each_guarded_job_rejects_transient_source_binary_and_selected_alias_drift(self):
+        original_legacy = (gate.ROOT / "freakc/runtime/freak_llvm_runtime.c").read_bytes()
+        for mutation in ("source", "binary", "alias"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as tmp:
+                repo = Path(tmp)
+                legacy = repo / "freakc/runtime/freak_llvm_runtime.c"
+                legacy.parent.mkdir(parents=True)
+                legacy.write_bytes(original_legacy)
+                source = repo / "source.txt"
+                source.write_bytes(b"frozen source")
+                selected, image, replacement = (repo / name for name in ("selected-clang", "real-clang", "other-clang"))
+                selected.write_bytes(b"simulated selected name")
+                image.write_bytes(b"frozen compiler image")
+                replacement.write_bytes(b"different compiler image")
+                retargeted = False
+                calls = []
+                original_resolve = Path.resolve
+                def resolve(path, *args, **kwargs):
+                    if path == selected:
+                        return replacement if retargeted else image
+                    return original_resolve(path, *args, **kwargs)
+                def guarded(command, **kwargs):
+                    nonlocal retargeted
+                    calls.append(command)
+                    if "-o" in command:
+                        Path(command[command.index("-o") + 1]).write_bytes(kwargs["label"].encode())
+                        if len(calls) == 1 and mutation == "source":
+                            source.write_bytes(b"source changed between compile jobs")
+                        elif len(calls) == 2 and mutation == "source":
+                            source.write_bytes(b"frozen source")
+                        if len(calls) == 1 and mutation == "alias":
+                            retargeted = True
+                        return self.result()
+                    case = command[-1]
+                    if case == "normal" and mutation == "binary":
+                        Path(command[0]).write_bytes(b"changed pressure executable")
+                    elif case == "quota" and mutation == "binary":
+                        Path(command[0]).write_bytes(b"compile pressure O0")
+                    if case == "normal" or case in gate.PROFILE_ROWS:
+                        return self.result(stdout=gate.positive_stdout(case))
+                    if case in gate.EXIT_CASES:
+                        return self.result(1, stderr=gate.EXIT_CASES[case].encode())
+                    if case in gate.ABORT_CASES:
+                        return self.result(-signal.SIGABRT, stderr=f"FREAK: V4 word panic: {gate.ABORT_CASES[case]}\n".encode())
+                    kind = "C" if case == "audit-c-word" else "LLVM"
+                    return self.result(87 if kind == "C" else 86,
+                                       stderr=f"FREAK: {kind} ownership audit found 1 unreleased word allocation(s)\n".encode())
+                report = {"sanitized": False, "flags": {}, "production": [], "positives": [],
+                          "rejections": [], "capabilities": []}
+                with mock.patch.object(sys, "platform", "linux"), mock.patch.object(gate, "ROOT", repo), \
+                        mock.patch.object(gate, "head_identity", return_value="a" * 40), \
+                        mock.patch.object(gate, "source_paths", return_value=(source, legacy)), \
+                        mock.patch.object(Path, "resolve", resolve), \
+                        mock.patch.object(gate, "load_checks", return_value=SimpleNamespace(run_with_heartbeat=guarded)), \
+                        gate.proof_environment(repo, False) as prefix:
+                    with self.assertRaisesRegex(AssertionError, "identity changed"):
+                        gate.run_gate(SimpleNamespace(clang=str(selected), plain=True), repo, report, prefix)
+                self.assertNotIn("final_conservation", report)
+                self.assertLess(len(calls), 81, "transient corruption must stop before complete matrix")
+
     def test_environment_restored_after_cancellation_without_cache_writes(self):
         names = ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTIONS", "PYTHONPYCACHEPREFIX", "PYTHONDONTWRITEBYTECODE")
         before = {name: os.environ.get(name) for name in names}
@@ -295,6 +410,32 @@ class CompilerArrayOracleTests(unittest.TestCase):
                     with self.assertRaises(type(primary)) as caught:
                         gate.main()
                 self.assertIs(caught.exception, primary)
+                self.assertNotIn("PASS", output.getvalue())
+
+    def test_publication_drift_is_rechecked_before_any_final_pass(self):
+        for changed_when in ("before-publication", "during-publication"):
+            with self.subTest(phase=changed_when), tempfile.TemporaryDirectory() as tmp:
+                source = Path(tmp) / "controlled-source"
+                source.write_bytes(b"frozen source")
+                digest = gate.sha(source)
+                directory = Path(tmp) / "fresh"
+                output = io.StringIO()
+                class ReturnedIdentity:
+                    def pin(self, **kwargs):
+                        if gate.sha(source) != digest:
+                            raise AssertionError("publication source identity changed")
+                identity = ReturnedIdentity()
+                def verified(*args):
+                    if changed_when == "before-publication":
+                        source.write_bytes(b"changed on environment restore boundary")
+                    return identity
+                def publisher(*args):
+                    source.write_bytes(b"changed while publishing artifacts")
+                with mock.patch.object(sys, "argv", ["gate", "--plain", "--clang", "mock-clang", "--work", str(directory)]), \
+                        mock.patch.object(gate, "run_gate", side_effect=verified), \
+                        mock.patch.object(gate, "publish", side_effect=publisher), redirect_stdout(output):
+                    with self.assertRaisesRegex(AssertionError, "publication source identity changed"):
+                        gate.main()
                 self.assertNotIn("PASS", output.getvalue())
 
     def test_missing_clang_and_nonlinux_sanitizer_are_explicit_failures(self):

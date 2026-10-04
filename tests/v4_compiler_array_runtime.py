@@ -218,12 +218,32 @@ def proof_environment(directory: Path, sanitized: bool):
             os.environ["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1:exitcode=88"
         yield prefix
     finally:
-        sys.pycache_prefix, sys.dont_write_bytecode = old_prefix, old_write
+        primary = sys.exception()
+        first_cleanup = None
+
+        def restore(action):
+            nonlocal first_cleanup
+            try:
+                action()
+            except BaseException as error:
+                if first_cleanup is None:
+                    first_cleanup = error
+                target = primary if primary is not None else first_cleanup
+                if target is not error:
+                    try:
+                        BaseException.add_note(target, "private array environment cleanup: " + type(error).__name__)
+                    except BaseException:
+                        pass
+
+        restore(lambda: setattr(sys, "pycache_prefix", old_prefix))
+        restore(lambda: setattr(sys, "dont_write_bytecode", old_write))
         for name, value in previous.items():
             if value is None:
-                os.environ.pop(name, None)
+                restore(lambda name=name: os.environ.pop(name, None))
             else:
-                os.environ[name] = value
+                restore(lambda name=name, value=value: os.environ.__setitem__(name, value))
+        if primary is None and first_cleanup is not None:
+            raise first_cleanup
 
 
 def load_checks():
@@ -242,50 +262,93 @@ def load_checks():
     return module
 
 
+class ProofIdentity:
+    def __init__(self, paths, selected: Path, resolved: Path, prefix: Path, *, head=None, sources=None):
+        self.head = head_identity() if head is None else head
+        self.sources = {str(path.relative_to(ROOT)): sha(path) for path in paths} if sources is None else dict(sources)
+        self.selected, self.resolved, self.prefix = selected, resolved, prefix
+        self.tool_sha = sha(resolved)
+        self.artifacts = {}
+
+    def pin(self, *, check_imports=True):
+        if (head_identity() != self.head or self.selected.resolve(strict=True) != self.resolved or
+                sha(self.resolved) != self.tool_sha or self.prefix.exists() or
+                (check_imports and (sys.pycache_prefix != str(self.prefix) or not sys.dont_write_bytecode or
+                 os.environ.get("PYTHONPYCACHEPREFIX") != str(self.prefix) or
+                 os.environ.get("PYTHONDONTWRITEBYTECODE") != "1")) or
+                any(sha(ROOT / path) != digest for path, digest in self.sources.items()) or
+                any(sha(path) != digest for path, digest in self.artifacts.items())):
+            raise AssertionError("source/tool/binary/cache identity changed during native proof")
+
+    def seal(self, path: Path):
+        if path in self.artifacts:
+            raise AssertionError("compiled artifact identity was already published")
+        self.artifacts[path] = sha(path)
+
+
 class Runner:
-    def __init__(self, checks, directory: Path):
+    def __init__(self, checks, directory: Path, identity=None):
         self.checks, self.directory, self.serial = checks, directory, 0
+        self.identity = identity
 
     def run(self, command: list[str], label: str, *, compile_job: bool = False):
         self.serial += 1
         stem = self.directory / f"{self.serial:03d}-{re.sub(r'[^a-zA-Z0-9_-]', '-', label)}"
         timeout = COMPILE_SECONDS if compile_job else RUN_SECONDS
         memory = COMPILE_MIB if compile_job else RUN_MIB
-        stem.with_suffix(".command.json").write_text(json.dumps(
-            {"argv": command, "timeout_seconds": timeout, "memory_limit_mib": memory,
-             "output_limit_mib_per_stream": 8}, indent=2) + "\n")
+        result = None
         try:
+            if self.identity:
+                self.identity.pin()
+            stem.with_suffix(".command.json").write_text(json.dumps(
+                {"argv": command, "timeout_seconds": timeout, "memory_limit_mib": memory,
+                 "output_limit_mib_per_stream": 8}, indent=2) + "\n")
+            if self.identity:
+                self.identity.pin()
             result = self.checks.run_with_heartbeat(command, label=label, timeout_seconds=timeout,
                                                   memory_limit_mb=memory, output_limit_mb=8)
+            if self.identity:
+                self.identity.pin()
+                if compile_job and result.returncode == 0:
+                    self.identity.seal(Path(command[command.index("-o") + 1]))
+            stem.with_suffix(".stdout").write_bytes(output_bytes(result.stdout))
+            stem.with_suffix(".stderr").write_bytes(output_bytes(result.stderr))
+            stem.with_suffix(".result.json").write_text(json.dumps({"exit": result.returncode}) + "\n")
+            if self.identity:
+                self.identity.pin()
         except BaseException:
             # Central guard owns reaping and structured first-cause output.
             # Optional artifact attribution must not mask cancellation/failure.
             error = sys.exception()
             for suffix, attribute in (("failure.txt", None), ("stdout", "output"), ("stderr", "stderr")):
                 try:
-                    value = type(error).__name__ + "\n" if attribute is None else getattr(error, attribute, None)
+                    if attribute is None:
+                        value = type(error).__name__ + "\n"
+                    elif result is not None:
+                        value = getattr(result, "stdout" if attribute == "output" else attribute)
+                    else:
+                        value = getattr(error, attribute, None)
                     if value is not None:
                         stem.with_suffix("." + suffix).write_bytes(output_bytes(value))
                 except BaseException:
                     pass
             raise
-        stem.with_suffix(".stdout").write_bytes(output_bytes(result.stdout))
-        stem.with_suffix(".stderr").write_bytes(output_bytes(result.stderr))
-        stem.with_suffix(".result.json").write_text(json.dumps({"exit": result.returncode}) + "\n")
         return result
 
 
-def run_gate(args, directory: Path, report: dict, prefix: Path) -> None:
+def run_gate(args, directory: Path, report: dict, prefix: Path) -> ProofIdentity:
     paths = source_paths()
     head = head_identity()
     frozen = {str(path.relative_to(ROOT)): sha(path) for path in paths}
     report.update({"head": head, "source_hashes": frozen, "source_cache": str(prefix)})
     namespace_source_guard((ROOT / "freakc/runtime/freak_llvm_runtime.c").read_text())
     checks = load_checks()
-    runner = Runner(checks, directory)
-    clang = Path(shutil.which(args.clang) or args.clang).resolve(strict=True)
-    clang_sha = sha(clang)
-    report["clang"] = {"requested": args.clang, "resolved": str(clang), "sha256": clang_sha}
+    selected = Path(shutil.which(args.clang) or args.clang).absolute()
+    clang = selected.resolve(strict=True)
+    identity = ProofIdentity(paths, selected, clang, prefix, head=head, sources=frozen)
+    identity.pin()
+    runner = Runner(checks, directory, identity)
+    report["clang"] = {"requested": args.clang, "selected": str(selected), "resolved": str(clang), "sha256": identity.tool_sha}
     runtime = ROOT / "freakc/runtime"
     production, word = runtime / "freak_v4_compiler_array_runtime.c", runtime / "freak_v4_word_runtime.c"
     probe = ROOT / "tests/v4_compiler_array_runtime_probe.c"
@@ -330,12 +393,10 @@ def run_gate(args, directory: Path, report: dict, prefix: Path) -> None:
                                                 int(value.rsplit("O", 1)[1]) if "-O" in value else 0,
                                                 value.startswith("audit-LLVM"), value))
     validate_completion(report, sanitized)
-    if (head_identity() != head or sha(clang) != clang_sha or prefix.exists() or
-            os.environ.get("PYTHONPYCACHEPREFIX") != str(prefix) or
-            os.environ.get("PYTHONDONTWRITEBYTECODE") != "1" or
-            any(sha(path) != frozen[str(path.relative_to(ROOT))] for path in paths)):
-        raise AssertionError("source/tool/cache identity changed during native proof")
+    identity.pin()
+    report["compiled_artifact_hashes"] = {str(path): digest for path, digest in identity.artifacts.items()}
     report["final_conservation"] = True
+    return identity
 
 
 def publish(directory: Path, report: dict) -> None:
@@ -366,9 +427,11 @@ def main() -> int:
     print(f"Private compiler-array artifacts: {directory}", flush=True)
     try:
         with proof_environment(directory, not args.plain) as prefix:
-            run_gate(args, directory, report, prefix)
+            identity = run_gate(args, directory, report, prefix)
+        identity.pin(check_imports=False)
         report["complete"] = True
         publish(directory, report)
+        identity.pin(check_imports=False)
     except BaseException:
         # First failure/cancellation stays authoritative even if optional JSON
         # attribution/retention fails. Never print PASS from a finally block.
