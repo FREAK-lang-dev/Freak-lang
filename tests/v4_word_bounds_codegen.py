@@ -917,7 +917,7 @@ def run_gate(args, report: dict) -> Conservation:
             objects = {}
             for source in [*runtime_paths, startup, guard]:
                 output = directory / f"{source.stem}.O{opt}{object_suffix}"
-                require_compile(runner.run([args.clang, *flags, "-c", str(source), "-o", str(output)],
+                require_compile(runner.run([args.clang, f"--target={target}", *flags, "-c", str(source), "-o", str(output)],
                                           f"compile {source.stem} O{opt}", timeout=120, memory=512), str(source))
                 pins.track(output, image=True)
                 objects[source.name] = str(output)
@@ -926,7 +926,7 @@ def run_gate(args, report: dict) -> Conservation:
                     if source.name not in ("freak_runtime.c", "freak_v4_word_runtime.c")]
             live += [objects[startup.name], objects[guard.name]]
             audit_binary = directory / f"audit-probe.O{opt}{suffix}"
-            require_compile(runner.run([args.clang, *flags, str(audit), *direct, "-o", str(audit_binary),
+            require_compile(runner.run([args.clang, f"--target={target}", *flags, str(audit), *direct, "-o", str(audit_binary),
                                        *checks.runtime_platform_final_link_args()], f"link audit O{opt}", timeout=120, memory=512), "audit probe")
             pins.track(audit_binary, image=True)
             for kind, status in (("C", 87), ("LLVM", 86)):
@@ -934,7 +934,7 @@ def run_gate(args, report: dict) -> Conservation:
                 exact_result(observed, status, "", f"FREAK: {kind} ownership audit found 1 unreleased word allocation(s)\n", kind)
                 report["controls"].append({"name": f"audit-{kind}-O{opt}", "status": "pass"})
             guard_binary = directory / f"guard-control.O{opt}{suffix}"
-            require_compile(runner.run([args.clang, *flags, str(guard_control), *live, "-o", str(guard_binary),
+            require_compile(runner.run([args.clang, f"--target={target}", *flags, str(guard_control), *live, "-o", str(guard_binary),
                                        *checks.runtime_platform_final_link_args()], f"link guard O{opt}", timeout=120, memory=512), "live guard control")
             pins.track(guard_binary, image=True)
             observed = runner.run([str(guard_binary)], f"guard live O{opt}", timeout=30, memory=128)
@@ -943,7 +943,7 @@ def run_gate(args, report: dict) -> Conservation:
             for variant, selected in (("direct", direct), ("live", live)):
                 for case, llvm in enumerate(modules):
                     binary = directory / f"case-{case}.{variant}.O{opt}{suffix}"
-                    require_compile(runner.run([args.clang, *flags, str(llvm), *selected, "-o", str(binary),
+                    require_compile(runner.run([args.clang, f"--target={target}", *flags, str(llvm), *selected, "-o", str(binary),
                                                *checks.runtime_platform_final_link_args()], f"link case {case} {variant} O{opt}", timeout=120, memory=512), "bounds program")
                     pins.track(binary, image=True)
                     observed = runner.run([str(binary)], f"execute case {case} {variant} O{opt}", timeout=30, memory=128)
@@ -961,7 +961,7 @@ def run_gate(args, report: dict) -> Conservation:
             pins.track(source)
             report["generated_input_hashes"][str(source.relative_to(directory))] = sha(source)
             binary = directory / ("sanitizer-probe" + suffix)
-            require_compile(runner.run([args.clang, "-O0", *SANITIZER_FLAGS, str(source), "-o", str(binary)],
+            require_compile(runner.run([args.clang, f"--target={target}", "-O0", *SANITIZER_FLAGS, str(source), "-o", str(binary)],
                                       "link sanitizer capabilities", timeout=120, memory=512), "sanitizer controls")
             pins.track(binary, image=True)
             for kind in ("address", "undefined"):

@@ -95,6 +95,80 @@ class WordBoundsOracles(unittest.TestCase):
         for api in ("Popen", "run", "check_output", "call", "check_call"):
             self.traps.enter_context(patch.object(subprocess, api, side_effect=AssertionError("actual process is forbidden")))
 
+    def native_build_calls(self):
+        tree = ast.parse(Path(gate.__file__).read_text(encoding="utf-8"))
+        run_gate = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "run_gate")
+        targets = [node.value for node in ast.walk(run_gate) if isinstance(node, ast.Assign)
+                   and any(isinstance(name, ast.Name) and name.id == "target" for name in node.targets)]
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(ast.unparse(targets[0]), "build.host_target()")
+        calls = {}
+        for node in ast.walk(run_gate):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "run" and len(node.args) > 1):
+                continue
+            label = node.args[1]
+            if isinstance(label, ast.JoinedStr): label = label.values[0]
+            if isinstance(label, ast.Constant) and label.value in (
+                    "compile ", "link audit O", "link guard O", "link case ", "link sanitizer capabilities", "emit case "):
+                self.assertNotIn(label.value, calls)
+                calls[label.value] = node
+        self.assertEqual(set(calls), {"compile ", "link audit O", "link guard O", "link case ", "link sanitizer capabilities", "emit case "})
+        return calls
+
+    def native_build_contexts(self):
+        for target, libraries in (("x86_64-w64-windows-gnu", ["-lws2_32", "-lshell32"]),
+                                  ("x86_64-unknown-linux-gnu", ["-lm"]), ("aarch64-apple-darwin", [])):
+            for sanitized in (False, True):
+                for opt in gate.OPTS:
+                    flags = ["-w", f"-O{opt}", "-Iruntime", *gate.AUDIT_FLAGS]
+                    if sanitized: flags += gate.SANITIZER_FLAGS
+                    values = {"args": SimpleNamespace(clang="clang"), "target": target, "flags": flags,
+                              "source": Path("source.c"), "output": Path("runtime.obj"), "audit": Path("audit.c"),
+                              "audit_binary": Path("audit-probe.exe"), "guard_control": Path("guard.c"),
+                              "guard_binary": Path("guard-control.exe"), "llvm": Path("module.ll"),
+                              "binary": Path("program.exe"), "selected": ["runtime.obj", "guard.obj"],
+                              "direct": ["runtime.obj", "abort.obj"], "live": ["runtime.obj", "guard.obj"],
+                              "probe": Path("compiler.exe"), "case": 17, "str": str,
+                              "SANITIZER_FLAGS": gate.SANITIZER_FLAGS,
+                              "checks": SimpleNamespace(runtime_platform_final_link_args=lambda: libraries)}
+                    expected = {
+                        "compile ": [*flags, "-c", "source.c", "-o", "runtime.obj"],
+                        "link audit O": [*flags, "audit.c", "runtime.obj", "abort.obj", "-o", "audit-probe.exe", *libraries],
+                        "link guard O": [*flags, "guard.c", "runtime.obj", "guard.obj", "-o", "guard-control.exe", *libraries],
+                        "link case ": [*flags, "module.ll", "runtime.obj", "guard.obj", "-o", "program.exe", *libraries],
+                        "link sanitizer capabilities": ["-O0", *gate.SANITIZER_FLAGS, "source.c", "-o", "program.exe"],
+                    }
+                    yield target, sanitized, opt, values, expected
+
+    def assert_native_build_command(self, call, values, expected):
+        command = compile(ast.Expression(call.args[0]), gate.__file__, "eval")
+        argv = eval(command, {"__builtins__": {}}, values)
+        self.assertEqual(argv, ["clang", "--target=" + values["target"], *expected])
+        self.assertEqual({keyword.arg: ast.literal_eval(keyword.value) for keyword in call.keywords},
+                         {"timeout": 120, "memory": 512})
+
+    def test_all_native_build_stages_pin_the_emitted_host_target(self):
+        calls = self.native_build_calls()
+        for target, sanitized, opt, values, expected in self.native_build_contexts():
+            emission = compile(ast.Expression(calls["emit case "].args[0]), gate.__file__, "eval")
+            self.assertEqual(eval(emission, {"__builtins__": {}}, values), ["compiler.exe", "17", target, "--emit"])
+            for label, tail in expected.items():
+                with self.subTest(target=target, sanitized=sanitized, opt=opt, stage=label):
+                    self.assert_native_build_command(calls[label], values, tail)
+
+    def test_each_missing_native_build_target_is_rejected(self):
+        calls = self.native_build_calls()
+        for label in ("compile ", "link audit O", "link guard O", "link case ", "link sanitizer capabilities"):
+            mutant = deepcopy(calls[label])
+            original = mutant.args[0].elts
+            self.assertIsInstance(original[1], ast.JoinedStr)
+            self.assertEqual(ast.unparse(original[1]), "f'--target={target}'")
+            mutant.args[0].elts = [original[0], *original[2:]]
+            for target, sanitized, opt, values, expected in self.native_build_contexts():
+                with self.subTest(target=target, sanitized=sanitized, opt=opt, stage=label), self.assertRaises(AssertionError):
+                    self.assert_native_build_command(mutant, values, expected[label])
+
     def test_exact_unicode_nul_empty_and_abort_platforms(self):
         for platform in ("linux", "darwin", "win32"):
             for case, (stdout, stderr) in enumerate(gate.OUTPUTS):
