@@ -791,7 +791,7 @@ def native_link_target(clang, runner, directory, target, report, pins):
     # The genuine C frontend initializes the selected SDK/deployment version.
     # Identity queries alone can retain the generic compiler target.
     source = directory / "darwin-deployment-probe.c"
-    source.write_text(DARWIN_DEPLOYMENT_SOURCE, encoding="utf-8")
+    source.write_bytes(DARWIN_DEPLOYMENT_SOURCE.encode("utf-8"))
     pins.track(source)
     llvm = directory / "darwin-deployment-probe.ll"
     llvm.unlink(missing_ok=True)
@@ -1026,14 +1026,14 @@ def run_gate(clang, directory, frozen, report, supports):
         require(not ui, "compiler fixture cannot require UI")
         pins.check()
         c_path = directory / ("typed-os-" + kind + ".c")
-        c_path.write_text(source, encoding="utf-8"); pins.track(c_path)
+        c_path.write_bytes(source.encode("utf-8")); pins.track(c_path)
         binary = directory / ("typed-os-" + kind + (".exe" if sys.platform == "win32" else ""))
         result = bootstrap.run([str(clang), "-O0", "-w", "-DFREAK_ARRAY_LIVE_LIMIT=1024", str(c_path), str(frozen / "freakc/runtime/freak_runtime.c"), "-I" + str(frozen / "freakc/runtime"), "-o", str(binary), *checks.runtime_platform_link_args()], "bootstrap-" + kind, compiling=True)
         require(result.returncode == 0, "typed compiler bootstrap failed")
         pins.admit_binary(binary); compilers[kind] = binary
     for case in contract_cases():
         source = directory / ("contract-" + case["name"] + ".fk")
-        source.write_text(case["source"], encoding="utf-8"); pins.track(source)
+        source.write_bytes(case["source"].encode("utf-8")); pins.track(source)
         result = sdk.run([str(compilers["contract"]), case["mode"], str(source), target_name, case["expected"], case["identity"]], "contract-" + case["name"])
         assert_exact(result, 0, ("typed-os-entry-contract mode=" + case["mode"] + "=passed\n").encode(), b"", sys.platform)
         report["contracts"].append({"name":case["name"], "source_sha256":sha(source), "actual":observed(result)})
@@ -1043,7 +1043,7 @@ def run_gate(clang, directory, frozen, report, supports):
     modules = {}
     for name, source_text in PROGRAMS.items():
         source = directory / (name + ".fk")
-        source.write_text(source_text, encoding="utf-8"); pins.track(source)
+        source.write_bytes(source_text.encode("utf-8")); pins.track(source)
         result = sdk.run([str(compilers["execute"]), str(source), target_name], "emit-" + name)
         module = extract_module(result, sys.platform); validate_module(module, name)
         llvm = directory / (name + ".ll")
@@ -1055,7 +1055,7 @@ def run_gate(clang, directory, frozen, report, supports):
         modules[name] = link_llvm
         report["emissions"].append({"name":name,"source_sha256":sha(source),"module_sha256":sha(llvm),"link_module_sha256":sha(link_llvm)})
         print("typed OS emission " + name + ": v9 restore/seals verified; native pending", flush=True)
-    probe = directory / "typed-os-capability.c"; probe.write_text(CAPABILITY_SOURCE); pins.track(probe)
+    probe = directory / "typed-os-capability.c"; probe.write_bytes(CAPABILITY_SOURCE.encode("utf-8")); pins.track(probe)
     for opt in OPTS:
         flags = ["--target=" + target_name, f"-O{opt}", "-I" + str(frozen / "freakc/runtime"), *AUDIT_FLAGS]
         if report["sanitized"]: flags.extend(SANITIZER_FLAGS)

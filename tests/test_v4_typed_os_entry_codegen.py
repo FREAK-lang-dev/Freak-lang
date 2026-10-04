@@ -913,6 +913,47 @@ class PureGateTests(unittest.TestCase):
                 self.assertNotIn("-Wno-unused-command-line-argument",command)
                 self.assertNotIn("-Wno-override-module",command)
 
+    def test_generated_sources_bypass_windows_textio_translation(self):
+        # Execute the five actual producer expressions against the real Windows
+        # TextIO newline model. Sources and their existing raw hashes stay exact.
+        tree = ast.parse(DRIVER.read_bytes())
+        sites = []
+        for function in tree.body:
+            if isinstance(function,ast.FunctionDef) and function.name in ("native_link_target","run_gate"):
+                for node in ast.walk(function):
+                    if isinstance(node,ast.Expr) and isinstance(node.value,ast.Call) and isinstance(node.value.func,ast.Attribute) and isinstance(node.value.func.value,ast.Name) and node.value.func.value.id in ("source","c_path","probe") and node.value.func.attr=="write_bytes":
+                        sites.append(node)
+        self.assertEqual(len(sites),5)
+        class WindowsTextIOPath:
+            def __init__(self): self.bytes=None
+            def write_bytes(self,value): self.bytes=value;return len(value)
+            def write_text(self,value,encoding="utf-8"):
+                buffer=io.BytesIO()
+                with io.TextIOWrapper(buffer,encoding=encoding,newline="\r\n") as stream:
+                    stream.write(value);stream.flush();self.bytes=buffer.getvalue()
+                return len(value)
+        case=gate.contract_cases()[0]
+        values={"source":"/* UTF-8 雪 bootstrap C */\n","case":case,"source_text":gate.PROGRAMS["fs_echo"],"DARWIN_DEPLOYMENT_SOURCE":gate.DARWIN_DEPLOYMENT_SOURCE,"CAPABILITY_SOURCE":gate.CAPABILITY_SOURCE}
+        for node in sites:
+            receiver=node.value.func.value.id;encoded=node.value.args[0]
+            self.assertIsInstance(encoded,ast.Call);self.assertEqual(encoded.func.attr,"encode")
+            self.assertEqual([ast.literal_eval(arg) for arg in encoded.args],["utf-8"])
+            expected=eval(compile(ast.Expression(encoded),str(DRIVER),"eval"),{"__builtins__":{}},values)
+            current=WindowsTextIOPath();scope=dict(values);scope[receiver]=current
+            exec(compile(ast.Module(body=[node],type_ignores=[]),str(DRIVER),"exec"),{"__builtins__":{}},scope)
+            self.assertEqual(current.bytes,expected)
+            self.assertNotIn(b"\r\n",current.bytes)
+            self.assertEqual(hashlib.sha256(current.bytes).hexdigest(),hashlib.sha256(expected).hexdigest())
+            # Recreate the previous text-write expression; physical CRLF differs
+            # from the same literal LF bytes required by the unchanged hash.
+            historical=copy.deepcopy(node);historical.value.func.attr="write_text"
+            historical.value.args=[copy.deepcopy(encoded.func.value)]
+            historical.value.keywords=[ast.keyword(arg="encoding",value=ast.Constant(value="utf-8"))]
+            previous=WindowsTextIOPath();scope=dict(values);scope[receiver]=previous
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[historical],type_ignores=[])),str(DRIVER),"exec"),{"__builtins__":{}},scope)
+            self.assertEqual(previous.bytes,expected.replace(b"\n",b"\r\n"))
+            self.assertNotEqual(hashlib.sha256(previous.bytes).hexdigest(),hashlib.sha256(expected).hexdigest())
+
     def prepare_fake_tree(self, base):
         original = base / "original"; original.mkdir()
         names = [*gate.OWNED_NAMES, gate.SUPPORT_NAME, gate.GUARD_NAME,
