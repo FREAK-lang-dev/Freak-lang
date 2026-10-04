@@ -591,12 +591,12 @@ def open_symbol_original(tool: Path):
         # Wrapper construction can fail even after os.open succeeded.
         try:
             close_symbol_descriptor(original_descriptor)
-        except OSError as close_error:
+        except BaseException as close_error:
             # One attempt only: Linux can release the FD before EINTR.
             # Keep allocation failures and cancellation as the first cause.
             try:
-                number = close_error.errno if isinstance(close_error.errno, int) else None
-                detail = close_error.strerror
+                number = close_error.errno if isinstance(close_error, OSError) and isinstance(close_error.errno, int) else None
+                detail = close_error.strerror if isinstance(close_error, OSError) else type(close_error).__name__
                 detail = detail[:256] if isinstance(detail, str) else "unavailable"
                 BaseException.add_note(adoption_error,
                     f"secondary LLVM symbol reader original adoption close failure: errno={number}; {detail}")

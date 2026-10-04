@@ -1135,6 +1135,77 @@ class SymbolToolSelection(unittest.TestCase):
                     self.assertIn("original adoption close failure: errno=4", primary.__notes__[0])
                     self.assertLessEqual(len(primary.__notes__[0]), 350)
 
+    def test_original_adoption_non_oserror_close_keeps_primary_and_one_attempt(self):
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        original_open, original_close = os.open, os.close
+        original_temporary = tempfile.TemporaryDirectory
+        for primary_type in (MemoryError, KeyboardInterrupt):
+            for close_type in (MemoryError, KeyboardInterrupt):
+                for reuse in (False, True):
+                    with self.subTest(primary=primary_type.__name__, close=close_type.__name__, reuse=reuse):
+                        primary = primary_type("original wrapper construction failed")
+                        cause = ValueError("prior attributed cause")
+                        primary.__cause__ = cause
+                        secondary = close_type("already closed before cleanup cancellation")
+                        opened, closed, replacements, scratch = [], [], [], []
+                        def record_open(path, *args, **kwargs):
+                            descriptor = original_open(path, *args, **kwargs)
+                            if Path(path) == self.tool:
+                                opened.append(descriptor)
+                            return descriptor
+                        def close_then_fail(descriptor):
+                            original_close(descriptor)
+                            closed.append(descriptor)
+                            if reuse:
+                                # Own the replacement before any equality oracle
+                                # so a failing control cannot leak or blind-close.
+                                replacements.append(original_open(self.obj, os.O_RDONLY | os.O_CLOEXEC))
+                            raise secondary
+                        def temporary(*args, **kwargs):
+                            owner = original_temporary(*args, **kwargs)
+                            scratch.append(Path(owner.name))
+                            return owner
+                        try:
+                            with patch.object(self.benchmark.os, "open", side_effect=record_open), \
+                                    patch.object(self.benchmark.os, "fdopen", side_effect=primary) as adoption, \
+                                    patch.object(self.benchmark.tempfile, "TemporaryDirectory", side_effect=temporary), \
+                                    patch.object(self.benchmark, "close_symbol_descriptor", side_effect=close_then_fail) as close, \
+                                    patch.object(self.benchmark, "guarded_job") as job:
+                                with self.assertRaises(BaseException) as failure:
+                                    with self.benchmark.frozen_symbol_tool_launch(selected):
+                                        self.fail("failed original adoption reached launch")
+                            self.assertEqual(len(opened), 1)
+                            self.assertEqual(closed, opened)
+                            close.assert_called_once_with(opened[0])
+                            adoption.assert_called_once_with(opened[0], "rb", buffering=0)
+                            job.assert_not_called()
+                            self.assertEqual(len(scratch), 1)
+                            self.assertFalse(scratch[0].exists())
+                            if reuse:
+                                self.assertEqual(replacements, opened)
+                                self.assertEqual(os.read(replacements[0], self.obj.stat().st_size), self.obj.read_bytes())
+                                self.assertEqual(os.fstat(replacements[0]).st_ino, self.obj.stat().st_ino)
+                            else:
+                                with self.assertRaises(OSError) as absent:
+                                    os.fstat(opened[0])
+                                self.assertEqual(absent.exception.errno, errno.EBADF)
+                            self.assertIs(primary.__cause__, cause)
+                            # All FD/job/cleanup facts above hold in the old code;
+                            # its specific regression is replacing this primary.
+                            self.assertIs(failure.exception, primary)
+                            self.assertEqual(len(primary.__notes__), 1)
+                            self.assertIn("original adoption close failure: errno=None", primary.__notes__[0])
+                            self.assertTrue(primary.__notes__[0].endswith(close_type.__name__))
+                            self.assertLessEqual(len(primary.__notes__[0]), 350)
+                        finally:
+                            for descriptor in replacements:
+                                try:
+                                    original_close(descriptor)
+                                except OSError as error:
+                                    if error.errno != errno.EBADF:
+                                        raise
+
     def test_original_adoption_close_failure_never_retries_reused_descriptor(self):
         original_close, original_open = os.close, os.open
         primary = KeyboardInterrupt("original wrapper cancellation")
