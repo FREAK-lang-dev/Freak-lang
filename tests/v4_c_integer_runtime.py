@@ -551,7 +551,8 @@ def main() -> int:
     except BaseException as primary:
         try:
             retention = _Evidence()
-            report.update(complete=False, failure=exception_descriptor(primary))
+            retention.attempt("failure-report-attribution", lambda: report.update(
+                complete=False, failure=exception_descriptor(primary)))
             retention.attempt("failure-report-publication", lambda: report_path.write_text(
                 json.dumps(report, indent=2) + "\n", encoding="utf-8"))
             retention.attach(primary)

@@ -568,6 +568,47 @@ class Checked32FailureControls(unittest.TestCase):
                 gate.main()
             self.assertIs(json.loads((work / "report.json").read_text())["complete"], False)
 
+    def test_main_failed_recovery_report_update_still_attempts_failure_publication(self):
+        tree = ast.parse(Path(gate.__file__).read_bytes())
+        main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+        target = next(node.lineno for node in ast.walk(main) if isinstance(node, ast.Call) and
+                      isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and
+                      node.func.value.id == "report" and node.func.attr == "update")
+        compiler = self.directory / "non-executable-compiler"
+        compiler.write_bytes(b"never execute")
+        raw = Path.write_text
+        for primary_type in (RuntimeError, KeyboardInterrupt):
+            for secondary_type in (MemoryError, KeyboardInterrupt):
+                with self.subTest(primary=primary_type.__name__, secondary=secondary_type.__name__):
+                    primary, cause = primary_type("main failed"), ValueError("prior cause")
+                    primary.__cause__ = cause
+                    secondary, fired, writes = secondary_type("recovery report update failed"), [], []
+                    work = self.directory / (primary_type.__name__ + "-" + secondary_type.__name__)
+                    def no_gate(*args, **kwargs): raise primary
+                    def write(path, data, *args, **kwargs):
+                        if path == work / "report.json": writes.append(data)
+                        return raw(path, data, *args, **kwargs)
+                    def trace(frame, event, argument):
+                        if (event == "line" and frame.f_code.co_filename == gate.__file__ and
+                                frame.f_code.co_name == "<lambda>" and frame.f_lineno == target):
+                            fired.append(target)
+                            raise secondary
+                        return trace
+                    previous = sys.gettrace()
+                    try:
+                        with patch.object(gate, "run_gate", no_gate), patch.object(Path, "write_text", write), \
+                                patch.object(sys, "argv", ["gate", "--plain", "--clang", str(compiler), "--work", str(work)]):
+                            sys.settrace(trace)
+                            with self.assertRaises(primary_type) as seen: gate.main()
+                    finally:
+                        sys.settrace(previous)
+                    self.assertEqual(fired, [target])
+                    self.assertIs(seen.exception, primary)
+                    self.assertIs(primary.__cause__, cause)
+                    self.assertEqual(len(writes), 2)
+                    self.assertTrue(all(json.loads(value)["complete"] is False for value in writes))
+                    self.assertEqual(primary.c32_secondary_failures[0]["stage"], "failure-report-attribution")
+
 
 if __name__ == "__main__":
     unittest.main()
