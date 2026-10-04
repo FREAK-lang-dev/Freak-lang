@@ -72,7 +72,8 @@ class NumericGateOracles(unittest.TestCase):
         self.assertIn("0.1", cases[45].source)
         self.assertIn("16777217", cases[46].source)
         self.assertIn('pointer.write(value)', cases[47].source)
-        self.assertIn('value = 258', cases[47].source)
+        self.assertIn('pilot value: int = 258;', cases[47].source)
+        self.assertIn('pointer.write(value); }\n\n give back 0', cases[47].source)
         self.assertEqual(cases[47].stderr, "FREAK V4: int to tiny conversion out of range\n")
 
     def test_missing_duplicate_and_oracle_drift_are_errors(self):
