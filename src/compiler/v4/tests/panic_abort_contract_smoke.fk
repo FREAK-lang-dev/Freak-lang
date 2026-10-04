@@ -219,7 +219,8 @@ task v4_panic_contract_ordinary_endpoint(mode: word) -> void {
                 pilot types = word_to_int(array_get(v4_mir_rvalue_tys_index_handle(mir), body))
                 array_push(types, v4_ty_never)
                 array_set(word_to_int(array_get(v4_mir_stmt_rvalues_index_handle(mir), body)), stmt, "1")
-                v4_panic_contract_assert(array_len(types) == 2 and v4_mir_body_rvalue_count(mir, body) == 1 and v4_mir_stmt_rvalue(mir, body, stmt) == 1 and array_get(types, 1) == v4_ty_never, "raw out-of-range operand actually targets orphan type column")
+                pilot orphan_type: word = array_get(types, 1)
+                v4_panic_contract_assert(array_len(types) == 2 and v4_mir_body_rvalue_count(mir, body) == 1 and v4_mir_stmt_rvalue(mir, body, stmt) == 1 and orphan_type == v4_ty_never, "raw out-of-range operand actually targets orphan type column")
             }
         }
         if mode.starts_with("endpoint-cycle-") {
