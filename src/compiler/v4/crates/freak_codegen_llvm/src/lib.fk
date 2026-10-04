@@ -2858,18 +2858,25 @@ task v4_codegen_llvm_word_intrinsic_instruction(mir_id: int, body_id: int, rvalu
 -- Emit transfer at the load, before another operand can run a task. A direct
 -- borrowed local is loaded without clearing its flag; a borrowed temporary
 -- still evaluates all consuming operands in the task that creates it.
+-- Keep Sum-only Word construction out of the ordinary recursive collector's
+-- frame: scalar expression depth must retain the existing stack contract.
+task v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, kind: word) -> bool {
+    if (kind != v4_mir_rvalue_check and kind != v4_mir_rvalue_sum_take) or v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))) == "" { give back false }
+    pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+    v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, child, v4_codegen_llvm_temp_value(body_id, child), true)
+    v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_scalar_sum_instruction(mir_id, body_id, rvalue_id, target) + "\n")
+    if kind == v4_mir_rvalue_sum_take {
+        pilot local = v4_mir_rvalue_local_id(mir_id, body_id, child)
+        v4_codegen_llvm_fragment_push(parts, "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n")
+    }
+    give back true
+}
+
 task v4_codegen_llvm_collect_owned_rvalue_lines(parts: int, mir_id: int, body_id: int, rvalue_id: int, target: word, borrowed: bool) -> void {
     if rvalue_id < 0 { give back }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
-    if (kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take) and v4_mir_scalar_sum_kind(mir_id, v4_mir_rvalue_ty(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))) != "" {
-        pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
-        v4_codegen_llvm_collect_owned_rvalue_lines(parts, mir_id, body_id, child, v4_codegen_llvm_temp_value(body_id, child), true)
-        v4_codegen_llvm_fragment_push(parts, "  " + v4_codegen_llvm_scalar_sum_instruction(mir_id, body_id, rvalue_id, target) + "\n")
-        if kind == v4_mir_rvalue_sum_take {
-            pilot local = v4_mir_rvalue_local_id(mir_id, body_id, child)
-            v4_codegen_llvm_fragment_push(parts, "  store i1 false, ptr " + v4_codegen_llvm_word_flag_slot(local) + "\n")
-        }
-        give back
+    if kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_sum_take {
+        if v4_codegen_llvm_collect_owned_sum_rvalue_lines(parts, mir_id, body_id, rvalue_id, target, kind) { give back }
     }
     if kind == v4_mir_rvalue_lend {
         pilot child = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
