@@ -722,3 +722,32 @@ say "fixed-aggregate-class-direct-lifetime=" + v4_ty_type_lend_storage_class(v4_
 say "fixed-aggregate-class-list=" + v4_ty_type_lend_storage_class(v4_fixed_aggregate_ty, "List<lend int>")
 say "fixed-aggregate-compact-lend-mut=" + v4_mir_compact_type_text("Stored< lend mut Ship , int >")
 say "fixed-aggregate-compact-lend-lifetime=" + v4_mir_compact_type_text("Stored< lend 'a Ship , int >")
+
+-- A Local base is a LocalID, even when that integer names an unrelated loan
+-- Place. Moving the lend carrier from an owned route does not borrow its parent.
+task v4_fixed_aggregate_diag_at_span_count(borrow_id: int, span: word, message: word) -> int {
+    pilot count = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        pilot diag = v4_borrowck_diag(borrow_id, diag_id)
+        if v4_diag_span(diag) == span and v4_diag_message(diag) == message { count += 1 }
+        diag_id += 1
+    }
+    give back count
+}
+
+task v4_fixed_aggregate_write_stmt(mir_id: int, body_id: int, path: word) -> int {
+    pilot stmt_id = 0
+    repeat until stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt_id) == v4_mir_stmt_assign and v4_borrowck_path_canon(v4_mir_stmt_lhs(mir_id, body_id, stmt_id)) == path { give back stmt_id }
+        stmt_id += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_fixed_aggregate_capture_stmt = v4_fixed_aggregate_local_stmt(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_pattern_body, "left")
+pilot v4_fixed_aggregate_capture_write_stmt = v4_fixed_aggregate_write_stmt(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_pattern_body, "first.hp")
+say "fixed-aggregate-route-pattern-parent-mode=" + v4_borrowck_lend_holder_mode_for_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_pattern_body, "_when_subject.left", true)
+say "fixed-aggregate-route-pattern-leaf-mode=" + v4_borrowck_lend_holder_mode_for_projection(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_pattern_body, "_when_subject.left", false)
+say "fixed-aggregate-route-pattern-capture-move-diagnostics=" + word_from_int(v4_fixed_aggregate_diag_at_span_count(v4_fixed_aggregate_borrow, v4_mir_stmt_span(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_pattern_body, v4_fixed_aggregate_capture_stmt), "Meiya refuses to move out through a lend holder"))
+say "fixed-aggregate-route-pattern-live-loan-diagnostics=" + word_from_int(v4_fixed_aggregate_diag_at_span_count(v4_fixed_aggregate_borrow, v4_borrowck_write_diag_span(v4_fixed_aggregate_mir, v4_fixed_aggregate_route_pattern_body, v4_fixed_aggregate_capture_write_stmt), "Meiya tracks this loan into a later block"))
