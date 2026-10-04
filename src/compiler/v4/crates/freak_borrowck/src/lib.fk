@@ -5620,12 +5620,23 @@ task v4_borrowck_explicit_loan_live_at_move(mir_id: int, body_id: int, loan_stmt
     give back v4_borrowck_explicit_loan_live_at_write(mir_id, body_id, loan_stmt, loan_text, move_stmt, move_block)
 }
 
+-- A callable lhs is evaluated as the target; instance/raw-pointer receivers
+-- instead appear in the authoritative argument payload. Those duplicated
+-- metadata edges are not a second evaluation of their receiver.
+task v4_borrowck_call_callee_rvalue(mir_id: int, body_id: int, call_rvalue: int) -> int {
+    pilot lhs = v4_mir_rvalue_lhs(mir_id, body_id, call_rvalue)
+    if lhs < 0 or lhs >= v4_mir_body_rvalue_count(mir_id, body_id) { give back -1 }
+    pilot ty = v4_mir_rvalue_ty(mir_id, body_id, lhs)
+    if v4_ty_is_surface_task_function_type(ty) or v4_ty_is_closure_type(ty) { give back lhs }
+    give back -1
+}
 task v4_borrowck_collect_call_transfer_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int, block_id: int, call_rvalue: int) -> void {
+    pilot callee = v4_borrowck_call_callee_rvalue(mir_id, body_id, call_rvalue)
     pilot arg_id = 0
     pilot arg_count = v4_mir_rvalue_call_arg_count(mir_id, body_id, call_rvalue)
     repeat until arg_id >= arg_count {
         pilot arg_rvalue = v4_mir_rvalue_call_arg(mir_id, body_id, call_rvalue, arg_id)
-        if arg_rvalue >= 0 {
+        if arg_rvalue >= 0 and arg_rvalue != callee {
             v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, arg_rvalue)
         }
         arg_id += 1
@@ -5708,7 +5719,13 @@ task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: 
             child_id += 1
         }
     } else if rvalue_kind == v4_mir_rvalue_call {
-        v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+        pilot callee = v4_borrowck_call_callee_rvalue(mir_id, body_id, rvalue_id)
+        if callee >= 0 { v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, callee) } else {
+            if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) == 0 {
+                v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+                v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id))
+            }
+        }
         v4_borrowck_collect_call_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
     }
 }
@@ -5760,7 +5777,13 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
             child_id += 1
         }
     } else if rvalue_kind == v4_mir_rvalue_call {
-        v4_borrowck_collect_call_callee_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+        pilot callee = v4_borrowck_call_callee_rvalue(mir_id, body_id, rvalue_id)
+        if callee >= 0 { v4_borrowck_collect_call_callee_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, callee) } else {
+            if v4_mir_rvalue_call_arg_count(mir_id, body_id, rvalue_id) == 0 {
+                v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id))
+                v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_rhs(mir_id, body_id, rvalue_id))
+            }
+        }
         v4_borrowck_collect_call_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
     } else if rvalue_kind == v4_mir_rvalue_unknown {
         pilot text = v4_mir_rvalue_text(mir_id, body_id, rvalue_id)
@@ -5938,11 +5961,11 @@ task v4_borrowck_collect_stmt_paths(borrow_id: int, result_id: int, mir_id: int,
     pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
 
     if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
-        -- Forming a destination can evaluate consuming calls. Local storage
-        -- itself is not read or transferred, so rebinding remains legal.
-        v4_borrowck_collect_place_address_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, place_id, 0)
         v4_borrowck_add_place_path(borrow_id, result_id, mir_id, body_id, place_id, v4_borrowck_path_write, stmt_id, block_id)
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
+        -- Native assignment evaluates its RHS before forming the destination.
+        -- Local storage itself is not read/transferred, preserving rebinding.
+        v4_borrowck_collect_place_address_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, place_id, 0)
     } else if stmt_kind == v4_mir_stmt_return {
         v4_borrowck_add_place_path(borrow_id, result_id, mir_id, body_id, place_id, v4_borrowck_path_return, stmt_id, block_id)
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
@@ -6943,18 +6966,27 @@ task v4_borrowck_rvalue_word_local_move_count_depth(mir_id: int, body_id: int, v
         give back v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, true, depth + 1)
     }
     if kind == v4_mir_rvalue_call {
-        pilot count = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, false, depth + 1)
+        pilot callee = v4_borrowck_call_callee_rvalue(mir_id, body_id, value)
+        pilot count = 0
+        if callee >= 0 { count = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, callee, local_id, false, depth + 1) }
         if count < 0 { give back count }
         pilot arg_id = 0
         repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, value) {
-            pilot argument_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, value, arg_id), local_id, false, depth + 1)
-            if argument_moves < 0 { give back argument_moves }
-            count += argument_moves
+            pilot argument = v4_mir_rvalue_call_arg(mir_id, body_id, value, arg_id)
+            if argument != callee {
+                pilot argument_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, argument, local_id, false, depth + 1)
+                if argument_moves < 0 { give back argument_moves }
+                count += argument_moves
+            }
             arg_id += 1
         }
-        pilot receiver_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, false, depth + 1)
-        if receiver_moves < 0 { give back receiver_moves }
-        count += receiver_moves
+        if v4_mir_rvalue_call_arg_count(mir_id, body_id, value) == 0 and callee < 0 {
+            pilot left_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, false, depth + 1)
+            if left_moves < 0 { give back left_moves }
+            pilot right_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, false, depth + 1)
+            if right_moves < 0 { give back right_moves }
+            count += left_moves + right_moves
+        }
         give back count
     }
     if v4_mir_rvalue_is_aggregate_kind(kind) {
@@ -6984,16 +7016,15 @@ task v4_borrowck_rvalue_word_local_move_count(mir_id: int, body_id: int, value: 
 
 task v4_borrowck_stmt_word_local_move_count(mir_id: int, body_id: int, stmt_id: int, local_id: int) -> int {
     v4_borrowck_word_plan_visit_budget = 8192
-    pilot count = 0
+    pilot count = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt_id), local_id, false, 0)
+    if count < 0 { give back count }
     pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
     pilot place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
     if (kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign) and place >= 0 and v4_mir_place_kind(mir_id, body_id, place) != v4_mir_place_local {
-        count = v4_borrowck_place_word_local_move_count_depth(mir_id, body_id, place, local_id, true, 0)
-        if count < 0 { give back count }
+        pilot address_moves = v4_borrowck_place_word_local_move_count_depth(mir_id, body_id, place, local_id, true, 0)
+        if address_moves < 0 { give back address_moves }
+        count += address_moves
     }
-    pilot right_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt_id), local_id, false, 0)
-    if right_moves < 0 { give back right_moves }
-    count += right_moves
     give back count
 }
 
@@ -7060,14 +7091,12 @@ task v4_borrowck_word_local_state_walk(mir_id: int, body_id: int, local_id: int,
             if previous >= 0 and v4_mir_word_local_scope_exits_before_stmt(mir_id, body_id, local_id, previous, stmt_id) { initialized = false }
             if check_reads {
                 v4_borrowck_word_plan_visit_budget = 8192
-                pilot use_state = 0
-                if initialized { use_state = 1 }
+                pilot use_state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt_id), local_id, initialized, false, 0)
                 pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
                 pilot place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
-                if (kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign) and place >= 0 and v4_mir_place_kind(mir_id, body_id, place) != v4_mir_place_local {
-                    use_state = v4_borrowck_word_place_use_state(mir_id, body_id, place, local_id, initialized, true, 0)
+                if use_state >= 0 and (kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign) and place >= 0 and v4_mir_place_kind(mir_id, body_id, place) != v4_mir_place_local {
+                    use_state = v4_borrowck_word_place_use_state(mir_id, body_id, place, local_id, use_state == 1, true, 0)
                 }
-                if use_state >= 0 { use_state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt_id), local_id, use_state == 1, false, 0) }
                 if use_state == 0 - 1 { invalid_use = true }
                 if use_state == 0 - 2 { queue_failed = true }
                 if use_state >= 0 { initialized = use_state == 1 }
@@ -7193,8 +7222,10 @@ task v4_borrowck_word_rvalue_use_state(mir_id: int, body_id: int, value: int, lo
     pilot state = 0
     if initialized { state = 1 }
     if kind == v4_mir_rvalue_call or v4_mir_rvalue_is_aggregate_kind(kind) {
+        pilot callee = -1
         if kind == v4_mir_rvalue_call {
-            state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, state == 1, false, depth + 1)
+            callee = v4_borrowck_call_callee_rvalue(mir_id, body_id, value)
+            if callee >= 0 { state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, callee, local_id, state == 1, false, depth + 1) }
         }
         pilot arg = 0
         pilot count = v4_mir_rvalue_call_arg_count(mir_id, body_id, value)
@@ -7202,11 +7233,12 @@ task v4_borrowck_word_rvalue_use_state(mir_id: int, body_id: int, value: int, lo
         repeat until arg >= count or state < 0 {
             pilot child = v4_mir_rvalue_call_arg(mir_id, body_id, value, arg)
             if v4_mir_rvalue_is_aggregate_kind(kind) { child = v4_mir_rvalue_aggregate_child(mir_id, body_id, value, arg) }
-            state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, child, local_id, state == 1, false, depth + 1)
+            if child != callee { state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, child, local_id, state == 1, false, depth + 1) }
             arg += 1
         }
-        if kind == v4_mir_rvalue_call and state >= 0 {
-            state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, state == 1, false, depth + 1)
+        if kind == v4_mir_rvalue_call and count == 0 and callee < 0 and state >= 0 {
+            state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, state == 1, false, depth + 1)
+            if state >= 0 { state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, state == 1, false, depth + 1) }
         }
         give back state
     }

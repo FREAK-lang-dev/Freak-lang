@@ -56,4 +56,13 @@ class PanicAbortOracle(unittest.TestCase):
             with self.subTest(key=key),self.assertRaises(RuntimeError):gate.validate_report(report,sanitize=True)
         report=self.report();report['sanitizers']=False
         with self.assertRaises(RuntimeError):gate.validate_report(report,sanitize=True)
+    def test_assignment_and_method_order_oracles(self):
+        table={case.name:case for case in gate.cases()}
+        assignment=table['assignment-rhs-before-address']
+        method=table['raw-write-receiver-before-value']
+        gate.assert_case(self.result(assignment.stdout),assignment,platform='linux')
+        gate.assert_case(self.result(method.stdout),method,platform='linux')
+        for case,wrong in ((assignment,'address\n3\nrhs\n3\n'),(method,'consume\n3\naddress\n3\n7\n')):
+            with self.subTest(case=case.name),self.assertRaises(RuntimeError):gate.assert_case(self.result(wrong),case,platform='linux')
+            with self.subTest(case=case.name),self.assertRaises(RuntimeError):gate.assert_case(self.result(case.stdout,'FREAK: unavailable word\n',1),case,platform='linux')
 if __name__=='__main__':unittest.main()

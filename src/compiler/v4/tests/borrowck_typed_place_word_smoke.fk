@@ -2,6 +2,23 @@
 task v4_typed_place_assert(condition: bool, label: word) -> void {
     if not condition { panic("typed-place " + label) }
 }
+task v4_typed_place_position(text: word, needle: word) -> int {
+    pilot at = 0
+    repeat until at + needle.length() > text.length() {
+        if text.substring(at, needle.length()) == needle { give back at }
+        at += 1
+    }
+    give back -1
+}
+task v4_typed_place_occurrences(text: word, needle: word) -> int {
+    pilot count = 0
+    pilot at = 0
+    repeat until at + needle.length() > text.length() {
+        if text.substring(at, needle.length()) == needle { count += 1 }
+        at += 1
+    }
+    give back count
+}
 task v4_typed_place_run() -> void {
     pilot mode = process::arg(1)
     pilot expression = "values[text.length()]"
@@ -14,7 +31,7 @@ task v4_typed_place_run() -> void {
     if mode == "5" {
         source = "extern [C] {\n task lookup() -> *const int\n}\ntask address(value: word) -> *const int { give back lookup() }\ntask main() -> int { pilot text = \"x\"; trust me \"read address\" on my honor as .ace { pilot selected = *address(text); give back selected } }\n"
     }
-    pilot writes: bool = word_to_int(mode) >= 7 and word_to_int(mode) <= 14
+    pilot writes: bool = word_to_int(mode) >= 7 and word_to_int(mode) <= 18 and mode != "15"
     if writes {
         pilot statements = "*address(text) = 1; text.length(); give back 0"
         if mode == "8" { statements = "*borrowed_address(lend text) = text.length(); give back 0" }
@@ -24,7 +41,10 @@ task v4_typed_place_run() -> void {
         if mode == "12" { statements = "text = take(text); text.length(); give back 0" }
         if mode == "13" { statements = "*address(text) = 1; text = \"again\"; text.length(); give back 0" }
         if mode == "14" { statements = "values[text.length()] = take_index(text); give back 0" }
-        source = "extern [C] {\n task lookup_mut() -> *mut int\n}\ntask address(value: word) -> *mut int { give back lookup_mut() }\ntask borrowed_address(lend value: word) -> *mut int { give back lookup_mut() }\ntask take_index(value: word) -> int { give back 0 }\ntask take(value: word) -> word { give back value }\ntask main() -> int { pilot mut text = \"x\"; "
+        if mode == "16" { statements = "address(text).write(1); give back 0" }
+        if mode == "17" { statements = "borrowed_address(lend text).write(take_index(text)); give back 0" }
+        if mode == "18" { statements = "address(text).write(text.length()); give back 0" }
+        source = "extern [C] {\n task lookup_mut() -> *mut int\n}\ntask address(value: word) -> *mut int { value.length(); give back lookup_mut() }\ntask borrowed_address(lend value: word) -> *mut int { value.length(); give back lookup_mut() }\ntask take_index(value: word) -> int { give back 0 }\ntask take(value: word) -> word { give back value }\ntask main() -> int { pilot mut text = \"x\"; "
         if mode == "11" or mode == "14" { source = source + "pilot mut values = [3, 4]; " }
         source = source + "trust me \"write address\" on my honor as .ace { " + statements + " } }\n"
     }
@@ -36,7 +56,11 @@ task v4_typed_place_run() -> void {
     pilot row = 0
     repeat until row >= v4_mir_body_stmt_count(mir, body) or selected >= 0 {
         if writes {
-            if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_assign { selected = row }
+            if word_to_int(mode) >= 16 {
+                if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_expr and v4_mir_rvalue_op(mir, body, v4_mir_stmt_rvalue(mir, body, row)) == v4_mir_call_raw_ptr_write { selected = row }
+            } else {
+                if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_assign { selected = row }
+            }
         } else {
             if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_local and v4_mir_stmt_lhs(mir, body, row) == "selected" { selected = row }
         }
@@ -44,6 +68,10 @@ task v4_typed_place_run() -> void {
     }
     v4_typed_place_assert(local >= 0 and selected >= 0, "actual word binding and evaluated projection")
     pilot value = v4_mir_stmt_rvalue(mir, body, selected)
+    if word_to_int(mode) >= 16 {
+        pilot receiver = v4_mir_rvalue_call_arg(mir, body, value, 0)
+        v4_typed_place_assert(v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, value) == v4_mir_call_raw_ptr_write and v4_mir_rvalue_lhs(mir, body, value) == receiver and v4_mir_rvalue_call_arg_count(mir, body, value) == 2 and v4_borrowck_call_callee_rvalue(mir, body, value) == -1, "real receiver metadata is duplicated in payload and not a callable target")
+    }
     if mode == "5" {
         v4_typed_place_assert(v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir, body, value) == v4_mir_unary_deref, "authored raw dereference")
         pilot address = v4_mir_rvalue_lhs(mir, body, value)
@@ -105,7 +133,7 @@ task v4_typed_place_run() -> void {
     }
     pilot checked = v4_borrowck_check_mir(0, mir)
     pilot result_id = v4_borrowck_lookup_result(checked, v4_mir_body_def(mir, body))
-    if mode == "2" or mode == "3" or mode == "7" or mode == "9" or mode == "11" {
+    if mode == "2" or mode == "3" or mode == "7" or mode == "10" or mode == "11" or mode == "14" or mode == "18" {
         pilot named: bool = false
         row = 0
         repeat until row >= v4_borrowck_diag_count(checked) {
@@ -113,7 +141,7 @@ task v4_typed_place_run() -> void {
             row += 1
         }
         v4_typed_place_assert(named and v4_borrowck_result_status(checked, result_id) == v4_borrowck_blocked, "ordered unavailable word access rejected")
-        if mode == "7" or mode == "9" {
+        if mode == "7" or mode == "10" or mode == "18" {
             pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
             v4_typed_place_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "native-supported consuming address rejects before sealing")
         }
@@ -123,6 +151,28 @@ task v4_typed_place_run() -> void {
         pilot expected_drop = ""
         if mode == "0" or mode == "8" or mode == "12" or mode == "13" { expected_drop = v4_borrowck_path_drop }
         v4_typed_place_assert(v4_borrowck_word_local_drop_kind(checked, result_id, mir, body, local) == expected_drop, "exit drop state agrees with index or address transfer")
+        if mode == "9" or mode == "16" or mode == "17" {
+            pilot admitted = v4_codegen_llvm_lower_owned_mir(0, mir)
+            v4_typed_place_assert(v4_codegen_llvm_native_module_error(admitted) == "" and v4_codegen_llvm_module_text(admitted, v4_target_spec_new("x86_64-unknown-linux-gnu")) != "", "native pointer address plan admitted")
+            pilot emitted = v4_codegen_llvm_body_line(admitted, v4_codegen_llvm_find_body(admitted, "main"))
+            pilot address_name = "borrowed_address"
+            if mode == "9" or mode == "16" { address_name = "address" }
+            pilot address_call = "call ptr " + v4_codegen_llvm_callable_symbol(mir, address_name) + "("
+            v4_typed_place_assert(v4_typed_place_occurrences(emitted, address_call) == 1, "address is evaluated once in main")
+            if mode == "9" or mode == "17" {
+                pilot rhs_call = "call i64 " + v4_codegen_llvm_callable_symbol(mir, "take_index") + "("
+                if mode == "9" { rhs_call = "call i64 " + v4_codegen_llvm_word_intrinsic_symbol("length") + "(" }
+                v4_typed_place_assert(v4_typed_place_occurrences(emitted, rhs_call) == 1, "RHS is evaluated once in main")
+                if mode == "9" { v4_typed_place_assert(v4_typed_place_position(emitted, rhs_call) < v4_typed_place_position(emitted, address_call), "sealed assignment observes RHS before consuming destination address") } else {
+                    v4_typed_place_assert(v4_typed_place_position(emitted, address_call) < v4_typed_place_position(emitted, rhs_call), "sealed raw write observes receiver before consuming value argument")
+                }
+                pilot pointer = v4_mir_place_index(mir, body, v4_mir_stmt_place(mir, body, selected))
+                pilot rhs = value
+                if mode == "17" { pointer = v4_mir_rvalue_call_arg(mir, body, value, 0); rhs = v4_mir_rvalue_call_arg(mir, body, value, 1) }
+                pilot store_line = "  store i64 " + v4_codegen_llvm_rvalue_value(mir, body, rhs) + ", ptr " + v4_codegen_llvm_rvalue_value(mir, body, pointer) + "\n"
+                v4_typed_place_assert(v4_typed_place_occurrences(emitted, store_line) == 1 and v4_typed_place_position(emitted, rhs_call) < v4_typed_place_position(emitted, store_line) and v4_typed_place_position(emitted, address_call) < v4_typed_place_position(emitted, store_line), "single destination store follows both evaluated calls")
+            }
+        }
         say "typed-place case=" + mode + " typed=true moves=true clean=true drop=true"
     }
     pilot legacy_moves = 0

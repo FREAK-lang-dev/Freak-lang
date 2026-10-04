@@ -42,6 +42,15 @@ def main_source(body: str, *, result: str = 'int', helpers: str = '') -> str:
 def cases() -> tuple[Case, ...]:
     first = 'task first() -> int { say "first"; give back 1 }\n'
     take = 'task take(value: word) -> word { give back value }\n'
+    allocation = ('extern [C] {\n task malloc(size: std::ffi::c_usize) -> *mut std::ffi::c_void\n'
+                  ' task free(value: *mut std::ffi::c_void) -> void\n}\n')
+    address = ('task owned_address(value: word, pointer: *mut int) -> *mut int { say "address"; say value.length(); give back pointer }\n'
+               'task borrowed_address(lend value: word, pointer: *mut int) -> *mut int { say "address"; say value.length(); give back pointer }\n'
+               'task rhs_observe(lend value: word) -> int { say "rhs"; give back value.length() }\n'
+               'task consume(value: word) -> int { say "consume"; say value.length(); give back 7 }\n')
+    allocated = ('pilot text = "abc"\npilot raw = malloc(8)\n'
+                 'trust me "assignment order" on my honor as .ace {\npilot pointer = raw.cast<int>()\n')
+    released = '\nsay *pointer\nfree(raw)\ngive back 0\n}'
     return (
         Case('unicode-nul', main_source('pilot message = "AbOrT\\0ΟΣ İ 𐐀"\npanic(msg: message.to_lower())', result='never'), '', 'abort\0ος i\u0307 𐐨'),
         Case('empty', main_source('panic("")'), '', ''),
@@ -63,6 +72,8 @@ def cases() -> tuple[Case, ...]:
         Case('shadow-task', main_source('pilot value = panic(msg: 7)\nsay value\ngive back 0', helpers='task panic(msg: int) -> int { give back msg }\n'), '7\n', None),
         Case('branch-both-terminal', main_source('say "before"\nif true { panic("then") } else { panic("else") }\nsay "suppressed"\ngive back 0'), 'before\n', 'then'),
         Case('branch-happy', main_source('pilot flag = true\nif flag { say "live"; give back 0 } else { panic("branch") }'), 'live\n', None),
+        Case('assignment-rhs-before-address', main_source(allocated+'*owned_address(text, pointer) = rhs_observe(lend text)'+released, helpers=allocation+address), 'rhs\naddress\n3\n3\n', None),
+        Case('raw-write-receiver-before-value', main_source(allocated+'borrowed_address(lend text, pointer).write(consume(text))'+released, helpers=allocation+address), 'address\n3\nconsume\n3\n7\n', None),
     )
 
 
