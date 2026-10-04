@@ -671,7 +671,7 @@ def validate_module(module, program):
     wrapper = re.findall(r"define i32 @main\([^\n]*\) \{([^}]+)\}", module, re.S)
     require(len(wrapper) == 1 and wrapper[0].count("call void @freak_llvm_setup_args(") == 1, "one native wrapper/legacy setup")
     main_calls = list(re.finditer(r"(?m)^\s*%[\w.]+ = call (?:ccc )?i64 @freak\.user\.main\(\)\s*$", wrapper[0]))
-    require(len(main_calls) == 1, "one default-C zero-argument user main call")
+    require(len(main_calls) == 1 and wrapper[0].count("@freak.user.main") == 1, "one default-C zero-argument user main call")
     arg_count, parser_count, fs_count, argc_count = BRIDGE_COUNTS[program]
     needs_process = arg_count + argc_count > 0
     setup = "call void @freak_v4_process_setup_args(i64 %argc.ext, i64 %argv.int)"

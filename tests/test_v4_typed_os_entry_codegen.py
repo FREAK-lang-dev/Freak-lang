@@ -737,6 +737,12 @@ class PureGateTests(unittest.TestCase):
                        explicit.replace("call ccc i64", "call ccc void"),
                        explicit.replace("@freak.user.main()", "@freak.user.main(i64 1)"),
                        explicit.replace(call, "%result = invoke ccc i64 @freak.user.main()")]
+            for extra in ("%extra = call fastcc i64 @freak.user.main()",
+                          "call ccc void @freak.user.main()",
+                          "%extra = invoke ccc i64 @freak.user.main() to label %ok unwind label %bad",
+                          "%extra = ptrtoint ptr @freak.user.main to i64",
+                          "%extra = call ccc i64 @freak.user.main.shadow()"):
+                mutants.append(explicit.replace("ret i32 0", extra + "\nret i32 0"))
             if name == "argument_parser":
                 setup = "call void @freak_v4_process_setup_args(i64 %argc.ext, i64 %argv.int)"
                 legacy = "call void @freak_llvm_setup_args(i64 %argc.ext, i64 %argv.int)"
