@@ -1257,7 +1257,7 @@ class SymbolToolSelection(unittest.TestCase):
                                           "int bench_fd_origin(void) { return bench_fd_dependency(); }\n")
                 dependency_flags = ["-L", str(dependency_directory), "-lbench_fd_dependency"]
                 if with_origin == "nested":
-                    dependency_flags += ["-Wl,-rpath,$ORIGIN/../plugins"]
+                    dependency_flags += ["-Wl,--enable-new-dtags", "-Wl,-rpath,$ORIGIN/../plugins"]
             else:
                 library_source.write_text("int bench_fd_origin(void) { return 313; }\n")
             library = self.tool.parent / "libbench_fd_origin.so"
@@ -1265,7 +1265,7 @@ class SymbolToolSelection(unittest.TestCase):
                 [clang, "-shared", "-fPIC", str(library_source), *dependency_flags, "-o", str(library)],
                 self.work / "origin-build", "native origin library", 10, 128, 8)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
-            link_flags = ["-L", str(self.tool.parent), "-lbench_fd_origin", "-Wl,-rpath,$ORIGIN"]
+            link_flags = ["-L", str(self.tool.parent), "-lbench_fd_origin", "-Wl,--enable-new-dtags", "-Wl,-rpath,$ORIGIN"]
             if with_origin in ("nested", "transitive"):
                 link_flags += ["-Wl,-rpath-link," + str(dependency_directory)]
         for image, flags in ((self.tool, []), (replacement,
