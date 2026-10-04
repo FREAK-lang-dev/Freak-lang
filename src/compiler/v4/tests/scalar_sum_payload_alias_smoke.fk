@@ -1,0 +1,90 @@
+-- Admitted inner aliases keep their outer carrier and exact scalar payload ABI.
+task v4_sum_alias_assert(condition: bool, label: word) -> void {
+    if not condition { panic("scalar-sum-payload-alias " + label) }
+}
+
+task v4_sum_alias_source(mode: int) -> word {
+    pilot aliases = "alias Number = int\nalias Text = word\n"
+    pilot helpers = ""
+    pilot body = "pilot choice: maybe<Number> = some(0)\ncheck choice " + chr(123) + " got number -> " + chr(123) + " if number != 0 " + chr(123) + " give back 1 " + chr(125) + " " + chr(125) + " nobody -> " + chr(123) + " give back 2 " + chr(125) + " " + chr(125)
+    if mode == 1 { body = "pilot choice: maybe<Number> = nobody\ncheck choice " + chr(123) + " got number -> " + chr(123) + " say number " + chr(125) + " nobody -> " + chr(123) + " say \"absent\" " + chr(125) + " " + chr(125) }
+    if mode == 2 or mode == 7 { body = "pilot value: result<Text,Text> = ok(\"\\0payload\")\ncheck result value " + chr(123) + " ok(text) -> " + chr(123) + " say text " + chr(125) + " err(message) -> " + chr(123) + " say message " + chr(125) + " " + chr(125) }
+    if mode == 3 { body = "pilot value: result<Text,Text> = err(\"İ 𐐀\")\ncheck result value " + chr(123) + " ok(text) -> " + chr(123) + " say text " + chr(125) + " err(message) -> " + chr(123) + " say message " + chr(125) + " " + chr(125) }
+    if mode == 4 {
+        aliases = aliases + "alias Count = Number\nalias Choice = maybe<Count>\n"
+        helpers = "task relay(value: Choice) -> Choice " + chr(123) + " give back value " + chr(125) + "\n"
+        body = "pilot choice: Choice = some(9)\npilot output = relay(choice)\ncheck output " + chr(123) + " got number -> " + chr(123) + " say number " + chr(125) + " nobody -> " + chr(123) + " give back 1 " + chr(125) + " " + chr(125)
+    }
+    if mode == 5 {
+        aliases = aliases + "alias Letter = Text\nalias Outcome = result<Letter,Letter>\n"
+        helpers = "task relay(value: Outcome) -> Outcome " + chr(123) + " give back value " + chr(125) + "\n"
+        body = "pilot value: Outcome = err(\"relay\")\npilot output = relay(value)\ncheck result output " + chr(123) + " ok(text) -> " + chr(123) + " say text " + chr(125) + " err(message) -> " + chr(123) + " say message " + chr(125) + " " + chr(125)
+    }
+    give back aliases + helpers + "task main() -> int " + chr(123) + "\n" + body + "\ngive back 0\n" + chr(125) + "\n"
+}
+
+task v4_sum_alias_run() -> void {
+    pilot mode = word_to_int(process::arg(1))
+    v4_sum_alias_assert(mode >= 0 and mode <= 7, "known mode")
+    pilot mir = v4_mir_text_cached("scalar-sum-payload-alias.fk", v4_sum_alias_source(mode))
+    pilot ty = v4_mir_ty_id(mir)
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    v4_sum_alias_assert(v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0 and v4_mir_word_plan_preflight(mir) == "", "valid alias frontend and exact full plan")
+    pilot take = -1
+    pilot take_body = -1
+    pilot takes = 0
+    pilot constructors = 0
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+            pilot kind = v4_mir_rvalue_kind(mir, body, value)
+            if kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err {
+                pilot owner_ty = v4_mir_rvalue_ty(mir, body, value)
+                pilot payload = v4_mir_rvalue_lhs(mir, body, value)
+                v4_sum_alias_assert(v4_ty_native_scalar_sum_payload_type(ty, owner_ty) == v4_mir_rvalue_ty(mir, body, payload), "every constructor has exact validated scalar payload")
+                constructors += 1
+            }
+            if kind == v4_mir_rvalue_sum_take {
+                pilot owner_ty = v4_mir_rvalue_ty(mir, body, v4_mir_rvalue_lhs(mir, body, value))
+                v4_sum_alias_assert(v4_ty_native_scalar_sum_payload_type(ty, owner_ty) == v4_mir_rvalue_ty(mir, body, value), "every extraction has exact validated scalar payload")
+                take = value
+                take_body = body
+                takes += 1
+            }
+            value += 1
+        }
+        body += 1
+    }
+    v4_sum_alias_assert(takes > 0 and (constructors > 0 or mode == 1), "actual payload constructions and bound extraction checked")
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    v4_sum_alias_assert(v4_borrowck_diag_count(borrow) == 0, "alias ownership remains clean")
+    pilot sealed = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot module = v4_codegen_llvm_module_text(sealed, target)
+    v4_sum_alias_assert(v4_codegen_llvm_native_module_error(sealed) == "" and module != "", "baseline alias module sealed")
+    pilot payload = v4_mir_snapshot()
+    v4_sum_alias_assert(payload.contains("maybe<Number>") or payload.contains("result<Text,Text>") or payload.contains("maybe<Count>") or payload.contains("result<Letter,Letter>"), "declared outer payload alias spelling preserved")
+    if mode <= 5 {
+        v4_sum_alias_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload and v4_mir_word_plan_preflight(mir) == "", "exact alias facts restore")
+        pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_sum_alias_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module and v4_codegen_llvm_module_text(sealed, target) == module, "fresh and old modules exact")
+        say "scalar-sum-payload-alias " + word_from_int(mode) + "=passed canonical-payload=true outer-preserved=true restored=true old-seal=true fresh-module=true"
+        give back
+    }
+    pilot replacement = "Number"
+    pilot expected = "invalid scalar maybe extraction"
+    if mode == 7 { replacement = "Text"; expected = "invalid scalar Result extraction" }
+    v4_sum_alias_assert(v4_mir_rvalue_ty(mir, take_body, take) != replacement, "noncanonical alias forgery actually changes payload")
+    v4_mir_set_rvalue_ty(mir, take_body, take, replacement)
+    v4_sum_alias_assert(v4_mir_rvalue_ty(mir, take_body, take) == replacement and v4_mir_word_plan_preflight(mir) == expected, "same live noncanonical payload fails strict shared shape")
+    pilot forged = v4_mir_snapshot()
+    pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_sum_alias_assert(forged != payload and v4_codegen_llvm_native_module_error(rejected) == expected and v4_codegen_llvm_module_text(rejected, target) == "" and v4_codegen_llvm_module_text(sealed, target) == module, "live forgery has no new module and old seal exact")
+    v4_sum_alias_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "baseline recovery")
+    pilot generation = v4_session_semantic_restore_generation()
+    v4_sum_alias_assert(v4_mir_snapshot_restore(forged).starts_with("mir-snapshot-restore ok=0") and v4_session_semantic_restore_generation() == generation and v4_mir_snapshot() == payload, "detached alias masquerade rejects atomically")
+    pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_sum_alias_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module and v4_codegen_llvm_module_text(sealed, target) == module, "strict recovery old and fresh modules exact")
+    say "scalar-sum-payload-alias " + word_from_int(mode) + "=passed changed=true strict-payload=true live=true atomic=true no-module=true old-seal=true recovered=true"
+}
+v4_sum_alias_run()

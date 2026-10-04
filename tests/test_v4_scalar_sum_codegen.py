@@ -16,9 +16,9 @@ class ScalarSumOracle(unittest.TestCase):
     def result(self, stdout='', stderr='', code=0):
         return SimpleNamespace(returncode=code, stdout=stdout, stderr=stderr)
 
-    def test_all_nine_cases_require_exact_output_exit_and_audits(self):
-        self.assertEqual(len(gate.cases()), 9)
-        self.assertEqual(len({c.name for c in gate.cases()}), 9)
+    def test_all_ten_cases_require_exact_output_exit_and_audits(self):
+        self.assertEqual(len(gate.cases()), 10)
+        self.assertEqual(len({c.name for c in gate.cases()}), 10)
         for case in gate.cases():
             gate.assert_case(self.result(case.stdout), case, platform='linux')
             for bad in (self.result(case.stdout, code=86), self.result(case.stdout, code=87),
@@ -62,10 +62,10 @@ class ScalarSumOracle(unittest.TestCase):
         controls += [{'name':'sanitizer-'+kind,'status':'pass'} for kind in ('address','undefined')]
         return {'platform':'linux','sanitizers':True,'programs':rows,'controls':controls}
 
-    def test_27_program_matrix_and_eight_capability_controls_are_mandatory(self):
+    def test_30_program_matrix_and_eight_capability_controls_are_mandatory(self):
         report=self.report()
         gate.validate_report(report,sanitize=True)
-        self.assertEqual(len(report['programs']),27)
+        self.assertEqual(len(report['programs']),30)
         self.assertEqual(len(report['controls']),8)
         for key in ('programs','controls'):
             bad=copy.deepcopy(report);bad[key].pop()
@@ -128,6 +128,40 @@ class ScalarSumOracle(unittest.TestCase):
                 self.assertIs(caught.exception,original)
         with patch.object(gate,'run_gate'), patch.object(Path,'mkdir'), patch.object(Path,'write_text',side_effect=OSError('publication')):
             with self.assertRaises(OSError): gate.main(['--clang','unused-clang','--work','unused-work'])
+
+    def test_operator_target_forwarding_matches_real_word_interfaces(self):
+        from freakc.parser import Parser
+        root = Path(gate.__file__).resolve().parents[1]
+        fixture = Parser.from_source((root/'src/compiler/v4/tests/scalar_sum_operator_smoke.fk').read_text())
+        target = Parser.from_source((root/'src/compiler/v4/crates/freak_target/src/lib.fk').read_text())
+        llvm = Parser.from_source((root/'src/compiler/v4/crates/freak_codegen_llvm/src/lib.fk').read_text())
+        def task(program, name):
+            return next(node for node in program.statements if type(node).__name__=='TaskDecl' and node.name==name)
+        make_target=task(target,'v4_target_spec_new')
+        module_text=task(llvm,'v4_codegen_llvm_module_text')
+        helper=task(fixture,'v4_sum_operator_rejected')
+        caller=task(fixture,'v4_sum_operator_run')
+        def walk(node):
+            yield node
+            if isinstance(node,(list,tuple)):
+                for child in node: yield from walk(child)
+            elif hasattr(node,'__dict__'):
+                for child in vars(node).values(): yield from walk(child)
+        def consistent(candidate):
+            declared=candidate.params[1].type_ann.name
+            if declared != make_target.return_type.name or declared != module_text.params[1].type_ann.name:
+                raise RuntimeError('operator target forwarding disagrees with real target/module interfaces')
+        consistent(helper)
+        forwarding=[node for node in walk(helper.body) if type(node).__name__=='Call' and type(node.func).__name__=='Ident' and node.func.name=='v4_codegen_llvm_module_text']
+        self.assertEqual(len(forwarding),1)
+        self.assertEqual(forwarding[0].args[1].name,helper.params[1].name)
+        binding=next(node for node in walk(caller.body) if type(node).__name__=='PilotDecl' and node.name=='target')
+        self.assertEqual(binding.value.func.name,'v4_target_spec_new')
+        calls=[node for node in walk(caller.body) if type(node).__name__=='Call' and type(node.func).__name__=='Ident' and node.func.name==helper.name]
+        self.assertTrue(calls)
+        self.assertTrue(all(node.args[1].name=='target' for node in calls))
+        old=copy.deepcopy(helper);old.params[1].type_ann.name='int'
+        with self.assertRaises(RuntimeError): consistent(old)
 
 
 if __name__=='__main__': unittest.main()

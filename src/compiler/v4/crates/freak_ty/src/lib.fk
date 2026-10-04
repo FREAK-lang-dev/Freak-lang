@@ -2245,6 +2245,15 @@ task v4_ty_is_native_scalar_sum(ty_id: int, type_text: word) -> bool {
     give back v4_ty_native_scalar_sum_kind(ty_id, type_text) != ""
 }
 
+-- Normalize only the payload of an already authenticated native carrier.
+-- Preserve declared outer aliases and the ordinary generic type protocol.
+task v4_ty_native_scalar_sum_payload_type(ty_id: int, type_text: word) -> word {
+    pilot kind = v4_ty_native_scalar_sum_kind(ty_id, type_text)
+    if kind == "MaybeInt" { give back v4_ty_int }
+    if kind == "ResultWordWord" { give back v4_ty_word }
+    give back v4_ty_unknown
+}
+
 task v4_ty_is_native_owned_value(ty_id: int, type_text: word) -> bool {
     give back v4_ty_canonical_type(ty_id, type_text) == v4_ty_word or v4_ty_is_native_scalar_sum(ty_id, type_text)
 }

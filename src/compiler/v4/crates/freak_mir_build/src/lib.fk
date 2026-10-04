@@ -5025,6 +5025,7 @@ task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: in
         pilot result_ty = v4_ty_unknown
         if v4_ty_is_maybe_type(expected_ty) {
             payload_expected = v4_ty_maybe_value_type(expected_ty)
+            if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), expected_ty) { payload_expected = v4_ty_native_scalar_sum_payload_type(v4_mir_ty_id(mir_id), expected_ty) }
             result_ty = expected_ty
         }
         pilot payload_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, next_token + 1, close_token, payload_expected)
@@ -5044,6 +5045,7 @@ task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: in
         pilot result_ty = v4_ty_unknown
         if v4_ty_is_result_type(expected_ty) {
             ok_expected = v4_ty_result_ok_type(expected_ty)
+            if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), expected_ty) { ok_expected = v4_ty_native_scalar_sum_payload_type(v4_mir_ty_id(mir_id), expected_ty) }
             result_ty = expected_ty
         }
         pilot payload_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, next_token + 1, close_token, ok_expected)
@@ -5062,6 +5064,7 @@ task v4_mir_try_lower_maybe_result_ctor(mir_id: int, body_id: int, stream_id: in
     pilot result_ty = v4_ty_unknown
     if v4_ty_is_result_type(expected_ty) {
         err_expected = v4_ty_result_err_type(expected_ty)
+        if v4_ty_is_native_scalar_sum(v4_mir_ty_id(mir_id), expected_ty) { err_expected = v4_ty_native_scalar_sum_payload_type(v4_mir_ty_id(mir_id), expected_ty) }
         result_ty = expected_ty
     }
     pilot payload_id = v4_mir_lower_expr_expected(mir_id, body_id, stream_id, next_token + 1, close_token, err_expected)
@@ -8109,6 +8112,11 @@ task v4_mir_check_condition_rvalue(mir_id: int, body_id: int, stmt_span: word, o
 task v4_mir_lower_scalar_sum_binding(mir: int, body: int, block: int, span: word, pattern: word, subject: int, op: word, payload_ty: word) -> void {
     pattern = v4_mir_pattern_trim(pattern)
     if pattern == "_" { give back }
+    payload_ty = v4_ty_native_scalar_sum_payload_type(v4_mir_ty_id(mir), v4_mir_place_ty(mir, body, subject))
+    if payload_ty == v4_ty_unknown {
+        v4_mir_add_type_error(mir, span, "native scalar sum payload type is not supported", "the owning carrier must resolve to maybe<int> or result<word,word>")
+        give back
+    }
     if not v4_mir_pattern_is_simple_local(pattern) {
         v4_mir_add_type_error(mir, span, "native scalar sum arm needs a simple binding", "use a local name or _ for this scalar sum payload")
         give back
