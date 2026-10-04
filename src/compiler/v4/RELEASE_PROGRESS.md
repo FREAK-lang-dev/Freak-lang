@@ -186,9 +186,26 @@ The focused run at `376e477` passes four existing controls and eight new modes,
 then rejects the missing-binding span assertion. Its diagnostic used the whole
 expression range, including preceding whitespace. The producer now selects the
 identifier token's exact span; help text, assertions and generated programs are
-unchanged. Fresh focused execution and current-head platform CI remain required
-before readiness. Earlier native evidence requires explicit review of this
-diagnostic-only delta and retains its actual source revision.
+unchanged. At `bea7372`, all nineteen focused cases and eighty-five registered
+assertions pass. Independent endpoint review verifies the original caps, raw
+channels, source/tool/cache conservation, artifacts and cleanup. Earlier native
+evidence receives explicit review of this diagnostic-only delta and retains its
+actual source revision.
+
+The `bea7372` platform run passes all six shipping jobs, the Linux runtime-helper
+job and the native backend jobs on macOS and Windows. Two typed OS driver
+failures remain: macOS
+rejects an unused include-path warning and a deployment-target override at its
+first program link; Windows rejects CRLF checkout bytes against fixed bootstrap
+hashes and CRLF-generated contract source against its canonical source identity.
+The driver now removes include flags only from LLVM links, observes the macOS
+deployment target with one bounded C-to-LLVM probe, and changes only the target
+header in separate link modules. Generated C/FK source uses exact UTF-8 LF bytes;
+three pinned bootstrap files have explicit LF checkout attributes. Exact source
+hashes, native output/stderr contracts, program bodies, matrix coverage and
+resource limits remain required. Independent source/pure review and fresh
+current-head platform CI are required before readiness; these source corrections
+do not relabel earlier native endpoints as executions of the new driver.
 
 These checks do not complete default compiler unwind, self-hosting or V3
 replacement. The release version remains unchanged; no release tag is created.
