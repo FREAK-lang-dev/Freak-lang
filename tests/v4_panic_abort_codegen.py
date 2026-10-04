@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -27,6 +28,20 @@ from v4_checked_numeric_codegen import (AUDIT_FLAGS, SANITIZER_FLAGS, Runner,
 
 OPTS = (0, 2, 3)
 PREFIX = 'panic-abort-execute stages=clean v8-restore=true old-seal=true fresh-module=true policy=abort\n'
+
+def require_native_link(result, target: str, *, platform: str = sys.platform) -> None:
+    # Clang canonicalizes the supported generic Darwin triple to the selected
+    # SDK version. Accept that one same-architecture diagnostic, retaining the
+    # raw stderr; every other warning, output, or failed link remains an error.
+    canonical_darwin = (
+        platform == 'darwin' and target == 'aarch64-apple-darwin'
+        and re.fullmatch(
+            r'warning: overriding the module target triple with arm64-apple-macosx[0-9]+(?:\.[0-9]+){0,2} \[-Woverride-module\]\n1 warning generated\.\n',
+            result.stderr,
+        ) is not None
+    )
+    if result.returncode != 0 or result.stdout or (result.stderr and not canonical_darwin):
+        raise RuntimeError(f'panic native link failed: {result.stderr}')
 
 class Case(NamedTuple):
     name: str
@@ -211,7 +226,7 @@ int main(int argc,char **argv){if(argc!=2)return 9;if(argv[1][0]=='a'){volatile 
                 flags=[f'-O{opt}',*AUDIT_FLAGS]
                 if not args.plain:flags+=list(SANITIZER_FLAGS)
                 result=runner.run([args.clang,'--target='+target,*flags,str(llvm),*objects[opt],'-o',str(binary),*checks.runtime_platform_final_link_args()],f'panic link {case.name} O{opt}',timeout=120,memory=512)
-                if result.returncode!=0 or result.stdout or result.stderr:raise RuntimeError(f'panic native link failed: {result.stderr}')
+                require_native_link(result, target)
                 result=runner.run([str(binary)],f'panic execute {case.name} O{opt}',timeout=30,memory=128)
                 assert_case(result,case)
                 actual=result.stdout.replace('\r\n','\n') if sys.platform=='win32' else result.stdout

@@ -80,5 +80,25 @@ class PanicAbortOracle(unittest.TestCase):
                 self.assertEqual(argv,['clang','--target='+target,*flags,'module.ll','runtime.O3.o','-o','program.native',*libraries])
                 self.assertFalse(any(value=='-w' or value.startswith('-Wno-') for value in argv))
         self.assertEqual({keyword.arg:ast.literal_eval(keyword.value) for keyword in calls[0].keywords},{'timeout':120,'memory':512})
-        self.assertIn('if result.returncode!=0 or result.stdout or result.stderr:raise RuntimeError',ast.get_source_segment(Path(gate.__file__).read_text(),run_gate))
+        self.assertIn('require_native_link(result, target)',ast.get_source_segment(Path(gate.__file__).read_text(),run_gate))
+
+    def test_link_allows_only_same_architecture_darwin_canonicalization(self):
+        warning = ('warning: overriding the module target triple with arm64-apple-macosx26.0.0 '
+                   '[-Woverride-module]\n1 warning generated.\n')
+        gate.require_native_link(self.result(), 'aarch64-apple-darwin', platform='darwin')
+        gate.require_native_link(self.result(stderr=warning), 'aarch64-apple-darwin', platform='darwin')
+        bad_results = [self.result(stderr=warning, code=1), self.result(stdout='extra', stderr=warning),
+                       self.result(stderr=warning + 'extra\n'),
+                       self.result(stderr=warning.replace('arm64-', 'x86_64-')),
+                       self.result(stderr=warning.replace('macosx26.0.0', 'ios26.0.0')),
+                       self.result(stderr=warning.replace('[-Woverride-module]', '[-Wother]')),
+                       self.result(stderr=warning.replace('1 warning', '2 warnings')),
+                       self.result(stderr='warning: unrelated\n'), self.result(stderr='runtime error: overflow\n')]
+        for actual in bad_results:
+            with self.subTest(actual=actual), self.assertRaises(RuntimeError):
+                gate.require_native_link(actual, 'aarch64-apple-darwin', platform='darwin')
+        for platform, target in (('linux', 'aarch64-apple-darwin'), ('win32', 'aarch64-apple-darwin'),
+                                 ('darwin', 'x86_64-unknown-linux-gnu'), ('darwin', 'x86_64-pc-windows-msvc')):
+            with self.subTest(platform=platform, target=target), self.assertRaises(RuntimeError):
+                gate.require_native_link(self.result(stderr=warning), target, platform=platform)
 if __name__=='__main__':unittest.main()

@@ -286,7 +286,11 @@ def driver_source() -> str:
         {formatter}
         return;
     }}''')
-    return r'''#include "freak_v4_numeric_runtime.h"
+    return r'''#if defined(_WIN32) && !defined(_CRT_SECURE_NO_WARNINGS)
+/* Width-bounded sscanf below is shared with the portable C11 probe. */
+#define _CRT_SECURE_NO_WARNINGS 1
+#endif
+#include "freak_v4_numeric_runtime.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>

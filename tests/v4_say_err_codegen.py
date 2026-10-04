@@ -47,7 +47,7 @@ def prefix(case: int) -> str:
 
 
 def fixture_sources(text: str) -> list[str]:
-    """Read only literal concatenation and brace chr calls; never eval source."""
+    """Read the closed literal/brace/Unicode fixture table; never eval source."""
     def read(node: ast.AST) -> str:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return node.value
@@ -56,9 +56,10 @@ def fixture_sources(text: str) -> list[str]:
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                 and node.func.id == "chr" and len(node.args) == 1 and not node.keywords
                 and isinstance(node.args[0], ast.Constant)
-                and type(node.args[0].value) is int and node.args[0].value in (123, 125)):
+                and type(node.args[0].value) is int
+                and node.args[0].value in (123, 125, 233, 20013, 128512, 129418)):
             return chr(node.args[0].value)
-        raise GateError("stderr source table permits only literals, + and brace chr")
+        raise GateError("stderr source table permits only literals, + and closed brace/Unicode chr")
 
     match = re.search(r"(?ms)^task v4_say_err_proof_source\(case_id: int\) -> word \{\n(.*?)^\}", text)
     if match is None:

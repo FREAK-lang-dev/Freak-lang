@@ -111,6 +111,11 @@ class SayErrOracles(unittest.TestCase):
         text = FIXTURE.read_text(encoding="utf-8")
         sources = gate.fixture_sources(text)
         self.assertEqual(len(sources), 3)
+        self.assertEqual([hashlib.sha256(source.encode()).hexdigest() for source in sources], [
+            "721dc81cd4ed3f4675ecb1d37bc882dc0ed2f094c914657a7c7f9995eb7b8f83",
+            "e28fb5950f9720c84ff9e6eb0a01f4ccaaa447d2c0aad23a1bfd7fc0c5695fc6",
+            "e30be3bf7c57cbe423281f3aac0f198f6fe7b9fb03a5231053cff18908733135",
+        ])
         self.assertIn('report(lend value)', sources[0])
         self.assertIn('repeat until index >= 2', sources[0])
         self.assertIn('say value\n early()', sources[0])
@@ -119,6 +124,12 @@ class SayErrOracles(unittest.TestCase):
         faults = [text.replace("if case_id == 2", "if case_id == 1", 1),
                   "\n".join(line for line in text.splitlines() if not line.strip().startswith("if case_id == 1 { give back")),
                   text.replace("chr(123)", "chr(0)", 1),
+                  text.replace("chr(233)", "chr(55296)", 1),
+                  text.replace("chr(233)", "chr(1114112)", 1),
+                  text.replace("chr(233)", "chr(True)", 1),
+                  text.replace("chr(233)", "chr(233.0)", 1),
+                  text.replace("chr(233)", "chr(233, 1)", 1),
+                  text.replace("chr(233)", "chr(value=233)", 1),
                   text.replace("chr(123)", "__import__('os').system('false')", 1)]
         for malformed in faults:
             with self.assertRaises(gate.GateError):
