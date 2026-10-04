@@ -25,11 +25,11 @@ task v4_typed_place_run() -> void {
     if mode == "1" or mode == "2" or mode == "6" or mode == "15" { expression = "values[take_index(text)]" }
     if mode == "3" { expression = "take_index(text) + values[text.length()]" }
     if mode == "4" { expression = "values[text.length()] + take_index(text)" }
-    pilot source = "task take_index(value: word) -> int { give back 0 }\ntask main() -> int { pilot text = \"x\"; pilot values = [3, 4]; pilot selected = " + expression + "; "
+    pilot source = ("task take_index(value: word) -> int " + chr(123) + " give back 0 " + chr(125) + "\ntask main() -> int " + chr(123) + " pilot text = \"x\"; pilot values = [3, 4]; pilot selected = ") + expression + "; "
     if mode == "2" { source = source + "text.length(); " }
-    source = source + "give back selected }\n"
+    source = source + ("give back selected " + chr(125) + "\n")
     if mode == "5" {
-        source = "extern [C] {\n task lookup() -> *const int\n}\ntask address(value: word) -> *const int { give back lookup() }\ntask main() -> int { pilot text = \"x\"; trust me \"read address\" on my honor as .ace { pilot selected = *address(text); give back selected } }\n"
+        source = ("extern [C] " + chr(123) + "\n task lookup() -> *const int\n" + chr(125) + "\ntask address(value: word) -> *const int " + chr(123) + " give back lookup() " + chr(125) + "\ntask main() -> int " + chr(123) + " pilot text = \"x\"; trust me \"read address\" on my honor as .ace " + chr(123) + " pilot selected = *address(text); give back selected " + chr(125) + " " + chr(125) + "\n")
     }
     pilot writes: bool = word_to_int(mode) >= 7 and word_to_int(mode) <= 18 and mode != "15"
     if writes {
@@ -44,9 +44,9 @@ task v4_typed_place_run() -> void {
         if mode == "16" { statements = "address(text).write(1); give back 0" }
         if mode == "17" { statements = "borrowed_address(lend text).write(take_index(text)); give back 0" }
         if mode == "18" { statements = "address(text).write(text.length()); give back 0" }
-        source = "extern [C] {\n task lookup_mut() -> *mut int\n}\ntask address(value: word) -> *mut int { value.length(); give back lookup_mut() }\ntask borrowed_address(lend value: word) -> *mut int { value.length(); give back lookup_mut() }\ntask take_index(value: word) -> int { give back 0 }\ntask take(value: word) -> word { give back value }\ntask main() -> int { pilot mut text = \"x\"; "
+        source = ("extern [C] " + chr(123) + "\n task lookup_mut() -> *mut int\n" + chr(125) + "\ntask address(value: word) -> *mut int " + chr(123) + " value.length(); give back lookup_mut() " + chr(125) + "\ntask borrowed_address(lend value: word) -> *mut int " + chr(123) + " value.length(); give back lookup_mut() " + chr(125) + "\ntask take_index(value: word) -> int " + chr(123) + " give back 0 " + chr(125) + "\ntask take(value: word) -> word " + chr(123) + " give back value " + chr(125) + "\ntask main() -> int " + chr(123) + " pilot mut text = \"x\"; ")
         if mode == "11" or mode == "14" { source = source + "pilot mut values = [3, 4]; " }
-        source = source + "trust me \"write address\" on my honor as .ace { " + statements + " } }\n"
+        source = source + ("trust me \"write address\" on my honor as .ace " + chr(123) + " ") + statements + (" " + chr(125) + " " + chr(125) + "\n")
     }
     pilot mir = v4_mir_text_cached("typed-place.fk", source)
     v4_typed_place_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0 and v4_mir_word_plan_preflight(mir) == "", "valid frontend typed graph")

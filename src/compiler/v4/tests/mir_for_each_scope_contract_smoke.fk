@@ -4,10 +4,10 @@ task v4_for_each_scope_assert(condition: bool, label: word) -> void {
 }
 task v4_for_each_scope_run() -> void {
     pilot mode = process::arg(1)
-    pilot source = "task rows(value: word) -> [word; 1] { give back [value] }\ntask main() -> int { pilot source = \"first\"; for each item in rows(source) { source = \"again\" }; give back 0 }\n"
-    if mode == "1" { source = "task rows() -> List<int> { give back [1, 2] }\ntask main() -> int { pilot total = 0; for each item in rows() { total += item }; give back total }\n" }
-    if mode == "2" { source = "task main() -> int { pilot pairs = [(7, \"ace\"), (9, \"beta\")]; for each (power, label) in pairs { pilot seen = power }; give back 0 }\n" }
-    if mode == "3" { source = "task main() -> int { pilot rows = [1, 2]; for each item in rows { pilot nested = item }; pilot after = 0; give back after }\n" }
+    pilot source = ("task rows(value: word) -> [word; 1] " + chr(123) + " give back [value] " + chr(125) + "\ntask main() -> int " + chr(123) + " pilot source = \"first\"; for each item in rows(source) " + chr(123) + " source = \"again\" " + chr(125) + "; give back 0 " + chr(125) + "\n")
+    if mode == "1" { source = ("task rows() -> List<int> " + chr(123) + " give back [1, 2] " + chr(125) + "\ntask main() -> int " + chr(123) + " pilot total = 0; for each item in rows() " + chr(123) + " total += item " + chr(125) + "; give back total " + chr(125) + "\n") }
+    if mode == "2" { source = ("task main() -> int " + chr(123) + " pilot pairs = [(7, \"ace\"), (9, \"beta\")]; for each (power, label) in pairs " + chr(123) + " pilot seen = power " + chr(125) + "; give back 0 " + chr(125) + "\n") }
+    if mode == "3" { source = ("task main() -> int " + chr(123) + " pilot rows = [1, 2]; for each item in rows " + chr(123) + " pilot nested = item " + chr(125) + "; pilot after = 0; give back after " + chr(125) + "\n") }
     pilot mir = v4_mir_text_cached("for-each-scope.fk", source)
     v4_for_each_scope_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
     v4_for_each_scope_assert(v4_mir_word_plan_preflight(mir) == "", "live scope preflight")
