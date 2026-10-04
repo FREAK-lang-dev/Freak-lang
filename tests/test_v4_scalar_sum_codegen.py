@@ -168,5 +168,49 @@ class ScalarSumOracle(unittest.TestCase):
         wrong_error=copy.deepcopy(helper);wrong_error.params[2].type_ann.name='int'
         with self.assertRaises(RuntimeError): consistent(wrong_error)
 
+    def test_runtime_type_declarations_are_bootstrap_typechecked(self):
+        from freakc.parser import Parser
+        from freakc.type_checker import TypeChecker
+        root = Path(gate.__file__).resolve().parents[1]
+        programs=[Parser.from_source(path.read_text()) for path in sorted((root/'src/compiler/v4/crates').glob('*/src/lib.fk'))]
+        target_name='v4_codegen_llvm_scalar_sum_runtime_lines'
+        target=next(node for program in programs for node in program.statements if type(node).__name__=='TaskDecl' and node.name==target_name)
+        combined=copy.deepcopy(programs[0]);combined.statements=[]
+        for program in programs:
+            for node in program.statements:
+                copied=copy.copy(node)
+                if type(copied).__name__=='TaskDecl' and copied.name!=target_name:
+                    copied.body=[]
+                combined.statements.append(copied)
+        errors=lambda program:[diag for diag in TypeChecker().check(program) if diag.level=='error']
+        self.assertEqual(errors(combined),[])
+        def walk(node):
+            yield node
+            if isinstance(node,(list,tuple)):
+                for child in node: yield from walk(child)
+            elif hasattr(node,'__dict__'):
+                for child in vars(node).values(): yield from walk(child)
+        strings=[node for node in walk(target.body) if type(node).__name__=='StrLit']
+        self.assertTrue(strings)
+        self.assertTrue(all(all(expression is None for _,expression in (node.parts or [])) for node in strings))
+        old=copy.deepcopy(combined)
+        old_task=next(node for node in old.statements if type(node).__name__=='TaskDecl' and node.name==target_name)
+        # Restore the exact old braced literals in the two output assignments.
+        replaced=0
+        declarations=[]
+        for node in walk(old_task.body):
+            if type(node).__name__=='Assign' and type(node.value).__name__=='BinOp':
+                text_nodes=[child for child in walk(node.value) if type(child).__name__=='StrLit']
+                text=''.join(child.value for child in text_nodes)
+                if text.startswith('%freak_') and ' = type {' in text:
+                    declarations.append(text)
+                    node.value=Parser.from_source('pilot output = out + "'+text.replace('\n','\\n')+'"').statements[0].value
+                    replaced+=1
+        self.assertEqual(replaced,2)
+        self.assertEqual(declarations,['%freak_maybe_int = type { i1, i64 }\n','%freak_result_word_word = type { i1, i64 }\n'])
+        old_errors=errors(old)
+        self.assertEqual(len(old_errors),2)
+        self.assertTrue(all(' i1, i64 ' in diag.message for diag in old_errors))
+
 
 if __name__=='__main__': unittest.main()
