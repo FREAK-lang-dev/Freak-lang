@@ -10067,9 +10067,13 @@ task v4_ty_signature_return_surface_type(ty_id: int, sig_id: int) -> word {
     if member_id >= 0 {
         give back v4_ty_extern_member_return_surface_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), member_id)
     }
-    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+    -- Arrow shorthand has separate inference. Explicit ordinary returns read
+    -- stored HIR facts without entering the token-based arrow fallback.
+    if v4_hir_task_return_form(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id)) == v4_hir_task_return_arrow and v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         pilot control_return = v4_ty_signature_arrow_control_return(ty_id, sig_id)
         if control_return != v4_ty_unknown { give back control_return }
+    }
+    if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_ty_task_return_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
     }
     give back v4_ty_nonordinary_signature_return_fallback(ty_id, sig_id)
