@@ -42,7 +42,7 @@ def main_source(body: str, *, result: str = 'int', helpers: str = '') -> str:
 def cases() -> tuple[Case, ...]:
     first = 'task first() -> int { say "first"; give back 1 }\n'
     take = 'task take(value: word) -> word { give back value }\n'
-    allocation = ('extern [C] {\n task malloc(size: std::ffi::c_usize) -> *mut std::ffi::c_void\n'
+    allocation = ('extern [C] {\n task malloc(size: std::ffi::c_size) -> *mut std::ffi::c_void\n'
                   ' task free(value: *mut std::ffi::c_void) -> void\n}\n')
     address = ('task owned_address(value: word, pointer: *mut int) -> *mut int { say "address"; say value.length(); give back pointer }\n'
                'task borrowed_address(lend value: word, pointer: *mut int) -> *mut int { say "address"; say value.length(); give back pointer }\n'
