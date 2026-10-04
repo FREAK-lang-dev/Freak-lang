@@ -2511,7 +2511,7 @@ def audit_conformance(paths: List[Path]) -> int:
     lower_missing: List[str] = []
     lower_contracts = (
         ("src/compiler/v4/crates/freak_mir/src/lib.fk",
-         ('pilot v4_mir_snapshot_format = "freak-mir-snapshot-v8"',
+         ('pilot v4_mir_snapshot_format = "freak-mir-snapshot-v9"',
           'if kind == "to_lower" { give back 119 }')),
         ("src/compiler/v4/crates/freak_ty/src/lib.fk",
          ('if kind == "to_lower" { give back v4_ty_word }',

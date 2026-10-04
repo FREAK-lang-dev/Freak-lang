@@ -16,7 +16,7 @@ The public release remains v0.14.2; this work does not create a release.
 | Sized Unicode and interpolation | Embedded NUL, character indexing/slicing, lower-case runtime and HIR interpolation plans with restoration/invalidation coverage | Generated bounds driver passes independent source/pure review; actual generated matrix remains pending |
 | Literal/general `say` | Updated fixture passes its 27 static byte cases, seven owned/general positives, seven typed diagnostics, ten forgeries and snapshot roundtrip | Final coherent-head platform CI |
 | `say_err` and hosted runtime portability | Generated owned-message lane and exact raw output tests; source fixes for finite Unicode fixture construction, a known Darwin linker warning and Windows CRT declaration warning | Fresh Linux/macOS/Windows CI on the corrected head |
-| Process arguments and typed OS results | Existing C entry argument setup; isolated closed `maybe<int>`/`result<word,word>` and typed `process::arg`, `process::args_count`, `fs::read` vertical slice | Closed Sum successor passes independent source/pure review and all 76 compiler cases; generated native gate, typed OS gate and integration remain pending |
+| Process arguments and typed OS results | Existing C entry argument setup; reviewed closed `maybe<int>`/`result<word,word>` slice integrated after all 76 compiler cases, 30 generated O0/O2/O3 programs and eight mandatory audit/sanitizer controls passed on its isolated source | Repeat on the coherent integration head; execute the reviewed typed process/FS gate and platform CI |
 | Filesystem bridge | Linux plain and ASan/UBSan O0/O2/O3 bridge proof, exact owned Ok/Err slots, Unicode/NUL/nonregular-file controls | Typed source integration and macOS/Windows native gates |
 | Integer arithmetic | Checked native overflow and divide-by-zero contract; private C32 arithmetic lane passes hosted Linux/macOS/Windows | Fresh coherent-head CI; C-width native ABI admission remains fenced by B01 |
 | Panic and bounds | Explicit `--panic=abort` path and checked integer/runtime boundaries; isolated private panic-context runtime has passed source review | Default compiler unwind and cleanup are not implemented; private context plain matrix passes six builds and 306 outcomes; context sanitizer proof and generated Word-bounds execution remain pending |
@@ -39,9 +39,10 @@ and general deferred cleanup also remain open.
   collision; focused regressions preserve the real loan conflict and reject
   the false carrier-move error.
 - The lend-contract fixture receives a third ownership diagnostic for the same
-  illegal borrowed Word return. Two hosted runs preserve all three messages and
-  help strings. Source-bound controls distinguish the declaration and operand
-  spans and accept observers and typed reborrows; focused execution is pending.
+  illegal borrowed Word return. The official focused run passes all 43 strict,
+  unique assertions, preserving all three messages and help strings. Reviewed
+  producer facts distinguish declaration spans, operand trivia and actual
+  ReturnValue storage; accepted observers and typed reborrows remain covered.
 - The drop fixture correctly blocks repeated consumption of an owned Word in
   a loop. Focused execution passes the exact single diagnostic, help and
   local-declaration span, alongside the preserved drop/DropIf ordering facts.
@@ -51,13 +52,21 @@ and general deferred cleanup also remain open.
   carrier/constructor/extraction treatment. Later review found ordered
   comparisons and a formal-parameter shadow guard gap. The bounded bootstrap
   diagnostic also exposed interpolation in two LLVM type strings. The reviewed
-  successor fixes those findings and passes all 76 compiler cases. Generated
-  native checks remain required before integration.
+  successor fixes those findings and passes all 76 compiler cases, all 30
+  generated O0/O2/O3 programs and eight mandatory audit/sanitizer controls.
+  Independent review verifies the completed isolated-source artifacts. The
+  16 paths were imported byte for byte; reviewed target consistency repairs
+  followed in the native driver and its pure tests. Coherent-head proof is pending.
 - Independent review blocked the new Word-bounds driver because it could
   report success after a retained image changed and had first-cause, cleanup,
   deadline and provenance gaps. The reviewed successor passes 49 independent
   fault controls and all 28 pure methods. Its generated native matrix remains
   required; pure success does not complete that proof.
+- The private context runtime passed all 306 sanitized runtime outcomes, but
+  the required leak capability probe exited zero without a diagnostic. This
+  failed attempt remains preserved. A reviewed control successor clears its
+  published allocation root; narrow capability execution and the complete
+  sanitizer matrix remain required before acceptance.
 
 ## Self-hosting and V3 replacement
 
@@ -97,6 +106,13 @@ remaining failures: the lend diagnostic count, Windows test-source decoding,
 and a Linux sanitizer capability exceeding its 64 MiB guard while reporting
 an error. Reviewed fixes preserve diagnostics and all resource limits. The
 sanitizer environment disables symbolization while retaining detection, leak
-checks, stack printing, summaries and exit status. Fresh full platform CI and
+  checks, stack printing, summaries and exit status. Fresh full platform CI and
 current independent review are required before readiness. No merge or release
 is performed automatically.
+
+At `f9153c2`, all six shipping jobs and the Linux/macOS runtime-helper jobs
+pass. Windows exposes a target mismatch in the panic driver: default MSVC
+runtime objects are linked with a GNU-target module. The corrective drivers
+must pass the selected target to every Clang stage while retaining strict
+diagnostic checks. Newly integrated Sum and typed OS drivers receive the same
+target consistency check before their coherent-head proofs.

@@ -152,6 +152,15 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "h6_native_declaration_symbol_smoke.fk",
         "h6_native_ffi_width_smoke.fk",
         "mir_route_terminal_contract_smoke.fk",
+        "scalar_sum_semantic_smoke.fk",
+        "scalar_sum_contract_smoke.fk",
+        "scalar_sum_editor_smoke.fk",
+        "scalar_sum_operator_smoke.fk",
+        "scalar_sum_origin_smoke.fk",
+        "scalar_sum_payload_alias_smoke.fk",
+        "scalar_sum_execute_smoke.fk",
+        "typed_os_entry_execute_smoke.fk",
+        "typed_os_entry_contract_smoke.fk",
     }
 )
 
@@ -338,7 +347,7 @@ CRATE_BOUNDARY_REQUIRED = {
     "freak_mir": [
         ("representation ownership comment", "-- freak_mir - persistent V4 Built-MIR representation"),
         ("explicit-scope local primitive", "task v4_mir_add_local_at_scope("),
-        ("snapshot v8 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v8"'),
+        ("snapshot v9 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v9"'),
     ],
     "freak_mir_build": [
         ("construction ownership comment", "-- freak_mir_build - stateless V4 HIR+TY to Built-MIR construction"),
@@ -10109,7 +10118,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "mir_snapshot_smoke.fk",
         "expect": [
             "mir-snapshot-bytes=",
-            "mir-snapshot|format=freak-mir-snapshot-v8",
+            "mir-snapshot|format=freak-mir-snapshot-v9",
             "mir-snapshot-restore ok=1",
             "ok|workspace/mirSnapshotRestore",
             "borrowck-ok borrow=",
@@ -11809,6 +11818,279 @@ EXECUTABLE_SMOKES = [
             {"argv": ["13"], "expect": ["route-terminal case=13 pattern=true coverage=true terminal=true loan=true restore=true"]},
         ],
     },
+    {'name': 'Closed scalar Sum semantic compiler matrix',
+      'fixture': 'scalar_sum_semantic_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-semantic 0=passed clean=true nonCopy=true sealed=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-semantic 0=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['1'],
+                         'expect': ['scalar-sum-semantic 1=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['2'],
+                         'expect': ['scalar-sum-semantic 2=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['3'],
+                         'expect': ['scalar-sum-semantic 3=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['4'],
+                         'expect': ['scalar-sum-semantic 4=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['5'],
+                         'expect': ['scalar-sum-semantic 5=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['6'], 'expect': ['scalar-sum-semantic 6=passed named=true no-module=true']},
+                        {'argv': ['7'], 'expect': ['scalar-sum-semantic 7=passed named=true no-module=true']},
+                        {'argv': ['8'], 'expect': ['scalar-sum-semantic 8=passed named=true no-module=true']},
+                        {'argv': ['9'], 'expect': ['scalar-sum-semantic 9=passed named=true no-module=true']},
+                        {'argv': ['10'], 'expect': ['scalar-sum-semantic 10=passed named=true no-module=true']},
+                        {'argv': ['11'], 'expect': ['scalar-sum-semantic 11=passed named=true no-module=true']},
+                        {'argv': ['12'],
+                         'expect': ['scalar-sum-semantic 12=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['13'],
+                         'expect': ['scalar-sum-semantic 13=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['14'], 'expect': ['scalar-sum-semantic 14=passed named=true no-module=true']},
+                        {'argv': ['15'], 'expect': ['scalar-sum-semantic 15=passed named=true no-module=true']},
+                        {'argv': ['16'], 'expect': ['scalar-sum-semantic 16=passed named=true no-module=true']},
+                        {'argv': ['17'],
+                         'expect': ['scalar-sum-semantic 17=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['18'],
+                         'expect': ['scalar-sum-semantic 18=passed clean=true nonCopy=true sealed=true']}]},
+     {'name': 'Closed scalar Sum contract compiler matrix',
+      'fixture': 'scalar_sum_contract_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-contract 0=passed v9=true old-seal=true fresh-module=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-contract 0=passed v9=true old-seal=true fresh-module=true']},
+                        {'argv': ['old-version'],
+                         'expect': ['scalar-sum-contract old-version=passed changed=true atomic=true '
+                                    'old-seal=true']},
+                        {'argv': ['pressure'],
+                         'expect': ['scalar-sum-contract pressure=passed exact-scratch=true recovered=true '
+                                    'old-seal=true']},
+                        {'argv': ['take-tag'],
+                         'expect': ['scalar-sum-contract take-tag=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['take-result'],
+                         'expect': ['scalar-sum-contract take-result=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['take-source'],
+                         'expect': ['scalar-sum-contract take-source=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['take-cycle'],
+                         'expect': ['scalar-sum-contract take-cycle=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['take-abi'],
+                         'expect': ['scalar-sum-contract take-abi=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['take-args'],
+                         'expect': ['scalar-sum-contract take-args=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['observer-op'],
+                         'expect': ['scalar-sum-contract observer-op=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['observer-type'],
+                         'expect': ['scalar-sum-contract observer-type=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['constructor-tag'],
+                         'expect': ['scalar-sum-contract constructor-tag=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['constructor-payload'],
+                         'expect': ['scalar-sum-contract constructor-payload=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['constructor-type'],
+                         'expect': ['scalar-sum-contract constructor-type=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['call-arity'],
+                         'expect': ['scalar-sum-contract call-arity=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['call-extra'],
+                         'expect': ['scalar-sum-contract call-extra=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['call-abi'],
+                         'expect': ['scalar-sum-contract call-abi=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['call-result'],
+                         'expect': ['scalar-sum-contract call-result=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['call-target'],
+                         'expect': ['scalar-sum-contract call-target=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['local-id'],
+                         'expect': ['scalar-sum-contract local-id=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['local-name'],
+                         'expect': ['scalar-sum-contract local-name=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']}]},
+     {'name': 'Closed scalar Sum editor compiler matrix',
+      'fixture': 'scalar_sum_editor_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-editor 0=passed descriptors=true hover=true lexical=true no-fake-definition=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-editor 0=passed descriptors=true hover=true lexical=true '
+                                    'no-fake-definition=true']},
+                        {'argv': ['1'],
+                         'expect': ['scalar-sum-editor 1=passed arm-types=true real-arm-definitions=true']},
+                        {'argv': ['2'],
+                         'expect': ['scalar-sum-editor 2=passed facade-invalidation=true fresh=true '
+                                    'old-fact=true']},
+                        {'argv': ['3'],
+                         'expect': ['scalar-sum-editor 3=passed source-invalidation=true fresh-descriptor=true '
+                                    'old-fact=true']}]},
+     {'name': 'Closed scalar Sum operator compiler matrix',
+      'fixture': 'scalar_sum_operator_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-operator 0=passed authored=true exact-fence=true no-module=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-operator 0=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['1'],
+                         'expect': ['scalar-sum-operator 1=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['2'],
+                         'expect': ['scalar-sum-operator 2=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['3'],
+                         'expect': ['scalar-sum-operator 3=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['4'],
+                         'expect': ['scalar-sum-operator 4=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['5'],
+                         'expect': ['scalar-sum-operator 5=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['6'],
+                         'expect': ['scalar-sum-operator 6=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']},
+                        {'argv': ['7'],
+                         'expect': ['scalar-sum-operator 7=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']},
+                        {'argv': ['8'],
+                         'expect': ['scalar-sum-operator 8=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']},
+                        {'argv': ['9'],
+                         'expect': ['scalar-sum-operator 9=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']},
+                        {'argv': ['10'],
+                         'expect': ['scalar-sum-operator 10=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']},
+                        {'argv': ['11'],
+                         'expect': ['scalar-sum-operator 11=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']}]},
+     {'name': 'Closed scalar Sum origin compiler matrix',
+      'fixture': 'scalar_sum_origin_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-origin 0=passed visible-origin=true restored=true old-seal=true fresh-module=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-origin 0=passed visible-origin=true restored=true old-seal=true '
+                                    'fresh-module=true']},
+                        {'argv': ['1'],
+                         'expect': ['scalar-sum-origin 1=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['2'],
+                         'expect': ['scalar-sum-origin 2=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['3'],
+                         'expect': ['scalar-sum-origin 3=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['4'],
+                         'expect': ['scalar-sum-origin 4=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['5'],
+                         'expect': ['scalar-sum-origin 5=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['6'],
+                         'expect': ['scalar-sum-origin 6=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['7'],
+                         'expect': ['scalar-sum-origin 7=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['8'],
+                         'expect': ['scalar-sum-origin 8=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['9'],
+                         'expect': ['scalar-sum-origin 9=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['10'],
+                         'expect': ['scalar-sum-origin 10=passed visible-origin=true restored=true old-seal=true '
+                                    'fresh-module=true']},
+                        {'argv': ['11'],
+                         'expect': ['scalar-sum-origin 11=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']}]},
+     {'name': 'Closed scalar Sum payload alias compiler matrix',
+      'fixture': 'scalar_sum_payload_alias_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-payload-alias 0=passed canonical-payload=true outer-preserved=true restored=true '
+                 'old-seal=true fresh-module=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-payload-alias 0=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['1'],
+                         'expect': ['scalar-sum-payload-alias 1=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['2'],
+                         'expect': ['scalar-sum-payload-alias 2=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['3'],
+                         'expect': ['scalar-sum-payload-alias 3=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['4'],
+                         'expect': ['scalar-sum-payload-alias 4=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['5'],
+                         'expect': ['scalar-sum-payload-alias 5=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['6'],
+                         'expect': ['scalar-sum-payload-alias 6=passed changed=true strict-payload=true '
+                                    'live=true atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['7'],
+                         'expect': ['scalar-sum-payload-alias 7=passed changed=true strict-payload=true '
+                                    'live=true atomic=true no-module=true old-seal=true recovered=true']}]},
+     {'name': 'scalar sum existing Word module restore and execution',
+      'fixture': 'scalar_sum_execute_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-execute stages=clean v9-restore=true old-seal=true fresh-module=true',
+                 '@@LLVM-MODULE-BEGIN',
+                 '@@LLVM-MODULE-END'],
+      'llvm_programs': [('owned_word_return_temporary.fk', 0, 'first\nsecond\ntransfer\ntransfer\n')]},
+     {'name': 'typed os entry existing Word module restore and execution',
+      'fixture': 'typed_os_entry_execute_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['typed-os-entry-execute stages=clean v9-restore=true old-seal=true fresh-module=true',
+                 '@@LLVM-MODULE-BEGIN',
+                 '@@LLVM-MODULE-END'],
+      'llvm_programs': [('owned_word_return_temporary.fk', 0, 'first\nsecond\ntransfer\ntransfer\n')]},
+     {'name': 'Typed OS closed descriptors and MIR9 restore',
+      'fixture': 'typed_os_entry_contract_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['typed-os-entry-contract mode=descriptors=passed'],
+      'argv': ['descriptors',
+               'src/compiler/v4/examples/typed_os_entry_descriptors.fk',
+               'x86_64-unknown-linux-gnu',
+               '',
+               'builtin::system::process_arg']}
 ]
 
 if str(ROOT) not in sys.path:
@@ -14060,6 +14342,15 @@ def check_snapshot_inventories() -> None:
             "h6_native_declaration_symbol_smoke.fk",
             "h6_native_ffi_width_smoke.fk",
             "mir_route_terminal_contract_smoke.fk",
+            "scalar_sum_semantic_smoke.fk",
+            "scalar_sum_contract_smoke.fk",
+            "scalar_sum_editor_smoke.fk",
+            "scalar_sum_operator_smoke.fk",
+            "scalar_sum_origin_smoke.fk",
+            "scalar_sum_payload_alias_smoke.fk",
+            "scalar_sum_execute_smoke.fk",
+            "typed_os_entry_execute_smoke.fk",
+            "typed_os_entry_contract_smoke.fk",
         }
     ):
         violations.append("scratch-handle resource smoke limit coverage drifted")

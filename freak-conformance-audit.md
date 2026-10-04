@@ -7,6 +7,18 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**V4 closed scalar Sum checkpoint (2026-10-04):** native `maybe<int>` and
+`result<word,word>` have separate tagged carriers, owning construction and
+extraction, and Meiya-driven cleanup across calls, replacements, branches and
+loops. MIR v9 records their identities; hostile operators, payload aliases and
+forged or shadowed system bindings fail before module publication. The isolated
+`df5fbe7` source passes 76 compiler cases and ten generated programs at O0/O2/O3,
+with six real C/LLVM ownership-audit controls and two mandatory sanitizer
+controls. Independent review verifies the completed artifacts. The exact source
+is integrated, but current-head/platform proof and the separate typed process/FS
+gate remain pending. General Sum payloads, variants, generic monomorphization,
+`?` and `or else` are not established by this closed slice.
+
 **V4 owned lowercase checkpoint (2026-10-03):** `.to_lower()` borrows its
 sized UTF-8 word receiver and returns a fresh owner using Unicode 17 default
 lowercase and FinalSigma. MIR v7 appends closed identity 119; older wire versions

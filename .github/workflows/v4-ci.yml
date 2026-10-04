@@ -130,6 +130,8 @@ jobs:
           --smoke h6_
           --smoke release_native_ordinary_
           --smoke owned_word_
+          --smoke scalar_sum_
+          --smoke typed_os_entry_
           --smoke codegen_llvm_execute
           --smoke extern_literal_syntax
           --smoke extern_return
@@ -218,6 +220,20 @@ jobs:
       - name: Unicode lowercase generated-code native portability
         run: python -B -u tests/v4_word_lower_codegen.py --plain --work "${{ runner.temp }}/word-lower-codegen-plain" --report "${{ runner.temp }}/word-lower-codegen-plain.json"
 
+      - name: Closed scalar Sum generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_scalar_sum_codegen.py -v
+
+      - name: Closed scalar Sum native portability and ownership audits
+        run: python -B -u tests/v4_scalar_sum_codegen.py --plain --work "${{ runner.temp }}/scalar-sum-codegen-plain" --report "${{ runner.temp }}/scalar-sum-codegen-plain/report.json"
+
+      - name: Typed OS and entry generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_typed_os_entry_codegen.py -v
+
+      - name: Typed OS and entry native portability and ownership audits
+        env:
+          FREAK_TYPED_OS_ENTRY_ROOT_GRANT: typed-os-entry-native-gate-v1
+        run: python -B -u tests/v4_typed_os_entry_codegen.py --plain --work "${{ runner.temp }}/typed-os-entry-codegen-plain"
+
       - name: Panic abort generated-code oracle regressions
         run: python -B -u -m unittest discover -s tests -p test_v4_panic_abort_codegen.py -v
 
@@ -274,6 +290,16 @@ jobs:
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_word_lower_codegen.py --work "${{ runner.temp }}/word-lower-codegen-sanitized" --report "${{ runner.temp }}/word-lower-codegen-sanitized.json"
 
+      - name: Closed scalar Sum mandatory sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_scalar_sum_codegen.py --work "${{ runner.temp }}/scalar-sum-codegen-sanitized" --report "${{ runner.temp }}/scalar-sum-codegen-sanitized/report.json"
+
+      - name: Typed OS and entry mandatory sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        env:
+          FREAK_TYPED_OS_ENTRY_ROOT_GRANT: typed-os-entry-native-gate-v1
+        run: python -B -u tests/v4_typed_os_entry_codegen.py --work "${{ runner.temp }}/typed-os-entry-codegen-sanitized"
+
       - name: Panic abort generated-code sanitizer and ownership gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_panic_abort_codegen.py --work "${{ runner.temp }}/panic-abort-codegen-sanitized" --report "${{ runner.temp }}/panic-abort-codegen-sanitized/report.json"
@@ -297,6 +323,22 @@ jobs:
       - name: Checked numeric generated-code sanitizer and ownership gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_checked_numeric_codegen.py --snapshot-control --work "${{ runner.temp }}/numeric-codegen-sanitized" --json "${{ runner.temp }}/numeric-codegen-sanitized.json"
+
+      - name: Preserve closed scalar Sum compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-scalar-sum-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/scalar-sum-codegen-*/
+          if-no-files-found: warn
+
+      - name: Preserve typed OS and entry source, compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-typed-os-entry-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/typed-os-entry-codegen-*/
+          if-no-files-found: warn
 
       - name: Preserve target C integer oracle evidence
         if: always()

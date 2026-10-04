@@ -1,0 +1,11 @@
+task inspect(path: word) -> int {
+    pilot contents = fs::read(path)
+    pilot parsed = path.to_int()
+    pilot argument = process::arg(1)
+    pilot count = process::args_count()
+    check result argument { ok(_) -> {} err(_) -> {} }
+    check result contents { ok(_) -> {} err(_) -> {} }
+    check parsed { got _ -> {} nobody -> {} }
+    give back count
+}
+task main() -> int { give back inspect("4") }
