@@ -142,7 +142,7 @@ task v4_panic_contract_conditional(mode: word) -> void {
         v4_mir_set_stmt_scope_span(mir, body, expr, terminal_scope)
         v4_panic_contract_assert(v4_mir_body_stmt_count(mir, body) == 2 and v4_mir_body_rvalue_count(mir, body) == 4 and v4_mir_body_block(mir, body, block) == record and v4_mir_rvalue_is_builtin_control(mir, body, call), "conditional and one checked endpoint retained")
         v4_panic_contract_assert(v4_mir_block_first_stmt(mir, body, orphan) < 0 and v4_mir_body_callable_return_type(mir, body) == v4_ty_never, "other reachable endpoint really orphaned")
-        expected = "native never task has an unproved unreachable path"
+        expected = "native reachable unreachable block has no checked terminal call"
     } else if mode == "if-duplicate" or mode == "if-following" {
         pilot kind = v4_mir_stmt_expr
         if mode == "if-duplicate" { kind = v4_mir_stmt_branch }
@@ -185,8 +185,89 @@ task v4_panic_contract_replace(source: word, needle: word, replacement: word) ->
     v4_panic_contract_assert(at + needle.length() <= source.length(), "replacement needle must occur")
     give back v4_slice(source, 0, at) + replacement + v4_slice(source, at + needle.length(), source.length())
 }
+task v4_panic_contract_ordinary_endpoint(mode: word) -> void {
+    pilot returns = v4_ty_int
+    if mode.ends_with("-void") { returns = v4_ty_void }
+    pilot source = "task main() -> " + returns + " { panic(\"ordinary\") }\n"
+    pilot mir = v4_mir_text_cached("panic-ordinary-endpoint.fk", source)
+    v4_panic_contract_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0 and v4_mir_control_plan_preflight(mir) == "", "ordinary terminal source accepted")
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    pilot definition = v4_mir_body_def(mir, body)
+    pilot scope = v4_mir_block_scope_span(mir, body, 0)
+    pilot span = v4_mir_stmt_span(mir, body, 0)
+    pilot entry = v4_mir_body_block(mir, body, 0)
+    v4_panic_contract_assert(body >= 0 and v4_mir_body_local_count(mir, body) == 0 and v4_mir_body_block_count(mir, body) == 1 and v4_mir_body_callable_return_type(mir, body) == returns and v4_mir_block_terminator(entry) == v4_mir_term_unreachable, "exact ordinary header and reachable terminal setup")
+    pilot snapshot = v4_mir_snapshot()
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot accepted = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    pilot before = v4_codegen_llvm_module_text(accepted, target)
+    v4_panic_contract_assert(v4_codegen_llvm_native_module_error(accepted) == "" and before != "", "ordinary old seal")
+    if mode.starts_with("endpoint-detached-") {
+        pilot detached = v4_mir_add_block(mir, body, v4_mir_term_unreachable, -1, -1, "")
+        v4_mir_set_block_scope_span(mir, body, detached, scope)
+        v4_panic_contract_assert(detached == 1 and v4_mir_body_block_count(mir, body) == 2 and v4_mir_body_block(mir, body, 0) == entry and v4_mir_block_first_stmt(mir, body, detached) < 0 and v4_mir_block_target(entry) == -1 and v4_mir_block_else_target(entry) == -1, "real detached orphan without reachable edge")
+    } else {
+        v4_panic_contract_assert(v4_mir_body_stmt_count(mir, body) > 0 and v4_mir_body_rvalue_count(mir, body) > 0, "ordinary rows exist before complete removal")
+        v4_panic_contract_empty_callee(mir, body)
+        v4_panic_contract_assert(v4_mir_body_stmt_count(mir, body) == 0 and v4_mir_body_rvalue_count(mir, body) == 0 and v4_mir_body_place_count(mir, body) == 0 and v4_mir_body_block(mir, body, 0) == entry, "all25 statement place value columns removed and reachable endpoint retained")
+        if mode.starts_with("endpoint-scalar-") or mode.starts_with("endpoint-range-") {
+            pilot value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_bool, "true", "", -1, -1, span, v4_ty_bool)
+            pilot stmt = v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "true", span, -1, value)
+            v4_mir_set_stmt_scope_span(mir, body, stmt, scope)
+            v4_panic_contract_assert(value == 0 and stmt == 0 and v4_mir_body_stmt_count(mir, body) == 1 and v4_mir_body_rvalue_count(mir, body) == 1 and v4_mir_rvalue_ty(mir, body, value) == v4_ty_bool, "scalar last expression is not terminal proof")
+            if mode.starts_with("endpoint-range-") {
+                pilot types = word_to_int(array_get(v4_mir_rvalue_tys_index_handle(mir), body))
+                array_push(types, v4_ty_never)
+                array_set(word_to_int(array_get(v4_mir_stmt_rvalues_index_handle(mir), body)), stmt, "1")
+                v4_panic_contract_assert(array_len(types) == 2 and v4_mir_body_rvalue_count(mir, body) == 1 and v4_mir_stmt_rvalue(mir, body, stmt) == 1 and array_get(types, 1) == v4_ty_never, "raw out-of-range operand actually targets orphan type column")
+            }
+        }
+        if mode.starts_with("endpoint-cycle-") {
+            v4_mir_set_body_block(mir, body, 0, v4_mir_block_new_full(0, v4_mir_term_goto, 0, -1, ""))
+            v4_mir_set_block_scope_span(mir, body, 0, scope)
+            v4_panic_contract_assert(v4_mir_block_terminator(v4_mir_body_block(mir, body, 0)) == v4_mir_term_goto and v4_mir_block_target(v4_mir_body_block(mir, body, 0)) == 0, "real ordinary closed cycle")
+        }
+    }
+    v4_panic_contract_assert(v4_mir_body_def(mir, body) == definition and v4_mir_body_callable_return_type(mir, body) == returns and v4_mir_body_local_count(mir, body) == 0 and v4_mir_block_scope_span(mir, body, 0) == scope, "ordinary identity header and scope preserved")
+    pilot changed = v4_mir_snapshot()
+    v4_panic_contract_assert(changed != snapshot, "ordinary endpoint mutation really changed wire")
+    pilot positive: bool = mode.starts_with("endpoint-cycle-") or mode.starts_with("endpoint-detached-")
+    if positive {
+        v4_panic_contract_assert(v4_mir_control_plan_preflight(mir) == "", "reachable proof permits closed cycle or detached endpoint")
+        pilot checked = v4_borrowck_check_mir(0, mir)
+        v4_panic_contract_assert(v4_borrowck_diag_count(checked) == 0, "ordinary endpoint positive Meiya")
+        pilot admitted = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+        pilot module = v4_codegen_llvm_module_text(admitted, target)
+        v4_panic_contract_assert(v4_codegen_llvm_native_module_error(admitted) == "" and module != "", "ordinary endpoint positive native plan")
+        if mode.starts_with("endpoint-cycle-") {
+            pilot body_text = v4_codegen_llvm_body_line(admitted, v4_codegen_llvm_find_body(admitted, "main"))
+            v4_panic_contract_assert(body_text.contains("bb0:\n  br label %bb0") and not body_text.contains("unreachable"), "ordinary cycle emits only real backedge")
+            pilot unwinding = v4_codegen_llvm_lower_owned_mir(0, mir)
+            v4_panic_contract_assert(v4_codegen_llvm_native_module_error(unwinding) == "" and v4_codegen_llvm_module_text(unwinding, target) == module, "removed panic leaves legitimate policy-independent divergence")
+        }
+        v4_panic_contract_assert(v4_mir_snapshot_restore(changed).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == changed, "ordinary endpoint positive wire exact")
+        pilot fresh = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+        v4_panic_contract_assert(v4_codegen_llvm_module_text(fresh, target) == module and v4_codegen_llvm_module_text(accepted, target) == before, "ordinary endpoint fresh and old seals stable")
+        say "panic-contract endpoint=" + mode + " admitted=true restore=true fresh-module=true old-seal=true"
+        give back
+    }
+    pilot expected = "native reachable unreachable block has no checked terminal call"
+    v4_panic_contract_assert(v4_mir_control_plan_preflight(mir) == expected, "ordinary orphan exact live rejection")
+    pilot checked = v4_borrowck_check_mir(0, mir)
+    v4_panic_contract_assert(v4_borrowck_diag_count(checked) > 0, "ordinary orphan fresh Meiya rejection")
+    pilot rejected = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    pilot unwinding = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_panic_contract_assert(v4_codegen_llvm_native_module_error(rejected) == expected and v4_codegen_llvm_module_text(rejected, target) == "" and v4_codegen_llvm_native_module_error(unwinding) == expected and v4_codegen_llvm_module_text(unwinding, target) == "", "ordinary orphan abort and unwind reject before sealing")
+    v4_panic_contract_assert(v4_codegen_llvm_module_text(accepted, target) == before, "ordinary orphan old seal stable")
+    v4_panic_contract_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "ordinary endpoint baseline restore")
+    v4_panic_contract_assert(v4_mir_snapshot_restore(changed).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == snapshot, "ordinary orphan wire rejects atomically")
+    pilot recovered = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    v4_panic_contract_assert(v4_codegen_llvm_module_text(recovered, target) == before, "ordinary endpoint recovered fresh seal")
+    say "panic-contract endpoint=" + mode + " named-rejected=true no-module=true atomic=true old-seal=true recovery=true"
+}
 task v4_panic_contract_run() -> void {
     pilot mode = process::arg(1)
+    if mode.starts_with("endpoint-") { v4_panic_contract_ordinary_endpoint(mode); give back }
     if mode.starts_with("if-") or mode == "loop-missing" or mode.ends_with("-wire") { v4_panic_contract_conditional(mode); give back }
     pilot source = v4_panic_contract_source()
     pilot static_never: bool = mode == "19" or mode == "20" or mode == "21" or mode == "22" or mode == "25" or mode == "26" or mode == "closed-loop"
@@ -362,7 +443,7 @@ task v4_panic_contract_run() -> void {
             say "panic-contract closed-loop=true admitted=true restore=true fresh-module=true old-seal=true"
             give back
         }
-        v4_panic_contract_assert(v4_mir_control_plan_preflight(mir) == "native never task has an unproved unreachable path", "exact orphan terminal proof rejection")
+        v4_panic_contract_assert(v4_mir_control_plan_preflight(mir) == "native reachable unreachable block has no checked terminal call", "exact orphan terminal proof rejection")
     }
     if mode == "0" { v4_panic_contract_assert(v4_mir_rvalue_op(mir, body, value) == "panic", "op mutation") }
     if mode == "1" { v4_panic_contract_assert(v4_mir_rvalue_builtin_method(mir, body, value) == "", "identity cleared") }
@@ -394,7 +475,7 @@ task v4_panic_contract_run() -> void {
     pilot malformed = v4_mir_snapshot()
     v4_panic_contract_assert(malformed != snapshot, "hostile setup must change serialized MIR " + mode)
     pilot rejected = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
-    if mode == "25" or mode == "26" { v4_panic_contract_assert(v4_codegen_llvm_native_module_error(rejected) == "native never task has an unproved unreachable path", "exact empty callee native rejection") }
+    if mode == "25" or mode == "26" { v4_panic_contract_assert(v4_codegen_llvm_native_module_error(rejected) == "native reachable unreachable block has no checked terminal call", "exact empty callee native rejection") }
     v4_panic_contract_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, target) == "", "hostile no module")
     v4_panic_contract_assert(v4_codegen_llvm_module_text(accepted, target) == before and v4_codegen_llvm_panic_policy(accepted) == "abort", "old sealed identity")
     v4_panic_contract_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "restore baseline")

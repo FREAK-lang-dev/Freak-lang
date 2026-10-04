@@ -4915,12 +4915,80 @@ task v4_mir_control_conditional_statement_error(kind: word, term: word, operand:
     -- checks that its supported branch operands are Bool.
     give back ""
 }
-task v4_mir_control_live_conditional_error(mir: int, body: int) -> word {
+-- Closed cycles diverge; a reachable Unreachable endpoint needs an actual
+-- checked terminal call regardless of the task's declared return type.
+task v4_mir_control_reachable_terminal_error(blocks: int, lasts: int, statements: int, values: int, mir: int, body: int, live: bool, never_body: bool) -> word {
+    pilot needed: bool = never_body
+    pilot index = 0
+    repeat until index >= array_len(blocks) {
+        if v4_mir_block_terminator(array_get(blocks, index)) == v4_mir_term_unreachable { needed = true }
+        index += 1
+    }
+    if not needed { give back "" }
+    pilot seen = array_new()
+    pilot queue = array_new()
+    pilot error = ""
+    if seen < 0 or queue < 0 { error = "native control plan scratch exhausted" }
+    index = 0
+    repeat until index >= array_len(blocks) or error != "" {
+        if not v4_mir_control_checked_push(seen, "0") { error = "native control plan scratch exhausted" }
+        index += 1
+    }
+    if array_len(blocks) == 0 { error = "native never task has no body" }
+    if error == "" {
+        if not v4_mir_control_checked_push(queue, "0") { error = "native control plan scratch exhausted" }
+        array_set(seen, 0, "1")
+    }
+    index = 0
+    repeat until index >= array_len(queue) or error != "" {
+        pilot block = word_to_int(array_get(queue, index))
+        pilot record: word = array_get(blocks, block)
+        pilot term = v4_mir_block_terminator(record)
+        if never_body and term == v4_mir_term_return { error = "native never task has a returning path" }
+        if term == v4_mir_term_unreachable {
+            pilot terminal = word_to_int(array_get(lasts, block))
+            pilot terminal_type = v4_ty_unknown
+            if terminal >= 0 {
+                if live {
+                    pilot operand = v4_mir_stmt_rvalue(mir, body, terminal)
+                    if operand >= 0 and operand < v4_mir_body_rvalue_count(mir, body) { terminal_type = v4_mir_rvalue_ty(mir, body, operand) }
+                } else {
+                    pilot statement: word = array_get(statements, terminal)
+                    terminal_type = v4_mir_control_row_type(values, word_to_int(v4_mir_snapshot_field_raw(statement, 10)))
+                }
+            }
+            if terminal_type != v4_ty_never { error = "native reachable unreachable block has no checked terminal call" }
+        }
+        pilot edge = 0
+        pilot edges = 0
+        if term == v4_mir_term_goto { edges = 1 }
+        if term == v4_mir_term_if { edges = 2 }
+        repeat until edge >= edges or error != "" {
+            pilot target = v4_mir_block_target(record)
+            if edge == 1 { target = v4_mir_block_else_target(record) }
+            if target < 0 or target >= array_len(blocks) { error = "invalid native control edge" } else {
+                pilot state: word = array_get(seen, target)
+                if state == "0" {
+                    if not v4_mir_control_checked_push(queue, word_from_int(target)) { error = "native control plan scratch exhausted" }
+                    array_set(seen, target, "1")
+                }
+            }
+            edge += 1
+        }
+        index += 1
+    }
+    array_release(queue)
+    array_release(seen)
+    give back error
+}
+task v4_mir_control_live_cfg_error(mir: int, body: int) -> word {
     pilot count = v4_mir_body_block_count(mir, body)
-    pilot needed: bool = false
+    pilot never_body: bool = v4_mir_body_callable_return_type(mir, body) == v4_ty_never
+    pilot needed: bool = never_body
     pilot row = 0
     repeat until row >= count {
-        if v4_mir_block_terminator(v4_mir_body_block(mir, body, row)) == v4_mir_term_if { needed = true }
+        pilot term = v4_mir_block_terminator(v4_mir_body_block(mir, body, row))
+        if term == v4_mir_term_if or term == v4_mir_term_unreachable { needed = true }
         row += 1
     }
     row = 0
@@ -4960,6 +5028,7 @@ task v4_mir_control_live_conditional_error(mir: int, body: int) -> word {
         }
         row += 1
     }
+    if error == "" { error = v4_mir_control_reachable_terminal_error(v4_mir_body_blocks_handle(mir, body), lasts, -1, -1, mir, body, true, never_body) }
     array_release(lasts)
     give back error
 }
@@ -5056,60 +5125,8 @@ task v4_mir_control_body_rows_error(ty: int, definition: word, blocks: int, stat
     array_release(owners)
     if error != "" { array_release(lasts); give back error }
     pilot signature = v4_ty_lookup_signature(ty, definition)
-    if signature >= 0 and v4_ty_signature_is_ordinary_static_task(ty, signature) and v4_ty_signature_return_type(ty, signature) == v4_ty_never {
-        pilot seen = array_new()
-        pilot queue = array_new()
-        if seen < 0 or queue < 0 { error = "native control plan scratch exhausted" }
-        index = 0
-        repeat until index >= array_len(blocks) or error != "" {
-            if not v4_mir_control_checked_push(seen, "0") { error = "native control plan scratch exhausted" }
-            index += 1
-        }
-        if array_len(blocks) == 0 { error = "native never task has no body" }
-        if error == "" {
-            if not v4_mir_control_checked_push(queue, "0") { error = "native control plan scratch exhausted" }
-            array_set(seen, 0, "1")
-        }
-        index = 0
-        repeat until index >= array_len(queue) or error != "" {
-            pilot block = word_to_int(array_get(queue, index))
-            pilot record: word = array_get(blocks, block)
-            pilot term = v4_mir_block_terminator(record)
-            if term == v4_mir_term_return { error = "native never task has a returning path" }
-            if term == v4_mir_term_unreachable {
-                -- Never is a proof of divergence, not permission to emit UB.
-                -- Every reachable terminal edge needs the checked call which
-                -- already uniquely owns the last Expr in this block. Goto/If
-                -- cycles remain genuine closed non-returning paths.
-                pilot terminal = word_to_int(array_get(lasts, block))
-                if terminal < 0 {
-                    error = "native never task has an unproved unreachable path"
-                } else {
-                    pilot statement: word = array_get(statements, terminal)
-                    if v4_mir_control_row_type(values, word_to_int(v4_mir_snapshot_field_raw(statement, 10))) != v4_ty_never { error = "native never task has an unproved unreachable path" }
-                }
-            }
-            pilot edge = 0
-            pilot edges = 0
-            if term == v4_mir_term_goto { edges = 1 }
-            if term == v4_mir_term_if { edges = 2 }
-            repeat until edge >= edges or error != "" {
-                pilot target = v4_mir_block_target(record)
-                if edge == 1 { target = v4_mir_block_else_target(record) }
-                if target < 0 or target >= array_len(blocks) { error = "invalid native control edge" } else {
-                    pilot state: word = array_get(seen, target)
-                    if state == "0" {
-                        if not v4_mir_control_checked_push(queue, word_from_int(target)) { error = "native control plan scratch exhausted" }
-                        array_set(seen, target, "1")
-                    }
-                }
-                edge += 1
-            }
-            index += 1
-        }
-        array_release(queue)
-        array_release(seen)
-    }
+    pilot never_body: bool = signature >= 0 and v4_ty_signature_is_ordinary_static_task(ty, signature) and v4_ty_signature_return_type(ty, signature) == v4_ty_never
+    error = v4_mir_control_reachable_terminal_error(blocks, lasts, statements, values, -1, -1, false, never_body)
     array_release(lasts)
     give back error
 }
@@ -5124,7 +5141,7 @@ task v4_mir_control_plan_preflight(mir: int) -> word {
             if v4_mir_local_mode(mir, body, local) == "$control-diagnostic" { error = "unpublished source control binding" }
             local += 1
         }
-        if error == "" { error = v4_mir_control_live_conditional_error(mir, body) }
+        if error == "" { error = v4_mir_control_live_cfg_error(mir, body) }
         pilot control: bool = v4_mir_body_callable_return_type(mir, body) == v4_ty_never
         pilot value = 0
         repeat until value >= v4_mir_body_rvalue_count(mir, body) {
