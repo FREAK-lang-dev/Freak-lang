@@ -1,0 +1,172 @@
+-- Bootstrap-only loader. Every invocation owns one complete source pipeline.
+task v4_typed_os_contract_assert(condition: bool, label: word) -> void {
+    if not condition { panic("typed-os-entry-contract " + label) }
+}
+
+task v4_typed_os_contract_count(text: word, needle: word) -> int {
+    pilot count = 0
+    pilot offset = 0
+    repeat until offset + needle.length() > text.length() {
+        if text.substring(offset, offset + needle.length()) == needle { count += 1 }
+        offset += 1
+    }
+    give back count
+}
+
+task v4_typed_os_contract_descriptors(mir: int, identity: word) -> int {
+    pilot count = 0
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+            if v4_mir_rvalue_builtin_method(mir, body, value) == identity { count += 1 }
+            value += 1
+        }
+        body += 1
+    }
+    give back count
+}
+
+task v4_typed_os_contract_graph(mir: int) -> void {
+    pilot observers = 0
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+            pilot identity = v4_mir_rvalue_builtin_method(mir, body, value)
+            if identity == "builtin::word::to_int_maybe" or identity == "builtin::system::fs_read" {
+                v4_typed_os_contract_assert(v4_mir_rvalue_call_arg_count(mir, body, value) == 1, "one borrowing bridge argument")
+                pilot loan = v4_mir_rvalue_call_arg(mir, body, value, 0)
+                v4_typed_os_contract_assert(loan >= 0 and loan < value and v4_mir_rvalue_kind(mir, body, loan) == v4_mir_rvalue_lend and v4_mir_rvalue_ty(mir, body, loan) == "lend word", "explicit preceding immutable word loan")
+                pilot owner = v4_mir_rvalue_lhs(mir, body, loan)
+                v4_typed_os_contract_assert(owner >= 0 and owner < loan and v4_mir_rvalue_ty(mir, body, owner) == v4_ty_word, "exact preceding word owner")
+            }
+            if identity == "builtin::system::process_arg" {
+                v4_typed_os_contract_assert(v4_mir_rvalue_call_arg_count(mir, body, value) == 1 and v4_mir_rvalue_ty(mir, body, v4_mir_rvalue_call_arg(mir, body, value, 0)) == v4_ty_int, "canonical int process index")
+            }
+            if identity == "builtin::system::args_count" { v4_typed_os_contract_assert(v4_mir_rvalue_call_arg_count(mir, body, value) == 0 and v4_mir_rvalue_ty(mir, body, value) == v4_ty_int, "zero-arg scalar count") }
+            if v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_check {
+                pilot op = v4_mir_rvalue_op(mir, body, value)
+                if op == "HasSome" or op == "IsOk" {
+                    pilot subject = v4_mir_rvalue_lhs(mir, body, value)
+                    v4_typed_os_contract_assert(subject >= 0 and subject < value and v4_mir_rvalue_kind(mir, body, subject) == v4_mir_rvalue_use_local and v4_mir_local_reference_is_exact(mir, body, subject) and v4_mir_rvalue_ty(mir, body, value) == v4_ty_bool, "nonconsuming observer reads canonical subject leaf")
+                    observers += 1
+                }
+            }
+            value += 1
+        }
+        body += 1
+    }
+    v4_typed_os_contract_assert(observers == 3, "three materialized initialized tag observers")
+}
+
+task v4_typed_os_contract_field(line: word, field: int, value: word) -> word {
+    pilot parts = array_new()
+    pilot idx = 0
+    repeat until idx >= v4_mir_snapshot_field_count(line) {
+        if idx > 0 { array_push(parts, "|") }
+        if idx == field { array_push(parts, v4_mir_snapshot_escape(value)) } else { array_push(parts, v4_mir_snapshot_field_raw(line, idx)) }
+        idx += 1
+    }
+    give back word_join(parts)
+}
+
+task v4_typed_os_contract_forge(payload: word, mode: word, identity: word) -> word {
+    pilot parts = array_new()
+    pilot changed = false
+    pilot line_id = 0
+    repeat until line_id >= v4_mir_snapshot_line_count(payload) {
+        pilot line = v4_mir_snapshot_line(payload, line_id)
+        if not changed and v4_mir_snapshot_field_raw(line, 0) == "mir-rvalue" and v4_mir_snapshot_field(line, 13) == identity {
+            if mode == "identity" { line = v4_typed_os_contract_field(line, 13, "builtin::system::forged"); changed = true }
+            if mode == "op" { line = v4_typed_os_contract_field(line, 6, "202"); changed = true }
+            if mode == "result" { line = v4_typed_os_contract_field(line, 10, "int"); changed = true }
+            if mode == "abi" { line = v4_typed_os_contract_field(line, 11, "C"); changed = true }
+            if mode == "arity" { line = v4_typed_os_contract_field(line, 12, ""); changed = true }
+        }
+        if not changed and v4_mir_snapshot_field_raw(line, 0) == "mir-rvalue" and v4_mir_snapshot_field(line, 4) == v4_mir_rvalue_lend and v4_mir_snapshot_field(line, 10) == "lend word" {
+            if mode == "loan-kind" { line = v4_typed_os_contract_field(line, 4, v4_mir_rvalue_lend_mut); changed = true }
+            if mode == "loan-type" { line = v4_typed_os_contract_field(line, 10, "word"); changed = true }
+        }
+        if line_id > 0 { array_push(parts, "\n") }
+        array_push(parts, line)
+        line_id += 1
+    }
+    v4_typed_os_contract_assert(changed, "one exact forged field reached")
+    give back word_join(parts)
+}
+
+task v4_typed_os_contract_run() -> void {
+    pilot mode = process::arg(1)
+    pilot source = fs::read(process::arg(2))
+    pilot target = v4_target_spec_new(process::arg(3))
+    pilot expected = process::arg(4)
+    pilot identity = process::arg(5)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    v4_typed_os_contract_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0, "valid syntax and source lowering")
+    if mode == "admission-reject" {
+        v4_typed_os_contract_assert(v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) > 0, "source rejected before native publication")
+        if identity != "" { v4_typed_os_contract_assert(v4_typed_os_contract_descriptors(mir, identity) == 0, "ordinary binding does not mint builtin identity") }
+        say "typed-os-entry-contract mode=" + mode + "=passed"
+        give back
+    }
+    v4_typed_os_contract_assert(v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
+    pilot codegen = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    if mode == "native-reject" {
+        v4_typed_os_contract_assert(expected != "" and v4_codegen_llvm_native_module_error(codegen) == expected and v4_codegen_llvm_module_text(codegen, target) == "", "exact named native fence before output")
+        say "typed-os-entry-contract mode=" + mode + "=passed"
+        give back
+    }
+    pilot module = v4_codegen_llvm_module_text(codegen, target)
+    v4_typed_os_contract_assert(module != "" and v4_codegen_llvm_diag_count(codegen) == 0 and v4_codegen_llvm_native_module_error(codegen) == "", "initial owned seal")
+    if mode == "shadow" {
+        v4_typed_os_contract_assert(v4_typed_os_contract_descriptors(mir, identity) == 0, "ordinary binding retained")
+        v4_typed_os_contract_assert(not module.contains("call void @freak_v4_process_setup_args("), "ordinary binding does not initialize typed process")
+    } else if mode == "setup" {
+        v4_typed_os_contract_assert(v4_typed_os_contract_count(module, "call void @freak_v4_process_setup_args(") == 1 and v4_typed_os_contract_count(module, "declare void @freak_v4_process_setup_args(") == 1, "one typed entry setup and declaration")
+        v4_typed_os_contract_assert(v4_typed_os_contract_count(module, "call void @freak_llvm_setup_args(") == 1, "legacy setup preserved once")
+    } else if mode == "no-setup" {
+        v4_typed_os_contract_assert(not module.contains("@freak_v4_process_setup_args") and not module.contains("define i32 @main("), "parser/fs-only library needs no entry or typed snapshot")
+    } else {
+        v4_typed_os_contract_graph(mir)
+        v4_typed_os_contract_assert(v4_typed_os_contract_descriptors(mir, "builtin::word::to_int_maybe") == 1 and v4_typed_os_contract_descriptors(mir, "builtin::system::process_arg") == 1 and v4_typed_os_contract_descriptors(mir, "builtin::system::args_count") == 1 and v4_typed_os_contract_descriptors(mir, "builtin::system::fs_read") == 1, "four exact once-only descriptor identities")
+        v4_typed_os_contract_assert(v4_mir_builtin_method_identity_code("builtin::word::to_int_maybe") == 120 and v4_mir_builtin_method_identity_code("builtin::system::process_arg") == 202 and v4_mir_builtin_method_identity_code("builtin::system::args_count") == 203 and v4_mir_builtin_method_identity_code("builtin::system::fs_read") == 204, "reserved descriptor codes")
+        v4_typed_os_contract_assert(module.contains("%freak_maybe_int = type { i1, i64 }") and module.contains("%freak_result_word_word = type { i1, i64 }"), "distinct internal carriers")
+    }
+    pilot snapshot = v4_mir_snapshot()
+    v4_typed_os_contract_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v9|") and snapshot.ends_with("end|freak-mir-snapshot-v9"), "v9 wire")
+    if mode == "identity" or mode == "op" or mode == "result" or mode == "abi" or mode == "arity" or mode == "loan-kind" or mode == "loan-type" {
+        pilot forged = v4_typed_os_contract_forge(snapshot, mode, identity)
+        v4_typed_os_contract_assert(forged != snapshot and v4_mir_snapshot_restore(forged).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == snapshot, "detached forgery atomically rejected")
+    } else if mode == "live-identity" {
+        pilot body = 0
+        pilot value = -1
+        repeat until body >= v4_mir_body_count(mir) or value >= 0 {
+            pilot row = 0
+            repeat until row >= v4_mir_body_rvalue_count(mir, body) or value >= 0 {
+                if v4_mir_rvalue_builtin_method(mir, body, row) == identity { value = row }
+                row += 1
+            }
+            if value < 0 { body += 1 }
+        }
+        v4_typed_os_contract_assert(value >= 0, "live descriptor reached")
+        v4_mir_set_rvalue_builtin_method(mir, body, value, "builtin::system::forged")
+        pilot rejected = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+        v4_typed_os_contract_assert(v4_codegen_llvm_module_text(rejected, target) == "" and v4_codegen_llvm_native_module_error(rejected) == expected, "exact live identity fence")
+        v4_mir_set_rvalue_builtin_method(mir, body, value, identity)
+        pilot recovered = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+        v4_typed_os_contract_assert(v4_codegen_llvm_module_text(recovered, target) == module, "live descriptor recovery")
+    } else {
+        v4_typed_os_contract_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot, "detached exact restore")
+        pilot restored = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+        v4_typed_os_contract_assert(v4_codegen_llvm_module_text(restored, target) == module and v4_codegen_llvm_native_module_error(restored) == "", "fresh restored module exact")
+    }
+    v4_typed_os_contract_assert(v4_codegen_llvm_module_text(codegen, target) == module, "old seal byte stability")
+    say "typed-os-entry-contract mode=" + mode + "=passed"
+}
+v4_typed_os_contract_run()
