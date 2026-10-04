@@ -2,6 +2,7 @@
 import ast
 import copy
 import importlib.util
+import io
 from pathlib import Path
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
@@ -83,7 +84,7 @@ class ScalarSumOracle(unittest.TestCase):
         with self.assertRaises(RuntimeError): gate.validate_report(report,sanitize=True)
 
     def test_native_link_matches_emitted_target_and_strict_caps(self):
-        source=Path(gate.__file__).read_text()
+        source=Path(gate.__file__).read_text(encoding='utf-8')
         run=next(n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef) and n.name=='run_gate')
         call=next(n for n in ast.walk(run) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)
                   and n.func.attr=='run' and len(n.args)>1 and isinstance(n.args[1],ast.JoinedStr)
@@ -126,7 +127,7 @@ class ScalarSumOracle(unittest.TestCase):
         calls=[]
         def run(command,label,**caps):
             calls.append((command,label,caps))
-            Path(command[-1]).write_text(module)
+            Path(command[-1]).write_bytes(module.encode('utf-8'))
             return self.result()
         with TemporaryDirectory() as directory:
             work=Path(directory);report={};runner=SimpleNamespace(run=run)
@@ -145,12 +146,12 @@ class ScalarSumOracle(unittest.TestCase):
                     gate.native_link_target('clang',SimpleNamespace(run=lambda *a,**k:result),work,target,report)
                 self.assertEqual(report,{})
             # A stale successful LLVM file cannot substitute for this job's output.
-            llvm.write_text(module)
+            llvm.write_bytes(module.encode('utf-8'))
             with self.assertRaises(RuntimeError):
                 gate.native_link_target('clang',SimpleNamespace(run=lambda *a,**k:self.result()),work,target,{})
             self.assertFalse(llvm.exists())
             def wrong(command,*args,**kwargs):
-                Path(command[-1]).write_text('target triple = "x86_64-apple-macosx15.0.0"\n')
+                Path(command[-1]).write_bytes(b'target triple = "x86_64-apple-macosx15.0.0"\n')
                 return self.result()
             with self.assertRaises(RuntimeError):
                 gate.native_link_target('clang',SimpleNamespace(run=wrong),work,target,{})
@@ -171,7 +172,7 @@ class ScalarSumOracle(unittest.TestCase):
         with self.assertRaises(RuntimeError): gate.native_link_module(module,'aarch64-apple-darwin','aarch64-apple-darwin')
 
     def test_runtime_audit_and_sanitizer_builds_use_the_native_target(self):
-        run=next(node for node in ast.parse(Path(gate.__file__).read_text()).body
+        run=next(node for node in ast.parse(Path(gate.__file__).read_text(encoding='utf-8')).body
                  if isinstance(node,ast.FunctionDef) and node.name=='run_gate')
         loop=next(node for node in ast.walk(run) if isinstance(node,ast.For)
                   and isinstance(node.target,ast.Name) and node.target.id=='opt')
@@ -225,6 +226,26 @@ class ScalarSumOracle(unittest.TestCase):
                     old_sanitizer.elts=[part for part in old_sanitizer.elts if not (isinstance(part,ast.BinOp)
                                         and isinstance(part.left,ast.Constant) and part.left.value=='--target=')]
                     self.assertNotEqual(command(old_sanitizer,values),expected['sanitizer'])
+
+    def test_windows_locale_and_newlines_preserve_target_controls(self):
+        original_read = Path.read_text
+        def windows_read(path, encoding=None, errors=None):
+            if path == Path(gate.__file__):
+                raw = path.read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+                with io.TextIOWrapper(io.BytesIO(raw), encoding=encoding or 'cp1252', errors=errors) as stream:
+                    return stream.read()
+            return original_read(path, encoding=encoding or 'cp1252', errors=errors)
+        def windows_write(path, data, encoding=None, errors=None, newline=None):
+            with io.StringIO(newline='\r\n' if newline is None else newline) as stream:
+                count = stream.write(data)
+                path.write_bytes(stream.getvalue().encode(encoding or 'cp1252', errors or 'strict'))
+                return count
+        with patch.object(Path, 'read_text', windows_read), patch.object(Path, 'write_text', windows_write):
+            self.test_deployment_probe_is_one_bounded_darwin_only_job()
+            self.test_native_link_matches_emitted_target_and_strict_caps()
+            self.test_runtime_audit_and_sanitizer_builds_use_the_native_target()
+        with self.assertRaises(RuntimeError):
+            gate.darwin_deployment_target('target triple = "arm64-apple-macosx15.0.0"\r\n')
 
     def test_bootstrap_forwarder_preserves_original_options_and_restores(self):
         calls=[]
