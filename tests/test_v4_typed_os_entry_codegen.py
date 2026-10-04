@@ -1,9 +1,10 @@
 """Pure closed-oracle, driver dispatch and failure-retention controls.
 
-All child results in matrix replay are explicit inert metadata. No compiler,
-transpiler, executable tool/image or project harness is imported or invoked.
+Fresh bootstrap AST/type diagnostics are source-only. All child results in
+matrix replay are explicit inert metadata. No compiler/transpiler pipeline,
+executable tool/image or project harness is imported or invoked.
 """
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import copy
 import hashlib
 import importlib.util
@@ -24,6 +25,43 @@ _spec = importlib.util.spec_from_file_location(NAME, DRIVER)
 gate = importlib.util.module_from_spec(_spec)
 sys.modules[NAME] = gate
 _spec.loader.exec_module(gate)
+
+
+@contextmanager
+def bootstrap_fixture_types():
+    """Fresh pinned bootstrap syntax/type readers, without emitters or harnesses."""
+    package = "v4_typed_os_fixture_types"
+    names = (package, package + ".lexer", package + ".parser", package + ".type_checker")
+    if any(name in sys.modules for name in names):
+        raise AssertionError("fixture type namespace is not fresh")
+    pins = {
+        "lexer": "de70a25c8130b58574572c2e2ec27856dbfffd901cfc84ea59f684a6ea4f6f8c",
+        "parser": "64fb824507b14a92fdb99d69707b2828ef01879f1f430c6fae67ba3149b9b821",
+        "type_checker": "15f9e19563d577cbecac653e1d38cd217a127c37f2ddd90e7a57c612d6d1e480",
+    }
+    try:
+        namespace = types.ModuleType(package)
+        namespace.__path__ = []
+        sys.modules[package] = namespace
+        for role, expected in pins.items():
+            path = gate.ROOT / "freakc" / (role + ".py")
+            content = path.read_bytes()
+            if hashlib.sha256(content).hexdigest() != expected:
+                raise AssertionError("fixture type bootstrap source pin drift")
+            module = types.ModuleType(package + "." + role)
+            module.__file__ = str(path)
+            module.__package__ = package
+            sys.modules[module.__name__] = module
+            exec(compile(content, str(path), "exec"), module.__dict__)
+        yield sys.modules[package + ".parser"].Parser, module.TypeChecker
+    finally:
+        for name in reversed(names): sys.modules.pop(name, None)
+
+
+def fixture_core_source_root():
+    # Isolated preparation precedes core integration. An external, frozen source
+    # prototype tree may be selected for pure checks; actual gate paths are fixed.
+    return Path(os.environ.get("FREAK_TYPED_OS_PURE_CORE_ROOT", str(gate.ROOT))).resolve()
 
 
 def fixture_count_ast(source):
@@ -193,6 +231,58 @@ class PureGateTests(unittest.TestCase):
         for needle in markers:
             self.assertEqual(evaluate_fixture_count(old, module, needle), 0)
         self.assertFalse(any(name.startswith("v4_typed_os_count_ast") for name in sys.modules))
+
+    def test_actual_fixture_body_braces_are_fresh_bootstrap_typechecked(self):
+        source = (gate.ROOT / gate.OWNED_NAMES[0]).read_text()
+        declarations = ("%freak_maybe_int = type { i1, i64 }",
+                        "%freak_result_word_word = type { i1, i64 }")
+        old_source = source
+        for text in declarations:
+            chunks = '"' + text.split("{", 1)[0] + '{" + " i1, i64 " + "}"'
+            self.assertEqual(source.count(chunks), 1)
+            old_source = old_source.replace(chunks, '"' + text + '"')
+        core = fixture_core_source_root()
+        names = [name for name in gate.source_names()
+                 if name.startswith("src/compiler/v4/crates/") and name.endswith("/src/lib.fk")]
+        self.assertEqual(len(names), 22)
+        with bootstrap_fixture_types() as (Parser, TypeChecker):
+            programs = [Parser.from_source((core / name).read_text()) for name in names]
+            target = "v4_typed_os_contract_run"
+            def assembled(text):
+                fixture = Parser.from_source(text)
+                combined = copy.copy(programs[0]); combined.statements = []
+                for program in (*programs, fixture):
+                    for node in program.statements:
+                        node = copy.copy(node)
+                        if type(node).__name__ == "TaskDecl" and node.name != target:
+                            node.body = []
+                        combined.statements.append(node)
+                return combined, next(node for node in fixture.statements
+                                      if type(node).__name__ == "TaskDecl" and node.name == target)
+            candidate, task = assembled(source)
+            previous, _ = assembled(old_source)
+            candidate_errors = [d for d in TypeChecker().check(candidate) if d.level == "error"]
+            old_errors = [d for d in TypeChecker().check(previous) if d.level == "error"]
+            self.assertEqual(candidate_errors, [])
+            self.assertEqual(len(old_errors), 2)
+            self.assertTrue(all(" i1, i64 " in d.message for d in old_errors))
+            def walk(node):
+                yield node
+                if isinstance(node, (list, tuple)):
+                    for child in node: yield from walk(child)
+                elif hasattr(node, "__dict__"):
+                    for child in vars(node).values(): yield from walk(child)
+            def literal(node):
+                if type(node).__name__ == "StrLit":
+                    self.assertTrue(all(expression is None for _, expression in (node.parts or [])))
+                    return node.value
+                self.assertEqual(type(node).__name__, "BinOp"); self.assertEqual(node.op, "+")
+                return literal(node.left) + literal(node.right)
+            decoded = [literal(node.args[0]) for node in walk(task.body)
+                       if type(node).__name__ == "MethodCall" and node.method == "contains"
+                       and type(node.args[0]).__name__ == "BinOp"]
+            self.assertEqual(decoded, list(declarations))
+        self.assertFalse(any(name.startswith("v4_typed_os_fixture_types") for name in sys.modules))
 
     def test_closed_data_source_counts_and_no_nul_argv(self):
         gate.validate_data()

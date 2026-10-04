@@ -584,7 +584,7 @@ def contract_cases():
     for mode in ("descriptors", "identity", "op", "result", "abi", "arity", "loan-kind", "loan-type"):
         add(mode, mode, DESCRIPTOR_SOURCE, identity="builtin::system::process_arg")
     add("live-identity", "live-identity", DESCRIPTOR_SOURCE,
-        "invalid native system intrinsic identity", "builtin::system::process_arg")
+        "invalid scalar sum intrinsic identity", "builtin::system::process_arg")
     add("count-only", "setup", "task main() -> int { give back process::args_count() }\n")
     add("process-in-helper", "setup", "task count() -> int { give back process::args_count() }\ntask main() -> int { give back count() }\n")
     add("parser-fs-library", "no-setup", "task inspect(path: word) -> maybe<int> { pilot pending = fs::read(path); give back path.to_int() }\n")
@@ -1081,6 +1081,6 @@ def main(argv=None):
     return 0
 
 
-DATA_SHA = "a67e1892c0ea7cbfd0e20c6662f184c458eb355ef58b8c935beaa46c00641e20"
+DATA_SHA = "edeb528267f0855d5b116cfa71e87fb15d52b6201eb29080399118e80e453a29"
 
 if __name__ == "__main__": raise SystemExit(main())
