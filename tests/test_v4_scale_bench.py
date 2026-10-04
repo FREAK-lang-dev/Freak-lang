@@ -710,6 +710,108 @@ class SymbolToolSelection(unittest.TestCase):
                 if not raw.closed:
                     raw.close()
 
+    def test_copy_stream_context_setup_failure_never_acquires_a_stream(self):
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        original_fdopen, original_open = os.fdopen, Path.open
+        original_factory = contextlib._GeneratorContextManager
+        original_temporary = tempfile.TemporaryDirectory
+        for stage in ("original source", "private writer", "private metadata"):
+            for phase in ("construction", "early-enter"):
+                for failure_type in (MemoryError, KeyboardInterrupt):
+                    with self.subTest(stage=stage, phase=phase, failure=failure_type.__name__):
+                        primary = failure_type("context setup failed before acquiring its stream")
+                        cause = ValueError("original attributed cause")
+                        primary.__cause__ = cause
+                        streams, roots, fired, closes = [], [], [], []
+                        class OwnedStream:
+                            def __init__(self, raw, label):
+                                self.raw, self.label = raw, label
+                                self.descriptor = raw.fileno()
+                                streams.append(self)
+                            def __getattr__(self, name):
+                                return getattr(self.raw, name)
+                            def close(self):
+                                closes.append(self.label)
+                                self.raw.close()
+                        def source(descriptor, *args, **kwargs):
+                            return OwnedStream(original_fdopen(descriptor, *args, **kwargs), "original source")
+                        def opened(path, mode="r", *args, **kwargs):
+                            raw = original_open(path, mode, *args, **kwargs)
+                            if path.name == "image" and mode in ("xb", "rb"):
+                                return OwnedStream(raw, "private writer" if mode == "xb" else "private metadata")
+                            return raw
+                        def temporary(*args, **kwargs):
+                            owner = original_temporary(*args, **kwargs)
+                            roots.append(Path(owner.name))
+                            return owner
+                        def factory(function, args, kwargs):
+                            if function.__name__ == "symbol_copy_stream" and args[1] == stage and phase == "construction":
+                                fired.append("construction")
+                                raise primary
+                            return original_factory(function, args, kwargs)
+                        stream_code = self.benchmark.symbol_copy_stream.__wrapped__.__code__
+                        def trace(frame, event, arg):
+                            if (event == "line" and frame.f_code is stream_code
+                                    and frame.f_locals.get("stage") == stage and not fired):
+                                fired.append("early-enter")
+                                raise primary
+                            return trace
+                        previous_trace = sys.gettrace()
+                        try:
+                            with patch.object(self.benchmark.os, "fdopen", side_effect=source), \
+                                    patch.object(Path, "open", opened), \
+                                    patch.object(self.benchmark.tempfile, "TemporaryDirectory", side_effect=temporary), \
+                                    patch.object(contextlib, "_GeneratorContextManager", factory), \
+                                    patch.object(self.benchmark, "guarded_job") as job:
+                                if phase == "early-enter":
+                                    sys.settrace(trace)
+                                try:
+                                    with self.assertRaises(BaseException) as failure:
+                                        with self.benchmark.frozen_symbol_tool_launch(selected):
+                                            self.fail("failed context setup reached launch")
+                                finally:
+                                    sys.settrace(previous_trace)
+                                self.assertIs(failure.exception, primary)
+                                self.assertIs(primary.__cause__, cause)
+                                self.assertEqual(fired, [phase])
+                                job.assert_not_called()
+                            self.assertEqual(len(roots), 1)
+                            self.assertFalse(roots[0].exists())
+                            # Check before fixture cleanup: the predecessor left
+                            # its already-open target alive in the exception path.
+                            self.assertTrue(all(stream.raw.closed for stream in streams),
+                                            "context setup leaked its acquired stream")
+                            for stream in streams:
+                                with self.assertRaises(OSError) as absent:
+                                    os.fstat(stream.descriptor)
+                                self.assertEqual(absent.exception.errno, errno.EBADF)
+                            self.assertEqual([stream.label for stream in streams],
+                                             [] if stage == "original source" else
+                                             ["original source"] if stage == "private writer" else
+                                             ["original source", "private writer"])
+                            self.assertCountEqual(closes, [stream.label for stream in streams])
+                        finally:
+                            sys.settrace(previous_trace)
+                            for stream in streams:
+                                if not stream.raw.closed:
+                                    stream.raw.close()
+
+    def test_copy_stream_acquisition_failure_has_no_close_owner(self):
+        for failure_type in (OSError, MemoryError, KeyboardInterrupt):
+            with self.subTest(failure=failure_type.__name__):
+                primary = failure_type("stream acquisition failed")
+                cause = ValueError("original attributed cause")
+                primary.__cause__ = cause
+                opener = Mock(side_effect=primary)
+                with self.assertRaises(BaseException) as failure:
+                    with self.benchmark.symbol_copy_stream(opener, "unacquired stream"):
+                        self.fail("failed acquisition reached body")
+                self.assertIs(failure.exception, primary)
+                self.assertIs(primary.__cause__, cause)
+                opener.assert_called_once_with()
+                self.assertFalse(hasattr(primary, "__notes__"))
+
     def test_copy_stream_close_fault_preserves_primary_and_cancellation(self):
         selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
                     "nm_file": self.benchmark.symbol_file_provenance(self.tool)}

@@ -549,33 +549,60 @@ def close_symbol_descriptor(descriptor: int) -> None:
 
 
 @contextmanager
-def symbol_copy_stream(stream, stage: str):
-    """Own an adopted stream through one close attempt, retaining first failure."""
+def symbol_copy_stream(open_stream, stage: str):
+    """Acquire inside the protected context and retain the first failure."""
+    stream = None
     primary = None
     try:
+        stream = open_stream()
         yield stream
     except BaseException as error:
         primary = error
         raise
     finally:
-        try:
-            stream.close()
-        except BaseException as close_error:
-            if primary is None:
-                if isinstance(close_error, OSError):
-                    raise RuntimeError(f"LLVM symbol reader {stage} stream close failed") from close_error
-                raise
-            # A buffered writer can fail while flushing; an original/metadata
-            # reader can fail while closing. Never retry a possibly released FD
-            # or replace the copy/validation failure with optional attribution.
+        if stream is not None:
             try:
-                number = close_error.errno if isinstance(close_error, OSError) else None
-                detail = close_error.strerror if isinstance(close_error, OSError) else type(close_error).__name__
+                stream.close()
+            except BaseException as close_error:
+                if primary is None:
+                    if isinstance(close_error, OSError):
+                        raise RuntimeError(f"LLVM symbol reader {stage} stream close failed") from close_error
+                    raise
+                # A buffered writer can fail while flushing; an original/metadata
+                # reader can fail while closing. Never retry a possibly released FD
+                # or replace the copy/validation failure with optional attribution.
+                try:
+                    number = close_error.errno if isinstance(close_error, OSError) else None
+                    detail = close_error.strerror if isinstance(close_error, OSError) else type(close_error).__name__
+                    detail = detail[:256] if isinstance(detail, str) else "unavailable"
+                    BaseException.add_note(primary,
+                        f"secondary LLVM symbol reader {stage} stream close failure: errno={number}; {detail}")
+                except BaseException:
+                    pass
+
+
+def open_symbol_original(tool: Path):
+    """Adopt the opened original or make one raw-descriptor close attempt."""
+    original_descriptor = os.open(tool, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        return os.fdopen(original_descriptor, "rb", buffering=0)
+    except BaseException as adoption_error:
+        # The raw descriptor remains ours until fdopen returns its owner.
+        # Wrapper construction can fail even after os.open succeeded.
+        try:
+            close_symbol_descriptor(original_descriptor)
+        except OSError as close_error:
+            # One attempt only: Linux can release the FD before EINTR.
+            # Keep allocation failures and cancellation as the first cause.
+            try:
+                number = close_error.errno if isinstance(close_error.errno, int) else None
+                detail = close_error.strerror
                 detail = detail[:256] if isinstance(detail, str) else "unavailable"
-                BaseException.add_note(primary,
-                    f"secondary LLVM symbol reader {stage} stream close failure: errno={number}; {detail}")
+                BaseException.add_note(adoption_error,
+                    f"secondary LLVM symbol reader original adoption close failure: errno={number}; {detail}")
             except BaseException:
                 pass
+        raise
 
 
 @contextmanager
@@ -595,27 +622,7 @@ def frozen_symbol_tool_launch(provenance: dict):
     close_failure = None
     try:
         Path(temporary.name).chmod(0o700)
-        original_descriptor = os.open(tool, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
-        try:
-            source = os.fdopen(original_descriptor, "rb", buffering=0)
-        except BaseException as adoption_error:
-            # The raw descriptor remains ours until fdopen returns its owner.
-            # Wrapper construction can fail even after os.open succeeded.
-            try:
-                close_symbol_descriptor(original_descriptor)
-            except OSError as close_error:
-                # One attempt only: Linux can release the FD before EINTR.
-                # Keep allocation failures and cancellation as the first cause.
-                try:
-                    number = close_error.errno if isinstance(close_error.errno, int) else None
-                    detail = close_error.strerror
-                    detail = detail[:256] if isinstance(detail, str) else "unavailable"
-                    BaseException.add_note(adoption_error,
-                        f"secondary LLVM symbol reader original adoption close failure: errno={number}; {detail}")
-                except BaseException:
-                    pass
-            raise
-        with symbol_copy_stream(source, "original source"):
+        with symbol_copy_stream(lambda: open_symbol_original(tool), "original source") as source:
             before = os.fstat(source.fileno())
             if not stat.S_ISREG(before.st_mode):
                 raise RuntimeError("pinned LLVM symbol reader must be a regular ELF image")
@@ -625,7 +632,7 @@ def frozen_symbol_tool_launch(provenance: dict):
             digest = hashlib.sha256()
             source.seek(0)
             copied = 0
-            with symbol_copy_stream(staged_image.open("xb"), "private writer") as writer:
+            with symbol_copy_stream(lambda: staged_image.open("xb"), "private writer") as writer:
                 os.fchmod(writer.fileno(), 0o600)
                 while chunk := source.read(64 * 1024):
                     copied += len(chunk)
@@ -641,7 +648,7 @@ def frozen_symbol_tool_launch(provenance: dict):
             if copied != expected["size_bytes"] or digest.hexdigest() != expected["sha256"]:
                 raise RuntimeError("frozen LLVM symbol tool changed or became unavailable")
             origin_evidence = []
-            with symbol_copy_stream(staged_image.open("rb"), "private metadata") as image_stream:
+            with symbol_copy_stream(lambda: staged_image.open("rb"), "private metadata") as image_stream:
                 origin_paths = symbol_elf_origin_paths(image_stream, copied, tool.parent,
                                                       origin_evidence=origin_evidence)
             uses_origin = symbol_loader_origin(tool.parent) or bool(origin_evidence)
