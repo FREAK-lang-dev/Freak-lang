@@ -590,7 +590,7 @@ def contract_cases():
     add("parser-fs-library", "no-setup", "task inspect(path: word) -> maybe<int> { pilot pending = fs::read(path); give back path.to_int() }\n")
     add("qualified-process", "shadow", "task process::arg(index: int) -> int { give back index }\ntask main() -> int { give back process::arg(7) }\n", identity="builtin::system::process_arg")
     add("qualified-fs", "shadow", "task fs::read(path: word) -> word { give back path }\ntask main() -> int { pilot text = fs::read(\"ordinary\"); say text; give back 0 }\n", identity="builtin::system::fs_read")
-    add("parameter-process", "admission-reject", "task inspect(process: int) -> int { give back process::arg(1) }\ntask main() -> int { give back inspect(0) }\n", identity="builtin::system::process_arg")
+    add("parameter-process", "ordinary-native-reject", "task inspect(process: int) -> int { give back process::arg(1) }\ntask main() -> int { give back inspect(0) }\n", "native rvalue not yet supported: Unknown", "builtin::system::process_arg")
     add("local-fs", "admission-reject", "task main() -> int { pilot fs = 1; pilot value = fs::read(\"x\"); give back 0 }\n", identity="builtin::system::fs_read")
     add("root-process", "admission-reject", "pilot process = 1\ntask main() -> int { give back process::arg(1) }\n", identity="builtin::system::process_arg")
     add("import-fs", "admission-reject", "use user::filesystem as fs\ntask main() -> int { pilot value = fs::read(\"x\"); give back 0 }\n", identity="builtin::system::fs_read")
@@ -1081,6 +1081,6 @@ def main(argv=None):
     return 0
 
 
-DATA_SHA = "edeb528267f0855d5b116cfa71e87fb15d52b6201eb29080399118e80e453a29"
+DATA_SHA = "1c39719dcc5e4238f1c7e1b23d5d524ac88ea785dfe331f927d3897094a5f00b"
 
 if __name__ == "__main__": raise SystemExit(main())

@@ -150,6 +150,99 @@ def evaluate_fixture_count(function, text, needle):
     raise AssertionError("count AST helper did not return")
 
 
+def source_task_ast(Parser, source, name):
+    marker = "task " + name + "("
+    if source.count(marker) != 1:
+        raise AssertionError("exact source task is missing or duplicated")
+    start = source.index(marker)
+    end = source.find("\ntask ", start + len(marker))
+    program = Parser.from_source(source[start:] if end < 0 else source[start:end])
+    tasks = [node for node in program.statements if type(node).__name__ == "TaskDecl"]
+    if len(tasks) != 1 or tasks[0].name != name:
+        raise AssertionError("source task parse changed")
+    return tasks[0]
+
+
+def evaluate_source_branch(function, arguments, helpers, constants):
+    """Bounded actual FK AST, with explicit query/operation leaves only.
+
+    This interprets source branches rather than compiling or executing a V4
+    pipeline. Query answers are a declared model; unlisted operations reject.
+    """
+    if len(function.params) != len(arguments):
+        raise AssertionError("source branch argument count differs")
+    env = dict(zip((param.name for param in function.params), arguments))
+    remaining = 20000
+    class Returned(Exception):
+        def __init__(self, value): self.value = value
+    def expression(node):
+        nonlocal remaining
+        remaining -= 1
+        if remaining < 0: raise AssertionError("source branch budget exhausted")
+        kind = type(node).__name__
+        if kind in ("IntLit", "BoolLit"): return node.value
+        if kind == "StrLit":
+            if any(value is not None for _, value in (node.parts or [])):
+                raise AssertionError("interpolation outside source branch model")
+            return node.value
+        if kind == "Ident":
+            if node.name in env: return env[node.name]
+            if node.name in constants: return constants[node.name]
+            raise AssertionError("undeclared source branch value: " + node.name)
+        if kind == "UnaryOp":
+            value = expression(node.operand)
+            if node.op == "not": return not value
+            if node.op == "-": return -value
+        if kind == "BinOp":
+            left = expression(node.left)
+            if node.op == "and": return bool(left and expression(node.right))
+            if node.op == "or": return bool(left or expression(node.right))
+            right = expression(node.right)
+            if node.op == "+": return left + right
+            if node.op == "-": return left - right
+            if node.op == "==": return left == right
+            if node.op == "!=": return left != right
+            if node.op == "<": return left < right
+            if node.op == "<=": return left <= right
+            if node.op == ">": return left > right
+            if node.op == ">=": return left >= right
+        if kind == "Call" and type(node.func).__name__ in ("Ident", "PathIdent"):
+            name = node.func.name if type(node.func).__name__ == "Ident" else "::".join(node.func.parts)
+            if name not in helpers:
+                raise AssertionError("undeclared source branch operation: " + name)
+            return helpers[name](*[expression(arg) for arg in node.args])
+        raise AssertionError("AST outside closed source branch model: " + kind)
+    def block(statements):
+        for node in statements:
+            kind = type(node).__name__
+            if kind == "PilotDecl": env[node.name] = expression(node.value)
+            elif kind == "Assign" and type(node.target).__name__ == "Ident":
+                value = expression(node.value)
+                if node.op == "=": env[node.target.name] = value
+                elif node.op == "+=": env[node.target.name] += value
+                else: raise AssertionError("assignment outside source branch model")
+            elif kind == "ExprStmt": expression(node.expr)
+            elif kind == "SayStmt": helpers["say"](expression(node.value))
+            elif kind == "IfExpr":
+                if expression(node.condition): block(node.then_block.statements)
+                else:
+                    for condition, body in node.elif_branches:
+                        if expression(condition): block(body.statements); break
+                    else:
+                        if node.else_block is not None: block(node.else_block.statements)
+            elif kind == "RepeatUntil":
+                turns = 1024
+                while not expression(node.condition):
+                    turns -= 1
+                    if turns < 0: raise AssertionError("source branch loop budget exhausted")
+                    block(node.body.statements)
+            elif kind == "GiveBack": raise Returned(expression(node.value) if node.value is not None else None)
+            else: raise AssertionError("statement outside source branch model: " + kind)
+    try: block(function.body.statements)
+    except Returned as result: return result.value
+    return None
+
+
 def fake_module(program, target=None):
     arg, parser, fs, argc = gate.BRIDGE_COUNTS[program]
     lines = [] if target is None else ['target triple = "' + target + '"']
@@ -182,6 +275,97 @@ def capability(kind):
 
 
 class PureGateTests(unittest.TestCase):
+    def test_formal_shadow_actual_source_branches_and_named_native_fence(self):
+        case = next(row for row in gate.contract_cases() if row["name"] == "parameter-process")
+        self.assertEqual(case["mode"], "ordinary-native-reject")
+        self.assertEqual(case["expected"], "native rvalue not yet supported: Unknown")
+        self.assertEqual(case["identity"], "builtin::system::process_arg")
+        self.assertEqual(case["source"], "task inspect(process: int) -> int { give back process::arg(1) }\ntask main() -> int { give back inspect(0) }\n")
+        core = fixture_core_source_root()
+        builder = (core / "src/compiler/v4/crates/freak_mir_build/src/lib.fk").read_text()
+        llvm = (core / "src/compiler/v4/crates/freak_codegen_llvm/src/lib.fk").read_text()
+        mir = (core / "src/compiler/v4/crates/freak_mir/src/lib.fk").read_text()
+        with bootstrap_fixture_types() as (Parser, _):
+            tasks = Parser.from_source(case["source"]).statements
+            self.assertEqual([(node.name, [p.name for p in node.params]) for node in tasks], [("inspect", ["process"]), ("main", [])])
+            constants = {node.name:node.value.value for node in Parser.from_source(mir.split("\ntask ", 1)[0]).statements
+                         if type(node).__name__ == "PilotDecl" and type(node.value).__name__ == "StrLit"}
+            constants["v4_codegen_llvm_active_owned_mir"] = 0
+            trace = []
+            tokens = ("process", "::", "arg", "(", "1", ")")
+            def visible(mir_id, body, name, offset):
+                trace.append(("visible", name, offset)); return 0 if name == "process" else -1
+            helpers = {
+                "v4_lex_token_syntax_value": lambda stream, index: tokens[index],
+                "v4_mir_next_nontrivia": lambda stream, index, end: index,
+                "v4_mir_find_matching_paren": lambda stream, first, end: 5,
+                "v4_mir_ty_id": lambda mir_id: 0,
+                "v4_ty_system_intrinsic_named_kind": lambda ty, name: "process_arg",
+                "v4_mir_find_local_visible_at": visible,
+                "v4_span_start": lambda span: 49,
+                "v4_mir_find_open_paren_token": lambda stream, first, last: 3,
+                "v4_mir_shape_ctor_name": lambda stream, first, opening: "process::arg",
+                "v4_mir_signature_id_for_name": lambda mir_id, name: -1,
+                "v4_mir_rvalue_kind": lambda mir_id, body, value: "Unknown",
+                "v4_codegen_llvm_scalar_sum_rvalue_is_supported": lambda *args: False,
+            }
+            intrinsic = source_task_ast(Parser, builder, "v4_mir_try_lower_system_named_intrinsic")
+            ordinary = source_task_ast(Parser, builder, "v4_mir_try_lower_named_call")
+            self.assertEqual(evaluate_source_branch(intrinsic, [0, 0, 0, 0, 5, "span"], helpers, constants), -1)
+            self.assertEqual(trace, [("visible", "process", 49)])
+            self.assertEqual(evaluate_source_branch(ordinary, [0, 0, 0, 0, 5, "span"], helpers, constants), -1)
+            expression = source_task_ast(Parser, builder, "v4_mir_lower_expr_expected")
+            fallback = expression.body.statements[-1]
+            self.assertEqual(type(fallback).__name__, "GiveBack")
+            self.assertEqual(fallback.value.func.name, "v4_mir_add_rvalue")
+            self.assertEqual(fallback.value.args[2].name, "v4_mir_rvalue_unknown")
+            self.assertEqual(fallback.value.args[4].value, "")
+            self.assertEqual(fallback.value.args[8].name, "v4_ty_unknown")
+            native = source_task_ast(Parser, llvm, "v4_codegen_llvm_native_rvalue_error")
+            self.assertEqual(evaluate_source_branch(native, [0, 0, 0], helpers, constants), case["expected"])
+
+    def test_formal_shadow_actual_fixture_protocol_rejects_all_wrong_facts(self):
+        source = (gate.ROOT / gate.OWNED_NAMES[0]).read_text()
+        expected = "native rvalue not yet supported: Unknown"
+        with bootstrap_fixture_types() as (Parser, _):
+            task = source_task_ast(Parser, source, "v4_typed_os_contract_run")
+            assertion = source_task_ast(Parser, source, "v4_typed_os_contract_assert")
+            class Rejected(Exception): pass
+            for field, value in ((None, None), ("mode", "admission-reject"), ("identity_count", 1),
+                                 ("identity", ""), ("diag_count", 1), ("error", "wrong"), ("module", "published")):
+                facts = {"mode":"ordinary-native-reject", "identity":"builtin::system::process_arg",
+                         "identity_count":0, "diag_count":0, "error":expected, "module":""}
+                if field is not None: facts[field] = value
+                said = []
+                def panic(label): raise Rejected(label)
+                helpers = {
+                    "process::arg": lambda index: {1:facts["mode"], 2:"source", 3:"target", 4:expected, 5:facts["identity"]}[index],
+                    "fs::read": lambda path: "explicit source metadata",
+                    "v4_target_spec_new": lambda target: 0,
+                    "v4_lex_text": lambda *args: 0, "v4_parse_stream": lambda *args: 0,
+                    "v4_hir_lower_tree": lambda *args: 0, "v4_resolve_lower_hir": lambda *args: 0,
+                    "v4_ty_lower_resolve": lambda *args: 0, "v4_mir_lower_ty": lambda *args: 0,
+                    "v4_lex_diag_count": lambda *args: 0, "v4_parse_diag_count": lambda *args: 0,
+                    "v4_hir_diag_count": lambda *args: 0,
+                    "v4_resolve_diag_count": lambda *args: facts["diag_count"],
+                    "v4_ty_diag_count": lambda *args: 0, "v4_mir_diag_count": lambda *args: 0,
+                    "v4_typed_os_contract_descriptors": lambda *args: facts["identity_count"],
+                    "v4_codegen_llvm_lower_owned_mir_with_panic": lambda *args: 0,
+                    "v4_codegen_llvm_native_module_error": lambda *args: facts["error"],
+                    "v4_codegen_llvm_module_text": lambda *args: facts["module"],
+                    "panic": panic, "say": said.append,
+                }
+                helpers["v4_typed_os_contract_assert"] = lambda condition, label: evaluate_source_branch(assertion, [condition, label], helpers, {})
+                with self.subTest(field=field):
+                    if field is None:
+                        evaluate_source_branch(task, [], helpers, {})
+                        self.assertEqual(said, ["typed-os-entry-contract mode=ordinary-native-reject=passed"])
+                    else:
+                        with self.assertRaises(Rejected) as caught: evaluate_source_branch(task, [], helpers, {})
+                        self.assertEqual(said, [])
+                        if field == "mode":
+                            self.assertEqual(str(caught.exception), "typed-os-entry-contract source rejected before native publication")
+
     def setUp(self):
         self.stack = ExitStack()
         self.attempts = {name: 0 for name in ("Popen", "run", "call", "check_call", "check_output")}
