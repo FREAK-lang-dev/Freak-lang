@@ -136,9 +136,14 @@ static bool v4_array_reserve(v4_compiler_array *array) {
     return true;
 }
 
-/* Registry lookup happens inside word_bytes before any pointer read. An
-   impossible allocation/range is rejected before UTF-8 traversal. */
+/* Check raw registry metadata before word_bytes traverses UTF-8. Unknown
+   owners still reach the existing Word panic without a pointer read. */
 static bool v4_array_word_size(int64_t word, size_t *length) {
+    size_t raw_bytes;
+    if (freak_llvm_word_owned_size(word, &raw_bytes) &&
+            (raw_bytes >= (size_t)PTRDIFF_MAX ||
+             raw_bytes >= SIZE_MAX ||
+             (uintptr_t)word > UINTPTR_MAX - raw_bytes)) return false;
     int64_t bytes = freak_v4_word_bytes(word);
     if ((uint64_t)bytes >= (uint64_t)PTRDIFF_MAX ||
             (uint64_t)bytes >= SIZE_MAX ||
