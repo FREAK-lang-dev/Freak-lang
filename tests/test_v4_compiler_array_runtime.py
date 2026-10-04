@@ -185,6 +185,9 @@ class CompilerArrayOracleTests(unittest.TestCase):
             self.assertTrue(any(path.read_bytes() == b"hello\x00world\n" for path in directory.glob("*.stdout")))
 
     def test_complete_guarded_driver_matrix_is_wired_and_tool_changes_fail_closed(self):
+        # Assertions retain the load-time host even when Linux dispatch below
+        # exercises sanitizer wiring. Windows CRT abort is 3; POSIX is -SIGABRT.
+        host_abort_status = 3 if sys.platform == "win32" else -signal.SIGABRT
         for sanitized, change_tool in ((False, False), (True, False), (True, True)):
             with self.subTest(sanitized=sanitized, change_tool=change_tool), tempfile.TemporaryDirectory() as tmp:
                 directory = Path(tmp)
@@ -204,7 +207,7 @@ class CompilerArrayOracleTests(unittest.TestCase):
                     if case in gate.EXIT_CASES:
                         return self.result(1, stderr=gate.EXIT_CASES[case].encode())
                     if case in gate.ABORT_CASES:
-                        return self.result(-signal.SIGABRT, stderr=f"FREAK: V4 word panic: {gate.ABORT_CASES[case]}\n".encode())
+                        return self.result(host_abort_status, stderr=f"FREAK: V4 word panic: {gate.ABORT_CASES[case]}\n".encode())
                     if case.startswith("sanitizer-"):
                         text = (b"ERROR: AddressSanitizer: heap-use-after-free\nSUMMARY: AddressSanitizer:\n"
                                 if case.endswith("address") else
@@ -235,6 +238,21 @@ class CompilerArrayOracleTests(unittest.TestCase):
                     self.assertEqual(kwargs["output_limit_mb"], 8)
                     expected = (120, 1024) if "-o" in command else (60, 64)
                     self.assertEqual((kwargs["timeout_seconds"], kwargs["memory_limit_mb"]), expected)
+
+    def test_guarded_driver_matrix_with_windows_result_defaults(self):
+        spec = importlib.util.spec_from_file_location("private_array_gate_windows_pure", _path)
+        windows_gate = importlib.util.module_from_spec(spec)
+        # Dependencies are already loaded on the real host; source-load only
+        # the gate to capture Windows defaults without importing native _winapi.
+        with mock.patch.object(sys, "platform", "win32"):
+            exec(compile(_path.read_bytes(), str(_path), "exec"), windows_gate.__dict__)
+            for case, diagnostic in windows_gate.ABORT_CASES.items():
+                stderr = f"FREAK: V4 word panic: {diagnostic}\n".encode()
+                windows_gate.assert_rejection(self.result(3, stderr=stderr), case)
+                with self.assertRaises(AssertionError):
+                    windows_gate.assert_rejection(self.result(-signal.SIGABRT, stderr=stderr), case)
+            with mock.patch.dict(globals(), gate=windows_gate):
+                self.test_complete_guarded_driver_matrix_is_wired_and_tool_changes_fail_closed()
 
     def test_runner_secondary_artifact_properties_preserve_primary(self):
         class Primary(RuntimeError):
