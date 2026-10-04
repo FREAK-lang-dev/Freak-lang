@@ -2097,11 +2097,12 @@ task v4_borrowck_lend_holder_mode_for_projection(mir_id: int, body_id: int, path
     repeat until place_id >= place_count {
         if v4_borrowck_path_canon(v4_mir_place_text(mir_id, body_id, place_id)) == canon {
             pilot current_place = place_id
-            if skip_leaf {
+            pilot leaf_kind = v4_mir_place_kind(mir_id, body_id, current_place)
+            if skip_leaf and (leaf_kind == v4_mir_place_field or leaf_kind == v4_mir_place_index) {
                 current_place = v4_mir_place_base(mir_id, body_id, current_place)
             }
             pilot depth = 0
-            repeat until current_place < 0 or depth > place_count {
+            repeat until current_place < 0 or current_place >= place_count or depth > place_count {
                 pilot place_ty = v4_mir_place_ty(mir_id, body_id, current_place)
                 if v4_ty_is_lend_type(place_ty) {
                     pilot place_mode = v4_ty_lend_mode(place_ty)
@@ -2112,7 +2113,14 @@ task v4_borrowck_lend_holder_mode_for_projection(mir_id: int, body_id: int, path
                         mode = place_mode
                     }
                 }
-                current_place = v4_mir_place_base(mir_id, body_id, current_place)
+                -- Field/Index bases are PlaceIDs. A Local base is a binding
+                -- ID, and a Deref address is a RvalueID; neither is a parent.
+                pilot current_kind = v4_mir_place_kind(mir_id, body_id, current_place)
+                if current_kind == v4_mir_place_field or current_kind == v4_mir_place_index {
+                    current_place = v4_mir_place_base(mir_id, body_id, current_place)
+                } else {
+                    current_place = 0 - 1
+                }
                 depth += 1
             }
         }

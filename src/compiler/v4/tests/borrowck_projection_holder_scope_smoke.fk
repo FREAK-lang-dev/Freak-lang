@@ -1,0 +1,71 @@
+-- LocalPlace bases are binding IDs, even when they equal another PlaceID.
+task v4_projection_holder_assert(condition: bool, label: word) -> void {
+    if not condition { panic("projection-holder " + label) }
+}
+task v4_projection_holder_named_count(borrow: int) -> int {
+    pilot count = 0
+    pilot row = 0
+    repeat until row >= v4_borrowck_diag_count(borrow) {
+        if v4_diag_message(v4_borrowck_diag(borrow, row)) == "Meiya refuses to mutate through an immutable lend" { count += 1 }
+        row += 1
+    }
+    give back count
+}
+task v4_projection_holder_run() -> void {
+    pilot mode = process::arg(1)
+    pilot source = "shape Box " + chr(123) + " value: int " + chr(125) + "\n"
+    pilot statements = "pilot owned = Box " + chr(123) + " value: 1 " + chr(125) + "; pilot holder = lend seed; owned.value = 2; give back owned.value"
+    pilot path = "owned.value"
+    if mode == "1" {
+        statements = "pilot owned = [1, 2]; pilot holder = lend seed; owned[0] = 3; give back owned[0]"
+        path = "owned[0]"
+    }
+    if mode == "2" {
+        statements = "pilot owned = Box " + chr(123) + " value: 1 " + chr(125) + "; pilot holder = lend owned; holder.value = 2; give back 0"
+        path = "holder.value"
+    }
+    if mode == "3" {
+        statements = "pilot owned = Box " + chr(123) + " value: 1 " + chr(125) + "; pilot replacement = Box " + chr(123) + " value: 2 " + chr(125) + "; pilot holder = lend mut owned; holder = lend mut replacement; holder.value = 3; give back 0"
+        path = "holder.value"
+    }
+    source = source + "task inspect(seed: int) -> int " + chr(123) + " " + statements + " " + chr(125) + "\n"
+    pilot mir = v4_mir_text_cached("projection-holder.fk", source)
+    v4_projection_holder_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0 and v4_mir_word_plan_preflight(mir) == "", "clean frontend and scope facts")
+    pilot body = v4_mir_lookup_body_name(mir, "inspect")
+    pilot projection = -1
+    pilot holder_place = -1
+    pilot row = 0
+    repeat until row >= v4_mir_body_stmt_count(mir, body) {
+        pilot place = v4_mir_stmt_place(mir, body, row)
+        if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_local and v4_mir_stmt_lhs(mir, body, row) == "holder" { holder_place = place }
+        if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_assign and place >= 0 and v4_borrowck_path_canon(v4_mir_place_text(mir, body, place)) == v4_borrowck_path_canon(path) { projection = place }
+        row += 1
+    }
+    v4_projection_holder_assert(body >= 0 and projection >= 0 and holder_place >= 0, "actual authored projection and holder")
+    pilot kind = v4_mir_place_kind(mir, body, projection)
+    v4_projection_holder_assert(kind == v4_mir_place_field or kind == v4_mir_place_index, "projection has a typed place parent")
+    pilot parent = v4_mir_place_base(mir, body, projection)
+    v4_projection_holder_assert(v4_mir_place_kind(mir, body, parent) == v4_mir_place_local, "projection reaches a local")
+    if mode == "0" or mode == "1" {
+        pilot owned = v4_mir_find_local(mir, body, "owned")
+        v4_projection_holder_assert(owned >= 0 and v4_mir_place_base(mir, body, parent) == owned and owned == holder_place and parent != holder_place and v4_ty_is_lend_type(v4_mir_place_ty(mir, body, holder_place)) and not v4_ty_is_lend_type(v4_mir_place_ty(mir, body, parent)), "binding ID numerically aliases unrelated immutable lend PlaceID")
+    }
+    pilot expected = v4_ty_param_mode_value
+    if mode == "2" { expected = v4_ty_param_mode_lend }
+    if mode == "3" { expected = v4_ty_param_mode_lend_mut }
+    v4_projection_holder_assert(v4_borrowck_lend_holder_mode_for_projection(mir, body, path, true) == expected and v4_borrowck_lend_holder_mode_for_projection(mir, body, path, false) == expected, "only typed place ancestry grants holder permissions")
+    v4_projection_holder_assert(v4_borrowck_lend_holder_mode_for_projection(mir, body, "holder", true) == v4_ty_param_mode_value, "direct holder carrier rebinding does not write through its lend")
+    pilot checked = v4_borrowck_check_mir(0, mir)
+    pilot result_id = v4_borrowck_lookup_result(checked, v4_mir_body_def(mir, body))
+    pilot status = v4_borrowck_clean
+    pilot diagnostic_count = 0
+    if mode == "2" { status = v4_borrowck_blocked; diagnostic_count = 1 }
+    v4_projection_holder_assert(v4_borrowck_result_status(checked, result_id) == status and v4_borrowck_diag_count(checked) == diagnostic_count and v4_projection_holder_named_count(checked) == diagnostic_count, "exact owned or immutable holder disposition")
+    pilot snapshot = v4_mir_snapshot()
+    v4_projection_holder_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot and v4_mir_word_plan_preflight(mir) == "", "wire byte and scope conservation")
+    v4_projection_holder_assert(v4_borrowck_lend_holder_mode_for_projection(mir, body, path, true) == expected and v4_borrowck_lend_holder_mode_for_projection(mir, body, "holder", true) == v4_ty_param_mode_value, "restored holder facts retain typed ancestry")
+    pilot fresh = v4_borrowck_check_mir(0, mir)
+    v4_projection_holder_assert(v4_borrowck_result_status(fresh, v4_borrowck_lookup_result(fresh, v4_mir_body_def(mir, body))) == status and v4_borrowck_diag_count(fresh) == diagnostic_count and v4_projection_holder_named_count(fresh) == diagnostic_count, "fresh restored Meiya disposition")
+    say "projection-holder case=" + mode + " typed=true disposition=true restore=true fresh=true"
+}
+v4_projection_holder_run()
