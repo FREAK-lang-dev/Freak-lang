@@ -47,6 +47,7 @@ task v4_checked_numeric_native_source(case_id: int) -> word {
     if case_id == 44 { give back "\ntask main() -> int " + "{" + " pilot value=18446744073709551615u; pilot byte=255t; if value <= 9223372036854775807u or byte != 255t " + "{" + " give back 1 " + "}" + "\n\n give back 0 " + "}" + "\n\n" }
     if case_id == 45 { give back "\ntask main() -> int " + "{" + " pilot fractional: float32=0.1; pilot integer: int=fractional; if integer != 0 " + "{" + " give back 1 " + "}" + "\n\n give back 0 " + "}" + "\n\n" }
     if case_id == 46 { give back "\ntask main() -> int " + "{" + " pilot fractional: float32=16777217; pilot integer: int=fractional; if integer != 16777216 " + "{" + " give back 1 " + "}" + "\n\n give back 0 " + "}" + "\n\n" }
+    if case_id == 47 { give back "extern [C] " + "{" + "\n task numeric_case_storage() -> *mut tiny\n" + "}\n task main() -> int " + "{" + " pilot pointer = numeric_case_storage(); pilot value = 258; trust me \"checked numeric pointer store\" on my honor as .ace " + "{" + " pointer.write(value) " + "} give back 0 " + "}\n" }
     panic("unknown checked numeric native case")
 }
 
@@ -91,6 +92,7 @@ task v4_checked_numeric_native_stderr(case_id: int) -> word {
     if case_id == 37 { give back "FREAK V4: num to int conversion out of range\n" }
     if case_id == 38 { give back "FREAK V4: num to tiny conversion out of range\n" }
     if case_id == 39 { give back "FREAK V4: num to tiny conversion out of range\n" }
+    if case_id == 47 { give back "FREAK V4: int to tiny conversion out of range\n" }
     give back ""
 }
 

@@ -44,8 +44,8 @@ def report(sanitize=True, snapshot=True):
     rows = []
     for name in [*[f"case-{index}" for index in range(gate.CASE_COUNT)], "checked_numerics", "depth256"]:
         stdout, stderr, status = "", "", 0
-        if name.startswith("case-") and int(name[5:]) < 40:
-            stderr, status = gate.expected_errors()[int(name[5:])], 1
+        if name.startswith("case-") and int(name[5:]) in gate.expected_errors_by_case():
+            stderr, status = gate.expected_errors_by_case()[int(name[5:])], 1
         if name == "checked_numerics":
             stdout = "checked numerics passed\n"
         for opt in gate.OPTS:
@@ -63,14 +63,17 @@ def report(sanitize=True, snapshot=True):
 
 
 class NumericGateOracles(unittest.TestCase):
-    def test_all_47_fixture_sources_and_40_fatal_oracles(self):
+    def test_all_48_fixture_sources_and_41_fatal_oracles(self):
         text = (FIXTURES / "checked_numeric_execute_smoke.fk").read_text()
         cases = gate.load_cases(text)
-        self.assertEqual(len(cases), 47)
-        self.assertEqual(sum(case.exit == 1 for case in cases), 40)
+        self.assertEqual(len(cases), 48)
+        self.assertEqual(sum(case.exit == 1 for case in cases), 41)
         self.assertEqual(cases[45].exit, 0)
         self.assertIn("0.1", cases[45].source)
         self.assertIn("16777217", cases[46].source)
+        self.assertIn('pointer.write(value)', cases[47].source)
+        self.assertIn('value = 258', cases[47].source)
+        self.assertEqual(cases[47].stderr, "FREAK V4: int to tiny conversion out of range\n")
 
     def test_missing_duplicate_and_oracle_drift_are_errors(self):
         text = (FIXTURES / "checked_numeric_execute_smoke.fk").read_text()

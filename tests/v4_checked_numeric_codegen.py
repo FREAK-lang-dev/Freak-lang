@@ -25,7 +25,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 OPTS = (0, 2, 3)
-CASE_COUNT = 47
+CASE_COUNT = 48
 AUDIT_FLAGS = ("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1", "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
 SANITIZER_FLAGS = ("-g", "-fsanitize=address,undefined,float-cast-overflow",
                    "-fno-sanitize-recover=all", "-fno-omit-frame-pointer")
@@ -81,6 +81,11 @@ def literal_expression(expression: str) -> str:
         raise GateError(f"invalid numeric fixture source table: {exc}") from exc
 
 
+def expected_errors_by_case() -> dict[int, str]:
+    return {**dict(enumerate(expected_errors())),
+            47: "FREAK V4: int to tiny conversion out of range\n"}
+
+
 def fixture_table(text: str, name: str) -> dict[int, str]:
     match = re.search(r"(?ms)^task " + re.escape(name) +
                       r"\(case_id: int\) -> word \{\n(.*?)^\}", text)
@@ -103,8 +108,8 @@ def load_cases(text: str) -> list[Case]:
     sources = fixture_table(text, "v4_checked_numeric_native_source")
     errors = fixture_table(text, "v4_checked_numeric_native_stderr")
     if set(sources) != set(range(CASE_COUNT)) or any(not source for source in sources.values()):
-        raise GateError("numeric fixture must contain exactly all 47 nonempty cases (0..46)")
-    expected = dict(enumerate(expected_errors()))
+        raise GateError("numeric fixture must contain exactly all 48 nonempty cases (0..47)")
+    expected = expected_errors_by_case()
     if errors != expected:
         raise GateError("numeric fixture fatal diagnostics differ from the checked helper oracle")
     return [Case(index, sources[index], errors.get(index, "")) for index in range(CASE_COUNT)]
@@ -310,8 +315,8 @@ def validate_report(report: dict, sanitize: bool, snapshot: bool) -> None:
         stdout, stderr, status = "", "", 0
         if name.startswith("case-"):
             index = int(name[5:])
-            if index < len(expected_errors()):
-                stderr, status = expected_errors()[index], 1
+            if index in expected_errors_by_case():
+                stderr, status = expected_errors_by_case()[index], 1
         if name == "checked_numerics":
             stdout = "checked numerics passed\n"
         if (row.get("exit") != status
