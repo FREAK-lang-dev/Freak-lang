@@ -133,7 +133,7 @@ task v4_panic_contract_conditional(mode: word) -> void {
                     if v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, row) == "rows" { source_calls += 1 }
                     row += 1
                 }
-                v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, feed) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, feed) == "rows" and v4_mir_rvalue_arg_count(mir, body, feed) == 0 and source_calls == 1, "List task call is evaluated once in preheader")
+                v4_panic_contract_assert(v4_mir_rvalue_kind(mir, body, feed) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, feed) == "rows" and v4_mir_rvalue_call_arg_count(mir, body, feed) == 0 and source_calls == 1, "List task call is evaluated once in preheader")
             }
             pilot preheader = v4_mir_stmt_block(mir, body, source_decl)
             pilot body_block = v4_mir_block_target(record)
