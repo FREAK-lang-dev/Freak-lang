@@ -16,10 +16,10 @@ The public release remains v0.14.2; this work does not create a release.
 | Sized Unicode and interpolation | Embedded NUL, character indexing/slicing, lower-case runtime and HIR interpolation plans with restoration/invalidation coverage | Additional generated bounds gate is in independent review; no completion claim for its new driver |
 | Literal/general `say` | Updated fixture passes its 27 static byte cases, seven owned/general positives, seven typed diagnostics, ten forgeries and snapshot roundtrip | Final coherent-head platform CI |
 | `say_err` and hosted runtime portability | Generated owned-message lane and exact raw output tests; source fixes for finite Unicode fixture construction, a known Darwin linker warning and Windows CRT declaration warning | Fresh Linux/macOS/Windows CI on the corrected head |
-| Process arguments and typed OS results | Existing C entry argument setup; isolated closed `maybe<int>`/`result<word,word>` and typed `process::arg`, `process::args_count`, `fs::read` vertical slice | Sum equality/origin/inner-alias findings, independent successor review, actual compiler/native gates and integration |
+| Process arguments and typed OS results | Existing C entry argument setup; isolated closed `maybe<int>`/`result<word,word>` and typed `process::arg`, `process::args_count`, `fs::read` vertical slice | Formal-parameter origin guard, independent successor review, actual compiler/native gates and integration |
 | Filesystem bridge | Linux plain and ASan/UBSan O0/O2/O3 bridge proof, exact owned Ok/Err slots, Unicode/NUL/nonregular-file controls | Typed source integration and macOS/Windows native gates |
 | Integer arithmetic | Checked native overflow and divide-by-zero contract; private C32 arithmetic lane passes hosted Linux/macOS/Windows | Fresh coherent-head CI; C-width native ABI admission remains fenced by B01 |
-| Panic and bounds | Explicit `--panic=abort` path and checked integer/runtime boundaries | Default unwind and cleanup are not implemented; generated Word-bounds driver has pending reliability fixes |
+| Panic and bounds | Explicit `--panic=abort` path and checked integer/runtime boundaries; isolated private panic-context runtime has passed source review | Default compiler unwind and cleanup are not implemented; context native tests and generated Word-bounds driver reliability fixes remain pending |
 
 The bible does not currently specify a new main-parameter ABI or a concrete
 runtime-honor failure trigger. Process argument access can be implemented
@@ -44,8 +44,10 @@ and general deferred cleanup also remain open.
 - Independent review blocked the first closed Sum checkpoint: native equality
   could emit an invalid aggregate `icmp`, downstream builtin identities omitted
   available binding eligibility, and inner payload aliases had inconsistent
-  carrier/constructor/extraction treatment. Successors require independent
-  review and actual execution before integration.
+  carrier/constructor/extraction treatment. Later review found ordered
+  comparisons and a formal-parameter shadow guard gap. The bounded bootstrap
+  diagnostic also exposed interpolation in two LLVM type strings. Successors
+  require independent review and actual execution before integration.
 - Independent review blocked the new Word-bounds driver because it could
   report success after a retained image changed and had first-cause, cleanup,
   deadline and provenance gaps. These findings remain blocking despite its
@@ -82,8 +84,10 @@ focused checker runs retain aggregate guard logs and output counts; the six-job
 diagnostic run additionally retains every raw child channel. Resource caps and
 semantic assertions are not relaxed to obtain green checks.
 
-The main release PR remains a draft. Its last hosted run predates the current
-fixes and has eleven known V4 failures; the shipping suite is green. Fresh
+The main release PR remains a draft. The hosted run at `b5e300f` has nine V4
+failures, with both macOS/Windows native backends passing; all six shipping
+jobs are green. Numeric case 47's reviewed fixture repair passes bounded
+compiler emission. The current gate fixes require a fresh hosted run. Fresh
 full Linux, macOS and Windows checks, current independent review and zero
 unresolved correctness findings are required before readiness. No merge or
 release is performed automatically.
