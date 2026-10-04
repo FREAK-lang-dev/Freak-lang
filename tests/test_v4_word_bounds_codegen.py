@@ -547,6 +547,7 @@ class WordBoundsOracles(unittest.TestCase):
         tree = ast.parse((ROOT / 'tests/v4_word_bounds_codegen.py').read_bytes())
         bootstrap = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'bootstrap_dispatch')
         line = next(node.lineno for node in ast.walk(bootstrap) if isinstance(node, ast.Assign)
+                    and isinstance(node.value, ast.ListComp)
                     and any(isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name)
                             and target.value.id == 'registry' for target in node.targets))
         function = gate.bootstrap_dispatch.__wrapped__
@@ -666,6 +667,82 @@ class WordBoundsOracles(unittest.TestCase):
                     with self.assertRaises(gate.GateError): pins.check()
                 finally: helper.__defaults__ = (60,)
                 pins.check()
+
+    def test_context_restore_entry_failures_recover_independent_caller_state(self):
+        for context_name in ('bootstrap_dispatch', 'temporary_runtime_root'):
+            for primary_kind in (RuntimeError, KeyboardInterrupt, None):
+                for secondary_kind in (MemoryError, KeyboardInterrupt):
+                    def original(*args, **kwargs): raise AssertionError('guard body is forbidden')
+                    checks = SimpleNamespace(run_with_heartbeat=original, RUNTIME_BUILD_ROOT='caller-root')
+                    registry = [(checks, original, gate.function_seal(original))]; snapshot = tuple(registry)
+                    pins = SimpleNamespace(guards=registry); runner = SimpleNamespace(conservation=pins)
+                    primary = primary_kind('body first cause') if primary_kind else None
+                    cause = ValueError('explicit cause')
+                    if primary is not None: primary.__cause__ = cause
+                    secondary = secondary_kind('restore function entry'); triggered = []
+                    function = getattr(gate, context_name).__wrapped__
+                    def trace(frame, event, arg):
+                        if event == 'call' and frame.f_code.co_filename == function.__code__.co_filename \
+                                and frame.f_code.co_qualname == context_name + '.<locals>.restore':
+                            triggered.append(True); raise secondary
+                        return trace
+                    previous_trace = sys.gettrace(); sys.settrace(trace)
+                    try:
+                        expected = primary if primary is not None else secondary
+                        with self.assertRaises(type(expected)) as raised:
+                            context = gate.bootstrap_dispatch(checks, runner) if context_name == 'bootstrap_dispatch' \
+                                else gate.temporary_runtime_root(checks, 'temporary-root')
+                            with context:
+                                if primary is not None: raise primary
+                    finally: sys.settrace(previous_trace)
+                    self.assertEqual(triggered, [True]); self.assertIs(raised.exception, expected)
+                    if primary is not None: self.assertIs(primary.__cause__, cause)
+                    self.assertIs(checks.run_with_heartbeat, original); self.assertIs(pins.guards, registry)
+                    self.assertEqual(tuple(registry), snapshot); self.assertEqual(checks.RUNTIME_BUILD_ROOT, 'caller-root')
+                    stage = 'restore-bootstrap-dispatch' if context_name == 'bootstrap_dispatch' else 'restore-runtime-dispatch'
+                    self.assertEqual(expected.bounds_secondary_failures[0], {'stage': stage, 'type': secondary_kind.__name__})
+
+    def test_consumed_context_generator_and_closure_leaves_are_sealed_before_dispatch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary); tool = folder / 'inert-clang'; tool.write_bytes(b'never execute')
+            source = folder / 'inert.fk.c'; source.write_bytes(b'inert generated C; never compiled')
+            calls = []
+            def guard(argv, **kwargs): calls.append(kwargs); return result()
+            pins = gate.Conservation(SimpleNamespace(work=folder, clang=str(tool)), {})
+            checks = SimpleNamespace(run_with_heartbeat=guard); runner = gate.Runner(checks, folder, pins)
+            wrapper = gate.bootstrap_dispatch; leaf = wrapper.__wrapped__; original_code = leaf.__code__
+            nested = next(code for code in original_code.co_consts if isinstance(code, gate.types.CodeType) and code.co_name == 'bounded')
+            self.assertIn(120, nested.co_consts)
+            replacement = nested.replace(co_consts=tuple(None if type(value) is int and value == 120 else value for value in nested.co_consts))
+            mutated = original_code.replace(co_consts=tuple(replacement if value is nested else value for value in original_code.co_consts))
+            try:
+                leaf.__code__ = mutated
+                with self.assertRaises(gate.GateError): pins.check()
+                with self.assertRaises(gate.GateError):
+                    with gate.bootstrap_dispatch(checks, runner):
+                        checks.run_with_heartbeat([str(source)], label='runtime compile: inert', memory_limit_mb=1024)
+                self.assertFalse(calls); self.assertIs(checks.run_with_heartbeat, guard)
+            finally: leaf.__code__ = original_code
+            pins.check()
+            original_defaults = leaf.__defaults__
+            try:
+                leaf.__defaults__ = (None,)
+                with self.assertRaises(gate.GateError): pins.check()
+            finally: leaf.__defaults__ = original_defaults
+            pins.check()
+            def different_leaf(*args, **kwargs): raise AssertionError('foreign leaf must not run')
+            try:
+                wrapper.__wrapped__ = different_leaf
+                with self.assertRaises(gate.GateError): pins.check()
+            finally: wrapper.__wrapped__ = leaf
+            pins.check()
+            cell = next(cell for cell in wrapper.__closure__ if cell.cell_contents is leaf)
+            try:
+                cell.cell_contents = different_leaf
+                self.assertIs(wrapper.__wrapped__, leaf)
+                with self.assertRaises(gate.GateError): pins.check()
+            finally: cell.cell_contents = leaf
+            pins.check(); self.assertFalse(calls)
 
 
 if __name__ == '__main__': unittest.main()

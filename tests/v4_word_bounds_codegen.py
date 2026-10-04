@@ -104,22 +104,34 @@ def temporary_runtime_root(checks, replacement):
     missing = object()
     original = missing
     cleanup = Evidence()
-    def restore():
+    def root_action():
         if original is not missing:
-            restore_once_or_retry(cleanup, "restore-runtime-root", lambda: setattr(checks, "RUNTIME_BUILD_ROOT", original))
+            checks.RUNTIME_BUILD_ROOT = original
+        return True
+    actions = (("restore-runtime-root", root_action),)
+    def restore():
+        for stage, action in actions:
+            restore_once_or_retry(cleanup, stage, action)
+        return True
     try:
         original = checks.RUNTIME_BUILD_ROOT
         checks.RUNTIME_BUILD_ROOT = replacement
         yield
     except BaseException as primary:
         try:
-            restore()
+            if cleanup.attempt("restore-runtime-dispatch", restore) is not True:
+                for stage, action in actions:
+                    if cleanup.attempt(stage, action) is not True:
+                        cleanup.attempt(stage + "-retry", action)
             cleanup.attach(primary)
         except BaseException:
             pass
         raise
     else:
-        restore()
+        if cleanup.attempt("restore-runtime-dispatch", restore) is not True:
+            for stage, action in actions:
+                if cleanup.attempt(stage, action) is not True:
+                    cleanup.attempt(stage + "-retry", action)
         cleanup.raise_first()
 
 
@@ -135,11 +147,29 @@ def qualified_data(value):
     return (id(kind), id(value))
 
 
-def function_seal(raw):
+def function_seal(raw, ancestors=()):
     if type(raw) is classmethod or type(raw) is staticmethod or type(raw) is types.MethodType:
         raw = raw.__func__
     if type(raw) is types.FunctionType:
-        return (id(raw.__code__), raw.__code__, qualified_data(raw.__defaults__), qualified_data(raw.__kwdefaults__))
+        if id(raw) in ancestors:
+            return ("function-cycle", id(raw), raw)
+        if len(ancestors) >= 128:
+            raise GateError("consumed helper function chain is unbounded")
+        ancestors = (*ancestors, id(raw))
+        wrapped = inspect.getattr_static(raw, "__wrapped__", None)
+        wrapped_seal = function_seal(wrapped, ancestors)
+        closures = []
+        for cell in raw.__closure__ or ():
+            try:
+                value = cell.cell_contents
+            except ValueError:
+                closures.append((id(cell), "empty"))
+                continue
+            # Follow genuine callable leaves; mutable execution state such as
+            # the output list is qualified by reference, not its changing data.
+            closures.append((id(cell), id(value), function_seal(value, ancestors)))
+        return (id(raw), raw, id(raw.__code__), raw.__code__, qualified_data(raw.__defaults__),
+                qualified_data(raw.__kwdefaults__), id(wrapped), wrapped_seal, tuple(closures))
     return None
 
 
@@ -421,24 +451,26 @@ def bootstrap_dispatch(checks, runner):
                 raise GateError("original bootstrap C input changed")
             runner.conservation.track(generated[0])
         return runner.run(argv, label, timeout=120, memory=1024)
+    def helper_action():
+        if original is not missing:
+            checks.run_with_heartbeat = original
+        return True
+    def registry_action():
+        if snapshot is not missing:
+            pins.guards = registry
+            registry[:] = snapshot
+        return True
+    actions = (("restore-bootstrap-helper", helper_action), ("restore-bootstrap-registry", registry_action))
     def restore():
         # Each independent restoration runs before any retry. A failed helper
         # setter must not prevent restoration of the exact prior registry.
-        def helper():
-            if original is not missing:
-                checks.run_with_heartbeat = original
-            return True
-        def guards():
-            if snapshot is not missing:
-                pins.guards = registry
-                registry[:] = snapshot
-            return True
-        helper_ok = cleanup.attempt("restore-bootstrap-helper", helper)
-        registry_ok = cleanup.attempt("restore-bootstrap-registry", guards)
+        helper_ok = cleanup.attempt("restore-bootstrap-helper", helper_action)
+        registry_ok = cleanup.attempt("restore-bootstrap-registry", registry_action)
         if helper_ok is not True:
-            cleanup.attempt("restore-bootstrap-helper-retry", helper)
+            cleanup.attempt("restore-bootstrap-helper-retry", helper_action)
         if registry_ok is not True:
-            cleanup.attempt("restore-bootstrap-registry-retry", guards)
+            cleanup.attempt("restore-bootstrap-registry-retry", registry_action)
+        return True
     try:
         original = checks.run_with_heartbeat
         pins = runner.conservation
@@ -452,13 +484,19 @@ def bootstrap_dispatch(checks, runner):
         yield calls
     except BaseException as primary:
         try:
-            restore()
+            if cleanup.attempt("restore-bootstrap-dispatch", restore) is not True:
+                for stage, action in actions:
+                    if cleanup.attempt(stage, action) is not True:
+                        cleanup.attempt(stage + "-retry", action)
             cleanup.attach(primary)
         except BaseException:
             pass
         raise
     else:
-        restore()
+        if cleanup.attempt("restore-bootstrap-dispatch", restore) is not True:
+            for stage, action in actions:
+                if cleanup.attempt(stage, action) is not True:
+                    cleanup.attempt(stage + "-retry", action)
         cleanup.raise_first()
 
 OPTS = (0, 2, 3)
