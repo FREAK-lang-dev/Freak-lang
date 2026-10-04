@@ -175,6 +175,23 @@ existing 1,024 live-array ceiling and 64 MiB memory guard.
 The measured before/after results, crate diagnostics, and remaining handoff
 contracts are tracked in [BACKEND_CHECKPOINT.md](BACKEND_CHECKPOINT.md).
 
+### Explicit native panic checkpoint
+
+`build_v4.py --panic=abort` emits the closed panic intrinsic (identity 201),
+borrows its sized word message, writes its exact bytes to stderr, and aborts.
+The default `unwind` policy rejects a retained panic before module emission;
+a native unwinder remains pending. Unknown policies fail before source or
+output access. Ordinary declarations named `panic` keep ordinary call rules.
+MIR v8 records the terminal control facts and rejects v7 atomically. Literal
+short-circuit edges select the reachable route while both operands retain
+source diagnostics; dynamic conditions preserve both routes.
+
+The isolated `94cb533` checkpoint passed 188 compiler cases, 66 O0/O2/O3
+native executions, and eight audit/sanitizer controls. The release branch has
+353 registered fixtures and separate CLI, platform, and resource integration
+gates; those fresh results remain pending. This checkpoint does not complete
+the tier-1 preview.
+
 ### Owned word checkpoint (W2)
 
 The build tool uses `v4_codegen_llvm_lower_owned_mir`, which obtains fresh
@@ -186,7 +203,8 @@ lender calls currently require an explicit `lend` of a named place. Borrowed
 returns, externally supplied words, callback word contracts and native
 aggregate fields remain unsupported.
 
-MIR snapshot v7 stores lexical statement scopes and validates their relation
+The current MIR snapshot v8 preserves the lexical statement scopes introduced
+in v7 and validates their relation
 to bindings, body ranges and closed builtin IDs before publication. The
 focused semantic fixture covers shadowing, ordered consume/lend events,
 atomic snapshot rejection and exhaustion recovery at 64 MiB/1,024 handles.
@@ -199,7 +217,8 @@ The dedicated generated-word gate is `python tests/v4_owned_word_codegen.py`.
 
 The W4 `.to_lower()` method borrows its receiver and returns a fresh owned
 word using Unicode 17 default lowercase, including contextual FinalSigma.
-Closed identity 119 extends MIR snapshot v7; earlier versions reject atomically.
+Closed identity 119 was introduced in MIR snapshot v7 and remains in v8.
+Restore accepts v8; earlier versions reject atomically.
 The dedicated `python tests/v4_word_lower_codegen.py` gate checks exact Unicode
 and embedded NUL output at O0/O2/O3 with both ownership audits and mandatory
 ASan/UBSan; `--plain` supplies additional platform evidence. Its 54 focused
@@ -696,8 +715,9 @@ beyond declared relations and general lexical region inference remain open.
 Fixed-layout editor facts, MIR/borrowck snapshots, restore, and
 source-change invalidation use the existing query families and 00-Unit
 protocols; no aggregate-specific LSP endpoint or snapshot section is added.
-Declaration-order aggregate children require `freak-mir-snapshot-v7`; v4, v5 and v6 are
-rejected rather than reinterpreted. Component restore, 00-Unit restore, and the
+Declaration-order aggregate children were introduced in snapshot v7. Current
+restore requires `freak-mir-snapshot-v8`; v4 through v7 are rejected rather than
+reinterpreted. Component restore, 00-Unit restore, and the
 standalone `workspace/mirSnapshotRestore` path each start a fresh borrowck
 provenance scratch generation. The query smoke proves `A -> B -> restore A` with
 MIR, borrowck, and editor IDs re-resolved from restored arenas instead of reused.
@@ -831,7 +851,7 @@ parsing, bounding bootstrap word-scanning work on malformed records.
 
 `freak_mir` owns the persistent Built-MIR representation: stable file/body and
 node identities, CFG/local/place/rvalue storage, validation, diagnostics, and
-the byte-stable MIR snapshot v7 protocol. `freak_mir_build` is the stateless
+the byte-stable MIR snapshot v8 protocol. `freak_mir_build` is the stateless
 construction policy layer over HIR and TY. It keeps only request-scoped loop,
 scope, and trust-lowering scratch and preserves `v4_mir_lower_ty` as the public
 driver entrypoint. Meiya, codegen, query, and snapshot code consume the

@@ -81,6 +81,15 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "borrowck_mutable_preflight_smoke.fk",
         "mir_for_each_scope_contract_smoke.fk",
         "say_err_execute_smoke.fk",
+        "panic_abort_semantic_smoke.fk",
+        "panic_abort_contract_smoke.fk",
+        "panic_abort_loan_smoke.fk",
+        "panic_abort_editor_smoke.fk",
+        "borrowck_typed_place_word_smoke.fk",
+        "borrowck_projection_holder_scope_smoke.fk",
+        "panic_abort_execute_smoke.fk",
+        "panic_abort_short_circuit_smoke.fk",
+        "borrowck_word_call_lifetime_smoke.fk",
         "hir_param_index_smoke.fk",
         "target_c_integer_contract_smoke.fk",
         "ty_signature_index_smoke.fk",
@@ -328,7 +337,7 @@ CRATE_BOUNDARY_REQUIRED = {
     "freak_mir": [
         ("representation ownership comment", "-- freak_mir - persistent V4 Built-MIR representation"),
         ("explicit-scope local primitive", "task v4_mir_add_local_at_scope("),
-        ("snapshot v7 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v7"'),
+        ("snapshot v8 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v8"'),
     ],
     "freak_mir_build": [
         ("construction ownership comment", "-- freak_mir_build - stateless V4 HIR+TY to Built-MIR construction"),
@@ -10044,7 +10053,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "mir_snapshot_smoke.fk",
         "expect": [
             "mir-snapshot-bytes=",
-            "mir-snapshot|format=freak-mir-snapshot-v7",
+            "mir-snapshot|format=freak-mir-snapshot-v8",
             "mir-snapshot-restore ok=1",
             "ok|workspace/mirSnapshotRestore",
             "borrowck-ok borrow=",
@@ -10726,6 +10735,7 @@ EXECUTABLE_SMOKES = [
      'runtime_cases': [{'argv': ['restore'], 'expect': ['word-lower-contract restore=passed sealed-stable=true']},
                        {'argv': ['old-version'],
                         'expect': ['word-lower-contract old-version=passed sealed-stable=true']},
+                       {'argv': ['old-v7'], 'expect': ['word-lower-contract old-v7=passed sealed-stable=true']},
                        {'argv': ['live'], 'expect': ['word-lower-contract live=passed sealed-stable=true']},
                        {'argv': ['identity'],
                         'expect': ['word-lower-contract identity=passed sealed-stable=true']},
@@ -10866,7 +10876,7 @@ EXECUTABLE_SMOKES = [
      'memory_limit_mb': 64,
      'expect_mode': 'line',
      'expect_unique': True,
-     'expect': ['word-lower-execute stages=clean v7-restore=true old-seal=true fresh-module=true'],
+     'expect': ['word-lower-execute stages=clean v8-restore=true old-seal=true fresh-module=true'],
      'llvm_programs': [('word_lowercase.fk',
                         0,
                         'A\x00B\n'
@@ -11161,6 +11171,532 @@ EXECUTABLE_SMOKES = [
             "cold-hir-restore empty-exact=true handles=45 warm-pressure=true high-water=true recovery=true",
         ],
     },
+    {'name': 'Panic literal and dynamic short-circuit contracts',
+     'fixture': 'panic_abort_short_circuit_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['panic-short-circuit case=0 clean=true selected=true policy=true restore=true '
+                'old-seal=true fresh-module=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['panic-short-circuit case=0 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['1'],
+                        'expect': ['panic-short-circuit case=1 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['2'],
+                        'expect': ['panic-short-circuit case=2 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['3'],
+                        'expect': ['panic-short-circuit case=3 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['4'],
+                        'expect': ['panic-short-circuit case=4 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['5'],
+                        'expect': ['panic-short-circuit case=5 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['6'],
+                        'expect': ['panic-short-circuit case=6 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['7'],
+                        'expect': ['panic-short-circuit case=7 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['8'],
+                        'expect': ['panic-short-circuit case=8 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['9'],
+                        'expect': ['panic-short-circuit case=9 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['10'],
+                        'expect': ['panic-short-circuit case=10 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['11'],
+                        'expect': ['panic-short-circuit case=11 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['12'],
+                        'expect': ['panic-short-circuit case=12 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['13'],
+                        'expect': ['panic-short-circuit case=13 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['14'],
+                        'expect': ['panic-short-circuit case=14 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['15'],
+                        'expect': ['panic-short-circuit case=15 named-rejected=true '
+                                   'no-module=true']}]},
+    {'name': 'Panic abort semantics and sealed policy',
+     'fixture': 'panic_abort_semantic_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['panic-abort debug=',
+                'panic-abort semantic=0 stages=clean normalized=true policy=true v8=true old-seal=true '
+                'fresh-module=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=0 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['1'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=1 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['2'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=2 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['3'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=3 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['4'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=4 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['5'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=5 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['6'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=6 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['7'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=7 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['8'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=8 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['9'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=9 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['10'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=10 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['11'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=11 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['12'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=12 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['13'], 'expect': ['panic-abort semantic=13 named-fence=true no-module=true']},
+                       {'argv': ['14'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=14 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['15'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=15 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['16'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=16 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']}]},
+    {'name': 'Panic abort live and snapshot admission contracts',
+     'fixture': 'panic_abort_contract_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['panic-contract case=0 no-module=true old-seal=true restore=true recovery=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['panic-contract case=0 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['1'],
+                        'expect': ['panic-contract case=1 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['2'],
+                        'expect': ['panic-contract case=2 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['3'],
+                        'expect': ['panic-contract case=3 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['4'],
+                        'expect': ['panic-contract case=4 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['5'],
+                        'expect': ['panic-contract case=5 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['6'],
+                        'expect': ['panic-contract case=6 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['7'],
+                        'expect': ['panic-contract case=7 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['8'],
+                        'expect': ['panic-contract case=8 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['9'],
+                        'expect': ['panic-contract case=9 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['10'],
+                        'expect': ['panic-contract case=10 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['11'],
+                        'expect': ['panic-contract case=11 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['12'],
+                        'expect': ['panic-contract case=12 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['13'],
+                        'expect': ['panic-contract case=13 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['14'],
+                        'expect': ['panic-contract case=14 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['15'],
+                        'expect': ['panic-contract case=15 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['16'],
+                        'expect': ['panic-contract case=16 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['17'],
+                        'expect': ['panic-contract case=17 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['18'],
+                        'expect': ['panic-contract case=18 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['19'],
+                        'expect': ['panic-contract case=19 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['20'],
+                        'expect': ['panic-contract case=20 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['21'],
+                        'expect': ['panic-contract case=21 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['22'],
+                        'expect': ['panic-contract case=22 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['23'],
+                        'expect': ['panic-contract case=23 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['24'],
+                        'expect': ['panic-contract case=24 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['25'],
+                        'expect': ['panic-contract case=25 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['26'],
+                        'expect': ['panic-contract case=26 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['closed-loop'],
+                        'expect': ['panic-contract closed-loop=true admitted=true restore=true '
+                                   'fresh-module=true old-seal=true']},
+                       {'argv': ['if-never'],
+                        'expect': ['panic-contract conditional=if-never named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-orphan'],
+                        'expect': ['panic-contract conditional=if-orphan named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-int'],
+                        'expect': ['panic-contract conditional=if-int named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-void'],
+                        'expect': ['panic-contract conditional=if-void named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-scalar'],
+                        'expect': ['panic-contract conditional=if-scalar named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['loop-missing'],
+                        'expect': ['panic-contract conditional=loop-missing named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-duplicate'],
+                        'expect': ['panic-contract conditional=if-duplicate named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-following'],
+                        'expect': ['panic-contract conditional=if-following named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-goto'],
+                        'expect': ['panic-contract conditional=if-goto named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-operand'],
+                        'expect': ['panic-contract conditional=if-operand named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['counted-wire'],
+                        'expect': ['panic-contract loop=counted-wire frontend=true operand=true restore=true '
+                                   'preserved=true']},
+                       {'argv': ['condition-wire'],
+                        'expect': ['panic-contract loop=condition-wire frontend=true operand=true restore=true '
+                                   'preserved=true']},
+                       {'argv': ['foreach-array-wire'],
+                        'expect': ['panic-contract loop=foreach-array-wire frontend=true operand=true '
+                                   'restore=true preserved=true']},
+                       {'argv': ['foreach-list-wire'],
+                        'expect': ['panic-contract loop=foreach-list-wire frontend=true operand=true '
+                                   'restore=true preserved=true']},
+                       {'argv': ['old-version'],
+                        'expect': ['panic-contract old-version=true atomic=true old-seal=true']},
+                       {'argv': ['endpoint-orphan-int'],
+                        'expect': ['panic-contract endpoint=endpoint-orphan-int named-rejected=true '
+                                   'no-module=true atomic=true old-seal=true recovery=true']},
+                       {'argv': ['endpoint-orphan-void'],
+                        'expect': ['panic-contract endpoint=endpoint-orphan-void named-rejected=true '
+                                   'no-module=true atomic=true old-seal=true recovery=true']},
+                       {'argv': ['endpoint-scalar-int'],
+                        'expect': ['panic-contract endpoint=endpoint-scalar-int named-rejected=true '
+                                   'no-module=true atomic=true old-seal=true recovery=true']},
+                       {'argv': ['endpoint-scalar-void'],
+                        'expect': ['panic-contract endpoint=endpoint-scalar-void named-rejected=true '
+                                   'no-module=true atomic=true old-seal=true recovery=true']},
+                       {'argv': ['endpoint-range-int'],
+                        'expect': ['panic-contract endpoint=endpoint-range-int named-rejected=true '
+                                   'no-module=true atomic=true old-seal=true recovery=true']},
+                       {'argv': ['endpoint-cycle-int'],
+                        'expect': ['panic-contract endpoint=endpoint-cycle-int admitted=true restore=true '
+                                   'fresh-module=true old-seal=true']},
+                       {'argv': ['endpoint-cycle-void'],
+                        'expect': ['panic-contract endpoint=endpoint-cycle-void admitted=true restore=true '
+                                   'fresh-module=true old-seal=true']},
+                       {'argv': ['endpoint-detached-int'],
+                        'expect': ['panic-contract endpoint=endpoint-detached-int admitted=true restore=true '
+                                   'fresh-module=true old-seal=true']},
+                       {'argv': ['endpoint-detached-void'],
+                        'expect': ['panic-contract endpoint=endpoint-detached-void admitted=true restore=true '
+                                   'fresh-module=true old-seal=true']},
+                       {'argv': ['pressure', '0'],
+                        'expect': ['panic-contract pressure=0 named-failure=true old-seal=true recovery=true']},
+                       {'argv': ['pressure', '21'],
+                        'expect': ['panic-contract pressure=21 named-failure=true old-seal=true '
+                                   'recovery=true']},
+                       {'argv': ['pressure', '40'],
+                        'expect': ['panic-contract pressure=40 named-failure=true old-seal=true '
+                                   'recovery=true']},
+                       {'argv': ['pressure', '48'],
+                        'expect': ['panic-contract pressure=48 named-failure=true old-seal=true '
+                                   'recovery=true']},
+                       {'argv': ['pressure', '49'],
+                        'expect': ['panic-contract pressure=49 admitted=true old-seal=true recovery=true']},
+                       {'argv': ['compact-pressure', '0'],
+                        'expect': ['panic-contract compact-pressure=0 named-failure=true atomic=true '
+                                   'old-seal=true recovery=true']},
+                       {'argv': ['compact-pressure', '8'],
+                        'expect': ['panic-contract compact-pressure=8 named-failure=true atomic=true '
+                                   'old-seal=true recovery=true']},
+                       {'argv': ['compact-pressure', '21'],
+                        'expect': ['panic-contract compact-pressure=21 named-failure=true atomic=true '
+                                   'old-seal=true recovery=true']},
+                       {'argv': ['compact-pressure', '34'],
+                        'expect': ['panic-contract compact-pressure=34 named-failure=true atomic=true '
+                                   'old-seal=true recovery=true']}]},
+    {'name': 'Panic abort immediate loan and movement contracts',
+     'fixture': 'panic_abort_loan_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['panic-loan case=0 clean=true observed=true no-result=true'],
+     'runtime_cases': [{'argv': ['0'], 'expect': ['panic-loan case=0 clean=true observed=true no-result=true']},
+                       {'argv': ['1'], 'expect': ['panic-loan case=1 named-rejected=true no-module=true']},
+                       {'argv': ['2'], 'expect': ['panic-loan case=2 clean=true observed=true no-result=true']},
+                       {'argv': ['3'], 'expect': ['panic-loan case=3 named-rejected=true no-module=true']},
+                       {'argv': ['4'], 'expect': ['panic-loan case=4 named-rejected=true no-module=true']},
+                       {'argv': ['5'], 'expect': ['panic-loan case=5 named-rejected=true no-module=true']},
+                       {'argv': ['6'], 'expect': ['panic-loan case=6 named-rejected=true no-module=true']},
+                       {'argv': ['7'], 'expect': ['panic-loan case=7 named-rejected=true no-module=true']},
+                       {'argv': ['8'], 'expect': ['panic-loan case=8 named-rejected=true no-module=true']},
+                       {'argv': ['9'], 'expect': ['panic-loan case=9 named-rejected=true no-module=true']},
+                       {'argv': ['10'], 'expect': ['panic-loan case=10 named-rejected=true no-module=true']},
+                       {'argv': ['11'], 'expect': ['panic-loan case=11 named-rejected=true no-module=true']},
+                       {'argv': ['12'], 'expect': ['panic-loan case=12 named-rejected=true no-module=true']},
+                       {'argv': ['13'], 'expect': ['panic-loan case=13 named-rejected=true no-module=true']},
+                       {'argv': ['14'], 'expect': ['panic-loan case=14 named-rejected=true no-module=true']},
+                       {'argv': ['15'], 'expect': ['panic-loan case=15 named-rejected=true no-module=true']},
+                       {'argv': ['16'], 'expect': ['panic-loan case=16 named-rejected=true no-module=true']},
+                       {'argv': ['17'], 'expect': ['panic-loan case=17 named-rejected=true no-module=true']},
+                       {'argv': ['18'], 'expect': ['panic-loan case=18 named-rejected=true no-module=true']},
+                       {'argv': ['19'], 'expect': ['panic-loan case=19 named-rejected=true no-module=true']},
+                       {'argv': ['20'], 'expect': ['panic-loan case=20 named-rejected=true no-module=true']},
+                       {'argv': ['21'], 'expect': ['panic-loan case=21 named-rejected=true no-module=true']},
+                       {'argv': ['22'], 'expect': ['panic-loan case=22 named-rejected=true no-module=true']},
+                       {'argv': ['23'], 'expect': ['panic-loan case=23 named-rejected=true no-module=true']},
+                       {'argv': ['24'], 'expect': ['panic-loan case=24 named-rejected=true no-module=true']},
+                       {'argv': ['25'], 'expect': ['panic-loan case=25 named-rejected=true no-module=true']},
+                       {'argv': ['26'], 'expect': ['panic-loan case=26 named-rejected=true no-module=true']},
+                       {'argv': ['27'], 'expect': ['panic-loan case=27 named-rejected=true no-module=true']}]},
+    {'name': 'Panic abort editor facts and shadow contracts',
+     'fixture': 'panic_abort_editor_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['panic-editor case=0 builtin=true never=true lexical=true no-definition=true '
+                'literal-negative=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['panic-editor case=0 builtin=true never=true lexical=true '
+                                   'no-definition=true literal-negative=true']},
+                       {'argv': ['1'], 'expect': ['panic-editor case=1 task-shadow=true real-definition=true']},
+                       {'argv': ['2'],
+                        'expect': ['panic-editor case=2 HIR-facade=true invalidation=true old-fact=true '
+                                   'fresh-generation=true']},
+                       {'argv': ['3'],
+                        'expect': ['panic-editor case=3 source-invalidation=true ordinary=true old-fact=true']},
+                       {'argv': ['4'],
+                        'expect': ['panic-editor case=4 parameter-shadow=true local-shadow=true']},
+                       {'argv': ['5'],
+                        'expect': ['panic-editor case=5 hostile-result=true hostile-argument=true']},
+                       {'argv': ['6'], 'expect': ['panic-editor case=6 arrow-never=true builtin=true']}]},
+    {'name': 'Typed place word movement and ordered calls',
+     'fixture': 'borrowck_typed_place_word_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['typed-place case=0 typed=true moves=true clean=true drop=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['typed-place case=0 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['1'],
+                        'expect': ['typed-place case=1 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['2'],
+                        'expect': ['typed-place case=2 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['3'],
+                        'expect': ['typed-place case=3 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['4'],
+                        'expect': ['typed-place case=4 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['5'],
+                        'expect': ['typed-place case=5 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['6'],
+                        'expect': ['typed-place case=6 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['7'],
+                        'expect': ['typed-place case=7 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['8'],
+                        'expect': ['typed-place case=8 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['9'],
+                        'expect': ['typed-place case=9 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['10'],
+                        'expect': ['typed-place case=10 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['11'],
+                        'expect': ['typed-place case=11 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['12'],
+                        'expect': ['typed-place case=12 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['13'],
+                        'expect': ['typed-place case=13 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['14'],
+                        'expect': ['typed-place case=14 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['15'],
+                        'expect': ['typed-place case=15 cycle=true named-rejected=true no-paths=true '
+                                   'no-module=true atomic=true recovery=true']},
+                       {'argv': ['16'],
+                        'expect': ['typed-place case=16 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['17'],
+                        'expect': ['typed-place case=17 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['18'],
+                        'expect': ['typed-place case=18 typed=true moves=true ordered-rejected=true']}]},
+    {'name': 'Typed projection holder scope and disposition',
+     'fixture': 'borrowck_projection_holder_scope_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['projection-holder case=0 typed=true disposition=true restore=true fresh=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['projection-holder case=0 typed=true disposition=true restore=true '
+                                   'fresh=true']},
+                       {'argv': ['1'],
+                        'expect': ['projection-holder case=1 typed=true disposition=true restore=true '
+                                   'fresh=true']},
+                       {'argv': ['2'],
+                        'expect': ['projection-holder case=2 typed=true disposition=true restore=true '
+                                   'fresh=true']},
+                       {'argv': ['3'],
+                        'expect': ['projection-holder case=3 typed=true disposition=true restore=true '
+                                   'fresh=true']}]},
+    # Admission/restore only; host abort executions use the mandatory panic codegen gate.
+    {'name': 'Panic abort native module admission and MIR restoration',
+     'fixture': 'panic_abort_execute_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'argv': ['src/compiler/v4/examples/panic_abort.fk', 'x86_64-unknown-linux-gnu'],
+     'expect': ['panic-abort-execute stages=clean v8-restore=true old-seal=true fresh-module=true policy=abort',
+                '@@LLVM-MODULE-BEGIN',
+                '@@LLVM-MODULE-END']},
+    {'name': 'Word call temporary-loan lifetimes',
+     'fixture': 'borrowck_word_call_lifetime_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['call-lifetime case=0 completed=true clean=true sealed=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['call-lifetime case=0 completed=true clean=true sealed=true']},
+                       {'argv': ['1'],
+                        'expect': ['call-lifetime case=1 completed=true clean=true sealed=true']},
+                       {'argv': ['2'],
+                        'expect': ['call-lifetime case=2 completed=true clean=true sealed=true']},
+                       {'argv': ['3'],
+                        'expect': ['call-lifetime case=3 named-rejected=true no-module=true']},
+                       {'argv': ['4'],
+                        'expect': ['call-lifetime case=4 named-rejected=true no-module=true']},
+                       {'argv': ['5'],
+                        'expect': ['call-lifetime case=5 named-rejected=true no-module=true']},
+                       {'argv': ['6'],
+                        'expect': ['call-lifetime case=6 named-rejected=true no-module=true']},
+                       {'argv': ['7'],
+                        'expect': ['call-lifetime case=7 named-rejected=true no-module=true']},
+                       {'argv': ['8'],
+                        'expect': ['call-lifetime case=8 named-rejected=true no-module=true']},
+                       {'argv': ['9'],
+                        'expect': ['call-lifetime case=9 named-rejected=true no-module=true']},
+                       {'argv': ['10'],
+                        'expect': ['call-lifetime case=10 named-rejected=true no-module=true']},
+                       {'argv': ['11'],
+                        'expect': ['call-lifetime case=11 named-rejected=true no-module=true']},
+                       {'argv': ['12'],
+                        'expect': ['call-lifetime case=12 completed=true clean=true sealed=true']},
+                       {'argv': ['bounds'],
+                        'expect': ['call-lifetime case=bounds bounded=true fail-closed=true '
+                                   'recovery=true']},
+                       {'argv': ['raw-arity'],
+                        'expect': ['call-lifetime case=raw-arity setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-extra'],
+                        'expect': ['call-lifetime case=raw-extra setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-reordered'],
+                        'expect': ['call-lifetime case=raw-reordered setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-abi'],
+                        'expect': ['call-lifetime case=raw-abi setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-result'],
+                        'expect': ['call-lifetime case=raw-result setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-mode'],
+                        'expect': ['call-lifetime case=raw-mode setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-id'],
+                        'expect': ['call-lifetime case=raw-id setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-symbol'],
+                        'expect': ['call-lifetime case=raw-symbol setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-header'],
+                        'expect': ['call-lifetime case=raw-header setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-unknown'],
+                        'expect': ['call-lifetime case=raw-unknown setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-cycle'],
+                        'expect': ['call-lifetime case=raw-cycle setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-sentinel'],
+                        'expect': ['call-lifetime case=raw-sentinel setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-scalar-facade'],
+                        'expect': ['call-lifetime case=raw-scalar-facade setup=true '
+                                   'named-rejected=true no-module=true restore=true old-seal=true '
+                                   'recovery=true']}]},
 ]
 
 if str(ROOT) not in sys.path:
@@ -13341,6 +13877,15 @@ def check_snapshot_inventories() -> None:
             "borrowck_mutable_preflight_smoke.fk",
             "mir_for_each_scope_contract_smoke.fk",
             "say_err_execute_smoke.fk",
+            "panic_abort_semantic_smoke.fk",
+            "panic_abort_contract_smoke.fk",
+            "panic_abort_loan_smoke.fk",
+            "panic_abort_editor_smoke.fk",
+            "borrowck_typed_place_word_smoke.fk",
+            "borrowck_projection_holder_scope_smoke.fk",
+            "panic_abort_execute_smoke.fk",
+            "panic_abort_short_circuit_smoke.fk",
+            "borrowck_word_call_lifetime_smoke.fk",
             "hir_param_index_smoke.fk",
             "target_c_integer_contract_smoke.fk",
             "ty_signature_index_smoke.fk",

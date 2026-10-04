@@ -167,6 +167,12 @@ jobs:
       - name: Target C integer layouts against four-target Clang IR
         run: python -B -u tests/v4_c_integer_oracle.py --output "${{ runner.temp }}/c-integer-oracle"
 
+      - name: Checked32 C helper oracle and failure-retention regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_c_integer_runtime.py -v
+
+      - name: Checked32 C helper native portability at O0, O2 and O3
+        run: python -B -u tests/v4_c_integer_runtime.py --plain --work "${{ runner.temp }}/checked32-runtime-plain"
+
       - name: Owned UTF-8 word runtime portability and ownership audits
         run: python -B -u tests/v4_word_runtime.py --plain
 
@@ -228,6 +234,10 @@ jobs:
         if: runner.os == 'Windows'
         run: python -B -u tests/test_windows_suite_runner.py
 
+      - name: Checked32 C helper mandatory UndefinedBehaviorSanitizer gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_c_integer_runtime.py --work "${{ runner.temp }}/checked32-runtime-ubsan"
+
       - name: Owned word AddressSanitizer and UndefinedBehaviorSanitizer gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_word_runtime.py
@@ -274,6 +284,14 @@ jobs:
         with:
           name: v4-c-integer-oracle-${{ matrix.os }}
           path: ${{ runner.temp }}/c-integer-oracle
+          if-no-files-found: warn
+
+      - name: Preserve checked32 C helper source, compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-checked32-runtime-${{ matrix.os }}
+          path: ${{ runner.temp }}/checked32-runtime-*/
           if-no-files-found: warn
 
       - name: Preserve checked word integer parser evidence

@@ -115,8 +115,15 @@ contracts. Its reviewed `361d110` candidate and fresh integrated `5608f27`
 both pass O0/O2/O3; the integrated run includes mandatory ASan/UBSan, a
 separate plain matrix and both ownership audits. Whole-inventory and platform
 gates remain pending. Native aggregate fields and typed OS Result wiring remain fenced.
-The explicit panic-abort runtime has private native byte/borrow controls;
-compiler mode/never/CFG wiring and default unwinding remain pending.
+The explicit panic-abort compiler slice is imported with MIR v8, sealed
+policy/never/CFG facts, borrowed sized messages, ordered loan validation, and
+literal/dynamic short-circuit coverage. The isolated `94cb533` checkpoint
+passed 188 compiler cases, 66 native executions at O0/O2/O3, and eight real
+audit/sanitizer controls. Root registers 353 fixtures and links seven runtime
+objects with 14 source/header inputs. Earlier six-object and fixture-count
+reports above retain their historical scope. Fresh root CLI, full inventory,
+resource and hosted-platform gates remain pending; default native unwinding
+and runtime `trust me` honor failures remain pending.
 The reviewed checked integer parser prerequisite (`433270a`) borrows a sized
 UTF-8 word without allocation or legacy status mutation. Strict ASCII signed
 decimal text must consume the full input and fit int64; invalid text or range

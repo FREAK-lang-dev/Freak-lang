@@ -2511,7 +2511,7 @@ def audit_conformance(paths: List[Path]) -> int:
     lower_missing: List[str] = []
     lower_contracts = (
         ("src/compiler/v4/crates/freak_mir/src/lib.fk",
-         ('pilot v4_mir_snapshot_format = "freak-mir-snapshot-v7"',
+         ('pilot v4_mir_snapshot_format = "freak-mir-snapshot-v8"',
           'if kind == "to_lower" { give back 119 }')),
         ("src/compiler/v4/crates/freak_ty/src/lib.fk",
          ('if kind == "to_lower" { give back v4_ty_word }',
@@ -2540,7 +2540,7 @@ def audit_conformance(paths: List[Path]) -> int:
             if needle not in text:
                 lower_missing.append(relative + ": " + needle)
     add("V4 owned Unicode lowercase", not lower_missing,
-        "closed v7 contracts and compiler/native gates wired" if not lower_missing
+        "closed v8 contracts and compiler/native gates wired" if not lower_missing
         else f"{len(lower_missing)} gap(s)")
     if lower_missing:
         failures.append("V4 owned lowercase wiring regressed: " + "; ".join(lower_missing))
