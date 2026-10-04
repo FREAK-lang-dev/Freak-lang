@@ -1,0 +1,136 @@
+-- Place and rvalue identifiers are different graph edges, even when equal.
+task v4_typed_place_assert(condition: bool, label: word) -> void {
+    if not condition { panic("typed-place " + label) }
+}
+task v4_typed_place_run() -> void {
+    pilot mode = process::arg(1)
+    pilot expression = "values[text.length()]"
+    if mode == "1" or mode == "2" or mode == "6" or mode == "15" { expression = "values[take_index(text)]" }
+    if mode == "3" { expression = "take_index(text) + values[text.length()]" }
+    if mode == "4" { expression = "values[text.length()] + take_index(text)" }
+    pilot source = "task take_index(value: word) -> int { give back 0 }\ntask main() -> int { pilot text = \"x\"; pilot values = [3, 4]; pilot selected = " + expression + "; "
+    if mode == "2" { source = source + "text.length(); " }
+    source = source + "give back selected }\n"
+    if mode == "5" {
+        source = "extern [C] {\n task lookup() -> *const int\n}\ntask address(value: word) -> *const int { give back lookup() }\ntask main() -> int { pilot text = \"x\"; trust me \"read address\" on my honor as .ace { pilot selected = *address(text); give back selected } }\n"
+    }
+    pilot writes: bool = word_to_int(mode) >= 7 and word_to_int(mode) <= 14
+    if writes {
+        pilot statements = "*address(text) = 1; text.length(); give back 0"
+        if mode == "8" { statements = "*borrowed_address(lend text) = text.length(); give back 0" }
+        if mode == "9" { statements = "*address(text) = text.length(); give back 0" }
+        if mode == "10" { statements = "*borrowed_address(lend text) = take_index(text); give back 0" }
+        if mode == "11" { statements = "values[take_index(text)] = 1; text.length(); give back 0" }
+        if mode == "12" { statements = "text = take(text); text.length(); give back 0" }
+        if mode == "13" { statements = "*address(text) = 1; text = \"again\"; text.length(); give back 0" }
+        if mode == "14" { statements = "values[text.length()] = take_index(text); give back 0" }
+        source = "extern [C] {\n task lookup_mut() -> *mut int\n}\ntask address(value: word) -> *mut int { give back lookup_mut() }\ntask borrowed_address(lend value: word) -> *mut int { give back lookup_mut() }\ntask take_index(value: word) -> int { give back 0 }\ntask take(value: word) -> word { give back value }\ntask main() -> int { pilot mut text = \"x\"; "
+        if mode == "11" or mode == "14" { source = source + "pilot mut values = [3, 4]; " }
+        source = source + "trust me \"write address\" on my honor as .ace { " + statements + " } }\n"
+    }
+    pilot mir = v4_mir_text_cached("typed-place.fk", source)
+    v4_typed_place_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0 and v4_mir_word_plan_preflight(mir) == "", "valid frontend typed graph")
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    pilot local = v4_mir_find_local(mir, body, "text")
+    pilot selected = -1
+    pilot row = 0
+    repeat until row >= v4_mir_body_stmt_count(mir, body) or selected >= 0 {
+        if writes {
+            if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_assign { selected = row }
+        } else {
+            if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_local and v4_mir_stmt_lhs(mir, body, row) == "selected" { selected = row }
+        }
+        row += 1
+    }
+    v4_typed_place_assert(local >= 0 and selected >= 0, "actual word binding and evaluated projection")
+    pilot value = v4_mir_stmt_rvalue(mir, body, selected)
+    if mode == "5" {
+        v4_typed_place_assert(v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_unary and v4_mir_rvalue_op(mir, body, value) == v4_mir_unary_deref, "authored raw dereference")
+        pilot address = v4_mir_rvalue_lhs(mir, body, value)
+        pilot place = v4_mir_add_place(mir, body, v4_mir_place_deref, "*address(text)", -1, "", address, v4_mir_rvalue_span(mir, body, value), v4_ty_int)
+        v4_typed_place_assert(v4_mir_place_index(mir, body, place) == address and v4_mir_place_base(mir, body, place) == -1, "actual DerefPlace address edge")
+        v4_borrowck_word_plan_visit_budget = 8192
+        v4_typed_place_assert(v4_borrowck_place_word_local_move_count_depth(mir, body, place, local, true, 0) == 1, "borrowed dereference still evaluates consuming address")
+        v4_borrowck_word_plan_visit_budget = 8192
+        v4_typed_place_assert(v4_borrowck_word_place_use_state(mir, body, place, local, true, true, 0) == 0, "typed dereference address transfer")
+    }
+    pilot expected_moves = 1
+    if mode == "0" or mode == "8" { expected_moves = 0 }
+    v4_typed_place_assert(v4_borrowck_stmt_word_local_move_count(mir, body, selected, local) == expected_moves, "index or address transfers counted once")
+    if mode == "6" {
+        v4_borrowck_word_plan_visit_budget = 8192
+        v4_typed_place_assert(v4_borrowck_rvalue_word_local_move_count_depth(mir, body, value, local, true, 0) == 1, "outer projection borrow still evaluates consuming index")
+        v4_borrowck_word_plan_visit_budget = 8192
+        v4_typed_place_assert(v4_borrowck_word_rvalue_use_state(mir, body, value, local, true, true, 0) == 0, "borrowed projection result does not erase index transfer")
+        pilot place = v4_mir_rvalue_lhs(mir, body, value)
+        v4_typed_place_assert(v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_use_place and v4_mir_place_kind(mir, body, place) == v4_mir_place_index, "actual typed indexed projection")
+        v4_borrowck_word_plan_visit_budget = 0
+        v4_typed_place_assert(v4_borrowck_place_word_local_move_count_depth(mir, body, place, local, true, 0) == -1, "place move query fails closed without visit budget")
+        v4_borrowck_word_plan_visit_budget = 0
+        v4_typed_place_assert(v4_borrowck_word_place_use_state(mir, body, place, local, true, true, 0) == -2, "place use query fails closed without visit budget")
+        v4_borrowck_word_plan_visit_budget = 8192
+        v4_typed_place_assert(v4_borrowck_place_word_local_move_count_depth(mir, body, place, local, true, 257) == -1, "place move depth bound is explicit")
+        v4_borrowck_word_plan_visit_budget = 8192
+        v4_typed_place_assert(v4_borrowck_word_place_use_state(mir, body, place, local, true, true, 257) == -2, "place use depth bound is explicit")
+        v4_borrowck_word_plan_visit_budget = 8192
+        v4_typed_place_assert(v4_borrowck_place_word_local_move_count_depth(mir, body, v4_mir_body_place_count(mir, body), local, true, 0) == -1, "absent place move edge rejects")
+        v4_borrowck_word_plan_visit_budget = 8192
+        v4_typed_place_assert(v4_borrowck_word_place_use_state(mir, body, -1, local, true, true, 0) == -2, "absent place use edge rejects")
+    }
+    if mode == "15" {
+        pilot snapshot = v4_mir_snapshot()
+        pilot place = v4_mir_rvalue_lhs(mir, body, value)
+        v4_typed_place_assert(v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_use_place and v4_mir_place_kind(mir, body, place) == v4_mir_place_index and v4_mir_place_index(mir, body, place) != value, "acyclic index before hostile mutation")
+        array_set(word_to_int(array_get(v4_mir_place_indices_index_handle(mir), body)), place, word_from_int(value))
+        pilot malformed = v4_mir_snapshot()
+        v4_typed_place_assert(malformed != snapshot and v4_mir_place_index(mir, body, place) == value and v4_mir_rvalue_lhs(mir, body, value) == place and v4_mir_word_plan_preflight(mir) == "", "real mixed place rvalue cycle bypasses rvalue-only preflight")
+        v4_typed_place_assert(not v4_borrowck_place_address_graph_is_bounded(mir, body), "combined graph resource bound rejects cycle")
+        pilot failed = v4_borrowck_check_mir(0, mir)
+        pilot failed_result = v4_borrowck_lookup_result(failed, v4_mir_body_def(mir, body))
+        pilot named: bool = false
+        row = 0
+        repeat until row >= v4_borrowck_diag_count(failed) {
+            if v4_diag_message(v4_borrowck_diag(failed, row)) == "Meiya cannot prove the place address plan within available resources" { named = true }
+            row += 1
+        }
+        v4_typed_place_assert(named and v4_borrowck_result_status(failed, failed_result) == v4_borrowck_blocked and v4_borrowck_result_path_count(failed, failed_result) == 0, "cycle fails before recursive legacy path collection")
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_typed_place_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "cyclic typed graph cannot seal")
+        v4_typed_place_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "typed cycle baseline restore")
+        v4_typed_place_assert(v4_mir_snapshot_restore(malformed).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == snapshot, "typed cycle wire atomic rejection")
+        pilot recovered = v4_borrowck_check_mir(0, mir)
+        v4_typed_place_assert(v4_borrowck_diag_count(recovered) == 0 and v4_borrowck_word_local_drop_kind(recovered, v4_borrowck_lookup_result(recovered, v4_mir_body_def(mir, body)), mir, body, local) == "", "typed cycle recovery preserves consuming index and drop facts")
+        say "typed-place case=15 cycle=true named-rejected=true no-paths=true no-module=true atomic=true recovery=true"
+        give back
+    }
+    pilot checked = v4_borrowck_check_mir(0, mir)
+    pilot result_id = v4_borrowck_lookup_result(checked, v4_mir_body_def(mir, body))
+    if mode == "2" or mode == "3" or mode == "7" or mode == "9" or mode == "11" {
+        pilot named: bool = false
+        row = 0
+        repeat until row >= v4_borrowck_diag_count(checked) {
+            if v4_diag_message(v4_borrowck_diag(checked, row)) == "Meiya refuses a use of an unavailable word binding" { named = true }
+            row += 1
+        }
+        v4_typed_place_assert(named and v4_borrowck_result_status(checked, result_id) == v4_borrowck_blocked, "ordered unavailable word access rejected")
+        if mode == "7" or mode == "9" {
+            pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+            v4_typed_place_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "native-supported consuming address rejects before sealing")
+        }
+        say "typed-place case=" + mode + " typed=true moves=true ordered-rejected=true"
+    } else {
+        v4_typed_place_assert(v4_borrowck_diag_count(checked) == 0 and v4_borrowck_result_status(checked, result_id) == v4_borrowck_clean, "typed projection checker remains clean")
+        pilot expected_drop = ""
+        if mode == "0" or mode == "8" or mode == "12" or mode == "13" { expected_drop = v4_borrowck_path_drop }
+        v4_typed_place_assert(v4_borrowck_word_local_drop_kind(checked, result_id, mir, body, local) == expected_drop, "exit drop state agrees with index or address transfer")
+        say "typed-place case=" + mode + " typed=true moves=true clean=true drop=true"
+    }
+    pilot legacy_moves = 0
+    row = 0
+    repeat until row >= v4_borrowck_result_path_count(checked, result_id) {
+        if v4_borrowck_path_kind(checked, result_id, row) == v4_borrowck_path_move and v4_borrowck_path_stmt(checked, result_id, row) == selected and v4_borrowck_path_text(checked, result_id, row) == "text" { legacy_moves += 1 }
+        row += 1
+    }
+    v4_typed_place_assert(legacy_moves == expected_moves, "legacy path facts agree with typed transfer count")
+}
+v4_typed_place_run()

@@ -5672,6 +5672,9 @@ task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: 
     }
 
     pilot rvalue_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if rvalue_kind == v4_mir_rvalue_use_place {
+        v4_borrowck_collect_place_address_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), 0)
+    }
     pilot transfer_kind = v4_borrowck_rvalue_transfer_kind(mir_id, body_id, rvalue_id)
     if transfer_kind != "" {
         v4_borrowck_add_path(borrow_id, result_id, transfer_kind, v4_borrowck_rvalue_binding_path(mir_id, body_id, rvalue_id), stmt_id, block_id)
@@ -5679,6 +5682,10 @@ task v4_borrowck_collect_transfer_paths(borrow_id: int, result_id: int, mir_id: 
         v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_capture_path_kind(rvalue_kind), v4_mir_rvalue_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
     } else if rvalue_kind == v4_mir_rvalue_lend or rvalue_kind == v4_mir_rvalue_lend_mut {
         v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_lend_path_kind(mir_id, body_id, rvalue_id), v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+        pilot source = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        if v4_mir_rvalue_kind(mir_id, body_id, source) == v4_mir_rvalue_use_place {
+            v4_borrowck_collect_place_address_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, source), 0)
+        }
         if v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) == "lend word" {
             pilot value = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
             pilot value_kind = v4_mir_rvalue_kind(mir_id, body_id, value)
@@ -5712,6 +5719,9 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
     }
 
     pilot rvalue_kind = v4_mir_rvalue_kind(mir_id, body_id, rvalue_id)
+    if rvalue_kind == v4_mir_rvalue_use_place {
+        v4_borrowck_collect_place_address_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id), 0)
+    }
     if rvalue_kind == v4_mir_rvalue_use_local or rvalue_kind == v4_mir_rvalue_use_place {
         v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_path_loan, v4_borrowck_rvalue_binding_path(mir_id, body_id, rvalue_id), stmt_id, block_id)
     } else if rvalue_kind == v4_mir_rvalue_capture_borrow or rvalue_kind == v4_mir_rvalue_capture_borrow_mut or rvalue_kind == v4_mir_rvalue_capture_copy or rvalue_kind == v4_mir_rvalue_capture_move {
@@ -5724,6 +5734,10 @@ task v4_borrowck_collect_read_paths(borrow_id: int, result_id: int, mir_id: int,
         }
     } else if rvalue_kind == v4_mir_rvalue_lend or rvalue_kind == v4_mir_rvalue_lend_mut {
         v4_borrowck_add_path(borrow_id, result_id, v4_borrowck_lend_path_kind(mir_id, body_id, rvalue_id), v4_borrowck_lend_source_text(mir_id, body_id, rvalue_id), stmt_id, block_id)
+        pilot source = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
+        if v4_mir_rvalue_kind(mir_id, body_id, source) == v4_mir_rvalue_use_place {
+            v4_borrowck_collect_place_address_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_rvalue_lhs(mir_id, body_id, source), 0)
+        }
         if v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) == "lend word" {
             pilot value = v4_mir_rvalue_lhs(mir_id, body_id, rvalue_id)
             pilot value_kind = v4_mir_rvalue_kind(mir_id, body_id, value)
@@ -5907,6 +5921,16 @@ task v4_borrowck_collect_drop_paths(borrow_id: int, result_id: int, mir_id: int,
     }
 }
 
+task v4_borrowck_collect_place_address_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int, block_id: int, place: int, depth: int) -> void {
+    if depth > 256 or place < 0 or place >= v4_mir_body_place_count(mir_id, body_id) { give back }
+    pilot kind = v4_mir_place_kind(mir_id, body_id, place)
+    if kind == v4_mir_place_field or kind == v4_mir_place_index {
+        v4_borrowck_collect_place_address_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_place_base(mir_id, body_id, place), depth + 1)
+    }
+    if kind == v4_mir_place_index or kind == v4_mir_place_deref {
+        v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, v4_mir_place_index(mir_id, body_id, place))
+    }
+}
 task v4_borrowck_collect_stmt_paths(borrow_id: int, result_id: int, mir_id: int, body_id: int, stmt_id: int) -> void {
     pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
     pilot block_id = v4_mir_stmt_block(mir_id, body_id, stmt_id)
@@ -5914,6 +5938,9 @@ task v4_borrowck_collect_stmt_paths(borrow_id: int, result_id: int, mir_id: int,
     pilot rvalue_id = v4_mir_stmt_rvalue(mir_id, body_id, stmt_id)
 
     if stmt_kind == v4_mir_stmt_local or stmt_kind == v4_mir_stmt_assign {
+        -- Forming a destination can evaluate consuming calls. Local storage
+        -- itself is not read or transferred, so rebinding remains legal.
+        v4_borrowck_collect_place_address_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, place_id, 0)
         v4_borrowck_add_place_path(borrow_id, result_id, mir_id, body_id, place_id, v4_borrowck_path_write, stmt_id, block_id)
         v4_borrowck_collect_transfer_paths(borrow_id, result_id, mir_id, body_id, stmt_id, block_id, rvalue_id)
     } else if stmt_kind == v4_mir_stmt_return {
@@ -6325,21 +6352,26 @@ task v4_borrowck_check_mir(file_id: int, mir_id: int) -> int {
             v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, V4_NO_SPAN, "MIR body has no blocks", body_name))
         }
         pilot result_id = v4_borrowck_add_result(borrow_id, def_id, body_name, status, 0, 0, 0)
-        v4_borrowck_collect_body_paths(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_lend_contracts(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_returned_lends(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_shared_guard_escapes(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_stored_call_lends(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_dyn_lend_erasure(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_dynamic_lend_storage(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_fixed_hidden_closure_storage(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_repeated_mut_lend_aggregates(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_mutable_exclusivity(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_exclusive_loans(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_mutable_loan_reads(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_explicit_loan_moves(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_partial_moves(borrow_id, result_id, mir_id, body_idx)
-        v4_borrowck_check_word_binding_uses(borrow_id, result_id, mir_id, body_idx)
+        if v4_borrowck_place_address_graph_is_bounded(mir_id, body_idx) {
+            v4_borrowck_collect_body_paths(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_lend_contracts(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_returned_lends(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_shared_guard_escapes(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_stored_call_lends(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_dyn_lend_erasure(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_dynamic_lend_storage(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_fixed_hidden_closure_storage(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_repeated_mut_lend_aggregates(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_mutable_exclusivity(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_exclusive_loans(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_mutable_loan_reads(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_explicit_loan_moves(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_partial_moves(borrow_id, result_id, mir_id, body_idx)
+            v4_borrowck_check_word_binding_uses(borrow_id, result_id, mir_id, body_idx)
+        } else {
+            v4_borrowck_add_diag(borrow_id, v4_diag_new(v4_diag_error, V4_NO_SPAN, "Meiya cannot prove the place address plan within available resources", body_name))
+            v4_borrowck_set_result_status(borrow_id, result_id, v4_borrowck_blocked)
+        }
         pilot loan_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_loan)
         loan_count = loan_count + v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_loan_mut)
         pilot move_count = v4_borrowck_path_count_by_kind(borrow_id, result_id, v4_borrowck_path_move)
@@ -6861,6 +6893,32 @@ task v4_borrowck_snapshot_restore(payload: word) -> word {
 -- Native owned-word plans use MIR binding IDs, never ambiguous display names.
 pilot v4_borrowck_word_plan_resource_failed: bool = false
 pilot v4_borrowck_word_plan_visit_budget: int = 0
+task v4_borrowck_place_word_local_move_count_depth(mir_id: int, body_id: int, place: int, local_id: int, borrowed: bool, depth: int) -> int {
+    v4_borrowck_word_plan_visit_budget -= 1
+    if depth > 256 or v4_borrowck_word_plan_visit_budget < 0 or place < 0 or place >= v4_mir_body_place_count(mir_id, body_id) {
+        v4_borrowck_word_plan_resource_failed = true
+        give back 0 - 1
+    }
+    pilot kind = v4_mir_place_kind(mir_id, body_id, place)
+    if kind == v4_mir_place_local {
+        if not borrowed and v4_mir_place_ty(mir_id, body_id, place) == v4_ty_word and v4_mir_place_base(mir_id, body_id, place) == local_id { give back 1 }
+        give back 0
+    }
+    if kind == v4_mir_place_field or kind == v4_mir_place_index {
+        pilot count = v4_borrowck_place_word_local_move_count_depth(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place), local_id, true, depth + 1)
+        if count < 0 { give back count }
+        if kind == v4_mir_place_index {
+            pilot index_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, false, depth + 1)
+            if index_moves < 0 { give back index_moves }
+            count += index_moves
+        }
+        give back count
+    }
+    if kind == v4_mir_place_deref { give back v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, false, depth + 1) }
+    if kind == v4_mir_place_return { give back 0 }
+    v4_borrowck_word_plan_resource_failed = true
+    give back 0 - 1
+}
 task v4_borrowck_rvalue_word_local_move_count_depth(mir_id: int, body_id: int, value: int, local_id: int, borrowed: bool, depth: int) -> int {
     v4_borrowck_word_plan_visit_budget -= 1
     if depth > 256 or v4_borrowck_word_plan_visit_budget < 0 {
@@ -6868,6 +6926,10 @@ task v4_borrowck_rvalue_word_local_move_count_depth(mir_id: int, body_id: int, v
         give back 0 - 1
     }
     if value < 0 { give back 0 }
+    if value >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        v4_borrowck_word_plan_resource_failed = true
+        give back 0 - 1
+    }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
     if kind == v4_mir_rvalue_use_local {
         if borrowed or v4_mir_rvalue_ty(mir_id, body_id, value) != v4_ty_word { give back 0 }
@@ -6875,35 +6937,43 @@ task v4_borrowck_rvalue_word_local_move_count_depth(mir_id: int, body_id: int, v
         give back 0
     }
     if kind == v4_mir_rvalue_use_place {
-        if borrowed or v4_mir_rvalue_ty(mir_id, body_id, value) != v4_ty_word { give back 0 }
-        pilot place = v4_mir_rvalue_lhs(mir_id, body_id, value)
-        if v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_local and v4_mir_place_base(mir_id, body_id, place) == local_id { give back 1 }
-        give back 0
+        give back v4_borrowck_place_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, borrowed, depth + 1)
     }
     if kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut {
         give back v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, true, depth + 1)
     }
     if kind == v4_mir_rvalue_call {
-        pilot count = 0
+        pilot count = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, false, depth + 1)
+        if count < 0 { give back count }
         pilot arg_id = 0
         repeat until arg_id >= v4_mir_rvalue_call_arg_count(mir_id, body_id, value) {
-            count += v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, value, arg_id), local_id, false, depth + 1)
+            pilot argument_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_call_arg(mir_id, body_id, value, arg_id), local_id, false, depth + 1)
+            if argument_moves < 0 { give back argument_moves }
+            count += argument_moves
             arg_id += 1
         }
+        pilot receiver_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, false, depth + 1)
+        if receiver_moves < 0 { give back receiver_moves }
+        count += receiver_moves
         give back count
     }
     if v4_mir_rvalue_is_aggregate_kind(kind) {
         pilot count = 0
         pilot child_id = 0
         repeat until child_id >= v4_mir_rvalue_aggregate_child_count(mir_id, body_id, value) {
-            count += v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, value, child_id), local_id, false, depth + 1)
+            pilot child_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_aggregate_child(mir_id, body_id, value, child_id), local_id, false, depth + 1)
+            if child_moves < 0 { give back child_moves }
+            count += child_moves
             child_id += 1
         }
         give back count
     }
     pilot read_only: bool = kind == v4_mir_rvalue_binary
     pilot count = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, read_only, depth + 1)
-    count += v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, read_only, depth + 1)
+    if count < 0 { give back count }
+    pilot right_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, read_only, depth + 1)
+    if right_moves < 0 { give back right_moves }
+    count += right_moves
     give back count
 }
 
@@ -6913,7 +6983,41 @@ task v4_borrowck_rvalue_word_local_move_count(mir_id: int, body_id: int, value: 
 }
 
 task v4_borrowck_stmt_word_local_move_count(mir_id: int, body_id: int, stmt_id: int, local_id: int) -> int {
-    give back v4_borrowck_rvalue_word_local_move_count(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt_id), local_id)
+    v4_borrowck_word_plan_visit_budget = 8192
+    pilot count = 0
+    pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+    pilot place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+    if (kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign) and place >= 0 and v4_mir_place_kind(mir_id, body_id, place) != v4_mir_place_local {
+        count = v4_borrowck_place_word_local_move_count_depth(mir_id, body_id, place, local_id, true, 0)
+        if count < 0 { give back count }
+    }
+    pilot right_moves = v4_borrowck_rvalue_word_local_move_count_depth(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt_id), local_id, false, 0)
+    if right_moves < 0 { give back right_moves }
+    count += right_moves
+    give back count
+}
+
+-- Rvalue-only preflight does not follow UsePlace's typed edges. Before the
+-- legacy path collectors recurse through a projection/address, check its
+-- combined graph with the same allocation-free depth and visit bounds used
+-- by authoritative Word transfer facts. Pure scalar bodies without these
+-- place forms retain their existing expression-depth contract.
+task v4_borrowck_place_address_graph_is_bounded(mir_id: int, body_id: int) -> bool {
+    pilot needed: bool = false
+    pilot place = 0
+    repeat until place >= v4_mir_body_place_count(mir_id, body_id) or needed {
+        pilot kind = v4_mir_place_kind(mir_id, body_id, place)
+        if kind == v4_mir_place_field or kind == v4_mir_place_index or kind == v4_mir_place_deref { needed = true }
+        place += 1
+    }
+    if not needed { give back true }
+    v4_borrowck_word_plan_resource_failed = false
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_borrowck_stmt_word_local_move_count(mir_id, body_id, stmt, -1) < 0 or v4_borrowck_word_plan_resource_failed { give back false }
+        stmt += 1
+    }
+    give back true
 }
 
 task v4_borrowck_word_stmt_initializes_local(mir_id: int, body_id: int, stmt_id: int, local_id: int) -> bool {
@@ -6956,7 +7060,14 @@ task v4_borrowck_word_local_state_walk(mir_id: int, body_id: int, local_id: int,
             if previous >= 0 and v4_mir_word_local_scope_exits_before_stmt(mir_id, body_id, local_id, previous, stmt_id) { initialized = false }
             if check_reads {
                 v4_borrowck_word_plan_visit_budget = 8192
-                pilot use_state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt_id), local_id, initialized, false, 0)
+                pilot use_state = 0
+                if initialized { use_state = 1 }
+                pilot kind = v4_mir_stmt_kind(mir_id, body_id, stmt_id)
+                pilot place = v4_mir_stmt_place(mir_id, body_id, stmt_id)
+                if (kind == v4_mir_stmt_local or kind == v4_mir_stmt_assign) and place >= 0 and v4_mir_place_kind(mir_id, body_id, place) != v4_mir_place_local {
+                    use_state = v4_borrowck_word_place_use_state(mir_id, body_id, place, local_id, initialized, true, 0)
+                }
+                if use_state >= 0 { use_state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_stmt_rvalue(mir_id, body_id, stmt_id), local_id, use_state == 1, false, 0) }
                 if use_state == 0 - 1 { invalid_use = true }
                 if use_state == 0 - 2 { queue_failed = true }
                 if use_state >= 0 { initialized = use_state == 1 }
@@ -7027,16 +7138,43 @@ task v4_borrowck_word_enqueue_state(seen: int, blocks: int, states: int, block_c
 }
 
 -- Evaluate uses in runtime order so a repeated transfer within one call cannot pass.
+task v4_borrowck_word_place_use_state(mir_id: int, body_id: int, place: int, local_id: int, initialized: bool, borrowed: bool, depth: int) -> int {
+    v4_borrowck_word_plan_visit_budget -= 1
+    if depth > 256 or v4_borrowck_word_plan_visit_budget < 0 or place < 0 or place >= v4_mir_body_place_count(mir_id, body_id) { give back 0 - 2 }
+    pilot kind = v4_mir_place_kind(mir_id, body_id, place)
+    if kind == v4_mir_place_local {
+        if v4_mir_place_base(mir_id, body_id, place) == local_id {
+            if not initialized { give back 0 - 1 }
+            if not borrowed {
+                if v4_mir_local_mode(mir_id, body_id, local_id) != v4_ty_param_mode_value { give back 0 - 1 }
+                give back 0
+            }
+        }
+        if initialized { give back 1 }
+        give back 0
+    }
+    if kind == v4_mir_place_field or kind == v4_mir_place_index {
+        pilot state = v4_borrowck_word_place_use_state(mir_id, body_id, v4_mir_place_base(mir_id, body_id, place), local_id, initialized, true, depth + 1)
+        if state < 0 { give back state }
+        if kind == v4_mir_place_index { give back v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, state == 1, false, depth + 1) }
+        give back state
+    }
+    if kind == v4_mir_place_deref { give back v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_place_index(mir_id, body_id, place), local_id, initialized, false, depth + 1) }
+    if kind == v4_mir_place_return { if initialized { give back 1 } give back 0 }
+    give back 0 - 2
+}
 task v4_borrowck_word_rvalue_use_state(mir_id: int, body_id: int, value: int, local_id: int, initialized: bool, borrowed: bool, depth: int) -> int {
     v4_borrowck_word_plan_visit_budget -= 1
     if depth > 256 or v4_borrowck_word_plan_visit_budget < 0 { give back 0 - 2 }
     if value < 0 { if initialized { give back 1 } give back 0 }
+    if value >= v4_mir_body_rvalue_count(mir_id, body_id) { give back 0 - 2 }
     pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
     pilot binding = 0 - 1
     if kind == v4_mir_rvalue_use_local { binding = v4_mir_rvalue_local_id(mir_id, body_id, value) }
     if kind == v4_mir_rvalue_use_place {
-        pilot place = v4_mir_rvalue_lhs(mir_id, body_id, value)
-        if v4_mir_place_kind(mir_id, body_id, place) == v4_mir_place_local { binding = v4_mir_place_base(mir_id, body_id, place) }
+        -- lhs is a PlaceID here. Projection bases stay in the place graph;
+        -- only Index/Deref address operands enter the rvalue graph.
+        give back v4_borrowck_word_place_use_state(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, initialized, borrowed, depth + 1)
     }
     if binding >= 0 {
         if binding == local_id {
@@ -7055,6 +7193,9 @@ task v4_borrowck_word_rvalue_use_state(mir_id: int, body_id: int, value: int, lo
     pilot state = 0
     if initialized { state = 1 }
     if kind == v4_mir_rvalue_call or v4_mir_rvalue_is_aggregate_kind(kind) {
+        if kind == v4_mir_rvalue_call {
+            state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_rvalue_lhs(mir_id, body_id, value), local_id, state == 1, false, depth + 1)
+        }
         pilot arg = 0
         pilot count = v4_mir_rvalue_call_arg_count(mir_id, body_id, value)
         if v4_mir_rvalue_is_aggregate_kind(kind) { count = v4_mir_rvalue_aggregate_child_count(mir_id, body_id, value) }
@@ -7063,6 +7204,9 @@ task v4_borrowck_word_rvalue_use_state(mir_id: int, body_id: int, value: int, lo
             if v4_mir_rvalue_is_aggregate_kind(kind) { child = v4_mir_rvalue_aggregate_child(mir_id, body_id, value, arg) }
             state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, child, local_id, state == 1, false, depth + 1)
             arg += 1
+        }
+        if kind == v4_mir_rvalue_call and state >= 0 {
+            state = v4_borrowck_word_rvalue_use_state(mir_id, body_id, v4_mir_rvalue_rhs(mir_id, body_id, value), local_id, state == 1, false, depth + 1)
         }
         give back state
     }
