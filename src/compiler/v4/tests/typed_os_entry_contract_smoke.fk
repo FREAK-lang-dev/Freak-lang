@@ -118,9 +118,13 @@ task v4_typed_os_contract_run() -> void {
     if mode == "ordinary-native-reject" {
         v4_typed_os_contract_assert(identity != "" and v4_typed_os_contract_descriptors(mir, identity) == 0, "ordinary unresolved binding does not mint builtin identity")
     }
-    v4_typed_os_contract_assert(v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
+    if mode == "ffi-native-reject" {
+        v4_typed_os_contract_assert(v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) > 0 and v4_mir_diag_count(mir) > 0, "FFI frontend and native fence both required")
+    } else {
+        v4_typed_os_contract_assert(v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
+    }
     pilot codegen = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
-    if mode == "native-reject" or mode == "ordinary-native-reject" {
+    if mode == "native-reject" or mode == "ordinary-native-reject" or mode == "ffi-native-reject" {
         v4_typed_os_contract_assert(expected != "" and v4_codegen_llvm_native_module_error(codegen) == expected and v4_codegen_llvm_module_text(codegen, target) == "", "exact named native fence before output")
         say "typed-os-entry-contract mode=" + mode + "=passed"
         give back

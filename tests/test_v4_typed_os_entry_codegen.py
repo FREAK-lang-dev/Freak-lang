@@ -211,6 +211,8 @@ def evaluate_source_branch(function, arguments, helpers, constants):
             if name not in helpers:
                 raise AssertionError("undeclared source branch operation: " + name)
             return helpers[name](*[expression(arg) for arg in node.args])
+        if kind == "MethodCall" and node.method == "starts_with" and len(node.args) == 1:
+            return expression(node.obj).startswith(expression(node.args[0]))
         raise AssertionError("AST outside closed source branch model: " + kind)
     def block(statements):
         for node in statements:
@@ -275,6 +277,149 @@ def capability(kind):
 
 
 class PureGateTests(unittest.TestCase):
+    def test_shadow_namespace_source_branches_preserve_zero_builtin_identity(self):
+        rows = {row["name"]:row for row in gate.contract_cases()}
+        core = fixture_core_source_root()
+        ty_source = (core / "src/compiler/v4/crates/freak_ty/src/lib.fk").read_text()
+        parse_source = (core / "src/compiler/v4/crates/freak_parse/src/lib.fk").read_text()
+        hir_source = (core / "src/compiler/v4/crates/freak_hir/src/lib.fk").read_text()
+        builder = (core / "src/compiler/v4/crates/freak_mir_build/src/lib.fk").read_text()
+        llvm = (core / "src/compiler/v4/crates/freak_codegen_llvm/src/lib.fk").read_text()
+        with bootstrap_fixture_types() as (Parser, _):
+            constants = {"v4_tok_keyword":"Keyword", "v4_node_const":"ConstDecl", "v4_hir_const":"Const"}
+            root = rows["root-process"]
+            self.assertEqual(root["source"], "fixed pilot process: int = 1\ntask main() -> int { give back process::arg(1) }\n")
+            tokens = root["source"].split()[:2]
+            leaves = {"v4_lex_token_count":lambda stream:2,
+                      "v4_lex_token_type":lambda stream, index:"Keyword",
+                      "v4_lex_token_value":lambda stream, index:tokens[index],
+                      "v4_parse_skip_trivia":lambda stream, index:index}
+            fixed = source_task_ast(Parser, parse_source, "v4_parse_is_fixed_pilot_keyword")
+            self.assertTrue(evaluate_source_branch(fixed, [0, 0], leaves, constants))
+            leaves["v4_parse_is_fixed_pilot_keyword"] = lambda *args:evaluate_source_branch(fixed, args, leaves, constants)
+            keyword = source_task_ast(Parser, parse_source, "v4_parse_top_keyword_text")
+            self.assertEqual(evaluate_source_branch(keyword, [0, 0], leaves, constants), "fixed pilot")
+            kind = source_task_ast(Parser, parse_source, "v4_parse_kind_for_keyword")
+            self.assertEqual(evaluate_source_branch(kind, ["fixed pilot"], {}, constants), "ConstDecl")
+            hir_kind = source_task_ast(Parser, hir_source, "v4_hir_kind_from_parse")
+            constants.update({"v4_node_"+key:key for key in ("task", "shape", "route", "alias")})
+            self.assertEqual(evaluate_source_branch(hir_kind, ["ConstDecl"], {}, constants), "Const")
+            admission = source_task_ast(Parser, ty_source, "v4_ty_system_intrinsic_named_kind")
+            intrinsic = source_task_ast(Parser, builder, "v4_mir_try_lower_system_named_intrinsic")
+            for name in ("local-fs", "root-process", "import-fs"):
+                case = rows[name]
+                self.assertEqual(case["mode"], "ordinary-native-reject")
+                self.assertEqual(case["expected"], "native rvalue not yet supported: Unknown")
+                public = "process::arg" if name == "root-process" else "fs::read"
+                namespace = public.split("::")[0]
+                trace = []
+                def const(ty, binding):
+                    trace.append(("const",binding)); return 0 if name == "root-process" and binding == "process" else -1
+                def expanded(resolve, binding):
+                    trace.append(("import",binding))
+                    return "user::filesystem::read" if name == "import-fs" and binding == "fs::read" else binding
+                leaves = {"v4_ty_file_exists":lambda *args:True,
+                          "v4_ty_task_signature_id_for_name":lambda *args:-1,
+                          "v4_ty_const_signature_id_for_name":const,
+                          "v4_ty_type_signature_id_for_name":lambda *args:-1,
+                          "v4_ty_resolve_id":lambda *args:0,
+                          "v4_resolve_def_for_name":lambda *args:"",
+                          "v4_resolve_expand_import_name":expanded}
+                admitted = evaluate_source_branch(admission, [0, public], leaves, {})
+                self.assertEqual(admitted, "fs_read" if name == "local-fs" else "")
+                if name == "root-process": self.assertEqual(trace, [("const","process")])
+                if name == "import-fs": self.assertIn(("import","fs::read"), trace)
+                tokens = (namespace,"::",public.split("::")[1],"(","1",")")
+                leaves.update({"v4_lex_token_syntax_value":lambda stream, index:tokens[index],
+                               "v4_mir_next_nontrivia":lambda stream, index, end:index,
+                               "v4_mir_find_matching_paren":lambda *args:5,
+                               "v4_mir_ty_id":lambda *args:0,
+                               "v4_ty_system_intrinsic_named_kind":lambda *args:admitted,
+                               "v4_mir_find_local_visible_at":lambda mir, body, binding, offset:0 if name == "local-fs" and binding == "fs" else -1,
+                               "v4_span_start":lambda *args:0})
+                # No descriptor-allocation leaf is admitted: entering it fails the test.
+                self.assertEqual(evaluate_source_branch(intrinsic, [0,0,0,0,5,"span"], leaves, {}), -1)
+                leaves.update({"v4_mir_find_open_paren_token":lambda *args:3,
+                               "v4_mir_shape_ctor_name":lambda *args:public,
+                               "v4_mir_signature_id_for_name":lambda *args:-1,
+                               "v4_mir_rvalue_kind":lambda *args:"Unknown",
+                               "v4_codegen_llvm_scalar_sum_rvalue_is_supported":lambda *args:False})
+                ordinary = source_task_ast(Parser, builder, "v4_mir_try_lower_named_call")
+                self.assertEqual(evaluate_source_branch(ordinary, [0,0,0,0,5,"span"], leaves, {}), -1)
+                fallback = source_task_ast(Parser, builder, "v4_mir_lower_expr_expected").body.statements[-1]
+                self.assertEqual(fallback.value.args[2].name,"v4_mir_rvalue_unknown")
+                native = source_task_ast(Parser, llvm, "v4_codegen_llvm_native_rvalue_error")
+                mir_source = (core / "src/compiler/v4/crates/freak_mir/src/lib.fk").read_text()
+                constants = {node.name:node.value.value for node in Parser.from_source(mir_source.split("\ntask ",1)[0]).statements
+                             if type(node).__name__ == "PilotDecl" and type(node.value).__name__ == "StrLit"}
+                constants["v4_codegen_llvm_active_owned_mir"] = 0
+                self.assertEqual(evaluate_source_branch(native,[0,0,0],leaves,constants),case["expected"])
+
+    def test_private_fs_extern_source_alias_reaches_exact_reserved_symbol_fence(self):
+        case = next(row for row in gate.contract_cases() if row["name"] == "private-fs-symbol")
+        self.assertEqual(case["mode"], "native-reject")
+        self.assertEqual(case["source"], "extern [C] { task freak_v4_fs_read() -> std::ffi::c_isize }\ntask main() -> int { give back 0 }\n")
+        core = fixture_core_source_root()
+        ty_source = (core / "src/compiler/v4/crates/freak_ty/src/lib.fk").read_text()
+        llvm = (core / "src/compiler/v4/crates/freak_codegen_llvm/src/lib.fk").read_text()
+        with bootstrap_fixture_types() as (Parser, _):
+            constants = {"v4_ty_unknown":"<unknown>","v4_ty_int":"int","v4_ty_void":"void"}
+            normalize = source_task_ast(Parser, ty_source, "v4_ty_normalize_ffi_alias_type")
+            leaves = {"v4_ty_surface_ffi_alias_name":lambda text:text.removeprefix("std::ffi::")}
+            self.assertEqual(evaluate_source_branch(normalize, ["int"], leaves, constants), "")
+            self.assertEqual(evaluate_source_branch(normalize, ["std::ffi::c_isize"], leaves, constants), "int")
+            leaves["v4_ty_normalize_ffi_alias_type"] = lambda text:evaluate_source_branch(normalize, [text], leaves, constants)
+            for name in ("v4_ty_is_raw_pointer_type", "v4_ty_is_surface_extern_function_pointer_type", "v4_ty_is_surface_task_function_type", "v4_ty_is_fixed_array_type", "v4_ty_is_tuple_type", "v4_ty_ffi_seen_contains", "v4_ty_surface_ffi_safe_repr_route_seen"):
+                leaves[name] = lambda *args:False
+            leaves.update({"v4_ty_alias_target_type":lambda *args:"", "v4_ty_shape_signature_id_for_name":lambda *args:-1})
+            safe = source_task_ast(Parser, ty_source, "v4_ty_surface_ffi_safe_type_seen")
+            self.assertFalse(evaluate_source_branch(safe, [0,"int",True,""], leaves, constants))
+            self.assertTrue(evaluate_source_branch(safe, [0,"std::ffi::c_isize",True,""], leaves, constants))
+            reserved = source_task_ast(Parser, llvm, "v4_codegen_llvm_numeric_reserved_symbol_error")
+            symbol = "@freak_v4_fs_read"
+            self.assertEqual(evaluate_source_branch(reserved, [symbol], {}, {}), case["expected"])
+            leaves = {"v4_codegen_llvm_body_count":lambda *args:0,
+                      "v4_codegen_llvm_decl_count":lambda *args:1,
+                      "v4_codegen_llvm_decl_symbol":lambda *args:symbol,
+                      "v4_codegen_llvm_numeric_reserved_symbol_error":lambda value:evaluate_source_branch(reserved,[value],{}, {})}
+            error = source_task_ast(Parser, llvm, "v4_codegen_llvm_numeric_runtime_symbol_error")
+            self.assertEqual(evaluate_source_branch(error,[0],leaves,{}),case["expected"])
+
+    def test_ffi_frontend_and_exact_native_fence_protocol(self):
+        case = next(row for row in gate.contract_cases() if row["name"] == "foreign-maybe")
+        self.assertEqual(case["mode"], "ffi-native-reject")
+        self.assertEqual(case["expected"], "native scalar sum C ABI is not yet supported")
+        source = (gate.ROOT / gate.OWNED_NAMES[0]).read_text()
+        with bootstrap_fixture_types() as (Parser, _):
+            task = source_task_ast(Parser, source, "v4_typed_os_contract_run")
+            assertion = source_task_ast(Parser, source, "v4_typed_os_contract_assert")
+            class Rejected(Exception): pass
+            controls = ((None,None),("lex",1),("parse",1),("hir",1),("resolve",1),
+                        ("ty",0),("mir",0),("error","wrong"),("module","published"),
+                        ("mode","native-reject"),("mode","ordinary-native-reject"))
+            for field,value in controls:
+                facts = {"mode":case["mode"],"lex":0,"parse":0,"hir":0,"resolve":0,"ty":2,"mir":2,"error":case["expected"],"module":""}
+                if field is not None: facts[field] = value
+                said = []
+                def panic(label): raise Rejected(label)
+                leaves = {"process::arg":lambda index:{1:facts["mode"],2:"source",3:"target",4:case["expected"],5:""}[index],
+                          "fs::read":lambda *args:case["source"],"v4_target_spec_new":lambda *args:0,
+                          "v4_codegen_llvm_lower_owned_mir_with_panic":lambda *args:0,
+                          "v4_codegen_llvm_native_module_error":lambda *args:facts["error"],
+                          "v4_codegen_llvm_module_text":lambda *args:facts["module"],"panic":panic,"say":said.append}
+                for name in ("v4_lex_text","v4_parse_stream","v4_hir_lower_tree","v4_resolve_lower_hir","v4_ty_lower_resolve","v4_mir_lower_ty"):
+                    leaves[name] = lambda *args:0
+                for phase in ("lex","parse","hir","resolve","ty","mir"):
+                    leaves["v4_"+phase+"_diag_count"] = lambda *args,phase=phase:facts[phase]
+                leaves["v4_typed_os_contract_assert"] = lambda condition,label:evaluate_source_branch(assertion,[condition,label],leaves,{})
+                with self.subTest(field=field,value=value):
+                    if field is None:
+                        evaluate_source_branch(task,[],leaves,{})
+                        self.assertEqual(said,["typed-os-entry-contract mode=ffi-native-reject=passed"])
+                    else:
+                        with self.assertRaises(Rejected): evaluate_source_branch(task,[],leaves,{})
+                        self.assertEqual(said,[])
+
     def test_formal_shadow_actual_source_branches_and_named_native_fence(self):
         case = next(row for row in gate.contract_cases() if row["name"] == "parameter-process")
         self.assertEqual(case["mode"], "ordinary-native-reject")

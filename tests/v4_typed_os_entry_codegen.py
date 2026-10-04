@@ -591,16 +591,16 @@ def contract_cases():
     add("qualified-process", "shadow", "task process::arg(index: int) -> int { give back index }\ntask main() -> int { give back process::arg(7) }\n", identity="builtin::system::process_arg")
     add("qualified-fs", "shadow", "task fs::read(path: word) -> word { give back path }\ntask main() -> int { pilot text = fs::read(\"ordinary\"); say text; give back 0 }\n", identity="builtin::system::fs_read")
     add("parameter-process", "ordinary-native-reject", "task inspect(process: int) -> int { give back process::arg(1) }\ntask main() -> int { give back inspect(0) }\n", "native rvalue not yet supported: Unknown", "builtin::system::process_arg")
-    add("local-fs", "admission-reject", "task main() -> int { pilot fs = 1; pilot value = fs::read(\"x\"); give back 0 }\n", identity="builtin::system::fs_read")
-    add("root-process", "admission-reject", "pilot process = 1\ntask main() -> int { give back process::arg(1) }\n", identity="builtin::system::process_arg")
-    add("import-fs", "admission-reject", "use user::filesystem as fs\ntask main() -> int { pilot value = fs::read(\"x\"); give back 0 }\n", identity="builtin::system::fs_read")
+    add("local-fs", "ordinary-native-reject", "task main() -> int { pilot fs = 1; pilot value = fs::read(\"x\"); give back 0 }\n", "native rvalue not yet supported: Unknown", "builtin::system::fs_read")
+    add("root-process", "ordinary-native-reject", "fixed pilot process: int = 1\ntask main() -> int { give back process::arg(1) }\n", "native rvalue not yet supported: Unknown", "builtin::system::process_arg")
+    add("import-fs", "ordinary-native-reject", "use user::filesystem as fs\ntask main() -> int { pilot value = fs::read(\"x\"); give back 0 }\n", "native rvalue not yet supported: Unknown", "builtin::system::fs_read")
     add("named-process", "admission-reject", "task main() -> int { pilot value = process::arg(index: 1); give back 0 }\n")
     add("named-fs", "admission-reject", "task main() -> int { pilot value = fs::read(path: \"x\"); give back 0 }\n")
     add("process-library", "native-reject", "task count() -> int { give back process::args_count() }\n", "native typed process operations require a generated zero-argument entry")
     add("parameter-main", "native-reject", "task main(seed: int) -> int { give back seed }\n", "native main parameters are not yet supported")
-    add("foreign-maybe", "native-reject", "extern [C] { task take(value: maybe<int>) -> int }\ntask main() -> int { give back 0 }\n", "native scalar sum C ABI is not yet supported")
+    add("foreign-maybe", "ffi-native-reject", "extern [C] { task take(value: maybe<int>) -> int }\ntask main() -> int { give back 0 }\n", "native scalar sum C ABI is not yet supported")
     add("raw-maybe", "native-reject", "task inspect(value: *mut maybe<int>) -> void {}\ntask main() -> int { give back 0 }\n", "native scalar sum raw storage contracts are not yet supported")
-    add("private-fs-symbol", "native-reject", "extern [C] { task freak_v4_fs_read() -> int }\ntask main() -> int { give back 0 }\n", "native private runtime symbol conflict: @freak_v4_fs_read")
+    add("private-fs-symbol", "native-reject", "extern [C] { task freak_v4_fs_read() -> std::ffi::c_isize }\ntask main() -> int { give back 0 }\n", "native private runtime symbol conflict: @freak_v4_fs_read")
     return tuple(rows)
 
 
@@ -1081,6 +1081,6 @@ def main(argv=None):
     return 0
 
 
-DATA_SHA = "1c39719dcc5e4238f1c7e1b23d5d524ac88ea785dfe331f927d3897094a5f00b"
+DATA_SHA = "ff90d9dc7e9681076c9c2e6061bfc340c9a71600262a715582a12f521f7f399d"
 
 if __name__ == "__main__": raise SystemExit(main())
