@@ -8,18 +8,18 @@ The public release remains v0.14.2; this work does not create a release.
 
 ## Preview prerequisites
 
-| Requirement | Implemented and verified scope | Remaining gate |
+| Requirement | Implemented and verified scope | Release gate |
 | --- | --- | --- |
 | Module/body assembly and lookup scaling | Existing fragment assembly and derived TY/HIR/resolve indexes; one integrated Linux workload with 3,200 tasks and 22,403 lines completed all stages without diagnostics in 12.895 s, peak 806.15 MiB under 2 GiB | Repeat relevant resource tests after compiler changes; no claim of a measured growth rate or other platforms from that run |
 | Optimized compiler build | `build_v4.py --compiler-opt 0\|1\|2\|3`, isolated optimization-specific compiler cache, optimized Hello World checkpoint | Final coherent-head platform CI |
 | Owned Word values | NonCopy locals, parameters, returns, replacements and temporary cleanup; borrowed observers, comparisons, concatenation and display; generated native ownership audits and sanitizer controls | Final coherent-head platform CI |
-| Sized Unicode and interpolation | Embedded NUL, character indexing/slicing, lower-case runtime and HIR interpolation plans with restoration/invalidation coverage | Generated bounds driver passes independent source/pure review; actual generated matrix remains pending |
+| Sized Unicode and interpolation | Embedded NUL, character indexing/slicing, lower-case runtime and HIR interpolation plans with restoration/invalidation coverage | Generated bounds source/pure review and actual generated matrix required before readiness |
 | Literal/general `say` | Updated fixture passes its 27 static byte cases, seven owned/general positives, seven typed diagnostics, ten forgeries and snapshot roundtrip | Final coherent-head platform CI |
 | `say_err` and hosted runtime portability | Generated owned-message lane and exact raw output tests; source fixes for finite Unicode fixture construction, a known Darwin linker warning and Windows CRT declaration warning | Fresh Linux/macOS/Windows CI on the corrected head |
-| Process arguments and typed OS results | Existing C entry argument setup; reviewed closed `maybe<int>`/`result<word,word>` slice integrated after all 76 compiler cases, 30 generated O0/O2/O3 programs and eight mandatory audit/sanitizer controls passed on its isolated source | Repeat on the coherent integration head; execute the reviewed typed process/FS gate and platform CI |
-| Filesystem bridge | Linux plain and ASan/UBSan O0/O2/O3 bridge proof, exact owned Ok/Err slots, Unicode/NUL/nonregular-file controls | Typed source integration and macOS/Windows native gates |
+| Process arguments and typed OS results | Existing C entry argument setup; the closed `maybe<int>`/`result<word,word>` slice passes all 76 compiler cases, 30 generated O0/O2/O3 programs and eight mandatory audit/sanitizer controls on coherent `94a62d9` | Typed process/FS generated gate and coherent-head platform CI |
+| Filesystem bridge | Linux plain and ASan/UBSan O0/O2/O3 bridge proof, exact owned Ok/Err slots, Unicode/NUL/nonregular-file controls | Typed result generated gate and macOS/Windows native gates |
 | Integer arithmetic | Checked native overflow and divide-by-zero contract; private C32 arithmetic lane passes hosted Linux/macOS/Windows | Fresh coherent-head CI; C-width native ABI admission remains fenced by B01 |
-| Panic and bounds | Explicit `--panic=abort` path and checked integer/runtime boundaries; isolated private C panic-context runtime passes plain and full sanitizer matrices | Default compiler unwind and cleanup are not implemented; compiler/LLVM integration and generated Word-bounds execution remain pending |
+| Panic and bounds | Explicit `--panic=abort` path and checked integer/runtime boundaries; isolated private C panic-context runtime passes plain and full sanitizer matrices | Default compiler unwind and cleanup are not implemented; the private panic context still requires compiler/LLVM integration |
 
 The bible does not currently specify a new main-parameter ABI or a concrete
 runtime-honor failure trigger. Process argument access can be implemented
@@ -54,14 +54,24 @@ and general deferred cleanup also remain open.
   diagnostic also exposed interpolation in two LLVM type strings. The reviewed
   successor fixes those findings and passes all 76 compiler cases, all 30
   generated O0/O2/O3 programs and eight mandatory audit/sanitizer controls.
-  Independent review verifies the completed isolated-source artifacts. The
-  16 paths were imported byte for byte; reviewed target consistency repairs
-  followed in the native driver and its pure tests. Coherent-head proof is pending.
+  Independent review verifies the completed coherent `94a62d9` artifacts.
+  Later source changes have separate review and verification: the ordinary
+  recursive collector's Linux O0 frame decreases from 3,264 to 2,736 bytes,
+  and its original depth-256 contract passes locally and in Windows CI at
+  `20724a8`. This does not identify the Windows crash's faulting function.
+  Native target and fixture repairs must pass their current-head gates.
 - Independent review blocked the new Word-bounds driver because it could
   report success after a retained image changed and had first-cause, cleanup,
-  deadline and provenance gaps. The reviewed successor passes 49 independent
-  fault controls and all 28 pure methods. Its generated native matrix remains
-  required; pure success does not complete that proof.
+  deadline and provenance gaps. The driver has independently reviewed fault
+  controls, and all 33 pure methods pass, including LF/CRLF source-table and
+  Windows generated-file regressions. All 24 generated UTF-8 source programs
+  retain their original bytes. Its generated native matrix is required before
+  readiness; pure success does not complete that proof.
+- The official focused MIR check run passes all three matching smokes. Its
+  57 Maybe/Result assertions now inspect `SumTake`, `TakeSome`, the source
+  `UseLocal` and its canonical `_check_subject` LocalID. The previous fixture
+  queried a SumTake source RvalueID as a PlaceID; the general Result path still
+  verifies its original `UsePlace`/`ok` projection facts.
 - The private C panic-context runtime at isolated `24fad27` passes the full
   320-job sanitizer gate: ten C builds (six production and four capability),
   306 runtime outcomes and four mandatory capability executions. Independent
@@ -101,20 +111,21 @@ focused checker runs retain aggregate guard logs and output counts; the six-job
 diagnostic run additionally retains every raw child channel. Resource caps and
 semantic assertions are not relaxed to obtain green checks.
 
-The main release PR remains a draft. The previous `b5e300f` run had nine V4
-failures and six green shipping jobs. Later fixes passed the complete Linux
-and macOS runtime-helper jobs at `c399400`. The `6e108e7` wave exposed three
-remaining failures: the lend diagnostic count, Windows test-source decoding,
-and a Linux sanitizer capability exceeding its 64 MiB guard while reporting
-an error. Reviewed fixes preserve diagnostics and all resource limits. The
-sanitizer environment disables symbolization while retaining detection, leak
-  checks, stack printing, summaries and exit status. Fresh full platform CI and
-current independent review are required before readiness. No merge or release
-is performed automatically.
+PR #143 is a preview prerequisite milestone. Readiness requires current-head
+Linux/macOS/Windows CI, the generated Word-bounds and typed OS matrices,
+independent review and resolved review findings. The PR description and retained
+verification receipts record the candidate SHA and actual gate outcomes.
 
-At `f9153c2`, all six shipping jobs and the Linux/macOS runtime-helper jobs
-pass. Windows exposes a target mismatch in the panic driver: default MSVC
-runtime objects are linked with a GNU-target module. The corrective drivers
-must pass the selected target to every Clang stage while retaining strict
-diagnostic checks. Newly integrated Sum and typed OS drivers receive the same
-target consistency check before their coherent-head proofs.
+At `20724a8`, all six shipping jobs and the Windows numeric depth gate pass.
+Four later V4 failures establish the corrective scope: Windows CRLF fixture
+parsing/generated-file hashes, a Linux typed-OS formal-shadow test that expected
+the wrong rejection stage, Darwin IR triple rewriting during a Sum link, and
+the obsolete Maybe MIR expectations. The fixes preserve strict diagnostics,
+output bytes, native resource limits and shipping V3 assertions. A formal
+system-namespace shadow must mint no builtin identity and fail with the exact
+native error before publishing a module. The Darwin Sum link supplies the
+literal triple to the IR frontend while preserving the selected linker target;
+its Apple-toolchain behavior requires macOS CI.
+
+These checks do not complete default compiler unwind, self-hosting or V3
+replacement. The release version remains unchanged; no release tag is created.
