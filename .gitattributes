@@ -24,3 +24,8 @@ src/compiler/v4/tests/data/h6_io_readable_source.fk text eol=lf
 
 # FS bridge support is accepted by exact SHA-256; preserve its LF source bytes.
 tests/v4_c_integer_runtime.py text eol=lf
+
+# Typed OS fixture oracles pin these bootstrap sources by their exact LF bytes.
+freakc/lexer.py text eol=lf
+freakc/parser.py text eol=lf
+freakc/type_checker.py text eol=lf
