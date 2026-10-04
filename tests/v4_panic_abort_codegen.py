@@ -27,7 +27,7 @@ from v4_checked_numeric_codegen import (AUDIT_FLAGS, SANITIZER_FLAGS, Runner,
     exact_result, sanitizer_environment, validate_build_flags, validate_sanitizer_probe)
 
 OPTS = (0, 2, 3)
-PREFIX = 'panic-abort-execute stages=clean v8-restore=true old-seal=true fresh-module=true policy=abort\n'
+PREFIX = 'panic-abort-execute stages=clean v9-restore=true old-seal=true fresh-module=true policy=abort\n'
 
 def require_native_link(result, target: str, *, platform: str = sys.platform) -> None:
     # Clang canonicalizes the supported generic Darwin triple to the selected

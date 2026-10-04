@@ -35,7 +35,7 @@ class PanicAbortOracle(unittest.TestCase):
     def test_module_protocol_strict(self):
         text=gate.PREFIX+'@@LLVM-MODULE-BEGIN\ndefine void @x() { unreachable }\n@@LLVM-MODULE-END\n'
         self.assertTrue(gate.extract_module(self.result(text),platform='linux'))
-        for bad in (text+'extra\n',text.replace('v8-restore=true','v8-restore=false'),text.replace('old-seal=true','old-seal=false'),text.replace('fresh-module=true','fresh-module=false'),text.replace('\n','\r\n'),text.replace('define void @x() { unreachable }','')):
+        for bad in (text+'extra\n',text.replace('v9-restore=true','v9-restore=false'),text.replace('old-seal=true','old-seal=false'),text.replace('fresh-module=true','fresh-module=false'),text.replace('\n','\r\n'),text.replace('define void @x() { unreachable }','')):
             with self.subTest(bad=bad),self.assertRaises(RuntimeError):gate.extract_module(self.result(bad),platform='linux')
     def report(self):
         rows=[]

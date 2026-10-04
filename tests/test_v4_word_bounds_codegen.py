@@ -245,6 +245,42 @@ class WordBoundsOracles(unittest.TestCase):
         for faulty in faults:
             with self.assertRaises(gate.GateError): gate.fixture_sources(faulty)
 
+    def test_ascii_unicode_fixture_preserves_original_source_bytes(self):
+        text = FIXTURE.read_bytes()
+        self.assertTrue(text.isascii())
+        sources = gate.fixture_sources(text.decode("ascii"))
+        # Original accepted UTF-8 programs, captured before ASCII construction.
+        expected = (
+            '13679f1d2642d2fca2451e51c57a3a311e643cbbe33101bab5349c8f46c0724e',
+            'bed1c9180bdec67dbb0f8b2f2c773694ad6740bba2a1e7f408f8a15b6bcc5c95',
+            '0bed6d1d1e5b67066cd1ecd884982df7675d7b42ef2c1f9714613bad7d2a0be0',
+            'f6f8989e77a575efdc2c78f5efd994832fbf355dbb2b7254b00b52a9d6ac0034',
+            '1c64fc67027bb9f54118a4f3d9617ffca51b1250bfb5134fddda323111a7d001',
+            '32263fa947b7b4f84bbb6ff9a6fee658b255d7d9c20351eaf25c9ef104c4bdba',
+            'ad89e5b09b951032c802beb766834049781c7ac9f76651330c0a2c4bb4465607',
+            '4910bc66dba22b78dd18f12674a67e150f53b0dd482bd54a703e58c8ef644788',
+            '78badba2966d1b7b95a04a8acbe7cb2b1e1417199d67b75205ae3fe94b9404bc',
+            '6c9181a1a0286d538988c817905e3e677c8f054a6f6aef5bf3c76dc243870f1d',
+            '89ad7a194ee899ded88978d29434c395bfee9f20cb845cfe105998c711a7ed93',
+            '7653e7906432e88a0469f0556140335cc35d785c425a4e7ac9f260cb281ff22b',
+            '021ea9cc71453e20c8cde0ee7b41618dfa6466a57ccda28cd624ec66b878597d',
+            'eec5bdda358cf995a358ac861ea6f55faf1652f59d6aa8e35b2b95d7190d8fb6',
+            'f9a64b699fc29b166edb78ea4db452064923ee208f93efa9c013415a0ecfc5a4',
+            'b361f9692b9a650564555aea577cda8693eaffa2cac3b2c86bad34af6e1c76cd',
+            'f26024621cd70be240a00325a1b6128dcd21ec36578ba166bd4f31472ffe5676',
+            '91977d9a69dedf797d76674578d032200af6f4a8d7db96d8e74a731a2ce143ba',
+            '46afff6fd1da9239bdf2914f5341af7ea12b88583df53cd94039a05bf40e8872',
+            '302e1140dada04dbf8aec0c95e90c9df016883c85ca2bfcc71f2e66ee046ba8d',
+            'e9892947813968b46d6f7c9cb618ab4493a30982a66b4eb4b26f69f16e467ccc',
+            'b161f9a76f02cdcee42af70ce7ca22f1f09b4ffb2e4cc6b195da352547a57be6',
+            'f9d24170a7eff1a04f686689b368bc31f95194b3fadfde6d56fc3c78d7151c73',
+            '03063b8f2cce6886e7914f50457e530cb67b114850bf80ce2624892c64fa3dad',
+        )
+        self.assertEqual(tuple(hashlib.sha256(source.encode("utf-8")).hexdigest() for source in sources), expected)
+        for code in (0, 65, 232, 234, 304, 20012, 20014, 128511, 128513, 1114112):
+            with self.subTest(code=code), self.assertRaises(gate.GateError):
+                gate.fixture_sources(text.decode("ascii").replace("chr(233)", f"chr({code})", 1))
+
     def test_live_guard_calls_unchanged_production_and_detects_stale_owner(self):
         self.assertIn('#include "freak_runtime.c"', gate.GUARD_SOURCE)
         self.assertIn('#include "freak_v4_word_runtime.c"', gate.GUARD_SOURCE)

@@ -388,9 +388,9 @@ task v4_panic_contract_run() -> void {
         give back
     }
     if mode == "old-version" {
-        pilot old = v4_panic_contract_replace(snapshot, "freak-mir-snapshot-v8", "freak-mir-snapshot-v7")
-        old = v4_panic_contract_replace(old, "freak-mir-snapshot-v8", "freak-mir-snapshot-v7")
-        v4_panic_contract_assert(old != snapshot and not old.contains("freak-mir-snapshot-v8") and old.contains("freak-mir-snapshot-v7"), "actual old-version payload")
+        pilot old = v4_panic_contract_replace(snapshot, "freak-mir-snapshot-v9", "freak-mir-snapshot-v7")
+        old = v4_panic_contract_replace(old, "freak-mir-snapshot-v9", "freak-mir-snapshot-v7")
+        v4_panic_contract_assert(old != snapshot and not old.contains("freak-mir-snapshot-v9") and old.contains("freak-mir-snapshot-v7"), "actual old-version payload")
         v4_panic_contract_assert(v4_mir_snapshot_restore(old).starts_with("mir-snapshot-restore ok=0"), "old version rejection")
         v4_panic_contract_assert(v4_mir_snapshot() == snapshot, "old version atomic rejection")
         v4_panic_contract_assert(v4_codegen_llvm_module_text(accepted, target) == before, "old version leaves seal")

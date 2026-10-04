@@ -22,11 +22,11 @@ task v4_panic_execute_run() -> void {
     pilot interleaved = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "unwind")
     v4_panic_execute_assert(v4_codegen_llvm_panic_policy(interleaved) == "unwind" and v4_codegen_llvm_panic_policy(codegen) == "abort" and v4_codegen_llvm_module_text(codegen, target) == before, "policy interleave")
     pilot snapshot = v4_mir_snapshot()
-    v4_panic_execute_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "detached v8 restore")
+    v4_panic_execute_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "detached v9 restore")
     v4_panic_execute_assert(v4_codegen_llvm_module_text(codegen, target) == before and v4_codegen_llvm_panic_policy(codegen) == "abort", "old sealed module stable")
     pilot restored = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
     v4_panic_execute_assert(v4_codegen_llvm_module_text(restored, target) == before and v4_codegen_llvm_native_module_error(restored) == "" and v4_codegen_llvm_panic_policy(restored) == "abort", "fresh restored module exact")
-    say "panic-abort-execute stages=clean v8-restore=true old-seal=true fresh-module=true policy=abort"
+    say "panic-abort-execute stages=clean v9-restore=true old-seal=true fresh-module=true policy=abort"
     say "@@LLVM-MODULE-BEGIN"
     say before
     say "@@LLVM-MODULE-END"

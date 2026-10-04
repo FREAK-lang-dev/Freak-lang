@@ -19,7 +19,7 @@ The public release remains v0.14.2; this work does not create a release.
 | Process arguments and typed OS results | Existing C entry argument setup; reviewed closed `maybe<int>`/`result<word,word>` slice integrated after all 76 compiler cases, 30 generated O0/O2/O3 programs and eight mandatory audit/sanitizer controls passed on its isolated source | Repeat on the coherent integration head; execute the reviewed typed process/FS gate and platform CI |
 | Filesystem bridge | Linux plain and ASan/UBSan O0/O2/O3 bridge proof, exact owned Ok/Err slots, Unicode/NUL/nonregular-file controls | Typed source integration and macOS/Windows native gates |
 | Integer arithmetic | Checked native overflow and divide-by-zero contract; private C32 arithmetic lane passes hosted Linux/macOS/Windows | Fresh coherent-head CI; C-width native ABI admission remains fenced by B01 |
-| Panic and bounds | Explicit `--panic=abort` path and checked integer/runtime boundaries; isolated private panic-context runtime has passed source review | Default compiler unwind and cleanup are not implemented; private context plain matrix passes six builds and 306 outcomes; context sanitizer proof and generated Word-bounds execution remain pending |
+| Panic and bounds | Explicit `--panic=abort` path and checked integer/runtime boundaries; isolated private C panic-context runtime passes plain and full sanitizer matrices | Default compiler unwind and cleanup are not implemented; compiler/LLVM integration and generated Word-bounds execution remain pending |
 
 The bible does not currently specify a new main-parameter ABI or a concrete
 runtime-honor failure trigger. Process argument access can be implemented
@@ -62,11 +62,13 @@ and general deferred cleanup also remain open.
   deadline and provenance gaps. The reviewed successor passes 49 independent
   fault controls and all 28 pure methods. Its generated native matrix remains
   required; pure success does not complete that proof.
-- The private context runtime passed all 306 sanitized runtime outcomes, but
-  the required leak capability probe exited zero without a diagnostic. This
-  failed attempt remains preserved. A reviewed control successor clears its
-  published allocation root; narrow capability execution and the complete
-  sanitizer matrix remain required before acceptance.
+- The private C panic-context runtime at isolated `24fad27` passes the full
+  320-job sanitizer gate: ten C builds (six production and four capability),
+  306 runtime outcomes and four mandatory capability executions. Independent
+  endpoint review verifies ASan, UBSan, LeakSanitizer and double-free diagnostics
+  and their required exit statuses. The earlier failed leak-probe attempt remains
+  preserved. This establishes the private C runtime/helper ABI scope; compiler/LLVM
+  generation, default unwind and language cleanup integration remain pending.
 
 ## Self-hosting and V3 replacement
 

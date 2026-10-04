@@ -682,7 +682,7 @@ def fixture_sources(text: str) -> list[str]:
                 and node.func.id == "chr" and len(node.args) == 1 and not node.keywords
                 and isinstance(node.args[0], ast.Constant)
                 and type(node.args[0].value) is int
-                and node.args[0].value in (123, 125)):
+                and node.args[0].value in (123, 125, 233, 20013, 128512)):
             return chr(node.args[0].value)
         raise GateError("bounds source table permits only literals, + and closed brace/Unicode chr")
 

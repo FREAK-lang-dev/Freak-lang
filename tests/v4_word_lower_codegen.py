@@ -28,7 +28,7 @@ EXPECTED = (
     "A\0B\na\0b\na\0b\n3\n3\n\ni\u0307\nος\nοσα\nος\u0301\n"
     "𐐨\ntemp\nnested\nalready lower\nalready lower\nloop\n"
 )
-PREFIX = "word-lower-execute stages=clean v8-restore=true old-seal=true fresh-module=true\n"
+PREFIX = "word-lower-execute stages=clean v9-restore=true old-seal=true fresh-module=true\n"
 
 
 def extract_module(result, *, platform: str | None = None) -> str:

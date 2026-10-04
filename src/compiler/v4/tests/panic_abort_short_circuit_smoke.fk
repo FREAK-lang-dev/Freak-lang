@@ -95,7 +95,7 @@ task v4_panic_sc_run() -> void {
     pilot defaulted = v4_codegen_llvm_lower_owned_mir(0, mir)
     if panic_count == 0 { v4_panic_sc_assert(v4_codegen_llvm_native_module_error(defaulted) == "" and v4_codegen_llvm_module_text(defaulted, target) != "", "skipped panic allows default policy") } else { v4_panic_sc_assert(v4_codegen_llvm_native_module_error(defaulted) == "native panic unwind is not yet supported; use --panic=abort" and v4_codegen_llvm_module_text(defaulted, target) == "", "retained panic requires abort") }
     pilot snapshot = v4_mir_snapshot()
-    v4_panic_sc_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "strict v8 restore")
+    v4_panic_sc_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "strict v9 restore")
     v4_panic_sc_assert(v4_mir_snapshot() == snapshot and v4_mir_control_plan_preflight(mir) == "", "exact restored source facts")
     v4_panic_sc_assert(v4_codegen_llvm_module_text(accepted, target) == module, "old seal stable")
     pilot fresh = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")

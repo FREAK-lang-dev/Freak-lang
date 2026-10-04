@@ -204,7 +204,7 @@ lender calls currently require an explicit `lend` of a named place. Borrowed
 returns, externally supplied words, callback word contracts and native
 aggregate fields remain unsupported.
 
-The current MIR snapshot v8 preserves the lexical statement scopes introduced
+The current MIR snapshot v9 preserves the lexical statement scopes introduced
 in v7 and validates their relation
 to bindings, body ranges and closed builtin IDs before publication. The
 focused semantic fixture covers shadowing, ordered consume/lend events,
@@ -717,7 +717,7 @@ Fixed-layout editor facts, MIR/borrowck snapshots, restore, and
 source-change invalidation use the existing query families and 00-Unit
 protocols; no aggregate-specific LSP endpoint or snapshot section is added.
 Declaration-order aggregate children were introduced in snapshot v7. Current
-restore requires `freak-mir-snapshot-v8`; v4 through v7 are rejected rather than
+restore requires `freak-mir-snapshot-v9`; v4 through v8 are rejected rather than
 reinterpreted. Component restore, 00-Unit restore, and the
 standalone `workspace/mirSnapshotRestore` path each start a fresh borrowck
 provenance scratch generation. The query smoke proves `A -> B -> restore A` with
@@ -852,7 +852,7 @@ parsing, bounding bootstrap word-scanning work on malformed records.
 
 `freak_mir` owns the persistent Built-MIR representation: stable file/body and
 node identities, CFG/local/place/rvalue storage, validation, diagnostics, and
-the byte-stable MIR snapshot v8 protocol. `freak_mir_build` is the stateless
+the byte-stable MIR snapshot v9 protocol. `freak_mir_build` is the stateless
 construction policy layer over HIR and TY. It keeps only request-scoped loop,
 scope, and trust-lowering scratch and preserves `v4_mir_lower_ty` as the public
 driver entrypoint. Meiya, codegen, query, and snapshot code consume the

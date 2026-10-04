@@ -89,7 +89,7 @@ task v4_panic_semantic_run() -> void {
     pilot bad_policy = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "unwinding")
     v4_panic_assert(v4_codegen_llvm_native_module_error(bad_policy) == "invalid native panic policy: unwinding" and v4_codegen_llvm_module_text(bad_policy, target) == "" and v4_codegen_llvm_panic_policy(bad_policy) == "", "invalid policy")
     pilot snapshot = v4_mir_snapshot()
-    v4_panic_assert(snapshot.contains("freak-mir-snapshot-v8") and v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "v8 restore")
+    v4_panic_assert(snapshot.contains("freak-mir-snapshot-v9") and v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "v9 restore")
     v4_panic_assert(v4_codegen_llvm_module_text(accepted, target) == module and v4_codegen_llvm_panic_policy(accepted) == "abort", "old immutable seal")
     pilot fresh = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
     v4_panic_assert(v4_codegen_llvm_module_text(fresh, target) == module, "fresh restored exact")

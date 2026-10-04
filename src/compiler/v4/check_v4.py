@@ -10973,7 +10973,7 @@ EXECUTABLE_SMOKES = [
      'memory_limit_mb': 64,
      'expect_mode': 'line',
      'expect_unique': True,
-     'expect': ['word-lower-execute stages=clean v8-restore=true old-seal=true fresh-module=true'],
+     'expect': ['word-lower-execute stages=clean v9-restore=true old-seal=true fresh-module=true'],
      'llvm_programs': [('word_lowercase.fk',
                         0,
                         'A\x00B\n'
@@ -11715,7 +11715,7 @@ EXECUTABLE_SMOKES = [
      'expect_mode': 'line',
      'expect_unique': True,
      'argv': ['src/compiler/v4/examples/panic_abort.fk', 'x86_64-unknown-linux-gnu'],
-     'expect': ['panic-abort-execute stages=clean v8-restore=true old-seal=true fresh-module=true policy=abort',
+     'expect': ['panic-abort-execute stages=clean v9-restore=true old-seal=true fresh-module=true policy=abort',
                 '@@LLVM-MODULE-BEGIN',
                 '@@LLVM-MODULE-END']},
     {'name': 'Word call temporary-loan lifetimes',

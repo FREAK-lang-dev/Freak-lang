@@ -100,7 +100,7 @@ task v4_lower_loan_run() -> void {
         v4_lower_loan_assert(v4_lower_loan_status(borrow, "share") == v4_borrowck_clean and v4_lower_loan_status(borrow, "forward") == v4_borrowck_clean, "ordinary loan forwarding")
         if mode == "restore" {
             pilot payload = v4_mir_snapshot()
-            v4_lower_loan_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "raw v8 restore")
+            v4_lower_loan_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "raw v9 restore")
             pilot fresh_borrow = v4_borrowck_check_mir(0, mir)
             v4_lower_loan_assert(v4_lower_loan_status(fresh_borrow, "owned_good") == v4_borrowck_clean and v4_lower_loan_status(fresh_borrow, "loan_bad") == v4_borrowck_blocked and v4_lower_loan_status(fresh_borrow, "forward") == v4_borrowck_clean, "restored owner/loan distinction")
         }

@@ -219,7 +219,7 @@ task v4_owned_semantics_run() -> void {
     v4_owned_semantics_assert(v4_owned_semantics_status(borrow_id, "lend_move_bad", v4_borrowck_blocked), "borrowed parameter cannot move")
     say "owned-word-semantics ordered-events=true binding-ids=true shadowed-lend=true"
     pilot payload = v4_mir_snapshot()
-    v4_owned_semantics_assert(payload.starts_with("mir-snapshot|format=freak-mir-snapshot-v8|") and payload.ends_with("end|freak-mir-snapshot-v8") and v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1"), "valid v8 snapshot")
+    v4_owned_semantics_assert(payload.starts_with("mir-snapshot|format=freak-mir-snapshot-v9|") and payload.ends_with("end|freak-mir-snapshot-v9") and v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1"), "valid v9 snapshot")
     pilot modes = array_new()
     array_push(modes, "foreign-scope")
     array_push(modes, "missing-scope")
@@ -240,11 +240,11 @@ task v4_owned_semantics_run() -> void {
         index += 1
     }
     array_release(modes)
-    pilot old = payload.replace("freak-mir-snapshot-v8", "freak-mir-snapshot-v6")
-    v4_owned_semantics_assert(old != payload and old.starts_with("mir-snapshot|format=freak-mir-snapshot-v6|") and old.ends_with("end|freak-mir-snapshot-v6") and not old.contains("freak-mir-snapshot-v8"), "reached v6 wire forgery")
+    pilot old = payload.replace("freak-mir-snapshot-v9", "freak-mir-snapshot-v6")
+    v4_owned_semantics_assert(old != payload and old.starts_with("mir-snapshot|format=freak-mir-snapshot-v6|") and old.ends_with("end|freak-mir-snapshot-v6") and not old.contains("freak-mir-snapshot-v9"), "reached v6 wire forgery")
     v4_owned_semantics_assert(v4_owned_semantics_rejects(old, payload), "v6 wire version rejection")
-    old = payload.replace("freak-mir-snapshot-v8", "freak-mir-snapshot-v7")
-    v4_owned_semantics_assert(old != payload and old.starts_with("mir-snapshot|format=freak-mir-snapshot-v7|") and old.ends_with("end|freak-mir-snapshot-v7") and not old.contains("freak-mir-snapshot-v8"), "reached v7 wire forgery")
+    old = payload.replace("freak-mir-snapshot-v9", "freak-mir-snapshot-v7")
+    v4_owned_semantics_assert(old != payload and old.starts_with("mir-snapshot|format=freak-mir-snapshot-v7|") and old.ends_with("end|freak-mir-snapshot-v7") and not old.contains("freak-mir-snapshot-v9"), "reached v7 wire forgery")
     v4_owned_semantics_assert(v4_owned_semantics_rejects(old, payload), "v7 wire version rejection")
     say "owned-word-semantics snapshot-crossfacts=true atomic-rejection=true old-version-rejected=true"
     pilot body_id = v4_mir_lookup_body_name(mir_id, "rebind_good")

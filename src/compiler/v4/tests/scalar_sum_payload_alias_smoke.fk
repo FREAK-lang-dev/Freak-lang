@@ -9,7 +9,7 @@ task v4_sum_alias_source(mode: int) -> word {
     pilot body = "pilot choice: maybe<Number> = some(0)\ncheck choice " + chr(123) + " got number -> " + chr(123) + " if number != 0 " + chr(123) + " give back 1 " + chr(125) + " " + chr(125) + " nobody -> " + chr(123) + " give back 2 " + chr(125) + " " + chr(125)
     if mode == 1 { body = "pilot choice: maybe<Number> = nobody\ncheck choice " + chr(123) + " got number -> " + chr(123) + " say number " + chr(125) + " nobody -> " + chr(123) + " say \"absent\" " + chr(125) + " " + chr(125) }
     if mode == 2 or mode == 7 { body = "pilot value: result<Text,Text> = ok(\"\\0payload\")\ncheck result value " + chr(123) + " ok(text) -> " + chr(123) + " say text " + chr(125) + " err(message) -> " + chr(123) + " say message " + chr(125) + " " + chr(125) }
-    if mode == 3 { body = "pilot value: result<Text,Text> = err(\"İ 𐐀\")\ncheck result value " + chr(123) + " ok(text) -> " + chr(123) + " say text " + chr(125) + " err(message) -> " + chr(123) + " say message " + chr(125) + " " + chr(125) }
+    if mode == 3 { body = "pilot value: result<Text,Text> = err(\"" + chr(304) + " " + chr(66560) + "\")\ncheck result value " + chr(123) + " ok(text) -> " + chr(123) + " say text " + chr(125) + " err(message) -> " + chr(123) + " say message " + chr(125) + " " + chr(125) }
     if mode == 4 {
         aliases = aliases + "alias Count = Number\nalias Choice = maybe<Count>\n"
         helpers = "task relay(value: Choice) -> Choice " + chr(123) + " give back value " + chr(125) + "\n"
