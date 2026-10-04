@@ -6,27 +6,27 @@ task v4_check_terminal_assert(condition: bool, label: word) -> void {
 
 task v4_check_terminal_source(mode: word) -> word {
     pilot header = ""
-    pilot body = "pilot value: maybe<int> = some(7)\ncheck value { got number -> { give back number } nobody -> { give back 1 } }\n"
+    pilot body = "pilot value: maybe<int> = some(7)\ncheck value " + chr(123) + " got number -> " + chr(123) + " give back number " + chr(125) + " nobody -> " + chr(123) + " give back 1 " + chr(125) + " " + chr(125) + "\n"
     if mode == "result" or mode == "restore" {
-        body = "pilot value: result<word,word> = ok(\"payload\")\ncheck result value { ok(text) -> { give back text.length() } err(message) -> { give back message.length() } }\n"
+        body = "pilot value: result<word,word> = ok(\"payload\")\ncheck result value " + chr(123) + " ok(text) -> " + chr(123) + " give back text.length() " + chr(125) + " err(message) -> " + chr(123) + " give back message.length() " + chr(125) + " " + chr(125) + "\n"
     } else if mode == "nested" {
-        body = "pilot value: result<word,word> = ok(\"payload\")\ncheck result value { ok(text) -> { pilot number: maybe<int> = some(text.length()); check number { got count -> { give back count } nobody -> { give back 1 } } } err(message) -> { give back message.length() } }\n"
+        body = "pilot value: result<word,word> = ok(\"payload\")\ncheck result value " + chr(123) + " ok(text) -> " + chr(123) + " pilot number: maybe<int> = some(text.length()); check number " + chr(123) + " got count -> " + chr(123) + " give back count " + chr(125) + " nobody -> " + chr(123) + " give back 1 " + chr(125) + " " + chr(125) + " " + chr(125) + " err(message) -> " + chr(123) + " give back message.length() " + chr(125) + " " + chr(125) + "\n"
     } else if mode == "nested-result" {
-        body = "pilot number: maybe<int> = some(1)\ncheck number { got count -> { pilot value: result<word,word> = ok(\"payload\"); check result value { ok(text) -> { give back text.length() } err(message) -> { give back message.length() } } } nobody -> { give back 1 } }\n"
+        body = "pilot number: maybe<int> = some(1)\ncheck number " + chr(123) + " got count -> " + chr(123) + " pilot value: result<word,word> = ok(\"payload\"); check result value " + chr(123) + " ok(text) -> " + chr(123) + " give back text.length() " + chr(125) + " err(message) -> " + chr(123) + " give back message.length() " + chr(125) + " " + chr(125) + " " + chr(125) + " nobody -> " + chr(123) + " give back 1 " + chr(125) + " " + chr(125) + "\n"
     } else if mode == "nested-if" or mode == "bad-nested-binding" {
-        body = "pilot value: maybe<int> = some(7)\ncheck value { got number -> { if number > 0 { give back number } else { give back 0 } } nobody -> { give back 1 } }\n"
+        body = "pilot value: maybe<int> = some(7)\ncheck value " + chr(123) + " got number -> " + chr(123) + " if number > 0 " + chr(123) + " give back number " + chr(125) + " else " + chr(123) + " give back 0 " + chr(125) + " " + chr(125) + " nobody -> " + chr(123) + " give back 1 " + chr(125) + " " + chr(125) + "\n"
     } else if mode == "maybe-live" {
-        body = "pilot value: maybe<int> = nobody\ncheck value { got number -> { give back number } nobody -> { say \"live\" } }\n"
+        body = "pilot value: maybe<int> = nobody\ncheck value " + chr(123) + " got number -> " + chr(123) + " give back number " + chr(125) + " nobody -> " + chr(123) + " say \"live\" " + chr(125) + " " + chr(125) + "\n"
     } else if mode == "result-live" {
-        body = "pilot value: result<word,word> = err(\"live\")\ncheck result value { ok(text) -> { give back text.length() } err(message) -> { say message } }\n"
+        body = "pilot value: result<word,word> = err(\"live\")\ncheck result value " + chr(123) + " ok(text) -> " + chr(123) + " give back text.length() " + chr(125) + " err(message) -> " + chr(123) + " say message " + chr(125) + " " + chr(125) + "\n"
     } else if mode == "loop" {
-        body = "pilot mut count = 0\nrepeat until count >= 2 { count += 1; pilot value: maybe<int> = some(count); check value { got number -> { if number == 1 { continue }; break } nobody -> { break } }; give back 99 }\n"
+        body = "pilot mut count = 0\nrepeat until count >= 2 " + chr(123) + " count += 1; pilot value: maybe<int> = some(count); check value " + chr(123) + " got number -> " + chr(123) + " if number == 1 " + chr(123) + " continue " + chr(125) + "; break " + chr(125) + " nobody -> " + chr(123) + " break " + chr(125) + " " + chr(125) + "; give back 99 " + chr(125) + "\n"
     } else if mode == "missing-arm" {
-        body = "pilot value: maybe<int> = some(7)\ncheck value { got number -> { give back number } }\n"
+        body = "pilot value: maybe<int> = some(7)\ncheck value " + chr(123) + " got number -> " + chr(123) + " give back number " + chr(125) + " " + chr(125) + "\n"
     } else if mode == "valid-symbol" {
         header = "fixed pilot fallback: int = 70\n"
     } else if mode == "bad-call" {
-        header = "task target(count: int) -> int { give back count }\n"
+        header = "task target(count: int) -> int " + chr(123) + " give back count " + chr(125) + "\n"
     } else if mode != "maybe" and mode != "bad-binding" and mode != "bad-type" {
         panic("check-terminal unknown mode")
     }
