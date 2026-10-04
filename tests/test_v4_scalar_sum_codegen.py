@@ -139,6 +139,7 @@ class ScalarSumOracle(unittest.TestCase):
             return next(node for node in program.statements if type(node).__name__=='TaskDecl' and node.name==name)
         make_target=task(target,'v4_target_spec_new')
         module_text=task(llvm,'v4_codegen_llvm_module_text')
+        module_error=task(llvm,'v4_codegen_llvm_native_module_error')
         helper=task(fixture,'v4_sum_operator_rejected')
         caller=task(fixture,'v4_sum_operator_run')
         def walk(node):
@@ -149,7 +150,7 @@ class ScalarSumOracle(unittest.TestCase):
                 for child in vars(node).values(): yield from walk(child)
         def consistent(candidate):
             declared=candidate.params[1].type_ann.name
-            if declared != make_target.return_type.name or declared != module_text.params[1].type_ann.name:
+            if declared != make_target.return_type.name or declared != module_text.params[1].type_ann.name or candidate.params[2].type_ann.name != module_error.return_type.name:
                 raise RuntimeError('operator target forwarding disagrees with real target/module interfaces')
         consistent(helper)
         forwarding=[node for node in walk(helper.body) if type(node).__name__=='Call' and type(node.func).__name__=='Ident' and node.func.name=='v4_codegen_llvm_module_text']
@@ -159,9 +160,13 @@ class ScalarSumOracle(unittest.TestCase):
         self.assertEqual(binding.value.func.name,'v4_target_spec_new')
         calls=[node for node in walk(caller.body) if type(node).__name__=='Call' and type(node.func).__name__=='Ident' and node.func.name==helper.name]
         self.assertTrue(calls)
-        self.assertTrue(all(node.args[1].name=='target' for node in calls))
+        self.assertTrue(all(node.args[1].name=='target' and node.args[2].name=='expected' for node in calls))
+        error_binding=next(node for node in walk(caller.body) if type(node).__name__=='PilotDecl' and node.name=='expected')
+        self.assertEqual(type(error_binding.value).__name__,'StrLit')
         old=copy.deepcopy(helper);old.params[1].type_ann.name='int'
         with self.assertRaises(RuntimeError): consistent(old)
+        wrong_error=copy.deepcopy(helper);wrong_error.params[2].type_ann.name='int'
+        with self.assertRaises(RuntimeError): consistent(wrong_error)
 
 
 if __name__=='__main__': unittest.main()

@@ -1,4 +1,4 @@
--- Broad TY/MIR equality remains semantic input; native Sum equality is fenced.
+-- Broad wire operators remain semantic input; native Sum comparisons are fenced.
 task v4_sum_operator_assert(condition: bool, label: word) -> void {
     if not condition { panic("scalar-sum-operator " + label) }
 }
@@ -8,7 +8,7 @@ task v4_sum_operator_source(mode: int) -> word {
     pilot carrier = "maybe<int>"
     pilot left = "some(0)"
     pilot right = "nobody"
-    if mode == 2 or mode == 3 or mode == 5 or mode == 7 {
+    if mode == 2 or mode == 3 or mode == 5 or mode == 7 or mode >= 10 {
         carrier = "result<word,word>"
         left = "ok(\"payload\")"
         right = "err(\"other\")"
@@ -17,23 +17,25 @@ task v4_sum_operator_source(mode: int) -> word {
     source = source + "task main() -> int " + chr(123) + "\n pilot left: " + carrier + " = " + left + "\n pilot right: " + carrier + " = " + right + "\n"
     pilot expression = "left == right"
     if mode == 1 or mode == 3 or mode == 5 { expression = "left != right" }
-    if mode == 6 or mode == 7 { expression = "false" }
+    if mode >= 6 { expression = "false" }
     give back source + " pilot comparison = " + expression + "\n give back 0\n" + chr(125) + "\n"
 }
 
-task v4_sum_operator_rejected(mir: int, target: word) -> bool {
+task v4_sum_operator_rejected(mir: int, target: word, expected: word) -> bool {
     pilot codegen = v4_codegen_llvm_lower_owned_mir(0, mir)
-    give back v4_codegen_llvm_native_module_error(codegen) == "native scalar sum equality is not yet supported" and v4_codegen_llvm_module_text(codegen, target) == ""
+    give back v4_codegen_llvm_native_module_error(codegen) == expected and v4_codegen_llvm_module_text(codegen, target) == ""
 }
 
 task v4_sum_operator_run() -> void {
     pilot mode = word_to_int(process::arg(1))
-    v4_sum_operator_assert(mode >= 0 and mode <= 7, "known mode")
+    v4_sum_operator_assert(mode >= 0 and mode <= 11, "known mode")
     pilot mir = v4_mir_text_cached("scalar-sum-operator.fk", v4_sum_operator_source(mode))
     pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
     v4_sum_operator_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0 and v4_mir_word_plan_preflight(mir) == "", "broad frontend and ownership plan remain valid")
+    pilot expected = "native scalar sum equality is not yet supported"
+    if mode >= 8 { expected = "native scalar sum ordering is not yet supported" }
     if mode <= 5 {
-        v4_sum_operator_assert(v4_sum_operator_rejected(mir, target), "authored equality has exact native fence and no module")
+        v4_sum_operator_assert(v4_sum_operator_rejected(mir, target, expected), "authored equality has exact native fence and no module")
         say "scalar-sum-operator " + word_from_int(mode) + "=passed authored=true exact-fence=true no-module=true"
         give back
     }
@@ -56,13 +58,18 @@ task v4_sum_operator_run() -> void {
     pilot old_count = v4_mir_body_rvalue_count(mir, body)
     pilot lhs = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_use_local, "left", "local#" + word_from_int(left), -1, -1, span, v4_mir_local_ty(mir, body, left))
     pilot rhs = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_use_local, "right", "local#" + word_from_int(right), -1, -1, span, v4_mir_local_ty(mir, body, right))
-    pilot value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_binary, "left == right", v4_mir_bin_eq, lhs, rhs, span, v4_ty_bool)
+    pilot op = v4_mir_bin_eq
+    if mode == 8 { op = v4_mir_bin_lt }
+    if mode == 9 { op = v4_mir_bin_le }
+    if mode == 10 { op = v4_mir_bin_gt }
+    if mode == 11 { op = v4_mir_bin_ge }
+    pilot value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_binary, "left comparison right", op, lhs, rhs, span, v4_ty_bool)
     array_set(v4_mir_body_stmt_rvalues_handle(mir, body), statement, word_from_int(value))
-    v4_sum_operator_assert(lhs == old_count and rhs == lhs + 1 and value == rhs + 1 and value != old_value and v4_mir_stmt_rvalue(mir, body, statement) == value and v4_mir_local_reference_is_exact(mir, body, lhs) and v4_mir_local_reference_is_exact(mir, body, rhs), "three exact rows grafted into one actual statement")
+    v4_sum_operator_assert(lhs == old_count and rhs == lhs + 1 and value == rhs + 1 and value != old_value and v4_mir_stmt_rvalue(mir, body, statement) == value and v4_mir_rvalue_op(mir, body, value) == op and v4_mir_rvalue_ty(mir, body, value) == v4_ty_bool and v4_mir_local_reference_is_exact(mir, body, lhs) and v4_mir_local_reference_is_exact(mir, body, rhs), "three exact rows grafted into one actual statement")
     pilot forged = v4_mir_snapshot()
-    v4_sum_operator_assert(forged != payload and v4_mir_word_plan_preflight(mir) == "" and v4_sum_operator_rejected(mir, target), "live broad Binary is valid but native fence rejects")
+    v4_sum_operator_assert(forged != payload and v4_mir_word_plan_preflight(mir) == "" and v4_sum_operator_rejected(mir, target, expected), "live broad Binary is valid but native fence rejects")
     v4_sum_operator_assert(v4_mir_snapshot_validate(forged).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore(forged).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == forged, "broad detached semantic input roundtrips")
-    v4_sum_operator_assert(v4_sum_operator_rejected(mir, target) and v4_codegen_llvm_module_text(sealed, target) == module, "detached native rejection preserves old seal")
+    v4_sum_operator_assert(v4_sum_operator_rejected(mir, target, expected) and v4_codegen_llvm_module_text(sealed, target) == module, "detached native rejection preserves old seal")
     v4_sum_operator_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "baseline payload recovers")
     pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
     v4_sum_operator_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module and v4_codegen_llvm_module_text(sealed, target) == module, "old and recovered modules stay exact")

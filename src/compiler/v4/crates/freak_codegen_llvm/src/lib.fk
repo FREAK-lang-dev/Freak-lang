@@ -2375,6 +2375,7 @@ task v4_codegen_llvm_native_rvalue_error(mir_id: int, body_id: int, rvalue_id: i
         -- The bounded Sum checkpoint exposes tag checks and proven takes,
         -- not aggregate equality. LLVM icmp has no tagged-struct operand.
         if (op == v4_mir_bin_eq or op == v4_mir_bin_ne) and (v4_mir_scalar_sum_kind(mir_id, lhs_ty) != "" or v4_mir_scalar_sum_kind(mir_id, rhs_ty) != "") { give back "native scalar sum equality is not yet supported" }
+        if (op == v4_mir_bin_lt or op == v4_mir_bin_le or op == v4_mir_bin_gt or op == v4_mir_bin_ge) and (v4_mir_scalar_sum_kind(mir_id, lhs_ty) != "" or v4_mir_scalar_sum_kind(mir_id, rhs_ty) != "") { give back "native scalar sum ordering is not yet supported" }
         pilot operand_ty = v4_codegen_llvm_binary_operand_type(mir_id, body_id, rvalue_id)
         error = v4_codegen_llvm_native_conversion_error(lhs_ty, operand_ty)
         if error == "" { error = v4_codegen_llvm_native_conversion_error(rhs_ty, operand_ty) }
