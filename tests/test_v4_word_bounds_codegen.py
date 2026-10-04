@@ -423,12 +423,41 @@ class WordBoundsOracles(unittest.TestCase):
         with ExitStack() as mocks, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             mocks.enter_context(patch.object(gate, 'load_build', return_value=build))
             mocks.enter_context(patch.object(gate.sys, 'platform', 'linux'))
+            # The inert pipeline models Linux even when these real helpers
+            # captured another host at import. Bind defaults before sealing.
+            mocks.enter_context(patch.object(gate.exit_code, '__defaults__', ('linux',)))
+            mocks.enter_context(patch.object(gate.extract_module, '__kwdefaults__', {'platform': 'linux'}))
+            mocks.enter_context(patch.object(gate.exact_program, '__kwdefaults__', {'platform': 'linux'}))
             mocks.enter_context(patch.object(sys, 'meta_path', [finder, *sys.meta_path]))
             try:
                 code = gate.main(['--clang', str(tool), '--work', str(directory), *(['--plain'] if plain else [])])
             except gate.GateError:
                 code = 1
         return code, json.loads((directory / 'results.json').read_text()), commands
+
+    def test_mock_linux_platform_restores_windows_bound_oracles(self):
+        name = 'word_bounds_windows_model'
+        with patch.object(sys, 'platform', 'win32'):
+            modeled = gate.source_module(name, ROOT / 'tests/v4_word_bounds_codegen.py')
+        try:
+            self.assertEqual(modeled.exit_code.__defaults__, ('win32',))
+            self.assertEqual(modeled.exact_program.__kwdefaults__, {'platform': 'win32'})
+            originals = (modeled.exit_code.__defaults__, modeled.extract_module.__kwdefaults__,
+                         modeled.exact_program.__kwdefaults__)
+            with patch.dict(globals(), gate=modeled), tempfile.TemporaryDirectory() as temporary:
+                code, report, _ = self.mock_gate(Path(temporary) / 'windows-import', plain=True)
+            self.assertEqual(code, 0, report.get('error'))
+            self.assertTrue(report['passed'])
+            self.assertEqual(report['platform'], 'linux')
+            self.assertTrue(all(row['exit'] == modeled.exit_code(row['case'], 'linux')
+                                for row in report['programs']))
+            for observed, original in zip((modeled.exit_code.__defaults__, modeled.extract_module.__kwdefaults__,
+                                          modeled.exact_program.__kwdefaults__), originals):
+                self.assertIs(observed, original)
+            self.assertEqual(modeled.exit_code(1), 3)
+        finally:
+            sys.modules.pop(name + '_numeric', None)
+            sys.modules.pop(name, None)
 
     def test_mock_complete_matrices_use_guard_and_serialized_compiler_limits(self):
         with tempfile.TemporaryDirectory() as temporary:
