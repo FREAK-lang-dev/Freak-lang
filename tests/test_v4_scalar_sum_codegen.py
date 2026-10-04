@@ -88,12 +88,23 @@ class ScalarSumOracle(unittest.TestCase):
                   and n.func.attr=='run' and len(n.args)>1 and isinstance(n.args[1],ast.JoinedStr)
                   and any(isinstance(p,ast.Constant) and p.value=='scalar Sum link ' for p in n.args[1].values))
         argv=compile(ast.Expression(call.args[0]),gate.__file__,'eval')
-        for target,libraries in (('x86_64-unknown-linux-gnu',['-lm']),('aarch64-apple-darwin',[]),('x86_64-pc-windows-msvc',['user32.lib'])):
+        for target,libraries in (('x86_64-unknown-linux-gnu',['-lm']),('aarch64-unknown-linux-gnu',['-lm']),
+                                 ('aarch64-apple-darwin',[]),('x86_64-w64-windows-gnu',['-luser32'])):
             flags=['-O3',*gate.AUDIT_FLAGS,*gate.SANITIZER_FLAGS]
             values={'args':SimpleNamespace(clang='clang'),'target':target,'flags':flags,'llvm':Path('module.ll'),
                     'objects':{3:['runtime.o']},'opt':3,'binary':Path('program'),
+                    'llvm_literal_target_flags':gate.llvm_literal_target_flags,
                     'checks':SimpleNamespace(runtime_platform_final_link_args=lambda:libraries),'str':str}
-            self.assertEqual(eval(argv,{'__builtins__':{}},values),['clang','--target='+target,*flags,'module.ll','runtime.o','-o','program',*libraries])
+            literal=['-Xclang','-triple','-Xclang',target] if target=='aarch64-apple-darwin' else []
+            self.assertEqual(gate.llvm_literal_target_flags(target),literal)
+            expected=['clang','--target='+target,*literal,*flags,'module.ll','runtime.o','-o','program',*libraries]
+            self.assertEqual(eval(argv,{'__builtins__':{}},values),expected)
+            if literal:
+                old=copy.deepcopy(call.args[0])
+                old.elts=[part for part in old.elts if not (isinstance(part,ast.Starred)
+                          and isinstance(part.value,ast.Call) and isinstance(part.value.func,ast.Name)
+                          and part.value.func.id=='llvm_literal_target_flags')]
+                self.assertNotEqual(eval(compile(ast.Expression(old),gate.__file__,'eval'),{'__builtins__':{}},values),expected)
         self.assertEqual({k.arg:ast.literal_eval(k.value) for k in call.keywords},{'timeout':120,'memory':512})
         self.assertIn('if result.returncode!=0 or result.stdout or result.stderr',ast.get_source_segment(source,run))
 
