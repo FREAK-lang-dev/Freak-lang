@@ -189,16 +189,18 @@ int main(int argc,char **argv) {
     objects={}
     with sanitizer_environment(not args.plain):
         for opt in OPTS:
+            # Keep every linked object and control on the emitted module's ABI.
+            # MSVC-default /DEFAULTLIB directives are invalid for the GNU PE linker.
             flags=['-w',f'-O{opt}',f'-I{checks.RUNTIME_ROOT}',*AUDIT_FLAGS]
             if not args.plain: flags+=list(SANITIZER_FLAGS)
             validate_build_flags(flags,not args.plain);objects[opt]=[]
             for name in build.SOURCE_NAMES:
                 path=checks.RUNTIME_ROOT/name;output=work/f'{path.stem}.O{opt}{".obj" if sys.platform=="win32" else ".o"}'
-                result=runner.run([args.clang,*flags,'-c',str(path),'-o',str(output)],f'panic runtime {path.stem} O{opt}',timeout=120,memory=512)
+                result=runner.run([args.clang,'--target='+target,*flags,'-c',str(path),'-o',str(output)],f'panic runtime {path.stem} O{opt}',timeout=120,memory=512)
                 if result.returncode!=0:raise RuntimeError(f'panic runtime compile failed: {result.stderr}')
                 objects[opt].append(str(output))
             binary=work/f'audit-O{opt}{suffix}'
-            result=runner.run([args.clang,*flags,str(audit),*objects[opt],'-o',str(binary),*checks.runtime_platform_final_link_args()],f'panic audit link O{opt}',timeout=120,memory=512)
+            result=runner.run([args.clang,'--target='+target,*flags,str(audit),*objects[opt],'-o',str(binary),*checks.runtime_platform_final_link_args()],f'panic audit link O{opt}',timeout=120,memory=512)
             if result.returncode!=0:raise RuntimeError(f'panic audit compile failed: {result.stderr}')
             for kind,status in (('C',87),('LLVM',86)):
                 actual=runner.run([str(binary),kind],f'panic audit {kind} O{opt}',timeout=30,memory=128)
@@ -210,7 +212,7 @@ int main(int argc,char **argv) {
 int main(int argc,char **argv){if(argc!=2)return 9;if(argv[1][0]=='a'){volatile char *p=malloc(1);free((void*)p);return p[0];}volatile int x=INT_MAX;volatile int one=1;return x+one;}
 ''')
             binary=work/f'sanitizer-probe{suffix}'
-            result=runner.run([args.clang,'-O0',*SANITIZER_FLAGS,str(probe),'-o',str(binary)],'panic sanitizer link',timeout=120,memory=512)
+            result=runner.run([args.clang,'--target='+target,'-O0',*SANITIZER_FLAGS,str(probe),'-o',str(binary)],'panic sanitizer link',timeout=120,memory=512)
             if result.returncode!=0:raise RuntimeError('sanitizer capability compile failed')
             for kind in ('address','undefined'):
                 validate_sanitizer_probe(runner.run([str(binary),kind],f'panic sanitizer {kind}',timeout=30,memory=128),kind)

@@ -90,6 +90,56 @@ class PanicAbortOracle(unittest.TestCase):
         with patch.object(Path, 'read_text', windows_read_text):
             self.test_native_link_uses_emitted_target_and_keeps_strict_guards()
 
+    def test_runtime_objects_and_controls_share_generated_module_target(self):
+        tree = ast.parse(Path(gate.__file__).read_text(encoding='utf-8'))
+        run_gate = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'run_gate')
+        calls = {}
+        for node in ast.walk(run_gate):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == 'run' and len(node.args) > 1):
+                continue
+            label = node.args[1]
+            if isinstance(label, ast.JoinedStr):
+                label = label.values[0]
+            if isinstance(label, ast.Constant) and label.value in ('panic runtime ', 'panic audit link O', 'panic sanitizer link', 'panic link '):
+                self.assertNotIn(label.value, calls)
+                calls[label.value] = node
+        self.assertEqual(set(calls), {'panic runtime ', 'panic audit link O', 'panic sanitizer link', 'panic link '})
+        for target, libraries in (('x86_64-w64-windows-gnu', ['-lws2_32', '-lshell32']),
+                                  ('x86_64-unknown-linux-gnu', ['-lm']), ('aarch64-apple-darwin', [])):
+            for sanitized in (False, True):
+                for opt in gate.OPTS:
+                    flags = ['-w', f'-O{opt}', '-Iruntime', *gate.AUDIT_FLAGS]
+                    if sanitized: flags += list(gate.SANITIZER_FLAGS)
+                    native_flags = [f'-O{opt}', *gate.AUDIT_FLAGS]
+                    if sanitized: native_flags += list(gate.SANITIZER_FLAGS)
+                    values = {'args': SimpleNamespace(clang='clang'), 'target': target, 'flags': flags,
+                              'path': Path('runtime.c'), 'output': Path('runtime.obj'), 'audit': Path('audit.c'),
+                              'probe': Path('sanitizer.c'), 'llvm': Path('module.ll'), 'objects': {opt: ['runtime.obj']},
+                              'opt': opt, 'binary': Path('program.native'), 'str': str,
+                              'SANITIZER_FLAGS': gate.SANITIZER_FLAGS,
+                              'checks': SimpleNamespace(runtime_platform_final_link_args=lambda: libraries)}
+                    expected = {
+                        'panic runtime ': [*flags, '-c', 'runtime.c', '-o', 'runtime.obj'],
+                        'panic audit link O': [*flags, 'audit.c', 'runtime.obj', '-o', 'program.native', *libraries],
+                        'panic sanitizer link': ['-O0', *gate.SANITIZER_FLAGS, 'sanitizer.c', '-o', 'program.native'],
+                        'panic link ': [*native_flags, 'module.ll', 'runtime.obj', '-o', 'program.native', *libraries],
+                    }
+                    for label, call in calls.items():
+                        with self.subTest(target=target, sanitized=sanitized, opt=opt, stage=label):
+                            values['flags'] = native_flags if label == 'panic link ' else flags
+                            command = compile(ast.Expression(call.args[0]), gate.__file__, 'eval')
+                            argv = eval(command, {'__builtins__': {}}, values)
+                            self.assertEqual(argv, ['clang', '--target=' + target, *expected[label]])
+                            self.assertEqual({keyword.arg: ast.literal_eval(keyword.value) for keyword in call.keywords}, {'timeout': 120, 'memory': 512})
+
+    def test_corrupt_windows_link_directives_remain_fatal(self):
+        warning = 'Warning: corrupt .drectve at end of def file\r\n'
+        for target in ('x86_64-w64-windows-gnu', 'x86_64-pc-windows-msvc'):
+            for stderr in (warning, warning * 3, warning.replace('\r\n', '\n')):
+                with self.subTest(target=target, stderr=stderr), self.assertRaises(RuntimeError):
+                    gate.require_native_link(self.result(stderr=stderr), target, platform='win32')
+
     def test_link_allows_only_same_architecture_darwin_canonicalization(self):
         warning = ('warning: overriding the module target triple with arm64-apple-macosx26.0.0 '
                    '[-Woverride-module]\n1 warning generated.\n')
