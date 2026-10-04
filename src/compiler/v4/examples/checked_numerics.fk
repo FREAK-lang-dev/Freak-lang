@@ -1,0 +1,118 @@
+-- Checked scalar arithmetic and numerical coercions at every optimization level.
+use std::ffi
+extern [C] {
+    task malloc(size: std::ffi::c_size) -> *mut tiny
+    task free(value: *mut tiny) -> void
+}
+
+task numeric_int(value: int) -> int { give back value }
+task numeric_uint(value: uint) -> uint { give back value }
+task numeric_tiny(value: tiny) -> tiny { give back value }
+task numeric_return(value: num) -> int { give back value }
+task numeric_indirect(callback: task(value: int) -> int, value: num) -> int {
+    give back callback(value)
+}
+
+task numeric_signed_arithmetic() -> int {
+    pilot minimum = -9223372036854775808
+    pilot wrapped = -(9223372036854775808)
+    pilot zeroes = -0009223372036854775808
+    pilot maximum = 9223372036854775807
+    if minimum != wrapped or minimum != zeroes or maximum <= minimum { give back 1 }
+    if -7 / 3 != -2 or -7 % 3 != -1 or 7 / -3 != -2 or 7 % -3 != 1 { give back 2 }
+    if 19 + 23 != 42 or 65 - 23 != 42 or 6 * 7 != 42 or -42 != 0 - 42 { give back 3 }
+    give back 0
+}
+
+task numeric_unsigned_arithmetic() -> int {
+    pilot wide: uint = 18446744073709551615u
+    if wide <= 9223372036854775807u or wide / 3u != 6148914691236517205u or wide % 3u != 0u { give back 4 }
+    if 19u + 23u != 42u or 65u - 23u != 42u or 6u * 7u != 42u or -0u != 0u { give back 5 }
+    if 19t + 23t != 42t or 65t - 23t != 42t or 6t * 7t != 42t or 84t / 2t != 42t or 85t % 43t != 42t or -0t != 0t { give back 6 }
+    give back 0
+}
+
+task numeric_integer_conversion() -> int {
+    pilot positive = 42
+    pilot unsigned: uint = positive
+    pilot narrowed: tiny = positive
+    pilot unsigned_narrowed: tiny = unsigned
+    pilot widened: int = narrowed
+    pilot widened_unsigned: uint = narrowed
+    pilot signed_unsigned: int = unsigned
+    if unsigned != 42u or narrowed != 42t or unsigned_narrowed != 42t or widened != 42 or widened_unsigned != 42u or signed_unsigned != 42 { give back 7 }
+    give back 0
+}
+
+task numeric_float_conversion() -> int {
+    pilot fraction: num = 2.9
+    pilot signed_fraction: int = fraction
+    pilot unsigned_fraction: uint = fraction
+    pilot byte_fraction: tiny = fraction
+    pilot just_byte: num = 255.9
+    pilot byte_max: tiny = just_byte
+    pilot negative_fraction: num = -0.5
+    pilot unsigned_zero: uint = negative_fraction
+    pilot tiny_zero: tiny = negative_fraction
+    if signed_fraction != 2 or unsigned_fraction != 2u or byte_fraction != 2t or byte_max != 255t or unsigned_zero != 0u or tiny_zero != 0t { give back 8 }
+    pilot minimum = -9223372036854775808
+    pilot wide: uint = 18446744073709551615u
+    pilot int_float: num = minimum
+    pilot uint_float: num = wide
+    pilot tiny_float: num = byte_max
+    if int_float >= 0.0 or uint_float <= 0.0 or tiny_float != 255.0 { give back 9 }
+    give back 0
+}
+
+task numeric_small_float_conversion() -> int {
+    pilot positive = 42
+    pilot unsigned = 42u
+    pilot byte_max = 255t
+    pilot small_float: float32 = 2.5
+    pilot small_integer: int = small_float
+    pilot small_unsigned: uint = small_float
+    pilot small_tiny: tiny = small_float
+    pilot tiny_small_float: float32 = byte_max
+    pilot int_small_float: float32 = positive
+    pilot uint_small_float: float32 = unsigned
+    if small_integer != 2 or small_unsigned != 2u or small_tiny != 2t or tiny_small_float != 255.0 or int_small_float != 42.0 or uint_small_float != 42.0 { give back 10 }
+    give back 0
+}
+
+task numeric_conversion_sites() -> int {
+    pilot fraction: num = 2.9
+    pilot just_byte: num = 255.9
+    pilot positive = 42
+    pilot unsigned = 42u
+    pilot narrowed = 42t
+    pilot mut mutable_value: int = 0
+    mutable_value = fraction
+    if mutable_value != 2 or numeric_int(fraction) != 2 or numeric_uint(fraction) != 2u or numeric_tiny(fraction) != 2t or numeric_return(fraction) != 2 or numeric_indirect(numeric_int, fraction) != 2 { give back 11 }
+    if positive + unsigned != 84 or narrowed + positive != 84 or fraction + positive <= 44.0 or fraction + positive >= 45.0 { give back 12 }
+    pilot pointer = malloc(8)
+    trust me "check numerical conversion before raw pointer stores" on my honor as .ace {
+        pointer.write(just_byte)
+        pilot read_byte: tiny = pointer.read()
+        if read_byte != 255t { give back 13 }
+        *pointer = fraction
+        pilot read_second: int = pointer.read()
+        free(pointer)
+        if read_second != 2 { give back 14 }
+    }
+    give back 0
+}
+
+task numeric_negative_zero() -> int {
+    pilot plus_zero: num = 0.0
+    pilot minus_zero = -plus_zero
+    pilot plus_small_zero: float32 = 0.0
+    pilot minus_small_zero = -plus_small_zero
+    if 1.0 / minus_zero > 0.0 or 1.0 / minus_small_zero > 0.0 { give back 15 }
+    give back 0
+}
+
+task main() -> int {
+    pilot status = numeric_signed_arithmetic() + numeric_unsigned_arithmetic() + numeric_integer_conversion() + numeric_float_conversion() + numeric_small_float_conversion() + numeric_conversion_sites() + numeric_negative_zero()
+    say "checked numerics passed"
+    give back status
+}

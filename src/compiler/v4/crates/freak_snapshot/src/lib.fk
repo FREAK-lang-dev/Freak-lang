@@ -4348,8 +4348,43 @@ task v4_mir_snapshot_restore(payload: word) -> word {
 -- query section. Dirty every cached expansion and its transitive dependents at
 -- one generation so no valid query can retain an id removed by the restore.
 task v4_expand_snapshot_restore_with_queries(payload: word) -> word {
+    pilot expand_was_cold = v4_expand_ready == 0
+    pilot previous_expand_files = v4_expand_files
+    pilot previous_expand_trees = v4_expand_trees
+    pilot previous_expand_provenance_kinds = v4_expand_provenance_kinds
+    pilot previous_expand_generations = v4_expand_generations
+    pilot previous_expand_file_len = v4_expand_file_len
+    -- A raw component restore never touches queries. Keep its cold admission
+    -- reversible without borrowing another array handle for a guard.
+    pilot query_was_cold = v4_query_ready == 0
+    pilot previous_query_keys = v4_query_keys
+    pilot previous_query_inputs = v4_query_inputs
+    pilot previous_query_outputs = v4_query_outputs
+    pilot previous_query_states = v4_query_states
+    pilot previous_query_entry_generations = v4_query_entry_generations
+    pilot previous_query_entry_last_generations = v4_query_entry_last_generations
+    pilot previous_query_entry_last_events = v4_query_entry_last_events
+    pilot previous_query_dep_from = v4_query_dep_from
+    pilot previous_query_dep_to = v4_query_dep_to
+    pilot previous_query_generation_reasons = v4_query_generation_reasons
+    pilot previous_query_invalidated_keys = v4_query_invalidated_keys
+    pilot previous_query_invalidated_generations = v4_query_invalidated_generations
+    pilot previous_query_invalidated_reasons = v4_query_invalidated_reasons
+    pilot previous_query_telemetry_keys = v4_query_telemetry_keys
+    pilot previous_query_telemetry_hits = v4_query_telemetry_hits
+    pilot previous_query_telemetry_misses = v4_query_telemetry_misses
+    pilot previous_query_telemetry_stores = v4_query_telemetry_stores
+    if v4_query_try_init() == false {
+        give back "expand-snapshot-restore ok=0 reason=query-initialization-resource-exhausted"
+    }
     pilot restore_result = v4_expand_snapshot_restore(payload)
     if restore_result.starts_with("expand-snapshot-restore ok=1") == false {
+        if expand_was_cold and v4_expand_ready != 0 {
+            v4_expand_rollback_cold_init(previous_expand_files, previous_expand_trees, previous_expand_provenance_kinds, previous_expand_generations, previous_expand_file_len)
+        }
+        if query_was_cold {
+            v4_query_rollback_cold_init(previous_query_keys, previous_query_inputs, previous_query_outputs, previous_query_states, previous_query_entry_generations, previous_query_entry_last_generations, previous_query_entry_last_events, previous_query_dep_from, previous_query_dep_to, previous_query_generation_reasons, previous_query_invalidated_keys, previous_query_invalidated_generations, previous_query_invalidated_reasons, previous_query_telemetry_keys, previous_query_telemetry_hits, previous_query_telemetry_misses, previous_query_telemetry_stores)
+        }
         give back restore_result
     }
 
@@ -4372,8 +4407,34 @@ task v4_expand_snapshot_restore_with_queries(payload: word) -> word {
 -- trailing slots. Dirty every cached HIR and transitive dependent before any
 -- clean query can interpret a reused numeric slot as its former source.
 task v4_hir_snapshot_restore_with_queries(payload: word) -> word {
+    -- A raw component restore never touches queries. Keep its cold admission
+    -- reversible without borrowing another array handle for a guard.
+    pilot query_was_cold = v4_query_ready == 0
+    pilot previous_query_keys = v4_query_keys
+    pilot previous_query_inputs = v4_query_inputs
+    pilot previous_query_outputs = v4_query_outputs
+    pilot previous_query_states = v4_query_states
+    pilot previous_query_entry_generations = v4_query_entry_generations
+    pilot previous_query_entry_last_generations = v4_query_entry_last_generations
+    pilot previous_query_entry_last_events = v4_query_entry_last_events
+    pilot previous_query_dep_from = v4_query_dep_from
+    pilot previous_query_dep_to = v4_query_dep_to
+    pilot previous_query_generation_reasons = v4_query_generation_reasons
+    pilot previous_query_invalidated_keys = v4_query_invalidated_keys
+    pilot previous_query_invalidated_generations = v4_query_invalidated_generations
+    pilot previous_query_invalidated_reasons = v4_query_invalidated_reasons
+    pilot previous_query_telemetry_keys = v4_query_telemetry_keys
+    pilot previous_query_telemetry_hits = v4_query_telemetry_hits
+    pilot previous_query_telemetry_misses = v4_query_telemetry_misses
+    pilot previous_query_telemetry_stores = v4_query_telemetry_stores
+    if v4_query_try_init() == false {
+        give back "hir-snapshot-restore ok=0 reason=query-initialization-resource-exhausted"
+    }
     pilot restore_result = v4_hir_snapshot_restore(payload)
     if restore_result.starts_with("hir-snapshot-restore ok=1") == false {
+        if query_was_cold {
+            v4_query_rollback_cold_init(previous_query_keys, previous_query_inputs, previous_query_outputs, previous_query_states, previous_query_entry_generations, previous_query_entry_last_generations, previous_query_entry_last_events, previous_query_dep_from, previous_query_dep_to, previous_query_generation_reasons, previous_query_invalidated_keys, previous_query_invalidated_generations, previous_query_invalidated_reasons, previous_query_telemetry_keys, previous_query_telemetry_hits, previous_query_telemetry_misses, previous_query_telemetry_stores)
+        }
         give back restore_result
     }
 
@@ -4607,4 +4668,3 @@ task v4_unit_snapshot_restore(payload: word) -> word {
     }
     give back out
 }
-

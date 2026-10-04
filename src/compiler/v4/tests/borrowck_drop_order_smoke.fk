@@ -246,3 +246,18 @@ say "drop-route-branch-moved-count=" + word_from_int(v4_borrowck_result_drops(v4
 say "drop-route-branch-moved-0=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_route_branch_moved_result, 0)
 say "drop-route-branch-moved-1=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_route_branch_moved_result, 1)
 say "drop-route-branch-moved-2=" + v4_borrowck_drop_order_nth_drop_text(v4_borrowck_drop_order_check, v4_borrowck_drop_order_route_branch_moved_result, 2)
+
+-- The backedge may consume x again. Preserve its conditional drop facts while
+-- requiring the owning-word diagnostic at x's declaration.
+pilot v4_borrowck_drop_order_loop_body = v4_mir_lookup_body(v4_borrowck_drop_order_mir, v4_borrowck_drop_order_loop_moves_inside_def)
+pilot v4_borrowck_drop_order_loop_x = v4_borrowck_word_path_local(v4_borrowck_drop_order_mir, v4_borrowck_drop_order_loop_body, "x")
+pilot v4_borrowck_drop_order_loop_diag = v4_borrowck_diag(v4_borrowck_drop_order_check, 0)
+say "drop-loop-moves-inside-diagnostics=" + word_from_int(v4_borrowck_diag_count(v4_borrowck_drop_order_check))
+say "drop-loop-moves-inside-diagnostic-message=" + v4_diag_message(v4_borrowck_drop_order_loop_diag)
+say "drop-loop-moves-inside-diagnostic-help=" + v4_diag_help(v4_borrowck_drop_order_loop_diag)
+say "drop-loop-moves-inside-diagnostic-span=" + v4_diag_span(v4_borrowck_drop_order_loop_diag)
+if v4_mir_local_name(v4_borrowck_drop_order_mir, v4_borrowck_drop_order_loop_body, v4_borrowck_drop_order_loop_x) == "x" and v4_diag_span(v4_borrowck_drop_order_loop_diag) == v4_mir_local_span(v4_borrowck_drop_order_mir, v4_borrowck_drop_order_loop_body, v4_borrowck_drop_order_loop_x) {
+    say "drop-loop-moves-inside-diagnostic-local-init-span=true"
+} else {
+    say "drop-loop-moves-inside-diagnostic-local-init-span=false"
+}

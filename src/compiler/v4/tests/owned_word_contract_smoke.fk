@@ -1,0 +1,111 @@
+-- Sealing and fail-closed ownership checks over compiler-owned MIR identities.
+task v4_owned_contract_assert(condition: bool, label: word) -> void {
+    if not condition { panic("owned word contract: " + label) }
+}
+
+task v4_owned_contract_mir(source: word, file: int) -> int {
+    pilot stream = v4_lex_text(file, source)
+    pilot tree = v4_parse_stream(file, stream)
+    pilot hir = v4_hir_lower_tree(file, tree)
+    pilot resolve = v4_resolve_lower_hir(file, hir)
+    pilot ty = v4_ty_lower_resolve(file, resolve)
+    give back v4_mir_lower_ty(file, ty)
+}
+
+task v4_owned_word_contract_smoke(selected_case: int) -> void {
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    if selected_case == 0 {
+        pilot source = "task main() -> int " + "{" + " pilot value = \"a\" + \"b\"; say value; give back 0 " + "}"
+        pilot mir = v4_owned_contract_mir(source, 0)
+        pilot legacy = v4_codegen_llvm_lower_mir(0, mir)
+        v4_owned_contract_assert(v4_codegen_llvm_module_text(legacy, target) == "", "legacy word admission remains closed")
+        pilot sealed = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot module = v4_codegen_llvm_module_text(sealed, target)
+        v4_owned_contract_assert(module != "", "owned module")
+        v4_owned_contract_assert(module.contains("@freak_v4_word_from_bytes") and module.contains("@freak_v4_word_concat") and module.contains("@freak_v4_word_drop"), "owned runtime calls")
+        pilot concat = 0 - 1
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir, 0) {
+            if v4_mir_word_intrinsic_kind(mir, 0, value) == "concat" { concat = value }
+            value += 1
+        }
+        v4_owned_contract_assert(concat >= 0, "concat identity")
+        pilot identities = v4_mir_body_rvalue_builtin_methods_handle(mir, 0)
+        pilot identity: word = array_get(identities, concat)
+        array_set(identities, concat, "")
+        pilot forged = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_owned_contract_assert(v4_codegen_llvm_native_module_error(forged) != "" and v4_codegen_llvm_module_text(forged, target) == "", "op text does not grant intrinsic authority")
+        v4_owned_contract_assert(v4_codegen_llvm_module_text(sealed, target) == module, "sealed facts survive live identity mutation")
+        array_set(identities, concat, identity)
+        pilot args = v4_mir_body_rvalue_args_handle(mir, 0)
+        pilot original_args: word = array_get(args, concat)
+        pilot first = v4_mir_rvalue_call_arg(mir, 0, concat, 0)
+        array_set(args, concat, word_from_int(first) + "," + word_from_int(first))
+        pilot shared_plan = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_owned_contract_assert(v4_codegen_llvm_module_text(shared_plan, target) == "" and v4_codegen_llvm_native_module_error(shared_plan) != "", "shared owned temporary rejected")
+        array_set(args, concat, original_args)
+        pilot restored = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_owned_contract_assert(v4_codegen_llvm_module_text(restored, target) == module, "fresh ownership plan after mutation")
+        say "owned-word identities=true text-forgery-rejected=true temporary-alias-rejected=true sealed-stable=true"
+        say "owned-word-contract-case-0=passed"
+        give back
+    }
+    if selected_case == 1 {
+        pilot moved = v4_owned_contract_mir("task main() -> int " + "{" + " pilot first = \"moved\"; pilot second = first; say first; give back 0 " + "}", 1)
+        pilot rejected_move = v4_codegen_llvm_lower_owned_mir(1, moved)
+        v4_owned_contract_assert(v4_codegen_llvm_module_text(rejected_move, target) == "" and v4_codegen_llvm_native_module_error(rejected_move).contains("Meiya"), "use after move cannot seal")
+        say "owned-word-contract-case-1=passed"
+        give back
+    }
+    if selected_case == 2 {
+        pilot collision = v4_owned_contract_mir("task freak_v4_word_drop(value: int) -> void " + "{" + " give back " + "}" + " task main() -> int " + "{" + " pilot value = \"owned\"; say value; give back 0 " + "}", 2)
+        pilot rejected_symbol = v4_codegen_llvm_lower_owned_mir(2, collision)
+        v4_owned_contract_assert(v4_codegen_llvm_module_text(rejected_symbol, target) == "" and v4_codegen_llvm_native_module_error(rejected_symbol).contains("runtime symbol conflict"), "runtime body collision")
+        say "owned-word-contract-case-2=passed"
+        give back
+    }
+    if selected_case == 3 {
+        pilot extern_source = "extern [C] " + "{" + "\n @link_name(\"freak_v4_word_drop\")\n task foreign(value: std::ffi::c_isize) -> void\n" + "}" + "\n task main() -> int " + "{" + " pilot value = \"owned\"; say value; give back 0 " + "}"
+        pilot extern_collision = v4_owned_contract_mir(extern_source, 3)
+        pilot rejected_external = v4_codegen_llvm_lower_owned_mir(3, extern_collision)
+        v4_owned_contract_assert(v4_codegen_llvm_module_text(rejected_external, target) == "" and v4_codegen_llvm_native_module_error(rejected_external).contains("runtime symbol conflict"), "runtime explicit ABI collision")
+        say "owned-word-contract-case-3=passed"
+        give back
+    }
+    if selected_case == 4 {
+        pilot foreign_words = v4_owned_contract_mir("extern [C] " + "{" + " task foreign(value: word) -> word " + "}" + " task main() -> int " + "{" + " give back 0 " + "}", 4)
+        pilot rejected_foreign = v4_codegen_llvm_lower_owned_mir(4, foreign_words)
+        say "owned-word-foreign-error=" + v4_codegen_llvm_native_module_error(rejected_foreign)
+        v4_owned_contract_assert(v4_codegen_llvm_module_text(rejected_foreign, target) == "" and v4_codegen_llvm_native_module_error(rejected_foreign).contains("word C ABI"), "foreign word ownership ABI remains fenced")
+        say "owned-word-contract-case-4=passed"
+        give back
+    }
+    if selected_case == 5 {
+        pilot consume_source = "task consume_word(value: word) -> word " + "{" + " give back value " + "}" + " task main() -> int " + "{" + " pilot owner = \"owned\"; say consume_word(owner) + consume_word(owner); give back 0 " + "}"
+        pilot double_move = v4_owned_contract_mir(consume_source, 5)
+        pilot rejected_twice = v4_codegen_llvm_lower_owned_mir(5, double_move)
+        v4_owned_contract_assert(v4_codegen_llvm_module_text(rejected_twice, target) == "" and v4_codegen_llvm_native_module_error(rejected_twice).contains("Meiya"), "same statement double move")
+        say "owned-word-contract-case-5=passed"
+        give back
+    }
+    if selected_case == 6 {
+        pilot replace_source = "task replace_word(value: word) -> word " + "{" + " give back value + \"!\" " + "}" + " task main() -> int " + "{" + " pilot owner = \"owned\"; replace_word(owner) == owner; give back 0 " + "}"
+        pilot moved_observation = v4_owned_contract_mir(replace_source, 6)
+        pilot rejected_observation = v4_codegen_llvm_lower_owned_mir(6, moved_observation)
+        v4_owned_contract_assert(v4_codegen_llvm_module_text(rejected_observation, target) == "" and v4_codegen_llvm_native_module_error(rejected_observation).contains("Meiya"), "same statement borrow after move")
+        say "owned-word-contract-case-6=passed"
+        give back
+    }
+    if selected_case == 7 {
+        pilot scalar_source = "task consume_size(value: word) -> int " + "{" + " give back value.length() " + "}" + " task main() -> int " + "{" + " pilot owner = \"owned\"; consume_size(owner) + owner.length(); give back 0 " + "}"
+        pilot scalar_moved_observation = v4_owned_contract_mir(scalar_source, 7)
+        pilot rejected_scalar_observation = v4_codegen_llvm_lower_owned_mir(7, scalar_moved_observation)
+        v4_owned_contract_assert(v4_codegen_llvm_module_text(rejected_scalar_observation, target) == "" and v4_codegen_llvm_native_module_error(rejected_scalar_observation).contains("Meiya"), "scalar binary borrow after move")
+        say "owned-word same-statement-double-move-rejected=true same-statement-moved-borrow-rejected=true scalar-binary-moved-borrow-rejected=true"
+        say "owned-word-contract-case-7=passed"
+        give back
+    }
+    panic("owned word contract: unknown case")
+}
+
+v4_owned_word_contract_smoke(word_to_int(process::arg(1)))

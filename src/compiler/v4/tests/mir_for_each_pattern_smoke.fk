@@ -161,7 +161,14 @@ say "for-each-pattern-right-index-kind=" + v4_mir_rvalue_kind(v4_mir_for_each_pa
 say "for-each-pattern-right-index-text=" + v4_mir_rvalue_text(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_right_index)
 say "for-each-pattern-right-index-ty=" + v4_mir_rvalue_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_right_index)
 say "for-each-pattern-return-kind=" + v4_mir_rvalue_kind(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_return_rvalue)
-say "for-each-pattern-return-op=" + v4_mir_rvalue_op(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_return_rvalue)
+-- The legacy return-op row names the resolved source binding. UseLocal now
+-- stores a canonical LocalId in op; check that identity before displaying it.
+pilot v4_mir_for_each_pattern_return_local = v4_mir_rvalue_local_id(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_return_rvalue)
+pilot v4_mir_for_each_pattern_total_local = v4_mir_find_local(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, "total")
+if v4_mir_for_each_pattern_return_local < 0 or v4_mir_for_each_pattern_return_local != v4_mir_for_each_pattern_total_local or v4_mir_rvalue_op(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_return_rvalue) != "local#" + word_from_int(v4_mir_for_each_pattern_return_local) {
+    panic("for-each-pattern return lost total LocalId identity")
+}
+say "for-each-pattern-return-op=" + v4_mir_local_name(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_return_local)
 say "for-each-pattern-return-ty=" + v4_mir_rvalue_ty(v4_mir_for_each_pattern_mir, v4_mir_for_each_pattern_main_body, v4_mir_for_each_pattern_return_rvalue)
 
 pilot v4_mir_for_each_pattern_bad_non_iterable_stream = v4_lex_text(1, v4_mir_for_each_pattern_bad_non_iterable_source())

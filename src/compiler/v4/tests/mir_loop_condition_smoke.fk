@@ -147,3 +147,15 @@ pilot v4_mir_bad_training_max_mir = v4_mir_lower_ty(3, v4_mir_bad_training_max_t
 say "bad-training-max-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_bad_training_max_mir))
 say "bad-training-max-message=" + v4_diag_message(v4_mir_diag(v4_mir_bad_training_max_mir, 0))
 say "bad-training-max-help=" + v4_diag_help(v4_mir_diag(v4_mir_bad_training_max_mir, 0))
+
+-- The loop controller reads the generated short-circuit local by identity.
+pilot v4_mir_repeat_source_local = v4_mir_rvalue_local_id(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_rvalue)
+pilot v4_mir_training_source_local = v4_mir_rvalue_local_id(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_rvalue)
+say "repeat-stmt-source-local=" + word_from_int(v4_mir_repeat_source_local)
+say "repeat-stmt-source-name=" + v4_mir_local_name(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_repeat_source_local)
+say "training-cond-stmt-source-local=" + word_from_int(v4_mir_training_source_local)
+say "training-cond-stmt-source-name=" + v4_mir_local_name(v4_mir_loop_condition_mir, v4_mir_loop_condition_calc_body, v4_mir_training_source_local)
+say "repeat-left-true-target=" + word_from_int(v4_mir_block_target(v4_mir_repeat_left_block))
+say "repeat-left-false-target=" + word_from_int(v4_mir_block_else_target(v4_mir_repeat_left_block))
+say "training-left-true-target=" + word_from_int(v4_mir_block_target(v4_mir_training_left_block))
+say "training-left-false-target=" + word_from_int(v4_mir_block_else_target(v4_mir_training_left_block))

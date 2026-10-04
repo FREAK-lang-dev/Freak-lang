@@ -1,0 +1,106 @@
+-- Source cases are closed literals; the driver persists the same bytes it compiles.
+-- All indices/ranges count Unicode scalars, including NUL. No runtime rule changes.
+task v4_word_bounds_assert(condition: bool, label: word) -> void {
+    if not condition { panic("word-bounds-proof " + label) }
+}
+task v4_word_bounds_source(case_id: int) -> word {
+    if case_id == 0 { give back "task observe(lend value: word) -> void " + chr(123) + "\n say value.char_at(2)\n say value\n" + chr(125) + "\ntask main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n say value.length()\n say value.bytes()\n pilot mut index = 0\n repeat until index >= 5 " + chr(123) + " say value.char_at(index); index = index + 1 " + chr(125) + "\n say value.slice(0, 5)\n say value.slice(1, 4)\n say value.slice(0, 0)\n say value.slice(5, 5)\n say value.substring(0, 5)\n say value.substring(1, 3)\n say value.substring(5, 0)\n observe(lend value)\n say value\n pilot empty = \"\"\n say empty.slice(0, 0)\n say empty.substring(0, 0)\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 1 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.char_at(-1)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 2 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.char_at(-9223372036854775808)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 3 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.char_at(5)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 4 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.char_at(9223372036854775807)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 5 { give back "task main() -> int " + chr(123) + "\n pilot value = \"\"\n pilot unused = value.char_at(0)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 6 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.slice(-1, 1)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 7 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.slice(-9223372036854775808, 0)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 8 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.slice(3, 2)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 9 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.slice(0, 6)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 10 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.slice(0, 9223372036854775807)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 11 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.slice(9223372036854775807, 9223372036854775807)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 12 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.substring(-1, 1)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 13 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.substring(-9223372036854775808, 0)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 14 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.substring(0, -1)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 15 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.substring(0, -9223372036854775808)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 16 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.substring(6, 0)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 17 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.substring(4, 2)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 18 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.substring(1, 9223372036854775807)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 19 { give back "task main() -> int " + chr(123) + "\n pilot value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n pilot unused = value.substring(9223372036854775807, 0)\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 20 { give back "task receiver() -> word " + chr(123) + " say \"receiver\"; give back \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\" " + chr(125) + "\ntask index() -> int " + chr(123) + " say \"index\"; give back 5 " + chr(125) + "\ntask main() -> int " + chr(123) + "\n pilot unused = receiver().char_at(index())\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 21 { give back "task receiver() -> word " + chr(123) + " say \"receiver\"; give back \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\" " + chr(125) + "\ntask start() -> int " + chr(123) + " say \"start\"; give back 1 " + chr(125) + "\ntask end() -> int " + chr(123) + " say \"end\"; give back 6 " + chr(125) + "\ntask main() -> int " + chr(123) + "\n pilot unused = receiver().slice(start(), end())\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 22 { give back "task receiver() -> word " + chr(123) + " say \"receiver\"; give back \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\" " + chr(125) + "\ntask start() -> int " + chr(123) + " say \"start\"; give back 4 " + chr(125) + "\ntask count() -> int " + chr(123) + " say \"count\"; give back 2 " + chr(125) + "\ntask main() -> int " + chr(123) + "\n pilot unused = receiver().substring(start(), count())\n say \"bounds-returned\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 23 { give back "task receiver(value: word) -> word " + chr(123) + " say \"receiver:\" + value; give back value " + chr(125) + "\ntask main() -> int " + chr(123) + "\n say receiver(\"A\\0" + chr(233) + chr(20013) + chr(128512) + "\").slice(1, 4).substring(0, 2).char_at(1)\n say receiver(\"\").substring(0, 0)\n give back 0\n" + chr(125) + "\n" }
+    panic("unknown word-bounds-proof case")
+    give back ""
+}
+
+task v4_word_bounds_calls(case_id: int, kind: word) -> int {
+    if case_id == 0 {
+        if kind == "char_at" { give back 2 }
+        if kind == "slice" { give back 5 }
+        if kind == "substring" { give back 4 }
+    } else if case_id == 23 {
+        if kind == "char_at" or kind == "slice" { give back 1 }
+        if kind == "substring" { give back 2 }
+    } else {
+        if (case_id >= 1 and case_id <= 5 or case_id == 20) and kind == "char_at" { give back 1 }
+        if (case_id >= 6 and case_id <= 11 or case_id == 21) and kind == "slice" { give back 1 }
+        if (case_id >= 12 and case_id <= 19 or case_id == 22) and kind == "substring" { give back 1 }
+    }
+    give back 0
+}
+
+task v4_word_bounds_check_calls(mir: int, case_id: int, expected_kind: word) -> void {
+    pilot found = 0
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+            if v4_mir_word_intrinsic_kind(mir, body, value) == expected_kind {
+                v4_word_bounds_assert(v4_mir_rvalue_is_builtin_word(mir, body, value) and v4_mir_rvalue_ty(mir, body, value) == v4_ty_word, "closed owned-result word descriptor")
+                pilot receiver = v4_mir_rvalue_call_arg(mir, body, value, 0)
+                v4_word_bounds_assert(v4_mir_rvalue_kind(mir, body, receiver) == v4_mir_rvalue_lend and v4_mir_rvalue_ty(mir, body, receiver) == "lend word", "immutable sized receiver loan")
+                found += 1
+            }
+            value += 1
+        }
+        body += 1
+    }
+    v4_word_bounds_assert(found == v4_word_bounds_calls(case_id, expected_kind), "exact closed call inventory")
+}
+
+task v4_word_bounds_run(case_id: int, target_name: word, emit: bool) -> void {
+    pilot source = v4_word_bounds_source(case_id)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    v4_word_bounds_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
+    v4_word_bounds_check_calls(mir, case_id, "char_at")
+    v4_word_bounds_check_calls(mir, case_id, "slice")
+    v4_word_bounds_check_calls(mir, case_id, "substring")
+    pilot codegen = v4_codegen_llvm_lower_owned_mir(0, mir)
+    if v4_codegen_llvm_native_module_error(codegen) != "" { say "word-bounds native-error=" + v4_codegen_llvm_native_module_error(codegen) }
+    v4_word_bounds_assert(v4_codegen_llvm_diag_count(codegen) == 0 and v4_codegen_llvm_native_module_error(codegen) == "", "native ownership seal")
+    pilot target = v4_target_spec_new(target_name)
+    pilot before = v4_codegen_llvm_module_text(codegen, target)
+    v4_word_bounds_assert(before != "", "nonempty native module")
+    pilot snapshot = v4_mir_snapshot()
+    v4_word_bounds_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "detached restore")
+    v4_word_bounds_assert(v4_codegen_llvm_module_text(codegen, target) == before, "old sealed module stable")
+    pilot restored = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_word_bounds_assert(v4_codegen_llvm_module_text(restored, target) == before and v4_codegen_llvm_native_module_error(restored) == "", "fresh restored module exact")
+    say "word-bounds-proof case=" + word_from_int(case_id) + " borrowed=true restore=true old-seal=true fresh-module=true"
+    if emit {
+        say "@@LLVM-MODULE-BEGIN"
+        say before
+        say "@@LLVM-MODULE-END"
+    }
+}
+pilot v4_word_bounds_case = 0
+pilot v4_word_bounds_target = "x86_64-unknown-linux-gnu"
+pilot v4_word_bounds_emit = false
+if process::args_count() > 1 { v4_word_bounds_case = word_to_int(process::arg(1)) }
+if process::args_count() > 2 { v4_word_bounds_target = process::arg(2) }
+if process::args_count() > 3 { v4_word_bounds_emit = process::arg(3) == "--emit" }
+v4_word_bounds_run(v4_word_bounds_case, v4_word_bounds_target, v4_word_bounds_emit)

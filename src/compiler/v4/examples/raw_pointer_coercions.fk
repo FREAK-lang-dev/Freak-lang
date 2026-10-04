@@ -6,7 +6,7 @@ extern [C] {
 
 task main() -> int {
     pilot p = malloc(8)
-    pilot value = 258
+    pilot value = 2
     trust me "test a numeric pointer store" on my honor as .ace {
         p.write(value)
         pilot observed: int = p.read()

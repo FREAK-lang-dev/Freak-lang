@@ -1,0 +1,39 @@
+-- Program paths precede the final host target triple. The harness compiles
+-- each emitted module with the native owned-word runtime and ownership audits.
+task v4_owned_word_execute_run() -> void {
+    pilot target_arg = process::args_count() - 1
+    pilot idx = 0
+    repeat until idx >= target_arg - 1 {
+        pilot source = fs::read(process::arg(idx + 1))
+        pilot stream = v4_lex_text(idx, source)
+        pilot tree = v4_parse_stream(idx, stream)
+        pilot hir = v4_hir_lower_tree(idx, tree)
+        pilot resolve = v4_resolve_lower_hir(idx, hir)
+        pilot ty = v4_ty_lower_resolve(idx, resolve)
+        pilot mir = v4_mir_lower_ty(idx, ty)
+        say "owned-word-stages-" + word_from_int(idx) + "=lex:" + word_from_int(v4_lex_diag_count(stream)) + " parse:" + word_from_int(v4_parse_diag_count(tree)) + " hir:" + word_from_int(v4_hir_diag_count(hir)) + " resolve:" + word_from_int(v4_resolve_diag_count(resolve)) + " ty:" + word_from_int(v4_ty_diag_count(ty)) + " mir:" + word_from_int(v4_mir_diag_count(mir))
+        pilot diag = 0
+        repeat until diag >= v4_ty_diag_count(ty) { say v4_ty_diag(ty, diag); diag += 1 }
+        diag = 0
+        repeat until diag >= v4_mir_diag_count(mir) { say v4_mir_diag(mir, diag); diag += 1 }
+        pilot codegen = v4_codegen_llvm_lower_owned_mir(idx, mir)
+        pilot total = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir) + v4_codegen_llvm_diag_count(codegen)
+        say "owned-word-diag-" + word_from_int(idx) + "=" + word_from_int(total)
+        pilot target = v4_target_spec_new(process::arg(target_arg))
+        pilot before = v4_codegen_llvm_module_text(codegen, target)
+        say "owned-word-module-nonempty-" + word_from_int(idx) + "=" + word_from_bool(before != "")
+        say "owned-word-error-" + word_from_int(idx) + "=" + v4_codegen_llvm_native_module_error(codegen)
+        pilot snapshot = v4_mir_snapshot()
+        say "owned-word-snapshot-valid-" + word_from_int(idx) + "=" + word_from_bool(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"))
+        say "owned-word-snapshot-restored-" + word_from_int(idx) + "=" + word_from_bool(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"))
+        say "owned-word-sealed-stable-" + word_from_int(idx) + "=" + word_from_bool(v4_codegen_llvm_module_text(codegen, target) == before)
+        pilot restored = v4_codegen_llvm_lower_owned_mir(idx, mir)
+        say "owned-word-module-exact-" + word_from_int(idx) + "=" + word_from_bool(v4_codegen_llvm_module_text(restored, target) == before)
+        say "@@LLVM-MODULE-BEGIN"
+        say v4_codegen_llvm_module_text(restored, target)
+        say "@@LLVM-MODULE-END"
+        idx += 1
+    }
+}
+
+v4_owned_word_execute_run()

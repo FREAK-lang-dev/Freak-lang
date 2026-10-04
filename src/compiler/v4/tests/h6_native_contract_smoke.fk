@@ -1,5 +1,6 @@
--- Exercise unsupported Built-MIR facts directly so each native rvalue/place/
--- type family is fenced even when a snapshot is structurally well formed.
+-- Exercise exact unsupported-family admission and full-plan rejection for
+-- Built-MIR mutations. Kind-only mutations that require children are also
+-- malformed graphs, and the full plan must reject them at graph preflight.
 task h6_contract_assert(condition: bool, label: word) -> void {
     if not condition { panic("h6 native contract: " + label) }
 }
@@ -81,7 +82,15 @@ task h6_contract_run() -> void {
         pilot kind: word = array_get(kinds, case_id)
         array_set(v4_mir_body_rvalue_kinds_handle(mir, 0), 0, kind)
         h6_contract_assert(v4_mir_rvalue_kind(mir, 0, 0) == kind, "authored unsupported kind")
-        h6_contract_rejected(mir, target, "native rvalue not yet supported: " + kind)
+        -- Keep the exact family fence separate from the earlier graph fence.
+        -- This authored row has no children or place; these ten kinds cannot
+        -- form a valid graph with that shape. The remaining thirteen can.
+        h6_contract_assert(v4_codegen_llvm_native_rvalue_error(mir, 0, 0) == "native rvalue not yet supported: " + kind, "unsupported family error: " + kind)
+        pilot expected = "native rvalue not yet supported: " + kind
+        if kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_some or kind == v4_mir_rvalue_ok or kind == v4_mir_rvalue_err or kind == v4_mir_rvalue_check or kind == v4_mir_rvalue_or_else or kind == v4_mir_rvalue_try or kind == v4_mir_rvalue_lend or kind == v4_mir_rvalue_lend_mut or kind == "ForeignKind" {
+            expected = "invalid native expression graph"
+        }
+        h6_contract_rejected(mir, target, expected)
         case_id += 1
     }
     array_release(kinds)
@@ -162,7 +171,8 @@ task h6_contract_run() -> void {
 
     array_set(v4_mir_body_rvalue_kinds_handle(mir, 0), 0, v4_mir_rvalue_binary)
     v4_mir_set_rvalue_children(mir, 0, 0, 0, 0)
-    h6_contract_rejected(mir, target, "invalid native rvalue references: Binary")
+    h6_contract_assert(v4_codegen_llvm_native_rvalue_error(mir, 0, 0) == "invalid native rvalue references: Binary", "malformed Binary family error")
+    h6_contract_rejected(mir, target, "invalid native expression graph")
     v4_mir_set_rvalue_children(mir, 0, 0, 0 - 1, 0 - 1)
     array_set(v4_mir_body_rvalue_kinds_handle(mir, 0), 0, v4_mir_rvalue_unknown)
     pilot snapshot = v4_mir_snapshot()

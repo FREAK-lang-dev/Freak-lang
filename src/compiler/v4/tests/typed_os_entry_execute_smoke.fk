@@ -1,0 +1,33 @@
+-- Bootstrap harness: one authored source and complete V4 pipeline per process.
+-- This loader uses the explicit bootstrap compatibility surface; the emitted
+-- source exercises the typed public operations and native ownership plan.
+task v4_typed_os_execute_assert(condition: bool, label: word) -> void {
+    if not condition { panic("typed-os-entry-execute " + label) }
+}
+
+task v4_typed_os_execute_run() -> void {
+    pilot source = fs::read(process::arg(1))
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    v4_typed_os_execute_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
+    pilot codegen = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    v4_typed_os_execute_assert(v4_codegen_llvm_diag_count(codegen) == 0 and v4_codegen_llvm_native_module_error(codegen) == "", "native ownership seal")
+    pilot target = v4_target_spec_new(process::arg(2))
+    pilot before = v4_codegen_llvm_module_text(codegen, target)
+    v4_typed_os_execute_assert(before != "", "nonempty native module")
+    pilot snapshot = v4_mir_snapshot()
+    v4_typed_os_execute_assert(snapshot.starts_with("mir-snapshot|format=freak-mir-snapshot-v9|") and snapshot.ends_with("end|freak-mir-snapshot-v9"), "current v9 wire")
+    v4_typed_os_execute_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "detached v9 restore")
+    v4_typed_os_execute_assert(v4_mir_snapshot() == snapshot and v4_codegen_llvm_module_text(codegen, target) == before, "snapshot and old seal exact")
+    pilot restored = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    v4_typed_os_execute_assert(v4_codegen_llvm_module_text(restored, target) == before and v4_codegen_llvm_native_module_error(restored) == "", "fresh restored module exact")
+    say "typed-os-entry-execute stages=clean v9-restore=true old-seal=true fresh-module=true"
+    say "@@LLVM-MODULE-BEGIN"
+    say before
+    say "@@LLVM-MODULE-END"
+}
+v4_typed_os_execute_run()

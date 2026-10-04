@@ -1,0 +1,53 @@
+task lowercase(lend source: word) -> word {
+    give back source.to_lower()
+}
+
+task take(source: word) -> word {
+    give back source
+}
+
+task consume(source: word) -> int {
+    give back source.length()
+}
+
+task loop_lowercase() -> void {
+    pilot mut index: int = 0
+    repeat until index >= 3 {
+        pilot source = "LOOP"
+        pilot outcome = source.to_lower()
+        index += 1
+        if index < 3 { continue }
+        say outcome
+        break
+    }
+}
+
+task main() -> int {
+    pilot mut source: word = "A\0B"
+    pilot independent = lowercase(lend source)
+    say source
+    source = source.to_lower()
+    say source
+    source = "replaced"
+    say independent
+    say independent.bytes().to_word()
+    say independent.length().to_word()
+    say "".to_lower()
+    say "İ".to_lower()
+    say "ΟΣ".to_lower()
+    say "ΟΣΑ".to_lower()
+    say "ΟΣ́".to_lower()
+    say "𐐀".to_lower()
+    say take("TEMP").to_lower()
+    say "NESTED".to_lower().to_lower()
+    pilot unchanged = "already lower"
+    pilot fresh = unchanged.to_lower()
+    say unchanged
+    say fresh
+    unchanged.to_lower()
+    "DISCARDED".to_lower()
+    pilot ordered = "Q"
+    if ordered.to_lower().length() + consume(ordered) != 2 { give back 1 }
+    loop_lowercase()
+    give back 0
+}

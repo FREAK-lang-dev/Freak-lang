@@ -1,0 +1,303 @@
+-- HIR word-plan admission and query restore contracts at the unchanged handle guard.
+task v4_interp_resource_assert(condition: bool, label: word) -> void {
+    if not condition { panic("interpolation-resource " + label) }
+}
+
+task v4_interp_resource_source() -> word {
+    pilot src = "task describe(lend text: word, n: int) -> word " + chr(123)
+    src = src + " give back \"" + chr(123) + "text" + chr(125) + "=" + chr(123) + "n" + chr(125) + "\" " + chr(125) + "\n"
+    src = src + "task main() -> int " + chr(123) + " pilot value = \"sample\"; say describe(lend value, 3); give back 0 " + chr(125) + "\n"
+    give back src
+}
+
+task v4_interp_resource_token_offset(stream: int, name: word, ordinal: int) -> int {
+    pilot index = 0
+    pilot seen = 0
+    repeat until index >= v4_lex_token_count(stream) {
+        if v4_lex_token_value(stream, index) == name {
+            if seen == ordinal { give back v4_span_start(v4_lex_token_span(stream, index)) }
+            seen += 1
+        }
+        index += 1
+    }
+    panic("interpolation-resource observer token missing")
+    give back -1
+}
+
+task v4_interp_resource_available() -> int {
+    pilot held = array_new()
+    v4_interp_resource_assert(held >= 0, "capacity tracker admitted")
+    pilot count = 0
+    pilot exhausted = false
+    repeat until exhausted or count >= 2048 {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else { array_push(held, word_from_int(candidate)) count += 1 }
+    }
+    pilot index = 0
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+    v4_interp_resource_assert(exhausted, "bounded capacity probe")
+    give back count
+}
+
+-- The returned tracker remains live. Exactly free_count other handles remain available.
+task v4_interp_resource_hold(free_count: int) -> int {
+    pilot held = array_new()
+    v4_interp_resource_assert(held >= 0, "pressure tracker admitted")
+    pilot exhausted = false
+    repeat until exhausted {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else { array_push(held, word_from_int(candidate)) }
+    }
+    v4_interp_resource_assert(array_len(held) >= free_count, "pressure baseline has headroom")
+    pilot index = 0
+    repeat until index >= free_count { array_release(word_to_int(array_get(held, index))) index += 1 }
+    give back held
+}
+
+task v4_interp_resource_release(held: int, free_count: int) -> void {
+    pilot index = free_count
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+}
+
+task v4_interp_resource_field(value: word) -> word {
+    give back word_from_int(value.length()) + ":" + value
+}
+
+-- Read query facts directly: obtaining the checkpoint itself allocates no array handles.
+task v4_interp_resource_queries() -> word {
+    pilot out = word_from_int(v4_query_generation()) + ":" + word_from_int(v4_query_cache_size())
+    out = out + ":" + word_from_int(v4_query_hit_count()) + ":" + word_from_int(v4_query_miss_count()) + ":" + word_from_int(v4_query_store_count())
+    out = out + ":generations=" + word_from_int(v4_query_generation_count())
+    pilot index = 1
+    repeat until index > v4_query_generation_count() {
+        out = out + v4_interp_resource_field(v4_query_generation_reason(index))
+        index += 1
+    }
+    index = 0
+    repeat until index >= v4_query_cache_size() {
+        out = out + v4_interp_resource_field(v4_query_entry_key(index)) + v4_interp_resource_field(v4_query_entry_input(index))
+        out = out + v4_interp_resource_field(v4_query_entry_output(index)) + v4_interp_resource_field(v4_query_entry_state(index))
+        out = out + v4_interp_resource_field(word_from_int(v4_query_entry_store_generation(index)))
+        out = out + v4_interp_resource_field(word_from_int(v4_query_entry_last_generation(index))) + v4_interp_resource_field(v4_query_entry_last_event(index))
+        index += 1
+    }
+    out = out + ":deps=" + word_from_int(v4_query_dep_count())
+    index = 0
+    repeat until index >= v4_query_dep_count() {
+        out = out + v4_interp_resource_field(v4_query_dep_from_key(index)) + v4_interp_resource_field(v4_query_dep_to_key(index))
+        index += 1
+    }
+    out = out + ":invalidations=" + word_from_int(v4_query_invalidated_count())
+    index = 0
+    repeat until index >= v4_query_invalidated_count() {
+        out = out + v4_interp_resource_field(v4_query_invalidated_key(index))
+        out = out + v4_interp_resource_field(word_from_int(v4_query_invalidated_generation(index))) + v4_interp_resource_field(v4_query_invalidated_reason(index))
+        index += 1
+    }
+    out = out + ":telemetry=" + word_from_int(v4_query_telemetry_key_count())
+    index = 0
+    repeat until index >= v4_query_telemetry_key_count() {
+        out = out + v4_interp_resource_field(v4_query_telemetry_key(index))
+        out = out + v4_interp_resource_field(word_from_int(v4_query_telemetry_hits_for(index)))
+        out = out + v4_interp_resource_field(word_from_int(v4_query_telemetry_misses_for(index)))
+        out = out + v4_interp_resource_field(word_from_int(v4_query_telemetry_stores_for(index)))
+        index += 1
+    }
+    give back out
+}
+
+task v4_interp_resource_query_state(key: word, state: word) -> bool {
+    if v4_query_entry_count_for_key(key) == 0 { give back false }
+    pilot index = 0
+    repeat until index >= v4_query_entry_count_for_key(key) {
+        if v4_query_entry_state(v4_query_entry_at_key(key, index)) != state { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task v4_interp_resource_replace(line: word, field: int, value: word) -> word {
+    pilot parts = array_new()
+    pilot index = 0
+    repeat until index >= v4_hir_snapshot_field_count(line) {
+        if index > 0 { array_push(parts, "|") }
+        if index == field { array_push(parts, v4_hir_snapshot_escape(value)) } else { array_push(parts, v4_hir_snapshot_field_raw(line, index)) }
+        index += 1
+    }
+    pilot out = word_join(parts)
+    give back out
+}
+
+-- Duplicate a detached owner with the same source identity; only its dense HIR ID differs.
+task v4_interp_resource_grow(payload: word) -> word {
+    pilot records = v4_hir_snapshot_index_lines(payload)
+    pilot parts = array_new()
+    pilot header: word = array_get(records, 0)
+    pilot field = 0
+    repeat until field >= v4_hir_snapshot_field_count(header) {
+        if field > 0 { array_push(parts, "|") }
+        pilot value = v4_hir_snapshot_field_raw(header, field)
+        if field > 1 {
+            pilot eq = v4_index_of_from(value, "=", 0)
+            value = v4_slice(value, 0, eq + 1) + word_from_int(word_to_int(v4_slice(value, eq + 1, value.length())) * 2)
+        }
+        array_push(parts, value)
+        field += 1
+    }
+    pilot owner = 0
+    repeat until owner >= 2 {
+        pilot index = 1
+        repeat until index >= array_len(records) {
+            pilot line: word = array_get(records, index)
+            if v4_hir_snapshot_field_raw(line, 0) != "end" and line != "" {
+                if owner == 1 { line = v4_interp_resource_replace(line, 1, "1") }
+                array_push(parts, "\n") array_push(parts, line)
+            }
+            index += 1
+        }
+        owner += 1
+    }
+    array_push(parts, "\nend|" + v4_hir_snapshot_format)
+    pilot out = word_join(parts)
+    array_release(records)
+    give back out
+}
+
+task v4_interp_resource_corrupt_late(payload: word) -> word {
+    pilot records = v4_hir_snapshot_index_lines(payload)
+    pilot last = -1
+    pilot index = 0
+    repeat until index >= array_len(records) {
+        pilot line: word = array_get(records, index)
+        if line.starts_with("hir-word-path-part|") { last = index }
+        index += 1
+    }
+    v4_interp_resource_assert(last >= 0, "late child exists")
+    pilot parts = array_new()
+    index = 0
+    repeat until index >= array_len(records) {
+        pilot line: word = array_get(records, index)
+        if index == last { line = v4_interp_resource_replace(line, 7, "999@1:2") }
+        if index > 0 { array_push(parts, "\n") }
+        array_push(parts, line)
+        index += 1
+    }
+    pilot out = word_join(parts)
+    array_release(records)
+    give back out
+}
+
+task v4_interp_resource_run() -> void {
+    pilot path = "interpolation-resource.fk"
+    pilot source = v4_interp_resource_source()
+    pilot borrow = v4_borrowck_text_cached(path, source)
+    pilot hir = v4_hir_text_cached(path, source)
+    pilot offset = v4_interp_resource_token_offset(v4_lex_text_cached(path, source), "value", 1)
+    pilot hover = v4_lsp_hover_text(path, source, offset)
+    v4_interp_resource_assert(borrow >= 0 and v4_borrowck_diag_count(borrow) == 0 and hover.starts_with("ok|textDocument/hover"), "warm semantic and editor queries")
+    v4_interp_resource_assert(v4_hir_file_count() == 1 and v4_hir_word_plan_ready(hir), "one packed owner")
+    pilot file = v4_hir_file_id(hir)
+    pilot source_revision = v4_source_revision(file)
+    pilot payload = v4_hir_snapshot()
+    pilot growth = v4_interp_resource_grow(payload)
+    v4_interp_resource_assert(v4_hir_snapshot_validate(growth).starts_with("hir-snapshot-import ok=1"), "detached two-file payload")
+    pilot corrupt = v4_interp_resource_corrupt_late(payload)
+    pilot queries = v4_interp_resource_queries()
+    pilot revision = v4_hir_revision(hir)
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot capacity = v4_interp_resource_available()
+    pilot original_plan = v4_hir_word_plans_handle(hir)
+    v4_interp_resource_assert(capacity > 64, "pressure headroom")
+    pilot decodes = 0
+    repeat until decodes >= 1100 {
+        v4_interp_resource_assert(v4_hir_word_literal_value("a\\nb") == "a\nb" and v4_hir_owned_word_literal_value("a\\0b") == "a" + chr(0) + "b", "escaped literal helpers preserve sized bytes")
+        decodes += 1
+    }
+    v4_interp_resource_assert(v4_interp_resource_available() == capacity, "literal decoder scratch conserved")
+
+    v4_interp_resource_assert(v4_hir_snapshot_restore_with_queries(payload.replace("freak-hir-snapshot-v11", "freak-hir-snapshot-v10")).starts_with("hir-snapshot-restore ok=0"), "old version rejected before queries")
+    v4_interp_resource_assert(v4_hir_snapshot_restore_with_queries(corrupt).starts_with("hir-snapshot-restore ok=0"), "late malformed child rejected")
+    v4_interp_resource_assert(v4_hir_snapshot() == payload and v4_hir_revision(hir) == revision and v4_session_semantic_restore_generation() == generation and v4_source_revision(file) == source_revision and v4_source_text(file) == source and v4_interp_resource_queries() == queries, "late malformed all facts atomic")
+    v4_interp_resource_assert(v4_hir_word_plans_handle(hir) == original_plan and array_len(original_plan) > 0, "malformed rejection preserves live plan identity")
+    v4_interp_resource_assert(v4_interp_resource_available() == capacity, "malformed scratch retired")
+
+    pilot records = v4_hir_snapshot_index_lines(payload)
+    pilot ticket_capacity = v4_interp_resource_available()
+    pilot free_count = 0
+    repeat until free_count > 6 {
+        pilot held = v4_interp_resource_hold(free_count)
+        pilot ticket = v4_hir_word_snapshot_build(records)
+        if free_count < 6 { v4_interp_resource_assert(ticket < 0, "partial word-ticket rejects") } else { v4_interp_resource_assert(ticket >= 0, "exact six-handle word-ticket succeeds") }
+        v4_hir_word_snapshot_release(ticket)
+        v4_interp_resource_release(held, free_count)
+        v4_interp_resource_assert(v4_interp_resource_available() == ticket_capacity and v4_interp_resource_queries() == queries and v4_hir_revision(hir) == revision, "word-ticket scratch conservation")
+        free_count += 1
+    }
+    array_release(records)
+    v4_interp_resource_assert(v4_interp_resource_available() == capacity, "indexed records retired")
+
+    pilot held = v4_interp_resource_hold(24)
+    pilot rejected = v4_hir_snapshot_restore_with_queries(growth)
+    v4_interp_resource_release(held, 24)
+    v4_interp_resource_assert(rejected.starts_with("hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted"), "fresh-file admission rejects before publication")
+    v4_interp_resource_assert(v4_hir_snapshot() == payload and v4_hir_file_count() == 1 and v4_hir_revision(hir) == revision and v4_session_semantic_restore_generation() == generation and v4_interp_resource_queries() == queries and v4_source_revision(file) == source_revision and v4_source_text(file) == source, "fresh-file pressure all facts atomic")
+    v4_interp_resource_assert(v4_hir_word_plans_handle(hir) == original_plan and array_len(original_plan) > 0, "pressure rejection preserves live plan identity")
+    v4_interp_resource_assert(v4_interp_resource_available() == capacity, "preflight reservations retired")
+    pilot boundary_rejected = false
+    pilot boundary_admitted = false
+    free_count = 0
+    repeat until free_count > 24 {
+        revision = v4_hir_revision(hir)
+        generation = v4_session_semantic_restore_generation()
+        held = v4_interp_resource_hold(free_count)
+        pilot boundary = v4_hir_snapshot_restore(payload)
+        v4_interp_resource_release(held, free_count)
+        if boundary.starts_with("hir-snapshot-restore ok=1") {
+            boundary_admitted = true
+            v4_interp_resource_assert(v4_hir_revision(hir) > revision and v4_session_semantic_restore_generation() == generation + 1, "admitted boundary generations")
+        } else {
+            boundary_rejected = true
+            v4_interp_resource_assert(v4_hir_revision(hir) == revision and v4_session_semantic_restore_generation() == generation, "rejected boundary generations atomic")
+        }
+        v4_interp_resource_assert(v4_hir_snapshot() == payload and v4_interp_resource_available() == capacity and v4_interp_resource_queries() == queries, "every restore boundary conserves handles and query facts")
+        free_count += 1
+    }
+    v4_interp_resource_assert(boundary_rejected and boundary_admitted, "full restore admission boundary crossed")
+    say "interpolation-resource malformed-atomic=true ticket-boundary=true fresh-admission=true query-atomic=true restore-boundary=true decoder-conservation=true"
+    revision = v4_hir_revision(hir)
+    generation = v4_session_semantic_restore_generation()
+
+    pilot retired_plan = v4_hir_word_plans_handle(hir)
+    pilot restores = 0
+    repeat until restores >= 24 {
+        v4_interp_resource_assert(v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=1"), "same-size restore")
+        v4_interp_resource_assert(v4_hir_snapshot() == payload and v4_hir_word_plan_ready(hir) and v4_interp_resource_available() == capacity, "same-size plans and capacity stable")
+        restores += 1
+    }
+    v4_interp_resource_assert(array_len(retired_plan) == 0 and v4_hir_revision(hir) > revision and v4_session_semantic_restore_generation() == generation + 24 and v4_source_revision(file) == source_revision and v4_source_text(file) == source and v4_interp_resource_queries() == queries, "raw restore revision and retired-handle contract")
+    say "interpolation-resource restores=24 capacity-stable=true retired-plan=true source-stable=true"
+
+    v4_interp_resource_assert(v4_hir_snapshot_restore(growth).starts_with("hir-snapshot-restore ok=1") and v4_hir_file_count() == 2 and v4_hir_word_plan_ready(1), "fresh-file recovery publishes complete plans")
+    v4_interp_resource_assert(v4_interp_resource_available() == capacity - 42, "growth owns exactly forty-two children")
+    capacity -= 42
+    v4_interp_resource_assert(v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=1") and v4_hir_file_count() == 1 and v4_hir_snapshot() == payload and v4_interp_resource_available() == capacity, "logical shrink retains high-water policy")
+    v4_interp_resource_assert(v4_hir_snapshot_restore(growth).starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == growth and v4_interp_resource_available() == capacity, "regrowth reuses retained children")
+    v4_interp_resource_assert(v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=1") and v4_hir_snapshot() == payload and v4_interp_resource_available() == capacity, "final shrink stable")
+    say "interpolation-resource growth=42 shrink-stable=true regrow-stable=true"
+
+    pilot query_generation = v4_query_generation()
+    generation = v4_session_semantic_restore_generation()
+    v4_interp_resource_assert(v4_hir_snapshot_restore_with_queries(payload).starts_with("hir-snapshot-restore ok=1"), "query facade restore")
+    v4_interp_resource_assert(v4_query_generation() == query_generation + 1 and v4_session_semantic_restore_generation() == generation + 1 and v4_hir_snapshot() == payload and v4_interp_resource_available() == capacity, "successful facade generations and capacity")
+    v4_interp_resource_assert(v4_interp_resource_query_state(v4_hir_query_key(path), v4_query_dirty) and v4_interp_resource_query_state(v4_resolve_query_key(path), v4_query_dirty) and v4_interp_resource_query_state(v4_ty_query_key(path), v4_query_dirty) and v4_interp_resource_query_state(v4_mir_query_key(path), v4_query_dirty) and v4_interp_resource_query_state(v4_borrowck_query_key(path), v4_query_dirty), "semantic dependents dirty")
+    v4_interp_resource_assert(v4_interp_resource_query_state(v4_semantic_at_query_key(path, offset), v4_query_dirty) and v4_interp_resource_query_state(v4_hover_query_key(path, offset), v4_query_dirty), "editor dependents dirty")
+    v4_interp_resource_assert(v4_interp_resource_query_state(v4_lex_query_key(path), v4_query_valid) and v4_interp_resource_query_state(v4_parse_query_key(path), v4_query_valid), "earlier syntax queries preserved")
+    borrow = v4_borrowck_text_cached(path, source)
+    pilot regenerated = v4_hir_text_cached(path, source)
+    v4_interp_resource_assert(borrow >= 0 and v4_borrowck_diag_count(borrow) == 0 and v4_hir_word_plan_ready(regenerated) and v4_lsp_hover_text(path, source, offset) == hover and v4_source_revision(file) == source_revision and v4_source_text(file) == source, "query regeneration preserves semantics and hover")
+    v4_interp_resource_assert(v4_interp_resource_query_state(v4_hir_query_key(path), v4_query_valid) and v4_interp_resource_query_state(v4_borrowck_query_key(path), v4_query_valid) and v4_interp_resource_query_state(v4_hover_query_key(path, offset), v4_query_valid), "regenerated queries valid")
+    say "interpolation-resource invalidation=true transitive-editor=true regeneration=true recovery=true"
+}
+v4_interp_resource_run()

@@ -346,3 +346,4 @@ their implemented status is unchanged by these bootstrap checklist corrections.
 ## V4 release follow-through
 
 - [x] Reject duplicate ordinary LLVM body symbols before native publication, including modules without callbacks; authored source and CLI regressions retain distinct-owner acceptance.
+- [ ] Complete the preview-first and V3-replacement gates tracked in [the V4 release checklist](src/compiler/v4/RELEASE_CHECKLIST.md).

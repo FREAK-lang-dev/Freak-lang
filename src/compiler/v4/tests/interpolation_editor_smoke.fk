@@ -1,0 +1,262 @@
+-- Each argv case runs one document pipeline under the existing editor guard.
+task v4_interp_editor_assert(condition: bool, label: word) -> void {
+    if not condition { panic("interpolation-editor " + label) }
+}
+
+task v4_interp_editor_hole(path: word) -> word {
+    give back chr(123) + path + chr(125)
+}
+
+task v4_interp_editor_source() -> word {
+    pilot src = "fixed pilot LIMIT: int = 7\n"
+    src = src + "shape Box<T> " + chr(123) + " field: T " + chr(125) + "\n"
+    src = src + "shape Pair " + chr(123) + " nested: Box<int>\n flag: bool\n " + chr(125) + "\n"
+    src = src + "@experiment(\"" + v4_interp_editor_hole("count") + "\")\n"
+    src = src + "task display(lend text: word, count: int, lend boxed: Box<int>, lend pair: Pair) -> word " + chr(123) + "\n"
+    src = src + " pilot local = 9\n pilot x = 3\n"
+    src = src + " pilot mirror = \"" + chr(195) + chr(169) + "\\n " + v4_interp_editor_hole("text") + " " + v4_interp_editor_hole("count") + " " + v4_interp_editor_hole("local") + " " + v4_interp_editor_hole("LIMIT") + " " + v4_interp_editor_hole("boxed.field") + " " + v4_interp_editor_hole("pair.nested.field") + " " + v4_interp_editor_hole("pair.flag") + "\"\n"
+    src = src + " if true " + chr(123) + " pilot x = count.to_word(); say \"" + v4_interp_editor_hole("x") + "\" " + chr(125) + "\n"
+    src = src + " if true " + chr(123) + " pilot x = \"" + v4_interp_editor_hole("x") + "\"; say \"" + v4_interp_editor_hole("x") + "\" " + chr(125) + "\n"
+    src = src + " pilot plain = \"LIMIT\"\n"
+    src = src + " pilot nonholes = \"" + v4_interp_editor_hole("count + 1") + " " + v4_interp_editor_hole(v4_interp_editor_hole("count")) + " " + v4_interp_editor_hole("count()") + " " + v4_interp_editor_hole("count:fmt") + " open " + chr(123) + "count\"\n"
+    src = src + " give back mirror\n" + chr(125) + "\n"
+    give back src
+}
+
+task v4_interp_editor_item(hir: int, name: word) -> int {
+    pilot item = 0
+    repeat until item >= v4_hir_item_count(hir) {
+        if v4_hir_item_name(hir, item) == name { give back item }
+        item += 1
+    }
+    give back -1
+}
+
+task v4_interp_editor_piece(hir: int, literal: int, ordinal: int) -> int {
+    pilot piece = 0
+    pilot seen = 0
+    repeat until piece >= v4_hir_word_piece_count(hir, literal) {
+        if v4_hir_word_piece_kind(hir, literal, piece) == "DisplayPath" {
+            if seen == ordinal { give back piece }
+            seen += 1
+        }
+        piece += 1
+    }
+    give back -1
+}
+
+task v4_interp_editor_offset(hir: int, literal: int, ordinal: int, part: int) -> int {
+    pilot piece = v4_interp_editor_piece(hir, literal, ordinal)
+    v4_interp_editor_assert(piece >= 0, "stored display piece")
+    give back v4_span_start(v4_hir_word_path_part_span(hir, literal, piece, part))
+}
+
+task v4_interp_editor_provenance(path: word, source: word, hir: int, literal: int, offset: int, semantic: int) -> void {
+    pilot stream = v4_lex_text_cached(path, source)
+    pilot token = v4_editor_token_at(stream, offset)
+    v4_interp_editor_assert(token >= 0 and v4_lex_token_type(stream, token) == v4_tok_string, "real lexical string")
+    v4_interp_editor_assert(v4_semantic_at_token_id(semantic) == token and v4_semantic_at_token_kind(semantic) == v4_tok_string, "whole token ID and kind")
+    v4_interp_editor_assert(v4_semantic_at_token_value(semantic) == v4_lex_token_value(stream, token) and v4_semantic_at_token_span(semantic) == v4_hir_word_literal_span(hir, literal), "whole token value and span")
+    v4_interp_editor_assert(v4_semantic_at_offset(semantic) == offset, "component byte offset")
+}
+
+task v4_interp_editor_fact(path: word, source: word, hir: int, literal: int, ordinal: int, part: int, name: word, kind: word, type_text: word, def_id: word, declaration: word) -> void {
+    pilot offset = v4_interp_editor_offset(hir, literal, ordinal, part)
+    pilot semantic = v4_semantic_at_text_cached(path, source, offset)
+    pilot hover = v4_hover_text_cached(path, source, offset)
+    pilot definition = v4_definition_at_text_cached(path, source, offset)
+    v4_interp_editor_provenance(path, source, hir, literal, offset, semantic)
+    v4_interp_editor_assert(v4_semantic_at_name(semantic) == name and v4_semantic_at_kind(semantic) == kind and v4_semantic_at_type(semantic) == type_text and v4_semantic_at_def(semantic) == def_id, "semantic identity " + name)
+    v4_interp_editor_assert(v4_hover_name(hover) == name and v4_hover_kind(hover) == kind and v4_hover_type(hover) == type_text, "hover " + name)
+    v4_interp_editor_assert(v4_definition_at_found(definition) == 1 and v4_definition_at_name(definition) == name and v4_definition_at_kind(definition) == kind and v4_definition_at_def(definition) == def_id and v4_definition_at_span(definition) == declaration, "definition " + name)
+    pilot selected = v4_hir_word_path_part_span(hir, literal, v4_interp_editor_piece(hir, literal, ordinal), part)
+    if v4_span_end(selected) > offset + 1 {
+        pilot later = v4_semantic_at_text_cached(path, source, v4_span_end(selected) - 1)
+        v4_interp_editor_assert(v4_semantic_at_def(later) == def_id and v4_semantic_at_name(later) == name, "component interior " + name)
+    }
+}
+
+task v4_interp_editor_roots(path: word, source: word, hir: int, item: int, mir: int, body: int) -> void {
+    pilot ty = v4_mir_ty_id(mir)
+    pilot sig = v4_mir_body_signature_id(mir, body)
+    pilot literal = v4_hir_word_literal_start(hir, item)
+    v4_interp_editor_fact(path, source, hir, literal, 0, 0, "text", "Parameter", v4_mir_local_type_display(mir, body, 0), v4_editor_param_def(v4_mir_body_def(mir, body), "text"), v4_editor_signature_param_name_span(ty, sig, "text"))
+    v4_interp_editor_fact(path, source, hir, literal, 1, 0, "count", "Parameter", "int", v4_editor_param_def(v4_mir_body_def(mir, body), "count"), v4_editor_signature_param_name_span(ty, sig, "count"))
+    pilot local = v4_mir_find_local(mir, body, "local")
+    v4_interp_editor_fact(path, source, hir, literal, 2, 0, "local", "Local", "int", v4_editor_local_def(v4_mir_body_def(mir, body), local, "local"), v4_editor_local_decl_span(v4_lex_text_cached(path, source), v4_mir_local_span(mir, body, local), "local"))
+    pilot const_sig = v4_ty_const_signature_id_for_name(ty, "LIMIT")
+    v4_interp_editor_fact(path, source, hir, literal, 3, 0, "LIMIT", "Const", "int", v4_ty_signature_def(ty, const_sig), v4_hir_item_span(hir, v4_ty_signature_hir_item(ty, const_sig)))
+    say "interpolation-editor roots=true hover=true definitions=true whole-string=true component-interiors=true"
+}
+
+task v4_interp_editor_shadows(path: word, source: word, hir: int, item: int, mir: int, body: int) -> void {
+    pilot first = v4_hir_word_literal_start(hir, item)
+    pilot stream = v4_lex_text_cached(path, source)
+    pilot outer = -1
+    pilot inner = -1
+    pilot copied = -1
+    pilot local = 0
+    repeat until local >= v4_mir_body_local_count(mir, body) {
+        if v4_mir_local_name(mir, body, local) == "x" {
+            if v4_mir_local_ty(mir, body, local) == "int" { outer = local }
+            if v4_mir_local_ty(mir, body, local) == "word" {
+                if inner < 0 { inner = local } else { copied = local }
+            }
+        }
+        local += 1
+    }
+    v4_interp_editor_assert(outer >= 0 and inner >= 0 and copied >= 0 and outer != inner and outer != copied, "distinct MIR shadow IDs")
+    v4_interp_editor_fact(path, source, hir, first + 1, 0, 0, "x", "Local", "word", v4_editor_local_def(v4_mir_body_def(mir, body), inner, "x"), v4_editor_local_decl_span(stream, v4_mir_local_span(mir, body, inner), "x"))
+    v4_interp_editor_fact(path, source, hir, first + 2, 0, 0, "x", "Local", "int", v4_editor_local_def(v4_mir_body_def(mir, body), outer, "x"), v4_editor_local_decl_span(stream, v4_mir_local_span(mir, body, outer), "x"))
+    v4_interp_editor_fact(path, source, hir, first + 3, 0, 0, "x", "Local", "word", v4_editor_local_def(v4_mir_body_def(mir, body), copied, "x"), v4_editor_local_decl_span(stream, v4_mir_local_span(mir, body, copied), "x"))
+    say "interpolation-editor shadows=true rhs-binding=true local-ID-definition=true"
+}
+
+task v4_interp_editor_fields(path: word, source: word, hir: int, item: int, mir: int, body: int) -> void {
+    pilot ty = v4_mir_ty_id(mir)
+    pilot sig = v4_mir_body_signature_id(mir, body)
+    pilot literal = v4_hir_word_literal_start(hir, item)
+    pilot box_sig = v4_ty_shape_signature_id_for_name(ty, "Box<int>")
+    pilot box_field = v4_ty_shape_field_id_for_name(ty, "Box<int>", "field")
+    pilot pair_sig = v4_ty_shape_signature_id_for_name(ty, "Pair")
+    pilot nested_field = v4_ty_shape_field_id_for_name(ty, "Pair", "nested")
+    pilot flag_field = v4_ty_shape_field_id_for_name(ty, "Pair", "flag")
+    v4_interp_editor_fact(path, source, hir, literal, 4, 0, "boxed", "Parameter", v4_mir_local_type_display(mir, body, 2), v4_editor_param_def(v4_mir_body_def(mir, body), "boxed"), v4_editor_signature_param_name_span(ty, sig, "boxed"))
+    v4_interp_editor_fact(path, source, hir, literal, 4, 1, "field", "ShapeField", "int", v4_editor_shape_field_def(ty, box_sig, box_field), v4_ty_shape_field_name_span(ty, box_sig, box_field))
+    v4_interp_editor_fact(path, source, hir, literal, 5, 1, "nested", "ShapeField", "Box<int>", v4_editor_shape_field_def(ty, pair_sig, nested_field), v4_ty_shape_field_name_span(ty, pair_sig, nested_field))
+    v4_interp_editor_fact(path, source, hir, literal, 5, 2, "field", "ShapeField", "int", v4_editor_shape_field_def(ty, box_sig, box_field), v4_ty_shape_field_name_span(ty, box_sig, box_field))
+    v4_interp_editor_fact(path, source, hir, literal, 6, 1, "flag", "ShapeField", "bool", v4_editor_shape_field_def(ty, pair_sig, flag_field), v4_ty_shape_field_name_span(ty, pair_sig, flag_field))
+    say "interpolation-editor generic-fields=true nested-fields=true field-declarations=true"
+}
+
+task v4_interp_editor_nonhole(path: word, source: word, offset: int) -> void {
+    pilot semantic = v4_semantic_at_text_cached(path, source, offset)
+    pilot definition = v4_definition_at_text_cached(path, source, offset)
+    v4_interp_editor_assert(v4_semantic_at_token_kind(semantic) == v4_tok_string and v4_semantic_at_kind(semantic) == v4_tok_string and v4_semantic_at_def(semantic) == "" and v4_definition_at_found(definition) == 0, "nonhole offset " + word_from_int(offset))
+}
+
+task v4_interp_editor_negatives(path: word, source: word, hir: int, item: int) -> void {
+    pilot literal = v4_hir_word_literal_start(hir, item)
+    pilot span = v4_hir_word_literal_span(hir, literal)
+    v4_interp_editor_nonhole(path, source, v4_span_start(span))
+    v4_interp_editor_nonhole(path, source, v4_span_end(span) - 1)
+    pilot piece = v4_interp_editor_piece(hir, literal, 4)
+    pilot field_span = v4_hir_word_path_part_span(hir, literal, piece, 1)
+    v4_interp_editor_nonhole(path, source, v4_span_start(v4_hir_word_piece_span(hir, literal, piece)))
+    v4_interp_editor_nonhole(path, source, v4_span_end(v4_hir_word_piece_span(hir, literal, piece)) - 1)
+    v4_interp_editor_nonhole(path, source, v4_span_start(field_span) - 1)
+    -- The first literal includes a two-byte UTF-8 scalar and a source escape.
+    v4_interp_editor_nonhole(path, source, v4_span_start(span) + 1)
+    v4_interp_editor_nonhole(path, source, v4_span_start(span) + 2)
+    v4_interp_editor_nonhole(path, source, v4_span_start(span) + 3)
+    pilot plain_span = v4_hir_word_literal_interior_span(hir, literal + 4)
+    v4_interp_editor_nonhole(path, source, v4_span_start(plain_span))
+    pilot malformed = literal + 5
+    v4_interp_editor_assert(v4_hir_word_piece_count(hir, malformed) == 1 and v4_hir_word_piece_kind(hir, malformed, 0) == "Literal", "nonpaths remain one literal")
+    pilot offset = v4_span_start(v4_hir_word_literal_interior_span(hir, malformed))
+    repeat until offset >= v4_span_end(v4_hir_word_literal_interior_span(hir, malformed)) {
+        v4_interp_editor_nonhole(path, source, offset)
+        offset += 1
+    }
+    pilot stream = v4_lex_text_cached(path, source)
+    pilot token = 0
+    pilot metadata = -1
+    repeat until token >= v4_lex_token_count(stream) {
+        if v4_lex_token_type(stream, token) == v4_tok_string and v4_lex_token_value(stream, token) == v4_interp_editor_hole("count") { metadata = token }
+        token += 1
+    }
+    v4_interp_editor_assert(metadata >= 0, "metadata string present")
+    v4_interp_editor_nonhole(path, source, v4_span_start(v4_lex_token_span(stream, metadata)) + 2)
+    say "interpolation-editor quotes=true literal-bytes=true brace-dot=true malformed-nonpaths=true metadata=true"
+}
+
+task v4_interp_editor_restore(path: word, source: word, hir: int, item: int) -> void {
+    pilot literal = v4_hir_word_literal_start(hir, item)
+    pilot offset = v4_interp_editor_offset(hir, literal, 4, 1)
+    pilot semantic = v4_semantic_at_text_cached(path, source, offset)
+    pilot hover = v4_hover_text_cached(path, source, offset)
+    pilot definition = v4_definition_at_text_cached(path, source, offset)
+    pilot original_def = v4_semantic_at_def(semantic)
+    pilot original_span = v4_definition_at_span(definition)
+    pilot original_token_span = v4_semantic_at_token_span(semantic)
+    pilot semantic_payload = v4_semantic_snapshot()
+    pilot hover_payload = v4_hover_snapshot()
+    pilot definition_payload = v4_definition_snapshot()
+    v4_interp_editor_assert(v4_semantic_snapshot_restore(semantic_payload).starts_with("semantic-snapshot-restore ok=1") and v4_hover_snapshot_restore(hover_payload).starts_with("hover-snapshot-restore ok=1") and v4_definition_snapshot_restore(definition_payload).starts_with("definition-snapshot-restore ok=1"), "editor fact restore")
+    v4_interp_editor_assert(v4_semantic_at_def(semantic) == original_def and v4_semantic_at_token_span(semantic) == original_token_span and v4_hover_type(hover) == "int" and v4_definition_at_span(definition) == original_span, "restored editor facts")
+    pilot hir_payload = v4_hir_snapshot()
+    v4_interp_editor_assert(v4_hir_snapshot_restore_with_queries(hir_payload).starts_with("hir-snapshot-restore ok=1"), "HIR dependency restore")
+    pilot fingerprint = v4_source_fingerprint(v4_source_find(path))
+    v4_interp_editor_assert(v4_query_get(v4_semantic_at_query_key(path, offset), fingerprint) == "" and v4_query_get(v4_hover_query_key(path, offset), fingerprint) == "" and v4_query_get(v4_definition_at_query_key(path, offset), fingerprint) == "", "dependent queries dirty")
+    pilot fresh = v4_semantic_at_text_cached(path, source, offset)
+    pilot fresh_hover = v4_hover_text_cached(path, source, offset)
+    pilot fresh_definition = v4_definition_at_text_cached(path, source, offset)
+    v4_interp_editor_assert(fresh != semantic and fresh_hover != hover and fresh_definition != definition, "fresh query identities")
+    v4_interp_editor_assert(v4_semantic_at_def(fresh) == original_def and v4_semantic_at_token_span(fresh) == original_token_span and v4_hover_type(fresh_hover) == "int" and v4_definition_at_span(fresh_definition) == original_span, "fresh restored meanings")
+    say "interpolation-editor fact-snapshots=true hir-invalidation=true fresh-query=true stable-identities=true"
+}
+
+task v4_interp_editor_edit(path: word, source: word, hir: int, item: int) -> void {
+    pilot literal = v4_hir_word_literal_start(hir, item)
+    pilot offset = v4_interp_editor_offset(hir, literal, 1, 0)
+    pilot old_semantic = v4_semantic_at_text_cached(path, source, offset)
+    pilot old_hover = v4_hover_text_cached(path, source, offset)
+    pilot old_definition = v4_definition_at_text_cached(path, source, offset)
+    pilot ty = v4_ty_text_cached(path, source)
+    pilot sig = v4_editor_ty_signature_for_hir_item(ty, item)
+    pilot param = v4_editor_signature_param_id_for_name(ty, sig, "count")
+    pilot type_span = v4_ty_signature_param_type_span(ty, sig, param)
+    pilot edited = v4_slice(source, 0, v4_span_start(type_span)) + "num" + v4_slice(source, v4_span_end(type_span), source.length())
+    pilot fresh = v4_semantic_at_text_cached(path, edited, offset)
+    pilot fresh_hover = v4_hover_text_cached(path, edited, offset)
+    pilot fresh_definition = v4_definition_at_text_cached(path, edited, offset)
+    v4_interp_editor_assert(fresh != old_semantic and fresh_hover != old_hover and fresh_definition != old_definition, "source edit recomputes")
+    v4_interp_editor_assert(v4_semantic_at_type(old_semantic) == "int" and v4_semantic_at_type(fresh) == "num" and v4_hover_type(fresh_hover) == "num", "source edit type")
+    v4_interp_editor_assert(v4_semantic_at_def(fresh) == v4_semantic_at_def(old_semantic) and v4_definition_at_span(fresh_definition) == v4_definition_at_span(old_definition) and v4_semantic_at_token_span(fresh) == v4_semantic_at_token_span(old_semantic), "source edit stable binding and lexical span")
+    say "interpolation-editor source-invalidation=true fresh-type=true stable-binding=true"
+}
+
+task v4_interp_editor_duplicate_field() -> void {
+    pilot path = "interpolation-editor-duplicate.fk"
+    pilot source = "shape Pair " + chr(123) + "\n field: int\n field: bool\n" + chr(125) + "\n"
+    source = source + "task show(lend boxed: Pair) -> word " + chr(123) + " give back \"" + v4_interp_editor_hole("boxed.field") + "\" " + chr(125) + "\n"
+    pilot mir = v4_mir_text_cached(path, source)
+    pilot ty = v4_mir_ty_id(mir)
+    pilot hir = v4_ty_word_plan_hir_id(ty)
+    pilot item = v4_interp_editor_item(hir, "show")
+    pilot sig = v4_ty_shape_signature_id_for_name(ty, "Pair")
+    pilot first = v4_ty_shape_field_name_span(ty, sig, 0)
+    pilot second = v4_ty_shape_field_name_span(ty, sig, 1)
+    v4_interp_editor_assert(v4_ty_shape_field_count(ty, sig) == 2 and v4_ty_shape_field_name(ty, sig, 0) == "field" and v4_ty_shape_field_name(ty, sig, 1) == "field", "duplicate field declarations")
+    v4_interp_editor_assert(v4_ty_shape_field_type(ty, sig, 0) == "int" and v4_ty_shape_field_type(ty, sig, 1) == "bool" and first != second and v4_span_start(first) < v4_span_start(second), "duplicate field types and distinct spans")
+    v4_interp_editor_assert(v4_ty_shape_field_id_for_name(ty, "Pair", "field") == 0, "TY chooses first duplicate")
+    pilot literal = v4_hir_word_literal_start(hir, item)
+    v4_interp_editor_fact(path, source, hir, literal, 0, 1, "field", "ShapeField", "int", v4_editor_shape_field_def(ty, sig, 0), first)
+    pilot definition = v4_definition_at_text_cached(path, source, v4_interp_editor_offset(hir, literal, 0, 1))
+    v4_interp_editor_assert(v4_definition_at_span(definition) != second, "definition excludes later bool field")
+    say "interpolation-editor duplicate-field=true hover-first-int=true definition-first=true later-bool-excluded=true"
+}
+
+task v4_interp_editor_run() -> void {
+    pilot selected = word_to_int(process::arg(1))
+    if selected == 6 {
+        v4_interp_editor_duplicate_field()
+        give back
+    }
+    pilot path = "interpolation-editor.fk"
+    pilot source = v4_interp_editor_source()
+    pilot mir = v4_mir_text_cached(path, source)
+    pilot ty = v4_mir_ty_id(mir)
+    pilot hir = v4_ty_word_plan_hir_id(ty)
+    pilot item = v4_interp_editor_item(hir, "display")
+    pilot body = v4_mir_lookup_body_name(mir, "display")
+    pilot diag_id = 0
+    repeat until diag_id >= v4_mir_diag_count(mir) {
+        say v4_diag_render(v4_mir_diag(mir, diag_id), source)
+        diag_id += 1
+    }
+    v4_interp_editor_assert(v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0 and item >= 0 and body >= 0, "clean source")
+    v4_interp_editor_assert(v4_hir_word_literal_count(hir, item) == 6, "literal plans exclude metadata")
+    if selected == 0 { v4_interp_editor_roots(path, source, hir, item, mir, body) } else if selected == 1 { v4_interp_editor_shadows(path, source, hir, item, mir, body) } else if selected == 2 { v4_interp_editor_fields(path, source, hir, item, mir, body) } else if selected == 3 { v4_interp_editor_negatives(path, source, hir, item) } else if selected == 4 { v4_interp_editor_restore(path, source, hir, item) } else if selected == 5 { v4_interp_editor_edit(path, source, hir, item) } else { panic("interpolation-editor unknown case") }
+}
+v4_interp_editor_run()

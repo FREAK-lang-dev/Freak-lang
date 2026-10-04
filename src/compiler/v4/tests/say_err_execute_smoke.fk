@@ -1,0 +1,73 @@
+-- Sized stderr uses the same immutable Word loan and owner plan as say.
+task v4_say_err_proof_assert(condition: bool, label: word) -> void {
+    if not condition { panic("say-err-proof " + label) }
+}
+
+task v4_say_err_proof_source(case_id: int) -> word {
+    if case_id == 0 { give back "task report(lend value: word) -> void " + chr(123) + " say_err(value); say value " + chr(125) + "\ntask early() -> void " + chr(123) + " pilot value = \"early\\0" + chr(129418) + "\"; say_err(value); give back " + chr(125) + "\ntask main() -> int " + chr(123) + "\n say \"stdout:begin\"\n pilot mut value = \"A\\0" + chr(233) + chr(20013) + chr(128512) + "\"\n say_err(value)\n if value.length() != 5 " + chr(123) + " give back 1 " + chr(125) + "\n report(lend value)\n value = value + \"!\"\n say_err(value)\n if true " + chr(123) + " pilot value = \"inner\"; say_err(value); say value " + chr(125) + "\n pilot mut index = 0\n repeat until index >= 2 " + chr(123) + " say_err(value); index = index + 1 " + chr(125) + "\n say value\n early()\n say_err(\"\")\n say \"stdout:end\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 1 { give back "task receiver(value: word) -> word " + chr(123) + " say \"receiver:\" + value; give back value " + chr(125) + "\ntask main() -> int " + chr(123) + "\n say \"stdout:begin\"\n say_err(receiver(\"TEMP\\0" + chr(233) + "\"))\n say_err(receiver(\"LEFT\") + receiver(\"RIGHT\"))\n say \"stdout:end\"\n give back 0\n" + chr(125) + "\n" }
+    if case_id == 2 { give back "task say_err(value: word) -> void " + chr(123) + " say \"ordinary:\" + value " + chr(125) + "\ntask main() -> int " + chr(123) + " say_err(\"shadow\"); give back 0 " + chr(125) + "\n" }
+    panic("unknown say-err-proof case")
+    give back ""
+}
+
+task v4_say_err_proof_run(case_id: int, target_name: word, emit: bool) -> void {
+    pilot source = v4_say_err_proof_source(case_id)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    v4_say_err_proof_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
+    pilot expected = 7
+    if case_id == 1 { expected = 2 }
+    if case_id == 2 { expected = 0 }
+    pilot found = 0
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+            if v4_mir_word_intrinsic_kind(mir, body, value) == "say_err" {
+                v4_say_err_proof_assert(v4_mir_rvalue_is_builtin_word(mir, body, value) and v4_mir_builtin_method_identity_code(v4_mir_rvalue_builtin_method(mir, body, value)) == 105 and v4_mir_rvalue_ty(mir, body, value) == v4_ty_void, "closed borrowed stderr descriptor")
+                pilot argument = v4_mir_rvalue_call_arg(mir, body, value, 0)
+                v4_say_err_proof_assert(v4_mir_rvalue_kind(mir, body, argument) == v4_mir_rvalue_lend and v4_mir_rvalue_ty(mir, body, argument) == "lend word", "immutable receiver loan")
+                found += 1
+            }
+            value += 1
+        }
+        body += 1
+    }
+    v4_say_err_proof_assert(found == expected, "exact builtin call count and ordinary shadow")
+    pilot codegen = v4_codegen_llvm_lower_owned_mir(0, mir)
+    if v4_codegen_llvm_diag_count(codegen) != 0 or v4_codegen_llvm_native_module_error(codegen) != "" {
+        say "say-err-proof native-error=" + v4_codegen_llvm_native_module_error(codegen)
+        pilot native_diag = 0
+        repeat until native_diag >= v4_codegen_llvm_diag_count(codegen) { say v4_codegen_llvm_diag(codegen, native_diag); native_diag += 1 }
+        pilot borrow = v4_borrowck_check_mir(0, mir)
+        pilot borrow_diag = 0
+        repeat until borrow_diag >= v4_borrowck_diag_count(borrow) { say v4_borrowck_diag(borrow, borrow_diag); borrow_diag += 1 }
+    }
+    v4_say_err_proof_assert(v4_codegen_llvm_diag_count(codegen) == 0 and v4_codegen_llvm_native_module_error(codegen) == "", "native ownership seal")
+    pilot target = v4_target_spec_new(target_name)
+    pilot before = v4_codegen_llvm_module_text(codegen, target)
+    v4_say_err_proof_assert(before != "", "nonempty native module")
+    pilot snapshot = v4_mir_snapshot()
+    v4_say_err_proof_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "detached restore")
+    v4_say_err_proof_assert(v4_codegen_llvm_module_text(codegen, target) == before, "old sealed module stable")
+    pilot restored = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_say_err_proof_assert(v4_codegen_llvm_module_text(restored, target) == before and v4_codegen_llvm_native_module_error(restored) == "", "fresh restored module exact")
+    say "say-err-proof case=" + word_from_int(case_id) + " calls=" + word_from_int(found) + " borrowed=true restore=true old-seal=true fresh-module=true"
+    if emit {
+        say "@@LLVM-MODULE-BEGIN"
+        say before
+        say "@@LLVM-MODULE-END"
+    }
+}
+pilot v4_say_err_proof_case = 0
+pilot v4_say_err_proof_target = "x86_64-unknown-linux-gnu"
+pilot v4_say_err_proof_emit = false
+if process::args_count() > 1 { v4_say_err_proof_case = word_to_int(process::arg(1)) }
+if process::args_count() > 2 { v4_say_err_proof_target = process::arg(2) }
+if process::args_count() > 3 { v4_say_err_proof_emit = process::arg(3) == "--emit" }
+v4_say_err_proof_run(v4_say_err_proof_case, v4_say_err_proof_target, v4_say_err_proof_emit)

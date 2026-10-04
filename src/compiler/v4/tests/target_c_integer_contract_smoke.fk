@@ -1,0 +1,68 @@
+-- Closed target-derived C integer layout contracts, not native C ABI admission.
+-- Verification prepends freak_target before this fixture.
+
+task v4_c_integer_smoke_bool(value: bool) -> word {
+    if value { give back "true" }
+    give back "false"
+}
+
+task v4_c_integer_smoke_key(index: int) -> word {
+    if index == 0 { give back "c_int" }
+    if index == 1 { give back "c_uint" }
+    if index == 2 { give back "c_long" }
+    if index == 3 { give back "c_ulong" }
+    give back ""
+}
+
+task v4_c_integer_smoke_rejected(spec: word) -> bool {
+    give back v4_target_c_integer_descriptor(spec, "c_int") == "" and v4_target_c_integer_descriptor(spec, "c_uint") == "" and v4_target_c_integer_descriptor(spec, "c_long") == "" and v4_target_c_integer_descriptor(spec, "c_ulong") == ""
+}
+
+task v4_c_integer_smoke_replace(spec: word, wanted: int) -> word {
+    pilot out = ""
+    pilot field_id = 0
+    repeat until field_id >= 17 {
+        pilot field = v4_target_field(spec, field_id)
+        if field_id == wanted { field = "forged" }
+        out = out + v4_target_pack_field(field)
+        field_id += 1
+    }
+    give back out
+}
+
+task v4_c_integer_smoke_invalid_descriptor(descriptor: word) -> bool {
+    give back v4_target_c_integer_width(descriptor) == 0 - 1 and v4_target_c_integer_signedness(descriptor) == 0 - 1 and v4_target_c_integer_size(descriptor) == 0 - 1 and v4_target_c_integer_alignment(descriptor) == 0 - 1 and v4_target_c_integer_llvm_carrier(descriptor) == ""
+}
+
+pilot v4_c_integer_smoke_target = 0
+pilot v4_c_integer_smoke_forged = true
+repeat until v4_c_integer_smoke_target >= v4_target_spec_count() {
+    pilot spec = v4_target_spec_at(v4_c_integer_smoke_target)
+    pilot key_id = 0
+    repeat until key_id >= 4 {
+        pilot key = v4_c_integer_smoke_key(key_id)
+        pilot descriptor = v4_target_c_integer_descriptor(spec, key)
+        say "target-c-integer-" + v4_target_spec_triple(spec) + "-" + key + "=descriptor=" + descriptor + " width=" + word_from_int(v4_target_c_integer_width(descriptor)) + " signed=" + word_from_int(v4_target_c_integer_signedness(descriptor)) + " size=" + word_from_int(v4_target_c_integer_size(descriptor)) + " align=" + word_from_int(v4_target_c_integer_alignment(descriptor)) + " carrier=" + v4_target_c_integer_llvm_carrier(descriptor)
+        key_id += 1
+    }
+    pilot field_id = 0
+    repeat until field_id >= 17 {
+        if not v4_c_integer_smoke_rejected(v4_c_integer_smoke_replace(spec, field_id)) {
+            v4_c_integer_smoke_forged = false
+        }
+        field_id += 1
+    }
+    v4_c_integer_smoke_target += 1
+}
+say "target-c-integer-forged-all17-fields=" + v4_c_integer_smoke_bool(v4_c_integer_smoke_forged)
+
+pilot v4_c_integer_smoke_spec = v4_target_spec_at(0)
+say "target-c-integer-unknown-keys=" + v4_c_integer_smoke_bool(v4_target_c_integer_descriptor(v4_c_integer_smoke_spec, "") == "" and v4_target_c_integer_descriptor(v4_c_integer_smoke_spec, "std::ffi::c_int") == "" and v4_target_c_integer_descriptor(v4_c_integer_smoke_spec, "C_INT") == "" and v4_target_c_integer_descriptor(v4_c_integer_smoke_spec, "c_int ") == "" and v4_target_c_integer_descriptor(v4_c_integer_smoke_spec, "c_char") == "" and v4_target_c_integer_descriptor(v4_c_integer_smoke_spec, "c_bool") == "" and v4_target_c_integer_descriptor(v4_c_integer_smoke_spec, "wchar") == "" and v4_target_c_integer_descriptor(v4_c_integer_smoke_spec, "c_size") == "" and v4_target_c_integer_descriptor(v4_c_integer_smoke_spec, "int") == "" and v4_target_c_integer_descriptor(v4_c_integer_smoke_spec, "c-signed32") == "")
+say "target-c-integer-unknown-descriptors=" + v4_c_integer_smoke_bool(v4_c_integer_smoke_invalid_descriptor("") and v4_c_integer_smoke_invalid_descriptor("i32") and v4_c_integer_smoke_invalid_descriptor("c_int") and v4_c_integer_smoke_invalid_descriptor("C-signed32") and v4_c_integer_smoke_invalid_descriptor("c-signed032") and v4_c_integer_smoke_invalid_descriptor("c-signed32tail"))
+say "target-c-integer-cold-unknown-target=" + v4_c_integer_smoke_bool(v4_c_integer_smoke_rejected("") and v4_c_integer_smoke_rejected("host") and v4_c_integer_smoke_rejected(v4_target_spec_new("wasm32-unknown-unknown")))
+say "target-c-integer-malformed-frame=" + v4_c_integer_smoke_bool(v4_c_integer_smoke_rejected("0" + v4_c_integer_smoke_spec) and v4_c_integer_smoke_rejected(v4_c_integer_smoke_spec.substring(0, v4_c_integer_smoke_spec.length() - 1)) and v4_c_integer_smoke_rejected(v4_c_integer_smoke_spec + v4_target_pack_field("extra")))
+pilot v4_c_integer_smoke_oversized = "x"
+repeat 10 times { v4_c_integer_smoke_oversized = v4_c_integer_smoke_oversized + v4_c_integer_smoke_oversized }
+say "target-c-integer-oversized-rejected=" + v4_c_integer_smoke_bool(v4_c_integer_smoke_rejected(v4_c_integer_smoke_oversized))
+say "target-c-integer-v1-wire-byte-exact=" + v4_c_integer_smoke_bool(v4_target_spec_at(0) == "10:TargetSpec20:freak-target-spec-v124:x86_64-unknown-linux-gnu6:x86_645:linux3:gnu2:646:little4:lp643:elf21:C,cdecl,system,sysv640:0:0:2:.o16:clang-driver-gnu10:posix-main" and v4_target_spec_at(1) == "10:TargetSpec20:freak-target-spec-v125:aarch64-unknown-linux-gnu7:aarch645:linux3:gnu2:646:little4:lp643:elf14:C,cdecl,system0:0:0:2:.o16:clang-driver-gnu10:posix-main" and v4_target_spec_at(2) == "10:TargetSpec20:freak-target-spec-v120:aarch64-apple-darwin7:aarch645:macos6:darwin2:646:little4:lp646:mach-o14:C,cdecl,system0:0:0:2:.o19:clang-driver-darwin11:darwin-main" and v4_target_spec_at(3) == "10:TargetSpec20:freak-target-spec-v122:x86_64-w64-windows-gnu6:x86_647:windows3:gnu2:646:little5:llp644:coff31:C,cdecl,system,win64,vectorcall0:4:.exe0:4:.obj17:clang-driver-ucrt9:ucrt-main")
+say "target-c-integer-roundtrip=" + v4_c_integer_smoke_bool(v4_target_field_count(v4_c_integer_smoke_spec) == 17 and v4_target_spec_decode(v4_target_spec_encode(v4_c_integer_smoke_spec)) == v4_c_integer_smoke_spec)

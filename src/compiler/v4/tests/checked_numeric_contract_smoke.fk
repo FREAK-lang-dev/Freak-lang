@@ -1,0 +1,213 @@
+-- Process-isolated numerical native admission, graph bounds and pressure.
+task v4_checked_numeric_assert(condition: bool, label: word) -> void {
+    if not condition { panic("checked numeric contract: " + label) }
+}
+
+task v4_checked_numeric_mir(source: word) -> int {
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot diagnostics = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir)
+    v4_checked_numeric_assert(diagnostics == 0, "clean frontend")
+    give back mir
+}
+
+task v4_checked_numeric_contract_run(selected_case: int) -> void {
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    if selected_case == 0 {
+        pilot type_text = process::arg(2)
+        pilot text = process::arg(3)
+        pilot source = "task main() -> int " + "{" + " pilot value: " + type_text + " = 1; give back 0 " + "}"
+        pilot mir = v4_checked_numeric_mir(source)
+        pilot original = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot before = v4_codegen_llvm_module_text(original, target)
+        v4_checked_numeric_assert(before != "", "original module")
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir, 0) or v4_mir_rvalue_text(mir, 0, value) == "1" { value += 1 }
+        v4_checked_numeric_assert(value < v4_mir_body_rvalue_count(mir, 0), "literal row")
+        array_set(v4_mir_body_rvalue_texts_handle(mir, 0), value, text)
+        pilot failed = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(failed, target) == "" and v4_codegen_llvm_native_module_error(failed).contains("literal"), "malformed or out-of-range literal cannot seal")
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(original, target) == before, "old sealed module unaffected")
+        say "checked-numeric-rejected=" + v4_codegen_llvm_native_module_error(failed)
+        array_set(v4_mir_body_rvalue_texts_handle(mir, 0), value, "1")
+        pilot repaired = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(repaired, target) == before, "literal recovery")
+    } else if selected_case == 1 {
+        pilot source = "task main() -> int " + "{" + " pilot value: " + process::arg(2) + " = " + process::arg(3) + "; give back 0 " + "}"
+        pilot mir = v4_checked_numeric_mir(source)
+        pilot failed = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(failed, target) == "" and v4_codegen_llvm_native_module_error(failed).contains("literal"), "authored out-of-range literal cannot seal")
+        say "checked-numeric-rejected=" + v4_codegen_llvm_native_module_error(failed)
+    } else if selected_case == 2 {
+        pilot symbol = process::arg(2)
+        pilot source = "task " + symbol + "(value: int) -> int " + "{" + " give back value " + "}" + " task main() -> int " + "{" + " give back 0 " + "}"
+        if process::arg(3) == "extern" {
+            source = "extern [C] " + "{" + "\n @link_name(\"" + symbol + "\")\n task foreign(value: std::ffi::c_isize) -> std::ffi::c_isize\n" + "}" + "\n task main() -> int " + "{" + " give back 0 " + "}"
+        }
+        pilot mir = v4_checked_numeric_mir(source)
+        pilot failed = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(failed, target) == "" and v4_codegen_llvm_native_module_error(failed).contains("runtime symbol conflict"), "private helper symbol cannot be authored or linked")
+        say "checked-numeric-rejected=" + v4_codegen_llvm_native_module_error(failed)
+    } else if selected_case == 3 {
+        -- The hostile scalar graph is in main, while helper contains the word.
+        pilot source = "task helper() -> word " + "{" + " give back \"owned\" " + "}" + " task main() -> int " + "{" + " give back 0 " + "}"
+        pilot mir = v4_checked_numeric_mir(source)
+        pilot body = v4_mir_lookup_body_name(mir, "main")
+        pilot root = 0
+        pilot depth = 1
+        pilot limit = word_to_int(process::arg(2))
+        repeat until depth >= limit {
+            root = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_unary, "", v4_mir_unary_neg, root, 0 - 1, V4_NO_SPAN, v4_ty_int)
+            depth += 1
+        }
+        array_set(v4_mir_body_stmt_rvalues_handle(mir, body), 0, word_from_int(root))
+        pilot codegen = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot module = v4_codegen_llvm_module_text(codegen, target)
+        if limit <= 256 {
+            v4_checked_numeric_assert(module != "", "deepest accepted scalar expression")
+            say "@@LLVM-MODULE-BEGIN"
+            say module
+            say "@@LLVM-MODULE-END"
+        } else {
+            v4_checked_numeric_assert(module == "" and v4_codegen_llvm_native_module_error(codegen).contains("nesting"), "scalar-only deep graph cannot bypass native cap")
+        }
+        say "checked-numeric-graph-error=" + v4_codegen_llvm_native_module_error(codegen)
+    } else if selected_case == 4 {
+        pilot source = "task helper() -> word " + "{" + " give back \"owned\" " + "}" + " task main() -> int " + "{" + " give back 0 " + "}"
+        pilot mir = v4_checked_numeric_mir(source)
+        pilot body = v4_mir_lookup_body_name(mir, "main")
+        pilot root = 0
+        pilot depth = 0
+        repeat until depth >= 17 {
+            root = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_binary, "", v4_mir_bin_add, root, root, V4_NO_SPAN, v4_ty_int)
+            depth += 1
+        }
+        array_set(v4_mir_body_stmt_rvalues_handle(mir, body), 0, word_from_int(root))
+        pilot failed = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(failed, target) == "" and v4_codegen_llvm_native_module_error(failed).contains("budget"), "scalar DAG traversal cannot grow exponentially")
+        say "checked-numeric-rejected=" + v4_codegen_llvm_native_module_error(failed)
+    } else if selected_case == 5 {
+        pilot source = "task main() -> int " + "{" + " pilot value = \"owned\"; say value; give back 0 " + "}"
+        pilot mir = v4_checked_numeric_mir(source)
+        pilot original = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot before = v4_codegen_llvm_module_text(original, target)
+        v4_checked_numeric_assert(before != "", "clean pressure control")
+        pilot held = array_new()
+        pilot handle = array_new()
+        repeat until handle < 0 {
+            array_push(held, word_from_int(handle))
+            handle = array_new()
+        }
+        v4_codegen_llvm_fragment_error = ""
+        pilot cleanup = v4_codegen_llvm_word_drop_all_lines(mir, 0, "exhausted")
+        pilot cleanup_error = v4_codegen_llvm_fragment_error
+        v4_checked_numeric_assert(cleanup == "" and cleanup_error == "native owned word cleanup scratch allocation failed", "cleanup exhaustion records its exact admission failure")
+        -- Query the existing seal independently of fresh-plan admission. A
+        -- transactional plan needs 49 simultaneous free handles before it
+        -- can reach fragment construction; these are different boundaries.
+        v4_codegen_llvm_fragment_error = ""
+        pilot unpublished = v4_codegen_llvm_module_text(original, target)
+        pilot publication_error = v4_codegen_llvm_fragment_error
+        v4_checked_numeric_assert(unpublished == "" and publication_error == "native LLVM fragment scratch allocation failed", "sealed module publication cannot ignore fragment exhaustion")
+        pilot released = 0
+        pilot room = word_to_int(process::arg(2))
+        repeat until released >= room or released >= array_len(held) {
+            array_release(word_to_int(array_get(held, released)))
+            array_set(held, released, "-1")
+            released += 1
+        }
+        pilot failed = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot error = v4_codegen_llvm_native_module_error(failed)
+        v4_checked_numeric_assert(failed == -2 and error == "native codegen plan arena allocation failed", "fresh plan exhausts transactionally before fragment construction")
+        -- Recover all deliberately held capacity before querying published text.
+        pilot idx = 0
+        repeat until idx >= array_len(held) { array_release(word_to_int(array_get(held, idx))); idx += 1 }
+        array_release(held)
+        v4_checked_numeric_assert(error != "" and v4_codegen_llvm_module_text(failed, target) == "", "exhaustion cannot publish a partial native plan")
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(original, target) == before, "sealed module A survives failed B")
+        pilot recovered = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(recovered, target) == before, "capacity recovery restores exact native module")
+        say "checked-numeric-pressure-cleanup-error=" + cleanup_error
+        say "checked-numeric-pressure-publication-error=" + publication_error
+        say "checked-numeric-pressure-room=" + word_from_int(room) + " error=" + error
+    } else if selected_case == 6 {
+        pilot mir = v4_checked_numeric_mir("task main() -> int " + "{" + " pilot value = 2 + 3; give back value " + "}")
+        pilot original = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot before = v4_codegen_llvm_module_text(original, target)
+        pilot snapshot = v4_mir_snapshot()
+        v4_checked_numeric_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1"), "small numeric snapshot valid")
+        v4_checked_numeric_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "small numeric snapshot restores")
+        pilot restored = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(original, target) == before and v4_codegen_llvm_module_text(restored, target) == before, "numeric helper declarations and sealed bodies stay exact")
+    } else if selected_case == 7 {
+        pilot source = "extern [C] " + "{" + "\n task numeric_offset_pointer() -> *const tiny\n" + "}" + "\n task main() -> int " + "{" + "\n pilot pointer = numeric_offset_pointer()\n trust me \"offset shape\" on my honor as .ace " + "{" + "\n pilot shifted = pointer.offset(1)\n " + "}" + "\n give back 0\n " + "}"
+        pilot mir = v4_checked_numeric_mir(source)
+        pilot root = 0
+        repeat until root >= v4_mir_body_rvalue_count(mir, 0) or v4_mir_rvalue_op(mir, 0, root) == v4_mir_unary_ptr_offset { root += 1 }
+        v4_checked_numeric_assert(root < v4_mir_body_rvalue_count(mir, 0), "pointer offset row")
+        pilot child = v4_mir_rvalue_rhs(mir, 0, root)
+        array_set(v4_mir_body_rvalue_tys_handle(mir, 0), child, v4_ty_tiny)
+        pilot failed = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(failed, target) == "" and v4_codegen_llvm_native_module_error(failed).contains("pointer offset"), "tiny offset cannot masquerade as i64 GEP")
+    } else if selected_case == 8 {
+        pilot type_text = process::arg(2)
+        pilot source = "task main() -> int " + "{" + " pilot value: " + type_text + " = 0.5; give back 0 " + "}"
+        pilot mir = v4_checked_numeric_mir(source)
+        pilot original = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot before = v4_codegen_llvm_module_text(original, target)
+        v4_checked_numeric_assert(before != "", "clean floating literal module")
+        array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, process::arg(3))
+        pilot failed = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(failed, target) == "" and v4_codegen_llvm_native_module_error(failed).contains("floating literal"), "floating text cannot inject LLVM or exceed literal range")
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(original, target) == before, "sealed float survives rejected text")
+        array_set(v4_mir_body_rvalue_texts_handle(mir, 0), 0, "0.5")
+        pilot repaired = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(repaired, target) == before, "floating literal recovery")
+    } else if selected_case == 9 {
+        pilot source = "task identity(value: int) -> int " + "{" + " give back value " + "}" + " task make(value: int) -> word " + "{" + " give back \"owned\" " + "}" + " task main() -> int " + "{" + " pilot callback = identity; give back 0 " + "}"
+        pilot mir = v4_checked_numeric_mir(source)
+        pilot body = v4_mir_lookup_body_name(mir, "main")
+        pilot original = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot before = v4_codegen_llvm_module_text(original, target)
+        v4_checked_numeric_assert(before != "", "clean task pointer module")
+        pilot row = 0
+        repeat until row >= v4_mir_body_rvalue_count(mir, body) or v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_use_symbol { row += 1 }
+        v4_checked_numeric_assert(row < v4_mir_body_rvalue_count(mir, body), "task pointer row")
+        array_set(v4_mir_body_rvalue_texts_handle(mir, body), row, process::arg(2))
+        pilot failed = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(failed, target) == "" and v4_codegen_llvm_native_module_error(failed) != "", "forged task pointer target cannot seal")
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(original, target) == before, "sealed task pointer survives rejected target")
+        array_set(v4_mir_body_rvalue_texts_handle(mir, body), row, "identity")
+        pilot repaired = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(repaired, target) == before, "task pointer target recovery")
+        say "checked-numeric-symbol-error=" + v4_codegen_llvm_native_module_error(failed)
+    } else if selected_case == 10 {
+        pilot mir = v4_checked_numeric_mir("task main() -> int " + "{" + " pilot value = 2 + 3; give back value " + "}")
+        pilot original = v4_codegen_llvm_lower_owned_mir(0, mir)
+        pilot before = v4_codegen_llvm_module_text(original, target)
+        v4_checked_numeric_assert(before != "", "module query control")
+        pilot query = 0
+        repeat until query >= 1100 {
+            v4_checked_numeric_assert(v4_codegen_llvm_module_text(original, target) == before, "module queries conserve temporary array handles")
+            query += 1
+        }
+        pilot regenerated = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(regenerated, target) == before, "fresh lowering after repeated module queries")
+    } else if selected_case == 11 {
+        pilot source = "task observe(lend value: word) -> int " + "{" + " give back value.length() " + "}" + "\n task main() -> int " + "{" + " pilot callback = observe; pilot value = \"owned\"; pilot result = callback(value); give back 0 " + "}"
+        if process::arg(2) == "owned" { source = "task observe(value: word) -> int " + "{" + " give back value.length() " + "}" + "\n task main() -> int " + "{" + " pilot callback = observe; give back 0 " + "}" }
+        if process::arg(2) == "return" { source = "task produce() -> word " + "{" + " give back \"owned\" " + "}" + "\n task main() -> int " + "{" + " pilot callback = produce; give back 0 " + "}" }
+        if process::arg(2) == "nested" { source = "task nested(callback: task(value: word) -> int) -> int " + "{" + " give back 0 " + "}" + "\n task main() -> int " + "{" + " give back 0 " + "}" }
+        pilot mir = v4_checked_numeric_mir(source)
+        pilot failed = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_checked_numeric_assert(v4_codegen_llvm_module_text(failed, target) == "" and v4_codegen_llvm_native_module_error(failed).contains("word task pointer"), "word-bearing callbacks remain explicitly unsupported")
+        say "checked-numeric-word-pointer-error=" + v4_codegen_llvm_native_module_error(failed)
+    } else { panic("checked numeric contract: unknown case") }
+    say "checked-numeric-contract-case-" + word_from_int(selected_case) + "=passed"
+}
+
+v4_checked_numeric_contract_run(word_to_int(process::arg(1)))

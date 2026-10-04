@@ -1,0 +1,110 @@
+-- Builtin facts use real method tokens and structurally valid persisted calls.
+task v4_lower_editor_assert(condition: bool, label: word) -> void {
+    if not condition { panic("word-lower-editor " + label) }
+}
+
+task v4_lower_editor_source() -> word {
+    pilot src = "task to_lower(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\n"
+    src = src + "task show(lend source: word) -> word " + chr(123) + "\n"
+    src = src + " pilot outcome = source.to_lower().to_lower()  -- trailing trivia\n"
+    src = src + " pilot to_lower = 7\n pilot ordinary = to_lower\n"
+    src = src + " pilot size = source.length()\n pilot copied = source.clone()\n"
+    src = src + " pilot scalar = source.char_at(0)\n"
+    src = src + " pilot plain = \"to_lower\"\n give back outcome\n" + chr(125) + "\n"
+    src = src + "task normal() -> int " + chr(123) + " give back to_lower(3) " + chr(125) + "\n"
+    give back src
+}
+
+task v4_lower_editor_token(stream: int, name: word, member: bool, ordinal: int) -> int {
+    pilot seen = 0
+    pilot token = 0
+    repeat until token >= v4_lex_token_count(stream) {
+        if v4_lex_token_type(stream, token) == v4_tok_ident and v4_lex_token_value(stream, token) == name {
+            pilot previous = v4_editor_prev_nontrivia_token(stream, token)
+            pilot is_member: bool = previous >= 0 and v4_lex_token_value(stream, previous) == "."
+            if is_member == member {
+                if seen == ordinal { give back token }
+                seen += 1
+            }
+        }
+        token += 1
+    }
+    give back -1
+}
+
+task v4_lower_editor_fact(path: word, source: word, token: int, name: word, detail: word) -> int {
+    pilot stream = v4_lex_text_cached(path, source)
+    v4_lower_editor_assert(token >= 0, "method token")
+    pilot offset = v4_span_start(v4_lex_token_span(stream, token))
+    pilot semantic = v4_semantic_at_text_cached(path, source, offset)
+    pilot hover = v4_hover_text_cached(path, source, offset)
+    pilot definition = v4_definition_at_text_cached(path, source, offset)
+    v4_lower_editor_assert(v4_semantic_at_name(semantic) == name and v4_semantic_at_kind(semantic) == "BuiltinMethod" and v4_semantic_at_type(semantic) == detail and v4_semantic_at_def(semantic) == "builtin::word::" + name, "closed method fact " + name)
+    v4_lower_editor_assert(v4_hover_name(hover) == name and v4_hover_kind(hover) == "BuiltinMethod" and v4_hover_type(hover) == detail, "hover " + name)
+    v4_lower_editor_assert(v4_definition_at_found(definition) == 0 and v4_definition_at_span(definition) == V4_NO_SPAN, "no fabricated declaration")
+    v4_lower_editor_assert(v4_semantic_at_token_id(semantic) == token and v4_semantic_at_token_kind(semantic) == v4_tok_ident and v4_semantic_at_token_span(semantic) == v4_lex_token_span(stream, token) and v4_semantic_at_token_value(semantic) == name, "real lexical provenance")
+    pilot interior = v4_semantic_at_text_cached(path, source, offset + 1)
+    v4_lower_editor_assert(v4_semantic_at_def(interior) == v4_semantic_at_def(semantic), "method interior")
+    give back semantic
+}
+
+task v4_lower_editor_run() -> void {
+    pilot mode = process::arg(1)
+    pilot path = "word-lower-editor.fk"
+    pilot source = v4_lower_editor_source()
+    pilot mir = v4_mir_text_cached(path, source)
+    v4_lower_editor_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
+    pilot stream = v4_lex_text_cached(path, source)
+    pilot token = v4_lower_editor_token(stream, "to_lower", true, 0)
+    if mode == "0" {
+        v4_lower_editor_fact(path, source, token, "to_lower", "task word.to_lower() -> word")
+        v4_lower_editor_fact(path, source, v4_lower_editor_token(stream, "to_lower", true, 1), "to_lower", "task word.to_lower() -> word")
+        v4_lower_editor_fact(path, source, v4_lower_editor_token(stream, "length", true, 0), "length", "task word.length() -> int")
+        v4_lower_editor_fact(path, source, v4_lower_editor_token(stream, "clone", true, 0), "clone", "task word.clone() -> word")
+        v4_lower_editor_fact(path, source, v4_lower_editor_token(stream, "char_at", true, 0), "char_at", "task word.char_at(int) -> word")
+        say "word-lower-editor chained=true trivia=true TY-signatures=true lexical-provenance=true no-fake-definition=true"
+    } else if mode == "1" {
+        pilot ordinary = v4_lower_editor_token(stream, "to_lower", false, 2)
+        pilot local = v4_semantic_at_text_cached(path, source, v4_span_start(v4_lex_token_span(stream, ordinary)))
+        v4_lower_editor_assert(v4_semantic_at_kind(local) == "Local" and v4_semantic_at_type(local) == "int" and not v4_semantic_at_def(local).starts_with("builtin::"), "local shadow")
+        pilot direct = v4_lower_editor_token(stream, "to_lower", false, 3)
+        pilot task_fact = v4_semantic_at_text_cached(path, source, v4_span_start(v4_lex_token_span(stream, direct)))
+        v4_lower_editor_assert(v4_semantic_at_kind(task_fact) == "Task" and not v4_semantic_at_def(task_fact).starts_with("builtin::"), "ordinary task")
+        pilot literal = 0
+        repeat until literal >= v4_lex_token_count(stream) or v4_lex_token_type(stream, literal) == v4_tok_string and v4_lex_token_value(stream, literal).contains("to_lower") { literal += 1 }
+        v4_lower_editor_assert(literal < v4_lex_token_count(stream), "plain literal")
+        pilot plain = v4_semantic_at_text_cached(path, source, v4_span_start(v4_lex_token_span(stream, literal)) + 2)
+        v4_lower_editor_assert(v4_semantic_at_kind(plain) != "BuiltinMethod", "nonhole literal")
+        say "word-lower-editor ordinary-task=true local-shadow=true literal-negative=true"
+    } else if mode == "2" {
+        pilot before = v4_lower_editor_fact(path, source, token, "to_lower", "task word.to_lower() -> word")
+        pilot offset = v4_span_start(v4_lex_token_span(stream, token))
+        pilot payload = v4_mir_snapshot()
+        v4_lower_editor_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "detached MIR restore")
+        v4_lower_editor_assert(v4_mir_snapshot() == payload, "raw MIR identity exact")
+        -- Raw MIR component restore has no query facade. The official HIR
+        -- facade owns transitive editor invalidation; exercise that boundary.
+        pilot hir_payload = v4_hir_snapshot()
+        v4_lower_editor_assert(v4_hir_snapshot_restore_with_queries(hir_payload).starts_with("hir-snapshot-restore ok=1"), "HIR query facade restore")
+        pilot fingerprint = v4_source_fingerprint(v4_source_find(path))
+        v4_lower_editor_assert(v4_query_get(v4_semantic_at_query_key(path, offset), fingerprint) == "" and v4_query_get(v4_hover_query_key(path, offset), fingerprint) == "" and v4_query_get(v4_definition_at_query_key(path, offset), fingerprint) == "", "official facade invalidation")
+        pilot fresh = v4_lower_editor_fact(path, source, token, "to_lower", "task word.to_lower() -> word")
+        v4_lower_editor_assert(fresh != before, "restored generation recomputes")
+        pilot semantic = v4_semantic_snapshot()
+        pilot hover = v4_hover_snapshot()
+        pilot definition = v4_definition_snapshot()
+        v4_lower_editor_assert(v4_semantic_snapshot_restore(semantic).starts_with("semantic-snapshot-restore ok=1") and v4_hover_snapshot_restore(hover).starts_with("hover-snapshot-restore ok=1") and v4_definition_snapshot_restore(definition).starts_with("definition-snapshot-restore ok=1"), "editor snapshots")
+        v4_lower_editor_assert(v4_semantic_at_def(fresh) == "builtin::word::to_lower", "restored editor identity")
+        say "word-lower-editor raw-MIR-exact=true HIR-query-invalidation=true fresh-query=true fact-snapshots=true"
+    } else if mode == "3" {
+        pilot before = v4_lower_editor_fact(path, source, token, "to_lower", "task word.to_lower() -> word")
+        pilot span = v4_lex_token_span(stream, token)
+        pilot edited = v4_slice(source, 0, v4_span_start(span)) + "clone" + v4_slice(source, v4_span_end(span), source.length())
+        pilot changed_stream = v4_lex_text_cached(path, edited)
+        pilot changed_token = v4_lower_editor_token(changed_stream, "clone", true, 0)
+        pilot fresh = v4_lower_editor_fact(path, edited, changed_token, "clone", "task word.clone() -> word")
+        v4_lower_editor_assert(fresh != before and v4_semantic_at_def(before) == "builtin::word::to_lower", "source edit immutable old facts")
+        say "word-lower-editor source-invalidation=true fresh-builtin=true old-fact-stable=true"
+    } else { panic("word-lower-editor unknown case") }
+}
+v4_lower_editor_run()

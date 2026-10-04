@@ -8,6 +8,12 @@ task v4_build_llvm_abort(errors: int, stage: word) -> bool {
     give back true
 }
 
+-- Missing policy retains compatibility with the three-argument bootstrap tool.
+task v4_build_llvm_panic_policy() -> word {
+    if process::args_count() < 4 { give back "unwind" }
+    give back process::arg(3)
+}
+
 task v4_build_llvm_source(source: word) -> void {
     pilot errors = 0
     pilot stream = v4_lex_text(0, source)
@@ -73,7 +79,7 @@ task v4_build_llvm_source(source: word) -> void {
         diag_borrowck += 1
     }
     if v4_build_llvm_abort(errors, "borrowck") { give back }
-    pilot codegen = v4_codegen_llvm_lower_mir(0, mir)
+    pilot codegen = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, v4_build_llvm_panic_policy())
     errors += v4_codegen_llvm_diag_count(codegen)
     say "v4-build-stage=codegen diagnostics=" + word_from_int(v4_codegen_llvm_diag_count(codegen))
     pilot diag_codegen = 0
@@ -107,6 +113,12 @@ task v4_build_llvm_run() -> void {
     if process::args_count() < 3 {
         say "v4-source-read-error=expected source path and target"
         v4_build_llvm_abort(1, "source")
+        give back
+    }
+    pilot panic_policy = v4_build_llvm_panic_policy()
+    if panic_policy != "unwind" and panic_policy != "abort" {
+        say "v4-native-contract-error=unsupported V4 panic policy: " + panic_policy
+        v4_build_llvm_abort(1, "panic-policy")
         give back
     }
     pilot source_read = fs::read_checked(process::arg(1))

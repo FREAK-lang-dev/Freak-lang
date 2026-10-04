@@ -47,7 +47,7 @@ Pipeline (full compiler):
 | §1 Syntax | ⚠️ Partial | Core syntax works (variables, tasks, control flow, shapes, doctrines, closures, pipe, maybe/result, foreshadow/payoff, deus_ex_machina, isekai, eventually). V4 now carries variants/routes, payload pattern destructuring, named call args, primitive type carriers, fixed `[T;N]`, tuples, raw-pointer forms, explicit named lifetimes plus ordinary-task outlives bounds, first-pass `dyn Doctrine` type/object-safety/coercion/editor facts, and first-pass default/`copy`/`move`/`mut` closure capture semantics through resilient parse, HIR, TY, MIR, Meiya, editor, snapshot, LSP, and invalidation queries. Still expanding: `prob_when`, nested and generic closure typing, borrowed-return closure contracts, closure environment codegen, full dyn vtable lowering, and production backend depth for V4-only forms. |
 | §2 Advanced Type System | 🔜 V4 | `power<N>`, `prob[lo..hi]`, `causality<T>`, `mood`. None implemented. |
 | §3 Concurrency | 🔜 V4 | Squadron primitives (`xm3`, `sortie`, `formation`, `briefing room`, `wingman`) not implemented. Only `std::thread::spawn` (escape hatch) is planned for stdlib. |
-| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, body-derived provenance/source discovery through projection/scalar-holder/projected-reborrow/statically resolved call/reordered-argument/CFG-join paths with bounded deterministic loop-header/backedge fixed points, all-candidate final-use liveness (including elided multi-owner results), and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed child provenance, projection-assignment rebinding (including conservative dynamic-index overlap), field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Generic-call, owner-generic, and `Shared<T>::new` checks recursively expose nominal shape/route lends before substitution; direct nominal impl and overloaded operator calls on lend-bearing owners fail closed, and classifier depth exhaustion has a distinct diagnostic. First-pass closure capture ownership (`CaptureBorrow`, `CaptureBorrowMut`, `CaptureCopy`, `CaptureMove`) with stored-closure loan liveness and OneShot consumption, queryable Meiya-owned loan/move facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating also exist. Declaration-order children use `freak-mir-snapshot-v5`; v4 is rejected, and restore re-resolves IDs in a fresh borrowck generation. Ordinary-task fixed-layout aggregate parameters and returns now preserve leaf provenance; non-ordinary aggregate task parameters and returns, dynamic and wrapper containers, lend-bearing aliases/doctrine/callback contracts, signature-derived lifetime solving beyond declared ordinary-task relations, general lexical region inference, `'static`, general arena reclamation, runtime `Shared<T>`/`Weak<T>` depth, closure `Send`/`Sync`, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax exists, but borrowed-return closure contracts and forwarding do not yet. No fixed-aggregate backend or runtime ABI is claimed. |
+| §4 Borrow Checker | ⚠️ Partial | Phase-1 BC ships behind `--strict-borrow`: mutability + single-owner moves + Copy/Move types. V4 now carries `lend` / `lend mut` parameter and expression contracts, explicit ordinary-task `'long: 'short` bounds with reflexive/transitive cycle-safe closure, controlled named/elided mode-compatible multi-source returned loans, bounded returned-source and provenance caches, body-derived provenance/source discovery through projection/scalar-holder/projected-reborrow/statically resolved call/reordered-argument/CFG-join paths with bounded deterministic loop-header/backedge fixed points, all-candidate final-use liveness (including elided multi-owner results), and task-local fixed-layout lend storage for tuples, fixed arrays, shapes, and route payloads with declaration-keyed child provenance, projection-assignment rebinding (including conservative dynamic-index overlap), field-sensitive liveness, mutable exclusivity, snapshot restore, and all-family invalidation. Generic-call, owner-generic, and `Shared<T>::new` checks recursively expose nominal shape/route lends before substitution; direct nominal impl and overloaded operator calls on lend-bearing owners fail closed, and classifier depth exhaustion has a distinct diagnostic. First-pass closure capture ownership (`CaptureBorrow`, `CaptureBorrowMut`, `CaptureCopy`, `CaptureMove`) with stored-closure loan liveness and OneShot consumption, queryable Meiya-owned loan/move facts, typed loan-holder projections, all-path partial-move repair proof, static/conditional drop markers, first-pass `Shared<T>`/`Weak<T>` surfaces, and trust-me honor gating also exist. Declaration-order children use `freak-mir-snapshot-v7`; v4/v5/v6 are rejected, and restore re-resolves IDs in a fresh borrowck generation. Ordinary-task fixed-layout aggregate parameters and returns now preserve leaf provenance; non-ordinary aggregate task parameters and returns, dynamic and wrapper containers, lend-bearing aliases/doctrine/callback contracts, signature-derived lifetime solving beyond declared ordinary-task relations, general lexical region inference, `'static`, general arena reclamation, runtime `Shared<T>`/`Weak<T>` depth, closure `Send`/`Sync`, the complete honor matrix, and `direct_order` remain V4. Unsupported method/dynamic/callback/extern/FFI returned-loan forwarding is rejected; closure syntax exists, but borrowed-return closure contracts and forwarding do not yet. No fixed-aggregate backend or runtime ABI is claimed. |
 | §5 Anime Layer | ⚠️ Partial | `foreshadow`/`payoff`/`isekai`/`eventually`/`deus_ex_machina`/`training arc` parse and are recognized by the auditor; strict enforcement (caller-prefix on `@nakige`/`@experiment`, exhaustive routes, death-flag tiers, eventually-as-LIFO-deferred, isekai export validation) is V4. |
 | §6 Modules + Hangar | ⚠️ Partial | `launch`, `use`, `hangar.toml`, basic Hangar commands work. `launch(package)` package-private visibility, `use::*` glob imports, `hangar search` are V4. |
 | §7 Standard Library | ⚠️ Partial | Implemented: math, string, convert, algorithm, json, http, fs, process, time, bytes, math3d, version, zip; V3 ui is limited to the LLVM/Windows Win32-GDI floor and COCKPIT remains a Maverick source preview. Planned: thread, anime, narrative, test, regex, crypto, ffi, panic. |
@@ -182,6 +182,15 @@ connect(host: "localhost", port: 8080, timeout: 30)
 | *T          | Raw immutable pointer. Only dereferenced inside trust-me blocks.|
 | *const T    | C-style spelling alias for `*T` in FFI signatures.             |
 | *mut T      | Raw mutable pointer. Only inside trust-me blocks.              |
+
+The V4 native integer contract is checked arithmetic for `int`, `uint`, and
+`tiny`: addition, subtraction, multiplication, negation, division and remainder
+must report a runtime error when the mathematical result is outside the type's
+range. Division and remainder by zero also report a runtime error. Signed
+minimum divided by, or reduced modulo, `-1` is an overflow error. These rules
+apply at every optimization level, without an opt-in checking flag. Native
+compiler integration and boundary proofs remain release gates; this contract
+does not claim that the shipping V3 backend has adopted these rules.
 
 ### 1.4 Types — Compound
 
@@ -592,7 +601,7 @@ Rules:
 > ordered cases, payload presence, and payload-field names, surface types, and
 > exact spans. TY and editor declaration readers consume these stored facts;
 > generic substitution, alias canonicalization, and recovery behavior are
-> unchanged. HIR v10 snapshots validate complete owner/case/field records before
+> unchanged. HIR v11 snapshots validate complete owner/case/field records before
 > atomic restore. Discriminant token ranges come from stored HIR case spans;
 > evaluation and constructor/pattern syntax remain
 > separately syntax-facing. This ownership change does not define a new layout
@@ -1197,7 +1206,7 @@ the rest is V4.
 > outlives-bound references exist. Definitions target the declared binder even
 > when it appears later in the generic list or is referenced repeatedly, and
 > restored snapshots preserve those distinct definition spans. Declaration-order
-> aggregate children require `freak-mir-snapshot-v5`; v4 is rejected. Component
+> aggregate children require `freak-mir-snapshot-v7`; v4/v5/v6 are rejected. Component
 > restore, 00-Unit restore, and standalone `workspace/mirSnapshotRestore` each
 > start a fresh provenance scratch generation, and the query smoke
 > proves `A -> B -> restore A` with MIR, borrowck, and editor IDs re-resolved.
@@ -1798,6 +1807,12 @@ Constants: num::PI, num::E, num::INF, num::NAN, num::OVER9000,
 "3.14".to_num()         -- maybe<num>
 "hello".chars()         -- List<char>
 "hello".bytes_raw()     -- List<tiny>
+
+-- V4's native .to_lower() checkpoint borrows a sized UTF-8 receiver and
+-- returns a fresh owned word with Unicode 17 default lowercase/FinalSigma.
+-- Closed MIR v7 identity119, restored-call/loan/editor contracts and the
+-- O0/O2/O3 sanitized native gate cover this subset. Other listed methods and
+-- checked maybe parsing retain their separate conformance status.
 
 -- WordBuilder for mutable construction
 pilot b = WordBuilder::new()
@@ -2997,6 +3012,12 @@ payload variants, and any shape without an explicit layout annotation.
 Yuuko note: "A FREAK `word` is not a `char*`. If you hand it to C raw,
 the BETA are no longer the main threat."
 
+V4 implementation status: validated target descriptors now expose signedness,
+size, alignment and LLVM carriers for C int32, LP64 long64 and Windows LLP64
+long32. Four header-free Clang IR/object pairs verify those layout facts and
+ordinary C direct/indirect signatures. Native admission of these C-width aliases
+still requires target-bound typing and lowering; the existing named fences remain.
+
 ### 16.2 extern Blocks and Calling Conventions
 
 ```
@@ -3036,7 +3057,7 @@ Rules:
 
 > V4 ownership status: declared extern-member return surface types and exact
 > spans are stored in HIR and consumed by direct and synthetic TY signatures,
-> diagnostics and editor displays. HIR v10 snapshots validate complete ordered
+> diagnostics and editor displays. HIR v11 snapshots validate complete ordered
 > extern-return owner/member facts before atomic restoration. Missing returns
 > remain unknown; the existing arrow-expression recovery is explicitly gated
 > by its stored HIR flag. Optional semicolon separators terminate extern-member

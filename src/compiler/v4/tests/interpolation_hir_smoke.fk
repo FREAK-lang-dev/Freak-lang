@@ -1,0 +1,170 @@
+-- HIR owns decoded word pieces and exact interpolation component identities.
+task v4_interp_hir_assert(condition: bool, label: word) -> void {
+    if not condition { panic("interpolation-hir " + label) }
+}
+
+task v4_interp_hir_source() -> word {
+    pilot src = "fixed pilot GREETING: word = \"hello\"\n"
+    src = src + "task sample(x: word) -> word " + chr(123) + "\n"
+    src = src + "    pilot a = \"left " + chr(123) + "x" + chr(125) + " " + chr(123) + "thing.field" + chr(125) + " right\"\n"
+    src = src + "    pilot b = \"" + chr(123) + "x + 1" + chr(125) + " " + chr(123) + "" + chr(123) + "x" + chr(125) + "" + chr(125) + " open " + chr(123) + "x\"\n"
+    src = src + "    pilot c = \"a\\0b\\n\\t\\\"\\\\" + chr(195) + chr(169) + "\"\n"
+    src = src + "    pilot d = \"" + chr(123) + "true" + chr(125) + " " + chr(123) + "x()" + chr(125) + " " + chr(123) + "x[0]" + chr(125) + " " + chr(123) + "x:fmt" + chr(125) + "\"\n"
+    src = src + "    pilot e = \"bad\\q\"\n"
+    src = src + "    give back \"\"\n"
+    src = src + "    pilot percent = \"100%\"\n"
+    src = src + "" + chr(125) + "\n"
+    src = src + "shape Holder " + chr(123) + " value: int " + chr(125) + "\n"
+    src = src + "impl Holder " + chr(123) + "\n"
+    src = src + "    task arrow() -> word => \"arrow\"\n"
+    src = src + "    @experiment(\"metadata\")\n"
+    src = src + "    task block() -> word " + chr(123) + " give back \"block\" " + chr(125) + "\n"
+    src = src + chr(125) + "\n"
+    give back src
+}
+
+task v4_interp_hir_replace(line: word, field: int, value: word) -> word {
+    pilot parts = array_new()
+    pilot index = 0
+    repeat until index >= v4_hir_snapshot_field_count(line) {
+        if index > 0 { array_push(parts, "|") }
+        if index == field { array_push(parts, v4_hir_snapshot_escape(value)) } else { array_push(parts, v4_hir_snapshot_field_raw(line, index)) }
+        index += 1
+    }
+    pilot out = word_join(parts)
+    array_release(parts)
+    give back out
+}
+
+task v4_interp_hir_replace_raw(line: word, field: int, value: word) -> word {
+    pilot parts = array_new()
+    pilot index = 0
+    repeat until index >= v4_hir_snapshot_field_count(line) {
+        if index > 0 { array_push(parts, "|") }
+        if index == field { array_push(parts, value) } else { array_push(parts, v4_hir_snapshot_field_raw(line, index)) }
+        index += 1
+    }
+    pilot out = word_join(parts)
+    array_release(parts)
+    give back out
+}
+
+task v4_interp_hir_mutate(payload: word, mode: word) -> word {
+    pilot records = v4_hir_snapshot_index_lines(payload)
+    pilot parts = array_new()
+    pilot changed = false
+    pilot index = 0
+    repeat until index >= array_len(records) {
+        pilot line: word = array_get(records, index)
+        pilot kind = v4_hir_snapshot_field_raw(line, 0)
+        if not changed {
+            if mode == "part-name" and kind == "hir-word-path-part" { line = v4_interp_hir_replace(line, 6, "true") changed = true }
+            if mode == "part-span" and kind == "hir-word-path-part" { line = v4_interp_hir_replace(line, 7, "999@1:2") changed = true }
+            if mode == "literal-interior" and kind == "hir-word-literal" { line = v4_interp_hir_replace(line, 5, "0@12:oops") changed = true }
+            if mode == "piece-kind" and kind == "hir-word-piece" { line = v4_interp_hir_replace(line, 5, "Raw") changed = true }
+            if mode == "owner-count" and kind == "hir-word-owner" { line = v4_interp_hir_replace(line, 3, "999999999999999999999999999") changed = true }
+            if mode == "part-ordinal" and kind == "hir-word-path-part" { line = v4_interp_hir_replace(line, 5, "1") changed = true }
+            if mode == "escape-trailing" and kind == "hir-word-piece" { line = v4_interp_hir_replace_raw(line, 6, "%") changed = true }
+            if mode == "escape-unknown" and kind == "hir-word-piece" { line = v4_interp_hir_replace_raw(line, 6, "%GG") changed = true }
+        }
+        if index > 0 { array_push(parts, "\n") }
+        array_push(parts, line)
+        index += 1
+    }
+    v4_interp_hir_assert(changed, "mutation applied " + mode)
+    pilot out = word_join(parts)
+    array_release(parts)
+    array_release(records)
+    give back out
+}
+
+task v4_interp_hir_shuffle(payload: word) -> word {
+    pilot records = v4_hir_snapshot_index_lines(payload)
+    pilot parts = array_new()
+    pilot index = array_len(records) - 1
+    repeat until index < 0 {
+        if index < array_len(records) - 1 { array_push(parts, "\n") }
+        array_push(parts, array_get(records, index))
+        index -= 1
+    }
+    pilot out = word_join(parts)
+    array_release(parts)
+    array_release(records)
+    give back out
+}
+
+task v4_interp_hir_item(hir: int, name: word) -> int {
+    pilot index = 0
+    repeat until index >= v4_hir_item_count(hir) {
+        if v4_hir_item_name(hir, index) == name { give back index }
+        index += 1
+    }
+    give back -1
+}
+
+task v4_interp_hir_run() -> void {
+    pilot hir = v4_hir_text_cached("interpolation-hir.fk", v4_interp_hir_source())
+    pilot sample = v4_interp_hir_item(hir, "sample")
+    v4_interp_hir_assert(hir >= 0 and sample >= 0 and v4_hir_diag_count(hir) == 0, "front end")
+    v4_interp_hir_assert(v4_hir_word_plan_ready(hir) and v4_hir_word_literal_count(hir, sample) == 7, "owner coverage")
+    pilot first = v4_hir_word_literal_start(hir, sample)
+    v4_interp_hir_assert(v4_hir_word_piece_count(hir, first) == 5, "concat pieces")
+    v4_interp_hir_assert(v4_hir_word_piece_kind(hir, first, 1) == "DisplayPath" and v4_hir_word_path_part_name(hir, first, 1, 0) == "x", "root hole")
+    v4_interp_hir_assert(v4_hir_word_path_part_count(hir, first, 3) == 2 and v4_hir_word_path_part_name(hir, first, 3, 1) == "field", "field hole")
+    pilot root_span = v4_hir_word_path_part_span(hir, first, 1, 0)
+    v4_interp_hir_assert(v4_hir_word_literal_at_offset(hir, sample, v4_span_start(root_span)) == first and v4_hir_word_piece_at_offset(hir, first, v4_span_start(root_span)) == 1 and v4_hir_word_path_part_at_offset(hir, first, v4_span_start(root_span)) == 0, "binary component lookup")
+    v4_interp_hir_assert(v4_hir_word_piece_count(hir, first + 1) == 1 and v4_hir_word_piece_value(hir, first + 1, 0) == "" + chr(123) + "x + 1" + chr(125) + " " + chr(123) + "" + chr(123) + "x" + chr(125) + "" + chr(125) + " open " + chr(123) + "x", "nonpath unmatched braces literal")
+    pilot decoded = "a" + chr(0) + "b\n\t\"\\" + chr(195) + chr(169)
+    v4_interp_hir_assert(v4_hir_word_piece_value(hir, first + 2, 0) == decoded, "sized escape Unicode NUL decoding")
+    v4_interp_hir_assert(v4_hir_word_piece_count(hir, first + 3) == 1, "keywords calls indexes formats literal")
+    v4_interp_hir_assert(v4_hir_word_literal_issue_at(hir, first + 4) == "escape" and v4_hir_word_piece_count(hir, first + 4) == 0, "unsupported escape issue")
+    v4_interp_hir_assert(v4_hir_word_piece_count(hir, first + 5) == 0, "empty literal")
+
+    v4_interp_hir_assert(v4_hir_word_piece_value(hir, first + 6, 0) == "100%", "canonical percent bytes")
+    pilot impl_item = v4_interp_hir_item(hir, "Holder")
+    repeat until impl_item >= v4_hir_item_count(hir) or v4_hir_item_kind(hir, impl_item) == v4_hir_impl { impl_item += 1 }
+    v4_interp_hir_assert(impl_item < v4_hir_item_count(hir) and v4_hir_word_literal_count(hir, impl_item) == 2, "Impl arrow and block bodies exclude metadata")
+    pilot broken_source = "task broken() -> word " + chr(123) + " give back \"open\n" + chr(125) + "\n"
+    pilot broken = v4_hir_text_cached("interpolation-unterminated.fk", broken_source)
+    pilot broken_item = v4_interp_hir_item(broken, "broken")
+    v4_interp_hir_assert(v4_lex_diag_count(v4_hir_item_stream_id(broken)) > 0 and broken_item >= 0 and v4_hir_word_literal_count(broken, broken_item) == 1 and v4_hir_word_literal_issue_at(broken, v4_hir_word_literal_start(broken, broken_item)) == "unterminated", "unterminated recovery fact and lexer diagnostic")
+    say "interpolation-hir plan=true paths=true literal-braces=true sized-bytes=true"
+    pilot payload = v4_hir_snapshot()
+    v4_interp_hir_assert(v4_hir_snapshot_validate(payload).starts_with("hir-snapshot-import ok=1"), "snapshot validation")
+    pilot revision = v4_hir_revision(hir)
+    pilot generation = v4_session_semantic_restore_generation()
+    pilot modes = array_new()
+    array_push(modes, "part-name") array_push(modes, "part-span") array_push(modes, "literal-interior")
+    array_push(modes, "piece-kind") array_push(modes, "owner-count") array_push(modes, "part-ordinal")
+    array_push(modes, "escape-trailing") array_push(modes, "escape-unknown")
+    pilot index = 0
+    repeat until index >= array_len(modes) {
+        pilot mode: word = array_get(modes, index)
+        pilot corrupt = v4_interp_hir_mutate(payload, mode)
+        v4_interp_hir_assert(v4_hir_snapshot_restore(corrupt).starts_with("hir-snapshot-restore ok=0"), "reject " + mode)
+        v4_interp_hir_assert(v4_hir_snapshot() == payload and v4_hir_revision(hir) == revision and v4_session_semantic_restore_generation() == generation, "atomic " + mode)
+        index += 1
+    }
+    array_release(modes)
+    v4_interp_hir_assert(v4_hir_snapshot_restore(payload.replace("freak-hir-snapshot-v11", "freak-hir-snapshot-v10")).starts_with("hir-snapshot-restore ok=0"), "old version fenced")
+    pilot shuffled = v4_interp_hir_shuffle(payload)
+    v4_interp_hir_assert(v4_hir_snapshot_restore(shuffled).starts_with("hir-snapshot-restore ok=1"), "shuffled detached restore")
+    v4_interp_hir_assert(v4_hir_snapshot() == payload and v4_hir_word_piece_value(hir, first + 2, 0) == decoded, "restored sized plans")
+    say "interpolation-hir snapshot=true shuffled=true atomic=true old-version=true"
+    revision = v4_hir_revision(hir)
+    generation = v4_session_semantic_restore_generation()
+    pilot held = array_new()
+    pilot exhausted = false
+    repeat until exhausted {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else { array_push(held, word_from_int(candidate)) }
+    }
+    pilot rejected = v4_hir_snapshot_restore(payload).starts_with("hir-snapshot-restore ok=0")
+    index = 0
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+    v4_interp_hir_assert(rejected and v4_hir_snapshot() == payload and v4_hir_revision(hir) == revision and v4_session_semantic_restore_generation() == generation, "pressure atomicity")
+    v4_interp_hir_assert(v4_hir_snapshot_validate(payload).starts_with("hir-snapshot-import ok=1"), "pressure recovery")
+    say "interpolation-hir pressure=true recovery=true"
+}
+v4_interp_hir_run()

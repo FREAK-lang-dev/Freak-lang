@@ -14,6 +14,7 @@
 
 # V4 smoke build cache (transpiled C, compiled binaries, compile stamps)
 build/v4_smoke/
+build/v4_scale_bench/
 
 # Python
 __pycache__/

@@ -1,0 +1,195 @@
+-- Initialized HIR with cold query admission; deliberately baseline-compatible.
+task v4_cold_hir_assert(condition: bool, label: word) -> void {
+    if not condition { panic("cold-hir-facade " + label) }
+}
+
+task v4_cold_hir_capacity() -> int {
+    pilot held = array_new()
+    v4_cold_hir_assert(held >= 0, "capacity tracker")
+    pilot count = 0
+    pilot exhausted = false
+    repeat until exhausted or count >= 2048 {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else { array_push(held, word_from_int(candidate)) count += 1 }
+    }
+    pilot index = 0
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+    v4_cold_hir_assert(exhausted, "1024 guard reached")
+    give back count
+}
+
+task v4_cold_hir_hold(free_count: int) -> int {
+    pilot held = array_new()
+    v4_cold_hir_assert(held >= 0, "pressure tracker")
+    pilot exhausted = false
+    repeat until exhausted {
+        pilot candidate = array_new()
+        if candidate < 0 { exhausted = true } else { array_push(held, word_from_int(candidate)) }
+    }
+    v4_cold_hir_assert(array_len(held) >= free_count, "pressure headroom")
+    pilot index = 0
+    repeat until index >= free_count { array_release(word_to_int(array_get(held, index))) index += 1 }
+    give back held
+}
+
+task v4_cold_hir_release(held: int, free_count: int) -> void {
+    pilot index = free_count
+    repeat until index >= array_len(held) { array_release(word_to_int(array_get(held, index))) index += 1 }
+    array_release(held)
+}
+
+task v4_cold_hir_original_facts() -> word {
+    pilot out = ""
+    out = out + ":" + word_from_int(v4_query_keys)
+    out = out + ":" + word_from_int(v4_query_inputs)
+    out = out + ":" + word_from_int(v4_query_outputs)
+    out = out + ":" + word_from_int(v4_query_states)
+    out = out + ":" + word_from_int(v4_query_entry_generations)
+    out = out + ":" + word_from_int(v4_query_entry_last_generations)
+    out = out + ":" + word_from_int(v4_query_entry_last_events)
+    out = out + ":" + word_from_int(v4_query_dep_from)
+    out = out + ":" + word_from_int(v4_query_dep_to)
+    out = out + ":" + word_from_int(v4_query_generation_reasons)
+    out = out + ":" + word_from_int(v4_query_invalidated_keys)
+    out = out + ":" + word_from_int(v4_query_invalidated_generations)
+    out = out + ":" + word_from_int(v4_query_invalidated_reasons)
+    out = out + ":" + word_from_int(v4_query_telemetry_keys)
+    out = out + ":" + word_from_int(v4_query_telemetry_hits)
+    out = out + ":" + word_from_int(v4_query_telemetry_misses)
+    out = out + ":" + word_from_int(v4_query_telemetry_stores)
+    out = out + ":" + word_from_int(v4_query_entry_len)
+    out = out + ":" + word_from_int(v4_query_dep_len)
+    out = out + ":" + word_from_int(v4_query_hit_total)
+    out = out + ":" + word_from_int(v4_query_miss_total)
+    out = out + ":" + word_from_int(v4_query_store_total)
+    out = out + ":" + word_from_int(v4_query_ready)
+    out = out + ":" + word_from_int(v4_query_revision)
+    give back out
+}
+
+task v4_cold_hir_replace(line: word, field: int, value: word) -> word {
+    pilot parts = array_new()
+    pilot index = 0
+    repeat until index >= v4_hir_snapshot_field_count(line) {
+        if index > 0 { array_push(parts, "|") }
+        if index == field { array_push(parts, v4_hir_snapshot_escape(value)) } else { array_push(parts, v4_hir_snapshot_field_raw(line, index)) }
+        index += 1
+    }
+    pilot out = word_join(parts)
+    give back out
+}
+
+-- Duplicate a detached owner with the same source identity; only its dense HIR ID differs.
+task v4_cold_hir_grow(payload: word) -> word {
+    pilot records = v4_hir_snapshot_index_lines(payload)
+    pilot parts = array_new()
+    pilot header: word = array_get(records, 0)
+    pilot field = 0
+    repeat until field >= v4_hir_snapshot_field_count(header) {
+        if field > 0 { array_push(parts, "|") }
+        pilot value = v4_hir_snapshot_field_raw(header, field)
+        if field > 1 {
+            pilot eq = v4_index_of_from(value, "=", 0)
+            value = v4_slice(value, 0, eq + 1) + word_from_int(word_to_int(v4_slice(value, eq + 1, value.length())) * 2)
+        }
+        array_push(parts, value)
+        field += 1
+    }
+    pilot owner = 0
+    repeat until owner >= 2 {
+        pilot index = 1
+        repeat until index >= array_len(records) {
+            pilot line: word = array_get(records, index)
+            if v4_hir_snapshot_field_raw(line, 0) != "end" and line != "" {
+                if owner == 1 { line = v4_cold_hir_replace(line, 1, "1") }
+                array_push(parts, "\n") array_push(parts, line)
+            }
+            index += 1
+        }
+        owner += 1
+    }
+    array_push(parts, "\nend|" + v4_hir_snapshot_format)
+    pilot out = word_join(parts)
+    array_release(records)
+    give back out
+}
+
+
+-- This fixture intentionally uses baseline APIs, so the same assertions can
+-- expose the old initialized-HIR/cold-query 54-free-handle defect.
+task v4_cold_hir_facade_run() -> void {
+    v4_cold_hir_assert(v4_query_ready == 0, "query starts cold")
+    pilot src = "task main() -> int " + chr(123) + " give back 7 " + chr(125) + "\n"
+    pilot file = v4_source_add("cold-facade.fk", src)
+    pilot stream = v4_lex_text(file, src)
+    pilot tree = v4_parse_stream(file, stream)
+    pilot expansion = v4_expand_identity(file, tree)
+    pilot hir = v4_hir_lower_expanded(file, expansion)
+    v4_cold_hir_assert(file == 0 and expansion == 0 and hir == 0 and v4_query_ready == 0, "raw pipeline keeps query cold")
+    pilot original_hir = v4_hir_snapshot()
+    pilot original_expand = v4_expand_snapshot()
+    pilot growth = v4_cold_hir_grow(original_hir)
+    v4_cold_hir_assert(v4_hir_snapshot_validate(growth).starts_with("hir-snapshot-import ok=1"), "valid fresh-file payload")
+    pilot query_original = v4_cold_hir_original_facts()
+    pilot source_revision = v4_source_revision(file)
+    pilot epoch = v4_session_semantic_restore_generation()
+    pilot capacity = v4_cold_hir_capacity()
+    pilot held = v4_cold_hir_hold(54)
+    pilot restore_result = v4_hir_snapshot_restore_with_queries(growth)
+    say "cold-hir-facade 54-free restore_result=" + restore_result
+    say "cold-hir-facade 54-free query-ready=" + word_from_int(v4_query_ready) + " cold-facts=" + word_from_bool(v4_cold_hir_original_facts() == query_original)
+    v4_cold_hir_assert(restore_result == "hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted", "54-free rejects before raw arena replacement")
+    v4_cold_hir_assert(v4_cold_hir_original_facts() == query_original and v4_session_semantic_restore_generation() == epoch, "54-free cold query and epoch atomic")
+    v4_cold_hir_release(held, 54)
+    v4_cold_hir_assert(v4_hir_snapshot() == original_hir and v4_expand_snapshot() == original_expand, "54-free all component facts unchanged")
+    v4_cold_hir_assert(v4_cold_hir_capacity() == capacity, "54-free staged handles retired")
+
+    pilot cycle = 0
+    repeat until cycle >= 3 {
+        pilot free_count = 0
+        repeat until free_count > 16 {
+            held = v4_cold_hir_hold(free_count)
+            restore_result = v4_hir_snapshot_restore_with_queries(growth)
+            v4_cold_hir_assert(restore_result == "hir-snapshot-restore ok=0 reason=query-initialization-resource-exhausted", "named early query rejection")
+            v4_cold_hir_assert(v4_cold_hir_original_facts() == query_original and v4_session_semantic_restore_generation() == epoch, "early query rejection atomic")
+            v4_cold_hir_release(held, free_count)
+            v4_cold_hir_assert(v4_hir_snapshot() == original_hir and v4_expand_snapshot() == original_expand and v4_cold_hir_capacity() == capacity, "early rejection complete facts and handles")
+            free_count += 1
+        }
+        v4_cold_hir_assert(v4_hir_snapshot_restore_with_queries("malformed").starts_with("hir-snapshot-restore ok=0"), "cold malformed rejected")
+        v4_cold_hir_assert(v4_cold_hir_original_facts() == query_original and v4_session_semantic_restore_generation() == epoch and v4_hir_snapshot() == original_hir and v4_cold_hir_capacity() == capacity, "cold malformed admission rolled back")
+        cycle += 1
+    }
+    v4_cold_hir_assert(v4_source_revision(file) == source_revision and v4_source_text(file) == src, "all cold failures preserve source")
+
+    restore_result = v4_hir_snapshot_restore_with_queries(growth)
+    v4_cold_hir_assert(restore_result.starts_with("hir-snapshot-restore ok=1") and v4_hir_file_count() == 2 and v4_query_ready == 1 and v4_query_revision == 2, "unpressured cold recovery")
+    v4_cold_hir_assert(v4_session_semantic_restore_generation() == epoch + 1 and v4_source_revision(file) == source_revision and v4_source_text(file) == src, "recovery exact generation and source")
+    v4_cold_hir_assert(v4_query_store("expand:0", "fp", "0") == 0 and v4_query_store("hir:0", "fp", "0") == 1 and v4_query_store("ty:0", "fp", "0") == 2, "warm fact rows")
+    v4_query_record_dep("hir:0", "expand:0")
+    v4_query_record_dep("ty:0", "hir:0")
+    v4_cold_hir_assert(v4_query_get("expand:0", "fp") == "0" and v4_query_get("missing", "fp") == "", "warm cache telemetry")
+    pilot query_snapshot = v4_query_snapshot()
+    pilot recovered_hir = v4_hir_snapshot()
+    pilot warm_capacity = v4_cold_hir_capacity()
+    pilot warm_epoch = v4_session_semantic_restore_generation()
+    v4_cold_hir_assert(v4_hir_snapshot_restore_with_queries("malformed").starts_with("hir-snapshot-restore ok=0"), "warm malformed HIR rejected")
+    v4_cold_hir_assert(v4_expand_snapshot_restore_with_queries("malformed").starts_with("expand-snapshot-restore ok=0"), "warm malformed expand rejected")
+    held = v4_cold_hir_hold(0)
+    v4_cold_hir_assert(v4_hir_snapshot_restore_with_queries(growth).starts_with("hir-snapshot-restore ok=0"), "warm resource rejection")
+    v4_cold_hir_release(held, 0)
+    v4_cold_hir_assert(v4_query_snapshot() == query_snapshot and v4_hir_snapshot() == recovered_hir and v4_expand_snapshot() == original_expand and v4_session_semantic_restore_generation() == warm_epoch and v4_cold_hir_capacity() == warm_capacity, "warm failures preserve all query and component facts")
+    v4_cold_hir_assert(v4_hir_snapshot_restore_with_queries(original_hir).starts_with("hir-snapshot-restore ok=1"), "warm HIR replacement")
+    v4_cold_hir_assert(v4_query_revision == 3 and v4_query_entry_state(0) == v4_query_valid and v4_query_entry_state(1) == v4_query_dirty and v4_query_entry_state(2) == v4_query_dirty and v4_query_invalidated_count() == 2, "HIR transitive invalidation exact")
+    v4_cold_hir_assert(v4_query_hit_count() == 1 and v4_query_miss_count() == 1 and v4_query_store_count() == 3, "HIR invalidation preserves telemetry")
+    v4_cold_hir_assert(v4_query_store("hir:0", "fp", "0") == 1 and v4_query_store("ty:0", "fp", "0") == 2, "refresh dependent rows for expansion invalidation")
+    v4_cold_hir_assert(v4_expand_snapshot_restore_with_queries(original_expand).starts_with("expand-snapshot-restore ok=1"), "warm expansion replacement")
+    v4_cold_hir_assert(v4_query_revision == 4 and v4_query_entry_state(0) == v4_query_dirty and v4_query_entry_state(1) == v4_query_dirty and v4_query_entry_state(2) == v4_query_dirty and v4_query_invalidated_count() == 5, "expansion transitive invalidation exact")
+    v4_cold_hir_assert(v4_query_entry_last_generation(0) == 4 and v4_query_entry_last_generation(1) == 4 and v4_query_entry_last_generation(2) == 4, "expansion invalidates every dependency at one generation")
+    v4_cold_hir_assert(v4_query_hit_count() == 1 and v4_query_miss_count() == 1 and v4_query_store_count() == 5, "warm exact telemetry retained")
+    say "cold-hir-facade early=0..16 cycles=3 malformed-atomic=true recovery=true handles-conserved=true"
+    say "cold-hir-facade warm-facts=true transitive-invalidation=true source-preserved=true"
+}
+
+v4_cold_hir_facade_run()

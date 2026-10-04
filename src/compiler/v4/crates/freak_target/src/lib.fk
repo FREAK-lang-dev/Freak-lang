@@ -2,8 +2,10 @@
 -- freak_target - canonical V4 release-target contracts
 -- ===================================================================
 -- Target records are explicit compiler inputs. This crate performs no
--- host, environment, filesystem, source, layout, ABI-classification, or
--- backend probing. Unknown triples and calling conventions fail closed.
+-- host, environment, filesystem, source, or backend probing. The closed
+-- C integer descriptors below expose validated scalar layout data only;
+-- aggregate layout and function ABI classification remain separate gates.
+-- Unknown triples, scalar keys, and calling conventions fail closed.
 
 pilot v4_target_wire_format = "freak-target-spec-v1"
 pilot v4_target_tag_spec = "TargetSpec"
@@ -247,6 +249,62 @@ task v4_target_spec_pointer_width(target_spec: word) -> int {
     pilot field = v4_target_spec_value(target_spec, 6)
     if field == "" { give back 0 - 1 }
     give back v4_target_nonnegative_int_range(field, 0, field.length())
+}
+
+-- Select once while constructing a target-bound plan. These compact values
+-- describe scalar storage, not TY identities or native admission tokens.
+-- Consumers retain the exact canonical target separately; a caller-created
+-- descriptor cannot certify target agreement or permit native C operations.
+-- Alias qualification/substitution belongs to TY, not this closed key reader.
+task v4_target_c_integer_descriptor(target_spec: word, scalar_key: word) -> word {
+    if not v4_target_spec_valid(target_spec) { give back "" }
+    if scalar_key == "c_int" { give back "c-signed32" }
+    if scalar_key == "c_uint" { give back "c-unsigned32" }
+    if scalar_key != "c_long" and scalar_key != "c_ulong" { give back "" }
+    pilot model = v4_target_field(target_spec, 8)
+    if model == v4_target_c_data_model_lp64 {
+        if scalar_key == "c_long" { give back "c-signed64" }
+        give back "c-unsigned64"
+    }
+    if model == v4_target_c_data_model_llp64 {
+        if scalar_key == "c_long" { give back "c-signed32" }
+        give back "c-unsigned32"
+    }
+    give back ""
+}
+
+-- Accessors accept only the four closed layout descriptors. Signedness is
+-- tri-state (1 signed, 0 unsigned, -1 invalid), not a failure-hiding bool.
+task v4_target_c_integer_width(descriptor: word) -> int {
+    if descriptor == "c-signed32" or descriptor == "c-unsigned32" { give back 32 }
+    if descriptor == "c-signed64" or descriptor == "c-unsigned64" { give back 64 }
+    give back 0 - 1
+}
+
+task v4_target_c_integer_signedness(descriptor: word) -> int {
+    if descriptor == "c-signed32" or descriptor == "c-signed64" { give back 1 }
+    if descriptor == "c-unsigned32" or descriptor == "c-unsigned64" { give back 0 }
+    give back 0 - 1
+}
+
+task v4_target_c_integer_size(descriptor: word) -> int {
+    pilot width = v4_target_c_integer_width(descriptor)
+    if width < 0 { give back 0 - 1 }
+    give back width / 8
+}
+
+-- The four registered targets align these integers to their byte size.
+-- Header-free four-target C oracle coverage pins this restricted contract;
+-- this is not a general aggregate, packed-field, or function-ABI rule.
+task v4_target_c_integer_alignment(descriptor: word) -> int {
+    give back v4_target_c_integer_size(descriptor)
+}
+
+task v4_target_c_integer_llvm_carrier(descriptor: word) -> word {
+    pilot width = v4_target_c_integer_width(descriptor)
+    if width == 32 { give back "i32" }
+    if width == 64 { give back "i64" }
+    give back ""
 }
 
 task v4_target_release_name(target_spec: word) -> word {

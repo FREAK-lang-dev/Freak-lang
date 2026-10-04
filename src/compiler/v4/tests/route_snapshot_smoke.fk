@@ -1,6 +1,6 @@
--- Detached v9 route facts: complete hierarchy, atomic rejection, bounded work.
+-- Detached v11 route facts: complete hierarchy, atomic rejection, bounded work.
 task v4_route_snapshot_header(files: int, items: int, cases: int, fields: int) -> word {
-    give back "hir-snapshot|format=freak-hir-snapshot-v10|files=" + word_from_int(files) + "|items=" + word_from_int(items) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=" + word_from_int(items) + "|route-cases=" + word_from_int(cases) + "|route-fields=" + word_from_int(fields) + "|extern-return-owners=0|extern-returns=0|diagnostics=0"
+    give back "hir-snapshot|format=freak-hir-snapshot-v11|files=" + word_from_int(files) + "|items=" + word_from_int(items) + "|alias-targets=0|local-annotations=0|task-returns=0|task-param-owners=0|task-params=0|const-annotations=0|shape-owners=0|shape-fields=0|route-owners=" + word_from_int(items) + "|route-cases=" + word_from_int(cases) + "|route-fields=" + word_from_int(fields) + "|extern-return-owners=0|extern-returns=0|word-owners=0|word-literals=0|word-pieces=0|word-path-parts=0|diagnostics=0"
 }
 
 task v4_route_snapshot_payload() -> word {
@@ -15,7 +15,7 @@ task v4_route_snapshot_payload() -> word {
     out = out + "\nhir-route-case|0|0|2||7@70:72|7@70:80|1|0"
     out = out + "\nhir-route-field|0|0|0|0|first|7@20:25|int|7@27:30|7@20:30"
     out = out + "\nhir-route-field|0|0|0|1||7@33:35||7@38:40|7@33:40"
-    give back out + "\nend|freak-hir-snapshot-v10"
+    give back out + "\nend|freak-hir-snapshot-v11"
 }
 
 task v4_route_snapshot_reverse(payload: word) -> word {
@@ -93,7 +93,7 @@ task v4_route_snapshot_large(cases_per_owner: int, fields_per_case: int) -> word
         }
         owner += 1
     }
-    array_push(parts, "\nend|freak-hir-snapshot-v10")
+    array_push(parts, "\nend|freak-hir-snapshot-v11")
     give back word_join(parts)
 }
 
@@ -101,9 +101,9 @@ task v4_route_snapshot_run() -> void {
     pilot payload = v4_route_snapshot_payload()
     pilot report = v4_hir_snapshot_restore(v4_route_snapshot_reverse(payload))
     pilot before = v4_hir_snapshot()
-    say "route-snapshot-v10-reordered=" + word_from_bool(report.starts_with("hir-snapshot-restore ok=1") and v4_hir_route_case_count(0, 0) == 3 and v4_hir_route_case_name(0, 0, 0) == "Data" and v4_hir_route_case_field_surface_type(0, 0, 0, 0) == "int" and v4_hir_route_case_field_type_span(0, 0, 0, 0) == "7@27:30")
+    say "route-snapshot-v11-reordered=" + word_from_bool(report.starts_with("hir-snapshot-restore ok=1") and v4_hir_route_case_count(0, 0) == 3 and v4_hir_route_case_name(0, 0, 0) == "Data" and v4_hir_route_case_field_surface_type(0, 0, 0, 0) == "int" and v4_hir_route_case_field_type_span(0, 0, 0, 0) == "7@27:30")
     say "route-snapshot-empty-recovery=" + word_from_bool(v4_hir_route_is_variant(0, 0) and not v4_hir_route_is_variant(0, 1) and v4_hir_route_case_count(0, 1) == 0 and not v4_hir_route_case_has_payload(0, 0, 1) and v4_hir_route_case_has_payload(0, 0, 2) and v4_hir_route_case_name(0, 0, 2) == "" and v4_hir_route_case_field_name(0, 0, 0, 1) == "" and v4_hir_route_case_field_surface_type(0, 0, 0, 1) == "" and v4_hir_route_case_field_type_span(0, 0, 0, 1) == "7@38:40")
-    say "route-snapshot-old-version-atomic=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("freak-hir-snapshot-v10", "freak-hir-snapshot-v8"), before))
+    say "route-snapshot-old-version-atomic=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("freak-hir-snapshot-v11", "freak-hir-snapshot-v10"), before))
     say "route-snapshot-extra-width-atomic=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("|route|0\n", "|route|0|extra\n"), before) and v4_route_snapshot_rejected(payload.replace("7@62:68|0|0\n", "7@62:68|0|0|extra\n"), before) and v4_route_snapshot_rejected(payload.replace("7@20:30\n", "7@20:30|extra\n"), before))
     say "route-snapshot-noncanonical-ids=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("hir-route-owner|0|0|", "hir-route-owner|00|0|"), before) and v4_route_snapshot_rejected(payload.replace("hir-route-case|0|0|1|", "hir-route-case|0|0|01|"), before) and v4_route_snapshot_rejected(payload.replace("hir-route-field|0|0|0|1|", "hir-route-field|0|0|0|01|"), before))
     say "route-snapshot-orphan-records=" + word_from_bool(v4_route_snapshot_rejected(payload.replace("hir-route-owner|0|0|", "hir-route-owner|99|0|"), before) and v4_route_snapshot_rejected(payload.replace("hir-route-case|0|0|1|", "hir-route-case|0|99|1|"), before) and v4_route_snapshot_rejected(payload.replace("hir-route-field|0|0|0|1|", "hir-route-field|0|0|99|1|"), before))

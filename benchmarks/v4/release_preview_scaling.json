@@ -1,0 +1,85 @@
+{
+  "gate": "Preview large scalar module; not an owned-word or scaling-growth claim",
+  "compiler_head": "47f9354a0ddb434099d55a82e6dbf27a97d6dd9c",
+  "command": "python -B -u v4_scale_bench.py --shapes tasks --sizes 3200 --check --mem-limit-mb 2048 --timeout 300 --build-timeout 300",
+  "platform": "Linux x86_64; Debian clang 19.1.7",
+  "memory_limit_mib": 2048,
+  "rows": [
+    {
+      "shape": "tasks",
+      "size": 3200,
+      "lines": 22403,
+      "source_sha256": "38348bfc6b6a86ba36e832b19eb50b3935e7500540d18d943d4b23a3318a9999",
+      "tool_manifest": "/workspace/v4-release-evidence/scale-3200-work/compiler/1791033369704073530/v4c.manifest.json",
+      "tool_manifest_sha256": "40c26c1503f3a47d7a96d0de4951c30133cc98cb337c547df47c02a27edfcaf9",
+      "compiler_head": "47f9354a0ddb434099d55a82e6dbf27a97d6dd9c",
+      "compiler_c_sha256": "da59d2375d62a1f4dd3966b96bda09542e3c9c57dd257c7dc0e4d8e8efe42683",
+      "tool_sha256": "d742ce72ed609d13025fd2da4d8059e452e08251991670028fe49129a50df1a2",
+      "artifacts": "/workspace/v4-release-evidence/scale-3200-work/tasks_3200_1791033385568947528",
+      "expected_exit": 6,
+      "expected_stdout": "",
+      "profile": false,
+      "status": "ok",
+      "total": 6.090424783993512,
+      "peak_rss_mb": 596.0,
+      "stages": {
+        "lex": {
+          "seconds": 0.868212182,
+          "rss_mb": 176.16015625,
+          "peak_rss_mb": 176.18359375,
+          "diagnostics": 0
+        },
+        "parse": {
+          "seconds": 0.144489308,
+          "rss_mb": 177.8359375,
+          "peak_rss_mb": 177.8359375,
+          "diagnostics": 0
+        },
+        "hir": {
+          "seconds": 0.157136478,
+          "rss_mb": 190.35546875,
+          "peak_rss_mb": 190.42578125,
+          "diagnostics": 0
+        },
+        "resolve": {
+          "seconds": 0.006726649,
+          "rss_mb": 192.32421875,
+          "peak_rss_mb": 192.38671875,
+          "diagnostics": 0
+        },
+        "ty": {
+          "seconds": 0.72476243,
+          "rss_mb": 200.64453125,
+          "peak_rss_mb": 200.64453125,
+          "diagnostics": 0
+        },
+        "mir": {
+          "seconds": 1.2745591,
+          "rss_mb": 459.1875,
+          "peak_rss_mb": 459.1875,
+          "diagnostics": 0
+        },
+        "borrowck": {
+          "seconds": 1.066665032,
+          "rss_mb": 531.328125,
+          "peak_rss_mb": 531.328125,
+          "diagnostics": 0
+        },
+        "codegen": {
+          "seconds": 1.765780144,
+          "rss_mb": 592.38671875,
+          "peak_rss_mb": 592.38671875,
+          "diagnostics": 0
+        },
+        "module": {
+          "seconds": 0.005081466,
+          "rss_mb": 595.99609375,
+          "peak_rss_mb": 595.99609375,
+          "diagnostics": 0
+        }
+      },
+      "module_sha256": "83da1453d2b6a2c2a9d5ef09b357459cc5ed849ec851171e7a762dde6f7d92e7",
+      "check": "pass"
+    }
+  ]
+}

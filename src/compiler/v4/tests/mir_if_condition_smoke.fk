@@ -74,6 +74,7 @@ say "if-right-branch-else=" + word_from_int(v4_mir_block_else_target(v4_mir_if_r
 say "if-right-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_right_branch)
 say "if-right-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_rvalue(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_right_branch))
 say "if-right-rvalue-op=" + v4_mir_rvalue_op(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_stmt_rvalue(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_right_branch))
+say "if-right-local-name=" + v4_mir_local_name(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, 1)
 say "if-final-branch-block=" + word_from_int(v4_mir_stmt_block(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_branch))
 say "if-final-branch-cond=" + v4_mir_block_condition(v4_mir_if_final_block)
 say "if-final-branch-target=" + word_from_int(v4_mir_block_target(v4_mir_if_final_block))
@@ -81,6 +82,7 @@ say "if-final-branch-else=" + word_from_int(v4_mir_block_else_target(v4_mir_if_f
 say "if-final-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_branch)
 say "if-final-rvalue-kind=" + v4_mir_rvalue_kind(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_rvalue)
 say "if-final-rvalue-op=" + v4_mir_rvalue_op(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_rvalue)
+say "if-final-local-name=" + v4_mir_local_name(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, 2)
 say "if-final-rvalue-ty=" + v4_mir_rvalue_ty(v4_mir_if_condition_mir, v4_mir_if_condition_calc_body, v4_mir_if_final_rvalue)
 say "if-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_if_condition_mir))
 

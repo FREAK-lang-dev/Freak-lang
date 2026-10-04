@@ -64,9 +64,9 @@ task v4_hir_param_index_construction() -> void {
 task v4_hir_param_index_payload(files: int, tasks: int, params: int) -> word {
     pilot parts = array_new()
     pilot total = files * tasks
-    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v10|files=" + word_from_int(files) + "|items=" + word_from_int(total))
+    array_push(parts, "hir-snapshot|format=freak-hir-snapshot-v11|files=" + word_from_int(files) + "|items=" + word_from_int(total))
     array_push(parts, "|alias-targets=0|local-annotations=0|task-returns=" + word_from_int(total) + "|task-param-owners=" + word_from_int(total) + "|task-params=" + word_from_int(total * params))
-    array_push(parts, "|shape-owners=0|shape-fields=0|const-annotations=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|diagnostics=0")
+    array_push(parts, "|shape-owners=0|shape-fields=0|const-annotations=0|route-owners=0|route-cases=0|route-fields=0|extern-return-owners=0|extern-returns=0|word-owners=" + word_from_int(total) + "|word-literals=0|word-pieces=0|word-path-parts=0|diagnostics=0")
     pilot file = files - 1
     repeat until file < 0 {
         pilot id = word_from_int(file)
@@ -84,13 +84,14 @@ task v4_hir_param_index_payload(files: int, tasks: int, params: int) -> word {
             }
             array_push(parts, "\nhir-task-param-owner|" + id + "|" + word_from_int(owner_record) + "|" + word_from_int(item) + "|" + word_from_int(params))
             array_push(parts, "\nhir-task-return|" + id + "|" + word_from_int(owner_record) + "|" + word_from_int(item) + "|implicit-block||" + V4_NO_SPAN)
+            array_push(parts, "\nhir-word-owner|" + id + "|" + word_from_int(item) + "|0")
             array_push(parts, "\nhir-item|" + id + "|" + word_from_int(item) + "|Task|main|def|" + source + "@0:20000|0||" + V4_NO_SPAN)
             item -= 1
         }
         array_push(parts, "\nhir|" + id + "|" + source + "|0|" + word_from_int(tasks) + "|0")
         file -= 1
     }
-    array_push(parts, "\nend|freak-hir-snapshot-v10")
+    array_push(parts, "\nend|freak-hir-snapshot-v11")
     pilot payload = word_join(parts)
     array_release(parts)
     give back payload
@@ -187,6 +188,7 @@ task v4_hir_param_index_run() -> void {
     v4_hir_param_index_assert(v4_hir_snapshot_restore(sample).starts_with("hir-snapshot-restore ok=1 "), "sample restore")
     pilot before = v4_hir_snapshot()
     v4_hir_param_index_assert(v4_hir_finalize_lookup_indexes(0) and v4_hir_snapshot() == before and not before.contains("hir-task-param-index"), "derived indexes are never persisted")
+    v4_hir_param_index_assert(v4_hir_snapshot_restore(before.replace("freak-hir-snapshot-v11", "freak-hir-snapshot-v10")).starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_hir_snapshot() == before and v4_hir_task_param_index_is_ready(0) and v4_hir_task_param_record_id(0, 0, 0) == 3, "v10 restore preserves published lookup")
     pilot rejected = before.replace("hir-task-param|0|3|0|0|", "hir-task-param|0|3|0|1|")
     v4_hir_param_index_assert(v4_hir_snapshot_restore(rejected).starts_with("hir-snapshot-restore ok=0 reason=validation-failed") and v4_hir_snapshot() == before and v4_hir_task_param_index_is_ready(0) and v4_hir_task_param_record_id(0, 0, 0) == 3, "invalid restore preserves published lookup")
     pilot capacity = v4_hir_param_index_capacity()
@@ -197,7 +199,7 @@ task v4_hir_param_index_run() -> void {
         iteration += 1
     }
     v4_hir_param_index_assert(v4_hir_param_index_capacity() == capacity, "repeated restore releases index handles")
-    say "hir-param-index snapshot-v10=true roundtrip=true rejected-atomic=true capacity-stable=true"
+    say "hir-param-index snapshot-v11=true roundtrip=true rejected-atomic=true capacity-stable=true"
 
     pilot held = v4_hir_param_index_exhaust()
     v4_hir_param_index_free_tail(held, 1)

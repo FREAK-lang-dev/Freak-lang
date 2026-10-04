@@ -1,4 +1,4 @@
--- W1 literal say semantic bytes, diagnostics, static borrowing, and wire shape.
+-- Literal say bytes and wire shape remain static under owned-word display.
 -- One compiler pipeline covers the accepted and rejected statement contracts.
 
 task v4_literal_say_assert(condition: bool, label: word) -> void {
@@ -135,6 +135,63 @@ task v4_literal_say_forge(payload: word, mode: int) -> word {
     give back out
 }
 
+task v4_literal_say_body_span(mir: int, body: int) -> word {
+    pilot ty = v4_mir_ty_id(mir)
+    pilot item = v4_ty_signature_hir_item(ty, v4_mir_body_signature_id(mir, body))
+    give back v4_hir_item_span(v4_ty_word_plan_hir_id(ty), item)
+}
+
+task v4_literal_say_body_diagnostic(mir: int, body: int, message: word) -> int {
+    pilot span = v4_literal_say_body_span(mir, body)
+    pilot count = 0
+    pilot row = 0
+    repeat until row >= v4_mir_diag_count(mir) {
+        pilot diag = v4_mir_diag(mir, row)
+        pilot point = v4_diag_span(diag)
+        if v4_span_file(point) == v4_span_file(span) and v4_span_start(point) >= v4_span_start(span) and v4_span_end(point) <= v4_span_end(span) {
+            if message == "" or v4_diag_message(diag) == message { count += 1 }
+        }
+        row += 1
+    }
+    give back count
+}
+
+task v4_literal_say_general_call(mir: int, body: int) -> int {
+    pilot found = 0 - 1
+    pilot row = 0
+    repeat until row >= v4_mir_body_stmt_count(mir, body) {
+        pilot call = v4_mir_stmt_rvalue(mir, body, row)
+        if v4_mir_stmt_kind(mir, body, row) == v4_mir_stmt_expr and v4_mir_word_intrinsic_kind(mir, body, call) == "say" {
+            v4_literal_say_assert(found < 0, "exactly one owned display call")
+            found = call
+        }
+        row += 1
+    }
+    give back found
+}
+
+task v4_literal_say_display_value(mir: int, name: word) -> int {
+    pilot body = v4_mir_lookup_body_name(mir, name)
+    v4_literal_say_assert(body >= 0 and v4_literal_say_body_diagnostic(mir, body, "") == 0, "accepted display task " + name)
+    pilot call = v4_literal_say_general_call(mir, body)
+    v4_literal_say_assert(call >= 0 and v4_mir_rvalue_ty(mir, body, call) == v4_ty_void and v4_mir_rvalue_call_arg_count(mir, body, call) == 1, "owned display contract " + name)
+    pilot loan = v4_mir_rvalue_call_arg(mir, body, call, 0)
+    v4_literal_say_assert(loan < call and v4_mir_rvalue_kind(mir, body, loan) == v4_mir_rvalue_lend and v4_mir_rvalue_ty(mir, body, loan) == "lend word", "borrowed display " + name)
+    v4_literal_say_assert(v4_borrowck_rvalue_move_count(mir, body, call) == 0, "display does not move " + name)
+    give back v4_mir_rvalue_lhs(mir, body, loan)
+}
+
+task v4_literal_say_rejected_display(mir: int, name: word, primary: word) -> void {
+    pilot body = v4_mir_lookup_body_name(mir, name)
+    pilot count = 1
+    if primary != "" {
+        count += 1
+        v4_literal_say_assert(v4_literal_say_body_diagnostic(mir, body, primary) == 1, "exact primary diagnostic " + name)
+    }
+    v4_literal_say_assert(v4_literal_say_body_diagnostic(mir, body, "say value has no supported display contract") == 1 and v4_literal_say_body_diagnostic(mir, body, "") == count, "exact display diagnostics " + name)
+    v4_literal_say_assert(v4_literal_say_general_call(mir, body) < 0, "invalid display emits no say " + name)
+}
+
 task v4_literal_say_smoke() -> void {
     pilot slash = "\\"
     v4_literal_say_assert(v4_ty_word_literal_issue(slash) == "escape", "trailing escape")
@@ -153,7 +210,7 @@ task v4_literal_say_smoke() -> void {
     v4_literal_say_assert(v4_lex_diag_count(stream) == 0, "lexer diagnostics")
     v4_literal_say_assert(v4_parse_diag_count(tree) == 0, "parse diagnostics")
     v4_literal_say_assert(v4_ty_diag_count(ty) == 0, "TY diagnostics")
-    v4_literal_say_assert(v4_mir_diag_count(mir) == 11, "MIR diagnostic count")
+    v4_literal_say_assert(v4_mir_diag_count(mir) == 7, "MIR diagnostic count")
     pilot expression_body = v4_mir_lookup_body(mir, v4_resolve_def_for_name(resolve, "word_expression"))
     pilot expression = v4_mir_stmt_rvalue(mir, expression_body, 0)
     v4_literal_say_assert(v4_mir_stmt_kind(mir, expression_body, 0) == v4_mir_stmt_expr and v4_mir_rvalue_kind(mir, expression_body, expression) == v4_mir_rvalue_const_word and v4_mir_rvalue_text(mir, expression_body, expression) == "say", "string say is an expression")
@@ -176,27 +233,54 @@ task v4_literal_say_smoke() -> void {
         statement += 1
     }
 
-    pilot nonliteral = 0
-    pilot interpolation = 0
-    pilot nul = 0
+    pilot display = 0
+    pilot missing_root = 0
+    pilot missing_field_root = 0
     pilot escape = 0
     pilot diagnostic = 0
     repeat until diagnostic >= v4_mir_diag_count(mir) {
         pilot diag = v4_mir_diag(mir, diagnostic)
         pilot message = v4_diag_message(diag)
-        if message == "say nonliteral is not yet supported" { nonliteral += 1 } else if message == "say interpolation is not yet supported" { interpolation += 1 } else if message == "say literal contains embedded NUL" { nul += 1 } else if message == "say literal escape is not yet supported" { escape += 1 } else { panic("unexpected literal say diagnostic: " + message) }
+        if message == "say value has no supported display contract" { display += 1 } else if message == "unknown interpolation root name" { missing_root += 1 } else if message == "interpolation field root must be a visible local ship" { missing_field_root += 1 } else if message == "unsupported word literal escape" { escape += 1 } else { panic("unexpected literal say diagnostic: " + message) }
         v4_literal_say_assert(v4_span_end(v4_diag_span(diag)) > v4_span_start(v4_diag_span(diag)), "diagnostic span")
         diagnostic += 1
     }
-    v4_literal_say_assert(nonliteral == 6 and interpolation == 2 and nul == 2 and escape == 1, "diagnostic categories")
+    v4_literal_say_assert(display == 4 and missing_root == 1 and missing_field_root == 1 and escape == 1, "diagnostic categories")
+    v4_literal_say_rejected_display(mir, "bad_path", "interpolation field root must be a visible local ship")
+    v4_literal_say_rejected_display(mir, "bad_name", "unknown interpolation root name")
+    v4_literal_say_rejected_display(mir, "bad_escape", "unsupported word literal escape")
+    v4_literal_say_rejected_display(mir, "bad_empty", "")
+
+    -- These same W1 inputs now have explicit owned-word display contracts.
+    pilot value = v4_literal_say_display_value(mir, "bad_value")
+    v4_literal_say_assert(v4_mir_rvalue_ty(mir, v4_mir_lookup_body_name(mir, "bad_value"), value) == v4_ty_word, "word display value")
+    value = v4_literal_say_display_value(mir, "bad_method")
+    pilot value_body = v4_mir_lookup_body_name(mir, "bad_method")
+    v4_literal_say_assert(v4_mir_word_intrinsic_kind(mir, value_body, value) == "from_int" and v4_mir_word_intrinsic_kind(mir, value_body, v4_mir_rvalue_call_arg(mir, value_body, value, 0)) == "length", "length display conversion")
+    value = v4_literal_say_display_value(mir, "bad_number")
+    value_body = v4_mir_lookup_body_name(mir, "bad_number")
+    v4_literal_say_assert(v4_mir_word_intrinsic_kind(mir, value_body, value) == "from_int" and v4_mir_rvalue_text(mir, value_body, v4_mir_rvalue_call_arg(mir, value_body, value, 0)) == "42", "integer display conversion")
+    value = v4_literal_say_display_value(mir, "bad_expression")
+    value_body = v4_mir_lookup_body_name(mir, "bad_expression")
+    v4_literal_say_assert(v4_mir_word_intrinsic_kind(mir, value_body, value) == "concat" and v4_mir_rvalue_call_arg_count(mir, value_body, value) == 2, "concatenated display")
+    value = v4_literal_say_display_value(mir, "bad_group")
+    value_body = v4_mir_lookup_body_name(mir, "bad_group")
+    v4_literal_say_assert(v4_mir_rvalue_kind(mir, value_body, value) == v4_mir_rvalue_const_word and v4_mir_rvalue_text(mir, value_body, value) == "a", "grouped display")
+    value = v4_literal_say_display_value(mir, "bad_zero_escape")
+    value_body = v4_mir_lookup_body_name(mir, "bad_zero_escape")
+    v4_literal_say_assert(v4_mir_rvalue_kind(mir, value_body, value) == v4_mir_rvalue_const_word and v4_mir_rvalue_text(mir, value_body, value) == "before" + chr(0) + "after", "escaped NUL sized display")
+    value = v4_literal_say_display_value(mir, "bad_zero_byte")
+    value_body = v4_mir_lookup_body_name(mir, "bad_zero_byte")
+    v4_literal_say_assert(v4_mir_rvalue_kind(mir, value_body, value) == v4_mir_rvalue_const_word and v4_mir_rvalue_text(mir, value_body, value) == "before" + chr(0) + "after", "raw NUL sized display")
     pilot borrow = v4_borrowck_check_mir(0, mir)
     pilot borrow_result = v4_borrowck_lookup_result(borrow, main_def)
     v4_literal_say_assert(v4_borrowck_result_status(borrow, borrow_result) == "clean", "borrow status")
     v4_literal_say_assert(v4_borrowck_result_moves(borrow, borrow_result) == 0, "borrow moves")
     v4_literal_say_assert(v4_borrowck_result_loans(borrow, borrow_result) == 0, "borrow loans")
     v4_literal_say_assert(v4_borrowck_result_drops(borrow, borrow_result) == 0, "borrow drops")
-    say "literal-say frontend calls=27 diagnostics=11 borrowed=true bytes=true"
-    say "literal-say errors nonliteral=6 interpolation=2 nul=2 escape=1 spans=true"
+    say "literal-say frontend calls=27 diagnostics=7 borrowed=true bytes=true"
+    say "literal-say errors display=4 roots=2 escape=1 task-spans=true no-call=true"
+    say "literal-say owned-display accepted=7 borrowed=true conversions=true sized-nul=true"
 
     pilot parse_payload = v4_parse_snapshot()
     pilot hir_payload = v4_hir_snapshot()

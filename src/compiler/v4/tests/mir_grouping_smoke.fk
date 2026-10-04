@@ -19,6 +19,19 @@ task v4_mir_bad_grouping_make_source() -> word {
     give back src
 }
 
+task v4_mir_grouping_assert(condition: bool, label: word) -> void {
+    if not condition { panic("MIR grouping contract: " + label) }
+}
+
+task v4_mir_grouping_find_stmt(mir: int, body: int, kind: word, lhs: word) -> int {
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir, body) {
+        if v4_mir_stmt_kind(mir, body, stmt) == kind and v4_mir_stmt_lhs(mir, body, stmt) == lhs { give back stmt }
+        stmt += 1
+    }
+    give back -1
+}
+
 pilot v4_mir_grouping_source = v4_mir_grouping_make_source()
 pilot v4_mir_grouping_stream = v4_lex_text(0, v4_mir_grouping_source)
 pilot v4_mir_grouping_tree = v4_parse_stream(0, v4_mir_grouping_stream)
@@ -33,8 +46,21 @@ pilot v4_mir_grouping_sum_lhs = v4_mir_rvalue_lhs(v4_mir_grouping_mir, v4_mir_gr
 pilot v4_mir_grouping_sum_rhs = v4_mir_rvalue_rhs(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_sum_rvalue)
 pilot v4_mir_grouping_mul_rvalue = v4_mir_stmt_rvalue(v4_mir_grouping_mir, v4_mir_grouping_calc_body, 1)
 pilot v4_mir_grouping_mul_rhs = v4_mir_rvalue_rhs(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_mul_rvalue)
-pilot v4_mir_grouping_not_rvalue = v4_mir_stmt_rvalue(v4_mir_grouping_mir, v4_mir_grouping_calc_body, 2)
-pilot v4_mir_grouping_not_operand = v4_mir_rvalue_lhs(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_rvalue)
+-- Short-circuit lowering inserts a Branch before z's initializer. The legacy
+-- group-not row reports that condition's source binding; find it by meaning,
+-- and independently prove that z still receives the final unary Not.
+pilot v4_mir_grouping_flag_stmt = v4_mir_grouping_find_stmt(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_stmt_branch, "flag")
+v4_mir_grouping_assert(v4_mir_grouping_flag_stmt >= 0, "short-circuit flag branch exists")
+pilot v4_mir_grouping_not_rvalue = v4_mir_stmt_rvalue(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_flag_stmt)
+pilot v4_mir_grouping_flag_local = v4_mir_rvalue_local_id(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_rvalue)
+v4_mir_grouping_assert(v4_mir_grouping_flag_local >= 0 and v4_mir_grouping_flag_local == v4_mir_find_local(v4_mir_grouping_mir, v4_mir_grouping_calc_body, "flag") and v4_mir_rvalue_op(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_rvalue) == "local#" + word_from_int(v4_mir_grouping_flag_local), "canonical flag LocalId")
+pilot v4_mir_grouping_z_stmt = v4_mir_grouping_find_stmt(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_stmt_local, "z")
+v4_mir_grouping_assert(v4_mir_grouping_z_stmt >= 0, "z initializer exists after short circuit")
+pilot v4_mir_grouping_final_not = v4_mir_stmt_rvalue(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_z_stmt)
+v4_mir_grouping_assert(v4_mir_grouping_final_not >= 0 and v4_mir_rvalue_kind(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_final_not) == v4_mir_rvalue_unary and v4_mir_rvalue_op(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_final_not) == v4_mir_unary_not and v4_mir_rvalue_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_final_not) == v4_ty_bool and v4_mir_rvalue_rhs(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_final_not) == -1, "z retains unary Not")
+pilot v4_mir_grouping_not_operand = v4_mir_rvalue_lhs(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_final_not)
+pilot v4_mir_grouping_bool_local = v4_mir_rvalue_local_id(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_operand)
+v4_mir_grouping_assert(v4_mir_grouping_not_operand >= 0 and v4_mir_grouping_not_operand < v4_mir_grouping_final_not and v4_mir_grouping_bool_local >= 0 and v4_mir_grouping_bool_local != v4_mir_grouping_flag_local and v4_mir_local_name(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_bool_local) == "_bool_sc" and v4_mir_local_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_bool_local) == v4_ty_bool and v4_mir_stmt_block(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_z_stmt) != v4_mir_stmt_block(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_flag_stmt), "Not uses joined short-circuit bool")
 
 say v4_mir_summary(v4_mir_grouping_mir)
 say "group-body-locals=" + word_from_int(v4_mir_body_local_count(v4_mir_grouping_mir, v4_mir_grouping_calc_body))
@@ -56,7 +82,7 @@ say "group-mul-rhs-kind=" + v4_mir_rvalue_kind(v4_mir_grouping_mir, v4_mir_group
 say "group-mul-rhs-op=" + v4_mir_rvalue_op(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_mul_rhs)
 say "group-mul-rhs-ty=" + v4_mir_rvalue_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_mul_rhs)
 say "group-not-kind=" + v4_mir_rvalue_kind(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_rvalue)
-say "group-not-op=" + v4_mir_rvalue_op(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_rvalue)
+say "group-not-op=" + v4_mir_local_name(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_flag_local)
 say "group-not-ty=" + v4_mir_rvalue_ty(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_rvalue)
 say "group-not-operand-kind=" + v4_mir_rvalue_kind(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_operand)
 say "group-not-operand-op=" + v4_mir_rvalue_op(v4_mir_grouping_mir, v4_mir_grouping_calc_body, v4_mir_grouping_not_operand)

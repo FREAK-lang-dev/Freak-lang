@@ -1,0 +1,5 @@
+-- Build with --panic=abort. The sized message retains its embedded NUL.
+task main() -> never {
+    pilot message = "AbOrT\0ΟΣ İ 𐐀"
+    panic(msg: message.to_lower())
+}

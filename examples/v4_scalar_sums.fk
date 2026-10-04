@@ -1,0 +1,11 @@
+task relay(value: result<word,word>) -> result<word,word> { give back value }
+task main() -> int {
+pilot empty: maybe<int> = nobody
+check empty { got _ -> { give back 1 } nobody -> { } }
+pilot zero: maybe<int> = some(0)
+check zero { got number -> { if number != 0 { give back 2 } } nobody -> { give back 3 } }
+pilot value: result<word,word> = ok("")
+pilot moved = relay(value)
+check result moved { ok(text) -> { say text } err(message) -> { say message } }
+give back 0
+}

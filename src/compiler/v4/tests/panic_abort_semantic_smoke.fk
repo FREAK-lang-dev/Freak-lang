@@ -1,0 +1,98 @@
+-- Process-isolated explicit abort semantic/policy proof; original64MiB/1024.
+task v4_panic_assert(condition: bool, label: word) -> void {
+    if not condition { panic("panic-abort " + label) }
+}
+
+task v4_panic_source(mode: word) -> word {
+    pilot start = "task main() -> int " + chr(123) + "\n"
+    pilot finish = "\n" + chr(125) + "\n"
+    if mode == "0" { give back start + "pilot message = \"LIVE\\0MSG\"\npanic(msg: message)" + finish }
+    if mode == "1" { give back "task first() -> int " + chr(123) + " say \"first\"; give back 1 " + chr(125) + "\n" + start + "pilot unused = first() + panic(\"strict\")\nsay \"suppressed\"\ngive back 0" + finish }
+    if mode == "2" { give back start + "pilot a = false and panic(\"and\")\npilot b = true or panic(\"or\")\nif a or not b " + chr(123) + " give back 1 " + chr(125) + "\ngive back 0" + finish }
+    if mode == "3" { give back "task stop(lend message: word) -> never " + chr(123) + " panic(message) " + chr(125) + "\ntask main() -> never " + chr(123) + " pilot message = \"stop\"; stop(lend message) " + chr(125) + "\n" }
+    if mode == "4" { give back "task panic(msg: int) -> int " + chr(123) + " give back msg " + chr(125) + "\n" + start + "give back panic(msg: 7)" + finish }
+    if mode == "5" { give back start + "if panic(\"condition\") " + chr(123) + " give back 1 " + chr(125) + " else " + chr(123) + " give back 2 " + chr(125) + finish }
+    if mode == "6" { give back start + "panic(panic(\"inner\"))" + finish }
+    if mode == "7" { give back "task stop() => panic(\"arrow\")\n" + start + "stop()" + finish }
+    if mode == "8" { give back start + "pilot mut message = \"old\"\nmessage = panic(message)\nsay \"suppressed\"" + finish }
+    if mode == "9" { give back start + "repeat panic(\"count\") times " + chr(123) + " say \"suppressed\" " + chr(125) + finish }
+    if mode == "10" { give back start + "repeat until panic(\"until\") " + chr(123) + " say \"suppressed\" " + chr(125) + finish }
+    if mode == "11" { give back "task target(a: int, b: int) -> int " + chr(123) + " give back a + b " + chr(125) + "\ntask first() -> int " + chr(123) + " say \"first\"; give back 1 " + chr(125) + "\n" + start + "give back target(b: panic(\"named\"), a: first())" + finish }
+    if mode == "12" { give back start + "give back -(panic(\"unary\"))" + finish }
+    if mode == "13" { give back "task observe(lend value: word, flag: bool) -> int " + chr(123) + " give back value.length() " + chr(125) + "\n" + start + "pilot value = \"borrow\"; give back observe(lend value, false and panic(\"later\"))" + finish }
+    if mode == "14" { give back start + "if panic(\"condition\") " + chr(123) + " pilot dead_word = \"dead\"; panic(dead_word) " + chr(125) + " else " + chr(123) + " pilot dead_scalar = 1; give back dead_scalar " + chr(125) + "\nsay \"suppressed\"" + finish }
+    if mode == "15" { give back start + "if true " + chr(123) + " panic(\"then\") " + chr(125) + " else " + chr(123) + " panic(\"else\") " + chr(125) + "\nsay \"suppressed\"\ngive back 0" + finish }
+    if mode == "16" { give back start + "pilot doomed: word = panic(\"binding\")\npilot dead_word = \"dead\"\nrepeat 2 times " + chr(123) + " pilot scalar = 1; say scalar " + chr(125) + "\ngive back 0" + finish }
+    give back start + "give back 0" + finish
+}
+
+task v4_panic_dump(mir: int, borrow: int) -> void {
+    pilot idx = 0
+    repeat until idx >= v4_mir_diag_count(mir) { say v4_mir_diag(mir, idx); idx += 1 }
+    idx = 0
+    repeat until idx >= v4_borrowck_diag_count(borrow) { say v4_borrowck_diag(borrow, idx); idx += 1 }
+}
+
+task v4_panic_semantic_run() -> void {
+    pilot mode = "0"
+    if process::args_count() > 1 { mode = process::arg(1) }
+    pilot borrow = v4_borrowck_text_cached("panic-semantic.fk", v4_panic_source(mode))
+    pilot mir = v4_borrowck_mir_id(borrow)
+    if mode == "13" {
+        pilot found: bool = false
+        pilot idx = 0
+        repeat until idx >= v4_mir_diag_count(mir) { if v4_mir_diag(mir, idx).contains("borrowed argument across control flow is not yet supported") { found = true }; idx += 1 }
+        v4_panic_assert(found, "cross-CFG borrow named fence")
+        pilot rejected = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+        v4_panic_assert(v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "fenced no module")
+        say "panic-abort semantic=13 named-fence=true no-module=true"
+        give back
+    }
+    v4_panic_dump(mir, borrow)
+    v4_panic_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0 and v4_borrowck_diag_count(borrow) == 0, "clean semantic stages")
+    v4_panic_assert(v4_mir_control_plan_preflight(mir) == "", "normalized control graph")
+    pilot checked_body = 0
+    repeat until checked_body >= v4_mir_body_count(mir) {
+        pilot checked_local = 0
+        repeat until checked_local >= v4_mir_body_local_count(mir, checked_body) {
+            v4_panic_assert(v4_mir_local_mode(mir, checked_body, checked_local) != "$control-diagnostic" and v4_mir_local_ty(mir, checked_body, checked_local) != v4_ty_never, "no construction binding or Never storage")
+            checked_local += 1
+        }
+        checked_body += 1
+    }
+    pilot panic_count = 0
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        pilot value = 0
+        repeat until value >= v4_mir_body_rvalue_count(mir, body) {
+            if v4_mir_rvalue_is_builtin_control(mir, body, value) {
+                v4_panic_assert(v4_mir_builtin_method_identity_code(v4_mir_rvalue_builtin_method(mir, body, value)) == 201, "closed code201")
+                v4_panic_assert(v4_mir_rvalue_ty(mir, body, value) == v4_ty_never, "bottom type")
+                panic_count += 1
+            }
+            value += 1
+        }
+        body += 1
+    }
+    pilot accepted = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    say "panic-abort debug=" + v4_codegen_llvm_native_module_error(accepted)
+    v4_panic_assert(v4_codegen_llvm_native_module_error(accepted) == "" and v4_codegen_llvm_diag_count(accepted) == 0, "abort seal")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot module = v4_codegen_llvm_module_text(accepted, target)
+    v4_panic_assert(module != "" and v4_codegen_llvm_panic_policy(accepted) == "abort", "sealed policy")
+    pilot defaulted = v4_codegen_llvm_lower_owned_mir(0, mir)
+    if panic_count > 0 {
+        v4_panic_assert(v4_codegen_llvm_native_module_error(defaulted) == "native panic unwind is not yet supported; use --panic=abort" and v4_codegen_llvm_module_text(defaulted, target) == "", "default named fence")
+        v4_panic_assert(module.contains("@freak_v4_panic_abort(i64)") and module.contains("noreturn"), "reviewed helper")
+    } else { v4_panic_assert(v4_codegen_llvm_native_module_error(defaulted) == "", "panic-free default") }
+    v4_panic_assert(v4_codegen_llvm_panic_policy(defaulted) == "unwind" and v4_codegen_llvm_module_text(accepted, target) == module, "mode interleave")
+    pilot bad_policy = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "unwinding")
+    v4_panic_assert(v4_codegen_llvm_native_module_error(bad_policy) == "invalid native panic policy: unwinding" and v4_codegen_llvm_module_text(bad_policy, target) == "" and v4_codegen_llvm_panic_policy(bad_policy) == "", "invalid policy")
+    pilot snapshot = v4_mir_snapshot()
+    v4_panic_assert(snapshot.contains("freak-mir-snapshot-v9") and v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "v9 restore")
+    v4_panic_assert(v4_codegen_llvm_module_text(accepted, target) == module and v4_codegen_llvm_panic_policy(accepted) == "abort", "old immutable seal")
+    pilot fresh = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    v4_panic_assert(v4_codegen_llvm_module_text(fresh, target) == module, "fresh restored exact")
+    say "panic-abort semantic=" + mode + " stages=clean normalized=true policy=true v8=true old-seal=true fresh-module=true"
+}
+v4_panic_semantic_run()

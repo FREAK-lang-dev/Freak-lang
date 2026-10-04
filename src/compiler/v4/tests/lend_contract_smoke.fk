@@ -79,3 +79,60 @@ repeat until v4_lend_contract_diag_idx >= v4_borrowck_diag_count(v4_lend_contrac
     say "lend-diag" + word_from_int(v4_lend_contract_diag_idx) + "-help=" + v4_diag_help(v4_lend_contract_diag)
     v4_lend_contract_diag_idx += 1
 }
+
+-- The owned-Word plan independently rejects the same borrowed return. Pin
+-- both diagnostic spans and prove that a typed reborrow remains available.
+task v4_lend_contract_diag_at_span_count(borrow_id: int, span: word, message: word, help: word) -> int {
+    pilot count = 0
+    pilot diag_id = 0
+    repeat until diag_id >= v4_borrowck_diag_count(borrow_id) {
+        pilot diag = v4_borrowck_diag(borrow_id, diag_id)
+        if v4_diag_span(diag) == span and v4_diag_message(diag) == message and v4_diag_help(diag) == help { count += 1 }
+        diag_id += 1
+    }
+    give back count
+}
+
+task v4_lend_contract_return_stmt(mir_id: int, body_id: int) -> int {
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_kind(mir_id, body_id, stmt) == v4_mir_stmt_return { give back stmt }
+        stmt += 1
+    }
+    give back 0 - 1
+}
+
+pilot v4_lend_contract_move_body = v4_mir_lookup_body(v4_lend_contract_mir, v4_lend_contract_move_def)
+pilot v4_lend_contract_move_local = v4_mir_find_local(v4_lend_contract_mir, v4_lend_contract_move_body, "value")
+pilot v4_lend_contract_move_param_span = v4_mir_local_span(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_local)
+pilot v4_lend_contract_move_return = v4_lend_contract_return_stmt(v4_lend_contract_mir, v4_lend_contract_move_body)
+pilot v4_lend_contract_move_value = v4_mir_stmt_rvalue(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_return)
+pilot v4_lend_contract_move_value_span = v4_mir_rvalue_span(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_value)
+say "lend-word-param-type=" + v4_mir_local_ty(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_local)
+say "lend-word-param-mode=" + v4_mir_local_mode(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_local)
+say "lend-word-param-span=" + v4_lend_contract_move_param_span
+say "lend-word-param-source=" + v4_slice(v4_lend_contract_src, v4_span_start(v4_lend_contract_move_param_span), v4_span_end(v4_lend_contract_move_param_span))
+say "lend-word-return-kind=" + v4_mir_stmt_kind(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_return)
+say "lend-word-return-value-kind=" + v4_mir_rvalue_kind(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_value)
+say "lend-word-return-source-local=" + word_from_int(v4_mir_rvalue_local_id(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_value))
+say "lend-word-return-value-span=" + v4_lend_contract_move_value_span
+say "lend-word-return-value-source=" + v4_slice(v4_lend_contract_src, v4_span_start(v4_lend_contract_move_value_span), v4_span_end(v4_lend_contract_move_value_span))
+say "lend-diag0-span=" + v4_diag_span(v4_borrowck_diag(v4_lend_contract_borrow, 0))
+say "lend-diag1-span=" + v4_diag_span(v4_borrowck_diag(v4_lend_contract_borrow, 1))
+say "lend-diag2-span=" + v4_diag_span(v4_borrowck_diag(v4_lend_contract_borrow, 2))
+say "lend-immutable-diag-members=" + word_from_int(v4_lend_contract_diag_at_span_count(v4_lend_contract_borrow, v4_diag_span(v4_borrowck_diag(v4_lend_contract_borrow, 0)), "Meiya refuses to mutate an immutable lend parameter", "value is a lend parameter in block 0 at statement 0; use lend mut only when the caller grants exclusive mutation"))
+say "lend-move-diag-members=" + word_from_int(v4_lend_contract_diag_at_span_count(v4_lend_contract_borrow, v4_lend_contract_move_value_span, "Meiya refuses to move out of a borrowed parameter", "value is a lend parameter in block 0 at statement 0; borrowed parameters stay owned by the caller"))
+say "lend-unavailable-word-diag-members=" + word_from_int(v4_lend_contract_diag_at_span_count(v4_lend_contract_borrow, v4_lend_contract_move_param_span, "Meiya refuses a use of an unavailable word binding", "value"))
+
+v4_borrowck_word_plan_resource_failed = false
+say "lend-word-owning-plan-state=" + word_from_int(v4_borrowck_word_local_state_walk(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_local, false, true))
+v4_borrowck_word_plan_visit_budget = 8192
+say "lend-word-owning-use-state=" + word_from_int(v4_borrowck_word_rvalue_use_state(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_value, v4_lend_contract_move_local, true, false, 0))
+v4_borrowck_word_plan_visit_budget = 8192
+say "lend-word-observer-use-state=" + word_from_int(v4_borrowck_word_rvalue_use_state(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_value, v4_lend_contract_move_local, true, true, 0))
+pilot v4_lend_contract_reborrow_value = v4_mir_word_borrow_argument(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_move_value, v4_lend_contract_move_value_span)
+say "lend-word-reborrow-kind=" + v4_mir_rvalue_kind(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_reborrow_value)
+say "lend-word-reborrow-type=" + v4_mir_rvalue_ty(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_reborrow_value)
+say "lend-word-reborrow-source-local=" + word_from_int(v4_mir_rvalue_local_id(v4_lend_contract_mir, v4_lend_contract_move_body, v4_mir_rvalue_lhs(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_reborrow_value)))
+v4_borrowck_word_plan_visit_budget = 8192
+say "lend-word-reborrow-use-state=" + word_from_int(v4_borrowck_word_rvalue_use_state(v4_lend_contract_mir, v4_lend_contract_move_body, v4_lend_contract_reborrow_value, v4_lend_contract_move_local, true, false, 0))

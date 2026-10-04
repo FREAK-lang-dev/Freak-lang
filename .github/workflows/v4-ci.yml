@@ -129,11 +129,323 @@ jobs:
           python -u src/compiler/v4/check_v4.py
           --smoke h6_
           --smoke release_native_ordinary_
+          --smoke owned_word_
+          --smoke scalar_sum_
+          --smoke typed_os_entry_
+          --smoke word_bounds_
           --smoke codegen_llvm_execute
           --smoke extern_literal_syntax
           --smoke extern_return
           --smoke hir_snapshot_scaling_smoke.fk
           --smoke hir_scalar_fields_smoke.fk
+          --smoke target_contract_smoke.fk
+          --smoke target_c_integer_contract_smoke.fk
+
+  v4-runtime-helpers:
+    name: V4 native runtime helpers (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Clang (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm -y
+
+      - name: Target C integer oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_c_integer_oracle.py -v
+
+      - name: Target C integer layouts against four-target Clang IR
+        run: python -B -u tests/v4_c_integer_oracle.py --output "${{ runner.temp }}/c-integer-oracle"
+
+      - name: Checked32 C helper oracle and failure-retention regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_c_integer_runtime.py -v
+
+      - name: Checked32 C helper native portability at O0, O2 and O3
+        run: python -B -u tests/v4_c_integer_runtime.py --plain --work "${{ runner.temp }}/checked32-runtime-plain"
+
+      - name: Filesystem read bridge exact oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_fs_read_bridge.py -v
+
+      - name: Filesystem read bridge native portability and ownership audits
+        run: python -B -u tests/v4_fs_read_bridge.py --plain --work "${{ runner.temp }}/fs-read-bridge-plain"
+
+      - name: Private compiler array exact oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_compiler_array_runtime.py -v
+
+      - name: Private compiler array native portability and ownership audits
+        run: python -B -u tests/v4_compiler_array_runtime.py --plain --work "${{ runner.temp }}/compiler-arrays-plain"
+
+      - name: Owned UTF-8 word runtime portability and ownership audits
+        run: python -B -u tests/v4_word_runtime.py --plain
+
+      - name: Checked word integer parser oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_word_parse_runtime.py -v
+
+      - name: Checked word integer parser portability and ownership audits
+        run: python -B -u tests/v4_word_parse_runtime.py --plain --work "${{ runner.temp }}/word-parse-plain"
+
+      - name: Unicode fatal-error oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_unicode_runtime.py -v
+
+      - name: Checked numeric helpers at O0, O2 and O3
+        run: python -B -u tests/v4_numeric_runtime.py
+
+      - name: Checked numeric native gate oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_checked_numeric_codegen.py -v
+
+      - name: Checked numeric native lowering at O0, O2 and O3
+        run: python -B -u tests/v4_checked_numeric_codegen.py --plain --snapshot-control --work "${{ runner.temp }}/numeric-codegen-plain" --json "${{ runner.temp }}/numeric-codegen-plain.json"
+
+      - name: Generated owned word programs with C and LLVM ownership audits
+        run: python -B -u -m unittest discover -s tests -p test_v4_owned_word_codegen.py -v
+
+      - name: Generated owned word native portability
+        run: python -B -u tests/v4_owned_word_codegen.py --plain
+
+      - name: Unicode lowercase generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_word_lower_codegen.py -v
+
+      - name: Unicode lowercase generated-code native portability
+        run: python -B -u tests/v4_word_lower_codegen.py --plain --work "${{ runner.temp }}/word-lower-codegen-plain" --report "${{ runner.temp }}/word-lower-codegen-plain.json"
+
+      - name: Word bounds generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_word_bounds_codegen.py -v
+
+      - name: Word bounds native portability, exact bounds and receiver lifetime
+        run: python -B -u tests/v4_word_bounds_codegen.py --plain --work "${{ runner.temp }}/word-bounds-codegen-plain"
+
+      - name: Closed scalar Sum generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_scalar_sum_codegen.py -v
+
+      - name: Closed scalar Sum native portability and ownership audits
+        run: python -B -u tests/v4_scalar_sum_codegen.py --plain --work "${{ runner.temp }}/scalar-sum-codegen-plain" --report "${{ runner.temp }}/scalar-sum-codegen-plain/report.json"
+
+      - name: Typed OS and entry generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_typed_os_entry_codegen.py -v
+
+      - name: Typed OS and entry native portability and ownership audits
+        env:
+          FREAK_TYPED_OS_ENTRY_ROOT_GRANT: typed-os-entry-native-gate-v1
+        run: python -B -u tests/v4_typed_os_entry_codegen.py --plain --work "${{ runner.temp }}/typed-os-entry-codegen-plain"
+
+      - name: Panic abort generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_panic_abort_codegen.py -v
+
+      - name: Panic abort generated-code native portability
+        run: python -B -u tests/v4_panic_abort_codegen.py --plain --work "${{ runner.temp }}/panic-abort-codegen-plain" --report "${{ runner.temp }}/panic-abort-codegen-plain/report.json"
+
+      - name: SayErr generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_say_err_codegen.py -v
+
+      - name: SayErr generated-code native portability
+        run: python -B -u tests/v4_say_err_codegen.py --plain --work "${{ runner.temp }}/say-err-codegen-plain"
+
+      - name: Cold admission fault-proof oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_cold_init_admission.py -v
+
+      - name: Cold query and expansion singleton-fault recovery
+        run: python -B -u tests/v4_cold_init_admission.py --output-dir "${{ runner.temp }}/cold-init-admission"
+
+      - name: Owned process and checked filesystem runtime portability
+        run: python -B -u tests/v4_system_runtime.py --plain
+
+      - name: Unicode lowercase runtime portability
+        run: python -B -u tests/v4_unicode_runtime.py --plain --download --ucd-dir "${{ runner.temp }}/freak-unicode-17" --report "${{ runner.temp }}/unicode-lower-plain.json"
+
+      - name: Windows suite fresh-build and exit-status regressions
+        if: runner.os == 'Windows'
+        run: python -B -u tests/test_windows_suite_runner.py
+
+      - name: Checked32 C helper mandatory UndefinedBehaviorSanitizer gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_c_integer_runtime.py --work "${{ runner.temp }}/checked32-runtime-ubsan"
+
+      - name: Filesystem read bridge mandatory sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_fs_read_bridge.py --work "${{ runner.temp }}/fs-read-bridge-sanitized"
+
+      - name: Private compiler array mandatory sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_compiler_array_runtime.py --work "${{ runner.temp }}/compiler-arrays-sanitized"
+
+      - name: Owned word AddressSanitizer and UndefinedBehaviorSanitizer gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_word_runtime.py
+
+      - name: Checked word integer parser sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_word_parse_runtime.py --work "${{ runner.temp }}/word-parse-sanitized"
+
+      - name: Generated owned word AddressSanitizer and UndefinedBehaviorSanitizer gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_owned_word_codegen.py
+
+      - name: Unicode lowercase generated-code sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_word_lower_codegen.py --work "${{ runner.temp }}/word-lower-codegen-sanitized" --report "${{ runner.temp }}/word-lower-codegen-sanitized.json"
+
+      - name: Word bounds mandatory sanitizer, ownership and receiver lifetime gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_word_bounds_codegen.py --work "${{ runner.temp }}/word-bounds-codegen-sanitized"
+
+      - name: Closed scalar Sum mandatory sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_scalar_sum_codegen.py --work "${{ runner.temp }}/scalar-sum-codegen-sanitized" --report "${{ runner.temp }}/scalar-sum-codegen-sanitized/report.json"
+
+      - name: Typed OS and entry mandatory sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        env:
+          FREAK_TYPED_OS_ENTRY_ROOT_GRANT: typed-os-entry-native-gate-v1
+        run: python -B -u tests/v4_typed_os_entry_codegen.py --work "${{ runner.temp }}/typed-os-entry-codegen-sanitized"
+
+      - name: Panic abort generated-code sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_panic_abort_codegen.py --work "${{ runner.temp }}/panic-abort-codegen-sanitized" --report "${{ runner.temp }}/panic-abort-codegen-sanitized/report.json"
+
+      - name: SayErr generated-code sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_say_err_codegen.py --work "${{ runner.temp }}/say-err-codegen-sanitized"
+
+      - name: Owned process and filesystem sanitizer gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_system_runtime.py
+
+      - name: Unicode lowercase sanitizer gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_unicode_runtime.py --download --ucd-dir "${{ runner.temp }}/freak-unicode-17" --report "${{ runner.temp }}/unicode-lower-sanitized.json"
+
+      - name: Checked numeric UndefinedBehaviorSanitizer gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_numeric_runtime.py --optimization 2 --sanitize
+
+      - name: Checked numeric generated-code sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_checked_numeric_codegen.py --snapshot-control --work "${{ runner.temp }}/numeric-codegen-sanitized" --json "${{ runner.temp }}/numeric-codegen-sanitized.json"
+
+      - name: Preserve Word bounds compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-word-bounds-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/word-bounds-codegen-*/
+          if-no-files-found: warn
+
+      - name: Preserve closed scalar Sum compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-scalar-sum-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/scalar-sum-codegen-*/
+          if-no-files-found: warn
+
+      - name: Preserve typed OS and entry source, compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-typed-os-entry-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/typed-os-entry-codegen-*/
+          if-no-files-found: warn
+
+      - name: Preserve target C integer oracle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-c-integer-oracle-${{ matrix.os }}
+          path: ${{ runner.temp }}/c-integer-oracle
+          if-no-files-found: warn
+
+      - name: Preserve checked32 C helper source, compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-checked32-runtime-${{ matrix.os }}
+          path: ${{ runner.temp }}/checked32-runtime-*/
+          if-no-files-found: warn
+
+      - name: Preserve filesystem read bridge source, compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-fs-read-bridge-${{ matrix.os }}
+          path: ${{ runner.temp }}/fs-read-bridge-*/
+          if-no-files-found: warn
+
+      - name: Preserve private compiler array source, compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-compiler-arrays-${{ matrix.os }}
+          path: ${{ runner.temp }}/compiler-arrays-*/
+          if-no-files-found: warn
+
+      - name: Preserve checked word integer parser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-word-parse-${{ matrix.os }}
+          path: ${{ runner.temp }}/word-parse-*/
+          if-no-files-found: warn
+
+      - name: Preserve Unicode lowercase generated-code evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-word-lower-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/word-lower-codegen-*.json
+          if-no-files-found: warn
+
+      - name: Preserve panic abort compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-panic-abort-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/panic-abort-codegen-*/
+          if-no-files-found: warn
+
+      - name: Preserve SayErr compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-say-err-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/say-err-codegen-*/
+          if-no-files-found: warn
+
+      - name: Preserve Unicode runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-unicode-runtime-${{ matrix.os }}
+          path: ${{ runner.temp }}/unicode-lower-*.json
+          if-no-files-found: warn
+
+      - name: Preserve cold admission source and fault evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-cold-init-admission-${{ matrix.os }}
+          path: ${{ runner.temp }}/cold-init-admission/
+          if-no-files-found: warn
+
+      - name: Preserve checked numeric compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-numeric-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/numeric-codegen-*.json
+          if-no-files-found: warn
 
   v4-benchmark:
     name: V4 benchmark instrumentation

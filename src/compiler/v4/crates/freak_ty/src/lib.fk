@@ -2222,6 +2222,60 @@ task v4_ty_is_nominal_prelude_dyn_carrier(ty_id: int, type_text: word) -> bool {
     give back true
 }
 
+-- Carrier spelling alone does not establish prelude ownership or layout.
+task v4_ty_native_scalar_sum_kind(ty_id: int, type_text: word) -> word {
+    if not v4_ty_file_exists(ty_id) { give back "" }
+    pilot canonical = v4_ty_canonical_type(ty_id, type_text)
+    if not v4_ty_is_generic_instance_type(canonical) { give back "" }
+    pilot base = v4_ty_generic_base_name(canonical)
+    if base != "maybe" and base != "result" { give back "" }
+    if v4_ty_type_signature_id_for_name(ty_id, base) >= 0 { give back "" }
+    pilot resolve = v4_ty_resolve_id(ty_id)
+    if resolve >= 0 {
+        pilot expanded = v4_resolve_expand_import_name(resolve, base)
+        if expanded != "" and expanded != base { give back "" }
+        if v4_resolve_def_for_name(resolve, base) != "" { give back "" }
+    }
+    if base == "maybe" and v4_ty_generic_arg_count(canonical) == 1 and v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 0)) == v4_ty_int { give back "MaybeInt" }
+    if base == "result" and v4_ty_generic_arg_count(canonical) == 2 and v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 0)) == v4_ty_word and v4_ty_canonical_type(ty_id, v4_ty_generic_arg(canonical, 1)) == v4_ty_word { give back "ResultWordWord" }
+    give back ""
+}
+
+task v4_ty_is_native_scalar_sum(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_native_scalar_sum_kind(ty_id, type_text) != ""
+}
+
+-- Normalize only the payload of an already authenticated native carrier.
+-- Preserve declared outer aliases and the ordinary generic type protocol.
+task v4_ty_native_scalar_sum_payload_type(ty_id: int, type_text: word) -> word {
+    pilot kind = v4_ty_native_scalar_sum_kind(ty_id, type_text)
+    if kind == "MaybeInt" { give back v4_ty_int }
+    if kind == "ResultWordWord" { give back v4_ty_word }
+    give back v4_ty_unknown
+}
+
+task v4_ty_is_native_owned_value(ty_id: int, type_text: word) -> bool {
+    give back v4_ty_canonical_type(ty_id, type_text) == v4_ty_word or v4_ty_is_native_scalar_sum(ty_id, type_text)
+}
+
+task v4_ty_callable_param_count_for_def(ty_id: int, definition: word) -> int {
+    pilot signature = v4_ty_lookup_signature(ty_id, definition)
+    if signature >= 0 { give back v4_ty_signature_fixed_param_count(ty_id, signature) }
+    pilot item = v4_ty_impl_method_index_for_def(ty_id, definition, 0)
+    pilot method = v4_ty_impl_method_index_for_def(ty_id, definition, 1)
+    if item < 0 or method < 0 { give back 0 }
+    give back v4_ty_impl_method_param_count(ty_id, item, method)
+}
+
+task v4_ty_callable_return_type_for_def(ty_id: int, definition: word) -> word {
+    pilot signature = v4_ty_lookup_signature(ty_id, definition)
+    if signature >= 0 { give back v4_ty_signature_return_type(ty_id, signature) }
+    pilot item = v4_ty_impl_method_index_for_def(ty_id, definition, 0)
+    pilot method = v4_ty_impl_method_index_for_def(ty_id, definition, 1)
+    if item < 0 or method < 0 { give back v4_ty_unknown }
+    give back v4_ty_impl_method_return_type(ty_id, item, method)
+}
+
 task v4_ty_is_shared_type(type_text: word) -> bool {
     give back v4_ty_generic_base_is(type_text, "Shared")
 }
@@ -3321,6 +3375,7 @@ task v4_ty_numeric_result(left_ty: word, right_ty: word) -> word {
 }
 
 task v4_ty_unary_valid(op: word, operand_ty: word) -> bool {
+    if operand_ty == v4_ty_never { give back true }
     if not v4_ty_is_known(operand_ty) {
         give back true
     }
@@ -3337,6 +3392,7 @@ task v4_ty_unary_valid(op: word, operand_ty: word) -> bool {
 }
 
 task v4_ty_unary_result(op: word, operand_ty: word) -> word {
+    if operand_ty == v4_ty_never { give back v4_ty_never }
     if not v4_ty_unary_valid(op, operand_ty) {
         give back v4_ty_unknown
     }
@@ -3389,6 +3445,11 @@ task v4_ty_unary_operator_method(op: word) -> word {
 }
 
 task v4_ty_binary_valid(op: word, left_ty: word, right_ty: word) -> bool {
+    if left_ty == v4_ty_never { give back true }
+    if right_ty == v4_ty_never {
+        if op == "And" or op == "Or" { give back left_ty == v4_ty_bool }
+        give back true
+    }
     if not v4_ty_is_known(left_ty) or not v4_ty_is_known(right_ty) {
         give back true
     }
@@ -3420,6 +3481,8 @@ task v4_ty_binary_result(op: word, left_ty: word, right_ty: word) -> word {
     if not v4_ty_binary_valid(op, left_ty, right_ty) {
         give back v4_ty_unknown
     }
+    if left_ty == v4_ty_never { give back v4_ty_never }
+    if right_ty == v4_ty_never and op != "And" and op != "Or" { give back v4_ty_never }
     if op == "Eq" or op == "Ne" or op == "Gt" or op == "Lt" or op == "Ge" or op == "Le" {
         give back v4_ty_bool
     }
@@ -10058,6 +10121,12 @@ task v4_ty_signature_return_surface_type(ty_id: int, sig_id: int) -> word {
     if member_id >= 0 {
         give back v4_ty_extern_member_return_surface_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id), member_id)
     }
+    -- Arrow shorthand has separate inference. Explicit ordinary returns read
+    -- stored HIR facts without entering the token-based arrow fallback.
+    if v4_hir_task_return_form(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id)) == v4_hir_task_return_arrow and v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
+        pilot control_return = v4_ty_signature_arrow_control_return(ty_id, sig_id)
+        if control_return != v4_ty_unknown { give back control_return }
+    }
     if v4_ty_signature_is_ordinary_hir_task(ty_id, sig_id) {
         give back v4_ty_task_return_from_hir(v4_ty_signature_hir_id(ty_id), v4_ty_signature_hir_item(ty_id, sig_id))
     }
@@ -13698,4 +13767,311 @@ task v4_ty_word_literal_issue(raw: word) -> word {
 
 task v4_ty_word_literal_value(raw: word) -> word {
     give back v4_hir_word_literal_value(raw)
+}
+
+
+-- Compiler-owned word intrinsic contracts; source spelling is resolved by MIR.
+task v4_ty_word_intrinsic_known(kind: word) -> bool {
+    give back kind == "concat" or kind == "equal" or kind == "not_equal" or kind == "say" or kind == "say_err" or kind == "from_int" or kind == "from_bool" or kind == "from_num" or kind == "to_int" or kind == "length" or kind == "bytes" or kind == "char_at" or kind == "slice" or kind == "substring" or kind == "starts_with" or kind == "ends_with" or kind == "contains" or kind == "clone" or kind == "to_lower" or kind == "to_int_maybe"
+}
+
+task v4_ty_word_intrinsic_result_type(kind: word) -> word {
+    if kind == "concat" { give back v4_ty_word }
+    if kind == "equal" { give back v4_ty_bool }
+    if kind == "not_equal" { give back v4_ty_bool }
+    if kind == "say" { give back v4_ty_void }
+    if kind == "say_err" { give back v4_ty_void }
+    if kind == "from_int" { give back v4_ty_word }
+    if kind == "from_bool" { give back v4_ty_word }
+    if kind == "from_num" { give back v4_ty_word }
+    if kind == "to_int" { give back v4_ty_int }
+    if kind == "length" { give back v4_ty_int }
+    if kind == "bytes" { give back v4_ty_int }
+    if kind == "char_at" { give back v4_ty_word }
+    if kind == "slice" { give back v4_ty_word }
+    if kind == "substring" { give back v4_ty_word }
+    if kind == "starts_with" { give back v4_ty_bool }
+    if kind == "ends_with" { give back v4_ty_bool }
+    if kind == "contains" { give back v4_ty_bool }
+    if kind == "clone" { give back v4_ty_word }
+    if kind == "to_lower" { give back v4_ty_word }
+    if kind == "to_int_maybe" { give back v4_ty_maybe_type(v4_ty_int) }
+    give back v4_ty_unknown
+}
+
+task v4_ty_word_intrinsic_param_count(kind: word) -> int {
+    if kind == "concat" { give back 2 }
+    if kind == "equal" { give back 2 }
+    if kind == "not_equal" { give back 2 }
+    if kind == "say" { give back 1 }
+    if kind == "say_err" { give back 1 }
+    if kind == "from_int" { give back 1 }
+    if kind == "from_bool" { give back 1 }
+    if kind == "from_num" { give back 1 }
+    if kind == "to_int" { give back 1 }
+    if kind == "length" { give back 1 }
+    if kind == "bytes" { give back 1 }
+    if kind == "char_at" { give back 2 }
+    if kind == "slice" { give back 3 }
+    if kind == "substring" { give back 3 }
+    if kind == "starts_with" { give back 2 }
+    if kind == "ends_with" { give back 2 }
+    if kind == "contains" { give back 2 }
+    if kind == "clone" { give back 1 }
+    if kind == "to_lower" { give back 1 }
+    if kind == "to_int_maybe" { give back 1 }
+    give back 0 - 1
+}
+
+task v4_ty_word_intrinsic_param_type(kind: word, param_id: int) -> word {
+    if kind == "concat" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "equal" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "not_equal" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "say" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "say_err" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "from_int" {
+        if param_id == 0 { give back v4_ty_int }
+    }
+    if kind == "from_bool" {
+        if param_id == 0 { give back v4_ty_bool }
+    }
+    if kind == "from_num" {
+        if param_id == 0 { give back v4_ty_num }
+    }
+    if kind == "to_int" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "length" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "bytes" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "char_at" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_int }
+    }
+    if kind == "slice" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_int }
+        if param_id == 2 { give back v4_ty_int }
+    }
+    if kind == "substring" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_int }
+        if param_id == 2 { give back v4_ty_int }
+    }
+    if kind == "starts_with" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "ends_with" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "contains" {
+        if param_id == 0 { give back v4_ty_word }
+        if param_id == 1 { give back v4_ty_word }
+    }
+    if kind == "clone" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "to_lower" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    if kind == "to_int_maybe" {
+        if param_id == 0 { give back v4_ty_word }
+    }
+    give back v4_ty_unknown
+}
+
+task v4_ty_word_intrinsic_named_kind(name: word) -> word {
+    if name == "word_from_int" { give back "from_int" }
+    if name == "word_from_bool" { give back "from_bool" }
+    if name == "format_num" { give back "from_num" }
+    if name == "word_to_int" { give back "to_int" }
+    if name == "say_err" { give back "say_err" }
+    give back ""
+}
+
+task v4_ty_word_intrinsic_member_kind(receiver_ty: word, method_name: word) -> word {
+    if receiver_ty == v4_ty_word {
+        if method_name == "length" { give back "length" }
+        if method_name == "bytes" { give back "bytes" }
+        if method_name == "char_at" { give back "char_at" }
+        if method_name == "slice" { give back "slice" }
+        if method_name == "substring" { give back "substring" }
+        if method_name == "starts_with" { give back "starts_with" }
+        if method_name == "ends_with" { give back "ends_with" }
+        if method_name == "contains" { give back "contains" }
+        if method_name == "clone" { give back "clone" }
+        if method_name == "to_lower" { give back "to_lower" }
+        if method_name == "to_int" { give back "to_int_maybe" }
+    }
+    if method_name == "to_word" {
+        if receiver_ty == v4_ty_int { give back "from_int" }
+        if receiver_ty == v4_ty_bool { give back "from_bool" }
+        if receiver_ty == v4_ty_num { give back "from_num" }
+    }
+    give back ""
+}
+
+-- These descriptors expose language types, not the private C outslot ABI.
+-- MIR construction additionally checks local/parameter namespace shadowing.
+task v4_ty_system_intrinsic_known(kind: word) -> bool {
+    give back kind == "process_arg" or kind == "args_count" or kind == "fs_read"
+}
+
+task v4_ty_system_intrinsic_public_name(kind: word) -> word {
+    if kind == "process_arg" { give back "process::arg" }
+    if kind == "args_count" { give back "process::args_count" }
+    if kind == "fs_read" { give back "fs::read" }
+    give back ""
+}
+
+task v4_ty_system_intrinsic_named_kind(ty_id: int, name: word) -> word {
+    if not v4_ty_file_exists(ty_id) { give back "" }
+    pilot root = ""
+    pilot kind = ""
+    if name == "process::arg" { root = "process"; kind = "process_arg" }
+    if name == "process::args_count" { root = "process"; kind = "args_count" }
+    if name == "fs::read" { root = "fs"; kind = "fs_read" }
+    if kind == "" { give back "" }
+    if v4_ty_task_signature_id_for_name(ty_id, name) >= 0 or v4_ty_const_signature_id_for_name(ty_id, root) >= 0 or v4_ty_type_signature_id_for_name(ty_id, root) >= 0 { give back "" }
+    pilot resolve = v4_ty_resolve_id(ty_id)
+    if resolve < 0 { give back "" }
+    if v4_resolve_def_for_name(resolve, name) != "" or v4_resolve_def_for_name(resolve, root) != "" { give back "" }
+    pilot expanded = v4_resolve_expand_import_name(resolve, name)
+    if expanded != "" and expanded != name { give back "" }
+    expanded = v4_resolve_expand_import_name(resolve, root)
+    if expanded != "" and expanded != root { give back "" }
+    give back kind
+}
+
+task v4_ty_system_intrinsic_result_type(kind: word) -> word {
+    if kind == "process_arg" or kind == "fs_read" { give back v4_ty_result_type(v4_ty_word, v4_ty_word) }
+    if kind == "args_count" { give back v4_ty_int }
+    give back v4_ty_unknown
+}
+
+task v4_ty_system_intrinsic_param_count(kind: word) -> int {
+    if kind == "args_count" { give back 0 }
+    if kind == "process_arg" or kind == "fs_read" { give back 1 }
+    give back -1
+}
+
+task v4_ty_system_intrinsic_param_type(kind: word, parameter: int) -> word {
+    if parameter == 0 and kind == "process_arg" { give back v4_ty_int }
+    if parameter == 0 and kind == "fs_read" { give back v4_ty_word }
+    give back v4_ty_unknown
+}
+
+task v4_ty_system_intrinsic_param_mode(kind: word, parameter: int) -> word {
+    if parameter == 0 and kind == "process_arg" { give back v4_ty_param_mode_value }
+    if parameter == 0 and kind == "fs_read" { give back v4_ty_param_mode_lend }
+    give back ""
+}
+
+task v4_ty_system_intrinsic_param_name(kind: word, parameter: int) -> word {
+    if parameter == 0 and kind == "process_arg" { give back "index" }
+    if parameter == 0 and kind == "fs_read" { give back "path" }
+    give back ""
+}
+
+-- Callable source containment is a TY semantic fact. Persistent MIR consumes
+-- this facade without consulting syntax or item arenas.
+task v4_ty_callable_source_span_for_def(ty_id: int, def_id: word) -> word {
+    pilot hir_id = v4_ty_signature_hir_id(ty_id)
+    if hir_id < 0 { give back V4_NO_SPAN }
+    pilot signature = v4_ty_lookup_signature(ty_id, def_id)
+    if signature >= 0 {
+        give back v4_hir_item_span(hir_id, v4_ty_signature_hir_item(ty_id, signature))
+    }
+    pilot item = v4_ty_impl_method_index_for_def(ty_id, def_id, 0)
+    pilot method = v4_ty_impl_method_index_for_def(ty_id, def_id, 1)
+    if item < 0 or method < 0 { give back V4_NO_SPAN }
+    give back v4_ty_impl_method_source_span(ty_id, item, method)
+}
+
+-- Word plans are authoritative HIR facts, including after detached restoration.
+task v4_ty_word_plan_hir_id(ty_id: int) -> int {
+    give back v4_ty_signature_hir_id(ty_id)
+}
+
+task v4_ty_word_plan_literal_at_span(ty_id: int, item: int, span: word) -> int {
+    pilot hir = v4_ty_word_plan_hir_id(ty_id)
+    pilot literal = v4_hir_word_literal_at_offset(hir, item, v4_span_start(span))
+    if literal < 0 or v4_hir_word_literal_span(hir, literal) != span { give back -1 }
+    give back literal
+}
+
+
+-- Prelude control contracts are semantic facts, independent of build policy.
+task v4_ty_control_intrinsic_known(kind: word) -> bool { give back kind == "panic" }
+task v4_ty_control_intrinsic_named_kind(name: word) -> word {
+    if name == "panic" { give back "panic" }
+    give back ""
+}
+task v4_ty_control_intrinsic_param_count(kind: word) -> int {
+    if kind == "panic" { give back 1 }
+    give back 0
+}
+task v4_ty_control_intrinsic_param_name(kind: word, argument: int) -> word {
+    if kind == "panic" and argument == 0 { give back "msg" }
+    give back ""
+}
+task v4_ty_control_intrinsic_param_type(kind: word, argument: int) -> word {
+    if kind == "panic" and argument == 0 { give back v4_ty_word }
+    give back v4_ty_unknown
+}
+task v4_ty_control_intrinsic_param_mode(kind: word, argument: int) -> word {
+    if kind == "panic" and argument == 0 { give back v4_ty_param_mode_lend }
+    give back ""
+}
+task v4_ty_control_intrinsic_result_type(kind: word) -> word {
+    if kind == "panic" { give back v4_ty_never }
+    give back v4_ty_unknown
+}
+
+-- Only the exact direct prelude call infers Never here. A shadowing signature,
+-- import/constant, or parameter remains an ordinary resolved binding.
+task v4_ty_signature_arrow_control_return(ty_id: int, sig_id: int) -> word {
+    pilot hir = v4_ty_signature_hir_id(ty_id)
+    pilot item = v4_ty_signature_hir_item(ty_id, sig_id)
+    if v4_hir_task_return_form(hir, item) != v4_hir_task_return_arrow { give back v4_ty_unknown }
+    pilot stream = v4_ty_signature_stream_id(ty_id)
+    pilot start = v4_ty_signature_item_start_token(ty_id, sig_id)
+    pilot end = v4_ty_signature_item_end_token(ty_id, sig_id)
+    pilot arrow = v4_ty_find_token_value(stream, start, end, "=>")
+    if arrow < 0 { give back v4_ty_unknown }
+    pilot first = v4_ty_skip_trivia(stream, arrow + 1)
+    if v4_lex_token_syntax_value(stream, first) != "panic" { give back v4_ty_unknown }
+    pilot resolve = v4_ty_resolve_id(ty_id)
+    if resolve >= 0 and v4_resolve_def_for_name(resolve, "panic") != "" { give back v4_ty_unknown }
+    pilot parameter = 0
+    repeat until parameter >= v4_ty_signature_fixed_param_count(ty_id, sig_id) {
+        if v4_ty_signature_param_name(ty_id, sig_id, parameter) == "panic" { give back v4_ty_unknown }
+        parameter += 1
+    }
+    pilot open = v4_ty_skip_trivia(stream, first + 1)
+    if v4_lex_token_syntax_value(stream, open) != "(" { give back v4_ty_unknown }
+    pilot close = v4_ty_find_matching_paren(stream, open, end)
+    if close < 0 { give back v4_ty_unknown }
+    pilot after = v4_ty_skip_trivia(stream, close + 1)
+    if after < end and v4_lex_token_syntax_value(stream, after) == ";" { after = v4_ty_skip_trivia(stream, after + 1) }
+    if after < end { give back v4_ty_unknown }
+    give back v4_ty_never
 }

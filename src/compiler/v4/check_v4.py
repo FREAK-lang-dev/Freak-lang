@@ -79,7 +79,19 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "mir_impl_candidate_lookup_smoke.fk",
         "lex_boundary_publication_exhaustion_smoke.fk",
         "borrowck_mutable_preflight_smoke.fk",
+        "mir_for_each_scope_contract_smoke.fk",
+        "say_err_execute_smoke.fk",
+        "panic_abort_semantic_smoke.fk",
+        "panic_abort_contract_smoke.fk",
+        "panic_abort_loan_smoke.fk",
+        "panic_abort_editor_smoke.fk",
+        "borrowck_typed_place_word_smoke.fk",
+        "borrowck_projection_holder_scope_smoke.fk",
+        "panic_abort_execute_smoke.fk",
+        "panic_abort_short_circuit_smoke.fk",
+        "borrowck_word_call_lifetime_smoke.fk",
         "hir_param_index_smoke.fk",
+        "target_c_integer_contract_smoke.fk",
         "ty_signature_index_smoke.fk",
         "resolve_lookup_index_smoke.fk",
         "hir_query_resource_smoke.fk",
@@ -115,8 +127,42 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "release_native_ordinary_qualified_and_impl_smoke.fk",
         "release_native_ordinary_two_impls_smoke.fk",
         "release_native_ordinary_same_impl_smoke.fk",
+        "owned_word_semantics_smoke.fk",
+        "owned_word_contract_smoke.fk",
+        "owned_word_execute_smoke.fk",
+        "word_lower_semantic_smoke.fk",
+        "word_lower_contract_smoke.fk",
+        "word_lower_loan_contract_smoke.fk",
+        "word_lower_editor_smoke.fk",
+        "word_lower_execute_smoke.fk",
+        "checked_numeric_contract_smoke.fk",
+        "checked_numeric_execute_smoke.fk",
+        "mir_restore_resource_smoke.fk",
+        "interpolation_hir_smoke.fk",
+        "interpolation_mir_smoke.fk",
+        "interpolation_diagnostics_smoke.fk",
+        "interpolation_resource_smoke.fk",
+        "interpolation_editor_smoke.fk",
+        "cold_query_admission_smoke.fk",
+        "cold_expand_admission_smoke.fk",
+        "cold_expand_facade_smoke.fk",
+        "cold_hir_facade_smoke.fk",
+        "cold_hir_constructor_resource_smoke.fk",
+        "cold_hir_restore_resource_smoke.fk",
         "h6_native_declaration_symbol_smoke.fk",
         "h6_native_ffi_width_smoke.fk",
+        "mir_route_terminal_contract_smoke.fk",
+        "mir_check_terminal_continuation_smoke.fk",
+        "scalar_sum_semantic_smoke.fk",
+        "scalar_sum_contract_smoke.fk",
+        "scalar_sum_editor_smoke.fk",
+        "scalar_sum_operator_smoke.fk",
+        "scalar_sum_origin_smoke.fk",
+        "scalar_sum_payload_alias_smoke.fk",
+        "scalar_sum_execute_smoke.fk",
+        "typed_os_entry_execute_smoke.fk",
+        "typed_os_entry_contract_smoke.fk",
+        "word_bounds_execute_smoke.fk",
     }
 )
 
@@ -303,7 +349,7 @@ CRATE_BOUNDARY_REQUIRED = {
     "freak_mir": [
         ("representation ownership comment", "-- freak_mir - persistent V4 Built-MIR representation"),
         ("explicit-scope local primitive", "task v4_mir_add_local_at_scope("),
-        ("snapshot v5 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v5"'),
+        ("snapshot v9 owner", 'pilot v4_mir_snapshot_format = "freak-mir-snapshot-v9"'),
     ],
     "freak_mir_build": [
         ("construction ownership comment", "-- freak_mir_build - stateless V4 HIR+TY to Built-MIR construction"),
@@ -873,9 +919,9 @@ EXECUTABLE_SMOKES = [
             'hir-impl-index revision-monotonic=true invalid-readonly=true same-size=true reuse=true',
             'hir-impl-index cold-linear=true sparse=true duplicates=true overwrite=true stale-tail=true',
             'hir-impl-index 1024-items=true 512-impls=true logarithmic=true zero-impl-constant=true',
-            'hir-impl-index snapshot-v10=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true',
+            'hir-impl-index snapshot-v11=true shuffled=true roundtrip=true rejected-atomic=true capacity-stable=true',
             'hir-impl-index resource-readonly=true build-failure-cold=true recovery=true',
-            'hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=41',
+            'hir-impl-index restore-resource-atomic=true fresh-recovery=true child-handles=42',
         ],
     },
     {
@@ -998,7 +1044,7 @@ EXECUTABLE_SMOKES = [
             "hir-param-index construction=true duplicates=true sparse=true overwrite=true reuse=true",
             "hir-param-index 512-owners=true 1024-params=true logarithmic=true build-bounded=true",
             "hir-param-index 512-ordinals=true empty-owner=true",
-            "hir-param-index snapshot-v10=true roundtrip=true rejected-atomic=true capacity-stable=true",
+            "hir-param-index snapshot-v11=true roundtrip=true rejected-atomic=true capacity-stable=true",
             "hir-param-index build-failure-cold=true recovery=true",
             "hir-param-index restore-resource-atomic=true fresh-recovery=true",
         ],
@@ -1052,6 +1098,53 @@ EXECUTABLE_SMOKES = [
         ],
         "expect": [],
     },
+    {'fixture': 'target_c_integer_contract_smoke.fk',
+     'name': 'target C integer scalar descriptors',
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect_exact': ['target-c-integer-x86_64-unknown-linux-gnu-c_int=descriptor=c-signed32 width=32 '
+                      'signed=1 size=4 align=4 carrier=i32',
+                      'target-c-integer-x86_64-unknown-linux-gnu-c_uint=descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer-x86_64-unknown-linux-gnu-c_long=descriptor=c-signed64 width=64 '
+                      'signed=1 size=8 align=8 carrier=i64',
+                      'target-c-integer-x86_64-unknown-linux-gnu-c_ulong=descriptor=c-unsigned64 width=64 '
+                      'signed=0 size=8 align=8 carrier=i64',
+                      'target-c-integer-aarch64-unknown-linux-gnu-c_int=descriptor=c-signed32 width=32 '
+                      'signed=1 size=4 align=4 carrier=i32',
+                      'target-c-integer-aarch64-unknown-linux-gnu-c_uint=descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer-aarch64-unknown-linux-gnu-c_long=descriptor=c-signed64 width=64 '
+                      'signed=1 size=8 align=8 carrier=i64',
+                      'target-c-integer-aarch64-unknown-linux-gnu-c_ulong=descriptor=c-unsigned64 width=64 '
+                      'signed=0 size=8 align=8 carrier=i64',
+                      'target-c-integer-aarch64-apple-darwin-c_int=descriptor=c-signed32 width=32 signed=1 '
+                      'size=4 align=4 carrier=i32',
+                      'target-c-integer-aarch64-apple-darwin-c_uint=descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer-aarch64-apple-darwin-c_long=descriptor=c-signed64 width=64 signed=1 '
+                      'size=8 align=8 carrier=i64',
+                      'target-c-integer-aarch64-apple-darwin-c_ulong=descriptor=c-unsigned64 width=64 '
+                      'signed=0 size=8 align=8 carrier=i64',
+                      'target-c-integer-x86_64-w64-windows-gnu-c_int=descriptor=c-signed32 width=32 signed=1 '
+                      'size=4 align=4 carrier=i32',
+                      'target-c-integer-x86_64-w64-windows-gnu-c_uint=descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer-x86_64-w64-windows-gnu-c_long=descriptor=c-signed32 width=32 '
+                      'signed=1 size=4 align=4 carrier=i32',
+                      'target-c-integer-x86_64-w64-windows-gnu-c_ulong=descriptor=c-unsigned32 width=32 '
+                      'signed=0 size=4 align=4 carrier=i32',
+                      'target-c-integer-forged-all17-fields=true',
+                      'target-c-integer-unknown-keys=true',
+                      'target-c-integer-unknown-descriptors=true',
+                      'target-c-integer-cold-unknown-target=true',
+                      'target-c-integer-malformed-frame=true',
+                      'target-c-integer-oversized-rejected=true',
+                      'target-c-integer-v1-wire-byte-exact=true',
+                      'target-c-integer-roundtrip=true'],
+     'memory_limit_mb': 64,
+     'expect': [],
+     'timeout': 60},
     {
         "name": "macro API contract",
         "fixture": "macro_api_contract_smoke.fk",
@@ -2312,7 +2405,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "route_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "route-snapshot-v10-reordered=true",
+            "route-snapshot-v11-reordered=true",
             "route-snapshot-empty-recovery=true",
             "route-snapshot-old-version-atomic=true",
             "route-snapshot-extra-width-atomic=true",
@@ -2455,7 +2548,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "const_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "const-snapshot-v10-reordered=true",
+            "const-snapshot-v11-reordered=true",
             "const-snapshot-inferred-quoted=true",
             "const-snapshot-old-version-atomic=true",
             "const-snapshot-extra-field-atomic=true",
@@ -2502,7 +2595,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "shape_field_snapshot_smoke.fk",
         "memory_limit_mb": 64,
         "expect": [
-            "shape-snapshot-v10-reordered=true",
+            "shape-snapshot-v11-reordered=true",
             "shape-snapshot-recovery-roundtrip=true",
             "shape-snapshot-old-version-atomic=true",
             "shape-snapshot-extra-field-atomic=true",
@@ -2535,6 +2628,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-field-equality-equivalence=true",
             "hir-scaling-header-key-equivalence=true",
             "hir-scaling-baseline-restored=true",
+            "hir-scaling-old-v10-atomic=true",
             "hir-scaling-64-aliases=true",
             "hir-scaling-512-aliases=true",
             "hir-scaling-64-owners=true",
@@ -2579,7 +2673,7 @@ EXECUTABLE_SMOKES = [
             "hir-scaling-index-exhaustion-restore=true",
             "hir-scaling-index-exhaustion-atomic=true",
             "hir-scaling-index-exhaustion-recovery=true",
-            "hir-scaling-fresh-slot-forty-one-handles=true",
+            "hir-scaling-fresh-slot-forty-two-handles=true",
             "hir-scaling-512-params=true",
             "hir-scaling-64-param-files=true",
             "hir-scaling-512-param-tasks=true",
@@ -2658,7 +2752,7 @@ EXECUTABLE_SMOKES = [
         "memory_limit_mb": 64,
         "expect": [
             "hir-index-cold-init-failure-recovery=true",
-            "hir-index-v10-mixed-roundtrip=true",
+            "hir-index-v11-mixed-roundtrip=true",
             "hir-index-512-one-owner=true",
             "hir-index-logarithmic-probes=true",
             "hir-index-sort-work-bounded=true",
@@ -3051,6 +3145,33 @@ EXECUTABLE_SMOKES = [
             "for-each-once-move-in-preheader=true",
             "for-each-once-move-not-header=true",
             "for-each-once-mir-diagnostics=0",
+        ],
+    },
+    {
+        "name": "Owned sized stderr and ordinary shadow contracts",
+        "fixture": "say_err_execute_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["say-err-proof case=0 calls=7 borrowed=true restore=true old-seal=true fresh-module=true"],
+        "runtime_cases": [
+            {"argv": ["0"], "expect": ["say-err-proof case=0 calls=7 borrowed=true restore=true old-seal=true fresh-module=true"]},
+            {"argv": ["1"], "expect": ["say-err-proof case=1 calls=2 borrowed=true restore=true old-seal=true fresh-module=true"]},
+            {"argv": ["2"], "expect": ["say-err-proof case=2 calls=0 borrowed=true restore=true old-seal=true fresh-module=true"]},
+        ],
+    },
+    {
+        "name": "MIR for-each lexical scope contracts",
+        "fixture": "mir_for_each_scope_contract_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["for-each-scope case=0 frontend=true preflight=true binding=true visibility=true edges=true Meiya=true restore=true"],
+        "runtime_cases": [
+            {"argv": ["0"], "expect": ["for-each-scope case=0 frontend=true preflight=true binding=true visibility=true edges=true Meiya=true restore=true"]},
+            {"argv": ["1"], "expect": ["for-each-scope case=1 frontend=true preflight=true binding=true visibility=true edges=true Meiya=true restore=true"]},
+            {"argv": ["2"], "expect": ["for-each-scope case=2 frontend=true preflight=true binding=true visibility=true edges=true Meiya=true restore=true"]},
+            {"argv": ["3"], "expect": ["for-each-scope case=3 frontend=true preflight=true binding=true visibility=true edges=true Meiya=true restore=true"]},
         ],
     },
     {
@@ -4704,7 +4825,7 @@ EXECUTABLE_SMOKES = [
             "fixed-aggregate-parse-diagnostics=0",
             "fixed-aggregate-ty-diagnostics=0",
             "fixed-aggregate-mir-diagnostics=8",
-            "fixed-aggregate-borrow-diagnostics=45",
+            "fixed-aggregate-borrow-diagnostics=44",
             "fixed-aggregate-tuple-sibling-dead=clean",
             "fixed-aggregate-tuple-left-live=blocked",
             "fixed-aggregate-array-sibling-dead=clean",
@@ -4806,6 +4927,10 @@ EXECUTABLE_SMOKES = [
             "fixed-aggregate-class-list=unsupported",
             "fixed-aggregate-compact-lend-mut=Stored<lend mut Ship,int>",
             "fixed-aggregate-compact-lend-lifetime=Stored<lend 'a Ship,int>",
+            "fixed-aggregate-route-pattern-parent-mode=value",
+            "fixed-aggregate-route-pattern-leaf-mode=lend mut",
+            "fixed-aggregate-route-pattern-capture-move-diagnostics=0",
+            "fixed-aggregate-route-pattern-live-loan-diagnostics=1",
         ],
     },
     {
@@ -6086,13 +6211,14 @@ EXECUTABLE_SMOKES = [
             "branch-scope-x-visible-outer=false",
             "branch-scope-code-return-kind=UseSymbol",
             "branch-scope-code-return-ty=unknown",
-            "branch-scope-x-return-kind=UseSymbol",
-            "branch-scope-x-return-ty=unknown",
+            "branch-scope-x-outer-local=-1",
+            "branch-scope-x-outer-global=-1",
+            "branch-scope-x-outer-symbol-ty=unknown",
             "branch-scope-diagnostics=3",
             "branch-scope-diag0-message=mir cfg unreachable live block",
             "branch-scope-diag0-help=score block 1 has no predecessors but still carries live statements or control flow",
-            "branch-scope-diag1-message=mir cfg unreachable live block",
-            "branch-scope-diag1-help=maybe_score block 3 has no predecessors but still carries live statements or control flow",
+            "branch-scope-diag1-message=unknown name in unreachable source",
+            "branch-scope-diag1-help=Meiya cannot find x in this scope",
             "branch-scope-diag2-message=mir cfg unreachable live block",
             "branch-scope-diag2-help=reuse block 1 has no predecessors but still carries live statements or control flow",
             "branch-scope-reuse-code-locals=2",
@@ -6754,6 +6880,7 @@ EXECUTABLE_SMOKES = [
             "extern-variadic-promotion-truth-cast=yes",
             "extern-variadic-promotion-mark-cast=yes",
             "extern-variadic-promotion-ratio-cast=yes",
+            "extern-variadic-promotion-native-fenced=yes",
             "extern-variadic-promotion-call-byte-temp=yes",
             "extern-variadic-promotion-call-truth-temp=yes",
             "extern-variadic-promotion-call-mark-temp=yes",
@@ -6852,7 +6979,7 @@ EXECUTABLE_SMOKES = [
             "store i64 %arg.0, ptr %local.0.addr",
             "%rv.0.0 = load i64, ptr %local.0.addr",
             "%rv.0.1 = load i64, ptr %local.0.addr",
-            "%rv.0.2 = add i64 %rv.0.0, %rv.0.1",
+            "%rv.0.2 = call i64 @freak_v4_int_add(i64 %rv.0.0, i64 %rv.0.1)",
             "ret i64 %rv.0.2",
             "codegen-llvm-main-body-symbol=@freak.user.main",
             "define ccc i64 @freak.user.main() {",
@@ -7338,8 +7465,9 @@ EXECUTABLE_SMOKES = [
         "expect_mode": "line",
         "expect_unique": True,
         "expect": [
-            "literal-say frontend calls=27 diagnostics=11 borrowed=true bytes=true",
-            "literal-say errors nonliteral=6 interpolation=2 nul=2 escape=1 spans=true",
+            "literal-say frontend calls=27 diagnostics=7 borrowed=true bytes=true",
+            "literal-say errors display=4 roots=2 escape=1 task-spans=true no-call=true",
+            "literal-say owned-display accepted=7 borrowed=true conversions=true sized-nul=true",
             "literal-say snapshot roundtrip=true forged-rejected=10",
         ],
     },
@@ -7845,9 +7973,12 @@ EXECUTABLE_SMOKES = [
             "check-maybe-branch-kind=Check",
             "check-maybe-branch-op=HasSome",
             "check-maybe-branch-ty=bool",
-            "check-maybe-x-kind=UsePlace",
+            "check-maybe-x-kind=SumTake",
+            "check-maybe-x-op=TakeSome",
             "check-maybe-x-ty=int",
-            "check-maybe-x-source-field=some",
+            "check-maybe-x-source-kind=UseLocal",
+            "check-maybe-x-source-ty=maybe<int>",
+            "check-maybe-x-source-local-name=_check_subject",
             "check-maybe-good-diagnostics=0",
             "check-result-ok-kind=Ok",
             "check-result-ok-op=Ok",
@@ -7864,26 +7995,33 @@ EXECUTABLE_SMOKES = [
             "check-maybe-bad-source-diagnostics=2",
             "check-maybe-bad-source-message=check needs maybe source",
             "check-maybe-bad-source-help=got int",
-            "check-maybe-bad-source-say-message=say nonliteral is not yet supported",
-            "check-maybe-missing-arm-diagnostics=2",
+            "check-maybe-missing-arm-diagnostics=1",
             "check-maybe-missing-arm-message=check maybe missing nobody arm",
             "check-maybe-missing-arm-help=add nobody -> ...",
-            "check-maybe-missing-arm-say-message=say nonliteral is not yet supported",
             "check-some-bad-payload-diagnostics=1",
             "check-some-bad-payload-message=some payload type mismatch",
             "check-some-bad-payload-help=some expects int but got word",
             "check-result-bad-source-diagnostics=3",
             "check-result-bad-source-message=check result needs result source",
             "check-result-bad-source-help=got int",
-            "check-result-bad-source-say-message1=say nonliteral is not yet supported",
-            "check-result-bad-source-say-message2=say nonliteral is not yet supported",
-            "check-result-missing-arm-diagnostics=2",
+            "check-result-missing-arm-diagnostics=1",
             "check-result-missing-arm-message=check result missing err arm",
             "check-result-missing-arm-help=add err(pattern) -> ...",
-            "check-result-missing-arm-say-message=say nonliteral is not yet supported",
             "check-ok-bad-payload-diagnostics=1",
             "check-ok-bad-payload-message=ok payload type mismatch",
             "check-ok-bad-payload-help=ok expects int but got word",
+            "check-maybe-bad-source-display-message=say value has no supported display contract",
+            "check-maybe-bad-source-display-help=say currently displays word, int, num, or bool; got unknown",
+            "check-result-bad-source-display-message1=say value has no supported display contract",
+            "check-result-bad-source-display-help1=say currently displays word, int, num, or bool; got unknown",
+            "check-result-bad-source-display-message2=say value has no supported display contract",
+            "check-result-bad-source-display-help2=say currently displays word, int, num, or bool; got unknown",
+            "check-maybe-missing-arm-display-kind=Call",
+            "check-maybe-missing-arm-display-intrinsic=say",
+            "check-maybe-missing-arm-display-result=void",
+            "check-result-missing-arm-display-kind=Call",
+            "check-result-missing-arm-display-intrinsic=say",
+            "check-result-missing-arm-display-result=void",
         ],
     },
     {
@@ -7913,19 +8051,19 @@ EXECUTABLE_SMOKES = [
             "check-destructure-msg-ty=word",
             "check-destructure-msg-source-field=err",
             "check-destructure-msg-source-ty=word",
-            "check-destructure-diagnostics=7",
+            "check-destructure-diagnostics=4",
             "check-destructure-diagnostic0-message=check maybe arm malformed",
             "check-destructure-diagnostic0-help=use got pattern -> ...",
             "check-destructure-diagnostic1-message=check maybe missing got arm",
             "check-destructure-diagnostic1-help=add got pattern -> ...",
             "check-destructure-diagnostic2-message=sequence destructure arity mismatch",
             "check-destructure-diagnostic2-help=pattern wants 3 slots but source has 2",
-            "check-destructure-diagnostic3-message=say nonliteral is not yet supported",
-            "check-destructure-diagnostic3-help=W1 say requires exactly one static word literal; word values, expressions, and methods need the later word runtime slices",
-            "check-destructure-diagnostic4-message=say nonliteral is not yet supported",
-            "check-destructure-diagnostic5-message=tuple destructure duplicate binding",
-            "check-destructure-diagnostic5-help=left already exists in this scope",
-            "check-destructure-diagnostic6-message=say nonliteral is not yet supported",
+            "check-destructure-diagnostic3-message=tuple destructure duplicate binding",
+            "check-destructure-diagnostic3-help=left already exists in this scope",
+            "check-destructure-int-display-kind=Call",
+            "check-destructure-int-display-intrinsic=say",
+            "check-destructure-word-display-kind=Call",
+            "check-destructure-word-display-intrinsic=say",
         ],
     },
     {
@@ -8047,6 +8185,32 @@ EXECUTABLE_SMOKES = [
             "return-coverage-loop-diagnostics=1",
             "return-coverage-loop-message=missing return",
             "return-coverage-loop-help=loop_only must give back int on every route",
+        ],
+    },
+    {
+        "name": "Exhaustive Maybe/Result terminal continuations",
+        "fixture": "mir_check_terminal_continuation_smoke.fk",
+        "memory_limit_mb": 64,
+        "timeout": 60,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["check-terminal maybe=passed clean=true continuation=false sealed=true restored=true"],
+        "runtime_cases": [
+            {"argv": ["maybe"], "expect": ["check-terminal maybe=passed clean=true continuation=false sealed=true restored=true"]},
+            {"argv": ["result"], "expect": ["check-terminal result=passed clean=true continuation=false sealed=true restored=true"]},
+            {"argv": ["nested"], "expect": ["check-terminal nested=passed clean=true continuation=false sealed=true restored=true"]},
+            {"argv": ["nested-result"], "expect": ["check-terminal nested-result=passed clean=true continuation=false sealed=true restored=true"]},
+            {"argv": ["nested-if"], "expect": ["check-terminal nested-if=passed clean=true continuation=false sealed=true restored=true"]},
+            {"argv": ["maybe-live"], "expect": ["check-terminal maybe-live=passed clean=true continuation=true sealed=true restored=true"]},
+            {"argv": ["result-live"], "expect": ["check-terminal result-live=passed clean=true continuation=true sealed=true restored=true"]},
+            {"argv": ["loop"], "expect": ["check-terminal loop=passed clean=true continuation=true sealed=true restored=true"]},
+            {"argv": ["bad-binding"], "expect": ["check-terminal bad-binding=passed named=true no-module=true"]},
+            {"argv": ["bad-nested-binding"], "expect": ["check-terminal bad-nested-binding=passed named=true no-module=true"]},
+            {"argv": ["bad-type"], "expect": ["check-terminal bad-type=passed named=true no-module=true"]},
+            {"argv": ["bad-call"], "expect": ["check-terminal bad-call=passed named=true no-module=true"]},
+            {"argv": ["valid-symbol"], "expect": ["check-terminal valid-symbol=passed clean=true continuation=false sealed=true restored=true"]},
+            {"argv": ["missing-arm"], "expect": ["check-terminal missing-arm=passed named=true no-module=true"]},
+            {"argv": ["restore"], "expect": ["check-terminal restore=passed canonical=true hostile-live=true hostile-detached=true recovered=true"]},
         ],
     },
     {
@@ -8238,24 +8402,24 @@ EXECUTABLE_SMOKES = [
             "bool-binary-local8-name=_bool_sc3",
             "bool-binary-both-block=3",
             "bool-binary-both-kind=UseLocal",
-            "bool-binary-both-op=_bool_sc",
+            "bool-binary-both-op=local#4",
             "bool-binary-both-ty=bool",
             "bool-binary-either-block=6",
             "bool-binary-either-kind=UseLocal",
-            "bool-binary-either-op=_bool_sc2",
+            "bool-binary-either-op=local#6",
             "bool-binary-either-ty=bool",
             "bool-binary-guarded-block=9",
             "bool-binary-guarded-kind=UseLocal",
-            "bool-binary-guarded-op=_bool_sc3",
+            "bool-binary-guarded-op=local#8",
             "bool-binary-guarded-ty=bool",
             "bool-binary-left-and-block-cond=left",
             "bool-binary-left-and-branch-rhs=eval#1 short#2",
             "bool-binary-left-and-rvalue-kind=UseLocal",
-            "bool-binary-left-and-rvalue-op=left",
+            "bool-binary-left-and-rvalue-op=local#0",
             "bool-binary-left-or-block-cond=left",
             "bool-binary-left-or-branch-rhs=short#5 eval#4",
             "bool-binary-left-or-rvalue-kind=UseLocal",
-            "bool-binary-left-or-rvalue-op=left",
+            "bool-binary-left-or-rvalue-op=local#0",
             "bool-binary-guard-branch-cond=power > 4",
             "bool-binary-guard-branch-rhs=eval#7 short#8",
             "bool-binary-guard-branch-rvalue-kind=Binary",
@@ -8267,7 +8431,25 @@ EXECUTABLE_SMOKES = [
             "bad-or-diagnostics=1",
             "bad-or-message=invalid binary operation",
             "bad-or-help=Or between word and bool",
+            "bool-binary-both-source-local=4",
+            "bool-binary-both-source-name=_bool_sc",
+            "bool-binary-either-source-local=6",
+            "bool-binary-either-source-name=_bool_sc2",
+            "bool-binary-guarded-source-local=8",
+            "bool-binary-guarded-source-name=_bool_sc3",
+            "bool-binary-left-and-source-local=0",
+            "bool-binary-left-and-source-name=left",
+            "bool-binary-left-or-source-local=0",
+            "bool-binary-left-or-source-name=left",
+            "bool-binary-left-and-true-target=1",
+            "bool-binary-left-and-false-target=2",
+            "bool-binary-left-or-true-target=5",
+            "bool-binary-left-or-false-target=4",
+            "bool-binary-guard-true-target=7",
+            "bool-binary-guard-false-target=8",
         ],
+        "expect_mode": "line",
+        "expect_unique": True,
     },
     {
         "name": "MIR parenthesized expressions",
@@ -8308,25 +8490,27 @@ EXECUTABLE_SMOKES = [
             "if-body-stmts=9",
             "if-left-branch-block=0",
             "if-left-branch-cond=power > 4",
-            "if-left-branch-target=4",
-            "if-left-branch-else=5",
-            "if-left-branch-rhs=eval#4 short#5",
+            "if-left-branch-target=1",
+            "if-left-branch-else=2",
+            "if-left-branch-rhs=eval#1 short#2",
             "if-left-rvalue-kind=Binary",
             "if-left-rvalue-op=Gt",
-            "if-right-branch-block=4",
+            "if-right-branch-block=1",
             "if-right-branch-cond=ready",
-            "if-right-branch-target=8",
-            "if-right-branch-else=7",
-            "if-right-branch-rhs=short#8 eval#7",
+            "if-right-branch-target=5",
+            "if-right-branch-else=4",
+            "if-right-branch-rhs=short#5 eval#4",
             "if-right-rvalue-kind=UseLocal",
-            "if-right-rvalue-op=ready",
-            "if-final-branch-block=6",
+            "if-right-rvalue-op=local#1",
+            "if-right-local-name=ready",
+            "if-final-branch-block=3",
             "if-final-branch-cond=power > 4 and ( ready or false )",
-            "if-final-branch-target=1",
-            "if-final-branch-else=3",
-            "if-final-branch-rhs=then#1 else#3",
+            "if-final-branch-target=7",
+            "if-final-branch-else=9",
+            "if-final-branch-rhs=then#7 else#9",
             "if-final-rvalue-kind=UseLocal",
-            "if-final-rvalue-op=_bool_sc",
+            "if-final-rvalue-op=local#2",
+            "if-final-local-name=_bool_sc",
             "if-final-rvalue-ty=bool",
             "if-good-diagnostics=0",
             "bad-if-diagnostics=1",
@@ -8350,7 +8534,7 @@ EXECUTABLE_SMOKES = [
             "repeat-stmt-kind=Loop",
             "repeat-stmt-lhs=power > 4 and ready",
             "repeat-stmt-rvalue-kind=UseLocal",
-            "repeat-stmt-rvalue-op=_bool_sc",
+            "repeat-stmt-rvalue-op=local#2",
             "repeat-stmt-rvalue-ty=bool",
             "training-left-branch-block=9",
             "training-left-branch-cond=power >= 8",
@@ -8362,7 +8546,7 @@ EXECUTABLE_SMOKES = [
             "training-cond-stmt-kind=Loop",
             "training-cond-stmt-lhs=power >= 8 or ready",
             "training-cond-stmt-rvalue-kind=UseLocal",
-            "training-cond-stmt-rvalue-op=_bool_sc2",
+            "training-cond-stmt-rvalue-op=local#3",
             "training-cond-stmt-rvalue-ty=bool",
             "loop-cond-good-diagnostics=0",
             "bad-repeat-diagnostics=1",
@@ -8374,7 +8558,17 @@ EXECUTABLE_SMOKES = [
             "bad-training-max-diagnostics=1",
             "bad-training-max-message=training arc max sessions must be numeric",
             "bad-training-max-help=got bool",
+            "repeat-stmt-source-local=2",
+            "repeat-stmt-source-name=_bool_sc",
+            "training-cond-stmt-source-local=3",
+            "training-cond-stmt-source-name=_bool_sc2",
+            "repeat-left-true-target=4",
+            "repeat-left-false-target=5",
+            "training-left-true-target=11",
+            "training-left-false-target=10",
         ],
+        "expect_mode": "line",
+        "expect_unique": True,
     },
     {
         "name": "MIR repeat-N-times lowering",
@@ -8620,7 +8814,7 @@ EXECUTABLE_SMOKES = [
         "name": "MIR check route lowering",
         "fixture": "mir_check_route_smoke.fk",
         "expect": [
-            "mir-ok mir=0 bodies=1 blocks=6 locals=4 statements=8 places=10 rvalues=15 diagnostics=1",
+            "mir-ok mir=0 bodies=1 blocks=6 locals=4 statements=7 places=10 rvalues=15 diagnostics=1",
             "check-route-arm-kind=Branch",
             "check-route-arm-lhs=event == Event::Key",
             "check-route-key-code-kind=UsePlace",
@@ -8650,7 +8844,26 @@ EXECUTABLE_SMOKES = [
             "check-route-bad-malformed-diagnostics=2",
             "check-route-bad-malformed-message=check route arm malformed",
             "check-route-bad-malformed-help=use Route::Case -> ..., Case -> ..., Route::Case payload -> ..., Case payload -> ..., or _ -> ...",
+            "check-route-first-term=If",
+            "check-route-first-true-target=2",
+            "check-route-first-false-target=3",
+            "check-route-first-branch-rhs=arm#2 next#3",
+            "check-route-final-term=Goto",
+            "check-route-final-target=4",
+            "check-route-final-else-target=-1",
+            "check-route-final-condition=[]",
+            "check-route-final-statements=0",
+            "check-route-final-branch=-1",
+            "check-route-detached-term=Unreachable",
+            "check-route-detached-target=-1",
+            "check-route-detached-else-target=-1",
+            "check-route-detached-condition=exhaustive check route",
+            "check-route-detached-statements=0",
+            "check-route-detached-incoming=0",
+            "check-route-cfg-error=[]",
         ],
+        "expect_mode": "line",
+        "expect_unique": True,
     },
     {
         "name": "MIR only on route-locked scopes",
@@ -8666,8 +8879,7 @@ EXECUTABLE_SMOKES = [
             "only-on-held-ty=bool",
             "only-on-held-source-field=repeat",
             "only-on-held-source-ty=bool",
-            "only-on-good-diagnostics=1",
-            "only-on-good-message=say nonliteral is not yet supported",
+            "only-on-good-diagnostics=0",
             "only-on-bad-nonroute-diagnostics=1",
             "only-on-bad-nonroute-message=only on needs route source",
             "only-on-bad-nonroute-help=got int",
@@ -8683,6 +8895,9 @@ EXECUTABLE_SMOKES = [
             "only-on-bad-stmt-diagnostics=1",
             "only-on-bad-stmt-message=only on statement malformed",
             "only-on-bad-stmt-help=use only on Route::Case from value with a guarded block",
+            "only-on-display-kind=Call",
+            "only-on-display-intrinsic=say",
+            "only-on-display-result=void",
         ],
     },
     {
@@ -9935,7 +10150,7 @@ EXECUTABLE_SMOKES = [
         "fixture": "mir_snapshot_smoke.fk",
         "expect": [
             "mir-snapshot-bytes=",
-            "mir-snapshot|format=freak-mir-snapshot-v5",
+            "mir-snapshot|format=freak-mir-snapshot-v9",
             "mir-snapshot-restore ok=1",
             "ok|workspace/mirSnapshotRestore",
             "borrowck-ok borrow=",
@@ -9995,12 +10210,38 @@ EXECUTABLE_SMOKES = [
             "lend-mut-drops=0",
             "lend-immutable-status=blocked",
             "lend-move-status=blocked",
-            "lend-diag-count=2",
+            "lend-diag-count=3",
             "lend-diag0=Meiya refuses to mutate an immutable lend parameter",
             "lend-diag0-help=value is a lend parameter in block 0 at statement 0; use lend mut only when the caller grants exclusive mutation",
             "lend-diag1=Meiya refuses to move out of a borrowed parameter",
             "lend-diag1-help=value is a lend parameter in block 0 at statement 0; borrowed parameters stay owned by the caller",
+            "lend-diag2=Meiya refuses a use of an unavailable word binding",
+            "lend-diag2-help=value",
+            "lend-word-param-type=word",
+            "lend-word-param-mode=lend",
+            "lend-word-param-span=0@181:197",
+            "lend-word-param-source=lend value: word",
+            "lend-word-return-kind=ReturnValue",
+            "lend-word-return-value-kind=UseLocal",
+            "lend-word-return-source-local=0",
+            "lend-word-return-value-span=0@222:228",
+            "lend-word-return-value-source= value",
+            "lend-diag0-span=0@52:58",
+            "lend-diag1-span=0@222:228",
+            "lend-diag2-span=0@181:197",
+            "lend-immutable-diag-members=1",
+            "lend-move-diag-members=1",
+            "lend-unavailable-word-diag-members=1",
+            "lend-word-owning-plan-state=-2",
+            "lend-word-owning-use-state=-1",
+            "lend-word-observer-use-state=1",
+            "lend-word-reborrow-kind=Lend",
+            "lend-word-reborrow-type=lend word",
+            "lend-word-reborrow-source-local=0",
+            "lend-word-reborrow-use-state=1",
         ],
+        "expect_mode": "line",
+        "expect_unique": True,
     },
     {
         "name": "Meiya explicit lend expressions",
@@ -10367,7 +10608,7 @@ EXECUTABLE_SMOKES = [
             "drop-loop-before-move-count=1",
             "drop-loop-before-move-0=ready",
             "drop-loop-before-move-1=",
-            "drop-loop-moves-inside-status=clean",
+            "drop-loop-moves-inside-status=blocked",
             "drop-loop-moves-inside-count=2",
             "drop-loop-moves-inside-0=ready",
             "drop-loop-moves-inside-1=",
@@ -10388,6 +10629,11 @@ EXECUTABLE_SMOKES = [
             "drop-route-branch-moved-0=_when_subject",
             "drop-route-branch-moved-1=",
             "drop-route-branch-moved-2=",
+            "drop-loop-moves-inside-diagnostics=1",
+            "drop-loop-moves-inside-diagnostic-message=Meiya refuses a use of an unavailable word binding",
+            "drop-loop-moves-inside-diagnostic-help=x",
+            "drop-loop-moves-inside-diagnostic-span=0@1348:1361",
+            "drop-loop-moves-inside-diagnostic-local-init-span=true",
         ],
     },
     {
@@ -10442,7 +10688,7 @@ EXECUTABLE_SMOKES = [
             "local-annotation-mir-diagnostics=0",
             "local-annotation-borrow-status=clean",
             "local-annotation-borrow-diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v10 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v11 files=1 items=1 alias-targets=0 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=1 local-annotations=4 task-returns=1 task-param-owners=1 task-params=0 diagnostics=0 skipped-other=0 live-files=1",
             "local-annotation-restored-count=4",
             "local-annotation-restored-fixed=char",
@@ -10521,7 +10767,7 @@ EXECUTABLE_SMOKES = [
             "task-return-mir-diagnostics=0",
             "task-return-borrow-status=clean",
             "ty-snapshot format=freak-ty-snapshot-v1 files=1 signatures=3 diagnostics=0",
-            "hir-snapshot format=freak-hir-snapshot-v10 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 diagnostics=0",
+            "hir-snapshot format=freak-hir-snapshot-v11 files=1 items=3 alias-targets=0 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 const-annotations=0 shape-owners=0 shape-fields=0 route-owners=0 route-cases=0 route-fields=0 extern-return-owners=0 extern-returns=0 diagnostics=0",
             "hir-snapshot-restore ok=1 files=1 items=3 local-annotations=0 task-returns=3 task-param-owners=3 task-params=1 diagnostics=0 skipped-other=0 live-files=1",
             "task-return-restored-form=explicit",
             "task-return-restored-surface=lend 'a maybe<[word;2]>",
@@ -10567,7 +10813,7 @@ EXECUTABLE_SMOKES = [
             "task-param-mir-span-semantic=true",
             "task-param-meiya-status=clean",
             "task-param-editor-label-definition=true",
-            "hir-snapshot format=freak-hir-snapshot-v10",
+            "hir-snapshot format=freak-hir-snapshot-v11",
             "task-param-restored-count=4",
             "task-param-schema-variants-rejected=true",
             "task-param-schema-variants-atomic=true",
@@ -10590,6 +10836,1372 @@ EXECUTABLE_SMOKES = [
             "task-param-invalidation-after-editor=num",
         ],
     },
+    {'name': 'word lower semantic',
+     'fixture': 'word_lower_semantic_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-lower generic=clone chained=2 borrowed=true temporary=true self-replace=true sealed=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['word-lower generic=clone chained=2 borrowed=true temporary=true '
+                                   'self-replace=true sealed=true']},
+                       {'argv': ['1'],
+                        'expect': ['word-lower generic=to_lower chained=2 borrowed=true temporary=true '
+                                   'self-replace=true sealed=true']},
+                       {'argv': ['2'],
+                        'expect': ['word-lower ordered-consume-rejected=true reverse-accepted=true']},
+                       {'argv': ['3'], 'expect': ['word-lower negative=3 diagnosed=true no-module=true']},
+                       {'argv': ['4'], 'expect': ['word-lower negative=4 diagnosed=true no-module=true']},
+                       {'argv': ['5'], 'expect': ['word-lower negative=5 diagnosed=true no-module=true']},
+                       {'argv': ['6'], 'expect': ['word-lower negative=6 diagnosed=true no-module=true']}]},
+    {'name': 'word lower contract',
+     'fixture': 'word_lower_contract_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-lower-contract restore=passed sealed-stable=true'],
+     'runtime_cases': [{'argv': ['restore'], 'expect': ['word-lower-contract restore=passed sealed-stable=true']},
+                       {'argv': ['old-version'],
+                        'expect': ['word-lower-contract old-version=passed sealed-stable=true']},
+                       {'argv': ['old-v7'], 'expect': ['word-lower-contract old-v7=passed sealed-stable=true']},
+                       {'argv': ['live'], 'expect': ['word-lower-contract live=passed sealed-stable=true']},
+                       {'argv': ['identity'],
+                        'expect': ['word-lower-contract identity=passed sealed-stable=true']},
+                       {'argv': ['op'], 'expect': ['word-lower-contract op=passed sealed-stable=true']},
+                       {'argv': ['abi'], 'expect': ['word-lower-contract abi=passed sealed-stable=true']},
+                       {'argv': ['result'], 'expect': ['word-lower-contract result=passed sealed-stable=true']},
+                       {'argv': ['arity'], 'expect': ['word-lower-contract arity=passed sealed-stable=true']},
+                       {'argv': ['loan-kind'],
+                        'expect': ['word-lower-contract loan-kind=passed sealed-stable=true']},
+                       {'argv': ['loan-type'],
+                        'expect': ['word-lower-contract loan-type=passed sealed-stable=true']}]},
+    {'name': 'word lower loan contract',
+     'fixture': 'word_lower_loan_contract_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-lower-loan 0=passed owner-independent=true actual-loan-retained=true forwarding=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['word-lower-loan 0=passed owner-independent=true actual-loan-retained=true '
+                                   'forwarding=true']},
+                       {'argv': ['restore'],
+                        'expect': ['word-lower-loan restore=passed owner-independent=true '
+                                   'actual-loan-retained=true forwarding=true']},
+                       {'argv': ['loan-argument'],
+                        'expect': ['word-lower-loan loan-argument=passed conservative=true '
+                                   'no-new-malformed-diagnostic=true']},
+                       {'argv': ['alias'],
+                        'expect': ['word-lower-loan alias=passed canonical-owner=true '
+                                   'named-argument-binding=true sealed=true']},
+                       {'argv': ['argument-overlap'],
+                        'expect': ['word-lower-loan argument-overlap=passed temporary-loan-retained=true '
+                                   'distinct-owner-accepted=true no-module=true']},
+                       {'argv': ['arity'],
+                        'expect': ['word-lower-loan arity=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['extra'],
+                        'expect': ['word-lower-loan extra=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['reordered'],
+                        'expect': ['word-lower-loan reordered=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['abi'],
+                        'expect': ['word-lower-loan abi=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['identity'],
+                        'expect': ['word-lower-loan identity=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['result'],
+                        'expect': ['word-lower-loan result=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['unknown'],
+                        'expect': ['word-lower-loan unknown=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['loan-kind'],
+                        'expect': ['word-lower-loan loan-kind=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['loan-type'],
+                        'expect': ['word-lower-loan loan-type=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['loan-local-id'],
+                        'expect': ['word-lower-loan loan-local-id=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['loan-local-name'],
+                        'expect': ['word-lower-loan loan-local-name=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-arity'],
+                        'expect': ['word-lower-loan restore-arity=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-extra'],
+                        'expect': ['word-lower-loan restore-extra=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-reordered'],
+                        'expect': ['word-lower-loan restore-reordered=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-abi'],
+                        'expect': ['word-lower-loan restore-abi=passed forged-owner-rejected=true no-module=true '
+                                   'sealed-stable=true']},
+                       {'argv': ['restore-identity'],
+                        'expect': ['word-lower-loan restore-identity=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-result'],
+                        'expect': ['word-lower-loan restore-result=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-unknown'],
+                        'expect': ['word-lower-loan restore-unknown=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-loan-kind'],
+                        'expect': ['word-lower-loan restore-loan-kind=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-loan-type'],
+                        'expect': ['word-lower-loan restore-loan-type=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-loan-local-id'],
+                        'expect': ['word-lower-loan restore-loan-local-id=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['restore-loan-local-name'],
+                        'expect': ['word-lower-loan restore-loan-local-name=passed forged-owner-rejected=true '
+                                   'no-module=true sealed-stable=true']},
+                       {'argv': ['producer-direct'],
+                        'expect': ['word-lower-loan producer-direct=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']},
+                       {'argv': ['producer-holder'],
+                        'expect': ['word-lower-loan producer-holder=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']},
+                       {'argv': ['producer-typed'],
+                        'expect': ['word-lower-loan producer-typed=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']},
+                       {'argv': ['producer-loan-holder'],
+                        'expect': ['word-lower-loan producer-loan-holder=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']},
+                       {'argv': ['producer-direct-restore'],
+                        'expect': ['word-lower-loan producer-direct-restore=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']},
+                       {'argv': ['producer-holder-restore'],
+                        'expect': ['word-lower-loan producer-holder-restore=passed named-diagnostic=true '
+                                   'clone-owner-clean=true no-module=true']}]},
+    {'name': 'word lower editor',
+     'fixture': 'word_lower_editor_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-lower-editor chained=true trivia=true TY-signatures=true lexical-provenance=true '
+                'no-fake-definition=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['word-lower-editor chained=true trivia=true TY-signatures=true '
+                                   'lexical-provenance=true no-fake-definition=true']},
+                       {'argv': ['1'],
+                        'expect': ['word-lower-editor ordinary-task=true local-shadow=true '
+                                   'literal-negative=true']},
+                       {'argv': ['2'],
+                        'expect': ['word-lower-editor raw-MIR-exact=true HIR-query-invalidation=true '
+                                   'fresh-query=true fact-snapshots=true']},
+                       {'argv': ['3'],
+                        'expect': ['word-lower-editor source-invalidation=true fresh-builtin=true '
+                                   'old-fact-stable=true']}]},
+    {'name': 'word lowercase native execution and MIR restoration',
+     'fixture': 'word_lower_execute_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-lower-execute stages=clean v9-restore=true old-seal=true fresh-module=true'],
+     'llvm_programs': [('word_lowercase.fk',
+                        0,
+                        'A\x00B\n'
+                        'a\x00b\n'
+                        'a\x00b\n'
+                        '3\n'
+                        '3\n'
+                        '\n'
+                        'i̇\n'
+                        'ος\n'
+                        'οσα\n'
+                        'ος́\n'
+                        '𐐨\n'
+                        'temp\n'
+                        'nested\n'
+                        'already lower\n'
+                        'already lower\n'
+                        'loop\n')]},
+    {
+        "name": "owned word semantic and snapshot contracts",
+        "fixture": "owned_word_semantics_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "owned-word-semantics ordered-events=true binding-ids=true shadowed-lend=true",
+            "owned-word-semantics snapshot-crossfacts=true atomic-rejection=true old-version-rejected=true",
+            "owned-word-semantics live-crossfacts=true scratch-failure-closed=true recovery=true",
+        ],
+    },
+    {
+        "name": "owned word codegen contract cases",
+        "fixture": "owned_word_contract_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["owned-word-contract-case-0=passed"],
+        "runtime_cases": [
+            {"argv": ["0"], "expect": ["owned-word-contract-case-0=passed"]},
+            {"argv": ["1"], "expect": ["owned-word-contract-case-1=passed"]},
+            {"argv": ["2"], "expect": ["owned-word-contract-case-2=passed"]},
+            {"argv": ["3"], "expect": ["owned-word-contract-case-3=passed"]},
+            {"argv": ["4"], "expect": ["owned-word-contract-case-4=passed"]},
+            {"argv": ["5"], "expect": ["owned-word-contract-case-5=passed"]},
+            {"argv": ["6"], "expect": ["owned-word-contract-case-6=passed"]},
+            {"argv": ["7"], "expect": ["owned-word-contract-case-7=passed"]},
+        ],
+    },
+    {
+        "name": "owned word native execution and MIR restoration",
+        "fixture": "owned_word_execute_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "owned-word-diag-0=0",
+            "owned-word-module-nonempty-0=true",
+            "owned-word-error-0=",
+            "owned-word-snapshot-valid-0=true",
+            "owned-word-snapshot-restored-0=true",
+            "owned-word-sealed-stable-0=true",
+            "owned-word-module-exact-0=true",
+        ],
+        "runtime_cases": [
+            {"llvm_programs": [("owned_words.fk", 0,
+                "café 🐱\ncafé 🐱\ncafé 🐱!\ncafé 🐱!!\ncafé 🐱\n\nA\0B\n-42\ntrue\n12.5\n")]},
+            {"llvm_programs": [("owned_word_scopes.fk", 0,
+                "shadow\ninner\nsurvivor\nreplacement\ndefault return cleanup\n")]},
+            {"llvm_programs": [("owned_word_return_temporary.fk", 0,
+                "first\nsecond\ntransfer\ntransfer\n")]},
+            {"llvm_programs": [("word_interpolation.fk", 0,
+                "Ada: count=7; rate=1.25; ready=true\nAda\ninner\nAda\nhi Ada\nleft\0right é\n{} {{name}} {name()}\nopen {name\n")]},
+        ],
+    },
+    {'name': 'Checked numeric compiler admission and pressure',
+     'fixture': 'checked_numeric_contract_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['checked-numeric-contract-case-0=passed'],
+     'runtime_cases': [{'argv': ['0', 'int', '9223372036854775808'],
+                        'expect': ['checked-numeric-contract-case-0=passed']},
+                       {'argv': ['1', 'int', '9223372036854775808'],
+                        'expect': ['checked-numeric-contract-case-1=passed']},
+                       {'argv': ['2', 'freak_v4_word_from_int', 'extern'],
+                        'expect': ['checked-numeric-contract-case-2=passed']},
+                       {'argv': ['3', '257'], 'expect': ['checked-numeric-contract-case-3=passed']},
+                       {'argv': ['4'], 'expect': ['checked-numeric-contract-case-4=passed']},
+                       {'argv': ['5', '16'], 'expect': ['checked-numeric-contract-case-5=passed']},
+                       {'argv': ['6'], 'expect': ['checked-numeric-contract-case-6=passed']},
+                       {'argv': ['7'], 'expect': ['checked-numeric-contract-case-7=passed']},
+                       {'argv': ['8', 'num', '0.5\n call i64 @freak_v4_word_from_int(i64 1)'],
+                        'expect': ['checked-numeric-contract-case-8=passed']},
+                       {'argv': ['9', 'make'], 'expect': ['checked-numeric-contract-case-9=passed']},
+                       {'argv': ['10'], 'expect': ['checked-numeric-contract-case-10=passed']},
+                       {'argv': ['11', 'lend'], 'expect': ['checked-numeric-contract-case-11=passed']},
+                       {'argv': ['3', '256'], 'expect': ['checked-numeric-contract-case-3=passed']}]},
+    {'name': 'Checked numeric isolated module emission',
+     'fixture': 'checked_numeric_execute_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['checked-numeric-diag=0', 'checked-numeric-error=', 'checked-numeric-module-nonempty=true'],
+     'runtime_cases': [{'argv': ['--case', '0', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '1', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '2', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '3', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '4', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '5', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '6', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '7', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '8', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '9', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '10', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '11', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '12', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '13', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '14', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '15', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '16', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '17', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '18', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '19', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '20', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '21', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '22', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '23', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '24', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '25', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '26', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '27', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '28', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '29', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '30', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '31', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '32', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '33', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '34', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '35', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '36', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '37', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '38', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '39', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '40', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '41', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '42', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '43', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '44', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '45', 'x86_64-unknown-linux-gnu']},
+                       {'argv': ['--case', '46', 'x86_64-unknown-linux-gnu']}]},
+    {'name': 'MIR restore transactional arena admission and conservation',
+     'fixture': 'mir_restore_resource_smoke.fk',
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['mir-restore-resource bodies=13 repeated=true handles-conserved=true old-handles-stale=true',
+                'mir-restore-resource late-malformed-atomic=true positive-delta-admission=true '
+                'growth-shrink=true pressure-recovery=true',
+                'mir-restore-resource failed-growth-closed=true maximal-gap-ids-closed=true '
+                'source-equivalent=true fresh-sealing=true sealed-A-stable=true '
+                'omitted-file-preserved=true']},
+
+    {
+        "name": "Interpolation persisted HIR plans and atomic restore",
+        "fixture": "interpolation_hir_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "interpolation-hir plan=true paths=true literal-braces=true sized-bytes=true",
+            "interpolation-hir snapshot=true shuffled=true atomic=true old-version=true",
+            "interpolation-hir pressure=true recovery=true",
+        ],
+    },
+    {
+        "name": "Interpolation borrowed display and binding identities",
+        "fixture": "interpolation_mir_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["interpolation-mir borrowed=true scalar-display=true field-types=true binding-ids=true ordered-events=true diagnostics=true"],
+    },
+    {
+        "name": "Interpolation exact component diagnostic spans",
+        "fixture": "interpolation_diagnostics_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["interpolation-diagnostics count=true root-span=true field-span=true terminal-span=true"],
+    },
+    {
+        "name": "Interpolation restore capacity and query invalidation",
+        "fixture": "interpolation_resource_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "interpolation-resource malformed-atomic=true ticket-boundary=true fresh-admission=true query-atomic=true restore-boundary=true decoder-conservation=true",
+            "interpolation-resource restores=24 capacity-stable=true retired-plan=true source-stable=true",
+            "interpolation-resource growth=42 shrink-stable=true regrow-stable=true",
+            "interpolation-resource invalidation=true transitive-editor=true regeneration=true recovery=true",
+        ],
+    },
+    {
+        "name": "Interpolation editor components and binding identities",
+        "fixture": "interpolation_editor_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "interpolation-editor roots=true hover=true definitions=true whole-string=true component-interiors=true",
+        ],
+        "runtime_cases": [
+            {"argv": ["0"], "expect": ["interpolation-editor roots=true hover=true definitions=true whole-string=true component-interiors=true"]},
+            {"argv": ["1"], "expect": ["interpolation-editor shadows=true rhs-binding=true local-ID-definition=true"]},
+            {"argv": ["2"], "expect": ["interpolation-editor generic-fields=true nested-fields=true field-declarations=true"]},
+            {"argv": ["3"], "expect": ["interpolation-editor quotes=true literal-bytes=true brace-dot=true malformed-nonpaths=true metadata=true"]},
+            {"argv": ["4"], "expect": ["interpolation-editor fact-snapshots=true hir-invalidation=true fresh-query=true stable-identities=true"]},
+            {"argv": ["5"], "expect": ["interpolation-editor source-invalidation=true fresh-type=true stable-binding=true"]},
+            {"argv": ["6"], "expect": ["interpolation-editor duplicate-field=true hover-first-int=true definition-first=true later-bool-excluded=true"]},
+        ],
+    },
+    {
+        "name": "Cold query initialization admission and recovery",
+        "fixture": "cold_query_admission_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-query-admission positions=17 exact-capacity=true failed-mutations-atomic=true",
+            "cold-query-admission cycles=3 handles-conserved=true recovery=true warm-facts=true",
+        ],
+    },
+    {
+        "name": "Cold expansion and joint query admission",
+        "fixture": "cold_expand_admission_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-expand-admission positions=4 cycles=3 exact-capacity=true failed-mutations-atomic=true",
+            "cold-expand-admission joint=0..21 cycles=2 malformed-atomic=true recovery=true handles-conserved=true",
+        ],
+    },
+    {
+        "name": "Cold expansion facade rollback and recovery",
+        "fixture": "cold_expand_facade_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-expand-facade 20-free result=expand-snapshot-restore ok=0 reason=expand-initialization-resource-exhausted",
+            "cold-expand-facade 20-free query-ready=0 expand-ready=0",
+            "cold-expand-facade failure-atomic=true handles-conserved=true recovery=true",
+        ],
+    },
+    {
+        "name": "Cold query admission before HIR facade publication",
+        "fixture": "cold_hir_facade_smoke.fk",
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-hir-facade 54-free restore_result=hir-snapshot-restore ok=0 reason=lookup-index-resource-exhausted",
+            "cold-hir-facade 54-free query-ready=0 cold-facts=true",
+            "cold-hir-facade early=0..16 cycles=3 malformed-atomic=true recovery=true handles-conserved=true",
+            "cold-hir-facade warm-facts=true transitive-invalidation=true source-preserved=true",
+        ],
+    },
+    {
+        "name": "Cold HIR constructor admission and exact state preservation",
+        "fixture": "cold_hir_constructor_resource_smoke.fk",
+        "timeout": 60,
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-hir-constructor rejected=45 exact-refs=true capacity-stable=true source-stable=true",
+            "cold-hir-constructor admitted=45 warm-stable=true original-sentinels=true",
+        ],
+    },
+    {
+        "name": "Cold HIR restore validation and admission rollback",
+        "fixture": "cold_hir_restore_resource_smoke.fk",
+        "timeout": 60,
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": [
+            "cold-hir-restore malformed=true v10=true cold-refs=true capacity-stable=true",
+            "cold-hir-restore init-boundary=true lookup-rollback=true nonempty-exact=true handles=87",
+            "cold-hir-restore empty-exact=true handles=45 warm-pressure=true high-water=true recovery=true",
+        ],
+    },
+    {'name': 'Panic literal and dynamic short-circuit contracts',
+     'fixture': 'panic_abort_short_circuit_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['panic-short-circuit case=0 clean=true selected=true policy=true restore=true '
+                'old-seal=true fresh-module=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['panic-short-circuit case=0 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['1'],
+                        'expect': ['panic-short-circuit case=1 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['2'],
+                        'expect': ['panic-short-circuit case=2 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['3'],
+                        'expect': ['panic-short-circuit case=3 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['4'],
+                        'expect': ['panic-short-circuit case=4 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['5'],
+                        'expect': ['panic-short-circuit case=5 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['6'],
+                        'expect': ['panic-short-circuit case=6 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['7'],
+                        'expect': ['panic-short-circuit case=7 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['8'],
+                        'expect': ['panic-short-circuit case=8 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['9'],
+                        'expect': ['panic-short-circuit case=9 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['10'],
+                        'expect': ['panic-short-circuit case=10 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['11'],
+                        'expect': ['panic-short-circuit case=11 clean=true selected=true '
+                                   'policy=true restore=true old-seal=true fresh-module=true']},
+                       {'argv': ['12'],
+                        'expect': ['panic-short-circuit case=12 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['13'],
+                        'expect': ['panic-short-circuit case=13 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['14'],
+                        'expect': ['panic-short-circuit case=14 named-rejected=true '
+                                   'no-module=true']},
+                       {'argv': ['15'],
+                        'expect': ['panic-short-circuit case=15 named-rejected=true '
+                                   'no-module=true']}]},
+    {'name': 'Panic abort semantics and sealed policy',
+     'fixture': 'panic_abort_semantic_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['panic-abort debug=',
+                'panic-abort semantic=0 stages=clean normalized=true policy=true v8=true old-seal=true '
+                'fresh-module=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=0 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['1'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=1 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['2'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=2 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['3'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=3 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['4'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=4 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['5'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=5 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['6'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=6 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['7'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=7 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['8'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=8 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['9'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=9 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['10'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=10 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['11'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=11 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['12'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=12 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['13'], 'expect': ['panic-abort semantic=13 named-fence=true no-module=true']},
+                       {'argv': ['14'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=14 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['15'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=15 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']},
+                       {'argv': ['16'],
+                        'expect': ['panic-abort debug=',
+                                   'panic-abort semantic=16 stages=clean normalized=true policy=true v8=true '
+                                   'old-seal=true fresh-module=true']}]},
+    {'name': 'Panic abort live and snapshot admission contracts',
+     'fixture': 'panic_abort_contract_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['panic-contract case=0 no-module=true old-seal=true restore=true recovery=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['panic-contract case=0 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['1'],
+                        'expect': ['panic-contract case=1 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['2'],
+                        'expect': ['panic-contract case=2 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['3'],
+                        'expect': ['panic-contract case=3 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['4'],
+                        'expect': ['panic-contract case=4 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['5'],
+                        'expect': ['panic-contract case=5 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['6'],
+                        'expect': ['panic-contract case=6 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['7'],
+                        'expect': ['panic-contract case=7 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['8'],
+                        'expect': ['panic-contract case=8 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['9'],
+                        'expect': ['panic-contract case=9 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['10'],
+                        'expect': ['panic-contract case=10 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['11'],
+                        'expect': ['panic-contract case=11 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['12'],
+                        'expect': ['panic-contract case=12 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['13'],
+                        'expect': ['panic-contract case=13 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['14'],
+                        'expect': ['panic-contract case=14 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['15'],
+                        'expect': ['panic-contract case=15 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['16'],
+                        'expect': ['panic-contract case=16 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['17'],
+                        'expect': ['panic-contract case=17 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['18'],
+                        'expect': ['panic-contract case=18 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['19'],
+                        'expect': ['panic-contract case=19 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['20'],
+                        'expect': ['panic-contract case=20 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['21'],
+                        'expect': ['panic-contract case=21 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['22'],
+                        'expect': ['panic-contract case=22 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['23'],
+                        'expect': ['panic-contract case=23 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['24'],
+                        'expect': ['panic-contract case=24 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['25'],
+                        'expect': ['panic-contract case=25 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['26'],
+                        'expect': ['panic-contract case=26 no-module=true old-seal=true restore=true '
+                                   'recovery=true']},
+                       {'argv': ['closed-loop'],
+                        'expect': ['panic-contract closed-loop=true admitted=true restore=true '
+                                   'fresh-module=true old-seal=true']},
+                       {'argv': ['if-never'],
+                        'expect': ['panic-contract conditional=if-never named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-orphan'],
+                        'expect': ['panic-contract conditional=if-orphan named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-int'],
+                        'expect': ['panic-contract conditional=if-int named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-void'],
+                        'expect': ['panic-contract conditional=if-void named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-scalar'],
+                        'expect': ['panic-contract conditional=if-scalar named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['loop-missing'],
+                        'expect': ['panic-contract conditional=loop-missing named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-duplicate'],
+                        'expect': ['panic-contract conditional=if-duplicate named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-following'],
+                        'expect': ['panic-contract conditional=if-following named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-goto'],
+                        'expect': ['panic-contract conditional=if-goto named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['if-operand'],
+                        'expect': ['panic-contract conditional=if-operand named-rejected=true no-module=true '
+                                   'atomic=true old-seal=true recovery=true']},
+                       {'argv': ['counted-wire'],
+                        'expect': ['panic-contract loop=counted-wire frontend=true operand=true restore=true '
+                                   'preserved=true']},
+                       {'argv': ['condition-wire'],
+                        'expect': ['panic-contract loop=condition-wire frontend=true operand=true restore=true '
+                                   'preserved=true']},
+                       {'argv': ['foreach-array-wire'],
+                        'expect': ['panic-contract loop=foreach-array-wire frontend=true operand=true '
+                                   'restore=true preserved=true']},
+                       {'argv': ['foreach-list-wire'],
+                        'expect': ['panic-contract loop=foreach-list-wire frontend=true operand=true '
+                                   'restore=true preserved=true']},
+                       {'argv': ['old-version'],
+                        'expect': ['panic-contract old-version=true atomic=true old-seal=true']},
+                       {'argv': ['endpoint-orphan-int'],
+                        'expect': ['panic-contract endpoint=endpoint-orphan-int named-rejected=true '
+                                   'no-module=true atomic=true old-seal=true recovery=true']},
+                       {'argv': ['endpoint-orphan-void'],
+                        'expect': ['panic-contract endpoint=endpoint-orphan-void named-rejected=true '
+                                   'no-module=true atomic=true old-seal=true recovery=true']},
+                       {'argv': ['endpoint-scalar-int'],
+                        'expect': ['panic-contract endpoint=endpoint-scalar-int named-rejected=true '
+                                   'no-module=true atomic=true old-seal=true recovery=true']},
+                       {'argv': ['endpoint-scalar-void'],
+                        'expect': ['panic-contract endpoint=endpoint-scalar-void named-rejected=true '
+                                   'no-module=true atomic=true old-seal=true recovery=true']},
+                       {'argv': ['endpoint-range-int'],
+                        'expect': ['panic-contract endpoint=endpoint-range-int named-rejected=true '
+                                   'no-module=true atomic=true old-seal=true recovery=true']},
+                       {'argv': ['endpoint-cycle-int'],
+                        'expect': ['panic-contract endpoint=endpoint-cycle-int admitted=true restore=true '
+                                   'fresh-module=true old-seal=true']},
+                       {'argv': ['endpoint-cycle-void'],
+                        'expect': ['panic-contract endpoint=endpoint-cycle-void admitted=true restore=true '
+                                   'fresh-module=true old-seal=true']},
+                       {'argv': ['endpoint-detached-int'],
+                        'expect': ['panic-contract endpoint=endpoint-detached-int admitted=true restore=true '
+                                   'fresh-module=true old-seal=true']},
+                       {'argv': ['endpoint-detached-void'],
+                        'expect': ['panic-contract endpoint=endpoint-detached-void admitted=true restore=true '
+                                   'fresh-module=true old-seal=true']},
+                       {'argv': ['pressure', '0'],
+                        'expect': ['panic-contract pressure=0 named-failure=true old-seal=true recovery=true']},
+                       {'argv': ['pressure', '21'],
+                        'expect': ['panic-contract pressure=21 named-failure=true old-seal=true '
+                                   'recovery=true']},
+                       {'argv': ['pressure', '40'],
+                        'expect': ['panic-contract pressure=40 named-failure=true old-seal=true '
+                                   'recovery=true']},
+                       {'argv': ['pressure', '48'],
+                        'expect': ['panic-contract pressure=48 named-failure=true old-seal=true '
+                                   'recovery=true']},
+                       {'argv': ['pressure', '49'],
+                        'expect': ['panic-contract pressure=49 admitted=true old-seal=true recovery=true']},
+                       {'argv': ['compact-pressure', '0'],
+                        'expect': ['panic-contract compact-pressure=0 named-failure=true atomic=true '
+                                   'old-seal=true recovery=true']},
+                       {'argv': ['compact-pressure', '8'],
+                        'expect': ['panic-contract compact-pressure=8 named-failure=true atomic=true '
+                                   'old-seal=true recovery=true']},
+                       {'argv': ['compact-pressure', '21'],
+                        'expect': ['panic-contract compact-pressure=21 named-failure=true atomic=true '
+                                   'old-seal=true recovery=true']},
+                       {'argv': ['compact-pressure', '34'],
+                        'expect': ['panic-contract compact-pressure=34 named-failure=true atomic=true '
+                                   'old-seal=true recovery=true']}]},
+    {'name': 'Panic abort immediate loan and movement contracts',
+     'fixture': 'panic_abort_loan_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['panic-loan case=0 clean=true observed=true no-result=true'],
+     'runtime_cases': [{'argv': ['0'], 'expect': ['panic-loan case=0 clean=true observed=true no-result=true']},
+                       {'argv': ['1'], 'expect': ['panic-loan case=1 named-rejected=true no-module=true']},
+                       {'argv': ['2'], 'expect': ['panic-loan case=2 clean=true observed=true no-result=true']},
+                       {'argv': ['3'], 'expect': ['panic-loan case=3 named-rejected=true no-module=true']},
+                       {'argv': ['4'], 'expect': ['panic-loan case=4 named-rejected=true no-module=true']},
+                       {'argv': ['5'], 'expect': ['panic-loan case=5 named-rejected=true no-module=true']},
+                       {'argv': ['6'], 'expect': ['panic-loan case=6 named-rejected=true no-module=true']},
+                       {'argv': ['7'], 'expect': ['panic-loan case=7 named-rejected=true no-module=true']},
+                       {'argv': ['8'], 'expect': ['panic-loan case=8 named-rejected=true no-module=true']},
+                       {'argv': ['9'], 'expect': ['panic-loan case=9 named-rejected=true no-module=true']},
+                       {'argv': ['10'], 'expect': ['panic-loan case=10 named-rejected=true no-module=true']},
+                       {'argv': ['11'], 'expect': ['panic-loan case=11 named-rejected=true no-module=true']},
+                       {'argv': ['12'], 'expect': ['panic-loan case=12 named-rejected=true no-module=true']},
+                       {'argv': ['13'], 'expect': ['panic-loan case=13 named-rejected=true no-module=true']},
+                       {'argv': ['14'], 'expect': ['panic-loan case=14 named-rejected=true no-module=true']},
+                       {'argv': ['15'], 'expect': ['panic-loan case=15 named-rejected=true no-module=true']},
+                       {'argv': ['16'], 'expect': ['panic-loan case=16 named-rejected=true no-module=true']},
+                       {'argv': ['17'], 'expect': ['panic-loan case=17 named-rejected=true no-module=true']},
+                       {'argv': ['18'], 'expect': ['panic-loan case=18 named-rejected=true no-module=true']},
+                       {'argv': ['19'], 'expect': ['panic-loan case=19 named-rejected=true no-module=true']},
+                       {'argv': ['20'], 'expect': ['panic-loan case=20 named-rejected=true no-module=true']},
+                       {'argv': ['21'], 'expect': ['panic-loan case=21 named-rejected=true no-module=true']},
+                       {'argv': ['22'], 'expect': ['panic-loan case=22 named-rejected=true no-module=true']},
+                       {'argv': ['23'], 'expect': ['panic-loan case=23 named-rejected=true no-module=true']},
+                       {'argv': ['24'], 'expect': ['panic-loan case=24 named-rejected=true no-module=true']},
+                       {'argv': ['25'], 'expect': ['panic-loan case=25 named-rejected=true no-module=true']},
+                       {'argv': ['26'], 'expect': ['panic-loan case=26 named-rejected=true no-module=true']},
+                       {'argv': ['27'], 'expect': ['panic-loan case=27 named-rejected=true no-module=true']}]},
+    {'name': 'Panic abort editor facts and shadow contracts',
+     'fixture': 'panic_abort_editor_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['panic-editor case=0 builtin=true never=true lexical=true no-definition=true '
+                'literal-negative=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['panic-editor case=0 builtin=true never=true lexical=true '
+                                   'no-definition=true literal-negative=true']},
+                       {'argv': ['1'], 'expect': ['panic-editor case=1 task-shadow=true real-definition=true']},
+                       {'argv': ['2'],
+                        'expect': ['panic-editor case=2 HIR-facade=true invalidation=true old-fact=true '
+                                   'fresh-generation=true']},
+                       {'argv': ['3'],
+                        'expect': ['panic-editor case=3 source-invalidation=true ordinary=true old-fact=true']},
+                       {'argv': ['4'],
+                        'expect': ['panic-editor case=4 parameter-shadow=true local-shadow=true']},
+                       {'argv': ['5'],
+                        'expect': ['panic-editor case=5 hostile-result=true hostile-argument=true']},
+                       {'argv': ['6'], 'expect': ['panic-editor case=6 arrow-never=true builtin=true']}]},
+    {'name': 'Typed place word movement and ordered calls',
+     'fixture': 'borrowck_typed_place_word_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['typed-place case=0 typed=true moves=true clean=true drop=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['typed-place case=0 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['1'],
+                        'expect': ['typed-place case=1 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['2'],
+                        'expect': ['typed-place case=2 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['3'],
+                        'expect': ['typed-place case=3 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['4'],
+                        'expect': ['typed-place case=4 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['5'],
+                        'expect': ['typed-place case=5 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['6'],
+                        'expect': ['typed-place case=6 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['7'],
+                        'expect': ['typed-place case=7 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['8'],
+                        'expect': ['typed-place case=8 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['9'],
+                        'expect': ['typed-place case=9 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['10'],
+                        'expect': ['typed-place case=10 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['11'],
+                        'expect': ['typed-place case=11 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['12'],
+                        'expect': ['typed-place case=12 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['13'],
+                        'expect': ['typed-place case=13 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['14'],
+                        'expect': ['typed-place case=14 typed=true moves=true ordered-rejected=true']},
+                       {'argv': ['15'],
+                        'expect': ['typed-place case=15 cycle=true named-rejected=true no-paths=true '
+                                   'no-module=true atomic=true recovery=true']},
+                       {'argv': ['16'],
+                        'expect': ['typed-place case=16 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['17'],
+                        'expect': ['typed-place case=17 typed=true moves=true clean=true drop=true']},
+                       {'argv': ['18'],
+                        'expect': ['typed-place case=18 typed=true moves=true ordered-rejected=true']}]},
+    {'name': 'Typed projection holder scope and disposition',
+     'fixture': 'borrowck_projection_holder_scope_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['projection-holder case=0 typed=true disposition=true restore=true fresh=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['projection-holder case=0 typed=true disposition=true restore=true '
+                                   'fresh=true']},
+                       {'argv': ['1'],
+                        'expect': ['projection-holder case=1 typed=true disposition=true restore=true '
+                                   'fresh=true']},
+                       {'argv': ['2'],
+                        'expect': ['projection-holder case=2 typed=true disposition=true restore=true '
+                                   'fresh=true']},
+                       {'argv': ['3'],
+                        'expect': ['projection-holder case=3 typed=true disposition=true restore=true '
+                                   'fresh=true']}]},
+    # Admission/restore only; host abort executions use the mandatory panic codegen gate.
+    {'name': 'Panic abort native module admission and MIR restoration',
+     'fixture': 'panic_abort_execute_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'argv': ['src/compiler/v4/examples/panic_abort.fk', 'x86_64-unknown-linux-gnu'],
+     'expect': ['panic-abort-execute stages=clean v9-restore=true old-seal=true fresh-module=true policy=abort',
+                '@@LLVM-MODULE-BEGIN',
+                '@@LLVM-MODULE-END']},
+    {'name': 'Word call temporary-loan lifetimes',
+     'fixture': 'borrowck_word_call_lifetime_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['call-lifetime case=0 completed=true clean=true sealed=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['call-lifetime case=0 completed=true clean=true sealed=true']},
+                       {'argv': ['1'],
+                        'expect': ['call-lifetime case=1 completed=true clean=true sealed=true']},
+                       {'argv': ['2'],
+                        'expect': ['call-lifetime case=2 completed=true clean=true sealed=true']},
+                       {'argv': ['3'],
+                        'expect': ['call-lifetime case=3 named-rejected=true no-module=true']},
+                       {'argv': ['4'],
+                        'expect': ['call-lifetime case=4 named-rejected=true no-module=true']},
+                       {'argv': ['5'],
+                        'expect': ['call-lifetime case=5 named-rejected=true no-module=true']},
+                       {'argv': ['6'],
+                        'expect': ['call-lifetime case=6 named-rejected=true no-module=true']},
+                       {'argv': ['7'],
+                        'expect': ['call-lifetime case=7 named-rejected=true no-module=true']},
+                       {'argv': ['8'],
+                        'expect': ['call-lifetime case=8 named-rejected=true no-module=true']},
+                       {'argv': ['9'],
+                        'expect': ['call-lifetime case=9 named-rejected=true no-module=true']},
+                       {'argv': ['10'],
+                        'expect': ['call-lifetime case=10 named-rejected=true no-module=true']},
+                       {'argv': ['11'],
+                        'expect': ['call-lifetime case=11 named-rejected=true no-module=true']},
+                       {'argv': ['12'],
+                        'expect': ['call-lifetime case=12 completed=true clean=true sealed=true']},
+                       {'argv': ['bounds'],
+                        'expect': ['call-lifetime case=bounds bounded=true fail-closed=true '
+                                   'recovery=true']},
+                       {'argv': ['raw-arity'],
+                        'expect': ['call-lifetime case=raw-arity setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-extra'],
+                        'expect': ['call-lifetime case=raw-extra setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-reordered'],
+                        'expect': ['call-lifetime case=raw-reordered setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-abi'],
+                        'expect': ['call-lifetime case=raw-abi setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-result'],
+                        'expect': ['call-lifetime case=raw-result setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-mode'],
+                        'expect': ['call-lifetime case=raw-mode setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-id'],
+                        'expect': ['call-lifetime case=raw-id setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-symbol'],
+                        'expect': ['call-lifetime case=raw-symbol setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-header'],
+                        'expect': ['call-lifetime case=raw-header setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-unknown'],
+                        'expect': ['call-lifetime case=raw-unknown setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-cycle'],
+                        'expect': ['call-lifetime case=raw-cycle setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-sentinel'],
+                        'expect': ['call-lifetime case=raw-sentinel setup=true named-rejected=true '
+                                   'no-module=true restore=true old-seal=true recovery=true']},
+                       {'argv': ['raw-scalar-facade'],
+                        'expect': ['call-lifetime case=raw-scalar-facade setup=true '
+                                   'named-rejected=true no-module=true restore=true old-seal=true '
+                                   'recovery=true']}]},
+    {
+        "name": "Exhaustive route terminal CFG and typed loan preservation",
+        "fixture": "mir_route_terminal_contract_smoke.fk",
+        "memory_limit_mb": 64,
+        "timeout": 60,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["route-terminal case=0 pattern=true coverage=true terminal=true loan=true restore=true"],
+        "runtime_cases": [
+            {"argv": ["0"], "expect": ["route-terminal case=0 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["1"], "expect": ["route-terminal case=1 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["2"], "expect": ["route-terminal case=2 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["3"], "expect": ["route-terminal case=3 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["4"], "expect": ["route-terminal case=4 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["5"], "expect": ["route-terminal case=5 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["6"], "expect": ["route-terminal case=6 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["7"], "expect": ["route-terminal case=7 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["8"], "expect": ["route-terminal case=8 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["9"], "expect": ["route-terminal case=9 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["10"], "expect": ["route-terminal case=10 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["11"], "expect": ["route-terminal case=11 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["12"], "expect": ["route-terminal case=12 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["13"], "expect": ["route-terminal case=13 pattern=true coverage=true terminal=true loan=true restore=true"]},
+        ],
+    },
+    {'name': 'Closed scalar Sum semantic compiler matrix',
+      'fixture': 'scalar_sum_semantic_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-semantic 0=passed clean=true nonCopy=true sealed=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-semantic 0=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['1'],
+                         'expect': ['scalar-sum-semantic 1=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['2'],
+                         'expect': ['scalar-sum-semantic 2=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['3'],
+                         'expect': ['scalar-sum-semantic 3=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['4'],
+                         'expect': ['scalar-sum-semantic 4=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['5'],
+                         'expect': ['scalar-sum-semantic 5=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['6'], 'expect': ['scalar-sum-semantic 6=passed named=true no-module=true']},
+                        {'argv': ['7'], 'expect': ['scalar-sum-semantic 7=passed named=true no-module=true']},
+                        {'argv': ['8'], 'expect': ['scalar-sum-semantic 8=passed named=true no-module=true']},
+                        {'argv': ['9'], 'expect': ['scalar-sum-semantic 9=passed named=true no-module=true']},
+                        {'argv': ['10'], 'expect': ['scalar-sum-semantic 10=passed named=true no-module=true']},
+                        {'argv': ['11'], 'expect': ['scalar-sum-semantic 11=passed named=true no-module=true']},
+                        {'argv': ['12'],
+                         'expect': ['scalar-sum-semantic 12=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['13'],
+                         'expect': ['scalar-sum-semantic 13=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['14'], 'expect': ['scalar-sum-semantic 14=passed named=true no-module=true']},
+                        {'argv': ['15'], 'expect': ['scalar-sum-semantic 15=passed named=true no-module=true']},
+                        {'argv': ['16'], 'expect': ['scalar-sum-semantic 16=passed named=true no-module=true']},
+                        {'argv': ['17'],
+                         'expect': ['scalar-sum-semantic 17=passed clean=true nonCopy=true sealed=true']},
+                        {'argv': ['18'],
+                         'expect': ['scalar-sum-semantic 18=passed clean=true nonCopy=true sealed=true']}]},
+     {'name': 'Closed scalar Sum contract compiler matrix',
+      'fixture': 'scalar_sum_contract_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-contract 0=passed v9=true old-seal=true fresh-module=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-contract 0=passed v9=true old-seal=true fresh-module=true']},
+                        {'argv': ['old-version'],
+                         'expect': ['scalar-sum-contract old-version=passed changed=true atomic=true '
+                                    'old-seal=true']},
+                        {'argv': ['pressure'],
+                         'expect': ['scalar-sum-contract pressure=passed exact-scratch=true recovered=true '
+                                    'old-seal=true']},
+                        {'argv': ['take-tag'],
+                         'expect': ['scalar-sum-contract take-tag=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['take-result'],
+                         'expect': ['scalar-sum-contract take-result=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['take-source'],
+                         'expect': ['scalar-sum-contract take-source=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['take-cycle'],
+                         'expect': ['scalar-sum-contract take-cycle=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['take-abi'],
+                         'expect': ['scalar-sum-contract take-abi=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['take-args'],
+                         'expect': ['scalar-sum-contract take-args=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['observer-op'],
+                         'expect': ['scalar-sum-contract observer-op=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['observer-type'],
+                         'expect': ['scalar-sum-contract observer-type=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['constructor-tag'],
+                         'expect': ['scalar-sum-contract constructor-tag=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['constructor-payload'],
+                         'expect': ['scalar-sum-contract constructor-payload=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['constructor-type'],
+                         'expect': ['scalar-sum-contract constructor-type=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['call-arity'],
+                         'expect': ['scalar-sum-contract call-arity=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['call-extra'],
+                         'expect': ['scalar-sum-contract call-extra=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['call-abi'],
+                         'expect': ['scalar-sum-contract call-abi=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['call-result'],
+                         'expect': ['scalar-sum-contract call-result=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['call-target'],
+                         'expect': ['scalar-sum-contract call-target=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['local-id'],
+                         'expect': ['scalar-sum-contract local-id=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']},
+                        {'argv': ['local-name'],
+                         'expect': ['scalar-sum-contract local-name=passed changed=true atomic=true '
+                                    'live-rejected=true old-seal=true recovered=true']}]},
+     {'name': 'Closed scalar Sum editor compiler matrix',
+      'fixture': 'scalar_sum_editor_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-editor 0=passed descriptors=true hover=true lexical=true no-fake-definition=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-editor 0=passed descriptors=true hover=true lexical=true '
+                                    'no-fake-definition=true']},
+                        {'argv': ['1'],
+                         'expect': ['scalar-sum-editor 1=passed arm-types=true real-arm-definitions=true']},
+                        {'argv': ['2'],
+                         'expect': ['scalar-sum-editor 2=passed facade-invalidation=true fresh=true '
+                                    'old-fact=true']},
+                        {'argv': ['3'],
+                         'expect': ['scalar-sum-editor 3=passed source-invalidation=true fresh-descriptor=true '
+                                    'old-fact=true']}]},
+     {'name': 'Closed scalar Sum operator compiler matrix',
+      'fixture': 'scalar_sum_operator_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-operator 0=passed authored=true exact-fence=true no-module=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-operator 0=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['1'],
+                         'expect': ['scalar-sum-operator 1=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['2'],
+                         'expect': ['scalar-sum-operator 2=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['3'],
+                         'expect': ['scalar-sum-operator 3=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['4'],
+                         'expect': ['scalar-sum-operator 4=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['5'],
+                         'expect': ['scalar-sum-operator 5=passed authored=true exact-fence=true '
+                                    'no-module=true']},
+                        {'argv': ['6'],
+                         'expect': ['scalar-sum-operator 6=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']},
+                        {'argv': ['7'],
+                         'expect': ['scalar-sum-operator 7=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']},
+                        {'argv': ['8'],
+                         'expect': ['scalar-sum-operator 8=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']},
+                        {'argv': ['9'],
+                         'expect': ['scalar-sum-operator 9=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']},
+                        {'argv': ['10'],
+                         'expect': ['scalar-sum-operator 10=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']},
+                        {'argv': ['11'],
+                         'expect': ['scalar-sum-operator 11=passed changed=true live=true detached=true '
+                                    'exact-fence=true old-seal=true recovered=true']}]},
+     {'name': 'Closed scalar Sum origin compiler matrix',
+      'fixture': 'scalar_sum_origin_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-origin 0=passed visible-origin=true restored=true old-seal=true fresh-module=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-origin 0=passed visible-origin=true restored=true old-seal=true '
+                                    'fresh-module=true']},
+                        {'argv': ['1'],
+                         'expect': ['scalar-sum-origin 1=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['2'],
+                         'expect': ['scalar-sum-origin 2=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['3'],
+                         'expect': ['scalar-sum-origin 3=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['4'],
+                         'expect': ['scalar-sum-origin 4=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['5'],
+                         'expect': ['scalar-sum-origin 5=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['6'],
+                         'expect': ['scalar-sum-origin 6=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['7'],
+                         'expect': ['scalar-sum-origin 7=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['8'],
+                         'expect': ['scalar-sum-origin 8=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['9'],
+                         'expect': ['scalar-sum-origin 9=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['10'],
+                         'expect': ['scalar-sum-origin 10=passed visible-origin=true restored=true old-seal=true '
+                                    'fresh-module=true']},
+                        {'argv': ['11'],
+                         'expect': ['scalar-sum-origin 11=passed changed=true named-origin=true live=true '
+                                    'atomic=true no-module=true old-seal=true recovered=true']}]},
+     {'name': 'Closed scalar Sum payload alias compiler matrix',
+      'fixture': 'scalar_sum_payload_alias_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-payload-alias 0=passed canonical-payload=true outer-preserved=true restored=true '
+                 'old-seal=true fresh-module=true'],
+      'runtime_cases': [{'argv': ['0'],
+                         'expect': ['scalar-sum-payload-alias 0=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['1'],
+                         'expect': ['scalar-sum-payload-alias 1=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['2'],
+                         'expect': ['scalar-sum-payload-alias 2=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['3'],
+                         'expect': ['scalar-sum-payload-alias 3=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['4'],
+                         'expect': ['scalar-sum-payload-alias 4=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['5'],
+                         'expect': ['scalar-sum-payload-alias 5=passed canonical-payload=true '
+                                    'outer-preserved=true restored=true old-seal=true fresh-module=true']},
+                        {'argv': ['6'],
+                         'expect': ['scalar-sum-payload-alias 6=passed changed=true strict-payload=true '
+                                    'live=true atomic=true no-module=true old-seal=true recovered=true']},
+                        {'argv': ['7'],
+                         'expect': ['scalar-sum-payload-alias 7=passed changed=true strict-payload=true '
+                                    'live=true atomic=true no-module=true old-seal=true recovered=true']}]},
+     {'name': 'scalar sum existing Word module restore and execution',
+      'fixture': 'scalar_sum_execute_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['scalar-sum-execute stages=clean v9-restore=true old-seal=true fresh-module=true',
+                 '@@LLVM-MODULE-BEGIN',
+                 '@@LLVM-MODULE-END'],
+      'llvm_programs': [('owned_word_return_temporary.fk', 0, 'first\nsecond\ntransfer\ntransfer\n')]},
+     {'name': 'typed os entry existing Word module restore and execution',
+      'fixture': 'typed_os_entry_execute_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['typed-os-entry-execute stages=clean v9-restore=true old-seal=true fresh-module=true',
+                 '@@LLVM-MODULE-BEGIN',
+                 '@@LLVM-MODULE-END'],
+      'llvm_programs': [('owned_word_return_temporary.fk', 0, 'first\nsecond\ntransfer\ntransfer\n')]},
+     {'name': 'Typed OS closed descriptors and MIR9 restore',
+      'fixture': 'typed_os_entry_contract_smoke.fk',
+      'memory_limit_mb': 64,
+      'timeout': 60,
+      'expect_mode': 'line',
+      'expect_unique': True,
+      'expect': ['typed-os-entry-contract mode=descriptors=passed'],
+      'argv': ['descriptors',
+               'src/compiler/v4/examples/typed_os_entry_descriptors.fk',
+               'x86_64-unknown-linux-gnu',
+               '',
+               'builtin::system::process_arg']},
+    {'name': 'Unicode Word bounds and borrowed receiver compiler matrix',
+     'fixture': 'word_bounds_execute_smoke.fk',
+     'memory_limit_mb': 64,
+     'timeout': 60,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-bounds-proof case=0 borrowed=true restore=true old-seal=true fresh-module=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['word-bounds-proof case=0 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['1'],
+                        'expect': ['word-bounds-proof case=1 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['2'],
+                        'expect': ['word-bounds-proof case=2 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['3'],
+                        'expect': ['word-bounds-proof case=3 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['4'],
+                        'expect': ['word-bounds-proof case=4 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['5'],
+                        'expect': ['word-bounds-proof case=5 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['6'],
+                        'expect': ['word-bounds-proof case=6 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['7'],
+                        'expect': ['word-bounds-proof case=7 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['8'],
+                        'expect': ['word-bounds-proof case=8 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['9'],
+                        'expect': ['word-bounds-proof case=9 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['10'],
+                        'expect': ['word-bounds-proof case=10 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['11'],
+                        'expect': ['word-bounds-proof case=11 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['12'],
+                        'expect': ['word-bounds-proof case=12 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['13'],
+                        'expect': ['word-bounds-proof case=13 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['14'],
+                        'expect': ['word-bounds-proof case=14 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['15'],
+                        'expect': ['word-bounds-proof case=15 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['16'],
+                        'expect': ['word-bounds-proof case=16 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['17'],
+                        'expect': ['word-bounds-proof case=17 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['18'],
+                        'expect': ['word-bounds-proof case=18 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['19'],
+                        'expect': ['word-bounds-proof case=19 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['20'],
+                        'expect': ['word-bounds-proof case=20 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['21'],
+                        'expect': ['word-bounds-proof case=21 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['22'],
+                        'expect': ['word-bounds-proof case=22 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['23'],
+                        'expect': ['word-bounds-proof case=23 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']}]},
 ]
 
 if str(ROOT) not in sys.path:
@@ -10599,6 +12211,7 @@ from freakc.__main__ import transpile  # noqa: E402
 from freakc.parser import Parser  # noqa: E402
 from freakc.lexer import Lexer, LexerError, TokenType  # noqa: E402
 from freakc.type_checker import TypeChecker  # noqa: E402
+from freakc.v4_native_runtime import SOURCE_NAMES as V4_NATIVE_RUNTIME_SOURCES  # noqa: E402
 
 
 def rel(path: Path) -> str:
@@ -10640,6 +12253,8 @@ def runtime_platform_final_link_args(
     link_args = runtime_platform_link_args(platform)
     if platform.startswith("linux"):
         return (*link_args, "-Wl,-z,muldefs")
+    if platform.startswith("win"):
+        return (*link_args, "-lshell32")
     return link_args
 
 
@@ -10683,7 +12298,7 @@ def check_runtime_platform_link_contract() -> None:
             )
 
     expected_final = {
-        "win32": ("-lws2_32",),
+        "win32": ("-lws2_32", "-lshell32"),
         "linux": ("-lm", "-Wl,-z,muldefs"),
         "darwin": (),
         "freebsd": (),
@@ -10798,6 +12413,20 @@ def check_smoke_inventory(fixtures: list[Path]) -> None:
             for name in duplicates:
                 print(f"smoke inventory duplicate: {name}")
         raise SystemExit(1)
+
+    for smoke in EXECUTABLE_SMOKES:
+        if smoke.get("expect_unique"):
+            # Pass immutable strings in a fresh list, preserving the literal
+            # manifest's container ownership through the static escape audit.
+            registered = [
+                line + "" for line in (*smoke["expect"], *smoke.get("expect_exact", []))
+            ]
+            failures = unique_output_failures(registered, Counter(registered))
+            if failures:
+                print(f"smoke inventory non-unique output contract: {smoke['fixture']}")
+                for line, *_ in failures:
+                    print(f"non-unique registered output: {line}")
+                raise SystemExit(1)
 
     print(f"smoke inventory: {len(smoke_names)} fixtures")
 
@@ -11495,7 +13124,7 @@ def check_mir_local_annotation_boundary() -> None:
     violations.extend(hir_lookup_index_violations(hir_source))
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v10"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
         "pilot v4_hir_local_annotation_items = 0",
         "pilot v4_hir_local_annotation_stmt_spans = 0",
         "pilot v4_hir_local_annotation_types = 0",
@@ -11639,7 +13268,7 @@ def check_task_return_hir_boundary() -> None:
         violations.append("task return boundary unexpectedly changed the TY snapshot format")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v10"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
         "pilot v4_hir_task_return_items = 0",
         "pilot v4_hir_task_return_forms = 0",
         "pilot v4_hir_task_return_types = 0",
@@ -12387,7 +14016,7 @@ def check_task_param_hir_boundary() -> None:
                 violations.append("task parameter scalar-read guard accepted changed field or cached bound")
 
     for marker in (
-        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v10"',
+        'pilot v4_hir_snapshot_format = "freak-hir-snapshot-v11"',
         'pilot v4_hir_task_param_mode_value = "value"',
         'pilot v4_hir_task_param_mode_lend = "lend"',
         'pilot v4_hir_task_param_mode_lend_mut = "lend mut"',
@@ -12751,7 +14380,19 @@ def check_snapshot_inventories() -> None:
             "mir_impl_candidate_lookup_smoke.fk",
             "lex_boundary_publication_exhaustion_smoke.fk",
             "borrowck_mutable_preflight_smoke.fk",
+            "mir_for_each_scope_contract_smoke.fk",
+            "say_err_execute_smoke.fk",
+            "panic_abort_semantic_smoke.fk",
+            "panic_abort_contract_smoke.fk",
+            "panic_abort_loan_smoke.fk",
+            "panic_abort_editor_smoke.fk",
+            "borrowck_typed_place_word_smoke.fk",
+            "borrowck_projection_holder_scope_smoke.fk",
+            "panic_abort_execute_smoke.fk",
+            "panic_abort_short_circuit_smoke.fk",
+            "borrowck_word_call_lifetime_smoke.fk",
             "hir_param_index_smoke.fk",
+            "target_c_integer_contract_smoke.fk",
             "ty_signature_index_smoke.fk",
             "resolve_lookup_index_smoke.fk",
             "hir_query_resource_smoke.fk",
@@ -12787,8 +14428,42 @@ def check_snapshot_inventories() -> None:
             "release_native_ordinary_qualified_and_impl_smoke.fk",
             "release_native_ordinary_two_impls_smoke.fk",
             "release_native_ordinary_same_impl_smoke.fk",
+            "owned_word_semantics_smoke.fk",
+            "owned_word_contract_smoke.fk",
+            "owned_word_execute_smoke.fk",
+            "word_lower_semantic_smoke.fk",
+            "word_lower_contract_smoke.fk",
+            "word_lower_loan_contract_smoke.fk",
+            "word_lower_editor_smoke.fk",
+            "word_lower_execute_smoke.fk",
+            "checked_numeric_contract_smoke.fk",
+            "checked_numeric_execute_smoke.fk",
+            "mir_restore_resource_smoke.fk",
+            "interpolation_hir_smoke.fk",
+            "interpolation_mir_smoke.fk",
+            "interpolation_diagnostics_smoke.fk",
+            "interpolation_resource_smoke.fk",
+            "interpolation_editor_smoke.fk",
+            "cold_query_admission_smoke.fk",
+            "cold_expand_admission_smoke.fk",
+            "cold_expand_facade_smoke.fk",
+            "cold_hir_facade_smoke.fk",
+            "cold_hir_constructor_resource_smoke.fk",
+            "cold_hir_restore_resource_smoke.fk",
             "h6_native_declaration_symbol_smoke.fk",
             "h6_native_ffi_width_smoke.fk",
+            "mir_route_terminal_contract_smoke.fk",
+            "mir_check_terminal_continuation_smoke.fk",
+            "scalar_sum_semantic_smoke.fk",
+            "scalar_sum_contract_smoke.fk",
+            "scalar_sum_editor_smoke.fk",
+            "scalar_sum_operator_smoke.fk",
+            "scalar_sum_origin_smoke.fk",
+            "scalar_sum_payload_alias_smoke.fk",
+            "scalar_sum_execute_smoke.fk",
+            "typed_os_entry_execute_smoke.fk",
+            "typed_os_entry_contract_smoke.fk",
+            "word_bounds_execute_smoke.fk",
         }
     ):
         violations.append("scratch-handle resource smoke limit coverage drifted")
@@ -14412,9 +16087,13 @@ def check_v4_build_command() -> None:
     root_source = RUNTIME_BUILD_ROOT / "llvm_root_error.fk"
     root_source.write_text('pilot global = 0\n', encoding="utf-8")
     say_error_source = RUNTIME_BUILD_ROOT / "llvm_say_error.fk"
-    say_error_source.write_text('task main() -> int { say 42\n give back 0 }\n', encoding="utf-8")
+    say_error_source.write_text('task main() -> int { say 42u\n give back 0 }\n', encoding="utf-8")
     word_error_source = RUNTIME_BUILD_ROOT / "llvm_word_error.fk"
-    word_error_source.write_text('task main() -> int { pilot text = "owned later"\n give back 0 }\n', encoding="utf-8")
+    word_error_source.write_text(
+        'task make() -> word { give back "owned" }\n'
+        'task main() -> int { pilot callback: task() -> word = make\n'
+        ' pilot text = callback()\n say text\n give back 0 }\n', encoding="utf-8",
+    )
     main_error_source = RUNTIME_BUILD_ROOT / "llvm_main_error.fk"
     main_error_source.write_text('task main(value: int) -> int { give back value }\n', encoding="utf-8")
     runtime_say_error = RUNTIME_BUILD_ROOT / "llvm_runtime_say_error.fk"
@@ -14450,8 +16129,8 @@ def check_v4_build_command() -> None:
         if (result.returncode == 0) != expected_success or output.exists() != expected_success:
             raise RuntimeError(f"V4 build command rejection mismatch:\n{result.stdout}{result.stderr}")
         reasons = {
-            say_error_source: "say nonliteral is not yet supported",
-            word_error_source: "native words currently support only literal say operands",
+            say_error_source: "say value has no supported display contract",
+            word_error_source: "native word task pointer contracts are not yet supported",
             main_error_source: "native main parameters are not yet supported",
             runtime_say_error: "native runtime declaration conflicts with @freak_llvm_say",
             runtime_setup_error: "native runtime declaration conflicts with @freak_llvm_setup_args",
@@ -14601,7 +16280,44 @@ def check_v4_build_command() -> None:
     executed = run_with_heartbeat([str(hello)], label="V4 hello world execute", timeout_seconds=10, memory_limit_mb=128)
     if executed.returncode != 0 or executed.stdout != expected_native_stdout("Hello, world!\n") or executed.stderr:
         raise RuntimeError("V4 build command hello world stdout/exit mismatch")
-    print("V4 build command: hello world and warning-only execute, errors stop at their owning stage")
+    for label, source_text, expected in (
+        ("numeric_display", 'task main() -> int { say 42\n give back 0 }\n', "42\n"),
+        ("owned_word_display", 'task main() -> int { pilot text = "owned now"\n say text\n give back 0 }\n', "owned now\n"),
+    ):
+        source = RUNTIME_BUILD_ROOT / f"llvm_{label}.fk"
+        source.write_text(source_text, encoding="utf-8")
+        output = RUNTIME_BUILD_ROOT / (label + (".exe" if sys.platform == "win32" else ".native"))
+        output.unlink(missing_ok=True)
+        built = run_with_heartbeat(
+            [sys.executable, str(V4_ROOT / "build_v4.py"), str(source), "-o", str(output)],
+            label=f"V4 {label} build command", timeout_seconds=180, memory_limit_mb=512,
+        )
+        if built.returncode != 0 or not output.exists() or "v4-errors=0" not in built.stdout:
+            raise RuntimeError(f"V4 {label} build failed:\n{built.stdout}{built.stderr}")
+        executed = run_with_heartbeat([str(output)], label=f"V4 {label} execute",
+                                      timeout_seconds=10, memory_limit_mb=128)
+        if executed.returncode != 0 or executed.stdout != expected_native_stdout(expected) or executed.stderr:
+            raise RuntimeError(f"V4 {label} stdout/exit mismatch:\n{executed.stdout}{executed.stderr}")
+        print(f"V4 build command: {label} exact native output")
+    print("V4 build command: hello world, numeric/owned-word display and warning-only execute, errors stop at their owning stage")
+
+
+def smoke_execution_cases(smokes: list[dict[str, object]]):
+    """Keep independent resource cases in separate guarded native processes."""
+    for smoke in smokes:
+        if "runtime_cases" not in smoke:
+            yield smoke
+            continue
+        cases = smoke["runtime_cases"]
+        if not isinstance(cases, list) or not cases:
+            raise ValueError("runtime_cases must be a nonempty list")
+        for index, case in enumerate(cases):
+            if not isinstance(case, dict) or case.keys() - {"argv", "expect", "llvm_programs"}:
+                raise ValueError("runtime case may only select arguments and expected execution")
+            expanded = {key: value for key, value in smoke.items() if key != "runtime_cases"}
+            expanded.update(case)
+            expanded["name"] = f"{smoke['name']} ({index + 1}/{len(cases)})"
+            yield expanded
 
 
 def check_executable_smokes(
@@ -14625,7 +16341,7 @@ def check_executable_smokes(
     check_native_snapshot_lines(clang)
     check_v3_llvm_substring_pipeline(clang, include_arg)
 
-    for smoke in smokes:
+    for smoke in smoke_execution_cases(smokes):
         fixture = TESTS_ROOT / str(smoke["fixture"])
         label = rel(fixture)
         c_source, uses_ui = transpile_fixture(base_source, fixture)
@@ -14652,6 +16368,7 @@ def check_executable_smokes(
         timeout_seconds = int(smoke.get("timeout", 60))
         default_memory_limit_mb = 128 if "snapshot" in fixture.stem else 512
         command = [str(exe_path)]
+        command += smoke.get("argv", [])
         if smoke.get("source_read_checks"):
             command += checked_source_fixture_paths()
         if smoke.get("llvm_programs"):
@@ -14712,7 +16429,7 @@ def check_executable_smokes(
                 ll_path.write_bytes(module.encode("utf-8"))
                 linked = run_with_heartbeat(
                     [clang, "-w", "-O2", str(ll_path),
-                     str(RUNTIME_ROOT / "freak_llvm_runtime.c"), str(runtime_c),
+                     *(str(RUNTIME_ROOT / source) for source in V4_NATIVE_RUNTIME_SOURCES),
                      include_arg, "-o", str(native_path),
                      *runtime_platform_final_link_args()],
                     label=f"LLVM module link: {name}", timeout_seconds=120, memory_limit_mb=512,

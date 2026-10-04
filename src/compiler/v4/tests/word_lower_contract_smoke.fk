@@ -1,0 +1,86 @@
+-- Every case owns one source/MIR generation and preserves an already sealed plan.
+task v4_lower_contract_assert(condition: bool, label: word) -> void {
+    if not condition { panic("word-lower-contract " + label) }
+}
+
+task v4_lower_contract_field(line: word, field: int, value: word) -> word {
+    pilot parts = array_new()
+    pilot idx = 0
+    repeat until idx >= v4_mir_snapshot_field_count(line) {
+        if idx > 0 { array_push(parts, "|") }
+        if idx == field { array_push(parts, v4_mir_snapshot_escape(value)) } else { array_push(parts, v4_mir_snapshot_field_raw(line, idx)) }
+        idx += 1
+    }
+    give back word_join(parts)
+}
+
+task v4_lower_contract_forge(payload: word, mode: word) -> word {
+    pilot parts = array_new()
+    pilot changed: bool = false
+    pilot line_id = 0
+    repeat until line_id >= v4_mir_snapshot_line_count(payload) {
+        pilot line = v4_mir_snapshot_line(payload, line_id)
+        if not changed and v4_mir_snapshot_field_raw(line, 0) == "mir-rvalue" {
+            if v4_mir_snapshot_field(line, 13) == "builtin::word::to_lower" {
+                if mode == "identity" { line = v4_lower_contract_field(line, 13, "builtin::word::forged_lower"); changed = true }
+                if mode == "op" { line = v4_lower_contract_field(line, 6, "source.to_lower"); changed = true }
+                if mode == "abi" { line = v4_lower_contract_field(line, 11, "C"); changed = true }
+                if mode == "result" { line = v4_lower_contract_field(line, 10, "int"); changed = true }
+                if mode == "arity" { line = v4_lower_contract_field(line, 12, ""); changed = true }
+            }
+            if v4_mir_snapshot_field(line, 4) == v4_mir_rvalue_lend and v4_mir_snapshot_field(line, 10) == "lend word" {
+                if mode == "loan-kind" { line = v4_lower_contract_field(line, 4, v4_mir_rvalue_lend_mut); changed = true }
+                if mode == "loan-type" { line = v4_lower_contract_field(line, 10, "word"); changed = true }
+            }
+        }
+        if line_id > 0 { array_push(parts, "\n") }
+        array_push(parts, line)
+        line_id += 1
+    }
+    v4_lower_contract_assert(changed, "reached forgery " + mode)
+    give back word_join(parts)
+}
+
+task v4_lower_contract_run() -> void {
+    pilot mode = process::arg(1)
+    pilot source = "task main() -> int " + chr(123) + " pilot source = \"A\\0B\"; pilot outcome = source.to_lower(); say source; say outcome; give back 0 " + chr(125) + "\n"
+    pilot mir = v4_mir_text_cached("word-lower-contract.fk", source)
+    v4_lower_contract_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0, "clean frontend")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot sealed = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot module = v4_codegen_llvm_module_text(sealed, target)
+    v4_lower_contract_assert(module != "" and v4_codegen_llvm_native_module_error(sealed) == "", "initial seal")
+    pilot payload = v4_mir_snapshot()
+    v4_lower_contract_assert(payload.starts_with("mir-snapshot|format=freak-mir-snapshot-v9|") and payload.ends_with("end|freak-mir-snapshot-v9") and v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1"), "v9 wire")
+    if mode == "restore" {
+        v4_lower_contract_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1"), "detached restore")
+        v4_lower_contract_assert(v4_codegen_llvm_module_text(sealed, target) == module, "old seal survives restore")
+        pilot restored = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_lower_contract_assert(v4_codegen_llvm_module_text(restored, target) == module and v4_codegen_llvm_native_module_error(restored) == "", "fresh restored module exact")
+    } else if mode == "old-version" {
+        pilot old = payload.replace("freak-mir-snapshot-v9", "freak-mir-snapshot-v6")
+        v4_lower_contract_assert(old != payload and old.starts_with("mir-snapshot|format=freak-mir-snapshot-v6|") and old.ends_with("end|freak-mir-snapshot-v6") and not old.contains("freak-mir-snapshot-v9"), "reached v6 wire forgery")
+        v4_lower_contract_assert(v4_mir_snapshot_restore(old).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == payload, "v6 atomically rejected")
+    } else if mode == "old-v7" {
+        pilot old = payload.replace("freak-mir-snapshot-v9", "freak-mir-snapshot-v7")
+        v4_lower_contract_assert(old != payload and old.starts_with("mir-snapshot|format=freak-mir-snapshot-v7|") and old.ends_with("end|freak-mir-snapshot-v7") and not old.contains("freak-mir-snapshot-v9"), "reached v7 wire forgery")
+        v4_lower_contract_assert(v4_mir_snapshot_restore(old).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == payload, "v7 atomically rejected")
+    } else if mode == "live" {
+        pilot rv = 0
+        repeat until rv >= v4_mir_body_rvalue_count(mir, 0) or v4_mir_word_intrinsic_kind(mir, 0, rv) == "to_lower" { rv += 1 }
+        v4_lower_contract_assert(rv < v4_mir_body_rvalue_count(mir, 0), "lower identity")
+        pilot identity = v4_mir_rvalue_builtin_method(mir, 0, rv)
+        v4_mir_set_rvalue_builtin_method(mir, 0, rv, "")
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_lower_contract_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, target) == "", "op text cannot grant intrinsic authority")
+        v4_mir_set_rvalue_builtin_method(mir, 0, rv, identity)
+        pilot recovered = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_lower_contract_assert(v4_codegen_llvm_module_text(recovered, target) == module, "live recovery")
+    } else {
+        pilot forged = v4_lower_contract_forge(payload, mode)
+        v4_lower_contract_assert(v4_mir_snapshot_restore(forged).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == payload, "atomic structural rejection " + mode)
+    }
+    v4_lower_contract_assert(v4_codegen_llvm_module_text(sealed, target) == module, "sealed plan byte stability")
+    say "word-lower-contract " + mode + "=passed sealed-stable=true"
+}
+v4_lower_contract_run()

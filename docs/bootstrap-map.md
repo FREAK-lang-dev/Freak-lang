@@ -10,11 +10,22 @@ owner READMEs:
 
 If this addendum ever disagrees with either README, the README wins.
 
-## V4 self-host exit checklist (phases A–F)
+## Delivery gates
 
-V4 replaces V3 only when every phase below holds on the current tree,
-verified by `python src/compiler/v4/check_v4.py` plus
-`python -u -m freakc audit-conformance`:
+The [release checklist](../src/compiler/v4/RELEASE_CHECKLIST.md) distinguishes
+the tier-1 preview, self-hosting, V3 replacement (tiers 1–4 and 8), and complete
+bible conformance (tiers 1–8). V3 replacement requires executable parity with
+everything V3 ships, a self-hosting fixed point, preservation tests, and the
+release tooling gates on the current tree. It does not imply completion of
+concurrency or advanced features that V3 never shipped.
+
+## Full conformance sequence (phases A–F)
+
+These phases describe the broader bible-conformance target and its dependency
+order. They remain open independently of V3 parity. Verify applicable gates
+with `python src/compiler/v4/check_v4.py` plus
+`python -u -m freakc audit-conformance`; record executable coverage for each
+promoted feature rather than treating those two commands as blanket evidence:
 
 - **A — Semantic core.** Value shapes, variants/routes, aliases, tuple/array
   forms, and generics each land as full vertical slices

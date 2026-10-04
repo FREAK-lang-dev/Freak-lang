@@ -1,0 +1,109 @@
+task v4_panic_editor_assert(condition: bool, label: word) -> void { if not condition { panic("panic-editor " + label) } }
+task v4_panic_editor_token(stream: int, name: word, ordinal: int) -> int {
+    pilot token = 0
+    pilot seen = 0
+    repeat until token >= v4_lex_token_count(stream) {
+        if v4_lex_token_type(stream, token) == v4_tok_ident and v4_lex_token_value(stream, token) == name {
+            if seen == ordinal { give back token }
+            seen += 1
+        }
+        token += 1
+    }
+    give back -1
+}
+task v4_panic_editor_fact(path: word, source: word, ordinal: int) -> int {
+    pilot stream = v4_lex_text_cached(path, source)
+    pilot token = v4_panic_editor_token(stream, "panic", ordinal)
+    pilot offset = v4_span_start(v4_lex_token_span(stream, token))
+    pilot semantic = v4_semantic_at_text_cached(path, source, offset)
+    pilot hover = v4_hover_text_cached(path, source, offset + 1)
+    pilot definition = v4_definition_at_text_cached(path, source, offset)
+    v4_panic_editor_assert(v4_semantic_at_kind(semantic) == "BuiltinTask" and v4_semantic_at_def(semantic) == "builtin::control::panic" and v4_semantic_at_type(semantic) == "task panic(lend msg: word) -> never", "validated builtin fact")
+    v4_panic_editor_assert(v4_hover_kind(hover) == "BuiltinTask" and v4_hover_type(hover) == "task panic(lend msg: word) -> never", "never hover")
+    v4_panic_editor_assert(v4_definition_at_found(definition) == 0 and v4_definition_at_span(definition) == V4_NO_SPAN, "no fabricated definition")
+    v4_panic_editor_assert(v4_semantic_at_token_id(semantic) == token and v4_semantic_at_token_span(semantic) == v4_lex_token_span(stream, token), "real lexical token")
+    give back semantic
+}
+task v4_panic_editor_run() -> void {
+    pilot mode = process::arg(1)
+    pilot path = "panic-editor.fk"
+    pilot source = "task main() -> never " + chr(123) + " pilot message = \"panic\"; panic(message.to_lower()) -- trailing trivia\n" + chr(125) + "\n"
+    if mode == "0" {
+        v4_panic_editor_fact(path, source, 0)
+        pilot stream = v4_lex_text_cached(path, source)
+        pilot literal = 0
+        repeat until literal >= v4_lex_token_count(stream) or v4_lex_token_type(stream, literal) == v4_tok_string { literal += 1 }
+        pilot fact = v4_semantic_at_text_cached(path, source, v4_span_start(v4_lex_token_span(stream, literal)) + 2)
+        v4_panic_editor_assert(v4_semantic_at_kind(fact) != "BuiltinTask", "literal negative")
+        say "panic-editor case=0 builtin=true never=true lexical=true no-definition=true literal-negative=true"
+    } else if mode == "1" {
+        pilot shadow = "task panic(msg: int) -> int " + chr(123) + " give back msg " + chr(125) + "\ntask main() -> int " + chr(123) + " give back panic(7) " + chr(125) + "\n"
+        pilot stream = v4_lex_text_cached(path, shadow)
+        pilot token = v4_panic_editor_token(stream, "panic", 1)
+        pilot offset = v4_span_start(v4_lex_token_span(stream, token))
+        pilot fact = v4_semantic_at_text_cached(path, shadow, offset)
+        pilot definition = v4_definition_at_text_cached(path, shadow, offset)
+        v4_panic_editor_assert(v4_semantic_at_kind(fact) == "Task" and not v4_semantic_at_def(fact).starts_with("builtin::") and v4_definition_at_found(definition) == 1, "ordinary shadow")
+        say "panic-editor case=1 task-shadow=true real-definition=true"
+    } else if mode == "2" {
+        pilot before = v4_panic_editor_fact(path, source, 0)
+        pilot stream = v4_lex_text_cached(path, source)
+        pilot token = v4_panic_editor_token(stream, "panic", 0)
+        pilot offset = v4_span_start(v4_lex_token_span(stream, token))
+        pilot payload = v4_hir_snapshot()
+        v4_panic_editor_assert(v4_hir_snapshot_restore_with_queries(payload).starts_with("hir-snapshot-restore ok=1"), "official HIR restore")
+        pilot fingerprint = v4_source_fingerprint(v4_source_find(path))
+        v4_panic_editor_assert(v4_query_get(v4_semantic_at_query_key(path, offset), fingerprint) == "" and v4_query_get(v4_hover_query_key(path, offset + 1), fingerprint) == "" and v4_query_get(v4_definition_at_query_key(path, offset), fingerprint) == "", "query invalidation")
+        pilot fresh = v4_panic_editor_fact(path, source, 0)
+        v4_panic_editor_assert(fresh != before and v4_semantic_at_def(before) == "builtin::control::panic", "old fact stable fresh generation")
+        say "panic-editor case=2 HIR-facade=true invalidation=true old-fact=true fresh-generation=true"
+    } else if mode == "3" {
+        pilot before = v4_panic_editor_fact(path, source, 0)
+        pilot edited = "task panic(msg: word) -> int " + chr(123) + " give back msg.length() " + chr(125) + "\ntask main() -> int " + chr(123) + " give back panic(\"ordinary\") " + chr(125) + "\n"
+        pilot stream = v4_lex_text_cached(path, edited)
+        pilot token = v4_panic_editor_token(stream, "panic", 1)
+        pilot fact = v4_semantic_at_text_cached(path, edited, v4_span_start(v4_lex_token_span(stream, token)))
+        v4_panic_editor_assert(v4_semantic_at_kind(fact) == "Task" and v4_semantic_at_def(before) == "builtin::control::panic" and fact != before, "source invalidation")
+        say "panic-editor case=3 source-invalidation=true ordinary=true old-fact=true"
+    } else if mode == "4" {
+        pilot shadow = "task observe(panic: int) -> int " + chr(123) + " give back panic " + chr(125) + "\ntask main() -> int " + chr(123) + " pilot panic = 7; give back panic " + chr(125) + "\n"
+        pilot stream = v4_lex_text_cached(path, shadow)
+        pilot parameter = v4_panic_editor_token(stream, "panic", 1)
+        pilot local = v4_panic_editor_token(stream, "panic", 3)
+        pilot first = v4_semantic_at_text_cached(path, shadow, v4_span_start(v4_lex_token_span(stream, parameter)))
+        pilot second = v4_semantic_at_text_cached(path, shadow, v4_span_start(v4_lex_token_span(stream, local)))
+        -- Ordinary parameter references use the existing Local fact protocol;
+        -- prove their actual callable/local identity and definition separately.
+        pilot mir = v4_mir_text_cached(path, shadow)
+        pilot observe = v4_mir_lookup_body_name(mir, "observe")
+        pilot main_body = v4_mir_lookup_body_name(mir, "main")
+        pilot local_id = v4_mir_find_local_visible_at(mir, main_body, "panic", v4_span_start(v4_lex_token_span(stream, local)))
+        v4_panic_editor_assert(v4_mir_body_callable_param_count(mir, observe) == 1 and v4_mir_body_callable_param_name(mir, observe, 0) == "panic" and v4_mir_local_name(mir, observe, 0) == "panic", "actual parameter identity")
+        v4_panic_editor_assert(v4_semantic_at_kind(first) == "Local" and v4_semantic_at_def(first) == v4_editor_local_def(v4_mir_body_def(mir, observe), 0, "panic") and v4_semantic_at_type(first) == v4_ty_int, "parameter shadows builtin")
+        v4_panic_editor_assert(v4_semantic_at_kind(second) == "Local" and v4_semantic_at_def(second) == v4_editor_local_def(v4_mir_body_def(mir, main_body), local_id, "panic") and v4_semantic_at_type(second) == v4_ty_int and v4_semantic_at_def(second) != v4_semantic_at_def(first), "local shadows builtin")
+        pilot parameter_definition = v4_definition_at_text_cached(path, shadow, v4_span_start(v4_lex_token_span(stream, parameter)))
+        pilot local_definition = v4_definition_at_text_cached(path, shadow, v4_span_start(v4_lex_token_span(stream, local)))
+        v4_panic_editor_assert(v4_definition_at_found(parameter_definition) == 1 and v4_span_start(v4_definition_at_span(parameter_definition)) == v4_span_start(v4_lex_token_span(stream, v4_panic_editor_token(stream, "panic", 0))), "parameter declaration navigation")
+        v4_panic_editor_assert(v4_definition_at_found(local_definition) == 1 and v4_span_start(v4_definition_at_span(local_definition)) == v4_span_start(v4_lex_token_span(stream, v4_panic_editor_token(stream, "panic", 2))), "local declaration navigation")
+        say "panic-editor case=4 parameter-shadow=true local-shadow=true"
+    } else if mode == "5" {
+        pilot mir = v4_mir_text_cached(path, source)
+        pilot body = v4_mir_lookup_body_name(mir, "main")
+        pilot stream = v4_lex_text_cached(path, source)
+        pilot token = v4_panic_editor_token(stream, "panic", 0)
+        pilot offset = v4_span_start(v4_lex_token_span(stream, token))
+        pilot value = v4_editor_control_call_rvalue_at_token(stream, mir, body, token, "panic", offset)
+        v4_panic_editor_assert(value >= 0, "valid reader")
+        v4_mir_set_rvalue_ty(mir, body, value, v4_ty_int)
+        v4_panic_editor_assert(v4_editor_control_call_rvalue_at_token(stream, mir, body, token, "panic", offset) == -1, "hostile result reader declines")
+        v4_mir_set_rvalue_ty(mir, body, value, v4_ty_never)
+        v4_mir_set_rvalue_args_payload(mir, body, value, "")
+        v4_panic_editor_assert(v4_editor_control_call_rvalue_at_token(stream, mir, body, token, "panic", offset) == -1, "hostile argument reader declines")
+        say "panic-editor case=5 hostile-result=true hostile-argument=true"
+    } else if mode == "6" {
+        pilot arrow = "task main() => panic(\"arrow\")\n"
+        v4_panic_editor_fact(path, arrow, 0)
+        say "panic-editor case=6 arrow-never=true builtin=true"
+    } else { panic("unknown panic editor case") }
+}
+v4_panic_editor_run()
