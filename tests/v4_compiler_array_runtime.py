@@ -232,8 +232,10 @@ def proof_environment(directory: Path, sanitized: bool):
         os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
         sys.pycache_prefix, sys.dont_write_bytecode = str(prefix), True
         if sanitized:
-            os.environ["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1:exitcode=88"
-            os.environ["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1:exitcode=88"
+            # Retain raw stacks and summaries without an external symbolizer
+            # joining the process tree under the mandatory 64 MiB run guard.
+            os.environ["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1:exitcode=88:symbolize=0"
+            os.environ["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1:exitcode=88:symbolize=0"
         yield prefix
     finally:
         primary = sys.exception()

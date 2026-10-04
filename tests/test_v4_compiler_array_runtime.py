@@ -96,8 +96,10 @@ class CompilerArrayOracleTests(unittest.TestCase):
 
     def test_sanitizer_capability_needs_exact_kind_diagnostic_and_exit(self):
         examples = {
-            "address": b"ERROR: AddressSanitizer: heap-use-after-free\nSUMMARY: AddressSanitizer:\n",
-            "undefined": b"runtime error: signed integer overflow\nSUMMARY: UndefinedBehaviorSanitizer:\n",
+            "address": (b"ERROR: AddressSanitizer: heap-use-after-free\n"
+                        b"    #0 0x1234 (/mock/compiler-arrays+0x1234)\nSUMMARY: AddressSanitizer:\n"),
+            "undefined": (b"runtime error: signed integer overflow\n"
+                          b"    #0 0x5678 (/mock/compiler-arrays+0x5678)\nSUMMARY: UndefinedBehaviorSanitizer:\n"),
         }
         for kind, stderr in examples.items():
             gate.assert_sanitizer(self.result(88, stderr=stderr), kind)
@@ -109,6 +111,28 @@ class CompilerArrayOracleTests(unittest.TestCase):
                     gate.assert_sanitizer(self.result(88, stderr=mutated), kind)
             with self.assertRaises(AssertionError):
                 gate.assert_sanitizer(self.result(88, stderr=examples["undefined" if kind == "address" else "address"]), kind)
+
+    def test_sanitizer_environment_disables_symbolizers_and_retains_detection(self):
+        inherited = {
+            "ASAN_OPTIONS": "symbolize=1:detect_leaks=0:halt_on_error=0:exitcode=0:print_summary=0",
+            "LSAN_OPTIONS": "symbolize=1:detect_leaks=0:exitcode=0:suppressions=/mock/suppressions",
+            "UBSAN_OPTIONS": "symbolize=1:print_stacktrace=0:halt_on_error=0:exitcode=0:print_summary=0",
+        }
+        expected = {
+            "ASAN_OPTIONS": {"halt_on_error": "1", "detect_leaks": "1", "exitcode": "88", "symbolize": "0"},
+            "UBSAN_OPTIONS": {"halt_on_error": "1", "print_stacktrace": "1", "exitcode": "88", "symbolize": "0"},
+        }
+        for sanitized in (False, True):
+            with self.subTest(sanitized=sanitized), tempfile.TemporaryDirectory() as tmp, \
+                    mock.patch.dict(os.environ, inherited):
+                with gate.proof_environment(Path(tmp), sanitized):
+                    self.assertNotIn("LSAN_OPTIONS", os.environ)
+                    for name, options in expected.items():
+                        if sanitized:
+                            self.assertEqual(dict(item.split("=", 1) for item in os.environ[name].split(":")), options)
+                        else:
+                            self.assertNotIn(name, os.environ)
+                self.assertEqual({name: os.environ.get(name) for name in inherited}, inherited)
 
     @staticmethod
     def complete_report(sanitized):
