@@ -1,6 +1,7 @@
 """Process-free checks for the checked32 runtime's independent gate oracles."""
 from copy import deepcopy
 from contextlib import ExitStack
+import ast
 import json
 import os
 from pathlib import Path
@@ -349,6 +350,52 @@ class Checked32FailureControls(unittest.TestCase):
         self.assertEqual(attempts, [".stdout", ".stderr"])
         self.assertTrue((self.directory / "001-success.result.json").exists())
         self.assertEqual([row["type"] for row in first.c32_secondary_failures], ["MemoryError", "KeyboardInterrupt"])
+
+    def test_failed_recovery_record_update_still_attempts_pins_and_all_retention(self):
+        tree = ast.parse(Path(gate.__file__).read_bytes())
+        target = next(node.lineno for node in ast.walk(tree)
+                      if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and
+                      isinstance(node.func.value, ast.Name) and node.func.value.id == "record" and
+                      node.func.attr == "update" and any(keyword.arg == "status" and
+                      isinstance(keyword.value, ast.Constant) and keyword.value.value == "raised"
+                      for keyword in node.keywords))
+        for primary_type in (RuntimeError, KeyboardInterrupt):
+            for secondary_type in (MemoryError, KeyboardInterrupt):
+                with self.subTest(primary=primary_type.__name__, secondary=secondary_type.__name__):
+                    primary, cause = primary_type("guard failed"), ValueError("prior cause")
+                    primary.__cause__ = cause
+                    primary.output, primary.stderr = b"partial stdout", b"partial stderr"
+                    secondary, pins, fired = secondary_type("recovery update failed"), [], []
+                    class Pins:
+                        def check(self): pins.append("check")
+                    class Guard:
+                        def run_with_heartbeat(self, *args, **kwargs): raise primary
+                    work = self.directory / (primary_type.__name__ + "-" + secondary_type.__name__)
+                    work.mkdir()
+                    def trace(frame, event, argument):
+                        if (event == "line" and frame.f_code.co_filename == gate.__file__ and
+                                frame.f_code.co_name == "<lambda>" and frame.f_lineno == target):
+                            fired.append(target)
+                            raise secondary
+                        return trace
+                    previous = sys.gettrace()
+                    try:
+                        sys.settrace(trace)
+                        with self.assertRaises(primary_type) as seen:
+                            gate.Runner(Guard(), work, Pins()).run(["never-executed"], "recovery")
+                    finally:
+                        sys.settrace(previous)
+                    self.assertEqual(fired, [target])
+                    self.assertIs(seen.exception, primary)
+                    self.assertIs(primary.__cause__, cause)
+                    self.assertEqual(pins, ["check", "check"])
+                    self.assertEqual((work / "001-recovery.stdout").read_bytes(), primary.output)
+                    self.assertEqual((work / "001-recovery.stderr").read_bytes(), primary.stderr)
+                    self.assertEqual(json.loads((work / "001-recovery.failure.txt").read_text()),
+                                     {"type": primary_type.__name__})
+                    self.assertEqual(json.loads((work / "001-recovery.retention.json").read_text())
+                                     ["secondary_failures"][0]["stage"], "failure-attribution")
+                    self.assertEqual(primary.c32_secondary_failures[0]["type"], secondary_type.__name__)
 
     def test_environment_restores_all_variables_and_keeps_body_failure(self):
         names = ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTIONS")

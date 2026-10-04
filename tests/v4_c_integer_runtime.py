@@ -427,7 +427,8 @@ class Runner:
                                                   memory_limit_mb=memory, output_limit_mb=OUTPUT_MIB)
         except BaseException as primary:
             try:
-                record.update(status="raised", error_type=exception_descriptor(primary)["type"])
+                retention.attempt("failure-attribution", lambda: record.update(
+                    status="raised", error_type=exception_descriptor(primary)["type"]))
                 retention.attempt("post-job-conservation", conserve)
                 retention.attempt("command-attribution", lambda: command_path.write_text(
                     json.dumps(record, indent=2) + "\n", encoding="utf-8"))
