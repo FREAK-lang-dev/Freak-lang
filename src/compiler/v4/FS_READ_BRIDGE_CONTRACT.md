@@ -56,6 +56,9 @@ errors, a real POSIX FIFO, private path/slot/owner boundaries, 20 portable
 I/O/storage/compound faults, two Windows path conversion faults, and both
 LLVM-owned and C-owned audit death controls. Each ordinary injected fault must
 recover through 64 further successful reads while its first Err owner stays live.
+The C audit control uses the actual owning numeric Word constructor and asserts
+heap/data, exact payload and one C owner before exit. Cloning a non-owning
+literal preserves its nonownership and cannot establish this death capability.
 The large metadata case rejects the selected contents allocation without
 actually requesting a multi-gigabyte allocation.
 

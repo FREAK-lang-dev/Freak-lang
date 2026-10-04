@@ -378,6 +378,9 @@ class FsBridgePure(unittest.TestCase):
         self.assertIn("record->length = probe_storage_length;",probe)
         self.assertIn("index < 64",probe)
         self.assertIn("probe_stat_calls == 1 && probe_stat_nonregular && probe_descriptor_closes == 1",probe)
+        self.assertIn("freak_word owned = freak_word_from_int(1234);",probe)
+        self.assertIn("owned.heap && owned.data && owned.length == 4",probe)
+        self.assertIn('!memcmp(owned.data, "1234", 4) && freak_c_owned_word_count == 1',probe)
         self.assertIn("_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);",probe)
 
 

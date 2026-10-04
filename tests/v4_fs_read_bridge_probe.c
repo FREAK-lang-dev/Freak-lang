@@ -452,7 +452,9 @@ static int probe_capability(const char *name) {
         (void)freak_v4_word_from_bytes((int64_t)(uintptr_t)"leak", 4);
         return 0;
     } else if (!strcmp(name, "--c-owner-audit")) {
-        (void)freak_word_clone(freak_word_lit("leak"));
+        freak_word owned = freak_word_from_int(1234);
+        assert(owned.heap && owned.data && owned.length == 4);
+        assert(!memcmp(owned.data, "1234", 4) && freak_c_owned_word_count == 1);
         return 0;
     } else return 2;
     return 99;
