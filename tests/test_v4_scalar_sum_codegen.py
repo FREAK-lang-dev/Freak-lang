@@ -3,7 +3,7 @@ import ast
 import copy
 import importlib.util
 import io
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 import unittest
@@ -210,7 +210,7 @@ class ScalarSumOracle(unittest.TestCase):
                          {'__builtins__':{}},values)
                     flags=['--target='+target,'-w',f'-O{opt}','-Iruntime',*gate.AUDIT_FLAGS]
                     if not plain: flags+=list(gate.SANITIZER_FLAGS)
-                    expected={'runtime':['clang',*flags,'-c','runtime/source.c','-o','runtime.o'],
+                    expected={'runtime':['clang',*flags,'-c',str(values['path']),'-o','runtime.o'],
                               'audit':['clang',*flags,'audit.c','runtime.o','-o','probe','platform-lib'],
                               'sanitizer':['clang','--target='+target,'-O0',*gate.SANITIZER_FLAGS,'sanitizer.c','-o','probe']}
                     for role,call in calls.items():
@@ -226,6 +226,20 @@ class ScalarSumOracle(unittest.TestCase):
                     old_sanitizer.elts=[part for part in old_sanitizer.elts if not (isinstance(part,ast.BinOp)
                                         and isinstance(part.left,ast.Constant) and part.left.value=='--target=')]
                     self.assertNotEqual(command(old_sanitizer,values),expected['sanitizer'])
+
+    def test_runtime_build_commands_preserve_windows_and_posix_paths(self):
+        source_path = Path(gate.__file__)
+        for flavor, expected in ((PurePosixPath, 'runtime/source.c'),
+                                 (PureWindowsPath, 'runtime\\source.c')):
+            runtime_source = flavor('runtime') / 'source.c'
+            self.assertEqual(str(runtime_source), expected)
+            self.assertEqual(runtime_source, flavor('runtime/source.c'))
+            def modeled_path(*parts):
+                if parts == (gate.__file__,):
+                    return source_path
+                return flavor(*parts)
+            with self.subTest(flavor=flavor.__name__), patch(__name__+'.Path', modeled_path):
+                self.test_runtime_audit_and_sanitizer_builds_use_the_native_target()
 
     def test_windows_locale_and_newlines_preserve_target_controls(self):
         original_read = Path.read_text
