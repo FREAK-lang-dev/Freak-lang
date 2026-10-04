@@ -4400,11 +4400,40 @@ task v4_mir_local_reference_is_exact(mir: int, body: int, value: int) -> bool {
     give back v4_mir_rvalue_op(mir, body, value) == "local#" + word_from_int(local) and v4_mir_rvalue_text(mir, body, value) == v4_mir_local_name(mir, body, local) and v4_mir_rvalue_ty(mir, body, value) == v4_mir_local_ty(mir, body, local) and v4_mir_rvalue_lhs(mir, body, value) == -1 and v4_mir_rvalue_rhs(mir, body, value) == -1 and v4_mir_rvalue_abi(mir, body, value) == "" and v4_mir_rvalue_builtin_method(mir, body, value) == "" and v4_mir_rvalue_call_arg_count(mir, body, value) == 0
 }
 
+-- Source binding eligibility survives persistence as TY and lexical MIR facts.
+-- A closed identity does not authorize bypassing an ordinary namespace shadow.
+task v4_mir_system_intrinsic_origin_is_available(ty: int, kind: word, span: word) -> bool {
+    pilot name = v4_ty_system_intrinsic_public_name(kind)
+    if name == "" or span == (V4_NO_SPAN) or not v4_mir_span_fact_is_valid(span) or v4_span_file(span) != word_from_int(v4_ty_file_id(ty)) { give back false }
+    give back v4_ty_system_intrinsic_named_kind(ty, name) == kind
+}
+
+task v4_mir_system_intrinsic_shadow_is_visible(kind: word, call_span: word, local_name: word, definition_span: word, scope_span: word) -> bool {
+    pilot name = v4_ty_system_intrinsic_public_name(kind)
+    pilot root = "process"
+    if kind == "fs_read" { root = "fs" }
+    if local_name != root and local_name != name { give back false }
+    -- Missing/malformed binding anchors cannot prove an unshadowed call.
+    if definition_span == (V4_NO_SPAN) or scope_span == (V4_NO_SPAN) or not v4_mir_span_fact_is_valid(definition_span) or not v4_mir_scope_span_is_valid(scope_span) or v4_span_file(definition_span) != v4_span_file(call_span) or v4_span_file(scope_span) != v4_span_file(call_span) { give back true }
+    pilot first = v4_span_start(definition_span)
+    pilot last = v4_span_end(scope_span)
+    if last <= first { last = v4_span_end(definition_span) }
+    pilot position = v4_span_start(call_span)
+    give back position >= first and position < last
+}
+
 task v4_mir_rvalue_is_builtin_system(mir: int, body: int, value: int) -> bool {
     if value < 0 or value >= v4_mir_body_rvalue_count(mir, body) { give back false }
     pilot identity = v4_mir_rvalue_builtin_method(mir, body, value)
     pilot kind = v4_mir_builtin_system_identity_kind(identity)
     if kind == "" or v4_mir_rvalue_kind(mir, body, value) != v4_mir_rvalue_call { give back false }
+    pilot span = v4_mir_rvalue_span(mir, body, value)
+    if not v4_mir_system_intrinsic_origin_is_available(v4_mir_ty_id(mir), kind, span) { give back false }
+    pilot local = 0
+    repeat until local >= v4_mir_body_local_count(mir, body) {
+        if v4_mir_system_intrinsic_shadow_is_visible(kind, span, v4_mir_local_name(mir, body, local), v4_mir_local_span(mir, body, local), v4_mir_local_scope_span(mir, body, local)) { give back false }
+        local += 1
+    }
     if v4_mir_rvalue_op(mir, body, value) != identity or v4_mir_rvalue_abi(mir, body, value) != "" or v4_mir_rvalue_lhs(mir, body, value) != -1 or v4_mir_rvalue_rhs(mir, body, value) != -1 { give back false }
     if v4_mir_rvalue_ty(mir, body, value) != v4_ty_system_intrinsic_result_type(kind) or v4_mir_rvalue_call_arg_count(mir, body, value) != v4_ty_system_intrinsic_param_count(kind) { give back false }
     if kind == "args_count" { give back true }
@@ -5906,6 +5935,16 @@ task v4_mir_sum_row_intrinsic_error(ty: int, values: int, locals: int, value: in
     pilot kind = v4_mir_builtin_system_identity_kind(identity)
     if parser { kind = "to_int_maybe" }
     if kind == "" or identity != op or v4_mir_snapshot_field(row, 4) != v4_mir_rvalue_call or v4_mir_snapshot_field_raw(row, 7) != "-1" or v4_mir_snapshot_field_raw(row, 8) != "-1" or v4_mir_snapshot_field(row, 11) != "" { give back "invalid scalar sum intrinsic identity" }
+    if system {
+        pilot span = v4_mir_snapshot_field(row, 9)
+        if not v4_mir_system_intrinsic_origin_is_available(ty, kind, span) { give back "scalar sum system intrinsic has a shadowed or invalid binding origin" }
+        pilot local = 0
+        repeat until local >= array_len(locals) {
+            pilot binding: word = array_get(locals, local)
+            if v4_mir_system_intrinsic_shadow_is_visible(kind, span, v4_mir_snapshot_field(binding, 4), v4_mir_snapshot_field(binding, 7), v4_mir_snapshot_field(binding, 8)) { give back "scalar sum system intrinsic has a shadowed or invalid binding origin" }
+            local += 1
+        }
+    }
     pilot expected = v4_ty_system_intrinsic_result_type(kind)
     pilot count = v4_ty_system_intrinsic_param_count(kind)
     if parser { expected = v4_ty_word_intrinsic_result_type(kind); count = 1 }

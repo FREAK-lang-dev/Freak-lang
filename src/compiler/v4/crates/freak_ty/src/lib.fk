@@ -13926,6 +13926,13 @@ task v4_ty_system_intrinsic_known(kind: word) -> bool {
     give back kind == "process_arg" or kind == "args_count" or kind == "fs_read"
 }
 
+task v4_ty_system_intrinsic_public_name(kind: word) -> word {
+    if kind == "process_arg" { give back "process::arg" }
+    if kind == "args_count" { give back "process::args_count" }
+    if kind == "fs_read" { give back "fs::read" }
+    give back ""
+}
+
 task v4_ty_system_intrinsic_named_kind(ty_id: int, name: word) -> word {
     if not v4_ty_file_exists(ty_id) { give back "" }
     pilot root = ""

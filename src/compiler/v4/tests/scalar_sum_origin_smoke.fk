@@ -1,0 +1,83 @@
+-- Restored closed system identities must retain ordinary binding eligibility.
+task v4_sum_origin_assert(condition: bool, label: word) -> void {
+    if not condition { panic("scalar-sum-origin " + label) }
+}
+
+task v4_sum_origin_source(mode: int) -> word {
+    pilot count = "task count() -> int " + chr(123) + " give back 99 " + chr(125) + "\n"
+    pilot body = "give back count()"
+    if mode == 0 { count = ""; body = "pilot actual = process::args_count()\npilot process = 0\ngive back actual" }
+    if mode == 1 { count = "task process::args_count() -> int " + chr(123) + " give back 99 " + chr(125) + "\n"; body = "give back process::args_count()" }
+    if mode == 2 { count = "task process::arg(index: int) -> result<word,word> " + chr(123) + " give back ok(\"ordinary\") " + chr(125) + "\n"; body = "pilot output = process::arg(0)\ngive back 0" }
+    if mode == 3 { count = "task fs::read(lend path: word) -> result<word,word> " + chr(123) + " give back ok(path.clone()) " + chr(125) + "\n"; body = "pilot path = \"path\"\npilot output = fs::read(lend path)\ngive back 0" }
+    if mode == 4 or mode == 9 { body = "pilot process = 0\ngive back count()" }
+    if mode == 5 { count = count + "task probe(process: int) -> int " + chr(123) + " give back count() " + chr(125) + "\n"; body = "give back probe(0)" }
+    if mode == 6 or mode == 8 { count = "task file(lend path: word) -> result<word,word> " + chr(123) + " give back ok(path.clone()) " + chr(125) + "\n"; body = "pilot path = \"path\"\npilot output = file(lend path)\ngive back 0" }
+    if mode == 6 { body = "pilot fs = 0\n" + body }
+    if mode == 7 { count = "shape process " + chr(123) + " value: int " + chr(125) + "\n" + count }
+    if mode == 8 { count = "shape fs " + chr(123) + " value: int " + chr(125) + "\n" + count }
+    if mode == 10 { count = ""; body = "if true " + chr(123) + " pilot process = 0 " + chr(125) + "\ngive back process::args_count()" }
+    give back count + "task main() -> int " + chr(123) + "\n" + body + "\n" + chr(125) + "\n"
+}
+
+task v4_sum_origin_run() -> void {
+    pilot mode = word_to_int(process::arg(1))
+    v4_sum_origin_assert(mode >= 0 and mode <= 10, "known mode")
+    pilot mir = v4_mir_text_cached("scalar-sum-origin.fk", v4_sum_origin_source(mode))
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    v4_sum_origin_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0 and v4_mir_word_plan_preflight(mir) == "", "baseline binding and full plan clean")
+    pilot sealed = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot module = v4_codegen_llvm_module_text(sealed, target)
+    v4_sum_origin_assert(v4_codegen_llvm_native_module_error(sealed) == "" and module != "", "baseline module sealed")
+    pilot payload = v4_mir_snapshot()
+    if mode == 0 or mode == 10 {
+        pilot body = v4_mir_lookup_body_name(mir, "main")
+        pilot builtin = -1
+        pilot row = 0
+        repeat until row >= v4_mir_body_rvalue_count(mir, body) {
+            if v4_mir_rvalue_builtin_method(mir, body, row) == "builtin::system::args_count" { builtin = row }
+            row += 1
+        }
+        v4_sum_origin_assert(builtin >= 0 and v4_mir_rvalue_is_builtin_system(mir, body, builtin), "actual builtin remains unshadowed at its own source position")
+        v4_sum_origin_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload, "valid binding facts roundtrip")
+        pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_sum_origin_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module and v4_codegen_llvm_module_text(sealed, target) == module, "fresh and old valid modules exact")
+        say "scalar-sum-origin " + word_from_int(mode) + "=passed visible-origin=true restored=true old-seal=true fresh-module=true"
+        give back
+    }
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    if mode == 5 { body = v4_mir_lookup_body_name(mir, "probe") }
+    pilot name = "count"
+    pilot kind = "args_count"
+    if mode == 1 { name = "process::args_count" }
+    if mode == 2 { name = "process::arg"; kind = "process_arg" }
+    if mode == 3 { name = "fs::read"; kind = "fs_read" }
+    if mode == 6 or mode == 8 { name = "file"; kind = "fs_read" }
+    pilot value = -1
+    pilot row = 0
+    repeat until row >= v4_mir_body_rvalue_count(mir, body) {
+        if v4_mir_rvalue_kind(mir, body, row) == v4_mir_rvalue_call and v4_mir_rvalue_op(mir, body, row) == name { value = row }
+        row += 1
+    }
+    v4_sum_origin_assert(value >= 0 and v4_mir_rvalue_builtin_method(mir, body, value) == "", "actual ordinary call selected")
+    pilot identity = v4_mir_system_intrinsic_identity(kind)
+    if mode == 9 {
+        pilot prior = value
+        value = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_call, "unused system call", identity, -1, -1, v4_mir_rvalue_span(mir, body, prior), v4_ty_int)
+        v4_sum_origin_assert(value > prior, "unused hostile row appended")
+    } else { array_set(v4_mir_body_rvalue_ops_handle(mir, body), value, identity) }
+    v4_mir_set_rvalue_builtin_method(mir, body, value, identity)
+    v4_sum_origin_assert(v4_mir_rvalue_op(mir, body, value) == identity and v4_mir_rvalue_builtin_method(mir, body, value) == identity and not v4_mir_rvalue_is_builtin_system(mir, body, value), "full closed identity actually changed but binding rejects")
+    pilot expected = "scalar sum system intrinsic has a shadowed or invalid binding origin"
+    v4_sum_origin_assert(v4_mir_word_plan_preflight(mir) == expected, "exact live binding origin rejection")
+    pilot forged = v4_mir_snapshot()
+    pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_sum_origin_assert(forged != payload and v4_codegen_llvm_native_module_error(rejected) == expected and v4_codegen_llvm_module_text(rejected, target) == "" and v4_codegen_llvm_module_text(sealed, target) == module, "no new module and immutable old seal")
+    v4_sum_origin_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload, "valid source payload recovered")
+    pilot generation = v4_session_semantic_restore_generation()
+    v4_sum_origin_assert(v4_mir_snapshot_validate(forged).starts_with("mir-snapshot-import ok=0") and v4_mir_snapshot_restore(forged).starts_with("mir-snapshot-restore ok=0") and v4_session_semantic_restore_generation() == generation and v4_mir_snapshot() == payload, "same detached forgery rejects atomically")
+    pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_sum_origin_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module and v4_codegen_llvm_module_text(sealed, target) == module, "fresh recovery and old sealed modules exact")
+    say "scalar-sum-origin " + word_from_int(mode) + "=passed changed=true named-origin=true live=true atomic=true no-module=true old-seal=true recovered=true"
+}
+v4_sum_origin_run()
