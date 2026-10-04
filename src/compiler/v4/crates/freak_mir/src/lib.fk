@@ -5418,6 +5418,8 @@ task v4_mir_compact_display_target(token: word, map: int) -> word {
     if token.starts_with("exit#") { prefix = "exit#" }
     if token.starts_with("got#") { prefix = "got#" }
     if token.starts_with("nobody#") { prefix = "nobody#" }
+    if token.starts_with("ok#") { prefix = "ok#" }
+    if token.starts_with("err#") { prefix = "err#" }
     if token.starts_with("arm#") { prefix = "arm#" }
     if token.starts_with("next#") { prefix = "next#" }
     if token.starts_with("after#") { prefix = "after#" }

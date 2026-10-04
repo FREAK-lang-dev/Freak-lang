@@ -1,0 +1,134 @@
+-- Exhaustive checks have no runtime continuation when every arm is terminal.
+-- Later source is still checked, and hostile live/restored MIR stays strict.
+task v4_check_terminal_assert(condition: bool, label: word) -> void {
+    if not condition { panic("check-terminal " + label) }
+}
+
+task v4_check_terminal_source(mode: word) -> word {
+    pilot header = ""
+    pilot body = "pilot value: maybe<int> = some(7)\ncheck value { got number -> { give back number } nobody -> { give back 1 } }\n"
+    if mode == "result" or mode == "restore" {
+        body = "pilot value: result<word,word> = ok(\"payload\")\ncheck result value { ok(text) -> { give back text.length() } err(message) -> { give back message.length() } }\n"
+    } else if mode == "nested" {
+        body = "pilot value: result<word,word> = ok(\"payload\")\ncheck result value { ok(text) -> { pilot number: maybe<int> = some(text.length()); check number { got count -> { give back count } nobody -> { give back 1 } } } err(message) -> { give back message.length() } }\n"
+    } else if mode == "nested-result" {
+        body = "pilot number: maybe<int> = some(1)\ncheck number { got count -> { pilot value: result<word,word> = ok(\"payload\"); check result value { ok(text) -> { give back text.length() } err(message) -> { give back message.length() } } } nobody -> { give back 1 } }\n"
+    } else if mode == "nested-if" or mode == "bad-nested-binding" {
+        body = "pilot value: maybe<int> = some(7)\ncheck value { got number -> { if number > 0 { give back number } else { give back 0 } } nobody -> { give back 1 } }\n"
+    } else if mode == "maybe-live" {
+        body = "pilot value: maybe<int> = nobody\ncheck value { got number -> { give back number } nobody -> { say \"live\" } }\n"
+    } else if mode == "result-live" {
+        body = "pilot value: result<word,word> = err(\"live\")\ncheck result value { ok(text) -> { give back text.length() } err(message) -> { say message } }\n"
+    } else if mode == "loop" {
+        body = "pilot mut count = 0\nrepeat until count >= 2 { count += 1; pilot value: maybe<int> = some(count); check value { got number -> { if number == 1 { continue }; break } nobody -> { break } }; give back 99 }\n"
+    } else if mode == "missing-arm" {
+        body = "pilot value: maybe<int> = some(7)\ncheck value { got number -> { give back number } }\n"
+    } else if mode == "valid-symbol" {
+        header = "fixed pilot fallback: int = 70\n"
+    } else if mode == "bad-call" {
+        header = "task target(count: int) -> int { give back count }\n"
+    } else if mode != "maybe" and mode != "bad-binding" and mode != "bad-type" {
+        panic("check-terminal unknown mode")
+    }
+    pilot tail = "give back 70\n"
+    if mode == "bad-binding" or mode == "bad-nested-binding" { tail = "give back number\n" }
+    if mode == "bad-type" { tail = "pilot invalid: int = \"oops\"\ngive back 70\n" }
+    if mode == "bad-call" { tail = "target(\"oops\")\ngive back 70\n" }
+    if mode == "valid-symbol" { tail = "give back fallback\n" }
+    give back header + "task main() -> int " + chr(123) + "\n" + body + tail + chr(125) + "\n"
+}
+
+task v4_check_terminal_has_return(mir: int, body: int, text: word) -> bool {
+    pilot statement = 0
+    repeat until statement >= v4_mir_body_stmt_count(mir, body) {
+        if v4_mir_stmt_kind(mir, body, statement) == v4_mir_stmt_return and v4_mir_stmt_rhs(mir, body, statement) == text { give back true }
+        statement += 1
+    }
+    give back false
+}
+
+task v4_check_terminal_run() -> void {
+    pilot mode = process::arg(1)
+    pilot source = v4_check_terminal_source(mode)
+    pilot previous_depth = v4_mir_check_arm_depth
+    v4_mir_check_arm_depth = 7
+    pilot mir = v4_mir_text_cached("check-terminal.fk", source)
+    v4_check_terminal_assert(v4_mir_check_arm_depth == 7, "fresh task construction restores caller check context")
+    v4_mir_check_arm_depth = previous_depth
+    pilot body = v4_mir_lookup_body_name(mir, "main")
+    pilot expected = ""
+    if mode == "bad-binding" or mode == "bad-nested-binding" { expected = "unknown name in unreachable source" }
+    if mode == "bad-type" { expected = "local declaration type mismatch" }
+    if mode == "bad-call" { expected = "call argument type mismatch" }
+    if mode == "missing-arm" { expected = "check maybe missing nobody arm" }
+    v4_check_terminal_assert(body >= 0 and v4_ty_diag_count(v4_mir_ty_id(mir)) == 0, "real source body and clean TY")
+    v4_check_terminal_assert(not v4_mir_build_body_has_closed_check_join(mir, body), "private construction marker removed")
+    if expected != "" {
+        v4_check_terminal_assert(v4_mir_diag_count(mir) == 1 and v4_diag_message(v4_mir_diag(mir, 0)) == expected, "exact independent source diagnostic")
+        if mode == "bad-binding" or mode == "bad-nested-binding" {
+            pilot span = v4_diag_span(v4_mir_diag(mir, 0))
+            pilot resolve = v4_ty_resolve_id(v4_mir_ty_id(mir))
+            v4_check_terminal_assert(v4_slice(source, v4_span_start(span), v4_span_end(span)) == "number" and v4_diag_help(v4_mir_diag(mir, 0)) == "Meiya cannot find number in this scope", "missing binding has exact source span and help")
+            v4_check_terminal_assert(v4_mir_find_local_visible_at(mir, body, "number", v4_span_start(span)) < 0 and v4_resolve_lookup_any(resolve, "number") < 0 and v4_mir_symbol_value_type(mir, "number") == v4_ty_unknown, "authentic out-of-scope local and missing global facts")
+        }
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_check_terminal_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "invalid source cannot publish a module")
+        say "check-terminal " + mode + "=passed named=true no-module=true"
+        give back
+    }
+    v4_check_terminal_assert(v4_mir_diag_count(mir) == 0, "clean checked frontend")
+    pilot live: bool = mode == "maybe-live" or mode == "result-live" or mode == "loop"
+    v4_check_terminal_assert(v4_check_terminal_has_return(mir, body, "70") == live and not v4_check_terminal_has_return(mir, body, "99") and not v4_check_terminal_has_return(mir, body, "fallback"), "only real continuation returns retained")
+    if mode == "valid-symbol" {
+        pilot resolve = v4_ty_resolve_id(v4_mir_ty_id(mir))
+        v4_check_terminal_assert(v4_resolve_lookup_any(resolve, "fallback") >= 0 and v4_mir_symbol_value_type(mir, "fallback") == v4_ty_int, "genuine valid global is accepted in diagnostic source")
+    }
+    pilot block = 1
+    repeat until block >= v4_mir_body_block_count(mir, body) {
+        v4_check_terminal_assert(v4_mir_body_block_predecessor_count(mir, body, block) > 0, "every published non-entry block has a predecessor")
+        block += 1
+    }
+    pilot statement = 0
+    repeat until statement >= v4_mir_body_stmt_count(mir, body) {
+        pilot value = v4_mir_stmt_rvalue(mir, body, statement)
+        if v4_mir_stmt_kind(mir, body, statement) == v4_mir_stmt_branch and value >= 0 and v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_check {
+            pilot record = v4_mir_body_block(mir, body, v4_mir_stmt_block(mir, body, statement))
+            pilot first = "got#"
+            pilot second = " nobody#"
+            if v4_mir_rvalue_op(mir, body, value) == "IsOk" { first = "ok#"; second = " err#" }
+            v4_check_terminal_assert(v4_mir_stmt_rhs(mir, body, statement) == first + word_from_int(v4_mir_block_target(record)) + second + word_from_int(v4_mir_block_else_target(record)), "compacted check display targets match real CFG edges")
+        }
+        statement += 1
+    }
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    v4_check_terminal_assert(v4_borrowck_diag_count(borrow) == 0, "real Meiya ownership remains clean")
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot sealed = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot module = v4_codegen_llvm_module_text(sealed, target)
+    v4_check_terminal_assert(v4_codegen_llvm_native_module_error(sealed) == "" and module != "", "owned module sealed")
+    pilot payload = v4_mir_snapshot()
+    v4_check_terminal_assert(not payload.contains("$closed-check-continuation") and v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload, "canonical snapshot roundtrip has no builder marker")
+    pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_check_terminal_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module, "restored native module remains byte exact")
+    if mode == "restore" {
+        pilot record = v4_mir_body_block(mir, body, 0)
+        v4_check_terminal_assert(v4_mir_block_terminator(record) == v4_mir_term_if, "actual exhaustive check branch selected")
+        pilot orphan = v4_mir_add_block(mir, body, v4_mir_term_unreachable, -1, -1, "")
+        v4_mir_set_body_block(mir, body, 0, v4_mir_block_new_full(0, v4_mir_term_if, orphan, v4_mir_block_else_target(record), v4_mir_block_part(record, 4)))
+        pilot forged = v4_mir_snapshot()
+        v4_check_terminal_assert(forged != payload and v4_mir_body_block_predecessor_count(mir, body, orphan) == 1 and v4_mir_body_stmt_count_for_block(mir, body, orphan) == 0, "real empty reachable endpoint forged")
+        v4_check_terminal_assert(v4_mir_control_plan_preflight(mir) == "native reachable unreachable block has no checked terminal call", "live empty endpoint rejects without normalization")
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_check_terminal_assert(v4_codegen_llvm_native_module_error(rejected) == "native reachable unreachable block has no checked terminal call" and v4_codegen_llvm_module_text(rejected, target) == "" and v4_codegen_llvm_module_text(sealed, target) == module, "forged live module rejected and old seal preserved")
+        v4_check_terminal_assert(v4_mir_snapshot_restore(forged).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == forged, "same detached empty endpoint rejects atomically")
+        v4_check_terminal_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload, "original canonical snapshot recovers")
+        fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_check_terminal_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module, "fresh recovery module remains exact")
+        say "check-terminal restore=passed canonical=true hostile-live=true hostile-detached=true recovered=true"
+        give back
+    }
+    pilot continuation = "false"
+    if live { continuation = "true" }
+    say "check-terminal " + mode + "=passed clean=true continuation=" + continuation + " sealed=true restored=true"
+}
+v4_check_terminal_run()

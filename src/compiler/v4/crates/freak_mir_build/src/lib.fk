@@ -1,4 +1,5 @@
 pilot v4_mir_control_diagnostic_depth: int = 0
+pilot v4_mir_check_arm_depth: int = 0
 -- ===================================================================
 -- freak_mir_build - stateless V4 HIR+TY to Built-MIR construction
 -- ===================================================================
@@ -5775,6 +5776,12 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         if local_id >= 0 {
             give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, first_value, "local#" + word_from_int(local_id), 0 - 1, 0 - 1, expr_span, v4_mir_local_ty(mir_id, body_id, local_id))
         }
+        -- Diagnostic continuations are checked before construction compaction.
+        -- A missing source binding must not disappear with its runtime row.
+        pilot resolve_id = v4_ty_resolve_id(v4_mir_ty_id(mir_id))
+        if v4_mir_control_diagnostic_depth > 0 and v4_resolve_lookup_any(resolve_id, first_value) < 0 {
+            v4_mir_add_type_error(mir_id, expr_span, "unknown name in unreachable source", "Meiya cannot find " + first_value + " in this scope")
+        }
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_symbol, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_mir_symbol_value_type(mir_id, first_value))
     }
 
@@ -6075,6 +6082,7 @@ task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: i
 
     v4_mir_control_diagnostic_depth = diagnostic_depth
     if terminal_condition { give back condition_block }
+    if v4_mir_check_arm_depth > 0 { give back v4_mir_build_close_check_join(mir_id, body_id, after_block) }
     give back after_block
 }
 
@@ -8336,7 +8344,10 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
               pilot value_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".some", subject_place, "some", 0 - 1, stmt_span, value_ty)
               v4_mir_lower_checked_pattern(mir_id, body_id, got_block, got_span, got_pattern, value_place, value_ty, "check maybe binding duplicate local", "check maybe arm malformed", "use got pattern -> ...")
           }
+          pilot arm_depth = v4_mir_check_arm_depth
+          v4_mir_check_arm_depth = arm_depth + 1
           got_block = v4_mir_lower_arm_body(mir_id, body_id, got_block, stream_id, got_arrow, got_end)
+          v4_mir_check_arm_depth = arm_depth
           v4_mir_pop_scope_span()
       }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, got_block, after_block)
@@ -8344,12 +8355,15 @@ task v4_mir_lower_check_maybe_stmt(mir_id: int, body_id: int, block_id: int, str
     if nobody_arrow >= 0 {
         v4_mir_push_scope_span(nobody_span)
         if sum_check { v4_mir_set_block_scope_span(mir_id, body_id, nobody_block, nobody_span) }
+        pilot arm_depth = v4_mir_check_arm_depth
+        v4_mir_check_arm_depth = arm_depth + 1
         nobody_block = v4_mir_lower_arm_body(mir_id, body_id, nobody_block, stream_id, nobody_arrow, nobody_end)
+        v4_mir_check_arm_depth = arm_depth
         v4_mir_pop_scope_span()
     }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, nobody_block, after_block)
     if sum_check { v4_mir_pop_scope_span() }
-    give back after_block
+    give back v4_mir_build_close_check_join(mir_id, body_id, after_block)
 }
 
 task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, check_token: int, stmt_end: int) -> int {
@@ -8478,7 +8492,10 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
               pilot ok_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".ok", subject_place, "ok", 0 - 1, stmt_span, ok_ty)
               v4_mir_lower_checked_pattern(mir_id, body_id, ok_block, ok_span, ok_pattern, ok_place, ok_ty, "check result binding duplicate local", "check result arm malformed", "use ok(pattern) -> ...")
           }
+          pilot arm_depth = v4_mir_check_arm_depth
+          v4_mir_check_arm_depth = arm_depth + 1
           ok_block = v4_mir_lower_arm_body(mir_id, body_id, ok_block, stream_id, ok_arrow, ok_end)
+          v4_mir_check_arm_depth = arm_depth
           v4_mir_pop_scope_span()
       }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, ok_block, after_block)
@@ -8493,12 +8510,15 @@ task v4_mir_lower_check_result_stmt(mir_id: int, body_id: int, block_id: int, st
               pilot err_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_field, v4_mir_place_text(mir_id, body_id, subject_place) + ".err", subject_place, "err", 0 - 1, stmt_span, err_ty)
               v4_mir_lower_checked_pattern(mir_id, body_id, err_block, err_span, err_pattern, err_place, err_ty, "check result binding duplicate local", "check result arm malformed", "use err(pattern) -> ...")
           }
+          pilot arm_depth = v4_mir_check_arm_depth
+          v4_mir_check_arm_depth = arm_depth + 1
           err_block = v4_mir_lower_arm_body(mir_id, body_id, err_block, stream_id, err_arrow, err_end)
+          v4_mir_check_arm_depth = arm_depth
           v4_mir_pop_scope_span()
       }
     v4_mir_seal_block_goto_if_live(mir_id, body_id, err_block, after_block)
     if sum_check { v4_mir_pop_scope_span() }
-    give back after_block
+    give back v4_mir_build_close_check_join(mir_id, body_id, after_block)
 }
 
 task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, check_token: int, stmt_end: int) -> int {
@@ -9114,22 +9134,25 @@ task v4_mir_lower_task_body_token_range(mir_id: int, body_id: int, stream_id: in
         give back
     }
 
+    pilot check_arm_depth = v4_mir_check_arm_depth
     v4_mir_clear_loop_context()
     v4_mir_clear_scope_context()
     v4_mir_control_diagnostic_depth = 0
+    v4_mir_check_arm_depth = 0
     pilot body_marker = v4_lex_token_syntax_value(stream_id, body_token)
     if body_marker == "{" {
         pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, 0, stream_id, body_token, end_token)
     } else if body_marker == "=>" {
         pilot body_tail = v4_mir_lower_arrow_body(mir_id, body_id, 0, stream_id, body_token, end_token)
     }
-    if v4_mir_build_body_has_control(mir_id, body_id) {
+    if v4_mir_build_body_has_control(mir_id, body_id) or v4_mir_build_body_has_closed_check_join(mir_id, body_id) {
         pilot compact_error = v4_mir_compact_body_rvalue_roots(mir_id, body_id)
         if compact_error != "" { v4_mir_add_type_error(mir_id, item_span, compact_error, "terminal expression compaction failed; no native module may be emitted") }
     }
     v4_mir_finalize_block_stmt_index(mir_id, body_id)
     v4_mir_validate_body_cfg(mir_id, body_id, item_span)
     v4_mir_validate_body_return_coverage(mir_id, body_id, item_span)
+    v4_mir_check_arm_depth = check_arm_depth
 }
 
 task v4_mir_lower_task_body_tokens(mir_id: int, body_id: int, stream_id: int, item_span: word) -> void {
@@ -9244,6 +9267,27 @@ task v4_mir_build_add_scoped_block(mir_id: int, body_id: int, terminator: word, 
     pilot block_id = v4_mir_add_block(mir_id, body_id, terminator, target, else_target, condition)
     v4_mir_set_block_scope_span(mir_id, body_id, block_id, v4_mir_current_scope_span(V4_NO_SPAN))
     give back block_id
+}
+
+-- Only a newly built exhaustive check join can acquire this private marker.
+-- Arm returns, terminal calls and loop jumps have already sealed their edges.
+-- Keep checking later source through the diagnostic continuation, then remove
+-- it with checked construction compaction before MIR validation/publication.
+task v4_mir_build_close_check_join(mir_id: int, body_id: int, after_block: int) -> int {
+    if v4_mir_body_block_predecessor_count(mir_id, body_id, after_block) == 0 {
+        v4_mir_set_body_block(mir_id, body_id, after_block, v4_mir_block_new_full(after_block, v4_mir_term_unreachable, -1, -1, "$closed-check-continuation"))
+    }
+    give back after_block
+}
+
+task v4_mir_build_body_has_closed_check_join(mir_id: int, body_id: int) -> bool {
+    pilot block = 0
+    repeat until block >= v4_mir_body_block_count(mir_id, body_id) {
+        pilot record = v4_mir_body_block(mir_id, body_id, block)
+        if v4_mir_block_terminator(record) == v4_mir_term_unreachable and v4_mir_block_part(record, 4) == "$closed-check-continuation" { give back true }
+        block += 1
+    }
+    give back false
 }
 
 task v4_mir_build_add_scoped_stmt(mir_id: int, body_id: int, block_id: int, stmt_kind: word, lhs: word, rhs: word, span: word, place_id: int, rvalue_id: int) -> int {
