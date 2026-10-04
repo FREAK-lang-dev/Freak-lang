@@ -1,0 +1,105 @@
+-- One source per process. Literal edges preserve skipped source diagnostics.
+task v4_panic_sc_assert(condition: bool, label: word) -> void {
+    if not condition { panic("panic-short-circuit " + label) }
+}
+task v4_panic_sc_source(mode: word) -> word {
+    pilot open = chr(123)
+    pilot close = chr(125)
+    pilot expression = "true and panic(\"and\")"
+    if mode == "1" { expression = "false or panic(\"or\")" }
+    if mode == "2" { expression = "(true) and (false or panic(\"nested-and\"))" }
+    if mode == "3" { expression = "(false) or (true and panic(\"nested-or\"))" }
+    if mode == "4" or mode == "6" { expression = "false and panic(\"hidden-and\")" }
+    if mode == "5" or mode == "7" { expression = "true or panic(\"hidden-or\")" }
+    if mode == "8" or mode == "10" { expression = "flag and panic(\"dynamic-and\")" }
+    if mode == "9" or mode == "11" { expression = "flag or panic(\"dynamic-or\")" }
+    if mode == "12" { expression = "false and panic(1)" }
+    if mode == "13" { expression = "true or panic(reason: \"bad-label\")" }
+    if mode == "14" { expression = "false and *panic(\"skipped-deref-and\")" }
+    if mode == "15" { expression = "true or *panic(\"skipped-deref-or\")" }
+    pilot tail = ""
+    if mode == "4" or mode == "5" or mode == "10" or mode == "11" or mode == "12" or mode == "13" or mode == "14" or mode == "15" { tail = "\ngive back 0" }
+    pilot body = "pilot value = " + expression + tail
+    if mode == "8" or mode == "9" or mode == "10" or mode == "11" {
+        give back "task choose(flag: bool) -> int " + open + "\n" + body + "\n" + close + "\ntask main() -> int " + open + " give back choose(false) " + close + "\n"
+    }
+    give back "task main() -> int " + open + "\n" + body + "\n" + close + "\n"
+}
+task v4_panic_sc_run() -> void {
+    pilot mode = process::arg(1)
+    v4_panic_sc_assert(word_to_int(mode) >= 0 and word_to_int(mode) < 16, "known mode")
+    pilot source = v4_panic_sc_source(mode)
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    if v4_ty_diag_count(ty) > 0 {
+        pilot diagnostic = 0
+        repeat until diagnostic >= v4_ty_diag_count(ty) { say v4_ty_diag(ty, diagnostic); diagnostic += 1 }
+    }
+    v4_panic_sc_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0, "clean earlier stages")
+    pilot negative: bool = mode == "6" or mode == "7" or mode == "8" or mode == "9" or mode == "12" or mode == "13" or mode == "14" or mode == "15"
+    pilot expected = "missing return"
+    if mode == "12" { expected = "panic message must be word" }
+    if mode == "13" { expected = "unknown panic named argument" }
+    if mode == "14" or mode == "15" { expected = "raw-pointer deref needs trust me block" }
+    if negative {
+        pilot found: bool = false
+        pilot index = 0
+        repeat until index >= v4_mir_diag_count(mir) {
+            if v4_mir_diag(mir, index).contains(expected) { found = true }
+            index += 1
+        }
+        if not found { index = 0; repeat until index >= v4_mir_diag_count(mir) { say v4_mir_diag(mir, index); index += 1 } }
+        v4_panic_sc_assert(found, "named negative " + mode + " " + expected)
+        if mode == "6" or mode == "7" or mode == "8" or mode == "9" { v4_panic_sc_assert(v4_mir_diag_count(mir) == 1, "one real missing-return route") }
+        pilot rejected = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+        v4_panic_sc_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, v4_target_spec_new("x86_64-unknown-linux-gnu")) == "", "negative cannot seal")
+        say "panic-short-circuit case=" + mode + " named-rejected=true no-module=true"
+        give back
+    }
+    pilot index = 0
+    repeat until index >= v4_mir_diag_count(mir) { say v4_mir_diag(mir, index); index += 1 }
+    v4_panic_sc_assert(v4_mir_diag_count(mir) == 0 and v4_mir_control_plan_preflight(mir) == "", "clean normalized source CFG")
+    pilot selected = v4_mir_lookup_body_name(mir, "main")
+    pilot dynamic: bool = mode == "10" or mode == "11"
+    if dynamic { selected = v4_mir_lookup_body_name(mir, "choose") }
+    pilot branches = 0
+    pilot returns = 0
+    pilot value = 0
+    pilot panic_count = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir, selected) {
+        if v4_mir_rvalue_is_builtin_control(mir, selected, value) { panic_count += 1 }
+        value += 1
+    }
+    index = 0
+    repeat until index >= v4_mir_body_stmt_count(mir, selected) {
+        if v4_mir_stmt_kind(mir, selected, index) == v4_mir_stmt_branch { branches += 1 }
+        if v4_mir_stmt_kind(mir, selected, index) == v4_mir_stmt_return { returns += 1 }
+        index += 1
+    }
+    if dynamic {
+        v4_panic_sc_assert(branches == 1 and panic_count == 1 and returns == 1, "unknown Boolean keeps both routes")
+    } else {
+        v4_panic_sc_assert(branches == 0, "literal selects Goto without invented Branch")
+        v4_panic_sc_assert(v4_mir_block_terminator(v4_mir_body_block(mir, selected, 0)) == v4_mir_term_goto, "literal entry has selected edge")
+        if mode == "4" or mode == "5" { v4_panic_sc_assert(panic_count == 0 and returns == 1, "skipped panic removed and return preserved") } else { v4_panic_sc_assert(panic_count == 1 and returns == 0, "terminal path without fake return") }
+    }
+    pilot accepted = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    if v4_codegen_llvm_native_module_error(accepted) != "" { say v4_codegen_llvm_native_module_error(accepted) }
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot module = v4_codegen_llvm_module_text(accepted, target)
+    v4_panic_sc_assert(v4_codegen_llvm_native_module_error(accepted) == "" and module != "", "abort module sealed")
+    pilot defaulted = v4_codegen_llvm_lower_owned_mir(0, mir)
+    if panic_count == 0 { v4_panic_sc_assert(v4_codegen_llvm_native_module_error(defaulted) == "" and v4_codegen_llvm_module_text(defaulted, target) != "", "skipped panic allows default policy") } else { v4_panic_sc_assert(v4_codegen_llvm_native_module_error(defaulted) == "native panic unwind is not yet supported; use --panic=abort" and v4_codegen_llvm_module_text(defaulted, target) == "", "retained panic requires abort") }
+    pilot snapshot = v4_mir_snapshot()
+    v4_panic_sc_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "strict v8 restore")
+    v4_panic_sc_assert(v4_mir_snapshot() == snapshot and v4_mir_control_plan_preflight(mir) == "", "exact restored source facts")
+    v4_panic_sc_assert(v4_codegen_llvm_module_text(accepted, target) == module, "old seal stable")
+    pilot fresh = v4_codegen_llvm_lower_owned_mir_with_panic(0, mir, "abort")
+    v4_panic_sc_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module, "fresh restored exact")
+    say "panic-short-circuit case=" + mode + " clean=true selected=true policy=true restore=true old-seal=true fresh-module=true"
+}
+v4_panic_sc_run()

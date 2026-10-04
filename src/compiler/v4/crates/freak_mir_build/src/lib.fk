@@ -424,8 +424,21 @@ task v4_mir_wire_control_flow_rvalue_step(mir_id: int, body_id: int, block_id: i
                 false_target = right_block
             }
 
-            v4_mir_set_body_block(mir_id, body_id, current_block, v4_mir_block_new_full(current_block, v4_mir_term_if, true_target, false_target, left_text))
-            v4_mir_build_add_scoped_stmt(mir_id, body_id, current_block, v4_mir_stmt_branch, left_text, branch_rhs, stmt_span, 0 - 1, left_id)
+            -- The source literal already determines this edge. Keep constructing
+            -- both branches below for diagnostics; checked compaction removes
+            -- only the impossible branch before MIR publication. A terminal RHS
+            -- must not acquire an invented fallthrough through its short branch.
+            pilot literal_target = 0 - 1
+            if v4_mir_rvalue_kind(mir_id, body_id, left_id) == v4_mir_rvalue_const_bool and v4_mir_rvalue_ty(mir_id, body_id, left_id) == v4_ty_bool and v4_mir_build_body_has_control(mir_id, body_id) {
+                if left_text == "true" { literal_target = true_target }
+                if left_text == "false" { literal_target = false_target }
+            }
+            if literal_target >= 0 {
+                v4_mir_set_body_block(mir_id, body_id, current_block, v4_mir_block_new_full(current_block, v4_mir_term_goto, literal_target, 0 - 1, ""))
+            } else {
+                v4_mir_set_body_block(mir_id, body_id, current_block, v4_mir_block_new_full(current_block, v4_mir_term_if, true_target, false_target, left_text))
+                v4_mir_build_add_scoped_stmt(mir_id, body_id, current_block, v4_mir_stmt_branch, left_text, branch_rhs, stmt_span, 0 - 1, left_id)
+            }
 
             pilot short_text = v4_mir_short_circuit_const_text(op)
             pilot short_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_bool, short_text, "", 0 - 1, 0 - 1, stmt_span, v4_ty_bool)
