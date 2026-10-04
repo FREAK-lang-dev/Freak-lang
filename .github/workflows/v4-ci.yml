@@ -200,6 +200,18 @@ jobs:
       - name: Unicode lowercase generated-code native portability
         run: python -B -u tests/v4_word_lower_codegen.py --plain --work "${{ runner.temp }}/word-lower-codegen-plain" --report "${{ runner.temp }}/word-lower-codegen-plain.json"
 
+      - name: Panic abort generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_panic_abort_codegen.py -v
+
+      - name: Panic abort generated-code native portability
+        run: python -B -u tests/v4_panic_abort_codegen.py --plain --work "${{ runner.temp }}/panic-abort-codegen-plain" --report "${{ runner.temp }}/panic-abort-codegen-plain/report.json"
+
+      - name: SayErr generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_say_err_codegen.py -v
+
+      - name: SayErr generated-code native portability
+        run: python -B -u tests/v4_say_err_codegen.py --plain --work "${{ runner.temp }}/say-err-codegen-plain"
+
       - name: Cold admission fault-proof oracle regressions
         run: python -B -u -m unittest discover -s tests -p test_v4_cold_init_admission.py -v
 
@@ -231,6 +243,14 @@ jobs:
       - name: Unicode lowercase generated-code sanitizer and ownership gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_word_lower_codegen.py --work "${{ runner.temp }}/word-lower-codegen-sanitized" --report "${{ runner.temp }}/word-lower-codegen-sanitized.json"
+
+      - name: Panic abort generated-code sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_panic_abort_codegen.py --work "${{ runner.temp }}/panic-abort-codegen-sanitized" --report "${{ runner.temp }}/panic-abort-codegen-sanitized/report.json"
+
+      - name: SayErr generated-code sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_say_err_codegen.py --work "${{ runner.temp }}/say-err-codegen-sanitized"
 
       - name: Owned process and filesystem sanitizer gate
         if: runner.os == 'Linux'
@@ -270,6 +290,22 @@ jobs:
         with:
           name: v4-word-lower-codegen-${{ matrix.os }}
           path: ${{ runner.temp }}/word-lower-codegen-*.json
+          if-no-files-found: warn
+
+      - name: Preserve panic abort compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-panic-abort-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/panic-abort-codegen-*/
+          if-no-files-found: warn
+
+      - name: Preserve SayErr compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-say-err-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/say-err-codegen-*/
           if-no-files-found: warn
 
       - name: Preserve Unicode runtime evidence
