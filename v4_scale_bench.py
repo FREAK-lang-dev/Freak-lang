@@ -457,8 +457,8 @@ def symbol_elf_origin_paths(stream, size: int, origin: Path, *, origin_evidence=
     else:
         raise RuntimeError("unterminated LLVM symbol reader ELF dynamic table")
     paths = [value for tag, value in tags if tag in (15, 29)]
-    # -z origin may authorize later dlopen origin lookups without a path-list
-    # or DT_NEEDED token. Such images require the existing full origin mirror.
+    # Retain explicit origin flags as metadata evidence. Their absence cannot
+    # exclude later dlopen origin lookups or a linked library's origin use.
     for wanted, bit, name in ((30, 1, "DT_FLAGS:DF_ORIGIN"),
                               (0x6ffffffb, 0x80, "DT_FLAGS_1:DF_1_ORIGIN")):
         values = [value for tag, value in tags if tag == wanted]
@@ -523,8 +523,8 @@ def symbol_shadow_origin(tool: Path, private_root: Path, *, uses_origin=True) ->
         final = index == len(tool.parts) - 2
         # A bounded point-in-time name inventory preserves origin lookup order.
         # Library bytes remain external to the executable identity guarantee.
-        # Only validated no-origin images take the scan-free path. Origin
-        # users retain the bounded full mirror for sidecar libraries' paths.
+        # Native reader launch always requests the full bounded mirror: ELF
+        # metadata cannot exclude runtime origin use or sidecar library paths.
         for sibling in (original.iterdir() if uses_origin else ()):
             entries += 1
             if entries > 8192:
@@ -651,7 +651,9 @@ def frozen_symbol_tool_launch(provenance: dict):
             with symbol_copy_stream(lambda: staged_image.open("rb"), "private metadata") as image_stream:
                 origin_paths = symbol_elf_origin_paths(image_stream, copied, tool.parent,
                                                       origin_evidence=origin_evidence)
-            uses_origin = symbol_loader_origin(tool.parent) or bool(origin_evidence)
+            symbol_loader_origin(tool.parent)  # Validate the supported loader-token grammar.
+            origin_evidence.append("runtime-origin-not-excluded")
+            uses_origin = True
             snapshot, shadow_entries = symbol_shadow_origin(tool, Path(temporary.name), uses_origin=uses_origin)
             os.replace(staged_image, snapshot)
             if os.access not in os.supports_effective_ids:
