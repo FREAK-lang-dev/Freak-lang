@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -116,10 +117,44 @@ def bounded_bootstrap_compile(checks):
         checks.run_with_heartbeat = original
 
 
-def llvm_literal_target_flags(target: str) -> list[str]:
-    # Apple Clang expands the driver triple to an SDK-versioned macOS triple.
-    # Give its IR frontend the exact TargetSpec triple already in the module.
-    return ['-Xclang', '-triple', '-Xclang', target] if target == 'aarch64-apple-darwin' else []
+def darwin_deployment_target(module: str) -> str:
+    headers = [line for line in module.split('\n') if re.match(r'\s*target\s+triple\b', line)]
+    if len(headers) != 1:
+        raise RuntimeError('Darwin deployment probe must contain exactly one target triple')
+    match = re.fullmatch(r'target triple = "((?:arm64|aarch64)-apple-macosx([1-9][0-9]*)(?:\.[0-9]+){0,2})"', headers[0])
+    if match is None:
+        raise RuntimeError('Darwin deployment probe must select a versioned Apple arm64 macOS target')
+    return match.group(1)
+
+
+def native_link_target(clang: str, runner, work: Path, target: str, report: dict) -> str:
+    if target != 'aarch64-apple-darwin':
+        return target
+    # A real frontend job initializes Darwin's SDK/deployment selection; the
+    # driver's early -print-effective-triple query need not initialize it.
+    probe = work/'darwin-deployment-probe.c'
+    probe.write_text('/* Observe the selected Clang deployment target; no executable. */\n', encoding='utf-8')
+    llvm = work/'darwin-deployment-probe.ll'
+    llvm.unlink(missing_ok=True)
+    result = runner.run([clang, '--target='+target, '-S', '-emit-llvm', '-x', 'c', str(probe), '-o', str(llvm)],
+                        'scalar Sum Darwin deployment probe', timeout=120, memory=512)
+    if result.returncode != 0 or result.stdout or result.stderr or not llvm.is_file():
+        raise RuntimeError(f'scalar Sum Darwin deployment probe failed: {result.stderr}')
+    selected = darwin_deployment_target(llvm.read_bytes().decode('utf-8'))
+    report['darwin_deployment_probe'] = {'source_sha256':sha(probe), 'module_sha256':sha(llvm), 'target':selected}
+    return selected
+
+
+def native_link_module(module: str, target: str, selected: str) -> str:
+    if target != 'aarch64-apple-darwin':
+        if selected != target:
+            raise RuntimeError('scalar Sum native target differs from its compiler target')
+        return module
+    darwin_deployment_target('target triple = "'+selected+'"\n')
+    header = 'target triple = "'+target+'"\n'
+    if not module.startswith(header) or len([line for line in module.split('\n') if re.match(r'\s*target\s+triple\b', line)]) != 1:
+        raise RuntimeError('scalar Sum Darwin module must have exactly one generic target header')
+    return 'target triple = "'+selected+'"\n'+module[len(header):]
 
 
 def run_gate(args, report: dict) -> None:
@@ -142,6 +177,7 @@ def run_gate(args, report: dict) -> None:
             compiler,_=checks.compile_runtime_smoke(args.clang,f'-I{checks.RUNTIME_ROOT}',runtime,checks.read_text(runtime),fixture,source,('-DFREAK_ARRAY_LIVE_LIMIT=1024',))
     finally: checks.RUNTIME_BUILD_ROOT=old_root
     target=build.host_target(); report['target']=target
+    link_target=native_link_target(args.clang,runner,work,target,report); report['native_target']=link_target
     report['fixture_sha256']=sha(fixture);report['driver_sha256']=sha(Path(__file__))
     report['compiler_crate_inputs']={name:sha(checks.crate_path(name)) for name in checks.CRATE_ORDER}
     report['compiler_process_contract']={'memory_limit_mib':64,'live_handle_limit':1024}
@@ -195,16 +231,20 @@ int main(int argc,char **argv){if(argc!=2)return 9;if(argv[1][0]=='a'){volatile 
             module=extract_module(emitted);llvm=work/f'{case.name}.ll';llvm.write_bytes(module.encode())
             if '@freak_v4_process_' in module or '@freak_v4_fs_' in module or '@freak_v4_word_parse_int_checked' in module:
                 raise RuntimeError('constructed carrier gate unexpectedly uses an OS/parser bridge')
+            link_llvm=llvm
+            if link_target != target:
+                link_llvm=work/f'{case.name}.link.ll'
+                link_llvm.write_bytes(native_link_module(module,target,link_target).encode())
             for opt in OPTS:
                 binary=work/f'{case.name}-O{opt}{suffix}'
                 flags=[f'-O{opt}',*AUDIT_FLAGS]
                 if not args.plain:flags+=list(SANITIZER_FLAGS)
-                result=runner.run([args.clang,'--target='+target,*llvm_literal_target_flags(target),*flags,str(llvm),*objects[opt],'-o',str(binary),*checks.runtime_platform_final_link_args()],f'scalar Sum link {case.name} O{opt}',timeout=120,memory=512)
+                result=runner.run([args.clang,'--target='+link_target,*flags,str(link_llvm),*objects[opt],'-o',str(binary),*checks.runtime_platform_final_link_args()],f'scalar Sum link {case.name} O{opt}',timeout=120,memory=512)
                 if result.returncode!=0 or result.stdout or result.stderr:raise RuntimeError(f'scalar Sum native link failed: {result.stderr}')
                 result=runner.run([str(binary)],f'scalar Sum execute {case.name} O{opt}',timeout=30,memory=128)
                 assert_case(result,case)
                 actual=result.stdout.replace('\r\n','\n') if sys.platform=='win32' else result.stdout
-                report['programs'].append({'name':case.name,'optimization':opt,'status':'pass','ownership_audits':['C','LLVM'],'policy':'abort','exit':result.returncode,'source_sha256':sha(source_path),'module_sha256':sha(llvm),'binary_sha256':sha(binary),'stdout_sha256':hashlib.sha256(actual.encode()).hexdigest(),'stderr_sha256':hashlib.sha256(result.stderr.encode()).hexdigest()})
+                report['programs'].append({'name':case.name,'optimization':opt,'status':'pass','ownership_audits':['C','LLVM'],'policy':'abort','exit':result.returncode,'source_sha256':sha(source_path),'module_sha256':sha(llvm),'link_module_sha256':sha(link_llvm),'binary_sha256':sha(binary),'stdout_sha256':hashlib.sha256(actual.encode()).hexdigest(),'stderr_sha256':hashlib.sha256(result.stderr.encode()).hexdigest()})
                 print(f'scalar Sum {case.name} O{opt}: exact exit/output PASS',flush=True)
     validate_report(report,sanitize=not args.plain)
 

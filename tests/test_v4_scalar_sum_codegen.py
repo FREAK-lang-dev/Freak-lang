@@ -4,6 +4,7 @@ import copy
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -93,20 +94,81 @@ class ScalarSumOracle(unittest.TestCase):
             flags=['-O3',*gate.AUDIT_FLAGS,*gate.SANITIZER_FLAGS]
             values={'args':SimpleNamespace(clang='clang'),'target':target,'flags':flags,'llvm':Path('module.ll'),
                     'objects':{3:['runtime.o']},'opt':3,'binary':Path('program'),
-                    'llvm_literal_target_flags':gate.llvm_literal_target_flags,
+                    'link_target':'arm64-apple-macosx15.0.0' if target=='aarch64-apple-darwin' else target,
+                    'link_llvm':Path('module.link.ll') if target=='aarch64-apple-darwin' else Path('module.ll'),
                     'checks':SimpleNamespace(runtime_platform_final_link_args=lambda:libraries),'str':str}
-            literal=['-Xclang','-triple','-Xclang',target] if target=='aarch64-apple-darwin' else []
-            self.assertEqual(gate.llvm_literal_target_flags(target),literal)
-            expected=['clang','--target='+target,*literal,*flags,'module.ll','runtime.o','-o','program',*libraries]
+            expected=['clang','--target='+values['link_target'],*flags,str(values['link_llvm']),'runtime.o','-o','program',*libraries]
             self.assertEqual(eval(argv,{'__builtins__':{}},values),expected)
-            if literal:
-                old=copy.deepcopy(call.args[0])
-                old.elts=[part for part in old.elts if not (isinstance(part,ast.Starred)
-                          and isinstance(part.value,ast.Call) and isinstance(part.value.func,ast.Name)
-                          and part.value.func.id=='llvm_literal_target_flags')]
-                self.assertNotEqual(eval(compile(ast.Expression(old),gate.__file__,'eval'),{'__builtins__':{}},values),expected)
+            self.assertNotIn('-Xclang',expected)
+            if target=='aarch64-apple-darwin':
+                old=['clang','--target='+target,'-Xclang','-triple','-Xclang',target,*flags,'module.ll','runtime.o','-o','program',*libraries]
+                self.assertNotEqual(old,expected)
         self.assertEqual({k.arg:ast.literal_eval(k.value) for k in call.keywords},{'timeout':120,'memory':512})
         self.assertIn('if result.returncode!=0 or result.stdout or result.stderr',ast.get_source_segment(source,run))
+
+    def test_darwin_probe_validates_initialized_versioned_target(self):
+        for target in ('arm64-apple-macosx11.0.0','aarch64-apple-macosx15.2','arm64-apple-macosx26.0.0'):
+            module='target triple = "'+target+'"\n'
+            self.assertEqual(gate.darwin_deployment_target(module),target)
+        for bad in ('aarch64-apple-darwin','arm64-apple-macosx0.0.0','arm64-apple-macosx',
+                    'x86_64-apple-macosx15.0.0','arm64-apple-ios15.0.0','arm64-unknown-macosx15.0.0',
+                    'arm64-apple-macosx15.0.0-simulator','arm64-apple-macosx15.0.0 extra',
+                    'arm64-apple-macosx15.0.0\n'):
+            with self.subTest(target=bad), self.assertRaises(RuntimeError):
+                gate.darwin_deployment_target('target triple = "'+bad+'"\n')
+        header='target triple = "arm64-apple-macosx15.0.0"\n'
+        for bad in ('',header.replace('\n','\r\n'),header+header,header+'  '+header,header+'target\ttriple = "other"\n'):
+            with self.assertRaises(RuntimeError): gate.darwin_deployment_target(bad)
+
+    def test_deployment_probe_is_one_bounded_darwin_only_job(self):
+        target='aarch64-apple-darwin';selected='arm64-apple-macosx15.0.0'
+        module='target triple = "'+selected+'"\n'
+        calls=[]
+        def run(command,label,**caps):
+            calls.append((command,label,caps))
+            Path(command[-1]).write_text(module)
+            return self.result()
+        with TemporaryDirectory() as directory:
+            work=Path(directory);report={};runner=SimpleNamespace(run=run)
+            for ordinary in ('x86_64-unknown-linux-gnu','aarch64-unknown-linux-gnu','x86_64-w64-windows-gnu'):
+                self.assertEqual(gate.native_link_target('clang',runner,work,ordinary,report),ordinary)
+                self.assertEqual(calls,[]);self.assertEqual(report,{})
+            self.assertEqual(gate.native_link_target('clang',runner,work,target,report),selected)
+            probe=work/'darwin-deployment-probe.c';llvm=work/'darwin-deployment-probe.ll'
+            self.assertEqual(calls,[(['clang','--target='+target,'-S','-emit-llvm','-x','c',str(probe),'-o',str(llvm)],
+                                     'scalar Sum Darwin deployment probe',{'timeout':120,'memory':512})])
+            self.assertEqual(report['darwin_deployment_probe'],{'source_sha256':gate.sha(probe),
+                             'module_sha256':gate.sha(llvm),'target':selected})
+            for result in (self.result(code=1),self.result('extra'),self.result(stderr='warning')):
+                report={}
+                with self.assertRaises(RuntimeError):
+                    gate.native_link_target('clang',SimpleNamespace(run=lambda *a,**k:result),work,target,report)
+                self.assertEqual(report,{})
+            # A stale successful LLVM file cannot substitute for this job's output.
+            llvm.write_text(module)
+            with self.assertRaises(RuntimeError):
+                gate.native_link_target('clang',SimpleNamespace(run=lambda *a,**k:self.result()),work,target,{})
+            self.assertFalse(llvm.exists())
+            def wrong(command,*args,**kwargs):
+                Path(command[-1]).write_text('target triple = "x86_64-apple-macosx15.0.0"\n')
+                return self.result()
+            with self.assertRaises(RuntimeError):
+                gate.native_link_target('clang',SimpleNamespace(run=wrong),work,target,{})
+
+    def test_native_module_changes_only_one_darwin_target_header(self):
+        body='target datalayout = "e-m:o-i64:64"\n%pair = type { i1, i64 }\ndefine i64 @main() { ret i64 0 }\n'
+        for target in ('x86_64-unknown-linux-gnu','aarch64-unknown-linux-gnu','x86_64-w64-windows-gnu'):
+            module='target triple = "'+target+'"\n'+body
+            self.assertIs(gate.native_link_module(module,target,target),module)
+            with self.assertRaises(RuntimeError): gate.native_link_module(module,target,'wrong')
+        header='target triple = "aarch64-apple-darwin"\n'
+        module=header+body;selected='arm64-apple-macosx15.0.0'
+        linked=gate.native_link_module(module,'aarch64-apple-darwin',selected)
+        self.assertEqual(linked,'target triple = "'+selected+'"\n'+body)
+        self.assertEqual(linked.split('\n',1)[1].encode(),module.split('\n',1)[1].encode())
+        for bad in (body,module+header,module+'  '+header,module.replace('aarch64-apple-darwin',selected)):
+            with self.assertRaises(RuntimeError): gate.native_link_module(bad,'aarch64-apple-darwin',selected)
+        with self.assertRaises(RuntimeError): gate.native_link_module(module,'aarch64-apple-darwin','aarch64-apple-darwin')
 
     def test_runtime_audit_and_sanitizer_builds_use_the_native_target(self):
         run=next(node for node in ast.parse(Path(gate.__file__).read_text()).body
