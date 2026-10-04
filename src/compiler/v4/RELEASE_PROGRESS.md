@@ -141,5 +141,27 @@ Sum crossing the C ABI must retain both frontend rejection and the named native
 error before any module is published. Current-head strict and generated typed
 gates, platform CI and independent review remain required before PR readiness.
 
+At `1917f3e`, one compiler bootstrap and all 25 strict typed contracts pass
+with independent endpoint review. All 26 CI jobs complete: 23 pass; Windows
+finds a platform-path spelling mismatch in a Sum test, while Linux/macOS find
+an unreachable live MIR join in the first typed filesystem program. Separate
+bounded nine-input facts and ten-job getter diagnostics confirm the exact MIR
+error in seven unchanged programs; these observations are not native gate
+passes. The test now derives the expected runtime path from its path object.
+
+Built-MIR closes a completed Maybe/Result join only when it has no predecessors.
+It checks later source through a private diagnostic continuation, then uses
+existing checked compaction before validation or publication. Nested terminal
+if/else joins receive this treatment only within check arms, whose construction
+context saves and restores its previous value. Missing bindings in later
+source retain a named error and original span. Result display targets compact
+with the actual block edges. CFG validation, detached snapshot admission,
+native seals, ABI fences and the nine-program/forty-case typed matrix retain
+their original contracts. Fifteen registered regressions cover terminal and
+live joins, nested checks/if arms, loop exits, later source errors, ownership,
+canonical roundtrips and hostile live/detached endpoints. Current-head focused,
+Sum compiler/native, typed generated gates and all platform CI remain readiness
+requirements; historical receipts retain their recorded revisions.
+
 These checks do not complete default compiler unwind, self-hosting or V3
 replacement. The release version remains unchanged; no release tag is created.
