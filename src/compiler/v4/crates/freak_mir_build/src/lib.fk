@@ -5780,7 +5780,7 @@ task v4_mir_lower_expr_expected(mir_id: int, body_id: int, stream_id: int, start
         -- A missing source binding must not disappear with its runtime row.
         pilot resolve_id = v4_ty_resolve_id(v4_mir_ty_id(mir_id))
         if v4_mir_control_diagnostic_depth > 0 and v4_resolve_lookup_any(resolve_id, first_value) < 0 {
-            v4_mir_add_type_error(mir_id, expr_span, "unknown name in unreachable source", "Meiya cannot find " + first_value + " in this scope")
+            v4_mir_add_type_error(mir_id, v4_lex_token_span(stream_id, first), "unknown name in unreachable source", "Meiya cannot find " + first_value + " in this scope")
         }
         give back v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_symbol, first_value, first_value, 0 - 1, 0 - 1, expr_span, v4_mir_symbol_value_type(mir_id, first_value))
     }
