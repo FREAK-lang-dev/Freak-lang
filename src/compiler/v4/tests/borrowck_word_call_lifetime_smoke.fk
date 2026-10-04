@@ -59,7 +59,7 @@ task v4_call_lifetime_run() -> void {
     if mode == "8" {
         helpers = helpers + "task peek(lend mut edit: word, observed: int) -> int " + chr(123) + " give back observed " + chr(125) + "\n"
         statements = "pilot mut text = \"owned\"; give back peek(lend mut text, text.length())"
-        message = "Meiya refuses observation through an exclusive lend"
+        message = "Meiya refuses overlapping mutable lends"
     }
     if mode == "10" {
         helpers = helpers + "task share(lend source: word) -> lend word " + chr(123) + " give back lend source " + chr(125) + "\n"
