@@ -8509,8 +8509,18 @@ task v4_mir_lower_check_route_stmt(mir_id: int, body_id: int, block_id: int, str
                 }
                 pilot cond_text = v4_mir_rvalue_text(mir_id, body_id, cond_rvalue)
                 pilot next_check = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
-                v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_if, arm_block, next_check, cond_text))
-                v4_mir_build_add_scoped_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
+                -- Preserve all pattern checks before eliminating the impossible
+                -- unmatched edge of the last irrefutable declared route case.
+                pilot completes_route: bool = false
+                if pattern_full_route_case != "" {
+                    completes_route = v4_mir_route_all_cases_covered(mir_id, subject_ty, v4_mir_name_list_add(route_covered_cases, pattern_full_route_case))
+                }
+                if completes_route {
+                    v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_goto, arm_block, 0 - 1, ""))
+                } else {
+                    v4_mir_set_body_block(mir_id, body_id, current_check, v4_mir_block_new_full(current_check, v4_mir_term_if, arm_block, next_check, cond_text))
+                    v4_mir_build_add_scoped_stmt(mir_id, body_id, current_check, v4_mir_stmt_branch, cond_text, "arm#" + word_from_int(arm_block) + " next#" + word_from_int(next_check), stmt_span, 0 - 1, cond_rvalue)
+                }
                 current_check = next_check
             }
             v4_mir_push_scope_span(arm_span)

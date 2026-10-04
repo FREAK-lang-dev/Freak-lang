@@ -5,21 +5,23 @@ task v4_route_terminal_assert(condition: bool, label: word) -> void {
 task v4_route_terminal_braces(inner: word) -> word {
     give back chr(123) + inner + chr(125)
 }
-task v4_route_terminal_source(mode: word) -> word {
+task v4_route_terminal_source(mode: word, check_route: bool) -> word {
+    pilot dispatch = "when"
+    if check_route { dispatch = "check route" }
     if mode == "1" {
-        give back "shape Ship " + v4_route_terminal_braces(" hp: int ") + "\nroute Stored<A,B> " + v4_route_terminal_braces(" Hold " + v4_route_terminal_braces(" left: A, right: B ") + "\n Empty\n") + "\ntask score(first: Ship) -> int " + v4_route_terminal_braces("\n pilot stored = Stored<lend mut Ship,int>::Hold " + v4_route_terminal_braces(" left: lend mut first, right: 0 ") + "\n when stored " + v4_route_terminal_braces("\n Stored::Hold " + v4_route_terminal_braces(" left, right ") + " -> " + v4_route_terminal_braces(" first.hp = 24; give back left.hp ") + "\n Stored::Empty -> give back 0\n") + "\n") + "\n"
+        give back "shape Ship " + v4_route_terminal_braces(" hp: int ") + "\nroute Stored<A,B> " + v4_route_terminal_braces(" Hold " + v4_route_terminal_braces(" left: A, right: B ") + "\n Empty\n") + "\ntask score(first: Ship) -> int " + v4_route_terminal_braces("\n pilot stored = Stored<lend mut Ship,int>::Hold " + v4_route_terminal_braces(" left: lend mut first, right: 0 ") + "\n " + dispatch + " stored " + v4_route_terminal_braces("\n Stored::Hold " + v4_route_terminal_braces(" left, right ") + " -> " + v4_route_terminal_braces(" first.hp = 24; give back left.hp ") + "\n Stored::Empty -> give back 0\n") + "\n") + "\n"
     }
     if mode == "3" or mode == "4" {
         pilot pattern = "code: 9"
         if mode == "4" { pattern = "absent" }
-        give back "route Event " + v4_route_terminal_braces(" Key " + v4_route_terminal_braces(" code: int ") + "\n Closed\n") + "\ntask score(event: Event) -> int " + v4_route_terminal_braces("\n when event " + v4_route_terminal_braces("\n Closed -> give back 0\n Key " + v4_route_terminal_braces(pattern) + " -> give back 9\n") + "\n give back -1\n") + "\n"
+        give back "route Event " + v4_route_terminal_braces(" Key " + v4_route_terminal_braces(" code: int ") + "\n Closed\n") + "\ntask score(event: Event) -> int " + v4_route_terminal_braces("\n " + dispatch + " event " + v4_route_terminal_braces("\n Closed -> give back 0\n Key " + v4_route_terminal_braces(pattern) + " -> give back 9\n") + "\n give back -1\n") + "\n"
     }
     pilot arms = "Victory -> give back 3\n"
     if mode != "2" { arms = arms + "Outcome::Defeat -> give back 0\n" }
     if mode == "5" { arms = arms + "Victory -> give back 1\n" }
     pilot tail = ""
     if mode == "2" { tail = "give back -1\n" }
-    give back "route Outcome " + v4_route_terminal_braces(" Victory / Defeat ") + "\ntask score(outcome: Outcome) -> int " + v4_route_terminal_braces("\n when outcome " + v4_route_terminal_braces(arms) + "\n" + tail) + "\n"
+    give back "route Outcome " + v4_route_terminal_braces(" Victory / Defeat ") + "\ntask score(outcome: Outcome) -> int " + v4_route_terminal_braces("\n " + dispatch + " outcome " + v4_route_terminal_braces(arms) + "\n" + tail) + "\n"
 }
 task v4_route_terminal_has_diag(mir: int, message: word) -> bool {
     pilot row = 0
@@ -30,8 +32,15 @@ task v4_route_terminal_has_diag(mir: int, message: word) -> bool {
     give back false
 }
 task v4_route_terminal_run() -> void {
-    pilot mode = process::arg(1)
-    pilot mir = v4_mir_text_cached("route-terminal.fk", v4_route_terminal_source(mode))
+    pilot case_id = process::arg(1)
+    pilot mode = case_id
+    pilot check_route = word_to_int(case_id) >= 7
+    if check_route { mode = word_from_int(word_to_int(case_id) - 7) }
+    pilot missing_message = "non-exhaustive route when"
+    pilot duplicate_message = "unreachable when arm"
+    pilot orphan_reason = "exhaustive route when"
+    if check_route { missing_message = "non-exhaustive check route"; duplicate_message = "unreachable check route arm"; orphan_reason = "exhaustive check route" }
+    pilot mir = v4_mir_text_cached("route-terminal.fk", v4_route_terminal_source(mode, check_route))
     v4_route_terminal_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0, "source TY facts")
     pilot body = v4_mir_lookup_body_name(mir, "score")
     v4_route_terminal_assert(body >= 0, "actual score body")
@@ -42,7 +51,7 @@ task v4_route_terminal_run() -> void {
     repeat until row >= v4_mir_body_block_count(mir, body) {
         pilot record = v4_mir_body_block(mir, body, row)
         if v4_mir_block_terminator(record) == v4_mir_term_if { branches += 1 }
-        if v4_mir_block_terminator(record) == v4_mir_term_unreachable and v4_mir_block_condition(record) == "exhaustive route when" { orphan = row }
+        if v4_mir_block_terminator(record) == v4_mir_term_unreachable and v4_mir_block_condition(record) == orphan_reason { orphan = row }
         row += 1
     }
     if mode == "0" or mode == "1" or mode == "6" {
@@ -56,10 +65,10 @@ task v4_route_terminal_run() -> void {
         }
         v4_route_terminal_assert(incoming == 0, "final unmatched block is detached")
     }
-    if mode == "2" { v4_route_terminal_assert(branches == 1 and orphan < 0 and v4_route_terminal_has_diag(mir, "non-exhaustive route when"), "missing case stays conditional and diagnosed") }
-    if mode == "3" { v4_route_terminal_assert(branches == 2 and orphan < 0 and v4_route_terminal_has_diag(mir, "non-exhaustive route when"), "refutable payload does not prove coverage") }
-    if mode == "4" { v4_route_terminal_assert(branches == 2 and orphan < 0 and v4_route_terminal_has_diag(mir, "unknown route pattern field") and v4_route_terminal_has_diag(mir, "non-exhaustive route when"), "final pattern is checked before publication") }
-    if mode == "5" { v4_route_terminal_assert(branches == 1 and orphan >= 0 and v4_route_terminal_has_diag(mir, "unreachable when arm"), "duplicate arm diagnostic survives") }
+    if mode == "2" { v4_route_terminal_assert(branches == 1 and orphan < 0 and v4_route_terminal_has_diag(mir, missing_message), "missing case stays conditional and diagnosed") }
+    if mode == "3" { v4_route_terminal_assert(branches == 2 and orphan < 0 and v4_route_terminal_has_diag(mir, missing_message), "refutable payload does not prove coverage") }
+    if mode == "4" { v4_route_terminal_assert(branches == 2 and orphan < 0 and v4_route_terminal_has_diag(mir, "unknown route pattern field") and v4_route_terminal_has_diag(mir, missing_message), "final pattern is checked before publication") }
+    if mode == "5" { v4_route_terminal_assert(branches == 1 and orphan >= 0 and v4_route_terminal_has_diag(mir, duplicate_message), "duplicate arm diagnostic survives") }
     if mode == "0" or mode == "1" or mode == "6" {
         pilot borrow = v4_borrowck_check_mir(0, mir)
         pilot result_id = v4_borrowck_lookup_result(borrow, v4_mir_body_def(mir, body))
@@ -79,6 +88,6 @@ task v4_route_terminal_run() -> void {
         v4_route_terminal_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "recover valid baseline")
         v4_route_terminal_assert(v4_mir_snapshot_restore(malformed).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == snapshot, "hostile wire rejected atomically")
     }
-    say "route-terminal case=" + mode + " pattern=true coverage=true terminal=true loan=true restore=true"
+    say "route-terminal case=" + case_id + " pattern=true coverage=true terminal=true loan=true restore=true"
 }
 v4_route_terminal_run()
