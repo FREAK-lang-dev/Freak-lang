@@ -5,6 +5,7 @@ from pathlib import Path
 import signal
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('panic_gate',Path(__file__).with_name('v4_panic_abort_codegen.py'))
 gate=importlib.util.module_from_spec(spec);spec.loader.exec_module(gate)
 class PanicAbortOracle(unittest.TestCase):
@@ -67,7 +68,7 @@ class PanicAbortOracle(unittest.TestCase):
             with self.subTest(case=case.name),self.assertRaises(RuntimeError):gate.assert_case(self.result(wrong),case,platform='linux')
             with self.subTest(case=case.name),self.assertRaises(RuntimeError):gate.assert_case(self.result(case.stdout,'FREAK: unavailable word\n',1),case,platform='linux')
     def test_native_link_uses_emitted_target_and_keeps_strict_guards(self):
-        tree=ast.parse(Path(gate.__file__).read_text())
+        tree=ast.parse(Path(gate.__file__).read_text(encoding='utf-8'))
         run_gate=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='run_gate')
         calls=[node for node in ast.walk(run_gate) if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='run' and len(node.args)>1 and isinstance(node.args[1],ast.JoinedStr) and any(isinstance(part,ast.Constant) and part.value=='panic link ' for part in node.args[1].values)]
         self.assertEqual(len(calls),1)
@@ -80,7 +81,14 @@ class PanicAbortOracle(unittest.TestCase):
                 self.assertEqual(argv,['clang','--target='+target,*flags,'module.ll','runtime.O3.o','-o','program.native',*libraries])
                 self.assertFalse(any(value=='-w' or value.startswith('-Wno-') for value in argv))
         self.assertEqual({keyword.arg:ast.literal_eval(keyword.value) for keyword in calls[0].keywords},{'timeout':120,'memory':512})
-        self.assertIn('require_native_link(result, target)',ast.get_source_segment(Path(gate.__file__).read_text(),run_gate))
+        self.assertIn('require_native_link(result, target)',ast.get_source_segment(Path(gate.__file__).read_text(encoding='utf-8'),run_gate))
+
+    def test_native_link_source_reads_ignore_default_encoding(self):
+        read_text = Path.read_text
+        def windows_read_text(path, encoding=None, errors=None):
+            return read_text(path, encoding=encoding or 'cp1252', errors=errors)
+        with patch.object(Path, 'read_text', windows_read_text):
+            self.test_native_link_uses_emitted_target_and_keeps_strict_guards()
 
     def test_link_allows_only_same_architecture_darwin_canonicalization(self):
         warning = ('warning: overriding the module target triple with arm64-apple-macosx26.0.0 '
