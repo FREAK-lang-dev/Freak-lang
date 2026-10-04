@@ -108,31 +108,50 @@ def temporary_runtime_root(checks, replacement):
         if original is not missing:
             checks.RUNTIME_BUILD_ROOT = original
         return True
-    actions = (("restore-runtime-root", root_action),)
     def restore():
-        for stage, action in actions:
-            restore_once_or_retry(cleanup, stage, action)
+        restore_once_or_retry(cleanup, "restore-runtime-root", root_action)
         return True
+    body_error = dispatch_error = root_error = root_retry_error = None
+    completed = False
     try:
         original = checks.RUNTIME_BUILD_ROOT
         checks.RUNTIME_BUILD_ROOT = replacement
         yield
     except BaseException as primary:
+        body_error = primary
+        raise
+    finally:
         try:
-            if cleanup.attempt("restore-runtime-dispatch", restore) is not True:
-                for stage, action in actions:
-                    if cleanup.attempt(stage, action) is not True:
-                        cleanup.attempt(stage + "-retry", action)
-            cleanup.attach(primary)
+            completed = cleanup.attempt("restore-runtime-dispatch", restore) is True
+        except BaseException as error:
+            dispatch_error = error
+        finally:
+            if not completed:
+                # Mandatory recovery calls no evidence or diagnostic helper.
+                try:
+                    root_action()
+                except BaseException as error:
+                    root_error = error
+                    try:
+                        root_action()
+                    except BaseException as error:
+                        root_retry_error = error
+        first = cleanup.first
+        if first is None: first = dispatch_error
+        if first is None: first = root_error
+        if first is None: first = root_retry_error
+        # Reporting begins only after every required restoration attempt.
+        try:
+            for stage, error in (("restore-runtime-dispatch", dispatch_error),
+                                 ("restore-runtime-root", root_error), ("restore-runtime-root-retry", root_retry_error)):
+                if error is not None and len(cleanup.failures) < 8:
+                    cleanup.failures.append({"stage": stage, **descriptor(error)})
+            target = body_error if body_error is not None else first
+            if target is not None: cleanup.attach(target)
         except BaseException:
             pass
-        raise
-    else:
-        if cleanup.attempt("restore-runtime-dispatch", restore) is not True:
-            for stage, action in actions:
-                if cleanup.attempt(stage, action) is not True:
-                    cleanup.attempt(stage + "-retry", action)
-        cleanup.raise_first()
+        if body_error is None and first is not None:
+            raise first
 
 
 def qualified_data(value):
@@ -460,7 +479,6 @@ def bootstrap_dispatch(checks, runner):
             pins.guards = registry
             registry[:] = snapshot
         return True
-    actions = (("restore-bootstrap-helper", helper_action), ("restore-bootstrap-registry", registry_action))
     def restore():
         # Each independent restoration runs before any retry. A failed helper
         # setter must not prevent restoration of the exact prior registry.
@@ -471,6 +489,8 @@ def bootstrap_dispatch(checks, runner):
         if registry_ok is not True:
             cleanup.attempt("restore-bootstrap-registry-retry", registry_action)
         return True
+    body_error = dispatch_error = helper_error = registry_error = helper_retry_error = registry_retry_error = None
+    completed = False
     try:
         original = checks.run_with_heartbeat
         pins = runner.conservation
@@ -483,21 +503,57 @@ def bootstrap_dispatch(checks, runner):
                            for owner, expected, seal in snapshot]
         yield calls
     except BaseException as primary:
+        body_error = primary
+        raise
+    finally:
         try:
-            if cleanup.attempt("restore-bootstrap-dispatch", restore) is not True:
-                for stage, action in actions:
-                    if cleanup.attempt(stage, action) is not True:
-                        cleanup.attempt(stage + "-retry", action)
-            cleanup.attach(primary)
+            completed = cleanup.attempt("restore-bootstrap-dispatch", restore) is True
+        except BaseException as error:
+            dispatch_error = error
+        finally:
+            if not completed:
+                # Mandatory recovery is caller-owned and each state is
+                # independent. Evidence failures cannot skip these actions.
+                try:
+                    helper_action()
+                except BaseException as error:
+                    helper_error = error
+                finally:
+                    try:
+                        registry_action()
+                    except BaseException as error:
+                        registry_error = error
+                try:
+                    if helper_error is not None:
+                        try:
+                            helper_action()
+                        except BaseException as error:
+                            helper_retry_error = error
+                finally:
+                    if registry_error is not None:
+                        try:
+                            registry_action()
+                        except BaseException as error:
+                            registry_retry_error = error
+        first = cleanup.first
+        if first is None: first = dispatch_error
+        if first is None: first = helper_error
+        if first is None: first = registry_error
+        if first is None: first = helper_retry_error
+        if first is None: first = registry_retry_error
+        # Optional evidence cannot block restoration or replace its first error.
+        try:
+            for stage, error in (("restore-bootstrap-dispatch", dispatch_error),
+                                 ("restore-bootstrap-helper", helper_error), ("restore-bootstrap-registry", registry_error),
+                                 ("restore-bootstrap-helper-retry", helper_retry_error), ("restore-bootstrap-registry-retry", registry_retry_error)):
+                if error is not None and len(cleanup.failures) < 8:
+                    cleanup.failures.append({"stage": stage, **descriptor(error)})
+            target = body_error if body_error is not None else first
+            if target is not None: cleanup.attach(target)
         except BaseException:
             pass
-        raise
-    else:
-        if cleanup.attempt("restore-bootstrap-dispatch", restore) is not True:
-            for stage, action in actions:
-                if cleanup.attempt(stage, action) is not True:
-                    cleanup.attempt(stage + "-retry", action)
-        cleanup.raise_first()
+        if body_error is None and first is not None:
+            raise first
 
 OPTS = (0, 2, 3)
 VARIANTS = ("direct", "live")

@@ -744,5 +744,77 @@ class WordBoundsOracles(unittest.TestCase):
             finally: cell.cell_contents = leaf
             pins.check(); self.assertFalse(calls)
 
+    def test_evidence_dispatch_entry_failures_cannot_skip_mandatory_restoration(self):
+        for context_name in ('bootstrap_dispatch', 'temporary_runtime_root'):
+            for primary_kind in (RuntimeError, KeyboardInterrupt, None):
+                for secondary_kind in (MemoryError, KeyboardInterrupt):
+                    def original(*args, **kwargs): raise AssertionError('guard body is forbidden')
+                    checks = SimpleNamespace(run_with_heartbeat=original, RUNTIME_BUILD_ROOT='caller-root')
+                    registry = [(checks, original, gate.function_seal(original))]; snapshot = tuple(registry)
+                    pins = SimpleNamespace(guards=registry); runner = SimpleNamespace(conservation=pins)
+                    primary = primary_kind('body first cause') if primary_kind else None
+                    cause = ValueError('explicit cause')
+                    if primary is not None: primary.__cause__ = cause
+                    secondary = secondary_kind('evidence dispatch entry'); triggered = []
+                    stage = 'restore-bootstrap-dispatch' if context_name == 'bootstrap_dispatch' else 'restore-runtime-dispatch'
+                    def trace(frame, event, arg):
+                        if event == 'call' and frame.f_code is gate.Evidence.attempt.__code__ and frame.f_locals.get('stage') == stage:
+                            triggered.append(True); raise secondary
+                        return trace
+                    previous_trace = sys.gettrace(); sys.settrace(trace)
+                    try:
+                        expected = primary if primary is not None else secondary
+                        with self.assertRaises(type(expected)) as raised:
+                            context = gate.bootstrap_dispatch(checks, runner) if context_name == 'bootstrap_dispatch' \
+                                else gate.temporary_runtime_root(checks, 'temporary-root')
+                            with context:
+                                if primary is not None: raise primary
+                    finally: sys.settrace(previous_trace)
+                    self.assertEqual(triggered, [True]); self.assertIs(raised.exception, expected)
+                    if primary is not None: self.assertIs(primary.__cause__, cause)
+                    self.assertIs(checks.run_with_heartbeat, original); self.assertIs(pins.guards, registry)
+                    self.assertEqual(tuple(registry), snapshot); self.assertEqual(checks.RUNTIME_BUILD_ROOT, 'caller-root')
+                    self.assertEqual(expected.bounds_secondary_failures[0], {'stage': stage, 'type': secondary_kind.__name__})
+
+    def test_reporting_entry_failure_follows_restoration_and_preserves_first_error(self):
+        for context_name in ('bootstrap_dispatch', 'temporary_runtime_root'):
+            for primary_kind in (RuntimeError, KeyboardInterrupt, None):
+                for secondary_kind in (MemoryError, KeyboardInterrupt):
+                    def original(*args, **kwargs): raise AssertionError('guard body is forbidden')
+                    primary = primary_kind('body first cause') if primary_kind else None
+                    cause = ValueError('explicit cause')
+                    if primary is not None: primary.__cause__ = cause
+                    cleanup_error = MemoryError('first restoration error'); report_error = secondary_kind('report entry')
+                    target_name = 'run_with_heartbeat' if context_name == 'bootstrap_dispatch' else 'RUNTIME_BUILD_ROOT'
+                    target_value = original if context_name == 'bootstrap_dispatch' else 'caller-root'
+                    class Checks(SimpleNamespace):
+                        def __setattr__(self, name, value):
+                            if name == target_name and getattr(self, 'fail', False) and value is target_value:
+                                self.fail = False; raise cleanup_error
+                            super().__setattr__(name, value)
+                    checks = Checks(run_with_heartbeat=original, RUNTIME_BUILD_ROOT='caller-root', fail=False)
+                    registry = [(checks, original, gate.function_seal(original))]; snapshot = tuple(registry)
+                    pins = SimpleNamespace(guards=registry); runner = SimpleNamespace(conservation=pins); triggered = []
+                    def trace(frame, event, arg):
+                        if event == 'call' and frame.f_code is gate.Evidence.attach.__code__:
+                            self.assertIs(checks.run_with_heartbeat, original); self.assertIs(pins.guards, registry)
+                            self.assertEqual(tuple(registry), snapshot); self.assertEqual(checks.RUNTIME_BUILD_ROOT, 'caller-root')
+                            triggered.append(True); raise report_error
+                        return trace
+                    previous_trace = sys.gettrace(); sys.settrace(trace)
+                    try:
+                        expected = primary if primary is not None else cleanup_error
+                        with self.assertRaises(type(expected)) as raised:
+                            context = gate.bootstrap_dispatch(checks, runner) if context_name == 'bootstrap_dispatch' \
+                                else gate.temporary_runtime_root(checks, 'temporary-root')
+                            with context:
+                                if primary is not None: raise primary
+                                checks.fail = True
+                    finally: sys.settrace(previous_trace)
+                    self.assertEqual(triggered, [True]); self.assertIs(raised.exception, expected)
+                    if primary is not None: self.assertIs(primary.__cause__, cause)
+                    self.assertIs(checks.run_with_heartbeat, original); self.assertIs(pins.guards, registry)
+                    self.assertEqual(tuple(registry), snapshot); self.assertEqual(checks.RUNTIME_BUILD_ROOT, 'caller-root')
+
 
 if __name__ == '__main__': unittest.main()
