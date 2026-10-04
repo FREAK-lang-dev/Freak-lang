@@ -369,7 +369,40 @@ def require_frozen_symbol_tool(provenance: dict) -> str:
     return selected
 
 
-def symbol_elf_origin_paths(stream, size: int, origin: Path) -> list[str]:
+def symbol_origin_expansion(value: str, origin: Path) -> bool:
+    if "$" not in value:
+        return False
+    match = re.fullmatch(r"(?:\$ORIGIN|\$\{ORIGIN\})(/.*)?", value)
+    if not match or "$" in (match[1] or ""):
+        raise RuntimeError("unsupported LLVM symbol reader ELF origin expansion")
+    depth = len(origin.parts) - 1
+    for part in (match[1] or "").split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            depth -= 1
+            if depth < 0:
+                raise RuntimeError("LLVM symbol reader ELF origin path escapes the shadow root")
+        elif re.fullmatch(r"[A-Za-z0-9_.+-]+", part):
+            depth += 1
+        else:
+            raise RuntimeError("unsupported LLVM symbol reader ELF origin component")
+    return True
+
+
+def symbol_loader_origin(origin: Path) -> bool:
+    used = False
+    for name, value in os.environ.items():
+        if not name.startswith("LD_") or "$" not in value:
+            continue
+        if name not in ("LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "LD_ORIGIN_PATH") or len(value) > 4096:
+            raise RuntimeError("unsupported LLVM symbol reader loader origin setting")
+        for entry in re.split(r"[:\s]", value):
+            used = symbol_origin_expansion(entry, origin) or used
+    return used
+
+
+def symbol_elf_origin_paths(stream, size: int, origin: Path, *, origin_evidence=None) -> list[str]:
     """Admit bounded ELF origin paths without changing loader search semantics."""
     def read(offset, count):
         if offset < 0 or count < 0 or offset + count > size:
@@ -424,6 +457,10 @@ def symbol_elf_origin_paths(stream, size: int, origin: Path) -> list[str]:
     else:
         raise RuntimeError("unterminated LLVM symbol reader ELF dynamic table")
     paths = [value for tag, value in tags if tag in (15, 29)]
+    # Other string-bearing loader-dependency tags need a separate contract;
+    # do not misclassify an unmodeled origin source as a no-origin image.
+    if any(tag in (0x6ffffefb, 0x6ffffefc, 0x7ffffffd, 0x7fffffff) for tag, _ in tags):
+        raise RuntimeError("unsupported LLVM symbol reader ELF loader dependency tag")
     if not paths and not any(tag == 1 for tag, _ in tags):
         return []
     tables = [value for tag, value in tags if tag == 5]
@@ -450,23 +487,8 @@ def symbol_elf_origin_paths(stream, size: int, origin: Path) -> list[str]:
             raise RuntimeError("unsupported LLVM symbol reader ELF origin encoding") from error
 
     def validate(value):
-        if "$" not in value:
-            return
-        match = re.fullmatch(r"(?:\$ORIGIN|\$\{ORIGIN\})(/.*)?", value)
-        if not match or "$" in (match[1] or ""):
-            raise RuntimeError("unsupported LLVM symbol reader ELF origin expansion")
-        depth = len(origin.parts) - 1
-        for part in (match[1] or "").split("/"):
-            if part in ("", "."):
-                continue
-            if part == "..":
-                depth -= 1
-                if depth < 0:
-                    raise RuntimeError("LLVM symbol reader ELF origin path escapes the shadow root")
-            elif re.fullmatch(r"[A-Za-z0-9_.+-]+", part):
-                depth += 1
-            else:
-                raise RuntimeError("unsupported LLVM symbol reader ELF origin component")
+        if symbol_origin_expansion(value, origin) and origin_evidence is not None:
+            origin_evidence.append(value)
 
     result = []
     for value in paths:
@@ -480,7 +502,7 @@ def symbol_elf_origin_paths(stream, size: int, origin: Path) -> list[str]:
     return result
 
 
-def symbol_shadow_origin(tool: Path, private_root: Path) -> tuple[Path, int]:
+def symbol_shadow_origin(tool: Path, private_root: Path, *, uses_origin=True) -> tuple[Path, int]:
     """Mirror only the canonical ancestor spine; sibling links are not copied."""
     if not tool.is_absolute() or len(tool.parts) > 64:
         raise RuntimeError("unsupported LLVM symbol reader shadow-origin path depth")
@@ -491,7 +513,9 @@ def symbol_shadow_origin(tool: Path, private_root: Path) -> tuple[Path, int]:
         final = index == len(tool.parts) - 2
         # A bounded point-in-time name inventory preserves origin lookup order.
         # Library bytes remain external to the executable identity guarantee.
-        for sibling in original.iterdir():
+        # Only validated no-origin images take the scan-free path. Origin
+        # users retain the bounded full mirror for sidecar libraries' paths.
+        for sibling in (original.iterdir() if uses_origin else ()):
             entries += 1
             if entries > 8192:
                 raise RuntimeError("LLVM symbol reader shadow-origin entry limit exceeded")
@@ -556,11 +580,11 @@ def frozen_symbol_tool_launch(provenance: dict):
                 raise RuntimeError("pinned LLVM symbol reader must be a regular ELF image")
             if before.st_size > 128 * 1024 * 1024:
                 raise RuntimeError("LLVM symbol reader private image exceeds the 128 MiB image limit")
-            snapshot, shadow_entries = symbol_shadow_origin(tool, Path(temporary.name))
+            staged_image = Path(temporary.name) / "image"
             digest = hashlib.sha256()
             source.seek(0)
             copied = 0
-            with snapshot.open("xb") as writer:
+            with staged_image.open("xb") as writer:
                 while chunk := source.read(64 * 1024):
                     copied += len(chunk)
                     if copied > before.st_size:
@@ -574,8 +598,19 @@ def frozen_symbol_tool_launch(provenance: dict):
             expected = provenance["nm_file"]
             if copied != expected["size_bytes"] or digest.hexdigest() != expected["sha256"]:
                 raise RuntimeError("frozen LLVM symbol tool changed or became unavailable")
-            with snapshot.open("rb") as image_stream:
-                origin_paths = symbol_elf_origin_paths(image_stream, copied, tool.parent)
+            origin_evidence = []
+            with staged_image.open("rb") as image_stream:
+                origin_paths = symbol_elf_origin_paths(image_stream, copied, tool.parent,
+                                                      origin_evidence=origin_evidence)
+            uses_origin = symbol_loader_origin(tool.parent) or bool(origin_evidence)
+            snapshot, shadow_entries = symbol_shadow_origin(tool, Path(temporary.name), uses_origin=uses_origin)
+            os.replace(staged_image, snapshot)
+            if os.access not in os.supports_effective_ids:
+                raise RuntimeError("LLVM symbol reader requires effective-credential execute checks")
+            # Check the opened object, including effective credentials and ACLs,
+            # rather than a pathname or alias that may now name another inode.
+            if not os.access(f"/proc/self/fd/{source.fileno()}", os.X_OK, effective_ids=True):
+                raise RuntimeError("selected LLVM symbol reader execute permission was revoked or unavailable")
         # The original reader and the private writer are closed before launch.
         snapshot.chmod(0o500)
         if os.statvfs(snapshot).f_flag & os.ST_NOEXEC:
@@ -602,6 +637,7 @@ def frozen_symbol_tool_launch(provenance: dict):
                  "private_copy": str(snapshot), "private_root": temporary.name,
                  "private_directory_mode": "0700", "image_mode": "0500",
                  "sealed": False, "shadow_entries": shadow_entries, "origin_paths": origin_paths,
+                 "origin_mirror_required": uses_origin,
                  "original_image": {"device": after.st_dev, "inode": after.st_ino,
                                     "size_bytes": after.st_size, "sha256": digest.hexdigest()},
                  "identity_guarantee": "private copy is independent of selected-original writes/replacement; "
@@ -633,6 +669,11 @@ def frozen_symbol_tool_launch(provenance: dict):
                     f"secondary LLVM symbol reader descriptor close failure: errno={number}; {detail}")
             except BaseException:
                 pass
+        except BaseException as close_error:
+            # A close-time cancellation/allocation failure is already unwinding.
+            # Record it so a secondary private-tree cleanup fault cannot mask it.
+            close_failure = close_error
+            raise
         finally:
             # Only this call's private tree is removed; sibling links are never
             # traversed. Preserve an already attributed launch/close failure.
