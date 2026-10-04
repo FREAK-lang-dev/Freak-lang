@@ -209,19 +209,30 @@ def validate_report(report: dict, cases: tuple[Case, ...], sanitize: bool) -> No
     expected_names = set(OWNED_SOURCE_NAMES) | {GUARD_SOURCE_NAME}
     require(set(report.get("source_hashes", {})) == expected_names and
             report.get("source_hashes") == report.get("final_source_hashes") and
+            report.get("source_hashes") == report.get("final_frozen_source_hashes") and
             all(re.fullmatch(r"[0-9a-f]{64}", digest) for digest in report["source_hashes"].values()),
             "incomplete source freeze or final source conservation")
     require(report.get("compiler", {}).get("sha256") == report.get("final_compiler_sha256") and
             re.fullmatch(r"[0-9a-f]{64}", report["compiler"]["sha256"]) is not None and
+            type(report["compiler"].get("selected")) is str and report["compiler"]["selected"] != "" and
+            type(report["compiler"].get("path")) is str and report["compiler"]["path"] != "" and
+            report["compiler"]["path"] == report.get("final_selected_compiler") and
             isinstance(report["compiler"].get("target"), str) and report["compiler"]["target"] != "",
             "missing compiler identity/target conservation")
     matrices = report.get("matrices", [])
     require([row.get("optimization") for row in matrices] == list(OPTS), "missing/duplicate optimization matrix")
+    binaries = report.get("binary_hashes", {})
+    require(type(binaries) is dict and len(binaries) == len(OPTS) and
+            binaries == report.get("final_binary_hashes") and
+            set(binaries) == {row.get("binary_path") for row in matrices},
+            "missing produced binary identities or final binary conservation")
     for matrix in matrices:
         opt = matrix["optimization"]
         require(matrix.get("flags") == build_flags(opt, sanitize), "missing/altered compile or sanitizer flags")
         require(re.fullmatch(r"[0-9a-f]{64}", matrix.get("binary_sha256", "")) is not None,
                 "missing native binary identity")
+        require(binaries.get(matrix["binary_path"]) == matrix["binary_sha256"],
+                "matrix binary differs from conserved produced binary")
         require([row.get("id") for row in matrix.get("cases", [])] == [case.id for case in cases],
                 "missing/duplicate/reordered frozen native cases")
         for case, row in zip(cases, matrix["cases"]):
@@ -251,22 +262,120 @@ def source_hashes() -> dict[str, str]:
     return {name: sha(ROOT / name) for name in (*OWNED_SOURCE_NAMES, GUARD_SOURCE_NAME)}
 
 
+def exception_descriptor(error: BaseException) -> dict[str, str]:
+    # Never format an exception or its payload while preserving another one.
+    try:
+        name = type(error).__name__
+        if type(name) is not str:
+            name = "BaseException"
+        return {"type": name[:128]}
+    except BaseException:
+        return {"type": "BaseException"}
+
+
+class _Evidence:
+    """Fixed-size secondary records; each independent action still runs."""
+    def __init__(self):
+        self.first = None
+        self.failures = []
+
+    def attempt(self, stage, action):
+        try:
+            return action()
+        except BaseException as error:
+            if self.first is None:
+                self.first = error
+            try:
+                if len(self.failures) < 8:
+                    self.failures.append({"stage": stage, **exception_descriptor(error)})
+            except BaseException:
+                pass
+
+    def attach(self, primary):
+        try:
+            previous = object.__getattribute__(primary, "__dict__").get("c32_secondary_failures", ())
+            safe = []
+            if type(previous) is tuple:
+                for row in previous[:8]:
+                    if (type(row) is dict and set(row) == {"stage", "type"} and
+                            all(type(value) is str and len(value) <= 128 for value in row.values())):
+                        safe.append(row)
+            primary.c32_secondary_failures = tuple((safe + self.failures)[:8])
+        except BaseException:
+            pass
+
+    def raise_first(self):
+        if self.first is not None:
+            self.attach(self.first)
+            raise self.first
+
+
 @contextmanager
 def sanitizer_environment(sanitize: bool):
     names = ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTIONS")
     previous = {name: os.environ.get(name) for name in names}
+    cleanup = _Evidence()
+
+    def restore():
+        for name, value in previous.items():
+            def action(name=name, value=value):
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+            cleanup.attempt("restore-" + name, action)
+
     try:
         for name in names:
             os.environ.pop(name, None)
         if sanitize:
             os.environ["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1:exitcode=88"
         yield
-    finally:
-        for name, value in previous.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
+    except BaseException as primary:
+        try:
+            restore()
+            cleanup.attach(primary)
+        except BaseException:
+            pass
+        raise
+    else:
+        restore()
+        cleanup.raise_first()
+
+
+class Conservation:
+    def __init__(self, clang: Path, frozen: Path, report: dict):
+        self.clang, self.frozen, self.report = clang, frozen, report
+        self.selected = Path(report["compiler"].get("selected", str(clang)))
+        self.expected_sources = dict(report["source_hashes"])
+        self.expected_compiler = report["compiler"]["sha256"]
+        self.binaries = {}
+
+    def check(self):
+        require(source_hashes() == self.expected_sources, "original source conservation failed")
+        require({name: sha(self.frozen / name) for name in self.expected_sources} == self.expected_sources,
+                "frozen source conservation failed")
+        require(self.selected.resolve(strict=True) == self.clang and
+                sha(self.selected) == self.expected_compiler and sha(self.clang) == self.expected_compiler,
+                "selected/resolved compiler conservation failed")
+        require(all(sha(path) == digest for path, digest in self.binaries.items()),
+                "produced binary conservation failed")
+
+    def admit_binary(self, path: Path):
+        self.check()
+        require(path not in self.binaries, "duplicate produced binary identity")
+        self.binaries[path] = sha(path)
+        self.check()
+
+    def final_pins(self):
+        self.check()
+        self.report["final_source_hashes"] = source_hashes()
+        self.report["final_frozen_source_hashes"] = {name: sha(self.frozen / name) for name in self.expected_sources}
+        self.report["final_compiler_sha256"] = sha(self.clang)
+        self.report["final_selected_compiler"] = str(self.selected.resolve(strict=True))
+        self.report["binary_hashes"] = {str(path): digest for path, digest in self.binaries.items()}
+        self.report["final_binary_hashes"] = {str(path): sha(path) for path in self.binaries}
+        self.check()
 
 
 def load_checks(frozen: Path):
@@ -281,8 +390,9 @@ def load_checks(frozen: Path):
 
 
 class Runner:
-    def __init__(self, checks, directory: Path):
+    def __init__(self, checks, directory: Path, conservation=None):
         self.checks, self.directory, self.serial = checks, directory, 0
+        self.conservation = conservation
 
     def run(self, argv: list[str], label: str, *, compiling: bool = False):
         self.serial += 1
@@ -293,37 +403,69 @@ class Runner:
                   "output_limit_mib_per_stream": OUTPUT_MIB, "status": "started"}
         command_path = stem.with_suffix(".command.json")
         command_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        retention = _Evidence()
+
+        def conserve():
+            if self.conservation is not None:
+                self.conservation.check()
+
+        def write_channel(error_or_result, name, attribute):
+            value = getattr(error_or_result, attribute, None)
+            if value is not None:
+                if type(value) is str:
+                    value = value.encode("utf-8")
+                require(type(value) is bytes, "unexpected channel payload type")
+                stem.with_suffix("." + name).write_bytes(value[:OUTPUT_MIB * 1048576])
+
+        def secondary_record():
+            stem.with_suffix(".retention.json").write_text(
+                json.dumps({"secondary_failures": retention.failures}, indent=2) + "\n", encoding="utf-8")
+
         try:
+            conserve()
             result = self.checks.run_with_heartbeat(argv, label=label, timeout_seconds=timeout,
                                                   memory_limit_mb=memory, output_limit_mb=OUTPUT_MIB)
-        except BaseException as error:
-            record.update(status="raised", error_type=type(error).__name__)
-            command_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-            stem.with_suffix(".failure.txt").write_text(str(error), encoding="utf-8")
-            for name, attribute in (("stdout", "output"), ("stderr", "stderr")):
-                value = getattr(error, attribute, None)
-                if value is not None:
-                    stem.with_suffix("." + name).write_bytes(value.encode("utf-8") if isinstance(value, str) else value)
+        except BaseException as primary:
+            try:
+                record.update(status="raised", error_type=exception_descriptor(primary)["type"])
+                retention.attempt("post-job-conservation", conserve)
+                retention.attempt("command-attribution", lambda: command_path.write_text(
+                    json.dumps(record, indent=2) + "\n", encoding="utf-8"))
+                retention.attempt("failure-descriptor", lambda: stem.with_suffix(".failure.txt").write_text(
+                    json.dumps(exception_descriptor(primary)) + "\n", encoding="utf-8"))
+                retention.attempt("partial-stdout", lambda: write_channel(primary, "stdout", "output"))
+                retention.attempt("partial-stderr", lambda: write_channel(primary, "stderr", "stderr"))
+                retention.attempt("retention-metadata", secondary_record)
+                retention.attach(primary)
+            except BaseException:
+                pass
             raise
-        record.update(status="finished", returncode=result.returncode)
-        command_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        retention.attempt("post-job-conservation", conserve)
+        retention.attempt("result-attribution", lambda: record.update(status="finished", returncode=result.returncode))
+        retention.attempt("command-attribution", lambda: command_path.write_text(
+            json.dumps(record, indent=2) + "\n", encoding="utf-8"))
         for name in ("stdout", "stderr"):
-            value = getattr(result, name)
-            stem.with_suffix("." + name).write_bytes(value.encode("utf-8") if isinstance(value, str) else value)
-        stem.with_suffix(".result.json").write_text(json.dumps(observed(result), indent=2) + "\n", encoding="utf-8")
+            retention.attempt("result-" + name, lambda name=name: write_channel(result, name, name))
+        retention.attempt("result-publication", lambda: stem.with_suffix(".result.json").write_text(
+            json.dumps(observed(result), indent=2) + "\n", encoding="utf-8"))
+        retention.attempt("retention-metadata", secondary_record)
+        retention.raise_first()
         return result
 
 
-def run_gate(clang: Path, directory: Path, report: dict, sanitize: bool) -> None:
+def run_gate(clang: Path, directory: Path, report: dict, sanitize: bool) -> Conservation:
     frozen = directory / "frozen-source"
     for name, expected_hash in report["source_hashes"].items():
         out = frozen / name
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes((ROOT / name).read_bytes())
         require(sha(out) == expected_hash, "source changed while freezing native inputs")
+    conservation = Conservation(clang, frozen, report)
+    conservation.check()
     cases = load_vectors(frozen / "tests/v4_c_integer_runtime_vectors.json")
     checks = load_checks(frozen / GUARD_SOURCE_NAME)
-    runner = Runner(checks, directory)
+    conservation.check()
+    runner = Runner(checks, directory, conservation)
     version = runner.run([str(clang), "--version"], "compiler-version", compiling=True)
     require(version.returncode == 0 and "clang" in version.stdout.lower(), "Clang identity unavailable")
     target = runner.run([str(clang), "-dumpmachine"], "compiler-target", compiling=True)
@@ -341,7 +483,8 @@ def run_gate(clang: Path, directory: Path, report: dict, sanitize: bool) -> None
                    str(runtime / "freak_v4_c_integer_runtime.c"), "-o", str(binary)]
         compiled = runner.run(command, f"compile-O{opt}", compiling=True)
         require(compiled.returncode == 0, f"checked32 O{opt} compilation failed")
-        matrix = {"optimization": opt, "flags": flags, "binary_sha256": sha(binary),
+        conservation.admit_binary(binary)
+        matrix = {"optimization": opt, "flags": flags, "binary_path": str(binary), "binary_sha256": sha(binary),
                   "cases": [], "invalid_arguments": [], "capabilities": []}
         report["matrices"].append(matrix)
         for case in cases:
@@ -357,12 +500,11 @@ def run_gate(clang: Path, directory: Path, report: dict, sanitize: bool) -> None
                 actual = observed(runner.run([str(binary), "--ubsan-" + kind], f"O{opt}-ubsan-{kind}"))
                 matrix["capabilities"].append({"kind": kind, "actual": actual})
                 validate_capability(actual, kind)
-        require(sha(binary) == matrix["binary_sha256"], "native binary changed during execution")
-        print(f"checked32 O{opt}: 58 vectors, 10 invalid-input controls, {len(matrix['capabilities'])} UBSan capabilities passed", flush=True)
-    report["final_source_hashes"] = source_hashes()
-    report["final_compiler_sha256"] = sha(clang)
-    report["complete"] = True
-    validate_report(report, cases, sanitize)
+        conservation.check()
+        print(f"checked32 O{opt}: 58 vectors, 10 invalid-input controls, {len(matrix['capabilities'])} UBSan controls verified; final pins pending", flush=True)
+    conservation.final_pins()
+    validate_report(dict(report, complete=True), cases, sanitize)
+    return conservation
 
 
 def main() -> int:
@@ -377,7 +519,8 @@ def main() -> int:
         parser.error("mandatory UBSan gate requires Linux; --plain is the separate portability matrix")
     if not args.clang:
         parser.error("Clang is required; missing sanitizer/compiler capability is a failure")
-    clang = Path(shutil.which(args.clang) or args.clang).resolve(strict=True)
+    selected = Path(shutil.which(args.clang) or args.clang).absolute()
+    clang = selected.resolve(strict=True)
     if clang.name.lower() in ("cl", "cl.exe", "clang-cl", "clang-cl.exe"):
         parser.error("use the Clang C driver; O3 cannot be replaced with MSVC O2")
     directory = args.work.resolve()
@@ -388,18 +531,32 @@ def main() -> int:
         parser.error("--work must be empty; stale artifacts cannot satisfy the gate")
     report = {"complete": False, "scope": "checked32 C helper prerequisite; no V4 C-width admission",
               "platform": sys.platform, "machine": platform.machine(), "sanitized": not args.plain,
-              "source_hashes": source_hashes(), "compiler": {"path": str(clang), "sha256": sha(clang)},
+              "source_hashes": source_hashes(), "compiler": {"selected": str(selected), "path": str(clang), "sha256": sha(clang)},
               "matrices": []}
     report_path = directory / "report.json"
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     try:
         with sanitizer_environment(not args.plain):
-            run_gate(clang, directory, report, not args.plain)
-    except BaseException as error:
-        report.update(complete=False, failure_type=type(error).__name__, failure=str(error))
+            conservation = run_gate(clang, directory, report, not args.plain)
+        conservation.final_pins()
+        candidate = dict(report, complete=True)
+        validate_report(candidate, load_vectors(directory / "frozen-source/tests/v4_c_integer_runtime_vectors.json"), not args.plain)
+        pending = report_path.with_suffix(".pending.json")
+        pending.write_text(json.dumps(candidate, indent=2) + "\n", encoding="utf-8")
+        conservation.check()
+        os.replace(pending, report_path)
+        conservation.check()
+        report["complete"] = True
+    except BaseException as primary:
+        try:
+            retention = _Evidence()
+            report.update(complete=False, failure=exception_descriptor(primary))
+            retention.attempt("failure-report-publication", lambda: report_path.write_text(
+                json.dumps(report, indent=2) + "\n", encoding="utf-8"))
+            retention.attach(primary)
+        except BaseException:
+            pass
         raise
-    finally:
-        report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return 0
 
 

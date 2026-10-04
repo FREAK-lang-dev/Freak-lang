@@ -75,14 +75,32 @@ python -B -u tests/v4_c_integer_runtime.py --clang <pinned-clang> --work <new-ex
 ```
 
 The driver freezes/copies every owned source plus the central process guard
-before compiling, records the resolved compiler hash/version/native target,
-and checks final source/compiler/binary conservation. It loads the frozen guard
+before compiling, records the selected compiler path, resolved hash/version/native
+target, and checks original inputs, frozen copies, selected/resolved compiler and
+every produced binary before and after each guarded job and final publication.
+The final report requires all three matrix binary identities and matching final
+original/frozen/tool/binary pins. It loads the frozen guard
 source directly, so stale bytecode cannot replace it. Every subprocess goes
 through `check_v4.run_with_heartbeat`, with 60 seconds/512MiB for Clang and
 10 seconds/64MiB for native children; output is capped at 1MiB per stream.
 It runs one child at a time and retains argv, limits, channels, results,
 exceptions, frozen sources and binaries in the external evidence directory.
-Failure leaves `report.json` incomplete and retains prior evidence.
+Primary errors and cancellation retain their identity and explicit cause when
+secondary attribution, channel, conservation, report or cleanup operations fail.
+Each independent evidence channel and sanitizer environment restoration is
+attempted; bounded secondary records contain only stage and exception type.
+Exception payloads are never formatted during failure retention. When a guarded
+body succeeds, the first retention or cleanup error fails the gate after later
+independent actions have been attempted.
+
+The live report remains incomplete while matrices run and sanitizer settings are
+restored. A candidate is validated and pinned around final atomic publication.
+Failure attempts to republish an incomplete report without masking its primary
+error. If the evidence medium itself fails, this publication is best effort:
+only a zero driver exit with a validated complete `report.json` can satisfy the
+gate; `report.pending.json` is never authoritative. Pure fault controls verify
+these decisions with all five subprocess APIs forbidden, without importing the
+project compiler harness or executing the non-executable fixture binaries.
 
 Each plain matrix runs 58 vectors and 10 invalid-input controls. Each sanitized
 matrix additionally requires two real UBSan capability controls: intentional
