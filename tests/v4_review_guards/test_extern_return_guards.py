@@ -158,7 +158,10 @@ class ExternReturnGuards(unittest.TestCase):
         ):
             with self.subTest(root=root):
                 body = guard.freak_task_body(self.ty, root)
-                mutant = self.ty.replace(body, body.replace(required + "(", "wrong_extern_consumer("), 1)
+                self.assertIsNotNone(body, root)
+                replacement = body.replace(required + "(", "wrong_extern_consumer(")
+                self.assertNotEqual(replacement, body, root)
+                mutant = self.replace_body(self.ty, root, replacement)
                 self.assertTrue(any("does not consume " + required in f for f in self.violations(ty=mutant)))
 
 
