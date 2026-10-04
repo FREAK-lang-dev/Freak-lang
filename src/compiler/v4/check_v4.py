@@ -7449,8 +7449,9 @@ EXECUTABLE_SMOKES = [
         "expect_mode": "line",
         "expect_unique": True,
         "expect": [
-            "literal-say frontend calls=27 diagnostics=11 borrowed=true bytes=true",
-            "literal-say errors nonliteral=6 interpolation=2 nul=2 escape=1 spans=true",
+            "literal-say frontend calls=27 diagnostics=7 borrowed=true bytes=true",
+            "literal-say errors display=4 roots=2 escape=1 task-spans=true no-call=true",
+            "literal-say owned-display accepted=7 borrowed=true conversions=true sized-nul=true",
             "literal-say snapshot roundtrip=true forged-rejected=10",
         ],
     },
