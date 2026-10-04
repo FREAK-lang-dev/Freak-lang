@@ -157,10 +157,10 @@ task v4_typed_place_run() -> void {
             pilot emitted = v4_codegen_llvm_body_line(admitted, v4_codegen_llvm_find_body(admitted, "main"))
             pilot address_name = "borrowed_address"
             if mode == "9" or mode == "16" { address_name = "address" }
-            pilot address_call = "call ptr " + v4_codegen_llvm_callable_symbol(mir, address_name) + "("
+            pilot address_call = "call ccc ptr " + v4_codegen_llvm_callable_symbol(mir, address_name) + "("
             v4_typed_place_assert(v4_typed_place_occurrences(emitted, address_call) == 1, "address is evaluated once in main")
             if mode == "9" or mode == "17" {
-                pilot rhs_call = "call i64 " + v4_codegen_llvm_callable_symbol(mir, "take_index") + "("
+                pilot rhs_call = "call ccc i64 " + v4_codegen_llvm_callable_symbol(mir, "take_index") + "("
                 if mode == "9" { rhs_call = "call i64 " + v4_codegen_llvm_word_intrinsic_symbol("length") + "(" }
                 v4_typed_place_assert(v4_typed_place_occurrences(emitted, rhs_call) == 1, "RHS is evaluated once in main")
                 if mode == "9" { v4_typed_place_assert(v4_typed_place_position(emitted, rhs_call) < v4_typed_place_position(emitted, address_call), "sealed assignment observes RHS before consuming destination address") } else {
