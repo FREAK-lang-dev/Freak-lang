@@ -697,6 +697,78 @@ class PureGateTests(unittest.TestCase):
         for mutated in (subprocess.CompletedProcess([], 1, text, ""), subprocess.CompletedProcess([], 0, text, "error"), subprocess.CompletedProcess([], 0, text+text, ""), subprocess.CompletedProcess([], 0, gate.PREFIX+"@@LLVM-MODULE-BEGIN\n@@LLVM-MODULE-END\n", "")):
             with self.assertRaises(RuntimeError): gate.extract_module(mutated, "linux")
 
+    def test_native_entry_source_emits_explicit_c_calling_convention(self):
+        core = fixture_core_source_root()
+        source = (core / "src/compiler/v4/crates/freak_codegen_llvm/src/lib.fk").read_text()
+        with bootstrap_fixture_types() as (Parser, _):
+            convention = source_task_ast(Parser, source, "v4_codegen_llvm_calling_convention")
+            entry = source_task_ast(Parser, source, "v4_codegen_llvm_native_entry")
+        for abi in ("", "C", "cdecl", "system"):
+            self.assertEqual(evaluate_source_branch(convention, (abi,), {}, {}), "ccc")
+        for name in ("argument_parser", "fs_nul_path"):
+            needs_process = sum(gate.BRIDGE_COUNTS[name][i] for i in (0, 3)) > 0
+            calls = []
+            def convention_query(abi):
+                calls.append(abi)
+                return evaluate_source_branch(convention, (abi,), {}, {})
+            emitted = evaluate_source_branch(entry, (7,), {
+                "v4_codegen_llvm_find_mir_body": lambda mir, name: 0 if (mir, name) == (7, "main") else -1,
+                "v4_codegen_llvm_mir_uses_typed_process": lambda mir: needs_process,
+                "v4_mir_body_callable_abi": lambda mir, body: "",
+                "v4_codegen_llvm_calling_convention": convention_query,
+                "v4_mir_body_callable_return_type": lambda mir, body: 0,
+            }, {"v4_ty_never": -1, "v4_ty_void": -2})
+            self.assertEqual(calls, [""])
+            self.assertIn("%rc = call ccc i64 @freak.user.main()\n", emitted)
+            self.assertIn("%rc32 = trunc i64 %rc to i32\n  ret i32 %rc32\n", emitted)
+            module = fake_module(name).split("define i32 @main(", 1)[0] + emitted
+            gate.validate_module(module, name)
+
+    def test_entry_call_spelling_preserves_exact_count_and_setup_order(self):
+        for name in ("argument_parser", "fs_nul_path"):
+            implicit = fake_module(name)
+            explicit = implicit.replace("call i64 @freak.user.main()", "call ccc i64 @freak.user.main()")
+            for module in (implicit, explicit):
+                gate.validate_module(module, name)
+            call = "%result = call ccc i64 @freak.user.main()"
+            mutants = [explicit.replace(call, ""),
+                       explicit.replace(call, call + "\n%again = call ccc i64 @freak.user.main()"),
+                       explicit.replace("call ccc i64", "call fastcc i64"),
+                       explicit.replace("call ccc i64", "call ccc void"),
+                       explicit.replace("@freak.user.main()", "@freak.user.main(i64 1)"),
+                       explicit.replace(call, "%result = invoke ccc i64 @freak.user.main()")]
+            if name == "argument_parser":
+                setup = "call void @freak_v4_process_setup_args(i64 %argc.ext, i64 %argv.int)"
+                legacy = "call void @freak_llvm_setup_args(i64 %argc.ext, i64 %argv.int)"
+                mutants += [explicit.replace(setup + "\n" + call, call + "\n" + setup),
+                            explicit.replace(legacy + "\n" + setup, setup + "\n" + legacy)]
+            for index, module in enumerate(mutants):
+                with self.subTest(program=name, mutant=index), self.assertRaises(RuntimeError):
+                    gate.validate_module(module, name)
+
+    def test_unconditional_word_declaration_does_not_admit_legacy_use(self):
+        source = (fixture_core_source_root() / "src/compiler/v4/crates/freak_codegen_llvm/src/lib.fk").read_text()
+        with bootstrap_fixture_types() as (Parser, _):
+            declarations = source_task_ast(Parser, source, "v4_codegen_llvm_word_runtime_declarations")
+        emitted = evaluate_source_branch(declarations, (), {}, {})
+        prototype = "declare i64 @freak_v4_word_to_int(i64)\n"
+        self.assertEqual(emitted.count(prototype), 1)
+        self.assertEqual(emitted.count("@freak_v4_word_to_int"), 1)
+        for name in ("argument_parser", "fs_nul_path", "fs_discard_scopes"):
+            module = emitted + fake_module(name)
+            gate.validate_module(module, name)
+            mutants = [module + prototype,
+                       module.replace(prototype, "declare i32 @freak_v4_word_to_int(i64)\n"),
+                       module.replace(prototype, "declare i64 @freak_v4_word_to_int(ptr)\n"),
+                       module + "%legacy = call i64 @freak_v4_word_to_int(i64 7)\n",
+                       module + "%legacy = call ccc i64 @freak_v4_word_to_int(i64 7)\n",
+                       module + "@legacy = global ptr @freak_v4_word_to_int\n",
+                       module + "declare i64 @freak_v4_process_arg(i64)\n",
+                       module + "declare i64 @freak_fs_read_checked(i64)\n"]
+            for index, mutated in enumerate(mutants):
+                with self.subTest(program=name, mutant=index), self.assertRaises(RuntimeError):
+                    gate.validate_module(mutated, name)
+
     def test_capability_status_channel_and_diagnostic_rejection(self):
         for kind in ("C", "LLVM", "asan-heap", "ubsan-overflow", "ubsan-shift"):
             good = capability(kind); gate.validate_capability(good, kind, "linux")

@@ -670,13 +670,15 @@ def validate_module(module, program):
     require(program in PROGRAMS, "unknown module/program")
     wrapper = re.findall(r"define i32 @main\([^\n]*\) \{([^}]+)\}", module, re.S)
     require(len(wrapper) == 1 and wrapper[0].count("call void @freak_llvm_setup_args(") == 1, "one native wrapper/legacy setup")
+    main_calls = list(re.finditer(r"(?m)^\s*%[\w.]+ = call (?:ccc )?i64 @freak\.user\.main\(\)\s*$", wrapper[0]))
+    require(len(main_calls) == 1, "one default-C zero-argument user main call")
     arg_count, parser_count, fs_count, argc_count = BRIDGE_COUNTS[program]
     needs_process = arg_count + argc_count > 0
     setup = "call void @freak_v4_process_setup_args(i64 %argc.ext, i64 %argv.int)"
     require(module.count("call void @freak_v4_process_setup_args(") == int(needs_process) and
             module.count("declare void @freak_v4_process_setup_args(i64, i64)") == int(needs_process), "module-level typed setup once")
     if needs_process:
-        require(wrapper[0].count(setup) == 1 and wrapper[0].index("call void @freak_llvm_setup_args(") < wrapper[0].index(setup) < wrapper[0].index("call i64 @freak.user.main()"), "entry setup order")
+        require(wrapper[0].count(setup) == 1 and wrapper[0].index("call void @freak_llvm_setup_args(") < wrapper[0].index(setup) < main_calls[0].start(), "entry setup order")
     definitions = {"%freak_result_word_word": "%freak_result_word_word = type { i1, i64 }", "%freak_maybe_int": "%freak_maybe_int = type { i1, i64 }"}
     for carrier, definition in definitions.items():
         require(module.count(definition) == int(carrier in module), "distinct exact carrier definition")
@@ -695,7 +697,9 @@ def validate_module(module, program):
                 require(module.rfind("store i64 0, ptr " + slot, 0, call.start()) >= 0, "slot initialized before bridge")
     require(module.count("call i64 @freak_v4_process_args_count()") == argc_count and
             module.count("declare i64 @freak_v4_process_args_count()") == int(argc_count > 0), "exact scalar count calls/prototype")
-    require("@freak_v4_process_arg(" not in module and "@freak_fs_read_checked" not in module and "@freak_v4_word_to_int(" not in module, "legacy helper cannot substitute typed bridge")
+    legacy_free, unused_declarations = re.subn(r"(?m)^declare i64 @freak_v4_word_to_int\(i64\)\n", "", module)
+    require(unused_declarations <= 1, "one unused legacy word conversion prototype")
+    require("@freak_v4_process_arg(" not in module and "@freak_fs_read_checked" not in module and "@freak_v4_word_to_int" not in legacy_free, "legacy helper cannot substitute typed bridge")
 
 
 def source_names(root=None):
