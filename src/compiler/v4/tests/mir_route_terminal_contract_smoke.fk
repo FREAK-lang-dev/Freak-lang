@@ -81,10 +81,17 @@ task v4_route_terminal_run() -> void {
     pilot snapshot = v4_mir_snapshot()
     v4_route_terminal_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == snapshot and v4_mir_control_plan_preflight(mir) == "", "strict wire roundtrip preserves CFG")
     if mode == "6" {
-        v4_mir_set_body_block(mir, body, 0, v4_mir_block_new_full(0, v4_mir_term_goto, orphan, -1, ""))
+        pilot entry = v4_mir_body_block(mir, body, 0)
+        pilot entry_scope = v4_mir_block_scope_span(mir, body, 0)
+        pilot entry_else = v4_mir_block_else_target(entry)
+        pilot entry_condition = v4_mir_block_condition(entry)
+        v4_route_terminal_assert(v4_mir_block_terminator(entry) == v4_mir_term_if and entry_else >= 0 and entry_condition != "", "original conditional entry")
+        pilot hostile_entry = v4_mir_block_with_scope(v4_mir_block_new_full(0, v4_mir_term_if, orphan, entry_else, entry_condition), entry_scope)
+        v4_mir_set_body_block(mir, body, 0, hostile_entry)
         pilot malformed = v4_mir_snapshot()
         pilot expected = "native reachable unreachable block has no checked terminal call"
-        v4_route_terminal_assert(malformed != snapshot and v4_mir_block_target(v4_mir_body_block(mir, body, 0)) == orphan and v4_mir_control_plan_preflight(mir) == expected, "setup-proven hostile endpoint rejection")
+        pilot changed_entry = v4_mir_body_block(mir, body, 0)
+        v4_route_terminal_assert(malformed != snapshot and v4_mir_block_scope_span(mir, body, 0) == entry_scope and v4_mir_block_terminator(changed_entry) == v4_mir_term_if and v4_mir_block_else_target(changed_entry) == entry_else and v4_mir_block_condition(changed_entry) == entry_condition and v4_mir_block_target(changed_entry) == orphan and v4_mir_control_plan_preflight(mir) == expected, "setup-proven hostile endpoint rejection")
         v4_route_terminal_assert(v4_mir_snapshot_restore(snapshot).starts_with("mir-snapshot-restore ok=1"), "recover valid baseline")
         v4_route_terminal_assert(v4_mir_snapshot_restore(malformed).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == snapshot, "hostile wire rejected atomically")
     }
