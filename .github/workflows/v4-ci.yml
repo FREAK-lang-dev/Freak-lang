@@ -179,6 +179,12 @@ jobs:
       - name: Filesystem read bridge native portability and ownership audits
         run: python -B -u tests/v4_fs_read_bridge.py --plain --work "${{ runner.temp }}/fs-read-bridge-plain"
 
+      - name: Private compiler array exact oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_compiler_array_runtime.py -v
+
+      - name: Private compiler array native portability and ownership audits
+        run: python -B -u tests/v4_compiler_array_runtime.py --plain --work "${{ runner.temp }}/compiler-arrays-plain"
+
       - name: Owned UTF-8 word runtime portability and ownership audits
         run: python -B -u tests/v4_word_runtime.py --plain
 
@@ -248,6 +254,10 @@ jobs:
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_fs_read_bridge.py --work "${{ runner.temp }}/fs-read-bridge-sanitized"
 
+      - name: Private compiler array mandatory sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_compiler_array_runtime.py --work "${{ runner.temp }}/compiler-arrays-sanitized"
+
       - name: Owned word AddressSanitizer and UndefinedBehaviorSanitizer gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_word_runtime.py
@@ -310,6 +320,14 @@ jobs:
         with:
           name: v4-fs-read-bridge-${{ matrix.os }}
           path: ${{ runner.temp }}/fs-read-bridge-*/
+          if-no-files-found: warn
+
+      - name: Preserve private compiler array source, compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-compiler-arrays-${{ matrix.os }}
+          path: ${{ runner.temp }}/compiler-arrays-*/
           if-no-files-found: warn
 
       - name: Preserve checked word integer parser evidence
