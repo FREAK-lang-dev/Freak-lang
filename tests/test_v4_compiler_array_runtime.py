@@ -1,0 +1,311 @@
+"""Process-free hostile oracles for the private compiler-array prerequisite."""
+from __future__ import annotations
+
+from contextlib import redirect_stdout, redirect_stderr
+import copy
+import importlib.util
+import io
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest import mock
+
+# Source-forcing import keeps pure tests independent of ignored repository pyc.
+_path = Path(__file__).with_name("v4_compiler_array_runtime.py")
+_spec = importlib.util.spec_from_file_location("private_array_gate_pure", _path)
+gate = importlib.util.module_from_spec(_spec)
+exec(compile(_path.read_bytes(), str(_path), "exec"), gate.__dict__)
+
+
+class CompilerArrayOracleTests(unittest.TestCase):
+    def setUp(self):
+        self.api_traps = []
+        for name in ("Popen", "run", "call", "check_call", "check_output"):
+            trap = mock.patch.object(subprocess, name, side_effect=AssertionError("actual process forbidden in pure test"))
+            self.api_traps.append(trap.start())
+            self.addCleanup(trap.stop)
+        self.addCleanup(self.assert_no_actual_process)
+
+    def assert_no_actual_process(self):
+        self.assertTrue(all(trap.call_count == 0 for trap in self.api_traps))
+
+    @staticmethod
+    def result(status=0, stdout=b"", stderr=b""):
+        return subprocess.CompletedProcess(["process-free-probe"], status, stdout, stderr)
+
+    def test_positive_exact_rows_status_channels_and_platform(self):
+        for platform in ("linux", "darwin", "win32"):
+            for _, case in gate.POSITIVE_CASES:
+                expected = gate.positive_stdout(case)
+                gate.assert_positive(self.result(stdout=expected), case, platform=platform)
+                if platform == "win32":
+                    gate.assert_positive(self.result(stdout=expected.replace(b"\n", b"\r\n")), case, platform=platform)
+                else:
+                    with self.assertRaises(AssertionError):
+                        gate.assert_positive(self.result(stdout=expected.replace(b"\n", b"\r\n")), case, platform=platform)
+                for stdout in (b"", expected[:-1], expected + b"extra\n", expected.replace(b"=ok", b"=false")):
+                    with self.subTest(platform=platform, case=case), self.assertRaises(AssertionError):
+                        gate.assert_positive(self.result(stdout=stdout), case, platform=platform)
+                for status in (1, 3, 85, 86, 87, 88, -signal.SIGABRT, -signal.SIGSEGV):
+                    with self.assertRaises(AssertionError):
+                        gate.assert_positive(self.result(status, expected), case, platform=platform)
+                for stderr in (b"\n", b"ownership audit\n", b"ERROR: AddressSanitizer\n"):
+                    with self.assertRaises(AssertionError):
+                        gate.assert_positive(self.result(stdout=expected, stderr=stderr), case, platform=platform)
+        self.assertEqual(len(gate.NORMAL_ROWS), 5)
+
+    def test_rejections_require_exact_abort_or_exit_not_arbitrary_failure(self):
+        for platform in ("linux", "darwin", "win32"):
+            for case in (*gate.EXIT_CASES, *gate.ABORT_CASES):
+                if case in gate.EXIT_CASES:
+                    status, stderr = 1, gate.EXIT_CASES[case].encode()
+                else:
+                    status = 3 if platform == "win32" else -signal.SIGABRT
+                    stderr = f"FREAK: V4 word panic: {gate.ABORT_CASES[case]}\n".encode()
+                gate.assert_rejection(self.result(status, stderr=stderr), case, platform=platform)
+                for changed in (b"", stderr[:-1], stderr + b"unexpected-atexit\n", stderr.replace(b"FREAK:", b"PANIC:")):
+                    with self.assertRaises(AssertionError):
+                        gate.assert_rejection(self.result(status, stderr=changed), case, platform=platform)
+                for wrong in (0, 85, 86, 87, 88, -signal.SIGSEGV):
+                    with self.assertRaises(AssertionError):
+                        gate.assert_rejection(self.result(wrong, stderr=stderr), case, platform=platform)
+                with self.assertRaises(AssertionError):
+                    gate.assert_rejection(self.result(status, b"unwanted\n", stderr), case, platform=platform)
+                if platform == "win32":
+                    gate.assert_rejection(self.result(status, stderr=stderr.replace(b"\n", b"\r\n")), case, platform=platform)
+                else:
+                    with self.assertRaises(AssertionError):
+                        gate.assert_rejection(self.result(status, stderr=stderr.replace(b"\n", b"\r\n")), case, platform=platform)
+
+    def test_both_actual_ownership_audits_required(self):
+        for kind, status in (("C", 87), ("LLVM", 86)):
+            stderr = f"FREAK: {kind} ownership audit found 1 unreleased word allocation(s)\n".encode()
+            gate.assert_audit(self.result(status, stderr=stderr), kind)
+            for wrong in (0, 1, 3, 88, -signal.SIGABRT):
+                with self.assertRaises(AssertionError):
+                    gate.assert_audit(self.result(wrong, stderr=stderr), kind)
+            for mutated in (b"", stderr + b"extra\n", stderr.replace(b"1 unreleased", b"2 unreleased")):
+                with self.assertRaises(AssertionError):
+                    gate.assert_audit(self.result(status, stderr=mutated), kind)
+
+    def test_sanitizer_capability_needs_exact_kind_diagnostic_and_exit(self):
+        examples = {
+            "address": b"ERROR: AddressSanitizer: heap-use-after-free\nSUMMARY: AddressSanitizer:\n",
+            "undefined": b"runtime error: signed integer overflow\nSUMMARY: UndefinedBehaviorSanitizer:\n",
+        }
+        for kind, stderr in examples.items():
+            gate.assert_sanitizer(self.result(88, stderr=stderr), kind)
+            for wrong in (0, 1, 3, 86, 87, -signal.SIGSEGV):
+                with self.assertRaises(AssertionError):
+                    gate.assert_sanitizer(self.result(wrong, stderr=stderr), kind)
+            for mutated in (b"", stderr.splitlines()[0], stderr + b"ownership audit\n", stderr + b"LeakSanitizer\n"):
+                with self.assertRaises(AssertionError):
+                    gate.assert_sanitizer(self.result(88, stderr=mutated), kind)
+            with self.assertRaises(AssertionError):
+                gate.assert_sanitizer(self.result(88, stderr=examples["undefined" if kind == "address" else "address"]), kind)
+
+    @staticmethod
+    def complete_report(sanitized):
+        return {
+            "sanitized": sanitized,
+            "positives": [{"opt": opt, "profile": profile, "case": case, "binary_sha256": "a" * 64}
+                          for opt in (0, 2, 3) for profile, case in gate.POSITIVE_CASES],
+            "production": [{"opt": opt, "profile": profile, "object_sha256": "b" * 64}
+                           for opt in (0, 2, 3) for profile in ("pressure", "dynamic", "retire", "capacity")],
+            "rejections": [{"opt": opt, "case": case} for opt in (0, 2, 3)
+                           for case in (*gate.EXIT_CASES, *gate.ABORT_CASES)],
+            "capabilities": [f"audit-{kind}-O{opt}" for opt in (0, 2, 3) for kind in ("C", "LLVM")] +
+                            (["sanitizer-address", "sanitizer-undefined"] if sanitized else []),
+        }
+
+    def test_matrix_requires_all_levels_profiles_exact_rows_and_capabilities(self):
+        for sanitized in (False, True):
+            complete = self.complete_report(sanitized)
+            gate.validate_completion(complete, sanitized)
+            self.assertEqual((len(complete["positives"]), len(complete["production"]), len(complete["rejections"])), (18, 12, 33))
+            for key in ("positives", "production", "rejections", "capabilities"):
+                for index in range(len(complete[key])):
+                    changed = copy.deepcopy(complete)
+                    del changed[key][index]
+                    with self.assertRaises(AssertionError):
+                        gate.validate_completion(changed, sanitized)
+                changed = copy.deepcopy(complete)
+                changed[key].append(copy.deepcopy(changed[key][0]))
+                with self.assertRaises(AssertionError):
+                    gate.validate_completion(changed, sanitized)
+            changed = copy.deepcopy(complete)
+            changed["positives"][0]["binary_sha256"] = "unknown"
+            with self.assertRaises(AssertionError):
+                gate.validate_completion(changed, sanitized)
+            with self.assertRaises(AssertionError):
+                gate.validate_completion(complete, not sanitized)
+
+    def test_required_flags_cannot_disable_assertions_audits_or_quota(self):
+        for sanitized in (False, True):
+            for profile, flags in gate.PROFILES.items():
+                required = [*gate.AUDIT_FLAGS, "-DFREAK_ARRAY_LIVE_LIMIT=1024", *flags,
+                            *(gate.SANITIZER_FLAGS if sanitized else ())]
+                gate.validate_flags(required, profile, sanitized)
+                for index in range(len(required)):
+                    with self.assertRaises(AssertionError):
+                        gate.validate_flags(required[:index] + required[index + 1:], profile, sanitized)
+                with self.assertRaises(AssertionError):
+                    gate.validate_flags(required + ["-DNDEBUG"], profile, sanitized)
+
+    def test_legacy_namespace_source_fence_rejects_expansion_or_missing_admission(self):
+        source = (gate.ROOT / "freakc/runtime/freak_llvm_runtime.c").read_text()
+        gate.namespace_source_guard(source)
+        for old, new in (("#define FREAK_LLVM_MAX_ARRAYS 1024", "#define FREAK_LLVM_MAX_ARRAYS 2048"),
+                         ("if (handle < 0) return -1;", "if (handle == -1) return -1;"),
+                         ("slot >= freak_llvm_array_count", "slot > freak_llvm_array_count"),
+                         ("freak_llvm_array_count >= FREAK_LLVM_MAX_ARRAYS", "freak_llvm_array_count > FREAK_LLVM_MAX_ARRAYS")):
+            self.assertIn(old, source)
+            start = 0 if old.startswith("#define") else source.index("static int64_t freak_llvm_array_slot_for_handle(")
+            changed = source[:start] + source[start:].replace(old, new, 1)
+            with self.subTest(mutation=old), self.assertRaises(AssertionError):
+                gate.namespace_source_guard(changed)
+
+    def test_runner_central_budgets_and_raw_channels_retained(self):
+        result = self.result(stdout="hello\x00world\n", stderr="")
+        guarded = mock.Mock(return_value=result)
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            runner = gate.Runner(SimpleNamespace(run_with_heartbeat=guarded), directory)
+            for compiled, expected in ((False, (60, 64)), (True, (120, 1024))):
+                self.assertIs(runner.run(["mock-tool", "argument"], "bounded job", compile_job=compiled), result)
+                kwargs = guarded.call_args.kwargs
+                self.assertEqual((kwargs["timeout_seconds"], kwargs["memory_limit_mb"]), expected)
+                self.assertEqual(kwargs["output_limit_mb"], 8)
+            self.assertTrue(any(path.read_bytes() == b"hello\x00world\n" for path in directory.glob("*.stdout")))
+
+    def test_complete_guarded_driver_matrix_is_wired_and_tool_changes_fail_closed(self):
+        for sanitized, change_tool in ((False, False), (True, False), (True, True)):
+            with self.subTest(sanitized=sanitized, change_tool=change_tool), tempfile.TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                clang = directory / "fake-clang"
+                clang.write_bytes(b"process-free mocked tool image")
+                calls = []
+
+                def guarded(command, **kwargs):
+                    calls.append((command, kwargs))
+                    if "-o" in command:
+                        artifact = Path(command[command.index("-o") + 1])
+                        artifact.write_bytes(kwargs["label"].encode())
+                        return self.result()
+                    case = command[-1]
+                    if case in gate.PROFILE_ROWS or case == "normal":
+                        return self.result(stdout=gate.positive_stdout(case))
+                    if case in gate.EXIT_CASES:
+                        return self.result(1, stderr=gate.EXIT_CASES[case].encode())
+                    if case in gate.ABORT_CASES:
+                        return self.result(-signal.SIGABRT, stderr=f"FREAK: V4 word panic: {gate.ABORT_CASES[case]}\n".encode())
+                    if case.startswith("sanitizer-"):
+                        text = (b"ERROR: AddressSanitizer: heap-use-after-free\nSUMMARY: AddressSanitizer:\n"
+                                if case.endswith("address") else
+                                b"runtime error: signed integer overflow\nSUMMARY: UndefinedBehaviorSanitizer:\n")
+                        return self.result(88, stderr=text)
+                    kind = "C" if case == "audit-c-word" else "LLVM"
+                    if change_tool and kwargs["label"] == "audit LLVM O3":
+                        clang.write_bytes(b"mutated mocked tool image")
+                    return self.result(87 if kind == "C" else 86,
+                                       stderr=f"FREAK: {kind} ownership audit found 1 unreleased word allocation(s)\n".encode())
+
+                report = {"sanitized": sanitized, "flags": {}, "production": [], "positives": [],
+                          "rejections": [], "capabilities": []}
+                args = SimpleNamespace(clang=str(clang), plain=not sanitized)
+                with mock.patch.object(sys, "platform", "linux"), \
+                        mock.patch.object(gate, "load_checks", return_value=SimpleNamespace(run_with_heartbeat=guarded)), \
+                        gate.proof_environment(directory, sanitized) as prefix:
+                    if change_tool:
+                        with self.assertRaisesRegex(AssertionError, "identity changed"):
+                            gate.run_gate(args, directory, report, prefix)
+                        self.assertNotIn("final_conservation", report)
+                    else:
+                        gate.run_gate(args, directory, report, prefix)
+                        self.assertTrue(report["final_conservation"])
+                    self.assertFalse(prefix.exists())
+                self.assertEqual(len(calls), 83 if sanitized else 81)
+                for command, kwargs in calls:
+                    self.assertEqual(kwargs["output_limit_mb"], 8)
+                    expected = (120, 1024) if "-o" in command else (60, 64)
+                    self.assertEqual((kwargs["timeout_seconds"], kwargs["memory_limit_mb"]), expected)
+
+    def test_runner_secondary_artifact_properties_preserve_primary(self):
+        class Primary(RuntimeError):
+            @property
+            def output(self):
+                raise MemoryError("secondary output attribution")
+
+            @property
+            def stderr(self):
+                raise KeyboardInterrupt("secondary stderr attribution")
+
+            def __str__(self):
+                raise AssertionError("error formatting forbidden")
+
+        primary = Primary()
+        primary.__cause__ = ValueError("original cause")
+        guarded = mock.Mock(side_effect=primary)
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = gate.Runner(SimpleNamespace(run_with_heartbeat=guarded), Path(tmp))
+            with self.assertRaises(Primary) as caught:
+                runner.run(["mock-native"], "first cause")
+            self.assertIs(caught.exception, primary)
+            self.assertIs(caught.exception.__cause__, primary.__cause__)
+
+    def test_environment_restored_after_cancellation_without_cache_writes(self):
+        names = ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTIONS", "PYTHONPYCACHEPREFIX", "PYTHONDONTWRITEBYTECODE")
+        before = {name: os.environ.get(name) for name in names}
+        old_prefix, old_write = sys.pycache_prefix, sys.dont_write_bytecode
+        with tempfile.TemporaryDirectory() as tmp:
+            prefix = Path(tmp) / "unused-source-cache"
+            with self.assertRaises(KeyboardInterrupt):
+                with gate.proof_environment(Path(tmp), True) as actual:
+                    self.assertEqual(actual, prefix)
+                    self.assertEqual(os.environ["PYTHONPYCACHEPREFIX"], str(prefix))
+                    self.assertEqual(os.environ["PYTHONDONTWRITEBYTECODE"], "1")
+                    self.assertTrue(sys.dont_write_bytecode)
+                    self.assertFalse(prefix.exists())
+                    raise KeyboardInterrupt("cancel")
+            self.assertFalse(prefix.exists())
+        self.assertEqual(before, {name: os.environ.get(name) for name in names})
+        self.assertEqual((sys.pycache_prefix, sys.dont_write_bytecode), (old_prefix, old_write))
+
+    def test_source_forcing_check_module_never_reads_bytecode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with gate.proof_environment(Path(tmp), False) as prefix:
+                with mock.patch("importlib._bootstrap_external._compile_bytecode", side_effect=AssertionError("cached input forbidden")):
+                    checks = gate.load_checks()
+                self.assertTrue(callable(checks.run_with_heartbeat))
+                self.assertFalse(prefix.exists())
+
+    def test_success_publication_failure_never_prints_pass_and_preserves_first_cause(self):
+        for primary in (MemoryError("publication"), KeyboardInterrupt("publication")):
+            with tempfile.TemporaryDirectory() as tmp:
+                directory = Path(tmp) / "fresh"
+                output = io.StringIO()
+                with mock.patch.object(sys, "argv", ["gate", "--plain", "--clang", "mock-clang", "--work", str(directory)]), \
+                        mock.patch.object(gate, "run_gate"), \
+                        mock.patch.object(gate, "publish", side_effect=[primary, MemoryError("recovery")]), redirect_stdout(output):
+                    with self.assertRaises(type(primary)) as caught:
+                        gate.main()
+                self.assertIs(caught.exception, primary)
+                self.assertNotIn("PASS", output.getvalue())
+
+    def test_missing_clang_and_nonlinux_sanitizer_are_explicit_failures(self):
+        for argv, platform in ((["gate"], "linux"), (["gate", "--clang", "mock-clang"], "win32")):
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(sys, "platform", platform), \
+                    mock.patch.object(gate.shutil, "which", return_value=None), \
+                    mock.patch.dict(os.environ, {}, clear=True), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as caught:
+                    gate.main()
+                self.assertEqual(caught.exception.code, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
