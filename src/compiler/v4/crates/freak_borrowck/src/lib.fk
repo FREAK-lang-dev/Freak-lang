@@ -6308,6 +6308,8 @@ task v4_borrowck_word_call_result_is_empty(mir_id: int, body_id: int, value: int
     give back v4_ty_is_mutable_raw_pointer_type(pointer_ty) and v4_ty_raw_pointer_target_type(pointer_ty) == v4_ty_int and v4_mir_rvalue_ty(mir_id, body_id, argument) == v4_ty_int
 }
 
+pilot v4_borrowck_word_plan_visit_budget: int = 0
+
 -- Allocation-free evaluation proof for one exact Word source. Return 0 when
 -- the value retains no loan, 1 when it retains that source, 2 on a consume
 -- while borrowed, and -1 for an unsupported/malformed/exhausted proof.
@@ -7106,7 +7108,6 @@ task v4_borrowck_snapshot_restore(payload: word) -> word {
 
 -- Native owned-word plans use MIR binding IDs, never ambiguous display names.
 pilot v4_borrowck_word_plan_resource_failed: bool = false
-pilot v4_borrowck_word_plan_visit_budget: int = 0
 task v4_borrowck_place_word_local_move_count_depth(mir_id: int, body_id: int, place: int, local_id: int, borrowed: bool, depth: int) -> int {
     v4_borrowck_word_plan_visit_budget -= 1
     if depth > 256 or v4_borrowck_word_plan_visit_budget < 0 or place < 0 or place >= v4_mir_body_place_count(mir_id, body_id) {
