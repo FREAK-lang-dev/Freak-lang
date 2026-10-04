@@ -782,12 +782,18 @@ class SymbolToolSelection(unittest.TestCase):
                     "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
         original_open, original_close = os.open, os.close
         original_temporary = tempfile.TemporaryDirectory
-        opened, scratch = [], []
+        opened, scratch, owned = [], [], set()
         def record_open(path, *args, **kwargs):
             descriptor = original_open(path, *args, **kwargs)
             if Path(path) == self.tool:
                 opened.append(descriptor)
+                owned.add(descriptor)
             return descriptor
+        def close_original(descriptor):
+            # A close attempt transfers this numeric FD out of fixture ownership.
+            # It may already be closed and reused before the injected error.
+            owned.discard(descriptor)
+            (close_effect or original_close)(descriptor)
         def record_temporary(*args, **kwargs):
             temporary = original_temporary(*args, **kwargs)
             scratch.append(Path(temporary.name))
@@ -797,7 +803,7 @@ class SymbolToolSelection(unittest.TestCase):
                     patch.object(self.benchmark.os, "fdopen", side_effect=primary) as adoption, \
                     patch.object(self.benchmark.tempfile, "TemporaryDirectory", side_effect=record_temporary), \
                     patch.object(self.benchmark, "close_symbol_descriptor",
-                                 side_effect=close_effect or original_close) as close, \
+                                 side_effect=close_original) as close, \
                     patch.object(self.benchmark, "guarded_job") as job:
                 with self.assertRaises(type(primary)) as failure:
                     with self.benchmark.frozen_symbol_tool_launch(selected):
@@ -811,7 +817,7 @@ class SymbolToolSelection(unittest.TestCase):
             yield opened[0], close
         finally:
             # Replaying the predecessor must not leak the FD its oracle finds.
-            for descriptor in opened:
+            for descriptor in owned:
                 try:
                     original_close(descriptor)
                 except OSError as error:
@@ -863,10 +869,54 @@ class SymbolToolSelection(unittest.TestCase):
             reused.append(replacement)
             self.assertEqual(replacement, descriptor)
             raise OSError(errno.EINTR, "already closed and reused")
-        with self.failed_original_adoption(primary, close_and_reuse) as (descriptor, close):
-            close.assert_called_once_with(descriptor)
-            self.assertEqual(reused, [descriptor])
-            self.assertEqual(os.read(reused[0], self.obj.stat().st_size), self.obj.read_bytes())
+        try:
+            with self.failed_original_adoption(primary, close_and_reuse) as (descriptor, close):
+                close.assert_called_once_with(descriptor)
+                self.assertEqual(reused, [descriptor])
+                self.assertEqual(os.read(reused[0], self.obj.stat().st_size), self.obj.read_bytes())
+        finally:
+            for descriptor in reused:
+                original_close(descriptor)
+
+    def test_original_adoption_fixture_releases_replacement_on_assertion_failure(self):
+        original_open, original_close = os.open, os.close
+        claimed, replacement = [], []
+        def intervening_open(path, flags, *args, **kwargs):
+            if Path(path).name == "module.o" and flags == (os.O_RDONLY | os.O_CLOEXEC):
+                claimed.append(original_open(path, flags, *args, **kwargs))
+                descriptor = original_open(path, flags, *args, **kwargs)
+                replacement.append(descriptor)
+                return descriptor
+            return original_open(path, flags, *args, **kwargs)
+        try:
+            case = SymbolToolSelection("test_original_adoption_close_failure_never_retries_reused_descriptor")
+            with patch.object(os, "open", side_effect=intervening_open):
+                result = unittest.TestResult()
+                case.run(result)
+            self.assertEqual(result.testsRun, 1)
+            self.assertEqual(len(result.failures), 1)
+            self.assertIn("AssertionError", result.failures[0][1])
+            self.assertEqual(result.errors, [])
+            self.assertEqual(result.skipped, [])
+            self.assertEqual(len(claimed), 1)
+            self.assertEqual(len(replacement), 1)
+            self.assertNotEqual(claimed[0], replacement[0])
+            # The failed nested assertion must release its own replacement and
+            # must not retry the original number now owned by this control.
+            with self.assertRaises(OSError) as absent:
+                os.fstat(replacement[0])
+            self.assertEqual(absent.exception.errno, errno.EBADF)
+            try:
+                os.fstat(claimed[0])
+            except OSError as error:
+                self.fail(f"fixture closed the intervening owner's descriptor: {error}")
+        finally:
+            for descriptor in replacement + claimed:
+                try:
+                    original_close(descriptor)
+                except OSError as error:
+                    if error.errno != errno.EBADF:
+                        raise
 
     def test_original_adoption_note_failure_cannot_replace_cancellation(self):
         original_close = os.close
