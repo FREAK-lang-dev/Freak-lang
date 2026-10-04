@@ -23,6 +23,7 @@ GRANT_VALUE = "typed-os-entry-native-gate-v1"
 PREFIX = "typed-os-entry-execute stages=clean v9-restore=true old-seal=true fresh-module=true\n"
 AUDIT_FLAGS = ("-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1", "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1")
 SANITIZER_FLAGS = ("-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer")
+DARWIN_DEPLOYMENT_SOURCE = "/* Observe the selected Clang deployment target; no executable. */\n"
 RUNTIME_SOURCES = ("freak_llvm_runtime.c", "freak_v4_word_runtime.c", "freak_v4_numeric_runtime.c", "freak_v4_unicode_runtime.c", "freak_v4_system_runtime.c", "freak_v4_panic_runtime.c", "freak_runtime.c")
 RUNTIME_HEADERS = ("freak_runtime.h", "freak_v4_word_runtime.h", "freak_v4_numeric_runtime.h", "freak_v4_unicode_runtime.h", "freak_v4_unicode_lower_tables.h", "freak_v4_system_runtime.h", "freak_v4_panic_runtime.h")
 CRATES = ("freak_span", "freak_diag", "freak_macro_api", "freak_arena", "freak_intern", "freak_session", "freak_target", "freak_lex", "freak_parse", "freak_expand", "freak_hir", "freak_resolve", "freak_ty", "freak_mir", "freak_mir_build", "freak_borrowck", "freak_codegen_llvm", "freak_query", "freak_driver", "freak_editor", "freak_snapshot", "freak_lsp")
@@ -777,6 +778,44 @@ def host_target():
     return targets[(sys.platform, machine)]
 
 
+def darwin_deployment_target(module):
+    headers = [line for line in module.split("\n") if re.match(r"\s*target\s+triple\b", line)]
+    require(len(headers) == 1, "Darwin deployment probe must contain exactly one target triple")
+    match = re.fullmatch(r'target triple = "((?:arm64|aarch64)-apple-macosx([1-9][0-9]*)(?:\.[0-9]+){0,2})"', headers[0])
+    require(match is not None, "Darwin deployment probe must select a versioned Apple arm64 macOS target")
+    return match.group(1)
+
+
+def native_link_target(clang, runner, directory, target, report, pins):
+    if target != "aarch64-apple-darwin": return target
+    # The genuine C frontend initializes the selected SDK/deployment version.
+    # Identity queries alone can retain the generic compiler target.
+    source = directory / "darwin-deployment-probe.c"
+    source.write_text(DARWIN_DEPLOYMENT_SOURCE, encoding="utf-8")
+    pins.track(source)
+    llvm = directory / "darwin-deployment-probe.ll"
+    llvm.unlink(missing_ok=True)
+    result = runner.run([str(clang), "--target=" + target, "-S", "-emit-llvm", "-x", "c", str(source), "-o", str(llvm)],
+                        "runtime-darwin-deployment-probe", compiling=True)
+    assert_exact(result, 0, b"", b"", "darwin")
+    require(llvm.is_file() and not llvm.is_symlink(), "Darwin deployment probe must produce its LLVM file")
+    selected = darwin_deployment_target(llvm.read_bytes().decode("utf-8"))
+    pins.track(llvm)
+    report["darwin_deployment_probe"] = {"source_sha256":sha(source), "module_sha256":sha(llvm), "target":selected}
+    return selected
+
+
+def native_link_module(module, target, selected):
+    if target != "aarch64-apple-darwin":
+        require(selected == target, "typed native target differs from its compiler target")
+        return module
+    darwin_deployment_target('target triple = "' + selected + '"\n')
+    header = 'target triple = "' + target + '"\n'
+    require(module.startswith(header) and len([line for line in module.split("\n") if re.match(r"\s*target\s+triple\b", line)]) == 1,
+            "typed Darwin module must have exactly one generic target header")
+    return 'target triple = "' + selected + '"\n' + module[len(header):]
+
+
 def fixture_facts(directory, host):
     facts = {}
     for case in CASES:
@@ -875,7 +914,7 @@ def validate_report(report, sanitize):
     require(report.get("complete") is True and report.get("data_sha256") == DATA_SHA and report.get("scope") == SCOPE, "no complete proof without closed protocol")
     require(report.get("compiler_process_contract") == {"seconds":60, "memory_mib":64, "live_handles":1024}, "SDK contract changed")
     require(report.get("guarded_job_counts") == {"bootstrap":2, "compiler":34,
-            "native_and_clang":53 + 3 * COUNTS[host] + (15 if sanitize else 6)}, "exact guarded stage counts")
+            "native_and_clang":53 + 3 * COUNTS[host] + (15 if sanitize else 6) + int(host == "darwin")}, "exact guarded stage counts")
     sources = report.get("source_hashes", {})
     require(sources and sources == report.get("final_source_hashes") == report.get("final_frozen_source_hashes"), "complete source conservation")
     require(report.get("fixture_facts") == report.get("final_fixture_facts"), "fixture conservation")
@@ -891,8 +930,23 @@ def validate_report(report, sanitize):
     expected_artifacts |= {str(work / ("contract-" + case["name"] + ".fk")) for case in contract_cases()}
     expected_artifacts |= {str(work / (name + extension)) for name in PROGRAMS for extension in (".fk", ".ll")}
     expected_artifacts.add(str(work / "typed-os-capability.c"))
+    target = report.get("target")
+    admitted = {"linux":("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"), "darwin":("aarch64-apple-darwin",), "win32":("x86_64-w64-windows-gnu",)}
+    require(target in admitted[host], "registered emitted compiler target")
+    selected = report.get("native_link_target")
+    if host == "darwin":
+        expected_artifacts |= {str(work / (name + ".link.ll")) for name in PROGRAMS}
+        expected_artifacts |= {str(work / ("darwin-deployment-probe" + extension)) for extension in (".c", ".ll")}
+        probe = report.get("darwin_deployment_probe")
+        require(type(probe) is dict and set(probe) == {"source_sha256", "module_sha256", "target"}, "closed Darwin deployment probe report")
+        require(selected == probe["target"] == darwin_deployment_target((work / "darwin-deployment-probe.ll").read_bytes().decode("utf-8")), "source-observed Darwin deployment target")
+        require((work / "darwin-deployment-probe.c").read_bytes() == DARWIN_DEPLOYMENT_SOURCE.encode("utf-8"), "exact bounded Darwin deployment source")
+        require(probe["source_sha256"] == report["artifact_hashes"].get(str(work / "darwin-deployment-probe.c")) == sha(work / "darwin-deployment-probe.c") and
+                probe["module_sha256"] == report["artifact_hashes"].get(str(work / "darwin-deployment-probe.ll")) == sha(work / "darwin-deployment-probe.ll"), "Darwin probe source/module identity")
+    else:
+        require(selected == target and "darwin_deployment_probe" not in report, "ordinary native target has no Darwin probe")
     require(set(report["binary_hashes"]) == expected_images and len(expected_images) == 53 and
-            set(report["artifact_hashes"]) == expected_artifacts and len(expected_artifacts) == 46,
+            set(report["artifact_hashes"]) == expected_artifacts and len(expected_artifacts) == (57 if host == "darwin" else 46),
             "complete closed generated-source/module/image inventory")
     require(all(re.fullmatch(r"[0-9a-f]{64}", value) for value in (*report["binary_hashes"].values(), *report["artifact_hashes"].values(), *sources.values())), "persisted SHA256 shape")
     contracts = report.get("contracts", [])
@@ -904,7 +958,13 @@ def validate_report(report, sanitize):
     emissions = report.get("emissions", [])
     require([row.get("name") for row in emissions] == list(PROGRAMS), "closed emission matrix")
     for row in emissions:
-        require(row.get("source_sha256") == hashlib.sha256(PROGRAMS[row["name"]].encode()).hexdigest() and re.fullmatch(r"[0-9a-f]{64}", row.get("module_sha256", "")), "source/module emission identity")
+        require(set(row) == {"name", "source_sha256", "module_sha256", "link_module_sha256"}, "closed original/link emission report")
+        name = row["name"]; original = work / (name + ".ll")
+        linked = work / (name + (".link.ll" if host == "darwin" else ".ll"))
+        require(row["source_sha256"] == hashlib.sha256(PROGRAMS[name].encode()).hexdigest() and
+                row["module_sha256"] == report["artifact_hashes"].get(str(original)) == sha(original) and
+                row["link_module_sha256"] == report["artifact_hashes"].get(str(linked)) == sha(linked), "source/original/link module emission identity")
+        require(linked.read_bytes() == native_link_module(original.read_bytes().decode("utf-8"), target, selected).encode("utf-8"), "native link module changes only the Darwin target header")
     cases = [case for case in CASES if host in case["platforms"]]
     programs = report.get("programs", [])
     expected = [(opt, case) for opt in OPTS for case in cases]
@@ -978,6 +1038,8 @@ def run_gate(clang, directory, frozen, report, supports):
         assert_exact(result, 0, ("typed-os-entry-contract mode=" + case["mode"] + "=passed\n").encode(), b"", sys.platform)
         report["contracts"].append({"name":case["name"], "source_sha256":sha(source), "actual":observed(result)})
         print("typed OS contract " + case["name"] + ": exact protocol passed; final pins pending", flush=True)
+    link_target = native_link_target(clang, runner, directory, target_name, report, pins)
+    report["native_link_target"] = link_target
     modules = {}
     for name, source_text in PROGRAMS.items():
         source = directory / (name + ".fk")
@@ -985,8 +1047,13 @@ def run_gate(clang, directory, frozen, report, supports):
         result = sdk.run([str(compilers["execute"]), str(source), target_name], "emit-" + name)
         module = extract_module(result, sys.platform); validate_module(module, name)
         llvm = directory / (name + ".ll")
-        llvm.write_bytes(module.encode()); pins.track(llvm); modules[name] = llvm
-        report["emissions"].append({"name":name,"source_sha256":sha(source),"module_sha256":sha(llvm)})
+        llvm.write_bytes(module.encode()); pins.track(llvm)
+        link_llvm = llvm
+        if target_name == "aarch64-apple-darwin":
+            link_llvm = directory / (name + ".link.ll")
+            link_llvm.write_bytes(native_link_module(module, target_name, link_target).encode("utf-8")); pins.track(link_llvm)
+        modules[name] = link_llvm
+        report["emissions"].append({"name":name,"source_sha256":sha(source),"module_sha256":sha(llvm),"link_module_sha256":sha(link_llvm)})
         print("typed OS emission " + name + ": v9 restore/seals verified; native pending", flush=True)
     probe = directory / "typed-os-capability.c"; probe.write_text(CAPABILITY_SOURCE); pins.track(probe)
     for opt in OPTS:
@@ -1007,10 +1074,13 @@ def run_gate(clang, directory, frozen, report, supports):
                 result = runner.run([str(capability), kind], f"capability-O{opt}-" + kind)
             validate_capability(result, kind, sys.platform)
             report["controls"].append({"optimization":opt,"kind":kind,"actual":observed(result)})
+        # LLVM-only links consume no C headers; retain includes on C builds above.
+        link_flags = ["--target=" + link_target, f"-O{opt}", *AUDIT_FLAGS]
+        if report["sanitized"]: link_flags.extend(SANITIZER_FLAGS)
         binaries = {}
         for name, llvm in modules.items():
             output = directory / (name + f"-O{opt}" + (".exe" if sys.platform == "win32" else ""))
-            result = runner.run([str(clang), *flags, str(llvm), *objects, "-o", str(output), *checks.runtime_platform_final_link_args()], f"link-O{opt}-" + name, compiling=True)
+            result = runner.run([str(clang), *link_flags, str(llvm), *objects, "-o", str(output), *checks.runtime_platform_final_link_args()], f"link-O{opt}-" + name, compiling=True)
             require(result.returncode == 0 and result.stdout == result.stderr == "", "native program link exact status/channel")
             pins.admit_binary(output); binaries[name] = output
         for case in CASES:

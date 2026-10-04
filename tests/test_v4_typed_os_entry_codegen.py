@@ -829,6 +829,90 @@ class PureGateTests(unittest.TestCase):
                     self.assertEqual(environment["LSAN_OPTIONS"],"caller-ls")
                     self.assertEqual(environment["UBSAN_OPTIONS"],"caller-us")
 
+    def test_darwin_deployment_target_rejects_unversioned_and_hostile_headers(self):
+        for target in ("arm64-apple-macosx11.0.0", "aarch64-apple-macosx15.2", "arm64-apple-macosx26.0.0"):
+            self.assertEqual(gate.darwin_deployment_target('target triple = "' + target + '"\n'), target)
+        header = 'target triple = "arm64-apple-macosx26.0.0"\n'
+        for bad in ("", header.replace("\n", "\r\n"), header + header, header + "  " + header,
+                    'target triple = "aarch64-apple-darwin"\n', 'target triple = "arm64-apple-macosx0.0.0"\n',
+                    'target triple = "x86_64-apple-macosx26.0.0"\n', 'target triple = "arm64-apple-ios26.0.0"\n',
+                    'target triple = "arm64-apple-macosx26.0.0-simulator"\n'):
+            with self.subTest(module=bad), self.assertRaises(RuntimeError): gate.darwin_deployment_target(bad)
+
+    def test_native_link_module_conserves_body_and_rejects_target_ambiguity(self):
+        body = 'target datalayout = "e-m:o-i64:64"\n%pair = type { i1, i64 }\ndefine i64 @main() { ret i64 0 }\n'
+        for target in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-w64-windows-gnu"):
+            original = 'target triple = "' + target + '"\n' + body
+            self.assertIs(gate.native_link_module(original, target, target), original)
+            with self.assertRaises(RuntimeError): gate.native_link_module(original, target, "wrong")
+        header = 'target triple = "aarch64-apple-darwin"\n'; original = header + body
+        selected = "arm64-apple-macosx26.0.0"
+        linked = gate.native_link_module(original, "aarch64-apple-darwin", selected)
+        self.assertEqual(linked, 'target triple = "' + selected + '"\n' + body)
+        self.assertEqual(original.encode().split(b"\n",1)[1], linked.encode().split(b"\n",1)[1])
+        for bad in (body, original + header, original + "  " + header, original.replace("aarch64-apple-darwin", selected), original.replace("\n", "\r\n")):
+            with self.assertRaises(RuntimeError): gate.native_link_module(bad, "aarch64-apple-darwin", selected)
+        with self.assertRaises(RuntimeError): gate.native_link_module(original, "aarch64-apple-darwin", "aarch64-apple-darwin")
+
+    def test_deployment_probe_is_one_bounded_darwin_only_original_runner_call(self):
+        selected = "arm64-apple-macosx26.0.0"; target = "aarch64-apple-darwin"
+        calls = []; tracked = []; report = {}
+        with tempfile.TemporaryDirectory() as temp:
+            work = Path(temp).resolve(); source = work / "darwin-deployment-probe.c"; llvm = work / "darwin-deployment-probe.ll"
+            pins = types.SimpleNamespace(track=lambda path:tracked.append(path))
+            def run(argv,label,**caps):
+                self.assertEqual(tracked, [source])
+                calls.append((argv,label,caps))
+                Path(argv[-1]).write_bytes(('target triple = "' + selected + '"\n').encode())
+                return subprocess.CompletedProcess(argv,0,"","")
+            runner = types.SimpleNamespace(run=run)
+            for ordinary in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-w64-windows-gnu"):
+                self.assertEqual(gate.native_link_target(Path("clang"),runner,work,ordinary,report,pins), ordinary)
+                self.assertEqual((calls,tracked,report),([],[],{}))
+            self.assertEqual(gate.native_link_target(Path("clang"),runner,work,target,report,pins), selected)
+            self.assertEqual(calls, [(["clang", "--target="+target, "-S", "-emit-llvm", "-x", "c", str(source), "-o", str(llvm)], "runtime-darwin-deployment-probe", {"compiling":True})])
+            self.assertEqual(tracked,[source,llvm])
+            self.assertEqual(report,{"darwin_deployment_probe":{"source_sha256":gate.sha(source),"module_sha256":gate.sha(llvm),"target":selected}})
+            for actual in (subprocess.CompletedProcess([],1,"",""), subprocess.CompletedProcess([],0,"extra",""), subprocess.CompletedProcess([],0,"","warning")):
+                report = {};tracked.clear()
+                with self.assertRaises(RuntimeError): gate.native_link_target(Path("clang"),types.SimpleNamespace(run=lambda *a,**k:actual),work,target,report,pins)
+                self.assertEqual(report,{})
+            # Production clears a stale probe module before admitting any new output.
+            llvm.write_bytes(('target triple = "'+selected+'"\n').encode());tracked.clear()
+            with self.assertRaises(RuntimeError): gate.native_link_target(Path("clang"),types.SimpleNamespace(run=lambda *a,**k:subprocess.CompletedProcess([],0,"","")),work,target,{},pins)
+            self.assertFalse(llvm.exists())
+            primary = KeyboardInterrupt("primary");primary.__cause__ = RuntimeError("explicit cause");tracked.clear();report={}
+            def cancelled(*args,**kwargs): raise primary
+            try: gate.native_link_target(Path("clang"),types.SimpleNamespace(run=cancelled),work,target,report,pins)
+            except BaseException as caught:
+                self.assertIs(caught,primary);self.assertIs(caught.__cause__,primary.__cause__)
+            else: self.fail("cancellation was lost")
+            self.assertEqual(report,{})
+
+    def test_actual_link_command_uses_versioned_target_and_excludes_c_include(self):
+        source = DRIVER.read_text(encoding="utf-8")
+        run = next(n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef) and n.name=="run_gate")
+        loop = next(n for n in ast.walk(run) if isinstance(n,ast.For) and isinstance(n.target,ast.Name) and n.target.id=="opt")
+        seeds = {n.targets[0].id:n.value for n in loop.body if isinstance(n,ast.Assign) and len(n.targets)==1 and isinstance(n.targets[0],ast.Name) and n.targets[0].id in ("flags","link_flags")}
+        calls = {"runtime":next(n for n in ast.walk(loop) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=="run" and len(n.args)>1 and isinstance(n.args[1],ast.BinOp) and isinstance(n.args[1].left,ast.JoinedStr) and n.args[1].left.values[0].value=="runtime-O"),
+                 "capability":next(n for n in ast.walk(loop) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=="run" and len(n.args)>1 and isinstance(n.args[1],ast.JoinedStr) and n.args[1].values[0].value=="capability-link-O"),
+                 "module":next(n for n in ast.walk(loop) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=="run" and len(n.args)>1 and isinstance(n.args[1],ast.BinOp) and isinstance(n.args[1].left,ast.JoinedStr) and n.args[1].left.values[0].value=="link-O")}
+        for target in ("x86_64-unknown-linux-gnu","aarch64-unknown-linux-gnu","aarch64-apple-darwin","x86_64-w64-windows-gnu"):
+            selected="arm64-apple-macosx26.0.0" if target=="aarch64-apple-darwin" else target
+            values={"target_name":target,"link_target":selected,"opt":3,"frozen":Path("frozen"),"AUDIT_FLAGS":gate.AUDIT_FLAGS,"str":str}
+            for name,node in seeds.items():values[name]=eval(compile(ast.Expression(node),str(DRIVER),"eval"),{"__builtins__":{}},values)
+            # The same conditional extension applies identical sanitizer flags to both sets.
+            for flags in (values["flags"],values["link_flags"]):flags.extend(gate.SANITIZER_FLAGS)
+            values.update(clang=Path("clang"),name="runtime.c",output=Path("out"),probe=Path("capability.c"),objects=["runtime.o"],capability=Path("capability"),llvm=Path("module.link.ll" if target=="aarch64-apple-darwin" else "module.ll"),checks=types.SimpleNamespace(runtime_platform_final_link_args=lambda:["platform-lib"]))
+            for name,call in calls.items():
+                command=eval(compile(ast.Expression(call.args[0]),str(DRIVER),"eval"),{"__builtins__":{}},values)
+                self.assertEqual(command[1],"--target="+(selected if name=="module" else target))
+                self.assertEqual("-I"+str(Path("frozen")/"freakc/runtime") in command,name!="module")
+                for flag in (*gate.AUDIT_FLAGS,*gate.SANITIZER_FLAGS):self.assertIn(flag,command)
+                self.assertEqual({k.arg:ast.literal_eval(k.value) for k in call.keywords},{"compiling":True})
+                self.assertNotIn("-Wno-unused-command-line-argument",command)
+                self.assertNotIn("-Wno-override-module",command)
+
     def prepare_fake_tree(self, base):
         original = base / "original"; original.mkdir()
         names = [*gate.OWNED_NAMES, gate.SUPPORT_NAME, gate.GUARD_NAME,
@@ -850,10 +934,11 @@ class PureGateTests(unittest.TestCase):
             base = Path(temp).resolve()
             original, compiler, work, frozen, names = self.prepare_fake_tree(base)
             callbacks = []
-            builds = dict.fromkeys(("bootstrap", "runtime", "capability", "module"), 0)
+            builds = dict.fromkeys(("bootstrap", "runtime", "capability", "module", "deployment"), 0)
             machine = "arm64" if host == "darwin" else "x86_64"
             with patch.object(gate.sys, "platform", host), patch.object(gate.platform, "machine", return_value=machine):
                 target_name = gate.host_target()
+            link_target = "arm64-apple-macosx26.0.0" if host == "darwin" else target_name
             fixtures = work / "fixtures"
             rows = [case for case in gate.CASES if host in case["platforms"]]
             controls = ("C", "LLVM", "asan-heap", "ubsan-overflow", "ubsan-shift") if sanitize else ("C", "LLVM")
@@ -864,11 +949,26 @@ class PureGateTests(unittest.TestCase):
             def guard(argv, *, label, timeout_seconds, memory_limit_mb, output_limit_mb):
                 self.assertEqual(output_limit_mb, 1)
                 callbacks.append(label)
+                if label == "runtime-darwin-deployment-probe":
+                    self.assertEqual(host,"darwin");self.assertEqual((timeout_seconds,memory_limit_mb),(120,512))
+                    self.assertEqual(argv,[str(compiler),"--target="+target_name,"-S","-emit-llvm","-x","c",str(work/"darwin-deployment-probe.c"),"-o",str(work/"darwin-deployment-probe.ll")])
+                    self.assertEqual((work/"darwin-deployment-probe.c").read_bytes(),b"/* Observe the selected Clang deployment target; no executable. */\n")
+                    builds["deployment"] += 1
+                    Path(argv[-1]).write_bytes(('target triple = "'+link_target+'"\n').encode())
+                    return subprocess.CompletedProcess(argv,0,"","")
                 if "-o" in argv:
                     bootstrap = label.startswith("bootstrap-")
                     self.assertEqual((timeout_seconds, memory_limit_mb), (120,1024 if bootstrap else 512))
                     target_flags = [flag for flag in argv if flag.startswith("--target=") or flag in ("--target", "-target")]
-                    self.assertEqual(target_flags, [] if bootstrap else ["--target=" + target_name], "native Clang command target must match the generated module exactly once")
+                    wanted_target = link_target if label.startswith("link-") else target_name
+                    self.assertEqual(target_flags, [] if bootstrap else ["--target=" + wanted_target], "native Clang command target must match the generated module exactly once")
+                    include = "-I" + str(frozen / "freakc/runtime")
+                    self.assertEqual(include in argv, not label.startswith("link-"), "include paths belong only to C inputs")
+                    if label.startswith("link-"):
+                        module_path = Path(argv[argv.index("-o")-8])
+                        self.assertEqual(module_path.suffix,".ll")
+                        self.assertEqual(module_path.name.endswith(".link.ll"),host=="darwin")
+                        self.assertTrue(module_path.read_bytes().startswith(('target triple = "'+wanted_target+'"\n').encode()))
                     kind = "bootstrap" if bootstrap else ("runtime" if label.startswith("runtime-") else ("capability" if label.startswith("capability-link-") else "module"))
                     builds[kind] += 1
                     if not bootstrap:
@@ -918,10 +1018,39 @@ class PureGateTests(unittest.TestCase):
                     pins=gate.run_gate(compiler,work,frozen,report,supports)
                 self.assertEqual(dict(os.environ),previous)
                 pins.final_pins(); report["complete"]=True; gate.validate_report(report,sanitize)
-                self.assertEqual(len(callbacks),224 if sanitize else (209 if host=="win32" else 215))
-                self.assertEqual(builds, {"bootstrap":2,"runtime":21,"capability":3,"module":27})
+                self.assertEqual(len(callbacks),224 if sanitize else (209 if host=="win32" else (216 if host=="darwin" else 215)))
+                self.assertEqual(builds, {"bootstrap":2,"runtime":21,"capability":3,"module":27,"deployment":int(host=="darwin")})
                 self.assertEqual(len(report["binary_hashes"]),53)
-                self.assertEqual(len(report["artifact_hashes"]),46)
+                self.assertEqual(len(report["artifact_hashes"]),57 if host=="darwin" else 46)
+                self.assertEqual(report["native_link_target"],link_target)
+                for row in report["emissions"]:
+                    name=row["name"];original_path=work/(name+".ll");linked=work/(name+(".link.ll" if host=="darwin" else ".ll"))
+                    self.assertEqual(row["module_sha256"],gate.sha(original_path))
+                    self.assertEqual(row["link_module_sha256"],gate.sha(linked))
+                    self.assertEqual(linked.read_bytes(),gate.native_link_module(original_path.read_bytes().decode(),target_name,link_target).encode())
+                if host=="darwin":
+                    for field in ("source_sha256","module_sha256","target"):
+                        forged=copy.deepcopy(report);forged["darwin_deployment_probe"][field]="wrong"
+                        with self.subTest(probe=field),self.assertRaises(RuntimeError):gate.validate_report(forged,sanitize)
+                    forged=copy.deepcopy(report);del forged["darwin_deployment_probe"]
+                    with self.assertRaises(RuntimeError):gate.validate_report(forged,sanitize)
+                    # Even self-consistent persisted hashes cannot authorize body changes.
+                    linked=work/(next(iter(gate.PROGRAMS))+".link.ll");saved=linked.read_bytes()
+                    try:
+                        linked.write_bytes(saved+b"; unauthorized body change\n")
+                        forged=copy.deepcopy(report);digest=gate.sha(linked)
+                        forged["artifact_hashes"][str(linked)]=forged["final_artifact_hashes"][str(linked)]=digest
+                        forged["emissions"][0]["link_module_sha256"]=digest
+                        with self.assertRaisesRegex(RuntimeError,"changes only the Darwin target header"):gate.validate_report(forged,sanitize)
+                    finally:linked.write_bytes(saved)
+                else:
+                    forged=copy.deepcopy(report);forged["darwin_deployment_probe"]={}
+                    with self.assertRaises(RuntimeError):gate.validate_report(forged,sanitize)
+                for field in ("module_sha256","link_module_sha256"):
+                    forged=copy.deepcopy(report);forged["emissions"][0][field]="0"*64
+                    with self.subTest(emission=field),self.assertRaises(RuntimeError):gate.validate_report(forged,sanitize)
+                forged=copy.deepcopy(report);forged["guarded_job_counts"]["native_and_clang"]+=1
+                with self.assertRaises(RuntimeError):gate.validate_report(forged,sanitize)
                 for field in ("contracts","emissions","programs","controls"):
                     forged=copy.deepcopy(report); forged[field]=forged[field][:-1]
                     with self.subTest(host=host, missing=field), self.assertRaises(RuntimeError): gate.validate_report(forged,sanitize)
@@ -940,17 +1069,14 @@ class PureGateTests(unittest.TestCase):
     def test_full_inert_windows_plain_matrix(self): self.simulate("win32",False)
 
     def test_actual_native_command_dispatch_rejects_historical_default_target(self):
-        # Recreate only the two historical command expressions in the actual
+        # Recreate the historical runtime default-target command in the actual
         # run_gate body, then dispatch it through the same process-free replay.
         # The original body must fail at its first runtime command even when
         # Clang's Windows default identity differs from the generated GNU target.
         source = DRIVER.read_text(encoding="utf-8")
         current_flags = 'flags = ["--target=" + target_name, f"-O{opt}", "-I" + str(frozen / "freakc/runtime"), *AUDIT_FLAGS]'
-        current_link = 'runner.run([str(clang), *flags, str(llvm), *objects, "-o", str(output), *checks.runtime_platform_final_link_args()]'
         self.assertEqual(source.count(current_flags), 1)
-        self.assertEqual(source.count(current_link), 1)
         old_source = source.replace(current_flags, current_flags.replace('"--target=" + target_name, ', ''))
-        old_source = old_source.replace(current_link, current_link.replace('[str(clang), *flags,', '[str(clang), "--target=" + target_name, *flags,'))
         functions = [node for node in ast.parse(old_source).body if isinstance(node, ast.FunctionDef) and node.name == "run_gate"]
         self.assertEqual(len(functions), 1)
         namespace = {}
