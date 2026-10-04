@@ -163,5 +163,18 @@ canonical roundtrips and hostile live/detached endpoints. Current-head focused,
 Sum compiler/native, typed generated gates and all platform CI remain readiness
 requirements; historical receipts retain their recorded revisions.
 
+At `2ece941`, the renewed Sum gates pass all 76 compiler cases with six
+bootstrap builds, followed by 30 native executions and eight mandatory
+ownership/sanitizer controls. Linux native targets and original/link module
+hashes match. Later changes require explicit unchanged-input transfer.
+
+The typed module validator accepts both implicit and explicit default-C calls
+while requiring one user-main reference and the original entry setup order.
+It permits the compiler's single unused Word conversion declaration while
+rejecting legacy calls, references and malformed prototypes. The fifteen-mode
+fixture constructs embedded source braces with `chr` to avoid V3 interpolation;
+all intended program bytes, arguments, assertions and caps remain unchanged.
+Fresh focused and full typed native gates remain required before readiness.
+
 These checks do not complete default compiler unwind, self-hosting or V3
 replacement. The release version remains unchanged; no release tag is created.
