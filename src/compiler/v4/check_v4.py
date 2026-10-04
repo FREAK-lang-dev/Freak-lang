@@ -151,6 +151,7 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "cold_hir_restore_resource_smoke.fk",
         "h6_native_declaration_symbol_smoke.fk",
         "h6_native_ffi_width_smoke.fk",
+        "mir_route_terminal_contract_smoke.fk",
     }
 )
 
@@ -11700,6 +11701,31 @@ EXECUTABLE_SMOKES = [
                         'expect': ['call-lifetime case=raw-scalar-facade setup=true '
                                    'named-rejected=true no-module=true restore=true old-seal=true '
                                    'recovery=true']}]},
+    {
+        "name": "Exhaustive route terminal CFG and typed loan preservation",
+        "fixture": "mir_route_terminal_contract_smoke.fk",
+        "memory_limit_mb": 64,
+        "timeout": 60,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["route-terminal case=0 pattern=true coverage=true terminal=true loan=true restore=true"],
+        "runtime_cases": [
+            {"argv": ["0"], "expect": ["route-terminal case=0 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["1"], "expect": ["route-terminal case=1 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["2"], "expect": ["route-terminal case=2 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["3"], "expect": ["route-terminal case=3 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["4"], "expect": ["route-terminal case=4 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["5"], "expect": ["route-terminal case=5 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["6"], "expect": ["route-terminal case=6 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["7"], "expect": ["route-terminal case=7 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["8"], "expect": ["route-terminal case=8 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["9"], "expect": ["route-terminal case=9 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["10"], "expect": ["route-terminal case=10 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["11"], "expect": ["route-terminal case=11 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["12"], "expect": ["route-terminal case=12 pattern=true coverage=true terminal=true loan=true restore=true"]},
+            {"argv": ["13"], "expect": ["route-terminal case=13 pattern=true coverage=true terminal=true loan=true restore=true"]},
+        ],
+    },
 ]
 
 if str(ROOT) not in sys.path:
@@ -13950,6 +13976,7 @@ def check_snapshot_inventories() -> None:
             "cold_hir_restore_resource_smoke.fk",
             "h6_native_declaration_symbol_smoke.fk",
             "h6_native_ffi_width_smoke.fk",
+            "mir_route_terminal_contract_smoke.fk",
         }
     ):
         violations.append("scratch-handle resource smoke limit coverage drifted")
