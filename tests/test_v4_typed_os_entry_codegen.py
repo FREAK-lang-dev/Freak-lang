@@ -26,6 +26,91 @@ sys.modules[NAME] = gate
 _spec.loader.exec_module(gate)
 
 
+def fixture_count_ast(source):
+    """Parse the actual FK helper with pinned bootstrap syntax, without a pipeline.
+
+    Only the lexer/parser sources enter a fresh private namespace. The evaluator
+    admits the helper's closed AST subset and ASCII Word primitives; substring
+    follows the existing runtime's (start, length), with no native execution.
+    """
+    package = "v4_typed_os_count_ast"
+    names = (package, package + ".lexer", package + ".parser")
+    if any(name in sys.modules for name in names):
+        raise AssertionError("count AST namespace is not fresh")
+    pins = {
+        "lexer": "de70a25c8130b58574572c2e2ec27856dbfffd901cfc84ea59f684a6ea4f6f8c",
+        "parser": "64fb824507b14a92fdb99d69707b2828ef01879f1f430c6fae67ba3149b9b821",
+    }
+    try:
+        namespace = types.ModuleType(package)
+        namespace.__path__ = []
+        sys.modules[package] = namespace
+        for role, expected in pins.items():
+            path = gate.ROOT / "freakc" / (role + ".py")
+            content = path.read_bytes()
+            if hashlib.sha256(content).hexdigest() != expected:
+                raise AssertionError("count AST bootstrap source pin drift")
+            module = types.ModuleType(package + "." + role)
+            module.__file__ = str(path)
+            module.__package__ = package
+            sys.modules[module.__name__] = module
+            exec(compile(content, str(path), "exec"), module.__dict__)
+        program = module.Parser.from_source(source)
+        functions = [node for node in program.statements
+                     if type(node).__name__ == "TaskDecl"
+                     and node.name == "v4_typed_os_contract_count"]
+        if len(functions) != 1:
+            raise AssertionError("exact count helper is missing or duplicated")
+        return functions[0]
+    finally:
+        for name in reversed(names):
+            sys.modules.pop(name, None)
+
+
+def evaluate_fixture_count(function, text, needle):
+    if not text.isascii() or not needle.isascii() or not needle or len(text) > 4096:
+        raise AssertionError("count AST controls require bounded nonempty ASCII needles")
+    env = {"text": text, "needle": needle}
+    class Returned(Exception):
+        def __init__(self, value): self.value = value
+    def expression(node):
+        kind = type(node).__name__
+        if kind == "IntLit": return node.value
+        if kind == "Ident": return env[node.name]
+        if kind == "BinOp":
+            left, right = expression(node.left), expression(node.right)
+            if node.op == "+": return left + right
+            if node.op == ">": return left > right
+            if node.op == "==": return left == right
+        if kind == "MethodCall":
+            value = expression(node.obj)
+            args = [expression(arg) for arg in node.args]
+            if node.method == "length" and not args: return len(value)
+            if node.method == "substring" and len(args) == 2:
+                start, length = args
+                return value[start:start + length] if 0 <= start < len(value) and length > 0 else ""
+        raise AssertionError("count AST expression outside closed subset: " + kind)
+    def block(statements):
+        for node in statements:
+            kind = type(node).__name__
+            if kind == "PilotDecl": env[node.name] = expression(node.value)
+            elif kind == "Assign" and node.op == "+=" and type(node.target).__name__ == "Ident":
+                env[node.target.name] += expression(node.value)
+            elif kind == "RepeatUntil":
+                remaining = len(text) + 1
+                while not expression(node.condition):
+                    remaining -= 1
+                    if remaining < 0: raise AssertionError("count AST loop budget exceeded")
+                    block(node.body.statements)
+            elif kind == "IfExpr" and not node.elif_branches and node.else_block is None:
+                if expression(node.condition): block(node.then_block.statements)
+            elif kind == "GiveBack": raise Returned(expression(node.value))
+            else: raise AssertionError("count AST statement outside closed subset: " + kind)
+    try: block(function.body.statements)
+    except Returned as result: return result.value
+    raise AssertionError("count AST helper did not return")
+
+
 def fake_module(program):
     arg, parser, fs, argc = gate.BRIDGE_COUNTS[program]
     lines = []
@@ -74,6 +159,40 @@ class PureGateTests(unittest.TestCase):
         self.assertEqual(self.attempts, dict.fromkeys(self.attempts, 0))
         self.assertNotIn("v4_typed_os_frozen_checks", sys.modules)
         self.assertFalse(any(name == "freakc" or name.startswith("freakc.") for name in sys.modules))
+
+    def test_actual_fk_count_ast_nonzero_offsets_trailing_bytes_and_mutation(self):
+        source = (gate.ROOT / gate.OWNED_NAMES[0]).read_text()
+        function = fixture_count_ast(source)
+        samples = (("abc!", "abc", 1), ("xabc!", "abc", 1),
+                   ("xabc!yabc!", "abc", 2), ("xaaaa!", "aa", 3),
+                   ("xabc", "abc", 1), ("xno-match!", "abc", 0),
+                   ("", "abc", 0), ("ab", "abc", 0))
+        for text, needle, expected in samples:
+            with self.subTest(text=text, needle=needle):
+                self.assertEqual(evaluate_fixture_count(function, text, needle), expected)
+        markers = ("call void @freak_v4_process_setup_args(",
+                   "declare void @freak_v4_process_setup_args(",
+                   "call void @freak_llvm_setup_args(")
+        module = ("target triple = \"x86_64-unknown-linux-gnu\"\n\n"
+                  "declare void @freak_v4_process_setup_args(i64, i64)\n"
+                  "declare void @freak_llvm_setup_args(i64, i64)\n\n"
+                  "define i32 @main(i32 %argc, ptr %argv) {\nentry:\n"
+                  "  call void @freak_llvm_setup_args(i64 1, i64 0)\n"
+                  "  call void @freak_v4_process_setup_args(i64 1, i64 0)\n"
+                  "  ret i32 0\n}\n")
+        for needle in markers:
+            self.assertEqual(evaluate_fixture_count(function, module, needle), 1)
+        # Reparse the historical defect into a real FK AST. This mutation must
+        # miss later matches with trailing bytes and all three setup markers.
+        fixed = "text.substring(offset, needle.length())"
+        self.assertEqual(source.count(fixed), 1)
+        old = fixture_count_ast(source.replace(fixed, "text.substring(offset, offset + needle.length())"))
+        self.assertEqual(evaluate_fixture_count(old, "abc!", "abc"), 1)
+        self.assertEqual(evaluate_fixture_count(old, "xabc!", "abc"), 0)
+        self.assertEqual(evaluate_fixture_count(old, "xabc!yabc!", "abc"), 0)
+        for needle in markers:
+            self.assertEqual(evaluate_fixture_count(old, module, needle), 0)
+        self.assertFalse(any(name.startswith("v4_typed_os_count_ast") for name in sys.modules))
 
     def test_closed_data_source_counts_and_no_nul_argv(self):
         gate.validate_data()
