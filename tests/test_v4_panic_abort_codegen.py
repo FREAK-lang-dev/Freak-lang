@@ -1,5 +1,6 @@
 """Pure adversarial controls for authored panic compiler/native oracles."""
 import importlib.util
+import ast
 from pathlib import Path
 import signal
 from types import SimpleNamespace
@@ -65,4 +66,19 @@ class PanicAbortOracle(unittest.TestCase):
         for case,wrong in ((assignment,'address\n3\nrhs\n3\n'),(method,'consume\n3\naddress\n3\n7\n')):
             with self.subTest(case=case.name),self.assertRaises(RuntimeError):gate.assert_case(self.result(wrong),case,platform='linux')
             with self.subTest(case=case.name),self.assertRaises(RuntimeError):gate.assert_case(self.result(case.stdout,'FREAK: unavailable word\n',1),case,platform='linux')
+    def test_native_link_uses_emitted_target_and_keeps_strict_guards(self):
+        tree=ast.parse(Path(gate.__file__).read_text())
+        run_gate=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='run_gate')
+        calls=[node for node in ast.walk(run_gate) if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='run' and len(node.args)>1 and isinstance(node.args[1],ast.JoinedStr) and any(isinstance(part,ast.Constant) and part.value=='panic link ' for part in node.args[1].values)]
+        self.assertEqual(len(calls),1)
+        command=compile(ast.Expression(calls[0].args[0]),gate.__file__,'eval')
+        for target,libraries in (('x86_64-unknown-linux-gnu',['-lm']),('aarch64-apple-darwin',[]),('x86_64-pc-windows-msvc',['user32.lib'])):
+            with self.subTest(target=target):
+                flags=['-O3',*gate.AUDIT_FLAGS,*gate.SANITIZER_FLAGS]
+                values={'args':SimpleNamespace(clang='clang'),'target':target,'flags':flags,'llvm':Path('module.ll'),'objects':{3:['runtime.O3.o']},'opt':3,'binary':Path('program.native'),'checks':SimpleNamespace(runtime_platform_final_link_args=lambda:libraries),'str':str}
+                argv=eval(command,{'__builtins__':{}},values)
+                self.assertEqual(argv,['clang','--target='+target,*flags,'module.ll','runtime.O3.o','-o','program.native',*libraries])
+                self.assertFalse(any(value=='-w' or value.startswith('-Wno-') for value in argv))
+        self.assertEqual({keyword.arg:ast.literal_eval(keyword.value) for keyword in calls[0].keywords},{'timeout':120,'memory':512})
+        self.assertIn('if result.returncode!=0 or result.stdout or result.stderr:raise RuntimeError',ast.get_source_segment(Path(gate.__file__).read_text(),run_gate))
 if __name__=='__main__':unittest.main()

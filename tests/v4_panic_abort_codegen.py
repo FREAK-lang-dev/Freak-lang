@@ -210,7 +210,7 @@ int main(int argc,char **argv){if(argc!=2)return 9;if(argv[1][0]=='a'){volatile 
                 binary=work/f'{case.name}-O{opt}{suffix}'
                 flags=[f'-O{opt}',*AUDIT_FLAGS]
                 if not args.plain:flags+=list(SANITIZER_FLAGS)
-                result=runner.run([args.clang,*flags,str(llvm),*objects[opt],'-o',str(binary),*checks.runtime_platform_final_link_args()],f'panic link {case.name} O{opt}',timeout=120,memory=512)
+                result=runner.run([args.clang,'--target='+target,*flags,str(llvm),*objects[opt],'-o',str(binary),*checks.runtime_platform_final_link_args()],f'panic link {case.name} O{opt}',timeout=120,memory=512)
                 if result.returncode!=0 or result.stdout or result.stderr:raise RuntimeError(f'panic native link failed: {result.stderr}')
                 result=runner.run([str(binary)],f'panic execute {case.name} O{opt}',timeout=30,memory=128)
                 assert_case(result,case)
