@@ -460,6 +460,7 @@ class SymbolToolSelection(unittest.TestCase):
                 self.assertRaisesRegex(RuntimeError, "private-copy storage is mounted noexec") as failure:
             self.benchmark.llvm_symbol_tool(None, self.work / "private-noexec", 10)
         self.assertIn("symbol-tool-provenance=", str(failure.exception))
+        self.assertIn("set TMPDIR to a private directory on an exec-permitted filesystem", str(failure.exception))
         job.assert_not_called()
 
     def test_close_cancellation_survives_private_cleanup_fault(self):
@@ -504,6 +505,115 @@ class SymbolToolSelection(unittest.TestCase):
                     if not malformed_notes:
                         self.assertEqual(len(primary.__notes__), 1)
                         self.assertIn("private-copy cleanup failure: errno=5", primary.__notes__[0])
+
+    @contextlib.contextmanager
+    def interrupted_launch_cleanup(self, close_error=None, tree_error=None):
+        original_close = os.close
+        original_cleanup = self.benchmark.tempfile.TemporaryDirectory.cleanup
+        closed, roots = [], []
+        def close_then_fail(descriptor):
+            original_close(descriptor)
+            closed.append(descriptor)
+            if close_error is not None:
+                raise close_error
+        def clean_then_fail(temporary):
+            original_cleanup(temporary)
+            roots.append(temporary.name)
+            if tree_error is not None:
+                raise tree_error
+        with patch.object(self.benchmark, "close_symbol_descriptor", side_effect=close_then_fail) as close, \
+                patch.object(self.benchmark.tempfile.TemporaryDirectory, "cleanup", clean_then_fail):
+            yield closed, roots, close
+
+    def test_body_failure_survives_descriptor_and_tree_cancellation(self):
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        for primary_type in (RuntimeError, KeyboardInterrupt):
+            for phase in ("descriptor", "private-tree", "both"):
+                for secondary_type in (MemoryError, KeyboardInterrupt):
+                    for malformed_notes in (False, True):
+                        with self.subTest(primary=primary_type.__name__, phase=phase,
+                                          secondary=secondary_type.__name__, malformed_notes=malformed_notes):
+                            primary = primary_type("first launch/resource failure")
+                            cause = ValueError("original resource attribution")
+                            primary.__cause__ = cause
+                            if malformed_notes:
+                                primary.__notes__ = object()
+                            close_error = secondary_type("secondary descriptor cancellation") if phase != "private-tree" else None
+                            tree_error = secondary_type("secondary tree cancellation") if phase != "descriptor" else None
+                            with self.interrupted_launch_cleanup(close_error, tree_error) as (closed, roots, close), \
+                                    patch.object(self.benchmark, "guarded_job") as job, \
+                                    self.assertRaises(BaseException) as failure:
+                                with self.benchmark.frozen_symbol_tool_launch(selected):
+                                    raise primary
+                            self.assertEqual(len(closed), 1)
+                            close.assert_called_once_with(closed[0])
+                            with self.assertRaises(OSError) as absent:
+                                os.fstat(closed[0])
+                            self.assertEqual(absent.exception.errno, errno.EBADF)
+                            self.assertEqual(len(roots), 1)
+                            self.assertFalse(Path(roots[0]).exists())
+                            job.assert_not_called()
+                            self.assertIs(primary.__cause__, cause)
+                            self.assertIs(failure.exception, primary)
+                            if not malformed_notes:
+                                self.assertEqual(len(primary.__notes__), 2 if phase == "both" else 1)
+                                self.assertTrue(all(secondary_type.__name__ in note for note in primary.__notes__))
+                                self.assertTrue(all(len(note) <= 350 for note in primary.__notes__))
+
+    def test_first_close_or_tree_cancellation_keeps_identity_and_cause(self):
+        selected = {"selected_nm": str(self.tool), "resolved_nm": str(self.tool),
+                    "nm_file": self.benchmark.symbol_file_provenance(self.tool)}
+        for close_type in (MemoryError, KeyboardInterrupt):
+            for tree_type in (MemoryError, KeyboardInterrupt):
+                for malformed_notes in (False, True):
+                    with self.subTest(close=close_type.__name__, tree=tree_type.__name__, malformed_notes=malformed_notes):
+                        primary = close_type("first descriptor close cancellation")
+                        cause = ValueError("original close attribution")
+                        primary.__cause__ = cause
+                        if malformed_notes:
+                            primary.__notes__ = object()
+                        secondary = tree_type("secondary tree cancellation")
+                        with self.interrupted_launch_cleanup(primary, secondary) as (closed, roots, close), \
+                                self.assertRaises(BaseException) as failure:
+                            with self.benchmark.frozen_symbol_tool_launch(selected):
+                                pass
+                        self.assertEqual(len(closed), 1)
+                        close.assert_called_once_with(closed[0])
+                        with self.assertRaises(OSError) as absent:
+                            os.fstat(closed[0])
+                        self.assertEqual(absent.exception.errno, errno.EBADF)
+                        self.assertEqual(len(roots), 1)
+                        self.assertFalse(Path(roots[0]).exists())
+                        self.assertIs(primary.__cause__, cause)
+                        self.assertIs(failure.exception, primary)
+                        if not malformed_notes:
+                            self.assertEqual(len(primary.__notes__), 1)
+                            self.assertIn("private-copy cleanup failure: errno=None", primary.__notes__[0])
+                            self.assertTrue(primary.__notes__[0].endswith(tree_type.__name__))
+                            self.assertLessEqual(len(primary.__notes__[0]), 350)
+        # A sole cancellation remains the first failure, without wrapping or notes.
+        for phase in ("descriptor", "private-tree"):
+            for failure_type in (MemoryError, KeyboardInterrupt):
+                with self.subTest(sole=phase, failure=failure_type.__name__):
+                    primary = failure_type("sole cleanup cancellation")
+                    cause = ValueError("original sole failure attribution")
+                    primary.__cause__ = cause
+                    with self.interrupted_launch_cleanup(primary if phase == "descriptor" else None,
+                                                         primary if phase == "private-tree" else None) as (closed, roots, close), \
+                            self.assertRaises(BaseException) as failure:
+                        with self.benchmark.frozen_symbol_tool_launch(selected):
+                            pass
+                    self.assertEqual(len(closed), 1)
+                    close.assert_called_once_with(closed[0])
+                    with self.assertRaises(OSError) as absent:
+                        os.fstat(closed[0])
+                    self.assertEqual(absent.exception.errno, errno.EBADF)
+                    self.assertEqual(len(roots), 1)
+                    self.assertFalse(Path(roots[0]).exists())
+                    self.assertIs(failure.exception, primary)
+                    self.assertIs(primary.__cause__, cause)
+                    self.assertFalse(hasattr(primary, "__notes__"))
 
     def test_original_execute_permission_revocation_stops_both_jobs(self):
         for phase in ("version", "inventory"):
@@ -1163,6 +1273,7 @@ class SymbolToolSelection(unittest.TestCase):
                                         BaseException.add_note(registration_error,
                                             "fixture registration close failure: " + type(close_error).__name__[:128])
                                     except BaseException:
+                                        # Optional notes cannot replace the registration error.
                                         pass
                                 raise
                             return descriptor
@@ -1183,6 +1294,7 @@ class SymbolToolSelection(unittest.TestCase):
                                             BaseException.add_note(registration_error,
                                                 "fixture registration close failure: " + type(close_error).__name__[:128])
                                         except BaseException:
+                                            # Optional notes cannot replace the registration error.
                                             pass
                                     raise
                             raise secondary
@@ -1250,6 +1362,7 @@ class SymbolToolSelection(unittest.TestCase):
                             try:
                                 original_close(descriptor)
                             except BaseException:
+                                # Keep the registration error after one close attempt; never retry.
                                 pass
                             raise
                         return descriptor
@@ -1282,9 +1395,9 @@ class SymbolToolSelection(unittest.TestCase):
                     previous_opcodes = trace_frame.f_trace_opcodes
                     try:
                         class InterruptedCase(type(self)):
-                            def setUp(case):
+                            def setUp(self):
                                 super().setUp()
-                                launch = case.benchmark.frozen_symbol_tool_launch
+                                launch = self.benchmark.frozen_symbol_tool_launch
                                 @contextlib.contextmanager
                                 def observed_launch(selected):
                                     try:
@@ -1294,7 +1407,7 @@ class SymbolToolSelection(unittest.TestCase):
                                         if fired:
                                             propagated.append(error)
                                         raise
-                                case.benchmark.frozen_symbol_tool_launch = observed_launch
+                                self.benchmark.frozen_symbol_tool_launch = observed_launch
                         case = InterruptedCase(method)
                         result = unittest.TestResult()
                         result.failfast = True

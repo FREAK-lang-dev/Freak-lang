@@ -663,7 +663,8 @@ def frozen_symbol_tool_launch(provenance: dict):
         # The original reader and the private writer are closed before launch.
         snapshot.chmod(0o500)
         if os.statvfs(snapshot).f_flag & os.ST_NOEXEC:
-            raise RuntimeError("LLVM symbol reader private-copy storage is mounted noexec")
+            raise RuntimeError("LLVM symbol reader private-copy storage is mounted noexec; "
+                               "set TMPDIR to a private directory on an exec-permitted filesystem")
         descriptor = os.open(snapshot, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
         copied_stat = os.fstat(descriptor)
         copied_digest = hashlib.sha256()
@@ -705,38 +706,40 @@ def frozen_symbol_tool_launch(provenance: dict):
             # A retry could close a descriptor subsequently reused by the caller.
             if descriptor is not None:
                 close_symbol_descriptor(descriptor)
-        except OSError as close_error:
+        except BaseException as close_error:
             if primary_error is None:
-                close_failure = RuntimeError("pinned LLVM symbol reader descriptor close failed")
-                raise close_failure from close_error
+                if isinstance(close_error, OSError):
+                    close_failure = RuntimeError("pinned LLVM symbol reader descriptor close failed")
+                    raise close_failure from close_error
+                close_failure = close_error
+                raise
             # Cleanup attribution must not replace a resource/launch failure,
             # even if adding its bounded secondary note itself fails.
             try:
-                number = close_error.errno if isinstance(close_error.errno, int) else None
-                detail = close_error.strerror
+                number = close_error.errno if isinstance(close_error, OSError) and isinstance(close_error.errno, int) else None
+                detail = close_error.strerror if isinstance(close_error, OSError) else type(close_error).__name__
                 detail = detail[:256] if isinstance(detail, str) else "unavailable"
                 BaseException.add_note(primary_error,
                     f"secondary LLVM symbol reader descriptor close failure: errno={number}; {detail}")
             except BaseException:
                 pass
-        except BaseException as close_error:
-            # A close-time cancellation/allocation failure is already unwinding.
-            # Record it so a secondary private-tree cleanup fault cannot mask it.
-            close_failure = close_error
-            raise
         finally:
             # Only this call's private tree is removed; sibling links are never
             # traversed. Preserve an already attributed launch/close failure.
             active_error = primary_error if primary_error is not None else close_failure
             try:
                 temporary.cleanup()
-            except OSError as cleanup_error:
+            except BaseException as cleanup_error:
                 if active_error is None:
-                    raise RuntimeError("LLVM symbol reader private-copy cleanup failed") from cleanup_error
+                    if isinstance(cleanup_error, OSError):
+                        raise RuntimeError("LLVM symbol reader private-copy cleanup failed") from cleanup_error
+                    raise
                 try:
+                    number = cleanup_error.errno if isinstance(cleanup_error, OSError) and isinstance(cleanup_error.errno, int) else None
+                    detail = "" if isinstance(cleanup_error, OSError) else "; " + type(cleanup_error).__name__[:256]
                     BaseException.add_note(active_error,
                         "secondary LLVM symbol reader private-copy cleanup failure: "
-                        f"errno={cleanup_error.errno if isinstance(cleanup_error.errno, int) else None}")
+                        f"errno={number}{detail}")
                 except BaseException:
                     pass
 
