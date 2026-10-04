@@ -161,6 +161,7 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "scalar_sum_execute_smoke.fk",
         "typed_os_entry_execute_smoke.fk",
         "typed_os_entry_contract_smoke.fk",
+        "word_bounds_execute_smoke.fk",
     }
 )
 
@@ -12090,7 +12091,86 @@ EXECUTABLE_SMOKES = [
                'src/compiler/v4/examples/typed_os_entry_descriptors.fk',
                'x86_64-unknown-linux-gnu',
                '',
-               'builtin::system::process_arg']}
+               'builtin::system::process_arg']},
+    {'name': 'Unicode Word bounds and borrowed receiver compiler matrix',
+     'fixture': 'word_bounds_execute_smoke.fk',
+     'memory_limit_mb': 64,
+     'timeout': 60,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['word-bounds-proof case=0 borrowed=true restore=true old-seal=true fresh-module=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['word-bounds-proof case=0 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['1'],
+                        'expect': ['word-bounds-proof case=1 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['2'],
+                        'expect': ['word-bounds-proof case=2 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['3'],
+                        'expect': ['word-bounds-proof case=3 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['4'],
+                        'expect': ['word-bounds-proof case=4 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['5'],
+                        'expect': ['word-bounds-proof case=5 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['6'],
+                        'expect': ['word-bounds-proof case=6 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['7'],
+                        'expect': ['word-bounds-proof case=7 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['8'],
+                        'expect': ['word-bounds-proof case=8 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['9'],
+                        'expect': ['word-bounds-proof case=9 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['10'],
+                        'expect': ['word-bounds-proof case=10 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['11'],
+                        'expect': ['word-bounds-proof case=11 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['12'],
+                        'expect': ['word-bounds-proof case=12 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['13'],
+                        'expect': ['word-bounds-proof case=13 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['14'],
+                        'expect': ['word-bounds-proof case=14 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['15'],
+                        'expect': ['word-bounds-proof case=15 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['16'],
+                        'expect': ['word-bounds-proof case=16 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['17'],
+                        'expect': ['word-bounds-proof case=17 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['18'],
+                        'expect': ['word-bounds-proof case=18 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['19'],
+                        'expect': ['word-bounds-proof case=19 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['20'],
+                        'expect': ['word-bounds-proof case=20 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['21'],
+                        'expect': ['word-bounds-proof case=21 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['22'],
+                        'expect': ['word-bounds-proof case=22 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['23'],
+                        'expect': ['word-bounds-proof case=23 borrowed=true restore=true old-seal=true '
+                                   'fresh-module=true']}]},
 ]
 
 if str(ROOT) not in sys.path:
@@ -14351,6 +14431,7 @@ def check_snapshot_inventories() -> None:
             "scalar_sum_execute_smoke.fk",
             "typed_os_entry_execute_smoke.fk",
             "typed_os_entry_contract_smoke.fk",
+            "word_bounds_execute_smoke.fk",
         }
     ):
         violations.append("scratch-handle resource smoke limit coverage drifted")

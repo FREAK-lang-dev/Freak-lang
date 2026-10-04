@@ -132,6 +132,7 @@ jobs:
           --smoke owned_word_
           --smoke scalar_sum_
           --smoke typed_os_entry_
+          --smoke word_bounds_
           --smoke codegen_llvm_execute
           --smoke extern_literal_syntax
           --smoke extern_return
@@ -220,6 +221,12 @@ jobs:
       - name: Unicode lowercase generated-code native portability
         run: python -B -u tests/v4_word_lower_codegen.py --plain --work "${{ runner.temp }}/word-lower-codegen-plain" --report "${{ runner.temp }}/word-lower-codegen-plain.json"
 
+      - name: Word bounds generated-code oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_word_bounds_codegen.py -v
+
+      - name: Word bounds native portability, exact bounds and receiver lifetime
+        run: python -B -u tests/v4_word_bounds_codegen.py --plain --work "${{ runner.temp }}/word-bounds-codegen-plain"
+
       - name: Closed scalar Sum generated-code oracle regressions
         run: python -B -u -m unittest discover -s tests -p test_v4_scalar_sum_codegen.py -v
 
@@ -290,6 +297,10 @@ jobs:
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_word_lower_codegen.py --work "${{ runner.temp }}/word-lower-codegen-sanitized" --report "${{ runner.temp }}/word-lower-codegen-sanitized.json"
 
+      - name: Word bounds mandatory sanitizer, ownership and receiver lifetime gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_word_bounds_codegen.py --work "${{ runner.temp }}/word-bounds-codegen-sanitized"
+
       - name: Closed scalar Sum mandatory sanitizer and ownership gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_scalar_sum_codegen.py --work "${{ runner.temp }}/scalar-sum-codegen-sanitized" --report "${{ runner.temp }}/scalar-sum-codegen-sanitized/report.json"
@@ -323,6 +334,14 @@ jobs:
       - name: Checked numeric generated-code sanitizer and ownership gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_checked_numeric_codegen.py --snapshot-control --work "${{ runner.temp }}/numeric-codegen-sanitized" --json "${{ runner.temp }}/numeric-codegen-sanitized.json"
+
+      - name: Preserve Word bounds compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-word-bounds-codegen-${{ matrix.os }}
+          path: ${{ runner.temp }}/word-bounds-codegen-*/
+          if-no-files-found: warn
 
       - name: Preserve closed scalar Sum compiler and native evidence
         if: always()
