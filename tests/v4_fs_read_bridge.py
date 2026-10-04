@@ -297,12 +297,20 @@ def load_guard(frozen):
     return module
 
 
+def sanitizer_options(exitcode):
+    require(type(exitcode) is int and exitcode in (85, 86), "invalid private sanitizer exit policy")
+    return {"ASAN_OPTIONS": f"halt_on_error=1:detect_leaks=1:exitcode={exitcode}",
+            "UBSAN_OPTIONS": f"halt_on_error=1:print_stacktrace=1:exitcode={exitcode}"}
+
+
 @contextmanager
-def sanitizer_environment(support, sanitize):
+def sanitizer_environment(support, sanitize, exitcode=86):
     with support.sanitizer_environment(False):
         if sanitize:
-            os.environ["ASAN_OPTIONS"] = "halt_on_error=1:detect_leaks=1:exitcode=86"
-            os.environ["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1:exitcode=85"
+            # The combined sanitizer runtime shares common flags. Conflicting
+            # exitcode values cannot establish distinct per-control policies.
+            for name, value in sanitizer_options(exitcode).items():
+                os.environ[name] = value
         yield
 
 
@@ -386,7 +394,8 @@ def run_gate(clang, directory, report, sanitize, support, data):
             validate_case(actual, case, data["fixtures"], sys.platform)
         if sanitize:
             for kind in CAPABILITIES:
-                actual = support.observed(runner.run([str(binary), "--" + kind], f"O{opt}-{kind}"))
+                with sanitizer_environment(support, True, 86 if kind == "asan-heap" else 85):
+                    actual = support.observed(runner.run([str(binary), "--" + kind], f"O{opt}-{kind}"))
                 matrix["capabilities"].append({"kind": kind, "actual": actual})
                 validate_capability(actual, kind)
         pins.check()

@@ -93,6 +93,13 @@ capability controls fail. Prepared native invocation totals are 165 plain
 Linux/macOS, 171 plain Windows, or 174 sanitized Linux, plus three Clang builds
 and two compiler-identity commands per driver. These are obligations, not results.
 
+Both sanitizer option sets use the same exitcode for each child because the
+combined sanitizer runtime shares common flags: default and ASan controls use 86;
+scoped UBSan controls use 85. Each scope independently restores all three caller
+option keys through the accepted retention machinery, including cancellation
+and setup/cleanup failures. Fixed capability statuses and diagnostics remain
+separate strict oracles; a real diagnostic with the wrong exit policy fails.
+
 The guarded driver reuses the independently accepted checked32 source's Runner,
 bounded secondary-error retention, sanitizer restoration and Conservation
 machinery, loaded from frozen source with SHA

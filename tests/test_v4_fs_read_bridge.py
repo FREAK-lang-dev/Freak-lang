@@ -65,7 +65,7 @@ class FsBridgePure(unittest.TestCase):
                 raise AssertionError("process forbidden: " + name)
             self.stack.enter_context(patch.object(subprocess, name, forbidden))
         self.temporary = self.stack.enter_context(tempfile.TemporaryDirectory())
-        self.directory = Path(self.temporary)
+        self.directory = Path(self.temporary).resolve()
         self.data = gate.load_vectors()
         self.stack.callback(sys.modules.pop, "v4_fs_read_bridge_frozen_support", None)
 
@@ -252,16 +252,71 @@ class FsBridgePure(unittest.TestCase):
         with patch.object(os,"environ",dict(previous)):
             with gate.sanitizer_environment(support,True):
                 self.assertEqual(os.environ["ASAN_OPTIONS"],"halt_on_error=1:detect_leaks=1:exitcode=86")
-                self.assertEqual(os.environ["UBSAN_OPTIONS"],"halt_on_error=1:print_stacktrace=1:exitcode=85")
+                self.assertEqual(os.environ["UBSAN_OPTIONS"],"halt_on_error=1:print_stacktrace=1:exitcode=86")
                 self.assertNotIn("LSAN_OPTIONS",os.environ)
             self.assertEqual(dict(os.environ),previous)
-            with gate.sanitizer_environment(support,False): self.assertFalse(os.environ)
+            with gate.sanitizer_environment(support,False):
+                self.assertFalse(any(name in os.environ for name in previous))
             self.assertEqual(dict(os.environ),previous)
+
+    def test_each_sanitizer_control_uses_agreeing_exit_codes_and_restores_outer_policy(self):
+        _, _, _, _, support, _ = self.fixture()
+        original = {name:"caller-option" for name in ("ASAN_OPTIONS","UBSAN_OPTIONS","LSAN_OPTIONS")}
+        with patch.object(os,"environ",dict(original)):
+            with gate.sanitizer_environment(support,True):
+                outer = dict(os.environ)
+                self.assertEqual(outer,gate.sanitizer_options(86))
+                for kind in gate.CAPABILITIES:
+                    code = 86 if kind == "asan-heap" else 85
+                    with gate.sanitizer_environment(support,True,code):
+                        self.assertEqual(dict(os.environ),gate.sanitizer_options(code))
+                        self.assertTrue(all(value.endswith("exitcode="+str(code)) for value in os.environ.values()))
+                    self.assertEqual(dict(os.environ),outer)
+            self.assertEqual(dict(os.environ),original)
+        for invalid in (True,84,87,"86",None):
+            with self.assertRaises(gate.GateError): gate.sanitizer_options(invalid)
+
+    @unittest.skipUnless(sys.platform == "linux", "the Linux sanitizer dispatch control needs real FIFO fixture support")
+    def test_real_run_gate_dispatches_each_capability_under_its_fixed_exit_policy(self):
+        _, work, _, compiler, support, report = self.fixture()
+        rows = []
+        data = self.data
+        class MetadataOnly:
+            def run_with_heartbeat(self,argv,**kwargs):
+                if argv[1] == "--version": status,out,err = 0,"clang inert metadata\n",""
+                elif argv[1] == "-dumpmachine": status,out,err = 0,"inert-host-metadata\n",""
+                elif "-o" in argv:
+                    Path(argv[argv.index("-o")+1]).write_bytes(b"inert binary fixture; never executable")
+                    status,out,err = 0,"",""
+                elif argv[1][2:] in gate.CAPABILITIES:
+                    kind = argv[1][2:]
+                    wanted = capability(kind)
+                    code = 86 if kind == "asan-heap" else 85
+                    observed = {name:os.environ.get(name) for name in ("ASAN_OPTIONS","UBSAN_OPTIONS")}
+                    rows.append((kind,observed))
+                    if observed != gate.sanitizer_options(code): raise AssertionError("wrong sanitizer policy at callback")
+                    status,out,err = wanted["status"],wanted["stdout"],wanted["stderr"]
+                else:
+                    case = next(case for case in data["cases"] if "linux" in case["platforms"] and
+                                argv[1:] == [str(work / "fixtures" / data["fixtures"][v[1:]]["name"]) if v.startswith("@") else v for v in case["argv"]])
+                    wanted = gate.expected_case(case,data["fixtures"],"linux")
+                    status,out,err = wanted["status"],wanted["stdout"],wanted["stderr"]
+                return subprocess.CompletedProcess(argv,status,out,err)
+        report["platform"],report["sanitized"] = "linux",True
+        with patch.object(sys,"platform","linux"),patch.object(gate,"load_guard",lambda _:MetadataOnly()), \
+                patch.object(os,"environ",{}),patch.object(gate,"print",lambda *a,**k:None,create=True):
+            with gate.sanitizer_environment(support,True):
+                pins = gate.run_gate(compiler,work,report,True,support,data)
+                self.assertEqual(dict(os.environ),gate.sanitizer_options(86))
+            self.assertEqual(dict(os.environ),{})
+            self.assertEqual([kind for kind,_ in rows],list(gate.CAPABILITIES)*3)
+            pins.check()
+        self.assertIs(report["complete"],False)
 
     def test_run_gate_post_source_or_fixture_drift_rejects_before_second_metadata_callback(self):
         for target in ("source","fixture"):
             with self.subTest(target=target), tempfile.TemporaryDirectory() as parent:
-                self.directory = Path(parent)
+                self.directory = Path(parent).resolve()
                 _, work, frozen, compiler, support, report = self.fixture()
                 calls = []
                 class MetadataOnly:
@@ -281,7 +336,7 @@ class FsBridgePure(unittest.TestCase):
         raw = Path.write_text
         for primary_type in (RuntimeError,KeyboardInterrupt):
             with self.subTest(primary_type=primary_type), tempfile.TemporaryDirectory() as parent:
-                self.directory = Path(parent)
+                self.directory = Path(parent).resolve()
                 _, _, _, compiler, _, _ = self.fixture()
                 sys.modules.pop("v4_fs_read_bridge_frozen_support",None)
                 work = self.directory / ("main-"+primary_type.__name__)
@@ -309,7 +364,7 @@ class FsBridgePure(unittest.TestCase):
         for primary_type in (RuntimeError,KeyboardInterrupt):
             for secondary_type in (MemoryError,KeyboardInterrupt):
                 with self.subTest(primary_type=primary_type,secondary_type=secondary_type), tempfile.TemporaryDirectory() as parent:
-                    self.directory = Path(parent)
+                    self.directory = Path(parent).resolve()
                     _, _, _, compiler, _, _ = self.fixture()
                     sys.modules.pop("v4_fs_read_bridge_frozen_support",None)
                     work = self.directory / "main-attribution"
