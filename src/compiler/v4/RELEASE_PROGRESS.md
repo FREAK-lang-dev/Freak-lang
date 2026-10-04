@@ -174,7 +174,21 @@ It permits the compiler's single unused Word conversion declaration while
 rejecting legacy calls, references and malformed prototypes. The fifteen-mode
 fixture constructs embedded source braces with `chr` to avoid V3 interpolation;
 all intended program bytes, arguments, assertions and caps remain unchanged.
-Fresh focused and full typed native gates remain required before readiness.
+At `376e477`, the full typed OS matrix passes all 439 guarded Linux jobs:
+215 plain and 224 with mandatory ASan/UBSan, including 261 native executions
+and 50 strict contract checks. Independent endpoint review verifies the raw
+channels, original Runner records, 3,857 artifacts and cleanup. Six capability
+link rows in the retained plan omitted a flag used by the unchanged source
+helper; a separately reviewed source-derived addendum corrects only those rows
+and preserves the original plan and receipts.
+
+The focused run at `376e477` passes four existing controls and eight new modes,
+then rejects the missing-binding span assertion. Its diagnostic used the whole
+expression range, including preceding whitespace. The producer now selects the
+identifier token's exact span; help text, assertions and generated programs are
+unchanged. Fresh focused execution and current-head platform CI remain required
+before readiness. Earlier native evidence requires explicit review of this
+diagnostic-only delta and retains its actual source revision.
 
 These checks do not complete default compiler unwind, self-hosting or V3
 replacement. The release version remains unchanged; no release tag is created.
