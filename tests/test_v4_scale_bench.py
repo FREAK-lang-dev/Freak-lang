@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import contextlib
+import dis
 import errno
 import io
 import importlib.util
@@ -1151,8 +1152,19 @@ class SymbolToolSelection(unittest.TestCase):
                         opened, closed, replacements, scratch = [], [], [], []
                         def record_open(path, *args, **kwargs):
                             descriptor = original_open(path, *args, **kwargs)
-                            if Path(path) == self.tool:
-                                opened.append(descriptor)
+                            try:
+                                if Path(path) == self.tool:
+                                    opened.append(descriptor)
+                            except BaseException as registration_error:
+                                try:
+                                    original_close(descriptor)
+                                except BaseException as close_error:
+                                    try:
+                                        BaseException.add_note(registration_error,
+                                            "fixture registration close failure: " + type(close_error).__name__[:128])
+                                    except BaseException:
+                                        pass
+                                raise
                             return descriptor
                         def close_then_fail(descriptor):
                             original_close(descriptor)
@@ -1160,7 +1172,19 @@ class SymbolToolSelection(unittest.TestCase):
                             if reuse:
                                 # Own the replacement before any equality oracle
                                 # so a failing control cannot leak or blind-close.
-                                replacements.append(original_open(self.obj, os.O_RDONLY | os.O_CLOEXEC))
+                                replacement = original_open(self.obj, os.O_RDONLY | os.O_CLOEXEC)
+                                try:
+                                    replacements.append(replacement)
+                                except BaseException as registration_error:
+                                    try:
+                                        original_close(replacement)
+                                    except BaseException as close_error:
+                                        try:
+                                            BaseException.add_note(registration_error,
+                                                "fixture registration close failure: " + type(close_error).__name__[:128])
+                                        except BaseException:
+                                            pass
+                                    raise
                             raise secondary
                         def temporary(*args, **kwargs):
                             owner = original_temporary(*args, **kwargs)
@@ -1205,6 +1229,116 @@ class SymbolToolSelection(unittest.TestCase):
                                 except OSError as error:
                                     if error.errno != errno.EBADF:
                                         raise
+
+    def test_original_adoption_fixture_closes_fd_when_registration_is_interrupted(self):
+        original_open, original_close = os.open, os.close
+        method = "test_original_adoption_non_oserror_close_keeps_primary_and_one_attempt"
+        for target in ("opened", "replacements"):
+            for failure_type in (MemoryError, KeyboardInterrupt):
+                with self.subTest(target=target, failure=failure_type.__name__):
+                    interruption = failure_type("fixture descriptor registration interrupted")
+                    cause = ValueError("registration attributed cause")
+                    interruption.__cause__ = cause
+                    acquired, closed, fired, propagated = [], [], [], []
+                    offsets = {}
+                    def opened(path, *args, **kwargs):
+                        descriptor = original_open(path, *args, **kwargs)
+                        try:
+                            if Path(path).name in ("llvm-nm-real", "module.o"):
+                                acquired.append((descriptor, os.fstat(descriptor).st_ino, Path(path).name))
+                        except BaseException:
+                            try:
+                                original_close(descriptor)
+                            except BaseException:
+                                pass
+                            raise
+                        return descriptor
+                    def close(descriptor):
+                        identity = os.fstat(descriptor).st_ino
+                        original_close(descriptor)
+                        closed.append((descriptor, identity))
+                    def trace(frame, event, arg):
+                        if (frame.f_code.co_name in ("record_open", "close_then_fail")
+                                and method in frame.f_code.co_qualname):
+                            frame.f_trace_opcodes = True
+                            if frame.f_code not in offsets:
+                                instructions = list(dis.get_instructions(frame.f_code))
+                                starts = {(instruction.positions.lineno, instruction.positions.col_offset)
+                                          for index, instruction in enumerate(instructions)
+                                          if instruction.opname in ("LOAD_METHOD", "LOAD_ATTR")
+                                          and instruction.argval == "append" and index
+                                          and instructions[index - 1].argval == target}
+                                offsets[frame.f_code] = {instruction.offset for instruction in instructions
+                                    if instruction.opname.startswith("CALL")
+                                    and (instruction.positions.lineno, instruction.positions.col_offset) in starts}
+                            if event == "opcode" and frame.f_lasti in offsets[frame.f_code] and not fired:
+                                name = "llvm-nm-real" if target == "opened" else "module.o"
+                                owner = next(row for row in reversed(acquired) if row[2] == name)
+                                fired.append(owner)
+                                raise interruption
+                        return trace
+                    previous_trace = sys.gettrace()
+                    trace_frame = sys._getframe()
+                    previous_opcodes = trace_frame.f_trace_opcodes
+                    try:
+                        class InterruptedCase(type(self)):
+                            def setUp(case):
+                                super().setUp()
+                                launch = case.benchmark.frozen_symbol_tool_launch
+                                @contextlib.contextmanager
+                                def observed_launch(selected):
+                                    try:
+                                        with launch(selected) as invocation:
+                                            yield invocation
+                                    except BaseException as error:
+                                        if fired:
+                                            propagated.append(error)
+                                        raise
+                                case.benchmark.frozen_symbol_tool_launch = observed_launch
+                        case = InterruptedCase(method)
+                        result = unittest.TestResult()
+                        result.failfast = True
+                        with patch.object(os, "open", side_effect=opened), \
+                                patch.object(os, "close", side_effect=close):
+                            # Python 3.12 enables opcode events only when a
+                            # frame requests them before installing the trace.
+                            trace_frame.f_trace_opcodes = True
+                            sys.settrace(trace)
+                            try:
+                                case.run(result)
+                            finally:
+                                sys.settrace(previous_trace)
+                        self.assertEqual(result.testsRun, 1)
+                        self.assertEqual(len(result.failures), 1)
+                        self.assertEqual(result.errors, [])
+                        self.assertEqual(result.skipped, [])
+                        self.assertEqual(len(fired), 1)
+                        descriptor, identity, _ = fired[0]
+                        self.assertEqual(len(propagated), 1)
+                        if target == "opened":
+                            self.assertIs(propagated[0], interruption)
+                        else:
+                            self.assertIsInstance(propagated[0], MemoryError)
+                            self.assertIsInstance(propagated[0].__cause__, ValueError)
+                            self.assertEqual(len(propagated[0].__notes__), 1)
+                            self.assertTrue(propagated[0].__notes__[0].endswith(failure_type.__name__))
+                        self.assertIs(interruption.__cause__, cause)
+                        with self.assertRaises(OSError, msg="fixture registration leaked its acquired descriptor") as absent:
+                            os.fstat(descriptor)
+                        self.assertEqual(absent.exception.errno, errno.EBADF)
+                        self.assertEqual(closed.count((descriptor, identity)), 1)
+                    finally:
+                        sys.settrace(previous_trace)
+                        trace_frame.f_trace_opcodes = previous_opcodes
+                        # Predecessor replay must reap only identities acquired
+                        # by this control, never an unrelated reused FD number.
+                        for descriptor, identity, _ in acquired:
+                            try:
+                                if os.fstat(descriptor).st_ino == identity:
+                                    original_close(descriptor)
+                            except OSError as error:
+                                if error.errno != errno.EBADF:
+                                    raise
 
     def test_original_adoption_close_failure_never_retries_reused_descriptor(self):
         original_close, original_open = os.close, os.open
