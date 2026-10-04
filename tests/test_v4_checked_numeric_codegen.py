@@ -163,6 +163,26 @@ class NumericGateOracles(unittest.TestCase):
                 with self.assertRaises(gate.GateError):
                     gate.validate_contract(result(86, stdout), row)
 
+    def test_pressure_requires_each_distinct_allocation_boundary(self):
+        for room in ("0", "16", "24", "32"):
+            arguments = ["5", room]
+            expected = ("checked-numeric-pressure-cleanup-error=native owned word cleanup scratch allocation failed\n"
+                        "checked-numeric-pressure-publication-error=native LLVM fragment scratch allocation failed\n"
+                        f"checked-numeric-pressure-room={room} error=native codegen plan arena allocation failed\n"
+                        "checked-numeric-contract-case-5=passed\n")
+            gate.validate_contract(result(0, expected), arguments)
+            for line in expected.splitlines(keepends=True)[:3]:
+                with self.subTest(room=room, missing=line), self.assertRaises(gate.GateError):
+                    gate.validate_contract(result(0, expected.replace(line, "")), arguments)
+            old_error = ("native LLVM fragment scratch allocation failed" if room in ("0", "16")
+                         else "missing clean Meiya result for native word ownership lowering" if room == "24"
+                         else "Meiya errors prevent native word ownership lowering")
+            old = f"checked-numeric-pressure-room={room} error={old_error}\nchecked-numeric-contract-case-5=passed\n"
+            with self.subTest(room=room, obsolete=old_error), self.assertRaises(gate.GateError):
+                gate.validate_contract(result(0, old), arguments)
+        with self.assertRaises(gate.GateError):
+            gate.contract_stdout(["5", "49"])
+
     def test_report_requires_every_case_opt_audit_sanitizer_and_contract(self):
         valid = report()
         gate.validate_report(valid, True, True)

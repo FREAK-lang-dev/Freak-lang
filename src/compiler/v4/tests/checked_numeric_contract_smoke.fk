@@ -104,7 +104,15 @@ task v4_checked_numeric_contract_run(selected_case: int) -> void {
         }
         v4_codegen_llvm_fragment_error = ""
         pilot cleanup = v4_codegen_llvm_word_drop_all_lines(mir, 0, "exhausted")
-        v4_checked_numeric_assert(cleanup == "" and v4_codegen_llvm_fragment_error.contains("cleanup scratch"), "cleanup exhaustion records a named admission failure")
+        pilot cleanup_error = v4_codegen_llvm_fragment_error
+        v4_checked_numeric_assert(cleanup == "" and cleanup_error == "native owned word cleanup scratch allocation failed", "cleanup exhaustion records its exact admission failure")
+        -- Query the existing seal independently of fresh-plan admission. A
+        -- transactional plan needs 49 simultaneous free handles before it
+        -- can reach fragment construction; these are different boundaries.
+        v4_codegen_llvm_fragment_error = ""
+        pilot unpublished = v4_codegen_llvm_module_text(original, target)
+        pilot publication_error = v4_codegen_llvm_fragment_error
+        v4_checked_numeric_assert(unpublished == "" and publication_error == "native LLVM fragment scratch allocation failed", "sealed module publication cannot ignore fragment exhaustion")
         pilot released = 0
         pilot room = word_to_int(process::arg(2))
         repeat until released >= room or released >= array_len(held) {
@@ -114,6 +122,7 @@ task v4_checked_numeric_contract_run(selected_case: int) -> void {
         }
         pilot failed = v4_codegen_llvm_lower_owned_mir(0, mir)
         pilot error = v4_codegen_llvm_native_module_error(failed)
+        v4_checked_numeric_assert(failed == -2 and error == "native codegen plan arena allocation failed", "fresh plan exhausts transactionally before fragment construction")
         -- Recover all deliberately held capacity before querying published text.
         pilot idx = 0
         repeat until idx >= array_len(held) { array_release(word_to_int(array_get(held, idx))); idx += 1 }
@@ -122,6 +131,8 @@ task v4_checked_numeric_contract_run(selected_case: int) -> void {
         v4_checked_numeric_assert(v4_codegen_llvm_module_text(original, target) == before, "sealed module A survives failed B")
         pilot recovered = v4_codegen_llvm_lower_owned_mir(0, mir)
         v4_checked_numeric_assert(v4_codegen_llvm_module_text(recovered, target) == before, "capacity recovery restores exact native module")
+        say "checked-numeric-pressure-cleanup-error=" + cleanup_error
+        say "checked-numeric-pressure-publication-error=" + publication_error
         say "checked-numeric-pressure-room=" + word_from_int(room) + " error=" + error
     } else if selected_case == 6 {
         pilot mir = v4_checked_numeric_mir("task main() -> int " + "{" + " pilot value = 2 + 3; give back value " + "}")

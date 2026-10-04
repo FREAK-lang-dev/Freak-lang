@@ -166,9 +166,11 @@ def contract_stdout(arguments: list[str]) -> str | None:
         return "checked-numeric-rejected=native expression traversal exceeds supported budget\n" + end
     if case == 5:
         room = arguments[1]
-        errors = {"0": "native LLVM fragment scratch allocation failed", "16": "native LLVM fragment scratch allocation failed",
-                  "24": "missing clean Meiya result for native word ownership lowering", "32": "Meiya errors prevent native word ownership lowering"}
-        return f"checked-numeric-pressure-room={room} error={errors[room]}\n" + end
+        if room not in ("0", "16", "24", "32"):
+            raise GateError("unsupported numeric pressure room")
+        return ("checked-numeric-pressure-cleanup-error=native owned word cleanup scratch allocation failed\n"
+                "checked-numeric-pressure-publication-error=native LLVM fragment scratch allocation failed\n"
+                f"checked-numeric-pressure-room={room} error=native codegen plan arena allocation failed\n" + end)
     if case == 11:
         return "checked-numeric-word-pointer-error=native word task pointer contracts are not yet supported\n" + end
     return end
