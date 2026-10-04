@@ -17,12 +17,13 @@ task v4_sum_origin_source(mode: int) -> word {
     if mode == 7 { count = "shape process " + chr(123) + " value: int " + chr(125) + "\n" + count }
     if mode == 8 { count = "shape fs " + chr(123) + " value: int " + chr(125) + "\n" + count }
     if mode == 10 { count = ""; body = "if true " + chr(123) + " pilot process = 0 " + chr(125) + "\ngive back process::args_count()" }
+    if mode == 11 { count = count + "task probe(process: int) -> int " + chr(123) + " pilot actual = count()\n pilot anchor = 0\n give back actual " + chr(125) + "\n"; body = "give back probe(0)" }
     give back count + "task main() -> int " + chr(123) + "\n" + body + "\n" + chr(125) + "\n"
 }
 
 task v4_sum_origin_run() -> void {
     pilot mode = word_to_int(process::arg(1))
-    v4_sum_origin_assert(mode >= 0 and mode <= 10, "known mode")
+    v4_sum_origin_assert(mode >= 0 and mode <= 11, "known mode")
     pilot mir = v4_mir_text_cached("scalar-sum-origin.fk", v4_sum_origin_source(mode))
     pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
     v4_sum_origin_assert(v4_ty_diag_count(v4_mir_ty_id(mir)) == 0 and v4_mir_diag_count(mir) == 0 and v4_mir_word_plan_preflight(mir) == "", "baseline binding and full plan clean")
@@ -46,7 +47,7 @@ task v4_sum_origin_run() -> void {
         give back
     }
     pilot body = v4_mir_lookup_body_name(mir, "main")
-    if mode == 5 { body = v4_mir_lookup_body_name(mir, "probe") }
+    if mode == 5 or mode == 11 { body = v4_mir_lookup_body_name(mir, "probe") }
     pilot name = "count"
     pilot kind = "args_count"
     if mode == 1 { name = "process::args_count" }
@@ -60,6 +61,16 @@ task v4_sum_origin_run() -> void {
         row += 1
     }
     v4_sum_origin_assert(value >= 0 and v4_mir_rvalue_builtin_method(mir, body, value) == "", "actual ordinary call selected")
+    if mode == 11 {
+        pilot formal = v4_mir_find_local(mir, body, "process")
+        pilot anchor = v4_mir_find_local(mir, body, "anchor")
+        pilot prior_span = v4_mir_local_span(mir, body, formal)
+        pilot future_span = v4_mir_local_span(mir, body, anchor)
+        v4_sum_origin_assert(formal == 0 and anchor > formal and v4_mir_body_callable_param_count(mir, body) == 1 and v4_mir_body_callable_param_name(mir, body, formal) == "process" and v4_mir_body_callable_param_type(mir, body, formal) == v4_ty_int and v4_mir_body_callable_param_mode(mir, body, formal) == v4_ty_param_mode_value, "authoritative formal role and identity selected")
+        v4_sum_origin_assert(future_span != prior_span and v4_mir_span_fact_is_valid(future_span) and v4_span_file(future_span) == v4_span_file(v4_mir_rvalue_span(mir, body, value)) and v4_span_start(future_span) > v4_span_start(v4_mir_rvalue_span(mir, body, value)), "actual later local provides canonical future anchor")
+        array_set(v4_mir_body_local_spans_handle(mir, body), formal, future_span)
+        v4_sum_origin_assert(v4_mir_local_span(mir, body, formal) == future_span and v4_mir_word_plan_preflight(mir) == "", "formal anchor actually changed without invalidating baseline ordinary call")
+    }
     pilot identity = v4_mir_system_intrinsic_identity(kind)
     if mode == 9 {
         pilot prior = value

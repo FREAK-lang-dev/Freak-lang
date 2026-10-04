@@ -4408,11 +4408,16 @@ task v4_mir_system_intrinsic_origin_is_available(ty: int, kind: word, span: word
     give back v4_ty_system_intrinsic_named_kind(ty, name) == kind
 }
 
-task v4_mir_system_intrinsic_shadow_is_visible(kind: word, call_span: word, local_name: word, definition_span: word, scope_span: word) -> bool {
+task v4_mir_system_intrinsic_name_is_shadow(kind: word, binding_name: word) -> bool {
     pilot name = v4_ty_system_intrinsic_public_name(kind)
+    if name == "" { give back false }
     pilot root = "process"
     if kind == "fs_read" { root = "fs" }
-    if local_name != root and local_name != name { give back false }
+    give back binding_name == root or binding_name == name
+}
+
+task v4_mir_system_intrinsic_shadow_is_visible(kind: word, call_span: word, local_name: word, definition_span: word, scope_span: word) -> bool {
+    if not v4_mir_system_intrinsic_name_is_shadow(kind, local_name) { give back false }
     -- Missing/malformed binding anchors cannot prove an unshadowed call.
     if definition_span == (V4_NO_SPAN) or scope_span == (V4_NO_SPAN) or not v4_mir_span_fact_is_valid(definition_span) or not v4_mir_scope_span_is_valid(scope_span) or v4_span_file(definition_span) != v4_span_file(call_span) or v4_span_file(scope_span) != v4_span_file(call_span) { give back true }
     pilot first = v4_span_start(definition_span)
@@ -4429,6 +4434,13 @@ task v4_mir_rvalue_is_builtin_system(mir: int, body: int, value: int) -> bool {
     if kind == "" or v4_mir_rvalue_kind(mir, body, value) != v4_mir_rvalue_call { give back false }
     pilot span = v4_mir_rvalue_span(mir, body, value)
     if not v4_mir_system_intrinsic_origin_is_available(v4_mir_ty_id(mir), kind, span) { give back false }
+    -- Authoritative formals are visible throughout the body, independently
+    -- of persisted local definition anchors used only by lexical locals.
+    pilot parameter = 0
+    repeat until parameter >= v4_mir_body_callable_param_count(mir, body) {
+        if v4_mir_system_intrinsic_name_is_shadow(kind, v4_mir_body_callable_param_name(mir, body, parameter)) { give back false }
+        parameter += 1
+    }
     pilot local = 0
     repeat until local >= v4_mir_body_local_count(mir, body) {
         if v4_mir_system_intrinsic_shadow_is_visible(kind, span, v4_mir_local_name(mir, body, local), v4_mir_local_span(mir, body, local), v4_mir_local_scope_span(mir, body, local)) { give back false }
@@ -6345,6 +6357,26 @@ task v4_mir_sum_return_rows_error(ty: int, definition: word, blocks: int, statem
     give back error
 }
 
+-- The caller has authenticated an ordinary body/signature. Formal names
+-- come from that signature; mutable MIR anchors cannot hide a parameter.
+task v4_mir_system_intrinsic_formal_rows_error(ty: int, signature: int, values: int) -> word {
+    pilot row = 0
+    repeat until row >= array_len(values) {
+        pilot value: word = array_get(values, row)
+        pilot identity = v4_mir_snapshot_field(value, 13)
+        pilot kind = v4_mir_builtin_system_identity_kind(identity)
+        if kind != "" and v4_mir_snapshot_field(value, 4) == v4_mir_rvalue_call and v4_mir_snapshot_field(value, 6) == identity and v4_mir_snapshot_field_raw(value, 7) == "-1" and v4_mir_snapshot_field_raw(value, 8) == "-1" and v4_mir_snapshot_field(value, 11) == "" {
+            pilot parameter = 0
+            repeat until parameter >= v4_ty_signature_fixed_param_count(ty, signature) {
+                if v4_mir_system_intrinsic_name_is_shadow(kind, v4_ty_signature_param_name(ty, signature, parameter)) { give back "scalar sum system intrinsic has a shadowed or invalid binding origin" }
+                parameter += 1
+            }
+        }
+        row += 1
+    }
+    give back ""
+}
+
 task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks: int, locals: int, statements: int, places: int, values: int) -> word {
     pilot definition = v4_mir_snapshot_field(header, 3)
     if not v4_mir_sum_rows_are_sensitive(ty, definition, locals, values) { give back "" }
@@ -6353,6 +6385,8 @@ task v4_mir_scalar_sum_body_rows_error(ty: int, file: int, header: word, blocks:
     if v4_mir_snapshot_field(header, 4) != v4_ty_signature_name(ty, signature) or v4_mir_snapshot_field(header, 5) != v4_ty_signature_of(ty, definition) { give back "invalid scalar sum task body identity" }
     pilot parameters = v4_ty_signature_fixed_param_count(ty, signature)
     if parameters > array_len(locals) { give back "invalid scalar sum task parameter locals" }
+    pilot formal_origin_error = v4_mir_system_intrinsic_formal_rows_error(ty, signature, values)
+    if formal_origin_error != "" { give back formal_origin_error }
     pilot body_span = v4_mir_word_source_body_span(ty, definition)
     if body_span == (V4_NO_SPAN) { give back "scalar sum task requires authoritative source scope" }
     if v4_span_file(body_span) != word_from_int(file) { give back "scalar sum task source file mismatch" }
