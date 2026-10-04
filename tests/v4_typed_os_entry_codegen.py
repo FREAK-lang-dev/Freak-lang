@@ -986,7 +986,7 @@ def run_gate(clang, directory, frozen, report, supports):
         print("typed OS emission " + name + ": v9 restore/seals verified; native pending", flush=True)
     probe = directory / "typed-os-capability.c"; probe.write_text(CAPABILITY_SOURCE); pins.track(probe)
     for opt in OPTS:
-        flags = [f"-O{opt}", "-I" + str(frozen / "freakc/runtime"), *AUDIT_FLAGS]
+        flags = ["--target=" + target_name, f"-O{opt}", "-I" + str(frozen / "freakc/runtime"), *AUDIT_FLAGS]
         if report["sanitized"]: flags.extend(SANITIZER_FLAGS)
         objects = []
         for name in RUNTIME_SOURCES:
@@ -1006,7 +1006,7 @@ def run_gate(clang, directory, frozen, report, supports):
         binaries = {}
         for name, llvm in modules.items():
             output = directory / (name + f"-O{opt}" + (".exe" if sys.platform == "win32" else ""))
-            result = runner.run([str(clang), "--target=" + target_name, *flags, str(llvm), *objects, "-o", str(output), *checks.runtime_platform_final_link_args()], f"link-O{opt}-" + name, compiling=True)
+            result = runner.run([str(clang), *flags, str(llvm), *objects, "-o", str(output), *checks.runtime_platform_final_link_args()], f"link-O{opt}-" + name, compiling=True)
             require(result.returncode == 0 and result.stdout == result.stderr == "", "native program link exact status/channel")
             pins.admit_binary(output); binaries[name] = output
         for case in CASES:

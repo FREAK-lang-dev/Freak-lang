@@ -5,6 +5,7 @@ matrix replay are explicit inert metadata. No compiler/transpiler pipeline,
 executable tool/image or project harness is imported or invoked.
 """
 from contextlib import ExitStack, contextmanager
+import ast
 import copy
 import hashlib
 import importlib.util
@@ -149,9 +150,9 @@ def evaluate_fixture_count(function, text, needle):
     raise AssertionError("count AST helper did not return")
 
 
-def fake_module(program):
+def fake_module(program, target=None):
     arg, parser, fs, argc = gate.BRIDGE_COUNTS[program]
-    lines = []
+    lines = [] if target is None else ['target triple = "' + target + '"']
     if arg or fs: lines.append("%freak_result_word_word = type { i1, i64 }")
     if parser: lines.append("%freak_maybe_int = type { i1, i64 }")
     if arg or argc: lines.append("declare void @freak_v4_process_setup_args(i64, i64)")
@@ -442,6 +443,10 @@ class PureGateTests(unittest.TestCase):
             base = Path(temp).resolve()
             original, compiler, work, frozen, names = self.prepare_fake_tree(base)
             callbacks = []
+            builds = dict.fromkeys(("bootstrap", "runtime", "capability", "module"), 0)
+            machine = "arm64" if host == "darwin" else "x86_64"
+            with patch.object(gate.sys, "platform", host), patch.object(gate.platform, "machine", return_value=machine):
+                target_name = gate.host_target()
             fixtures = work / "fixtures"
             rows = [case for case in gate.CASES if host in case["platforms"]]
             controls = ("C", "LLVM", "asan-heap", "ubsan-overflow", "ubsan-shift") if sanitize else ("C", "LLVM")
@@ -455,6 +460,10 @@ class PureGateTests(unittest.TestCase):
                 if "-o" in argv:
                     bootstrap = label.startswith("bootstrap-")
                     self.assertEqual((timeout_seconds, memory_limit_mb), (120,1024 if bootstrap else 512))
+                    target_flags = [flag for flag in argv if flag.startswith("--target=") or flag in ("--target", "-target")]
+                    self.assertEqual(target_flags, [] if bootstrap else ["--target=" + target_name], "native Clang command target must match the generated module exactly once")
+                    kind = "bootstrap" if bootstrap else ("runtime" if label.startswith("runtime-") else ("capability" if label.startswith("capability-link-") else "module"))
+                    builds[kind] += 1
                     if not bootstrap:
                         for flag in gate.AUDIT_FLAGS: self.assertIn(flag, argv)
                         for flag in gate.SANITIZER_FLAGS: self.assertEqual(flag in argv, sanitize)
@@ -463,7 +472,9 @@ class PureGateTests(unittest.TestCase):
                 if label == "compiler-version":
                     self.assertEqual((timeout_seconds, memory_limit_mb), (120,512))
                     return subprocess.CompletedProcess(argv, 0, "clang inert metadata\n", "")
-                if label == "compiler-target": return subprocess.CompletedProcess(argv, 0, "inert-target\n", "")
+                if label == "compiler-target":
+                    default_target = "x86_64-pc-windows-msvc" if host == "win32" else "unrelated-clang-default"
+                    return subprocess.CompletedProcess(argv, 0, default_target + "\n", "")
                 if label.startswith("contract-"):
                     case = next(contracts)
                     self.assertEqual((timeout_seconds,memory_limit_mb), (60,64))
@@ -473,7 +484,7 @@ class PureGateTests(unittest.TestCase):
                     name = next(emissions)
                     self.assertEqual((timeout_seconds,memory_limit_mb), (60,64))
                     self.assertEqual(argv[1:], [str(work/(name+".fk")),gate.host_target()])
-                    return subprocess.CompletedProcess(argv, 0, gate.PREFIX+"@@LLVM-MODULE-BEGIN\n"+fake_module(name)+"@@LLVM-MODULE-END\n", "")
+                    return subprocess.CompletedProcess(argv, 0, gate.PREFIX+"@@LLVM-MODULE-BEGIN\n"+fake_module(name,target_name)+"@@LLVM-MODULE-END\n", "")
                 self.assertEqual((timeout_seconds,memory_limit_mb), (30,128))
                 if label.startswith("capability-"):
                     kind, opt = next(native)
@@ -493,7 +504,7 @@ class PureGateTests(unittest.TestCase):
                 return result
             checks = types.SimpleNamespace(flattened_crates=lambda:"inert flat",transpile_fixture=lambda flat,fixture:("inert generated C",False),runtime_platform_link_args=lambda:[],runtime_platform_final_link_args=lambda:[],run_with_heartbeat=guard)
             previous = {"ASAN_OPTIONS":"caller-as","LSAN_OPTIONS":"caller-ls","UBSAN_OPTIONS":"caller-us"}
-            with patch.object(gate,"ROOT",original), patch.object(gate.sys,"platform",host), patch.object(gate,"host_target",return_value="inert-target"), patch.object(gate,"load_checks",return_value=checks), patch.dict(os.environ,previous,clear=True):
+            with patch.object(gate,"ROOT",original), patch.object(gate.sys,"platform",host), patch.object(gate,"host_target",return_value=target_name), patch.object(gate,"load_checks",return_value=checks), patch.dict(os.environ,previous,clear=True):
                 supports = tuple(gate.load_support(frozen,names,role) for role in ("native","compiler","bootstrap"))
                 report = {"complete":False,"platform":host,"sanitized":sanitize,"scope":gate.SCOPE,"data_sha256":gate.DATA_SHA,"work":str(work),"compiler_process_contract":{"seconds":60,"memory_mib":64,"live_handles":1024},"source_hashes":gate.source_hashes(),"compiler":{"selected":str(compiler),"path":str(compiler),"sha256":gate.sha(compiler)},"contracts":[],"emissions":[],"programs":[],"controls":[]}
                 with gate.sanitizer_environment(supports[0],sanitize), patch("sys.stdout",io.StringIO()):
@@ -501,6 +512,7 @@ class PureGateTests(unittest.TestCase):
                 self.assertEqual(dict(os.environ),previous)
                 pins.final_pins(); report["complete"]=True; gate.validate_report(report,sanitize)
                 self.assertEqual(len(callbacks),224 if sanitize else (209 if host=="win32" else 215))
+                self.assertEqual(builds, {"bootstrap":2,"runtime":21,"capability":3,"module":27})
                 self.assertEqual(len(report["binary_hashes"]),53)
                 self.assertEqual(len(report["artifact_hashes"]),46)
                 for field in ("contracts","emissions","programs","controls"):
@@ -519,6 +531,27 @@ class PureGateTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "linux", "full inert replay uses POSIX FIFO; physical platform/native proof is separate")
     def test_full_inert_darwin_plain_matrix(self): self.simulate("darwin",False)
     def test_full_inert_windows_plain_matrix(self): self.simulate("win32",False)
+
+    def test_actual_native_command_dispatch_rejects_historical_default_target(self):
+        # Recreate only the two historical command expressions in the actual
+        # run_gate body, then dispatch it through the same process-free replay.
+        # The original body must fail at its first runtime command even when
+        # Clang's Windows default identity differs from the generated GNU target.
+        source = DRIVER.read_text(encoding="utf-8")
+        current_flags = 'flags = ["--target=" + target_name, f"-O{opt}", "-I" + str(frozen / "freakc/runtime"), *AUDIT_FLAGS]'
+        current_link = 'runner.run([str(clang), *flags, str(llvm), *objects, "-o", str(output), *checks.runtime_platform_final_link_args()]'
+        self.assertEqual(source.count(current_flags), 1)
+        self.assertEqual(source.count(current_link), 1)
+        old_source = source.replace(current_flags, current_flags.replace('"--target=" + target_name, ', ''))
+        old_source = old_source.replace(current_link, current_link.replace('[str(clang), *flags,', '[str(clang), "--target=" + target_name, *flags,'))
+        functions = [node for node in ast.parse(old_source).body if isinstance(node, ast.FunctionDef) and node.name == "run_gate"]
+        self.assertEqual(len(functions), 1)
+        namespace = {}
+        exec(compile(ast.Module(body=functions, type_ignores=[]), str(DRIVER) + ":historical-target-control", "exec"), gate.__dict__, namespace)
+        with patch.object(gate, "run_gate", namespace["run_gate"]):
+            for host, sanitize in (("win32", False),):
+                with self.subTest(host=host, sanitize=sanitize), self.assertRaisesRegex(AssertionError, "native Clang command target must match the generated module exactly once"):
+                    self.simulate(host, sanitize)
 
     def test_pre_support_primary_preserved_when_report_publication_fails(self):
         with tempfile.TemporaryDirectory() as temp:
