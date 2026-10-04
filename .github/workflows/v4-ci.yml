@@ -173,6 +173,12 @@ jobs:
       - name: Checked32 C helper native portability at O0, O2 and O3
         run: python -B -u tests/v4_c_integer_runtime.py --plain --work "${{ runner.temp }}/checked32-runtime-plain"
 
+      - name: Filesystem read bridge exact oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_fs_read_bridge.py -v
+
+      - name: Filesystem read bridge native portability and ownership audits
+        run: python -B -u tests/v4_fs_read_bridge.py --plain --work "${{ runner.temp }}/fs-read-bridge-plain"
+
       - name: Owned UTF-8 word runtime portability and ownership audits
         run: python -B -u tests/v4_word_runtime.py --plain
 
@@ -238,6 +244,10 @@ jobs:
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_c_integer_runtime.py --work "${{ runner.temp }}/checked32-runtime-ubsan"
 
+      - name: Filesystem read bridge mandatory sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_fs_read_bridge.py --work "${{ runner.temp }}/fs-read-bridge-sanitized"
+
       - name: Owned word AddressSanitizer and UndefinedBehaviorSanitizer gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_word_runtime.py
@@ -292,6 +302,14 @@ jobs:
         with:
           name: v4-checked32-runtime-${{ matrix.os }}
           path: ${{ runner.temp }}/checked32-runtime-*/
+          if-no-files-found: warn
+
+      - name: Preserve filesystem read bridge source, compiler and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-fs-read-bridge-${{ matrix.os }}
+          path: ${{ runner.temp }}/fs-read-bridge-*/
           if-no-files-found: warn
 
       - name: Preserve checked word integer parser evidence
