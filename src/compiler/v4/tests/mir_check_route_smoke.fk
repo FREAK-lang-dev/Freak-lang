@@ -208,3 +208,52 @@ pilot v4_mir_check_route_bad_malformed_mir = v4_mir_lower_ty(6, v4_mir_check_rou
 say "check-route-bad-malformed-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_check_route_bad_malformed_mir))
 say "check-route-bad-malformed-message=" + v4_diag_message(v4_mir_diag(v4_mir_check_route_bad_malformed_mir, 0))
 say "check-route-bad-malformed-help=" + v4_diag_help(v4_mir_diag(v4_mir_check_route_bad_malformed_mir, 0))
+
+-- Completing the route makes the final case unconditional. Keep the genuine
+-- first condition and the detached unmatched block visible in the CFG.
+task v4_mir_check_route_incoming_edges(mir_id: int, body_id: int, target: int) -> int {
+    pilot count = 0
+    pilot block = 0
+    repeat until block >= v4_mir_body_block_count(mir_id, body_id) {
+        pilot record = v4_mir_body_block(mir_id, body_id, block)
+        pilot term = v4_mir_block_terminator(record)
+        if term == v4_mir_term_goto or term == v4_mir_term_if {
+            if v4_mir_block_target(record) == target { count += 1 }
+        }
+        if term == v4_mir_term_if and v4_mir_block_else_target(record) == target { count += 1 }
+        block += 1
+    }
+    give back count
+}
+
+task v4_mir_check_route_block_statement_count(mir_id: int, body_id: int, block: int) -> int {
+    pilot count = 0
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir_id, body_id) {
+        if v4_mir_stmt_block(mir_id, body_id, stmt) == block { count += 1 }
+        stmt += 1
+    }
+    give back count
+}
+
+pilot v4_mir_check_route_first_block = v4_mir_body_block(v4_mir_check_route_mir, v4_mir_check_route_score_body, 0)
+pilot v4_mir_check_route_final_block = v4_mir_body_block(v4_mir_check_route_mir, v4_mir_check_route_score_body, 3)
+pilot v4_mir_check_route_detached_block = v4_mir_body_block(v4_mir_check_route_mir, v4_mir_check_route_score_body, 5)
+pilot v4_mir_check_route_final_branch = v4_mir_check_route_find_stmt(v4_mir_check_route_mir, v4_mir_check_route_score_body, v4_mir_stmt_branch, "event == Event::Closed")
+say "check-route-first-term=" + v4_mir_block_terminator(v4_mir_check_route_first_block)
+say "check-route-first-true-target=" + word_from_int(v4_mir_block_target(v4_mir_check_route_first_block))
+say "check-route-first-false-target=" + word_from_int(v4_mir_block_else_target(v4_mir_check_route_first_block))
+say "check-route-first-branch-rhs=" + v4_mir_stmt_rhs(v4_mir_check_route_mir, v4_mir_check_route_score_body, v4_mir_check_route_arm_stmt)
+say "check-route-final-term=" + v4_mir_block_terminator(v4_mir_check_route_final_block)
+say "check-route-final-target=" + word_from_int(v4_mir_block_target(v4_mir_check_route_final_block))
+say "check-route-final-else-target=" + word_from_int(v4_mir_block_else_target(v4_mir_check_route_final_block))
+say "check-route-final-condition=[" + v4_mir_block_condition(v4_mir_check_route_final_block) + "]"
+say "check-route-final-statements=" + word_from_int(v4_mir_check_route_block_statement_count(v4_mir_check_route_mir, v4_mir_check_route_score_body, 3))
+say "check-route-final-branch=" + word_from_int(v4_mir_check_route_final_branch)
+say "check-route-detached-term=" + v4_mir_block_terminator(v4_mir_check_route_detached_block)
+say "check-route-detached-target=" + word_from_int(v4_mir_block_target(v4_mir_check_route_detached_block))
+say "check-route-detached-else-target=" + word_from_int(v4_mir_block_else_target(v4_mir_check_route_detached_block))
+say "check-route-detached-condition=" + v4_mir_block_condition(v4_mir_check_route_detached_block)
+say "check-route-detached-statements=" + word_from_int(v4_mir_check_route_block_statement_count(v4_mir_check_route_mir, v4_mir_check_route_score_body, 5))
+say "check-route-detached-incoming=" + word_from_int(v4_mir_check_route_incoming_edges(v4_mir_check_route_mir, v4_mir_check_route_score_body, 5))
+say "check-route-cfg-error=[" + v4_mir_control_live_cfg_error(v4_mir_check_route_mir, v4_mir_check_route_score_body) + "]"
