@@ -413,6 +413,21 @@ task toml_render() -> word {
         i += 1
     }
     array_release(order)
+    -- Dotted scalar keys retain populated tables, but cannot represent a
+    -- declared empty table. Preserve those declarations as real headers.
+    i = 0
+    repeat until i >= array_len(toml_sections_arr) {
+        pilot section = array_get(toml_sections_arr, i)
+        pilot populated = false
+        pilot item = 0
+        repeat until item >= toml_count {
+            pilot key = array_get(toml_keys_arr, item)
+            if key == section or key.starts_with(section + ".") { populated = true }
+            item += 1
+        }
+        if not populated { out = out + "[" + section + "]\n" }
+        i += 1
+    }
     give back out
 }
 
