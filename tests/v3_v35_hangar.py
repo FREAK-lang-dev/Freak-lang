@@ -29,7 +29,8 @@ NATIVE_CASES = (
     "failed-git-add", "failed-git-install", "failed-git-update",
     "preserved-existing-add", "preserved-existing-update", "unavailable-publication",
     "malformed-header", "unterminated-value", "duplicate-key", "duplicate-table",
-    "invalid-inline-table", "unknown-manifest-escape",
+    "invalid-inline-table", "unknown-manifest-escape", "unsupported-source-scheme",
+    "revision-option-injection", "literal-git-metacharacters",
 )
 
 
@@ -62,7 +63,11 @@ def project(root: Path, dependency: str = "") -> None:
 def failed_git(tool_root: Path, clang: Path) -> None:
     tool_root.mkdir()
     source = tool_root / "git-failure.c"
-    source.write_text('#include <stdio.h>\nint main(void) { fputs("injected Git fetch failure\\n", stderr); return 23; }\n', encoding="ascii")
+    source.write_text('#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n'
+                      'int main(int argc, char **argv) { const char *name = getenv("FREAK_HANGAR_ARGV_REPORT"); '
+                      'if (name) { FILE *f = fopen(name, "wb"); if (!f) return 24; '
+                      'for (int i = 1; i < argc; ++i) { size_t n = strlen(argv[i]); fprintf(f, "%zu:", n); fwrite(argv[i], 1, n, f); } '
+                      'if (fclose(f)) return 24; } fputs("injected Git fetch failure\\n", stderr); return 23; }\n', encoding="ascii")
     executable = tool_root / ("git.exe" if os.name == "nt" else "git")
     result = subprocess.run([str(clang), str(source), "-o", str(executable)],
                             capture_output=True, text=True, timeout=30, check=False)
@@ -95,6 +100,9 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
         "duplicate-table": (["install"], "[project]\n", "duplicate table"),
         "invalid-inline-table": (["install"], 'missing = { git = "owner/repository", broken }\n', "expected key = value inside inline table"),
         "unknown-manifest-escape": (["install"], 'missing = "bad\\q"\n', "unsupported escape"),
+        "unsupported-source-scheme": (["add", "missing", "ssh://example.invalid/repo"], "", "Unsupported or invalid Git package source"),
+        "revision-option-injection": (["add", "missing", "owner/repository", "--upload-pack=evil"], "", "Invalid Git package revision"),
+        "literal-git-metacharacters": (["add", "missing", "https://example.invalid/repo$(touch owned);&x"], "", "Could not fetch missing"),
     }
     assert tuple(cases) == NATIVE_CASES, "Failure acceptance inventory drift"
     for invocation, binary, prefix in [("freak", freak, ["hangar"]), ("standalone", hangar, [])]:
@@ -102,7 +110,10 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
             cwd = root / f"{invocation}-{name}"
             project(cwd, dependency)
             before = snapshot(cwd)
-            completed = subprocess.run([str(binary), *prefix, *args], cwd=cwd, env=env,
+            case_env = env.copy()
+            report = cwd / "git-argv-report"
+            case_env["FREAK_HANGAR_ARGV_REPORT"] = str(report)
+            completed = subprocess.run([str(binary), *prefix, *args], cwd=cwd, env=case_env,
                                        capture_output=True, text=True, encoding="utf-8",
                                        errors="replace", timeout=30, check=False)
             output = ANSI.sub("", completed.stdout + completed.stderr)
@@ -112,6 +123,18 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
             assert snapshot(cwd) == before, (name, "prior generation changed")
             assert not (cwd / "hangar_modules" / "missing").exists(), (name, "failed dependency materialized")
             assert not (root / "escape").exists(), (name, "package escaped project")
+            assert not (cwd / "owned").exists(), (name, "shell syntax executed")
+            if name == "literal-git-metacharacters":
+                data = report.read_bytes()
+                values = []
+                while data:
+                    count, data = data.split(b":", 1)
+                    length = int(count)
+                    values.append(data[:length].decode("utf-8"))
+                    data = data[length:]
+                assert values[-2] == args[2], values
+                assert values[-3] == "--", values
+                assert "--template=" in values and "--no-recurse-submodules" in values, values
             print(f"native:{invocation}:{name}:passed")
         import tomllib
         cwd = root / f"{invocation}-manifest-round-trip"
