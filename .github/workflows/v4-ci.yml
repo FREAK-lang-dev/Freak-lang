@@ -140,6 +140,9 @@ jobs:
           --smoke hir_scalar_fields_smoke.fk
           --smoke target_contract_smoke.fk
           --smoke target_c_integer_contract_smoke.fk
+          --smoke parse_closure_index_smoke.fk
+          --smoke mir_predecessor_scaling_smoke.fk
+          --smoke borrowck_candidate_scaling_smoke.fk
 
   v4-runtime-helpers:
     name: V4 native runtime helpers (${{ matrix.os }})
@@ -479,11 +482,11 @@ jobs:
       - name: Benchmark failure and instrumentation regressions
         run: python -B -u -m unittest discover -s tests -p test_v4_scale_bench.py -v
 
-      - name: Build instrumented compiler and execute a measured program
+      - name: Measure checked task-count and long-body scaling
         env:
           V4_BENCH_TMP: ${{ runner.temp }}
         run: >
-          python -u v4_scale_bench.py --shapes tasks --sizes 1 --check
+          python -u v4_scale_bench.py --shapes tasks long --sizes 400 800 1600 --check
           --timeout 60 --build-timeout 300
           --work "$V4_BENCH_TMP/v4-benchmark-smoke"
           --json "$V4_BENCH_TMP/v4-benchmark-smoke.json"
