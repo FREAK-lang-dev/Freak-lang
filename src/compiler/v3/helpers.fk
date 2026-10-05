@@ -63,6 +63,11 @@ task init_arrays() -> void {
 
 -- ===================== AST BUILDERS ================================
 
+task v35_set_bootstrap_compat(mode: word) -> bool {
+    v35_bootstrap_compat = mode == "v4-host-bootstrap-v1"
+    give back v35_bootstrap_compat
+}
+
 task alloc_expr_at(kind: word, val: word, left: word, right: word, origin_file: word, origin_line: word) -> int {
     pilot id = next_expr_id
     next_expr_id += 1

@@ -24,6 +24,7 @@ task freakc_v3_main() -> void {
             say "  --opt=N            Optimization level 0-3 (default: 2)"
             say "  --target=TRIPLE    Cross-compile target triple"
             say "  --strict-borrow    Enforce ownership + mutability (Bible §4.1)"
+            say "  --bootstrap-compat=v4-host-bootstrap-v1  Select the explicit V4 host profile"
             say "  --version, -V      Show version"
             say "  --help, -h         Show this help"
             give back
@@ -40,11 +41,17 @@ task freakc_v3_main() -> void {
 
     -- Parse flags
     pilot fi = 2
+    pilot invalid_bootstrap_flag = ""
     repeat until fi >= args_cnt {
         pilot flag = process::arg(fi)
         if flag == "--c" { emit_target = "c" }
         if flag == "--llvm" { emit_target = "llvm" }
         if flag == "--strict-borrow" { strict_borrow = true }
+        if flag.starts_with("--bootstrap-compat=") {
+            if not v35_set_bootstrap_compat(flag.substring(19, flag.length() - 19)) {
+                invalid_bootstrap_flag = flag
+            }
+        }
         if flag.starts_with("--opt=") { opt_level = flag.char_at(6) }
         if flag.starts_with("--target=") {
             pilot ti = 9
@@ -80,6 +87,10 @@ task freakc_v3_main() -> void {
     }
 
     say "FREAK v3 Compiling: " + input_file + " (Target: " + emit_target + ")"
+    if invalid_bootstrap_flag != "" {
+        say "Error: unsupported bootstrap compatibility mode: " + invalid_bootstrap_flag
+        process::exit(1)
+    }
 
     pilot src = fs::read(input_file)
     if src == "" {

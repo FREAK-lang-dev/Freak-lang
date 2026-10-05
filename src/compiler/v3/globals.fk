@@ -105,6 +105,8 @@ pilot ast_pilot_is_mut = 0
 -- Off by default; enabled via --strict-borrow on the CLI.
 
 pilot strict_borrow = false
+-- Explicit host-bootstrap compatibility; ordinary compilation stays strict.
+pilot v35_bootstrap_compat = false
 
 -- Symbol table (parallel arrays, scope-stack discipline).
 -- bc_sym_kinds: "copy" | "owned"

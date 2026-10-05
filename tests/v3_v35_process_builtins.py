@@ -55,6 +55,10 @@ OPERATIONS = (
 )
 
 NEGATIVE = {
+    "inferred_payload_release": (
+        'pilot bytes = process::command_stdout_bytes(1)\nbytes.release()\nbytes.length()',
+        "You gave this away", True,
+    ),
     "poll_ticket_type": ('process::command_poll("ticket")', "argument 1 expects int, got word", False),
     "executable_type": ('process::command_new(1)', "argument 1 expects word, got int", False),
     "environment_arity": (

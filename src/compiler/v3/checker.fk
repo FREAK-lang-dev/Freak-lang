@@ -57,7 +57,7 @@ task bc_classify_rhs(expr_id: int) -> word {
         if call_name == "ByteBuffer::new" or call_name == "ByteBuffer::with_capacity" {
             give back "byte_buffer"
         }
-        if tc_task_return_type(call_name) == "ByteBuffer" { give back "byte_buffer" }
+        if tc_task_return_type(call_name) == "ByteBuffer" or tc_builtin_call_type(call_name) == "ByteBuffer" { give back "byte_buffer" }
     }
     if k == EXPR_METHOD and array_get(ast_expr_vals, expr_id) == "slice" {
         pilot receiver = word_to_int(array_get(ast_expr_lefts, expr_id))
@@ -88,7 +88,7 @@ task bc_expr_is_byte_buffer(expr_id: int) -> bool {
     }
     if kind == EXPR_CALL {
         if val == "ByteBuffer::new" or val == "ByteBuffer::with_capacity" { give back true }
-        give back tc_task_return_type(val) == "ByteBuffer"
+        give back tc_task_return_type(val) == "ByteBuffer" or tc_builtin_call_type(val) == "ByteBuffer"
     }
     if kind == EXPR_METHOD and val == "slice" {
         give back bc_expr_is_byte_buffer(word_to_int(array_get(ast_expr_lefts, expr_id)))

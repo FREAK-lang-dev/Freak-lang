@@ -62,6 +62,10 @@ OPERATIONS = (
 )
 
 NEGATIVE = {
+    "inferred_payload_release": (
+        'pilot bytes = fs::result_bytes(1)\nbytes.release()\nbytes.length()',
+        "You gave this away", True,
+    ),
     "write_payload_type": (
         'fs::write_checked("path", 1)', "argument 2 expects word, got int", False,
     ),
@@ -143,4 +147,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
