@@ -284,6 +284,7 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
 }
 
 task bc_builtin_consumes_handle(name: word) -> bool {
+    if name == "fs::result_release" { give back true }
     if name == "process::command_release" { give back true }
     give back name == "word_builder::finish" or name == "word_builder::discard" or name == "word_join" or name == "array_release" or name == "tcp::socket_close" or name == "tcp::close" or name == "tcp_close" or name == "ui::destroy_window"
 }
@@ -876,6 +877,34 @@ task tc_task_return_shape(task_name: word) -> word {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    if name == "process::command_poll" { give back "int" }
+    if name == "fs::rename_new_checked" { give back "int" }
+    if name == "fs::read_ticket" { give back "int" }
+    if name == "fs::read_bytes_ticket" { give back "int" }
+    if name == "fs::read_source_ticket" { give back "int" }
+    if name == "fs::write_checked" { give back "int" }
+    if name == "fs::write_bytes_checked" { give back "int" }
+    if name == "fs::append_checked" { give back "int" }
+    if name == "fs::rename_checked" { give back "int" }
+    if name == "fs::mkdir_checked" { give back "int" }
+    if name == "fs::remove_checked" { give back "int" }
+    if name == "fs::rmdir_checked" { give back "int" }
+    if name == "fs::exclusive_create" { give back "int" }
+    if name == "fs::temp_dir" { give back "int" }
+    if name == "fs::canonical_path" { give back "int" }
+    if name == "fs::stat_checked" { give back "int" }
+    if name == "fs::list_dir_checked" { give back "int" }
+    if name == "fs::result_ok" { give back "bool" }
+    if name == "fs::result_word" { give back "word" }
+    if name == "fs::result_error" { give back "word" }
+    if name == "fs::result_bytes" { give back "ByteBuffer" }
+    if name == "fs::result_kind" { give back "int" }
+    if name == "fs::result_size" { give back "int" }
+    if name == "fs::result_mode" { give back "int" }
+    if name == "fs::result_count" { give back "int" }
+    if name == "fs::result_entry" { give back "word" }
+    if name == "fs::result_release" { give back "void" }
+    if name == "fs::sha256_bytes" { give back "word" }
     if name == "process::command_new" { give back "int" }
     if name == "process::command_arg" { give back "void" }
     if name == "process::command_cwd" { give back "void" }
@@ -934,6 +963,34 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "process::command_poll" { give back "int" }
+    if name == "fs::rename_new_checked" { give back "word,word" }
+    if name == "fs::read_ticket" { give back "word" }
+    if name == "fs::read_bytes_ticket" { give back "word" }
+    if name == "fs::read_source_ticket" { give back "word" }
+    if name == "fs::write_checked" { give back "word,word" }
+    if name == "fs::write_bytes_checked" { give back "word,ByteBuffer" }
+    if name == "fs::append_checked" { give back "word,word" }
+    if name == "fs::rename_checked" { give back "word,word" }
+    if name == "fs::mkdir_checked" { give back "word" }
+    if name == "fs::remove_checked" { give back "word" }
+    if name == "fs::rmdir_checked" { give back "word" }
+    if name == "fs::exclusive_create" { give back "word,word" }
+    if name == "fs::temp_dir" { give back "word,word" }
+    if name == "fs::canonical_path" { give back "word" }
+    if name == "fs::stat_checked" { give back "word" }
+    if name == "fs::list_dir_checked" { give back "word" }
+    if name == "fs::result_ok" { give back "int" }
+    if name == "fs::result_word" { give back "int" }
+    if name == "fs::result_error" { give back "int" }
+    if name == "fs::result_bytes" { give back "int" }
+    if name == "fs::result_kind" { give back "int" }
+    if name == "fs::result_size" { give back "int" }
+    if name == "fs::result_mode" { give back "int" }
+    if name == "fs::result_count" { give back "int" }
+    if name == "fs::result_entry" { give back "int,int" }
+    if name == "fs::result_release" { give back "int" }
+    if name == "fs::sha256_bytes" { give back "ByteBuffer" }
     if name == "process::command_new" { give back "word" }
     if name == "process::command_arg" { give back "int,word" }
     if name == "process::command_cwd" { give back "int,word" }

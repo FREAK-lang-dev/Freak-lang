@@ -28,6 +28,7 @@ PROGRAM = '''task main() {
     pilot inherited: int = process::command_spawn_inherit(job, 1000)
     pilot inherited_run: int = process::command_run_inherit(job, 1000)
     say process::command_wait(job)
+    say process::command_poll(job)
     say process::command_status(job)
     say process::command_exit_code(job)
     say process::command_signal(job)
@@ -49,11 +50,12 @@ PROGRAM = '''task main() {
 # operation, including argument-vector and byte-output paths.
 OPERATIONS = (
     "new", "arg", "cwd", "env", "unset_env", "spawn", "run", "spawn_inherit", "run_inherit",
-    "wait", "status", "exit_code", "signal", "error", "stdout", "stderr",
+    "wait", "poll", "status", "exit_code", "signal", "error", "stdout", "stderr",
     "stdout_bytes", "stderr_bytes", "terminate", "release",
 )
 
 NEGATIVE = {
+    "poll_ticket_type": ('process::command_poll("ticket")', "argument 1 expects int, got word", False),
     "executable_type": ('process::command_new(1)', "argument 1 expects word, got int", False),
     "environment_arity": (
         'process::command_env(1, "KEY")', "expects 3 argument(s), got 2", False,
