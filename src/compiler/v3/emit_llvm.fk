@@ -620,6 +620,7 @@ task llvm_is_num_expr(expr_id: word) -> bool {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task llvm_map_call_name(val: word) -> word {
+    if val == "process::stdout_is_terminal" { give back "@freak_llvm_process_stdout_is_terminal" }
     if val == "process::platform_is_windows" { give back "@freak_llvm_process_platform_is_windows" }
     if val == "process::executable_path" { give back "@freak_llvm_process_executable_path" }
     if val.starts_with("http_server::") and tc_builtin_call_type(val) != "" { give back "@freak_llvm_" + val.replace("::", "_") }
@@ -1713,12 +1714,13 @@ task llvm_emit_block(block: word) -> void {
 -- ===================== STATEMENT EMIT ================================
 
 task llvm_is_current_word_param(name: word) -> bool {
-    give back llvm_current_word_params.contains("|" + name + "|")
+    pilot slot = llvm_get_llvm_name(name)
+    if slot == "" { give back false }
+    give back llvm_current_word_params.contains("|" + slot + "|")
 }
 
 task llvm_active_binding_is_word_param(name: word) -> bool {
-    if not llvm_is_current_word_param(name) { give back false }
-    give back llvm_get_llvm_name(name) == name
+    give back llvm_is_current_word_param(name)
 }
 
 task llvm_active_binding_is_global(name: word) -> bool {
@@ -1862,7 +1864,7 @@ task llvm_emit_stmt(eid: word) -> void {
             if llvm_v3_owned_type(llvm_infer_expr_type(expr_id_w)) and not llvm_v3_temporary(expr_id_w) { reg = llvm_v3_retain(reg, llvm_infer_expr_type(expr_id_w)) }
             pilot skip_name = ""
             pilot skip_local_slot = ""
-            if llvm_cur_func_returns_word and return_kind == EXPR_IDENT and llvm_active_binding_is_word_param(return_name) { skip_name = return_name }
+            if llvm_cur_func_returns_word and return_kind == EXPR_IDENT and llvm_active_binding_is_word_param(return_name) { skip_name = llvm_get_llvm_name(return_name) }
             if llvm_cur_func_returns_word and return_kind == EXPR_IDENT and not llvm_active_binding_is_word_param(return_name) and not llvm_active_binding_is_global(return_name) {
                 skip_local_slot = llvm_get_llvm_name(return_name)
             }
@@ -2829,72 +2831,30 @@ task llvm_emit_stmt_when(eid: word) -> void {
 -- ===================== TASK + PARAMS =================================
 
 task llvm_translate_params(p: word) -> word {
-    pilot res = ""
-    pilot cur_name = ""
-    pilot in_type = false
-    pilot i = 0
-    pilot slen = p.length()
-    repeat slen times {
-        pilot c = p.char_at(i)
-        if c == ":" { in_type = true }
-        else if c == "," {
-            if res.length() > 0 { res = res + ", " }
-            res = res + "i64 %arg_" + cur_name
-            cur_name = ""
-            in_type = false
-        } else {
-            if not in_type { cur_name = cur_name + c }
-        }
-        i += 1
+    pilot parameters_text = ""
+    pilot index = 0
+    repeat tc_arg_count(p) times {
+        if index > 0 { parameters_text = parameters_text + ", " }
+        parameters_text = parameters_text + "i64 %parameter.input." + word_from_int(index)
+        index += 1
     }
-    if cur_name.length() > 0 {
-        if res.length() > 0 { res = res + ", " }
-        res = res + "i64 %arg_" + cur_name
-    }
-    give back res
+    give back parameters_text
 }
 
 task llvm_allocate_params(p: word) -> void {
-    pilot cur_name = ""
-    pilot cur_type = ""
-    pilot in_type = false
-    pilot i = 0
-    pilot slen = p.length()
-    repeat slen times {
-        pilot c = p.char_at(i)
-        if c == ":" { in_type = true }
-        else if c == "," {
-            llvm_emit_line("    %" + cur_name + " = alloca i64")
-            pilot pt = llvm_type_code(cur_type)
-            if pt == "w" {
-                llvm_current_word_params = llvm_current_word_params + "|" + cur_name + "|"
-            }
-            llvm_emit_line("    store i64 %arg_" + cur_name + ", i64* %" + cur_name)
-            llvm_set_var_type(cur_name, pt)
-            -- Register the param in the llvm-name map so later references
-            -- to `cur_name` resolve to `%cur_name` rather than falling
-            -- through to the unknown-name path.
-            llvm_reg_var(cur_name, cur_name)
-            if llvm_v3_owned_type(pt) { llvm_v3_register_slot(cur_name, pt) }
-            cur_name = ""
-            cur_type = ""
-            in_type = false
-        } else {
-            if in_type { cur_type = cur_type + c }
-            else { cur_name = cur_name + c }
-        }
-        i += 1
-    }
-    if cur_name.length() > 0 {
-        llvm_emit_line("    %" + cur_name + " = alloca i64")
-        pilot pt = llvm_type_code(cur_type)
-        if pt == "w" {
-            llvm_current_word_params = llvm_current_word_params + "|" + cur_name + "|"
-        }
-        llvm_emit_line("    store i64 %arg_" + cur_name + ", i64* %" + cur_name)
-        llvm_set_var_type(cur_name, pt)
-        llvm_reg_var(cur_name, cur_name)
-        if llvm_v3_owned_type(pt) { llvm_v3_register_slot(cur_name, pt) }
+    pilot index = 0
+    repeat tc_arg_count(p) times {
+        pilot name = tc_param_name_at(p, index)
+        pilot parameter_type = llvm_type_code(tc_param_type_at(p, index))
+        pilot slot = "parameter.local." + word_from_int(index)
+        pilot input = "%parameter.input." + word_from_int(index)
+        llvm_emit_line("    %" + slot + " = alloca i64")
+        llvm_emit_line("    store i64 " + input + ", i64* %" + slot)
+        llvm_set_var_type(name, parameter_type)
+        llvm_reg_var(name, slot)
+        if parameter_type == "w" { llvm_current_word_params = llvm_current_word_params + "|" + slot + "|" }
+        if llvm_v3_owned_type(parameter_type) { llvm_v3_register_slot(slot, parameter_type) }
+        index += 1
     }
 }
 
@@ -2947,6 +2907,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_emit_line("declare i64 @freak_int_rem_checked(i64, i64)")
     llvm_emit_line("declare i64 @freak_int_neg_checked(i64)")
     llvm_emit_line("declare i64 @freak_llvm_word_index_checked(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_process_stdout_is_terminal()")
     llvm_emit_line("declare i64 @freak_llvm_process_platform_is_windows()")
     llvm_emit_line("declare i64 @freak_llvm_process_executable_path()")
     llvm_emit_line("declare i64 @freak_llvm_http_server_open(i64)")
@@ -3277,7 +3238,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_fs_open_dir_ticket|freak_llvm_fs_read_bytes_limit_ticket|freak_llvm_fs_read_relative_ticket|freak_llvm_fs_read_source_relative_ticket|freak_llvm_fs_read_relative_bytes_ticket|freak_llvm_fs_read_relative_bytes_limit_ticket|freak_llvm_fs_write_relative_bytes_checked|freak_llvm_fs_remove_temp_dir_checked|freak_llvm_fs_publish_temp_dir_checked|freak_llvm_fs_result_completed|freak_llvm_fs_lock_dir_ticket|freak_llvm_fs_remove_relative_file_checked|freak_llvm_fs_mkdir_relative_checked|freak_llvm_fs_open_relative_dir_ticket|freak_llvm_fs_list_dir_ticket|freak_llvm_fs_result_missing|freak_llvm_fs_directory_path_ticket|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_fs_directory_identity_ticket|freak_llvm_fs_rename_relative_new_checked|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_http_server_open|freak_llvm_http_server_bind|freak_llvm_http_server_status|freak_llvm_http_server_error|freak_llvm_http_server_local_port|freak_llvm_http_server_set_limits|freak_llvm_http_server_set_timeouts|freak_llvm_http_server_set_chunk_limits|freak_llvm_http_server_stop|freak_llvm_http_server_close|freak_llvm_http_server_next_request|freak_llvm_http_server_request_status|freak_llvm_http_server_request_error|freak_llvm_http_server_request_method|freak_llvm_http_server_request_target|freak_llvm_http_server_request_path|freak_llvm_http_server_request_query|freak_llvm_http_server_request_header_count|freak_llvm_http_server_request_header_name|freak_llvm_http_server_request_header_value|freak_llvm_http_server_request_header_value_bytes|freak_llvm_http_server_request_header_is_trailer|freak_llvm_http_server_request_header_find|freak_llvm_http_server_request_body|freak_llvm_http_server_response_status|freak_llvm_http_server_response_header|freak_llvm_http_server_send_bytes|freak_llvm_http_server_send_text|freak_llvm_http_server_request_release|freak_llvm_http_server_live_servers|freak_llvm_http_server_live_requests|freak_llvm_http_server_live_sockets|freak_llvm_http_server_retained_bytes|"
-    llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_process_executable_path|freak_llvm_process_platform_is_windows|"
+    llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_process_executable_path|freak_llvm_process_platform_is_windows|freak_llvm_process_stdout_is_terminal|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_int_add_checked|freak_int_sub_checked|freak_int_mul_checked|freak_int_div_checked|freak_int_rem_checked|freak_int_neg_checked|freak_llvm_word_index_checked|"
 }
 

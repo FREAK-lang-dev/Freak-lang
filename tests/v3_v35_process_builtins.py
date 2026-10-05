@@ -18,6 +18,7 @@ from v3_v35_language import require_ok, run
 
 
 PROGRAM = '''task main() {
+    pilot terminal: bool = process::stdout_is_terminal()
     pilot windows: bool = process::platform_is_windows()
     pilot executable: word = process::executable_path()
     pilot job: int = process::command_new("native helper")
@@ -57,6 +58,13 @@ OPERATIONS = (
 )
 
 NEGATIVE = {
+    "terminal_is_bool": (
+        'pilot terminal: int = process::stdout_is_terminal()',
+        "cannot initialize int binding 'terminal' with bool", False,
+    ),
+    "terminal_arity": (
+        'process::stdout_is_terminal(1)', "expects 0 argument(s), got 1", False,
+    ),
     "platform_is_bool": (
         'pilot platform: int = process::platform_is_windows()',
         "cannot initialize int binding 'platform' with bool", False,
@@ -123,6 +131,10 @@ def main() -> int:
             suffix = ".c" if backend == "c" else ".ll"
             emitted = Path(str(source) + suffix).read_text(encoding="utf-8")
             prefix = "freak_process_command_" if backend == "c" else "@freak_llvm_process_command_"
+            terminal_symbol = "freak_process_stdout_is_terminal" if backend == "c" else "@freak_llvm_process_stdout_is_terminal"
+            assert terminal_symbol + "(" in emitted, (backend, "stdout_is_terminal", emitted)
+            if backend == "llvm":
+                assert any("call " in line and terminal_symbol + "(" in line for line in emitted.splitlines()), (backend, "stdout_is_terminal", emitted)
             platform_symbol = "freak_process_platform_is_windows" if backend == "c" else "@freak_llvm_process_platform_is_windows"
             assert platform_symbol + "(" in emitted, (backend, "platform_is_windows", emitted)
             if backend == "llvm":

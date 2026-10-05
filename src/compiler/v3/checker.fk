@@ -908,6 +908,7 @@ task tc_profile_helper_allowed(name: word) -> bool {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    if name == "process::stdout_is_terminal" { give back "bool" }
     if name == "process::platform_is_windows" { give back "bool" }
     if name == "process::executable_path" { give back "word" }
     if name == "http_server::open" { give back "int" }
@@ -1084,6 +1085,7 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "process::stdout_is_terminal" { give back "" }
     if name == "process::platform_is_windows" { give back "" }
     if name == "process::executable_path" { give back "" }
     if name == "http_server::open" { give back "int" }
