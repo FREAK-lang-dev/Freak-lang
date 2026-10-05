@@ -34,7 +34,6 @@ task main() {
     pilot second = json_document_parse_bytes(serialized)
     say json_document_ok(second)
     json_document_release(second)
-    serialized.release()
     json_document_release(doc)
     say binary.read_byte()
     say binary.read_byte()
@@ -55,9 +54,9 @@ task main() {
     say json_document_object_insert(made, object, "items", items)
     pilot zero = ByteBuffer::new()
     zero.write_byte(0)
-    pilot nul = json_document_make_string_bytes(made, zero)
-    say json_document_object_insert_bytes(made, object, zero, nul)
-    say json_document_kind(made, json_document_object_get_bytes(made, object, zero))
+    pilot nul = json_document_make_string_bytes(made, zero.slice(0, zero.length()))
+    say json_document_object_insert_bytes(made, object, zero.slice(0, zero.length()), nul)
+    say json_document_kind(made, json_document_object_get_bytes(made, object, zero.slice(0, zero.length())))
     zero.release()
     say json_document_set_root(made, object)
     say json_document_serialize_word(made)
@@ -76,7 +75,7 @@ CONTROLLED = {
     'stale_doc':'task main() { pilot d = json_document_parse("null"); json_document_release(d); say json_document_ok(d) }',
     'stale_view':'task main() { pilot d = json_document_parse("null"); pilot node = json_document_root(d); json_document_release(d); pilot second = json_document_parse("null"); say json_document_kind(second, node) }',
     'wrong_type':'task main() { pilot d = json_document_parse("null"); say json_document_number_text(d, json_document_root(d)) }',
-    'nul_text':'task main() { pilot d = json_document_parse("\"a\\u0000b\""); say json_document_string_word(d, json_document_root(d)) }',
+    'nul_text':r'task main() { pilot d = json_document_parse("\"a\\u0000b\""); say json_document_string_word(d, json_document_root(d)) }',
 }
 
 def run(command, *, cwd, env=None):
@@ -92,7 +91,7 @@ def main():
             for backend in ('c','llvm'):
                 for name,program in [('facade',PROGRAM),*CONTROLLED.items()]:
                     source=root/f'{name}-{backend}.fk';source.write_text(facade+'\n'+program)
-                    compiled=run([str(compiler),str(source),f'--{backend}'],cwd=root);assert compiled.returncode==0,(name,compiled.stdout,compiled.stderr)
+                    compiled=run([str(compiler),str(source),f'--{backend}','--strict-borrow'],cwd=root);assert compiled.returncode==0,(name,compiled.stdout,compiled.stderr)
                     generated=Path(str(source)+('.c' if backend=='c' else '.ll'));binary=root/f'{name}-{backend}-O{opt}{suffix}'
                     cmd=[args.clang,f'-O{opt}',str(generated),str(runtime/'freak_runtime.c'),f'-I{runtime}','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1','-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1','-o',str(binary)]
                     if backend=='llvm':cmd.append(str(runtime/'freak_llvm_runtime.c'))
@@ -100,11 +99,11 @@ def main():
                     linked=run(cmd,cwd=root);assert linked.returncode==0,(name,linked.stdout,linked.stderr)
                     executed=run([str(binary)],cwd=root)
                     if name=='facade':assert executed.returncode==0 and executed.stdout==EXPECTED and not executed.stderr,(backend,opt,executed.returncode,executed.stdout,executed.stderr)
-                    else:assert executed.returncode!=0 and not executed.stdout and 'JSON document:' in executed.stderr,(name,backend,executed.returncode,executed.stdout,executed.stderr)
+                    else:assert executed.returncode==1 and not executed.stdout and 'JSON document:' in executed.stderr,(name,backend,executed.returncode,executed.stdout,executed.stderr)
                 for name,(program,diagnostic) in NEGATIVE.items():
                     source=root/f'{name}-{backend}.fk';source.write_text(program)
                     generated=Path(str(source)+('.c' if backend=='c' else '.ll'));generated.write_text('stale output')
-                    failed=run([str(compiler),str(source),f'--{backend}'],cwd=root)
+                    failed=run([str(compiler),str(source),f'--{backend}','--strict-borrow'],cwd=root)
                     assert failed.returncode!=0 and diagnostic.lower() in (failed.stdout+failed.stderr).lower(),(name,failed.returncode,failed.stdout,failed.stderr)
                     assert not generated.exists(),(name,'stale generated artifact survived')
                 evidence['matrices'].append({'backend':backend,'optimization':opt,'facade':True,'controlled_errors':len(CONTROLLED),'semantic_rejections':len(NEGATIVE)})
