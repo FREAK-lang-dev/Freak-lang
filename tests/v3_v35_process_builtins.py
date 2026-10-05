@@ -18,6 +18,7 @@ from v3_v35_language import require_ok, run
 
 
 PROGRAM = '''task main() {
+    pilot executable: word = process::executable_path()
     pilot job: int = process::command_new("native helper")
     process::command_arg(job, "literal $ & % argument")
     process::command_cwd(job, "directory with spaces")
@@ -55,6 +56,17 @@ OPERATIONS = (
 )
 
 NEGATIVE = {
+    "path_is_word": (
+        'pilot path: int = process::executable_path()',
+        "cannot initialize int binding 'path' with word", False,
+    ),
+    "path_arity": (
+        'process::executable_path("path")', "expects 0 argument(s), got 1", False,
+    ),
+    "path_is_owned": (
+        'pilot path = process::executable_path()\n'
+        'pilot alias = path\nsay path', "You gave this away", True,
+    ),
     "inferred_payload_release": (
         'pilot bytes = process::command_stdout_bytes(1)\nbytes.release()\nbytes.length()',
         "You gave this away", True,
@@ -103,6 +115,10 @@ def main() -> int:
             suffix = ".c" if backend == "c" else ".ll"
             emitted = Path(str(source) + suffix).read_text(encoding="utf-8")
             prefix = "freak_process_command_" if backend == "c" else "@freak_llvm_process_command_"
+            path_symbol = "freak_process_executable_path" if backend == "c" else "@freak_llvm_process_executable_path"
+            assert path_symbol + "(" in emitted, (backend, "executable_path", emitted)
+            if backend == "llvm":
+                assert any("call " in line and path_symbol + "(" in line for line in emitted.splitlines()), (backend, "executable_path", emitted)
             for operation in OPERATIONS:
                 symbol = prefix + operation
                 assert symbol + "(" in emitted, (backend, operation, emitted)
