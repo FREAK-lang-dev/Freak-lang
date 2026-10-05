@@ -7,6 +7,14 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**V3.5 initial syntax checkpoint (2026-10-05):** native V3 statement lists
+accept semicolons, including a trailing separator and bare void return.
+`tests/v3_v35_language.py` checks twelve positive/negative C/LLVM cases against
+a freshly reconstructed native compiler, including exact diagnostic columns
+and stale-output rejection. Newline behavior remains covered. This checkpoint
+does not establish the new counted/while forms, checked-result bootstrap,
+scoped packages, installed-archive/platform acceptance or a new release.
+
 **V4 closed scalar Sum checkpoint (2026-10-04):** native `maybe<int>` and
 `result<word,word>` have separate tagged carriers, owning construction and
 extraction, and Meiya-driven cleanup across calls, replacements, branches and

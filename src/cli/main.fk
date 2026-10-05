@@ -271,7 +271,10 @@ task hangar_standalone_main() -> void {
 
     -- Adjust args_cnt to match what hangar_dispatch expects
     -- (it checks args_cnt < 3, expects subcmd at hangar_arg(2) which becomes arg(1))
-    hangar_dispatch(args_cnt + 1)
+    pilot standalone_hangar_status = hangar_dispatch(args_cnt + 1)
+    if standalone_hangar_status != 0 {
+        process::exit(standalone_hangar_status)
+    }
 }
 
 -- ── Main Dispatch ────────────────────────────────────
@@ -513,7 +516,8 @@ task freakc_cli_main() -> void {
 
     -- Hangar package manager
     if subcmd == "hangar" {
-        hangar_dispatch(args_cnt)
+        pilot hangar_status = hangar_dispatch(args_cnt)
+        if hangar_status != 0 { process::exit(hangar_status) }
         give back
     }
 

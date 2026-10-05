@@ -346,6 +346,13 @@ Rules:
 
 ### 1.7 Control Flow
 
+Statements in a program or block may be separated by a newline or `;`.
+A semicolon may also trail the last statement on a line or before `}`.
+Newline-separated programs retain their meaning; separators do not create
+expression statements. A semicolon ends a bare `give back` in a void task,
+while semicolons inside strings or comments are ordinary data. The separator
+is not an operator or a replacement for argument/collection commas.
+
 ```
 -- if/else
 if x > 10 { say "big" }

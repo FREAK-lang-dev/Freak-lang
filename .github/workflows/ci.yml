@@ -166,6 +166,16 @@ jobs:
         shell: bash
         run: python -u tests/v3_legacy_golden.py ./build/freak$EXT
 
+      - name: V3.5 native statement separators
+        shell: bash
+        run: python -u tests/v3_v35_language.py --compiler ./build/freakc_v3_stage2$EXT
+
+      - name: V3.5 truthful Hangar failures
+        shell: bash
+        run: |
+          python -u tests/v3_v35_hangar.py --freak ./build/freak$EXT \
+            --hangar ./build/hangar$EXT --clang "$(command -v clang)"
+
       - name: V3 frozen UI surface
         shell: bash
         run: python -u tests/v3_ui_surface.py ./build/freak$EXT
@@ -460,6 +470,16 @@ jobs:
       - name: V3 legacy preservation corpus
         shell: bash
         run: python -u tests/v3_legacy_golden.py ./build/freak$EXT
+
+      - name: V3.5 native statement separators
+        shell: bash
+        run: python -u tests/v3_v35_language.py --compiler ./build/freakc_v3_stage2$EXT
+
+      - name: V3.5 truthful Hangar failures
+        shell: bash
+        run: |
+          python -u tests/v3_v35_hangar.py --freak ./build/freak$EXT \
+            --hangar ./build/hangar$EXT --clang "$(command -v clang)"
 
       - name: V3 frozen UI surface
         shell: bash
