@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 import tomllib
 import v3_word_foundation as foundation
-from v3_v35_hangar import probe_transpile, require_resource_conservation
+from v3_v35_hangar import probe_transpile, require_resource_conservation, task_source
 from v3_v35_package_sources import package_probe_source, project as graph_project
 
 PROGRAM = r'''
@@ -21,8 +21,7 @@ task transaction_unit() {
     if not fs::result_ok(held) { hangar_graph_fail("fixture lock unavailable") } else {
         if process::arg(2) == "recover" { valid = package_recover_transaction(directory, private) } else {
             pilot manifest = fs::read_ticket(process::arg(3))
-            pilot lock = fs::read_bytes_ticket(process::arg(4))
-            pilot bytes: ByteBuffer = fs::result_bytes(lock)
+            pilot lock = fs::read_ticket(process::arg(4))
             pilot before = fs::read_relative_bytes_ticket(directory, "hangar.toml")
             pilot previous = fs::read_relative_bytes_ticket(directory, "hangar.lock")
             pilot old: ByteBuffer = fs::result_bytes(before)
@@ -37,8 +36,7 @@ task transaction_unit() {
             fs::result_release(before)
             fs::result_release(previous)
             if process::arg(2) == "stale" { expected = "0000000000000000000000000000000000000000000000000000000000000000" }
-            valid = package_commit_transaction(directory, private, "hangar.toml", fs::result_word(manifest), bytes, expected, previous_hash)
-            bytes.release()
+            valid = package_commit_transaction(directory, private, "hangar.toml", fs::result_word(manifest), fs::result_word(lock), expected, previous_hash)
             fs::result_release(manifest)
             fs::result_release(lock)
         }
@@ -90,7 +88,18 @@ int __wrap_fsync(int fd) {
 '''
 
 
-def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
+def strict_journal_source(repo: Path) -> str:
+    text=(repo/'src/cli/package_transaction.fk').read_text()
+    wrapper=task_source(text,'package_commit_transaction')
+    implementation=task_source(text,'package_commit_transaction_impl')
+    declaration=implementation[:implementation.index('{')]
+    # The actual public boundary creates and transfers exactly one ByteBuffer.
+    # Stub only the internal implementation while retaining its real signature;
+    # full native fault cases below execute that implementation without stubs.
+    return wrapper+'\n'+declaration+'{ lock_bytes.release() give back true }\n'
+
+
+def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path, strict_compiler: Path) -> None:
     repo=Path(__file__).resolve().parents[1]
     wrapper=root/'journal-fsync.c'
     wrapper.write_text(INTERPOSE,encoding='ascii')
@@ -103,6 +112,21 @@ def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
     candidate_manifest.write_bytes(new_manifest)
     candidate_lock.write_bytes(new_lock)
     for backend in ('c','llvm'):
+        strict=root/f'journal-strict-{backend}.fk'
+        strict.write_text(strict_journal_source(repo)+'\ntask main() { package_commit_transaction(0, 0, "hangar.toml", "", "", "", "") }\n',encoding='utf-8')
+        checked=foundation.run([str(strict_compiler),str(strict),'--'+backend,'--strict-borrow'],repo,timeout=45)
+        assert checked.returncode==0,(checked.stdout,checked.stderr)
+        negative=root/f'journal-moved-{backend}.fk'
+        negative.write_text(strict_journal_source(repo)+r'''
+task main() {
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    package_commit_transaction_impl(0, 0, "hangar.toml", "", bytes, "", "")
+    say bytes.length()
+}
+''',encoding='utf-8')
+        checked=foundation.run([str(strict_compiler),str(negative),'--'+backend,'--strict-borrow'],repo,timeout=45)
+        assert checked.returncode!=0 and ('moved' in checked.stdout+checked.stderr or 'move' in checked.stdout+checked.stderr),(checked.stdout,checked.stderr)
+        print(f'native:{backend}:transactions:strict-consuming-boundary:passed',flush=True)
         program=root/f'transaction-{backend}.fk'
         program.write_text(package_probe_source(repo)+'\n'+PROGRAM,encoding='utf-8')
         generated=probe_transpile(foundation,None,compiler,repo,program,backend)
@@ -230,11 +254,12 @@ def main() -> int:
     parser.add_argument('--compiler',type=Path,required=True)
     parser.add_argument('--clang',type=Path,required=True)
     parser.add_argument('--runtime-root',type=Path,required=True)
+    parser.add_argument('--strict-compiler',type=Path,required=True)
     parser.add_argument('--probe-root',type=Path)
     args=parser.parse_args()
     if args.probe_root: args.probe_root.mkdir(parents=True,exist_ok=False)
     context=contextlib.nullcontext(str(args.probe_root.resolve())) if args.probe_root else tempfile.TemporaryDirectory(prefix='freak-v35-journal-')
-    with context as directory: run_gate(args.compiler.resolve(strict=True),args.clang.resolve(strict=True),args.runtime_root.resolve(strict=True),Path(directory))
+    with context as directory: run_gate(args.compiler.resolve(strict=True),args.clang.resolve(strict=True),args.runtime_root.resolve(strict=True),Path(directory),args.strict_compiler.resolve(strict=True))
     return 0
 
 

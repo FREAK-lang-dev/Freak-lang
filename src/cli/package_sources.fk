@@ -599,7 +599,7 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
             if valid {
                 package_graph_snapshot_path = package_join_host(package_directory_path(snapshots), identity + ".lock")
                 if not locked and not frozen {
-                    valid = package_commit_transaction(project, private, manifest_file, array_get(hangar_graph_contents, 0), bytes, array_get(package_source_manifest_hashes, 0), previous_lock_hash)
+                    valid = package_commit_transaction(project, private, manifest_file, array_get(hangar_graph_contents, 0), content, array_get(package_source_manifest_hashes, 0), previous_lock_hash)
                 }
             }
             bytes.release()
