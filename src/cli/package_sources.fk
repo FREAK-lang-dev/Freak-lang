@@ -15,6 +15,25 @@ pilot package_graph_manifest_path = ""
 pilot package_graph_ready = false
 pilot package_graph_no_manifest = false
 pilot package_snapshot_override = ""
+pilot package_source_option_manifest = ""
+pilot package_source_option_snapshot = ""
+pilot package_source_option_locked = false
+pilot package_source_option_offline = false
+pilot package_source_option_frozen = false
+
+task package_configure_source_options(manifest: word, snapshot: word, locked: bool, offline: bool, frozen: bool) -> void {
+    package_source_option_manifest = manifest
+    package_source_option_snapshot = snapshot
+    package_source_option_locked = locked
+    package_source_option_offline = offline
+    package_source_option_frozen = frozen
+}
+
+task package_prepare_selected_manifest(manifest: word) -> bool {
+    if package_source_option_snapshot != "" { give back package_load_graph_snapshot(package_source_option_snapshot, manifest, true) }
+    give back package_prepare_graph(manifest, package_source_option_locked, package_source_option_offline, package_source_option_frozen, "")
+}
+
 
 task package_sources_release() -> void {
     if package_source_roots != 0 {
@@ -500,6 +519,7 @@ task package_prepare_graph(manifest_path: word, locked: bool, offline: bool, fro
 
 task package_prepare_project_sources(source: word) -> bool {
     if package_graph_ready { give back true }
+    if package_source_option_manifest != "" { give back package_prepare_selected_manifest(package_source_option_manifest) }
     package_graph_no_manifest = false
     hangar_graph_error = ""
     pilot parent = package_parent_path(source)
@@ -517,10 +537,14 @@ task package_prepare_project_sources(source: word) -> bool {
         if not found and not missing { hangar_graph_fail("cannot read enclosing package manifest: " + fs::result_error(manifest)) }
         fs::result_release(manifest)
         fs::result_release(directory)
-        if found { give back package_prepare_graph(package_join_host(canonical, "hangar.toml"), false, false, false, "") }
+        if found { give back package_prepare_selected_manifest(package_join_host(canonical, "hangar.toml")) }
         if not missing { give back false }
         pilot next = package_parent_path(canonical)
-        if next == canonical { package_graph_no_manifest = true give back true }
+        if next == canonical {
+            if package_source_option_locked or package_source_option_offline or package_source_option_frozen or package_source_option_snapshot != "" { hangar_graph_fail("requested graph mode requires an enclosing or explicit package manifest") give back false }
+            package_graph_no_manifest = true
+            give back true
+        }
         parent = next
         depth += 1
     }
