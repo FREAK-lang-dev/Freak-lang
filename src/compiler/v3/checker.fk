@@ -2796,6 +2796,10 @@ task tc_validate_stmt(stmt_id: int) -> void {
     if kind == STMT_EXPR {
         pilot discarded_id = word_to_int(expr)
         tc_validate_expr(discarded_id, line)
+        pilot discarded_kind: word = array_get(ast_expr_kinds, discarded_id)
+        if discarded_kind != EXPR_CALL and discarded_kind != EXPR_METHOD {
+            tc_diag("bare value is not a statement; use it in say, give back, a binding or a call", tc_expr_diag_line(discarded_id, line), tc_expr_diag_file(discarded_id, source_file))
+        }
         if tc_expr_type(discarded_id) == "CheckedReadResult" and array_get(ast_expr_kinds, discarded_id) != EXPR_CALL { tc_diag("checked read result may be inspected only with check result", line, source_file) }
         give back
     }
@@ -3002,6 +3006,9 @@ task tc_run_program() -> void {
         }
         i += 1
     }
+    if not v35_bootstrap_compat and tc_callable_entry("main") < 0 {
+        tc_diag("program requires a usable task main() entry", source_map_local_line(1), source_map_file(1))
+    }
     i = 0
     -- Global initialization is emitted strictly in source order. Infer each
     -- binding from earlier globals only; accepting a later reference here
@@ -3043,6 +3050,9 @@ task tc_run_program() -> void {
             tc_current_task_name = ""
             tc_current_return_type = ""
         } else {
+            if not v35_bootstrap_compat and kind != STMT_PILOT and kind != STMT_SHAPE and kind != STMT_IMPL and kind != STMT_EXTERN {
+                tc_diag("executable statement at top level is unsupported; place it inside task main()", word_to_int(array_get(ast_stmt_lines, sid)), array_get(ast_stmt_files, sid))
+            }
             tc_reset_locals()
             tc_current_task_name = ""
             tc_current_return_type = ""

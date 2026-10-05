@@ -2071,23 +2071,14 @@ task emit_c_program() -> void {
     emt_reset_local_types()
     tc_reset_locals()
 
-    -- Initialize globals
+    -- Ordinary programs initialize globals in source order. The explicit
+    -- bootstrap profile additionally executes root statements in that order.
     i = 0
     repeat top_count times {
         pilot cur_id: word = array_get(ast_top_stmts, i)
         pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
         if kind == STMT_PILOT { emit_global_init(cur_id) }
-        i += 1
-    }
-
-    -- Top-level statements
-    i = 0
-    repeat top_count times {
-        pilot cur_id: word = array_get(ast_top_stmts, i)
-        pilot kind: word = array_get(ast_stmt_kinds, word_to_int(cur_id))
-        if kind != STMT_TASK and kind != STMT_SHAPE and kind != STMT_PILOT and kind != STMT_EXTERN {
-            emit_stmt(cur_id)
-        }
+        else if v35_bootstrap_compat and kind != STMT_TASK and kind != STMT_SHAPE and kind != STMT_IMPL and kind != STMT_EXTERN { emit_stmt(cur_id) }
         i += 1
     }
     emit_line("}")

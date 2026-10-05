@@ -94,7 +94,7 @@ task freakc_v3_main() -> void {
 
     pilot src = fs::read(input_file)
     if src == "" {
-        say "Error: Could not read file."
+        say "Error: source has no usable task main() entry (empty or unreadable file)."
         process::exit(1)
     }
 
@@ -140,4 +140,4 @@ task freakc_v3_main() -> void {
     say "Done."
 }
 
-freakc_v3_main()
+task main() { freakc_v3_main() }

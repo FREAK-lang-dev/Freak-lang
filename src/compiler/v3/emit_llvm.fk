@@ -3436,6 +3436,8 @@ task emit_llvm_program() -> void {
                 llvm_emitting_global_init = true
                 llvm_emit_stmt(cur_id)
                 llvm_emitting_global_init = false
+            } else if v35_bootstrap_compat and kind != STMT_TASK and kind != STMT_SHAPE and kind != STMT_IMPL and kind != STMT_EXTERN {
+                llvm_emit_stmt(cur_id)
             }
             i += 1
         }
