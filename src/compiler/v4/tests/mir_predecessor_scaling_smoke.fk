@@ -1,0 +1,206 @@
+-- Request-owned CFG predecessor scratch: physical edge semantics and real work.
+task mir_predecessor_assert(condition: bool, label: word) -> void {
+    if not condition { panic("MIR predecessor validation: " + label) }
+}
+
+task mir_predecessor_available_handles() -> int {
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted: bool = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            count += 1
+        }
+    }
+    pilot row = 0
+    repeat until row >= count {
+        array_release(word_to_int(array_get(holders, row)))
+        row += 1
+    }
+    array_release(holders)
+    give back count
+}
+
+task mir_predecessor_expect(diags: int, span: word, message: word, help: word) -> void {
+    array_push(diags, v4_diag_new(v4_diag_error, span, message, help))
+}
+
+task mir_predecessor_diags_match(mir: int, start: int, expected: int) -> bool {
+    if v4_mir_diag_count(mir) != start + array_len(expected) { give back false }
+    pilot row = 0
+    repeat until row >= array_len(expected) {
+        pilot actual: word = v4_mir_diag(mir, start + row)
+        pilot wanted: word = array_get(expected, row)
+        if actual != wanted { give back false }
+        row += 1
+    }
+    give back true
+}
+
+task mir_predecessor_counts_match(mir: int, body: int) -> bool {
+    pilot counts = v4_mir_body_block_predecessor_counts(mir, body)
+    if counts < 0 { give back false }
+    pilot same: bool = array_len(counts) == v4_mir_body_block_count(mir, body)
+    pilot block = 0
+    repeat until block >= array_len(counts) {
+        same = same and word_to_int(array_get(counts, block)) == v4_mir_body_block_predecessor_count(mir, body, block)
+        block += 1
+    }
+    array_release(counts)
+    give back same
+}
+
+task mir_predecessor_small() -> void {
+    pilot mir = v4_mir_file_new(91, -1)
+    -- The restoration constructor admits the empty-body case without an entry.
+    v4_mir_restore_building = true
+    pilot empty = v4_mir_add_body(mir, "empty", "empty", "")
+    v4_mir_restore_building = false
+    pilot single = v4_mir_add_body(mir, "single", "single", "")
+    pilot capacity = mir_predecessor_available_handles()
+    pilot reads = v4_mir_body_block_reads
+    pilot edges = v4_mir_block_edge_reads
+    mir_predecessor_assert(v4_mir_body_block_count(mir, empty) == 0 and v4_mir_body_block_count(mir, single) == 1, "empty and single setup")
+    mir_predecessor_assert(v4_mir_body_block_predecessor_counts(mir, empty) < 0 and v4_mir_body_block_predecessor_counts(mir, single) < 0, "small bodies need no scratch")
+    v4_mir_validate_body_cfg(mir, empty, V4_NO_SPAN)
+    v4_mir_validate_body_cfg(mir, single, V4_NO_SPAN)
+    mir_predecessor_assert(v4_mir_diag_count(mir) == 0 and v4_mir_body_block_reads - reads == 1 and v4_mir_block_edge_reads == edges and mir_predecessor_available_handles() == capacity, "small validation unchanged and scratch free")
+    say "mir-predecessors empty=true single=true scratch-free=true"
+}
+
+task mir_predecessor_adverse() -> void {
+    pilot mir = v4_mir_file_new(94, -1)
+    pilot body = v4_mir_add_body(mir, "adverse", "adverse", "")
+    pilot block = 1
+    repeat until block >= 8 {
+        v4_mir_add_block(mir, body, v4_mir_term_return, -1, -1, "")
+        block += 1
+    }
+    pilot blocks = v4_mir_body_blocks_handle(mir, body)
+    array_set(blocks, 0, "0|If|1|1|condition")
+    array_set(blocks, 1, "1|Goto|3|-1|")
+    array_set(blocks, 2, "2|Goto|99|-1|")
+    -- Record ID drift must not remove this physical slot's incoming edges.
+    array_set(blocks, 3, "91|If|4|-7|condition")
+    array_set(blocks, 4, "4|Goto||")
+    -- Empty physical rows model holes; existing field coercions still apply.
+    array_set(blocks, 5, "")
+    array_set(blocks, 6, "66|Goto|1|-1|")
+    pilot span = v4_span_new("94", 10, 20)
+    v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_branch, "", "", span, -1, -1)
+    v4_mir_add_stmt(mir, body, 5, v4_mir_stmt_expr, "", "", span, 3, 4)
+    v4_mir_add_stmt(mir, body, 9, v4_mir_stmt_expr, "", "", span, -1, -1)
+    pilot expected = array_new()
+    mir_predecessor_expect(expected, span, "mir cfg stmt place out of range", "adverse statement 1 points at missing place 3")
+    mir_predecessor_expect(expected, span, "mir cfg stmt rvalue out of range", "adverse statement 1 points at missing rvalue 4")
+    mir_predecessor_expect(expected, span, "mir cfg stmt block out of range", "adverse statement 2 points at missing block 9")
+    mir_predecessor_expect(expected, span, "mir cfg invalid goto target", "adverse block 2 jumps to missing block 99")
+    mir_predecessor_expect(expected, span, "mir cfg unreachable live block", "adverse block 2 has no predecessors but still carries live statements or control flow")
+    mir_predecessor_expect(expected, span, "mir cfg block id drift", "adverse stores block 91 in slot 3")
+    mir_predecessor_expect(expected, span, "mir cfg invalid else target", "adverse block 3 falls through to missing block -7")
+    mir_predecessor_expect(expected, span, "mir cfg if terminator missing control stmt", "adverse block 3 ends with If but records no branch or loop statement")
+    mir_predecessor_expect(expected, span, "mir cfg invalid goto target", "adverse block 4 jumps to missing block -1")
+    mir_predecessor_expect(expected, span, "mir cfg block id drift", "adverse stores block 0 in slot 5")
+    mir_predecessor_expect(expected, span, "mir cfg unknown terminator", "adverse block 5 uses unsupported terminator ")
+    mir_predecessor_expect(expected, span, "mir cfg unreachable live block", "adverse block 5 has no predecessors but still carries live statements or control flow")
+    mir_predecessor_expect(expected, span, "mir cfg block id drift", "adverse stores block 66 in slot 6")
+    mir_predecessor_expect(expected, span, "mir cfg unreachable live block", "adverse block 6 has no predecessors but still carries live statements or control flow")
+    pilot capacity = mir_predecessor_available_handles()
+    pilot wire = v4_mir_snapshot()
+    mir_predecessor_assert(mir_predecessor_counts_match(mir, body), "all valid targets match legacy scanner")
+    pilot counts = v4_mir_body_block_predecessor_counts(mir, body)
+    mir_predecessor_assert(word_to_int(array_get(counts, 1)) == 3 and word_to_int(array_get(counts, 3)) == 1 and word_to_int(array_get(counts, 4)) == 1 and word_to_int(array_get(counts, 5)) == 0, "duplicate arms and physical ID drift")
+    array_release(counts)
+    mir_predecessor_assert(v4_mir_body_block_predecessor_count(mir, body, -1) == 1 and v4_mir_body_block_predecessor_count(mir, body, -7) == 1 and v4_mir_body_block_predecessor_count(mir, body, 99) == 1, "invalid edges retained by original scanner")
+    say "mir-predecessors duplicate-if=true physical-slots=true invalid-edges=true malformed=true"
+
+    -- Every request observes current raw fields; there is no owner cache epoch.
+    array_set(blocks, 6, "6|Goto|5|-1|")
+    counts = v4_mir_body_block_predecessor_counts(mir, body)
+    mir_predecessor_assert(word_to_int(array_get(counts, 1)) == 2 and word_to_int(array_get(counts, 5)) == 1, "same-size edge edit observed")
+    array_release(counts)
+    array_set(blocks, 6, "66|Goto|1|-1|")
+    pilot repeat_id = 0
+    repeat until repeat_id >= 16 {
+        mir_predecessor_assert(mir_predecessor_counts_match(mir, body), "repeated request equivalent")
+        repeat_id += 1
+    }
+    mir_predecessor_assert(v4_mir_snapshot() == wire and mir_predecessor_available_handles() == capacity, "request scratch never published or leaked")
+    say "mir-predecessors fresh-edits=true wire-unchanged=true scratch-released=true"
+
+    pilot start = v4_mir_diag_count(mir)
+    pilot reads = v4_mir_body_block_reads
+    pilot edges = v4_mir_block_edge_reads
+    v4_mir_validate_body_cfg(mir, body, span)
+    mir_predecessor_assert(mir_predecessor_diags_match(mir, start, expected) and v4_mir_body_block_reads - reads == 16 and v4_mir_block_edge_reads - edges <= 4 * 8 and mir_predecessor_available_handles() == capacity, "ordered exact diagnostics and released validation scratch")
+    say "mir-predecessors diagnostics-order=true messages=true help=true spans=true"
+
+    pilot holders = array_new()
+    pilot held = 0
+    pilot exhausted: bool = false
+    repeat until exhausted or held >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            held += 1
+        }
+    }
+    mir_predecessor_assert(exhausted and v4_mir_body_block_predecessor_counts(mir, body) < 0, "scratch allocation denied")
+    start = v4_mir_diag_count(mir)
+    reads = v4_mir_body_block_reads
+    v4_mir_validate_body_cfg(mir, body, span)
+    mir_predecessor_assert(mir_predecessor_diags_match(mir, start, expected) and v4_mir_body_block_reads - reads == 8 * 8, "exhaustion retains scanner and complete diagnostics")
+    block = 0
+    repeat until block >= held {
+        array_release(word_to_int(array_get(holders, block)))
+        block += 1
+    }
+    array_release(holders)
+    start = v4_mir_diag_count(mir)
+    reads = v4_mir_body_block_reads
+    v4_mir_validate_body_cfg(mir, body, span)
+    mir_predecessor_assert(mir_predecessor_diags_match(mir, start, expected) and v4_mir_body_block_reads - reads == 16 and mir_predecessor_available_handles() == capacity, "next request recovers without leaked scratch")
+    array_release(expected)
+    say "mir-predecessors exhaustion=true scanner-equivalent=true recovery=true handles-stable=true"
+}
+
+task mir_predecessor_scale(mir: int, body: int, count: int) -> void {
+    pilot block = v4_mir_body_block_count(mir, body)
+    repeat until block >= count {
+        v4_mir_add_block(mir, body, v4_mir_term_return, -1, -1, "")
+        block += 1
+    }
+    block = 0
+    repeat until block >= count - 1 {
+        array_set(v4_mir_body_blocks_handle(mir, body), block, v4_mir_block_new_full(block, v4_mir_term_goto, block + 1, -1, ""))
+        block += 1
+    }
+    pilot capacity = mir_predecessor_available_handles()
+    pilot start = v4_mir_diag_count(mir)
+    pilot reads = v4_mir_body_block_reads
+    pilot edges = v4_mir_block_edge_reads
+    v4_mir_validate_body_cfg(mir, body, V4_NO_SPAN)
+    mir_predecessor_assert(v4_mir_diag_count(mir) == start and v4_mir_body_block_reads - reads == 2 * count and v4_mir_block_edge_reads - edges == 2 * (count - 1) and mir_predecessor_available_handles() == capacity, "actual validation record and edge reads grow linearly")
+
+    -- Execute the unchanged old scanner as a negative control over this same
+    -- graph. A work check based only on new helper entries cannot pass this.
+    reads = v4_mir_body_block_reads
+    edges = v4_mir_block_edge_reads
+    block = 1
+    repeat until block >= count {
+        mir_predecessor_assert(v4_mir_body_block_predecessor_count(mir, body, block) == 1, "old scan has same predecessor answers")
+        block += 1
+    }
+    mir_predecessor_assert(v4_mir_body_block_reads - reads == count * (count - 1) and v4_mir_block_edge_reads - edges == (count - 1) * (count - 1), "old scan quadratic work observed")
+    mir_predecessor_assert(v4_mir_body_block_reads - reads > 2 * count and v4_mir_block_edge_reads - edges > 2 * (count - 1), "old scanner rejected by actual getter work limits")
+}
+
+mir_predecessor_small()
+mir_predecessor_adverse()
+pilot mir_predecessor_scale_mir = v4_mir_file_new(95, -1)
+pilot mir_predecessor_scale_body = v4_mir_add_body(mir_predecessor_scale_mir, "scale", "scale", "")
+mir_predecessor_scale(mir_predecessor_scale_mir, mir_predecessor_scale_body, 64)
+mir_predecessor_scale(mir_predecessor_scale_mir, mir_predecessor_scale_body, 256)
+say "mir-predecessors blocks64-linear=true blocks256-linear=true old-scan-rejected=true"

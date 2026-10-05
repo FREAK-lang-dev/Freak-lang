@@ -282,8 +282,10 @@ unsupported, so the complete W3 release row stays open.
 
 ### Checked numeric checkpoint
 
-Native integer operations and conversions use checked helpers at every
-optimization level. Overflow and division by zero produce named runtime errors;
+Signed-int64 addition, subtraction and multiplication use internal alwaysinline
+LLVM overflow wrappers at every optimization level. Their failure arms call the
+original checked helpers with unchanged operands. Other integer operations and
+conversions retain checked helpers. Overflow and division by zero produce named runtime errors;
 float-to-integer conversions validate range before conversion. The repository
 gate `python tests/v4_checked_numeric_codegen.py --snapshot-control` requires
 sanitizers and both ownership audits. Its reviewed `13a0991` run covers 141
@@ -291,6 +293,17 @@ compiler contracts, 147 native executions at O0/O2/O3 and eight real sanitizer
 or ownership capability controls. Fourteen adversarial oracle tests guard exact
 outputs, failure status and complete coverage. `--plain` is a separate portability
 run; the workflow keeps both modes' work directories and result JSON separate.
+
+The [checked integer runtime report](../../../benchmarks/v4/int_checked_speed.md)
+records the actual `d31c096` candidate: the original gate passes 150 native
+executions and 141 compiler contracts in each plain/sanitized mode. The new
+`tests/v4_int_inline_runtime_bench.py` gate proves 29 dynamic signed and ordered
+cases at O0/O2/O3, live hot-loop checksums, real helper-call negatives, optimizer
+loop retention and both ownership audits. Plain Linux/macOS/Windows CI retains
+matched timings; mandatory Linux ASan/UBSan publishes none. Five local 100M
+samples give 4.48x at O2 and 4.75x at O3 against the same checked V4 baseline;
+these include guarded process startup/capture/logging and establish only this
+workload. Other numeric helpers and overall V3 parity remain open.
 
 MIR restore now reserves checked positive arena growth before retiring replaced
 raw children. The reviewed `80520d5` transaction retains malformed/pressure
@@ -1018,6 +1031,41 @@ declaration-start lookup in logarithmic work, while ordinal/count and task-retur
 lookups use direct item indexes. Construction helpers invalidate indexes;
 completed lowering and whole-snapshot restoration finalize them before exposing
 semantic queries. Lookup paths do not rebuild indexes or reconstruct syntax.
+Parse publishes a derived closure-child index behind its existing count and
+ordinal readers. It preserves physical child order for ClosureExpr,
+ClosureParam and ClosureBody; other kinds and invalid parent keys retain the
+original scanner. A closure-free tree owns a four-cell known-empty header.
+A nonempty tree owns `4 + 6N + C` cells for N stored nodes and C indexed
+children. One new outer registry retains at most one child per published tree.
+Construction and supported node mutations advance the Parse revision; readers
+stay cold until explicit publication after parsing or complete restore.
+Replacement publication releases the previous derived child. Unavailable
+storage retains authoritative scans and adds no snapshot fields.
+MIR CFG validation counts predecessor edges once per body using one released
+scratch child. Both If arms count, including equal targets; unavailable scratch
+retains the original scanner and diagnostic order.
+MIR body-control queries use an exact Never count in the existing statement-link
+child: four summary cells precede its physical statement links. The block index
+and Never summary have independent readiness. Append, type setters and slot
+overwrites maintain the count; body replacement and successful compaction
+invalidate it. Explicit lookup finalization rebuilds a cold summary, while
+unavailable storage retains the allocation-free authoritative scan. Same-size
+direct type-column edits must explicitly invalidate the summary; handle and
+length changes are detected automatically. This adds no handles or snapshot
+fields and preserves the existing control traversal limits.
+Meiya mutable-exclusivity checking uses one request-owned candidate child for
+large bodies. Loans proven to have no cross-block holder remain in their own
+block's physical-order chain; expression, explicit, complex and malformed loans
+remain conservative global candidates. Merging both chains preserves the first
+physical conflict. It caches no holder or provenance result, retains every
+conflict predicate, and releases scratch after checking. Small requests or
+unavailable scratch use the original scan. Many genuinely spanning loans can
+still require quadratic comparisons.
+The [compiler scaling checkpoint](../../../benchmarks/v4/compiler_superlinear_speed.md)
+records pinned before/after measurements, complete output equivalence and
+remaining workload costs. Regression guards count actual getter/work activity;
+CI also retains checked task-count and long-body timing measurements.
+
 Task-parameter owner and `(item, ordinal)` lookups use stable sorted physical
 record IDs and lower-bound search, preserving the first physical duplicate.
 Partial construction and direct slot mutation retain linear first-match lookup

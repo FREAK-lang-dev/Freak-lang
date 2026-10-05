@@ -124,6 +124,11 @@ jobs:
           --smoke hir_scalar_fields_smoke.fk
           --smoke target_contract_smoke.fk
           --smoke target_c_integer_contract_smoke.fk
+          --smoke parse_closure_index_smoke.fk
+          --smoke mir_predecessor_scaling_smoke.fk
+          --smoke mir_never_summary_scaling_smoke.fk
+          --smoke int_inline_codegen_smoke.fk
+          --smoke borrowck_candidate_scaling_smoke.fk
 
   v4-runtime-helpers:
     name: V4 native runtime helpers (${{ matrix.os }})
@@ -192,6 +197,12 @@ jobs:
 
       - name: Checked numeric native lowering at O0, O2 and O3
         run: python -B -u tests/v4_checked_numeric_codegen.py --plain --snapshot-control --work "${{ runner.temp }}/numeric-codegen-plain" --json "${{ runner.temp }}/numeric-codegen-plain.json"
+
+      - name: Checked integer runtime benchmark oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_int_inline_runtime_bench.py -v
+
+      - name: Checked integer hot-loop native portability and measured helper control
+        run: python -B -u tests/v4_int_inline_runtime_bench.py --plain --work "${{ runner.temp }}/int-inline-runtime-plain"
 
       - name: Generated owned word programs with C and LLVM ownership audits
         run: python -B -u -m unittest discover -s tests -p test_v4_owned_word_codegen.py -v
@@ -325,6 +336,18 @@ jobs:
       - name: Checked numeric generated-code sanitizer and ownership gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_checked_numeric_codegen.py --snapshot-control --work "${{ runner.temp }}/numeric-codegen-sanitized" --json "${{ runner.temp }}/numeric-codegen-sanitized.json"
+
+      - name: Checked integer hot-loop mandatory sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_int_inline_runtime_bench.py --work "${{ runner.temp }}/int-inline-runtime-sanitized"
+
+      - name: Preserve checked integer runtime source, LLVM, native and timing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-int-inline-runtime-${{ matrix.os }}
+          path: ${{ runner.temp }}/int-inline-runtime-*/
+          if-no-files-found: warn
 
       - name: Preserve Word bounds compiler and native evidence
         if: always()
@@ -463,11 +486,11 @@ jobs:
       - name: Benchmark failure and instrumentation regressions
         run: python -B -u -m unittest discover -s tests -p test_v4_scale_bench.py -v
 
-      - name: Build instrumented compiler and execute a measured program
+      - name: Measure checked task-count and long-body scaling
         env:
           V4_BENCH_TMP: ${{ runner.temp }}
         run: >
-          python -u v4_scale_bench.py --shapes tasks --sizes 1 --check
+          python -u v4_scale_bench.py --shapes tasks long --sizes 400 800 1600 --check
           --timeout 60 --build-timeout 300
           --work "$V4_BENCH_TMP/v4-benchmark-smoke"
           --json "$V4_BENCH_TMP/v4-benchmark-smoke.json"
