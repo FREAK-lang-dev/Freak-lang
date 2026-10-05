@@ -1018,6 +1018,27 @@ declaration-start lookup in logarithmic work, while ordinal/count and task-retur
 lookups use direct item indexes. Construction helpers invalidate indexes;
 completed lowering and whole-snapshot restoration finalize them before exposing
 semantic queries. Lookup paths do not rebuild indexes or reconstruct syntax.
+Parse publishes a derived closure-child index behind its existing count and
+ordinal readers. It preserves physical child order for ClosureExpr,
+ClosureParam and ClosureBody; other kinds and invalid parent keys retain the
+original scanner. A closure-free tree owns a four-cell known-empty header.
+A nonempty tree owns `4 + 6N + C` cells for N stored nodes and C indexed
+children. One new outer registry retains at most one child per published tree.
+Construction and supported node mutations advance the Parse revision; readers
+stay cold until explicit publication after parsing or complete restore.
+Replacement publication releases the previous derived child. Unavailable
+storage retains authoritative scans and adds no snapshot fields.
+MIR CFG validation counts predecessor edges once per body using one released
+scratch child. Both If arms count, including equal targets; unavailable scratch
+retains the original scanner and diagnostic order.
+Meiya mutable-exclusivity checking uses one request-owned candidate child for
+large bodies. Loans proven to have no cross-block holder remain in their own
+block's physical-order chain; expression, explicit, complex and malformed loans
+remain conservative global candidates. Merging both chains preserves the first
+physical conflict. It caches no holder or provenance result, retains every
+conflict predicate, and releases scratch after checking. Small requests or
+unavailable scratch use the original scan. Many genuinely spanning loans can
+still require quadratic comparisons.
 Task-parameter owner and `(item, ordinal)` lookups use stable sorted physical
 record IDs and lower-bound search, preserving the first physical duplicate.
 Partial construction and direct slot mutation retain linear first-match lookup
