@@ -1,3 +1,73 @@
+use self::containers::{
+    cockpit_words_get,
+    cockpit_words_length
+}
+use self::layout::{
+    cockpit_layout_allocate,
+    cockpit_layout_append_context,
+    cockpit_layout_depth,
+    cockpit_layout_error,
+    cockpit_layout_field,
+    cockpit_layout_last_height,
+    cockpit_layout_last_width,
+    cockpit_layout_last_x,
+    cockpit_layout_last_y,
+    cockpit_layout_max_depth,
+    cockpit_layout_record_bytes,
+    cockpit_layout_remaining_width,
+    cockpit_layout_replace_top,
+    cockpit_layout_status,
+    cockpit_layout_vertical
+}
+use self::state::{
+    cockpit_clip_contains,
+    cockpit_clip_pop,
+    cockpit_clip_push,
+    cockpit_fail,
+    cockpit_popup_items,
+    cockpit_popup_result_value,
+    cockpit_popup_result_widget,
+    cockpit_popup_row_height,
+    cockpit_popup_scroll,
+    cockpit_popup_theme,
+    cockpit_popup_width,
+    cockpit_popup_x,
+    cockpit_popup_y,
+    cockpit_slider_drag,
+    cockpit_ui_clicked_inside,
+    cockpit_ui_edit_count,
+    cockpit_ui_edit_input,
+    cockpit_ui_focused_input,
+    cockpit_ui_initial_focus,
+    cockpit_ui_input_allowed,
+    cockpit_ui_input_is_focused,
+    cockpit_ui_modal_active,
+    cockpit_ui_modal_scope,
+    cockpit_ui_mouse_clicked_value,
+    cockpit_ui_mouse_down_value,
+    cockpit_ui_next_widget,
+    cockpit_ui_pointer_inside,
+    cockpit_ui_pointer_x,
+    cockpit_ui_pointer_y,
+    cockpit_ui_popup_scope,
+    cockpit_ui_popup_widget,
+    cockpit_ui_scroll_value
+}
+use self::theme::{
+    cockpit_color_a,
+    cockpit_color_b,
+    cockpit_color_g,
+    cockpit_color_r,
+    cockpit_theme_accent,
+    cockpit_theme_accent_hover,
+    cockpit_theme_border,
+    cockpit_theme_font_size,
+    cockpit_theme_gap,
+    cockpit_theme_get,
+    cockpit_theme_surface,
+    cockpit_theme_text
+}
+
 -- COCKPIT V3 compatibility: basic procedural immediate-mode widgets.
 -- Geometry and colors remain raw integers at the runtime boundary.
 
@@ -183,15 +253,6 @@ task cockpit_widget_dropdown(window: int, layout: ByteBuffer, theme: int, select
     give back selected
 }
 
-pilot cockpit_popup_items = 0
-pilot cockpit_popup_theme = 0
-pilot cockpit_popup_x = 0
-pilot cockpit_popup_y = 0
-pilot cockpit_popup_width = 0
-pilot cockpit_popup_row_height = 0
-pilot cockpit_popup_result_widget = -1
-pilot cockpit_popup_result_value = 0
-pilot cockpit_popup_scroll = 0
 
 task cockpit_popup_close() -> void { cockpit_ui_popup_widget = 0 - 1 }
 
@@ -255,7 +316,6 @@ task cockpit_widget_slider(window: int, layout: ByteBuffer, theme: int, value: i
     give back value
 }
 
-pilot cockpit_slider_drag = -1
 
 task cockpit_panel_begin(window: int, layout: ByteBuffer, theme: int, width: int, height: int) -> void {
     if not cockpit_panel_can_begin(layout) { give back }

@@ -6,24 +6,51 @@ integer window handles, indexed `ui::event_*` accessors, raw integer geometry
 and colors, explicitly released array handles, and an opaque `ByteBuffer`
 layout stack.
 
+Declare COCKPIT as an ordinary Hangar dependency in the consuming project:
+
+```toml
+[project]
+name = "demo"
+version = "1.0.0"
+kind = "app"
+entry = "src/main.fk"
+
+[dependencies]
+cockpit = { path = "../cockpit" }
+```
+
+Select the public symbols used by the application. The manifest maps these
+names to their declaring modules; sibling modules use explicit `self` imports.
+Event, popup, clipping and focus state share one internal module. Mutable state
+and implementation helpers are absent from the public exports.
+
 The façade is procedural and single-window. Construct long-lived state once,
 reuse it across frames, then release it explicitly:
 
 ```fk
-pilot window = cockpit_ui_open("Demo", 640, 480, true)
-pilot layout: ByteBuffer = ByteBuffer::with_capacity(cockpit_layout_capacity())
-pilot theme = cockpit_theme_dark()
-
-repeat until cockpit_ui_should_close() {
-    cockpit_ui_begin_frame(window, layout, theme)
-    cockpit_widget_heading(window, layout, theme, "COCKPIT")
-    cockpit_widget_button(window, layout, theme, "Launch", 120)
-    cockpit_ui_end_frame(window)
+use cockpit::{
+    cockpit_ui_open, cockpit_ui_should_close, cockpit_ui_begin_frame,
+    cockpit_ui_end_frame, cockpit_ui_close, cockpit_widget_heading,
+    cockpit_widget_button, cockpit_theme_dark, cockpit_theme_release,
+    cockpit_layout_capacity, cockpit_layout_release
 }
 
-cockpit_theme_release(theme)
-cockpit_layout_release(layout)
-cockpit_ui_close(window)
+task main() {
+    pilot window = cockpit_ui_open("Demo", 640, 480, true)
+    pilot layout: ByteBuffer = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    pilot theme = cockpit_theme_dark()
+
+    repeat until cockpit_ui_should_close() {
+        cockpit_ui_begin_frame(window, layout, theme)
+        cockpit_widget_heading(window, layout, theme, "COCKPIT")
+        cockpit_widget_button(window, layout, theme, "Launch", 120)
+        cockpit_ui_end_frame(window)
+    }
+
+    cockpit_theme_release(theme)
+    cockpit_layout_release(layout)
+    cockpit_ui_close(window)
+}
 ```
 
 Available mechanics include owned integer/bool/word collections, nested row
@@ -41,6 +68,12 @@ Keep widget call order stable so sequential widget identifiers preserve focus
 and dragging. Callers own widget values, themes and item arrays. The event and
 clip tables are owned by `cockpit_ui_open` / `cockpit_ui_close`. Empty frames
 reuse these tables; text edits and scalar clip/theme updates may allocate words.
+
+The reusable layout API is the V3 compatibility surface. Ordinary task
+parameters typed `ByteBuffer` have move semantics under `--strict-borrow`, and
+V3 has no borrowed parameter syntax for these repeated layout calls. These
+APIs use the default checking mode; the package does not claim strict borrowed
+layout parameters.
 
 Rows and columns pair with `cockpit_container_end(layout)`. A
 `cockpit_panel_begin(window, layout, theme, width, height)` pairs with
@@ -79,11 +112,13 @@ Examples:
 The calculator, settings and showcase run until window close. The separate
 smoke is bounded to 30 frames.
 
-`python -u tests/v3_cockpit_compat.py [fresh-freak]` executes deterministic
-event/layout/widget replays on C and LLVM and checks/links examples. On Windows
-it launches their native windows and sends `WM_CLOSE` only to its child
-process's own window, then verifies shutdown and ownership audits.
-`--runtime-root` selects the exact runtime payload to link.
+`freak test --manifest-path=packages/cockpit/hangar.toml` runs the declared pure
+collection/theme/layout assertions. Examples are declared source modules and
+can be selected explicitly with the same manifest.
 
-`--replay-only` executes and links against injected drawing/event functions
-without native windows. It does not replace the Windows native gate.
+`python -u tests/v3_v35_cockpit_package.py --repo . --freak <fresh-freak>
+--clang <clang> --evidence <report.json>` checks a separate declared consumer,
+private export rejection, and shared state through C and LLVM. Its deterministic
+replay supplies drawing/event functions at the native platform ABI and keeps
+the package source unchanged. `--runtime-root` selects the exact runtime
+payload. This replay does not replace the Windows native window gate.

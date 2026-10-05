@@ -1,0 +1,68 @@
+use self::containers::{
+    cockpit_values_get_bool,
+    cockpit_values_get_int,
+    cockpit_values_length,
+    cockpit_values_new,
+    cockpit_values_push_bool,
+    cockpit_values_push_int,
+    cockpit_values_release
+}
+use self::layout::{
+    cockpit_layout_allocate,
+    cockpit_layout_begin_frame,
+    cockpit_layout_begin_row,
+    cockpit_layout_capacity,
+    cockpit_layout_depth,
+    cockpit_layout_end,
+    cockpit_layout_last_x,
+    cockpit_layout_last_y,
+    cockpit_layout_release,
+    cockpit_layout_status
+}
+use self::theme::{
+    cockpit_color_r,
+    cockpit_theme_bg,
+    cockpit_theme_dark,
+    cockpit_theme_font_size,
+    cockpit_theme_get,
+    cockpit_theme_release
+}
+
+
+task main() {
+    pilot values = cockpit_values_new()
+    cockpit_values_push_int(values, 7)
+    cockpit_values_push_int(values, 0 - 2)
+    cockpit_values_push_bool(values, true)
+    if cockpit_values_length(values) != 3 { panic("cockpit pure check 1") }
+    if cockpit_values_get_int(values, 0) != 7 { panic("cockpit pure check 2") }
+    if cockpit_values_get_int(values, 1) != -2 { panic("cockpit pure check 3") }
+    if cockpit_values_get_bool(values, 2) != true { panic("cockpit pure check 4") }
+
+    pilot theme = cockpit_theme_dark()
+    if cockpit_theme_get(theme, cockpit_theme_font_size) != 14 { panic("cockpit pure check 5") }
+    if cockpit_color_r(cockpit_theme_get(theme, cockpit_theme_bg)) != 22 { panic("cockpit pure check 6") }
+
+    pilot layout: ByteBuffer = ByteBuffer::with_capacity(cockpit_layout_capacity())
+    if layout.capacity() != 2560 { panic("cockpit pure check 7") }
+    cockpit_layout_begin_frame(layout, 300, 200, 10, 5)
+    cockpit_layout_allocate(layout, 50, 20)
+    if cockpit_layout_last_x() != 10 { panic("cockpit pure check 8") }
+    if cockpit_layout_last_y() != 10 { panic("cockpit pure check 9") }
+    cockpit_layout_begin_row(layout, 30, 3)
+    cockpit_layout_allocate(layout, 40, 10)
+    if cockpit_layout_last_x() != 10 { panic("cockpit pure check 10") }
+    cockpit_layout_allocate(layout, 20, 12)
+    if cockpit_layout_last_x() != 53 { panic("cockpit pure check 11") }
+    cockpit_layout_end(layout)
+    cockpit_layout_allocate(layout, 60, 15)
+    if cockpit_layout_last_x() != 10 { panic("cockpit pure check 12") }
+    if cockpit_layout_last_y() != 52 { panic("cockpit pure check 13") }
+    if cockpit_layout_depth(layout) != 1 { panic("cockpit pure check 14") }
+    if cockpit_layout_status(layout) != 0 { panic("cockpit pure check 15") }
+    if layout.capacity() != 2560 { panic("cockpit pure check 16") }
+
+    cockpit_layout_release(layout)
+    cockpit_theme_release(theme)
+    cockpit_values_release(values)
+}
