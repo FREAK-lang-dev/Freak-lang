@@ -12209,41 +12209,108 @@ EXECUTABLE_SMOKES = [
                        {'argv': ['23'],
                         'expect': ['word-bounds-proof case=23 borrowed=true restore=true old-seal=true '
                                    'fresh-module=true']}]},
+    {'name': 'MIR training arc bounded session contracts',
+     'fixture': 'mir_training_cap_contract_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['training-cap case=0 identity=true Meiya=true restore=true old-seal=true fresh-module=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['training-cap case=0 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['1'],
+                        'expect': ['training-cap case=1 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['2'],
+                        'expect': ['training-cap case=2 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['3'],
+                        'expect': ['training-cap case=3 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['4'],
+                        'expect': ['training-cap case=4 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['5'],
+                        'expect': ['training-cap case=5 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['6'],
+                        'expect': ['training-cap case=6 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['7'],
+                        'expect': ['training-cap case=7 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['8'],
+                        'expect': ['training-cap case=8 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['9'],
+                        'expect': ['training-cap case=9 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['10'],
+                        'expect': ['training-cap case=10 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['11'],
+                        'expect': ['training-cap case=11 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['12'],
+                        'expect': ['training-cap case=12 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['13'],
+                        'expect': ['training-cap case=13 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['14'],
+                        'expect': ['training-cap case=14 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['15'],
+                        'expect': ['training-cap case=15 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['16'],
+                        'expect': ['training-cap case=16 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['17'],
+                        'expect': ['training-cap case=17 identity=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']}]},
+    {'name': 'MIR completed conditional join contracts',
+     'fixture': 'mir_if_terminal_contract_smoke.fk',
+     'timeout': 60,
+     'memory_limit_mb': 64,
+     'expect_mode': 'line',
+     'expect_unique': True,
+     'expect': ['if-terminal case=0 edges=true Meiya=true restore=true old-seal=true fresh-module=true'],
+     'runtime_cases': [{'argv': ['0'],
+                        'expect': ['if-terminal case=0 edges=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['1'],
+                        'expect': ['if-terminal case=1 edges=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['2'],
+                        'expect': ['if-terminal case=2 edges=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['3'],
+                        'expect': ['if-terminal case=3 edges=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['4'],
+                        'expect': ['if-terminal case=4 edges=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['5'],
+                        'expect': ['if-terminal case=5 edges=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['6'],
+                        'expect': ['if-terminal case=6 edges=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['7'],
+                        'expect': ['if-terminal case=7 edges=true Meiya=true restore=true old-seal=true '
+                                   'fresh-module=true']},
+                       {'argv': ['20'], 'expect': ['if-terminal case=20 named=true no-module=true']},
+                       {'argv': ['21'], 'expect': ['if-terminal case=21 named=true no-module=true']},
+                       {'argv': ['22'], 'expect': ['if-terminal case=22 named=true no-module=true']},
+                       {'argv': ['23'], 'expect': ['if-terminal case=23 named=true no-module=true']},
+                       {'argv': ['24'], 'expect': ['if-terminal case=24 named=true no-module=true']},
+                       {'argv': ['25'], 'expect': ['if-terminal case=25 named=true no-module=true']},
+                       {'argv': ['30'],
+                        'expect': ['if-terminal case=30 canonical=true hostile-live=true hostile-detached=true '
+                                   'recovered=true old-seal=true']}]},
 ]
-
-EXECUTABLE_SMOKES.extend([
-    {
-        "name": "MIR training arc bounded session contracts",
-        "fixture": "mir_training_cap_contract_smoke.fk",
-        "timeout": 60,
-        "memory_limit_mb": 64,
-        "expect_mode": "line",
-        "expect_unique": True,
-        "expect": ["training-cap case=0 identity=true Meiya=true restore=true old-seal=true fresh-module=true"],
-        "runtime_cases": [
-            {"argv": [str(case)], "expect": [f"training-cap case={case} identity=true Meiya=true restore=true old-seal=true fresh-module=true"]}
-            for case in range(18)
-        ],
-    },
-    {
-        "name": "MIR completed conditional join contracts",
-        "fixture": "mir_if_terminal_contract_smoke.fk",
-        "timeout": 60,
-        "memory_limit_mb": 64,
-        "expect_mode": "line",
-        "expect_unique": True,
-        "expect": ["if-terminal case=0 edges=true Meiya=true restore=true old-seal=true fresh-module=true"],
-        "runtime_cases": [
-            {"argv": [str(case)], "expect": [f"if-terminal case={case} edges=true Meiya=true restore=true old-seal=true fresh-module=true"]}
-            for case in range(8)
-        ] + [
-            {"argv": [str(case)], "expect": [f"if-terminal case={case} named=true no-module=true"]}
-            for case in range(20, 26)
-        ] + [
-            {"argv": ["30"], "expect": ["if-terminal case=30 canonical=true hostile-live=true hostile-detached=true recovered=true old-seal=true"]},
-        ],
-    },
-])
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
