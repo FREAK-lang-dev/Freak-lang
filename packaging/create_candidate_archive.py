@@ -8,7 +8,7 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import stat
 import struct
@@ -155,8 +155,9 @@ def manifest(data: bytes) -> list[tuple[str, str]]:
         source, destination = (logical(part) for part in parts)
         folded = unicodedata.normalize("NFC", destination).casefold()
         require(folded not in names and source not in sources, "duplicate distribution source/destination")
-        require(folded not in {*METADATA, "freak", "hangar", "freak.exe", "hangar.exe"}
-                and not any(folded.startswith(reserved + "/") for reserved in (*METADATA, "freak", "hangar", "freak.exe", "hangar.exe")),
+        reserved_paths = {name.casefold() for name in (*METADATA, "freak", "hangar", "freak.exe", "hangar.exe")}
+        require(folded not in reserved_paths
+                and not any(folded.startswith(reserved + "/") for reserved in reserved_paths),
                 "distribution destination aliases candidate metadata or executable")
         require(not destination.lower().endswith((".py", ".pyc", ".pyo")), "Python compiler/runtime files are not candidate payload")
         names.add(folded)
@@ -306,7 +307,7 @@ def snapshot(repo: Path, freak: Path, hangar: Path, build_record: Path, provisio
 def write_archive(path: Path, files: dict[str, tuple[bytes, int]], kind: str) -> None:
     directories = {"freak"}
     for name in files:
-        directories.update("freak/" + str(parent) for parent in Path(name).parents if str(parent) != ".")
+        directories.update("freak/" + parent.as_posix() for parent in PurePosixPath(name).parents if str(parent) != ".")
     if kind == "tar.gz":
         with path.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as compressed:
             with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as archive:

@@ -7,7 +7,8 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+from unittest.mock import patch
 import shutil
 import subprocess
 import sys
@@ -205,6 +206,9 @@ def main() -> int:
         original_manifest = distribution.read_bytes()
         for name, row, expected in (
             ("unsafe manifest traversal", b"VERSION|../escape\n", b"unsafe inventory path"),
+            ("reserved checksum metadata", b"VERSION|SHA256SUMS\n", b"aliases candidate metadata"),
+            ("reserved checksum case alias", b"VERSION|sha256sums\n", b"aliases candidate metadata"),
+            ("reserved checksum parent", b"VERSION|SHA256SUMS/subfile\n", b"aliases candidate metadata"),
             ("duplicate manifest destination", b"VERSION|runtime/freak_runtime.c\n", b"duplicate distribution"),
             ("casefold metadata alias", b"VERSION|BUILD-INFO.JSON\n", b"aliases candidate metadata"),
             ("file-directory conflict", b"VERSION|runtime\n", b"both a file and a directory"),
@@ -235,6 +239,24 @@ def main() -> int:
         specification = importlib.util.spec_from_file_location("candidate_archive_under_test", packager)
         module = importlib.util.module_from_spec(specification)
         specification.loader.exec_module(module)
+        # Logical member paths stay POSIX even on a Windows packaging host.
+        nested_files = {"runtime/third_party/library/é.txt": (b"native bytes", 0o644)}
+        for kind in ("zip", "tar.gz"):
+            native = root / ("logical-native." + kind)
+            windows = root / ("logical-windows." + kind)
+            module.write_archive(native, nested_files, kind)
+            with patch.object(module, "Path", PureWindowsPath):
+                module.write_archive(windows, nested_files, kind)
+            assert native.read_bytes() == windows.read_bytes()
+            if kind == "zip":
+                with zipfile.ZipFile(windows) as archive:
+                    assert "freak/runtime/third_party/library/" in archive.namelist()
+                    assert all("\\" not in name for name in archive.namelist())
+            else:
+                with tarfile.open(windows) as archive:
+                    assert "freak/runtime/third_party/library" in archive.getnames()
+                    assert all("\\" not in name for name in archive.getnames())
+        checks.append("host-independent logical archive paths")
         argv, link, writer = sys.argv, module.os.link, module.write_archive
         raced = root / "raced.tar.gz"
         try:
