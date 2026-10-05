@@ -900,6 +900,13 @@ task tc_task_return_shape(task_name: word) -> word {
     give back ""
 }
 
+task tc_profile_helper_allowed(name: word) -> bool {
+    if not v35_bootstrap_compat { give back false }
+    if name != "chr" and name != "word_to_num" { give back false }
+    -- Explicit source task signatures retain ordinary resolution precedence.
+    give back tc_callable_entry(name) < 0
+}
+
 task tc_builtin_call_type(name: word) -> word {
     if name == "http_server::open" { give back "int" }
     if name == "http_server::bind" { give back "int" }
@@ -953,8 +960,8 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "fs::result_missing" { give back "bool" }
     if name == "fs::directory_path_ticket" { give back "int" }
     -- Measured V4 host helpers are admitted solely by the explicit profile.
-    if v35_bootstrap_compat and name == "chr" { give back "word" }
-    if v35_bootstrap_compat and name == "word_to_num" { give back "num" }
+    if tc_profile_helper_allowed(name) and name == "chr" { give back "word" }
+    if tc_profile_helper_allowed(name) and name == "word_to_num" { give back "num" }
     if name == "json_document::new" { give back "int" }
     if name == "json_document::parse" { give back "int" }
     if name == "json_document::parse_bytes" { give back "int" }
@@ -1125,8 +1132,8 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "fs::list_dir_ticket" { give back "int" }
     if name == "fs::result_missing" { give back "int" }
     if name == "fs::directory_path_ticket" { give back "int" }
-    if v35_bootstrap_compat and name == "chr" { give back "int" }
-    if v35_bootstrap_compat and name == "word_to_num" { give back "word" }
+    if tc_profile_helper_allowed(name) and name == "chr" { give back "int" }
+    if tc_profile_helper_allowed(name) and name == "word_to_num" { give back "word" }
     if name == "json_document::new" { give back "" }
     if name == "json_document::parse" { give back "word" }
     if name == "json_document::parse_bytes" { give back "ByteBuffer" }
@@ -1277,6 +1284,8 @@ task tc_internal_runtime_task_name(name: word) -> bool {
 }
 
 task tc_reserved_builtin_call(name: word) -> bool {
+    -- Bootstrap aliases are fallback helpers, never reserved source tasks.
+    if v35_bootstrap_compat and (name == "chr" or name == "word_to_num") { give back false }
     give back tc_builtin_call_type(name) != "" or name == "process::args" or name == "List::filled" or name == "List::new" or name == "List::with_capacity"
 }
 

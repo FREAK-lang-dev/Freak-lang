@@ -68,6 +68,8 @@ def main() -> int:
             for name,program,expected,profile in (
                 ('explicit',PROGRAM,EXPECTED,True),
                 ('ordinary_user_definition','task chr(value: int) -> int { give back value + 1; } task main() { say chr(1); }','2\n',False),
+                ('profile_user_chr','task chr(value: int) -> int { give back value + 2; } task main() { say chr(1); }','3\n',True),
+                ('profile_user_num','task word_to_num(value: word) -> int { give back value.length(); } task main() { say word_to_num("12"); }','2\n',True),
             ):
                 source=root/f'{backend}_{name}.fk'
                 source.write_text(program,encoding='utf-8')
@@ -102,7 +104,7 @@ def main() -> int:
                 assert not artifact.exists(),(backend,name,'stale artifact survived')
                 inventory.append((backend,name))
                 print('PASS',backend,name,flush=True)
-    expected={(backend,name) for backend in ('c','llvm') for name in ('explicit','ordinary_user_definition',*NEGATIVE)}
+    expected={(backend,name) for backend in ('c','llvm') for name in ('explicit','ordinary_user_definition','profile_user_chr','profile_user_num',*NEGATIVE)}
     assert len(inventory)==len(expected) and set(inventory)==expected
     print(f'V3.5 bootstrap helper contracts: PASS ({len(inventory)} cases)',flush=True)
     return 0
