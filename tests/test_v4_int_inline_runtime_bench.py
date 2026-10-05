@@ -279,6 +279,12 @@ class IntRuntimeOracles(unittest.TestCase):
         for row in bad["jobs"][:5]:
             row["command"].remove("--no-replace-objects")
         mutations.append(bad)
+        for override in ("core.autocrlf=false", "core.eol=lf"):
+            bad = deepcopy(clean)
+            command = bad["jobs"][4]["command"]
+            position = command.index(override)
+            del command[position - 1:position + 1]
+            mutations.append(bad)
         for bad in mutations:
             with self.subTest(provenance=bad["historical_baseline"]), self.assertRaises(gate.GateError):
                 gate.validate_report(bad)
@@ -479,6 +485,11 @@ class IntRuntimeOracles(unittest.TestCase):
             run(ordinary, "config", "user.name", "Provenance fixture")
             run(ordinary, "config", "user.email", "provenance-fixture@example.invalid")
             run(ordinary, "config", "commit.gpgsign", "false")
+            # Git for Windows normally enables this checkout conversion. The
+            # archive producer must still emit the exact committed LF blobs.
+            run(ordinary, "config", "core.autocrlf", "true")
+            run(ordinary, "config", "core.eol", "crlf")
+            run(ordinary, "config", "core.safecrlf", "false")
             hooks = work / "empty-hooks"
             hooks.mkdir()
             run(ordinary, "config", "core.hooksPath", str(hooks))
@@ -507,7 +518,8 @@ class IntRuntimeOracles(unittest.TestCase):
                 gate.extract_baseline(substituted, work / "substituted", original, inventory)
             with patch.object(gate, "ROOT", repository):
                 protected = gate.baseline_git_command(git)
-                self.assertEqual(protected, [git, "--no-replace-objects", "-C", str(repository)])
+                self.assertEqual(protected, [git, "--no-replace-objects", "-c", "core.autocrlf=false",
+                                             "-c", "core.eol=lf", "-C", str(repository)])
                 self.assertEqual(run(protected, "rev-parse", "--verify", original + "^{commit}").strip(), original)
                 self.assertEqual(run(protected, "rev-parse", "--verify", original + "^{tree}").strip(), original_tree)
                 self.assertEqual(gate.baseline_tree(run(protected, "ls-tree", "-r", "-l", "-z", "--full-tree", original)), inventory)

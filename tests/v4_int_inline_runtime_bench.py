@@ -381,8 +381,9 @@ def isolated_git_environment():
 
 def baseline_git_command(git: str) -> list[str]:
     # Replacement refs change commit/tree/blob reads without changing the
-    # caller's requested commit SHA. Read the original object graph instead.
-    return [git, "--no-replace-objects", "-C", str(ROOT)]
+    # caller's requested commit SHA. Archive conversion also honors checkout
+    # EOL defaults; override those so physical bytes remain the Git blobs.
+    return [git, "--no-replace-objects", "-c", "core.autocrlf=false", "-c", "core.eol=lf", "-C", str(ROOT)]
 
 
 def baseline_archive_files(archive: Path, head: str, entries: dict):
@@ -405,7 +406,8 @@ def baseline_archive_files(archive: Path, head: str, entries: dict):
                 continue
             expected = entries.get(name)
             if not member.isfile() or expected is None or member.size != expected["size"]:
-                raise GateError("historical compiler archive differs from its Git blob inventory")
+                raise GateError("historical compiler archive differs from its Git blob inventory: " + name
+                                + f" (archive size={member.size}, Git blob size={expected['size'] if expected else 'untracked'})")
             stream = packed.extractfile(member)
             if stream is None:
                 raise GateError("historical compiler archive cannot read a tracked blob")
