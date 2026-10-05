@@ -239,6 +239,27 @@ def main() -> int:
         specification = importlib.util.spec_from_file_location("candidate_archive_under_test", packager)
         module = importlib.util.module_from_spec(specification)
         specification.loader.exec_module(module)
+        original_read = module.read
+        manifest_reads = 0
+        def transient_manifest(path: Path, limit: int = module.LIMIT) -> bytes:
+            nonlocal manifest_reads
+            data = original_read(path, limit)
+            if path == repo / "packaging/distribution-files.manifest":
+                manifest_reads += 1
+                if manifest_reads == 2:
+                    return data.replace(b"std/math.fk|std/math.fk", b"std/math.fk|std/transient-math.fk")
+            return data
+        # The second read used to admit a transient destination and a later
+        # original read hid the change. Admission now reuses captured bytes.
+        with patch.object(module, "read", transient_manifest):
+            try:
+                module.snapshot(repo, freak, hangar, record_path, args.provisional)
+            except module.ArchiveError as error:
+                assert "changed while preparing archive" in str(error), error
+            else:
+                raise AssertionError("transient distribution manifest was published")
+        assert manifest_reads == 2
+        checks.append("transient manifest generation refused")
         # Logical member paths stay POSIX even on a Windows packaging host.
         nested_files = {"runtime/third_party/library/é.txt": (b"native bytes", 0o644)}
         for kind in ("zip", "tar.gz"):

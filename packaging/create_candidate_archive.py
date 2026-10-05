@@ -205,12 +205,17 @@ def snapshot(repo: Path, freak: Path, hangar: Path, build_record: Path, provisio
     for name, mapping in (("source_inputs", source_inputs), ("runtime_inputs", runtime_inputs)):
         require(all(before.get(path) == digest for path, digest in mapping.items()),
                 name + " is inconsistent with the before/after inventory")
-    cli_manifest = read(repo / "packaging/cli-sources.manifest")
+    # Admission and publication use the same captured bytes. Reopening a
+    # manifest could admit a transient generation restored before validation.
+    for path in ("packaging/cli-sources.manifest", "packaging/distribution-files.manifest"):
+        if path not in captured:
+            captured[path] = read(repo / path)
+    cli_manifest = captured["packaging/cli-sources.manifest"]
     cli_paths = [logical(line) for line in cli_manifest.decode("utf-8").splitlines()]
     require(len(set(cli_paths)) == len(cli_paths), "duplicate CLI source inventory")
     require(set(source_inputs) == set(COMPILER_SOURCES) | set(cli_paths),
             "compiled compiler/CLI source inventory does not match the authoritative CLI manifest")
-    distribution = read(repo / "packaging/distribution-files.manifest")
+    distribution = captured["packaging/distribution-files.manifest"]
     rows = manifest(distribution)
     required = set(source_inputs) | {"packaging/cli-sources.manifest", "packaging/distribution-files.manifest",
                                     "VERSION", "build/freakc_v3.fk.c"} | {source for source, _ in rows}
