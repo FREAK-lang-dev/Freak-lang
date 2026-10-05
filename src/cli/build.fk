@@ -295,6 +295,7 @@ task cli_prepare_source(src_file: word, target: word) -> word {
     source = cli_load_project_source(src_file, source, target)
     if cli_project_source_error != "" {
         say "Package binding error: " + cli_project_source_error
+        say "Code generation skipped due to source admission errors."
         cli_project_binding_release()
         give back ""
     }
@@ -1904,6 +1905,7 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
     source = cli_load_project_source(src_file, source, target)
     if cli_project_source_error != "" {
         say "Package binding error: " + cli_project_source_error
+        say "Code generation skipped due to source admission errors."
         cli_project_binding_release()
         give back ""
     }
