@@ -9682,12 +9682,7 @@ task v4_mir_control_block_is_terminal(mir: int, body: int, block: int) -> bool {
 }
 
 task v4_mir_build_body_has_control(mir: int, body: int) -> bool {
-    pilot value = 0
-    repeat until value >= v4_mir_body_rvalue_count(mir, body) {
-        if v4_mir_rvalue_ty(mir, body, value) == v4_ty_never { give back true }
-        value += 1
-    }
-    give back false
+    give back v4_mir_body_has_never(mir, body)
 }
 
 task v4_mir_wire_control_flow_rvalue(mir: int, body: int, block: int, span: word, value: int) -> int {
