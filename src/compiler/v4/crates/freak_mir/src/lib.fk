@@ -3313,17 +3313,25 @@ task v4_mir_snapshot_word_intrinsic_is_valid(line: word, kinds: int, types: int,
     give back true
 }
 
-task v4_mir_snapshot_word_local_use_is_valid(line: word, names: int, types: int) -> bool {
-    if v4_mir_snapshot_field(line, 4) != v4_mir_rvalue_use_local or v4_mir_snapshot_field(line, 10) != v4_ty_word { give back true }
+task v4_mir_snapshot_explicit_local_use_is_valid(line: word, names: int, types: int) -> bool {
+    if v4_mir_snapshot_field(line, 4) != v4_mir_rvalue_use_local { give back true }
     pilot op = v4_mir_snapshot_field(line, 6)
-    if not op.starts_with("local#") { give back false }
+    -- Legacy scalar facts resolve by source name. An explicit identity must
+    -- agree with the local table for every type, including counted indices.
+    if not op.starts_with("local#") { give back true }
     pilot raw = op.substring(6, op.length() - 6)
     if not v4_mir_snapshot_nonnegative_int_is_valid(raw) { give back false }
     pilot local_id = word_to_int(raw)
-    if local_id >= array_len(names) or local_id >= array_len(types) { give back false }
+    if word_from_int(local_id) != raw or local_id >= array_len(names) or local_id >= array_len(types) { give back false }
     pilot name: word = array_get(names, local_id)
     pilot local_ty: word = array_get(types, local_id)
-    give back name == v4_mir_snapshot_field(line, 5) and local_ty == v4_ty_word
+    give back name == v4_mir_snapshot_field(line, 5) and local_ty == v4_mir_snapshot_field(line, 10)
+}
+
+task v4_mir_snapshot_word_local_use_is_valid(line: word, names: int, types: int) -> bool {
+    if v4_mir_snapshot_field(line, 4) != v4_mir_rvalue_use_local or v4_mir_snapshot_field(line, 10) != v4_ty_word { give back true }
+    if not v4_mir_snapshot_field(line, 6).starts_with("local#") { give back false }
+    give back v4_mir_snapshot_explicit_local_use_is_valid(line, names, types)
 }
 
 task v4_mir_snapshot_validate(payload: word) -> word {
@@ -3638,6 +3646,7 @@ task v4_mir_snapshot_validate(payload: word) -> word {
                     if not v4_mir_snapshot_say_literal_is_valid(line, body_graph_rvalue_kinds, body_say_literal_types) { malformed += 1 }
                 }
                 if v4_mir_snapshot_field(line, 10) == v4_ty_word or v4_mir_snapshot_field(line, 10) == "lend word" { body_has_word = true }
+                if not v4_mir_snapshot_explicit_local_use_is_valid(line, body_word_local_names, body_word_local_types) { malformed += 1 }
                 if not v4_mir_snapshot_word_local_use_is_valid(line, body_word_local_names, body_word_local_types) { malformed += 1 }
                 if v4_mir_builtin_word_identity_kind(v4_mir_snapshot_field(line, 13)) != "" {
                     if not v4_mir_snapshot_word_intrinsic_is_valid(line, body_graph_rvalue_kinds, body_say_literal_types, body_graph_rvalue_lhs, body_graph_rvalue_rhs) { malformed += 1 }

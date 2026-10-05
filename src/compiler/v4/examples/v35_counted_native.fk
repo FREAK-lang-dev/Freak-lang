@@ -30,15 +30,15 @@ task v35_counted_nested() -> int {
 }
 
 task v35_counted_owned() -> int {
-    pilot result = 0
+    pilot total = 0
     for (pilot i = 0; i < 3; i += 1) {
         pilot temporary = "owned"
         if i == 1 { continue }
-        result += temporary.length()
+        total += temporary.length
     }
     repeat 1 times with i {
         pilot kept = "kept"
-        if i == 0 { give back result + kept.length() }
+        if i == 0 { give back total + kept.length }
     }
     give back 0
 }

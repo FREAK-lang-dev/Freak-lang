@@ -32,6 +32,7 @@ task v35_counted_contract_source(mode: int) -> word {
     if mode == 21 { give back "task touch(value: lend mut int) " + open + close + "\n" + head + "for each i in 0..3 " + open + " touch(lend mut i) " + close + tail }
     if mode == 22 { give back head + "for (pilot i = 0; i < 1;) " + open + close + tail }
     if mode == 23 { give back head + "pilot with = 2; pilot step = 3; pilot result = 0; for each i in 0..step " + open + " result += i " + close + "for each i in 0..with + step step with " + open + " result += i " + close + "repeat with times with step " + open + " result += step " + close + "give back result " + close + "\n" }
+    if mode == 26 { give back head + "pilot slots: [int; 1] = [0]; for (pilot i = 0; i < 3; slots[0] += 1) " + open + " i += 1 " + close + "give back slots[0] " + close + "\n" }
     if mode == 25 { give back head + "repeat 2 times with i " + open + " pilot callback = mut | | " + open + " i += 1 " + close + close + tail }
     panic("unknown counted contract case")
     give back ""
@@ -90,13 +91,25 @@ task v35_counted_contract_run(mode: int) -> void {
             row += 1
         }
         if mode >= 17 and mode <= 19 {
-            pilot scope_leaked: bool = false
+            pilot unresolved: bool = false
+            row = 0
+            repeat until row >= v4_mir_diag_count(mir) {
+                if v4_diag_message(v4_mir_diag(mir, row)) == "say value has no supported display contract" { unresolved = true }
+                row += 1
+            }
             pilot value = 0
+            pilot after_loop = 0
+            repeat until after_loop >= source.length() or v4_slice(source, after_loop, after_loop + 5) == "say i" { after_loop += 1 }
+            v35_counted_contract_assert(after_loop < source.length() and v4_mir_find_local_visible_at(mir, body, "i", after_loop) < 0, "out-of-scope lookup has no binding")
             repeat until value >= v4_mir_body_rvalue_count(mir, body) {
-                if v4_mir_rvalue_text(mir, body, value) == "i" and v4_mir_rvalue_kind(mir, body, value) == v4_mir_rvalue_unknown { scope_leaked = true }
+                -- Unresolved identifiers may retain a UseSymbol recovery fact.
+                -- They must have unknown type and no valid scoped local ID.
+                if v4_mir_rvalue_text(mir, body, value) == "i" and v4_span_start(v4_mir_rvalue_span(mir, body, value)) >= after_loop {
+                    v35_counted_contract_assert(v4_mir_rvalue_ty(mir, body, value) == v4_ty_unknown and v4_mir_rvalue_local_id(mir, body, value) < 0, "out-of-scope index has no binding identity")
+                }
                 value += 1
             }
-            v35_counted_contract_assert(scope_leaked, "out-of-scope index is unresolved")
+            v35_counted_contract_assert(unresolved, "out-of-scope index is unresolved")
         } else {
             v35_counted_contract_assert(found, "specific counted diagnostic: " + expected)
         }
@@ -138,6 +151,8 @@ task v35_counted_contract_run(mode: int) -> void {
         pilot bad = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_use_local, "i", "local#999999", -1, -1, bad_span, v4_ty_int)
         v35_counted_contract_assert(v4_mir_rvalue_local_id(mir, body, bad) < 0 and not v4_mir_snapshot_validate(v4_mir_snapshot()).starts_with("mir-snapshot-import ok=1"), "forged binding identity rejected")
         say "v35-counted-contract case=0 frontend=true meiya=true identity=true annotation=true restore=true forged=false"
+    } else if mode == 26 {
+        say "v35-counted-contract case=26 frontend=true meiya=true projection=true restore=true"
     } else {
         say "v35-counted-contract case=23 frontend=true meiya=true contextual=true restore=true"
     }

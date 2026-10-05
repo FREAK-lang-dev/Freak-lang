@@ -33,8 +33,15 @@ C-style steps, owned early exits and the inclusive maximum-int boundary.
 The reviewed semicolon-at-`when`-arm defect is fixed. The V4 while parity
 gate passes fourteen isolated frontend, span, error and snapshot cases plus
 native LLVM execution covering pretests, owned early return, nesting and
-break/continue. V4 counted parity, final optimization/platform matrices and
-installed-archive proofs remain pending.
+break/continue. The V4 counted gate passes 27 isolated frontend, type, scope,
+Meiya and snapshot contracts plus five native LLVM programs. Native cases cover
+single-evaluated bounds, inclusive maximum-int termination, continued C-style
+steps, owned early exits, and an exact controlled panic for a dynamic nonpositive
+range step. Explicit scalar local identities are validated on snapshot restore.
+Fixed-array projection steps are covered through MIR and restore; native
+fixed-aggregate lowering remains an existing V4 limitation. The counted forms
+remain experimental. Final optimization/platform matrices and installed-archive
+proofs remain pending.
 
 **V4 closed scalar Sum checkpoint (2026-10-04):** native `maybe<int>` and
 `result<word,word>` have separate tagged carriers, owning construction and
