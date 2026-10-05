@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 import tomllib
 import v3_word_foundation as foundation
-from v3_v35_hangar import probe_transpile, require_resource_conservation, task_source
+from v3_v35_hangar import probe_transpile, require_resource_conservation
 from v3_v35_package_sources import package_probe_source, project as graph_project
 
 PROGRAM = r'''
@@ -19,7 +19,10 @@ task transaction_unit() {
     pilot held = fs::lock_dir_ticket(private, "graph.lock")
     pilot valid = false
     if not fs::result_ok(held) { hangar_graph_fail("fixture lock unavailable") } else {
-        if process::arg(2) == "recover" { valid = package_recover_transaction(directory, private) } else {
+        if process::arg(2) == "telemetry" {
+            valid = package_transaction_history_budget(private, 0, false)
+            say "history:" + word_from_int(package_transaction_history_count) + ":" + word_from_int(package_transaction_history_bytes) + ":" + word_from_int(package_transaction_history_entries)
+        } else if process::arg(2) == "recover" { valid = package_recover_transaction(directory, private) } else {
             pilot manifest = fs::read_ticket(process::arg(3))
             pilot lock = fs::read_ticket(process::arg(4))
             pilot before = fs::read_relative_bytes_ticket(directory, "hangar.toml")
@@ -57,12 +60,41 @@ task main() {
 '''
 
 INTERPOSE = r'''#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <stdarg.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
 extern int __real_fsync(int);
+extern long __real_syscall(long,...);
+long __wrap_syscall(long number,...) {
+    if (number!=SYS_renameat2) _exit(89);
+    va_list arguments; va_start(arguments,number);
+    int source=va_arg(arguments,int); const char *from=va_arg(arguments,const char*);
+    int destination=va_arg(arguments,int); const char *to=va_arg(arguments,const char*);
+    int flags=va_arg(arguments,int); va_end(arguments);
+    const char *point=getenv("FREAK_TX_EDIT_POINT");
+    static int fired, held=-1;
+    if (point && !fired) {
+        int edit=-1;
+        if (!strcmp(point,"before-park") && !strcmp(from,"hangar.toml") && !strcmp(to,"manifest.original")) edit=openat(source,from,O_WRONLY|O_TRUNC|O_NOFOLLOW);
+        if (!strcmp(point,"before-publish") && !strcmp(from,"manifest.new") && !strcmp(to,"hangar.toml")) edit=openat(destination,to,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0640);
+        if (!strcmp(point,"rollback-park") && !strcmp(from,"hangar.toml") && !strcmp(to,"current")) edit=openat(source,from,O_WRONLY|O_TRUNC|O_NOFOLLOW);
+        if (!strcmp(point,"rollback-restore") && !strcmp(from,"manifest.original") && !strcmp(to,"hangar.toml")) edit=openat(destination,to,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0640);
+        if (!strcmp(point,"unchanged-manifest") && !strcmp(from,"hangar.lock") && !strcmp(to,"lock.original")) edit=openat(source,"hangar.toml",O_WRONLY|O_TRUNC|O_NOFOLLOW);
+        if (!strcmp(point,"parked-fd") && !strcmp(from,"hangar.toml") && !strcmp(to,"manifest.original")) held=openat(source,from,O_WRONLY|O_NOFOLLOW);
+        if (!strcmp(point,"parked-fd") && !strcmp(from,"manifest.new") && !strcmp(to,"hangar.toml")) { edit=held; held=-1; if(edit>=0 && ftruncate(edit,0)!=0) _exit(88); }
+        if (edit>=0) {
+            const char bytes[]="NONCOOPERATING EDITOR BYTES\n";
+            if(write(edit,bytes,sizeof(bytes)-1)!=(ssize_t)sizeof(bytes)-1 || fsync(edit)!=0 || close(edit)!=0) _exit(88);
+            fired=1;
+        }
+    }
+    return __real_syscall(number,source,from,destination,to,flags);
+}
 int __wrap_fsync(int fd) {
     struct stat information;
     const char *wanted=getenv("FREAK_TX_FAULT_DIRECTORY");
@@ -90,13 +122,29 @@ int __wrap_fsync(int fd) {
 
 def strict_journal_source(repo: Path) -> str:
     text=(repo/'src/cli/package_transaction.fk').read_text()
-    wrapper=task_source(text,'package_commit_transaction')
-    implementation=task_source(text,'package_commit_transaction_impl')
-    declaration=implementation[:implementation.index('{')]
-    # The actual public boundary creates and transfers exactly one ByteBuffer.
-    # Stub only the internal implementation while retaining its real signature;
-    # full native fault cases below execute that implementation without stubs.
-    return wrapper+'\n'+declaration+'{ lock_bytes.release() give back true }\n'
+    # Check the complete production transaction module and every owner exit.
+    # Stubs provide only outside-module task signatures; all FS and buffer
+    # ownership effects are production builtins. Native cases use real helpers.
+    support=r'''
+pilot mut hangar_graph_error: word = ""
+pilot hangar_graph_manifest_limit: int = 1048576
+pilot mut toml_keys_arr: int = 0
+pilot mut toml_vals_arr: int = 0
+pilot mut toml_types_arr: int = 0
+pilot mut toml_sections_arr: int = 0
+pilot mut toml_count: int = 0
+pilot mut toml_error: word = ""
+task hangar_graph_fail(message: word) {}
+task toml_parse(content: word) -> bool { give back true }
+task toml_render() -> word { give back "" }
+task toml_clear() {}
+task package_input_allowed(path: word) -> bool { give back true }
+task package_directory_path(directory: int) -> word { give back "" }
+task package_leaf_path(path: word) -> word { give back path }
+task package_lock_hex(text: word, length: int) -> bool { give back true }
+task package_lock_line(builder: int, key: word, value: word, bare: bool) {}
+'''
+    return support+'\n'+text+'\n'
 
 
 def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path, strict_compiler: Path) -> None:
@@ -134,7 +182,7 @@ task main() {
         command=[str(clang),'-g','-O1','-DFREAK_WORD_FOUNDATION_AUDIT=1','-o',str(binary),str(generated)]
         if backend=='llvm': command+=['-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1',str(runtime/'freak_llvm_runtime.c')]
         else: command+=['-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1']
-        command += [str(runtime/'freak_runtime.c'),str(wrapper),'-I',str(runtime),'-lm','-fsanitize=address,undefined','-fno-omit-frame-pointer','-Wl,--wrap=fsync']
+        command += [str(runtime/'freak_runtime.c'),str(wrapper),'-I',str(runtime),'-lm','-fsanitize=address,undefined','-fno-omit-frame-pointer','-Wl,--wrap=fsync','-Wl,--wrap=syscall']
         built=foundation.run(command,repo,timeout=120)
         assert built.returncode==0,(built.stdout,built.stderr)
 
@@ -143,12 +191,16 @@ task main() {
             project.mkdir()
             (project/'.freak').mkdir(mode=0o700)
             (project/'hangar.toml').write_bytes(old_manifest)
+            (project/'hangar.toml').chmod(0o640)
             (project/'main.fk').write_bytes(b'task main() { say 42 }\n')
-            if present: (project/'hangar.lock').write_bytes(old_lock)
+            if present:
+                (project/'hangar.lock').write_bytes(old_lock)
+                (project/'hangar.lock').chmod(0o644)
             return project
 
-        def execute(project: Path, mode='commit', fault=None, kill=False) -> str:
+        def execute(project: Path, mode='commit', fault=None, kill=False, edit=None) -> str:
             environment=foundation.sanitizer_env()
+            if edit: environment['FREAK_TX_EDIT_POINT']=edit
             if fault:
                 directory,number=fault
                 environment.update(FREAK_TX_FAULT_DIRECTORY=str(directory),FREAK_TX_FAULT_NUMBER=str(number))
@@ -163,8 +215,9 @@ task main() {
 
         for label,target,number in (
             ('manifest-before-sync','private',1),('lock-before-sync','private',2),
-            ('pending-marker-sync','private',3),('manifest-publish-sync','project',1),
-            ('lock-publish-sync','project',2),('commit-marker-sync','private',4),
+            ('pending-marker-sync','private',3),('manifest-park-sync','project',1),
+            ('manifest-publish-sync','project',2),('lock-park-sync','project',3),
+            ('lock-publish-sync','project',4),('commit-marker-sync','private',4),
         ):
             project=fixture(label)
             directory=project/'.freak' if target=='private' else project
@@ -181,9 +234,88 @@ task main() {
         assert (project/'hangar.toml').read_bytes()==new_manifest and (project/'hangar.lock').read_bytes()==new_lock
         assert execute(project,'recover')=='ready\n'
         print(f'native:{backend}:transactions:committed-cleanup-sync:passed',flush=True)
+        editor=b'NONCOOPERATING EDITOR BYTES\n'
+        for point,diagnostic in (
+            ('before-park','changed after admission'),
+            ('before-publish','no-replace publication failed'),
+            ('rollback-park','changed while being parked'),
+            ('rollback-restore','original restoration failed'),
+        ):
+            project=fixture('editor-'+point)
+            fault=(project,4) if point.startswith('rollback-') else None
+            failed=execute(project,fault=fault,edit=point)
+            assert failed.startswith('error:') and diagnostic in failed,failed
+            assert (project/'hangar.toml').read_bytes()==editor,point
+            assert (project/'hangar.lock').read_bytes()==old_lock,point
+            histories=list((project/'.freak').glob('.transaction-history-*'))
+            retained=[path.read_bytes() for history in histories for path in history.rglob('*') if path.is_file()]
+            if point!='before-park': assert old_manifest in retained,(point,retained)
+            if point=='rollback-restore': assert new_manifest in retained,(point,retained)
+            previous={str(path):path.read_bytes() for path in project.rglob('*') if path.is_file()}
+            assert execute(project,'recover').startswith('error:')
+            assert {str(path):path.read_bytes() for path in project.rglob('*') if path.is_file()}==previous
+            print(f'native:{backend}:transactions:editor-{point}-preserved:passed',flush=True)
+        project=fixture('editor-unchanged-manifest')
+        candidate_manifest.write_bytes(old_manifest)
+        failed=execute(project,edit='unchanged-manifest')
+        candidate_manifest.write_bytes(new_manifest)
+        assert failed.startswith('error:') and 'changed before commit acknowledgement' in failed,failed
+        assert (project/'hangar.toml').read_bytes()==editor and (project/'hangar.lock').read_bytes()==old_lock
+        print(f'native:{backend}:transactions:unchanged-manifest-editor-preserved:passed',flush=True)
+        project=fixture('retained-open-fd')
+        assert execute(project,edit='parked-fd')=='ready\n'
+        assert (project/'hangar.toml').read_bytes()==new_manifest and (project/'hangar.lock').read_bytes()==new_lock
+        originals=list((project/'.freak').glob('.transaction-history-*/manifest.original'))
+        assert len(originals)==1 and originals[0].read_bytes()==editor
+        assert (project/'hangar.toml').stat().st_mode&0o777==0o640
+        assert (project/'hangar.lock').stat().st_mode&0o777==0o644
+        assert originals[0].stat().st_mode&0o777==0o640
+        print(f'native:{backend}:transactions:retained-foreign-fd-and-permissions:passed',flush=True)
+        project=fixture('repeated-history')
+        generations=[]
+        for number in range(8):
+            generations.append(((project/'hangar.toml').read_bytes(),(project/'hangar.lock').read_bytes()))
+            candidate_manifest.write_bytes(new_manifest.replace(b'name="new"',f'name="generation{number}"'.encode()))
+            candidate_lock.write_bytes(f'COMPLETE LOCK GENERATION {number}\n'.encode())
+            assert execute(project)=='ready\n'
+            assert (project/'hangar.toml').stat().st_mode&0o777==0o640
+            assert (project/'hangar.lock').stat().st_mode&0o777==0o644
+        histories=list((project/'.freak').glob('.transaction-history-*'))
+        assert len(histories)==8
+        assert sorted((path/'manifest.original').read_bytes() for path in histories)==sorted(pair[0] for pair in generations)
+        assert sorted((path/'lock.original').read_bytes() for path in histories)==sorted(pair[1] for pair in generations)
+        files=[path for history in histories for path in history.rglob('*') if path.is_file()]
+        assert execute(project,'telemetry')==f'history:8:{sum(path.stat().st_size for path in files)}:{len(files)}\nready\n'
+        candidate_manifest.write_bytes(new_manifest)
+        candidate_lock.write_bytes(new_lock)
+        print(f'native:{backend}:transactions:repeated-retention-byte-telemetry:passed',flush=True)
+        project=fixture('special-mode')
+        (project/'hangar.toml').chmod(0o2640)
+        failed=execute(project)
+        assert failed.startswith('error:') and 'privileged or sticky' in failed,failed
+        assert (project/'hangar.toml').read_bytes()==old_manifest and (project/'hangar.lock').read_bytes()==old_lock
+        assert (project/'hangar.toml').stat().st_mode&0o7777==0o2640
+        print(f'native:{backend}:transactions:special-mode-refused-preserved:passed',flush=True)
+        for quota in ('count','entries','depth','file-size'):
+            project=fixture('quota-'+quota)
+            history=project/'.freak/.transaction-history-fixture'
+            history.mkdir(mode=0o700)
+            if quota=='count':
+                for number in range(127): (project/f'.freak/.transaction-history-{number}').mkdir(mode=0o700)
+            if quota=='entries':
+                for number in range(4089): (history/str(number)).write_bytes(b'')
+            if quota=='depth':
+                for number in range(9): history=history/str(number); history.mkdir(mode=0o700)
+            if quota=='file-size':
+                with (history/'oversize').open('wb') as stream: stream.truncate(67108865)
+            failed=execute(project)
+            assert failed.startswith('error:') and 'quota' in failed,failed
+            assert (project/'hangar.toml').read_bytes()==old_manifest and (project/'hangar.lock').read_bytes()==old_lock
+            assert not (project/'.freak/transaction.marker').exists()
+            print(f'native:{backend}:transactions:retention-{quota}-quota-preserved:passed',flush=True)
         for label,target,number,committed in (
-            ('pending','private',3,False),('manifest','project',1,False),
-            ('lock','project',2,False),('committed','private',4,True),
+            ('pending','private',3,False),('manifest','project',2,False),
+            ('lock','project',4,False),('committed','private',4,True),
         ):
             project=fixture('killed-'+label)
             directory=project/'.freak' if target=='private' else project
@@ -193,25 +325,27 @@ task main() {
             assert execute(project,'recover')=='ready\n'
             assert (project/'hangar.toml').read_bytes()==(new_manifest if committed else old_manifest)
             assert (project/'hangar.lock').read_bytes()==(new_lock if committed else old_lock)
+            assert (project/'hangar.toml').stat().st_mode&0o777==0o640
+            assert (project/'hangar.lock').stat().st_mode&0o777==0o644
             assert not (project/'.freak/transaction.marker').exists()
             print(f'native:{backend}:transactions:killed-{label}-recovery:passed',flush=True)
         project=fixture('absent-lock',present=False)
-        assert execute(project,fault=(project,2)).startswith('error:')
+        assert execute(project,fault=(project,3)).startswith('error:')
         assert (project/'hangar.toml').read_bytes()==old_manifest and not (project/'hangar.lock').exists()
         assert execute(project)=='ready\n'
         print(f'native:{backend}:transactions:absent-lock-rollback:passed',flush=True)
         for label,path in (('changed-current','hangar.toml'),('corrupt-before','.freak/transaction.manifest.before')):
             project=fixture(label)
-            execute(project,fault=(project,1),kill=True)
+            execute(project,fault=(project,2),kill=True)
             (project/path).write_bytes(b'UNEXPECTED THIRD GENERATION')
             before={str(item):item.read_bytes() for item in project.rglob('*') if item.is_file()}
             failed=execute(project,'recover')
-            assert failed.startswith('error:') and 'unverified before images or unexpected project bytes' in failed,failed
+            assert failed.startswith('error:') and ('unexpected current project bytes' in failed or 'unverified' in failed),failed
             after={str(item):item.read_bytes() for item in project.rglob('*') if item.is_file()}
             assert after==before
             print(f'native:{backend}:transactions:{label}-preserved:passed',flush=True)
         project=fixture('interrupted-recovery')
-        execute(project,fault=(project,1),kill=True)
+        execute(project,fault=(project,2),kill=True)
         execute(project,'recover',fault=(project,1),kill=True)
         assert execute(project,'recover')=='ready\n'
         assert (project/'hangar.toml').read_bytes()==old_manifest and (project/'hangar.lock').read_bytes()==old_lock
@@ -239,8 +373,8 @@ task main() {
         previous_manifest=manifest.read_bytes()
         previous_cache={str(item):item.read_bytes() for item in (manifest.parent/'.freak').rglob('*') if item.is_file() and item.name!='graph.lock'}
         (manifest.parent.parent/'c/core.fk').write_bytes(b'task value() -> int { give back 43 }\n')
-        failed=execute(manifest.parent,'graph',fault=(manifest.parent,1))
-        assert failed.startswith('error:') and 'new lock publication failed' in failed,failed
+        failed=execute(manifest.parent,'graph',fault=(manifest.parent,2))
+        assert failed.startswith('error:') and 'new lock no-replace publication failed' in failed,failed
         assert manifest.with_name('hangar.lock').read_bytes()==previous_lock and manifest.read_bytes()==previous_manifest
         assert all(Path(path).read_bytes()==data for path,data in previous_cache.items())
         assert not (manifest.parent/'.freak/transaction.marker').exists()
