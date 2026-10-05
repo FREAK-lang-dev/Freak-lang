@@ -1,3 +1,7 @@
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -84,10 +88,14 @@ int64_t freak_llvm_process_input(void) {
 }
 
 int64_t freak_fopen(int64_t path, int64_t mode) {
-    return (int64_t)fopen((const char*)path, (const char*)mode);
+    return (int64_t)fopen(freak_word_to_cstr(freak_llvm_word_view(path)),
+                         freak_word_to_cstr(freak_llvm_word_view(mode)));
 }
 int64_t freak_fclose(int64_t file) {
     return (int64_t)fclose((FILE*)file);
+}
+int64_t freak_ferror(int64_t file) {
+    return (int64_t)ferror((FILE*)file);
 }
 int64_t freak_fseek(int64_t file, int64_t offset, int64_t whence) {
     return (int64_t)fseek((FILE*)file, (long)offset, (int)whence);
@@ -622,7 +630,7 @@ int64_t freak_llvm_int_to_num(int64_t i) {
  * @returns The numeric value truncated toward zero when representable.
  */
 int64_t freak_llvm_num_to_int(int64_t n) {
-    return (int64_t)i64_to_double(n);
+    return freak_num_to_int_checked(i64_to_double(n));
 }
 /**
  * Formats a packed double value as a runtime word.

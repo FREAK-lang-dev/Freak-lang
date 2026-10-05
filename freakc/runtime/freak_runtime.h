@@ -515,6 +515,15 @@ freak_word freak_word_replace(freak_word w, freak_word old_s, freak_word new_s);
 
 /* Get character at index (0-based) as a single-char word. */
 freak_word freak_word_char_at(freak_word w, int64_t index);
+/* Bracket indexing is checked and returns an independent sized byte-word. */
+freak_word freak_word_index_checked(freak_word w, int64_t index);
+int64_t freak_llvm_word_index_checked(int64_t word, int64_t index);
+int64_t freak_num_to_int_checked(double value);
+int64_t freak_ferror(int64_t file);
+/* Native image location, independent of argv[0] and the current directory.
+   Returns an empty word if the host cannot provide a location. */
+freak_word freak_process_executable_path(void);
+int64_t freak_llvm_process_executable_path(void);
 
 /* Stable, allocation-free FNV-1a checksum for persisted compiler data. */
 int64_t freak_word_checksum(freak_word w);

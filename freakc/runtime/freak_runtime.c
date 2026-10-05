@@ -33,6 +33,9 @@
 #include <signal.h>
 #define _strdup strdup
 #endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 static int64_t freak_normalize_process_status(int status) {
 #ifdef _WIN32
@@ -58,6 +61,62 @@ freak_word freak_arg(int64_t index) {
         freak_panic(freak_word_lit("Argument index out of bounds"));
     }
     return freak_word_lit(freak_argv[index]);
+}
+
+freak_word freak_process_executable_path(void) {
+#ifdef _WIN32
+    DWORD capacity = 256;
+    while (capacity <= 1048576) {
+        wchar_t *wide = malloc((size_t)capacity * sizeof(*wide));
+        if (!wide) freak_panic(freak_word_lit("out of memory resolving executable"));
+        DWORD length = GetModuleFileNameW(NULL, wide, capacity);
+        if (length && length < capacity) {
+            int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide,
+                    (int)length, NULL, 0, NULL, NULL);
+            if (!bytes) { free(wide); return freak_word_lit(""); }
+            char *path = malloc((size_t)bytes + 1);
+            if (!path) { free(wide); freak_panic(freak_word_lit("out of memory resolving executable")); }
+            if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide,
+                    (int)length, path, bytes, NULL, NULL) != bytes) {
+                free(path); free(wide); return freak_word_lit("");
+            }
+            free(wide); path[bytes] = '\0';
+            return freak_word_own(path, (size_t)bytes);
+        }
+        free(wide);
+        if (!length) return freak_word_lit("");
+        capacity *= 2;
+    }
+    return freak_word_lit("");
+#elif defined(__APPLE__)
+    uint32_t capacity = 0;
+    (void)_NSGetExecutablePath(NULL, &capacity);
+    if (!capacity || capacity > 1048576) return freak_word_lit("");
+    char *path = malloc(capacity);
+    if (!path) freak_panic(freak_word_lit("out of memory resolving executable"));
+    if (_NSGetExecutablePath(path, &capacity) != 0) { free(path); return freak_word_lit(""); }
+    char *resolved = realpath(path, NULL);
+    free(path);
+    if (!resolved) return freak_word_lit("");
+    return freak_word_own(resolved, strlen(resolved));
+#elif defined(__linux__)
+    size_t capacity = 256;
+    while (capacity <= 1048576) {
+        char *path = malloc(capacity + 1);
+        if (!path) freak_panic(freak_word_lit("out of memory resolving executable"));
+        ssize_t length = readlink("/proc/self/exe", path, capacity);
+        if (length >= 0 && (size_t)length < capacity) {
+            path[length] = '\0';
+            return freak_word_own(path, (size_t)length);
+        }
+        free(path);
+        if (length < 0) return freak_word_lit("");
+        capacity *= 2;
+    }
+    return freak_word_lit("");
+#else
+    return freak_word_lit("");
+#endif
 }
 
 /* ------------------------------------------------------------------ */
@@ -975,6 +1034,15 @@ int64_t freak_int_neg_checked(int64_t value) {
     return -value;
 }
 
+int64_t freak_num_to_int_checked(double value) {
+    /* INT64_MAX rounds to 2^63 as a double; the upper limit is exclusive. */
+    if (!isfinite(value) || value < -0x1p63 || value >= 0x1p63) {
+        fprintf(stderr, "FREAK: num to int conversion out of range\n");
+        exit(1);
+    }
+    return (int64_t)value;
+}
+
 /* ------------------------------------------------------------------ */
 /*  std::fs — file I/O                                                */
 /* ------------------------------------------------------------------ */
@@ -1655,6 +1723,18 @@ freak_word freak_word_char_at(freak_word w, int64_t index) {
     out.char_count = 1;
     out.heap = false;
     return out;
+}
+
+freak_word freak_word_index_checked(freak_word w, int64_t index) {
+    if (index < 0 || (uint64_t)index >= w.length || !w.data) {
+        fprintf(stderr, "FREAK: word index out of range\n");
+        exit(1);
+    }
+    char *byte = (char *)malloc(2);
+    if (!byte) freak_panic(freak_word_lit("out of memory indexing word"));
+    byte[0] = w.data[index];
+    byte[1] = '\0';
+    return freak_word_own(byte, 1);
 }
 
 static int64_t freak_stable_checksum_bytes(const unsigned char* data, size_t len) {
@@ -2921,6 +3001,14 @@ int64_t freak_llvm_word_snapshot_field_raw(int64_t a, int64_t wanted) {
 int64_t freak_llvm_word_char_at(int64_t a, int64_t idx) {
     freak_word value = freak_word_char_at(freak_llvm_word_view(a), idx);
     return (int64_t)value.data;
+}
+
+int64_t freak_llvm_word_index_checked(int64_t word, int64_t index) {
+    return freak_llvm_word_take(freak_word_index_checked(freak_llvm_word_view(word), index));
+}
+
+int64_t freak_llvm_process_executable_path(void) {
+    return freak_llvm_word_take(freak_process_executable_path());
 }
 
 int64_t freak_llvm_word_substring(int64_t a, int64_t start, int64_t len) {
