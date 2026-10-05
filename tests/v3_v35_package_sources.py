@@ -161,17 +161,21 @@ int main(int argc,char **argv) {
     return binary
 
 
-def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
-    repo = Path(__file__).resolve().parents[1]
+def package_probe_source(repo: Path) -> str:
     hangar = (repo/'src/cli/hangar.fk').read_text()
     toml = (repo/'src/cli/toml.fk').read_text()
     for name in ('toml_load', 'toml_write_file'):
         toml = toml.replace(task_source(toml, name), '')
-    source = ((repo/'std/version.fk').read_text() + '\n' + toml + '\n' +
+    return ((repo/'std/version.fk').read_text() + '\n' + toml + '\n' +
               task_source(hangar, 'hangar_valid_package_name') + '\n' +
               task_source(hangar, 'hangar_checked_fs') + '\n' +
               '\n'.join(task_source(hangar, name) for name in ('hangar_git_command','hangar_valid_git_source','hangar_valid_revision')) + '\n' +
-              '\n'.join((repo/f'src/cli/{name}.fk').read_text() for name in ('package_graph','package_paths','package_inputs','package_sources','package_lock')) + '\n' + PROGRAM)
+              '\n'.join((repo/f'src/cli/{name}.fk').read_text() for name in ('package_graph','package_paths','package_inputs','package_sources','package_lock','package_transaction')))
+
+
+def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    source = package_probe_source(repo) + '\n' + PROGRAM
     git_shim = build_git_shim(clang, root)
     for backend in ('c','llvm'):
         program = root/f'sources-{backend}.fk'
@@ -203,6 +207,16 @@ def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
         print(f'native:{backend}:sources:local-diamond:passed', flush=True)
         print(f'native:{backend}:sources:canonical-lock-inventory:passed', flush=True)
         snapshot = initial.splitlines()[1]
+        snapshot_file=Path(snapshot)
+        snapshot_bytes=snapshot_file.read_bytes()
+        original_lock=manifest.with_name('hangar.lock').read_bytes()
+        snapshot_file.write_bytes(b'CORRUPT IMMUTABLE SNAPSHOT')
+        rejected=execute(manifest)
+        assert rejected.startswith('error:') and 'existing immutable graph snapshot is corrupt' in rejected,rejected
+        assert snapshot_file.read_bytes()==b'CORRUPT IMMUTABLE SNAPSHOT'
+        assert manifest.with_name('hangar.lock').read_bytes()==original_lock
+        snapshot_file.write_bytes(snapshot_bytes)
+        print(f'native:{backend}:sources:corrupt-snapshot-preserved:passed',flush=True)
         locked = execute(manifest, 'locked')
         assert locked == initial, locked
         print(f'native:{backend}:sources:locked-no-refresh:passed', flush=True)

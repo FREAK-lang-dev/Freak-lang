@@ -247,6 +247,10 @@ task package_admit_local(path: word, manifest_file: word, request_path: word) ->
     if not fs::result_ok(directory) { hangar_graph_fail("cannot open local package " + request_path + ": " + fs::result_error(directory))
         fs::result_release(directory)
         give back 0 - 1 }
+    give back package_admit_local_ticket(directory, manifest_file, request_path)
+}
+
+task package_admit_local_ticket(directory: int, manifest_file: word, request_path: word) -> int {
     pilot root = package_directory_path(directory)
     if root == "" { fs::result_release(directory) give back 0 - 1 }
     pilot physical = fs::directory_identity_ticket(directory)
@@ -472,10 +476,33 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
     package_lock_release()
     pilot manifest_file = package_leaf_path(manifest_path)
     if not package_input_allowed(manifest_file) { hangar_graph_fail("invalid package manifest filename") give back false }
-    pilot root = package_admit_local(package_parent_path(manifest_path), manifest_file, "root")
+    pilot project = fs::open_dir_ticket(package_parent_path(manifest_path))
+    if not fs::result_ok(project) { hangar_graph_fail("cannot anchor project directory: " + fs::result_error(project))
+        fs::result_release(project)
+        give back false }
+    pilot snapshot_reader = package_snapshot_override != ""
+    pilot private = 0
+    if snapshot_reader {
+        private = fs::open_relative_dir_ticket(project, ".freak")
+        if not fs::result_ok(private) { hangar_graph_fail("immutable snapshot requires an existing safe private cache: " + fs::result_error(private))
+            fs::result_release(private)
+            fs::result_release(project)
+            give back false }
+    } else { private = package_private_directory(project, ".freak") }
+    if private == 0 { fs::result_release(project) give back false }
+    package_preparation_private = private
+    if not snapshot_reader {
+        pilot operation = fs::lock_dir_ticket(private, "graph.lock")
+        if not fs::result_ok(operation) { hangar_graph_fail("graph preparation is active or private cache lock is unavailable: " + fs::result_error(operation))
+            fs::result_release(operation)
+            fs::result_release(project)
+            give back false }
+        package_preparation_operation = operation
+        if not package_recover_transaction(project, private) { fs::result_release(project) give back false }
+    }
+    pilot root = package_admit_local_ticket(project, manifest_file, "root")
     if root != 0 { give back false }
     package_graph_manifest_path = package_join_host(array_get(package_source_original_roots, 0), manifest_file)
-    pilot project = word_to_int(array_get(package_source_original_tickets, 0))
     pilot lock = 0
     if package_snapshot_override == "" { lock = fs::read_relative_bytes_limit_ticket(project, "hangar.lock", 67108864) } else {
         pilot snapshot_root = fs::open_dir_ticket(package_parent_path(package_snapshot_override))
@@ -487,8 +514,10 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
     }
     pilot malformed_lock = false
     pilot had_lock = fs::result_ok(lock)
+    pilot previous_lock_hash = ""
     if had_lock {
         pilot bytes: ByteBuffer = fs::result_bytes(lock)
+        previous_lock_hash = fs::sha256_bytes(bytes)
         pilot content = bytes.to_word()
         pilot text = bytes.status() == 0
         bytes.release()
@@ -506,23 +535,6 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
     }
     if (locked or frozen) and not had_lock { hangar_graph_fail("locked/frozen graph requires a valid existing lock v2") give back false }
     if (locked or frozen) and package_lock_field("lock.manifest_sha256") != array_get(package_source_manifest_hashes, 0) { hangar_graph_fail("locked root manifest fingerprint changed; run hangar update explicitly") give back false }
-    pilot snapshot_reader = package_snapshot_override != ""
-    pilot private = 0
-    if snapshot_reader {
-        private = fs::open_relative_dir_ticket(project, ".freak")
-        if not fs::result_ok(private) { hangar_graph_fail("immutable snapshot requires an existing safe private cache: " + fs::result_error(private))
-            fs::result_release(private)
-            give back false }
-    } else { private = package_private_directory(project, ".freak") }
-    if private == 0 { give back false }
-    package_preparation_private = private
-    if not snapshot_reader {
-        pilot operation = fs::lock_dir_ticket(private, "graph.lock")
-        if not fs::result_ok(operation) { hangar_graph_fail("graph preparation is active or private cache lock is unavailable: " + fs::result_error(operation))
-            fs::result_release(operation)
-            give back false }
-        package_preparation_operation = operation
-    }
     pilot edge = 0
     repeat until edge >= hangar_graph_edge_count {
         pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
@@ -570,17 +582,24 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
             pilot bytes: ByteBuffer = ByteBuffer::new()
             bytes.write_word(content)
             pilot identity = fs::sha256_bytes(bytes)
-            pilot recorded = fs::write_relative_bytes_checked(snapshots, identity + ".lock", bytes)
-            valid = fs::result_ok(recorded)
-            if not valid { hangar_graph_fail("cannot write immutable graph snapshot: " + fs::result_error(recorded)) }
-            fs::result_release(recorded)
+            pilot recorded = fs::read_relative_bytes_limit_ticket(snapshots, identity + ".lock", bytes.length())
+            if fs::result_ok(recorded) {
+                pilot existing: ByteBuffer = fs::result_bytes(recorded)
+                valid = existing.length() == bytes.length() and fs::sha256_bytes(existing) == identity
+                existing.release()
+                if not valid { hangar_graph_fail("existing immutable graph snapshot is corrupt; refusing replacement") }
+                fs::result_release(recorded)
+            } else {
+                pilot absent = fs::result_missing(recorded)
+                if not absent { hangar_graph_fail("cannot verify existing immutable graph snapshot: " + fs::result_error(recorded)) }
+                fs::result_release(recorded)
+                valid = absent
+                if valid { valid = package_transaction_checked(fs::write_relative_bytes_checked(snapshots, identity + ".lock", bytes), "immutable graph snapshot publication failed") }
+            }
             if valid {
                 package_graph_snapshot_path = package_join_host(package_directory_path(snapshots), identity + ".lock")
                 if not locked and not frozen {
-                    recorded = fs::write_relative_bytes_checked(project, "hangar.lock", bytes)
-                    valid = fs::result_ok(recorded)
-                    if not valid { hangar_graph_fail("cannot atomically publish completed graph lock: " + fs::result_error(recorded)) }
-                    fs::result_release(recorded)
+                    valid = package_commit_transaction(project, private, manifest_file, array_get(hangar_graph_contents, 0), bytes, array_get(package_source_manifest_hashes, 0), previous_lock_hash)
                 }
             }
             bytes.release()
