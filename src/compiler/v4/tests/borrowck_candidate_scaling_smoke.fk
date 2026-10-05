@@ -314,8 +314,11 @@ task borrow_candidate_resource_case(mir: int, borrow: int, body: int) -> void {
 task borrow_candidate_resources() -> void {
     pilot mir = v4_mir_file_new(43, -1)
     pilot body = v4_mir_add_body(mir, "resources", "resources", "")
-    v4_mir_add_block(mir, body, v4_mir_term_goto, 1, -1, "")
-    v4_mir_add_block(mir, body, v4_mir_term_return, -1, -1, "")
+    -- add_body already owns physical entry block 0. Append its successor,
+    -- then replace the entry through MIR's normal live-construction setter.
+    pilot exit_block = v4_mir_add_block(mir, body, v4_mir_term_return, -1, -1, "")
+    v4_mir_set_body_block(mir, body, 0, v4_mir_block_new_full(0, v4_mir_term_goto, exit_block, -1, ""))
+    borrow_candidate_assert(exit_block == 1 and v4_mir_body_block_count(mir, body) == 2 and v4_borrowck_block_reaches(mir, body, 0, 1) and not v4_borrowck_block_can_cycle(mir, body, 0), "physical entry reaches successor without a loop")
     pilot simple = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_binary, "source + 1", v4_mir_bin_add, -1, -1, V4_NO_SPAN, v4_ty_int)
     pilot literal = v4_mir_add_rvalue(mir, body, v4_mir_rvalue_const_int, "1", "", -1, -1, V4_NO_SPAN, v4_ty_int)
     v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_assign, "other", "source + 1", v4_span_new("43", 0, 1), -1, simple)
