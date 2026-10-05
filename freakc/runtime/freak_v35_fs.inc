@@ -546,7 +546,10 @@ static int freak_fs_anchor_file_descriptor(freak_fs_anchor file,bool writable) {
 #endif
 static bool freak_fs_relative_valid(const char *name,bool single) {
     size_t length = strlen(name);
-    if (!length || length > 4096 || name[0] == '/' || name[length-1] == '/' || strpbrk(name,"\\:\n\r\t")) return false;
+    if (!length || length > 4096 || name[0] == '/' || name[length-1] == '/' || strpbrk(name,":\n\r\t")) return false;
+#ifdef _WIN32
+    if (strchr(name,'\\')) return false;
+#endif
     const char *component = name;
     for (const char *cursor = name;;cursor++) {
         if (*cursor == '/' || !*cursor) {
@@ -606,7 +609,8 @@ static freak_fs_anchor freak_fs_anchor_root(const char *path) {
     for (char *p=tail;*p;p++) if (*p == '\\') *p='/';
 #else
     freak_fs_anchor current = open(path[0] == '/' ? "/" : ".",O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    char *tail=freak_command_copy(freak_word_lit(path[0] == '/' ? path+1 : path),false);
+    /* The checked external path is nonempty; '/' has an empty internal tail. */
+    char *tail=freak_command_copy(freak_word_lit(path[0] == '/' ? path+1 : path),true);
 #endif
     char *cursor=tail;
     while (*cursor && current != FREAK_FS_INVALID_ANCHOR) {
@@ -614,7 +618,14 @@ static freak_fs_anchor freak_fs_anchor_root(const char *path) {
         if (!*cursor) break;
         char *slash=strchr(cursor,'/'); if (slash) *slash=0;
         if (strcmp(cursor,".") != 0) {
-            if (!freak_fs_relative_valid(cursor,true)) {
+            /* A physical POSIX host component is not a portable manifest path.
+               The descriptor walk still refuses parent traversal and links. */
+#ifdef _WIN32
+            bool valid=freak_fs_relative_valid(cursor,true);
+#else
+            bool valid=strcmp(cursor,"..") != 0;
+#endif
+            if (!valid) {
                 freak_fs_anchor_close(current); current=FREAK_FS_INVALID_ANCHOR;
 #ifdef _WIN32
                 SetLastError(ERROR_INVALID_NAME);
