@@ -47,6 +47,10 @@ extern int64_t freak_fs_lock_dir_ticket(int64_t,freak_word);
 extern int64_t freak_fs_remove_relative_file_checked(int64_t,freak_word);
 extern int64_t freak_fs_mkdir_relative_checked(int64_t,freak_word);
 extern int64_t freak_fs_open_relative_dir_ticket(int64_t,freak_word);
+extern int64_t freak_fs_list_dir_ticket(int64_t);
+extern bool freak_fs_result_missing(int64_t);
+extern int64_t freak_fs_directory_path_ticket(int64_t);
+extern int64_t freak_fs_directory_identity_ticket(int64_t);
 extern int64_t freak_llvm_fs_open_dir_ticket(int64_t);
 extern int64_t freak_llvm_fs_read_bytes_limit_ticket(int64_t,int64_t);
 extern int64_t freak_llvm_fs_read_relative_ticket(int64_t,int64_t);
@@ -61,17 +65,23 @@ extern int64_t freak_llvm_fs_lock_dir_ticket(int64_t,int64_t);
 extern int64_t freak_llvm_fs_remove_relative_file_checked(int64_t,int64_t);
 extern int64_t freak_llvm_fs_mkdir_relative_checked(int64_t,int64_t);
 extern int64_t freak_llvm_fs_open_relative_dir_ticket(int64_t,int64_t);
+extern int64_t freak_llvm_fs_list_dir_ticket(int64_t);
+extern int64_t freak_llvm_fs_result_missing(int64_t);
+extern int64_t freak_llvm_fs_directory_path_ticket(int64_t);
+extern int64_t freak_llvm_fs_directory_identity_ticket(int64_t);
 static void require(int ok,const char *why) { if (!ok) { fprintf(stderr,"FAIL: %s\n",why); exit(2); } }
 #ifdef USE_LLVM_ADAPTER
 #define W(s) ((int64_t)(intptr_t)(s))
 #define F(n) freak_llvm_fs_##n
 extern void freak_llvm_word_release_replaced(int64_t,int64_t);
 static freak_word word(int64_t h) { return freak_llvm_word_view(F(result_word)(h)); }
+static freak_word entry(int64_t h,int64_t i) { return freak_llvm_word_view(F(result_entry)(h,i)); }
 static void drop(freak_word *w) { freak_llvm_word_release_replaced((int64_t)(intptr_t)w->data,0); }
 #else
 #define W(s) freak_word_lit(s)
 #define F(n) freak_fs_##n
 #define word freak_fs_result_word
+#define entry freak_fs_result_entry
 #define drop freak_word_release_owned
 #endif
 static void success(int64_t h) { require(F(result_ok)(h),"expected successful operation"); F(result_release)(h); }
@@ -132,16 +142,28 @@ int main(int argc,char **argv) {
         exact(F(read_relative_ticket)(d,W("sub/value")),"owned",5);
         exact(F(read_source_relative_ticket)(d,W("raw")),"a\0\xff" "b",4);
         failed(F(read_relative_ticket)(d,W("raw")));
+        int64_t missing=F(open_relative_dir_ticket)(d,W("tests")); require(!F(result_ok)(missing)&&F(result_missing)(missing),"optional absent child distinguished"); F(result_release)(missing);
+        missing=F(read_relative_ticket)(d,W("absent")); require(!F(result_ok)(missing)&&F(result_missing)(missing),"absent file distinguished"); F(result_release)(missing);
+        missing=F(open_relative_dir_ticket)(d,W("raw")); require(!F(result_ok)(missing)&&!F(result_missing)(missing),"unsupported child kind is unsafe"); F(result_release)(missing);
+        missing=F(open_relative_dir_ticket)(d,W("../unsafe")); require(!F(result_ok)(missing)&&!F(result_missing)(missing),"invalid child is unsafe"); F(result_release)(missing);
         failed(F(read_relative_bytes_limit_ticket)(d,W("raw"),-1)); failed(F(read_relative_bytes_limit_ticket)(d,W("raw"),67108865));
         const char *unsafe[]={"../secret","sub/../value","/secret","sub//value","sub/./value","sub/","sub\\value","C:secret",".",".."};
         for(size_t i=0;i<sizeof(unsafe)/sizeof(*unsafe);i++) failed(F(read_relative_ticket)(d,W(unsafe[i])));
 #ifndef _WIN32
         failed(F(read_relative_ticket)(d,W("link/secret"))); failed(F(read_relative_ticket)(d,W("file-link")));
         int64_t b=buffer("changed"); failed(F(write_relative_bytes_checked)(d,W("link/secret"),b)); failed(F(write_relative_bytes_checked)(d,W("file-link"),b)); failed(F(mkdir_relative_checked)(d,W("link/new-dir"))); failed(F(open_relative_dir_ticket)(d,W("link")));
+        missing=F(open_relative_dir_ticket)(d,W("dangling")); require(!F(result_ok)(missing)&&!F(result_missing)(missing),"dangling link cannot hide as optional absence"); F(result_release)(missing);
+        missing=F(open_relative_dir_ticket)(d,W("denied")); require(!F(result_ok)(missing)&&!F(result_missing)(missing),"permission denied cannot hide as optional absence"); F(result_release)(missing);
 #else
         int64_t b=buffer("changed");
 #endif
         success(F(mkdir_relative_checked)(d,W("new-dir"))); failed(F(mkdir_relative_checked)(d,W("new-dir")));
+        for(int i=0;i<2;i++) { int64_t inventory=F(list_dir_ticket)(d); require(F(result_ok)(inventory)&&F(result_count)(inventory)>0,"held directory inventory repeats");
+            freak_word previous=freak_word_lit("");
+            for(int64_t j=0;j<F(result_count)(inventory);j++) { freak_word name=entry(inventory,j); require(!j||strcmp(previous.data,name.data)<0,"bytewise sorted inventory"); if(j) drop(&previous); previous=name; }
+            drop(&previous); F(result_release)(inventory);
+        }
+        success(F(directory_path_ticket)(d));
         success(F(mkdir_relative_checked)(d,W("new-dir/nested"))); success(F(open_relative_dir_ticket)(d,W("new-dir/nested"))); failed(F(open_relative_dir_ticket)(d,W("raw"))); failed(F(mkdir_relative_checked)(d,W("missing-dir/nested")));
         success(F(write_relative_bytes_checked)(d,W("new-dir/nested/output"),b));
         success(F(write_relative_bytes_checked)(d,W("sub/output"),b)); freak_byte_buffer_release(b);
@@ -211,6 +233,24 @@ int main(int argc,char **argv) {
 #ifndef _WIN32
         require(argc==4,"outside argument"); int64_t temp=F(temp_dir)(W(path),W("owned")); freak_word p=word(temp); char link[8192]; snprintf(link,sizeof(link),"%s/link",p.data); require(symlink(argv[3],link)==0,"stage link"); drop(&p); success(F(remove_temp_dir_checked)(temp)); F(result_release)(temp);
 #endif
+    } else if(!strcmp(mode,"held-list-path")) {
+#ifndef _WIN32
+        char old[8192]; snprintf(old,sizeof(old),"%s-old",path); require(rename(path,old)==0 && symlink(argv[3],path)==0,"exchange root pathname");
+        int64_t r=F(directory_path_ticket)(d); require(F(result_ok)(r),"held path after rename"); freak_word actual=word(r); require(actual.length==strlen(old)&&!memcmp(actual.data,old,actual.length),"held canonical provenance follows admitted identity"); drop(&actual); F(result_release)(r);
+        r=F(list_dir_ticket)(d); require(F(result_ok)(r),"held inventory after root exchange"); int raw=0,secret=0;
+        for(int64_t j=0;j<F(result_count)(r);j++) { freak_word name=entry(r,j); if(!strcmp(name.data,"raw"))raw++; if(!strcmp(name.data,"secret"))secret++; drop(&name); }
+        require(raw==1&&secret==0,"inventory cannot traverse replaced root name"); F(result_release)(r);
+#endif
+    } else if(!strcmp(mode,"held-identity")) {
+        int64_t r=F(directory_identity_ticket)(d); require(F(result_ok)(r),"held ID initially"); freak_word original=word(r); F(result_release)(r);
+        r=F(directory_path_ticket)(d); require(F(result_ok)(r),"initial provenance"); freak_word original_path=word(r); F(result_release)(r);
+        char old[8192]; snprintf(old,sizeof(old),"%s-old",path); success(F(rename_checked)(W(path),W(old))); success(F(mkdir_checked)(W(path)));
+        int64_t replacement=F(open_dir_ticket)(W(path)); require(F(result_ok)(replacement),"replacement anchor");
+        r=F(directory_identity_ticket)(d); require(F(result_ok)(r),"held ID after rename"); freak_word retained=word(r); F(result_release)(r);
+        r=F(directory_identity_ticket)(replacement); require(F(result_ok)(r),"replacement ID"); freak_word other=word(r); F(result_release)(r);
+        require(original.length==retained.length&&!memcmp(original.data,retained.data,original.length),"same held identity stable"); require(original.length!=other.length||memcmp(original.data,other.data,original.length),"same canonical name different physical identity");
+        r=F(directory_path_ticket)(replacement); require(F(result_ok)(r),"replacement canonical provenance"); freak_word other_path=word(r); F(result_release)(r); require(original_path.length==other_path.length&&!memcmp(original_path.data,other_path.data,original_path.length),"two dirs occupied same canonical origin");
+        drop(&original); drop(&retained); drop(&other); drop(&original_path); drop(&other_path); F(result_release)(replacement);
     } else if(!strcmp(mode,"cleanup-depth")) {
         int64_t temp=F(temp_dir)(W(path),W("deep")); require(F(result_ok)(temp),"depth stage"); freak_word p=word(temp);
         char nested[8192];
@@ -268,12 +308,14 @@ def main() -> int:
                 if adapter=='llvm': command+=['-DUSE_LLVM_ADAPTER=1']
                 if sys.platform.startswith('linux'): command+=['-DTEST_INTERPOSE=1','-Wl,--wrap=openat','-Wl,--wrap=read','-Wl,--wrap=fsync']
                 built=subprocess.run(command,capture_output=True,timeout=90); assert built.returncode==0,built.stderr.decode(errors='replace')
-                modes=['smoke','binary','limit','cleanup-depth','open-long-fails','temp-swap','cleanup-parent-race','cleanup-link'] if os.name!='nt' else ['smoke','binary','limit','cleanup-depth','open-long-fails']
+                modes=['smoke','binary','limit','held-identity','cleanup-depth','open-long-fails','temp-swap','cleanup-parent-race','cleanup-link','held-list-path'] if os.name!='nt' else ['smoke','binary','limit','held-identity','cleanup-depth','open-long-fails']
                 if sys.platform.startswith('linux'): modes+=['read-race','write-race','growth','fault-publish','fault-rename','cleanup-descendant-race']
                 for mode in modes+['foreign','stale','wrong-kind','open-fails']:
                     case=home/f'{adapter}-{opt}-{mode}'; case.mkdir(); root=case/'root'; root.mkdir(mode=0o700); (root/'sub').mkdir(); (root/'sub/value').write_bytes(b'owned'); (root/'raw').write_bytes(b'a\0\xffb'); (root/'marker').write_bytes(b'small')
                     outside=case/'outside'; outside.mkdir(); (outside/'value').write_bytes(b'outside-secret'); (outside/'secret').write_bytes(b'outside-secret')
-                    if os.name!='nt': (root/'link').symlink_to(outside,target_is_directory=True); (root/'file-link').symlink_to(outside/'secret')
+                    if os.name!='nt':
+                        (root/'link').symlink_to(outside,target_is_directory=True); (root/'file-link').symlink_to(outside/'secret'); (root/'dangling').symlink_to(case/'absent')
+                        (root/'denied').mkdir(mode=0o000)
                     input_path=root
                     if mode=='limit': input_path=root/'large'; input_path.write_bytes(b'x'*4097)
                     if mode=='wrong-kind': input_path=root/'sub/value'

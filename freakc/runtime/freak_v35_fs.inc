@@ -24,7 +24,7 @@ typedef struct {
     char **entries;
     size_t entry_count;
     uint32_t generation;
-    bool in_use, ok, source_text, completed, has_directory, owns_temp, temp_active, owns_lock;
+    bool in_use, ok, source_text, completed, has_directory, owns_temp, temp_active, owns_lock, missing;
 #ifdef _WIN32
     HANDLE directory, temp_parent;
 #else
@@ -121,19 +121,27 @@ static int freak_fs_open_read(const char *path) {
     if (!GetFileInformationByHandle(file,&metadata) ||
             (metadata.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) ||
             GetFileType(file) != FILE_TYPE_DISK) {
-        CloseHandle(file); return -1;
+        CloseHandle(file); SetLastError(ERROR_ACCESS_DENIED); return -1;
     }
     int descriptor = _open_osfhandle((intptr_t)file,_O_RDONLY | _O_BINARY);
-    if (descriptor < 0) CloseHandle(file);
+    if (descriptor < 0) { CloseHandle(file); SetLastError(ERROR_TOO_MANY_OPEN_FILES); }
     return descriptor;
 #else
     return open(path,O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
 #endif
 }
+static bool freak_fs_failure_missing(void) {
+#ifdef _WIN32
+    DWORD error=GetLastError(); return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+#else
+    return errno == ENOENT;
+#endif
+}
 static int64_t freak_fs_read_mode(freak_word path,bool text) {
     int64_t handle = freak_fs_ticket_new(); freak_fs_ticket *result = freak_fs_ticket_require(handle);
     char *name = freak_fs_checked_path(result,path); if (!name) return handle;
-    int descriptor = freak_fs_open_read(name); free(name);
+    int descriptor = freak_fs_open_read(name);
+    result->missing=descriptor < 0 && freak_fs_failure_missing(); free(name);
     if (descriptor < 0) { freak_fs_ticket_error(result,"could not open filesystem file"); return handle; }
 #ifdef _WIN32
     struct _stat64 metadata;
@@ -463,7 +471,7 @@ typedef struct { USHORT length, maximum; PWSTR buffer; } freak_fs_nt_string;
 typedef struct { ULONG length; HANDLE root; freak_fs_nt_string *name; ULONG attributes; PVOID security, quality; } freak_fs_nt_object;
 typedef struct { union { LONG status; PVOID pointer; } value; ULONG_PTR information; } freak_fs_nt_io;
 typedef LONG (NTAPI *freak_fs_nt_create_fn)(PHANDLE,ACCESS_MASK,freak_fs_nt_object *,freak_fs_nt_io *,PLARGE_INTEGER,ULONG,ULONG,ULONG,ULONG,PVOID,ULONG);
-static void freak_fs_anchor_close(freak_fs_anchor directory) { if (directory != INVALID_HANDLE_VALUE) CloseHandle(directory); }
+static void freak_fs_anchor_close(freak_fs_anchor directory) { DWORD error=GetLastError(); if (directory != INVALID_HANDLE_VALUE) CloseHandle(directory); SetLastError(error); }
 static freak_fs_anchor freak_fs_anchor_dup(freak_fs_anchor directory) {
     HANDLE copy = INVALID_HANDLE_VALUE;
     if (!DuplicateHandle(GetCurrentProcess(),directory,GetCurrentProcess(),&copy,0,FALSE,DUPLICATE_SAME_ACCESS)) return INVALID_HANDLE_VALUE;
@@ -502,9 +510,9 @@ static freak_fs_anchor freak_fs_anchor_child(freak_fs_anchor parent,const char *
     return freak_fs_anchor_child_mode(parent,name,directory,create,writable,false,false);
 }
 static bool freak_fs_anchor_same(freak_fs_anchor first,freak_fs_anchor second) {
-    BY_HANDLE_FILE_INFORMATION a,b;
-    return GetFileInformationByHandle(first,&a) && GetFileInformationByHandle(second,&b) &&
-        a.dwVolumeSerialNumber == b.dwVolumeSerialNumber && a.nFileIndexHigh == b.nFileIndexHigh && a.nFileIndexLow == b.nFileIndexLow;
+    FILE_ID_INFO a,b;
+    return GetFileInformationByHandleEx(first,FileIdInfo,&a,sizeof(a)) && GetFileInformationByHandleEx(second,FileIdInfo,&b,sizeof(b)) &&
+        a.VolumeSerialNumber == b.VolumeSerialNumber && !memcmp(a.FileId.Identifier,b.FileId.Identifier,sizeof(a.FileId.Identifier));
 }
 static bool freak_fs_anchor_sync(freak_fs_anchor directory) { (void)directory; return true; }
 static int freak_fs_anchor_file_descriptor(freak_fs_anchor file,bool writable) {
@@ -515,7 +523,7 @@ static int freak_fs_anchor_file_descriptor(freak_fs_anchor file,bool writable) {
 #else
 typedef int freak_fs_anchor;
 #define FREAK_FS_INVALID_ANCHOR (-1)
-static void freak_fs_anchor_close(freak_fs_anchor directory) { if (directory >= 0) close(directory); }
+static void freak_fs_anchor_close(freak_fs_anchor directory) { int error=errno; if (directory >= 0) close(directory); errno=error; }
 static freak_fs_anchor freak_fs_anchor_dup(freak_fs_anchor directory) { return fcntl(directory,F_DUPFD_CLOEXEC,0); }
 static freak_fs_anchor freak_fs_anchor_child(freak_fs_anchor parent,const char *name,bool directory,bool create,bool writable) {
     int flags = O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK | (directory ? O_RDONLY | O_DIRECTORY : writable ? O_WRONLY : O_RDONLY);
@@ -523,7 +531,8 @@ static freak_fs_anchor freak_fs_anchor_child(freak_fs_anchor parent,const char *
     if (create && !directory) flags |= O_CREAT | O_EXCL;
     int child = openat(parent,name,flags,0600);
     struct stat info;
-    if (child >= 0 && (fstat(child,&info) != 0 || (directory ? !S_ISDIR(info.st_mode) : !S_ISREG(info.st_mode)))) { close(child); return -1; }
+    if (child >= 0 && fstat(child,&info) != 0) { int error=errno; close(child); errno=error; return -1; }
+    if (child >= 0 && (directory ? !S_ISDIR(info.st_mode) : !S_ISREG(info.st_mode))) { close(child); errno=EINVAL; return -1; }
     return child;
 }
 static bool freak_fs_anchor_same(freak_fs_anchor first,freak_fs_anchor second) {
@@ -547,7 +556,14 @@ static bool freak_fs_relative_valid(const char *name,bool single) {
     }
 }
 static freak_fs_anchor freak_fs_anchor_root(const char *path) {
-    if (strlen(path) > 4096) return FREAK_FS_INVALID_ANCHOR;
+    if (strlen(path) > 4096) {
+#ifdef _WIN32
+        SetLastError(ERROR_FILENAME_EXCED_RANGE);
+#else
+        errno=ENAMETOOLONG;
+#endif
+        return FREAK_FS_INVALID_ANCHOR;
+    }
 #ifdef _WIN32
     wchar_t *input = freak_command_wide(path);
     DWORD count = GetFullPathNameW(input,0,NULL,NULL);
@@ -569,7 +585,7 @@ static freak_fs_anchor freak_fs_anchor_root(const char *path) {
         if (share_end) start=(size_t)(share_end-absolute)+1;
         else if (server_end && server_end[1]) start=wcslen(absolute);
     }
-    if (!start) { free(absolute); return INVALID_HANDLE_VALUE; }
+    if (!start) { free(absolute); SetLastError(ERROR_INVALID_NAME); return INVALID_HANDLE_VALUE; }
     wchar_t saved=absolute[start]; absolute[start]=0;
     HANDLE current = CreateFileW(absolute,FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
         FILE_SHARE_READ | FILE_SHARE_WRITE,NULL,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,NULL);
@@ -595,7 +611,15 @@ static freak_fs_anchor freak_fs_anchor_root(const char *path) {
         if (!*cursor) break;
         char *slash=strchr(cursor,'/'); if (slash) *slash=0;
         if (strcmp(cursor,".") != 0) {
-            if (!freak_fs_relative_valid(cursor,true)) { freak_fs_anchor_close(current); current=FREAK_FS_INVALID_ANCHOR; break; }
+            if (!freak_fs_relative_valid(cursor,true)) {
+                freak_fs_anchor_close(current); current=FREAK_FS_INVALID_ANCHOR;
+#ifdef _WIN32
+                SetLastError(ERROR_INVALID_NAME);
+#else
+                errno=EINVAL;
+#endif
+                break;
+            }
             freak_fs_anchor next=freak_fs_anchor_child(current,cursor,true,false,false);
             freak_fs_anchor_close(current); current=next;
         }
@@ -623,7 +647,7 @@ int64_t freak_fs_open_dir_ticket(freak_word path) {
     int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
     char *name=freak_fs_checked_path(result,path); if (!name) return handle;
     freak_fs_anchor directory=freak_fs_anchor_root(name);
-    if (directory == FREAK_FS_INVALID_ANCHOR) freak_fs_ticket_error(result,"could not open anchored directory without following links");
+    if (directory == FREAK_FS_INVALID_ANCHOR) { result->missing=freak_fs_failure_missing(); freak_fs_ticket_error(result,"could not open anchored directory without following links"); }
     else { freak_fs_ticket_data(result,name,strlen(name)); result->directory=directory; result->has_directory=true; result->kind=2; }
     free(name); return handle;
 }
@@ -676,7 +700,7 @@ int64_t freak_fs_read_bytes_limit_ticket(freak_word path,int64_t limit) {
     int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
     if (limit < 0 || (uint64_t)limit > FREAK_FS_READ_LIMIT) { freak_fs_ticket_error(result,"filesystem read limit must be 0..64 MiB"); return handle; }
     char *name=freak_fs_checked_path(result,path); if (!name) return handle;
-    int descriptor=freak_fs_open_read(name); free(name);
+    int descriptor=freak_fs_open_read(name); result->missing=descriptor < 0 && freak_fs_failure_missing(); free(name);
     if (descriptor < 0) { freak_fs_ticket_error(result,"could not open bounded filesystem file"); return handle; }
     return freak_fs_read_descriptor(handle,descriptor,false,false,(size_t)limit);
 }
@@ -689,6 +713,7 @@ static int64_t freak_fs_read_relative_mode(int64_t root_handle,freak_word path,i
     if (!freak_fs_relative_valid(name,false)) { free(name); freak_fs_ticket_error(result,"filesystem relative path has unsafe components"); return handle; }
     char *leaf; freak_fs_anchor parent=freak_fs_anchor_parent(root,name,&leaf);
     freak_fs_anchor file=parent == FREAK_FS_INVALID_ANCHOR ? FREAK_FS_INVALID_ANCHOR : freak_fs_anchor_child(parent,leaf,false,false,false);
+    result->missing=file == FREAK_FS_INVALID_ANCHOR && freak_fs_failure_missing();
     freak_fs_anchor_close(parent); free(name);
     if (file == FREAK_FS_INVALID_ANCHOR) { freak_fs_ticket_error(result,"could not read anchored regular file without following links"); return handle; }
     int descriptor=freak_fs_anchor_file_descriptor(file,false);
@@ -855,7 +880,7 @@ int64_t freak_fs_open_relative_dir_ticket(int64_t root_handle,freak_word relativ
 #ifndef _WIN32
         struct stat info; if (fstat(directory,&info) == 0) result->mode=(int64_t)(info.st_mode & 07777);
 #endif
-    } else freak_fs_ticket_error(result,"could not open anchored directory without following links");
+    } else { result->missing=freak_fs_failure_missing(); freak_fs_ticket_error(result,"could not open anchored directory without following links"); }
     freak_fs_anchor_close(parent); free(logical); free(name); return handle;
 }
 int64_t freak_fs_mkdir_relative_checked(int64_t root_handle,freak_word relative) {
@@ -1097,17 +1122,8 @@ static void freak_fs_add_entry(freak_fs_ticket *result,const char *entry) {
     result->entries = grown; result->entries[result->entry_count++] = freak_command_copy(freak_word_lit(entry),false);
 }
 static int freak_fs_entry_compare(const void *a,const void *b) { return strcmp(*(char *const *)a,*(char *const *)b); }
-int64_t freak_fs_list_dir_checked(freak_word path) {
-    int64_t handle = freak_fs_ticket_new(); freak_fs_ticket *result = freak_fs_ticket_require(handle);
-    char *name = freak_fs_nofollow_path(result,path); if (!name) return handle;
+static void freak_fs_list_anchor(freak_fs_ticket *result,freak_fs_anchor directory) {
 #ifdef _WIN32
-    /* Enumerate the admitted directory handle, never a second path lookup that
-       can race a junction replacement after the reparse-point check. */
-    wchar_t *wide = freak_command_wide(name);
-    HANDLE directory = CreateFileW(wide,FILE_LIST_DIRECTORY,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,NULL,OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,NULL);
-    free(wide);
     BY_HANDLE_FILE_INFORMATION identity;
     result->ok = directory != INVALID_HANDLE_VALUE &&
         GetFileInformationByHandle(directory,&identity) &&
@@ -1149,13 +1165,13 @@ int64_t freak_fs_list_dir_checked(freak_word path) {
         }
         free(batch);
     }
-    if (directory != INVALID_HANDLE_VALUE) CloseHandle(directory);
 #else
-    int descriptor = open(name,O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    int descriptor=freak_fs_anchor_dup(directory);
     DIR *scan = descriptor >= 0 ? fdopendir(descriptor) : NULL;
     if (!scan && descriptor >= 0) close(descriptor);
     result->ok = scan != NULL;
     if (scan) {
+        rewinddir(scan);
         struct dirent *entry;
         errno = 0;
         while ((entry = readdir(scan)) != NULL) {
@@ -1169,8 +1185,94 @@ int64_t freak_fs_list_dir_checked(freak_word path) {
 #endif
     if (!result->ok && !result->error[0]) freak_fs_ticket_error(result,"could not open directory inventory");
     if (result->ok && result->entry_count > 1) qsort(result->entries,result->entry_count,sizeof(char *),freak_fs_entry_compare);
-    free(name); return handle;
 }
+int64_t freak_fs_list_dir_ticket(int64_t root_handle) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+    freak_fs_list_anchor(result,root->directory); return handle;
+}
+int64_t freak_fs_list_dir_checked(freak_word path) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    char *name=freak_fs_nofollow_path(result,path); if (!name) return handle;
+#ifdef _WIN32
+    wchar_t *wide=freak_command_wide(name);
+    HANDLE directory=CreateFileW(wide,FILE_LIST_DIRECTORY,FILE_SHARE_READ | FILE_SHARE_WRITE,NULL,OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,NULL);
+    free(wide);
+#else
+    int directory=open(name,O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+#endif
+    if (directory == FREAK_FS_INVALID_ANCHOR) { result->missing=freak_fs_failure_missing(); freak_fs_ticket_error(result,"could not open directory inventory"); }
+    else freak_fs_list_anchor(result,directory);
+    freak_fs_anchor_close(directory); free(name); return handle;
+}
+int64_t freak_fs_directory_identity_ticket(int64_t root_handle) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+    char identity[128]; bool found=false;
+#ifdef _WIN32
+    FILE_ID_INFO info;
+    if (GetFileInformationByHandleEx(root->directory,FileIdInfo,&info,sizeof(info))) {
+        int count=snprintf(identity,sizeof(identity),"windows:%016llx:",(unsigned long long)info.VolumeSerialNumber);
+        for (size_t i=0;i<sizeof(info.FileId.Identifier);i++) snprintf(identity+count+i*2,3,"%02x",info.FileId.Identifier[i]);
+        found=true;
+    }
+#else
+    struct stat info;
+    if (fstat(root->directory,&info) == 0) {
+        snprintf(identity,sizeof(identity),"posix:%ju:%ju",(uintmax_t)info.st_dev,(uintmax_t)info.st_ino); found=true;
+    }
+#endif
+    /* Physical IDs are transient resolver keys while the anchor is live. They
+       must never enter a reproducible content hash or persisted package lock. */
+    if (found) freak_fs_ticket_data(result,identity,strlen(identity));
+    else freak_fs_ticket_error(result,"could not inspect held directory identity");
+    return handle;
+}
+int64_t freak_fs_directory_path_ticket(int64_t root_handle) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *root=freak_fs_directory_require(root_handle);
+#ifdef _WIN32
+    DWORD count=GetFinalPathNameByHandleW(root->directory,NULL,0,FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (count && count <= 32768) {
+        wchar_t *wide=freak_command_allocate((size_t)count+1,sizeof(wchar_t));
+        DWORD read=GetFinalPathNameByHandleW(root->directory,wide,count+1,FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+        int bytes=read && read <= count ? WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,wide,(int)read,NULL,0,NULL,NULL) : 0;
+        if (bytes > 0) {
+            char *name=freak_command_allocate((size_t)bytes+1,1);
+            if (WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,wide,(int)read,name,bytes,NULL,NULL) == bytes) freak_fs_ticket_data(result,name,(size_t)bytes);
+            free(name);
+        }
+        free(wide);
+    }
+#else
+    char path[4097]; bool found=false;
+#ifdef __APPLE__
+    found=fcntl(root->directory,F_GETPATH,path) == 0;
+#elif defined(__linux__)
+    char descriptor_name[64]; snprintf(descriptor_name,sizeof(descriptor_name),"/proc/self/fd/%d",root->directory);
+    ssize_t count=readlink(descriptor_name,path,sizeof(path)-1);
+    if (count > 0 && count < (ssize_t)sizeof(path)-1) { path[count]=0; found=true; }
+#endif
+    if (!found) {
+        char *canonical=realpath((const char *)root->data,NULL);
+        if (canonical && strlen(canonical) < sizeof(path)) { memcpy(path,canonical,strlen(canonical)+1); found=true; }
+        free(canonical);
+    }
+    /* A kernel path is a name snapshot. Verify it still names the held inode;
+       deleted/replaced paths and the realpath fallback cannot substitute a
+       different directory identity into the package graph. */
+    if (found) {
+        freak_fs_anchor current=freak_fs_anchor_root(path);
+        bool same=current != FREAK_FS_INVALID_ANCHOR && freak_fs_anchor_same(current,root->directory);
+        freak_fs_anchor_close(current);
+        if (same && freak_system_utf8_valid(path,strlen(path))) freak_fs_ticket_data(result,path,strlen(path));
+    }
+#endif
+    if (!result->ok) freak_fs_ticket_error(result,"could not resolve current path of held directory identity");
+    return handle;
+}
+bool freak_fs_result_missing(int64_t ticket) { return freak_fs_ticket_require(ticket)->missing; }
 bool freak_fs_result_completed(int64_t ticket) { return freak_fs_ticket_require(ticket)->completed; }
 bool freak_fs_result_ok(int64_t ticket) { return freak_fs_ticket_require(ticket)->ok; }
 static freak_fs_ticket *freak_fs_result_success(int64_t ticket) {
@@ -1283,3 +1385,7 @@ int64_t freak_llvm_fs_lock_dir_ticket(int64_t root,int64_t name) { return freak_
 int64_t freak_llvm_fs_remove_relative_file_checked(int64_t root,int64_t path) { return freak_fs_remove_relative_file_checked(root,freak_llvm_word_view(path)); }
 int64_t freak_llvm_fs_mkdir_relative_checked(int64_t root,int64_t relative) { return freak_fs_mkdir_relative_checked(root,freak_llvm_word_view(relative)); }
 int64_t freak_llvm_fs_open_relative_dir_ticket(int64_t root,int64_t relative) { return freak_fs_open_relative_dir_ticket(root,freak_llvm_word_view(relative)); }
+int64_t freak_llvm_fs_list_dir_ticket(int64_t root) { return freak_fs_list_dir_ticket(root); }
+int64_t freak_llvm_fs_result_missing(int64_t result) { return freak_fs_result_missing(result) ? 1 : 0; }
+int64_t freak_llvm_fs_directory_path_ticket(int64_t root) { return freak_fs_directory_path_ticket(root); }
+int64_t freak_llvm_fs_directory_identity_ticket(int64_t root) { return freak_fs_directory_identity_ticket(root); }
