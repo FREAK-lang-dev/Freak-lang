@@ -42,19 +42,17 @@ task app_dispatch(request: int) -> bool {
     if path == "/echo" {
         pilot body = http_request_body(request)
         pilot sent = http_send_bytes(request, body)
-        body.release()
         give back false
     }
     if path == "/header-bytes" {
         pilot index = http_header_find(request, "X-Binary", 0)
         pilot body = http_header_value_bytes(request, index)
         pilot sent = http_send_bytes(request, body)
-        body.release()
         give back false
     }
     if path == "/json" {
         pilot body = http_request_body(request)
-        pilot document = json_document_parse_bytes(body)
+        pilot document = json_document::parse_bytes(body)
         body.release()
         if json_document_ok(document) == 0 {
             pilot status = http_response_status(request, 400)
