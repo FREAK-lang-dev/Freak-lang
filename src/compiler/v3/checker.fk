@@ -584,6 +584,8 @@ task bc_walk_block(block_str: word) -> void {
                 pilot statement = word_to_int(cur)
                 bc_walk_stmt(statement)
                 if tc_stmt_definitely_returns(statement) { give back }
+                pilot statement_kind: word = array_get(ast_stmt_kinds, statement)
+                if statement_kind == STMT_BREAK or statement_kind == STMT_CONTINUE { give back }
             }
             cur = ""
         } else {
@@ -2135,12 +2137,50 @@ task tc_expr_is_terminal(expr_id: int) -> bool {
     give back name == "panic" or name == "process::exit"
 }
 
+-- Loop exits leave their surrounding body even if unreachable returns follow.
+-- Nested loops establish a new control target and do not exit this body.
+task tc_block_may_exit_loop(block: word) -> bool {
+    pilot count = tc_arg_count(block)
+    pilot index = 0
+    repeat count times {
+        pilot statement = word_to_int(tc_list_item(block, index))
+        if tc_stmt_may_exit_loop(statement) { give back true }
+        if tc_stmt_definitely_returns(statement) { give back false }
+        index += 1
+    }
+    give back false
+}
+
+task tc_stmt_may_exit_loop(stmt_id: int) -> bool {
+    if stmt_id < 0 { give back false }
+    pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
+    if kind == STMT_BREAK or kind == STMT_CONTINUE { give back true }
+    if kind == STMT_BLOCK or kind == STMT_EVENTUALLY { give back tc_block_may_exit_loop(array_get(ast_stmt_bodies, stmt_id)) }
+    if kind == STMT_IF or kind == STMT_CHECK_RESULT {
+        give back tc_block_may_exit_loop(array_get(ast_stmt_bodies, stmt_id)) or tc_block_may_exit_loop(array_get(ast_stmt_else_bodies, stmt_id))
+    }
+    if kind == STMT_WHEN {
+        pilot cases: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot index = 0
+        repeat tc_arg_count(cases) times {
+            pilot statement = tc_case_stmt_part(tc_list_item(cases, index))
+            if statement != "" and tc_stmt_may_exit_loop(word_to_int(statement)) { give back true }
+            index += 1
+        }
+    }
+    give back false
+}
+
 task tc_block_definitely_returns(block: word) -> bool {
     pilot count = tc_arg_count(block)
     pilot i = 0
     repeat count times {
         pilot stmt_text = tc_list_item(block, i)
-        if stmt_text != "" and tc_stmt_definitely_returns(word_to_int(stmt_text)) { give back true }
+        if stmt_text != "" {
+            pilot statement = word_to_int(stmt_text)
+            if tc_stmt_may_exit_loop(statement) { give back false }
+            if tc_stmt_definitely_returns(statement) { give back true }
+        }
         i += 1
     }
     give back false

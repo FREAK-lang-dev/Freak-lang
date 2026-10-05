@@ -22,6 +22,9 @@ POSITIVE = {
     'reinitialized_owner': ('task choose(first: bool) { pilot mut bytes: ByteBuffer = ByteBuffer::new(); if first { bytes.release(); bytes = ByteBuffer::new(); } say bytes.length(); bytes.release(); } task main() { choose(true); choose(false); }', '0\n0\n'),
     'terminated_block': ('task choose(bytes: ByteBuffer) -> int { bytes.release(); give back 1; say bytes.length(); } task main() { say choose(ByteBuffer::new()); }', '1\n'),
     'partial_live_arms': ('task choose(bytes: ByteBuffer, first: bool) { if first { say bytes.length(); } else { say bytes.length(); } bytes.release(); } task main() { choose(ByteBuffer::new(), true); choose(ByteBuffer::new(), false); }', '0\n0\n'),
+    'nested_loop_then_return': ('task choose(bytes: ByteBuffer, first: bool) -> int { if first { repeat 1 times { break; } bytes.release(); give back 1; } pilot length = bytes.length(); bytes.release(); give back length + 2; } task main() { say choose(ByteBuffer::new(), true); say choose(ByteBuffer::new(), false); }', '1\n2\n'),
+    'dead_read_after_break': ('task main() { pilot bytes: ByteBuffer = ByteBuffer::new(); repeat 1 times { bytes.release(); break; say bytes.length(); } }', ''),
+    'dead_read_after_continue': ('task main() { pilot bytes: ByteBuffer = ByteBuffer::new(); repeat 1 times { bytes.release(); continue; say bytes.length(); } }', ''),
 }
 NEGATIVE = {
     'move_on_live_then': 'task choose(bytes: ByteBuffer, first: bool) { if first { bytes.release(); } say bytes.length(); } task main() { choose(ByteBuffer::new(), false); }',
@@ -32,6 +35,11 @@ NEGATIVE = {
     'prior_move_stays_moved': 'task choose(bytes: ByteBuffer, first: bool) { bytes.release(); if first { say 1; } else { say 2; } say bytes.length(); } task main() { choose(ByteBuffer::new(), false); }',
     'condition_move_stays_moved': 'task take(bytes: ByteBuffer) -> bool { bytes.release(); give back true; } task main() { pilot bytes: ByteBuffer = ByteBuffer::new(); if take(bytes) { say 1; } bytes.release(); }',
     'wrong_case_release': 'task main() { pilot bytes: ByteBuffer = ByteBuffer::new(); if true { bytes.release(); } else { bytes.release(); } bytes.release(); }',
+    'break_then_unreachable_return': 'task main() { pilot bytes: ByteBuffer = ByteBuffer::new(); repeat 1 times { if true { bytes.release(); break; give back; } } say bytes.length(); bytes.release(); }',
+    'continue_then_unreachable_return': 'task main() { pilot bytes: ByteBuffer = ByteBuffer::new(); repeat 1 times { if true { bytes.release(); continue; give back; } } say bytes.length(); bytes.release(); }',
+    'nested_block_break_then_return': 'task main() { pilot bytes: ByteBuffer = ByteBuffer::new(); repeat 1 times { if true { bytes.release(); { break; } give back; } } say bytes.length(); bytes.release(); }',
+    'conditional_break_then_return': 'task choose(bytes: ByteBuffer, stop: bool) { repeat 1 times { if true { bytes.release(); if stop { break; } give back; } } say bytes.length(); bytes.release(); } task main() { choose(ByteBuffer::new(), true); }',
+    'conditional_continue_then_return': 'task choose(bytes: ByteBuffer, stop: bool) { repeat 1 times { if true { bytes.release(); if stop { continue; } give back; } } say bytes.length(); bytes.release(); } task main() { choose(ByteBuffer::new(), true); }',
 }
 
 
