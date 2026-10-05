@@ -51,8 +51,12 @@ def creator_case(binary:Path,kind:str,destination:Path,env,*,success:bool):
 
 def creator_corpus(binary:Path,canonical:Path,root:Path,env):
     parent=root/'parent space🚀';parent.mkdir();env=env.copy()
-    # Selector points at the existing repo payload; CWD contains no templates.
-    env['TEMPLATE_RUNTIME']=str(canonical.parents[1]/'freakc/runtime')
+    # Selector points at an existing repo or installed payload; CWD contains no
+    # templates. The native selector itself remains the CLI owner's gate.
+    payload=canonical.parents[1];selected_runtime=payload/'runtime'
+    if not selected_runtime.is_dir():selected_runtime=payload/'freakc/runtime'
+    assert selected_runtime.is_dir(),selected_runtime
+    env['TEMPLATE_RUNTIME']=str(selected_runtime)
     for kind in ('cli','lib','http'):
         name=kind+'-demo';destination=parent/name;creator_case(binary,kind,destination,env,success=True)
         assert tree(destination)==expected(canonical,kind,name),kind
@@ -154,8 +158,14 @@ def main():
     vendor=runtime/'third_party/llhttp'
     if not vendor.exists():vendor=runtime.parents[1]/'third_party/llhttp'
     pinned=[compiler,repo/'src/cli/templates.fk',*sorted(p for p in canonical.rglob('*') if p.is_file()),*sorted(runtime.glob('*.c')),*sorted(runtime.glob('*.h')),*sorted(runtime.glob('*.inc')),*sorted(p for p in vendor.rglob('*') if p.is_file())]
+    if args.cli:pinned.append(args.cli.resolve(strict=True))
+    if args.payload_home:pinned+=sorted(p for p in args.payload_home.resolve(strict=True).rglob('*') if p.is_file())
     before={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned}
-    evidence={'compiler_sha256':before[str(compiler)],'generator_sha256':hashlib.sha256(generator.encode()).hexdigest(),'pinned_input_sha256':before,'strict_borrow':True,'sanitize':args.sanitize,'creator_matrices':[],'installed_cli_matrices':[],'installed_cli_verified':False}
+    clang=Path(shutil.which(args.clang) or args.clang).resolve(strict=True)
+    tool_version=run([clang,'--version'],cwd=repo);assert tool_version.returncode==0,(tool_version.stdout,tool_version.stderr)
+    evidence={'compiler_sha256':before[str(compiler)],'generator_sha256':hashlib.sha256(generator.encode()).hexdigest(),'pinned_input_sha256':before,
+        'clang':str(clang),'clang_sha256':hashlib.sha256(clang.read_bytes()).hexdigest(),'clang_version':tool_version.stdout.splitlines()[0],
+        'strict_borrow':True,'sanitize':args.sanitize,'creator_matrices':[],'installed_cli_matrices':[],'installed_cli_verified':False}
     with tempfile.TemporaryDirectory(prefix='freak-native-templates-') as temporary:
         root=Path(temporary);source=root/'creator.fk';source.write_text(SELECTORS+'\n'+generator+'\n'+MAIN)
         if args.sanitize:

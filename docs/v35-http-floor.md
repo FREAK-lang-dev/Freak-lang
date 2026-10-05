@@ -54,8 +54,9 @@ ByteBuffer arguments. Ordinary facade `http_send_bytes` consumes its buffer
 parameter and releases it after the send; a caller must not use or release that
 moved owner. `http_send_json` borrows a scalar document ticket, serializes into
 an owned temporary ByteBuffer and releases that buffer on success or failure.
-The caller still releases the JSON document. Stale/copied/released/foreign
-tickets fail before accessing a reused socket or buffer.
+The caller still releases the JSON document. Released, stale or foreign tickets
+fail before accessing a reused socket or buffer. Copying a scalar ticket does
+not preserve its lifetime after release or subsequent slot reuse.
 
 HTTP/1.1 requires exactly one valid Host. HTTP/1.0 may omit Host. The parser
 rejects malformed header names, obsolete folding, duplicate Host or
@@ -182,7 +183,9 @@ both scalar runtime interfaces at O0/O2/O3. It forces real partial sends,
 tests strict framing/Host/Expect/chunks/trailers, exact size boundaries,
 absolute/idle deadlines, resets, bind/restart and stop during network waits.
 The same-process mixed request soak conserves live HTTP/socket/buffer/word/JSON
-owners, kernel descriptors and retained HTTP metadata after warmup.
+owners, kernel descriptors and retained HTTP metadata after warmup. It also
+checks that shared ByteBuffer/JSON ticket tables and LLVM word buckets stop
+growing after their exercised paths have warmed up.
 
 `tests/v3_v35_http_language.py` compiles an ordinary FREAK consumer using the
 fresh V3.5 compiler, strict borrow checking, both native backends and ownership
