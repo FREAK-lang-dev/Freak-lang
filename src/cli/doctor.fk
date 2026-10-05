@@ -6,6 +6,71 @@
 -- ===================================================================
 
 pilot cli_doctor_retained_probe_path: word = ""
+pilot CLI_DOCTOR_MINIMUM_CLANG_MAJOR: int = 15
+pilot CLI_DOCTOR_MINIMUM_APPLE_CLANG_MAJOR: int = 15
+
+task cli_doctor_clang_version_prefix(version: word) -> word {
+    if version.starts_with("Apple clang version ") { give back "Apple clang version " }
+    if version.starts_with("clang version ") { give back "clang version " }
+    if version.starts_with("Ubuntu clang version ") { give back "Ubuntu clang version " }
+    if version.starts_with("Debian clang version ") { give back "Debian clang version " }
+    if version.starts_with("Homebrew clang version ") { give back "Homebrew clang version " }
+    if version.starts_with("FreeBSD clang version ") { give back "FreeBSD clang version " }
+    give back ""
+}
+
+task cli_doctor_clang_vendor(version: word) -> word {
+    if version.starts_with("Apple clang version ") { give back "apple" }
+    if cli_doctor_clang_version_prefix(version) != "" { give back "upstream" }
+    give back "unknown"
+}
+
+task cli_doctor_clang_version_major(version: word) -> int {
+    pilot prefix = cli_doctor_clang_version_prefix(version)
+    if prefix == "" { give back 0 }
+    pilot index = prefix.length()
+    pilot digits = ""
+    repeat until index >= version.length() {
+        pilot ch = version.char_at(index)
+        if not is_numeric(ch) { break }
+        -- Bound conversion before to_int, including hostile version output.
+        if digits.length() >= 4 { give back 0 }
+        digits = digits + ch
+        index += 1
+    }
+    if digits == "" or index + 1 >= version.length() { give back 0 }
+    if version.char_at(index) != "." or not is_numeric(version.char_at(index + 1)) { give back 0 }
+    give back digits.to_int()
+}
+
+task cli_doctor_clang_minimum_major(version: word) -> int {
+    if cli_doctor_clang_vendor(version) == "apple" { give back CLI_DOCTOR_MINIMUM_APPLE_CLANG_MAJOR }
+    give back CLI_DOCTOR_MINIMUM_CLANG_MAJOR
+}
+
+task cli_doctor_clang_version_supported(version: word) -> bool {
+    give back cli_doctor_clang_version_major(version) >= cli_doctor_clang_minimum_major(version)
+}
+
+task cli_doctor_clang_minimum_line() -> word {
+    give back "Minimum supported Clang: upstream Clang " + word_from_int(CLI_DOCTOR_MINIMUM_CLANG_MAJOR) + ", Apple Clang " + word_from_int(CLI_DOCTOR_MINIMUM_APPLE_CLANG_MAJOR) + " (headers/linker/run probe required)."
+}
+
+task cli_doctor_clang_version_problem(version: word) -> word {
+    if cli_doctor_clang_version_major(version) == 0 {
+        give back "The selected tool's Clang version is unrecognized or malformed."
+    }
+    give back "The selected Clang is older than the supported minimum " + word_from_int(cli_doctor_clang_minimum_major(version)) + "."
+}
+
+task cli_doctor_command_executable(command: word) -> word {
+    -- Discovery returns a quoted path for legacy shell callers. Remove only
+    -- its enclosing quotes before passing an executable to the argv API.
+    if command.length() >= 2 and command.starts_with("\"") and command.ends_with("\"") {
+        give back command.substring(1, command.length() - 2)
+    }
+    give back command
+}
 
 task cli_doctor_json_escape(input: word) -> word {
     pilot out = ""
@@ -20,6 +85,8 @@ task cli_doctor_json_escape(input: word) -> word {
             out = out + "\\n"
         } else if ch == "\r" {
             out = out + "\\r"
+        } else if ch == "\t" {
+            out = out + "\\t"
         } else {
             out = out + ch
         }
@@ -106,7 +173,7 @@ task cli_doctor_remove_temp_parent(probe_path: word) -> bool {
     give back true
 }
 
-task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
+task cli_doctor_clang_probe(clang_cmd: word) -> bool {
     if clang_cmd == "" { give back false }
     pilot is_win = cli_is_windows()
     pilot probe_stem = cli_doctor_temp_stem("freak-doctor-clang-probe-")
@@ -116,23 +183,23 @@ task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
     if is_win { probe_binary = probe_binary + ".exe" }
     pilot probe_text = "#include <stdio.h>\nint main(void) { return 0; }\n"
     fs::write(probe_source, probe_text)
-    pilot probe_exit = 1
-    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
-    if is_win {
-        probe_exit = process::exec(clang_prefix + " -x c " + cli_quote_cmd_path(probe_source) + " -o " + cli_quote_cmd_path(probe_binary) + " >nul 2>nul")
-    } else {
-        probe_exit = process::exec(clang_prefix + " -x c " + cli_quote_cmd_path(probe_source) + " -o " + cli_quote_cmd_path(probe_binary) + " >/dev/null 2>/dev/null")
+    pilot compile_command = process::command_new(cli_doctor_command_executable(clang_cmd))
+    process::command_arg(compile_command, "-x")
+    process::command_arg(compile_command, "c")
+    process::command_arg(compile_command, probe_source)
+    process::command_arg(compile_command, "-o")
+    process::command_arg(compile_command, probe_binary)
+    pilot compile_status = process::command_run(compile_command, 30000, 16384, 16384)
+    pilot compile_ok = compile_status == 2 and process::command_exit_code(compile_command) == 0
+    process::command_release(compile_command)
+    pilot run_ok = false
+    if compile_ok and fs::exists(probe_binary) {
+        pilot probe_command = process::command_new(probe_binary)
+        pilot run_status = process::command_run(probe_command, 10000, 4096, 4096)
+        run_ok = run_status == 2 and process::command_exit_code(probe_command) == 0
+        process::command_release(probe_command)
     }
-    pilot probe_run_exit = 1
-    if probe_exit == 0 and fs::exists(probe_binary) {
-        pilot probe_command = cli_shell_command_prefix(cli_quote_cmd_path(probe_binary))
-        if is_win {
-            probe_run_exit = process::exec(probe_command + " >nul 2>nul")
-        } else {
-            probe_run_exit = process::exec(probe_command + " >/dev/null 2>/dev/null")
-        }
-    }
-    pilot probe_ok = probe_exit == 0 and probe_run_exit == 0
+    pilot probe_ok = compile_ok and run_ok
     if fs::exists(probe_source) { fs::delete(probe_source) }
     if fs::exists(probe_binary) { fs::delete(probe_binary) }
     if fs::exists(probe_stem + ".obj") { fs::delete(probe_stem + ".obj") }
@@ -147,8 +214,20 @@ task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
 
 task cli_doctor_clang_version_line(clang_cmd: word) -> word {
     if clang_cmd == "" { give back "" }
-    pilot clang_ver: word = process::exec_capture(clang_cmd + " --version")
+    pilot command = process::command_new(cli_doctor_command_executable(clang_cmd))
+    process::command_arg(command, "--version")
+    pilot status = process::command_run(command, 10000, 16384, 16384)
+    pilot clang_ver = ""
+    if status == 2 and process::command_exit_code(command) == 0 {
+        clang_ver = process::command_stdout(command)
+    }
+    process::command_release(command)
     give back cli_doctor_first_line(clang_ver)
+}
+
+task cli_doctor_clang_command_works(clang_cmd: word) -> bool {
+    if not cli_doctor_clang_version_supported(cli_doctor_clang_version_line(clang_cmd)) { give back false }
+    give back cli_doctor_clang_probe(clang_cmd)
 }
 
 task cli_doctor_first_line(text: word) -> word {
@@ -253,11 +332,11 @@ task cli_doctor_json() -> int {
     }
 
     pilot clang_cmd = cli_doctor_find_clang_command()
-    pilot clang_ok = cli_doctor_clang_command_works(clang_cmd)
-    pilot clang_version = ""
-    if clang_ok {
-        clang_version = cli_doctor_clang_version_line(clang_cmd)
-    }
+    pilot clang_version = cli_doctor_clang_version_line(clang_cmd)
+    pilot clang_version_ok = cli_doctor_clang_version_supported(clang_version)
+    pilot clang_probe_ok = false
+    if clang_version_ok { clang_probe_ok = cli_doctor_clang_probe(clang_cmd) }
+    pilot clang_ok = clang_version_ok and clang_probe_ok
 
     pilot lld_cmd = "ld.lld --version 2>/dev/null"
     if is_win { lld_cmd = "where lld-link 2>nul" }
@@ -309,6 +388,11 @@ task cli_doctor_json() -> int {
     say "      \"ok\": " + cli_doctor_json_bool(clang_ok) + ","
     say "      \"command\": \"" + cli_doctor_json_escape(clang_cmd) + "\","
     say "      \"version\": \"" + cli_doctor_json_escape(clang_version) + "\","
+    say "      \"vendor\": \"" + cli_doctor_clang_vendor(clang_version) + "\","
+    say "      \"major\": " + word_from_int(cli_doctor_clang_version_major(clang_version)) + ","
+    say "      \"minimum_major\": " + word_from_int(cli_doctor_clang_minimum_major(clang_version)) + ","
+    say "      \"version_ok\": " + cli_doctor_json_bool(clang_version_ok) + ","
+    say "      \"probe_ok\": " + cli_doctor_json_bool(clang_probe_ok) + ","
     say "      \"cleanup_retained\": \"" + cli_doctor_json_escape(cli_doctor_retained_probe_path) + "\""
     say "    },"
     say "    \"lld\": {"
@@ -465,19 +549,25 @@ task cli_doctor(fix_mode: bool) -> int {
 
     -- ── 1. clang ──────────────────────────────────────────
     say "  " + C_BWHITE + "[1/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " clang"
+    say "        " + C_DIM + cli_doctor_clang_minimum_line() + C_RESET
     pilot clang_cmd = cli_find_clang_command()
+    pilot clang_version = cli_doctor_clang_version_line(clang_cmd)
     pilot clang_ok = false
     if cli_doctor_clang_command_works(clang_cmd) {
         clang_ok = true
-        pilot cv_line: word = cli_clang_version_line(clang_cmd)
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + cv_line + C_RESET
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + C_DIM + clang_version + C_RESET
         if clang_cmd != "clang" {
             say "        " + C_DIM + "using: " + clang_cmd + C_RESET
         }
         checks_passed += 1
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " clang toolchain " + C_RED + "unusable" + C_RESET
-        say "        " + C_DIM + "The C headers, linker, or generated executable probe failed." + C_RESET
+        if not cli_doctor_clang_version_supported(clang_version) {
+            say "        " + C_DIM + cli_doctor_clang_version_problem(clang_version) + C_RESET
+            if clang_version != "" { say "        " + C_DIM + "Reported: " + clang_version + C_RESET }
+        } else {
+            say "        " + C_DIM + "The C headers, linker, or generated executable probe failed." + C_RESET
+        }
         if fix_mode {
             say "        " + C_DIM + "Attempting auto-install..." + C_RESET
             pilot clang_fix = cli_install_clang(os_tag)
@@ -485,7 +575,7 @@ task cli_doctor(fix_mode: bool) -> int {
                 clang_cmd = cli_find_clang_command()
                 if cli_doctor_clang_command_works(clang_cmd) {
                     clang_ok = true
-                    pilot cv_line2: word = cli_clang_version_line(clang_cmd)
+                    pilot cv_line2: word = cli_doctor_clang_version_line(clang_cmd)
                     say "        " + C_BGREEN + SYM_CHECK + C_RESET + " clang installed: " + C_DIM + cv_line2 + C_RESET
                     if clang_cmd != "clang" {
                         say "        " + C_DIM + "using: " + clang_cmd + C_RESET
@@ -756,12 +846,16 @@ task cli_doctor_target_json(raw: word, triple: word) -> int {
     pilot clang_cmd = ""
     pilot clang_ok = false
     pilot clang_version = ""
+    pilot clang_version_ok = false
+    pilot clang_probe_ok = false
     pilot linker_cmd = ""
     if known {
         clang_cmd = cli_doctor_find_clang_command()
-        clang_ok = cli_doctor_clang_command_works(clang_cmd)
+        clang_version = cli_doctor_clang_version_line(clang_cmd)
+        clang_version_ok = cli_doctor_clang_version_supported(clang_version)
+        if clang_version_ok { clang_probe_ok = cli_doctor_clang_probe(clang_cmd) }
+        clang_ok = clang_version_ok and clang_probe_ok
         if clang_ok {
-            clang_version = cli_doctor_clang_version_line(clang_cmd)
             linker_cmd = cli_selected_linker_command(clang_cmd, "off", cli_canonical_target_triple(triple))
         }
     }
@@ -792,7 +886,12 @@ task cli_doctor_target_json(raw: word, triple: word) -> int {
     say "      \"clang\": {"
     say "        \"ok\": " + cli_doctor_json_bool(clang_ok) + ","
     say "        \"command\": \"" + cli_doctor_json_escape(clang_cmd) + "\","
-    say "        \"version\": \"" + cli_doctor_json_escape(clang_version) + "\""
+    say "        \"version\": \"" + cli_doctor_json_escape(clang_version) + "\","
+    say "        \"vendor\": \"" + cli_doctor_clang_vendor(clang_version) + "\","
+    say "        \"major\": " + word_from_int(cli_doctor_clang_version_major(clang_version)) + ","
+    say "        \"minimum_major\": " + word_from_int(cli_doctor_clang_minimum_major(clang_version)) + ","
+    say "        \"version_ok\": " + cli_doctor_json_bool(clang_version_ok) + ","
+    say "        \"probe_ok\": " + cli_doctor_json_bool(clang_probe_ok)
     say "      },"
     say "      \"linker\": {"
     say "        \"ok\": " + cli_doctor_json_bool(linker_ok) + ","
@@ -856,10 +955,16 @@ task cli_doctor_target_report(raw: word, triple: word, json_mode: bool) -> int {
 
     pilot all_ok = true
     pilot clang_cmd = cli_doctor_find_clang_command()
+    pilot clang_version = cli_doctor_clang_version_line(clang_cmd)
+    say "  " + C_DIM + cli_doctor_clang_minimum_line() + C_RESET
     if cli_doctor_clang_command_works(clang_cmd) {
         say "  " + C_BGREEN + SYM_CHECK + C_RESET + " clang usable: " + C_DIM + cli_doctor_clang_version_line(clang_cmd) + C_RESET
     } else {
         say "  " + C_BRED + SYM_CROSS + C_RESET + " clang toolchain " + C_RED + "unusable" + C_RESET
+        if not cli_doctor_clang_version_supported(clang_version) {
+            say "        " + C_DIM + cli_doctor_clang_version_problem(clang_version) + C_RESET
+            if clang_version != "" { say "        " + C_DIM + "Reported: " + clang_version + C_RESET }
+        }
         say "        " + C_DIM + "Fix: run freak doctor --fix, then retry freak doctor --target=" + triple + C_RESET
         all_ok = false
     }

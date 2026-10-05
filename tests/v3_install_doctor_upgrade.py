@@ -263,8 +263,8 @@ def check_static_contracts(repo: Path) -> None:
         "FREAK_DOCTOR_TEST_FAIL_FIRST_REMOVE",
         "FREAK_DOCTOR_TEST_RETAIN_PROBE",
         "cleanup_retained",
-        "cli_quote_cmd_path(probe_source)",
-        "probe_run_exit == 0",
+        "process::command_arg(compile_command, probe_source)",
+        "run_status == 2 and process::command_exit_code(probe_command) == 0",
         "give back probe_ok",
         "pending_marker = cli_pending_upgrade_marker()",
         "clang toolchain ",
@@ -2591,27 +2591,40 @@ def check_doctor(
     shutil.copy2(repo / "freakc" / "runtime" / "freak_runtime.c", runtime_source)
     caller_cache.unlink()
 
-    # A version/output-only fake models the Windows failure mode that motivated
-    # the usable-toolchain probe. Creating a file is insufficient: doctor must
-    # execute the linked probe before accepting Clang, and --fix must repair it.
+    # A launchable native tool with a supported version still emits an invalid
+    # executable. Doctor must run that output before accepting the toolchain;
+    # neither --version success nor the output file proves a working linker.
     broken_clang = root / (
-        "version-only-clang.cmd" if sys.platform == "win32" else "version-only-clang.sh"
+        "version-only-clang.exe" if sys.platform == "win32" else "version-only-clang"
     )
+    broken_clang_source = root / "version-only-clang.c"
+    broken_clang_source.write_text(
+        '#include <stdio.h>\n#include <string.h>\n'
+        'int main(int argc, char **argv) {\n'
+        '  if (argc == 2 && strcmp(argv[1], "--version") == 0) {\n'
+        '    puts("clang version 15.0.0"); return 0;\n'
+        '  }\n'
+        '  for (int i = 1; i + 1 < argc; ++i) {\n'
+        '    if (strcmp(argv[i], "-o") == 0) {\n'
+        '      FILE *output = fopen(argv[i + 1], "wb");\n'
+        '      if (!output) return 2;\n'
+        '      fputs("this is not an executable", output); fclose(output); return 0;\n'
+        '    }\n'
+        '  }\n'
+        '  return 1;\n'
+        '}\n', encoding="utf-8",
+    )
+    real_clang = report["checks"]["clang"]["command"]
+    if real_clang.startswith('"') and real_clang.endswith('"'):
+        real_clang = real_clang[1:-1]
+    fixture_build = subprocess.run(
+        [real_clang, str(broken_clang_source), "-o", str(broken_clang)],
+        cwd=root, env=env, capture_output=True, text=True,
+        errors="replace", timeout=60, check=False,
+    )
+    assert fixture_build.returncode == 0, fixture_build.stdout + fixture_build.stderr
     repair_sentinel = root / "doctor-install-attempted.txt"
     if sys.platform == "win32":
-        broken_clang.write_text(
-            '@echo off\nif "%1"=="--version" (echo clang output-only fixture& exit /b 0)\n'
-            ":scan\n"
-            'if "%1"=="" exit /b 1\n'
-            'if "%1"=="-o" goto emit\n'
-            "shift\n"
-            "goto scan\n"
-            ":emit\n"
-            "shift\n"
-            '> "%~1" echo this is not an executable\n'
-            "exit /b 0\n",
-            encoding="utf-8",
-        )
         install_fixture = root / "doctor-install-fixture.cmd"
         install_fixture.write_text(
             f'@echo off\n> "{repair_sentinel}" echo attempted\nexit /b 0\n',
@@ -2619,17 +2632,6 @@ def check_doctor(
         )
         install_command = f'"{install_fixture}"'
     else:
-        broken_clang.write_text(
-            "#!/usr/bin/env bash\n"
-            'if [ "${1:-}" = "--version" ]; then echo clang output-only fixture; exit 0; fi\n'
-            "while [ \"$#\" -gt 0 ]; do\n"
-            '  if [ "$1" = "-o" ]; then shift; printf not-executable > "$1"; exit 0; fi\n'
-            "  shift\n"
-            "done\n"
-            "exit 1\n",
-            encoding="utf-8",
-        )
-        broken_clang.chmod(0o755)
         install_fixture = root / "doctor-install-fixture.sh"
         install_fixture.write_text(
             "#!/usr/bin/env bash\n"
@@ -2645,6 +2647,8 @@ def check_doctor(
     assert broken.returncode != 0, broken.stdout + broken.stderr
     broken_report = json.loads(broken.stdout)
     assert broken_report["checks"]["clang"]["ok"] is False
+    assert broken_report["checks"]["clang"]["version_ok"] is True
+    assert broken_report["checks"]["clang"]["probe_ok"] is False
     assert not list(cwd.glob("freak-doctor-clang-probe-*"))
     assert not list(probe_temp.glob("freak-doctor-clang-probe-*"))
 

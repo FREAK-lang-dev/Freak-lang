@@ -145,7 +145,32 @@ task cli_run_cache_record(fingerprint: word, binary: word) -> word {
     give back fingerprint + "|artifact=" + artifact
 }
 
-task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, runtime_policy: word, runtime_stats: word, cross: word) -> int {
+task cli_run_program(run_path: word, program_arg_start: int) -> int {
+    -- Program arguments are independent argv entries. Never render them as
+    -- shell text: empty words and metacharacters must reach the child intact.
+    pilot command = process::command_new(run_path)
+    pilot arg_index = program_arg_start
+    pilot arg_count = process::args_count()
+    repeat until arg_index >= arg_count {
+        process::command_arg(command, process::arg(arg_index))
+        arg_index += 1
+    }
+    -- User programs inherit the terminal and have no CLI-imposed deadline.
+    pilot status = process::command_run_inherit(command, 0)
+    pilot run_code = 1
+    if status == 2 {
+        run_code = process::command_exit_code(command)
+    } else if status == 4 {
+        run_code = 128 + process::command_signal(command)
+    } else {
+        pilot error = process::command_error(command)
+        say "  " + C_BRED + SYM_CROSS + " RUN FAILED" + C_RESET + " " + error
+    }
+    process::command_release(command)
+    give back run_code
+}
+
+task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, runtime_policy: word, runtime_stats: word, cross: word, program_arg_start: int) -> int {
     -- Cross-compiled binaries cannot run on this host. Refuse before any
     -- build artifact or cache entry changes; freak build stays the
     -- cross-compile path.
@@ -233,13 +258,12 @@ task cli_run(src_file: word, target: word, profile: word, opt: word, lto: word, 
     if cli_is_windows() {
         run_path = run_path.replace("/", "\\")
     } else if not run_path.contains("/") {
-        -- POSIX shells do not search the current directory. A source passed
+        -- POSIX executable lookup does not search the current directory. A source passed
         -- as `hello.fk` produces `hello`, which must be launched as `./hello`.
         run_path = "./" + run_path
     }
-    pilot run_cmd: word = cli_shell_command_prefix(cli_quote_cmd_path(run_path))
     pilot run_start = time::now_ms()
-    pilot run_code = process::exec(run_cmd)
+    pilot run_code = cli_run_program(run_path, program_arg_start)
     pilot run_elapsed = time::now_ms() - run_start
     say ""
     if run_code != 0 {
