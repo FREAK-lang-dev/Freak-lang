@@ -6101,8 +6101,7 @@ task v4_borrowck_mutable_candidates_new(borrow_id: int, result_id: int, mir_id: 
                 tail_cell = 3 + block_count + loan_block
             }
             pilot tail = word_to_int(array_get(candidates, tail_cell))
-            if tail < 0 { array_set(candidates, head_cell, word_from_int(path)) }
-            else { array_set(candidates, 3 + block_count * 2 + tail, word_from_int(path)) }
+            if tail < 0 { array_set(candidates, head_cell, word_from_int(path)) } else { array_set(candidates, 3 + block_count * 2 + tail, word_from_int(path)) }
             array_set(candidates, tail_cell, word_from_int(path))
         }
         path += 1
