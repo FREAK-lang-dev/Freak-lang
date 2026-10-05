@@ -1146,6 +1146,34 @@ static char *freak_fs_nofollow_path(freak_fs_ticket *result,freak_word path) {
     }
     return name;
 }
+/* An absent leaf reached through a broken ancestor link is not a safe missing
+   path. Recheck native not-found failures through nofollow directory handles;
+   unreadable, non-directory and reparse ancestors remain ordinary errors. */
+static bool freak_fs_stat_known_missing(const char *name) {
+#ifdef _WIN32
+    DWORD saved=GetLastError();
+    freak_fs_anchor directory=freak_fs_anchor_root(name);
+    bool missing=directory == FREAK_FS_INVALID_ANCHOR && freak_fs_failure_missing();
+    freak_fs_anchor_close(directory); SetLastError(saved); return missing;
+#else
+    int saved=errno;
+    freak_fs_anchor current=open(name[0] == '/' ? "/" : ".",O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    char *tail=freak_command_copy(freak_word_lit(name[0] == '/' ? name+1 : name),false);
+    char *cursor=tail; bool missing=current < 0 && errno == ENOENT;
+    while (*cursor && current >= 0) {
+        while (*cursor == '/') cursor++;
+        if (!*cursor) break;
+        char *slash=strchr(cursor,'/'); if (slash) *slash=0;
+        /* Unlike contained relative operations, general stat accepts ../. */
+        freak_fs_anchor next=openat(current,cursor,O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
+        if (next < 0) missing=errno == ENOENT;
+        freak_fs_anchor_close(current); current=next;
+        if (!slash) break;
+        cursor=slash+1;
+    }
+    freak_fs_anchor_close(current); free(tail); errno=saved; return missing;
+#endif
+}
 int64_t freak_fs_stat_checked(freak_word path) {
     int64_t handle = freak_fs_ticket_new(); freak_fs_ticket *result = freak_fs_ticket_require(handle);
     char *name = freak_fs_nofollow_path(result,path); if (!name) return handle;
@@ -1159,14 +1187,16 @@ int64_t freak_fs_stat_checked(freak_word path) {
         if (size <= INT64_MAX) {
             result->size = (int64_t)size; result->mode = (int64_t)info.dwFileAttributes; result->ok = true;
         }
-    }
+    } else if (freak_fs_failure_missing()) result->missing=freak_fs_stat_known_missing(name);
     free(wide);
 #else
     struct stat info;
-    if (lstat(name,&info) == 0 && info.st_size >= 0 && (uintmax_t)info.st_size <= INT64_MAX) {
-        result->kind = S_ISREG(info.st_mode) ? 1 : S_ISDIR(info.st_mode) ? 2 : S_ISLNK(info.st_mode) ? 3 : 4;
-        result->size = (int64_t)info.st_size; result->mode = (int64_t)(info.st_mode & 07777); result->ok = true;
-    }
+    if (lstat(name,&info) == 0) {
+        if (info.st_size >= 0 && (uintmax_t)info.st_size <= INT64_MAX) {
+            result->kind = S_ISREG(info.st_mode) ? 1 : S_ISDIR(info.st_mode) ? 2 : S_ISLNK(info.st_mode) ? 3 : 4;
+            result->size = (int64_t)info.st_size; result->mode = (int64_t)(info.st_mode & 07777); result->ok = true;
+        }
+    } else if (errno == ENOENT) result->missing=freak_fs_stat_known_missing(name);
 #endif
     if (!result->ok) freak_fs_ticket_error(result,"could not inspect filesystem path without following links");
     free(name); return handle;
