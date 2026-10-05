@@ -526,6 +526,8 @@ int64_t freak_ferror(int64_t file);
    Returns an empty word if the host cannot provide a location. */
 freak_word freak_process_executable_path(void);
 bool freak_process_platform_is_windows(void);
+bool freak_process_stdout_is_terminal(void);
+int64_t freak_llvm_process_stdout_is_terminal(void);
 int64_t freak_llvm_process_executable_path(void);
 
 /* Stable, allocation-free FNV-1a checksum for persisted compiler data. */

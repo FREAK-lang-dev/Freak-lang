@@ -71,6 +71,19 @@ bool freak_process_platform_is_windows(void) {
 #endif
 }
 
+bool freak_process_stdout_is_terminal(void) {
+#ifdef _WIN32
+    int descriptor=_fileno(stdout);
+    if (descriptor < 0) return false;
+    intptr_t raw=_get_osfhandle(descriptor);
+    if (raw == -1 || raw == -2) return false;
+    DWORD mode=0;
+    return GetConsoleMode((HANDLE)raw,&mode) != 0;
+#else
+    return isatty(fileno(stdout)) != 0;
+#endif
+}
+
 freak_word freak_process_executable_path(void) {
 #ifdef _WIN32
     DWORD capacity = 256;
