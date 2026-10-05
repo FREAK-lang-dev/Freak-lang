@@ -1,7 +1,7 @@
 # V4 release progress
 
 Delivery order: Preview (Tier 1), followed by self-hosting and V3 replacement
-(Tiers 1–4 and 8). The uploaded release checklist is the scope; it does not
+(Tiers 1–4 and 8). Revision 3.1 of the uploaded release checklist is the scope; it does not
 override the language bible. Strict root scope remains the default. Compiler
 crate initialization must use explicit per-file bootstrap compatibility mode.
 The public release remains v0.14.2; this work does not create a release.
@@ -216,3 +216,35 @@ remains required, including the Windows step after this formerly failing gate.
 
 These checks do not complete default compiler unwind, self-hosting or V3
 replacement. The release version remains unchanged; no release tag is created.
+
+## Revision 3.1 reconciliation and next batch
+
+PR #143 merged as `116dae0ddea810252f1ad8af0ac71fddc0594c2f`, preserving
+all 249 original topic commits. Its reviewed `4ddde2d` head passed all twenty
+V4 and six shipping jobs on Linux, macOS and Windows, including the previously
+blocked Windows Unicode and subsequent seven fresh-build regressions.
+Independent final source/CI review and actual two-parent/identical-tree/ancestry
+verification are CLEAR. These hosted checks belong to `4ddde2d`; they are not
+relabeled as a separately executed postmerge workflow. Historical packets keep
+their recorded source heads and qualified input transfers.
+
+The working checklist now includes the A0–A5 architecture lane, all revision
+3.1 correctness findings, scalar conversion parity and migration decisions.
+A fresh source-text inventory records 219 syntax-facing helper calls plus one
+identity check in MIR Build, and 126 plus 41 in TY. MIR has zero forbidden
+family references; codegen retains eight Meiya call sites. This inventory is
+not a native performance measurement.
+
+The next bounded batch adds the A0 authority guard and fixes the ignored
+training-session cap and fully returning ordinary else-if chains. Training
+tests follow the bible's condition-first, re-evaluated-cap semantics; the V3
+native emitter's evaluate-once cap is an explicit parity difference. Continue
+must route through the increment epilogue. Conditional fixes must retain later
+source diagnostics and the original strict CFG/snapshot/native contracts.
+These rows remain open until their implementation and behavioral gates pass.
+
+Inline overflow intrinsics, speed regression guards and renewed TY/Meiya growth
+rates remain open. So do default unwind/cleanup, bootstrap/self-hosting, general
+aggregates, V3 parity and distribution. The U0 design was reviewed before merge;
+its implementation must consume A4 Runtime MIR/Meiya ownership facts rather than
+adding cleanup inference to codegen. The public version remains `0.14.2`.
