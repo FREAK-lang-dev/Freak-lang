@@ -59,7 +59,8 @@ task main() {
 }
 '''
 
-INTERPOSE = r'''#include <sys/stat.h>
+INTERPOSE = r'''#include "freak_runtime.h"
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <stdarg.h>
 #include <fcntl.h>
@@ -70,6 +71,15 @@ INTERPOSE = r'''#include <sys/stat.h>
 #include <errno.h>
 extern int __real_fsync(int);
 extern long __real_syscall(long,...);
+extern bool __real_freak_process_platform_is_windows(void);
+extern int64_t __real_freak_fs_set_mode_relative_checked(int64_t,freak_word,int64_t);
+bool __wrap_freak_process_platform_is_windows(void) {
+    return getenv("FREAK_TX_WINDOWS_BRANCH") ? true : __real_freak_process_platform_is_windows();
+}
+int64_t __wrap_freak_fs_set_mode_relative_checked(int64_t directory,freak_word name,int64_t mode) {
+    if (getenv("FREAK_TX_WINDOWS_BRANCH")) _exit(90);
+    return __real_freak_fs_set_mode_relative_checked(directory,name,mode);
+}
 long __wrap_syscall(long number,...) {
     if (number!=SYS_renameat2) _exit(89);
     va_list arguments; va_start(arguments,number);
@@ -182,7 +192,7 @@ task main() {
         command=[str(clang),'-g','-O1','-DFREAK_WORD_FOUNDATION_AUDIT=1','-o',str(binary),str(generated)]
         if backend=='llvm': command+=['-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1',str(runtime/'freak_llvm_runtime.c')]
         else: command+=['-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1']
-        command += [str(runtime/'freak_runtime.c'),str(wrapper),'-I',str(runtime),'-lm','-fsanitize=address,undefined','-fno-omit-frame-pointer','-Wl,--wrap=fsync','-Wl,--wrap=syscall']
+        command += [str(runtime/'freak_runtime.c'),str(wrapper),'-I',str(runtime),'-lm','-fsanitize=address,undefined','-fno-omit-frame-pointer','-Wl,--wrap=fsync','-Wl,--wrap=syscall','-Wl,--wrap=freak_process_platform_is_windows','-Wl,--wrap=freak_fs_set_mode_relative_checked']
         built=foundation.run(command,repo,timeout=120)
         assert built.returncode==0,(built.stdout,built.stderr)
 
@@ -198,8 +208,9 @@ task main() {
                 (project/'hangar.lock').chmod(0o644)
             return project
 
-        def execute(project: Path, mode='commit', fault=None, kill=False, edit=None) -> str:
+        def execute(project: Path, mode='commit', fault=None, kill=False, edit=None, windows_branch=False) -> str:
             environment=foundation.sanitizer_env()
+            if windows_branch: environment['FREAK_TX_WINDOWS_BRANCH']='1'
             if edit: environment['FREAK_TX_EDIT_POINT']=edit
             if fault:
                 directory,number=fault
@@ -234,6 +245,22 @@ task main() {
         assert (project/'hangar.toml').read_bytes()==new_manifest and (project/'hangar.lock').read_bytes()==new_lock
         assert execute(project,'recover')=='ready\n'
         print(f'native:{backend}:transactions:committed-cleanup-sync:passed',flush=True)
+        project=fixture('windows-mode-branch')
+        assert execute(project,windows_branch=True)=='ready\n'
+        assert (project/'hangar.toml').read_bytes()==new_manifest and (project/'hangar.lock').read_bytes()==new_lock
+        print(f'native:{backend}:transactions:windows-branch-skips-posix-mode:passed',flush=True)
+        project=fixture('windows-recovery-mode-branch')
+        execute(project,fault=(project,2),kill=True,windows_branch=True)
+        assert execute(project,'recover',windows_branch=True)=='ready\n'
+        assert (project/'hangar.toml').read_bytes()==old_manifest and (project/'hangar.lock').read_bytes()==old_lock
+        print(f'native:{backend}:transactions:windows-branch-recovery-skips-posix-mode:passed',flush=True)
+        project=fixture('windows-before-image-mode-branch')
+        execute(project,fault=(project,2),kill=True,windows_branch=True)
+        execute(project,'recover',fault=(project,2),kill=True,windows_branch=True)
+        (project/'hangar.toml').write_bytes(new_manifest)
+        assert execute(project,'recover',windows_branch=True)=='ready\n'
+        assert (project/'hangar.toml').read_bytes()==old_manifest and (project/'hangar.lock').read_bytes()==old_lock
+        print(f'native:{backend}:transactions:windows-before-image-copy-skips-posix-mode:passed',flush=True)
         editor=b'NONCOOPERATING EDITOR BYTES\n'
         for point,diagnostic in (
             ('before-park','changed after admission'),

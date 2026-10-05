@@ -231,7 +231,7 @@ task package_transaction_restore_entry(project: int, private: int, history: int,
     pilot mut bytes: ByteBuffer = fs::result_bytes(before_ticket)
     pilot mut valid = package_transaction_checked(fs::write_relative_bytes_checked(restoration, "restored", bytes), "before-image staging failed")
     bytes.release()
-    if valid { valid = package_transaction_checked(fs::set_mode_relative_checked(restoration, "restored", before_mode), "before-image permission restoration failed") }
+    if valid and not process::platform_is_windows() { valid = package_transaction_checked(fs::set_mode_relative_checked(restoration, "restored", before_mode), "before-image permission restoration failed") }
     if valid { valid = package_transaction_checked(fs::rename_relative_new_checked(restoration, "restored", project, filename), "before-image no-replace restoration failed") }
     fs::result_release(restoration)
     give back valid and hangar_graph_error == ""
@@ -311,7 +311,7 @@ task package_commit_transaction_impl(project: int, private: int, manifest_file: 
         lock_bytes.release()
         give back false
     }
-    if fs::result_mode(old_manifest) > 511 or (lock_present and fs::result_mode(old_lock) > 511) {
+    if not process::platform_is_windows() and (fs::result_mode(old_manifest) > 511 or (lock_present and fs::result_mode(old_lock) > 511)) {
         hangar_graph_fail("package transaction refuses privileged or sticky project file modes")
         fs::result_release(old_manifest) fs::result_release(old_lock) lock_bytes.release()
         give back false
@@ -355,11 +355,11 @@ task package_commit_transaction_impl(project: int, private: int, manifest_file: 
         array_push(record, word_from_int(lock_mode))
         if array_get(record, 2) != array_get(record, 5) {
             valid = package_transaction_checked(fs::write_relative_bytes_checked(history, "manifest.new", after_manifest), "new manifest staging failed")
-            if valid { valid = package_transaction_checked(fs::set_mode_relative_checked(history, "manifest.new", manifest_mode), "new manifest permission staging failed") }
+            if valid and not process::platform_is_windows() { valid = package_transaction_checked(fs::set_mode_relative_checked(history, "manifest.new", manifest_mode), "new manifest permission staging failed") }
         }
         if valid {
             valid = package_transaction_checked(fs::write_relative_bytes_checked(history, "lock.new", lock_bytes), "new lock staging failed")
-            if valid { valid = package_transaction_checked(fs::set_mode_relative_checked(history, "lock.new", lock_mode), "new lock permission staging failed") }
+            if valid and not process::platform_is_windows() { valid = package_transaction_checked(fs::set_mode_relative_checked(history, "lock.new", lock_mode), "new lock permission staging failed") }
         }
         if valid { valid = package_transaction_checked(fs::write_relative_bytes_checked(private, "transaction.manifest.before", before_manifest), "manifest before-image publication failed") }
         if valid { valid = package_transaction_checked(fs::write_relative_bytes_checked(private, "transaction.lock.before", before_lock), "lock before-image publication failed") }
