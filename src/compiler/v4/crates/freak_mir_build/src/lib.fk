@@ -804,7 +804,9 @@ task v4_mir_token_can_end_expr(stream_id: int, token_id: int) -> bool {
     if tok_type == v4_tok_ident or tok_type == v4_tok_int or tok_type == v4_tok_float or tok_type == v4_tok_string or tok_type == v4_tok_bool or tok_type == v4_tok_char {
         give back true
     }
-    if val == "?" or val == "nobody" {
+    -- sessions is already admitted as a local name. Its keyword token must
+    -- remain an operand when scanning comparisons and other binary operators.
+    if val == "?" or val == "nobody" or val == "sessions" {
         give back true
     }
     give back val == ")" or val == "]"
