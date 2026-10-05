@@ -284,6 +284,7 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
 }
 
 task bc_builtin_consumes_handle(name: word) -> bool {
+    if name == "process::command_release" { give back true }
     give back name == "word_builder::finish" or name == "word_builder::discard" or name == "word_join" or name == "array_release" or name == "tcp::socket_close" or name == "tcp::close" or name == "tcp_close" or name == "ui::destroy_window"
 }
 
@@ -852,6 +853,25 @@ task tc_task_return_shape(task_name: word) -> word {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    if name == "process::command_new" { give back "int" }
+    if name == "process::command_arg" { give back "void" }
+    if name == "process::command_cwd" { give back "void" }
+    if name == "process::command_env" { give back "void" }
+    if name == "process::command_spawn" { give back "int" }
+    if name == "process::command_run" { give back "int" }
+    if name == "process::command_spawn_inherit" { give back "int" }
+    if name == "process::command_run_inherit" { give back "int" }
+    if name == "process::command_wait" { give back "int" }
+    if name == "process::command_status" { give back "int" }
+    if name == "process::command_exit_code" { give back "int" }
+    if name == "process::command_signal" { give back "int" }
+    if name == "process::command_terminate" { give back "void" }
+    if name == "process::command_release" { give back "void" }
+    if name == "process::command_error" { give back "word" }
+    if name == "process::command_stdout" { give back "word" }
+    if name == "process::command_stderr" { give back "word" }
+    if name == "process::command_stdout_bytes" { give back "ByteBuffer" }
+    if name == "process::command_stderr_bytes" { give back "ByteBuffer" }
     if name == "ByteBuffer::new" or name == "ByteBuffer::with_capacity" { give back "ByteBuffer" }
     if name == "word_from_int" or name == "word_from_bool" or name == "word_concat" or name == "word_join" or name == "char_to_word" { give back "word" }
     if name == "word_builder::finish" { give back "word" }
@@ -890,6 +910,25 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "process::command_new" { give back "word" }
+    if name == "process::command_arg" { give back "int,word" }
+    if name == "process::command_cwd" { give back "int,word" }
+    if name == "process::command_env" { give back "int,word,word" }
+    if name == "process::command_spawn" { give back "int,int,int,int" }
+    if name == "process::command_run" { give back "int,int,int,int" }
+    if name == "process::command_spawn_inherit" { give back "int,int" }
+    if name == "process::command_run_inherit" { give back "int,int" }
+    if name == "process::command_wait" { give back "int" }
+    if name == "process::command_status" { give back "int" }
+    if name == "process::command_exit_code" { give back "int" }
+    if name == "process::command_signal" { give back "int" }
+    if name == "process::command_terminate" { give back "int" }
+    if name == "process::command_release" { give back "int" }
+    if name == "process::command_error" { give back "int" }
+    if name == "process::command_stdout" { give back "int" }
+    if name == "process::command_stderr" { give back "int" }
+    if name == "process::command_stdout_bytes" { give back "int" }
+    if name == "process::command_stderr_bytes" { give back "int" }
     if name == "ByteBuffer::new" { give back "" }
     if name == "ByteBuffer::with_capacity" { give back "int" }
     if name == "say" { give back "scalar" }

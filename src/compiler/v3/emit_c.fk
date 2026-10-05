@@ -511,6 +511,7 @@ task c_map_call(val: word) -> word {
     if val == "word_builder::append_int" { give back "freak_word_builder_append_int" }
     if val == "word_builder::finish" { give back "freak_word_builder_finish" }
     if val == "word_builder::discard" { give back "freak_word_builder_discard" }
+    if val.starts_with("process::command_") and tc_builtin_call_type(val) != "" { give back "freak_" + val.replace("::", "_") }
     if val == "process::exit" { give back "freak_process_exit" }
     if val == "process::exec" { give back "freak_process_exec" }
     if val == "process::exec_capture" { give back "freak_process_exec_capture" }
