@@ -2236,7 +2236,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 or normalized_source.startswith("/")
                 or (len(normalized_source) >= 2 and normalized_source[0].isalpha() and normalized_source[1] == ":")
                 or any(part in ("", ".", "..") for part in source_parts)
-                or not normalized_source.startswith(("freakc/runtime/", "std/"))
+                or not normalized_source.startswith(("freakc/runtime/", "std/", "third_party/llhttp/"))
             )
             destination_unsafe = (
                 destination != destination.strip()
@@ -2272,7 +2272,8 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freakc/runtime/freak_llvm_runtime.c",
                 "freakc/runtime/freak_v35_process.inc",
                 "freakc/runtime/freak_v35_fs.inc",
-            "freakc/runtime/freak_v35_json.inc",
+                "freakc/runtime/freak_v35_json.inc",
+                "freakc/runtime/freak_v35_http.inc",
                 "freakc/runtime/ui/win32_backend.c",
                 "freakc/runtime/ui/freak_ui_platform.h",
                 "freakc/runtime/freak_abi",
@@ -2281,6 +2282,9 @@ def audit_conformance(paths: List[Path]) -> int:
                 "std/freak_std_api",
             }
         )
+        expected_sources.update(path.relative_to(repo).as_posix()
+                                for path in (repo / "third_party" / "llhttp").rglob("*")
+                                if path.is_file())
         for missing_source in sorted(expected_sources - manifest_sources):
             distribution_missing.append(
                 f"required file absent from manifest: {missing_source}"
@@ -2321,8 +2325,8 @@ def audit_conformance(paths: List[Path]) -> int:
         "doctor": (
             repo / "src" / "cli" / "doctor.fk",
             (
-                "modules_expected\\\": 13",
-                "files_expected\\\": 10",
+                "modules_expected\\\": 14",
+                "files_expected\\\": 23",
                 "FREAK_V3_ABI",
                 "FREAK_V3_RUNTIME_API",
                 "runtime_api",

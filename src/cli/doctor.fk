@@ -262,6 +262,7 @@ task cli_doctor_std_module_count(std_dir: word) -> int {
     if fs::exists(std_dir + "/json_document.fk") { mod_count += 1 }
     if fs::exists(std_dir + "/test.fk") { mod_count += 1 }
     if fs::exists(std_dir + "/http.fk")      { mod_count += 1 }
+    if fs::exists(std_dir + "/http_server.fk") { mod_count += 1 }
     if fs::exists(std_dir + "/version.fk")   { mod_count += 1 }
     if fs::exists(std_dir + "/runtime.fk")   { mod_count += 1 }
     if fs::exists(std_dir + "/ui/window.fk") { mod_count += 1 }
@@ -273,39 +274,41 @@ task cli_doctor_append_missing(missing: word, file: word) -> word {
     give back missing + ", " + file
 }
 
+task cli_doctor_runtime_file_exists(runtime_dir: word, relative: word) -> bool {
+    if fs::exists(runtime_dir + "/" + relative) { give back true }
+    -- Repository runtimes include the same pinned vendor from its source root.
+    if relative.starts_with("third_party/llhttp/") and runtime_dir.replace("\\", "/").ends_with("/freakc/runtime") {
+        give back fs::exists(runtime_dir + "/../../" + relative)
+    }
+    give back false
+}
+
 task cli_doctor_runtime_missing(runtime_dir: word) -> word {
     if runtime_dir == "" { give back "runtime directory" }
     pilot missing = ""
-    if not fs::exists(runtime_dir + "/freak_runtime.c") {
-        missing = cli_doctor_append_missing(missing, "freak_runtime.c")
-    }
-    if not fs::exists(runtime_dir + "/freak_runtime.h") {
-        missing = cli_doctor_append_missing(missing, "freak_runtime.h")
-    }
-    if not fs::exists(runtime_dir + "/freak_llvm_runtime.c") {
-        missing = cli_doctor_append_missing(missing, "freak_llvm_runtime.c")
-    }
-    if not fs::exists(runtime_dir + "/freak_v35_process.inc") {
-        missing = cli_doctor_append_missing(missing, "freak_v35_process.inc")
-    }
-    if not fs::exists(runtime_dir + "/freak_v35_fs.inc") {
-        missing = cli_doctor_append_missing(missing, "freak_v35_fs.inc")
-    }
-    if not fs::exists(runtime_dir + "/freak_v35_json.inc") {
-        missing = cli_doctor_append_missing(missing, "freak_v35_json.inc")
-    }
-    if not fs::exists(runtime_dir + "/ui/win32_backend.c") {
-        missing = cli_doctor_append_missing(missing, "ui/win32_backend.c")
-    }
-    if not fs::exists(runtime_dir + "/ui/freak_ui_platform.h") {
-        missing = cli_doctor_append_missing(missing, "ui/freak_ui_platform.h")
-    }
-    if not fs::exists(runtime_dir + "/freak_abi") {
-        missing = cli_doctor_append_missing(missing, "freak_abi")
-    }
-    if not fs::exists(runtime_dir + "/freak_runtime_api") {
-        missing = cli_doctor_append_missing(missing, "freak_runtime_api")
-    }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_llvm_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_llvm_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_process.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_process.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_fs.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_fs.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_json.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_json.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v35_http.inc") { missing = cli_doctor_append_missing(missing, "freak_v35_http.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "ui/win32_backend.c") { missing = cli_doctor_append_missing(missing, "ui/win32_backend.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "ui/freak_ui_platform.h") { missing = cli_doctor_append_missing(missing, "ui/freak_ui_platform.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_abi") { missing = cli_doctor_append_missing(missing, "freak_abi") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_runtime_api") { missing = cli_doctor_append_missing(missing, "freak_runtime_api") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/LICENSE") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/LICENSE") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/LICENSE-MIT") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/LICENSE-MIT") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/PATCHES.md") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/PATCHES.md") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/README.freak.md") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/README.freak.md") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/SHA256SUMS") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/SHA256SUMS") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/UPSTREAM.json") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/UPSTREAM.json") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/freak_amalgamation.inc") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/freak_amalgamation.inc") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/include/llhttp.h") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/include/llhttp.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/api.c") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/api.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/http.c") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/http.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/llhttp.c") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/llhttp.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/llhttp.h") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/llhttp.h") }
     give back missing
 }
 
@@ -322,6 +325,7 @@ task cli_doctor_std_missing(std_dir: word) -> word {
     if not fs::exists(std_dir + "/json_document.fk") { missing = cli_doctor_append_missing(missing, "json_document.fk") }
     if not fs::exists(std_dir + "/test.fk") { missing = cli_doctor_append_missing(missing, "test.fk") }
     if not fs::exists(std_dir + "/http.fk") { missing = cli_doctor_append_missing(missing, "http.fk") }
+    if not fs::exists(std_dir + "/http_server.fk") { missing = cli_doctor_append_missing(missing, "http_server.fk") }
     if not fs::exists(std_dir + "/version.fk") { missing = cli_doctor_append_missing(missing, "version.fk") }
     if not fs::exists(std_dir + "/runtime.fk") { missing = cli_doctor_append_missing(missing, "runtime.fk") }
     if not fs::exists(std_dir + "/ui/window.fk") { missing = cli_doctor_append_missing(missing, "ui/window.fk") }
@@ -417,7 +421,7 @@ task cli_doctor_json() -> int {
     say "    \"runtime\": {"
     say "      \"ok\": " + cli_doctor_json_bool(runtime_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(rt_dir) + "\","
-    say "      \"files_expected\": 10,"
+    say "      \"files_expected\": 23,"
     say "      \"missing\": \"" + cli_doctor_json_escape(runtime_missing) + "\","
     say "      \"precompiled_objects\": " + cli_doctor_json_bool(runtime_obj) + ","
     say "      \"llvm_runtime\": " + cli_doctor_json_bool(llvm_runtime)
@@ -426,7 +430,7 @@ task cli_doctor_json() -> int {
     say "      \"ok\": " + cli_doctor_json_bool(std_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(std_dir) + "\","
     say "      \"modules_found\": " + word_from_int(std_modules) + ","
-    say "      \"modules_expected\": 13,"
+    say "      \"modules_expected\": 14,"
     say "      \"missing\": \"" + cli_doctor_json_escape(std_missing) + "\""
     say "    },"
     say "    \"abi\": {"
