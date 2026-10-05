@@ -249,7 +249,10 @@ task parse_primary() -> int {
     }
     if ttype == TOK_BOOL {
         advance_tok()
-        give back alloc_expr_at(EXPR_BOOL, tval, "", "", expr_file, expr_line)
+        pilot truth = tval.to_lower()
+        if truth == "true" or truth == "yes" or truth == "hai" { truth = "true" }
+        else { truth = "false" }
+        give back alloc_expr_at(EXPR_BOOL, truth, "", "", expr_file, expr_line)
     }
     if ttype == TOK_IDENT {
         advance_tok()

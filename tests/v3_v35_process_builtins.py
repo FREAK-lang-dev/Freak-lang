@@ -18,6 +18,7 @@ from v3_v35_language import require_ok, run
 
 
 PROGRAM = '''task main() {
+    pilot windows: bool = process::platform_is_windows()
     pilot executable: word = process::executable_path()
     pilot job: int = process::command_new("native helper")
     process::command_arg(job, "literal $ & % argument")
@@ -56,6 +57,13 @@ OPERATIONS = (
 )
 
 NEGATIVE = {
+    "platform_is_bool": (
+        'pilot platform: int = process::platform_is_windows()',
+        "cannot initialize int binding 'platform' with bool", False,
+    ),
+    "platform_arity": (
+        'process::platform_is_windows(1)', "expects 0 argument(s), got 1", False,
+    ),
     "path_is_word": (
         'pilot path: int = process::executable_path()',
         "cannot initialize int binding 'path' with word", False,
@@ -115,6 +123,10 @@ def main() -> int:
             suffix = ".c" if backend == "c" else ".ll"
             emitted = Path(str(source) + suffix).read_text(encoding="utf-8")
             prefix = "freak_process_command_" if backend == "c" else "@freak_llvm_process_command_"
+            platform_symbol = "freak_process_platform_is_windows" if backend == "c" else "@freak_llvm_process_platform_is_windows"
+            assert platform_symbol + "(" in emitted, (backend, "platform_is_windows", emitted)
+            if backend == "llvm":
+                assert any("call " in line and platform_symbol + "(" in line for line in emitted.splitlines()), (backend, "platform_is_windows", emitted)
             path_symbol = "freak_process_executable_path" if backend == "c" else "@freak_llvm_process_executable_path"
             assert path_symbol + "(" in emitted, (backend, "executable_path", emitted)
             if backend == "llvm":
