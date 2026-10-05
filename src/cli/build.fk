@@ -88,9 +88,96 @@ task cli_strip_resolved_use_lines(source: word) -> word {
     give back out
 }
 
+pilot mut cli_output_path_override = ""
+
+task cli_host_path_join(parent: word, leaf: word) -> word {
+    if cli_is_windows() {
+        if parent.ends_with("\\") { give back parent + leaf.replace("/", "\\") }
+        give back parent + "\\" + leaf.replace("/", "\\")
+    }
+    if parent.ends_with("/") { give back parent + leaf }
+    give back parent + "/" + leaf
+}
+
+task cli_output_path_absolute(path: word) -> bool {
+    if path == "" { give back false }
+    if not cli_is_windows() { give back path.starts_with("/") }
+    if path.starts_with("\\\\") or path.starts_with("//") { give back true }
+    if path.length() < 3 { give back false }
+    pilot initial = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    give back initial.contains(path.char_at(0)) and path.char_at(1) == ":" and (path.char_at(2) == "/" or path.char_at(2) == "\\")
+}
+
+task cli_output_path_problem(message: word) -> bool {
+    say "  " + C_BRED + SYM_CROSS + " OUTPUT ERROR" + C_RESET + " " + message
+    give back false
+}
+
+task cli_set_output_path_override(src_file: word, requested: word) -> bool {
+    -- Main calls this after every flag is valid and before any invalidation.
+    -- Keep the requested binary spelling exact, including Windows .exe.
+    cli_output_path_override = ""
+    if requested == "" { give back true }
+    if not cli_output_path_absolute(requested) {
+        give back cli_output_path_problem("--output requires an absolute file path")
+    }
+    pilot mut split = -1
+    pilot mut index = 0
+    repeat until index >= requested.length() {
+        pilot ch = requested.char_at(index)
+        if ch == "/" or (cli_is_windows() and ch == "\\") { split = index }
+        index += 1
+    }
+    pilot leaf = requested.substring(split + 1, requested.length() - split - 1)
+    if leaf == "" or leaf == "." or leaf == ".." or leaf.ends_with(".fk") {
+        give back cli_output_path_problem("output must name a binary file and cannot name a .fk source")
+    }
+    pilot mut parent = requested.substring(0, split)
+    if split == 0 { parent = "/" }
+    if cli_is_windows() and split == 2 { parent = requested.substring(0, 3) }
+    pilot info = fs::stat_checked(parent)
+    pilot ordinary = fs::result_ok(info) and fs::result_kind(info) == 2
+    fs::result_release(info)
+    if not ordinary { give back cli_output_path_problem("output parent must be an existing ordinary directory") }
+    pilot resolved = fs::canonical_path(parent)
+    if not fs::result_ok(resolved) {
+        pilot error = fs::result_error(resolved)
+        fs::result_release(resolved)
+        give back cli_output_path_problem("cannot resolve output parent: " + error)
+    }
+    pilot canonical = cli_host_path_join(fs::result_word(resolved), leaf)
+    fs::result_release(resolved)
+    pilot source = fs::canonical_path(src_file)
+    if fs::result_ok(source) {
+        pilot source_path = fs::result_word(source)
+        pilot mut same = canonical == source_path
+        if cli_is_windows() { same = canonical.to_lower() == source_path.to_lower() }
+        if same {
+            fs::result_release(source)
+            give back cli_output_path_problem("output aliases the source file")
+        }
+    }
+    fs::result_release(source)
+    pilot existing = fs::stat_checked(canonical)
+    if fs::result_ok(existing) and fs::result_kind(existing) != 1 {
+        fs::result_release(existing)
+        give back cli_output_path_problem("existing output must be an ordinary file, not a directory or symlink")
+    }
+    fs::result_release(existing)
+    cli_output_path_override = canonical
+    give back true
+}
+
 task cli_backend_output_path(src_file: word, target: word) -> word {
-    if target == "llvm" { give back src_file + ".ll" }
-    give back src_file + ".c"
+    pilot mut prefix = src_file
+    if cli_output_path_override != "" { prefix = cli_output_path_override }
+    if target == "llvm" { give back prefix + ".ll" }
+    give back prefix + ".c"
+}
+
+task cli_user_object_path(src_file: word) -> word {
+    if cli_output_path_override != "" { give back cli_output_path_override + ".obj" }
+    give back cli_strip_fk(src_file) + ".obj"
 }
 
 task cli_report_untrusted_stale_artifact(artifact: word) -> void {
@@ -104,11 +191,17 @@ task cli_delete_derived_artifact(artifact: word) -> bool {
     -- unlink is file-only and does not follow the final path component. Run it
     -- even when fs::exists cannot see a dangling symlink; otherwise a later
     -- write could follow that stale link outside the source directory.
-    if not fs::delete(artifact) {
+    pilot removed = fs::remove_checked(artifact)
+    pilot removed_ok = fs::result_ok(removed)
+    fs::result_release(removed)
+    if not removed_ok {
         cli_report_untrusted_stale_artifact(artifact)
         give back false
     }
-    if fs::exists(artifact) {
+    pilot remaining = fs::stat_checked(artifact)
+    pilot exists = fs::result_ok(remaining)
+    fs::result_release(remaining)
+    if exists {
         cli_report_untrusted_stale_artifact(artifact)
         give back false
     }
@@ -668,6 +761,7 @@ task cli_strip_fk(path: word) -> word {
 }
 
 task cli_binary_path(src_file: word) -> word {
+    if cli_output_path_override != "" { give back cli_output_path_override }
     pilot binary = cli_strip_fk(src_file)
     if cli_is_windows() { binary = binary + ".exe" }
     give back binary
@@ -926,75 +1020,28 @@ task cli_find_clang_executable() -> word {
 }
 
 task cli_find_clang_command() -> word {
-    pilot override: word = process::env("FREAK_CLANG")
-    if override != "" {
-        pilot normalized_override = cli_normalize_cmd_override(override)
-        -- Installer-managed LLVM-MinGW paths are versioned. If WinGet removes
-        -- an older directory during upgrade, ignore the stale override and
-        -- continue normal toolchain discovery instead of failing every build.
-        if cli_clang_command_works(normalized_override) { give back normalized_override }
+    -- Compatibility presentation only. The raw selector is authoritative even
+    -- when an explicit executable is missing or rejects a version probe.
+    pilot executable = cli_find_clang_executable()
+    if executable == "" { give back "" }
+    pilot allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
+    pilot mut plain = true
+    pilot mut index = 0
+    repeat until index >= executable.length() {
+        if not allowed.contains(executable.char_at(index)) { plain = false }
+        index += 1
     }
-
-    if cli_is_windows() {
-        -- Prefer a self-contained LLVM-MinGW toolchain. A bare upstream LLVM
-        -- install needs a separately configured MSVC SDK and may pass
-        -- `clang --version` while failing to compile even stdio.h.
-        pilot mingw_clang = cli_find_windows_llvm_mingw()
-        if mingw_clang != "" { give back mingw_clang }
-        if process::exec("where clang >nul 2>nul") == 0 { give back "clang" }
-        if process::exec("where clang.exe >nul 2>nul") == 0 { give back "clang" }
-
-        pilot llvm_home: word = process::env("LLVM_HOME")
-        if llvm_home != "" {
-            pilot llvm_home_clang = llvm_home + "/bin/clang.exe"
-            if fs::exists(llvm_home_clang) { give back cli_quote_cmd_path(llvm_home_clang) }
-        }
-
-        pilot program_files: word = process::env("ProgramFiles")
-        if program_files != "" {
-            pilot pf_clang = program_files + "/LLVM/bin/clang.exe"
-            if fs::exists(pf_clang) { give back cli_quote_cmd_path(pf_clang) }
-        }
-
-        pilot program_w6432: word = process::env("ProgramW6432")
-        if program_w6432 != "" {
-            pilot pw_clang = program_w6432 + "/LLVM/bin/clang.exe"
-            if fs::exists(pw_clang) { give back cli_quote_cmd_path(pw_clang) }
-        }
-
-        pilot program_files_x86: word = process::env("ProgramFiles(x86)")
-        if program_files_x86 != "" {
-            pilot pfx_clang = program_files_x86 + "/LLVM/bin/clang.exe"
-            if fs::exists(pfx_clang) { give back cli_quote_cmd_path(pfx_clang) }
-        }
-
-        pilot local_appdata: word = process::env("LOCALAPPDATA")
-        if local_appdata != "" {
-            pilot local_clang = local_appdata + "/Programs/LLVM/bin/clang.exe"
-            if fs::exists(local_clang) { give back cli_quote_cmd_path(local_clang) }
-        }
-    } else {
-        if process::exec("clang --version >/dev/null 2>/dev/null") == 0 { give back "clang" }
-        pilot brew_arm_clang = "/opt/homebrew/opt/llvm/bin/clang"
-        if fs::exists(brew_arm_clang) { give back cli_quote_cmd_path(brew_arm_clang) }
-        pilot brew_x64_clang = "/usr/local/opt/llvm/bin/clang"
-        if fs::exists(brew_x64_clang) { give back cli_quote_cmd_path(brew_x64_clang) }
-        if process::exec("clang-21 --version >/dev/null 2>/dev/null") == 0 { give back "clang-21" }
-        if process::exec("clang-20 --version >/dev/null 2>/dev/null") == 0 { give back "clang-20" }
-        if process::exec("clang-19 --version >/dev/null 2>/dev/null") == 0 { give back "clang-19" }
-        if process::exec("clang-18 --version >/dev/null 2>/dev/null") == 0 { give back "clang-18" }
-        if process::exec("clang-17 --version >/dev/null 2>/dev/null") == 0 { give back "clang-17" }
-        if process::exec("clang-16 --version >/dev/null 2>/dev/null") == 0 { give back "clang-16" }
-        if process::exec("clang-15 --version >/dev/null 2>/dev/null") == 0 { give back "clang-15" }
-    }
-
-    give back ""
+    if plain { give back executable }
+    give back cli_quote_cmd_path(executable)
 }
 
 task cli_clang_version_line(clang_cmd: word) -> word {
     if clang_cmd == "" { give back "" }
-    pilot clang_ver: word = process::exec_capture(clang_cmd + " --version")
-    give back cli_first_line(clang_ver)
+    pilot executable = cli_find_clang_executable()
+    if executable == "" { give back "" }
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "--version")
+    give back cli_first_line(cli_tool_capture(command, false))
 }
 
 task cli_clang_command_works(clang_cmd: word) -> bool {
@@ -1009,7 +1056,9 @@ task cli_clang_command_works(clang_cmd: word) -> bool {
 
 task cli_is_macos() -> bool {
     if cli_is_windows() { give back false }
-    give back cli_first_line(process::exec_capture("uname -s 2>/dev/null")) == "Darwin"
+    pilot command = process::command_new("uname")
+    process::command_arg(command, "-s")
+    give back cli_first_line(cli_tool_capture(command, false)) == "Darwin"
 }
 
 task cli_lto_clang_flags(lto: word) -> word {
@@ -1028,8 +1077,13 @@ task cli_lto_linker_flags(lto: word) -> word {
 
 task cli_clang_target_triple(clang_cmd: word, cross: word) -> word {
     if cross != "" { give back cross }
-    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
-    give back cli_first_line(process::exec_capture(clang_prefix + " -dumpmachine 2>&1")).trim()
+    -- clang_cmd is the legacy presentation parameter. Tool execution always
+    -- uses the current raw selector; never decode a shell command into argv.
+    pilot executable = cli_find_clang_executable()
+    if executable == "" { give back "" }
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "-dumpmachine")
+    give back cli_first_line(cli_tool_capture(command, false)).trim()
 }
 
 task cli_trace_command_token(line: word) -> word {
@@ -1105,11 +1159,18 @@ task cli_selected_linker_command(clang_cmd: word, lto: word, cross: word) -> wor
         null_input = "nul"
         null_output = "nul"
     }
-    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
-    pilot trace_cmd = clang_prefix + " -### -x c " + null_input + " -o " + null_output
-    trace_cmd = trace_cmd + cli_lto_clang_flags(lto) + cli_lto_linker_flags(lto)
-    if cross != "" { trace_cmd = trace_cmd + " --target=" + cli_quote_cmd_path(cross) }
-    pilot trace = process::exec_capture(trace_cmd + " 2>&1")
+    pilot executable = cli_find_clang_executable()
+    if executable == "" { give back "" }
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "-###")
+    process::command_arg(command, "-x")
+    process::command_arg(command, "c")
+    process::command_arg(command, null_input)
+    process::command_arg(command, "-o")
+    process::command_arg(command, null_output)
+    cli_build_lto_args(command, lto)
+    if cross != "" { process::command_arg(command, "--target=" + cross) }
+    pilot trace = cli_tool_capture(command, true)
     give back cli_linker_command_from_trace(trace)
 }
 
@@ -1137,6 +1198,139 @@ task cli_has_precompiled_runtime(runtime_dir: word) -> bool {
     give back cli_precompiled_runtime_extension(runtime_dir) != ""
 }
 
+pilot mut cli_tool_capture_problem = ""
+
+task cli_tool_capture(command: int, include_stderr: bool) -> word {
+    cli_tool_capture_problem = ""
+    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot exit_code = process::command_exit_code(command)
+    pilot error = process::command_error(command)
+    pilot mut text = ""
+    if state == 2 and exit_code == 0 {
+        pilot bytes: ByteBuffer = process::command_stdout_bytes(command)
+        text = bytes.to_word()
+        pilot mut valid = bytes.status() == 0
+        bytes.release()
+        if include_stderr {
+            pilot errors: ByteBuffer = process::command_stderr_bytes(command)
+            pilot diagnostic = errors.to_word()
+            valid = valid and errors.status() == 0
+            errors.release()
+            if diagnostic != "" { text = text + "\n" + diagnostic }
+        }
+        if not valid {
+            text = ""
+            cli_tool_capture_problem = "tool probe emitted bytes that are not NUL-free UTF-8"
+        }
+    } else {
+        if state == 2 {
+            cli_tool_capture_problem = "tool probe exited with status " + word_from_int(exit_code)
+        } else {
+            cli_tool_capture_problem = "tool probe failed with process status " + word_from_int(state)
+        }
+        if error != "" { cli_tool_capture_problem = cli_tool_capture_problem + ": " + error }
+    }
+    process::command_release(command)
+    give back text
+}
+
+task cli_build_output_text(bytes: ByteBuffer) -> word {
+    pilot text = bytes.to_word()
+    if bytes.status() == 0 {
+        bytes.release()
+        give back text
+    }
+    bytes.clear_status()
+    bytes.seek(0)
+    pilot builder = word_builder::with_capacity(bytes.length() * 2 + 32)
+    word_builder::append(builder, "binary output (hex): ")
+    pilot hex = "0123456789abcdef"
+    repeat until bytes.remaining() == 0 {
+        pilot value = bytes.read_byte()
+        word_builder::append(builder, hex.char_at(value / 16))
+        word_builder::append(builder, hex.char_at(value % 16))
+    }
+    bytes.release()
+    give back word_builder::finish(builder)
+}
+
+task cli_build_command(command: int, phase: word) -> bool {
+    -- Every tool launch is shell-free and finite. Captures remain separate;
+    -- invalid text is shown as exact hex instead of calling a fatal getter.
+    pilot state = process::command_run(command, 120000, 1048576, 1048576)
+    pilot exit_code = process::command_exit_code(command)
+    pilot signal = process::command_signal(command)
+    pilot error = process::command_error(command)
+    pilot output = cli_build_output_text(process::command_stdout_bytes(command))
+    pilot diagnostic = cli_build_output_text(process::command_stderr_bytes(command))
+    process::command_release(command)
+    if output != "" { say output }
+    if diagnostic != "" { say diagnostic }
+    if state == 2 and exit_code == 0 { give back true }
+    pilot mut reason = "process status " + word_from_int(state)
+    if state == 2 { reason = "exit " + word_from_int(exit_code) }
+    if state == 4 { reason = "signal " + word_from_int(signal) }
+    if state == 5 { reason = "exceeded 120000 ms deadline" }
+    if state == 6 { reason = "exceeded 1048576 byte stdout/stderr limit" }
+    say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- " + phase + ": " + reason + C_RESET
+    if error != "" { say "  " + error }
+    give back false
+}
+
+task cli_build_lto_args(command: int, lto: word) -> void {
+    if lto == "off" { give back }
+    if lto == "thin" { process::command_arg(command, "-flto=thin") }
+    if lto == "full" { process::command_arg(command, "-flto") }
+    if cli_is_macos() { process::command_arg(command, "-fuse-ld=ld") } else { process::command_arg(command, "-fuse-ld=lld") }
+}
+
+task cli_build_common_args(command: int, output: word, input: word, runtime_dir: word, opt: word, cross: word) -> void {
+    process::command_arg(command, "-g")
+    process::command_arg(command, "-o")
+    process::command_arg(command, output)
+    process::command_arg(command, input)
+    process::command_arg(command, "-I")
+    process::command_arg(command, runtime_dir)
+    process::command_arg(command, "-O" + opt)
+    process::command_arg(command, "-w")
+    process::command_arg(command, "-D_CRT_SECURE_NO_WARNINGS")
+    if cross != "" { process::command_arg(command, "--target=" + cross) }
+}
+
+task cli_build_regular_output(path: word) -> bool {
+    pilot info = fs::stat_checked(path)
+    pilot produced = fs::result_ok(info) and fs::result_kind(info) == 1 and fs::result_size(info) > 0
+    fs::result_release(info)
+    if not produced {
+        say C_BRED + "  MISSION FAILED" + C_RESET + " -- Clang did not produce an ordinary nonempty output: " + path
+    }
+    give back produced
+}
+
+task cli_build_selected_clang() -> word {
+    pilot executable = cli_find_clang_executable()
+    if executable == "" {
+        say C_BRED + "  MISSION FAILED" + C_RESET + " -- supported Clang executable was not found"
+        give back ""
+    }
+    pilot version_command = process::command_new(executable)
+    process::command_arg(version_command, "--version")
+    pilot version = cli_first_line(cli_tool_capture(version_command, false))
+    if cli_tool_capture_problem != "" {
+        say C_BRED + "  MISSION FAILED" + C_RESET + " -- Clang version probe failed: " + cli_tool_capture_problem
+        say "  Selected executable: " + executable
+        say "  " + cli_doctor_clang_minimum_line()
+        give back ""
+    }
+    if not cli_doctor_clang_version_supported(version) {
+        say C_BRED + "  MISSION FAILED" + C_RESET + " -- " + cli_doctor_clang_version_problem(version)
+        say "  Selected executable: " + executable
+        say "  " + cli_doctor_clang_minimum_line()
+        give back ""
+    }
+    give back executable
+}
+
 task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: word, lto: word, cross: word) -> word {
     -- Compile the transpiled .c or .ll file into a native binary.
     -- Returns the output binary path, or "" on error.
@@ -1159,6 +1353,14 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
 
     -- Determine output binary name
     pilot out_bin = cli_binary_path(src_file)
+    if opt != "0" and opt != "1" and opt != "2" and opt != "3" {
+        say C_BRED + "  MISSION FAILED" + C_RESET + " -- invalid optimization level"
+        give back ""
+    }
+    if lto != "off" and lto != "thin" and lto != "full" {
+        say C_BRED + "  MISSION FAILED" + C_RESET + " -- invalid LTO policy"
+        give back ""
+    }
 
     pilot is_win = cli_link_is_windows(cross)
     pilot runtime_obj_ext = cli_precompiled_runtime_extension(runtime_dir)
@@ -1172,20 +1374,21 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- invalid target triple" + C_RESET
         give back ""
     }
+    pilot clang_executable = cli_build_selected_clang()
+    if clang_executable == "" { give back "" }
 
     if use_bundle {
         -- Step 1: compile the generated C/LLVM module to one user object.
-        pilot user_obj = cli_strip_fk(src_file) + ".obj"
-        pilot clang_cmd = cli_find_clang_command()
-        if clang_cmd == "" { clang_cmd = "clang" }
-        pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
-        pilot cc_cmd = clang_prefix + " -c -g -o " + cli_quote_cmd_path(user_obj) + " " + cli_quote_cmd_path(transpiled_file) + " -I" + cli_quote_cmd_path(runtime_dir) + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
-        if cross != "" { cc_cmd = cc_cmd + " --target=" + cli_quote_cmd_path(cross) }
+        pilot user_obj = cli_user_object_path(src_file)
+        if not cli_delete_derived_artifact(user_obj) { give back "" }
+        pilot cc_command = process::command_new(clang_executable)
+        process::command_arg(cc_command, "-c")
+        cli_build_common_args(cc_command, user_obj, transpiled_file, runtime_dir, opt, cross)
 
         say "  " + C_DIM + SYM_GEAR + "  Compiling program object..." + C_RESET
-        pilot cc_exit = process::exec(cc_cmd)
-        if cc_exit != 0 {
-            say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- object compilation error" + C_RESET
+        pilot cc_ok = cli_build_command(cc_command, "object compilation")
+        if not cc_ok or not cli_build_regular_output(user_obj) {
+            cli_delete_derived_artifact(user_obj)
             give back ""
         }
 
@@ -1194,51 +1397,58 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
         pilot rt_obj = runtime_dir + "/freak_runtime" + runtime_obj_ext
         pilot llvm_rt_obj = runtime_dir + "/freak_llvm_runtime" + runtime_obj_ext
         pilot ui_obj = runtime_dir + "/freak_ui_win32" + runtime_obj_ext
-        pilot link_cmd = clang_prefix + " -g -o " + cli_quote_cmd_path(out_bin) + " " + cli_quote_cmd_path(user_obj)
+        pilot link_command = process::command_new(clang_executable)
+        process::command_arg(link_command, "-g")
+        process::command_arg(link_command, "-o")
+        process::command_arg(link_command, out_bin)
+        process::command_arg(link_command, user_obj)
         if target == "llvm" {
-            link_cmd = link_cmd + " " + cli_quote_cmd_path(llvm_rt_obj)
+            process::command_arg(link_command, llvm_rt_obj)
         }
-        link_cmd = link_cmd + " " + cli_quote_cmd_path(rt_obj) + " -lws2_32"
-        link_cmd = link_cmd + " " + cli_quote_cmd_path(ui_obj) + " -luser32 -lgdi32 -lmsimg32"
+        process::command_arg(link_command, rt_obj)
+        process::command_arg(link_command, "-lws2_32")
+        process::command_arg(link_command, ui_obj)
+        process::command_arg(link_command, "-luser32")
+        process::command_arg(link_command, "-lgdi32")
+        process::command_arg(link_command, "-lmsimg32")
         say "  " + C_DIM + SYM_GEAR + "  Linking packaged Windows runtime objects..." + C_RESET
-        pilot link_exit = process::exec(link_cmd)
-        if link_exit == 0 {
-            give back out_bin
+        pilot link_ok = cli_build_command(link_command, "packaged runtime link")
+        if link_ok {
+            if cli_build_regular_output(out_bin) { give back out_bin }
+            cli_delete_derived_artifact(out_bin)
+            cli_delete_derived_artifact(user_obj)
+            give back ""
         }
         -- A complete object bundle can still target a different Windows ABI
         -- family than the selected Clang driver. Retry from the packaged
         -- runtime sources so an otherwise supported toolchain is not rejected.
         say "  " + C_BYELLOW + SYM_RING + C_RESET + " Packaged runtime objects were incompatible; retrying runtime sources."
-        if fs::exists(out_bin) { fs::delete(out_bin) }
-        if fs::exists(user_obj) { fs::delete(user_obj) }
+        if not cli_delete_derived_artifact(out_bin) { give back "" }
+        if not cli_delete_derived_artifact(user_obj) { give back "" }
     }
 
-    -- LEGACY MODE: clang does everything (transpiled + runtime source -> binary)
+    -- Source mode: Clang links generated code and matching runtime sources.
     -- LLVM builds need both runtimes: freak_runtime.c (word/array/io functions)
     -- and freak_llvm_runtime.c (math/tcp/time bridge functions)
-    pilot runtime_file = ""
+    pilot command = process::command_new(clang_executable)
+    cli_build_common_args(command, out_bin, transpiled_file, runtime_dir, opt, cross)
     if target == "llvm" {
         -- llvm_runtime first (libc wrappers + LLVM bridge), then freak_runtime (word/array fns)
         -- -z muldefs on Linux allows duplicate symbols (freak_word_length, freak_llvm_fs_*)
         pilot llvm_rt_c = runtime_dir + "/freak_llvm_runtime.c"
         pilot rt_c = runtime_dir + "/freak_runtime.c"
-        runtime_file = cli_quote_cmd_path(llvm_rt_c) + " " + cli_quote_cmd_path(rt_c)
+        process::command_arg(command, llvm_rt_c)
+        process::command_arg(command, rt_c)
     } else {
-        runtime_file = cli_quote_cmd_path(runtime_dir + "/freak_runtime.c")
+        process::command_arg(command, runtime_dir + "/freak_runtime.c")
     }
-
-    pilot clang_cmd = cli_find_clang_command()
-    if clang_cmd == "" { clang_cmd = "clang" }
-    pilot clang_prefix = cli_shell_command_prefix(clang_cmd)
-    pilot cmd = clang_prefix + " -g -o " + cli_quote_cmd_path(out_bin) + " " + cli_quote_cmd_path(transpiled_file) + " " + runtime_file
-    cmd = cmd + " -I" + cli_quote_cmd_path(runtime_dir) + " -O" + opt + " -w -D_CRT_SECURE_NO_WARNINGS"
-    cmd = cmd + cli_lto_clang_flags(lto) + cli_lto_linker_flags(lto)
+    cli_build_lto_args(command, lto)
 
     if not is_win {
-        cmd = cmd + " -lm"
+        process::command_arg(command, "-lm")
     }
     if is_win {
-        cmd = cmd + " -lws2_32"
+        process::command_arg(command, "-lws2_32")
     }
 
     -- Add UI runtime if source file uses ui:: functions.
@@ -1247,18 +1457,18 @@ task cli_build_binary(transpiled_file: word, src_file: word, target: word, opt: 
     pilot ui_c = runtime_dir + "/ui/win32_backend.c"
     if is_win {
         if fs::exists(ui_c) {
-            cmd = cmd + " " + cli_quote_cmd_path(ui_c) + " -DFREAK_HAS_UI -luser32 -lgdi32 -lmsimg32"
+            process::command_arg(command, ui_c)
+            process::command_arg(command, "-DFREAK_HAS_UI")
+            process::command_arg(command, "-luser32")
+            process::command_arg(command, "-lgdi32")
+            process::command_arg(command, "-lmsimg32")
         }
     }
 
-    if cross != "" {
-        cmd = cmd + " --target=" + cli_quote_cmd_path(cross)
-    }
-
     say "  " + C_DIM + SYM_GEAR + "  Compiling native binary..." + C_RESET
-
-    pilot exit_code = process::exec(cmd)
-    if exit_code != 0 {
+    pilot compiled = cli_build_command(command, "Clang compilation/link")
+    if not compiled or not cli_build_regular_output(out_bin) {
+        cli_delete_derived_artifact(out_bin)
         say ""
         say C_BRED + "  MISSION FAILED" + C_RESET + C_RED + " -- clang compilation error" + C_RESET
         if lto != "off" {
@@ -1616,12 +1826,17 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
 
     if not cli_build_environment_ready() { give back "" }
 
-    pilot source: word = fs::read(src_file)
-    if source == "" {
+    pilot source_ticket = fs::read_source_ticket(src_file)
+    if not fs::result_ok(source_ticket) {
+        pilot source_error = fs::result_error(source_ticket)
+        fs::result_release(source_ticket)
         say ""
         say "  " + C_BRED + SYM_CROSS + " ERROR" + C_RESET + " Could not read file: " + C_BWHITE + src_file + C_RESET
+        say "  " + source_error
         give back ""
     }
+    pilot source: word = fs::result_word(source_ticket)
+    fs::result_release(source_ticket)
 
     -- Build header with box
     pilot backend_label = "LLVM IR"
