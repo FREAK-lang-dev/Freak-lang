@@ -1592,7 +1592,7 @@ def check_doctor(
     assert report["checks"]["runtime"]["files_expected"] == len(
         [destination for _, destination in manifest_entries(repo) if destination.startswith("runtime/")]
     )
-    assert report["checks"]["stdlib"]["modules_found"] == 13
+    assert report["checks"]["stdlib"]["modules_found"] == 14
     assert report["checks"]["stdlib"]["modules_expected"] == 14
     assert report["checks"]["abi"] == {
         "ok": True,

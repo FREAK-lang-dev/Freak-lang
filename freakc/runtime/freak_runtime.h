@@ -902,6 +902,10 @@ int64_t freak_fs_lock_dir_ticket(int64_t,freak_word);
 int64_t freak_fs_remove_relative_file_checked(int64_t,freak_word);
 int64_t freak_fs_mkdir_relative_checked(int64_t,freak_word);
 int64_t freak_fs_open_relative_dir_ticket(int64_t,freak_word);
+int64_t freak_fs_list_dir_ticket(int64_t);
+bool freak_fs_result_missing(int64_t);
+int64_t freak_fs_directory_path_ticket(int64_t);
+int64_t freak_fs_directory_identity_ticket(int64_t);
 int64_t freak_llvm_fs_open_dir_ticket(int64_t);
 int64_t freak_llvm_fs_read_bytes_limit_ticket(int64_t,int64_t);
 int64_t freak_llvm_fs_read_relative_ticket(int64_t,int64_t);
@@ -916,6 +920,10 @@ int64_t freak_llvm_fs_lock_dir_ticket(int64_t,int64_t);
 int64_t freak_llvm_fs_remove_relative_file_checked(int64_t,int64_t);
 int64_t freak_llvm_fs_mkdir_relative_checked(int64_t,int64_t);
 int64_t freak_llvm_fs_open_relative_dir_ticket(int64_t,int64_t);
+int64_t freak_llvm_fs_list_dir_ticket(int64_t);
+int64_t freak_llvm_fs_result_missing(int64_t);
+int64_t freak_llvm_fs_directory_path_ticket(int64_t);
+int64_t freak_llvm_fs_directory_identity_ticket(int64_t);
 
 /* HTTP floor scalar ABI; getter words and ByteBuffers are independent owners. */
 int64_t freak_http_server_open(int64_t port);
