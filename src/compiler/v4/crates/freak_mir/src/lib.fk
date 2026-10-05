@@ -159,6 +159,7 @@ pilot v4_mir_body_lookup_linear_steps = 0
 pilot v4_mir_body_name_reads = 0
 pilot v4_mir_body_block_reads = 0
 pilot v4_mir_block_edge_reads = 0
+pilot v4_mir_rvalue_ty_reads = 0
 pilot v4_mir_block_stmt_build_records = 0
 pilot v4_mir_block_stmt_lookup_steps = 0
 pilot v4_mir_block_stmt_linear_steps = 0
@@ -507,6 +508,79 @@ task v4_mir_invalidate_block_stmt_index(mir_id: int, body_id: int) -> void {
     if array_len(packed) >= 3 { array_set(packed, 0, "0") }
 }
 
+-- The statement-link child also owns four optional Never-summary cells:
+-- ready, authoritative type-column handle, active rvalues, exact Never count.
+-- Its readiness is independent of the block/statement index. Raw type edits
+-- must invalidate explicitly; ordinary append/set/restore APIs maintain it.
+task v4_mir_invalidate_body_never_summary(mir_id: int, body_id: int) -> void {
+    pilot links = v4_mir_stmt_next_index_handle(mir_id, body_id)
+    if array_len(links) >= 4 { array_set(links, 0, "0") }
+}
+
+task v4_mir_body_never_summary_is_ready(mir_id: int, body_id: int) -> bool {
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back false }
+    pilot links = v4_mir_stmt_next_index_handle(mir_id, body_id)
+    pilot ready: word = array_get(links, 0)
+    if array_len(links) < 4 or ready != "1" { give back false }
+    pilot types = v4_mir_body_rvalue_tys_handle(mir_id, body_id)
+    pilot count = v4_mir_body_rvalue_count(mir_id, body_id)
+    pilot never_count = word_to_int(array_get(links, 3))
+    give back types >= 0 and word_to_int(array_get(links, 1)) == types and word_to_int(array_get(links, 2)) == count and array_len(types) == count and never_count >= 0 and never_count <= count
+}
+
+task v4_mir_publish_body_never_summary(mir_id: int, body_id: int, count: int, never_count: int) -> bool {
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back false }
+    pilot links = v4_mir_stmt_next_index_handle(mir_id, body_id)
+    pilot types = v4_mir_body_rvalue_tys_handle(mir_id, body_id)
+    if array_len(links) < 4 or types < 0 or count != v4_mir_body_rvalue_count(mir_id, body_id) or array_len(types) != count or never_count < 0 or never_count > count { give back false }
+    array_set(links, 1, word_from_int(types))
+    array_set(links, 2, word_from_int(count))
+    array_set(links, 3, word_from_int(never_count))
+    array_set(links, 0, "1")
+    give back true
+}
+
+task v4_mir_body_never_summary_begin_write(mir_id: int, body_id: int) -> int {
+    pilot never_count = 0 - 1
+    if v4_mir_body_never_summary_is_ready(mir_id, body_id) {
+        never_count = word_to_int(array_get(v4_mir_stmt_next_index_handle(mir_id, body_id), 3))
+    }
+    v4_mir_invalidate_body_never_summary(mir_id, body_id)
+    give back never_count
+}
+
+-- The original authoritative scanner is also the allocation-free cold path.
+task v4_mir_body_has_never_linear(mir_id: int, body_id: int) -> bool {
+    if not v4_mir_lookup_body_exists(mir_id, body_id) { give back false }
+    pilot value = 0
+    repeat until value >= v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_ty(mir_id, body_id, value) == v4_ty_never { give back true }
+        value += 1
+    }
+    give back false
+}
+
+task v4_mir_body_has_never(mir_id: int, body_id: int) -> bool {
+    if v4_mir_body_never_summary_is_ready(mir_id, body_id) {
+        give back word_to_int(array_get(v4_mir_stmt_next_index_handle(mir_id, body_id), 3)) > 0
+    }
+    give back v4_mir_body_has_never_linear(mir_id, body_id)
+}
+
+task v4_mir_finalize_body_never_summary(mir_id: int, body_id: int) -> bool {
+    if v4_mir_body_never_summary_is_ready(mir_id, body_id) { give back true }
+    if not v4_mir_block_stmt_storage_ensure(mir_id, body_id) { give back false }
+    v4_mir_invalidate_body_never_summary(mir_id, body_id)
+    pilot count = v4_mir_body_rvalue_count(mir_id, body_id)
+    pilot never_count = 0
+    pilot value = 0
+    repeat until value >= count {
+        if v4_mir_rvalue_ty(mir_id, body_id, value) == v4_ty_never { never_count += 1 }
+        value += 1
+    }
+    give back v4_mir_publish_body_never_summary(mir_id, body_id, count, never_count)
+}
+
 task v4_mir_body_lookup_index_is_ready(mir_id: int) -> bool {
     if not v4_mir_lookup_owner_exists(mir_id) { give back false }
     pilot packed = v4_mir_body_lookup_index_handle(mir_id)
@@ -632,6 +706,10 @@ task v4_mir_block_stmt_storage_ensure(mir_id: int, body_id: int) -> bool {
     array_push(packed, "0")
     array_push(packed, "0")
     array_push(packed, "0")
+    array_push(links, "0")
+    array_push(links, "-1")
+    array_push(links, "0")
+    array_push(links, "0")
     array_set(owners, body_id, word_from_int(packed))
     array_set(link_owners, body_id, word_from_int(links))
     give back true
@@ -649,7 +727,7 @@ task v4_mir_block_stmt_append_link(mir_id: int, body_id: int, block_id: int, stm
     pilot links = v4_mir_stmt_next_index_handle(mir_id, body_id)
     pilot base = 3 + 11 * block_id
     pilot previous = word_to_int(array_get(packed, base + 1))
-    if previous < 0 { array_set(packed, base, word_from_int(stmt_id)) } else { array_set(links, previous, word_from_int(stmt_id)) }
+    if previous < 0 { array_set(packed, base, word_from_int(stmt_id)) } else { array_set(links, 4 + previous, word_from_int(stmt_id)) }
     array_set(packed, base + 1, word_from_int(stmt_id))
     array_set(packed, base + 2, word_from_int(word_to_int(array_get(packed, base + 2)) + 1))
     pilot kind_slot = v4_mir_block_stmt_kind_slot(v4_mir_stmt_kind(mir_id, body_id, stmt_id))
@@ -668,7 +746,7 @@ task v4_mir_finalize_block_stmt_index(mir_id: int, body_id: int) -> bool {
     pilot statements = v4_mir_body_stmt_count(mir_id, body_id)
     if blocks > 97612892 { give back false }
     if not v4_mir_lookup_ensure_slot(packed, 2 + 11 * blocks, "0") { give back false }
-    if statements > 0 and not v4_mir_lookup_ensure_slot(links, statements - 1, "-1") { give back false }
+    if not v4_mir_lookup_ensure_slot(links, 3 + statements, "-1") { give back false }
     pilot block_id = 0
     repeat until block_id >= blocks {
         pilot field = 0
@@ -682,7 +760,7 @@ task v4_mir_finalize_block_stmt_index(mir_id: int, body_id: int) -> bool {
     }
     pilot stmt_id = 0
     repeat until stmt_id >= statements {
-        array_set(links, stmt_id, "-1")
+        array_set(links, 4 + stmt_id, "-1")
         stmt_id += 1
     }
     stmt_id = 0
@@ -708,11 +786,11 @@ task v4_mir_block_stmt_added(mir_id: int, body_id: int, block_id: int, stmt_id: 
         v4_mir_invalidate_block_stmt_index(mir_id, body_id)
         give back
     }
-    if not v4_mir_lookup_ensure_slot(links, stmt_id, "-1") {
+    if not v4_mir_lookup_ensure_slot(links, 4 + stmt_id, "-1") {
         v4_mir_invalidate_block_stmt_index(mir_id, body_id)
         give back
     }
-    array_set(links, stmt_id, "-1")
+    array_set(links, 4 + stmt_id, "-1")
     v4_mir_block_stmt_append_link(mir_id, body_id, block_id, stmt_id)
     array_set(packed, 2, word_from_int(stmt_id + 1))
 }
@@ -767,7 +845,7 @@ task v4_mir_block_next_stmt(mir_id: int, body_id: int, block_id: int, stmt_id: i
     if stmt_id >= v4_mir_body_stmt_count(mir_id, body_id) { give back 0 - 1 }
     if block_id >= 0 and block_id < v4_mir_body_block_count(mir_id, body_id) and v4_mir_block_stmt_index_is_ready(mir_id, body_id) and v4_mir_stmt_block(mir_id, body_id, stmt_id) == block_id {
         v4_mir_block_stmt_lookup_steps += 1
-        give back word_to_int(array_get(v4_mir_stmt_next_index_handle(mir_id, body_id), stmt_id))
+        give back word_to_int(array_get(v4_mir_stmt_next_index_handle(mir_id, body_id), 4 + stmt_id))
     }
     give back v4_mir_block_next_stmt_linear(mir_id, body_id, block_id, stmt_id)
 }
@@ -778,6 +856,8 @@ task v4_mir_finalize_lookup_indexes(mir_id: int) -> bool {
     pilot body_id = 0
     repeat until body_id >= v4_mir_body_count(mir_id) {
         if not v4_mir_finalize_block_stmt_index(mir_id, body_id) { ready = false }
+        -- Optional summary failure does not change the lookup-finalizer result.
+        v4_mir_finalize_body_never_summary(mir_id, body_id)
         body_id += 1
     }
     give back ready
@@ -1252,6 +1332,7 @@ task v4_mir_rvalue_span(mir_id: int, body_id: int, rvalue_id: int) -> word {
 }
 
 task v4_mir_rvalue_ty(mir_id: int, body_id: int, rvalue_id: int) -> word {
+    v4_mir_rvalue_ty_reads += 1
     give back array_get(v4_mir_body_rvalue_tys_handle(mir_id, body_id), rvalue_id)
 }
 
@@ -1262,7 +1343,13 @@ task v4_mir_set_rvalue_ty(mir_id: int, body_id: int, rvalue_id: int, rvalue_ty: 
     if rvalue_id >= v4_mir_body_rvalue_count(mir_id, body_id) {
         give back
     }
+    pilot never_count = v4_mir_body_never_summary_begin_write(mir_id, body_id)
+    if never_count >= 0 and v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) == v4_ty_never { never_count -= 1 }
     array_set(v4_mir_body_rvalue_tys_handle(mir_id, body_id), rvalue_id, rvalue_ty)
+    if never_count >= 0 {
+        if rvalue_ty == v4_ty_never { never_count += 1 }
+        v4_mir_publish_body_never_summary(mir_id, body_id, v4_mir_body_rvalue_count(mir_id, body_id), never_count)
+    }
 }
 
 task v4_mir_set_rvalue_children(mir_id: int, body_id: int, rvalue_id: int, lhs: int, rhs: int) -> void {
@@ -1758,6 +1845,7 @@ task v4_mir_add_place(mir_id: int, body_id: int, place_kind: word, text: word, b
 
 task v4_mir_add_rvalue(mir_id: int, body_id: int, rvalue_kind: word, text: word, op: word, lhs: int, rhs: int, span: word, rvalue_ty: word) -> int {
     pilot rvalue_id = array_len(v4_mir_body_rvalue_kinds_handle(mir_id, body_id))
+    pilot never_count = v4_mir_body_never_summary_begin_write(mir_id, body_id)
     array_push(v4_mir_body_rvalue_kinds_handle(mir_id, body_id), rvalue_kind)
     array_push(v4_mir_body_rvalue_texts_handle(mir_id, body_id), text)
     array_push(v4_mir_body_rvalue_ops_handle(mir_id, body_id), op)
@@ -1768,6 +1856,10 @@ task v4_mir_add_rvalue(mir_id: int, body_id: int, rvalue_kind: word, text: word,
     array_push(v4_mir_body_rvalue_abis_handle(mir_id, body_id), "")
     array_push(v4_mir_body_rvalue_args_handle(mir_id, body_id), "")
     array_push(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), "")
+    if never_count >= 0 {
+        if rvalue_ty == v4_ty_never { never_count += 1 }
+        v4_mir_publish_body_never_summary(mir_id, body_id, rvalue_id + 1, never_count)
+    }
     give back rvalue_id
 }
 
@@ -1934,6 +2026,7 @@ task v4_mir_add_body(mir_id: int, def_id: word, body_name: word, signature: word
     if not v4_mir_restore_building {
         v4_mir_body_lookup_added(mir_id, body_id)
         v4_mir_finalize_block_stmt_index(mir_id, body_id)
+        v4_mir_finalize_body_never_summary(mir_id, body_id)
     }
     give back body_id
 }
@@ -3893,6 +3986,7 @@ task v4_mir_restore_body_slot(mir_id: int, body_id: int, def_id: word, body_name
 
     v4_mir_invalidate_body_lookup_index(mir_id)
     v4_mir_invalidate_block_stmt_index(mir_id, body_id)
+    v4_mir_invalidate_body_never_summary(mir_id, body_id)
     array_set(v4_mir_defs_handle(mir_id), body_id, def_id)
     array_set(v4_mir_names_handle(mir_id), body_id, body_name)
     array_set(v4_mir_sigs_handle(mir_id), body_id, signature)
@@ -4069,6 +4163,10 @@ task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalu
         give back 0
     }
     if v4_mir_body_rvalue_lhs_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_abis_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_spans_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_kinds_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_args_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_texts_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_ops_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_rhs_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id) < 0 or v4_mir_body_rvalue_tys_handle(mir_id, body_id) < 0 { give back 0 }
+    pilot never_count = v4_mir_body_never_summary_begin_write(mir_id, body_id)
+    if never_count >= 0 and rvalue_id < v4_mir_body_rvalue_count(mir_id, body_id) {
+        if v4_mir_rvalue_ty(mir_id, body_id, rvalue_id) == v4_ty_never { never_count -= 1 }
+    }
     repeat until v4_mir_body_rvalue_count(mir_id, body_id) > rvalue_id {
         pilot previous = v4_mir_body_rvalue_count(mir_id, body_id)
         array_push(v4_mir_body_rvalue_kinds_handle(mir_id, body_id), v4_mir_rvalue_unknown)
@@ -4122,6 +4220,10 @@ task v4_mir_restore_rvalue_slot(mir_id: int, body_id: int, rvalue_id: int, rvalu
     array_set(v4_mir_body_rvalue_tys_handle(mir_id, body_id), rvalue_id, rvalue_ty)
     array_set(v4_mir_body_rvalue_abis_handle(mir_id, body_id), rvalue_id, rvalue_abi)
     array_set(v4_mir_body_rvalue_args_handle(mir_id, body_id), rvalue_id, rvalue_args)
+    if never_count >= 0 {
+        if rvalue_ty == v4_ty_never { never_count += 1 }
+        v4_mir_publish_body_never_summary(mir_id, body_id, v4_mir_body_rvalue_count(mir_id, body_id), never_count)
+    }
     give back 1
 }
 
@@ -5918,6 +6020,7 @@ task v4_mir_compact_body_rvalue_roots(mir: int, body: int) -> word {
     array_release(old_local_spans)
     array_release(old_local_scope_spans)
     v4_mir_invalidate_block_stmt_index(mir, body)
+    v4_mir_invalidate_body_never_summary(mir, body)
     give back ""
 }
 
