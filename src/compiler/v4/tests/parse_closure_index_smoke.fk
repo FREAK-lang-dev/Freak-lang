@@ -209,9 +209,9 @@ task v4_parse_closure_index_run() -> void {
     say "parse-closure-exhausted-explicit-recover=" + word_from_bool(stays_cold and published and array_len(held) == 0 and v4_parse_closure_index_all_equivalent(tree))
 
     -- Real parser publication, malformed recovery and Parse wire identity.
-    pilot source = "task first() -> void {\n pilot f = |x: int, x: int| => x\n}\n"
-    source = source + "task broken() -> void {\n pilot f = |42| => 42\n}\n"
-    source = source + "task survivor() -> void {\n pilot f = copy |y: int| => y\n}\n"
+    pilot source = "task first() -> void " + chr(123) + "\n pilot f = |x: int, x: int| => x\n" + chr(125) + "\n"
+    source = source + "task broken() -> void " + chr(123) + "\n pilot f = |42| => 42\n" + chr(125) + "\n"
+    source = source + "task survivor() -> void " + chr(123) + "\n pilot f = copy |y: int| => y\n" + chr(125) + "\n"
     pilot stream = v4_lex_text(0, source)
     pilot actual = v4_parse_stream(0, stream)
     pilot nodes = v4_parse_node_count(actual)
