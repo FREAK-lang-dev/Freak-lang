@@ -88,6 +88,7 @@ pilot v4_mir_sortie_break_block = v4_mir_stmt_block(v4_mir_break_continue_mir, v
 pilot v4_mir_sortie_continue_block = v4_mir_stmt_block(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_continue_stmt)
 pilot v4_mir_sortie_break_target = v4_mir_block_target(v4_mir_body_block(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_break_block))
 pilot v4_mir_sortie_continue_target = v4_mir_block_target(v4_mir_body_block(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_continue_block))
+pilot v4_mir_sortie_continue_assign = v4_mir_find_stmt_kind_in_block(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_continue_target, v4_mir_stmt_assign)
 
 say "break-continue-good-diagnostics=" + word_from_int(v4_mir_diag_count(v4_mir_break_continue_mir))
 say "break-continue-countdown-break-kind=" + v4_mir_stmt_kind(v4_mir_break_continue_mir, v4_mir_countdown_body, v4_mir_countdown_break_stmt)
@@ -102,6 +103,10 @@ say "break-continue-sortie-break-kind=" + v4_mir_stmt_kind(v4_mir_break_continue
 say "break-continue-sortie-break-target=" + word_from_int(v4_mir_sortie_break_target)
 say "break-continue-sortie-continue-kind=" + v4_mir_stmt_kind(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_continue_stmt)
 say "break-continue-sortie-continue-target=" + word_from_int(v4_mir_sortie_continue_target)
+say "break-continue-sortie-continue-epilogue-term=" + v4_mir_block_terminator(v4_mir_body_block(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_continue_target))
+say "break-continue-sortie-continue-epilogue-target=" + word_from_int(v4_mir_block_target(v4_mir_body_block(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_continue_target)))
+say "break-continue-sortie-continue-epilogue-kind=" + v4_mir_stmt_kind(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_continue_assign)
+say "break-continue-sortie-continue-epilogue-rhs=" + v4_mir_stmt_rhs(v4_mir_break_continue_mir, v4_mir_sortie_body, v4_mir_sortie_continue_assign)
 
 pilot v4_mir_break_continue_bad_stream = v4_lex_text(1, v4_mir_break_continue_bad_source())
 pilot v4_mir_break_continue_bad_tree = v4_parse_stream(1, v4_mir_break_continue_bad_stream)
