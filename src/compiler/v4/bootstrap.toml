@@ -2,7 +2,7 @@
 # byte inventory covers this manifest and the native preview metadata.
 schema = 1
 name = "maverick-bootstrap"
-source_commit = "08f264ca097b845137bf322e0a1872255d20749b"
+source_commit = "b8c5e99d10af59ffcc103ef572bb1a4e36470f19"
 source_prefix = "src/compiler/v4"
 entry = "tools/build_llvm.fk"
 source_order_file = "bootstrap-sources.manifest"
