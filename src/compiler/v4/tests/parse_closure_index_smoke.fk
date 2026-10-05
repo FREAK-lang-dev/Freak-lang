@@ -1,0 +1,224 @@
+-- Parse-owned closure child indexes, actual reader work and cold fallbacks.
+-- Verification prepends the V4 crates and uses the 1024 live-array ceiling.
+
+task v4_parse_closure_index_available_handles() -> int {
+    pilot holders = array_new()
+    pilot count = 0
+    pilot exhausted = false
+    repeat until exhausted or count >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            count += 1
+        }
+    }
+    pilot slot = 0
+    repeat until slot >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, slot)))
+        slot += 1
+    }
+    array_release(holders)
+    give back count
+}
+
+task v4_parse_closure_index_equivalent(tree: int, kind: word) -> bool {
+    pilot correct = true
+    pilot parent = 0 - 2
+    repeat until parent > v4_parse_node_count(tree) + 1 {
+        pilot count = v4_parse_child_count_by_kind_linear(tree, parent, kind)
+        if v4_parse_child_count_by_kind(tree, parent, kind) != count { correct = false }
+        pilot ordinal = 0 - 1
+        repeat until ordinal > count {
+            if v4_parse_child_by_kind(tree, parent, kind, ordinal) != v4_parse_child_by_kind_linear(tree, parent, kind, ordinal) { correct = false }
+            ordinal += 1
+        }
+        parent += 1
+    }
+    give back correct
+}
+
+task v4_parse_closure_index_all_equivalent(tree: int) -> bool {
+    give back v4_parse_closure_index_equivalent(tree, v4_node_closure) and v4_parse_closure_index_equivalent(tree, v4_node_closure_param) and v4_parse_closure_index_equivalent(tree, v4_node_closure_body) and v4_parse_closure_index_equivalent(tree, v4_node_task) and v4_parse_closure_index_equivalent(tree, "") and v4_parse_closure_index_equivalent(tree, v4_node_error)
+}
+
+task v4_parse_closure_index_scale(size: int, real: bool) -> int {
+    pilot tree = v4_parse_tree_new(0, 0 - 1)
+    v4_parse_add_node(tree, v4_node_source_file, "0", V4_NO_SPAN, 0 - 1)
+    pilot item = 0
+    repeat until item >= size {
+        v4_parse_add_node(tree, v4_node_task, "owner", V4_NO_SPAN, 0)
+        item += 1
+    }
+    if real {
+        item = 0
+        repeat until item >= size {
+            pilot closure = v4_parse_add_node(tree, v4_node_closure, "borrow", V4_NO_SPAN, item + 1)
+            v4_parse_add_node(tree, v4_node_closure_param, "value", V4_NO_SPAN, closure)
+            v4_parse_add_node(tree, v4_node_closure_body, "expr", V4_NO_SPAN, closure)
+            item += 1
+        }
+    }
+    pilot nodes = v4_parse_node_count(tree)
+    pilot kinds = v4_parse_node_kind_reads
+    pilot parents = v4_parse_node_parent_reads
+    pilot published: bool = v4_parse_closure_child_index_finalize(tree)
+    pilot work = v4_parse_node_kind_reads - kinds + v4_parse_node_parent_reads - parents
+    pilot bounded: bool = work >= nodes and work <= 6 * nodes
+    pilot packed = v4_parse_closure_child_index_handle(tree)
+    pilot compact: bool = array_len(packed) == 4
+    if real { compact = array_len(packed) == 4 + 6 * nodes + 3 * size }
+    pilot wire = v4_parse_snapshot()
+    pilot available = v4_parse_closure_index_available_handles()
+    kinds = v4_parse_node_kind_reads
+    parents = v4_parse_node_parent_reads
+    pilot builds = v4_parse_closure_child_index_builds
+    pilot correct = true
+    item = 0
+    repeat until item >= size {
+        if real {
+            pilot closure = 1 + size + 3 * item
+            if v4_parse_closure_count(tree, item + 1) != 1 or v4_parse_closure_node(tree, item + 1, 0) != closure or v4_parse_closure_node(tree, item + 1, 1) != 0 - 1 { correct = false }
+            if v4_parse_closure_param_count(tree, closure) != 1 or v4_parse_closure_param_name(tree, closure, 0) != "value" or v4_parse_closure_body_node(tree, closure) != closure + 2 { correct = false }
+        } else {
+            if v4_parse_closure_count(tree, item + 1) != 0 or v4_parse_closure_node(tree, item + 1, 0) != 0 - 1 { correct = false }
+        }
+        item += 1
+    }
+    pilot readonly: bool = v4_parse_node_kind_reads == kinds and v4_parse_node_parent_reads == parents and v4_parse_closure_child_index_builds == builds and v4_parse_closure_child_index_handle(tree) == packed
+    readonly = readonly and v4_parse_closure_index_available_handles() == available and v4_parse_snapshot() == wire
+    pilot label = "zero"
+    if real { label = "real" }
+    say "parse-closure-" + label + word_from_int(size) + "-linear-build-readonly=" + word_from_bool(published and bounded and compact and correct and readonly)
+    -- Actual original scan work is deliberately counted, not simulated probes.
+    parents = v4_parse_node_parent_reads
+    item = 0
+    repeat until item >= size {
+        pilot count = v4_parse_child_count_by_kind_linear(tree, item + 1, v4_node_closure)
+        if real and count != 1 { correct = false }
+        if not real and count != 0 { correct = false }
+        item += 1
+    }
+    say "parse-closure-" + label + word_from_int(size) + "-original-scan-control=" + word_from_bool(correct and v4_parse_node_parent_reads - parents == size * nodes)
+    give back work
+}
+
+task v4_parse_closure_index_run() -> void {
+    pilot invalid: bool = v4_parse_closure_child_index_row(0, 0, v4_node_closure) == 0 - 1 and v4_parse_closure_child_index_row(0 - 1, 0, v4_node_closure_param) == 0 - 1 and v4_parse_closure_child_index_handle(999999) == 0 - 1
+    say "parse-closure-preinit-readonly=" + word_from_bool(invalid and v4_parse_ready == 0 and v4_parse_closure_child_indexes == 0 - 1 and v4_parse_closure_child_index_builds == 0)
+    pilot zero_small = v4_parse_closure_index_scale(128, false)
+    pilot zero_large = v4_parse_closure_index_scale(256, false)
+    pilot real_small = v4_parse_closure_index_scale(128, true)
+    pilot real_large = v4_parse_closure_index_scale(256, true)
+    say "parse-closure-doubling-work-linear=" + word_from_bool(zero_large <= 2 * zero_small and real_large <= 2 * real_small)
+
+    pilot tree = v4_parse_tree_new(90, 0 - 1)
+    v4_parse_add_node(tree, v4_node_source_file, "90", V4_NO_SPAN, 0 - 1)
+    v4_parse_add_node(tree, v4_node_task, "first", V4_NO_SPAN, 0)
+    v4_parse_add_node(tree, v4_node_task, "second", V4_NO_SPAN, 0)
+    v4_parse_add_node(tree, v4_node_closure, "borrow", V4_NO_SPAN, 2)
+    v4_parse_add_node(tree, v4_node_closure_param, "forward", V4_NO_SPAN, 6)
+    v4_parse_add_node(tree, v4_node_closure_body, "expr", V4_NO_SPAN, 3)
+    v4_parse_add_node(tree, v4_node_closure, "copy", V4_NO_SPAN, 1)
+    v4_parse_add_node(tree, v4_node_closure_param, "left", V4_NO_SPAN, 3)
+    v4_parse_add_node(tree, v4_node_error, "recovery", V4_NO_SPAN, 3)
+    v4_parse_add_node(tree, v4_node_closure, "mut", V4_NO_SPAN, 0 - 1)
+    v4_parse_add_node(tree, v4_node_closure_param, "outside", V4_NO_SPAN, 999999)
+    v4_parse_add_node(tree, v4_node_closure_body, "block", V4_NO_SPAN, 6)
+    v4_parse_add_node(tree, v4_node_closure_param, "right", V4_NO_SPAN, 3)
+    v4_parse_add_node(tree, v4_node_closure, "move", V4_NO_SPAN, 2)
+    v4_parse_add_node(tree, "unknown-kind", "unknown", V4_NO_SPAN, 2)
+    v4_parse_add_node(tree, "", "empty", V4_NO_SPAN, 2)
+    pilot builds = v4_parse_closure_child_index_builds
+    pilot cold: bool = v4_parse_closure_index_all_equivalent(tree) and v4_parse_closure_child_index_builds == builds
+    pilot published: bool = v4_parse_closure_child_index_finalize(tree)
+    pilot exact: bool = v4_parse_closure_index_all_equivalent(tree) and v4_parse_closure_node(tree, 2, 0) == 3 and v4_parse_closure_node(tree, 2, 1) == 13 and v4_parse_closure_param_node(tree, 3, 0) == 7 and v4_parse_closure_param_node(tree, 3, 1) == 12 and v4_parse_closure_param_node(tree, 6, 0) == 4
+    pilot unusual: bool = v4_parse_closure_count(tree, 0 - 1) == 1 and v4_parse_closure_node(tree, 0 - 1, 0) == 9 and v4_parse_closure_param_count(tree, 999999) == 1 and v4_parse_closure_param_node(tree, 999999, 0) == 10 and v4_parse_closure_node(tree, 2, 0 - 1) == 0 - 1
+    say "parse-closure-interleaved-physical-cold-exact=" + word_from_bool(cold and published and exact and unusual)
+
+    pilot held = v4_parse_closure_child_index_handle(tree)
+    pilot revision = v4_parse_tree_revision(tree)
+    builds = v4_parse_closure_child_index_builds
+    v4_parse_restore_node_slot(tree, 13, v4_node_closure_param, "third", V4_NO_SPAN, 3)
+    pilot overwrite: bool = v4_parse_tree_revision(tree) > revision and v4_parse_closure_index_all_equivalent(tree) and v4_parse_closure_count(tree, 2) == 1 and v4_parse_closure_param_count(tree, 3) == 3 and v4_parse_closure_child_index_builds == builds
+    published = v4_parse_closure_child_index_finalize(tree)
+    say "parse-closure-same-size-overwrite-release=" + word_from_bool(overwrite and published and array_len(held) == 0 and v4_parse_closure_index_all_equivalent(tree))
+    array_set(v4_parse_parents_handle(tree), 3, "1")
+    array_set(v4_parse_kinds_handle(tree), 4, "unknown-kind")
+    v4_parse_note_tree_mutation(tree)
+    builds = v4_parse_closure_child_index_builds
+    pilot raw: bool = v4_parse_closure_count(tree, 2) == 0 and v4_parse_closure_param_count(tree, 6) == 0 and v4_parse_closure_index_all_equivalent(tree) and v4_parse_closure_child_index_builds == builds
+    published = v4_parse_closure_child_index_finalize(tree)
+    say "parse-closure-raw-hook-cold-recover=" + word_from_bool(raw and published and v4_parse_closure_index_all_equivalent(tree))
+
+    -- Repeated replacements must release their derived children. These slot
+    -- overwrites allocate no authoritative Parse children, isolating the index.
+    pilot available = v4_parse_closure_index_available_handles()
+    pilot replaced = true
+    pilot round = 0
+    repeat until round >= 16 {
+        held = v4_parse_closure_child_index_handle(tree)
+        v4_parse_restore_node_slot(tree, 3, v4_node_closure, "borrow", V4_NO_SPAN, 1)
+        if not v4_parse_closure_child_index_finalize(tree) or array_len(held) != 0 or v4_parse_closure_count(tree, 1) != 2 { replaced = false }
+        round += 1
+    }
+    say "parse-closure-replacement-handles-bounded=" + word_from_bool(replaced and v4_parse_closure_index_available_handles() == available)
+
+    pilot wire = v4_parse_snapshot()
+    builds = v4_parse_closure_child_index_builds
+    pilot rejected = v4_parse_snapshot_restore("invalid")
+    say "parse-closure-rejected-restore-unchanged=" + word_from_bool(rejected.starts_with("parse-snapshot-restore ok=0") and v4_parse_snapshot() == wire and v4_parse_closure_child_index_builds == builds)
+    held = v4_parse_closure_child_index_handle(tree)
+    v4_parse_restore_tree_slot(tree, 91, 0 - 1)
+    v4_parse_restore_node_slot(tree, 0, v4_node_source_file, "91", V4_NO_SPAN, 0 - 1)
+    v4_parse_restore_node_slot(tree, 1, v4_node_task, "shorter", V4_NO_SPAN, 0)
+    pilot shortened: bool = v4_parse_closure_count(tree, 1) == 0 and v4_parse_closure_child_index_row(tree, 1, v4_node_closure) == 0 - 1
+    pilot short_wire = v4_parse_snapshot()
+    pilot restored = v4_parse_snapshot_restore(short_wire)
+    say "parse-closure-whole-restore-shortened-reuse=" + word_from_bool(shortened and restored.starts_with("parse-snapshot-restore ok=1") and array_len(held) == 0 and v4_parse_closure_child_index_row(tree, 1, v4_node_closure) == 0 - 2 and array_len(v4_parse_closure_child_index_handle(tree)) == 4 and v4_parse_snapshot() == short_wire)
+    v4_parse_restore_node_slot(tree, 8, v4_node_closure, "sparse", V4_NO_SPAN, 2)
+    builds = v4_parse_closure_child_index_builds
+    pilot sparse: bool = v4_parse_node_count(tree) == 9 and v4_parse_closure_count(tree, 2) == 1 and v4_parse_closure_node(tree, 2, 0) == 8 and v4_parse_closure_child_index_builds == builds
+    published = v4_parse_closure_child_index_finalize(tree)
+    say "parse-closure-sparse-parent-exact=" + word_from_bool(sparse and published and v4_parse_closure_index_all_equivalent(tree))
+
+    -- Exhaust staging allocation with a retained stale child, then recover.
+    held = v4_parse_closure_child_index_handle(tree)
+    v4_parse_restore_node_slot(tree, 8, v4_node_closure_param, "changed", V4_NO_SPAN, 2)
+    pilot holders = array_new()
+    pilot exhausted = false
+    round = 0
+    repeat until exhausted or round >= 2048 {
+        pilot handle = array_new()
+        if handle < 0 { exhausted = true } else {
+            array_push(holders, word_from_int(handle))
+            round += 1
+        }
+    }
+    builds = v4_parse_closure_child_index_builds
+    pilot denied: bool = not v4_parse_closure_child_index_finalize(tree)
+    pilot fallback: bool = v4_parse_closure_count(tree, 2) == 0 and v4_parse_closure_param_count(tree, 2) == 1 and v4_parse_closure_param_node(tree, 2, 0) == 8
+    say "parse-closure-exhausted-authoritative-readonly=" + word_from_bool(exhausted and denied and fallback and v4_parse_closure_child_index_builds == builds and v4_parse_closure_child_index_handle(tree) == held)
+    round = 0
+    repeat until round >= array_len(holders) {
+        array_release(word_to_int(array_get(holders, round)))
+        round += 1
+    }
+    array_release(holders)
+    pilot stays_cold: bool = v4_parse_closure_param_count(tree, 2) == 1 and v4_parse_closure_child_index_builds == builds
+    published = v4_parse_closure_child_index_finalize(tree)
+    say "parse-closure-exhausted-explicit-recover=" + word_from_bool(stays_cold and published and array_len(held) == 0 and v4_parse_closure_index_all_equivalent(tree))
+
+    -- Real parser publication, malformed recovery and Parse wire identity.
+    pilot source = "task first() -> void {\n pilot f = |x: int, x: int| => x\n}\n"
+    source = source + "task broken() -> void {\n pilot f = |42| => 42\n}\n"
+    source = source + "task survivor() -> void {\n pilot f = copy |y: int| => y\n}\n"
+    pilot stream = v4_lex_text(0, source)
+    pilot actual = v4_parse_stream(0, stream)
+    pilot nodes = v4_parse_node_count(actual)
+    pilot published_actual: bool = word_to_int(array_get(v4_parse_closure_child_index_handle(actual), 2)) == nodes
+    wire = v4_parse_snapshot()
+    restored = v4_parse_snapshot_restore(wire)
+    say "parse-closure-source-recovery-wire-exact=" + word_from_bool(published_actual and v4_parse_diag_count(actual) > 0 and v4_parse_closure_index_all_equivalent(actual) and restored.starts_with("parse-snapshot-restore ok=1") and v4_parse_snapshot() == wire)
+}
+
+v4_parse_closure_index_run()
