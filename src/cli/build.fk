@@ -1600,29 +1600,62 @@ task cli_std_marker_decode(frame: word) -> word {
     give back contents
 }
 
+task cli_std_marker_bytes_value(bytes: ByteBuffer) -> word {
+    pilot mut contents = ""
+    if bytes.length() == 0 {
+        contents = "unreadable"
+    } else if bytes.length() > 4096 {
+        contents = "oversized-marker"
+    } else {
+        bytes.seek(0)
+        pilot mut invalid = false
+        repeat until bytes.remaining() == 0 or invalid {
+            pilot value = bytes.read_byte()
+            if (value < 32 and value != 9 and value != 10 and value != 13) or value > 126 { invalid = true }
+        }
+        -- Validate before conversion so damaged selected payloads cannot abort
+        -- Doctor or embed a control character in its JSON report.
+        if invalid {
+            contents = "invalid-marker"
+        } else {
+            contents = bytes.to_word().trim()
+            if contents.contains("\t") or contents.contains("\r") or contents.contains("\n") { contents = "invalid-marker" }
+        }
+    }
+    bytes.release()
+    give back contents
+}
+
 task cli_payload_std_api_value(std_dir: word) -> word {
     if std_dir == "" { give back "missing" }
     if cli_payload_is_resolution_error(std_dir) { give back "resolution-error" }
-    pilot marker = std_dir + "/freak_std_api"
-    if not fs::exists(marker) { give back "missing" }
-    -- fs::read aborts the process on read errors, which would prevent Doctor
-    -- from emitting JSON or reaching repair for a damaged selected payload.
-    -- Read through a nonfatal operation; never fall back to another payload.
-    pilot quoted = cli_quote_cmd_path(marker)
-    -- BSD od can pad hex columns beyond the frame-size bound. Remove only
-    -- formatting whitespace after od succeeds; encoded marker bytes (including
-    -- controls) remain hex pairs. Keep od outside the pipe so errors cannot be
-    -- hidden by a successful tr, and emit the success frame only after both.
-    pilot command = "if [ -f " + quoted + " ] && [ -r " + quoted + " ]; then bytes=$(LC_ALL=C od -An -v -tx1 -N 4097 2>/dev/null < " + quoted + ") && bytes=$(printf '%s' \"$bytes\" | LC_ALL=C tr -d '[:space:]') && printf 'FREAK_STD_HEX:%s:END' \"$bytes\"; fi"
-    if cli_is_windows() {
-        -- Encode the path independently so %, &, quotes and apostrophes never
-        -- become shell/PowerShell syntax. A bounded stream also avoids a
-        -- size-check/ReadAllBytes race with a concurrently growing marker.
-        pilot path_hex = cli_std_marker_path_hex(marker.replace("/", "\\"))
-        pilot script = "$h='" + path_hex + "';$pbytes=New-Object byte[] ($h.Length/2);for($i=0;$i -lt $pbytes.Length;$i++){$pbytes[$i]=[Convert]::ToByte($h.Substring($i*2,2),16)};$p=[Text.Encoding]::UTF8.GetString($pbytes);try{$s=[IO.File]::OpenRead($p);try{$b=New-Object byte[] 4097;$n=0;while($n -lt 4097){$r=$s.Read($b,$n,4097-$n);if($r -eq 0){break};$n+=$r}}finally{$s.Dispose()};[Console]::Write('FREAK_STD_HEX:'+([BitConverter]::ToString($b,0,$n).Replace('-',''))+':END')}catch{[Console]::Write('FREAK_STD_UNREADABLE')}"
-        command = "powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"" + script + "\" 2>nul"
+    pilot marker = cli_host_path_join(std_dir, "freak_std_api")
+    pilot info = fs::stat_checked(marker)
+    if not fs::result_ok(info) {
+        fs::result_release(info)
+        give back "missing"
     }
-    give back cli_std_marker_decode(process::exec_capture(command))
+    pilot kind = fs::result_kind(info)
+    pilot size = fs::result_size(info)
+    fs::result_release(info)
+    if kind != 1 { give back "unreadable" }
+    if size > 4096 { give back "oversized-marker" }
+    pilot directory = fs::open_dir_ticket(std_dir)
+    if not fs::result_ok(directory) {
+        fs::result_release(directory)
+        give back "unreadable"
+    }
+    -- The directory handle anchors the read. The allocation and complete read
+    -- enforce the same limit even if the marker grows after the size check.
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, "freak_std_api", 4096)
+    fs::result_release(directory)
+    if not fs::result_ok(read) {
+        fs::result_release(read)
+        give back "unreadable"
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    give back cli_std_marker_bytes_value(bytes)
 }
 
 task cli_payload_std_api_ok(std_dir: word) -> bool {
