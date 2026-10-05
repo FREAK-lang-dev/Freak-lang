@@ -156,7 +156,22 @@ HARNESS = r'''
 #else
 #include <signal.h>
 #include <unistd.h>
+#ifdef __linux__
+#include <dirent.h>
 #endif
+#endif
+static long kernel_resources(void) {
+#ifdef _WIN32
+    DWORD count=0; return GetProcessHandleCount(GetCurrentProcess(),&count) ? (long)count : -1;
+#elif defined(__linux__)
+    DIR *directory=opendir("/proc/self/fd"); if(!directory) return -1;
+    long count=0; struct dirent *entry;
+    while((entry=readdir(directory))) if(strcmp(entry->d_name,".") && strcmp(entry->d_name,"..")) count++;
+    closedir(directory); return count;
+#else
+    return -1;
+#endif
+}
 static void require(int condition, const char *reason) {
     if (!condition) { fprintf(stderr, "FAIL: %s\n", reason); exit(2); }
 }
@@ -170,12 +185,15 @@ extern void freak_llvm_word_release_replaced(int64_t previous, int64_t replaceme
 #define run freak_llvm_process_command_run
 #define spawn freak_llvm_process_command_spawn
 #define wait_child freak_llvm_process_command_wait
+#define poll_child freak_llvm_process_command_poll
 #define terminate freak_llvm_process_command_terminate
 #define release freak_llvm_process_command_release
 #define status freak_llvm_process_command_status
 #define exit_code freak_llvm_process_command_exit_code
 #define signal_number freak_llvm_process_command_signal
 #define run_inherit freak_llvm_process_command_run_inherit
+#define spawn_inherit freak_llvm_process_command_spawn_inherit
+#define sleep_ms freak_llvm_time_sleep
 #define bytes freak_llvm_process_command_stdout_bytes
 #define error_bytes freak_llvm_process_command_stderr_bytes
 static freak_word output(int64_t h) { return freak_llvm_word_view(freak_llvm_process_command_stdout(h)); }
@@ -191,12 +209,15 @@ static void drop_word(freak_word *value) { freak_llvm_word_release_replaced((int
 #define run freak_process_command_run
 #define spawn freak_process_command_spawn
 #define wait_child freak_process_command_wait
+#define poll_child freak_process_command_poll
 #define terminate freak_process_command_terminate
 #define release freak_process_command_release
 #define status freak_process_command_status
 #define exit_code freak_process_command_exit_code
 #define signal_number freak_process_command_signal
 #define run_inherit freak_process_command_run_inherit
+#define spawn_inherit freak_process_command_spawn_inherit
+#define sleep_ms freak_time_sleep
 #define bytes freak_process_command_stdout_bytes
 #define error_bytes freak_process_command_stderr_bytes
 #define output freak_process_command_stdout
@@ -215,6 +236,36 @@ static void zero_owners(void) {
 int main(int argc, char **argv) {
     require(argc == 5, "harness arguments");
     const char *path = argv[1], *directory = argv[2], *marker = argv[3], *mode = argv[4];
+    if (strcmp(mode,"poll-inherit") == 0) {
+        int64_t h=child(path,"sleep"); require(spawn_inherit(h,0)==FREAK_COMMAND_RUNNING,"unlimited inherited launch");
+        require(poll_child(h)==FREAK_COMMAND_RUNNING,"inherited poll never waits child or stdin");
+        release(h); zero_owners(); puts("POLL_INHERIT_OK"); return 0;
+    }
+    if (strcmp(mode, "parallel") == 0) {
+        int64_t jobs[4]; int results[4] = {1,1,1,1};
+        for(int i=0;i<4;i++) { jobs[i]=child(path,"dual"); require(spawn(jobs[i],5000,256*1024,256*1024)==FREAK_COMMAND_RUNNING,"parallel captured launch"); }
+        int remaining=4;
+        for(int turns=0;remaining && turns<1000000;turns++) {
+            for(int i=0;i<4;i++) if(results[i]==FREAK_COMMAND_RUNNING) {
+                results[i]=(int)poll_child(jobs[i]);
+                if(results[i]!=FREAK_COMMAND_RUNNING) {
+                    require(results[i]==FREAK_COMMAND_EXITED && exit_code(jobs[i])==0,"parallel poll completed before deadline");
+                    freak_word a=output(jobs[i]),b=errors(jobs[i]);
+                    require(a.length==192*1024 && b.length==192*1024,"terminal poll has complete dual captures");
+                    for(size_t j=0;j<a.length;j++) require(a.data[j]=='O' && b.data[j]=='E',"parallel exact stream bytes");
+                    drop_word(&a); drop_word(&b); release(jobs[i]); remaining--;
+                }
+            }
+            if(remaining) sleep_ms(5);
+        }
+        require(!remaining,"bounded parallel polling completion");
+        int64_t sleeping=child(path,"sleep"); require(spawn(sleeping,80,16,16)==FREAK_COMMAND_RUNNING,"timeout async spawn");
+        int64_t quick=child(path,"exit127"); require(run(quick,2000,16,16)==FREAK_COMMAND_EXITED,"other ticket service"); release(quick);
+        int result=FREAK_COMMAND_RUNNING;
+        for(int turns=0;result==FREAK_COMMAND_RUNNING && turns<1000000;turns++) { result=(int)poll_child(sleeping); if(result==FREAK_COMMAND_RUNNING) sleep_ms(5); }
+        require(result==FREAK_COMMAND_TIMED_OUT,"poll absolute timeout and reap");
+        require(freak_process_command_children()==0,"terminal poll reaps direct child"); release(sleeping); zero_owners(); puts("PARALLEL_OK"); return 0;
+    }
     if (strcmp(mode, "stale") == 0) {
         int64_t old = child(path, "exit127"); release(old);
         int64_t reused = child(path, "exit127");
@@ -308,9 +359,12 @@ int main(int argc, char **argv) {
     h = child(path,"orphan"); argument(h,marker);
     require(run(h, 2000, 1024, 1024) == FREAK_COMMAND_EXITED,"exited parent cannot retain writer descendants"); release(h);
 #endif
+    h = child(path,"exit127"); require(run(h,2000,16,16) == FREAK_COMMAND_EXITED,"kernel counter warmup"); release(h);
+    long kernel_before=kernel_resources();
     for (int repeat = 0; repeat < 96; repeat++) {
         h = child(path,"exit127"); require(run(h,2000,16,16) == FREAK_COMMAND_EXITED,"soak launch"); release(h); zero_owners();
     }
+    require(kernel_before==kernel_resources(),"kernel descriptors/handles conserved");
     zero_owners(); puts("PROCESS_OK"); return 0;
 }
 '''
@@ -410,6 +464,10 @@ def main() -> int:
                 base = [str(parent), str(child), str(root), str(marker)]
                 result = checked([*base, "normal"], cwd=root, env=env)
                 assert result.stdout == "PROCESS_OK\n", result.stdout
+                parallel = checked([*base, "parallel"], cwd=root, env=env)
+                assert parallel.stdout == "PARALLEL_OK\n" and not parallel.stderr, (parallel.stdout, parallel.stderr)
+                polled = checked([*base, "poll-inherit"], cwd=root, env=env, timeout=2)
+                assert polled.stdout == "POLL_INHERIT_OK\n" and not polled.stderr, (polled.stdout, polled.stderr)
                 inherited = checked([*base, "inherit"], cwd=root, env=env, input="literal input\n")
                 assert inherited.stdout == "INHERIT:literal input\n", inherited.stdout
                 assert inherited.stderr == "INHERIT_ERR\n", inherited.stderr

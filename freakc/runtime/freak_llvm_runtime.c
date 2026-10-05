@@ -1007,3 +1007,7 @@ int64_t freak_llvm_fs_sha256_bytes(int64_t argument0) {
 int64_t freak_llvm_fs_rename_new_checked(int64_t source,int64_t destination) {
     return freak_fs_rename_new_checked(freak_llvm_word_view(source),freak_llvm_word_view(destination));
 }
+
+int64_t freak_llvm_process_command_poll(int64_t ticket) { return freak_process_command_poll(ticket); }
+
+void freak_llvm_time_sleep(int64_t milliseconds) { freak_time_sleep(milliseconds); }

@@ -387,7 +387,7 @@ static void freak_command_drain(freak_command_record *command, int *descriptor,
     }
 }
 
-static void freak_command_wait_record(freak_command_record *command) {
+static void freak_command_service_record(freak_command_record *command,bool blocking) {
     while (command->child_live || command->stdout_read >= 0 || command->stderr_read >= 0) {
         freak_command_drain(command, &command->stdout_read, &command->output);
         freak_command_drain(command, &command->stderr_read, &command->errors);
@@ -430,6 +430,7 @@ static void freak_command_wait_record(freak_command_record *command) {
             freak_command_drain(command, &command->stderr_read, &command->errors);
             if (out_before == command->output.length) freak_command_close_pipe(&command->stdout_read);
             if (err_before == command->errors.length) freak_command_close_pipe(&command->stderr_read);
+            if (!blocking) return;
             continue;
         }
         if (command->status == FREAK_COMMAND_RUNNING && command->deadline_ms &&
@@ -438,6 +439,7 @@ static void freak_command_wait_record(freak_command_record *command) {
             freak_command_set_error(command, "child process timed out");
             freak_command_native_stop(command);
         }
+        if (!blocking) return;
         struct pollfd descriptors[2] = {
             {command->stdout_read, POLLIN | POLLHUP, 0},
             {command->stderr_read, POLLIN | POLLHUP, 0}
@@ -451,6 +453,10 @@ static void freak_command_wait_record(freak_command_record *command) {
             freak_command_close_pipe(&command->stderr_read);
         }
     }
+}
+
+static void freak_command_wait_record(freak_command_record *command) {
+    freak_command_service_record(command,true);
 }
 
 static bool freak_command_posix_spawn(freak_command_record *command) {
@@ -697,7 +703,7 @@ static void freak_command_drain(freak_command_record *command, HANDLE *pipe,
     }
 }
 
-static void freak_command_wait_record(freak_command_record *command) {
+static void freak_command_service_record(freak_command_record *command,bool blocking) {
     while (command->child_live || command->stdout_read || command->stderr_read) {
         freak_command_drain(command, &command->stdout_read, &command->output);
         freak_command_drain(command, &command->stderr_read, &command->errors);
@@ -724,14 +730,27 @@ static void freak_command_wait_record(freak_command_record *command) {
             }
         }
         if (!command->child_live && !command->stdout_read && !command->stderr_read) break;
+        if (!command->child_live) {
+            size_t out_before = command->output.length, err_before = command->errors.length;
+            freak_command_drain(command,&command->stdout_read,&command->output);
+            freak_command_drain(command,&command->stderr_read,&command->errors);
+            if (out_before == command->output.length) freak_command_close_handle(&command->stdout_read);
+            if (err_before == command->errors.length) freak_command_close_handle(&command->stderr_read);
+            if (!blocking) return;
+            continue;
+        }
         if (command->status == FREAK_COMMAND_RUNNING && command->deadline_ms &&
                 freak_command_now_ms() >= command->deadline_ms) {
             command->status = FREAK_COMMAND_TIMED_OUT;
             freak_command_set_error(command, "child process timed out");
             freak_command_native_stop(command);
         }
+        if (!blocking) return;
         Sleep(10);
     }
+}
+static void freak_command_wait_record(freak_command_record *command) {
+    freak_command_service_record(command,true);
 }
 
 static HANDLE freak_command_inherited_handle(DWORD standard) {
@@ -857,6 +876,19 @@ int64_t freak_process_command_spawn(int64_t ticket, int64_t timeout_ms,
 int64_t freak_process_command_spawn_inherit(int64_t ticket, int64_t timeout_ms) {
     return freak_command_spawn_mode(ticket, timeout_ms, 0, 0, true);
 }
+static bool freak_command_pending(freak_command_record *command) {
+#ifdef _WIN32
+    return command->child_live || command->stdout_read || command->stderr_read;
+#else
+    return command->child_live || command->stdout_read >= 0 || command->stderr_read >= 0;
+#endif
+}
+int64_t freak_process_command_poll(int64_t ticket) {
+    freak_command_record *command = freak_command_require(ticket);
+    freak_command_service_record(command,false);
+    /* A terminal result promises fully drained captures and reaped children. */
+    return freak_command_pending(command) ? FREAK_COMMAND_RUNNING : command->status;
+}
 int64_t freak_process_command_wait(int64_t ticket) {
     freak_command_record *command = freak_command_require(ticket);
     freak_command_wait_record(command);
@@ -877,10 +909,15 @@ void freak_process_command_terminate(int64_t ticket) {
         command->status = FREAK_COMMAND_CANCELLED;
         freak_command_set_error(command, "child process cancelled");
         freak_command_native_stop(command);
-        freak_command_wait_record(command);
     }
+    /* Poll may have reaped a child while bounded capture work still remains.
+       Finish that work even when there is no longer a live child to cancel. */
+    freak_command_wait_record(command);
 }
-int64_t freak_process_command_status(int64_t ticket) { return freak_command_require(ticket)->status; }
+int64_t freak_process_command_status(int64_t ticket) {
+    freak_command_record *command = freak_command_require(ticket);
+    return freak_command_pending(command) ? FREAK_COMMAND_RUNNING : command->status;
+}
 int64_t freak_process_command_exit_code(int64_t ticket) { return freak_command_require(ticket)->exit_code; }
 int64_t freak_process_command_signal(int64_t ticket) { return freak_command_require(ticket)->signal_number; }
 freak_word freak_process_command_error(int64_t ticket) {

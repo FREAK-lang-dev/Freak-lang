@@ -356,6 +356,7 @@ int64_t freak_pow_int(int64_t base, int64_t exp);
 int64_t freak_time_now_ms(void);
 int64_t freak_time_monotonic_ns(void);
 void    freak_time_sleep(int64_t ms);
+void    freak_llvm_time_sleep(int64_t ms);
 
 /* ------------------------------------------------------------------ */
 /*  std::math                                                         */
@@ -617,7 +618,10 @@ bool freak_process_kill(freak_process_handle p);
 
 /* V3.5 shell-free command tickets. Configure once, then spawn/wait or run.
    timeout_ms == 0 disables the deadline. Capture limits count raw bytes per
-   stream. Captures are drained together by wait; inherited variants preserve
+   stream. wait drains one command; poll performs one bounded nonblocking
+   service tick. A scheduler must poll every live command so their pipes and
+   absolute spawn-time deadlines progress. Poll/status report RUNNING until
+   captures are drained and the direct child reaped. Inherited variants preserve
    the caller's standard handles. Release cancels and reaps a running tree.
    All getters borrow the ticket; word/ByteBuffer getters return fresh owners.
    Tickets are generation checked and cannot be substituted for other handles.
@@ -641,6 +645,7 @@ int64_t freak_process_command_run(int64_t ticket, int64_t timeout_ms,
 int64_t freak_process_command_spawn_inherit(int64_t ticket, int64_t timeout_ms);
 int64_t freak_process_command_run_inherit(int64_t ticket, int64_t timeout_ms);
 int64_t freak_process_command_wait(int64_t ticket);
+int64_t freak_process_command_poll(int64_t ticket);
 void freak_process_command_terminate(int64_t ticket);
 int64_t freak_process_command_status(int64_t ticket);
 int64_t freak_process_command_exit_code(int64_t ticket);
@@ -667,6 +672,7 @@ int64_t freak_llvm_process_command_run(int64_t ticket, int64_t timeout_ms,
 int64_t freak_llvm_process_command_spawn_inherit(int64_t ticket, int64_t timeout_ms);
 int64_t freak_llvm_process_command_run_inherit(int64_t ticket, int64_t timeout_ms);
 int64_t freak_llvm_process_command_wait(int64_t ticket);
+int64_t freak_llvm_process_command_poll(int64_t ticket);
 void freak_llvm_process_command_terminate(int64_t ticket);
 int64_t freak_llvm_process_command_status(int64_t ticket);
 int64_t freak_llvm_process_command_exit_code(int64_t ticket);
