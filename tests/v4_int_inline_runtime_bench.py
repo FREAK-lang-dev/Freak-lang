@@ -261,7 +261,7 @@ def dependencies():
 
 def head_identity() -> str:
     result = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
-                            capture_output=True, text=True, timeout=10)
+                            capture_output=True, text=True, timeout=10, env=git_environment())
     if result.returncode or re.fullmatch(r"[a-f0-9]{40}\n?", result.stdout) is None:
         raise GateError("cannot pin compiler Git head")
     return result.stdout.strip()
@@ -273,21 +273,27 @@ class Identity:
         self.inputs = {path.relative_to(ROOT).as_posix(): sha(path) for path in inputs}
         self.clang, self.clang_sha = clang, sha(clang)
         self.artifacts = {}
-        self.extra_checks = []
+        self.producer_artifacts = {}
 
-    def seal(self, path: Path):
+    def seal(self, path: Path, *, producer=False):
         digest = sha(path)
-        if str(path) in self.artifacts and self.artifacts[str(path)] != digest:
+        sealed = self.sealed_artifacts()
+        if str(path) in sealed and sealed[str(path)] != digest:
             raise GateError("sealed artifact was replaced")
-        self.artifacts[str(path)] = digest
+        (self.producer_artifacts if producer else self.artifacts)[str(path)] = digest
+
+    def sealed_artifacts(self):
+        return {**self.producer_artifacts, **self.artifacts}
+
+    def check_producer(self):
+        if any(sha(Path(path)) != digest for path, digest in self.producer_artifacts.items()):
+            raise GateError("historical compiler producer evidence changed during proof")
 
     def check(self):
         if (head_identity() != self.head or sha(self.clang) != self.clang_sha
                 or any(sha(ROOT / path) != digest for path, digest in self.inputs.items())
                 or any(sha(Path(path)) != digest for path, digest in self.artifacts.items())):
             raise GateError("compiler/source/tool/runtime/artifact identity changed during proof")
-        for check in self.extra_checks:
-            check()
 
 
 def baseline_path(name: str) -> PurePosixPath:
@@ -327,32 +333,75 @@ def baseline_manifest_sha(entries: dict) -> str:
     return text_sha(json.dumps(entries, sort_keys=True, separators=(",", ":")))
 
 
+def git_object_sha(kind: str, content: bytes) -> str:
+    return hashlib.sha1(kind.encode("ascii") + b" " + str(len(content)).encode("ascii") + b"\0" + content).hexdigest()
+
+
+def baseline_tree_oid(entries: dict) -> str:
+    root = {}
+    for name, entry in entries.items():
+        parts = baseline_path(name).parts
+        directory = root
+        for part in parts[:-1]:
+            child = directory.setdefault(part, {})
+            if not isinstance(child, dict):
+                raise GateError("historical Git tree has a file/directory path collision")
+            directory = child
+        if parts[-1] in directory:
+            raise GateError("historical Git tree has a file/directory path collision")
+        directory[parts[-1]] = (entry["mode"], entry["blob"])
+    def tree(directory):
+        content = bytearray()
+        for name, child in sorted(directory.items(), key=lambda row:
+                row[0].encode("utf-8") + (b"/" if isinstance(row[1], dict) else b"\0")):
+            mode, oid = ("40000", tree(child)) if isinstance(child, dict) else child
+            content.extend(mode.encode("ascii") + b" " + name.encode("utf-8") + b"\0" + bytes.fromhex(oid))
+        return git_object_sha("tree", content)
+    return tree(root)
+
+
+def git_environment(source=None) -> dict:
+    return {name: value for name, value in (os.environ if source is None else source).items()
+            if not name.upper().startswith("GIT_")}
+
+
+@contextmanager
+def isolated_git_environment():
+    original = {name: value for name, value in os.environ.items() if name.upper().startswith("GIT_")}
+    for name in original:
+        del os.environ[name]
+    try:
+        yield
+    finally:
+        for name in list(os.environ):
+            if name.upper().startswith("GIT_"):
+                del os.environ[name]
+        os.environ.update(original)
+
+
 def baseline_git_command(git: str) -> list[str]:
     # Replacement refs change commit/tree/blob reads without changing the
     # caller's requested commit SHA. Read the original object graph instead.
     return [git, "--no-replace-objects", "-C", str(ROOT)]
 
 
-def extract_baseline(archive: Path, bundle: Path, head: str, entries: dict) -> dict:
+def baseline_archive_files(archive: Path, head: str, entries: dict):
     # Avoid extractall: no archive member may create links, devices or aliases.
     if archive.stat().st_size > BASELINE_BUNDLE_LIMIT + BASELINE_FILE_LIMIT * 4096:
         raise GateError("historical compiler archive exceeds its bounded inventory")
-    bundle.mkdir(exist_ok=False)
-    observed, seen, aliases = {}, set(), set()
+    observed, seen, aliases = set(), set(), set()
     with tarfile.open(archive, "r:") as packed:
         if packed.pax_headers.get("comment") != head:
             raise GateError("historical compiler archive is not bound to the pinned Git commit")
         for member in packed:
             name = member.name.rstrip("/") if member.isdir() else member.name
-            relative = baseline_path(name)
+            baseline_path(name)
             if name in seen or name.casefold() in aliases:
                 raise GateError("historical compiler archive contains duplicate/case-aliased paths")
             seen.add(name); aliases.add(name.casefold())
-            destination = bundle.joinpath(*relative.parts)
             if member.isdir():
                 if not any(path.startswith(name + "/") for path in entries):
                     raise GateError("historical compiler archive contains an untracked directory")
-                destination.mkdir(parents=True, exist_ok=True)
                 continue
             expected = entries.get(name)
             if not member.isfile() or expected is None or member.size != expected["size"]:
@@ -362,15 +411,24 @@ def extract_baseline(archive: Path, bundle: Path, head: str, entries: dict) -> d
                 raise GateError("historical compiler archive cannot read a tracked blob")
             with stream:
                 content = stream.read(BASELINE_BUNDLE_LIMIT + 1)
-            blob = hashlib.sha1(b"blob " + str(len(content)).encode("ascii") + b"\0" + content).hexdigest()
+            blob = git_object_sha("blob", content)
             if len(content) != member.size or blob != expected["blob"]:
                 raise GateError("historical compiler archive bytes differ from the pinned Git blob")
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(content)
-            destination.chmod(0o755 if expected["mode"] == "100755" else 0o644)
-            observed[name] = {**expected, "sha256": hashlib.sha256(content).hexdigest()}
-    if set(observed) != set(entries):
+            observed.add(name)
+            yield name, content
+    if observed != set(entries):
         raise GateError("historical compiler archive omits pinned Git blobs")
+
+
+def extract_baseline(archive: Path, bundle: Path, head: str, entries: dict) -> dict:
+    bundle.mkdir(exist_ok=False)
+    observed = {}
+    for name, content in baseline_archive_files(archive, head, entries):
+        destination = bundle.joinpath(*baseline_path(name).parts)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(content)
+        destination.chmod(0o755 if entries[name]["mode"] == "100755" else 0o644)
+        observed[name] = {**entries[name], "sha256": hashlib.sha256(content).hexdigest()}
     return observed
 
 
@@ -383,6 +441,19 @@ def check_baseline_bundle(bundle: Path, entries: dict) -> None:
         if (not path.is_file() or path.stat().st_size != entry["size"] or sha(path) != entry["sha256"]
                 or (os.name != "nt" and path.stat().st_mode & 0o777 != (0o755 if entry["mode"] == "100755" else 0o644))):
             raise GateError("historical compiler bundle inputs changed during proof")
+
+
+@contextmanager
+def frozen_baseline_inputs(bundle: Path, entries: dict, identity=None):
+    if identity is not None:
+        identity.check_producer()
+    check_baseline_bundle(bundle, entries)
+    try:
+        yield
+    finally:
+        check_baseline_bundle(bundle, entries)
+        if identity is not None:
+            identity.check_producer()
 
 
 BASELINE_PRODUCER = '''import hashlib, json, os, shutil, sys, time
@@ -462,11 +533,13 @@ def historical_baseline(args, report: dict, runner, identity: Identity, clang: P
     if git is None:
         raise GateError("Git is required to regenerate the historical compiler baseline")
     git_path, python_path = Path(git).resolve(strict=True), Path(sys.executable).resolve(strict=True)
-    identity.seal(git_path); identity.seal(python_path)
+    identity.seal(git_path, producer=True); identity.seal(python_path, producer=True)
     git_command = baseline_git_command(git)
     first_job = len(report["jobs"])
     def git_run(arguments, label):
-        result = runner.run([*git_command, *arguments], label, timeout=120, memory=512)
+        with isolated_git_environment():
+            result = runner.run([*git_command, *arguments], label, timeout=120, memory=512)
+        report["jobs"][-1]["git_environment_isolated"] = True
         if result.returncode:
             raise GateError("cannot resolve/archive the pinned historical compiler commit")
         return result.stdout
@@ -474,40 +547,49 @@ def historical_baseline(args, report: dict, runner, identity: Identity, clang: P
     tree = git_run(["rev-parse", "--verify", head + "^{tree}"], "baseline resolve tree").strip()
     if head != args.baseline_compiler_head or re.fullmatch(r"[a-f0-9]{40}", tree) is None:
         raise GateError("historical compiler commit/tree identity differs from the requested pin")
-    entries = baseline_tree(git_run(["ls-tree", "-r", "-l", "-z", "--full-tree", head], "baseline list Git blobs"))
+    commit_object = git_run(["cat-file", "commit", head], "baseline read Git commit object")
+    listing = git_run(["ls-tree", "-r", "-l", "-z", "--full-tree", head], "baseline list Git blobs")
+    entries = baseline_tree(listing)
+    if (git_object_sha("commit", commit_object.encode("utf-8")) != head
+            or not commit_object.startswith("tree " + tree + "\n") or baseline_tree_oid(entries) != tree):
+        raise GateError("historical compiler commit/tree/listing object graph differs from the requested pin")
     work = args.work / "historical-producer"
     work.mkdir(exist_ok=False)
     archive, bundle = work / "compiler.tar", work / "compiler"
     git_run(["archive", "--format=tar", "--output=" + str(archive), head], "baseline archive pinned compiler")
-    identity.seal(archive)
+    identity.seal(archive, producer=True)
     entries = extract_baseline(archive, bundle, head, entries)
-    check_baseline_bundle(bundle, entries)
-    identity.extra_checks.append(lambda: check_baseline_bundle(bundle, entries))
+    commit_path, listing_path = work / "commit-object.txt", work / "git-tree-listing.txt"
+    commit_path.write_bytes(commit_object.encode("utf-8"))
+    listing_path.write_bytes(listing.encode("utf-8"))
+    identity.seal(commit_path, producer=True); identity.seal(listing_path, producer=True)
     manifest = work / "compiler-inputs.json"
     manifest.write_text(json.dumps(entries, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-    identity.seal(manifest)
+    identity.seal(manifest, producer=True)
     source, module, wrapper = work / "hot-loop.fk", work / "regenerated.ll", work / "produce.py"
     source.write_bytes(SOURCE.read_bytes())
     wrapper.write_text(BASELINE_PRODUCER, encoding="utf-8")
-    identity.seal(source); identity.seal(wrapper)
+    identity.seal(source, producer=True); identity.seal(wrapper, producer=True)
     config = {"bundle": str(bundle), "work": str(work), "source": str(source), "module": str(module),
               "clang": str(clang), "target": target}
-    producer = runner.run([sys.executable, "-I", "-B", str(wrapper), json.dumps(config, sort_keys=True)],
-                          "baseline regenerate and verify LLVM", timeout=120, memory=512)
+    with frozen_baseline_inputs(bundle, entries, identity), isolated_git_environment():
+        producer = runner.run([sys.executable, "-I", "-B", str(wrapper), json.dumps(config, sort_keys=True)],
+                              "baseline regenerate and verify LLVM", timeout=120, memory=512)
+    report["jobs"][-1]["git_environment_isolated"] = True
     if producer.returncode:
         raise GateError("historical compiler regeneration/LLVM verification failed")
     proof_path = work / "producer.json"
     proof = json.loads(proof_path.read_text(encoding="utf-8"))
-    identity.seal(proof_path)
+    identity.seal(proof_path, producer=True)
     require_baseline_match(module, supplied)
     for key in ("compiler_binary", "generated_c"):
         artifact = Path(proof[key]).resolve(strict=True)
         if not artifact.is_relative_to(work / "bootstrap"):
             raise GateError("historical producer compiler artifact is outside its fresh bootstrap")
-        identity.seal(artifact)
+        identity.seal(artifact, producer=True)
         proof[key + "_sha256"] = sha(artifact)
     verified = work / "verified.o"
-    identity.seal(module); identity.seal(verified)
+    identity.seal(module); identity.seal(verified, producer=True)
     baseline = module.read_bytes().decode("utf-8")
     # Equality above compares the original bytes. Windows native stream EOL
     # handling happens only afterwards, as for the gate's current compiler.
@@ -517,6 +599,8 @@ def historical_baseline(args, report: dict, runner, identity: Identity, clang: P
         raise GateError("historical baseline target differs from the current compiler target")
     report["historical_baseline"] = {"kind": BASELINE_KIND, "compiler_head": head, "compiler_tree": tree,
         "compiler_inputs": entries, "compiler_manifest_sha256": baseline_manifest_sha(entries),
+        "commit_object": commit_object, "commit_object_path": str(commit_path), "commit_object_sha256": sha(commit_path),
+        "git_tree_listing": listing, "git_tree_listing_path": str(listing_path), "git_tree_listing_sha256": sha(listing_path),
         "manifest_path": str(manifest), "manifest_file_sha256": sha(manifest),
         "archive_path": str(archive), "archive_sha256": sha(archive), "bundle_path": str(bundle),
         "git": {"selected": git, "resolved": str(git_path), "sha256": sha(git_path)},
@@ -531,8 +615,59 @@ def historical_baseline(args, report: dict, runner, identity: Identity, clang: P
         "inline_rejection": validate_helper(baseline),
         "provenance_note": "regenerated from verified pinned Git blobs; exact supplied source/module bytes; matched current runtime objects/flags"}
     identity.check()
-    validate_historical_provenance({**report, "artifact_sha256": identity.artifacts})
+    identity.check_producer()
+    validate_historical_provenance({**report, "artifact_sha256": identity.sealed_artifacts()})
     return baseline
+
+
+def historical_platform(target: str) -> tuple[str, list[str]]:
+    if target.endswith("-unknown-linux-gnu"):
+        return "linux", ["-lm"]
+    if target.endswith("-w64-windows-gnu"):
+        return "win32", ["-lws2_32"]
+    if target == "aarch64-apple-darwin":
+        return "darwin", []
+    raise GateError("unsupported historical native platform target")
+
+
+def baseline_bootstrap_command(pin: dict, report: dict) -> list[str]:
+    platform, link_args = historical_platform(pin["target"])
+    bootstrap = Path(pin["archive_path"]).parent / "bootstrap/compiler_O2"
+    compiler = bootstrap / ("build_llvm.exe" if platform == "win32" else "build_llvm")
+    generated = bootstrap / "build_llvm.fk.c"
+    runtime = Path(pin["bundle_path"]) / "freakc/runtime"
+    if pin["producer"].get("compiler_binary") != str(compiler) or pin["producer"].get("generated_c") != str(generated):
+        raise GateError("historical bootstrap compiler/generated-C paths differ from the fresh producer")
+    return [report["clang"]["resolved"], "-o", str(compiler), str(generated), str(runtime / "freak_runtime.c"),
+            "-I" + str(runtime), "-w", "-O0", "-O2", "-DFREAK_ARRAY_LIVE_LIMIT=1024", *link_args]
+
+
+def validate_baseline_git_objects(pin: dict) -> None:
+    commit, listing = pin.get("commit_object"), pin.get("git_tree_listing")
+    if (not isinstance(commit, str) or not isinstance(listing, str)
+            or text_sha(commit) != pin.get("commit_object_sha256")
+            or text_sha(listing) != pin.get("git_tree_listing_sha256")
+            or git_object_sha("commit", commit.encode("utf-8")) != pin["compiler_head"]
+            or not commit.startswith("tree " + pin["compiler_tree"] + "\n")):
+        raise GateError("historical compiler commit witness does not bind the pinned object graph")
+    entries = pin["compiler_inputs"]
+    inventory = baseline_tree(listing)
+    if (inventory != {name: {key: row[key] for key in ("mode", "blob", "size")} for name, row in entries.items()}
+            or baseline_tree_oid(inventory) != pin["compiler_tree"]):
+        raise GateError("historical Git tree listing does not bind the compiler blob inventory")
+    try:
+        if (Path(pin["commit_object_path"]).read_bytes() != commit.encode("utf-8")
+                or Path(pin["git_tree_listing_path"]).read_bytes() != listing.encode("utf-8")):
+            raise GateError("historical retained Git witness bytes differ from their command output")
+        archive = Path(pin["archive_path"])
+        if sha(archive) != pin["archive_sha256"]:
+            raise GateError("historical compiler archive bytes differ from the sealed artifact")
+        observed = {name: {**inventory[name], "sha256": hashlib.sha256(content).hexdigest()}
+                    for name, content in baseline_archive_files(archive, pin["compiler_head"], inventory)}
+    except (OSError, tarfile.TarError) as exc:
+        raise GateError("historical compiler archive evidence is unavailable or invalid") from exc
+    if observed != entries:
+        raise GateError("historical compiler archive bytes do not bind the reported blob/SHA256 manifest")
 
 
 def validate_historical_provenance(report: dict) -> None:
@@ -564,9 +699,11 @@ def validate_historical_provenance(report: dict) -> None:
     for path_key, digest_key in (("archive_path", "archive_sha256"), ("source_path", "source_sha256"),
             ("path", "module_sha256"), ("regenerated_module_path", "regenerated_module_sha256"),
             ("verified_object_path", "verified_object_sha256"), ("producer_audit_path", "producer_audit_sha256"),
-            ("producer_wrapper_path", "producer_wrapper_sha256"), ("manifest_path", "manifest_file_sha256")):
+            ("producer_wrapper_path", "producer_wrapper_sha256"), ("manifest_path", "manifest_file_sha256"),
+            ("commit_object_path", "commit_object_sha256"), ("git_tree_listing_path", "git_tree_listing_sha256")):
         if not digest(pin.get(digest_key)) or report["artifact_sha256"].get(pin.get(path_key)) != pin.get(digest_key):
             raise GateError("historical baseline provenance artifact is not sealed")
+    validate_baseline_git_objects(pin)
     for name in ("git", "python"):
         tool = pin.get(name, {})
         if (not tool.get("selected") or not digest(tool.get("sha256"))
@@ -583,7 +720,7 @@ def validate_historical_provenance(report: dict) -> None:
                 or report["artifact_sha256"].get(producer.get(key)) != producer.get(key + "_sha256")):
             raise GateError("historical baseline lacks fresh bootstrap compiler identities")
     jobs = producer.get("jobs", [])
-    if (len(jobs) != 3 or not str(jobs[0].get("label", "")).startswith("runtime compile: ")
+    if (len(jobs) != 3 or jobs[0].get("label") != "runtime compile: src/compiler/v4/tools/build_llvm.fk"
             or jobs[1].get("label") != "V4 compile: hot-loop.fk"
             or jobs[2].get("label") != "V4 LLVM verification"):
         raise GateError("historical baseline lacks real bootstrap/emission/LLVM verification jobs")
@@ -594,21 +731,21 @@ def validate_historical_provenance(report: dict) -> None:
                 or not isinstance(row.get("elapsed_ns"), int) or row["elapsed_ns"] <= 0):
             raise GateError("historical compiler producer job failed or exceeded the original budgets")
     clang = report["clang"]["resolved"]
-    if (jobs[0]["command"][0] != clang or "-DFREAK_ARRAY_LIVE_LIMIT=1024" not in jobs[0]["command"]
+    if (jobs[0]["command"] != baseline_bootstrap_command(pin, report)
             or jobs[1]["command"] != [producer["compiler_binary"], pin["source_path"], pin["target"]]
             or jobs[2]["command"] != [clang, "--target=" + pin["target"], "-x", "ir", "-c",
                                       pin["regenerated_module_path"], "-o", pin["verified_object_path"]]):
         raise GateError("historical compiler producer used mismatched source/tool/target/handle inputs")
     serials = pin.get("producer_job_serials", [])
     retained = {row.get("serial"): row for row in report.get("jobs", [])}
-    if len(serials) != 5 or len(set(serials)) != 5 or any(serial not in retained for serial in serials):
+    if len(serials) != 6 or len(set(serials)) != 6 or any(serial not in retained for serial in serials):
         raise GateError("historical compiler provenance is missing its guarded Git/producer job matrix")
     matrix = [retained[serial] for serial in serials]
-    labels = ["baseline resolve commit", "baseline resolve tree", "baseline list Git blobs",
+    labels = ["baseline resolve commit", "baseline resolve tree", "baseline read Git commit object", "baseline list Git blobs",
               "baseline archive pinned compiler", "baseline regenerate and verify LLVM"]
     if [row.get("label") for row in matrix] != labels or any(
             row.get("exit") != 0 or row.get("timeout_seconds") != 120 or row.get("memory_limit_mib") != 512
-            or row.get("output_limit_mib_per_stream") != 8 for row in matrix):
+            or row.get("output_limit_mib_per_stream") != 8 or row.get("git_environment_isolated") is not True for row in matrix):
         raise GateError("historical baseline guarded producer jobs are missing or failed")
     git = matrix[0]["command"][0]
     if git != pin["git"]["selected"]:
@@ -617,11 +754,14 @@ def validate_historical_provenance(report: dict) -> None:
     expected_commands = [
         [*git_prefix, "rev-parse", "--verify", pin["compiler_head"] + "^{commit}"],
         [*git_prefix, "rev-parse", "--verify", pin["compiler_head"] + "^{tree}"],
+        [*git_prefix, "cat-file", "commit", pin["compiler_head"]],
         [*git_prefix, "ls-tree", "-r", "-l", "-z", "--full-tree", pin["compiler_head"]],
         [*git_prefix, "archive", "--format=tar", "--output=" + pin["archive_path"], pin["compiler_head"]]]
     if (any(row["command"] != command for row, command in zip(matrix, expected_commands))
             or matrix[0].get("stdout_sha256") != text_sha(pin["compiler_head"] + "\n")
-            or matrix[1].get("stdout_sha256") != text_sha(pin["compiler_tree"] + "\n")):
+            or matrix[1].get("stdout_sha256") != text_sha(pin["compiler_tree"] + "\n")
+            or matrix[2].get("stdout_sha256") != pin["commit_object_sha256"]
+            or matrix[3].get("stdout_sha256") != pin["git_tree_listing_sha256"]):
         raise GateError("historical baseline compiler/tree pin was not resolved by the retained Git jobs")
     command = matrix[-1]["command"]
     if (len(command) != 5 or command[0] != pin["python"]["selected"]
@@ -629,6 +769,83 @@ def validate_historical_provenance(report: dict) -> None:
             or json.loads(command[4]) != {"bundle": str(bundle), "work": str(Path(pin["archive_path"]).parent),
                 "source": pin["source_path"], "module": pin["regenerated_module_path"], "clang": clang, "target": pin["target"]}):
         raise GateError("historical baseline producer did not use its frozen archive/workload/tool configuration")
+
+
+def validate_historical_native(report: dict) -> None:
+    pin = report["historical_baseline"]
+    derivative = pin.get("native_derivative", {})
+    platform, bootstrap_links = historical_platform(pin["target"])
+    work = Path(pin["archive_path"]).parent.parent
+    module = work / "historical-baseline.native.ll"
+    if (derivative.get("kind") != "regenerated-native-module-v1"
+            or derivative.get("raw_module_sha256") != pin["regenerated_module_sha256"]
+            or derivative.get("platform") != platform or derivative.get("module_path") != str(module)
+            or report["artifact_sha256"].get(str(module)) != derivative.get("module_sha256")):
+        raise GateError("historical native module is not bound to its sealed raw regeneration")
+    link_target = report.get("darwin_deployment_probe", {}).get("target") if platform == "darwin" else pin["target"]
+    if derivative.get("link_target") != link_target:
+        raise GateError("historical native derivative used a different platform link target")
+    try:
+        raw = Path(pin["regenerated_module_path"]).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != pin["regenerated_module_sha256"]:
+            raise GateError("historical regenerated module evidence changed")
+        text = raw.decode("utf-8")
+        if platform == "win32":
+            text = text.replace("\r\n", "\n")
+        scalar = dependencies()[1]
+        expected = scalar.native_link_module(text, pin["target"], link_target).encode("utf-8")
+        if platform == "win32":
+            expected = expected.replace(b"\n", b"\r\n")
+        if module.read_bytes() != expected or sha(module) != derivative.get("module_sha256"):
+            raise GateError("historical native module bytes differ from the raw/platform derivative")
+    except (OSError, UnicodeError, RuntimeError) as exc:
+        if isinstance(exc, GateError):
+            raise
+        raise GateError("historical raw/native derivative evidence is unavailable or invalid") from exc
+    retained = {row.get("serial"): row for row in report["jobs"]}
+    final_links = [*bootstrap_links, "-Wl,-z,muldefs"] if platform == "linux" else [*bootstrap_links, "-lshell32"] if platform == "win32" else []
+    for opt in OPTS:
+        key = str(opt)
+        binary = work / (f"historical-baseline.O{opt}" + (".exe" if platform == "win32" else ".native"))
+        optimized = work / f"historical-baseline.optimized.O{opt}.ll"
+        binary_sha = derivative.get("binaries", {}).get(key)
+        optimized_sha = derivative.get("optimized_modules", {}).get(key)
+        if (report["artifact_sha256"].get(str(binary)) != binary_sha or not binary_sha
+                or report["artifact_sha256"].get(str(optimized)) != optimized_sha or not optimized_sha):
+            raise GateError("historical native/optimized artifacts are not sealed to their exact optimization")
+        object_paths = derivative.get("runtime_object_paths", {}).get(key, [])
+        if len(object_paths) != 7 or set(object_paths) != set(report["runtime_objects"][key]):
+            raise GateError("historical native link did not use the matched runtime object inventory")
+        commands = [
+            ("link_job_serials", f"link historical-baseline O{opt}",
+             [report["clang"]["resolved"], *report["build_flags"][key], str(module), *object_paths, "-o", str(binary), *final_links]),
+            ("optimize_job_serials", f"retain optimized historical-baseline O{opt}",
+             [report["clang"]["resolved"], f"-O{opt}", "-S", "-emit-llvm", str(module), "-o", str(optimized)])]
+        for serial_key, label, command in commands:
+            row = retained.get(derivative.get(serial_key, {}).get(key), {})
+            if (row.get("command") != command or row.get("label") != label or row.get("exit") != 0
+                    or row.get("timeout_seconds") != 120 or row.get("memory_limit_mib") != 512
+                    or row.get("output_limit_mib_per_stream") != 8):
+                raise GateError("historical native derivative lacks its exact guarded link/optimization jobs")
+        for family in ("boundaries", "timings", "optimized"):
+            for row in report[family]:
+                if row["variant"] != "historical-baseline" or row["optimization"] != opt:
+                    continue
+                if row["module_sha256"] != derivative["module_sha256"] or row["binary_sha256"] != binary_sha:
+                    raise GateError("historical native row is disconnected from the regenerated module/binary")
+                if family == "optimized":
+                    if row["optimized_module_sha256"] != optimized_sha:
+                        raise GateError("historical optimized row is disconnected from its retained artifact")
+                else:
+                    argv = ([str(row["iterations"]), str(row["seed"])] if family == "boundaries"
+                            else [str(report["iterations"]), str(report["seed"])])
+                    job = retained.get(row.get("serial"), {})
+                    if (row.get("command") != [str(binary), *argv] or job.get("command") != row.get("command")
+                            or job.get("timeout_seconds") != 30 or job.get("memory_limit_mib") != 128
+                            or job.get("output_limit_mib_per_stream") != 8
+                            or any(job.get(field) != row.get(field) for field in
+                                   ("exit", "stdout_sha256", "stderr_sha256", "elapsed_ns"))):
+                        raise GateError("historical native execution row is disconnected from its real guarded command")
 
 
 def validate_report(report: dict) -> None:
@@ -729,6 +946,8 @@ def validate_report(report: dict) -> None:
             times = [r["elapsed_ns"] for r in report["timings"] if r["variant"] == row["variant"] and r["optimization"] == row["optimization"]]
             if row["samples"] != samples or row["median_ns"] != statistics.median(times):
                 raise GateError("native timing median differs from retained samples")
+    if "historical-baseline" in variants:
+        validate_historical_native(report)
 
 
 def run_gate(args, report: dict) -> None:
@@ -848,6 +1067,13 @@ def run_gate(args, report: dict) -> None:
             if opt == OPTS[0]:
                 llvm.write_text(scalar.native_link_module(text, target, link_target), encoding="utf-8")
                 identity.seal(llvm)
+                if variant == "historical-baseline":
+                    report["historical_baseline"]["native_derivative"] = {
+                        "kind": "regenerated-native-module-v1", "platform": sys.platform,
+                        "raw_module_sha256": report["historical_baseline"]["regenerated_module_sha256"],
+                        "link_target": link_target, "module_path": str(llvm), "module_sha256": sha(llvm),
+                        "binaries": {}, "optimized_modules": {}, "runtime_object_paths": {},
+                        "link_job_serials": {}, "optimize_job_serials": {}}
             binary = work / (variant + f".O{opt}" + suffix)
             compiled = runner.run([str(clang), *flags, str(llvm), *objects[opt], "-o", str(binary),
                                   *checks.runtime_platform_final_link_args()],
@@ -855,12 +1081,20 @@ def run_gate(args, report: dict) -> None:
             numeric.require_compile(compiled, "native benchmark")
             identity.seal(binary)
             binaries[variant, opt] = binary
+            if variant == "historical-baseline":
+                derivative = report["historical_baseline"]["native_derivative"]
+                derivative["binaries"][str(opt)] = sha(binary)
+                derivative["runtime_object_paths"][str(opt)] = list(objects[opt])
+                derivative["link_job_serials"][str(opt)] = report["jobs"][-1]["serial"]
             if variant != "dynamic-signed":
                 optimized = work / (variant + f".optimized.O{opt}.ll")
                 compiled = runner.run([str(clang), f"-O{opt}", "-S", "-emit-llvm", str(llvm), "-o", str(optimized)],
                                       f"retain optimized {variant} O{opt}", timeout=120, memory=512)
                 numeric.require_compile(compiled, "optimized LLVM evidence")
                 identity.seal(optimized)
+                if variant == "historical-baseline":
+                    derivative["optimized_modules"][str(opt)] = sha(optimized)
+                    derivative["optimize_job_serials"][str(opt)] = report["jobs"][-1]["serial"]
                 facts = validate_live_loop(optimized.read_text(encoding="utf-8"), helpers=variant != "current")
                 report["optimized"].append({"variant": variant, "optimization": opt,
                     "module_sha256": sha(llvm), "optimized_module_sha256": sha(optimized),
@@ -947,7 +1181,8 @@ int main(int argc, char **argv) {
                 report["medians"].append({"variant": variant, "optimization": opt,
                     "samples": len(times), "median_ns": statistics.median(times)})
     identity.check()
-    report["artifact_sha256"] = identity.artifacts
+    identity.check_producer()
+    report["artifact_sha256"] = identity.sealed_artifacts()
     validate_report(report)
 
 
