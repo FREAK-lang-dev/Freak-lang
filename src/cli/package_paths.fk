@@ -55,7 +55,8 @@ task package_checked_file(root: word, relative: word) -> word {
             current = current + "/" + component
             pilot info = fs::stat_checked(current)
             pilot admitted = fs::result_ok(info)
-            pilot kind = fs::result_kind(info)
+            pilot kind = 0
+            if admitted { kind = fs::result_kind(info) }
             pilot final_component = index == relative.length()
             if final_component { admitted = admitted and kind == 1 } else { admitted = admitted and kind == 2 }
             fs::result_release(info)

@@ -69,6 +69,7 @@ task toml_remove_prefix(prefix: word) -> void {
     pilot new_keys = array_new()
     pilot new_vals = array_new()
     pilot new_types = array_new()
+    pilot new_sections = array_new()
     pilot new_count = 0
     pilot i = 0
     repeat until i >= toml_count {
@@ -82,12 +83,20 @@ task toml_remove_prefix(prefix: word) -> void {
         }
         i += 1
     }
+    i = 0
+    repeat until i >= array_len(toml_sections_arr) {
+        pilot section = array_get(toml_sections_arr, i)
+        if section != prefix and not section.starts_with(prefix + ".") { array_push(new_sections, section) }
+        i += 1
+    }
     array_release(toml_keys_arr)
     array_release(toml_vals_arr)
     array_release(toml_types_arr)
+    array_release(toml_sections_arr)
     toml_keys_arr = new_keys
     toml_vals_arr = new_vals
     toml_types_arr = new_types
+    toml_sections_arr = new_sections
     toml_count = new_count
 }
 
