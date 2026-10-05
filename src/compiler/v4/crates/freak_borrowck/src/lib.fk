@@ -131,6 +131,11 @@ pilot v4_borrowck_stmt_path_index_visits = 0
 pilot v4_borrowck_stmt_path_linear_steps = 0
 pilot v4_borrowck_stmt_path_index_rebuilds = 0
 pilot v4_borrowck_mutable_exclusivity_path_probes = 0
+pilot v4_borrowck_path_kind_reads = 0
+pilot v4_borrowck_mutable_exclusivity_candidate_visits = 0
+pilot v4_borrowck_mutable_exclusivity_candidate_build_steps = 0
+pilot v4_borrowck_mutable_exclusivity_candidate_builds = 0
+pilot v4_borrowck_mutable_exclusivity_candidate_fallbacks = 0
 pilot v4_borrowck_ready = 0
 
 task v4_borrowck_init() -> void {
@@ -551,6 +556,7 @@ task v4_borrowck_result_path_count(borrow_id: int, result_id: int) -> int {
 }
 
 task v4_borrowck_path_kind(borrow_id: int, result_id: int, path_id: int) -> word {
+    v4_borrowck_path_kind_reads += 1
     give back array_get(v4_borrowck_result_path_kinds_handle(borrow_id, result_id), path_id)
 }
 
@@ -6038,6 +6044,79 @@ task v4_borrowck_collect_body_paths(borrow_id: int, result_id: int, mir_id: int,
     v4_borrowck_collect_drop_paths(borrow_id, result_id, mir_id, body_id)
 }
 
+-- Only these stored rvalues prove an empty explicit holder without consulting
+-- returned-loan provenance. In explicit_loan_holder, they cannot enter the
+-- Lend/aggregate, Closure or Call branches. Unknown or malformed rows remain
+-- candidates in every block, as do expression loans that span successors.
+task v4_borrowck_mutable_loan_is_block_local(mir_id: int, body_id: int, loan_stmt: int, loan_block: int) -> bool {
+    if loan_stmt < 0 or loan_stmt >= v4_mir_body_stmt_count(mir_id, body_id) or loan_block < 0 or loan_block >= v4_mir_body_block_count(mir_id, body_id) { give back false }
+    if v4_mir_stmt_block(mir_id, body_id, loan_stmt) != loan_block { give back false }
+    pilot stmt_kind = v4_mir_stmt_kind(mir_id, body_id, loan_stmt)
+    if stmt_kind != v4_mir_stmt_local and stmt_kind != v4_mir_stmt_assign and stmt_kind != v4_mir_stmt_return and stmt_kind != v4_mir_stmt_branch and stmt_kind != v4_mir_stmt_loop and stmt_kind != v4_mir_stmt_break and stmt_kind != v4_mir_stmt_continue { give back false }
+    pilot value = v4_mir_stmt_rvalue(mir_id, body_id, loan_stmt)
+    if value < 0 or value >= v4_mir_body_rvalue_count(mir_id, body_id) { give back false }
+    pilot kind = v4_mir_rvalue_kind(mir_id, body_id, value)
+    give back kind == v4_mir_rvalue_const_int or kind == v4_mir_rvalue_const_float or kind == v4_mir_rvalue_const_word or kind == v4_mir_rvalue_const_bool or kind == v4_mir_rvalue_const_char or kind == v4_mir_rvalue_use_local or kind == v4_mir_rvalue_use_place or kind == v4_mir_rvalue_use_symbol or kind == v4_mir_rvalue_unary or kind == v4_mir_rvalue_binary
+}
+
+-- Request-scoped table: block count, global head/tail, block heads/tails, then
+-- one next-link per physical path. A local loan can conflict only with writes
+-- in its own block: the existing cross-block predicate requires an Expr or an
+-- explicit holder, both disproved above. All other loans retain the predicate.
+-- Small requests keep the original scan and avoid allocating scratch.
+task v4_borrowck_mutable_candidates_new(borrow_id: int, result_id: int, mir_id: int, body_id: int, path_count: int) -> int {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if path_count < 64 or block_count <= 0 or block_count > path_count { give back 0 - 1 }
+    pilot candidates = array_new()
+    if candidates < 0 {
+        v4_borrowck_mutable_exclusivity_candidate_fallbacks += 1
+        give back 0 - 1
+    }
+    pilot size = 3 + block_count * 2 + path_count
+    pilot cell = 0
+    pilot valid = true
+    repeat until cell >= size or not valid {
+        array_push(candidates, "-1")
+        valid = array_len(candidates) == cell + 1
+        v4_borrowck_mutable_exclusivity_candidate_build_steps += 1
+        cell += 1
+    }
+    if not valid {
+        array_release(candidates)
+        v4_borrowck_mutable_exclusivity_candidate_fallbacks += 1
+        give back 0 - 1
+    }
+    array_set(candidates, 0, word_from_int(block_count))
+    pilot path = 0
+    repeat until path >= path_count {
+        v4_borrowck_mutable_exclusivity_path_probes += 1
+        v4_borrowck_mutable_exclusivity_candidate_build_steps += 1
+        if v4_borrowck_path_is_loan_kind(v4_borrowck_path_kind(borrow_id, result_id, path)) {
+            pilot head_cell = 1
+            pilot tail_cell = 2
+            pilot loan_stmt = v4_borrowck_path_stmt(borrow_id, result_id, path)
+            pilot loan_block = v4_borrowck_path_block(borrow_id, result_id, path)
+            if v4_borrowck_mutable_loan_is_block_local(mir_id, body_id, loan_stmt, loan_block) {
+                head_cell = 3 + loan_block
+                tail_cell = 3 + block_count + loan_block
+            }
+            pilot tail = word_to_int(array_get(candidates, tail_cell))
+            if tail < 0 { array_set(candidates, head_cell, word_from_int(path)) }
+            else { array_set(candidates, 3 + block_count * 2 + tail, word_from_int(path)) }
+            array_set(candidates, tail_cell, word_from_int(path))
+        }
+        path += 1
+    }
+    v4_borrowck_mutable_exclusivity_candidate_builds += 1
+    give back candidates
+}
+
+task v4_borrowck_mutable_candidate_first(global_path: int, local_path: int) -> int {
+    if global_path < 0 { give back local_path }
+    if local_path < 0 or global_path < local_path { give back global_path }
+    give back local_path
+}
+
 task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_id: int, body_id: int) -> int {
     pilot conflicts = 0
     pilot path_count = v4_borrowck_result_path_count(borrow_id, result_id)
@@ -6051,6 +6130,7 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
         path_idx += 1
     }
     if not has_loan { give back 0 }
+    pilot candidates = v4_borrowck_mutable_candidates_new(borrow_id, result_id, mir_id, body_id, path_count)
     pilot write_idx = 0
     repeat until write_idx >= path_count {
         v4_borrowck_mutable_exclusivity_path_probes += 1
@@ -6058,9 +6138,18 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
             pilot write_stmt = v4_borrowck_path_stmt(borrow_id, result_id, write_idx)
             pilot write_block = v4_borrowck_path_block(borrow_id, result_id, write_idx)
             pilot write_text = v4_borrowck_path_text(borrow_id, result_id, write_idx)
+            pilot global_path = 0 - 1
+            pilot local_path = 0 - 1
             pilot loan_idx = 0
-            repeat until loan_idx >= path_count {
+            if candidates >= 0 {
+                global_path = word_to_int(array_get(candidates, 1))
+                pilot block_count = word_to_int(array_get(candidates, 0))
+                if write_block >= 0 and write_block < block_count { local_path = word_to_int(array_get(candidates, 3 + write_block)) }
+                loan_idx = v4_borrowck_mutable_candidate_first(global_path, local_path)
+            }
+            repeat until loan_idx >= path_count or loan_idx < 0 {
                 v4_borrowck_mutable_exclusivity_path_probes += 1
+                v4_borrowck_mutable_exclusivity_candidate_visits += 1
                 if v4_borrowck_path_is_loan_kind(v4_borrowck_path_kind(borrow_id, result_id, loan_idx)) {
                     pilot loan_stmt = v4_borrowck_path_stmt(borrow_id, result_id, loan_idx)
                     pilot loan_block = v4_borrowck_path_block(borrow_id, result_id, loan_idx)
@@ -6105,11 +6194,18 @@ task v4_borrowck_check_mutable_exclusivity(borrow_id: int, result_id: int, mir_i
                         loan_idx = path_count
                     }
                 }
-                loan_idx += 1
+                if candidates >= 0 {
+                    if loan_idx < path_count {
+                        pilot next_path = word_to_int(array_get(candidates, 3 + word_to_int(array_get(candidates, 0)) * 2 + loan_idx))
+                        if loan_idx == global_path { global_path = next_path } else { local_path = next_path }
+                        loan_idx = v4_borrowck_mutable_candidate_first(global_path, local_path)
+                    }
+                } else { loan_idx += 1 }
             }
         }
         write_idx += 1
     }
+    array_release(candidates)
     give back conflicts
 }
 
