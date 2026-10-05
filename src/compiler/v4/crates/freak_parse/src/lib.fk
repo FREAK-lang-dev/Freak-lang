@@ -1597,7 +1597,7 @@ task v4_parse_validate_while_keyword_uses(tree_id: int, stream_id: int) -> void 
             if token_type == v4_tok_keyword and value == "while" {
                 pilot next = v4_parse_skip_trivia(stream_id, idx + 1)
                 pilot next_value = v4_lex_token_syntax_value(stream_id, next)
-                pilot loop_heading = statement_boundary or previous == "repeat"
+                pilot loop_heading: bool = statement_boundary or previous == "repeat"
                 if next_value == ":" or next_value == "=" or next_value == "," or next_value == ")" or next_value == "}" or next_value == "]" or next_value == "." or next_value == "::" or next_value == "->" or next_value == "=>" or next_value == "in" {
                     loop_heading = false
                 }

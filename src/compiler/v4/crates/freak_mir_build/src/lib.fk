@@ -6121,7 +6121,7 @@ task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: i
 
 task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, repeat_token: int, stmt_end: int) -> int {
     pilot next_kw = v4_mir_skip_trivia(stream_id, repeat_token + 1)
-    pilot while_mode = v4_lex_token_syntax_value(stream_id, repeat_token) == "while"
+    pilot while_mode: bool = v4_lex_token_syntax_value(stream_id, repeat_token) == "while"
     if v4_lex_token_syntax_value(stream_id, repeat_token) == "repeat" and next_kw < stmt_end and v4_lex_token_syntax_value(stream_id, next_kw) == "while" { while_mode = true }
     pilot open_token = v4_mir_find_token_value(stream_id, repeat_token, stmt_end, "{")
     if open_token < 0 {
