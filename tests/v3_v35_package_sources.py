@@ -11,16 +11,26 @@ import struct
 import tempfile
 import tomllib
 import contextlib
+import concurrent.futures
 import v3_word_foundation as foundation
 from v3_v35_hangar import task_source, probe_transpile, require_resource_conservation
 
 PROGRAM = r'''
 task main() {
     pilot mode = process::arg(2)
+    pilot held = 0
+    if mode == "snapshot-lock" {
+        pilot parent = fs::open_dir_ticket(package_parent_path(process::arg(1)))
+        pilot private = fs::open_relative_dir_ticket(parent, ".freak")
+        held = fs::lock_dir_ticket(private, "graph.lock")
+        fs::result_release(private)
+        fs::result_release(parent)
+        if not fs::result_ok(held) { say "fixture-error:" + fs::result_error(held) }
+    }
     pilot update = ""
     if mode == "update" { update = "*" }
     pilot valid = false
-    if mode == "snapshot" { valid = package_load_graph_snapshot(process::arg(3), process::arg(1), true) } else {
+    if mode == "snapshot" or mode == "snapshot-lock" { valid = package_load_graph_snapshot(process::arg(3), process::arg(1), true) } else {
         valid = package_prepare_graph(process::arg(1), mode == "locked", mode == "offline", mode == "frozen", update)
     }
     if not valid { say "error:" + hangar_graph_error } else {
@@ -32,6 +42,7 @@ task main() {
         }
     }
     package_release_graph()
+    if held != 0 { fs::result_release(held) }
 }
 '''
 
@@ -200,6 +211,25 @@ def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
         print(f'native:{backend}:sources:frozen-clean:passed', flush=True)
         assert execute(manifest, 'snapshot', snapshot) == initial
         print(f'native:{backend}:sources:snapshot-reuse:passed', flush=True)
+        before = {str(path): (path.read_bytes(), path.stat().st_mtime_ns) for path in manifest.parent.rglob('*') if path.is_file()}
+        assert execute(manifest, 'snapshot-lock', snapshot) == initial
+        print(f'native:{backend}:sources:snapshot-with-writer-lock:passed', flush=True)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as readers:
+            results = list(readers.map(lambda _: execute(manifest, 'snapshot', snapshot), range(4)))
+        assert results == [initial] * 4, results
+        after = {str(path): (path.read_bytes(), path.stat().st_mtime_ns) for path in manifest.parent.rglob('*') if path.is_file()}
+        assert after == before, 'immutable snapshot reader changed files or file mtimes'
+        print(f'native:{backend}:sources:snapshot-concurrent-read-only:passed', flush=True)
+        cache = manifest.parent/'.freak/store'
+        parked = cache.with_name('store.parked')
+        cache.rename(parked)
+        try:
+            rejected = execute(manifest, 'snapshot', snapshot)
+            assert rejected.startswith('error:') and 'existing safe source store' in rejected, rejected
+            assert not cache.exists(), 'snapshot reader recreated missing store'
+        finally:
+            parked.rename(cache)
+        print(f'native:{backend}:sources:snapshot-missing-cache-no-repair:passed', flush=True)
         old_lock = manifest.with_name('hangar.lock').read_bytes()
         (manifest.parent.parent/'c/core.fk').write_text('task value() -> int { give back 43 }\n', encoding='utf-8')
         rejected = execute(manifest, 'frozen')

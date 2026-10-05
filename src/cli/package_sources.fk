@@ -370,6 +370,23 @@ task package_publish_source_node(node: int, store: int, store_path: word) -> boo
     give back true
 }
 
+task package_open_snapshot_source_node(node: int, store: int, store_path: word) -> bool {
+    pilot original = word_to_int(array_get(package_source_original_tickets, node))
+    pilot hash = package_hash_declared_inputs_rooted(node, original, array_get(package_source_manifest_files, node), 0)
+    if hash == "" { give back false }
+    pilot expected = package_lock_field("node." + word_from_int(node) + ".tree_sha256")
+    if hash != expected { hangar_graph_fail("frozen source input tree changed: " + array_get(hangar_graph_request_paths, node)) give back false }
+    pilot cached = fs::open_relative_dir_ticket(store, hash)
+    if not fs::result_ok(cached) { hangar_graph_fail("immutable snapshot source cache is missing or unsafe: " + fs::result_error(cached))
+        fs::result_release(cached)
+        give back false }
+    if not package_verify_recorded_inputs(node, cached) { fs::result_release(cached) give back false }
+    array_set(package_source_tickets, node, word_from_int(cached))
+    array_set(package_source_roots, node, package_join_host(store_path, hash))
+    array_set(package_source_hashes, node, hash)
+    give back true
+}
+
 task package_read_graph_source(node: int, relative: word) -> word {
     if not package_graph_ready or node < 0 or node >= hangar_graph_count or not hangar_graph_relative_file(relative) {
         hangar_graph_fail("compiler source requires a prepared graph and declared relative .fk path: " + relative)
@@ -406,7 +423,7 @@ task package_read_graph_source(node: int, relative: word) -> word {
 }
 
 task package_lock_matches_graph(frozen: bool) -> bool {
-    if word_to_int(package_lock_field("lock.node_count")) != hangar_graph_count or word_to_int(package_lock_field("lock.edge_count")) != hangar_graph_edge_count or word_to_int(package_lock_field("lock.fact_count")) != array_len(hangar_graph_fact_keys) {
+    if word_to_int(package_lock_field("lock.node_count")) != hangar_graph_count or word_to_int(package_lock_field("lock.edge_count")) != hangar_graph_edge_count or word_to_int(package_lock_field("lock.fact_count")) != array_len(hangar_graph_fact_keys) or ((frozen) and word_to_int(package_lock_field("lock.file_count")) != array_len(package_input_paths)) {
         hangar_graph_fail("locked graph structure changed; run hangar update explicitly")
         give back false
     }
@@ -438,6 +455,14 @@ task package_lock_matches_graph(frozen: bool) -> bool {
         pilot prefix = "fact." + word_from_int(index) + "."
         if package_lock_field(prefix + "node") != array_get(hangar_graph_fact_nodes, index) or package_lock_field(prefix + "key") != array_get(hangar_graph_fact_keys, index) or package_lock_field(prefix + "value") != array_get(hangar_graph_fact_values, index) { hangar_graph_fail("locked manifest facts disagree with admitted source manifests") give back false }
         index += 1
+    }
+    if frozen {
+        index = 0
+        repeat until index >= array_len(package_input_paths) {
+            pilot prefix = "file." + word_from_int(index) + "."
+            if package_lock_field(prefix + "node") != array_get(package_input_nodes, index) or package_lock_field(prefix + "path") != array_get(package_input_paths, index) or package_lock_field(prefix + "sha256") != array_get(package_input_hashes, index) or package_lock_field(prefix + "length") != array_get(package_input_lengths, index) or package_lock_field(prefix + "role") != array_get(package_input_roles, index) { hangar_graph_fail("immutable snapshot input inventory disagrees with admitted source bytes") give back false }
+            index += 1
+        }
     }
     give back true
 }
@@ -481,14 +506,23 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
     }
     if (locked or frozen) and not had_lock { hangar_graph_fail("locked/frozen graph requires a valid existing lock v2") give back false }
     if (locked or frozen) and package_lock_field("lock.manifest_sha256") != array_get(package_source_manifest_hashes, 0) { hangar_graph_fail("locked root manifest fingerprint changed; run hangar update explicitly") give back false }
-    pilot private = package_private_directory(project, ".freak")
+    pilot snapshot_reader = package_snapshot_override != ""
+    pilot private = 0
+    if snapshot_reader {
+        private = fs::open_relative_dir_ticket(project, ".freak")
+        if not fs::result_ok(private) { hangar_graph_fail("immutable snapshot requires an existing safe private cache: " + fs::result_error(private))
+            fs::result_release(private)
+            give back false }
+    } else { private = package_private_directory(project, ".freak") }
     if private == 0 { give back false }
     package_preparation_private = private
-    pilot operation = fs::lock_dir_ticket(private, "graph.lock")
-    if not fs::result_ok(operation) { hangar_graph_fail("graph preparation is active or private cache lock is unavailable: " + fs::result_error(operation))
-        fs::result_release(operation)
-        give back false }
-    package_preparation_operation = operation
+    if not snapshot_reader {
+        pilot operation = fs::lock_dir_ticket(private, "graph.lock")
+        if not fs::result_ok(operation) { hangar_graph_fail("graph preparation is active or private cache lock is unavailable: " + fs::result_error(operation))
+            fs::result_release(operation)
+            give back false }
+        package_preparation_operation = operation
+    }
     pilot edge = 0
     repeat until edge >= hangar_graph_edge_count {
         pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
@@ -507,21 +541,29 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
         edge += 1
     }
     if not hangar_graph_complete(0) { give back false }
-    pilot store = package_private_directory(private, "store")
+    pilot store = 0
+    if snapshot_reader {
+        store = fs::open_relative_dir_ticket(private, "store")
+        if not fs::result_ok(store) { hangar_graph_fail("immutable snapshot requires an existing safe source store: " + fs::result_error(store))
+            fs::result_release(store)
+            give back false }
+    } else { store = package_private_directory(private, "store") }
     package_preparation_store = store
-    pilot snapshots = package_private_directory(private, "graphs")
+    pilot snapshots = 0
+    if not snapshot_reader { snapshots = package_private_directory(private, "graphs") }
     package_preparation_snapshots = snapshots
-    pilot valid = store != 0 and snapshots != 0
+    pilot valid = store != 0 and (snapshot_reader or snapshots != 0)
     pilot store_path = ""
     if valid { store_path = package_directory_path(store)
         valid = store_path != "" }
     pilot index = 0
     repeat until index >= hangar_graph_count or not valid {
-        valid = package_publish_source_node(index, store, store_path)
+        if snapshot_reader { valid = package_open_snapshot_source_node(index, store, store_path) } else { valid = package_publish_source_node(index, store, store_path) }
         index += 1
     }
     if valid and (locked or frozen) { valid = package_lock_matches_graph(frozen) }
-    if valid {
+    if valid and snapshot_reader { package_graph_snapshot_path = package_snapshot_override }
+    if valid and not snapshot_reader {
         package_graph_ready = true
         pilot content = package_lock_render()
         if content == "" { valid = false } else {
