@@ -169,7 +169,7 @@ task borrow_candidate_source() -> word {
     pilot open: word = chr(123)
     pilot close: word = chr(125)
     pilot src = "shape Ship " + open + "\n    hp: int\n" + close + "\n"
-    src = src + "task loan<'a>(lend 'a ship: Ship) -> lend 'a Ship " + open + "\n    give back ship\n" + close + "\n"
+    src = src + "task loan<'a>(lend 'a ship: Ship) -> lend 'a Ship " + open + "\n    give back lend ship\n" + close + "\n"
     src = src + "task same(ship: Ship) -> int " + open + "\n"
     src = src + "    ship\n    ship.hp = 7\n    give back ship.hp\n" + close + "\n"
     src = src + "task cross(ship: Ship, ready: bool) -> int " + open + "\n"
@@ -208,12 +208,39 @@ task borrow_candidate_semantic_case(borrow: int, mir: int, name: word, expected:
     borrow_candidate_assert(v4_borrowck_mutable_exclusivity_candidate_builds == builds + 1, "authored case exercises candidates " + name)
 }
 
+task borrow_candidate_frontend_context(mir: int, ty: int, hir: int) -> void {
+    pilot resolved = v4_ty_resolve_id(ty)
+    pilot tree = v4_hir_tree_id(hir)
+    pilot stage = 0
+    repeat until stage >= 5 {
+        pilot name: word = "parse"
+        pilot count = v4_parse_diag_count(tree)
+        if stage == 1 { name = "hir"; count = v4_hir_diag_count(hir) }
+        if stage == 2 { name = "resolve"; count = v4_resolve_diag_count(resolved) }
+        if stage == 3 { name = "ty"; count = v4_ty_diag_count(ty) }
+        if stage == 4 { name = "mir"; count = v4_mir_diag_count(mir) }
+        pilot row = 0
+        repeat until row >= count {
+            pilot diag: word = v4_parse_diag(tree, row)
+            if stage == 1 { diag = v4_hir_diag(hir, row) }
+            if stage == 2 { diag = v4_resolve_diag(resolved, row) }
+            if stage == 3 { diag = v4_ty_diag(ty, row) }
+            if stage == 4 { diag = v4_mir_diag(mir, row) }
+            say "borrow-candidate frontend " + name + " " + v4_diag_span(diag) + " " + v4_diag_message(diag) + " " + v4_diag_help(diag)
+            row += 1
+        }
+        stage += 1
+    }
+}
+
 task borrow_candidate_semantics() -> void {
     -- Exactly one complete front-end pipeline in this process.
     pilot mir = v4_mir_text_cached("borrow-candidate-authored.fk", borrow_candidate_source())
     pilot ty = v4_mir_ty_id(mir)
     pilot hir = v4_resolve_hir_id(v4_ty_resolve_id(ty))
-    borrow_candidate_assert(v4_parse_diag_count(v4_hir_tree_id(hir)) == 0 and v4_hir_diag_count(hir) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0, "authored front end")
+    pilot frontend_clean = v4_parse_diag_count(v4_hir_tree_id(hir)) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(v4_ty_resolve_id(ty)) == 0 and v4_ty_diag_count(ty) == 0 and v4_mir_diag_count(mir) == 0
+    if not frontend_clean { borrow_candidate_frontend_context(mir, ty, hir) }
+    borrow_candidate_assert(frontend_clean, "authored front end")
     pilot borrow = v4_borrowck_file_new(42, mir)
     v4_borrowck_provenance_scratch_reset()
     borrow_candidate_semantic_case(borrow, mir, "same", 1)
