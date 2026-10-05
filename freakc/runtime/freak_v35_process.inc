@@ -1,8 +1,27 @@
 /* Included once by freak_runtime.c, after its owned words and byte buffers.
    A command is a sequential owner of a child process group/job and its pipes. */
 #define FREAK_COMMAND_DOMAIN UINT64_C(0xa000000000000000)
-#define FREAK_COMMAND_DOMAIN_MASK UINT64_C(0xe000000000000000)
-#define FREAK_COMMAND_GENERATION_MAX UINT32_C(0x1fffffff)
+#define FREAK_COMMAND_DOMAIN_MASK UINT64_C(0xf000000000000000)
+#define FREAK_COMMAND_GENERATION_MAX UINT32_C(0x0fffffff)
+
+#ifndef _WIN32
+#include <sys/mman.h>
+#include <sys/stat.h>
+#define FREAK_COMMAND_FAMILY_CAPACITY 4096u
+#define FREAK_COMMAND_FAMILY_MAGIC UINT64_C(0x465245414b434d44)
+#define FREAK_COMMAND_FAMILY_ENV "FREAK_INTERNAL_COMMAND_FAMILY"
+typedef struct {
+    uint64_t token, parent;
+    pid_t group;
+    uint32_t depth;
+    bool active, cancelled;
+} freak_command_family_member;
+typedef struct {
+    uint64_t magic;
+    uint32_t generation;
+    freak_command_family_member members[FREAK_COMMAND_FAMILY_CAPACITY];
+} freak_command_family;
+#endif
 
 typedef struct {
     unsigned char *data;
@@ -27,7 +46,13 @@ typedef struct {
 #else
     pid_t pid;
     pid_t terminal_owner;
+    pid_t guardian_pid;
+    bool guardian_live;
+    int guardian_write;
     int stdout_read, stderr_read;
+    int family_fd;
+    freak_command_family *family;
+    uint64_t family_token, family_parent;
 #endif
 } freak_command_record;
 
@@ -92,7 +117,11 @@ static void freak_command_wait_record(freak_command_record *command);
 static void freak_command_cleanup(void) {
     for (size_t index = 0; index < freak_commands_count; index++) {
         freak_command_record *command = &freak_commands[index];
-        if (command->in_use && command->child_live) {
+        if (command->in_use && (command->child_live
+#ifndef _WIN32
+                || command->guardian_live
+#endif
+                )) {
             command->status = FREAK_COMMAND_CANCELLED;
             freak_command_native_stop(command);
             freak_command_wait_record(command);
@@ -142,7 +171,7 @@ int64_t freak_process_command_new(freak_word executable) {
     command->argv[0] = name;
     command->argc = 1;
 #ifndef _WIN32
-    command->stdout_read = command->stderr_read = -1;
+    command->stdout_read = command->stderr_read = command->family_fd = command->guardian_write = -1;
 #endif
     freak_commands_live++;
     return (int64_t)(FREAK_COMMAND_DOMAIN | ((uint64_t)generation << 32) | (slot + 1));
@@ -255,6 +284,17 @@ static void freak_command_close_pipe(int *descriptor) {
 
 static bool freak_command_pipe(int descriptors[2]) {
     if (pipe(descriptors) != 0) return false;
+    /* Private descriptors must survive dup2 of child stdio even when the
+       application launched us with one or more standard descriptors closed. */
+    for (int i = 0; i < 2; i++) {
+        if (descriptors[i] >= 3) continue;
+        int replacement = fcntl(descriptors[i], F_DUPFD, 3);
+        if (replacement < 0) {
+            int saved = errno; close(descriptors[0]); close(descriptors[1]);
+            descriptors[0] = descriptors[1] = -1; errno = saved; return false;
+        }
+        close(descriptors[i]); descriptors[i] = replacement;
+    }
     if (fcntl(descriptors[0], F_SETFD, FD_CLOEXEC) < 0 ||
             fcntl(descriptors[1], F_SETFD, FD_CLOEXEC) < 0) {
         int saved = errno;
@@ -266,14 +306,203 @@ static bool freak_command_pipe(int descriptors[2]) {
     return true;
 }
 
+/* The private inherited descriptor identifies API-created descendants. This
+   registry is process-local ownership metadata, not a filesystem path or a
+   caller-provided PID. Record locks prevent concurrent fork/reap/cancellation.
+   No lock is held while waiting for a child or running application code. */
+static bool freak_command_family_lock(freak_command_record *command) {
+    struct flock lock = {0}; lock.l_type = F_WRLCK; lock.l_whence = SEEK_SET;
+    int result;
+    do { result = fcntl(command->family_fd, F_SETLKW, &lock); } while (result < 0 && errno == EINTR);
+    return result == 0;
+}
+static void freak_command_family_unlock(freak_command_record *command) {
+    struct flock lock = {0}; lock.l_type = F_UNLCK; lock.l_whence = SEEK_SET;
+    if (fcntl(command->family_fd, F_SETLK, &lock) < 0) freak_command_fail("cannot unlock command family");
+}
+static freak_command_family_member *freak_command_family_find(freak_command_family *family, uint64_t token) {
+    uint32_t slot = (uint32_t)token;
+    if (!slot || slot > FREAK_COMMAND_FAMILY_CAPACITY) return NULL;
+    freak_command_family_member *member = &family->members[slot - 1];
+    return member->token == token ? member : NULL;
+}
+static void freak_command_family_close(freak_command_record *command) {
+    if (command->family) munmap(command->family, sizeof(*command->family));
+    command->family = NULL;
+    freak_command_close_pipe(&command->family_fd);
+}
+static bool freak_command_family_prepare(freak_command_record *command) {
+    int inherited_fd = -1; uint64_t inherited_token = 0;
+    freak_process_environment_acquire();
+    const char *value = getenv(FREAK_COMMAND_FAMILY_ENV);
+    if (value) {
+        char *end; errno = 0;
+        long descriptor = strtol(value, &end, 10);
+        if (!errno && descriptor >= 3 && descriptor <= INT_MAX && *end == ':') {
+            const char *token_start = end + 1;
+            unsigned long long token = strtoull(token_start, &end, 10);
+            if (!errno && token_start != end && !*end && token && token <= INT64_MAX) {
+                inherited_fd = (int)descriptor; inherited_token = (uint64_t)token;
+            }
+        }
+    }
+    freak_process_environment_release();
+    if (inherited_fd >= 0) {
+        struct stat metadata;
+        if (fstat(inherited_fd, &metadata) == 0 && S_ISREG(metadata.st_mode) &&
+                metadata.st_uid == getuid() && (metadata.st_mode & 0777) == 0600 && metadata.st_nlink == 0 &&
+                metadata.st_size == (off_t)sizeof(freak_command_family)) {
+            int descriptor = fcntl(inherited_fd, F_DUPFD, 3);
+            if (descriptor < 0) return false;
+            freak_command_family *family = mmap(NULL, sizeof(*family), PROT_READ | PROT_WRITE, MAP_SHARED, descriptor, 0);
+            if (family == MAP_FAILED) { close(descriptor); return false; }
+            command->family_fd = descriptor; command->family = family;
+            if (!freak_command_family_lock(command)) { freak_command_family_close(command); return false; }
+            freak_command_family_member *parent = freak_command_family_find(family, inherited_token);
+            bool recognized = family->magic == FREAK_COMMAND_FAMILY_MAGIC &&
+                    (!parent || !parent->active || parent->cancelled || parent->group == getpgrp());
+            if (recognized) command->family_parent = inherited_token;
+            freak_command_family_unlock(command);
+            if (recognized) {
+                if (fcntl(descriptor, F_SETFD, FD_CLOEXEC) < 0 ||
+                        fcntl(inherited_fd, F_SETFD, FD_CLOEXEC) < 0) { freak_command_family_close(command); return false; }
+                return true;
+            }
+            freak_command_family_close(command);
+        }
+    }
+    char path[] = "/tmp/freak-command-family-XXXXXX";
+    int descriptor = mkstemp(path);
+    if (descriptor < 0) return false;
+    if (descriptor < 3) {
+        int replacement = fcntl(descriptor, F_DUPFD, 3);
+        int saved = errno; close(descriptor); descriptor = replacement;
+        if (descriptor < 0) { (void)unlink(path); errno = saved; return false; }
+    }
+    if (unlink(path) < 0 || fcntl(descriptor, F_SETFD, FD_CLOEXEC) < 0 ||
+            ftruncate(descriptor, (off_t)sizeof(freak_command_family)) < 0) {
+        int saved = errno; close(descriptor); errno = saved; return false;
+    }
+    freak_command_family *family = mmap(NULL, sizeof(*family), PROT_READ | PROT_WRITE, MAP_SHARED, descriptor, 0);
+    if (family == MAP_FAILED) { int saved = errno; close(descriptor); errno = saved; return false; }
+    family->magic = FREAK_COMMAND_FAMILY_MAGIC;
+    command->family_fd = descriptor; command->family = family; return true;
+}
+/* Returns with the lock held. Registration is published before exec can run
+   another FREAK API; cancelled ancestors prevent a late spawn from escaping. */
+static bool freak_command_family_reserve(freak_command_record *command) {
+    if (!freak_command_family_lock(command)) return false;
+    freak_command_family *family = command->family;
+    freak_command_family_member *parent = freak_command_family_find(family, command->family_parent);
+    if (command->family_parent && (!parent || !parent->active || parent->cancelled)) {
+        command->status = FREAK_COMMAND_CANCELLED;
+        freak_command_set_error(command, "ancestor command was cancelled");
+        freak_command_family_unlock(command); return false;
+    }
+    size_t slot = 0;
+    while (slot < FREAK_COMMAND_FAMILY_CAPACITY && family->members[slot].active) slot++;
+    if (slot == FREAK_COMMAND_FAMILY_CAPACITY || family->generation == INT32_MAX || (parent && parent->depth >= 128)) {
+        errno = EOVERFLOW; freak_command_family_unlock(command); return false;
+    }
+    uint64_t token = ((uint64_t)++family->generation << 32) | (slot + 1);
+    family->members[slot] = (freak_command_family_member){token, command->family_parent, 0,
+            parent ? parent->depth + 1 : 0, true, false};
+    command->family_token = token; return true;
+}
+static bool freak_command_family_descendant(freak_command_family *family,
+        freak_command_family_member *member, uint64_t ancestor) {
+    for (unsigned depth = 0; member && depth <= 128; depth++) {
+        if (member->token == ancestor) return true;
+        member = freak_command_family_find(family, member->parent);
+    }
+    return false;
+}
+static void freak_command_family_stop_locked(freak_command_record *command) {
+    freak_command_family *family = command->family;
+    if (!family || !command->family_token) return;
+    /* Descendants die before their reaper ancestors. Each group leader remains
+       present until its slot is retired under this same process-scoped lock.
+       A guardian holds the group identity even if a leader's parent dies;
+       signalling never follows identity retirement or guesses a recycled PID. */
+    for (int depth = 128; depth >= 0; depth--) {
+        for (size_t i = 0; i < FREAK_COMMAND_FAMILY_CAPACITY; i++) {
+            freak_command_family_member *member = &family->members[i];
+            if (!member->active || member->depth != (uint32_t)depth ||
+                    !freak_command_family_descendant(family, member, command->family_token)) continue;
+            member->cancelled = true;
+            member->active = false;
+            if (member->group > 0) (void)kill(-member->group, SIGKILL);
+        }
+    }
+}
+static void freak_command_family_forget_locked(freak_command_record *command) {
+    freak_command_family_member *member = freak_command_family_find(command->family, command->family_token);
+    if (member) { member->active = false; member->cancelled = true; }
+}
+/* Capture descriptors in the parent, before fork. The guardian must not keep
+   application sockets, stream writers, or another job's owner pipe alive. */
+static int *freak_command_open_descriptors(size_t *count) {
+    DIR *directory = opendir("/dev/fd");
+    if (!directory) directory = opendir("/proc/self/fd");
+    if (!directory) return NULL;
+    int excluded = dirfd(directory);
+    size_t capacity = 32; *count = 0;
+    int *descriptors = freak_command_allocate(capacity, sizeof(*descriptors));
+    struct dirent *entry;
+    for (;;) {
+        errno = 0; entry = readdir(directory);
+        if (!entry) {
+            int failure = errno;
+            if (failure) { free(descriptors); closedir(directory); errno = failure; return NULL; }
+            break;
+        }
+        char *end; errno = 0; long descriptor = strtol(entry->d_name, &end, 10);
+        if (errno || end == entry->d_name || *end || descriptor < 0 || descriptor > INT_MAX || descriptor == excluded) continue;
+        if (*count == capacity) {
+            if (capacity >= 1048576) { free(descriptors); closedir(directory); errno = EOVERFLOW; return NULL; }
+            capacity *= 2;
+            int *grown = realloc(descriptors, capacity * sizeof(*grown));
+            if (!grown) freak_command_fail("out of memory enumerating child descriptors");
+            descriptors = grown;
+        }
+        descriptors[(*count)++] = (int)descriptor;
+    }
+    int saved = errno; closedir(directory); errno = saved;
+    return descriptors;
+}
+static _Noreturn void freak_command_guardian(freak_command_record *command,
+        int owner_read, const int *descriptors, size_t count) {
+    if (setpgid(0, command->pid) < 0) _exit(127);
+    for (size_t i = 0; i < count; i++) {
+        int fd = descriptors[i];
+        if (fd != owner_read && fd != command->family_fd) close(fd);
+    }
+    unsigned char ignored;
+    for (;;) {
+        ssize_t received = read(owner_read, &ignored, 1);
+        if (received < 0 && errno == EINTR) continue;
+        if (received <= 0) break;
+    }
+    /* EOF also handles abrupt SIGTERM/SIGKILL of the owning FREAK process.
+       Retirement precedes signalling because this process belongs to the
+       final group being killed; the kernel releases its record lock at exit. */
+    if (freak_command_family_lock(command)) {
+        freak_command_family_stop_locked(command);
+        freak_command_family_unlock(command);
+    }
+    /* The guardian itself pins this exact group even if an external reaper
+       consumed the leader. Generic non-API children are still group-owned. */
+    (void)kill(-getpgrp(), SIGKILL);
+    _exit(0);
+}
 static char **freak_command_environment(freak_command_record *command) {
     freak_process_environment_acquire();
     size_t count = 0;
     while (environ[count]) count++;
-    char **result = freak_command_allocate(count + command->env_count + 1, sizeof(char *));
+    char **result = freak_command_allocate(count + command->env_count + 2, sizeof(char *));
     size_t used = 0;
     for (size_t index = 0; index < count; index++) {
-        bool overridden = false;
+        bool overridden = strncmp(environ[index], FREAK_COMMAND_FAMILY_ENV "=", sizeof(FREAK_COMMAND_FAMILY_ENV)) == 0;
         for (size_t key = 0; key < command->env_count; key++) {
             size_t length = strlen(command->env_names[key]);
             if (strncmp(environ[index], command->env_names[key], length) == 0 &&
@@ -289,7 +518,7 @@ static char **freak_command_environment(freak_command_record *command) {
     }
     freak_process_environment_release();
     for (size_t key = 0; key < command->env_count; key++) {
-        if (!command->env_values[key]) continue;
+        if (!command->env_values[key] || !strcmp(command->env_names[key], FREAK_COMMAND_FAMILY_ENV)) continue;
         size_t names = strlen(command->env_names[key]), values = strlen(command->env_values[key]);
         if (values > SIZE_MAX - names - 2) freak_command_fail("environment size overflow");
         char *entry = freak_command_allocate(names + values + 2, 1);
@@ -298,10 +527,15 @@ static char **freak_command_environment(freak_command_record *command) {
         memcpy(entry + names + 1, command->env_values[key], values);
         result[used++] = entry;
     }
+    char private_entry[128];
+    snprintf(private_entry, sizeof(private_entry), FREAK_COMMAND_FAMILY_ENV "=%d:%llu",
+            command->family_fd, (unsigned long long)command->family_token);
+    result[used] = freak_command_copy(freak_word_lit(private_entry), true);
     return result;
 }
 
 static void freak_command_free_environment(char **environment) {
+    if (!environment) return;
     for (size_t index = 0; environment[index]; index++) free(environment[index]);
     free(environment);
 }
@@ -336,11 +570,10 @@ static char **freak_command_executables(freak_command_record *command, char **en
 }
 
 static void freak_command_native_stop(freak_command_record *command) {
-    if (command->child_live) {
-        /* The child establishes this group before exec; parent repeats setpgid
-           before returning spawn, avoiding a cancellation race. */
-        if (kill(-command->pid, SIGKILL) != 0 && errno == ESRCH)
-            (void)kill(command->pid, SIGKILL);
+    if ((command->child_live || command->guardian_live) && command->family) {
+        if (!freak_command_family_lock(command)) freak_command_fail("cannot lock command family for cancellation");
+        freak_command_family_stop_locked(command);
+        freak_command_family_unlock(command);
     }
 }
 
@@ -388,16 +621,29 @@ static void freak_command_drain(freak_command_record *command, int *descriptor,
 }
 
 static void freak_command_service_record(freak_command_record *command,bool blocking) {
-    while (command->child_live || command->stdout_read >= 0 || command->stderr_read >= 0) {
+    while (command->child_live || command->guardian_live || command->stdout_read >= 0 || command->stderr_read >= 0) {
         freak_command_drain(command, &command->stdout_read, &command->output);
         freak_command_drain(command, &command->stderr_read, &command->errors);
         if (command->child_live) {
             int status = 0;
-            pid_t waited = waitpid(command->pid, &status, WNOHANG);
+            pid_t waited = 0;
+            if (!freak_command_family_lock(command)) freak_command_fail("cannot lock command family for reaping");
+            siginfo_t observation; memset(&observation, 0, sizeof(observation));
+            int observed = waitid(P_PID, (id_t)command->pid, &observation, WEXITED | WNOHANG | WNOWAIT);
+            if (observed == 0 && observation.si_pid == command->pid) {
+                freak_command_family_stop_locked(command);
+                do { waited = waitpid(command->pid, &status, WNOHANG); } while (waited < 0 && errno == EINTR);
+                freak_command_family_forget_locked(command);
+            } else if (observed < 0 && errno != EINTR) {
+                /* An external reaper consumed the owner. Its numeric PID is
+                   no longer an identity that this runtime may signal. */
+                waited = -1; freak_command_family_forget_locked(command);
+                freak_command_close_pipe(&command->guardian_write);
+            }
+            int wait_error = errno;
+            freak_command_family_unlock(command);
+            errno = wait_error;
             if (waited == command->pid) {
-                /* Reap the direct child and kill any still-owned descendants,
-                   including ones retaining pipe writers after it has exited. */
-                (void)kill(-command->pid, SIGKILL);
                 command->child_live = false;
                 freak_commands_children--;
                 if (command->status == FREAK_COMMAND_RUNNING) {
@@ -416,11 +662,18 @@ static void freak_command_service_record(freak_command_record *command,bool bloc
                 freak_commands_children--;
                 command->status = FREAK_COMMAND_IO_ERROR;
                 freak_command_set_error(command, "could not reap child process");
-                (void)kill(-command->pid, SIGKILL);
                 freak_command_terminal_restore(command);
             }
         }
-        if (!command->child_live && command->stdout_read < 0 && command->stderr_read < 0) break;
+        if (command->guardian_live) {
+            int status;
+            pid_t guardian = waitpid(command->guardian_pid, &status, WNOHANG);
+            if (guardian == command->guardian_pid || (guardian < 0 && errno == ECHILD)) {
+                command->guardian_live = false; freak_commands_children--;
+                freak_command_close_pipe(&command->guardian_write);
+            }
+        }
+        if (!command->child_live && !command->guardian_live && command->stdout_read < 0 && command->stderr_read < 0) break;
         if (!command->child_live) {
             /* All direct-child output is now in the pipes. Close an inherited
                writer held by a detached daemon instead of waiting forever.
@@ -431,7 +684,7 @@ static void freak_command_service_record(freak_command_record *command,bool bloc
             if (out_before == command->output.length) freak_command_close_pipe(&command->stdout_read);
             if (err_before == command->errors.length) freak_command_close_pipe(&command->stderr_read);
             if (!blocking) return;
-            continue;
+            if (!command->guardian_live) continue;
         }
         if (command->status == FREAK_COMMAND_RUNNING && command->deadline_ms &&
                 freak_command_now_ms() >= command->deadline_ms) {
@@ -460,9 +713,11 @@ static void freak_command_wait_record(freak_command_record *command) {
 }
 
 static bool freak_command_posix_spawn(freak_command_record *command) {
-    int output[2] = {-1, -1}, errors[2] = {-1, -1}, execution[2] = {-1, -1};
-    char **environment = freak_command_environment(command);
-    char **executables = freak_command_executables(command, environment);
+    int output[2] = {-1, -1}, errors[2] = {-1, -1}, execution[2] = {-1, -1}, guardian[2] = {-1, -1};
+    int *descriptors = NULL; size_t descriptor_count = 0;
+    char **environment = NULL, **executables = NULL;
+    bool family_locked = false;
+    if (!freak_command_family_prepare(command)) goto failed;
     if (command->inherited && isatty(STDIN_FILENO)) {
         pid_t owner = tcgetpgrp(STDIN_FILENO);
         if (owner >= 0 && owner != getpgrp()) {
@@ -472,15 +727,22 @@ static bool freak_command_posix_spawn(freak_command_record *command) {
         if (owner >= 0) command->terminal_owner = owner;
     }
     if ((!command->inherited && (!freak_command_pipe(output) || !freak_command_pipe(errors))) ||
-            !freak_command_pipe(execution)) goto failed;
+            !freak_command_pipe(execution) || !freak_command_pipe(guardian)) goto failed;
     if (!command->inherited && (fcntl(output[0], F_SETFL, O_NONBLOCK) < 0 ||
             fcntl(errors[0], F_SETFL, O_NONBLOCK) < 0)) goto failed;
+    descriptors = freak_command_open_descriptors(&descriptor_count);
+    if (!descriptors) goto failed;
+    if (!freak_command_family_reserve(command)) goto failed;
+    family_locked = true;
+    environment = freak_command_environment(command);
+    executables = freak_command_executables(command, environment);
     pid_t pid = fork();
     if (pid < 0) goto failed;
     if (pid == 0) {
         close(execution[0]);
         int failure = 0;
         if (setpgid(0, 0) != 0) failure = errno;
+        if (!failure && fcntl(command->family_fd, F_SETFD, 0) < 0) failure = errno;
         if (!failure && command->cwd && chdir(command->cwd) != 0) failure = errno;
         if (!failure && command->terminal_owner && !freak_command_terminal_set(getpid())) failure = errno;
         if (!command->inherited) {
@@ -509,6 +771,24 @@ static bool freak_command_posix_spawn(freak_command_record *command) {
     command->child_live = true;
     freak_commands_children++;
     (void)setpgid(pid, pid);
+    freak_command_family_member *member = freak_command_family_find(command->family, command->family_token);
+    member->group = pid;
+    pid_t guardian_pid = fork();
+    if (guardian_pid == 0) freak_command_guardian(command, guardian[0], descriptors, descriptor_count);
+    if (guardian_pid < 0 || setpgid(guardian_pid, pid) < 0) {
+        int failure = errno;
+        if (guardian_pid > 0) { (void)kill(guardian_pid, SIGKILL); while (waitpid(guardian_pid, NULL, 0) < 0 && errno == EINTR) {} }
+        freak_command_family_stop_locked(command);
+        freak_command_family_unlock(command); family_locked = false;
+        while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+        command->child_live = false; freak_commands_children--; errno = failure;
+        goto failed;
+    }
+    command->guardian_pid = guardian_pid; command->guardian_live = true; freak_commands_children++;
+    command->guardian_write = guardian[1]; guardian[1] = -1;
+    freak_command_close_pipe(&guardian[0]);
+    free(descriptors); descriptors = NULL;
+    freak_command_family_unlock(command); family_locked = false;
     freak_command_close_pipe(&execution[1]);
     freak_command_close_pipe(&output[1]);
     freak_command_close_pipe(&errors[1]);
@@ -551,6 +831,15 @@ static bool freak_command_posix_spawn(freak_command_record *command) {
     }
     return true;
 failed:
+    free(descriptors);
+    if (family_locked) { freak_command_family_forget_locked(command); freak_command_family_unlock(command); }
+    if (command->status == FREAK_COMMAND_CANCELLED) {
+        freak_command_free_environment(environment); freak_command_free_environment(executables);
+        for (int index = 0; index < 2; index++) {
+            freak_command_close_pipe(&output[index]); freak_command_close_pipe(&errors[index]); freak_command_close_pipe(&execution[index]); freak_command_close_pipe(&guardian[index]);
+        }
+        freak_command_family_close(command); freak_command_terminal_restore(command); return false;
+    }
     command->status = FREAK_COMMAND_SPAWN_FAILED;
     snprintf(command->error, sizeof(command->error), "could not create child process: %s", strerror(errno));
     freak_command_free_environment(environment);
@@ -558,8 +847,10 @@ failed:
     for (int index = 0; index < 2; index++) {
         freak_command_close_pipe(&output[index]);
         freak_command_close_pipe(&errors[index]);
-        freak_command_close_pipe(&execution[index]);
+        freak_command_close_pipe(&execution[index]); freak_command_close_pipe(&guardian[index]);
     }
+    freak_command_family_close(command);
+    freak_command_terminal_restore(command);
     return false;
 }
 
@@ -880,7 +1171,7 @@ static bool freak_command_pending(freak_command_record *command) {
 #ifdef _WIN32
     return command->child_live || command->stdout_read || command->stderr_read;
 #else
-    return command->child_live || command->stdout_read >= 0 || command->stderr_read >= 0;
+    return command->child_live || command->guardian_live || command->stdout_read >= 0 || command->stderr_read >= 0;
 #endif
 }
 int64_t freak_process_command_poll(int64_t ticket) {
@@ -944,6 +1235,10 @@ int64_t freak_process_command_stderr_bytes(int64_t ticket) { return freak_comman
 void freak_process_command_release(int64_t ticket) {
     freak_command_record *command = freak_command_require(ticket);
     freak_process_command_terminate(ticket);
+#ifndef _WIN32
+    freak_command_close_pipe(&command->guardian_write);
+    freak_command_family_close(command);
+#endif
     for (size_t index = 0; index < command->argc; index++) free(command->argv[index]);
     for (size_t index = 0; index < command->env_count; index++) {
         free(command->env_names[index]); free(command->env_values[index]);
