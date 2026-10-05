@@ -1,0 +1,38 @@
+-- Runtime arguments prevent constant folding of the checked integer loop.
+-- No Word, foreign call, division or remainder occurs inside the hot body.
+task runtime_int_argument(index: int) -> int {
+    check result process::arg(index) {
+        ok(text) -> {
+            check text.to_int() {
+                got number -> { give back number }
+                nobody -> { give back -1 }
+            }
+        }
+        err(_) -> { give back -1 }
+    }
+    give back -1
+}
+
+task int_checked_hot_loop(seed: int, iterations: int) -> int {
+    pilot mut state = seed
+    pilot mut index = 0
+    repeat until index >= iterations and true {
+        state = state * 3
+        state = state + 17
+        if state >= 65536 { state = state - 65536 }
+        if state >= 65536 { state = state - 65536 }
+        if state >= 65536 { state = state - 65536 }
+        index += 1
+    }
+    give back state
+}
+
+task main() -> int {
+    if process::args_count() != 3 { give back 64 }
+    pilot iterations = runtime_int_argument(1)
+    pilot seed = runtime_int_argument(2)
+    if iterations < 0 or iterations > 100000000 { give back 65 }
+    if seed < 0 or seed >= 65536 { give back 66 }
+    say int_checked_hot_loop(seed, iterations)
+    give back 0
+}
