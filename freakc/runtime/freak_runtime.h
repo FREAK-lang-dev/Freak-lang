@@ -413,6 +413,74 @@ FREAK_RESULT_DECL(bool,       freak_word, bool_word);
    legacy freak_fs_read word/panic ABI unchanged. */
 freak_result_word_word freak_fs_read_checked(freak_word path);
 
+/* V3.5 checked filesystem result tickets. Ordinary I/O failures are owned
+   results without stdout/stderr noise. Text reads require NUL-free UTF-8;
+   binary reads/writes use ByteBuffer. Getter words/buffers are independent
+   owners; release invalidates every alias of the result ticket. Stat and
+   directory inventory do not follow the final symlink/reparse point. Strict
+   public reads have a 64 MiB limit; read_source_ticket preserves the separate
+   compiler-source helper contract. Writes fsync a sibling before publication,
+   preserve existing POSIX permission bits, and synchronize parent directories
+   on POSIX. A synchronization error can follow visible publication and is
+   reported distinctly. rename_new_checked never replaces a destination; an
+   unsupported atomic no-replace primitive fails explicitly. */
+int64_t freak_fs_read_ticket(freak_word path);
+int64_t freak_fs_read_bytes_ticket(freak_word path);
+int64_t freak_fs_read_source_ticket(freak_word path);
+int64_t freak_fs_write_checked(freak_word path, freak_word contents);
+int64_t freak_fs_write_bytes_checked(freak_word path, int64_t contents);
+int64_t freak_fs_append_checked(freak_word path, freak_word contents);
+int64_t freak_fs_rename_checked(freak_word source, freak_word destination);
+int64_t freak_fs_rename_new_checked(freak_word source, freak_word destination);
+int64_t freak_fs_mkdir_checked(freak_word path);
+int64_t freak_fs_remove_checked(freak_word path);
+int64_t freak_fs_rmdir_checked(freak_word path);
+int64_t freak_fs_exclusive_create(freak_word path, freak_word contents);
+int64_t freak_fs_temp_dir(freak_word parent, freak_word prefix);
+int64_t freak_fs_canonical_path(freak_word path);
+int64_t freak_fs_stat_checked(freak_word path);
+int64_t freak_fs_list_dir_checked(freak_word path);
+bool freak_fs_result_ok(int64_t ticket);
+freak_word freak_fs_result_word(int64_t ticket);
+freak_word freak_fs_result_error(int64_t ticket);
+int64_t freak_fs_result_bytes(int64_t ticket);
+int64_t freak_fs_result_kind(int64_t ticket);
+int64_t freak_fs_result_size(int64_t ticket);
+int64_t freak_fs_result_mode(int64_t ticket);
+int64_t freak_fs_result_count(int64_t ticket);
+freak_word freak_fs_result_entry(int64_t ticket, int64_t index);
+void freak_fs_result_release(int64_t ticket);
+int64_t freak_fs_result_live(void);
+freak_word freak_fs_sha256_bytes(int64_t buffer);
+
+int64_t freak_llvm_fs_read_ticket(int64_t path);
+int64_t freak_llvm_fs_read_bytes_ticket(int64_t path);
+int64_t freak_llvm_fs_read_source_ticket(int64_t path);
+int64_t freak_llvm_fs_write_checked(int64_t path, int64_t contents);
+int64_t freak_llvm_fs_write_bytes_checked(int64_t path, int64_t contents);
+int64_t freak_llvm_fs_append_checked(int64_t path, int64_t contents);
+int64_t freak_llvm_fs_rename_checked(int64_t source, int64_t destination);
+int64_t freak_llvm_fs_rename_new_checked(int64_t source, int64_t destination);
+int64_t freak_llvm_fs_mkdir_checked(int64_t path);
+int64_t freak_llvm_fs_remove_checked(int64_t path);
+int64_t freak_llvm_fs_rmdir_checked(int64_t path);
+int64_t freak_llvm_fs_exclusive_create(int64_t path, int64_t contents);
+int64_t freak_llvm_fs_temp_dir(int64_t parent, int64_t prefix);
+int64_t freak_llvm_fs_canonical_path(int64_t path);
+int64_t freak_llvm_fs_stat_checked(int64_t path);
+int64_t freak_llvm_fs_list_dir_checked(int64_t path);
+int64_t freak_llvm_fs_result_ok(int64_t ticket);
+int64_t freak_llvm_fs_result_word(int64_t ticket);
+int64_t freak_llvm_fs_result_error(int64_t ticket);
+int64_t freak_llvm_fs_result_bytes(int64_t ticket);
+int64_t freak_llvm_fs_result_kind(int64_t ticket);
+int64_t freak_llvm_fs_result_size(int64_t ticket);
+int64_t freak_llvm_fs_result_mode(int64_t ticket);
+int64_t freak_llvm_fs_result_count(int64_t ticket);
+int64_t freak_llvm_fs_result_entry(int64_t ticket, int64_t index);
+void freak_llvm_fs_result_release(int64_t ticket);
+int64_t freak_llvm_fs_sha256_bytes(int64_t buffer);
+
 /* ------------------------------------------------------------------ */
 /*  String methods                                                    */
 /* ------------------------------------------------------------------ */

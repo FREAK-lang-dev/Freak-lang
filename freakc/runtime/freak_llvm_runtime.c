@@ -923,3 +923,87 @@ int64_t freak_llvm_process_command_stderr(int64_t ticket) {
 int64_t freak_llvm_process_command_stdout_bytes(int64_t ticket) { return freak_process_command_stdout_bytes(ticket); }
 int64_t freak_llvm_process_command_stderr_bytes(int64_t ticket) { return freak_process_command_stderr_bytes(ticket); }
 void freak_llvm_process_command_release(int64_t ticket) { freak_process_command_release(ticket); }
+
+/* V3.5 checked filesystem adapters use the shared result-ticket owners. */
+int64_t freak_llvm_fs_read_ticket(int64_t argument0) {
+    return freak_fs_read_ticket(freak_llvm_word_view(argument0));
+}
+int64_t freak_llvm_fs_read_bytes_ticket(int64_t argument0) {
+    return freak_fs_read_bytes_ticket(freak_llvm_word_view(argument0));
+}
+int64_t freak_llvm_fs_read_source_ticket(int64_t argument0) {
+    return freak_fs_read_source_ticket(freak_llvm_word_view(argument0));
+}
+int64_t freak_llvm_fs_write_checked(int64_t argument0, int64_t argument1) {
+    return freak_fs_write_checked(freak_llvm_word_view(argument0), freak_llvm_word_view(argument1));
+}
+int64_t freak_llvm_fs_write_bytes_checked(int64_t argument0, int64_t argument1) {
+    return freak_fs_write_bytes_checked(freak_llvm_word_view(argument0), argument1);
+}
+int64_t freak_llvm_fs_append_checked(int64_t argument0, int64_t argument1) {
+    return freak_fs_append_checked(freak_llvm_word_view(argument0), freak_llvm_word_view(argument1));
+}
+int64_t freak_llvm_fs_rename_checked(int64_t argument0, int64_t argument1) {
+    return freak_fs_rename_checked(freak_llvm_word_view(argument0), freak_llvm_word_view(argument1));
+}
+int64_t freak_llvm_fs_mkdir_checked(int64_t argument0) {
+    return freak_fs_mkdir_checked(freak_llvm_word_view(argument0));
+}
+int64_t freak_llvm_fs_remove_checked(int64_t argument0) {
+    return freak_fs_remove_checked(freak_llvm_word_view(argument0));
+}
+int64_t freak_llvm_fs_rmdir_checked(int64_t path) {
+    return freak_fs_rmdir_checked(freak_llvm_word_view(path));
+}
+int64_t freak_llvm_fs_exclusive_create(int64_t argument0, int64_t argument1) {
+    return freak_fs_exclusive_create(freak_llvm_word_view(argument0), freak_llvm_word_view(argument1));
+}
+int64_t freak_llvm_fs_temp_dir(int64_t argument0, int64_t argument1) {
+    return freak_fs_temp_dir(freak_llvm_word_view(argument0), freak_llvm_word_view(argument1));
+}
+int64_t freak_llvm_fs_canonical_path(int64_t argument0) {
+    return freak_fs_canonical_path(freak_llvm_word_view(argument0));
+}
+int64_t freak_llvm_fs_stat_checked(int64_t argument0) {
+    return freak_fs_stat_checked(freak_llvm_word_view(argument0));
+}
+int64_t freak_llvm_fs_list_dir_checked(int64_t argument0) {
+    return freak_fs_list_dir_checked(freak_llvm_word_view(argument0));
+}
+int64_t freak_llvm_fs_result_ok(int64_t argument0) {
+    return freak_fs_result_ok(argument0) ? 1 : 0;
+}
+int64_t freak_llvm_fs_result_word(int64_t argument0) {
+    return freak_llvm_word_take(freak_fs_result_word(argument0));
+}
+int64_t freak_llvm_fs_result_error(int64_t argument0) {
+    return freak_llvm_word_take(freak_fs_result_error(argument0));
+}
+int64_t freak_llvm_fs_result_bytes(int64_t argument0) {
+    return freak_fs_result_bytes(argument0);
+}
+int64_t freak_llvm_fs_result_kind(int64_t argument0) {
+    return freak_fs_result_kind(argument0);
+}
+int64_t freak_llvm_fs_result_size(int64_t argument0) {
+    return freak_fs_result_size(argument0);
+}
+int64_t freak_llvm_fs_result_mode(int64_t argument0) {
+    return freak_fs_result_mode(argument0);
+}
+int64_t freak_llvm_fs_result_count(int64_t argument0) {
+    return freak_fs_result_count(argument0);
+}
+int64_t freak_llvm_fs_result_entry(int64_t argument0, int64_t argument1) {
+    return freak_llvm_word_take(freak_fs_result_entry(argument0, argument1));
+}
+void freak_llvm_fs_result_release(int64_t argument0) {
+    freak_fs_result_release(argument0);
+}
+int64_t freak_llvm_fs_sha256_bytes(int64_t argument0) {
+    return freak_llvm_word_take(freak_fs_sha256_bytes(argument0));
+}
+
+int64_t freak_llvm_fs_rename_new_checked(int64_t source,int64_t destination) {
+    return freak_fs_rename_new_checked(freak_llvm_word_view(source),freak_llvm_word_view(destination));
+}

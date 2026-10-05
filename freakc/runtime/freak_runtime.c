@@ -1,5 +1,12 @@
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE 700
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE 1
+#endif
+#ifdef __linux__
+#define _GNU_SOURCE 1
+#endif
 #endif
 
 #include "freak_runtime.h"
@@ -943,21 +950,13 @@ _Noreturn void freak_panic(freak_word msg) {
 /* ------------------------------------------------------------------ */
 
 freak_word freak_fs_read(freak_word path) {
-    const char* p = freak_word_to_cstr(path);
-    FILE* f = fopen(p, "rb");
-    if (!f) {
-        fprintf(stderr, "FREAK: cannot open file '%s': %s\n", p, strerror(errno));
+    freak_result_word_word result = freak_fs_read_checked(path);
+    if (!result.is_ok) {
+        fprintf(stderr,"FREAK: cannot read complete file: %.*s\n",
+                (int)result.data.err_val.length,result.data.err_val.data);
         exit(1);
     }
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char* buf = (char*)malloc((size_t)size + 1);
-    if (!buf) { fprintf(stderr, "FREAK: out of memory\n"); fclose(f); exit(1); }
-    size_t read = fread(buf, 1, (size_t)size, f);
-    fclose(f);
-    buf[read] = '\0';
-    return freak_word_own(buf, read);
+    return result.data.ok_val;
 }
 
 static freak_result_word_word freak_fs_read_checked_error(const char* message) {
@@ -1048,8 +1047,12 @@ void freak_fs_write(freak_word path, freak_word content) {
         fprintf(stderr, "FREAK: cannot write file '%s': %s\n", p, strerror(errno));
         exit(1);
     }
-    fwrite(content.data, 1, content.length, f);
-    fclose(f);
+    bool complete = fwrite(content.data, 1, content.length, f) == content.length && !ferror(f);
+    if (fclose(f) != 0) complete = false;
+    if (!complete) {
+        fprintf(stderr,"FREAK: could not complete file write '%s'\n",p);
+        exit(1);
+    }
 }
 
 void freak_fs_append(freak_word path, freak_word content) {
@@ -1059,8 +1062,12 @@ void freak_fs_append(freak_word path, freak_word content) {
         fprintf(stderr, "FREAK: cannot append file '%s': %s\n", p, strerror(errno));
         exit(1);
     }
-    fwrite(content.data, 1, content.length, f);
-    fclose(f);
+    bool complete = fwrite(content.data, 1, content.length, f) == content.length && !ferror(f);
+    if (fclose(f) != 0) complete = false;
+    if (!complete) {
+        fprintf(stderr,"FREAK: could not complete file write '%s'\n",p);
+        exit(1);
+    }
 }
 
 /**
@@ -5382,3 +5389,4 @@ int64_t freak_v3_live_words(void) { return freak_v3_words_live; }
 
 /* Shares the word and ByteBuffer owners above; not a second runtime. */
 #include "freak_v35_process.inc"
+#include "freak_v35_fs.inc"
