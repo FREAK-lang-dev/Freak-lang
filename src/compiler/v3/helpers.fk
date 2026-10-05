@@ -41,6 +41,7 @@ task init_arrays() -> void {
     tc_global_types = array_new()
     tc_local_names = array_new()
     tc_local_types = array_new()
+    tc_checked_expr_types = array_new()
     tc_callable_bucket_heads = array_new()
     tc_callable_names = array_new()
     tc_callable_returns = array_new()

@@ -1803,7 +1803,7 @@ task translate_params(p: word) -> word {
 }
 
 task c_ret_type(returns_w: word) -> word {
-    if returns_w == "int" or tc_is_list(returns_w) or is_shape_name(returns_w) { give back "int64_t" }
+    if returns_w == "int" or returns_w == "ByteBuffer" or tc_is_list(returns_w) or is_shape_name(returns_w) { give back "int64_t" }
     if returns_w == "word" { give back "freak_word" }
     if returns_w == "bool" { give back "bool" }
     if returns_w == "num" { give back "double" }

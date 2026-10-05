@@ -38,10 +38,15 @@ task bc_is_copy_type(type_ann: word) -> bool {
     give back false
 }
 
--- Best-effort kind classification when the binding has no type annotation.
--- Conservative: if the RHS is a literal primitive, "copy"; otherwise "owned".
+-- Preserve the semantic pass's lexical type facts for inferred bindings.
+-- Unknown facts retain the conservative owned fallback.
 task bc_classify_rhs(expr_id: int) -> word {
     if expr_id < 0 { give back "owned" }
+    if expr_id < array_len(tc_checked_expr_types) {
+        pilot checked_type: word = array_get(tc_checked_expr_types, expr_id)
+        if bc_is_copy_type(checked_type) { give back "copy" }
+        if checked_type == "ByteBuffer" { give back "byte_buffer" }
+    }
     pilot k: word = array_get(ast_expr_kinds, expr_id)
     if k == EXPR_INT   { give back "copy" }
     if k == EXPR_FLOAT { give back "copy" }
@@ -1596,6 +1601,13 @@ task tc_validate_interp_path(expr_id: int, line: int, source_file: word) -> word
 
 task tc_validate_expr(expr_id: int, line: int) -> void {
     if expr_id < 0 { give back }
+    -- Expression IDs are unique across tasks and lexical scopes. Record the
+    -- authoritative type now; recomputing after tc_reset_locals loses inferred
+    -- identifiers, method receivers and projections used by strict borrowing.
+    repeat until array_len(tc_checked_expr_types) > expr_id {
+        array_push(tc_checked_expr_types, "")
+    }
+    array_set(tc_checked_expr_types, expr_id, tc_expr_type(expr_id))
     pilot source_file = input_file
     if expr_id < array_len(ast_expr_lines) {
         pilot origin_line = word_to_int(array_get(ast_expr_lines, expr_id))

@@ -130,6 +130,9 @@ pilot tc_global_visibility_count = 0 - 1
 pilot tc_dependency_pending_calls = 0
 pilot tc_local_names = 0
 pilot tc_local_types = 0
+-- Semantic types recorded while each expression's lexical scope is active.
+-- The later ownership pass consumes these facts after local tables reset.
+pilot tc_checked_expr_types = 0
 pilot tc_local_mut = 0
 pilot tc_global_mut = 0
 pilot tc_local_count = 0
