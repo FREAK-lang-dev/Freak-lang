@@ -1186,10 +1186,6 @@ task v4_hir_pilot_starts_local_decl(stream_id: int, pilot_token: int, item_start
         give back true
     }
     pilot previous = v4_hir_previous_nontrivia(stream_id, pilot_token - 1, item_start)
-    if previous >= item_start and v4_lex_token_syntax_value(stream_id, previous) == "(" {
-        pilot loop_head = v4_hir_previous_nontrivia(stream_id, previous - 1, item_start)
-        if loop_head >= item_start and v4_lex_token_syntax_value(stream_id, loop_head) == "for" and v4_hir_token_starts_statement(stream_id, loop_head, item_start) { give back true }
-    }
     if previous < item_start or v4_lex_token_syntax_value(stream_id, previous) != "fixed" {
         give back false
     }

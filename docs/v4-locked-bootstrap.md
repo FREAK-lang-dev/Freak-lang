@@ -2,7 +2,7 @@
 
 This checkpoint focuses on building a separate V4 preview from one immutable
 source revision. The locked V4 source commit is
-`b8c5e99d10af59ffcc103ef572bb1a4e36470f19`; `src/compiler/v4/bootstrap.toml`
+`b43127c4e0d3beb9fc3b11b082799c3ef6e0403a`; `src/compiler/v4/bootstrap.toml`
 and `bootstrap.lock` record its entry, ordered source bytes, compatibility
 profile and private generated-program runtime inventory.
 
@@ -42,3 +42,11 @@ installed native CLI, real Clang, the frozen source bundle, and an optional Git
 checkout for exact source-object checks. It invokes the real public command;
 Python is only its test orchestrator. Linux x86-64 can be verified in this
 workspace. Native Windows and macOS verification remains pending GitHub CI.
+
+The scout's official V4 revision is used without input patches. On Linux,
+480 identical source inputs produced byte-identical stdout, stderr and status
+against a freshly Python-built compiler of the same revision: 54 modules and
+426 diagnostic cases. Additional abort/read-failure controls and three larger
+sources agreed. Deep word argument copies remain a measured performance gap;
+changing caller copies requires matching callee ownership behavior. Performance
+work is separate from this locked compilation checkpoint.

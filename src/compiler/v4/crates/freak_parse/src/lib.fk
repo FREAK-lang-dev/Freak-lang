@@ -33,6 +33,15 @@ pilot v4_parse_tree_diags = 0
 -- Derived owner epochs are monotonic and never serialized.
 pilot v4_parse_tree_revisions = 0
 pilot v4_parse_revision_clock = 0
+-- Derived closure children never enter the snapshot wire format. One registry
+-- retains at most one packed child per published tree; readers never rebuild.
+-- Header: ready, owner revision, node count, indexed child count. Nonempty
+-- tables then hold (base, count) for each parent and three closure kinds,
+-- followed by child IDs in original physical order within each parent/kind.
+pilot v4_parse_closure_child_indexes = 0 - 1
+pilot v4_parse_closure_child_index_builds = 0
+pilot v4_parse_node_kind_reads = 0
+pilot v4_parse_node_parent_reads = 0
 pilot v4_parse_ready = 0
 
 task v4_parse_init() -> void {
@@ -45,6 +54,7 @@ task v4_parse_init() -> void {
         v4_parse_tree_node_parents = array_new()
         v4_parse_tree_diags = array_new()
         v4_parse_tree_revisions = array_new()
+        v4_parse_closure_child_indexes = array_new()
         v4_parse_ready = 1
     }
 }
@@ -150,6 +160,7 @@ task v4_parse_diag_count(tree_id: int) -> int {
 }
 
 task v4_parse_node_kind(tree_id: int, node_id: int) -> word {
+    v4_parse_node_kind_reads += 1
     give back array_get(v4_parse_kinds_handle(tree_id), node_id)
 }
 
@@ -162,10 +173,148 @@ task v4_parse_node_span(tree_id: int, node_id: int) -> word {
 }
 
 task v4_parse_node_parent(tree_id: int, node_id: int) -> int {
+    v4_parse_node_parent_reads += 1
     give back word_to_int(array_get(v4_parse_parents_handle(tree_id), node_id))
 }
 
-task v4_parse_child_count_by_kind(tree_id: int, parent_id: int, wanted_kind: word) -> int {
+task v4_parse_closure_child_kind(wanted_kind: word) -> int {
+    if wanted_kind == v4_node_closure { give back 0 }
+    if wanted_kind == v4_node_closure_param { give back 1 }
+    if wanted_kind == v4_node_closure_body { give back 2 }
+    give back 0 - 1
+}
+
+task v4_parse_closure_child_index_handle(tree_id: int) -> int {
+    if v4_parse_ready == 0 or v4_parse_closure_child_indexes < 0 or tree_id < 0 or tree_id >= array_len(v4_parse_closure_child_indexes) { give back 0 - 1 }
+    pilot stored: word = array_get(v4_parse_closure_child_indexes, tree_id)
+    if stored == "" { give back 0 - 1 }
+    give back word_to_int(stored)
+}
+
+task v4_parse_closure_child_ensure_slot(handle: int, slot: int, empty: word) -> bool {
+    if handle < 0 or slot < 0 { give back false }
+    repeat until array_len(handle) > slot {
+        pilot before = array_len(handle)
+        array_push(handle, empty)
+        if array_len(handle) != before + 1 { give back false }
+    }
+    give back true
+}
+
+-- Called only by the Parse owner after construction or complete restoration.
+-- Failed allocation leaves authoritative scans available and releases staging.
+task v4_parse_closure_child_index_finalize(tree_id: int) -> bool {
+    if v4_parse_ready == 0 or tree_id < 0 or tree_id >= array_len(v4_parse_tree_files) { give back false }
+    pilot revision = v4_parse_tree_revision(tree_id)
+    if revision < 0 { give back false }
+    pilot nodes = v4_parse_node_count(tree_id)
+    pilot previous = v4_parse_closure_child_index_handle(tree_id)
+    if previous >= 0 and array_len(previous) >= 4 {
+        pilot ready: word = array_get(previous, 0)
+        if ready == "1" and word_to_int(array_get(previous, 1)) == revision and word_to_int(array_get(previous, 2)) == nodes { give back true }
+    }
+    if v4_parse_closure_child_indexes < 0 {
+        v4_parse_closure_child_indexes = array_new()
+        if v4_parse_closure_child_indexes < 0 { give back false }
+    }
+    if v4_parse_closure_child_ensure_slot(v4_parse_closure_child_indexes, tree_id, "-1") == false { give back false }
+    pilot packed = array_new()
+    if packed < 0 { give back false }
+    if v4_parse_closure_child_ensure_slot(packed, 3, "0") == false {
+        array_release(packed)
+        give back false
+    }
+    -- A closure-free module needs no parent rows. Count only valid parents;
+    -- unusual negative or out-of-range parent queries retain original scans.
+    pilot children = 0
+    pilot node = 0
+    repeat until node >= nodes {
+        if v4_parse_closure_child_kind(v4_parse_node_kind(tree_id, node)) >= 0 {
+            pilot parent = v4_parse_node_parent(tree_id, node)
+            if parent >= 0 and parent < nodes { children += 1 }
+        }
+        node += 1
+    }
+    if children > 0 {
+        -- This is a derived-storage ceiling, never a semantic admission limit.
+        if nodes > 268435455 {
+            array_release(packed)
+            give back false
+        }
+        pilot child_base = 4 + 6 * nodes
+        if v4_parse_closure_child_ensure_slot(packed, child_base + children - 1, "0") == false {
+            array_release(packed)
+            give back false
+        }
+        node = 0
+        repeat until node >= nodes {
+            pilot kind = v4_parse_closure_child_kind(v4_parse_node_kind(tree_id, node))
+            if kind >= 0 {
+                pilot parent = v4_parse_node_parent(tree_id, node)
+                if parent >= 0 and parent < nodes {
+                    pilot row = 4 + 6 * parent + 2 * kind
+                    array_set(packed, row + 1, word_from_int(word_to_int(array_get(packed, row + 1)) + 1))
+                }
+            }
+            node += 1
+        }
+        pilot next_child = child_base
+        pilot row = 4
+        repeat until row >= child_base {
+            pilot count = word_to_int(array_get(packed, row + 1))
+            array_set(packed, row, word_from_int(next_child))
+            array_set(packed, row + 1, "0")
+            next_child += count
+            row += 2
+        }
+        node = 0
+        repeat until node >= nodes {
+            pilot kind = v4_parse_closure_child_kind(v4_parse_node_kind(tree_id, node))
+            if kind >= 0 {
+                pilot parent = v4_parse_node_parent(tree_id, node)
+                if parent >= 0 and parent < nodes {
+                    row = 4 + 6 * parent + 2 * kind
+                    pilot count = word_to_int(array_get(packed, row + 1))
+                    pilot destination = word_to_int(array_get(packed, row)) + count
+                    array_set(packed, destination, word_from_int(node))
+                    array_set(packed, row + 1, word_from_int(count + 1))
+                }
+            }
+            node += 1
+        }
+    }
+    if v4_parse_tree_revision(tree_id) != revision or v4_parse_node_count(tree_id) != nodes {
+        array_release(packed)
+        give back false
+    }
+    array_set(packed, 1, word_from_int(revision))
+    array_set(packed, 2, word_from_int(nodes))
+    array_set(packed, 3, word_from_int(children))
+    array_set(packed, 0, "1")
+    array_set(v4_parse_closure_child_indexes, tree_id, word_from_int(packed))
+    if previous >= 0 { array_release(previous) }
+    v4_parse_closure_child_index_builds += 1
+    give back true
+}
+
+-- -1 means authoritative fallback; -2 is a published known-empty tree.
+task v4_parse_closure_child_index_row(tree_id: int, parent_id: int, wanted_kind: word) -> int {
+    pilot kind = v4_parse_closure_child_kind(wanted_kind)
+    if kind < 0 or v4_parse_ready == 0 or tree_id < 0 or tree_id >= array_len(v4_parse_tree_files) { give back 0 - 1 }
+    pilot nodes = v4_parse_node_count(tree_id)
+    if parent_id < 0 or parent_id >= nodes { give back 0 - 1 }
+    pilot packed = v4_parse_closure_child_index_handle(tree_id)
+    if packed < 0 or array_len(packed) < 4 { give back 0 - 1 }
+    pilot revision = v4_parse_tree_revision(tree_id)
+    pilot ready: word = array_get(packed, 0)
+    if revision < 0 or ready != "1" or word_to_int(array_get(packed, 1)) != revision or word_to_int(array_get(packed, 2)) != nodes { give back 0 - 1 }
+    pilot children = word_to_int(array_get(packed, 3))
+    if children == 0 and array_len(packed) == 4 { give back 0 - 2 }
+    if children <= 0 or nodes > 268435455 or array_len(packed) != 4 + 6 * nodes + children { give back 0 - 1 }
+    give back 4 + 6 * parent_id + 2 * kind
+}
+
+task v4_parse_child_count_by_kind_linear(tree_id: int, parent_id: int, wanted_kind: word) -> int {
     pilot count = 0
     pilot node_id = 0
     pilot node_count = v4_parse_node_count(tree_id)
@@ -178,7 +327,7 @@ task v4_parse_child_count_by_kind(tree_id: int, parent_id: int, wanted_kind: wor
     give back count
 }
 
-task v4_parse_child_by_kind(tree_id: int, parent_id: int, wanted_kind: word, wanted: int) -> int {
+task v4_parse_child_by_kind_linear(tree_id: int, parent_id: int, wanted_kind: word, wanted: int) -> int {
     if wanted < 0 {
         give back 0 - 1
     }
@@ -195,6 +344,25 @@ task v4_parse_child_by_kind(tree_id: int, parent_id: int, wanted_kind: word, wan
         node_id += 1
     }
     give back 0 - 1
+}
+
+task v4_parse_child_count_by_kind(tree_id: int, parent_id: int, wanted_kind: word) -> int {
+    pilot row = v4_parse_closure_child_index_row(tree_id, parent_id, wanted_kind)
+    if row == 0 - 2 { give back 0 }
+    if row >= 0 { give back word_to_int(array_get(v4_parse_closure_child_index_handle(tree_id), row + 1)) }
+    give back v4_parse_child_count_by_kind_linear(tree_id, parent_id, wanted_kind)
+}
+
+task v4_parse_child_by_kind(tree_id: int, parent_id: int, wanted_kind: word, wanted: int) -> int {
+    if wanted < 0 { give back 0 - 1 }
+    pilot row = v4_parse_closure_child_index_row(tree_id, parent_id, wanted_kind)
+    if row == 0 - 2 { give back 0 - 1 }
+    if row >= 0 {
+        pilot packed = v4_parse_closure_child_index_handle(tree_id)
+        if wanted >= word_to_int(array_get(packed, row + 1)) { give back 0 - 1 }
+        give back word_to_int(array_get(packed, word_to_int(array_get(packed, row)) + wanted))
+    }
+    give back v4_parse_child_by_kind_linear(tree_id, parent_id, wanted_kind, wanted)
 }
 
 task v4_parse_closure_count(tree_id: int, owner_node: int) -> int {
@@ -503,7 +671,6 @@ task v4_parse_item_name_text(stream_id: int, start_token: int, end_token: int, k
             if idx >= end_token {
                 -- name boundary reached
             } else if tok_type == v4_tok_ident or tok_type == v4_tok_keyword {
-                if val == "while" { give back "" }
                 last_name = idx
             } else if val == "::" {
                 -- keep walking the path
@@ -559,7 +726,6 @@ task v4_parse_use_alias_from_tokens(stream_id: int, start_token: int, end_token:
     }
     pilot alias_type = v4_lex_token_type(stream_id, alias_token)
     if alias_type == v4_tok_ident or alias_type == v4_tok_keyword {
-        if v4_lex_token_value(stream_id, alias_token) == "while" { give back "" }
         give back v4_lex_token_value(stream_id, alias_token)
     }
     give back ""
@@ -1399,7 +1565,6 @@ task v4_parse_closure_param_name_from_tokens(stream_id: int, start_token: int, e
     if token_type != v4_tok_ident and token_type != v4_tok_keyword {
         give back ""
     }
-    if v4_lex_token_value(stream_id, first) == "while" { give back "" }
     give back v4_lex_token_value(stream_id, first)
 }
 
@@ -1580,49 +1745,17 @@ task v4_parse_parse_error(tree_id: int, stream_id: int, token_id: int, root_id: 
     give back end_token
 }
 
--- Preserve historically admitted keyword-shaped names, but the newly reserved
--- while spelling is only syntax at a statement boundary or after repeat.
--- Scan complete bodies too: fields and pattern bindings are not parse nodes.
-task v4_parse_validate_while_keyword_uses(tree_id: int, stream_id: int) -> void {
-    pilot idx = 0
-    pilot count = v4_lex_token_count(stream_id)
-    pilot previous = ""
-    pilot statement_boundary = true
-    repeat until idx >= count {
-        pilot token_type = v4_lex_token_type(stream_id, idx)
-        if token_type == v4_tok_trivia {
-            if v4_lex_token_value(stream_id, idx) == "\n" { statement_boundary = true }
-        } else if token_type != v4_tok_eof {
-            pilot value = v4_lex_token_syntax_value(stream_id, idx)
-            if token_type == v4_tok_keyword and value == "while" {
-                pilot next = v4_parse_skip_trivia(stream_id, idx + 1)
-                pilot next_value = v4_lex_token_syntax_value(stream_id, next)
-                pilot loop_heading: bool = statement_boundary or previous == "repeat"
-                if next_value == ":" or next_value == "=" or next_value == "," or next_value == ")" or next_value == "}" or next_value == "]" or next_value == "." or next_value == "::" or next_value == "->" or next_value == "=>" or next_value == "in" {
-                    loop_heading = false
-                }
-                if not loop_heading {
-                    v4_parse_add_diag(tree_id, v4_diag_error, v4_lex_token_span(stream_id, idx), "while is a reserved keyword", "choose another name for this binding or member")
-                }
-            }
-            statement_boundary = value == "{" or value == "}" or value == ";" or value == "->" or value == "=>"
-            previous = value
-        }
-        idx += 1
-    }
-}
-
 task v4_parse_stream(file_id: int, stream_id: int) -> int {
     v4_parse_init()
     pilot tree_id = v4_parse_tree_new(file_id, stream_id)
     pilot root_id = v4_parse_add_node(tree_id, v4_node_source_file, word_from_int(file_id), V4_NO_SPAN, 0 - 1)
-    v4_parse_validate_while_keyword_uses(tree_id, stream_id)
     pilot idx = 0
     pilot count = v4_lex_token_count(stream_id)
 
     repeat until idx >= count {
         idx = v4_parse_skip_trivia(stream_id, idx)
         if v4_parse_is_eof(stream_id, idx) {
+            v4_parse_closure_child_index_finalize(tree_id)
             give back tree_id
         }
 
@@ -1640,6 +1773,7 @@ task v4_parse_stream(file_id: int, stream_id: int) -> int {
         }
     }
 
+    v4_parse_closure_child_index_finalize(tree_id)
     give back tree_id
 }
 
@@ -2000,6 +2134,13 @@ task v4_parse_snapshot_restore(payload: word) -> word {
         line_id += 1
     }
 
+    -- Slot readers stayed cold throughout the overlay. Publish only complete
+    -- current owner facts; unchanged trees keep their existing derived child.
+    pilot indexed_tree = 0
+    repeat until indexed_tree >= v4_parse_tree_count() {
+        v4_parse_closure_child_index_finalize(indexed_tree)
+        indexed_tree += 1
+    }
     pilot out = "parse-snapshot-restore ok=1"
     out = out + " trees=" + word_from_int(restored_trees)
     out = out + " nodes=" + word_from_int(restored_nodes)
