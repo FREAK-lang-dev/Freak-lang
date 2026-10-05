@@ -12,8 +12,14 @@ src/cli/lockfile.fk
 src/cli/package_graph.fk
 src/cli/package_paths.fk
 src/cli/package_inputs.fk
+src/cli/package_lock.fk
+src/cli/package_transaction.fk
+src/cli/package_sources.fk
+src/cli/package_binding.fk
 src/cli/build.fk
 src/cli/run.fk
+src/cli/test.fk
+src/cli/templates.fk
 src/cli/hangar.fk
 src/cli/doctor.fk
 src/cli/audit.fk

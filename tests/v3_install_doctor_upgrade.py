@@ -35,8 +35,8 @@ def manifest_entries(repo: Path) -> list[tuple[str, str]]:
         source = source.replace("\\", "/")
         destination = destination.replace("\\", "/")
         for value, prefixes in (
-            (source, ("freakc/runtime/", "std/", "third_party/llhttp/")),
-            (destination, ("runtime/", "std/")),
+            (source, ("freakc/runtime/", "std/", "third_party/llhttp/", "templates/v35/", "src/compiler/v4/native-runtime.manifest")),
+            (destination, ("runtime/", "std/", "templates/v35/")),
         ):
             parts = value.split("/")
             assert not value.startswith("/"), value
@@ -72,6 +72,12 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
         }
     )
     expected_sources.update(path.relative_to(repo).as_posix() for path in (repo / "third_party" / "llhttp").rglob("*") if path.is_file())
+    expected_sources.update(path.relative_to(repo).as_posix() for path in (repo / "templates/v35").rglob("*") if path.is_file())
+    expected_sources.add("src/compiler/v4/native-runtime.manifest")
+    for raw in (repo / "src/compiler/v4/native-runtime.manifest").read_text().splitlines():
+        if raw and not raw.startswith("#"):
+            _, name = raw.split(" ")
+            expected_sources.add(name if name.startswith("third_party/") else "freakc/runtime/" + name)
     assert actual_sources == expected_sources, (
         f"manifest missing={sorted(expected_sources - actual_sources)} "
         f"extra={sorted(actual_sources - expected_sources)}"
@@ -86,10 +92,12 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
         if destination.startswith("runtime/"):
             relative = destination.removeprefix("runtime/")
             runtime_destinations.append(relative)
-        else:
+        elif destination.startswith("std/"):
             relative = destination.removeprefix("std/")
             if destination not in ("std/freak_abi", "std/freak_std_api"):
                 std_destinations.append(relative)
+        else:
+            relative = destination
         assert f'"{relative}"' in doctor_text, (
             f"doctor inventory does not cover manifest destination {destination}"
         )
@@ -281,15 +289,14 @@ def check_static_contracts(repo: Path) -> None:
     for needle in (
         "task cli_posix_canonical_executable(path: word) -> word",
         "if link_hops >= 32",
-        'pilot lookup_target = "$PATH:" + argv0',
-        "if resolved == \"\" or not fs::exists(resolved)",
-        'if not resolved.contains("/")',
+        "task cli_executable_path() -> word",
+        "give back process::executable_path()",
         "CLI_PAYLOAD_ERROR_PREFIX",
         "task cli_payload_is_resolution_error(value: word) -> bool",
         "task cli_is_repo_checkout_root(root: word) -> bool",
         "task cli_windows_cwd_is_shell_fallback(cwd: word) -> bool",
         "PAYLOAD RESOLUTION FAILED",
-        "if not fs::exists(absolute) { give back \"\" }",
+        'fs::canonical_path(".")',
         "/scoop/apps/mingw-mstorsjo-llvm-ucrt/current/bin/clang.exe",
     ):
         assert needle in build_text, f"executable discovery missing {needle}"

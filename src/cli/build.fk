@@ -236,6 +236,71 @@ task cli_invalidate_build_outputs(src_file: word) -> bool {
     give back true
 }
 
+task cli_project_entry(explicit_manifest: word) -> word {
+    cli_project_source_error = ""
+    pilot parent = "." pilot leaf = "hangar.toml"
+    if explicit_manifest != "" { parent = package_parent_path(explicit_manifest) leaf = package_leaf_path(explicit_manifest) }
+    pilot depth = 0
+    repeat until depth >= 256 {
+        pilot directory = fs::open_dir_ticket(parent)
+        if not fs::result_ok(directory) { cli_project_source_error = fs::result_error(directory) fs::result_release(directory) give back "" }
+        pilot canonical = package_directory_path(directory)
+        pilot read = fs::read_relative_bytes_limit_ticket(directory, leaf, hangar_graph_manifest_limit)
+        fs::result_release(directory)
+        if fs::result_ok(read) {
+            pilot bytes: ByteBuffer = fs::result_bytes(read)
+            pilot text = bytes.to_word()
+            pilot valid = bytes.status() == 0
+            bytes.release()
+            if not valid { cli_project_source_error = "project manifest is not valid UTF-8" fs::result_release(read) give back "" }
+            fs::result_release(read)
+            if not toml_parse(text) { cli_project_source_error = "invalid project manifest: " + toml_error give back "" }
+            pilot entry = toml_get("project.entry")
+            if entry == "" or not package_relative_file(entry) or not entry.ends_with(".fk") {
+                cli_project_source_error = "project requires a declared relative .fk entry; library projects require an explicit source"
+                give back ""
+            }
+            give back package_join_host(canonical, entry)
+        }
+        pilot missing = fs::result_missing(read)
+        pilot message = fs::result_error(read)
+        fs::result_release(read)
+        if not missing or explicit_manifest != "" { cli_project_source_error = "cannot read project manifest: " + message give back "" }
+        pilot next = package_parent_path(canonical)
+        if next == canonical { cli_project_source_error = "no enclosing project manifest" give back "" }
+        parent = next depth += 1
+    }
+    cli_project_source_error = "project discovery exceeds its directory depth limit"
+    give back ""
+}
+
+task cli_prepare_source(src_file: word, target: word) -> word {
+    error_count = 0
+    parse_error_count = 0
+    cli_project_source_error = ""
+    hangar_graph_error = ""
+    pilot read = fs::read_source_ticket(src_file)
+    if not fs::result_ok(read) {
+        cli_project_source_error = fs::result_error(read)
+        fs::result_release(read)
+        say "Cannot read source: " + cli_project_source_error
+        give back ""
+    }
+    pilot source = fs::result_word(read)
+    fs::result_release(read)
+    if not package_prepare_project_sources(src_file) {
+        say "Package error: " + hangar_graph_error
+        give back ""
+    }
+    source = cli_load_project_source(src_file, source, target)
+    if cli_project_source_error != "" {
+        say "Package binding error: " + cli_project_source_error
+        cli_project_binding_release()
+        give back ""
+    }
+    give back source
+}
+
 task cli_transpile(src_file: word, source: word, target: word) -> word {
     -- Returns the output file path (.c or .ll), or "" on error.
     -- An output from an older invocation is not evidence that this invocation
@@ -257,10 +322,12 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
     cli_step_start()
     tokenize(source)
     adjust_token_lines(source_line_offset)
+    if not cli_project_bind_tokens() { cli_project_binding_release() give back "" }
     cli_step_done("Lexing")
 
     cli_step_start()
     parse_program()
+    if error_count == 0 { cli_project_bind_ast() }
     cli_step_done("Parsing")
     if error_count > 0 {
         say "  " + C_BRED + SYM_CROSS + " " + word_from_int(error_count) + " syntax error(s) -- code generation skipped" + C_RESET
@@ -287,6 +354,7 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
         emit_llvm_program()
         out_file = ""
         cli_step_done("Emit LLVM IR")
+        cli_project_binding_release()
         give back out_ll
     } else {
         pilot out_c = cli_backend_output_path(src_file, target)
@@ -295,6 +363,7 @@ task cli_transpile(src_file: word, source: word, target: word) -> word {
         emit_c_program()
         out_file = ""
         cli_step_done("Emit C")
+        cli_project_binding_release()
         give back out_c
     }
 }
@@ -329,9 +398,11 @@ task cli_path_is_absolute(path: word) -> bool {
 }
 
 task cli_current_dir() -> word {
-    pilot command = "pwd -P"
-    if cli_is_windows() { command = "cd" }
-    give back cli_first_line(process::exec_capture(command)).trim()
+    pilot resolved = fs::canonical_path(".")
+    if not fs::result_ok(resolved) { fs::result_release(resolved); give back "" }
+    pilot current = fs::result_word(resolved)
+    fs::result_release(resolved)
+    give back current
 }
 
 task cli_windows_cwd_is_shell_fallback(cwd: word) -> bool {
@@ -429,51 +500,7 @@ task cli_posix_canonical_executable(path: word) -> word {
 }
 
 task cli_executable_path() -> word {
-    pilot argv0: word = process::arg(0)
-    if argv0 == "" { give back "" }
-
-    if cli_path_is_absolute(argv0) {
-        if not fs::exists(argv0) { give back "" }
-        if cli_is_windows() { give back argv0 }
-        give back cli_posix_canonical_executable(argv0)
-    }
-    pilot has_separator = argv0.contains("/") or argv0.contains("\\")
-    if has_separator {
-        if not fs::exists(argv0) { give back "" }
-        pilot relative = argv0
-        if relative.starts_with("./") or relative.starts_with(".\\") {
-            relative = relative.substring(2, relative.length() - 2)
-        }
-        pilot cwd = cli_current_dir()
-        if cwd == "" { give back "" }
-        pilot absolute = cwd + "/" + relative
-        if cli_is_windows() {
-            -- cmd.exe reports %WINDIR% when the real process cwd is UNC. Never
-            -- trust that fallback even if a same-named decoy exists there.
-            if cli_windows_cwd_is_shell_fallback(cwd) { give back "" }
-            -- Other shell/cwd failures must also fail closed rather than
-            -- returning an unverified synthesized executable identity.
-            if not fs::exists(absolute) { give back "" }
-            give back absolute
-        }
-        give back cli_posix_canonical_executable(absolute)
-    }
-
-    -- A separator-free argv[0] is a PATH command, not a CWD-relative path on
-    -- either platform. Search only PATH and fail closed: a same-named project
-    -- file must never become the running compiler's installation root.
-    pilot lookup_cmd = "command -v " + cli_quote_cmd_path(argv0) + " 2>/dev/null"
-    if cli_is_windows() {
-        pilot lookup_target = "$PATH:" + argv0
-        lookup_cmd = "where " + cli_quote_cmd_path(lookup_target) + " 2>nul"
-    }
-    pilot resolved: word = cli_first_line(process::exec_capture(lookup_cmd)).trim()
-    if resolved == "" or not fs::exists(resolved) { give back "" }
-    if cli_is_windows() { give back resolved }
-    -- `command -v` may name a shell function/builtin without a path. Never
-    -- reinterpret that slashless text as a file from the caller's CWD.
-    if not resolved.contains("/") { give back "" }
-    give back cli_posix_canonical_executable(resolved)
+    give back process::executable_path()
 }
 
 task cli_executable_home() -> word {
@@ -768,9 +795,7 @@ task cli_binary_path(src_file: word) -> word {
 }
 
 task cli_is_windows() -> bool {
-    pilot windir: word = process::env("WINDIR")
-    pilot system_root: word = process::env("SystemRoot")
-    give back windir != "" or system_root != ""
+    give back process::platform_is_windows()
 }
 
 task cli_first_line(text: word) -> word {
@@ -1815,24 +1840,8 @@ task cli_load_std(source: word, target: word) -> word {
     if need_ui and fs::exists(ui_path) {
         std_src = cli_append_mapped_source(std_src, ui_path)
     }
-    -- cockpit — UI framework Hangar package. Mirrors the std::ui pattern:
-    -- if the source mentions `use cockpit`, append the cockpit src files
-    -- so its shapes (UI, Theme) and module-level pilots (btn_*, label_*)
-    -- are in scope. Order matters: containers first, then theme, layout,
-    -- widgets, ui (the dispatcher).
-    pilot need_cockpit = false
-    if source.contains("use cockpit") {
-        need_cockpit = true
-    }
-    if need_cockpit {
-        pilot cockpit_root = "packages/cockpit/src"
-        if fs::exists(cockpit_root + "/containers.fk") {
-            std_src = cli_append_mapped_source(std_src, cockpit_root + "/containers.fk")
-            std_src = cli_append_mapped_source(std_src, cockpit_root + "/theme.fk")
-            std_src = cli_append_mapped_source(std_src, cockpit_root + "/layout.fk")
-            std_src = cli_append_mapped_source(std_src, cockpit_root + "/widgets.fk")
-            std_src = cli_append_mapped_source(std_src, cockpit_root + "/ui.fk")
-        }
+    if source.contains("use std::http_server") {
+        std_src = cli_append_mapped_source(std_src, std_dir + "/http_server.fk")
     }
     -- http.fk uses TCP socket functions (tcp_recv_all returns freak_word)
     -- which only work correctly with the LLVM backend's i64 representation.
@@ -1886,24 +1895,22 @@ task cli_build_profile(src_file: word, target: word, profile: word, opt: word, l
     say cli_box_bot(45)
     say ""
 
-    -- Auto-include standard library if available
-    source_map_reset()
-    pilot std_source: word = cli_load_std(source, target)
-    diagnostic_source = source
-    source_line_offset = 0
-    if std_source != "" {
-        std_source = cli_strip_resolved_use_lines(std_source)
-        source_line_offset = cli_count_lines(std_source)
-        source = cli_strip_resolved_use_lines(source)
-        diagnostic_source = source
-        source_map_register(src_file, source)
-        source = std_source + source
-    } else {
-        source_map_register(src_file, source)
+    error_count = 0
+    parse_error_count = 0
+    if not package_prepare_project_sources(src_file) {
+        say "Package error: " + hangar_graph_error
+        give back ""
+    }
+    source = cli_load_project_source(src_file, source, target)
+    if cli_project_source_error != "" {
+        say "Package binding error: " + cli_project_source_error
+        cli_project_binding_release()
+        give back ""
     }
 
     pilot transpiled: word = cli_transpile(src_file, source, target)
     if transpiled == "" {
+        cli_project_binding_release()
         say ""
         say "  " + C_BRED + SYM_SKULL + " BUILD FAILED" + C_RESET
         say "  " + C_DIM + C_ITALIC + cli_fail_quote(time::now_ms()) + C_RESET

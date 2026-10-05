@@ -67,6 +67,8 @@ pilot mut cli_test_started = 0
 pilot mut cli_test_build_reports = 0
 pilot mut cli_test_run_reports = 0
 pilot mut cli_test_results = 0
+pilot cli_test_temp_ticket = 0
+pilot cli_test_build_timeout_ms = 120000
 
 task cli_test_fail(message: word) -> void {
     if cli_test_error == "" { cli_test_error = message }
@@ -302,7 +304,9 @@ task cli_test_start_build(index: int, compiler: word, root: word, snapshot: word
     array_set(cli_test_tickets, index, word_from_int(ticket))
     array_set(cli_test_started, index, word_from_int(time::monotonic_ns()))
     array_set(cli_test_phase, index, "1")
-    process::command_spawn(ticket, timeout_ms, stdout_limit, stderr_limit)
+    -- The run deadline must not expire while Clang is still building the test.
+    -- Compilation has its own bounded deadline and reports a build timeout.
+    process::command_spawn(ticket, cli_test_build_timeout_ms, stdout_limit, stderr_limit)
 }
 
 task cli_test_start_run(index: int, root: word, directory: word, timeout_ms: int, stdout_limit: int, stderr_limit: int) -> void {
@@ -380,14 +384,16 @@ task cli_test_temp_directory() -> word {
         fs::result_release(created)
         give back ""
     }
+    cli_test_temp_ticket = created
     pilot raw = fs::result_word(created)
-    fs::result_release(created)
-    pilot canonical = fs::canonical_path(raw)
+    pilot canonical = fs::directory_path_ticket(created)
     if not fs::result_ok(canonical) {
         cli_test_fail("cannot resolve owned test output directory: " + fs::result_error(canonical) + "; retained at " + raw)
         fs::result_release(canonical)
-        pilot cleanup = fs::rmdir_checked(raw)
+        pilot cleanup = fs::remove_temp_dir_checked(created)
         fs::result_release(cleanup)
+        fs::result_release(created)
+        cli_test_temp_ticket = 0
         give back ""
     }
     pilot path = fs::result_word(canonical)
@@ -396,40 +402,16 @@ task cli_test_temp_directory() -> word {
 }
 
 task cli_test_cleanup(directory: word) -> bool {
-    -- Only the exclusive directory returned by temp_dir is admitted here.
-    -- Remove its direct files/links without following them. Unexpected nested
-    -- directories fail visibly and remain for inspection; never recurse into
-    -- a test-created link or an unverified path.
-    pilot listing = fs::list_dir_checked(directory)
-    if not fs::result_ok(listing) {
-        cli_test_fail("cannot inspect owned test output directory: " + fs::result_error(listing) + "; retained at " + directory)
-        fs::result_release(listing)
-        give back false
-    }
-    pilot mut index = 0
-    repeat until index >= fs::result_count(listing) {
-        pilot entry = fs::result_entry(listing, index)
-        pilot path = directory + "/" + entry
-        pilot info = fs::stat_checked(path)
-        pilot removable = fs::result_ok(info) and (fs::result_kind(info) == 1 or fs::result_kind(info) == 3)
-        fs::result_release(info)
-        if removable {
-            pilot removed = fs::remove_checked(path)
-            if not fs::result_ok(removed) {
-                cli_test_fail("cannot remove owned test output: " + fs::result_error(removed) + "; retained at " + directory)
-            }
-            fs::result_release(removed)
-        } else {
-            cli_test_fail("unexpected entry in owned test output directory: " + path + "; retained for inspection")
-        }
-        index += 1
-    }
-    fs::result_release(listing)
-    pilot removed_directory = fs::rmdir_checked(directory)
+    -- Retain the exclusive directory capability until every child finishes.
+    -- Cleanup traverses held handles and never follows child-created links.
+    if cli_test_temp_ticket == 0 { give back true }
+    pilot removed_directory = fs::remove_temp_dir_checked(cli_test_temp_ticket)
     if not fs::result_ok(removed_directory) {
         cli_test_fail("cannot remove owned test output directory: " + fs::result_error(removed_directory) + "; retained at " + directory)
     }
     fs::result_release(removed_directory)
+    fs::result_release(cli_test_temp_ticket)
+    cli_test_temp_ticket = 0
     give back cli_test_error == ""
 }
 
@@ -517,4 +499,77 @@ task cli_test_project(project_root: word, manifest_path: word, graph_snapshot: w
     cli_test_release()
     if failed > 0 or not clean { give back 1 }
     give back 0
+}
+
+
+-- Validate every option before graph/store/output mutation.
+task cli_test_decimal(text: word, maximum: int) -> int {
+    if text == "" { give back 0 - 1 }
+    pilot value = 0 pilot index = 0
+    repeat until index >= text.length() {
+        pilot ch = text.char_at(index)
+        pilot digit = 0 - 1 pilot candidate = 0
+        repeat until candidate >= 10 {
+            if "0123456789".char_at(candidate) == ch { digit = candidate }
+            candidate += 1
+        }
+        if digit < 0 or value > (maximum - digit) / 10 { give back 0 - 1 }
+        value = value * 10 + digit index += 1
+    }
+    give back value
+}
+
+task cli_test_command(args_cnt: int) -> int {
+    cli_test_clear()
+    pilot manifest = "" pilot snapshot = "" pilot backend = "llvm"
+    pilot jobs = 1 pilot timeout_ms = 30000 pilot stdout_limit = 1048576 pilot stderr_limit = 1048576
+    pilot build_timeout_ms = 120000
+    pilot locked = false pilot offline = false pilot frozen = false pilot json_mode = false
+    pilot index = 2
+    repeat until index >= args_cnt {
+        if process::arg(index) == "--json" { json_mode = true }
+        index += 1
+    }
+    index = 2
+    repeat until index >= args_cnt {
+        pilot flag = process::arg(index)
+        if flag == "--json" {}
+        else if flag == "--c" { backend = "c" }
+        else if flag == "--llvm" { backend = "llvm" }
+        else if flag == "--backend" {
+            index += 1
+            if index >= args_cnt { cli_test_fail("--backend requires c or llvm") }
+            else { backend = process::arg(index) }
+        } else if flag.starts_with("--backend=") { backend = cli_flag_value(flag, 10) }
+        else if flag.starts_with("--manifest-path=") { manifest = cli_flag_value(flag, 16) if manifest == "" { cli_test_fail("--manifest-path requires a file path") } }
+        else if flag.starts_with("--graph-snapshot=") { snapshot = cli_flag_value(flag, 17) if snapshot == "" { cli_test_fail("--graph-snapshot requires a file path") } }
+        else if flag == "--locked" { locked = true }
+        else if flag == "--offline" { offline = true }
+        else if flag == "--frozen" { locked = true offline = true frozen = true }
+        else if flag.starts_with("--jobs=") { jobs = cli_test_decimal(cli_flag_value(flag, 7), 4) }
+        else if flag.starts_with("--timeout-ms=") { timeout_ms = cli_test_decimal(cli_flag_value(flag, 13), 3600000) }
+        else if flag.starts_with("--build-timeout-ms=") { build_timeout_ms = cli_test_decimal(cli_flag_value(flag, 19), 3600000) }
+        else if flag.starts_with("--stdout-limit=") { stdout_limit = cli_test_decimal(cli_flag_value(flag, 15), 16777216) }
+        else if flag.starts_with("--stderr-limit=") { stderr_limit = cli_test_decimal(cli_flag_value(flag, 15), 16777216) }
+        else { cli_test_fail("unknown test option " + flag) }
+        index += 1
+    }
+    if backend != "c" and backend != "llvm" { cli_test_fail("tests require the c or llvm backend") }
+    if jobs < 1 or jobs > 4 { cli_test_fail("--jobs must be between 1 and 4") }
+    if timeout_ms < 1 or timeout_ms > 3600000 { cli_test_fail("--timeout-ms must be between 1 and 3600000") }
+    if build_timeout_ms < 1 or build_timeout_ms > 3600000 { cli_test_fail("--build-timeout-ms must be between 1 and 3600000") }
+    if stdout_limit < 1 or stdout_limit > 16777216 or stderr_limit < 1 or stderr_limit > 16777216 { cli_test_fail("stdout/stderr limits must be between 1 and 16777216 bytes") }
+    if cli_test_error != "" { give back cli_test_setup_failure(json_mode) }
+    cli_test_build_timeout_ms = build_timeout_ms
+    package_configure_source_options(manifest, snapshot, locked, offline, frozen)
+    if manifest == "" {
+        if not package_prepare_project_sources("./__freak_test_selection__.fk") { cli_test_fail(hangar_graph_error) }
+        if package_graph_no_manifest { cli_test_fail("tests require an enclosing or explicit package manifest") }
+    } else if not package_prepare_selected_manifest(manifest) { cli_test_fail(hangar_graph_error) }
+    if cli_test_error != "" { give back cli_test_setup_failure(json_mode) }
+    pilot root = array_get(package_source_original_roots, 0)
+    pilot selected_manifest = package_graph_manifest_path
+    pilot selected_snapshot = package_graph_snapshot_path
+    cli_test_release()
+    give back cli_test_project(root, selected_manifest, selected_snapshot, backend, jobs, timeout_ms, stdout_limit, stderr_limit, json_mode)
 }

@@ -104,8 +104,12 @@ def manifest_entries(repo: Path) -> list[tuple[Path, str]]:
             assert destination == "runtime/" + source_text.removeprefix(
                 "freakc/runtime/"
             ), (source_text, destination)
+        elif source_text.startswith("third_party/llhttp/"):
+            assert destination == "runtime/" + source_text, (source_text, destination)
+        elif source_text == "src/compiler/v4/native-runtime.manifest":
+            assert destination == "runtime/v4-native.manifest", (source_text, destination)
         else:
-            assert source_text.startswith("std/"), source_text
+            assert source_text.startswith(("std/", "templates/v35/")), source_text
             assert destination == source_text, (source_text, destination)
         source = (repo / source_text).resolve()
         source.relative_to(repo.resolve())

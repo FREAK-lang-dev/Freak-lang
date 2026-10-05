@@ -276,6 +276,7 @@ task cli_doctor_append_missing(missing: word, file: word) -> word {
 
 task cli_doctor_runtime_file_exists(runtime_dir: word, relative: word) -> bool {
     if fs::exists(runtime_dir + "/" + relative) { give back true }
+    if relative == "v4-native.manifest" and runtime_dir.replace("\\", "/").ends_with("/freakc/runtime") { give back fs::exists(runtime_dir + "/../../src/compiler/v4/native-runtime.manifest") }
     -- Repository runtimes include the same pinned vendor from its source root.
     if relative.starts_with("third_party/llhttp/") and runtime_dir.replace("\\", "/").ends_with("/freakc/runtime") {
         give back fs::exists(runtime_dir + "/../../" + relative)
@@ -309,6 +310,18 @@ task cli_doctor_runtime_missing(runtime_dir: word) -> word {
     if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/http.c") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/http.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/llhttp.c") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/llhttp.c") }
     if not cli_doctor_runtime_file_exists(runtime_dir, "third_party/llhttp/src/llhttp.h") { missing = cli_doctor_append_missing(missing, "third_party/llhttp/src/llhttp.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_word_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_word_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_numeric_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_numeric_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_unicode_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_unicode_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_system_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_system_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_panic_runtime.c") { missing = cli_doctor_append_missing(missing, "freak_v4_panic_runtime.c") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_word_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_word_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_numeric_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_numeric_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_unicode_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_unicode_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_unicode_lower_tables.h") { missing = cli_doctor_append_missing(missing, "freak_v4_unicode_lower_tables.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_system_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_system_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "freak_v4_panic_runtime.h") { missing = cli_doctor_append_missing(missing, "freak_v4_panic_runtime.h") }
+    if not cli_doctor_runtime_file_exists(runtime_dir, "v4-native.manifest") { missing = cli_doctor_append_missing(missing, "v4-native.manifest") }
     give back missing
 }
 
@@ -331,6 +344,33 @@ task cli_doctor_std_missing(std_dir: word) -> word {
     if not fs::exists(std_dir + "/ui/window.fk") { missing = cli_doctor_append_missing(missing, "ui/window.fk") }
     if not fs::exists(std_dir + "/freak_abi") { missing = cli_doctor_append_missing(missing, "freak_abi") }
     if not fs::exists(std_dir + "/freak_std_api") { missing = cli_doctor_append_missing(missing, "freak_std_api") }
+    give back missing
+}
+
+task cli_doctor_templates_missing() -> word {
+    pilot root = cli_template_payload_root()
+    if root == "" { give back "templates payload root" }
+    pilot missing = ""
+    if not fs::exists(root + "/templates/v35/cli/LICENSE") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/LICENSE") }
+    if not fs::exists(root + "/templates/v35/cli/README.md") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/README.md") }
+    if not fs::exists(root + "/templates/v35/cli/hangar.toml") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/hangar.toml") }
+    if not fs::exists(root + "/templates/v35/cli/src/greet.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/src/greet.fk") }
+    if not fs::exists(root + "/templates/v35/cli/src/main.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/src/main.fk") }
+    if not fs::exists(root + "/templates/v35/cli/tests/greeting_test.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/cli/tests/greeting_test.fk") }
+    if not fs::exists(root + "/templates/v35/http/LICENSE") { missing = cli_doctor_append_missing(missing, "templates/v35/http/LICENSE") }
+    if not fs::exists(root + "/templates/v35/http/README.md") { missing = cli_doctor_append_missing(missing, "templates/v35/http/README.md") }
+    if not fs::exists(root + "/templates/v35/http/hangar.toml") { missing = cli_doctor_append_missing(missing, "templates/v35/http/hangar.toml") }
+    if not fs::exists(root + "/templates/v35/http/src/main.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/http/src/main.fk") }
+    if not fs::exists(root + "/templates/v35/http/src/routes.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/http/src/routes.fk") }
+    if not fs::exists(root + "/templates/v35/http/tests/routes_test.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/http/tests/routes_test.fk") }
+    if not fs::exists(root + "/templates/v35/lib/LICENSE") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/LICENSE") }
+    if not fs::exists(root + "/templates/v35/lib/README.md") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/README.md") }
+    if not fs::exists(root + "/templates/v35/lib/examples/consumer/hangar.toml") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/examples/consumer/hangar.toml") }
+    if not fs::exists(root + "/templates/v35/lib/examples/consumer/src/main.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/examples/consumer/src/main.fk") }
+    if not fs::exists(root + "/templates/v35/lib/examples/consumer/tests/consumer_test.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/examples/consumer/tests/consumer_test.fk") }
+    if not fs::exists(root + "/templates/v35/lib/hangar.toml") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/hangar.toml") }
+    if not fs::exists(root + "/templates/v35/lib/src/greet.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/src/greet.fk") }
+    if not fs::exists(root + "/templates/v35/lib/tests/greeting_test.fk") { missing = cli_doctor_append_missing(missing, "templates/v35/lib/tests/greeting_test.fk") }
     give back missing
 }
 
@@ -387,7 +427,9 @@ task cli_doctor_json() -> int {
     pilot pending_marker = cli_pending_upgrade_marker()
     pilot upgrade_pending = pending_marker != ""
 
-    pilot all_ok = clang_ok and runtime_ok and std_ok and abi_ok and runtime_api_ok and std_api_ok and not upgrade_pending and cli_doctor_retained_probe_path == ""
+    pilot templates_missing = cli_doctor_templates_missing()
+    pilot templates_ok = templates_missing == ""
+    pilot all_ok = templates_ok and clang_ok and runtime_ok and std_ok and abi_ok and runtime_api_ok and std_api_ok and not upgrade_pending and cli_doctor_retained_probe_path == ""
     pilot status = "issues"
     if all_ok { status = "ok" }
 
@@ -421,7 +463,7 @@ task cli_doctor_json() -> int {
     say "    \"runtime\": {"
     say "      \"ok\": " + cli_doctor_json_bool(runtime_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(rt_dir) + "\","
-    say "      \"files_expected\": 23,"
+    say "      \"files_expected\": 35,"
     say "      \"missing\": \"" + cli_doctor_json_escape(runtime_missing) + "\","
     say "      \"precompiled_objects\": " + cli_doctor_json_bool(runtime_obj) + ","
     say "      \"llvm_runtime\": " + cli_doctor_json_bool(llvm_runtime)
@@ -433,6 +475,7 @@ task cli_doctor_json() -> int {
     say "      \"modules_expected\": 14,"
     say "      \"missing\": \"" + cli_doctor_json_escape(std_missing) + "\""
     say "    },"
+    say "    \"templates\": {\"ok\":" + cli_doctor_json_bool(templates_ok) + ",\"files_expected\":20,\"missing\":\"" + cli_doctor_json_escape(templates_missing) + "\"},"
     say "    \"abi\": {"
     say "      \"ok\": " + cli_doctor_json_bool(abi_ok) + ","
     say "      \"expected\": \"" + cli_doctor_json_escape(FREAK_V3_ABI) + "\","
@@ -651,10 +694,11 @@ task cli_doctor(fix_mode: bool) -> int {
     pilot std_dir: word = cli_find_std_dir()
     pilot runtime_missing = cli_doctor_runtime_missing(rt_dir)
     pilot std_missing = cli_doctor_std_missing(std_dir)
+    pilot templates_missing = cli_doctor_templates_missing()
     pilot abi_ok = cli_payload_abi_ok(rt_dir, std_dir)
     pilot runtime_api_ok = cli_payload_runtime_api_ok(rt_dir)
     pilot std_api_ok = cli_payload_std_api_ok(std_dir)
-    if fix_mode and (runtime_missing != "" or std_missing != "" or not abi_ok or not runtime_api_ok or not std_api_ok) {
+    if fix_mode and (runtime_missing != "" or std_missing != "" or templates_missing != "" or not abi_ok or not runtime_api_ok or not std_api_ok) {
         say "  " + C_DIM + "Repairing the compiler/runtime/stdlib payload as one unit..." + C_RESET
         pilot repair_res = hangar_install_freak()
         if repair_res == 0 {
@@ -662,6 +706,7 @@ task cli_doctor(fix_mode: bool) -> int {
             std_dir = cli_find_std_dir()
             runtime_missing = cli_doctor_runtime_missing(rt_dir)
             std_missing = cli_doctor_std_missing(std_dir)
+            templates_missing = cli_doctor_templates_missing()
             abi_ok = cli_payload_abi_ok(rt_dir, std_dir)
             runtime_api_ok = cli_payload_runtime_api_ok(rt_dir)
             std_api_ok = cli_payload_std_api_ok(std_dir)
@@ -727,7 +772,7 @@ task cli_doctor(fix_mode: bool) -> int {
     say "  " + C_BWHITE + "[4/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " standard library"
     if std_missing == "" {
         pilot mod_count = cli_doctor_std_module_count(std_dir)
-        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/11 modules in " + C_DIM + std_dir + C_RESET
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " " + word_from_int(mod_count) + "/14 modules in " + C_DIM + std_dir + C_RESET
         checks_passed += 1
     } else {
         say "        " + C_BRED + SYM_CROSS + C_RESET + " standard library incomplete"
@@ -740,13 +785,19 @@ task cli_doctor(fix_mode: bool) -> int {
     say ""
 
     -- ── 5. Compile pipeline test ──────────────────────────
+    if templates_missing == "" {
+        say "        " + C_BGREEN + SYM_CHECK + C_RESET + " 20 template payload files available"
+    } else {
+        say "        " + C_BRED + SYM_CROSS + C_RESET + " templates incomplete: " + templates_missing
+        all_ok = false
+    }
     say "  " + C_BWHITE + "[5/5]" + C_RESET + " " + C_DIM + "Checking" + C_RESET + " compile pipeline"
     -- The deferred Windows updater may finish or appear while Doctor runs.
     -- Re-read the durable marker at each decision boundary.
     pending_marker = cli_pending_upgrade_marker()
     pilot pipeline_ok = false
-    if clang_ok and runtime_missing == "" and std_missing == "" and abi_ok and runtime_api_ok and std_api_ok and pending_marker == "" {
-        pilot test_src = "say \"FREAK doctor test\""
+    if clang_ok and runtime_missing == "" and std_missing == "" and templates_missing == "" and abi_ok and runtime_api_ok and std_api_ok and pending_marker == "" {
+        pilot test_src = "task main() { say \"FREAK doctor test\" }"
         pilot test_probe = cli_doctor_temp_stem("freak-doctor-pipeline-probe-")
         if test_probe == "" {
             say "        " + C_BRED + SYM_CROSS + C_RESET + " could not create an owned temporary probe directory"

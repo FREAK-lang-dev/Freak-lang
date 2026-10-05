@@ -2236,14 +2236,14 @@ def audit_conformance(paths: List[Path]) -> int:
                 or normalized_source.startswith("/")
                 or (len(normalized_source) >= 2 and normalized_source[0].isalpha() and normalized_source[1] == ":")
                 or any(part in ("", ".", "..") for part in source_parts)
-                or not normalized_source.startswith(("freakc/runtime/", "std/", "third_party/llhttp/"))
+                or not normalized_source.startswith(("freakc/runtime/", "std/", "third_party/llhttp/", "templates/v35/", "src/compiler/v4/native-runtime.manifest"))
             )
             destination_unsafe = (
                 destination != destination.strip()
                 or normalized_destination.startswith("/")
                 or (len(normalized_destination) >= 2 and normalized_destination[0].isalpha() and normalized_destination[1] == ":")
                 or any(part in ("", ".", "..") for part in destination_parts)
-                or not normalized_destination.startswith(("runtime/", "std/"))
+                or not normalized_destination.startswith(("runtime/", "std/", "templates/v35/"))
             )
             if source_unsafe or destination_unsafe:
                 distribution_missing.append(f"unsafe manifest entry: {line}")
@@ -2285,6 +2285,12 @@ def audit_conformance(paths: List[Path]) -> int:
         expected_sources.update(path.relative_to(repo).as_posix()
                                 for path in (repo / "third_party" / "llhttp").rglob("*")
                                 if path.is_file())
+        expected_sources.update(path.relative_to(repo).as_posix() for path in (repo / "templates/v35").rglob("*") if path.is_file())
+        expected_sources.add("src/compiler/v4/native-runtime.manifest")
+        for raw in (repo / "src/compiler/v4/native-runtime.manifest").read_text().splitlines():
+            if raw and not raw.startswith("#"):
+                _, name = raw.split(" ")
+                expected_sources.add(name if name.startswith("third_party/") else "freakc/runtime/" + name)
         for missing_source in sorted(expected_sources - manifest_sources):
             distribution_missing.append(
                 f"required file absent from manifest: {missing_source}"

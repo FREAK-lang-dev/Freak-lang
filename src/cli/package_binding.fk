@@ -196,7 +196,7 @@ task pb_import(unit: int, name: word, target: int, symbol: word, node: int, toke
 }
 
 task pb_std_module(module: word) -> bool {
-    give back module == "math" or module == "string" or module == "convert" or module == "algorithm" or module == "json" or module == "json_document" or module == "version" or module == "test" or module == "math3d" or module == "zip" or module == "ui" or module == "http"
+    give back module == "math" or module == "string" or module == "convert" or module == "algorithm" or module == "json" or module == "json_document" or module == "version" or module == "test" or module == "math3d" or module == "zip" or module == "ui" or module == "http" or module == "http_server"
 }
 
 -- Return the first token after a complete import. A newline is not a parser

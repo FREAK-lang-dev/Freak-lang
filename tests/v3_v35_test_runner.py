@@ -435,8 +435,13 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix='freak-v35-native-tests-') as temporary:
         root = Path(temporary)
         home = root / 'payload'
-        shutil.copytree(repo / 'freakc/runtime', home / 'runtime')
-        shutil.copytree(repo / 'std', home / 'std')
+        for line in (repo / 'packaging/distribution-files.manifest').read_text().splitlines():
+            if not line or line.startswith('#'):
+                continue
+            source_name, destination_name = line.split('|')
+            destination = home / destination_name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(repo / source_name, destination)
         source = root / 'runner-helper.c'
         source.write_text(HELPER)
         helper = root / ('native helper.exe' if os.name == 'nt' else 'native helper')
