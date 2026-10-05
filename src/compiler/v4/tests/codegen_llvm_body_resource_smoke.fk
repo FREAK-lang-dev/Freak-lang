@@ -30,15 +30,15 @@ task v4_llvm_body_resource_run() -> void {
     v4_mir_add_stmt(mir, body, 0, v4_mir_stmt_expr, "", "", V4_NO_SPAN, 0 - 1, unreachable_value)
     pilot text = v4_codegen_llvm_body_line_from_mir(mir, body)
     v4_llvm_body_resource_assert(text.starts_with("define ccc i64 @long() {\nentry:\n  br label %bb0\nbb0:\n"), "header")
-    v4_llvm_body_resource_assert(text.contains("  %rv.0.1 = call i64 @freak_v4_int_add(i64 1, i64 1)\n") and text.contains("  %rv.0.12000 = call i64 @freak_v4_int_add(i64 1, i64 1)\n"), "first and last checked statements")
-    v4_llvm_body_resource_assert(text.contains("  %rv.0.12001 = call i64 @freak_v4_int_add(i64 1, i64 1)\n") and text.ends_with("  ret i64 %rv.0.14048\n}"), "deep checked expression return")
+    v4_llvm_body_resource_assert(text.contains("  %rv.0.1 = call i64 @freak_v4_int_add_inline(i64 1, i64 1)\n") and text.contains("  %rv.0.12000 = call i64 @freak_v4_int_add_inline(i64 1, i64 1)\n"), "first and last checked statements")
+    v4_llvm_body_resource_assert(text.contains("  %rv.0.12001 = call i64 @freak_v4_int_add_inline(i64 1, i64 1)\n") and text.ends_with("  ret i64 %rv.0.14048\n}"), "deep checked expression return")
     v4_llvm_body_resource_assert(not text.contains("%rv.0.14049"), "instruction after return suppressed")
     pilot lines = text.snapshot_lines()
     v4_llvm_body_resource_assert(array_len(lines) == 14054 and text.length() > 350000 and not text.contains("ret i64 0"), "complete body and no extra terminator")
     pilot instruction = 1
     repeat until instruction > 14048 {
         pilot emitted: word = array_get(lines, instruction + 3)
-        v4_llvm_body_resource_assert(emitted.starts_with("  %rv.0." + word_from_int(instruction) + " = call i64 @freak_v4_int_add(i64 "), "every checked instruction in order")
+        v4_llvm_body_resource_assert(emitted.starts_with("  %rv.0." + word_from_int(instruction) + " = call i64 @freak_v4_int_add_inline(i64 "), "every checked instruction in order")
         instruction += 1
     }
     array_release(lines)
