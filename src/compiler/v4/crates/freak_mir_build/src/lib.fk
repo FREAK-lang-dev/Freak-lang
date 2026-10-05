@@ -6082,8 +6082,9 @@ task v4_mir_lower_if_stmt(mir_id: int, body_id: int, block_id: int, stream_id: i
 
     v4_mir_control_diagnostic_depth = diagnostic_depth
     if terminal_condition { give back condition_block }
-    if v4_mir_check_arm_depth > 0 { give back v4_mir_build_close_check_join(mir_id, body_id, after_block) }
-    give back after_block
+    -- Every incoming branch edge is now sealed. A fully terminal conditional
+    -- has the same diagnostic-only continuation as an exhaustive check.
+    give back v4_mir_build_close_check_join(mir_id, body_id, after_block)
 }
 
 task v4_mir_lower_repeat_until_stmt(mir_id: int, body_id: int, block_id: int, stream_id: int, repeat_token: int, stmt_end: int) -> int {
@@ -9307,7 +9308,8 @@ task v4_mir_build_add_scoped_block(mir_id: int, body_id: int, terminator: word, 
     give back block_id
 }
 
--- Only a newly built exhaustive check join can acquire this private marker.
+-- Only a newly built completed conditional or exhaustive check join can
+-- acquire this private marker after every incoming edge has been sealed.
 -- Arm returns, terminal calls and loop jumps have already sealed their edges.
 -- Keep checking later source through the diagnostic continuation, then remove
 -- it with checked construction compaction before MIR validation/publication.

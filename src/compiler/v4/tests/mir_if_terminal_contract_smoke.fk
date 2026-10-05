@@ -1,0 +1,124 @@
+-- Completed conditional joins preserve diagnostics and strict restored admission.
+task v4_if_terminal_assert(value: bool, label: word) -> void {
+    if not value { panic("if-terminal " + label) }
+}
+task v4_if_terminal_source(case_id: int) -> word {
+    if case_id == 0 { give back "task classify(value: int) -> int " + chr(123) + " if value < 0 " + chr(123) + " give back 1 " + chr(125) + " else if value == 0 " + chr(123) + " give back 2 " + chr(125) + " else " + chr(123) + " give back 3 " + chr(125) + " " + chr(125) + "\ntask main() -> int " + chr(123) + "\nsay classify(-7)\nsay classify(0)\nsay classify(9)\ngive back 0\n" + chr(125) + "\n" }
+    if case_id == 1 { give back "task classify(value: int) -> int " + chr(123) + " if value < -1 " + chr(123) + " give back 1 " + chr(125) + " else if value < 0 " + chr(123) + " give back 2 " + chr(125) + " else if value == 0 " + chr(123) + " give back 3 " + chr(125) + " else if value == 1 " + chr(123) + " give back 4 " + chr(125) + " else " + chr(123) + " give back 5 " + chr(125) + " " + chr(125) + "\ntask main() -> int " + chr(123) + "\nsay classify(-2)\nsay classify(-1)\nsay classify(0)\nsay classify(1)\nsay classify(2)\ngive back 0\n" + chr(125) + "\n" }
+    if case_id == 2 { give back "task classify(value: int) -> int " + chr(123) + " if value < 0 " + chr(123) + " give back 1 " + chr(125) + " else if value == 0 " + chr(123) + " give back 2 " + chr(125) + " else " + chr(123) + " say \"live\" " + chr(125) + " give back 4 " + chr(125) + "\ntask main() -> int " + chr(123) + "\nsay classify(7)\ngive back 0\n" + chr(125) + "\n" }
+    if case_id == 3 { give back "task classify(value: int) -> int " + chr(123) + " if value <= 0 " + chr(123) + " if value < 0 " + chr(123) + " give back 1 " + chr(125) + " else " + chr(123) + " give back 2 " + chr(125) + " " + chr(125) + " else " + chr(123) + " give back 3 " + chr(125) + " " + chr(125) + "\ntask main() -> int " + chr(123) + "\nsay classify(-1)\nsay classify(0)\nsay classify(7)\ngive back 0\n" + chr(125) + "\n" }
+    if case_id == 4 { give back "task main() -> int " + chr(123) + "\npilot count = 0\ntraining arc until false max 8 sessions " + chr(123) + " count += 1; if count == 1 " + chr(123) + " continue " + chr(125) + " else if count == 2 " + chr(123) + " break " + chr(125) + " else " + chr(123) + " give back 9 " + chr(125) + " " + chr(125) + "\ngive back count\n" + chr(125) + "\n" }
+    if case_id == 5 { give back "task choose(kind: int, value: word) -> word " + chr(123) + " if kind < 0 " + chr(123) + " give back value " + chr(125) + " else if kind == 0 " + chr(123) + " give back value + \"!\" " + chr(125) + " else " + chr(123) + " give back \"fresh\" " + chr(125) + " " + chr(125) + "\ntask main() -> int " + chr(123) + "\nsay choose(-1, \"minus\")\nsay choose(0, \"zero\")\nsay choose(1, \"ignored\")\ngive back 0\n" + chr(125) + "\n" }
+    if case_id == 6 { give back "task target(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\ntask classify(value: int) -> int " + chr(123) + " if value < 0 " + chr(123) + " give back 1 " + chr(125) + " else if value == 0 " + chr(123) + " give back 2 " + chr(125) + " else " + chr(123) + " give back 3 " + chr(125) + " target(7); give back 99 " + chr(125) + "\ntask main() -> int " + chr(123) + "\nsay classify(7)\ngive back 0\n" + chr(125) + "\n" }
+    if case_id == 20 { give back "task main() -> int " + chr(123) + "\nif true " + chr(123) + " give back 1 " + chr(125) + " else if false " + chr(123) + " give back 2 " + chr(125) + " else " + chr(123) + " give back 3 " + chr(125) + "\npilot hidden = missing\ngive back 99\n" + chr(125) + "\n" }
+    if case_id == 21 { give back "task main() -> int " + chr(123) + "\nif true " + chr(123) + " give back 1 " + chr(125) + " else if false " + chr(123) + " give back 2 " + chr(125) + " else " + chr(123) + " give back 3 " + chr(125) + "\npilot invalid: int = \"oops\"\ngive back 99\n" + chr(125) + "\n" }
+    if case_id == 22 { give back "task target(value: int) -> int " + chr(123) + " give back value " + chr(125) + "\ntask main() -> int " + chr(123) + "\nif true " + chr(123) + " give back 1 " + chr(125) + " else if false " + chr(123) + " give back 2 " + chr(125) + " else " + chr(123) + " give back 3 " + chr(125) + "\ntarget(\"oops\")\ngive back 99\n" + chr(125) + "\n" }
+    if case_id == 23 { give back "task main() -> int " + chr(123) + " if true " + chr(123) + " give back 1 " + chr(125) + " else if false " + chr(123) + " give back 2 " + chr(125) + " " + chr(125) + "\n" }
+    if case_id == 24 { give back "task classify(value: int) -> int " + chr(123) + " if value < 0 " + chr(123) + " give back 1 " + chr(125) + " else if value " + chr(123) + " give back 2 " + chr(125) + " else " + chr(123) + " give back 3 " + chr(125) + " " + chr(125) + "\ntask main() -> int " + chr(123) + " give back classify(0) " + chr(125) + "\n" }
+    if case_id == 30 { give back "task classify(value: int) -> int " + chr(123) + " if value < 0 " + chr(123) + " give back 1 " + chr(125) + " else if value == 0 " + chr(123) + " give back 2 " + chr(125) + " else " + chr(123) + " give back 3 " + chr(125) + " " + chr(125) + "\ntask main() -> int " + chr(123) + "\nsay classify(-7)\nsay classify(0)\nsay classify(9)\ngive back 0\n" + chr(125) + "\n" }
+    panic("unknown if-terminal case")
+    give back ""
+}
+
+task v4_if_terminal_check_edges(mir: int, body: int) -> void {
+    pilot block = 1
+    repeat until block >= v4_mir_body_block_count(mir, body) {
+        v4_if_terminal_assert(v4_mir_body_block_predecessor_count(mir, body, block) > 0, "published blocks have incoming edges")
+        block += 1
+    }
+    pilot stmt = 0
+    repeat until stmt >= v4_mir_body_stmt_count(mir, body) {
+        if v4_mir_stmt_kind(mir, body, stmt) == v4_mir_stmt_branch {
+            pilot record = v4_mir_body_block(mir, body, v4_mir_stmt_block(mir, body, stmt))
+            pilot rhs = v4_mir_stmt_rhs(mir, body, stmt)
+            if rhs.starts_with("then#") {
+                v4_if_terminal_assert(rhs == "then#" + word_from_int(v4_mir_block_target(record)) + " else#" + word_from_int(v4_mir_block_else_target(record)), "branch displays remap with real edges")
+            }
+        }
+        stmt += 1
+    }
+}
+
+task v4_if_terminal_run(case_id: int, target_name: word, emit: bool) -> void {
+    pilot source = v4_if_terminal_source(case_id)
+    pilot previous_depth = v4_mir_check_arm_depth
+    v4_mir_check_arm_depth = 7
+    pilot mir = v4_mir_text_cached("if-terminal.fk", source)
+    v4_if_terminal_assert(v4_mir_check_arm_depth == 7, "caller check-arm scope restored")
+    v4_mir_check_arm_depth = previous_depth
+    pilot ty = v4_mir_ty_id(mir)
+    pilot resolve = v4_ty_resolve_id(ty)
+    pilot hir = v4_resolve_hir_id(resolve)
+    pilot tree = v4_hir_tree_id(hir)
+    pilot stream = v4_parse_stream_id(tree)
+    v4_if_terminal_assert(v4_lex_diag_count(stream) == 0 and v4_parse_diag_count(tree) == 0 and v4_hir_diag_count(hir) == 0 and v4_resolve_diag_count(resolve) == 0 and v4_ty_diag_count(ty) == 0, "clean pre-MIR source")
+    pilot expected = ""
+    if case_id == 20 { expected = "unknown name in unreachable source" }
+    if case_id == 21 { expected = "local declaration type mismatch" }
+    if case_id == 22 { expected = "call argument type mismatch" }
+    if case_id == 23 { expected = "missing return" }
+    if case_id == 24 { expected = "if condition must be bool" }
+    pilot target = v4_target_spec_new(target_name)
+    if expected != "" {
+        v4_if_terminal_assert(v4_mir_diag_count(mir) == 1 and v4_diag_message(v4_mir_diag(mir, 0)) == expected, "exact preserved source diagnostic")
+        if case_id == 20 {
+            pilot span = v4_diag_span(v4_mir_diag(mir, 0))
+            v4_if_terminal_assert(v4_slice(source, v4_span_start(span), v4_span_end(span)) == "missing" and v4_diag_help(v4_mir_diag(mir, 0)) == "Meiya cannot find missing in this scope", "exact missing-name span and help")
+        }
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_if_terminal_assert(v4_codegen_llvm_native_module_error(rejected) != "" and v4_codegen_llvm_module_text(rejected, target) == "", "invalid source cannot publish")
+        say "if-terminal case=" + word_from_int(case_id) + " named=true no-module=true"
+        give back
+    }
+    v4_if_terminal_assert(v4_mir_diag_count(mir) == 0, "clean MIR source")
+    pilot body = 0
+    repeat until body >= v4_mir_body_count(mir) {
+        v4_if_terminal_check_edges(mir, body)
+        v4_if_terminal_assert(not v4_mir_build_body_has_closed_check_join(mir, body), "private join markers removed")
+        body += 1
+    }
+    if case_id == 0 or case_id == 6 or case_id == 30 {
+        pilot classify = v4_mir_lookup_body_name(mir, "classify")
+        v4_if_terminal_assert(classify >= 0 and v4_mir_body_block_count(mir, classify) == 5 and v4_mir_body_stmt_count(mir, classify) == 5, "three-arm chain has only five reachable control rows")
+    }
+    pilot borrow = v4_borrowck_check_mir(0, mir)
+    v4_if_terminal_assert(v4_borrowck_diag_count(borrow) == 0, "real Meiya cleanliness")
+    pilot sealed = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot module = v4_codegen_llvm_module_text(sealed, target)
+    if v4_codegen_llvm_native_module_error(sealed) != "" { say "if-terminal native-error=" + v4_codegen_llvm_native_module_error(sealed) }
+    v4_if_terminal_assert(v4_codegen_llvm_native_module_error(sealed) == "" and v4_codegen_llvm_diag_count(sealed) == 0 and module != "", "owned native seal")
+    pilot payload = v4_mir_snapshot()
+    v4_if_terminal_assert(not payload.contains("$closed-check-continuation") and not payload.contains("$control-diagnostic") and v4_mir_snapshot_validate(payload).starts_with("mir-snapshot-import ok=1"), "marker-free canonical snapshot")
+    v4_if_terminal_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload, "canonical snapshot restore exact")
+    v4_if_terminal_assert(v4_codegen_llvm_module_text(sealed, target) == module, "saved seal stays byte exact")
+    pilot fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_if_terminal_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module, "fresh restored module exact")
+    if case_id == 30 {
+        body = v4_mir_lookup_body_name(mir, "classify")
+        pilot record = v4_mir_body_block(mir, body, 0)
+        v4_if_terminal_assert(v4_mir_block_terminator(record) == v4_mir_term_if, "real chain branch selected")
+        pilot orphan = v4_mir_add_block(mir, body, v4_mir_term_unreachable, -1, -1, "")
+        v4_mir_set_body_block(mir, body, 0, v4_mir_block_new_full(0, v4_mir_term_if, orphan, v4_mir_block_else_target(record), v4_mir_block_part(record, 4)))
+        pilot forged = v4_mir_snapshot()
+        v4_if_terminal_assert(forged != payload and v4_mir_body_block_predecessor_count(mir, body, orphan) == 1 and v4_mir_body_stmt_count_for_block(mir, body, orphan) == 0, "real reachable empty endpoint forged")
+        v4_if_terminal_assert(v4_mir_control_plan_preflight(mir) == "native reachable unreachable block has no checked terminal call", "live hostile endpoint rejected without normalization")
+        pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_if_terminal_assert(v4_codegen_llvm_native_module_error(rejected) == "native reachable unreachable block has no checked terminal call" and v4_codegen_llvm_module_text(rejected, target) == "" and v4_codegen_llvm_module_text(sealed, target) == module, "hostile live module cannot replace old seal")
+        v4_if_terminal_assert(v4_mir_snapshot_restore(forged).starts_with("mir-snapshot-restore ok=0") and v4_mir_snapshot() == forged, "detached hostile restore rejected atomically")
+        v4_if_terminal_assert(v4_mir_snapshot_restore(payload).starts_with("mir-snapshot-restore ok=1") and v4_mir_snapshot() == payload, "canonical recovery exact")
+        fresh = v4_codegen_llvm_lower_owned_mir(0, mir)
+        v4_if_terminal_assert(v4_codegen_llvm_native_module_error(fresh) == "" and v4_codegen_llvm_module_text(fresh, target) == module, "recovered module exact")
+        say "if-terminal case=30 canonical=true hostile-live=true hostile-detached=true recovered=true old-seal=true"
+        give back
+    }
+    say "if-terminal case=" + word_from_int(case_id) + " edges=true Meiya=true restore=true old-seal=true fresh-module=true"
+    if emit { say "@@LLVM-MODULE-BEGIN"; say module; say "@@LLVM-MODULE-END" }
+}
+pilot v4_if_case = 0
+pilot v4_if_target = "x86_64-unknown-linux-gnu"
+pilot v4_if_action = ""
+if process::args_count() > 1 { v4_if_case = word_to_int(process::arg(1)) }
+if process::args_count() > 2 { v4_if_target = process::arg(2) }
+if process::args_count() > 3 { v4_if_action = process::arg(3) }
+if v4_if_action == "--source" { say v4_if_terminal_source(v4_if_case) }
+else { v4_if_terminal_run(v4_if_case, v4_if_target, v4_if_action == "--emit") }
