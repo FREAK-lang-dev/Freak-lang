@@ -241,7 +241,11 @@ tests follow the bible's condition-first, re-evaluated-cap semantics; the V3
 native emitter's evaluate-once cap is an explicit parity difference. Continue
 must route through the increment epilogue. Conditional fixes must retain later
 source diagnostics and the original strict CFG/snapshot/native contracts.
-These rows remain open until their implementation and behavioral gates pass.
+The two capability rows remain open until their implementation and behavioral
+gates pass. A0 is implemented and documented: the registered source-boundary
+gate passes, fourteen direct/function-valued forbidden-family controls reject,
+and actual gate injection rejects both an upstream and a builder-owned reference.
+The pure check dispatches no compiler, transpiler, native or subprocess jobs.
 
 Inline overflow intrinsics, speed regression guards and renewed TY/Meiya growth
 rates remain open. So do default unwind/cleanup, bootstrap/self-hosting, general
