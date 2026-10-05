@@ -7161,7 +7161,7 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
         }
     }
 
-    -- The cap is tested after the until condition, on every iteration (§5.6).
+    -- The cap is tested after the until condition, on every iteration (bible 5.6).
     -- Its rvalue remains in the cap block, never captured in the preheader.
     pilot counter_name = "$training_sessions#" + word_from_int(v4_mir_body_local_count(mir_id, body_id))
     pilot counter_local = v4_mir_add_local_at_scope(mir_id, body_id, counter_name, v4_ty_int, stmt_span, v4_mir_current_scope_span(stmt_span))
