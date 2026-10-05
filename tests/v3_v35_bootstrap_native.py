@@ -119,6 +119,7 @@ def main() -> int:
     parser.add_argument('--clang', required=True, type=Path)
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--source', type=Path)
+    parser.add_argument('--git-checkout', type=Path, help='also prove exact local Git commit/source bytes using this frozen V4 root')
     parser.add_argument('--entry-probe', action='store_true', help='mark focused native entry scope; does not establish production CLI parser')
     parser.add_argument('--evidence', type=Path)
     args = parser.parse_args()
@@ -180,6 +181,17 @@ def main() -> int:
         engine = output / ('freak-v4-engine.exe' if os.name == 'nt' else 'freak-v4-engine')
         assert digest(preview) == report['launcher_sha256'] and digest(engine) == report['engine_sha256']
         checks.append('installed native bootstrap, private runtime, identity/query/corpus, stable binary preservation')
+        if args.git_checkout:
+            checkout = args.git_checkout.resolve(strict=True)
+            checkout_records = inventory(checkout)
+            before = {relative: digest(checkout / relative) for _, _, relative in checkout_records}
+            git_output = output_parent / 'git-bundle'
+            git_result = bootstrap(installed, checkout, git_output, env)
+            assert git_result.returncode == 0, (git_result.returncode, git_result.stdout[-4000:], git_result.stderr[-4000:])
+            git_report = json.loads((git_output / 'bootstrap-report.json').read_text())
+            assert git_report['git_verification'] == 'commit-source-bytes-verified', git_report
+            assert {relative: digest(checkout / relative) for _, _, relative in checkout_records} == before
+            checks.append('exact local Git object/source-byte verification and unchanged checkout')
         # Relocation and a contradictory FREAK_HOME cannot redirect the private payload.
         relocated = root / "relocated é 日本 ' $ &"
         output.rename(relocated)
@@ -270,6 +282,14 @@ def main() -> int:
         rejected = bootstrap(installed, selected, existing, env)
         assert rejected.returncode != 0 and (existing / 'prior').read_text() == 'prior'
         checks.append('explicit compatibility required and source/existing-output aliases preserve bytes')
+        # Hidden emission is not a second general-purpose write command.
+        nonce_env = dict(env)
+        nonce_env.pop('FREAK_BOOTSTRAP_STAGE_NONCE', None)
+        private = subprocess.run([installed, '__bootstrap-stage', selected, '0' * 64],
+                                 cwd=root, env=nonce_env, capture_output=True, timeout=30)
+        assert private.returncode != 0 and b'nonce' in private.stdout, private
+        assert {relative: digest(selected / relative) for _, _, relative in records} == source_hashes
+        checks.append('private emission refuses a caller without its parent invocation nonce')
         # Normal SIGTERM is a failed attempt; a killed owner cannot publish success.
         ready = root / 'slow-ready'
         interrupted_output = output_parent / 'interrupted'
