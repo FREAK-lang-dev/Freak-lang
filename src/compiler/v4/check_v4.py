@@ -163,6 +163,8 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "typed_os_entry_execute_smoke.fk",
         "typed_os_entry_contract_smoke.fk",
         "word_bounds_execute_smoke.fk",
+        "mir_training_cap_contract_smoke.fk",
+        "mir_if_terminal_contract_smoke.fk",
     }
 )
 
@@ -8149,10 +8151,10 @@ EXECUTABLE_SMOKES = [
         "name": "MIR terminal return control flow",
         "fixture": "mir_return_terminal_smoke.fk",
         "expect": [
-            "return-branch-blocks=4",
+            "return-branch-blocks=3",
             "return-branch-then-term=Return",
             "return-branch-then-target=-1",
-            "return-branch-after-term=Return",
+            "return-branch-after-present=false",
             "return-branch-else-term=Return",
             "return-branch-else-target=-1",
             "return-mixed-then-term=Goto",
@@ -10640,26 +10642,27 @@ EXECUTABLE_SMOKES = [
         "name": "MIR else-if lowering",
         "fixture": "mir_else_if_smoke.fk",
         "expect": [
-            "else-if-body-blocks=7",
+            "else-if-body-blocks=5",
             "else-if-outer-term=If",
             "else-if-outer-cond=power > 10",
             "else-if-outer-target=1",
-            "else-if-outer-else=3",
+            "else-if-outer-else=2",
             "else-if-outer-branch-kind=Branch",
             "else-if-outer-rvalue-kind=Binary",
             "else-if-outer-rvalue-op=Gt",
             "else-if-outer-rvalue-ty=bool",
             "else-if-nested-term=If",
             "else-if-nested-cond=ready",
-            "else-if-nested-target=4",
-            "else-if-nested-else=6",
+            "else-if-nested-target=3",
+            "else-if-nested-else=4",
             "else-if-nested-branch-kind=Branch",
             "else-if-nested-rvalue-kind=UseLocal",
             "else-if-nested-rvalue-ty=bool",
-            "else-if-nested-after-term=Goto",
-            "else-if-nested-after-target=2",
+            "else-if-no-continuation=true",
+            "else-if-outer-display-remapped=true",
+            "else-if-nested-display-remapped=true",
             "else-if-final-else-term=Return",
-            "else-if-good-diagnostics=1",
+            "else-if-good-diagnostics=0",
             "bad-else-if-diagnostics=1",
             "bad-else-if-message=if condition must be bool",
             "bad-else-if-help=got int",
@@ -12203,6 +12206,40 @@ EXECUTABLE_SMOKES = [
                         'expect': ['word-bounds-proof case=23 borrowed=true restore=true old-seal=true '
                                    'fresh-module=true']}]},
 ]
+
+EXECUTABLE_SMOKES.extend([
+    {
+        "name": "MIR training arc bounded session contracts",
+        "fixture": "mir_training_cap_contract_smoke.fk",
+        "timeout": 60,
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["training-cap case=0 identity=true Meiya=true restore=true old-seal=true fresh-module=true"],
+        "runtime_cases": [
+            {"argv": [str(case)], "expect": [f"training-cap case={case} identity=true Meiya=true restore=true old-seal=true fresh-module=true"]}
+            for case in range(18)
+        ],
+    },
+    {
+        "name": "MIR completed conditional join contracts",
+        "fixture": "mir_if_terminal_contract_smoke.fk",
+        "timeout": 60,
+        "memory_limit_mb": 64,
+        "expect_mode": "line",
+        "expect_unique": True,
+        "expect": ["if-terminal case=0 edges=true Meiya=true restore=true old-seal=true fresh-module=true"],
+        "runtime_cases": [
+            {"argv": [str(case)], "expect": [f"if-terminal case={case} edges=true Meiya=true restore=true old-seal=true fresh-module=true"]}
+            for case in range(7)
+        ] + [
+            {"argv": [str(case)], "expect": [f"if-terminal case={case} named=true no-module=true"]}
+            for case in range(20, 25)
+        ] + [
+            {"argv": ["30"], "expect": ["if-terminal case=30 canonical=true hostile-live=true hostile-detached=true recovered=true old-seal=true"]},
+        ],
+    },
+])
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
