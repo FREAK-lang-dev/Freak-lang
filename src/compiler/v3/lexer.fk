@@ -106,7 +106,9 @@ task lex_number() -> void {
     pilot dot_count = 0
     repeat until fin {
         pilot c = lex_cur_ch()
-        if is_numeric(c) or c == "." {
+        if c == "." and lex_ch_at(1) == "." {
+            fin = true
+        } else if is_numeric(c) or c == "." {
             if c == "." { dot_count += 1 }
             res = res + c
             lex_advance()
@@ -322,6 +324,12 @@ task tokenize(source: word) -> void {
                 lex_string()
             } else if c == "=" or c == "+" or c == "-" or c == "*" or c == "/" or c == "<" or c == ">" or c == "!" or c == ":" or c == "|" or c == "%" or c == "@" or c == "?" {
                 lex_operators()
+            } else if c == "." and lex_ch_at(1) == "." {
+                lex_advance()
+                lex_advance()
+                pilot range_token = ".."
+                if lex_cur_ch() == "=" { lex_advance() range_token = "..=" }
+                push_token(TOK_PUNCT, range_token)
             } else if c == "{" or c == "}" or c == "(" or c == ")" or c == "[" or c == "]" or c == "," or c == "." {
                 push_token(TOK_PUNCT, c)
                 lex_advance()

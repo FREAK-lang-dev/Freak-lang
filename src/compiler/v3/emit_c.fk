@@ -232,6 +232,59 @@ task emit_c_foreach(id: word, name: word, receiver: word, body: word) -> void {
 
 -- Extern arguments borrow the values passed to them. Snapshot managed
 -- arguments before later argument effects, then release caller-owned snapshots.
+task emit_c_range(id: word) -> void {
+    pilot sid = word_to_int(id)
+    pilot saved_vars = emt_var_count
+    pilot saved_locals = tc_local_count
+    pilot saved_loop = emt_loop_word_cleanup_base
+    pilot lower = "__freak_range_start_" + id
+    pilot upper = "__freak_range_end_" + id
+    pilot step = "__freak_range_step_" + id
+    pilot index = "__freak_range_index_" + id
+    pilot binder = "__freak_range_value_" + id
+    emit("{ int64_t " + lower + " = ") emit_expr(array_get(ast_stmt_exprs, sid)) emit_line(";")
+    emit("int64_t " + upper + " = ") emit_expr(array_get(ast_stmt_else_bodies, sid)) emit_line(";")
+    emit("int64_t " + step + " = ") emit_expr(array_get(ast_stmt_extras, sid)) emit_line(";")
+    emit_line("if (" + step + " <= 0) freak_panic(freak_word_lit(\"range step must be positive\"));")
+    pilot comparison = " < "
+    if array_get(ast_task_params, sid) == "..=" { comparison = " <= " }
+    -- A positive step makes MAX-step and the guarded addition safe. Mark
+    -- completion in the for epilogue so continue runs exactly the same guard.
+    pilot finished = "__freak_range_finished_" + id
+    emit_line("bool " + finished + " = false;")
+    emit_line("for (int64_t " + index + " = " + lower + "; !" + finished + " && " + index + comparison + upper + "; " + finished + " = " + index + " > INT64_MAX - " + step + ", " + index + " = " + finished + " ? " + index + " : " + index + " + " + step + ") {")
+    emit_line("int64_t " + binder + " = " + index + ";")
+    pilot name: word = array_get(ast_stmt_names, sid)
+    emt_set_var_type_named(name, "i", binder)
+    tc_set_local(name, "int")
+    emt_loop_word_cleanup_base = saved_vars
+    emit_block(array_get(ast_stmt_bodies, sid))
+    emit_line("} }")
+    emt_var_count = saved_vars
+    tc_local_count = saved_locals
+    emt_loop_word_cleanup_base = saved_loop
+}
+
+task emit_c_counted_for(id: word) -> void {
+    pilot sid = word_to_int(id)
+    pilot saved_vars = emt_var_count
+    pilot saved_locals = tc_local_count
+    pilot saved_loop = emt_loop_word_cleanup_base
+    emit_line("{")
+    emit_stmt(array_get(ast_stmt_else_bodies, sid))
+    emit("for (; ") emit_expr(array_get(ast_stmt_exprs, sid)) emit("; ")
+    -- Use the normal assignment/call path, including projection setters and
+    -- ownership cleanup. GNU statement expressions are already a C ABI route.
+    emit("({ ") emit_stmt(array_get(ast_stmt_extras, sid)) emit("})")
+    emit_line(") {")
+    emt_loop_word_cleanup_base = emt_var_count
+    emit_block(array_get(ast_stmt_bodies, sid))
+    emit_line("} }")
+    emt_var_count = saved_vars
+    tc_local_count = saved_locals
+    emt_loop_word_cleanup_base = saved_loop
+}
+
 task c_args_have_handles(args: word) -> bool {
     pilot j = 0
     repeat tc_arg_count(args) times {
@@ -1311,6 +1364,8 @@ task emit_stmt(eid: word) -> void {
         give back
     }
     if kind == STMT_FOREACH { emit_c_foreach(eid, name_w, expr_id_w, array_get(ast_stmt_bodies, i)) give back }
+    if kind == STMT_RANGE { emit_c_range(eid) give back }
+    if kind == STMT_FOR { emit_c_counted_for(eid) give back }
     if kind == STMT_REPEAT {
         pilot saved_loop_cleanup_base = emt_loop_word_cleanup_base
         emt_loop_word_cleanup_base = emt_var_count
@@ -1322,14 +1377,25 @@ task emit_stmt(eid: word) -> void {
             emit_block(array_get(ast_stmt_bodies, i))
             emit_line("}")
         } else {
+            pilot saved_vars = emt_var_count
+            pilot saved_locals = tc_local_count
             pilot repeat_limit = "__freak_repeat_limit_" + eid
             emit("{ int64_t " + repeat_limit + " = ")
             emit_expr(expr_id_w)
             emit_line(";")
             emit("for (int64_t __freak_repeat_index = 0; __freak_repeat_index < " + repeat_limit)
             emit_line("; __freak_repeat_index++) {")
+            pilot binder: word = array_get(ast_stmt_extras, i)
+            if binder != "" {
+                pilot binding = "__freak_repeat_value_" + eid
+                emit_line("int64_t " + binding + " = __freak_repeat_index;")
+                emt_set_var_type_named(binder, "i", binding)
+                tc_set_local(binder, "int")
+            }
             emit_block(array_get(ast_stmt_bodies, i))
             emit_line("}")
+            emt_var_count = saved_vars
+            tc_local_count = saved_locals
             emit_line("}")
         }
         emt_loop_word_cleanup_base = saved_loop_cleanup_base

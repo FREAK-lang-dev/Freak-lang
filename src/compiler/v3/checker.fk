@@ -437,11 +437,34 @@ task bc_walk_stmt(stmt_id: int) -> void {
         bc_leave_scope()
         give back
     }
+    if kind == STMT_RANGE {
+        bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
+        bc_walk_expr(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)), false, line)
+        bc_walk_expr(word_to_int(array_get(ast_stmt_extras, stmt_id)), false, line)
+        bc_enter_scope()
+        bc_push_sym(array_get(ast_stmt_names, stmt_id), "copy", "0", line)
+        bc_walk_block(array_get(ast_stmt_bodies, stmt_id))
+        bc_leave_scope()
+        give back
+    }
+    if kind == STMT_FOR {
+        bc_enter_scope()
+        bc_walk_stmt(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)))
+        bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
+        bc_enter_scope()
+        bc_walk_block(array_get(ast_stmt_bodies, stmt_id))
+        bc_leave_scope()
+        bc_walk_stmt(word_to_int(array_get(ast_stmt_extras, stmt_id)))
+        bc_leave_scope()
+        give back
+    }
     if kind == STMT_REPEAT {
         pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
         pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
         bc_walk_expr(word_to_int(cond_w), false, line)
         bc_enter_scope()
+        pilot binder: word = array_get(ast_stmt_extras, stmt_id)
+        if binder != "" { bc_push_sym(binder, "copy", "0", line) }
         bc_walk_block(body_w)
         bc_leave_scope()
         give back
@@ -2169,9 +2192,27 @@ task tc_dependency_walk_stmt(stmt_id: int, local_names: int, local_types: int, l
         tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, body_count, global_index, global_name, visited)
         give back local_count
     }
+    if kind == STMT_RANGE {
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_expr(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_expr(word_to_int(array_get(ast_stmt_extras, stmt_id)), local_names, local_types, local_count, global_index, global_name, visited)
+        pilot body_count = tc_dependency_set_local(local_names, local_types, local_count, array_get(ast_stmt_names, stmt_id), "int")
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, body_count, global_index, global_name, visited)
+        give back local_count
+    }
+    if kind == STMT_FOR {
+        pilot header_count = tc_dependency_walk_stmt(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)), local_names, local_types, local_count, global_index, global_name, visited)
+        tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, header_count, global_index, global_name, visited)
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, header_count, global_index, global_name, visited)
+        tc_dependency_walk_stmt(word_to_int(array_get(ast_stmt_extras, stmt_id)), local_names, local_types, header_count, global_index, global_name, visited)
+        give back local_count
+    }
     if kind == STMT_REPEAT {
         tc_dependency_walk_expr(word_to_int(expr), local_names, local_types, local_count, global_index, global_name, visited)
-        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, local_count, global_index, global_name, visited)
+        pilot body_count = local_count
+        pilot binder: word = array_get(ast_stmt_extras, stmt_id)
+        if binder != "" { body_count = tc_dependency_set_local(local_names, local_types, local_count, binder, "int") }
+        tc_dependency_walk_block(array_get(ast_stmt_bodies, stmt_id), local_names, local_types, body_count, global_index, global_name, visited)
         give back local_count
     }
     if kind == STMT_TRAINING_ARC {
@@ -2350,6 +2391,18 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot right_id = word_to_int(array_get(ast_stmt_bodies, stmt_id))
         tc_validate_expr(left_id, line)
         tc_validate_expr(right_id, line)
+        if array_get(ast_expr_kinds, left_id) == EXPR_IDENT {
+            pilot name: word = array_get(ast_expr_vals, left_id)
+            pilot index = tc_local_count - 1
+            pilot found = false
+            repeat until index < 0 or found {
+                if array_get(tc_local_names, index) == name {
+                    if array_get(tc_local_mut, index) == "loop" { tc_diag("iteration binding '" + name + "' is immutable", line, source_file) }
+                    found = true
+                }
+                index -= 1
+            }
+        }
         if not tc_expr_is_lvalue(left_id) {
             tc_diag("assignment target is not an assignable binding, shape field, or list element", line, source_file)
             give back
@@ -2449,6 +2502,56 @@ task tc_validate_stmt(stmt_id: int) -> void {
         tc_local_scope_start = saved_scope
         give back
     }
+    if kind == STMT_RANGE {
+        pilot lower_id = word_to_int(expr)
+        pilot upper_id = word_to_int(array_get(ast_stmt_else_bodies, stmt_id))
+        pilot step_id = word_to_int(array_get(ast_stmt_extras, stmt_id))
+        tc_validate_expr(lower_id, line)
+        tc_validate_expr(upper_id, line)
+        tc_validate_expr(step_id, line)
+        pilot args = expr + "," + array_get(ast_stmt_else_bodies, stmt_id) + "," + array_get(ast_stmt_extras, stmt_id)
+        tc_validate_type_args("range bounds and step", args, "int,int,int", line, source_file)
+        pilot step_kind: word = array_get(ast_expr_kinds, step_id)
+        pilot step_val: word = array_get(ast_expr_vals, step_id)
+        if (step_kind == EXPR_INT and word_to_int(step_val) <= 0) or (step_kind == EXPR_UNARYOP and step_val == "-" and array_get(ast_expr_kinds, word_to_int(array_get(ast_expr_lefts, step_id))) == EXPR_INT) {
+            tc_diag("range step must be positive", line, source_file)
+        }
+        pilot saved_count = tc_local_count
+        pilot saved_scope = tc_local_scope_start
+        tc_local_scope_start = tc_local_count
+        tc_set_local(array_get(ast_stmt_names, stmt_id), "int")
+        array_set(tc_local_mut, tc_local_count - 1, "loop")
+        tc_loop_depth += 1
+        tc_validate_task_body(array_get(ast_stmt_bodies, stmt_id))
+        tc_loop_depth -= 1
+        tc_local_count = saved_count
+        tc_local_scope_start = saved_scope
+        give back
+    }
+    if kind == STMT_FOR {
+        pilot saved_count = tc_local_count
+        pilot saved_scope = tc_local_scope_start
+        tc_local_scope_start = tc_local_count
+        pilot initializer = word_to_int(array_get(ast_stmt_else_bodies, stmt_id))
+        tc_validate_stmt(initializer)
+        if tc_expr_type(word_to_int(array_get(ast_stmt_exprs, initializer))) != "int" or (array_get(ast_stmt_extras, initializer) != "" and array_get(ast_stmt_extras, initializer) != "int") { tc_diag("counted for initializer must have type int", line, source_file) }
+        pilot condition_id = word_to_int(expr)
+        tc_validate_expr(condition_id, line)
+        pilot condition_type = tc_expr_type(condition_id)
+        if condition_type != "" and condition_type != "bool" { tc_diag("counted for condition must have type bool, got " + condition_type, line, source_file) }
+        tc_loop_depth += 1
+        tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
+        pilot step_id = word_to_int(array_get(ast_stmt_extras, stmt_id))
+        tc_validate_stmt(step_id)
+        pilot step_type = tc_expr_type(word_to_int(array_get(ast_stmt_exprs, step_id)))
+        if array_get(ast_stmt_kinds, step_id) == STMT_ASSIGN {
+            if step_type != "int" or tc_expr_type(word_to_int(array_get(ast_stmt_bodies, step_id))) != "int" { tc_diag("counted for assignment step must have type int", line, source_file) }
+        } else if step_type != "int" and step_type != "void" { tc_diag("counted for expression step must have type int or void", line, source_file) }
+        tc_loop_depth -= 1
+        tc_local_count = saved_count
+        tc_local_scope_start = saved_scope
+        give back
+    }
     if kind == STMT_REPEAT {
         pilot repeat_id = word_to_int(expr)
         tc_validate_expr(repeat_id, line)
@@ -2459,9 +2562,16 @@ task tc_validate_stmt(stmt_id: int) -> void {
         } else if repeat_type != "" and repeat_type != "int" {
             tc_diag("repeat count must have type int, got " + repeat_type, tc_expr_diag_line(repeat_id, line), tc_expr_diag_file(repeat_id, source_file))
         }
+        pilot saved_count = tc_local_count
+        pilot saved_scope = tc_local_scope_start
+        tc_local_scope_start = tc_local_count
+        pilot binder: word = array_get(ast_stmt_extras, stmt_id)
+        if binder != "" { tc_set_local(binder, "int") array_set(tc_local_mut, tc_local_count - 1, "loop") }
         tc_loop_depth += 1
-        tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
+        tc_validate_task_body(array_get(ast_stmt_bodies, stmt_id))
         tc_loop_depth -= 1
+        tc_local_count = saved_count
+        tc_local_scope_start = saved_scope
         give back
     }
     if kind == STMT_TRAINING_ARC {

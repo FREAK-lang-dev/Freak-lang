@@ -1857,6 +1857,8 @@ task llvm_emit_stmt(eid: word) -> void {
     if kind == STMT_IF { llvm_emit_stmt_if(eid) give back }
     if kind == STMT_REPEAT { llvm_emit_stmt_repeat(eid) give back }
     if kind == STMT_FOREACH { llvm_emit_stmt_foreach(eid) give back }
+    if kind == STMT_RANGE { llvm_emit_stmt_range(eid) give back }
+    if kind == STMT_FOR { llvm_emit_stmt_counted_for(eid) give back }
     if kind == STMT_TRAINING_ARC { llvm_emit_stmt_training_arc(eid) give back }
     if kind == STMT_WHEN { llvm_emit_stmt_when(eid) give back }
     if kind == STMT_BLOCK { llvm_emit_block(array_get(ast_stmt_bodies, i)) give back }
@@ -2003,6 +2005,9 @@ task llvm_emit_stmt_repeat(eid: word) -> void {
     pilot i = word_to_int(eid)
     pilot name_w: word = array_get(ast_stmt_names, i)
     pilot expr_id_w: word = array_get(ast_stmt_exprs, i)
+    pilot saved_names = llvm_var_names
+    pilot saved_types = llvm_var_types
+    pilot saved_map = llvm_var_reg_map
 
     pilot l_cond = "loop.cond." + word_from_int(temp_reg_counter)
     temp_reg_counter += 1
@@ -2037,6 +2042,10 @@ task llvm_emit_stmt_repeat(eid: word) -> void {
         llvm_loop_cond_label = l_inc
 
         pilot count_reg = llvm_emit_expr(expr_id_w)
+        pilot binder: word = array_get(ast_stmt_extras, i)
+        pilot binding_slot = "repeat.value." + word_from_int(temp_reg_counter)
+        temp_reg_counter += 1
+        if binder != "" { llvm_emit_line("    %" + binding_slot + " = alloca i64") }
         llvm_emit_line("    %" + rep_var + " = alloca i64")
         llvm_emit_line("    store i64 0, i64* %" + rep_var)
         llvm_emit_line("    br label %" + l_cond)
@@ -2048,6 +2057,11 @@ task llvm_emit_stmt_repeat(eid: word) -> void {
         llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_body + ", label %" + l_end)
 
         llvm_emit_line(l_body + ":")
+        if binder != "" {
+            llvm_emit_line("    store i64 " + curr_val + ", i64* %" + binding_slot)
+            llvm_set_var_type(binder, "i")
+            llvm_reg_var(binder, binding_slot)
+        }
         llvm_emit_block(array_get(ast_stmt_bodies, i))
         llvm_emit_line("    br label %" + l_inc)
         llvm_emit_line(l_inc + ":")
@@ -2063,6 +2077,129 @@ task llvm_emit_stmt_repeat(eid: word) -> void {
     llvm_loop_end_label = save_end
     llvm_loop_cond_label = save_cond
     llvm_loop_word_cleanup_prefix = save_cleanup_prefix
+    llvm_var_names = saved_names
+    llvm_var_types = saved_types
+    llvm_var_reg_map = saved_map
+}
+
+task llvm_emit_loop_failure(message: word) -> void {
+    pilot string_id = register_string_literal(message)
+    pilot length = word_from_int(llvm_string_byte_len(message) + 1)
+    pilot pointer = next_reg()
+    pilot value = next_reg()
+    llvm_emit_line("    " + pointer + " = getelementptr inbounds [" + length + " x i8], [" + length + " x i8]* " + string_id + ", i64 0, i64 0")
+    llvm_emit_line("    " + value + " = ptrtoint i8* " + pointer + " to i64")
+    llvm_emit_line("    call void @freak_llvm_panic(i64 " + value + ")")
+    llvm_emit_line("    unreachable")
+}
+
+task llvm_emit_stmt_range(eid: word) -> void {
+    pilot sid = word_to_int(eid)
+    pilot saved_names = llvm_var_names
+    pilot saved_types = llvm_var_types
+    pilot saved_map = llvm_var_reg_map
+    pilot saved_end = llvm_loop_end_label
+    pilot saved_cond = llvm_loop_cond_label
+    pilot saved_prefix = llvm_loop_word_cleanup_prefix
+    pilot lower = llvm_emit_expr(array_get(ast_stmt_exprs, sid))
+    pilot upper = llvm_emit_expr(array_get(ast_stmt_else_bodies, sid))
+    pilot step = llvm_emit_expr(array_get(ast_stmt_extras, sid))
+    pilot serial = word_from_int(temp_reg_counter)
+    temp_reg_counter += 1
+    pilot cond = "range.cond." + serial
+    pilot body = "range.body." + serial
+    pilot increment = "range.inc." + serial
+    pilot advance = "range.advance." + serial
+    pilot finish = "range.end." + serial
+    pilot ready = "range.ready." + serial
+    pilot failure = "range.failure." + serial
+    pilot slot = "range.index." + serial
+    pilot binding_slot = "range.value." + serial
+    pilot valid = next_reg()
+    llvm_emit_line("    " + valid + " = icmp sgt i64 " + step + ", 0")
+    llvm_emit_line("    br i1 " + valid + ", label %" + ready + ", label %" + failure)
+    llvm_emit_line(failure + ":")
+    llvm_emit_loop_failure("range step must be positive")
+    llvm_emit_line(ready + ":")
+    llvm_emit_line("    %" + slot + " = alloca i64")
+    llvm_emit_line("    %" + binding_slot + " = alloca i64")
+    llvm_emit_line("    store i64 " + lower + ", i64* %" + slot)
+    llvm_emit_line("    br label %" + cond)
+    llvm_emit_line(cond + ":")
+    pilot current = next_reg()
+    pilot more = next_reg()
+    llvm_emit_line("    " + current + " = load i64, i64* %" + slot)
+    pilot comparison = "slt"
+    if array_get(ast_task_params, sid) == "..=" { comparison = "sle" }
+    llvm_emit_line("    " + more + " = icmp " + comparison + " i64 " + current + ", " + upper)
+    llvm_emit_line("    br i1 " + more + ", label %" + body + ", label %" + finish)
+    llvm_emit_line(body + ":")
+    llvm_emit_line("    store i64 " + current + ", i64* %" + binding_slot)
+    pilot name: word = array_get(ast_stmt_names, sid)
+    llvm_set_var_type(name, "i")
+    llvm_reg_var(name, binding_slot)
+    llvm_loop_end_label = finish
+    llvm_loop_cond_label = increment
+    llvm_loop_word_cleanup_prefix = llvm_word_local_slots
+    llvm_emit_block(array_get(ast_stmt_bodies, sid))
+    llvm_emit_line("    br label %" + increment)
+    llvm_emit_line(increment + ":")
+    pilot max_start = next_reg()
+    pilot exhausted = next_reg()
+    llvm_emit_line("    " + max_start + " = sub i64 9223372036854775807, " + step)
+    llvm_emit_line("    " + exhausted + " = icmp sgt i64 " + current + ", " + max_start)
+    llvm_emit_line("    br i1 " + exhausted + ", label %" + finish + ", label %" + advance)
+    llvm_emit_line(advance + ":")
+    pilot next_value = next_reg()
+    llvm_emit_line("    " + next_value + " = add i64 " + current + ", " + step)
+    llvm_emit_line("    store i64 " + next_value + ", i64* %" + slot)
+    llvm_emit_line("    br label %" + cond)
+    llvm_emit_line(finish + ":")
+    llvm_var_names = saved_names
+    llvm_var_types = saved_types
+    llvm_var_reg_map = saved_map
+    llvm_loop_end_label = saved_end
+    llvm_loop_cond_label = saved_cond
+    llvm_loop_word_cleanup_prefix = saved_prefix
+}
+
+task llvm_emit_stmt_counted_for(eid: word) -> void {
+    pilot sid = word_to_int(eid)
+    pilot saved_names = llvm_var_names
+    pilot saved_types = llvm_var_types
+    pilot saved_map = llvm_var_reg_map
+    pilot saved_end = llvm_loop_end_label
+    pilot saved_cond = llvm_loop_cond_label
+    pilot saved_prefix = llvm_loop_word_cleanup_prefix
+    llvm_emit_stmt(array_get(ast_stmt_else_bodies, sid))
+    pilot serial = word_from_int(temp_reg_counter)
+    temp_reg_counter += 1
+    pilot cond = "for.cond." + serial
+    pilot body = "for.body." + serial
+    pilot increment = "for.inc." + serial
+    pilot finish = "for.end." + serial
+    llvm_emit_line("    br label %" + cond)
+    llvm_emit_line(cond + ":")
+    pilot condition = llvm_emit_expr(array_get(ast_stmt_exprs, sid))
+    pilot more = next_reg()
+    llvm_emit_line("    " + more + " = icmp ne i64 " + condition + ", 0")
+    llvm_emit_line("    br i1 " + more + ", label %" + body + ", label %" + finish)
+    llvm_emit_line(body + ":")
+    llvm_loop_end_label = finish
+    llvm_loop_cond_label = increment
+    llvm_loop_word_cleanup_prefix = llvm_word_local_slots
+    llvm_emit_block(array_get(ast_stmt_bodies, sid))
+    llvm_emit_line("    br label %" + increment)
+    llvm_emit_line(increment + ":")
+    llvm_emit_stmt(array_get(ast_stmt_extras, sid))
+    llvm_emit_line("    br label %" + cond)
+    llvm_emit_line(finish + ":")
+    llvm_var_names = saved_names
+    llvm_var_types = saved_types
+    llvm_var_reg_map = saved_map
+    llvm_loop_end_label = saved_end
+    llvm_loop_cond_label = saved_cond
+    llvm_loop_word_cleanup_prefix = saved_prefix
 }
 
 task llvm_emit_stmt_foreach(eid: word) -> void {

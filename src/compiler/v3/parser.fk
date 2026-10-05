@@ -719,8 +719,36 @@ task parse_stmt() -> int {
         pilot binder = parser_take_ident("iteration binding")
         expect_tok(TOK_KW, "in")
         pilot receiver = parse_expr()
+        if cur_tok_type() == TOK_PUNCT and (cur_tok_val() == ".." or cur_tok_val() == "..=") {
+            pilot inclusive = cur_tok_val()
+            advance_tok()
+            pilot upper = parse_expr()
+            pilot step = alloc_expr(EXPR_INT, "1", "", "")
+            if cur_tok_type() == TOK_IDENT and cur_tok_val() == "step" { advance_tok() step = parse_expr() }
+            pilot body = parse_block()
+            give back alloc_stmt(STMT_RANGE, binder, word_from_int(receiver), body, word_from_int(upper), word_from_int(step), inclusive, "", stmt_line)
+        }
         pilot body = parse_block()
         give back alloc_stmt(STMT_FOREACH, binder, word_from_int(receiver), body, "", "", "", "", stmt_line)
+    }
+
+    -- break / continue
+    if match_tok(TOK_KW, "for") {
+        expect_tok(TOK_PUNCT, "(")
+        pilot valid_initializer = cur_tok_type() == TOK_KW and cur_tok_val() == "pilot"
+        if not valid_initializer { diag_error("counted for initializer must start with pilot", "") }
+        pilot initializer = parse_stmt()
+        if array_get(ast_stmt_kinds, initializer) != STMT_PILOT { diag_error("counted for initializer must be a pilot binding", "") }
+        if valid_initializer { array_set(ast_pilot_is_mut, initializer, "1") }
+        expect_tok(TOK_PUNCT, ";")
+        pilot condition = parse_expr()
+        expect_tok(TOK_PUNCT, ";")
+        pilot step = parse_stmt()
+        pilot step_kind: word = array_get(ast_stmt_kinds, step)
+        if step_kind != STMT_ASSIGN and step_kind != STMT_EXPR { diag_error("counted for step must be an assignment or expression", "") }
+        expect_tok(TOK_PUNCT, ")")
+        pilot body = parse_block()
+        give back alloc_stmt(STMT_FOR, "", word_from_int(condition), body, word_from_int(initializer), word_from_int(step), "", "", stmt_line)
     }
 
     -- break / continue
@@ -768,8 +796,10 @@ task parse_stmt() -> int {
         }
         pilot expr_id = parse_expr()
         expect_tok(TOK_KW, "times")
+        pilot binder = ""
+        if cur_tok_type() == TOK_IDENT and cur_tok_val() == "with" { advance_tok() binder = parser_take_ident("repeat iteration binding") }
         pilot body_id = parse_block()
-        give back alloc_stmt(STMT_REPEAT, "times", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
+        give back alloc_stmt(STMT_REPEAT, "times", word_from_int(expr_id), body_id, "", binder, "", "", stmt_line)
     }
 
     -- training arc until cond max N sessions { body }
@@ -991,6 +1021,7 @@ task parse_when() -> int {
     pilot fin = false
     pilot is_first = true
     repeat until fin {
+        parser_skip_statement_separators()
         if match_tok(TOK_PUNCT, "}") {
             fin = true
         } else if parser_at_eof() {
@@ -1012,6 +1043,7 @@ task parse_when() -> int {
             } else {
                 cases_str = cases_str + "," + case_str
             }
+            parser_skip_statement_separators()
         }
     }
     give back alloc_stmt(STMT_WHEN, "", word_from_int(target_id), cases_str, "", "", "", "", stmt_line)
