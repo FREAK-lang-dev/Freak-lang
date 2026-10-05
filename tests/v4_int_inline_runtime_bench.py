@@ -265,7 +265,7 @@ def head_identity() -> str:
 class Identity:
     def __init__(self, inputs: list[Path], clang: Path):
         self.head = head_identity()
-        self.inputs = {str(path.relative_to(ROOT)): sha(path) for path in inputs}
+        self.inputs = {path.relative_to(ROOT).as_posix(): sha(path) for path in inputs}
         self.clang, self.clang_sha = clang, sha(clang)
         self.artifacts = {}
 
@@ -447,7 +447,7 @@ def run_gate(args, report: dict) -> None:
                           "live_handle_limit": 1024, "memory_limit_mib": 64, "optimization": 2}
     source = SOURCE.read_text(encoding="utf-8")
     copied_source = work / "hot-loop.fk"
-    copied_source.write_text(source, encoding="utf-8")
+    copied_source.write_bytes(SOURCE.read_bytes())
     identity.seal(copied_source)
     report["source_sha256"] = sha(copied_source)
 

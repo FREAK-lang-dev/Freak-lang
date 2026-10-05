@@ -1,9 +1,10 @@
 """Adversarial deterministic controls for the checked-int runtime gate."""
 from copy import deepcopy
 import importlib.util
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("int_inline_runtime_bench", ROOT / "tests/v4_int_inline_runtime_bench.py")
@@ -94,6 +95,23 @@ def report(sanitized=False):
 
 
 class IntRuntimeOracles(unittest.TestCase):
+    def test_windows_input_identity_uses_portable_keys_and_detects_source_changes(self):
+        root = PureWindowsPath("D:/checkout with spaces/Freak-lang")
+        source = root / "benchmarks/v4/int_checked_hot_loop.fk"
+        clang = PureWindowsPath("C:/LLVM/bin/clang.exe")
+        pins = {source: "a" * 64, clang: "b" * 64}
+        with patch.object(gate, "ROOT", root), patch.object(gate, "head_identity", return_value="c" * 40), \
+                patch.object(gate, "sha", side_effect=lambda path: pins[path]):
+            identity = gate.Identity([source], clang)
+            self.assertEqual(identity.inputs, {"benchmarks/v4/int_checked_hot_loop.fk": "a" * 64})
+            actual = report()
+            actual["compiler_inputs"] = identity.inputs
+            gate.validate_report(actual)
+            identity.check()
+            pins[source] = "d" * 64
+            with self.assertRaisesRegex(gate.GateError, "identity changed"):
+                identity.check()
+
     def test_geometric_oracle_against_unbounded_direct_integer_recurrence(self):
         for seed in (0, 1, 17, 21845, 65535):
             state = seed
