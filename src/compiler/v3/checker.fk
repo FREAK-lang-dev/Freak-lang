@@ -985,6 +985,7 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "http_server::live_requests" { give back "int" }
     if name == "http_server::live_sockets" { give back "int" }
     if name == "http_server::retained_bytes" { give back "int" }
+    if name == "fs::set_mode_relative_checked" { give back "int" }
     if name == "fs::rename_relative_new_checked" { give back "int" }
     if name == "fs::directory_identity_ticket" { give back "int" }
     if name == "fs::open_dir_ticket" { give back "int" }
@@ -1162,6 +1163,7 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "http_server::live_requests" { give back "" }
     if name == "http_server::live_sockets" { give back "" }
     if name == "http_server::retained_bytes" { give back "" }
+    if name == "fs::set_mode_relative_checked" { give back "int,word,int" }
     if name == "fs::rename_relative_new_checked" { give back "int,word,int,word" }
     if name == "fs::directory_identity_ticket" { give back "int" }
     if name == "fs::open_dir_ticket" { give back "word" }
