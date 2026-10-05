@@ -12235,10 +12235,10 @@ EXECUTABLE_SMOKES.extend([
         "expect": ["if-terminal case=0 edges=true Meiya=true restore=true old-seal=true fresh-module=true"],
         "runtime_cases": [
             {"argv": [str(case)], "expect": [f"if-terminal case={case} edges=true Meiya=true restore=true old-seal=true fresh-module=true"]}
-            for case in range(7)
+            for case in range(8)
         ] + [
             {"argv": [str(case)], "expect": [f"if-terminal case={case} named=true no-module=true"]}
-            for case in range(20, 25)
+            for case in range(20, 26)
         ] + [
             {"argv": ["30"], "expect": ["if-terminal case=30 canonical=true hostile-live=true hostile-detached=true recovered=true old-seal=true"]},
         ],
