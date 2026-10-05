@@ -7116,7 +7116,15 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
 
     pilot until_token = v4_mir_find_token_value(stream_id, arc_token + 1, open_token, "until")
     pilot max_token = v4_mir_find_token_value(stream_id, arc_token + 1, open_token, "max")
-    pilot sessions_token = v4_mir_find_token_value(stream_id, arc_token + 1, open_token, "sessions")
+    -- Match the heading suffix, not a local named sessions in the condition.
+    pilot sessions_token = v4_mir_last_nontrivia_before(stream_id, open_token)
+    if sessions_token >= arc_token and v4_lex_token_syntax_value(stream_id, sessions_token) == "growth" {
+        pilot with_head = v4_mir_prev_nontrivia(stream_id, sessions_token - 1, arc_token + 1)
+        if with_head >= 0 and v4_lex_token_syntax_value(stream_id, with_head) == "with" {
+            sessions_token = v4_mir_prev_nontrivia(stream_id, with_head - 1, arc_token + 1)
+        }
+    }
+    if sessions_token >= arc_token and v4_lex_token_syntax_value(stream_id, sessions_token) != "sessions" { sessions_token = -1 }
     if until_token < 0 or max_token < 0 or sessions_token < 0 or max_token <= until_token or sessions_token <= max_token {
         give back v4_mir_lower_assign_or_expr_stmt(mir_id, body_id, block_id, stream_id, training_token, stmt_end)
     }
@@ -7152,9 +7160,19 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
         }
     }
 
+    -- The cap is tested after the until condition, on every iteration (§5.6).
+    -- Its rvalue remains in the cap block, never captured in the preheader.
+    pilot counter_name = "$training_sessions#" + word_from_int(v4_mir_body_local_count(mir_id, body_id))
+    pilot counter_local = v4_mir_add_local_at_scope(mir_id, body_id, counter_name, v4_ty_int, stmt_span, v4_mir_current_scope_span(stmt_span))
+    if v4_mir_control_diagnostic_depth > 0 { v4_mir_set_local_mode(mir_id, body_id, counter_local, "$control-diagnostic") }
+    pilot counter_place = v4_mir_add_place(mir_id, body_id, v4_mir_place_local, counter_name, counter_local, counter_name, -1, stmt_span, v4_ty_int)
+    pilot zero = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "0", "", -1, -1, stmt_span, v4_ty_int)
+    v4_mir_build_add_scoped_stmt(mir_id, body_id, block_id, v4_mir_stmt_local, counter_name, "0", stmt_span, counter_place, zero)
     pilot body_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot after_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
     pilot loop_entry_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, 0 - 1, 0 - 1, "")
+    pilot cap_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
+    pilot increment_block = v4_mir_build_add_scoped_block(mir_id, body_id, v4_mir_term_return, -1, -1, "")
     v4_mir_seal_block_goto_if_live(mir_id, body_id, block_id, loop_entry_block)
     pilot loop_condition = "training arc until " + condition_text + " max " + max_text
     if has_growth {
@@ -7163,19 +7181,39 @@ task v4_mir_lower_training_arc_stmt(mir_id: int, body_id: int, block_id: int, st
 
     pilot condition_block = v4_mir_wire_try_propagation(mir_id, body_id, loop_entry_block, stmt_span, condition_rvalue)
     if v4_mir_control_block_is_terminal(mir_id, body_id, condition_block) {
-        v4_mir_push_loop_context(after_block, loop_entry_block)
+        v4_mir_push_loop_context(after_block, increment_block)
         v4_mir_control_diagnostic_depth += 1
         pilot checked_tail = v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
         v4_mir_control_diagnostic_depth -= 1
         v4_mir_pop_loop_context()
         give back condition_block
     }
-    v4_mir_set_body_block(mir_id, body_id, condition_block, v4_mir_block_new_full(condition_block, v4_mir_term_if, after_block, body_block, loop_condition))
+    v4_mir_set_body_block(mir_id, body_id, condition_block, v4_mir_block_new_full(condition_block, v4_mir_term_if, after_block, cap_block, loop_condition))
     v4_mir_build_add_scoped_stmt(mir_id, body_id, condition_block, v4_mir_stmt_loop, condition_text, "max " + max_text, stmt_span, 0 - 1, condition_rvalue)
-    v4_mir_push_loop_context(after_block, loop_entry_block)
+    pilot counter_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, "local#" + word_from_int(counter_local), -1, -1, stmt_span, v4_ty_int)
+    pilot cap_text = counter_name + " < " + max_text
+    pilot cap_rvalue = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, cap_text, v4_mir_bin_lt, counter_use, max_rvalue, stmt_span, v4_ty_bool)
+    pilot cap_tail = v4_mir_wire_try_propagation(mir_id, body_id, cap_block, stmt_span, cap_rvalue)
+    if not v4_mir_control_block_is_terminal(mir_id, body_id, cap_tail) {
+        v4_mir_set_body_block(mir_id, body_id, cap_tail, v4_mir_block_new_full(cap_tail, v4_mir_term_if, body_block, after_block, cap_text))
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, cap_tail, v4_mir_stmt_branch, cap_text, "body#" + word_from_int(body_block) + " exit#" + word_from_int(after_block), stmt_span, -1, cap_rvalue)
+    }
+    pilot diagnostic_depth = v4_mir_control_diagnostic_depth
+    if v4_mir_control_block_is_terminal(mir_id, body_id, cap_tail) { v4_mir_control_diagnostic_depth += 1 }
+    v4_mir_push_loop_context(after_block, increment_block)
     pilot body_tail = v4_mir_lower_block_body(mir_id, body_id, body_block, stream_id, open_token, stmt_end)
     v4_mir_pop_loop_context()
-    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, loop_entry_block)
+    v4_mir_control_diagnostic_depth = diagnostic_depth
+    v4_mir_seal_block_goto_if_live(mir_id, body_id, body_tail, increment_block)
+    -- Both normal completion and continue consume one session. A returning or
+    -- breaking body never acquires a new edge or an unreachable live epilogue.
+    if v4_mir_body_block_predecessor_count(mir_id, body_id, increment_block) > 0 {
+        pilot increment_use = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_use_local, counter_name, "local#" + word_from_int(counter_local), -1, -1, stmt_span, v4_ty_int)
+        pilot one = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_const_int, "1", "", -1, -1, stmt_span, v4_ty_int)
+        pilot increment = v4_mir_add_rvalue(mir_id, body_id, v4_mir_rvalue_binary, counter_name + " + 1", v4_mir_bin_add, increment_use, one, stmt_span, v4_ty_int)
+        v4_mir_build_add_scoped_stmt(mir_id, body_id, increment_block, v4_mir_stmt_assign, counter_name, counter_name + " + 1", stmt_span, counter_place, increment)
+        v4_mir_set_body_block(mir_id, body_id, increment_block, v4_mir_block_new_full(increment_block, v4_mir_term_goto, loop_entry_block, -1, ""))
+    }
 
     give back after_block
 }
