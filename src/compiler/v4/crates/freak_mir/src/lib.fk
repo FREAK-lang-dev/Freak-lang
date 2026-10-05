@@ -157,6 +157,8 @@ pilot v4_mir_body_lookup_build_records = 0
 pilot v4_mir_body_lookup_probes = 0
 pilot v4_mir_body_lookup_linear_steps = 0
 pilot v4_mir_body_name_reads = 0
+pilot v4_mir_body_block_reads = 0
+pilot v4_mir_block_edge_reads = 0
 pilot v4_mir_block_stmt_build_records = 0
 pilot v4_mir_block_stmt_lookup_steps = 0
 pilot v4_mir_block_stmt_linear_steps = 0
@@ -1346,6 +1348,7 @@ task v4_mir_block_terminator(block_record: word) -> word {
 }
 
 task v4_mir_block_target(block_record: word) -> int {
+    v4_mir_block_edge_reads += 1
     pilot raw = v4_mir_block_part(block_record, 2)
     if raw == "" {
         give back 0 - 1
@@ -1354,6 +1357,7 @@ task v4_mir_block_target(block_record: word) -> int {
 }
 
 task v4_mir_block_else_target(block_record: word) -> int {
+    v4_mir_block_edge_reads += 1
     pilot raw = v4_mir_block_part(block_record, 3)
     if raw == "" {
         give back 0 - 1
@@ -1366,6 +1370,7 @@ task v4_mir_block_condition(block_record: word) -> word {
 }
 
 task v4_mir_body_block(mir_id: int, body_id: int, block_id: int) -> word {
+    v4_mir_body_block_reads += 1
     give back array_get(v4_mir_body_blocks_handle(mir_id, body_id), block_id)
 }
 
@@ -1525,6 +1530,44 @@ task v4_mir_body_block_predecessor_count(mir_id: int, body_id: int, wanted_block
     give back total
 }
 
+-- Validation owns this scratch for one immutable body traversal. Count both
+-- If arms, including identical targets, from physical slots just as the cold
+-- scanner does. Invalid targets cannot name a validated block and are ignored.
+task v4_mir_body_block_predecessor_counts(mir_id: int, body_id: int) -> int {
+    pilot block_count = v4_mir_body_block_count(mir_id, body_id)
+    if block_count <= 1 { give back -1 }
+    pilot counts = array_new()
+    if counts < 0 { give back -1 }
+    pilot block_id = 0
+    repeat until block_id >= block_count {
+        array_push(counts, "0")
+        if array_len(counts) != block_id + 1 {
+            array_release(counts)
+            give back -1
+        }
+        block_id += 1
+    }
+    block_id = 0
+    repeat until block_id >= block_count {
+        pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
+        pilot terminator = v4_mir_block_terminator(block_record)
+        if terminator == v4_mir_term_goto or terminator == v4_mir_term_if {
+            pilot target = v4_mir_block_target(block_record)
+            if target >= 0 and target < block_count {
+                array_set(counts, target, word_from_int(word_to_int(array_get(counts, target)) + 1))
+            }
+            if terminator == v4_mir_term_if {
+                target = v4_mir_block_else_target(block_record)
+                if target >= 0 and target < block_count {
+                    array_set(counts, target, word_from_int(word_to_int(array_get(counts, target)) + 1))
+                }
+            }
+        }
+        block_id += 1
+    }
+    give back counts
+}
+
 task v4_mir_block_target_is_valid(mir_id: int, body_id: int, target: int) -> bool {
     give back target >= 0 and target < v4_mir_body_block_count(mir_id, body_id)
 }
@@ -1555,6 +1598,7 @@ task v4_mir_validate_body_cfg(mir_id: int, body_id: int, item_span: word) -> voi
         stmt_id += 1
     }
 
+    pilot predecessor_counts = v4_mir_body_block_predecessor_counts(mir_id, body_id)
     pilot block_id = 0
     repeat until block_id >= block_count {
         pilot block_record = v4_mir_body_block(mir_id, body_id, block_id)
@@ -1604,13 +1648,19 @@ task v4_mir_validate_body_cfg(mir_id: int, body_id: int, item_span: word) -> voi
         }
 
         if block_id != 0 {
-            pilot preds = v4_mir_body_block_predecessor_count(mir_id, body_id, block_id)
+            pilot preds = 0
+            if predecessor_counts >= 0 {
+                preds = word_to_int(array_get(predecessor_counts, block_id))
+            } else {
+                preds = v4_mir_body_block_predecessor_count(mir_id, body_id, block_id)
+            }
             if preds == 0 and (stmt_in_block > 0 or terminator == v4_mir_term_goto or terminator == v4_mir_term_if) {
                 v4_mir_add_type_error(mir_id, item_span, "mir cfg unreachable live block", body_name + " block " + word_from_int(block_id) + " has no predecessors but still carries live statements or control flow")
             }
         }
         block_id += 1
     }
+    array_release(predecessor_counts)
 }
 
 task v4_mir_find_local(mir_id: int, body_id: int, local_name: word) -> int {
