@@ -219,6 +219,26 @@ task v4_parse_closure_index_run() -> void {
     wire = v4_parse_snapshot()
     restored = v4_parse_snapshot_restore(wire)
     say "parse-closure-source-recovery-wire-exact=" + word_from_bool(published_actual and v4_parse_diag_count(actual) > 0 and v4_parse_closure_index_all_equivalent(actual) and restored.starts_with("parse-snapshot-restore ok=1") and v4_parse_snapshot() == wire)
+
+    -- Accepted node-only overlays publish their changed owner without replacing
+    -- an untouched owner's derived child or interpreting old physical parents.
+    held = v4_parse_closure_child_index_handle(tree)
+    pilot untouched = v4_parse_closure_child_index_handle(actual)
+    pilot untouched_length = array_len(untouched)
+    pilot untouched_revision = v4_parse_tree_revision(actual)
+    pilot untouched_ready: word = array_get(untouched, 0)
+    pilot untouched_header: word = array_get(untouched, 1)
+    pilot untouched_nodes = word_to_int(array_get(untouched, 2))
+    pilot untouched_children = word_to_int(array_get(untouched, 3))
+    pilot before_nodes = v4_parse_node_count(tree)
+    builds = v4_parse_closure_child_index_builds
+    pilot overlay = v4_parse_snapshot_header() + "\nnode|" + word_from_int(tree) + "|8|" + v4_parse_snapshot_escape(v4_node_closure) + "|overlay|" + v4_parse_snapshot_escape(V4_NO_SPAN) + "|1\nend|" + v4_parse_snapshot_format
+    restored = v4_parse_snapshot_restore(overlay)
+    pilot changed_owner: bool = restored.starts_with("parse-snapshot-restore ok=1") and v4_parse_node_count(tree) == before_nodes and array_len(held) == 0 and v4_parse_closure_child_index_handle(tree) != held and v4_parse_closure_count(tree, 1) == 1 and v4_parse_closure_node(tree, 1, 0) == 8 and v4_parse_closure_param_count(tree, 2) == 0 and v4_parse_closure_index_all_equivalent(tree)
+    pilot untouched_after_ready: word = array_get(untouched, 0)
+    pilot untouched_after_header: word = array_get(untouched, 1)
+    pilot unchanged_owner: bool = v4_parse_closure_child_index_handle(actual) == untouched and array_len(untouched) == untouched_length and v4_parse_tree_revision(actual) == untouched_revision and untouched_after_ready == untouched_ready and untouched_after_header == untouched_header and word_to_int(array_get(untouched, 2)) == untouched_nodes and word_to_int(array_get(untouched, 3)) == untouched_children and v4_parse_closure_child_index_builds == builds + 1
+    say "parse-closure-node-overlay-owner-publication=" + word_from_bool(changed_owner and unchanged_owner)
 }
 
 v4_parse_closure_index_run()
