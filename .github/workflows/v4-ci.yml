@@ -214,6 +214,12 @@ jobs:
       - name: Checked numeric native lowering at O0, O2 and O3
         run: python -B -u tests/v4_checked_numeric_codegen.py --plain --snapshot-control --work "${{ runner.temp }}/numeric-codegen-plain" --json "${{ runner.temp }}/numeric-codegen-plain.json"
 
+      - name: Checked integer runtime benchmark oracle regressions
+        run: python -B -u -m unittest discover -s tests -p test_v4_int_inline_runtime_bench.py -v
+
+      - name: Checked integer hot-loop native portability and measured helper control
+        run: python -B -u tests/v4_int_inline_runtime_bench.py --plain --work "${{ runner.temp }}/int-inline-runtime-plain"
+
       - name: Generated owned word programs with C and LLVM ownership audits
         run: python -B -u -m unittest discover -s tests -p test_v4_owned_word_codegen.py -v
 
@@ -346,6 +352,18 @@ jobs:
       - name: Checked numeric generated-code sanitizer and ownership gate
         if: runner.os == 'Linux'
         run: python -B -u tests/v4_checked_numeric_codegen.py --snapshot-control --work "${{ runner.temp }}/numeric-codegen-sanitized" --json "${{ runner.temp }}/numeric-codegen-sanitized.json"
+
+      - name: Checked integer hot-loop mandatory sanitizer and ownership gate
+        if: runner.os == 'Linux'
+        run: python -B -u tests/v4_int_inline_runtime_bench.py --work "${{ runner.temp }}/int-inline-runtime-sanitized"
+
+      - name: Preserve checked integer runtime source, LLVM, native and timing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-int-inline-runtime-${{ matrix.os }}
+          path: ${{ runner.temp }}/int-inline-runtime-*/
+          if-no-files-found: warn
 
       - name: Preserve Word bounds compiler and native evidence
         if: always()
