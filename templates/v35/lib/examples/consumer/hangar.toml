@@ -1,0 +1,11 @@
+[project]
+name = "@@CONSUMER_NAME@@"
+version = "0.1.0"
+kind = "app"
+entry = "src/main.fk"
+
+[tests]
+consumer = "tests/consumer_test.fk"
+
+[dependencies]
+demo = { path = "../.." }

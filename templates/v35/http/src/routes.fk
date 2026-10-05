@@ -1,0 +1,48 @@
+-- A pure module task supplies the named route's application response.
+task hello(name: word) -> word {
+    give back "Hello, " + name + "!"
+}
+
+task route_hex(ch: word) -> int {
+    pilot digits = "0123456789abcdef"
+    pilot mut index = 0
+    repeat until index >= digits.length() {
+        if digits.char_at(index) == ch.to_lower() { give back index }
+        index += 1
+    }
+    give back -1
+}
+
+-- Decode one named component, retaining UTF-8 and rejecting hidden separators,
+-- NUL and controls. Empty return means malformed or empty parameter.
+task route_parameter(path: word) -> word {
+    if not path.starts_with("/hello/") { give back "" }
+    pilot encoded = path.substring(7, path.length() - 7)
+    if encoded == "" or encoded.length() > 1024 { give back "" }
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    pilot mut index = 0
+    pilot mut valid = true
+    repeat until index >= encoded.length() or not valid {
+        pilot ch = encoded.char_at(index)
+        if ch == "%" {
+            if index + 2 >= encoded.length() { valid = false } else {
+                pilot high = route_hex(encoded.char_at(index + 1))
+                pilot low = route_hex(encoded.char_at(index + 2))
+                if high < 0 or low < 0 { valid = false } else {
+                    pilot value = high * 16 + low
+                    if value < 32 or value == 127 or value == 47 or value == 92 { valid = false } else { bytes.write_byte(value) }
+                }
+                index += 2
+            }
+        } else {
+            if ch == "/" or ch == "\\" { valid = false } else { bytes.write_word(ch) }
+        }
+        index += 1
+    }
+    pilot mut decoded = ""
+    if valid { decoded = bytes.to_word()
+        valid = bytes.status() == 0 }
+    bytes.release()
+    if not valid { give back "" }
+    give back decoded
+}
