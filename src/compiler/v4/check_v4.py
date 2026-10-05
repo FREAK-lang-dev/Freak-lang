@@ -14522,6 +14522,8 @@ def check_snapshot_inventories() -> None:
             "typed_os_entry_execute_smoke.fk",
             "typed_os_entry_contract_smoke.fk",
             "word_bounds_execute_smoke.fk",
+            "mir_training_cap_contract_smoke.fk",
+            "mir_if_terminal_contract_smoke.fk",
         }
     ):
         violations.append("scratch-handle resource smoke limit coverage drifted")
