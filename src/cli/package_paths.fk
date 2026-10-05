@@ -5,7 +5,7 @@
 task package_join_host(root: word, relative: word) -> word {
     -- Extended Win32 paths deliberately bypass slash normalization. Preserve
     -- their long/UNC identity and use the native separator when appending.
-    if root.starts_with("\\\\?\\") {
+    if process::platform_is_windows() and root.starts_with("\\\\?\\") {
         if root.ends_with("\\") { give back root + relative.replace("/", "\\") }
         give back root + "\\" + relative.replace("/", "\\")
     }
@@ -49,7 +49,8 @@ task package_checked_file(root: word, relative: word) -> word {
     }
     pilot canonical_root = fs::result_word(root_ticket)
     fs::result_release(root_ticket)
-    pilot root_key = canonical_root.replace("\\", "/")
+    pilot root_key = canonical_root
+    if process::platform_is_windows() { root_key = root_key.replace("\\", "/") }
     pilot prefix = root_key
     if not prefix.ends_with("/") { prefix = prefix + "/" }
     pilot current = canonical_root
@@ -83,7 +84,9 @@ task package_checked_file(root: word, relative: word) -> word {
             }
             pilot canonical = fs::result_word(canonical_ticket)
             fs::result_release(canonical_ticket)
-            if not canonical.replace("\\", "/").starts_with(prefix) {
+            pilot canonical_key = canonical
+            if process::platform_is_windows() { canonical_key = canonical_key.replace("\\", "/") }
+            if not canonical_key.starts_with(prefix) {
                 hangar_graph_fail("source component escapes its declared package root: " + current)
                 give back ""
             }

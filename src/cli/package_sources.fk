@@ -178,11 +178,12 @@ task package_sources_clear() -> void {
 }
 
 task package_parent_path(path: word) -> word {
+    pilot windows = process::platform_is_windows()
     pilot position = path.length() - 1
     repeat until position < 0 {
-        if path.char_at(position) == "/" or path.char_at(position) == "\\" {
+        if path.char_at(position) == "/" or (windows and path.char_at(position) == "\\") {
             if position == 0 { give back "/" }
-            if position == 2 and path.char_at(1) == ":" { give back path.substring(0, 3) }
+            if windows and position == 2 and path.char_at(1) == ":" { give back path.substring(0, 3) }
             give back path.substring(0, position)
         }
         position -= 1
@@ -191,9 +192,10 @@ task package_parent_path(path: word) -> word {
 }
 
 task package_leaf_path(path: word) -> word {
+    pilot windows = process::platform_is_windows()
     pilot position = path.length() - 1
     repeat until position < 0 {
-        if path.char_at(position) == "/" or path.char_at(position) == "\\" { give back path.substring(position + 1, path.length() - position - 1) }
+        if path.char_at(position) == "/" or (windows and path.char_at(position) == "\\") { give back path.substring(position + 1, path.length() - position - 1) }
         position -= 1
     }
     give back path
@@ -212,7 +214,7 @@ task package_local_path(root: word, request: word) -> word {
         hangar_graph_fail("invalid local package path")
         give back ""
     }
-    pilot windows = process::env("OS") == "Windows_NT"
+    pilot windows = process::platform_is_windows()
     pilot source = request
     pilot base = root
     if windows {
@@ -250,7 +252,7 @@ task package_local_path(root: word, request: word) -> word {
                 if length <= floor { hangar_graph_fail("local package path escapes its filesystem root")
                     valid = false } else { length -= 1 }
             } else if component != "" and component != "." {
-                if component.contains(":") or component.ends_with(".") or component.ends_with(" ") or length >= 256 {
+                if (windows and (component.contains(":") or component.ends_with(".") or component.ends_with(" "))) or length >= 256 {
                     hangar_graph_fail("local package path has unsafe components or exceeds its depth limit")
                     valid = false
                 } else {

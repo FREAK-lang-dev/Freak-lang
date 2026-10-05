@@ -18,6 +18,21 @@ from v3_v35_hangar import task_source, probe_transpile, require_resource_conserv
 PROGRAM = r'''
 task main() {
     pilot mode = process::arg(2)
+    if mode == "host" {
+        say package_parent_path(process::arg(1))
+        say package_leaf_path(process::arg(1))
+        say package_join_host(process::arg(1), "child")
+        say package_local_path(process::arg(1), "../sibling")
+        package_release_graph()
+        give back
+    }
+    if mode == "discover" {
+        if not package_prepare_project_sources(process::arg(1)) { say "error:" + hangar_graph_error } else {
+            if package_graph_no_manifest { say "standalone" } else { say "manifest:" + package_graph_manifest_path }
+        }
+        package_release_graph()
+        give back
+    }
     pilot held = 0
     if mode == "snapshot-lock" {
         pilot parent = fs::open_dir_ticket(package_parent_path(process::arg(1)))
@@ -178,7 +193,7 @@ def package_probe_source(repo: Path) -> str:
               '\n'.join((repo/f'src/cli/{name}.fk').read_text() for name in ('package_graph','package_paths','package_inputs','package_sources','package_lock','package_transaction')))
 
 
-def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
+def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path, paths_only: bool = False, physical_roots: bool = False) -> None:
     repo = Path(__file__).resolve().parents[1]
     source = package_probe_source(repo) + '\n' + PROGRAM
     git_shim = build_git_shim(clang, root)
@@ -195,6 +210,34 @@ def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
             assert result.returncode == 0, (backend, mode, result.returncode, result.stdout, result.stderr)
             require_resource_conservation(foundation, result.stderr)
             return result.stdout
+        if os.name!='nt':
+            for value in ('/tmp/Literal\\Backslash/CaseΩ','/tmp/Colon:Name/CaseΩ','/tmp/Name. /CaseΩ','\\\\?\\C:\\literal'):
+                path=Path(value)
+                parent=value.rsplit('/',1)[0] if '/' in value else '.'
+                leaf=value.rsplit('/',1)[-1]
+                local=parent+'/sibling' if value.startswith('/') else ''
+                expected=f'{parent}\n{leaf}\n{value}/child\n{local}\n'
+                checked=execute(path,'host',extra_env={'OS':'Windows_NT'})
+                assert checked==expected,(value,checked,expected)
+            print(f'native:{backend}:sources:host-platform-paths-ignore-os-env:passed',flush=True)
+            manifest=project(root/f'neighbor-paths-{backend}')
+            neighbor=manifest.parent/'neighbor'
+            neighbor.mkdir()
+            (neighbor/'hangar.toml').write_bytes(b'UNRELATED NEIGHBOR MANIFEST')
+            selected=manifest.parent/'neighbor\\source.fk'
+            selected.write_bytes(b'task main() { say 99 }\n')
+            previous={str(path):path.read_bytes() for path in neighbor.rglob('*') if path.is_file()}
+            assert execute(selected,'discover',extra_env={'OS':'Windows_NT'})=='manifest:'+str(manifest)+'\n'
+            assert {str(path):path.read_bytes() for path in neighbor.rglob('*') if path.is_file()}==previous
+            print(f'native:{backend}:sources:literal-backslash-source-preserves-neighbor:passed',flush=True)
+            if physical_roots:
+                for label in ('Literal\\Backslash','Colon:Root','CaseΩ'):
+                    manifest=project(root/f'physical-{backend}-{label}')
+                    result=execute(manifest,extra_env={'OS':'Windows_NT'})
+                    assert result.startswith('ready: 4:4\n'),result
+                    validate_lock(manifest.with_name('hangar.lock'))
+                print(f'native:{backend}:sources:physical-posix-special-roots:passed',flush=True)
+        if paths_only: continue
         for label, declaration, reason in (
             ('reserved-fact', '\n[__package]\ntests_declared="true"\n', 'reserved package admission fact'),
             ('nested-tests', '\n[tests.nested]\npath="main.fk"\n', 'flat name-to-relative-source map'),
@@ -442,12 +485,14 @@ def main() -> int:
     parser.add_argument('--clang',type=Path,required=True)
     parser.add_argument('--runtime-root',type=Path,required=True)
     parser.add_argument('--probe-root',type=Path)
+    parser.add_argument('--paths-only',action='store_true')
+    parser.add_argument('--physical-roots',action='store_true')
     args=parser.parse_args()
     if args.probe_root:
         args.probe_root.mkdir(parents=True,exist_ok=False)
     context=contextlib.nullcontext(str(args.probe_root.resolve())) if args.probe_root else tempfile.TemporaryDirectory(prefix='freak-v35-sources-')
     with context as location:
-        run_gate(args.compiler.resolve(strict=True),args.clang.resolve(strict=True),args.runtime_root.resolve(strict=True),Path(location))
+        run_gate(args.compiler.resolve(strict=True),args.clang.resolve(strict=True),args.runtime_root.resolve(strict=True),Path(location),args.paths_only,args.physical_roots)
     return 0
 
 if __name__ == '__main__':
