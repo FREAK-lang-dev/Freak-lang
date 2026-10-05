@@ -90,23 +90,9 @@ jobs:
         run: |
           mkdir -p build
           rm -f build/freakc_cli.fk
-          cat std/version.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/globals.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/helpers.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/lexer.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/parser.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/checker.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/emit_c.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/emit_llvm.fk >> build/freakc_cli.fk
-          cat src/cli/version.fk >> build/freakc_cli.fk
-          cat src/cli/toml.fk >> build/freakc_cli.fk
-          cat src/cli/lockfile.fk >> build/freakc_cli.fk
-          cat src/cli/build.fk >> build/freakc_cli.fk
-          cat src/cli/run.fk >> build/freakc_cli.fk
-          cat src/cli/hangar.fk >> build/freakc_cli.fk
-          cat src/cli/doctor.fk >> build/freakc_cli.fk
-          cat src/cli/audit.fk >> build/freakc_cli.fk
-          cat src/cli/main.fk >> build/freakc_cli.fk
+          while IFS= read -r source; do
+            cat "$source" >> build/freakc_cli.fk
+          done < packaging/cli-sources.manifest
           ./build/freakc_v3_stage2$EXT build/freakc_cli.fk --c
           clang -o build/freak$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           # Create hangar binary (BusyBox pattern)
@@ -196,7 +182,7 @@ jobs:
           with open("doctor.json", "r", encoding="utf-8") as handle:
               doc = json.load(handle)
           assert doc["schema"] == "freak.doctor.v1"
-          assert doc["checks"]["stdlib"]["modules_expected"] == 11
+          assert doc["checks"]["stdlib"]["modules_expected"] == 13
           assert "clang" in doc["checks"]
           PY
 
@@ -360,23 +346,9 @@ jobs:
         run: |
           mkdir -p build
           rm -f build/freakc_cli.fk
-          cat std/version.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/globals.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/helpers.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/lexer.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/parser.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/checker.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/emit_c.fk >> build/freakc_cli.fk
-          cat src/compiler/v3/emit_llvm.fk >> build/freakc_cli.fk
-          cat src/cli/version.fk >> build/freakc_cli.fk
-          cat src/cli/toml.fk >> build/freakc_cli.fk
-          cat src/cli/lockfile.fk >> build/freakc_cli.fk
-          cat src/cli/build.fk >> build/freakc_cli.fk
-          cat src/cli/run.fk >> build/freakc_cli.fk
-          cat src/cli/hangar.fk >> build/freakc_cli.fk
-          cat src/cli/doctor.fk >> build/freakc_cli.fk
-          cat src/cli/audit.fk >> build/freakc_cli.fk
-          cat src/cli/main.fk >> build/freakc_cli.fk
+          while IFS= read -r source; do
+            cat "$source" >> build/freakc_cli.fk
+          done < packaging/cli-sources.manifest
           ./build/freakc_v3_stage2$EXT build/freakc_cli.fk --c
           clang -o build/freak$EXT build/freakc_cli.fk.c freakc/runtime/freak_runtime.c -Ifreakc/runtime $CLANG_FLAGS $LINK_FLAGS
           # Create hangar binary (BusyBox pattern)
@@ -508,7 +480,7 @@ jobs:
           with open("doctor.json", "r", encoding="utf-8") as handle:
               doc = json.load(handle)
           assert doc["schema"] == "freak.doctor.v1"
-          assert doc["checks"]["stdlib"]["modules_expected"] == 11
+          assert doc["checks"]["stdlib"]["modules_expected"] == 13
           assert "clang" in doc["checks"]
           PY
 

@@ -3053,8 +3053,8 @@ static int64_t freak_word_builder_table_capacity = 0;
 static int64_t freak_word_builder_free_head = -1;
 static size_t freak_word_builder_live_count = 0;
 
-#define FREAK_HANDLE_DOMAIN_MASK UINT64_C(0x6000000000000000)
-#define FREAK_HANDLE_GENERATION_MAX UINT32_C(0x1fffffff)
+#define FREAK_HANDLE_DOMAIN_MASK UINT64_C(0xf000000000000000)
+#define FREAK_HANDLE_GENERATION_MAX UINT32_C(0x0fffffff)
 #define FREAK_ARRAY_HANDLE_DOMAIN UINT64_C(0x0000000000000000)
 #define FREAK_WORD_BUILDER_HANDLE_DOMAIN UINT64_C(0x2000000000000000)
 #define FREAK_WORD_BUILDER_GENERATION_MAX FREAK_HANDLE_GENERATION_MAX
@@ -3438,7 +3438,7 @@ static int64_t freak_byte_buffer_table_capacity = 0;
 static int64_t freak_byte_buffer_free_head = -1;
 static size_t freak_byte_buffer_live_count = 0;
 
-#define FREAK_BYTE_BUFFER_DOMAIN_MASK UINT64_C(0xe000000000000000)
+#define FREAK_BYTE_BUFFER_DOMAIN_MASK UINT64_C(0xf000000000000000)
 #define FREAK_BYTE_BUFFER_HANDLE_DOMAIN UINT64_C(0x8000000000000000)
 #define FREAK_BYTE_BUFFER_GENERATION_MAX FREAK_HANDLE_GENERATION_MAX
 
@@ -4391,7 +4391,7 @@ static int64_t freak_tcp_socket_table_capacity = 0;
 static int64_t freak_tcp_socket_free_head = -1;
 static size_t freak_tcp_socket_live_count = 0;
 
-#define FREAK_TCP_SOCKET_DOMAIN_MASK UINT64_C(0xe000000000000000)
+#define FREAK_TCP_SOCKET_DOMAIN_MASK UINT64_C(0xf000000000000000)
 #define FREAK_TCP_SOCKET_HANDLE_DOMAIN UINT64_C(0xc000000000000000)
 #define FREAK_TCP_SOCKET_GENERATION_MAX FREAK_HANDLE_GENERATION_MAX
 
@@ -5420,3 +5420,4 @@ int64_t freak_v3_live_words(void) { return freak_v3_words_live; }
 /* Shares the word and ByteBuffer owners above; not a second runtime. */
 #include "freak_v35_process.inc"
 #include "freak_v35_fs.inc"
+#include "freak_v35_json.inc"

@@ -25,24 +25,9 @@ COMPILER_SOURCES = (
     "src/compiler/v3/main.fk",
 )
 
-CLI_SOURCES = (
-    "std/version.fk",
-    "src/compiler/v3/globals.fk",
-    "src/compiler/v3/helpers.fk",
-    "src/compiler/v3/lexer.fk",
-    "src/compiler/v3/parser.fk",
-    "src/compiler/v3/checker.fk",
-    "src/compiler/v3/emit_c.fk",
-    "src/compiler/v3/emit_llvm.fk",
-    "src/cli/version.fk",
-    "src/cli/toml.fk",
-    "src/cli/lockfile.fk",
-    "src/cli/build.fk",
-    "src/cli/run.fk",
-    "src/cli/hangar.fk",
-    "src/cli/doctor.fk",
-    "src/cli/audit.fk",
-    "src/cli/main.fk",
+CLI_SOURCES = tuple(
+    (Path(__file__).resolve().parents[1] / "packaging/cli-sources.manifest")
+    .read_text(encoding="utf-8").splitlines()
 )
 
 

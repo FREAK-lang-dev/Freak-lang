@@ -853,3 +853,36 @@ int64_t freak_ui_draw_text_word(int64_t handle, freak_word text, int64_t x, int6
 int64_t freak_ui_get_width(int64_t handle);
 int64_t freak_ui_get_height(int64_t handle);
 int64_t freak_ui_measure_text_word(freak_word text, int64_t font_size, int64_t bold, int64_t italic);
+
+/* Strict document-scoped JSON. Node views borrow their document owner. */
+int64_t freak_json_document_new(void);
+int64_t freak_json_document_parse(freak_word source);
+int64_t freak_json_document_parse_bytes(int64_t source);
+int64_t freak_json_document_ok(int64_t doc);
+freak_word freak_json_document_error(int64_t doc);
+int64_t freak_json_document_error_position(int64_t doc);
+int64_t freak_json_document_root(int64_t doc);
+int64_t freak_json_document_set_root(int64_t doc, int64_t node);
+void freak_json_document_release(int64_t doc);
+int64_t freak_json_document_kind(int64_t doc, int64_t node);
+int64_t freak_json_document_count(int64_t doc, int64_t node);
+int64_t freak_json_document_array_get(int64_t doc, int64_t node, int64_t index);
+int64_t freak_json_document_object_get(int64_t doc, int64_t node, freak_word key);
+int64_t freak_json_document_object_get_bytes(int64_t doc, int64_t node, int64_t key);
+int64_t freak_json_document_object_key_bytes(int64_t doc, int64_t node, int64_t index);
+int64_t freak_json_document_bool_value(int64_t doc, int64_t node);
+freak_word freak_json_document_number_text(int64_t doc, int64_t node);
+freak_word freak_json_document_string_word(int64_t doc, int64_t node);
+int64_t freak_json_document_string_bytes(int64_t doc, int64_t node);
+int64_t freak_json_document_make_null(int64_t doc);
+int64_t freak_json_document_make_bool(int64_t doc, int64_t value);
+int64_t freak_json_document_make_number(int64_t doc, freak_word value);
+int64_t freak_json_document_make_string(int64_t doc, freak_word value);
+int64_t freak_json_document_make_string_bytes(int64_t doc, int64_t value);
+int64_t freak_json_document_make_array(int64_t doc);
+int64_t freak_json_document_make_object(int64_t doc);
+int64_t freak_json_document_array_append(int64_t doc, int64_t array, int64_t child);
+int64_t freak_json_document_object_insert(int64_t doc, int64_t object, freak_word key, int64_t child);
+int64_t freak_json_document_object_insert_bytes(int64_t doc, int64_t object, int64_t key, int64_t child);
+freak_word freak_json_document_serialize_word(int64_t doc);
+int64_t freak_json_document_serialize_bytes(int64_t doc);

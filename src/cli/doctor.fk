@@ -259,6 +259,8 @@ task cli_doctor_std_module_count(std_dir: word) -> int {
     if fs::exists(std_dir + "/convert.fk")   { mod_count += 1 }
     if fs::exists(std_dir + "/algorithm.fk") { mod_count += 1 }
     if fs::exists(std_dir + "/json.fk")      { mod_count += 1 }
+    if fs::exists(std_dir + "/json_document.fk") { mod_count += 1 }
+    if fs::exists(std_dir + "/test.fk") { mod_count += 1 }
     if fs::exists(std_dir + "/http.fk")      { mod_count += 1 }
     if fs::exists(std_dir + "/version.fk")   { mod_count += 1 }
     if fs::exists(std_dir + "/runtime.fk")   { mod_count += 1 }
@@ -289,6 +291,9 @@ task cli_doctor_runtime_missing(runtime_dir: word) -> word {
     if not fs::exists(runtime_dir + "/freak_v35_fs.inc") {
         missing = cli_doctor_append_missing(missing, "freak_v35_fs.inc")
     }
+    if not fs::exists(runtime_dir + "/freak_v35_json.inc") {
+        missing = cli_doctor_append_missing(missing, "freak_v35_json.inc")
+    }
     if not fs::exists(runtime_dir + "/ui/win32_backend.c") {
         missing = cli_doctor_append_missing(missing, "ui/win32_backend.c")
     }
@@ -314,6 +319,8 @@ task cli_doctor_std_missing(std_dir: word) -> word {
     if not fs::exists(std_dir + "/convert.fk") { missing = cli_doctor_append_missing(missing, "convert.fk") }
     if not fs::exists(std_dir + "/algorithm.fk") { missing = cli_doctor_append_missing(missing, "algorithm.fk") }
     if not fs::exists(std_dir + "/json.fk") { missing = cli_doctor_append_missing(missing, "json.fk") }
+    if not fs::exists(std_dir + "/json_document.fk") { missing = cli_doctor_append_missing(missing, "json_document.fk") }
+    if not fs::exists(std_dir + "/test.fk") { missing = cli_doctor_append_missing(missing, "test.fk") }
     if not fs::exists(std_dir + "/http.fk") { missing = cli_doctor_append_missing(missing, "http.fk") }
     if not fs::exists(std_dir + "/version.fk") { missing = cli_doctor_append_missing(missing, "version.fk") }
     if not fs::exists(std_dir + "/runtime.fk") { missing = cli_doctor_append_missing(missing, "runtime.fk") }
@@ -410,7 +417,7 @@ task cli_doctor_json() -> int {
     say "    \"runtime\": {"
     say "      \"ok\": " + cli_doctor_json_bool(runtime_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(rt_dir) + "\","
-    say "      \"files_expected\": 9,"
+    say "      \"files_expected\": 10,"
     say "      \"missing\": \"" + cli_doctor_json_escape(runtime_missing) + "\","
     say "      \"precompiled_objects\": " + cli_doctor_json_bool(runtime_obj) + ","
     say "      \"llvm_runtime\": " + cli_doctor_json_bool(llvm_runtime)
@@ -419,7 +426,7 @@ task cli_doctor_json() -> int {
     say "      \"ok\": " + cli_doctor_json_bool(std_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(std_dir) + "\","
     say "      \"modules_found\": " + word_from_int(std_modules) + ","
-    say "      \"modules_expected\": 11,"
+    say "      \"modules_expected\": 13,"
     say "      \"missing\": \"" + cli_doctor_json_escape(std_missing) + "\""
     say "    },"
     say "    \"abi\": {"

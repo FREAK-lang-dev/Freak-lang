@@ -1550,6 +1550,12 @@ task cli_load_std(source: word, target: word) -> word {
     }
     pilot json_path = std_dir + "/json.fk"
     std_src = cli_append_mapped_source(std_src, json_path)
+    if source.contains("use std::test") {
+        std_src = cli_append_mapped_source(std_src, std_dir + "/test.fk")
+    }
+    if source.contains("use std::json_document") {
+        std_src = cli_append_mapped_source(std_src, std_dir + "/json_document.fk")
+    }
     pilot version_path = std_dir + "/version.fk"
     std_src = cli_append_mapped_source(std_src, version_path)
     -- std::ui — window and canvas types. Loaded conditionally because most
