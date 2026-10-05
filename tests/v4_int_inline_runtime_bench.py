@@ -327,6 +327,12 @@ def baseline_manifest_sha(entries: dict) -> str:
     return text_sha(json.dumps(entries, sort_keys=True, separators=(",", ":")))
 
 
+def baseline_git_command(git: str) -> list[str]:
+    # Replacement refs change commit/tree/blob reads without changing the
+    # caller's requested commit SHA. Read the original object graph instead.
+    return [git, "--no-replace-objects", "-C", str(ROOT)]
+
+
 def extract_baseline(archive: Path, bundle: Path, head: str, entries: dict) -> dict:
     # Avoid extractall: no archive member may create links, devices or aliases.
     if archive.stat().st_size > BASELINE_BUNDLE_LIMIT + BASELINE_FILE_LIMIT * 4096:
@@ -457,7 +463,7 @@ def historical_baseline(args, report: dict, runner, identity: Identity, clang: P
         raise GateError("Git is required to regenerate the historical compiler baseline")
     git_path, python_path = Path(git).resolve(strict=True), Path(sys.executable).resolve(strict=True)
     identity.seal(git_path); identity.seal(python_path)
-    git_command = [git, "-C", str(ROOT)]
+    git_command = baseline_git_command(git)
     first_job = len(report["jobs"])
     def git_run(arguments, label):
         result = runner.run([*git_command, *arguments], label, timeout=120, memory=512)
@@ -607,7 +613,7 @@ def validate_historical_provenance(report: dict) -> None:
     git = matrix[0]["command"][0]
     if git != pin["git"]["selected"]:
         raise GateError("historical baseline Git jobs used a different Git executable")
-    git_prefix = [git, "-C", str(ROOT)]
+    git_prefix = baseline_git_command(git)
     expected_commands = [
         [*git_prefix, "rev-parse", "--verify", pin["compiler_head"] + "^{commit}"],
         [*git_prefix, "rev-parse", "--verify", pin["compiler_head"] + "^{tree}"],

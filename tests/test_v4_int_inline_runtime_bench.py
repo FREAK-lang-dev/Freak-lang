@@ -5,6 +5,8 @@ import importlib.util
 import io
 import json
 from pathlib import Path, PureWindowsPath
+import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -142,7 +144,7 @@ def historical_report():
     provenance["producer"] = {"exit": 0, "fresh_bootstrap": True,
         "entrypoint": str(bundle / "src/compiler/v4/build_v4.py"), "compiler_binary": compiler,
         "compiler_binary_sha256": pin, "generated_c": generated, "generated_c_sha256": pin, "jobs": producer_jobs}
-    git_prefix = ["git", "-C", str(gate.ROOT)]
+    git_prefix = gate.baseline_git_command("git")
     commands = [[*git_prefix, "rev-parse", "--verify", head + "^{commit}"],
         [*git_prefix, "rev-parse", "--verify", head + "^{tree}"],
         [*git_prefix, "ls-tree", "-r", "-l", "-z", "--full-tree", head],
@@ -192,6 +194,10 @@ class IntRuntimeOracles(unittest.TestCase):
         bad = deepcopy(clean); bad["historical_baseline"]["producer_job_serials"].pop(); mutations.append(bad)
         bad = deepcopy(clean); bad["jobs"][0]["stdout_sha256"] = "a" * 64; mutations.append(bad)
         bad = deepcopy(clean); bad["jobs"][-1]["exit"] = 1; mutations.append(bad)
+        bad = deepcopy(clean)
+        for row in bad["jobs"][:4]:
+            row["command"].remove("--no-replace-objects")
+        mutations.append(bad)
         for bad in mutations:
             with self.subTest(provenance=bad["historical_baseline"]), self.assertRaises(gate.GateError):
                 gate.validate_report(bad)
@@ -245,6 +251,59 @@ class IntRuntimeOracles(unittest.TestCase):
                 row.replace(" 1\t", f" {gate.BASELINE_BUNDLE_LIMIT + 1}\t") + "huge.py\0"):
             with self.assertRaises(gate.GateError):
                 gate.baseline_tree(text)
+
+    def test_git_replacement_refs_cannot_substitute_the_pinned_compiler_archive(self):
+        git = shutil.which("git")
+        self.assertIsNotNone(git, "Git is required for historical compiler provenance controls")
+        with tempfile.TemporaryDirectory(prefix="int provenance ") as temporary:
+            work = Path(temporary)
+            repository = work / "repo"
+            repository.mkdir()
+            ordinary = [git, "-C", str(repository)]
+            def run(prefix, *arguments):
+                result = subprocess.run([*prefix, *arguments], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return result.stdout
+            run(ordinary, "init", "-q")
+            run(ordinary, "config", "user.name", "Provenance fixture")
+            run(ordinary, "config", "user.email", "provenance-fixture@example.invalid")
+            run(ordinary, "config", "commit.gpgsign", "false")
+            hooks = work / "empty-hooks"
+            hooks.mkdir()
+            run(ordinary, "config", "core.hooksPath", str(hooks))
+            compiler = repository / "compiler.py"
+            original_bytes, replacement_bytes = b"original compiler\n", b"replacement compiler\n"
+            compiler.write_bytes(original_bytes)
+            run(ordinary, "add", "compiler.py")
+            run(ordinary, "commit", "-q", "-m", "Original compiler")
+            original = run(ordinary, "rev-parse", "HEAD").strip()
+            original_tree = run(ordinary, "rev-parse", original + "^{tree}").strip()
+            inventory = gate.baseline_tree(run(ordinary, "ls-tree", "-r", "-l", "-z", "--full-tree", original))
+            compiler.write_bytes(replacement_bytes)
+            run(ordinary, "add", "compiler.py")
+            run(ordinary, "commit", "-q", "-m", "Replacement compiler")
+            replacement = run(ordinary, "rev-parse", "HEAD").strip()
+            replacement_tree = run(ordinary, "rev-parse", replacement + "^{tree}").strip()
+            run(ordinary, "replace", original, replacement)
+            # The unprotected commit label remains unchanged while its tree,
+            # compiler bytes and archive are substituted by replacement refs.
+            self.assertEqual(run(ordinary, "rev-parse", "--verify", original + "^{commit}").strip(), original)
+            self.assertEqual(run(ordinary, "rev-parse", "--verify", original + "^{tree}").strip(), replacement_tree)
+            substituted = work / "substituted.tar"
+            run(ordinary, "archive", "--format=tar", "--output=" + str(substituted), original)
+            with self.assertRaises(gate.GateError):
+                gate.extract_baseline(substituted, work / "substituted", original, inventory)
+            with patch.object(gate, "ROOT", repository):
+                protected = gate.baseline_git_command(git)
+                self.assertEqual(protected, [git, "--no-replace-objects", "-C", str(repository)])
+                self.assertEqual(run(protected, "rev-parse", "--verify", original + "^{commit}").strip(), original)
+                self.assertEqual(run(protected, "rev-parse", "--verify", original + "^{tree}").strip(), original_tree)
+                self.assertEqual(gate.baseline_tree(run(protected, "ls-tree", "-r", "-l", "-z", "--full-tree", original)), inventory)
+                archived = work / "original.tar"
+                run(protected, "archive", "--format=tar", "--output=" + str(archived), original)
+                entries = gate.extract_baseline(archived, work / "original", original, inventory)
+                gate.check_baseline_bundle(work / "original", entries)
+                self.assertEqual((work / "original/compiler.py").read_bytes(), original_bytes)
 
     def test_windows_input_identity_uses_portable_keys_and_detects_source_changes(self):
         root = PureWindowsPath("D:/checkout with spaces/Freak-lang")
