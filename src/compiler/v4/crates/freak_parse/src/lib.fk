@@ -186,7 +186,7 @@ task v4_parse_closure_child_kind(wanted_kind: word) -> int {
 
 task v4_parse_closure_child_index_handle(tree_id: int) -> int {
     if v4_parse_ready == 0 or v4_parse_closure_child_indexes < 0 or tree_id < 0 or tree_id >= array_len(v4_parse_closure_child_indexes) { give back 0 - 1 }
-    pilot stored = array_get(v4_parse_closure_child_indexes, tree_id)
+    pilot stored: word = array_get(v4_parse_closure_child_indexes, tree_id)
     if stored == "" { give back 0 - 1 }
     give back word_to_int(stored)
 }
@@ -210,7 +210,8 @@ task v4_parse_closure_child_index_finalize(tree_id: int) -> bool {
     pilot nodes = v4_parse_node_count(tree_id)
     pilot previous = v4_parse_closure_child_index_handle(tree_id)
     if previous >= 0 and array_len(previous) >= 4 {
-        if array_get(previous, 0) == "1" and word_to_int(array_get(previous, 1)) == revision and word_to_int(array_get(previous, 2)) == nodes { give back true }
+        pilot ready: word = array_get(previous, 0)
+        if ready == "1" and word_to_int(array_get(previous, 1)) == revision and word_to_int(array_get(previous, 2)) == nodes { give back true }
     }
     if v4_parse_closure_child_indexes < 0 {
         v4_parse_closure_child_indexes = array_new()
@@ -305,7 +306,8 @@ task v4_parse_closure_child_index_row(tree_id: int, parent_id: int, wanted_kind:
     pilot packed = v4_parse_closure_child_index_handle(tree_id)
     if packed < 0 or array_len(packed) < 4 { give back 0 - 1 }
     pilot revision = v4_parse_tree_revision(tree_id)
-    if revision < 0 or array_get(packed, 0) != "1" or word_to_int(array_get(packed, 1)) != revision or word_to_int(array_get(packed, 2)) != nodes { give back 0 - 1 }
+    pilot ready: word = array_get(packed, 0)
+    if revision < 0 or ready != "1" or word_to_int(array_get(packed, 1)) != revision or word_to_int(array_get(packed, 2)) != nodes { give back 0 - 1 }
     pilot children = word_to_int(array_get(packed, 3))
     if children == 0 and array_len(packed) == 4 { give back 0 - 2 }
     if children <= 0 or nodes > 268435455 or array_len(packed) != 4 + 6 * nodes + children { give back 0 - 1 }
