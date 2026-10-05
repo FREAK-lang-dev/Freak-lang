@@ -1,0 +1,45 @@
+name: Locked V4 bootstrap
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  native-public-bootstrap:
+    name: Locked V4 public bootstrap (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Clang (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm -y
+      - name: Reconstruct CLI and verify installed public locked bootstrap
+        run: >
+          python -B -u tests/v3_v4_bootstrap_ci.py
+          --output "${{ runner.temp }}/freak-v4-locked-bootstrap"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: locked-v4-bootstrap-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction.json
+            ${{ runner.temp }}/freak-v4-locked-bootstrap/public-contracts.json
+          if-no-files-found: warn
