@@ -84,6 +84,18 @@ bool freak_process_stdout_is_terminal(void) {
 #endif
 }
 
+freak_word freak_process_platform_name(void) {
+#ifdef _WIN32
+    return freak_word_lit("windows");
+#elif defined(__APPLE__)
+    return freak_word_lit("macos");
+#elif defined(__linux__)
+    return freak_word_lit("linux");
+#else
+    return freak_word_lit("unknown");
+#endif
+}
+
 freak_word freak_process_executable_path(void) {
 #ifdef _WIN32
     DWORD capacity = 256;
