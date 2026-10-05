@@ -1856,7 +1856,9 @@ task v4_mir_add_rvalue(mir_id: int, body_id: int, rvalue_kind: word, text: word,
     array_push(v4_mir_body_rvalue_abis_handle(mir_id, body_id), "")
     array_push(v4_mir_body_rvalue_args_handle(mir_id, body_id), "")
     array_push(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id), "")
-    if never_count >= 0 {
+    -- A partial append must keep the optional summary cold, even when the
+    -- kinds/type columns advanced but another authoritative column did not.
+    if never_count >= 0 and array_len(v4_mir_body_rvalue_kinds_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_texts_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_ops_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_lhs_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_rhs_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_spans_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_tys_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_abis_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_args_handle(mir_id, body_id)) == rvalue_id + 1 and array_len(v4_mir_body_rvalue_builtin_methods_handle(mir_id, body_id)) == rvalue_id + 1 {
         if rvalue_ty == v4_ty_never { never_count += 1 }
         v4_mir_publish_body_never_summary(mir_id, body_id, rvalue_id + 1, never_count)
     }
