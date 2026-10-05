@@ -899,6 +899,7 @@ task tc_task_return_shape(task_name: word) -> word {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    if name == "fs::directory_identity_ticket" { give back "int" }
     if name == "fs::open_dir_ticket" { give back "int" }
     if name == "fs::read_bytes_limit_ticket" { give back "int" }
     if name == "fs::read_relative_ticket" { give back "int" }
@@ -1038,6 +1039,7 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "fs::directory_identity_ticket" { give back "int" }
     if name == "fs::open_dir_ticket" { give back "word" }
     if name == "fs::read_bytes_limit_ticket" { give back "word,int" }
     if name == "fs::read_relative_ticket" { give back "int,word" }

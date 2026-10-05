@@ -39,6 +39,7 @@ PROGRAM = '''task main() {
     pilot held_entries = fs::list_dir_ticket(held)
     pilot missing: bool = fs::result_missing(held)
     pilot held_path = fs::directory_path_ticket(held)
+    pilot held_identity = fs::directory_identity_ticket(held)
     pilot write: int = fs::write_checked("path", "text")
     pilot write_bytes: int = fs::write_bytes_checked("path", bytes)
     pilot append: int = fs::append_checked("path", "text")
@@ -69,6 +70,7 @@ PROGRAM = '''task main() {
 '''
 
 OPERATIONS = (
+    "directory_identity_ticket",
     "open_dir_ticket",
     "read_bytes_limit_ticket",
     "read_relative_ticket",
@@ -96,6 +98,10 @@ OPERATIONS = (
 )
 
 NEGATIVE = {
+    "directory_identity_type": (
+        'fs::directory_identity_ticket("dir")',
+        "argument 1 expects int, got word", False,
+    ),
     "anchored_path_type": (
         'fs::read_relative_ticket(1, 2)', "argument 2 expects word, got int", False,
     ),
