@@ -248,7 +248,15 @@ task parse_primary() -> int {
 
         -- Namespace: foo::bar
         if match_tok(TOK_PUNCT, "::") {
-            pilot ntval = parser_take_ident("namespace segment after '::'")
+            pilot ntval = ""
+            -- The checked status operation is a reserved arm keyword only
+            -- outside this frozen builtin namespace.
+            if tval == "json_document" and cur_tok_type() == TOK_KW and cur_tok_val() == "ok" {
+                ntval = cur_tok_val()
+                advance_tok()
+            } else {
+                ntval = parser_take_ident("namespace segment after '::'")
+            }
             if ntval != "" {
                 tval = tval + "::" + ntval
             }

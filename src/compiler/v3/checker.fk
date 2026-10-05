@@ -284,6 +284,7 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
 }
 
 task bc_builtin_consumes_handle(name: word) -> bool {
+    if name == "json_document::release" { give back true }
     if name == "fs::result_release" { give back true }
     if name == "process::command_release" { give back true }
     give back name == "word_builder::finish" or name == "word_builder::discard" or name == "word_join" or name == "array_release" or name == "tcp::socket_close" or name == "tcp::close" or name == "tcp_close" or name == "ui::destroy_window"
@@ -845,6 +846,7 @@ task tc_namespace_owner(name: word) -> word {
 -- user `shape math` (for example) from being accepted as nominal dispatch and
 -- then silently lowered to math::sqrt instead.
 task tc_reserved_builtin_namespace_owner(name: word) -> bool {
+    if name == "json_document" { give back true }
     give back name == "ByteBuffer" or name == "List" or name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui" or name == "word_builder"
 }
 
@@ -892,6 +894,38 @@ task tc_task_return_shape(task_name: word) -> word {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    if name == "json_document::new" { give back "int" }
+    if name == "json_document::parse" { give back "int" }
+    if name == "json_document::parse_bytes" { give back "int" }
+    if name == "json_document::ok" { give back "int" }
+    if name == "json_document::error" { give back "word" }
+    if name == "json_document::error_position" { give back "int" }
+    if name == "json_document::root" { give back "int" }
+    if name == "json_document::set_root" { give back "int" }
+    if name == "json_document::release" { give back "void" }
+    if name == "json_document::kind" { give back "int" }
+    if name == "json_document::count" { give back "int" }
+    if name == "json_document::array_get" { give back "int" }
+    if name == "json_document::object_get" { give back "int" }
+    if name == "json_document::object_get_bytes" { give back "int" }
+    if name == "json_document::object_key_bytes" { give back "ByteBuffer" }
+    if name == "json_document::bool_value" { give back "int" }
+    if name == "json_document::number_text" { give back "word" }
+    if name == "json_document::string_word" { give back "word" }
+    if name == "json_document::string_bytes" { give back "ByteBuffer" }
+    if name == "json_document::make_null" { give back "int" }
+    if name == "json_document::make_bool" { give back "int" }
+    if name == "json_document::make_number" { give back "int" }
+    if name == "json_document::make_string" { give back "int" }
+    if name == "json_document::make_string_bytes" { give back "int" }
+    if name == "json_document::make_array" { give back "int" }
+    if name == "json_document::make_object" { give back "int" }
+    if name == "json_document::array_append" { give back "int" }
+    if name == "json_document::object_insert" { give back "int" }
+    if name == "json_document::object_insert_bytes" { give back "int" }
+    if name == "json_document::serialize_word" { give back "word" }
+    if name == "json_document::serialize_bytes" { give back "ByteBuffer" }
+    if name == "time::sleep" { give back "void" }
     if name == "fs::read_checked" { give back "CheckedReadResult" }
     if name == "process::command_poll" { give back "int" }
     if name == "fs::rename_new_checked" { give back "int" }
@@ -979,6 +1013,38 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "json_document::new" { give back "" }
+    if name == "json_document::parse" { give back "word" }
+    if name == "json_document::parse_bytes" { give back "ByteBuffer" }
+    if name == "json_document::ok" { give back "int" }
+    if name == "json_document::error" { give back "int" }
+    if name == "json_document::error_position" { give back "int" }
+    if name == "json_document::root" { give back "int" }
+    if name == "json_document::set_root" { give back "int,int" }
+    if name == "json_document::release" { give back "int" }
+    if name == "json_document::kind" { give back "int,int" }
+    if name == "json_document::count" { give back "int,int" }
+    if name == "json_document::array_get" { give back "int,int,int" }
+    if name == "json_document::object_get" { give back "int,int,word" }
+    if name == "json_document::object_get_bytes" { give back "int,int,ByteBuffer" }
+    if name == "json_document::object_key_bytes" { give back "int,int,int" }
+    if name == "json_document::bool_value" { give back "int,int" }
+    if name == "json_document::number_text" { give back "int,int" }
+    if name == "json_document::string_word" { give back "int,int" }
+    if name == "json_document::string_bytes" { give back "int,int" }
+    if name == "json_document::make_null" { give back "int" }
+    if name == "json_document::make_bool" { give back "int,int" }
+    if name == "json_document::make_number" { give back "int,word" }
+    if name == "json_document::make_string" { give back "int,word" }
+    if name == "json_document::make_string_bytes" { give back "int,ByteBuffer" }
+    if name == "json_document::make_array" { give back "int" }
+    if name == "json_document::make_object" { give back "int" }
+    if name == "json_document::array_append" { give back "int,int,int" }
+    if name == "json_document::object_insert" { give back "int,int,word,int" }
+    if name == "json_document::object_insert_bytes" { give back "int,int,ByteBuffer,int" }
+    if name == "json_document::serialize_word" { give back "int" }
+    if name == "json_document::serialize_bytes" { give back "int" }
+    if name == "time::sleep" { give back "int" }
     if name == "fs::read_checked" { give back "word" }
     if name == "process::command_poll" { give back "int" }
     if name == "fs::rename_new_checked" { give back "word,word" }
