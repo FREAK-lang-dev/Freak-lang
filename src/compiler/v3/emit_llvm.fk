@@ -1939,10 +1939,9 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
             if llvm_emitting_global_init {
                 llvm_emit_line("    store i64 " + fresh + ", i64* @g_" + name_w)
             } else {
-                pilot uniq = name_w + "_v" + word_from_int(temp_reg_counter)
+                pilot uniq = "binding.local." + eid
                 temp_reg_counter += 1
                 llvm_reg_var(name_w, uniq)
-                llvm_emit_line("    %" + uniq + " = alloca i64")
                 llvm_emit_line("    store i64 " + fresh + ", i64* %" + uniq)
                 if llvm_v3_owned_type(vtype) { llvm_v3_register_slot(uniq, vtype) }
             }
@@ -1956,10 +1955,9 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
             if llvm_emitting_global_init {
                 llvm_emit_line("    store i64 " + with_cap + ", i64* @g_" + name_w)
             } else {
-                pilot uniq = name_w + "_v" + word_from_int(temp_reg_counter)
+                pilot uniq = "binding.local." + eid
                 temp_reg_counter += 1
                 llvm_reg_var(name_w, uniq)
-                llvm_emit_line("    %" + uniq + " = alloca i64")
                 llvm_emit_line("    store i64 " + with_cap + ", i64* %" + uniq)
                 if llvm_v3_owned_type(vtype) { llvm_v3_register_slot(uniq, vtype) }
             }
@@ -1981,19 +1979,18 @@ task llvm_emit_stmt_pilot(eid: word) -> void {
     if llvm_emitting_global_init {
         llvm_emit_line("    store i64 " + stored_reg + ", i64* @g_" + name_w)
     } else {
-        pilot uniq = name_w + "_v" + word_from_int(temp_reg_counter)
+        pilot uniq = "binding.local." + eid
         temp_reg_counter += 1
-        if vtype == "r" { uniq = "checked_local_" + eid }
+        if vtype == "r" { uniq = "checked.local." + eid }
         llvm_reg_var(name_w, uniq)
-        if vtype != "r" { llvm_emit_line("    %" + uniq + " = alloca i64") }
         llvm_emit_line("    store i64 " + stored_reg + ", i64* %" + uniq)
         if vtype.starts_with("w") { llvm_register_word_local_slot(uniq) }
         if llvm_v3_owned_type(vtype) { llvm_v3_register_slot(uniq, vtype) }
     }
 }
 
--- Checked-read storage is allocated once at task entry, including matches
--- nested inside loops. Dynamic execution only initializes and clears slots.
+-- Lexical storage is allocated once at task entry, including nested loops.
+-- Dynamic execution only initializes and clears slots; stack use is bounded.
 task llvm_preallocate_result_slots(block: word) -> void {
     pilot index = 0
     repeat tc_arg_count(block) times {
@@ -2003,18 +2000,40 @@ task llvm_preallocate_result_slots(block: word) -> void {
         if kind == STMT_PILOT {
             pilot expression = word_to_int(array_get(ast_stmt_exprs, sid))
             if array_get(ast_expr_kinds, expression) == EXPR_CALL and array_get(ast_expr_vals, expression) == "fs::read_checked" {
-                llvm_emit_line("    %checked_local_" + eid + " = alloca i64")
-            }
+                llvm_emit_line("    %checked.local." + eid + " = alloca i64")
+            } else { llvm_emit_line("    %binding.local." + eid + " = alloca i64") }
         } else if kind == STMT_CHECK_RESULT {
-            llvm_emit_line("    %checked_owner_" + eid + " = alloca i64")
-            llvm_emit_line("    %checked_ok_" + eid + " = alloca i64")
-            llvm_emit_line("    %checked_err_" + eid + " = alloca i64")
+            llvm_emit_line("    %checked.owner." + eid + " = alloca i64")
+            llvm_emit_line("    %checked.payload.ok." + eid + " = alloca i64")
+            llvm_emit_line("    %checked.payload.err." + eid + " = alloca i64")
             llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
             llvm_preallocate_result_slots(array_get(ast_stmt_else_bodies, sid))
         } else if kind == STMT_IF {
             llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
             llvm_preallocate_result_slots(array_get(ast_stmt_else_bodies, sid))
-        } else if kind == STMT_BLOCK or kind == STMT_EVENTUALLY or kind == STMT_REPEAT or kind == STMT_RANGE or kind == STMT_FOR or kind == STMT_FOREACH or kind == STMT_TRAINING_ARC {
+        } else if kind == STMT_REPEAT {
+            pilot mode: word = array_get(ast_stmt_names, sid)
+            if mode != "until" and mode != "while" {
+                llvm_emit_line("    %repeat.index." + eid + " = alloca i64")
+                if array_get(ast_stmt_extras, sid) != "" { llvm_emit_line("    %repeat.value." + eid + " = alloca i64") }
+            }
+            llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
+        } else if kind == STMT_RANGE {
+            llvm_emit_line("    %range.index." + eid + " = alloca i64")
+            llvm_emit_line("    %range.value." + eid + " = alloca i64")
+            llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
+        } else if kind == STMT_FOREACH {
+            llvm_emit_line("    %each.owner." + eid + " = alloca i64")
+            llvm_emit_line("    %each.index." + eid + " = alloca i64")
+            llvm_emit_line("    %each.value." + eid + " = alloca i64")
+            llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
+        } else if kind == STMT_TRAINING_ARC {
+            llvm_emit_line("    %training.count." + eid + " = alloca i64")
+            llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
+        } else if kind == STMT_FOR {
+            llvm_preallocate_result_slots(array_get(ast_stmt_else_bodies, sid))
+            llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
+        } else if kind == STMT_BLOCK or kind == STMT_EVENTUALLY {
             llvm_preallocate_result_slots(array_get(ast_stmt_bodies, sid))
         } else if kind == STMT_WHEN {
             pilot cases: word = array_get(ast_stmt_bodies, sid)
@@ -2036,12 +2055,12 @@ task llvm_emit_check_result_arm(eid: word, owner: word, success: bool) -> void {
     pilot saved_slots = llvm_word_local_slots
     pilot saved_locals = tc_local_count
     pilot binder: word = array_get(ast_task_params, sid)
-    pilot slot = "checked_ok_" + eid
+    pilot slot = "checked.payload.ok." + eid
     pilot body: word = array_get(ast_stmt_bodies, sid)
     pilot getter = "freak_llvm_fs_result_word"
     if not success {
         binder = array_get(ast_task_returns, sid)
-        slot = "checked_err_" + eid
+        slot = "checked.payload.err." + eid
         body = array_get(ast_stmt_else_bodies, sid)
         getter = "freak_llvm_fs_result_error"
     }
@@ -2068,7 +2087,7 @@ task llvm_emit_check_result(eid: word) -> void {
     pilot owner = llvm_emit_expr(target)
     pilot owns: bool = array_get(ast_expr_kinds, word_to_int(target)) != EXPR_IDENT
     if owns {
-        pilot slot = "checked_owner_" + eid
+        pilot slot = "checked.owner." + eid
         llvm_emit_line("    store i64 " + owner + ", i64* %" + slot)
         llvm_v3_register_slot(slot, "r")
     }
@@ -2160,16 +2179,14 @@ task llvm_emit_stmt_repeat(eid: word) -> void {
     } else {
         pilot l_inc = "loop.inc." + word_from_int(temp_reg_counter)
         temp_reg_counter += 1
-        pilot rep_var = "rep." + word_from_int(temp_reg_counter)
+        pilot rep_var = "repeat.index." + eid
         temp_reg_counter += 1
         llvm_loop_cond_label = l_inc
 
         pilot count_reg = llvm_emit_expr(expr_id_w)
         pilot binder: word = array_get(ast_stmt_extras, i)
-        pilot binding_slot = "repeat.value." + word_from_int(temp_reg_counter)
+        pilot binding_slot = "repeat.value." + eid
         temp_reg_counter += 1
-        if binder != "" { llvm_emit_line("    %" + binding_slot + " = alloca i64") }
-        llvm_emit_line("    %" + rep_var + " = alloca i64")
         llvm_emit_line("    store i64 0, i64* %" + rep_var)
         llvm_emit_line("    br label %" + l_cond)
         llvm_emit_line(l_cond + ":")
@@ -2236,16 +2253,14 @@ task llvm_emit_stmt_range(eid: word) -> void {
     pilot finish = "range.end." + serial
     pilot ready = "range.ready." + serial
     pilot failure = "range.failure." + serial
-    pilot slot = "range.index." + serial
-    pilot binding_slot = "range.value." + serial
+    pilot slot = "range.index." + eid
+    pilot binding_slot = "range.value." + eid
     pilot valid = next_reg()
     llvm_emit_line("    " + valid + " = icmp sgt i64 " + step + ", 0")
     llvm_emit_line("    br i1 " + valid + ", label %" + ready + ", label %" + failure)
     llvm_emit_line(failure + ":")
     llvm_emit_loop_failure("range step must be positive")
     llvm_emit_line(ready + ":")
-    llvm_emit_line("    %" + slot + " = alloca i64")
-    llvm_emit_line("    %" + binding_slot + " = alloca i64")
     llvm_emit_line("    store i64 " + lower + ", i64* %" + slot)
     llvm_emit_line("    br label %" + cond)
     llvm_emit_line(cond + ":")
@@ -2342,20 +2357,17 @@ task llvm_emit_stmt_foreach(eid: word) -> void {
     if not llvm_v3_temporary(receiver_id) { receiver = llvm_v3_retain(receiver, array_type) }
     pilot serial = word_from_int(temp_reg_counter)
     temp_reg_counter += 1
-    pilot owner_slot = "each.owner." + serial
-    pilot index_slot = "each.index." + serial
-    pilot binding_slot = "each.value." + serial
+    pilot owner_slot = "each.owner." + eid
+    pilot index_slot = "each.index." + eid
+    pilot binding_slot = "each.value." + eid
     pilot cond = "each.cond." + serial
     pilot body = "each.body." + serial
     pilot increment = "each.inc." + serial
     pilot finish = "each.end." + serial
-    llvm_emit_line("    %" + owner_slot + " = alloca i64")
     llvm_emit_line("    store i64 " + receiver + ", i64* %" + owner_slot)
     llvm_v3_register_slot(owner_slot, array_type)
     pilot iteration_prefix = llvm_word_local_slots
-    llvm_emit_line("    %" + index_slot + " = alloca i64")
     llvm_emit_line("    store i64 0, i64* %" + index_slot)
-    llvm_emit_line("    %" + binding_slot + " = alloca i64")
     llvm_emit_line("    store i64 0, i64* %" + binding_slot)
     llvm_emit_line("    br label %" + cond)
     llvm_emit_line(cond + ":")
@@ -2412,11 +2424,10 @@ task llvm_emit_stmt_training_arc(eid: word) -> void {
     temp_reg_counter += 1
     pilot l_until = "loop.until." + word_from_int(temp_reg_counter)
     temp_reg_counter += 1
-    pilot rep_var = "rep." + word_from_int(temp_reg_counter)
+    pilot rep_var = "training.count." + eid
     temp_reg_counter += 1
 
     pilot max_reg = llvm_emit_expr(array_get(ast_stmt_extras, i))
-    llvm_emit_line("    %" + rep_var + " = alloca i64")
     llvm_emit_line("    store i64 0, i64* %" + rep_var)
     llvm_emit_line("    br label %" + l_cond)
 
