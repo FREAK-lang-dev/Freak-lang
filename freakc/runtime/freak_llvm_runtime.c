@@ -88,8 +88,7 @@ int64_t freak_llvm_process_input(void) {
 }
 
 int64_t freak_fopen(int64_t path, int64_t mode) {
-    return (int64_t)fopen(freak_word_to_cstr(freak_llvm_word_view(path)),
-                         freak_word_to_cstr(freak_llvm_word_view(mode)));
+    return freak_fs_fopen_checked(freak_llvm_word_view(path), freak_llvm_word_view(mode));
 }
 int64_t freak_fclose(int64_t file) {
     return (int64_t)fclose((FILE*)file);

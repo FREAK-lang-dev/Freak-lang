@@ -324,6 +324,8 @@ freak_word freak_fs_read(freak_word path);
 
 /* Write word contents to a file. Panics on failure. */
 void freak_fs_write(freak_word path, freak_word content);
+/* Sized UTF-8 paths, including Windows native wide-file opening. */
+int64_t freak_fs_fopen_checked(freak_word path, freak_word mode);
 
 /* Append word contents to a file. Creates if not exists. Panics on failure. */
 void freak_fs_append(freak_word path, freak_word content);

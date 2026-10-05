@@ -1073,7 +1073,12 @@ freak_result_word_word freak_fs_read_checked(freak_word path) {
     memcpy(name, path.data, path.length);
     name[path.length] = '\0';
 #ifdef _WIN32
-    int descriptor = _open(name, _O_RDONLY | _O_BINARY);
+    int wide_count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, NULL, 0);
+    wchar_t *wide_name = wide_count ? malloc((size_t)wide_count * sizeof(*wide_name)) : NULL;
+    int descriptor = -1;
+    if (wide_name && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, wide_name, wide_count))
+        descriptor = _wopen(wide_name, _O_RDONLY | _O_BINARY);
+    free(wide_name);
 #else
     /* Nonblocking open lets us reject a FIFO before it can wait for a writer. */
     int descriptor = open(name, O_RDONLY | O_NONBLOCK);
@@ -1138,9 +1143,47 @@ freak_result_word_word freak_fs_read_checked(freak_word path) {
     return result;
 }
 
+static bool freak_system_utf8_valid(const char* text, size_t length);
+
+int64_t freak_fs_fopen_checked(freak_word path, freak_word mode) {
+    if (!path.data || !path.length || path.length >= SIZE_MAX ||
+        memchr(path.data, 0, path.length) || !mode.data || !mode.length ||
+        mode.length >= SIZE_MAX || memchr(mode.data, 0, mode.length) ||
+        !freak_system_utf8_valid(path.data, path.length) ||
+        !freak_system_utf8_valid(mode.data, mode.length)) {
+        errno = EINVAL;
+        return 0;
+    }
+    char *name = malloc(path.length + 1);
+    char *flags = malloc(mode.length + 1);
+    if (!name || !flags) { free(name); free(flags); errno = ENOMEM; return 0; }
+    memcpy(name, path.data, path.length); name[path.length] = 0;
+    memcpy(flags, mode.data, mode.length); flags[mode.length] = 0;
+    FILE *stream = NULL;
+#ifdef _WIN32
+    if (path.length <= INT_MAX && mode.length <= INT_MAX) {
+        int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, NULL, 0);
+        int m = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, flags, -1, NULL, 0);
+        wchar_t *wide_name = n ? malloc((size_t)n * sizeof(*wide_name)) : NULL;
+        wchar_t *wide_flags = m ? malloc((size_t)m * sizeof(*wide_flags)) : NULL;
+        if (wide_name && wide_flags &&
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, wide_name, n) &&
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, flags, -1, wide_flags, m))
+            stream = _wfopen(wide_name, wide_flags);
+        else errno = EINVAL;
+        free(wide_name); free(wide_flags);
+    } else errno = EINVAL;
+#else
+    stream = fopen(name, flags);
+#endif
+    int saved_errno = errno;
+    free(name); free(flags); errno = saved_errno;
+    return (int64_t)(intptr_t)stream;
+}
+
 void freak_fs_write(freak_word path, freak_word content) {
     const char* p = freak_word_to_cstr(path);
-    FILE* f = fopen(p, "wb");
+    FILE* f = (FILE*)(intptr_t)freak_fs_fopen_checked(path, freak_word_lit("wb"));
     if (!f) {
         fprintf(stderr, "FREAK: cannot write file '%s': %s\n", p, strerror(errno));
         exit(1);
@@ -1155,7 +1198,7 @@ void freak_fs_write(freak_word path, freak_word content) {
 
 void freak_fs_append(freak_word path, freak_word content) {
     const char* p = freak_word_to_cstr(path);
-    FILE* f = fopen(p, "ab");
+    FILE* f = (FILE*)(intptr_t)freak_fs_fopen_checked(path, freak_word_lit("ab"));
     if (!f) {
         fprintf(stderr, "FREAK: cannot append file '%s': %s\n", p, strerror(errno));
         exit(1);
