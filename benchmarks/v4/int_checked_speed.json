@@ -1,0 +1,1828 @@
+{
+  "schema": "v4-checked-int-speed-report-v1",
+  "compiler_head": "d31c0965b71dd8313c9b2ec9c76d4f3403598db0",
+  "compiler_inputs": {
+    "benchmarks/v4/int_checked_hot_loop.fk": "d4378f4621564112a89191231a90e1e552bea6a7307a297d35eea3ca240423f5",
+    "freakc/__init__.py": "f84b0eb85d8c646c348d19bb1351d1297ce583f5cd91202c13dc558dda70f3d4",
+    "freakc/__main__.py": "5b7e1fe779868f77293fd484f7b8f64f2fad1792eddd014b9959187ec01dbde2",
+    "freakc/auditor.py": "62de23237ab73e6a25e936d482dadf235b1d06b971f50991304f958a9c802dd8",
+    "freakc/diagnostics.py": "8795baababb68c6712281a7613eca1c3a0ec11b3c280051ecae790ec9a7df782",
+    "freakc/emitter.py": "6cb9b038eb6041225c89773742ddf63a68cfddbcf40453abc8ffc950f15e09cb",
+    "freakc/hangar.py": "ca2ee5e3a9cde7554104e2658c07be2b10dbe31b6021b0a83fdd4de88ad466cc",
+    "freakc/jit.py": "5444c911eae96c8e6d18e07d5438be179e874d985e59301bb3edc00e63ae5381",
+    "freakc/lexer.py": "de70a25c8130b58574572c2e2ec27856dbfffd901cfc84ea59f684a6ea4f6f8c",
+    "freakc/llvm_tools.py": "c21c240453809f5cdce0460850e094603e2fbe7d45a7c00898afb7f45c84ddc3",
+    "freakc/parser.py": "64fb824507b14a92fdb99d69707b2828ef01879f1f430c6fae67ba3149b9b821",
+    "freakc/runtime/freak_llvm_runtime.c": "cd7ec60942aaea32ad8795a0d2fcc0639135324d2369f4ecf56ef92b04e8dfc1",
+    "freakc/runtime/freak_runtime.c": "a3f40aeeb2f1d6d7cc4b179ad8675cd61d3633c60325260fd672b8905edcabd3",
+    "freakc/runtime/freak_runtime.h": "de4fee106acf81c821dbdc6e5aa2caafeb3369c7a537750a524877cad3c4ad7b",
+    "freakc/runtime/freak_v4_numeric_runtime.c": "19d6bcc26a939d0e5e0793dc4a52775fb754571a31e7c658927cfb5c525eeecb",
+    "freakc/runtime/freak_v4_numeric_runtime.h": "ad5e77c6dd7fd90f393870d846fd3e7421162ca99e79bfe15c563f0ba1f88b51",
+    "freakc/runtime/freak_v4_panic_runtime.c": "c7304ab42d8e92310cd4732ba10cd7166e766d662ab8c4e68d86d2d3eb74b462",
+    "freakc/runtime/freak_v4_panic_runtime.h": "836aa64058b0e88fc96900e3830dda7653d1dfd8350d11a44e147680d1824e60",
+    "freakc/runtime/freak_v4_system_runtime.c": "cc92ad57369edee8617b1e7f19bf0128e6f854820b8b48ede3656bfa7834f8db",
+    "freakc/runtime/freak_v4_system_runtime.h": "164c7e36fbee699a7abfcb0dd12d17367cf82ba5c471c728f9ce0b375c32822f",
+    "freakc/runtime/freak_v4_unicode_lower_tables.h": "0e2aa3a8cebf4f3a8a19a856b3fffc0e890659c9527ddc43396fb39dbc41d482",
+    "freakc/runtime/freak_v4_unicode_runtime.c": "456f7e09e25b8413d83cc4a6f95b923f246e73f52600cf104aa6c50250fc3d13",
+    "freakc/runtime/freak_v4_unicode_runtime.h": "9ca1e9dd4883884fbcaa4cdbf38c9895ceccb1b4b7e920ab52c4126d7e9d1396",
+    "freakc/runtime/freak_v4_word_runtime.c": "11857e53aa17d122eafc6585affd715f60e68f4a8d463b73b632ff266d2a20a7",
+    "freakc/runtime/freak_v4_word_runtime.h": "4424084eb2b539fe7048d4338d0df8cb78474e204630c5f8b43be47542b64b00",
+    "freakc/type_checker.py": "15f9e19563d577cbecac653e1d38cd217a127c37f2ddd90e7a57c612d6d1e480",
+    "freakc/v4_native_runtime.py": "7889f26226c7d8dd9035b04770ec6f7a5e05b7c7d3dcc63457393d26d5938e16",
+    "src/compiler/v4/build_v4.py": "d976e9cc2286eb5229c2cc11f1e0aa8aa89e5e08885811bbfa8f5dd84d88b1e6",
+    "src/compiler/v4/check_v4.py": "6e93860ab05c55c08bae4a33d243ed95bf4a8e58ab5a7f80cc0e1e7e751cb5ab",
+    "src/compiler/v4/crates/freak_arena/src/lib.fk": "27e5062ba02263a8fd54eae7baadfe2a9d8488e377f546d66c40bf983d34a42a",
+    "src/compiler/v4/crates/freak_borrowck/src/lib.fk": "868546a39d41557bb385787d78a2d77afe6ef8de90ffea67255176968ecdd490",
+    "src/compiler/v4/crates/freak_codegen_llvm/src/lib.fk": "5bfb46d9518eec59b6daecefc3ed6541c2e2c4b14cbf0a0ecb1f42d77478911d",
+    "src/compiler/v4/crates/freak_diag/src/lib.fk": "e3b925c19b770429a4367bdd792693ab09414ee15273b93ac310598276dbe215",
+    "src/compiler/v4/crates/freak_driver/src/lib.fk": "2fe90436fe16171feedce15583c48fce261e7e663cc5357c67754a93b854e5bc",
+    "src/compiler/v4/crates/freak_editor/src/lib.fk": "c79323603711e060fa23cbfce834dec9fde269ee6a61812ca2f055a6c8cee0fc",
+    "src/compiler/v4/crates/freak_expand/src/lib.fk": "becf4e3f734707db174123b31443044142742d3dbd8197a49b1fef7a0321a517",
+    "src/compiler/v4/crates/freak_hir/src/lib.fk": "5da66440105c743e05b51d8f0c7a7e83b18117fee39101b52294ce2e3a97de01",
+    "src/compiler/v4/crates/freak_intern/src/lib.fk": "3acf169d29703b9b3afb9d0129ae4b73af09f6859b1eedca5cb3d7541c5227af",
+    "src/compiler/v4/crates/freak_lex/src/lib.fk": "962b001aff89b69cf2c933ede2e3ae5af4afa4e8f78563e5946897a5a3a09cd7",
+    "src/compiler/v4/crates/freak_lsp/src/lib.fk": "ce98807cb6920e36632d66cd68b3ac5bea841dcdd40463bc639a3e2aa10ff283",
+    "src/compiler/v4/crates/freak_macro_api/src/lib.fk": "9f0076ad851e19b0af8a3be64ea3b6b134a3ce8ed699e14b6cf9e4d4218c582e",
+    "src/compiler/v4/crates/freak_mir/src/lib.fk": "76b76564cd5a2c7467cf66d945e9208fa5173f94130f274d21b7dac20256f655",
+    "src/compiler/v4/crates/freak_mir_build/src/lib.fk": "a08c457dd8d819e6189c5e749b6f22d4f1b5788361c64b26aee1d4922cae2376",
+    "src/compiler/v4/crates/freak_parse/src/lib.fk": "cd3aa1aa31bd91c0b53f8e47c7520fb5283622f85e9716822d697e73c7a2187d",
+    "src/compiler/v4/crates/freak_query/src/lib.fk": "ada0e55e88f786580af471b7ae138b09290353d9bbb0c8d39b08daf349500c29",
+    "src/compiler/v4/crates/freak_resolve/src/lib.fk": "1c80aae693fbbeb400328629c10500dfe4aa22b415969c9e20b6f9d9f76f7841",
+    "src/compiler/v4/crates/freak_session/src/lib.fk": "9a29186efb795d482ce22cb2db883e4fae675ffa69e86e7378e8dd24cd63be3e",
+    "src/compiler/v4/crates/freak_snapshot/src/lib.fk": "9b49cd3cff3ddb8bda2ed5a5db7c4b74a9848c87a29fa8349f88a836e3155c1a",
+    "src/compiler/v4/crates/freak_span/src/lib.fk": "1d8b8001784597ab5451ed1310f263f41d7abe16abf98f3de19010ebed46fc5f",
+    "src/compiler/v4/crates/freak_target/src/lib.fk": "e8aadfc86a1ff74094e3463163f52f623af228e7b35d10f86c2d644fa3883e8b",
+    "src/compiler/v4/crates/freak_ty/src/lib.fk": "6932885e3c47617c80dcc2e6d4a5cf143ac5d62ad42f265c5a19694a77f3c205",
+    "src/compiler/v4/tests/checked_numeric_contract_smoke.fk": "a74862bb977f70c0ef4734b636ca2b41bad42a8e0a6b5dd0e10494d0365971f1",
+    "src/compiler/v4/tests/checked_numeric_execute_smoke.fk": "b0d1c5a422be03a391e5f686b13581a5481a4b8dc227e2096264735196532ac0",
+    "tests/test_v4_int_inline_runtime_bench.py": "dccd91884d42a5cf98df5918e889e2eb09ae740d195effe248726053fce2363f",
+    "tests/v4_checked_numeric_codegen.py": "a52c87ad29c2e46bff5723c42a6c2c832f1151d0bcf85d9cddde6fbff9b31e6b",
+    "tests/v4_int_inline_runtime_bench.py": "afdac9c3d4fe10be02d0e2e3c04536e864afa2b1d689a5ce741a684990926af6",
+    "tests/v4_scalar_sum_codegen.py": "f01b11f335f0638277ed27371b73502d12fe8259a8cdca3d323d60de86a5a0d9"
+  },
+  "compiler": {
+    "binary_sha256": "376618953e31fb4eebcb8c4e9e9643d080920908da176443fc4c00a4cbd7727e",
+    "generated_c_sha256": "d016b0c860904d81da89e9257e59c8aff86c264bad0feedd7bb3d8bafb3af381",
+    "live_handle_limit": 1024,
+    "memory_limit_mib": 64,
+    "optimization": 2
+  },
+  "source_sha256": "d4378f4621564112a89191231a90e1e552bea6a7307a297d35eea3ca240423f5",
+  "clang": {
+    "resolved": "/workspace/v4-backend-profile/toolchain/usr/lib/llvm-19/bin/clang",
+    "selected": "/workspace/v4-backend-profile/toolchain/usr/lib/llvm-19/bin/clang",
+    "sha256": "0a3c55936ac43954fbe4914e6e73b577ca9e35e75d89ef13d3e28c187f41ca1a",
+    "version": "Debian clang version 19.1.7 (3+b1)\nTarget: x86_64-pc-linux-gnu\nThread model: posix\nInstalledDir: /workspace/v4-backend-profile/toolchain/usr/lib/llvm-19/bin\n"
+  },
+  "target": "x86_64-unknown-linux-gnu",
+  "runtime_sources": {
+    "freak_llvm_runtime.c": "cd7ec60942aaea32ad8795a0d2fcc0639135324d2369f4ecf56ef92b04e8dfc1",
+    "freak_runtime.c": "a3f40aeeb2f1d6d7cc4b179ad8675cd61d3633c60325260fd672b8905edcabd3",
+    "freak_v4_numeric_runtime.c": "19d6bcc26a939d0e5e0793dc4a52775fb754571a31e7c658927cfb5c525eeecb",
+    "freak_v4_panic_runtime.c": "c7304ab42d8e92310cd4732ba10cd7166e766d662ab8c4e68d86d2d3eb74b462",
+    "freak_v4_system_runtime.c": "cc92ad57369edee8617b1e7f19bf0128e6f854820b8b48ede3656bfa7834f8db",
+    "freak_v4_unicode_runtime.c": "456f7e09e25b8413d83cc4a6f95b923f246e73f52600cf104aa6c50250fc3d13",
+    "freak_v4_word_runtime.c": "11857e53aa17d122eafc6585affd715f60e68f4a8d463b73b632ff266d2a20a7"
+  },
+  "runtime_headers": {
+    "freak_runtime.h": "de4fee106acf81c821dbdc6e5aa2caafeb3369c7a537750a524877cad3c4ad7b",
+    "freak_v4_numeric_runtime.h": "ad5e77c6dd7fd90f393870d846fd3e7421162ca99e79bfe15c563f0ba1f88b51",
+    "freak_v4_panic_runtime.h": "836aa64058b0e88fc96900e3830dda7653d1dfd8350d11a44e147680d1824e60",
+    "freak_v4_system_runtime.h": "164c7e36fbee699a7abfcb0dd12d17367cf82ba5c471c728f9ce0b375c32822f",
+    "freak_v4_unicode_lower_tables.h": "0e2aa3a8cebf4f3a8a19a856b3fffc0e890659c9527ddc43396fb39dbc41d482",
+    "freak_v4_unicode_runtime.h": "9ca1e9dd4883884fbcaa4cdbf38c9895ceccb1b4b7e920ab52c4126d7e9d1396",
+    "freak_v4_word_runtime.h": "4424084eb2b539fe7048d4338d0df8cb78474e204630c5f8b43be47542b64b00"
+  },
+  "runtime_objects": {
+    "0": {
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_llvm_runtime.O0.o": "b35c95aa5eb304fd79c43daa61d819474c9f863b7186716763051e9ea95307de",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_runtime.O0.o": "b9e100962a52088a0ff55fead3d4705588dee86bc12562f3486f8faf61f06172",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_numeric_runtime.O0.o": "8d5da53003632fbb1c6e34b496a6b355526a0864e8c0aacfd0fef3628cc11181",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_panic_runtime.O0.o": "8ec0200d0072718f21323df38b722c4244616ae9ec3098ab9f38b675b2569276",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_system_runtime.O0.o": "5e8a726b34f3a4a216559cdb468221c927b0f06a608ef95728c78149bf119a78",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_unicode_runtime.O0.o": "bdce1be5462385dd35502b433ef08fa7c5da8a722445b154d0dcb7c7c3c3d280",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_word_runtime.O0.o": "2117d7dfc0a75604ad343c4837b5bd129c7188798ac5971e93cf9286b438c057"
+    },
+    "2": {
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_llvm_runtime.O2.o": "379a4ea3f552416df2dfa749819e7db6c731a4132f484f3f4055623059d9f4c0",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_runtime.O2.o": "4ba4b5fa54ffa0ff55d658374ac46ad2040cdbe686aff3542ab00098020b11b3",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_numeric_runtime.O2.o": "1c1633f58f7e78789b1809442b3db77123f357b76ee08ae28d0f905425d0fc8a",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_panic_runtime.O2.o": "64d6fb6abd9f3e800ba1aa27c02b4e97e9a95ead84f97079c4d33cea1db0d915",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_system_runtime.O2.o": "99b7c7ce5cc75f7e2a6f4b3658df3cd18525ea46a2a77f50d430d078b5847763",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_unicode_runtime.O2.o": "d0db821805c274038018cd54b4424eddc0bedfb6640b80b89ce3c1323ed988c0",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_word_runtime.O2.o": "b86230b9137479817b54c1ccc59608dc19c03c50655284675309d50f4fc0f1e9"
+    },
+    "3": {
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_llvm_runtime.O3.o": "f70339167ef5200b97d58f5ebe069981e8cc9da9ac6938fc1c391f3473c92f73",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_runtime.O3.o": "5913019c6e9a6861a672e252c083650ec9ae6457b32c6660ee36919d17e8ad21",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_numeric_runtime.O3.o": "1c1633f58f7e78789b1809442b3db77123f357b76ee08ae28d0f905425d0fc8a",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_panic_runtime.O3.o": "64d6fb6abd9f3e800ba1aa27c02b4e97e9a95ead84f97079c4d33cea1db0d915",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_system_runtime.O3.o": "99b7c7ce5cc75f7e2a6f4b3658df3cd18525ea46a2a77f50d430d078b5847763",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_unicode_runtime.O3.o": "ee326bdb3604e3f763840fb2e6d16fb24a7eea30b6ae4d206a4543cf2f8d4356",
+      "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_word_runtime.O3.o": "ea61fc755166467eab26559495ed73c0d9a07a4b831d38cf112d3f5919e80220"
+    }
+  },
+  "artifact_sha256": {
+    "/workspace/v4-native-speed-evidence/baseline-emit-v4/int_checked_hot_loop.ll": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/audit-probe.O0.native": "a93758c88550d0d7e6670f908d31116021f6c12e027b5330a3e0a0ea76025b2c",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/audit-probe.O2.native": "57ead69e3089ca392061ce8dfee9d2d6652257420d30e6664fd50bf3f736e9e8",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/audit-probe.O3.native": "1fce0f3a5d59bf30ef5cba7a6d5e919460170f4d9ee94811ee84524534a7072e",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/audit-probe.c": "9069643e7a7cf3934ce36fa4922047206e137fd7ad4d26e5cf37bcabd61722ef",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O0.native": "a26abfb54f9052641d819e0fee4833cffdc16827d59b32827a1151842bd9e717",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O2.native": "e1e269843d2ca31c684f6503b6c18692aca972dfbb1112cc493c6c8a714b5ae3",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O3.native": "41eca321361900d871fc7a1ab22a1d4a29ca3d11721865af81f1449c06363259",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.ll": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.native.ll": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.optimized.O0.ll": "38cbce6f4a0275390d75f3f6dacca1b4074416c59d71aad9e588a55ff841dfbe",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.optimized.O2.ll": "0f1d8a0e2ddfac8206f0bb800ba3d1f95ee5ed2b8d04fac5be6680726b71d2c1",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.optimized.O3.ll": "0f1d8a0e2ddfac8206f0bb800ba3d1f95ee5ed2b8d04fac5be6680726b71d2c1",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/dynamic-signed.O0.native": "383c2e47afd19febe59080d15928373cbc22867e7363a57ebe11baf16e5cb27d",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/dynamic-signed.O2.native": "1896264ed17d0e547d9d79846417598655b4720d9689d779782eb74250211bab",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/dynamic-signed.O3.native": "1f98bcce6f90cf1c18a6f6652f70ef38210cd61c95d69ef2bb2dd0f44c05db0b",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/dynamic-signed.fk": "71a79fd8c4ea83b1b47c55f4ee8916c6712c1fb0776ccce061794e30cd666ba6",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/dynamic-signed.ll": "5f4844002cbe0ecc6a6f29daa5d709772ce20827aedebbcbf25abfe3225ac35c",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/dynamic-signed.native.ll": "5f4844002cbe0ecc6a6f29daa5d709772ce20827aedebbcbf25abfe3225ac35c",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_llvm_runtime.O0.o": "b35c95aa5eb304fd79c43daa61d819474c9f863b7186716763051e9ea95307de",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_llvm_runtime.O2.o": "379a4ea3f552416df2dfa749819e7db6c731a4132f484f3f4055623059d9f4c0",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_llvm_runtime.O3.o": "f70339167ef5200b97d58f5ebe069981e8cc9da9ac6938fc1c391f3473c92f73",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_runtime.O0.o": "b9e100962a52088a0ff55fead3d4705588dee86bc12562f3486f8faf61f06172",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_runtime.O2.o": "4ba4b5fa54ffa0ff55d658374ac46ad2040cdbe686aff3542ab00098020b11b3",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_runtime.O3.o": "5913019c6e9a6861a672e252c083650ec9ae6457b32c6660ee36919d17e8ad21",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_numeric_runtime.O0.o": "8d5da53003632fbb1c6e34b496a6b355526a0864e8c0aacfd0fef3628cc11181",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_numeric_runtime.O2.o": "1c1633f58f7e78789b1809442b3db77123f357b76ee08ae28d0f905425d0fc8a",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_numeric_runtime.O3.o": "1c1633f58f7e78789b1809442b3db77123f357b76ee08ae28d0f905425d0fc8a",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_panic_runtime.O0.o": "8ec0200d0072718f21323df38b722c4244616ae9ec3098ab9f38b675b2569276",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_panic_runtime.O2.o": "64d6fb6abd9f3e800ba1aa27c02b4e97e9a95ead84f97079c4d33cea1db0d915",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_panic_runtime.O3.o": "64d6fb6abd9f3e800ba1aa27c02b4e97e9a95ead84f97079c4d33cea1db0d915",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_system_runtime.O0.o": "5e8a726b34f3a4a216559cdb468221c927b0f06a608ef95728c78149bf119a78",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_system_runtime.O2.o": "99b7c7ce5cc75f7e2a6f4b3658df3cd18525ea46a2a77f50d430d078b5847763",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_system_runtime.O3.o": "99b7c7ce5cc75f7e2a6f4b3658df3cd18525ea46a2a77f50d430d078b5847763",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_unicode_runtime.O0.o": "bdce1be5462385dd35502b433ef08fa7c5da8a722445b154d0dcb7c7c3c3d280",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_unicode_runtime.O2.o": "d0db821805c274038018cd54b4424eddc0bedfb6640b80b89ce3c1323ed988c0",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_unicode_runtime.O3.o": "ee326bdb3604e3f763840fb2e6d16fb24a7eea30b6ae4d206a4543cf2f8d4356",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_word_runtime.O0.o": "2117d7dfc0a75604ad343c4837b5bd129c7188798ac5971e93cf9286b438c057",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_word_runtime.O2.o": "b86230b9137479817b54c1ccc59608dc19c03c50655284675309d50f4fc0f1e9",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/freak_v4_word_runtime.O3.o": "ea61fc755166467eab26559495ed73c0d9a07a4b831d38cf112d3f5919e80220",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O0.native": "a987047f72f2948156e26ffe292307096e0e2e8fb758949bc60d4c7089e8be63",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O2.native": "9b852f40d12cc0391452282180c3365a9c02a6c0098be6f88d74a1b65299a568",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O3.native": "ac51f0b227bd6b8b2080d297bf0d0dc45c92c636211d7858fa868aaa7a8f9fd5",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.native.ll": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.optimized.O0.ll": "abe18b1cd24bbcbbfe984badb5a9f8cac2a084275fe488ce174c63279ae50f20",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.optimized.O2.ll": "50af9438486be6f8758422015eae05b59ca61f3fc969a971454a947f29e7e59a",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.optimized.O3.ll": "6b0accfad17f1db040517d236ebff83212deb507cfc23f74c24742b118e342a6",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O0.native": "bdb78682c670c73ff2a056488fc281ffded8e61017f927b57966fab7c9611c90",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O2.native": "60a9ba935d380ea2b8bd2108e7e8618405fe24b8e1f2cb3718219bbc98e3c201",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O3.native": "cecb020453949b04ed12696f0fb607c16d628c5b99b4752b105d92bd207d9bbd",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.native.ll": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.optimized.O0.ll": "2533d3d48691c9a452b86fb9d0905ac27b9a9a910480fa83eaaea4ffec1de504",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.optimized.O2.ll": "e643c751e61d43b2e1f367d40aee3dd6e7db4e68d8dc12ebbda8b31b58ada3bd",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.optimized.O3.ll": "9efab7449c6b2fd0764d3e459cb7a55a0ea000add9d85b053a0a5255417500fe",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/hot-loop.fk": "d4378f4621564112a89191231a90e1e552bea6a7307a297d35eea3ca240423f5",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/int_inline_runtime_probe": "376618953e31fb4eebcb8c4e9e9643d080920908da176443fc4c00a4cbd7727e",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/int_inline_runtime_probe.fk.c": "d016b0c860904d81da89e9257e59c8aff86c264bad0feedd7bb3d8bafb3af381",
+    "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/probe.fk": "4d1c289239b023245bfa2b58f550e2667af890170813f7a91c8c87806962e6fb"
+  },
+  "historical_baseline": {
+    "compiler_head": "2b62e1cb1674336f52c3310a7dbf2e177d566a81",
+    "inline_rejection": {
+      "actual_helper_calls": {
+        "add": 2,
+        "mul": 1,
+        "sub": 3
+      },
+      "inline_rejection": "hot loop calls original numeric helpers: {\"add\": 2, \"mul\": 1, \"sub\": 3}"
+    },
+    "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+    "path": "/workspace/v4-native-speed-evidence/baseline-emit-v4/int_checked_hot_loop.ll",
+    "provenance_note": "module provenance supplied explicitly; native flags/runtime objects are this matched run",
+    "source_sha256": "d4378f4621564112a89191231a90e1e552bea6a7307a297d35eea3ca240423f5"
+  },
+  "mutation": {
+    "kind": "executable-helper-call-mutation",
+    "mutated_module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+    "original_module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+    "rewrites": [
+      {
+        "after": "  %rv.1.10 = call i64 @freak_v4_int_mul(i64 %rv.1.8, i64 3)",
+        "before": "  %rv.1.10 = call i64 @freak_v4_int_mul_inline(i64 %rv.1.8, i64 3)",
+        "operation": "mul"
+      },
+      {
+        "after": "  %rv.1.13 = call i64 @freak_v4_int_add(i64 %rv.1.11, i64 17)",
+        "before": "  %rv.1.13 = call i64 @freak_v4_int_add_inline(i64 %rv.1.11, i64 17)",
+        "operation": "add"
+      },
+      {
+        "after": "  %rv.1.19 = call i64 @freak_v4_int_sub(i64 %rv.1.17, i64 65536)",
+        "before": "  %rv.1.19 = call i64 @freak_v4_int_sub_inline(i64 %rv.1.17, i64 65536)",
+        "operation": "sub"
+      },
+      {
+        "after": "  %rv.1.25 = call i64 @freak_v4_int_sub(i64 %rv.1.23, i64 65536)",
+        "before": "  %rv.1.25 = call i64 @freak_v4_int_sub_inline(i64 %rv.1.23, i64 65536)",
+        "operation": "sub"
+      },
+      {
+        "after": "  %rv.1.31 = call i64 @freak_v4_int_sub(i64 %rv.1.29, i64 65536)",
+        "before": "  %rv.1.31 = call i64 @freak_v4_int_sub_inline(i64 %rv.1.29, i64 65536)",
+        "operation": "sub"
+      },
+      {
+        "after": "  %rv.1.34 = call i64 @freak_v4_int_add(i64 %rv.1.33, i64 1)",
+        "before": "  %rv.1.34 = call i64 @freak_v4_int_add_inline(i64 %rv.1.33, i64 1)",
+        "operation": "add"
+      }
+    ]
+  },
+  "structural": {
+    "checked_failure_cfg": true,
+    "direct_helper_calls": {
+      "add": 0,
+      "mul": 0,
+      "sub": 0
+    },
+    "wrapper_calls": {
+      "add": 2,
+      "mul": 1,
+      "sub": 3
+    }
+  },
+  "negative_control": {
+    "actual_helper_calls": {
+      "add": 2,
+      "mul": 1,
+      "sub": 3
+    },
+    "inline_rejection": "hot loop calls original numeric helpers: {\"add\": 2, \"mul\": 1, \"sub\": 3}"
+  },
+  "build_flags": {
+    "0": [
+      "-w",
+      "-O0",
+      "-I/workspace/Freak-lang-v4-native-speed/freakc/runtime",
+      "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1",
+      "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1"
+    ],
+    "2": [
+      "-w",
+      "-O2",
+      "-I/workspace/Freak-lang-v4-native-speed/freakc/runtime",
+      "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1",
+      "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1"
+    ],
+    "3": [
+      "-w",
+      "-O3",
+      "-I/workspace/Freak-lang-v4-native-speed/freakc/runtime",
+      "-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1",
+      "-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1"
+    ]
+  },
+  "timing_protocol": "plain guarded native job wall time including bounded capture/logging; compiler excluded; alternating variant order; one warmup; no speed threshold",
+  "iterations": 100000000,
+  "seed": 17,
+  "samples": 5,
+  "variants": [
+    "current",
+    "helper-mutation",
+    "historical-baseline"
+  ],
+  "optimized": [
+    {
+      "binary_sha256": "a26abfb54f9052641d819e0fee4833cffdc16827d59b32827a1151842bd9e717",
+      "facts": {
+        "dynamic_int64_inputs": 2,
+        "helper_calls": {
+          "add": 2,
+          "mul": 1,
+          "sub": 3
+        },
+        "reachable_cycle": true
+      },
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 0,
+      "optimized_module_sha256": "38cbce6f4a0275390d75f3f6dacca1b4074416c59d71aad9e588a55ff841dfbe",
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "a987047f72f2948156e26ffe292307096e0e2e8fb758949bc60d4c7089e8be63",
+      "facts": {
+        "dynamic_int64_inputs": 2,
+        "helper_calls": {
+          "add": 2,
+          "mul": 1,
+          "sub": 3
+        },
+        "reachable_cycle": true
+      },
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 0,
+      "optimized_module_sha256": "abe18b1cd24bbcbbfe984badb5a9f8cac2a084275fe488ce174c63279ae50f20",
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "bdb78682c670c73ff2a056488fc281ffded8e61017f927b57966fab7c9611c90",
+      "facts": {
+        "dynamic_int64_inputs": 2,
+        "helper_calls": {
+          "add": 2,
+          "mul": 1,
+          "sub": 3
+        },
+        "reachable_cycle": true
+      },
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 0,
+      "optimized_module_sha256": "2533d3d48691c9a452b86fb9d0905ac27b9a9a910480fa83eaaea4ffec1de504",
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "e1e269843d2ca31c684f6503b6c18692aca972dfbb1112cc493c6c8a714b5ae3",
+      "facts": {
+        "dynamic_int64_inputs": 2,
+        "helper_calls": {
+          "add": 1,
+          "mul": 1,
+          "sub": 0
+        },
+        "reachable_cycle": true
+      },
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 2,
+      "optimized_module_sha256": "0f1d8a0e2ddfac8206f0bb800ba3d1f95ee5ed2b8d04fac5be6680726b71d2c1",
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "9b852f40d12cc0391452282180c3365a9c02a6c0098be6f88d74a1b65299a568",
+      "facts": {
+        "dynamic_int64_inputs": 2,
+        "helper_calls": {
+          "add": 2,
+          "mul": 1,
+          "sub": 3
+        },
+        "reachable_cycle": true
+      },
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 2,
+      "optimized_module_sha256": "50af9438486be6f8758422015eae05b59ca61f3fc969a971454a947f29e7e59a",
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "60a9ba935d380ea2b8bd2108e7e8618405fe24b8e1f2cb3718219bbc98e3c201",
+      "facts": {
+        "dynamic_int64_inputs": 2,
+        "helper_calls": {
+          "add": 2,
+          "mul": 1,
+          "sub": 3
+        },
+        "reachable_cycle": true
+      },
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 2,
+      "optimized_module_sha256": "e643c751e61d43b2e1f367d40aee3dd6e7db4e68d8dc12ebbda8b31b58ada3bd",
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "41eca321361900d871fc7a1ab22a1d4a29ca3d11721865af81f1449c06363259",
+      "facts": {
+        "dynamic_int64_inputs": 2,
+        "helper_calls": {
+          "add": 1,
+          "mul": 1,
+          "sub": 0
+        },
+        "reachable_cycle": true
+      },
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 3,
+      "optimized_module_sha256": "0f1d8a0e2ddfac8206f0bb800ba3d1f95ee5ed2b8d04fac5be6680726b71d2c1",
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "ac51f0b227bd6b8b2080d297bf0d0dc45c92c636211d7858fa868aaa7a8f9fd5",
+      "facts": {
+        "dynamic_int64_inputs": 2,
+        "helper_calls": {
+          "add": 2,
+          "mul": 1,
+          "sub": 3
+        },
+        "reachable_cycle": true
+      },
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 3,
+      "optimized_module_sha256": "6b0accfad17f1db040517d236ebff83212deb507cfc23f74c24742b118e342a6",
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "cecb020453949b04ed12696f0fb607c16d628c5b99b4752b105d92bd207d9bbd",
+      "facts": {
+        "dynamic_int64_inputs": 2,
+        "helper_calls": {
+          "add": 2,
+          "mul": 1,
+          "sub": 3
+        },
+        "reachable_cycle": true
+      },
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 3,
+      "optimized_module_sha256": "9efab7449c6b2fd0764d3e459cb7a55a0ea000add9d85b053a0a5255417500fe",
+      "variant": "historical-baseline"
+    }
+  ],
+  "timings": [
+    {
+      "binary_sha256": "a26abfb54f9052641d819e0fee4833cffdc16827d59b32827a1151842bd9e717",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 789484804,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample0 current O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 0,
+      "seed": 17,
+      "serial": 226,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "a987047f72f2948156e26ffe292307096e0e2e8fb758949bc60d4c7089e8be63",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1873167745,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample0 helper-mutation O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 0,
+      "seed": 17,
+      "serial": 227,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "bdb78682c670c73ff2a056488fc281ffded8e61017f927b57966fab7c9611c90",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1954864354,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample0 historical-baseline O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 0,
+      "seed": 17,
+      "serial": 228,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "bdb78682c670c73ff2a056488fc281ffded8e61017f927b57966fab7c9611c90",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1870146478,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample1 historical-baseline O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 1,
+      "seed": 17,
+      "serial": 229,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "a987047f72f2948156e26ffe292307096e0e2e8fb758949bc60d4c7089e8be63",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1873451495,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample1 helper-mutation O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 1,
+      "seed": 17,
+      "serial": 230,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "a26abfb54f9052641d819e0fee4833cffdc16827d59b32827a1151842bd9e717",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 734247869,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample1 current O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 1,
+      "seed": 17,
+      "serial": 231,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "a26abfb54f9052641d819e0fee4833cffdc16827d59b32827a1151842bd9e717",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 745696655,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample2 current O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 2,
+      "seed": 17,
+      "serial": 232,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "a987047f72f2948156e26ffe292307096e0e2e8fb758949bc60d4c7089e8be63",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1869742653,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample2 helper-mutation O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 2,
+      "seed": 17,
+      "serial": 233,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "bdb78682c670c73ff2a056488fc281ffded8e61017f927b57966fab7c9611c90",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1911222539,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample2 historical-baseline O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 2,
+      "seed": 17,
+      "serial": 234,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "bdb78682c670c73ff2a056488fc281ffded8e61017f927b57966fab7c9611c90",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1951643882,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample3 historical-baseline O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 3,
+      "seed": 17,
+      "serial": 235,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "a987047f72f2948156e26ffe292307096e0e2e8fb758949bc60d4c7089e8be63",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1905269636,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample3 helper-mutation O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 3,
+      "seed": 17,
+      "serial": 236,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "a26abfb54f9052641d819e0fee4833cffdc16827d59b32827a1151842bd9e717",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 749739998,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample3 current O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 3,
+      "seed": 17,
+      "serial": 237,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "a26abfb54f9052641d819e0fee4833cffdc16827d59b32827a1151842bd9e717",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 800526710,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample4 current O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 4,
+      "seed": 17,
+      "serial": 238,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "a987047f72f2948156e26ffe292307096e0e2e8fb758949bc60d4c7089e8be63",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1877354747,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample4 helper-mutation O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 4,
+      "seed": 17,
+      "serial": 239,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "bdb78682c670c73ff2a056488fc281ffded8e61017f927b57966fab7c9611c90",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O0.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1873878186,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample4 historical-baseline O0",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 0,
+      "output_limit_mib_per_stream": 8,
+      "sample": 4,
+      "seed": 17,
+      "serial": 240,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "e1e269843d2ca31c684f6503b6c18692aca972dfbb1112cc493c6c8a714b5ae3",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 209655108,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample0 current O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 0,
+      "seed": 17,
+      "serial": 244,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "9b852f40d12cc0391452282180c3365a9c02a6c0098be6f88d74a1b65299a568",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 951515506,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample0 helper-mutation O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 0,
+      "seed": 17,
+      "serial": 245,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "60a9ba935d380ea2b8bd2108e7e8618405fe24b8e1f2cb3718219bbc98e3c201",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 955017100,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample0 historical-baseline O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 0,
+      "seed": 17,
+      "serial": 246,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "60a9ba935d380ea2b8bd2108e7e8618405fe24b8e1f2cb3718219bbc98e3c201",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1013909026,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample1 historical-baseline O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 1,
+      "seed": 17,
+      "serial": 247,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "9b852f40d12cc0391452282180c3365a9c02a6c0098be6f88d74a1b65299a568",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1015245100,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample1 helper-mutation O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 1,
+      "seed": 17,
+      "serial": 248,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "e1e269843d2ca31c684f6503b6c18692aca972dfbb1112cc493c6c8a714b5ae3",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 212286703,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample1 current O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 1,
+      "seed": 17,
+      "serial": 249,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "e1e269843d2ca31c684f6503b6c18692aca972dfbb1112cc493c6c8a714b5ae3",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 213736179,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample2 current O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 2,
+      "seed": 17,
+      "serial": 250,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "9b852f40d12cc0391452282180c3365a9c02a6c0098be6f88d74a1b65299a568",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 951765736,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample2 helper-mutation O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 2,
+      "seed": 17,
+      "serial": 251,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "60a9ba935d380ea2b8bd2108e7e8618405fe24b8e1f2cb3718219bbc98e3c201",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 965703904,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample2 historical-baseline O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 2,
+      "seed": 17,
+      "serial": 252,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "60a9ba935d380ea2b8bd2108e7e8618405fe24b8e1f2cb3718219bbc98e3c201",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 957463116,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample3 historical-baseline O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 3,
+      "seed": 17,
+      "serial": 253,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "9b852f40d12cc0391452282180c3365a9c02a6c0098be6f88d74a1b65299a568",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 984462222,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample3 helper-mutation O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 3,
+      "seed": 17,
+      "serial": 254,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "e1e269843d2ca31c684f6503b6c18692aca972dfbb1112cc493c6c8a714b5ae3",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 215209725,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample3 current O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 3,
+      "seed": 17,
+      "serial": 255,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "e1e269843d2ca31c684f6503b6c18692aca972dfbb1112cc493c6c8a714b5ae3",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 262516576,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample4 current O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 4,
+      "seed": 17,
+      "serial": 256,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "9b852f40d12cc0391452282180c3365a9c02a6c0098be6f88d74a1b65299a568",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 956710649,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample4 helper-mutation O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 4,
+      "seed": 17,
+      "serial": 257,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "60a9ba935d380ea2b8bd2108e7e8618405fe24b8e1f2cb3718219bbc98e3c201",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O2.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 946323755,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample4 historical-baseline O2",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 2,
+      "output_limit_mib_per_stream": 8,
+      "sample": 4,
+      "seed": 17,
+      "serial": 258,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "41eca321361900d871fc7a1ab22a1d4a29ca3d11721865af81f1449c06363259",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 210275797,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample0 current O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 0,
+      "seed": 17,
+      "serial": 262,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "ac51f0b227bd6b8b2080d297bf0d0dc45c92c636211d7858fa868aaa7a8f9fd5",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 997978857,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample0 helper-mutation O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 0,
+      "seed": 17,
+      "serial": 263,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "cecb020453949b04ed12696f0fb607c16d628c5b99b4752b105d92bd207d9bbd",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 965507580,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample0 historical-baseline O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 0,
+      "seed": 17,
+      "serial": 264,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "cecb020453949b04ed12696f0fb607c16d628c5b99b4752b105d92bd207d9bbd",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1000536087,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample1 historical-baseline O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 1,
+      "seed": 17,
+      "serial": 265,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "ac51f0b227bd6b8b2080d297bf0d0dc45c92c636211d7858fa868aaa7a8f9fd5",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1055746713,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample1 helper-mutation O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 1,
+      "seed": 17,
+      "serial": 266,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "41eca321361900d871fc7a1ab22a1d4a29ca3d11721865af81f1449c06363259",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 210148290,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample1 current O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 1,
+      "seed": 17,
+      "serial": 267,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "41eca321361900d871fc7a1ab22a1d4a29ca3d11721865af81f1449c06363259",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 210741996,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample2 current O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 2,
+      "seed": 17,
+      "serial": 268,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "ac51f0b227bd6b8b2080d297bf0d0dc45c92c636211d7858fa868aaa7a8f9fd5",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1061275108,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample2 helper-mutation O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 2,
+      "seed": 17,
+      "serial": 269,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "cecb020453949b04ed12696f0fb607c16d628c5b99b4752b105d92bd207d9bbd",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1003319873,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample2 historical-baseline O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 2,
+      "seed": 17,
+      "serial": 270,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "cecb020453949b04ed12696f0fb607c16d628c5b99b4752b105d92bd207d9bbd",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1004473261,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample3 historical-baseline O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 3,
+      "seed": 17,
+      "serial": 271,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    },
+    {
+      "binary_sha256": "ac51f0b227bd6b8b2080d297bf0d0dc45c92c636211d7858fa868aaa7a8f9fd5",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1024677285,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample3 helper-mutation O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 3,
+      "seed": 17,
+      "serial": 272,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "41eca321361900d871fc7a1ab22a1d4a29ca3d11721865af81f1449c06363259",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 223981584,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample3 current O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 3,
+      "seed": 17,
+      "serial": 273,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "41eca321361900d871fc7a1ab22a1d4a29ca3d11721865af81f1449c06363259",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/current.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 229589531,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample4 current O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "0ab9079117c7991d4573898c275709842a07d6759abc42db8eb2c2f4fe3196b1",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 4,
+      "seed": 17,
+      "serial": 274,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "current"
+    },
+    {
+      "binary_sha256": "ac51f0b227bd6b8b2080d297bf0d0dc45c92c636211d7858fa868aaa7a8f9fd5",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/helper-mutation.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 1057645762,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample4 helper-mutation O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "e5a3f3e352d40588d52c08c608a2914207af565938510c18f6143ce4b680a433",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 4,
+      "seed": 17,
+      "serial": 275,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "helper-mutation"
+    },
+    {
+      "binary_sha256": "cecb020453949b04ed12696f0fb607c16d628c5b99b4752b105d92bd207d9bbd",
+      "command": [
+        "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/historical-baseline.O3.native",
+        "100000000",
+        "17"
+      ],
+      "elapsed_ns": 999696032,
+      "exit": 0,
+      "iterations": 100000000,
+      "label": "sample4 historical-baseline O3",
+      "memory_limit_mib": 128,
+      "module_sha256": "3e99d75b77cca6406936984b2d14029ac63be3fe98043a22ed7307788d1d7641",
+      "optimization": 3,
+      "output_limit_mib_per_stream": 8,
+      "sample": 4,
+      "seed": 17,
+      "serial": 276,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "f2f4b81ff24030d1cec84246e2fe9895304b95c3ea12c463d93f1e9f11830ad2",
+      "timeout_seconds": 30,
+      "variant": "historical-baseline"
+    }
+  ],
+  "medians": [
+    {
+      "median_ns": 749739998,
+      "optimization": 0,
+      "samples": 5,
+      "variant": "current"
+    },
+    {
+      "median_ns": 1873451495,
+      "optimization": 0,
+      "samples": 5,
+      "variant": "helper-mutation"
+    },
+    {
+      "median_ns": 1911222539,
+      "optimization": 0,
+      "samples": 5,
+      "variant": "historical-baseline"
+    },
+    {
+      "median_ns": 213736179,
+      "optimization": 2,
+      "samples": 5,
+      "variant": "current"
+    },
+    {
+      "median_ns": 956710649,
+      "optimization": 2,
+      "samples": 5,
+      "variant": "helper-mutation"
+    },
+    {
+      "median_ns": 957463116,
+      "optimization": 2,
+      "samples": 5,
+      "variant": "historical-baseline"
+    },
+    {
+      "median_ns": 210741996,
+      "optimization": 3,
+      "samples": 5,
+      "variant": "current"
+    },
+    {
+      "median_ns": 1055746713,
+      "optimization": 3,
+      "samples": 5,
+      "variant": "helper-mutation"
+    },
+    {
+      "median_ns": 1000536087,
+      "optimization": 3,
+      "samples": 5,
+      "variant": "historical-baseline"
+    }
+  ],
+  "scope": "Dynamic signed-int64 add/sub/mul hot loop on Linux x86_64; guarded job wall time includes startup/capture/logging, excludes compilation/identity hashing; no claim of global V3 parity.",
+  "raw_reports": {
+    "numeric-plain": {
+      "path": "/workspace/v4-native-speed-evidence/native-final-v1/numeric-plain/results.json",
+      "sha256": "cd9135e8a31daf3595529893c89808616c758f6340910b3b02637e3c0952e078"
+    },
+    "numeric-sanitized": {
+      "path": "/workspace/v4-native-speed-evidence/native-final-v1/numeric-sanitized/results.json",
+      "sha256": "0792d1b4773ad52ecf96d3fb1cad6b3b41413ec02f6362b25a94f0dd758548f3"
+    },
+    "runtime-sanitized": {
+      "path": "/workspace/v4-native-speed-evidence/native-final-v1/runtime-sanitized/results.json",
+      "sha256": "d792c482a61cead0ce83e836883ef4239e75542ce4ae92e13674e486edb6bb5e"
+    },
+    "runtime-measured": {
+      "path": "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured/results.json",
+      "sha256": "8af128adb5c173dd6ddf8210d780aa7d24172558a30c71f723d2df7fc82c3b6b"
+    }
+  },
+  "verified_counts": {
+    "numeric-plain": {
+      "passed": true,
+      "programs": 150,
+      "compiler_contracts": 141,
+      "boundaries": 0,
+      "dynamic_cases": 0,
+      "guarded_jobs": 0,
+      "controls": 6,
+      "timings": 0
+    },
+    "numeric-sanitized": {
+      "passed": true,
+      "programs": 150,
+      "compiler_contracts": 141,
+      "boundaries": 0,
+      "dynamic_cases": 0,
+      "guarded_jobs": 0,
+      "controls": 8,
+      "timings": 0
+    },
+    "runtime-sanitized": {
+      "passed": true,
+      "programs": 0,
+      "compiler_contracts": 0,
+      "boundaries": 54,
+      "dynamic_cases": 87,
+      "guarded_jobs": 192,
+      "controls": 8,
+      "timings": 0
+    },
+    "runtime-measured": {
+      "passed": true,
+      "programs": 0,
+      "compiler_contracts": 0,
+      "boundaries": 81,
+      "dynamic_cases": 87,
+      "guarded_jobs": 276,
+      "controls": 6,
+      "timings": 45
+    }
+  },
+  "sample_statistics": [
+    {
+      "variant": "current",
+      "optimization": 0,
+      "min_ns": 734247869,
+      "median_ns": 749739998,
+      "max_ns": 800526710,
+      "samples": 5
+    },
+    {
+      "variant": "helper-mutation",
+      "optimization": 0,
+      "min_ns": 1869742653,
+      "median_ns": 1873451495,
+      "max_ns": 1905269636,
+      "samples": 5
+    },
+    {
+      "variant": "historical-baseline",
+      "optimization": 0,
+      "min_ns": 1870146478,
+      "median_ns": 1911222539,
+      "max_ns": 1954864354,
+      "samples": 5
+    },
+    {
+      "variant": "current",
+      "optimization": 2,
+      "min_ns": 209655108,
+      "median_ns": 213736179,
+      "max_ns": 262516576,
+      "samples": 5
+    },
+    {
+      "variant": "helper-mutation",
+      "optimization": 2,
+      "min_ns": 951515506,
+      "median_ns": 956710649,
+      "max_ns": 1015245100,
+      "samples": 5
+    },
+    {
+      "variant": "historical-baseline",
+      "optimization": 2,
+      "min_ns": 946323755,
+      "median_ns": 957463116,
+      "max_ns": 1013909026,
+      "samples": 5
+    },
+    {
+      "variant": "current",
+      "optimization": 3,
+      "min_ns": 210148290,
+      "median_ns": 210741996,
+      "max_ns": 229589531,
+      "samples": 5
+    },
+    {
+      "variant": "helper-mutation",
+      "optimization": 3,
+      "min_ns": 997978857,
+      "median_ns": 1055746713,
+      "max_ns": 1061275108,
+      "samples": 5
+    },
+    {
+      "variant": "historical-baseline",
+      "optimization": 3,
+      "min_ns": 965507580,
+      "median_ns": 1000536087,
+      "max_ns": 1004473261,
+      "samples": 5
+    }
+  ],
+  "launcher": {
+    "path": "/workspace/v4-native-speed-evidence/native-final-v1/receipt.json",
+    "sha256": "8118b04327c3a35b9700c66d40b624c114e93f4accee302f338affdce3c9439a",
+    "head": "d31c0965b71dd8313c9b2ec9c76d4f3403598db0",
+    "exit": 0,
+    "inputs_unchanged": true,
+    "all_children_reaped": true,
+    "commands": [
+      {
+        "index": 0,
+        "argv": [
+          "python",
+          "-B",
+          "-u",
+          "tests/v4_checked_numeric_codegen.py",
+          "--plain",
+          "--snapshot-control",
+          "--work",
+          "/workspace/v4-native-speed-evidence/native-final-v1/numeric-plain"
+        ],
+        "exit": 0,
+        "elapsed_ns": 48715494704,
+        "log": "/workspace/v4-native-speed-evidence/native-final-v1/command-0.log",
+        "log_sha256": "723415429287b439365c4829bdb5fa64ec26d73789e53dd93067e8b8d8c85b08"
+      },
+      {
+        "index": 1,
+        "argv": [
+          "python",
+          "-B",
+          "-u",
+          "tests/v4_checked_numeric_codegen.py",
+          "--snapshot-control",
+          "--work",
+          "/workspace/v4-native-speed-evidence/native-final-v1/numeric-sanitized"
+        ],
+        "exit": 0,
+        "elapsed_ns": 62696973267,
+        "log": "/workspace/v4-native-speed-evidence/native-final-v1/command-1.log",
+        "log_sha256": "243e2aea400de671ff472ff04ef7a907db3b36a90a4c6efd525219bd539c030b"
+      },
+      {
+        "index": 2,
+        "argv": [
+          "python",
+          "-B",
+          "-u",
+          "tests/v4_int_inline_runtime_bench.py",
+          "--work",
+          "/workspace/v4-native-speed-evidence/native-final-v1/runtime-sanitized"
+        ],
+        "exit": 0,
+        "elapsed_ns": 52386027390,
+        "log": "/workspace/v4-native-speed-evidence/native-final-v1/command-2.log",
+        "log_sha256": "2e88fb8feb626b6cd199c5a31189aea3f42a30e6c5832af78ba73057fcec0b8d"
+      },
+      {
+        "index": 3,
+        "argv": [
+          "python",
+          "-B",
+          "-u",
+          "tests/v4_int_inline_runtime_bench.py",
+          "--plain",
+          "--work",
+          "/workspace/v4-native-speed-evidence/native-final-v1/runtime-measured",
+          "--baseline-module",
+          "/workspace/v4-native-speed-evidence/baseline-emit-v4/int_checked_hot_loop.ll",
+          "--baseline-source-sha256",
+          "d4378f4621564112a89191231a90e1e552bea6a7307a297d35eea3ca240423f5",
+          "--baseline-compiler-head",
+          "2b62e1cb1674336f52c3310a7dbf2e177d566a81",
+          "--iterations",
+          "100000000",
+          "--samples",
+          "5"
+        ],
+        "exit": 0,
+        "elapsed_ns": 99878078666,
+        "log": "/workspace/v4-native-speed-evidence/native-final-v1/command-3.log",
+        "log_sha256": "644280aa561ab55e1b88d97dd4730bf9f577ccebca34d4044caa98afbebf2292"
+      },
+      {
+        "index": 4,
+        "argv": [
+          "python",
+          "-B",
+          "-u",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests/v4_review_guards",
+          "-v"
+        ],
+        "exit": 0,
+        "elapsed_ns": 274745827855,
+        "log": "/workspace/v4-native-speed-evidence/native-final-v1/command-4.log",
+        "log_sha256": "6783271df4eb013668aad45d054aa3a3d9bf8dd7db27f77ef02ff078f2f4afdc"
+      },
+      {
+        "index": 5,
+        "argv": [
+          "python",
+          "-B",
+          "-u",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-p",
+          "test_v4_int_inline_runtime_bench.py",
+          "-v"
+        ],
+        "exit": 0,
+        "elapsed_ns": 119591617,
+        "log": "/workspace/v4-native-speed-evidence/native-final-v1/command-5.log",
+        "log_sha256": "998ee890d1c84bf3128b51309ccea9d039630a38a20cde702167dbf880aa5be4"
+      },
+      {
+        "index": 6,
+        "argv": [
+          "python",
+          "-B",
+          "-u",
+          "tools/release_version.py",
+          "check"
+        ],
+        "exit": 0,
+        "elapsed_ns": 27090441,
+        "log": "/workspace/v4-native-speed-evidence/native-final-v1/command-6.log",
+        "log_sha256": "65f83b74e8c454a1032c588b6994a3a05174c97cbb9b4a31553f6c9f4670ac51"
+      },
+      {
+        "index": 7,
+        "argv": [
+          "python",
+          "-B",
+          "-u",
+          "tools/check_contributor.py"
+        ],
+        "exit": 0,
+        "elapsed_ns": 111076867,
+        "log": "/workspace/v4-native-speed-evidence/native-final-v1/command-7.log",
+        "log_sha256": "777e480da668302d37afa77928d37b4dbeda6de771712b333d9cb2b4404288bb"
+      },
+      {
+        "index": 8,
+        "argv": [
+          "python",
+          "-B",
+          "-u",
+          "-m",
+          "freakc",
+          "audit-conformance"
+        ],
+        "exit": 0,
+        "elapsed_ns": 2087637222,
+        "log": "/workspace/v4-native-speed-evidence/native-final-v1/command-8.log",
+        "log_sha256": "21d593e22c67080faa5031045b250aa14686355e91624588bfbd39665f872848"
+      }
+    ]
+  }
+}
