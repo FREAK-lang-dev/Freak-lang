@@ -2451,8 +2451,9 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot repeat_id = word_to_int(expr)
         tc_validate_expr(repeat_id, line)
         pilot repeat_type = tc_expr_type(repeat_id)
-        if array_get(ast_stmt_names, stmt_id) == "until" {
-            if repeat_type != "" and repeat_type != "bool" { tc_diag("repeat until condition must have type bool, got " + repeat_type, tc_expr_diag_line(repeat_id, line), tc_expr_diag_file(repeat_id, source_file)) }
+        pilot repeat_form: word = array_get(ast_stmt_names, stmt_id)
+        if repeat_form == "until" or repeat_form == "while" {
+            if repeat_type != "" and repeat_type != "bool" { tc_diag("repeat " + repeat_form + " condition must have type bool, got " + repeat_type, tc_expr_diag_line(repeat_id, line), tc_expr_diag_file(repeat_id, source_file)) }
         } else if repeat_type != "" and repeat_type != "int" {
             tc_diag("repeat count must have type int, got " + repeat_type, tc_expr_diag_line(repeat_id, line), tc_expr_diag_file(repeat_id, source_file))
         }

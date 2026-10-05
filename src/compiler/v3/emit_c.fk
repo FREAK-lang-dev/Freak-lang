@@ -1314,8 +1314,9 @@ task emit_stmt(eid: word) -> void {
     if kind == STMT_REPEAT {
         pilot saved_loop_cleanup_base = emt_loop_word_cleanup_base
         emt_loop_word_cleanup_base = emt_var_count
-        if name_w == "until" {
-            emit("while (!(")
+        if name_w == "until" or name_w == "while" {
+            if name_w == "until" { emit("while (!(") }
+            else { emit("while ((") }
             emit_expr(expr_id_w)
             emit_line(")) {")
             emit_block(array_get(ast_stmt_bodies, i))

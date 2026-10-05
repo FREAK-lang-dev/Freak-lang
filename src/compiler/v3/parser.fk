@@ -747,12 +747,24 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_IF, "", word_from_int(expr_id), body_id, else_body, "", "", "", stmt_line)
     }
 
-    -- repeat until cond { body }  /  repeat N times { body }
+    -- Both spellings use the same pretest loop and positive condition.
+    if match_tok(TOK_KW, "while") {
+        pilot expr_id = parse_expr()
+        pilot body_id = parse_block()
+        give back alloc_stmt(STMT_REPEAT, "while", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
+    }
+
+    -- repeat until/while cond { body }  /  repeat N times { body }
     if match_tok(TOK_KW, "repeat") {
         if match_tok(TOK_KW, "until") {
             pilot expr_id = parse_expr()
             pilot body_id = parse_block()
             give back alloc_stmt(STMT_REPEAT, "until", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
+        }
+        if match_tok(TOK_KW, "while") {
+            pilot expr_id = parse_expr()
+            pilot body_id = parse_block()
+            give back alloc_stmt(STMT_REPEAT, "while", word_from_int(expr_id), body_id, "", "", "", "", stmt_line)
         }
         pilot expr_id = parse_expr()
         expect_tok(TOK_KW, "times")

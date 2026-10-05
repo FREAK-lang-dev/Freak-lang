@@ -45,6 +45,28 @@ POSITIVE = {
         '}\n',
         "4\n",
     ),
+    "while_aliases_and_until": (
+        'task main() { pilot n = 0; while n < 3 { say n; n += 1; } '
+        'repeat while n < 5 { say n; n += 1; } '
+        'repeat until n >= 7 { say n; n += 1; } '
+        'while false { say "wrong"; } say n; }\n',
+        "0\n1\n2\n3\n4\n5\n6\n7\n",
+    ),
+    "while_reevaluates_condition": (
+        'pilot calls = 0;\n'
+        'task next() -> bool { calls += 1; give back calls < 4; }\n'
+        'task main() { while next() { say calls; } say calls; }\n',
+        "1\n2\n3\n4\n",
+    ),
+    "while_nested_control_and_return": (
+        'task early() -> word { pilot n = 0; repeat while true { '
+        'pilot text = "owned" + " result"; n += 1; '
+        'if n < 2 { continue; } give back text; } give back "unreachable"; }\n'
+        'task main() { pilot outer = 0; while outer < 3 { outer += 1; '
+        'if outer == 2 { continue; } pilot inner = 0; repeat while true { '
+        'inner += 1; if inner == 2 { break; } say outer; } } say early(); }\n',
+        "1\n3\nowned result\n",
+    ),
 }
 
 NEGATIVE = {
@@ -57,6 +79,21 @@ NEGATIVE = {
         'task main() { say 1; pilot = 2; }\n',
         "expected an identifier for binding name",
         "=",
+    ),
+    "while_reserved_identifier": (
+        'task main() { pilot while = 1; }\n',
+        "expected an identifier for binding name",
+        "while",
+    ),
+    "while_condition_type": (
+        'task main() { while 1 { say 1; } }\n',
+        "repeat while condition must have type bool, got int",
+        None,
+    ),
+    "repeat_while_condition_type": (
+        'task main() { repeat while "yes" { say 1; } }\n',
+        "repeat while condition must have type bool, got word",
+        None,
     ),
 }
 
@@ -128,7 +165,7 @@ def main() -> int:
                 output = rejected.stdout + rejected.stderr
                 assert rejected.returncode != 0, (name, backend, output)
                 assert diagnostic in output, (name, backend, output)
-                column = program.index(offending_token) + 1
+                column = program.index(offending_token) + 1 if offending_token else 1
                 assert f"{source}:1:{column}" in output, (name, backend, column, output)
                 assert not artifact.exists(), (name, backend, "stale output survived")
                 executed_cases.append((backend, name))

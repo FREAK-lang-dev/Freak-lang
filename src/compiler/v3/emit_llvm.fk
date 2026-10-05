@@ -2017,13 +2017,14 @@ task llvm_emit_stmt_repeat(eid: word) -> void {
     llvm_loop_end_label = l_end
     llvm_loop_word_cleanup_prefix = llvm_word_local_slots
 
-    if name_w == "until" {
+    if name_w == "until" or name_w == "while" {
         llvm_loop_cond_label = l_cond
         llvm_emit_line("    br label %" + l_cond)
         llvm_emit_line(l_cond + ":")
         pilot cond_reg = llvm_emit_expr(expr_id_w)
         pilot cmp_reg = next_reg()
-        llvm_emit_line("    " + cmp_reg + " = icmp eq i64 " + cond_reg + ", 0")
+        if name_w == "until" { llvm_emit_line("    " + cmp_reg + " = icmp eq i64 " + cond_reg + ", 0") }
+        else { llvm_emit_line("    " + cmp_reg + " = icmp ne i64 " + cond_reg + ", 0") }
         llvm_emit_line("    br i1 " + cmp_reg + ", label %" + l_body + ", label %" + l_end)
         llvm_emit_line(l_body + ":")
         llvm_emit_block(array_get(ast_stmt_bodies, i))
