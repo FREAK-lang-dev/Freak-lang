@@ -3,6 +3,170 @@
 -- ===================================================================
 -- Streaming emit via fs::append. Flat if chains. No nesting limits.
 
+-- A word view is legal only for a closed, observation-only user task. The
+-- owning task ABI stays unchanged: heap=false already denotes borrowed word
+-- storage, so existing parameter cleanup does not consume the caller owner.
+pilot emt_c_word_observer_states = 0
+pilot emt_c_word_observer_depth = 0
+pilot emt_c_word_observer_nesting = 0
+pilot emt_c_word_observer_budget = 0
+
+task c_word_observer_type(expr_id: int) -> word {
+    if expr_id < 0 or expr_id >= array_len(tc_checked_expr_types) { give back "" }
+    give back array_get(tc_checked_expr_types, expr_id)
+}
+
+task c_word_observer_primitive(type_name: word) -> bool {
+    give back type_name == "int" or type_name == "num" or type_name == "bool" or type_name == "word"
+}
+
+task c_word_observer_args(args: word) -> bool {
+    pilot index = 0
+    repeat tc_arg_count(args) times {
+        if not c_word_observer_expr(tc_arg_at(args, index)) { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task c_word_observer_expr(expr_id: int) -> bool {
+    if emt_c_word_observer_nesting >= 64 { give back false }
+    emt_c_word_observer_nesting += 1
+    pilot accepted = c_word_observer_expr_inner(expr_id)
+    emt_c_word_observer_nesting -= 1
+    give back accepted
+}
+
+task c_word_observer_expr_inner(expr_id: int) -> bool {
+    if expr_id < 0 { give back true }
+    if emt_c_word_observer_budget <= 0 { give back false }
+    emt_c_word_observer_budget -= 1
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    pilot val: word = array_get(ast_expr_vals, expr_id)
+    pilot left: word = array_get(ast_expr_lefts, expr_id)
+    pilot right: word = array_get(ast_expr_rights, expr_id)
+    if kind == EXPR_INT or kind == EXPR_FLOAT or kind == EXPR_STR or kind == EXPR_BOOL { give back true }
+    if kind == EXPR_IDENT {
+        -- Reject global reads too: a conservative local-only proof avoids
+        -- aliases to mutable owners, including ambiguous shadowed names.
+        give back tc_global_index(val) < 0 and c_word_observer_primitive(c_word_observer_type(expr_id))
+    }
+    if kind == EXPR_BINOP {
+        give back c_word_observer_expr(word_to_int(left)) and c_word_observer_expr(word_to_int(right))
+    }
+    if kind == EXPR_UNARYOP { give back c_word_observer_expr(word_to_int(left)) }
+    if kind == EXPR_METHOD {
+        if c_word_observer_type(word_to_int(left)) != "word" { give back false }
+        -- char_at returns a stable byte literal, never a view into its input.
+        -- Do not extend this list to replace: its empty-pattern identity path
+        -- clones the receiver and could let a borrowed input escape.
+        if val != "length" and val != "char_at" and val != "contains" and val != "starts_with" and val != "ends_with" { give back false }
+        give back c_word_observer_expr(word_to_int(left)) and c_word_observer_args(right)
+    }
+    if kind == EXPR_CALL {
+        -- Lowering gives mapped builtins/externs precedence over user tasks.
+        if c_map_call(val) != "" or emt_is_extern(val) { give back false }
+        give back c_word_observer_args(left) and c_word_observer_task(tc_callable_entry(val))
+    }
+    -- Projections, containers, interpolation and all unknown forms keep the
+    -- owning call path. In particular, no borrowed derived alias may escape.
+    give back false
+}
+
+task c_word_observer_independent(expr_id: int) -> bool {
+    if c_word_observer_type(expr_id) != "word" { give back true }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    if kind == EXPR_STR { give back true }
+    if kind == EXPR_BINOP and array_get(ast_expr_vals, expr_id) == "+" { give back true }
+    if kind == EXPR_METHOD and array_get(ast_expr_vals, expr_id) == "char_at" { give back true }
+    if kind == EXPR_CALL { give back c_word_observer_task(tc_callable_entry(array_get(ast_expr_vals, expr_id))) }
+    -- Even a local word may alias a parameter. Reject identifier returns and
+    -- identifier initializers rather than attempting an escape analysis.
+    give back false
+}
+
+task c_word_observer_stmt(stmt_id: int, params: word) -> bool {
+    if emt_c_word_observer_nesting >= 64 { give back false }
+    emt_c_word_observer_nesting += 1
+    pilot accepted = c_word_observer_stmt_inner(stmt_id, params)
+    emt_c_word_observer_nesting -= 1
+    give back accepted
+}
+
+task c_word_observer_stmt_inner(stmt_id: int, params: word) -> bool {
+    if emt_c_word_observer_budget <= 0 { give back false }
+    emt_c_word_observer_budget -= 1
+    pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
+    pilot expr: word = array_get(ast_stmt_exprs, stmt_id)
+    pilot body: word = array_get(ast_stmt_bodies, stmt_id)
+    if kind == STMT_PILOT {
+        pilot name: word = array_get(ast_stmt_names, stmt_id)
+        pilot index = 0
+        repeat tc_arg_count(params) times {
+            if name == tc_param_name_at(params, index) { give back false }
+            index += 1
+        }
+        give back c_word_observer_expr(word_to_int(expr)) and c_word_observer_independent(word_to_int(expr))
+    }
+    if kind == STMT_GIVE_BACK {
+        if expr == "" or expr.starts_with("-") { give back true }
+        give back c_word_observer_expr(word_to_int(expr)) and c_word_observer_independent(word_to_int(expr))
+    }
+    if kind == STMT_ASSIGN {
+        pilot lhs = word_to_int(expr)
+        if array_get(ast_expr_kinds, lhs) != EXPR_IDENT or tc_global_index(array_get(ast_expr_vals, lhs)) >= 0 { give back false }
+        pilot type_name = c_word_observer_type(lhs)
+        if type_name != "int" and type_name != "num" and type_name != "bool" { give back false }
+        give back c_word_observer_expr(word_to_int(body))
+    }
+    if kind == STMT_IF {
+        give back c_word_observer_expr(word_to_int(expr)) and c_word_observer_block(body, params) and c_word_observer_block(array_get(ast_stmt_else_bodies, stmt_id), params)
+    }
+    if kind == STMT_REPEAT {
+        give back c_word_observer_expr(word_to_int(expr)) and c_word_observer_block(body, params)
+    }
+    if kind == STMT_BLOCK { give back c_word_observer_block(body, params) }
+    if kind == STMT_EXPR { give back c_word_observer_expr(word_to_int(expr)) }
+    if kind == STMT_BREAK or kind == STMT_CONTINUE { give back true }
+    give back false
+}
+
+task c_word_observer_block(block: word, params: word) -> bool {
+    pilot index = 0
+    repeat tc_arg_count(block) times {
+        if not c_word_observer_stmt(tc_arg_at(block, index), params) { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task c_word_observer_task(entry: int) -> bool {
+    if entry < 0 or entry >= array_len(emt_c_word_observer_states) { give back false }
+    pilot state: word = array_get(emt_c_word_observer_states, entry)
+    if state == "pure" { give back true }
+    -- A visiting entry is an unresolved recursive component. Reject it and
+    -- its dependants; never grant borrowing on a speculative fixed point.
+    if state != "unseen" or emt_c_word_observer_depth >= 64 { give back false }
+    array_set(emt_c_word_observer_states, entry, "visiting")
+    emt_c_word_observer_depth += 1
+    pilot stmt_id = word_to_int(array_get(tc_callable_stmt_ids, entry))
+    pilot params: word = array_get(tc_callable_params, entry)
+    pilot accepted = array_get(ast_stmt_kinds, stmt_id) == STMT_TASK
+    if array_get(tc_callable_extras, entry) != "" { accepted = false }
+    pilot ret: word = array_get(tc_callable_returns, entry)
+    if ret != "void" and not c_word_observer_primitive(ret) { accepted = false }
+    pilot index = 0
+    repeat tc_arg_count(params) times {
+        if not c_word_observer_primitive(tc_param_type_at(params, index)) { accepted = false }
+        index += 1
+    }
+    if accepted { accepted = c_word_observer_block(array_get(ast_stmt_bodies, stmt_id), params) }
+    emt_c_word_observer_depth -= 1
+    if accepted { array_set(emt_c_word_observer_states, entry, "pure") }
+    else { array_set(emt_c_word_observer_states, entry, "rejected") }
+    give back accepted
+}
+
 task c_handle_type(code: word) -> bool {
     give back code.starts_with("a:") or code.starts_with("s:")
 }
@@ -330,11 +494,17 @@ task emit_c_extern_call(id: word, symbol: word, args: word) -> void {
 
 task emit_c_user_call(id: word, symbol: word, args: word) -> void {
     emit("(\{ ")
+    -- Analyze the original source name, not its non-reversible C mangling.
+    pilot source_name: word = array_get(ast_expr_vals, word_to_int(id))
+    pilot observe = c_word_observer_args(args) and c_word_observer_task(tc_callable_entry(source_name))
     pilot j = 0
     repeat tc_arg_count(args) times {
         pilot arg = word_from_int(tc_arg_at(args, j))
         pilot argname = "__freak_call_arg_" + word_from_int(j)
-        emit_c_value_decl(arg, argname)
+        if observe and emt_expr_type_code(arg) == "w" and array_get(ast_expr_kinds, word_to_int(arg)) == EXPR_IDENT {
+            emit("freak_word " + argname + " = ") emit_expr(arg) emit_line(";")
+            emit_line(argname + ".heap = false;")
+        } else { emit_c_value_decl(arg, argname) }
         j += 1
     }
     pilot code = emt_expr_type_code(id)
@@ -2007,6 +2177,16 @@ task emit_extern_decl(eid: word) -> void {
 -- ===================== PROGRAM EMIT ==================================
 
 task emit_c_program() -> void {
+    array_release(emt_c_word_observer_states)
+    emt_c_word_observer_states = array_new()
+    emt_c_word_observer_depth = 0
+    emt_c_word_observer_nesting = 0
+    emt_c_word_observer_budget = 250000
+    pilot observer_index = 0
+    repeat tc_callable_count times {
+        array_push(emt_c_word_observer_states, "unseen")
+        observer_index += 1
+    }
     emit_line("#include \"freak_runtime.h\"")
 
     emit_line("#include <stdlib.h>")
