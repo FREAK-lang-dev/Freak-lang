@@ -175,6 +175,51 @@ task bc_restore_states(states: word, count: int) -> void {
     }
 }
 
+-- Fallthrough is distinct from task return: break/continue leave this block
+-- but retain states at the enclosing loop boundary.
+task bc_block_falls_through(block: word) -> bool {
+    pilot index = 0
+    repeat tc_arg_count(block) times {
+        pilot statement = tc_list_item(block, index)
+        if statement != "" and not bc_stmt_falls_through(word_to_int(statement)) { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task bc_stmt_falls_through(stmt_id: int) -> bool {
+    if stmt_id < 0 { give back true }
+    pilot kind: word = array_get(ast_stmt_kinds, stmt_id)
+    if kind == STMT_GIVE_BACK or kind == STMT_BREAK or kind == STMT_CONTINUE { give back false }
+    if kind == STMT_EXPR and tc_expr_is_terminal(word_to_int(array_get(ast_stmt_exprs, stmt_id))) { give back false }
+    if kind == STMT_BLOCK or kind == STMT_EVENTUALLY { give back bc_block_falls_through(array_get(ast_stmt_bodies, stmt_id)) }
+    if kind == STMT_IF or kind == STMT_CHECK_RESULT {
+        give back bc_block_falls_through(array_get(ast_stmt_bodies, stmt_id)) or bc_block_falls_through(array_get(ast_stmt_else_bodies, stmt_id))
+    }
+    if kind == STMT_WHEN {
+        pilot cases: word = array_get(ast_stmt_bodies, stmt_id)
+        pilot wildcard = false
+        pilot index = 0
+        repeat tc_arg_count(cases) times {
+            pilot item = tc_list_item(cases, index)
+            if tc_case_expr_part(item) == "-1" { wildcard = true }
+            pilot statement = tc_case_stmt_part(item)
+            if statement == "" or bc_stmt_falls_through(word_to_int(statement)) { give back true }
+            index += 1
+        }
+        give back not wildcard
+    }
+    give back true
+}
+
+task bc_at_most_one_iteration(expr_id: int) -> bool {
+    if expr_id < 0 { give back false }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    if kind == EXPR_INT { give back word_to_int(array_get(ast_expr_vals, expr_id)) <= 1 }
+    if kind == EXPR_UNARYOP and array_get(ast_expr_vals, expr_id) == "-" and array_get(ast_expr_kinds, word_to_int(array_get(ast_expr_lefts, expr_id))) == EXPR_INT { give back true }
+    give back false
+}
+
 -- Loop exits retain owner states before later body/step reinitialization.
 -- The initial state also contributes: an ordinary loop may execute zero times.
 task bc_union_states(left: word, right: word, count: int) -> word {
@@ -193,26 +238,67 @@ task bc_record_loop_exit() -> void {
     bc_loop_exit_states = bc_union_states(bc_loop_exit_states, bc_capture_states(bc_loop_outer_count), bc_loop_outer_count)
 }
 
-task bc_walk_loop(body: word, binder: word, binder_kind: word, line: int, step_id: int) -> void {
-    pilot saved_active = bc_loop_active
-    pilot saved_count = bc_loop_outer_count
-    pilot saved_states = bc_loop_exit_states
-    pilot outer_count = bc_sym_count
-    bc_loop_active = true
-    bc_loop_outer_count = outer_count
-    bc_loop_exit_states = bc_capture_states(outer_count)
+task bc_record_loop_backedge() -> void {
+    if not bc_loop_active { give back }
+    pilot states = bc_capture_states(bc_loop_outer_count)
+    if bc_loop_backedge_seen { bc_loop_backedge_states = bc_union_states(bc_loop_backedge_states, states, bc_loop_outer_count) }
+    else { bc_loop_backedge_states = states }
+    bc_loop_backedge_seen = true
+}
+
+task bc_walk_loop_route(body: word, binder: word, binder_kind: word, line: int, step_id: int) -> void {
     bc_enter_scope()
     if binder != "" { bc_push_sym(binder, binder_kind, "0", line) }
     bc_walk_block(body)
     bc_leave_scope()
-    -- A counted-for step may reinitialize owners, but cannot erase a break
-    -- snapshot captured before that step or the zero-iteration entry state.
-    if step_id >= 0 { bc_walk_stmt(step_id) }
-    pilot states = bc_union_states(bc_loop_exit_states, bc_capture_states(outer_count), outer_count)
+    if bc_block_falls_through(body) { bc_record_loop_backedge() }
+    if step_id >= 0 and bc_loop_backedge_seen {
+        bc_restore_states(bc_loop_backedge_states, bc_loop_outer_count)
+        bc_walk_stmt(step_id)
+        if bc_stmt_falls_through(step_id) { bc_loop_backedge_states = bc_capture_states(bc_loop_outer_count) }
+        else { bc_loop_backedge_seen = false }
+    }
+}
+
+task bc_walk_loop(body: word, binder: word, binder_kind: word, line: int, step_id: int, recheck_expr: int, repeats: bool) -> void {
+    pilot saved_active = bc_loop_active
+    pilot saved_count = bc_loop_outer_count
+    pilot saved_exits = bc_loop_exit_states
+    pilot saved_backedges = bc_loop_backedge_states
+    pilot saved_seen = bc_loop_backedge_seen
+    pilot outer_count = bc_sym_count
+    bc_loop_active = true
+    bc_loop_outer_count = outer_count
+    bc_loop_exit_states = bc_capture_states(outer_count)
+    bc_loop_backedge_states = ""
+    bc_loop_backedge_seen = false
+    bc_walk_loop_route(body, binder, binder_kind, line, step_id)
+    pilot first_backedges = bc_loop_backedge_states
+    pilot first_seen = bc_loop_backedge_seen
+    if repeats and first_seen and not bc_backedge_rechecking {
+        -- One conservative repeated-route check, not fixed-point inference.
+        -- Nested loops already receive their own first-pass check; suppress
+        -- nested rechecks in this pass to keep traversal bounded by depth.
+        bc_restore_states(first_backedges, outer_count)
+        bc_loop_backedge_states = ""
+        bc_loop_backedge_seen = false
+        bc_backedge_rechecking = true
+        if recheck_expr >= 0 {
+            bc_walk_expr(recheck_expr, false, line)
+            bc_record_loop_exit()
+        }
+        bc_walk_loop_route(body, binder, binder_kind, line, step_id)
+        bc_backedge_rechecking = false
+    }
+    pilot states = bc_loop_exit_states
+    if first_seen { states = bc_union_states(states, first_backedges, outer_count) }
+    if bc_loop_backedge_seen { states = bc_union_states(states, bc_loop_backedge_states, outer_count) }
     bc_restore_states(states, outer_count)
     bc_loop_active = saved_active
     bc_loop_outer_count = saved_count
-    bc_loop_exit_states = saved_states
+    bc_loop_exit_states = saved_exits
+    bc_loop_backedge_states = saved_backedges
+    bc_loop_backedge_seen = saved_seen
 }
 
 task bc_walk_branches(then_body: word, else_body: word, then_name: word, else_name: word, line: int) -> void {
@@ -229,8 +315,8 @@ task bc_walk_branches(then_body: word, else_body: word, then_name: word, else_na
     bc_walk_block(else_body)
     bc_leave_scope()
     pilot else_states = bc_capture_states(outer_count)
-    pilot then_terminal = tc_block_definitely_returns(then_body)
-    pilot else_terminal = tc_block_definitely_returns(else_body)
+    pilot then_terminal = not bc_block_falls_through(then_body)
+    pilot else_terminal = not bc_block_falls_through(else_body)
     pilot index = 0
     repeat outer_count times {
         pilot moved = false
@@ -260,7 +346,7 @@ task bc_walk_when(cases: word, line: int) -> void {
         bc_enter_scope()
         if statement != "" { bc_walk_stmt(word_to_int(statement)) }
         bc_leave_scope()
-        if statement != "" and not tc_stmt_definitely_returns(word_to_int(statement)) {
+        if statement != "" and bc_stmt_falls_through(word_to_int(statement)) {
             pilot states = bc_capture_states(outer_count)
             if joined { joined_states = bc_union_states(joined_states, states, outer_count) }
             else { joined_states = states joined = true }
@@ -563,21 +649,24 @@ task bc_walk_stmt(stmt_id: int) -> void {
         bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
         pilot binder_kind = "owned"
         if bc_is_copy_type(array_get(ast_stmt_extras, stmt_id)) { binder_kind = "copy" }
-        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), array_get(ast_stmt_names, stmt_id), binder_kind, line, 0 - 1)
+        pilot iterator_expr = word_to_int(array_get(ast_stmt_exprs, stmt_id))
+        pilot iterator_recheck = 0 - 1
+        if array_get(ast_expr_kinds, iterator_expr) == EXPR_IDENT { iterator_recheck = iterator_expr }
+        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), array_get(ast_stmt_names, stmt_id), binder_kind, line, 0 - 1, iterator_recheck, true)
         give back
     }
     if kind == STMT_RANGE {
         bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
         bc_walk_expr(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)), false, line)
         bc_walk_expr(word_to_int(array_get(ast_stmt_extras, stmt_id)), false, line)
-        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), array_get(ast_stmt_names, stmt_id), "copy", line, 0 - 1)
+        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), array_get(ast_stmt_names, stmt_id), "copy", line, 0 - 1, 0 - 1, true)
         give back
     }
     if kind == STMT_FOR {
         bc_enter_scope()
         bc_walk_stmt(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)))
         bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
-        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), "", "", line, word_to_int(array_get(ast_stmt_extras, stmt_id)))
+        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), "", "", line, word_to_int(array_get(ast_stmt_extras, stmt_id)), word_to_int(array_get(ast_stmt_exprs, stmt_id)), true)
         bc_leave_scope()
         give back
     }
@@ -586,17 +675,22 @@ task bc_walk_stmt(stmt_id: int) -> void {
         pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
         bc_walk_expr(word_to_int(cond_w), false, line)
         pilot binder: word = array_get(ast_stmt_extras, stmt_id)
-        bc_walk_loop(body_w, binder, "copy", line, 0 - 1)
+        pilot recheck_expr = 0 - 1
+        pilot form: word = array_get(ast_stmt_names, stmt_id)
+        pilot repeats = true
+        if form == "while" or form == "until" { recheck_expr = word_to_int(cond_w) }
+        else { repeats = not bc_at_most_one_iteration(word_to_int(cond_w)) }
+        bc_walk_loop(body_w, binder, "copy", line, 0 - 1, recheck_expr, repeats)
         give back
     }
 
     if kind == STMT_TRAINING_ARC {
         pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
         pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
-        bc_walk_expr(word_to_int(cond_w), false, line)
         pilot maximum: word = array_get(ast_stmt_extras, stmt_id)
         if maximum != "" { bc_walk_expr(word_to_int(maximum), false, line) }
-        bc_walk_loop(body_w, "", "", line, 0 - 1)
+        bc_walk_expr(word_to_int(cond_w), false, line)
+        bc_walk_loop(body_w, "", "", line, 0 - 1, word_to_int(cond_w), not bc_at_most_one_iteration(word_to_int(maximum)))
         give back
     }
 
@@ -628,7 +722,8 @@ task bc_walk_stmt(stmt_id: int) -> void {
     }
 
     if kind == STMT_SHAPE        { give back }
-    if kind == STMT_BREAK or kind == STMT_CONTINUE { bc_record_loop_exit() give back }
+    if kind == STMT_BREAK { bc_record_loop_exit() give back }
+    if kind == STMT_CONTINUE { bc_record_loop_backedge() give back }
     if kind == STMT_EXTERN       { give back }
     if kind == STMT_WHEN {
         bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
@@ -649,9 +744,7 @@ task bc_walk_block(block_str: word) -> void {
             if cur != "" {
                 pilot statement = word_to_int(cur)
                 bc_walk_stmt(statement)
-                if tc_stmt_definitely_returns(statement) { give back }
-                pilot statement_kind: word = array_get(ast_stmt_kinds, statement)
-                if statement_kind == STMT_BREAK or statement_kind == STMT_CONTINUE { give back }
+                if not bc_stmt_falls_through(statement) { give back }
             }
             cur = ""
         } else {
@@ -3353,6 +3446,9 @@ task bc_run_program() -> void {
     bc_loop_active = false
     bc_loop_outer_count = 0
     bc_loop_exit_states = ""
+    bc_loop_backedge_states = ""
+    bc_loop_backedge_seen = false
+    bc_backedge_rechecking = false
     bc_sym_count = 0
     bc_scope_depth = 0
     pilot top_count = array_len(ast_top_stmts)
