@@ -7,6 +7,11 @@ pilot package_source_tickets = 0
 pilot package_source_original_tickets = 0
 pilot package_source_physical_keys = 0
 pilot package_source_original_owned = 0
+pilot package_source_git_prefixes = 0
+pilot package_git_repository_keys = 0
+pilot package_git_repository_tickets = 0
+pilot package_git_resolved_selectors = 0
+pilot package_git_resolved_commits = 0
 pilot package_source_kinds = 0
 pilot package_source_commits = 0
 pilot package_source_hashes = 0
@@ -42,6 +47,14 @@ pilot package_preparation_store = 0
 pilot package_preparation_snapshots = 0
 
 task package_preparation_release() -> void {
+    if package_git_repository_tickets != 0 {
+        pilot index = 0
+        repeat until index >= array_len(package_git_repository_tickets) {
+            pilot ticket = word_to_int(array_get(package_git_repository_tickets, index))
+            if ticket != 0 { package_discard_temp(ticket) array_set(package_git_repository_tickets, index, "0") }
+            index += 1
+        }
+    }
     if package_preparation_snapshots != 0 { fs::result_release(package_preparation_snapshots) }
     if package_preparation_store != 0 { fs::result_release(package_preparation_store) }
     if package_preparation_operation != 0 { fs::result_release(package_preparation_operation) }
@@ -50,6 +63,39 @@ task package_preparation_release() -> void {
     package_preparation_operation = 0
     package_preparation_store = 0
     package_preparation_snapshots = 0
+}
+
+task package_finish_git_staging() -> bool {
+    pilot valid = true
+    pilot index = 0
+    repeat until index >= array_len(package_git_repository_tickets) {
+        pilot ticket = word_to_int(array_get(package_git_repository_tickets, index))
+        if ticket != 0 {
+            pilot removed = fs::remove_temp_dir_checked(ticket)
+            pilot complete = fs::result_ok(removed)
+            if not complete { hangar_graph_fail("cannot durably clean owned Git repository before graph commit: " + fs::result_error(removed)) valid = false }
+            if complete or fs::result_completed(removed) { fs::result_release(ticket) array_set(package_git_repository_tickets, index, "0") }
+            fs::result_release(removed)
+        }
+        index += 1
+    }
+    index = 0
+    repeat until index >= hangar_graph_count {
+        if array_get(package_source_original_owned, index) == "true" {
+            pilot ticket = word_to_int(array_get(package_source_original_tickets, index))
+            pilot removed = fs::remove_temp_dir_checked(ticket)
+            pilot complete = fs::result_ok(removed)
+            if not complete { hangar_graph_fail("cannot durably clean owned raw Git inputs before graph commit: " + fs::result_error(removed)) valid = false }
+            if complete or fs::result_completed(removed) {
+                fs::result_release(ticket)
+                array_set(package_source_original_tickets, index, "0")
+                array_set(package_source_original_owned, index, "false")
+            }
+            fs::result_release(removed)
+        }
+        index += 1
+    }
+    give back valid
 }
 
 
@@ -74,6 +120,11 @@ task package_sources_release() -> void {
         array_release(package_source_original_tickets)
         array_release(package_source_physical_keys)
         array_release(package_source_original_owned)
+        array_release(package_source_git_prefixes)
+        array_release(package_git_repository_keys)
+        array_release(package_git_repository_tickets)
+        array_release(package_git_resolved_selectors)
+        array_release(package_git_resolved_commits)
         array_release(package_source_kinds)
         array_release(package_source_commits)
         array_release(package_source_hashes)
@@ -87,6 +138,11 @@ task package_sources_release() -> void {
     package_source_original_tickets = 0
     package_source_physical_keys = 0
     package_source_original_owned = 0
+    package_source_git_prefixes = 0
+    package_git_repository_keys = 0
+    package_git_repository_tickets = 0
+    package_git_resolved_selectors = 0
+    package_git_resolved_commits = 0
     package_source_kinds = 0
     package_source_commits = 0
     package_source_hashes = 0
@@ -109,6 +165,11 @@ task package_sources_clear() -> void {
     package_source_original_tickets = array_new()
     package_source_physical_keys = array_new()
     package_source_original_owned = array_new()
+    package_source_git_prefixes = array_new()
+    package_git_repository_keys = array_new()
+    package_git_repository_tickets = array_new()
+    package_git_resolved_selectors = array_new()
+    package_git_resolved_commits = array_new()
     package_source_kinds = array_new()
     package_source_commits = array_new()
     package_source_hashes = array_new()
@@ -240,6 +301,7 @@ task package_source_register(node: int, ticket: int, root: word, kind: word, com
     array_push(package_source_manifest_hashes, manifest_hash)
     array_push(package_source_physical_keys, "")
     array_push(package_source_original_owned, "false")
+    array_push(package_source_git_prefixes, "")
 }
 
 task package_admit_local(path: word, manifest_file: word, request_path: word) -> int {
@@ -542,10 +604,11 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
         pilot request = array_get(hangar_graph_request_paths, parent) + " -> " + alias
         pilot target = 0 - 1
         if array_get(hangar_graph_edge_kinds, edge) == "path" {
-            if array_get(package_source_kinds, parent) != "local" { hangar_graph_fail("local filesystem dependency cannot be resolved from a Git object source: " + request) give back false }
-            pilot path = package_local_path(array_get(package_source_original_roots, parent), array_get(hangar_graph_edge_sources, edge))
-            if path == "" { give back false }
-            target = package_admit_local(path, "hangar.toml", request)
+            if array_get(package_source_kinds, parent) == "git" { target = package_admit_git_path(edge, offline) } else {
+                pilot path = package_local_path(array_get(package_source_original_roots, parent), array_get(hangar_graph_edge_sources, edge))
+                if path == "" { give back false }
+                target = package_admit_local(path, "hangar.toml", request)
+            }
         } else {
             target = package_admit_git(edge, offline, update_name)
         }
@@ -574,6 +637,14 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
         index += 1
     }
     if valid and (locked or frozen) { valid = package_lock_matches_graph(frozen) }
+    if valid and not snapshot_reader { valid = package_finish_git_staging() }
+    if valid and not snapshot_reader {
+        index = 0
+        repeat until index >= hangar_graph_count or not valid {
+            if array_get(package_source_kinds, index) == "git" { valid = package_publish_git_index(index) }
+            index += 1
+        }
+    }
     if valid and snapshot_reader { package_graph_snapshot_path = package_snapshot_override }
     if valid and not snapshot_reader {
         package_graph_ready = true
@@ -789,7 +860,7 @@ task package_git_blob(root: word, commit: word, path: word, limit: int) -> ByteB
     give back package_git_capture(command, limit)
 }
 
-task package_git_default_tests(node: int, root: word, commit: word) -> bool {
+task package_git_default_tests(node: int, root: word, commit: word, package_prefix: word) -> bool {
     pilot declared = hangar_graph_fact(node, "__package.tests_declared") == "true"
     pilot index = 0
     repeat until index >= array_len(package_pending_roles) {
@@ -797,14 +868,15 @@ task package_git_default_tests(node: int, root: word, commit: word) -> bool {
         index += 1
     }
     if declared { give back true }
-    pilot mode = package_git_mode(root, commit, "tests")
+    pilot tests_path = package_git_object_path(package_prefix, "tests")
+    pilot mode = package_git_mode(root, commit, tests_path)
     if hangar_graph_error != "" { give back false }
     if mode == "" { give back true }
     if mode != "040000" { hangar_graph_fail("Git fallback tests/ must be an ordinary tree, not a symlink/submodule") give back false }
     pilot command = package_git_command(root)
     process::command_arg(command, "ls-tree")
     process::command_arg(command, "-z")
-    process::command_arg(command, commit + ":tests")
+    process::command_arg(command, commit + ":" + tests_path)
     pilot bytes: ByteBuffer = package_git_capture(command, 2097152)
     pilot record: ByteBuffer = ByteBuffer::new()
     bytes.seek(0)
@@ -842,17 +914,19 @@ task package_git_pin(edge: int) -> int {
     if not package_lock_valid { give back 0 - 1 }
     pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
     pilot identity = array_get(hangar_graph_identities, parent)
+    pilot kind = array_get(hangar_graph_edge_kinds, edge)
+    if kind == "path" { kind = "local" }
     pilot index = 0
     repeat until index >= word_to_int(package_lock_field("lock.edge_count")) {
         pilot prefix = "edge." + word_from_int(index) + "."
         pilot old_parent = package_lock_field(prefix + "parent")
-        if package_lock_field("node." + old_parent + ".identity") == identity and package_lock_field(prefix + "alias") == array_get(hangar_graph_edge_aliases, edge) and package_lock_field(prefix + "kind") == "git" and package_lock_field(prefix + "source") == array_get(hangar_graph_edge_sources, edge) and package_lock_field(prefix + "revision") == array_get(hangar_graph_edge_revisions, edge) and package_lock_field(prefix + "version") == array_get(hangar_graph_edge_versions, edge) { give back word_to_int(package_lock_field(prefix + "target")) }
+        if package_lock_field("node." + old_parent + ".identity") == identity and package_lock_field(prefix + "alias") == array_get(hangar_graph_edge_aliases, edge) and package_lock_field(prefix + "kind") == kind and package_lock_field(prefix + "source") == array_get(hangar_graph_edge_sources, edge) and package_lock_field(prefix + "revision") == array_get(hangar_graph_edge_revisions, edge) and package_lock_field(prefix + "version") == array_get(hangar_graph_edge_versions, edge) { give back word_to_int(package_lock_field(prefix + "target")) }
         index += 1
     }
     give back 0 - 1
 }
 
-task package_admit_git_cached(url: word, commit: word, tree: word, manifest_hash: word, request: word) -> int {
+task package_admit_git_cached(url: word, commit: word, package_prefix: word, tree: word, manifest_hash: word, request: word) -> int {
     pilot store = fs::open_relative_dir_ticket(package_preparation_private, "store")
     if not fs::result_ok(store) {
         if not fs::result_missing(store) { hangar_graph_fail("Git cache store is unsafe or unavailable: " + fs::result_error(store)) }
@@ -880,11 +954,13 @@ task package_admit_git_cached(url: word, commit: word, tree: word, manifest_hash
     if not valid { hangar_graph_fail("cached Git manifest bytes disagree with the resolved lock")
         fs::result_release(directory)
         give back 0 - 1 }
-    pilot node = hangar_graph_add_manifest("git:" + url + "@" + commit, url + "@" + commit + ":hangar.toml", text, request)
+    pilot identity = package_git_identity(url, commit, package_prefix)
+    pilot node = hangar_graph_add_manifest(identity, identity.substring(4, identity.length() - 4) + ":hangar.toml", text, request)
     if node < 0 { fs::result_release(directory) give back 0 - 1 }
     package_source_register(node, directory, package_directory_path(directory), "git", commit, "hangar.toml", hash)
     array_set(package_source_origins, node, url)
-    array_set(package_source_original_roots, node, url + "@" + commit)
+    array_set(package_source_original_roots, node, identity.substring(4, identity.length() - 4))
+    array_set(package_source_git_prefixes, node, package_prefix)
     array_set(package_source_hashes, node, tree)
     if toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), "tests") {
         array_push(hangar_graph_fact_nodes, word_from_int(node))
@@ -927,22 +1003,224 @@ task package_admit_git(edge: int, offline: bool, update_name: word) -> int {
         }
     }
     if not hangar_valid_revision(revision) { hangar_graph_fail("invalid Git revision: " + request) give back 0 - 1 }
+    if commit == "" {
+        pilot selector = url + "\n" + revision
+        pilot index = 0
+        repeat until index >= array_len(package_git_resolved_selectors) {
+            if array_get(package_git_resolved_selectors, index) == selector { commit = array_get(package_git_resolved_commits, index) }
+            index += 1
+        }
+    }
+    give back package_admit_git_resolved(url, commit, revision, "", expected_tree, expected_manifest, request, offline)
+}
+
+task package_git_identity(url: word, commit: word, prefix: word) -> word {
+    pilot identity = "git:" + url + "@" + commit
+    if prefix != "" { identity = identity + ":" + prefix }
+    give back identity
+}
+
+task package_git_object_path(prefix: word, relative: word) -> word {
+    if prefix == "" { give back relative }
+    give back prefix + "/" + relative
+}
+
+task package_git_index_name(url: word, commit: word, prefix: word) -> word {
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word("FREAK-git-source-index-v2\n" + url + "\n" + commit + "\n" + prefix + "\n")
+    pilot name = fs::sha256_bytes(bytes) + ".toml"
+    bytes.release()
+    give back name
+}
+
+task package_read_git_index(url: word, commit: word, prefix: word) -> int {
+    pilot directory = fs::open_relative_dir_ticket(package_preparation_private, "git-index")
+    if not fs::result_ok(directory) {
+        if not fs::result_missing(directory) { hangar_graph_fail("Git source index directory is unsafe or unavailable: " + fs::result_error(directory)) }
+        fs::result_release(directory)
+        give back 0
+    }
+    pilot read = fs::read_relative_bytes_limit_ticket(directory, package_git_index_name(url, commit, prefix), 16384)
+    fs::result_release(directory)
+    if not fs::result_ok(read) {
+        if not fs::result_missing(read) { hangar_graph_fail("Git source index is unsafe or unavailable: " + fs::result_error(read)) }
+        fs::result_release(read)
+        give back 0
+    }
+    pilot bytes: ByteBuffer = fs::result_bytes(read)
+    fs::result_release(read)
+    pilot content = bytes.to_word()
+    pilot valid = bytes.status() == 0
+    bytes.release()
+    pilot requester = ""
+    if toml_keys_arr != 0 { requester = toml_render() }
+    pilot record = array_new()
+    if not valid or not toml_parse(content) { valid = false } else {
+        valid = toml_count == 8 and array_len(toml_sections_arr) == 0 and toml_get("schema") == "1" and toml_get("profile") == "source-only-v2" and toml_get("origin") == url and toml_get("commit") == commit and toml_get("prefix") == prefix and toml_get("manifest_file") == "hangar.toml" and package_lock_hex(toml_get("tree_sha256"), 64) and package_lock_hex(toml_get("manifest_sha256"), 64)
+        pilot index = 0
+        repeat until index >= toml_count {
+            pilot bare = array_get(toml_keys_arr, index) == "schema"
+            if bare != (array_get(toml_types_arr, index) == "bare") { valid = false }
+            index += 1
+        }
+        if valid { array_push(record, toml_get("tree_sha256")) array_push(record, toml_get("manifest_sha256")) }
+    }
+    if requester == "" { toml_clear() } else { toml_parse(requester) }
+    if not valid { hangar_graph_fail("Git source index metadata is corrupt or disagrees with its exact repository/commit/subdirectory identity")
+        array_release(record)
+        give back 0 }
+    give back record
+}
+
+task package_publish_git_index(node: int) -> bool {
+    pilot url = array_get(package_source_origins, node)
+    pilot commit = array_get(package_source_commits, node)
+    pilot prefix = array_get(package_source_git_prefixes, node)
+    pilot tree = array_get(package_source_hashes, node)
+    pilot manifest = array_get(package_source_manifest_hashes, node)
+    pilot existing = package_read_git_index(url, commit, prefix)
+    if existing != 0 {
+        pilot valid = array_get(existing, 0) == tree and array_get(existing, 1) == manifest
+        array_release(existing)
+        if not valid { hangar_graph_fail("existing Git source index disagrees with canonical raw-object input integrity; refusing replacement") }
+        give back valid
+    }
+    if hangar_graph_error != "" { give back false }
+    pilot directory = package_private_directory(package_preparation_private, "git-index")
+    if directory == 0 { give back false }
+    pilot builder = word_builder::new()
+    package_lock_line(builder, "schema", "1", true)
+    package_lock_line(builder, "profile", "source-only-v2", false)
+    package_lock_line(builder, "origin", url, false)
+    package_lock_line(builder, "commit", commit, false)
+    package_lock_line(builder, "prefix", prefix, false)
+    package_lock_line(builder, "tree_sha256", tree, false)
+    package_lock_line(builder, "manifest_sha256", manifest, false)
+    package_lock_line(builder, "manifest_file", "hangar.toml", false)
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(word_builder::finish(builder))
+    pilot valid = package_transaction_checked(fs::write_relative_bytes_checked(directory, package_git_index_name(url, commit, prefix), bytes), "exact Git source index publication failed")
+    bytes.release()
+    fs::result_release(directory)
+    give back valid
+}
+
+task package_admit_git_path(edge: int, offline: bool) -> int {
+    pilot parent = word_to_int(array_get(hangar_graph_edge_parents, edge))
+    pilot request = array_get(hangar_graph_request_paths, parent) + " -> " + array_get(hangar_graph_edge_aliases, edge)
+    pilot source = array_get(hangar_graph_edge_sources, edge)
+    if source.starts_with("/") or source.contains(":") or source.contains("\\") { hangar_graph_fail("Git path dependency must stay within its commit repository: " + request) give back 0 - 1 }
+    pilot normalized = package_local_path("/" + array_get(package_source_git_prefixes, parent), source)
+    if normalized == "" { give back 0 - 1 }
+    pilot prefix = normalized.substring(1, normalized.length() - 1)
+    if prefix != "" and not package_input_allowed(prefix) { hangar_graph_fail("unsafe Git package subdirectory: " + request) give back 0 - 1 }
+    pilot url = array_get(package_source_origins, parent)
+    pilot commit = array_get(package_source_commits, parent)
+    pilot tree = ""
+    pilot manifest = ""
+    pilot pin = package_git_pin(edge)
+    if pin >= 0 {
+        pilot node = "node." + word_from_int(pin) + "."
+        if package_lock_field(node + "identity") != package_git_identity(url, commit, prefix) or package_lock_field(node + "origin") != url or package_lock_field(node + "commit") != commit { hangar_graph_fail("Git path dependency disagrees with its parent's resolved commit: " + request) give back 0 - 1 }
+        tree = package_lock_field(node + "tree_sha256")
+        manifest = package_lock_field(node + "manifest_sha256")
+    }
+    give back package_admit_git_resolved(url, commit, commit, prefix, tree, manifest, request, offline)
+}
+
+task package_admit_git_resolved(url: word, requested_commit: word, revision: word, package_prefix: word, locked_tree: word, locked_manifest: word, request: word, offline: bool) -> int {
+    pilot commit = requested_commit
+    pilot expected_tree = locked_tree
+    pilot expected_manifest = locked_manifest
     if commit != "" {
-        pilot known = hangar_graph_find_identity("git:" + url + "@" + commit)
+        pilot known = hangar_graph_find_identity(package_git_identity(url, commit, package_prefix))
         if known >= 0 { give back known }
+        if expected_tree == "" {
+            pilot indexed = package_read_git_index(url, commit, package_prefix)
+            if indexed != 0 {
+                expected_tree = array_get(indexed, 0)
+                expected_manifest = array_get(indexed, 1)
+                array_release(indexed)
+            }
+            if hangar_graph_error != "" { give back 0 - 1 }
+        }
     }
     if expected_tree != "" {
-        pilot cached = package_admit_git_cached(url, commit, expected_tree, expected_manifest, request)
+        pilot cached = package_admit_git_cached(url, commit, package_prefix, expected_tree, expected_manifest, request)
         if cached >= 0 { give back cached }
         if hangar_graph_error != "" { give back 0 - 1 }
     }
     if offline { hangar_graph_fail("offline Git cache miss for exact resolved source: " + request + " at " + commit) give back 0 - 1 }
     pilot private_path = package_directory_path(package_preparation_private)
     if private_path == "" { give back 0 - 1 }
+    pilot repository = 0
+    if commit != "" {
+        pilot key = url + "@" + commit
+        pilot index = 0
+        repeat until index >= array_len(package_git_repository_keys) {
+            if array_get(package_git_repository_keys, index) == key { repository = word_to_int(array_get(package_git_repository_tickets, index)) }
+            index += 1
+        }
+    }
+    if repository == 0 { repository = package_fetch_git_repository(url, commit, revision, request, private_path) }
+    if repository == 0 { give back 0 - 1 }
+    pilot repository_path = fs::result_word(repository)
+    pilot key = ""
+    pilot index = 0
+    repeat until index >= array_len(package_git_repository_tickets) {
+        if word_to_int(array_get(package_git_repository_tickets, index)) == repository { key = array_get(package_git_repository_keys, index) }
+        index += 1
+    }
+    commit = key.substring(url.length() + 1, key.length() - url.length() - 1)
+    pilot identity = package_git_identity(url, commit, package_prefix)
+    pilot known = hangar_graph_find_identity(identity)
+    if known >= 0 { give back known }
+    pilot output: ByteBuffer = package_git_blob(repository_path, commit, package_git_object_path(package_prefix, "hangar.toml"), hangar_graph_manifest_limit)
+    if hangar_graph_error != "" { output.release() give back 0 - 1 }
+    pilot manifest_hash = fs::sha256_bytes(output)
+    pilot text = output.to_word()
+    pilot valid = output.status() == 0
+    output.release()
+    if not valid { hangar_graph_fail("Git manifest must be UTF-8 text without NUL: " + request) give back 0 - 1 }
+    if expected_manifest != "" and expected_manifest != manifest_hash { hangar_graph_fail("Git raw manifest bytes disagree with locked integrity: " + request) give back 0 - 1 }
+    pilot raw = fs::temp_dir(private_path, ".git-input-")
+    if not fs::result_ok(raw) { hangar_graph_fail("cannot create owned raw Git input staging: " + fs::result_error(raw))
+        fs::result_release(raw)
+        give back 0 - 1 }
+    pilot node = hangar_graph_add_manifest(identity, identity.substring(4, identity.length() - 4) + ":hangar.toml", text, request)
+    if node < 0 { package_discard_temp(raw) give back 0 - 1 }
+    package_source_register(node, raw, fs::result_word(raw), "git", commit, "hangar.toml", manifest_hash)
+    array_set(package_source_origins, node, url)
+    array_set(package_source_original_roots, node, identity.substring(4, identity.length() - 4))
+    array_set(package_source_git_prefixes, node, package_prefix)
+    array_set(package_source_original_owned, node, "true")
+    array_set(package_source_hashes, node, expected_tree)
+    if toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), "tests") {
+        array_push(hangar_graph_fact_nodes, word_from_int(node))
+        array_push(hangar_graph_fact_keys, "__package.tests_declared")
+        array_push(hangar_graph_fact_values, "true")
+    }
+    valid = package_collect_declared_inputs(node, "hangar.toml")
+    if valid { valid = package_git_default_tests(node, repository_path, commit, package_prefix) }
+    pilot created = array_new()
+    index = 0
+    repeat until index >= array_len(package_pending_paths) or not valid {
+        pilot path = array_get(package_pending_paths, index)
+        output = package_git_blob(repository_path, commit, package_git_object_path(package_prefix, path), package_input_file_limit)
+        if hangar_graph_error != "" { valid = false } else { valid = package_write_staged_input(raw, path, output, created) }
+        output.release()
+        index += 1
+    }
+    array_release(created)
+    if not valid { give back 0 - 1 }
+    give back node
+}
+
+task package_fetch_git_repository(url: word, commit: word, revision: word, request: word, private_path: word) -> int {
     pilot repository = fs::temp_dir(private_path, ".git-fetch-")
     if not fs::result_ok(repository) { hangar_graph_fail("cannot create owned Git object staging: " + fs::result_error(repository))
         fs::result_release(repository)
-        give back 0 - 1 }
+        give back 0 }
     pilot repository_path = fs::result_word(repository)
     pilot command = package_git_command(repository_path)
     process::command_arg(command, "init")
@@ -964,7 +1242,7 @@ task package_admit_git(edge: int, offline: bool, update_name: word) -> int {
         output = package_git_capture(command, 65536)
         output.release()
     }
-    if hangar_graph_error != "" { package_discard_temp(repository) give back 0 - 1 }
+    if hangar_graph_error != "" { package_discard_temp(repository) give back 0 }
     command = package_git_command(repository_path)
     process::command_arg(command, "rev-parse")
     process::command_arg(command, "--verify")
@@ -975,54 +1253,12 @@ task package_admit_git(edge: int, offline: bool, update_name: word) -> int {
     output.release()
     if not valid or (commit != "" and commit != resolved) { hangar_graph_fail("Git fetch did not resolve the requested exact commit: " + request)
         package_discard_temp(repository)
-        give back 0 - 1 }
-    commit = resolved
-    pilot known = hangar_graph_find_identity("git:" + url + "@" + commit)
-    if known >= 0 { package_discard_temp(repository) give back known }
-    output = package_git_blob(repository_path, commit, "hangar.toml", hangar_graph_manifest_limit)
-    if hangar_graph_error != "" { output.release() package_discard_temp(repository) give back 0 - 1 }
-    pilot manifest_hash = fs::sha256_bytes(output)
-    pilot text = output.to_word()
-    valid = output.status() == 0
-    output.release()
-    if not valid { hangar_graph_fail("Git manifest must be UTF-8 text without NUL: " + request)
-        package_discard_temp(repository)
-        give back 0 - 1 }
-    if expected_manifest != "" and expected_manifest != manifest_hash { hangar_graph_fail("Git raw manifest bytes disagree with locked integrity: " + request)
-        package_discard_temp(repository)
-        give back 0 - 1 }
-    pilot raw = fs::temp_dir(private_path, ".git-input-")
-    if not fs::result_ok(raw) { hangar_graph_fail("cannot create owned raw Git input staging: " + fs::result_error(raw))
-        fs::result_release(raw)
-        package_discard_temp(repository)
-        give back 0 - 1 }
-    pilot node = hangar_graph_add_manifest("git:" + url + "@" + commit, url + "@" + commit + ":hangar.toml", text, request)
-    if node < 0 { package_discard_temp(raw) package_discard_temp(repository) give back 0 - 1 }
-    package_source_register(node, raw, fs::result_word(raw), "git", commit, "hangar.toml", manifest_hash)
-    array_set(package_source_origins, node, url)
-    array_set(package_source_original_roots, node, url + "@" + commit)
-    array_set(package_source_original_owned, node, "true")
-    array_set(package_source_hashes, node, expected_tree)
-    if toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), "tests") {
-        array_push(hangar_graph_fact_nodes, word_from_int(node))
-        array_push(hangar_graph_fact_keys, "__package.tests_declared")
-        array_push(hangar_graph_fact_values, "true")
-    }
-    valid = package_collect_declared_inputs(node, "hangar.toml")
-    if valid { valid = package_git_default_tests(node, repository_path, commit) }
-    pilot created = array_new()
-    pilot index = 0
-    repeat until index >= array_len(package_pending_paths) or not valid {
-        pilot path = array_get(package_pending_paths, index)
-        output = package_git_blob(repository_path, commit, path, package_input_file_limit)
-        if hangar_graph_error != "" { valid = false } else { valid = package_write_staged_input(raw, path, output, created) }
-        output.release()
-        index += 1
-    }
-    array_release(created)
-    package_discard_temp(repository)
-    if not valid { give back 0 - 1 }
-    give back node
+        give back 0 }
+    array_push(package_git_repository_keys, url + "@" + resolved)
+    array_push(package_git_repository_tickets, word_from_int(repository))
+    array_push(package_git_resolved_selectors, url + "\n" + revision)
+    array_push(package_git_resolved_commits, resolved)
+    give back repository
 }
 
 

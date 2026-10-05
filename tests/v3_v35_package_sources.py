@@ -142,6 +142,11 @@ int main(int argc,char **argv) {
         args[i]=argv[i];
         if (!strcmp(argv[i],"https://fixture.invalid/c")) args[i]=getenv("FREAK_GIT_FIXTURE_REPO");
         if (!strcmp(argv[i],"fetch") && getenv("FREAK_GIT_FORBID_FETCH")) return 71;
+        if (!strcmp(argv[i],"fetch") && getenv("FREAK_GIT_FETCH_LOG")) {
+            FILE *log=fopen(getenv("FREAK_GIT_FETCH_LOG"),"ab");
+            if (!log) return 74;
+            fputs("fetch\n",log); fclose(log);
+        }
         if (!strcmp(argv[i],"fetch") && getenv("FREAK_GIT_PARTIAL_FAIL")) {
             FILE *file=fopen("partial-before-failure","wb");
             if (!file) return 72;
@@ -320,6 +325,114 @@ def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path) -> None:
         assert git_manifest.with_name('hangar.lock').read_bytes() == new_lock
         assert not list((git_manifest.parent/'.freak').glob('.git-fetch-*')) and not list((git_manifest.parent/'.freak').glob('.git-input-*'))
         print(f'native:{backend}:sources:git-symlink-refused:passed', flush=True)
+        sub_manifest=project(root/f'git-subpackages-{backend}')
+        for name in ('a','b'):
+            item=sub_manifest.parent.parent/name/'hangar.toml'
+            item.write_text(item.read_text().replace('c={path="../c"}', 'c={git="https://fixture.invalid/c",rev="v1"}'),encoding='utf-8')
+        sub_repository,_=git_fixture(root/f'git-sub-repository-{backend}')
+        item=sub_repository/'hangar.toml'
+        item.write_text(item.read_text()+'[dependencies]\nd={path="libd"}\n',encoding='utf-8')
+        for name in ('libd','libe'):
+            directory=sub_repository/name
+            directory.mkdir()
+            text=f'[project]\nname="{name}"\nversion="1.0.0"\nkind="lib"\n[modules]\ncore="core.fk"\n[exports]\nvalue="core::value"\n'
+            if name=='libd': text+='[dependencies]\ne={path="../libe"}\n'
+            (directory/'hangar.toml').write_text(text,encoding='utf-8')
+            (directory/'core.fk').write_bytes(b'task value() -> int { give back 42 }\n')
+        git(['add','--','hangar.toml','libd/hangar.toml','libd/core.fk','libe/hangar.toml','libe/core.fk'],sub_repository)
+        git(['commit','--quiet','-m','Subpackage fixture'],sub_repository)
+        git(['tag','--force','v1'],sub_repository)
+        sub_commit=git(['rev-parse','HEAD'],sub_repository)
+        fetch_log=root/f'fetch-subpackages-{backend}.log'
+        sub_env={'FREAK_GIT':str(git_shim),'FREAK_GIT_FIXTURE_REPO':str(sub_repository),'FREAK_GIT_FETCH_LOG':str(fetch_log)}
+        installed_sub=execute(sub_manifest,'update',extra_env=sub_env)
+        assert installed_sub.startswith('ready: 6:6\n'),installed_sub
+        assert fetch_log.read_bytes()==b'fetch\n','same Git selector/commit fetched more than once'
+        print(f'native:{backend}:sources:git-subpackage-closure-one-fetch:passed',flush=True)
+        sub_lock=tomllib.loads(sub_manifest.with_name('hangar.lock').read_text())
+        for index,node in sub_lock['node'].items():
+            if node['kind']!='git': continue
+            prefix='' if node['name']=='c' else node['name']
+            expected_identity='git:https://fixture.invalid/c@'+sub_commit+(':'+prefix if prefix else '')
+            assert node['identity']==expected_identity and node['origin']=='https://fixture.invalid/c' and node['commit']==sub_commit
+            records=[record for record in sub_lock['file'].values() if record['node']==int(index)]
+            canonical=b'FREAK-source-input-tree-v2\n'+struct.pack('>q',len(records))
+            for record in records:
+                object_path=(prefix+'/' if prefix else '')+record['path']
+                blob=subprocess.run([shutil.which('git'),'show',sub_commit+':'+object_path],cwd=sub_repository,capture_output=True,timeout=30)
+                assert blob.returncode==0,blob.stderr
+                relative=record['path'].encode('utf-8')
+                assert hashlib.sha256(blob.stdout).hexdigest()==record['sha256'] and len(blob.stdout)==record['length']
+                assert (sub_manifest.parent/'.freak/store'/node['tree_sha256']/record['path']).read_bytes()==blob.stdout
+                canonical+=struct.pack('>q',len(relative))+relative+struct.pack('>qqq',1,0,len(blob.stdout))+blob.stdout
+            assert hashlib.sha256(canonical).hexdigest()==node['tree_sha256']
+        print(f'native:{backend}:sources:git-subpackage-raw-object-integrity:passed',flush=True)
+        no_fetch_sub={**sub_env,'FREAK_GIT_FORBID_FETCH':'1'}
+        assert execute(sub_manifest,'snapshot',installed_sub.splitlines()[1],extra_env=no_fetch_sub)==installed_sub
+        print(f'native:{backend}:sources:git-subpackage-snapshot-offline:passed',flush=True)
+        for name in ('a','b'):
+            item=sub_manifest.parent.parent/name/'hangar.toml'
+            item.write_text(item.read_text().replace('rev="v1"','rev="'+sub_commit+'"'),encoding='utf-8')
+        sub_manifest.with_name('hangar.lock').unlink()
+        indexed=execute(sub_manifest,'offline',extra_env=no_fetch_sub)
+        assert indexed.startswith('ready: 6:6\n'),indexed
+        assert fetch_log.read_bytes()==b'fetch\n'
+        print(f'native:{backend}:sources:git-index-offline-without-lock-pins:passed',flush=True)
+        previous_sub_lock=sub_manifest.with_name('hangar.lock').read_bytes()
+        index_name=hashlib.sha256(('FREAK-git-source-index-v2\nhttps://fixture.invalid/c\n'+sub_commit+'\nlibd\n').encode()).hexdigest()+'.toml'
+        index_path=sub_manifest.parent/'.freak/git-index'/index_name
+        index_bytes=index_path.read_bytes()
+        index_path.write_bytes(index_bytes.replace(b'prefix = "libd"',b'prefix = "unexpected"'))
+        corrupted=index_path.read_bytes()
+        rejected=execute(sub_manifest,'offline',extra_env=no_fetch_sub)
+        assert rejected.startswith('error:') and 'Git source index metadata is corrupt' in rejected,rejected
+        assert index_path.read_bytes()==corrupted and sub_manifest.with_name('hangar.lock').read_bytes()==previous_sub_lock
+        index_path.write_bytes(index_bytes)
+        print(f'native:{backend}:sources:git-corrupt-index-preserved:passed',flush=True)
+        d_node=next(node for node in tomllib.loads(previous_sub_lock.decode())['node'].values() if node['name']=='libd')
+        d_tree=sub_manifest.parent/'.freak/store'/d_node['tree_sha256']
+        parked=d_tree.with_name(d_tree.name+'.parked')
+        d_tree.rename(parked)
+        try:
+            rejected=execute(sub_manifest,'offline',extra_env=no_fetch_sub)
+            assert rejected.startswith('error:') and 'offline Git cache miss' in rejected,rejected
+            assert not d_tree.exists() and sub_manifest.with_name('hangar.lock').read_bytes()==previous_sub_lock
+        finally: parked.rename(d_tree)
+        print(f'native:{backend}:sources:git-subpackage-cache-miss-no-fetch-repair:passed',flush=True)
+        item=sub_repository/'libd/hangar.toml'
+        item.write_text(item.read_text().replace('e={path="../libe"}','c={path=".."}'),encoding='utf-8')
+        git(['add','--','libd/hangar.toml'],sub_repository)
+        git(['commit','--quiet','-m','Cyclic subpackage fixture'],sub_repository)
+        git(['tag','--force','v1'],sub_repository)
+        for name in ('a','b'):
+            item=sub_manifest.parent.parent/name/'hangar.toml'
+            item.write_text(item.read_text().replace('rev="'+sub_commit+'"','rev="v1"'),encoding='utf-8')
+        rejected=execute(sub_manifest,'update',extra_env=sub_env)
+        assert rejected.startswith('error:') and 'cycle' in rejected,rejected
+        assert sub_manifest.with_name('hangar.lock').read_bytes()==previous_sub_lock
+        print(f'native:{backend}:sources:git-subpackage-cycle-preserves-generation:passed',flush=True)
+        item=sub_repository/'hangar.toml'
+        item.write_text(item.read_text().replace('d={path="libd"}','d={path="../outside"}'),encoding='utf-8')
+        git(['add','--','hangar.toml'],sub_repository)
+        git(['commit','--quiet','-m','Escaping subpackage fixture'],sub_repository)
+        git(['tag','--force','v1'],sub_repository)
+        rejected=execute(sub_manifest,'update',extra_env=sub_env)
+        assert rejected.startswith('error:') and 'escapes its filesystem root' in rejected,rejected
+        assert sub_manifest.with_name('hangar.lock').read_bytes()==previous_sub_lock
+        assert not list((sub_manifest.parent/'.freak').glob('.git-fetch-*')) and not list((sub_manifest.parent/'.freak').glob('.git-input-*'))
+        print(f'native:{backend}:sources:git-subpackage-escape-preserves-generation:passed',flush=True)
+        item=sub_repository/'hangar.toml'
+        item.write_text(item.read_text().replace('d={path="../outside"}','d={path="libd"}'),encoding='utf-8')
+        for filename in ('hangar.toml','core.fk'): (sub_repository/'libd'/filename).unlink()
+        (sub_repository/'libd').rmdir()
+        (sub_repository/'libd').symlink_to('libe',target_is_directory=True)
+        git(['add','--','hangar.toml','libd'],sub_repository)
+        git(['commit','--quiet','-m','Symlink subpackage fixture'],sub_repository)
+        git(['tag','--force','v1'],sub_repository)
+        rejected=execute(sub_manifest,'update',extra_env=sub_env)
+        assert rejected.startswith('error:') and 'missing directory, symlink or submodule' in rejected,rejected
+        assert sub_manifest.with_name('hangar.lock').read_bytes()==previous_sub_lock
+        print(f'native:{backend}:sources:git-subpackage-symlink-preserves-generation:passed',flush=True)
 
 
 
