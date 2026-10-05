@@ -2614,9 +2614,7 @@ def check_doctor(
         '  return 1;\n'
         '}\n', encoding="utf-8",
     )
-    real_clang = report["checks"]["clang"]["command"]
-    if real_clang.startswith('"') and real_clang.endswith('"'):
-        real_clang = real_clang[1:-1]
+    real_clang = report["checks"]["clang"]["executable"]
     fixture_build = subprocess.run(
         [real_clang, str(broken_clang_source), "-o", str(broken_clang)],
         cwd=root, env=env, capture_output=True, text=True,

@@ -90,6 +90,77 @@ def check_argv(output: subprocess.CompletedProcess[str], arguments: list[str], *
     assert observed == expected, (observed, expected, evidence)
 
 
+def check_terminal_input(command: list[str], cwd: Path, env: dict[str, str], *,
+                         interrupt: bool = False) -> None:
+    """Give the CLI a controlling terminal, where background reads get SIGTTIN."""
+    import errno
+    import pty
+    import select
+    import signal
+    import time
+
+    pid, terminal = pty.fork()
+    if pid == 0:
+        os.chdir(cwd)
+        os.execve(command[0], command, env)
+    output = bytearray()
+    status = None
+    sent = False
+    deadline = time.monotonic() + 30
+    try:
+        while status is None and time.monotonic() < deadline:
+            if select.select([terminal], [], [], 0.1)[0]:
+                try:
+                    chunk = os.read(terminal, 4096)
+                except OSError as error:
+                    if error.errno != errno.EIO:
+                        raise
+                    chunk = b""
+                output.extend(chunk)
+                assert len(output) < 1024 * 1024, "PTY fixture output exceeded 1 MiB"
+                if not sent and b"FREAK_ARGV_END" in output:
+                    os.write(terminal, b"\x03" if interrupt else b"tty stdin\n")
+                    sent = True
+            waited, child_status = os.waitpid(pid, os.WNOHANG)
+            if waited:
+                status = child_status
+        assert status is not None, f"controlling-terminal input hung; CLI PID {pid}: {output!r}"
+        while select.select([terminal], [], [], 0)[0]:
+            try:
+                chunk = os.read(terminal, 4096)
+            except OSError as error:
+                if error.errno != errno.EIO:
+                    raise
+                break
+            if not chunk:
+                break
+            output.extend(chunk)
+        rendered = output.decode("utf-8").replace("\r\n", "\n")
+        assert os.waitstatus_to_exitcode(status) == (130 if interrupt else 0), rendered
+        assert sent, rendered
+        if not interrupt:
+            assert "INPUT=tty stdin\n" in rendered, rendered
+    finally:
+        if status is None:
+            # Stop only descendants of this recorded PTY launcher. The runtime
+            # may own separate process groups, so killing one group is not enough.
+            snapshot = subprocess.run(["ps", "-eo", "pid=,ppid="], capture_output=True,
+                                      text=True, timeout=5, check=True)
+            edges = [tuple(map(int, line.split())) for line in snapshot.stdout.splitlines()]
+            descendants = {pid}
+            previous_count = 0
+            while previous_count != len(descendants):
+                previous_count = len(descendants)
+                descendants.update(child for child, parent in edges if parent in descendants)
+            for target in sorted(descendants, reverse=True):
+                try:
+                    os.kill(target, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            os.waitpid(pid, 0)
+        os.close(terminal)
+
+
 def check_run(freak: Path, root: Path, env: dict[str, str]) -> None:
     sentinel = root / "shell-command-must-not-run"
     arguments = ["", "two words", 'double"quote', "single'quote", "trailing\\",
@@ -124,6 +195,10 @@ def check_run(freak: Path, root: Path, env: dict[str, str]) -> None:
                           input_text="inherited stdin\n")
         check_argv(interactive, ["stdin"])
         assert "INPUT=inherited stdin\n" in interactive.stdout, interactive.stdout
+        if os.name == "posix":
+            check_terminal_input(command + ["--", "terminal"], root, input_env)
+            check_terminal_input(command + ["--", "terminal interrupt"], root,
+                                 input_env, interrupt=True)
 
         rejected = run(command + ["requires delimiter"], root, env)
         assert rejected.returncode != 0, rejected.stdout + rejected.stderr
@@ -162,6 +237,8 @@ def check_doctor(freak: Path, clang: Path, root: Path, env: dict[str, str]) -> N
              ("apple-old", "Apple clang version 14.0.0 (clang-1400.0.29.202)", False),
              ("unknown", "mystery compiler version 99.0.0", False),
              ("unknown-tab", "mystery\tcompiler version 99.0.0", False),
+             ("unknown-controls", "mystery" + "".join(chr(value) for value in range(1, 32)
+                                                       if value not in (10, 13)) + " version 99.0.0", False),
              ("empty", "", False),
              ("malformed", "clang version nonsense 99.0.0", False),
              ("overflow", "clang version 99999999999999999999.0.0", False)]
@@ -173,6 +250,7 @@ def check_doctor(freak: Path, clang: Path, root: Path, env: dict[str, str]) -> N
         checked = run([str(freak), "doctor", "--json"], root, case_env)
         report = json.loads(checked.stdout)
         check = report["checks"]["clang"]
+        assert check["executable"] == str(wrapper), check
         assert check["version"] == version, check
         assert check["version_ok"] is expected and check["ok"] is expected, check
         assert checked.returncode == (0 if expected else 1), checked.stdout + checked.stderr
@@ -196,6 +274,27 @@ def check_doctor(freak: Path, clang: Path, root: Path, env: dict[str, str]) -> N
     assert not check["ok"], check
     assert not list(root.glob("freak-doctor-*-probe-*")), "Doctor retained probe artifacts"
     print("doctor/probe: --version success cannot mask compile/link failure OK", flush=True)
+
+    if os.name == "posix":
+        # A distro may install only a versioned driver. Keep bare clang and
+        # newer drivers out of PATH so discovery must find its declared floor.
+        isolated_path = root / "only clang-15"
+        isolated_path.mkdir()
+        shutil.copy2(wrapper, isolated_path / "clang-15")
+        for tool in ("uname", "mkdir", "rm", "ld", "as"):
+            executable = shutil.which(tool, path=env.get("PATH"))
+            assert executable, f"fixture tool missing: {tool}"
+            (isolated_path / tool).symlink_to(Path(executable).resolve())
+        discovery_env = env.copy()
+        discovery_env.pop("FREAK_CLANG", None)
+        discovery_env.update(PATH=str(isolated_path),
+                             FREAK_V35_TEST_REAL_CLANG=str(clang),
+                             FREAK_V35_TEST_VERSION=f"clang version {minimum}.0.0")
+        discovered = run([str(freak), "doctor", "--json"], root, discovery_env)
+        check = json.loads(discovered.stdout)["checks"]["clang"]
+        assert discovered.returncode == 0 and check["ok"], discovered.stdout + discovered.stderr
+        assert check["command"] == "clang-15", check
+        print("doctor/discovery: versioned minimum-only PATH OK", flush=True)
 
 
 def main() -> int:
