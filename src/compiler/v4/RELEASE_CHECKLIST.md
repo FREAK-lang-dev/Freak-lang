@@ -119,11 +119,17 @@ nine times. The referenced V3.5 and in-memory LLVM proposal files were not
 present at the reconciled repository checkpoint; their new lane pointers are
 retained as planning inputs, not implementation evidence.
 
-The next bounded Tier 1 batch is generated signed-int64 `+`, `-`, `*` through
-LLVM overflow intrinsics, preserving the checked failure path and evaluation
-order, plus a reproducible native hot-loop gate. Its rows remain open until
-actual execution and current-head platform checks qualify them. B1 to B5 stay
-gated behind A4 and self-hosting; this batch does not start them.
+The bounded Tier 1 signed-int64 speed batch is implemented on this branch,
+with actual local execution at `d31c096` recorded in the
+[matched runtime report](../../../benchmarks/v4/int_checked_speed.md).
+The original numerical gate passes 150 native executions and 141 compiler
+contracts per plain/sanitized mode. The new gate proves dynamic boundaries,
+ordered effects, short circuit, real helper negatives and retained optimized
+loops; five 100M samples give 4.48x at O2 and 4.75x at O3 against the checked
+V4 baseline. These guarded wall times include startup/capture/logging and are
+specific to this loop/host. Its checked rows mean implemented and locally
+qualified; current-head Linux/macOS/Windows CI and review remain delivery
+gates before PR readiness. B1 to B5 stay gated behind A4 and self-hosting.
 
 ## What changed in revision 3.1
 
@@ -507,8 +513,8 @@ PR #143 handoff-7 dispositions and remaining performance work:
 - [x] **M** Resolve the four handoff-7 Meiya smoke failures with exact ownership and diagnostic proofs. False LocalID/PlaceID collisions are removed; genuine repeated-loop-consumption and borrowed-return errors retain their messages, help, spans and drop facts
 - [x] **S** Raw-pointer write range behavior: checked failure; exact legacy native/variadic-promotion proofs migrated, including the named int-to-tiny out-of-range native control. Wider native C variadic admission remains fenced
 - [x] **S** Repair six stale smoke proofs for canonical LocalID/PlaceID facts, ordered short circuit, wire/native graph and literal/general say; preserve the semantic contracts and exact diagnostics
-- [ ] **M** Generated code is 4x to 6x slower: emit overflow intrinsics inline instead of calling the numeric runtime for `+ - *`. Re-measured at `8ffb3895`: a hot integer loop takes 3.0 s against 0.88 s before the Word merge (3.4x); the module still calls `freak_v4_int_add`, `_sub`, `_mul` and `_div`
-- [ ] **S** Runtime benchmark in the gate, so generated-code speed cannot regress unnoticed
+- [x] **M** Inline checked signed-int64 `+`, `-`, `*` with LLVM overflow intrinsics, preserving evaluation and exact failure diagnostics. The [matched report](../../../benchmarks/v4/int_checked_speed.md) records 4.48x at O2 and 4.75x at O3 for the 100M live-checksum loop against actual checked baseline `2b62e1cb`. The historical `8ffb3895` 3.0 s / pre-Word 0.88 s observation is a different workload. Uint/tiny, negation, division, remainder and broad V3 runtime parity remain follow-up work.
+- [x] **S** Register the exact native hot-loop benchmark and genuine executable helper-call negative in the gate at O0/O2/O3. Linux/macOS/Windows plain runs retain timings and original source/tool/runtime/binary identities; Linux additionally requires sanitizer and ownership controls. Structural/live-work oracles reject helper regressions, with no flaky wall-time threshold; workflow execution on the current PR head remains required.
 - [ ] **M** Remaining compile-time overhead relative to V3 and unmeasured scaling families. The historical handoff-7 comparison was 1.7x to 2.6x slower. PR #146 closes the measured long-body growth below; codegen remains the largest stage on some workloads and call-heavy constants need further work.
 - [x] **M** Remove the four measured repeated compiler scans: Parse closure children, MIR CFG predecessors, Meiya ordered loan candidates and MIR Never presence. The [pinned scaling report](../../../benchmarks/v4/compiler_superlinear_speed.md) records long1600 at 13.011 -> 2.922 seconds (three-run medians), exact module/native equivalence and actual-work regression guards. The broader compile-time/V3 comparison above remains open; smaller-workload costs and conservative spanning-loan work remain explicit.
 - [x] **M** Repair measured MIR Build long-body growth (merged PR #146). The final three-run long1600 median falls from 3.116 to 0.650 s through predecessor counts and the Never presence summary. Historical revision-3.2 observations at `8ffb3895` and `c3e7d00b` remain separate from this [pinned report](../../../benchmarks/v4/compiler_superlinear_speed.md); unmeasured shapes are not covered.
@@ -531,7 +537,7 @@ Correctness:
 
 Scaling (residual, on `main`):
 
-- [ ] **M** TY grows 3.2x to 3.6x per doubling at the largest benchmark sizes; 0.78 s at 22,403 lines
+- [ ] **M** TY grows 3.2x to 3.6x per doubling at the largest benchmark sizes; 0.78 s at 22,403 lines (Historical scaling observation; PR #146 does not establish a new TY/V3 parity result.)
 - [x] **M** Repair the measured same-block loan-candidate scan (merged PR #146). The final three-run long1600 median falls from 4.226 to 0.545 s with exact first-conflict diagnostics. General spanning loans retain conservative global work and remain an open scaling boundary in the [pinned report](../../../benchmarks/v4/compiler_superlinear_speed.md).
 
 Words (checkpoint W2 to W4):

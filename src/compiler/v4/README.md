@@ -282,8 +282,10 @@ unsupported, so the complete W3 release row stays open.
 
 ### Checked numeric checkpoint
 
-Native integer operations and conversions use checked helpers at every
-optimization level. Overflow and division by zero produce named runtime errors;
+Signed-int64 addition, subtraction and multiplication use internal alwaysinline
+LLVM overflow wrappers at every optimization level. Their failure arms call the
+original checked helpers with unchanged operands. Other integer operations and
+conversions retain checked helpers. Overflow and division by zero produce named runtime errors;
 float-to-integer conversions validate range before conversion. The repository
 gate `python tests/v4_checked_numeric_codegen.py --snapshot-control` requires
 sanitizers and both ownership audits. Its reviewed `13a0991` run covers 141
@@ -291,6 +293,17 @@ compiler contracts, 147 native executions at O0/O2/O3 and eight real sanitizer
 or ownership capability controls. Fourteen adversarial oracle tests guard exact
 outputs, failure status and complete coverage. `--plain` is a separate portability
 run; the workflow keeps both modes' work directories and result JSON separate.
+
+The [checked integer runtime report](../../../benchmarks/v4/int_checked_speed.md)
+records the actual `d31c096` candidate: the original gate passes 150 native
+executions and 141 compiler contracts in each plain/sanitized mode. The new
+`tests/v4_int_inline_runtime_bench.py` gate proves 29 dynamic signed and ordered
+cases at O0/O2/O3, live hot-loop checksums, real helper-call negatives, optimizer
+loop retention and both ownership audits. Plain Linux/macOS/Windows CI retains
+matched timings; mandatory Linux ASan/UBSan publishes none. Five local 100M
+samples give 4.48x at O2 and 4.75x at O3 against the same checked V4 baseline;
+these include guarded process startup/capture/logging and establish only this
+workload. Other numeric helpers and overall V3 parity remain open.
 
 MIR restore now reserves checked positive arena growth before retiring replaced
 raw children. The reviewed `80520d5` transaction retains malformed/pressure

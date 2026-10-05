@@ -7,6 +7,20 @@
 
 **v0.13.x final-patch update (2026-04-28):** the cheap-win triage was executed. All 🛠 items shipped. Native `freak audit-conformance` reports clean. Suite at 14/14, no skips. LB10 minimal DWARF live. Homebrew/Scoop/Winget packaging complete. Remaining v0.13.x scope is empty — the next milestone is V4.
 
+**V4 checked integer lowering checkpoint (2026-10-05):** signed-int64 `+`,
+`-`, `*` use LLVM overflow intrinsics in internal alwaysinline wrappers. The
+failure path reuses the original checked helper and exact diagnostic/exit;
+other numeric operations and conversions retain their existing contracts.
+Actual candidate `d31c096` passes the original 150-native/141-compiler matrix
+in both plain and ASan/UBSan modes, plus 29 dynamic signed, ordered, discarded
+and short-circuit cases at O0/O2/O3. Sealed snapshots and reserved intrinsic
+identities are checked without new wire fields or handles. The
+[matched runtime report](benchmarks/v4/int_checked_speed.md) records a 4.48x
+O2 improvement for its live-checksum loop on Linux x86_64. Independent source
+and raw-artifact reviews qualify that bounded observation; current-head
+platform CI remains a delivery gate. This changes lowering cost, with no
+promotion of general native or V3 parity conformance.
+
 **V4 closed scalar Sum checkpoint (2026-10-04):** native `maybe<int>` and
 `result<word,word>` have separate tagged carriers, owning construction and
 extraction, and Meiya-driven cleanup across calls, replacements, branches and
