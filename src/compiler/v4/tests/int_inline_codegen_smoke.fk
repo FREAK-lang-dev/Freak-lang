@@ -1,0 +1,186 @@
+-- One frontend pipeline per selected process. Runtime numerical values and
+-- optimization-level behavior are proved separately by the native gate.
+task v4_int_inline_assert(condition: bool, label: word) -> void {
+    if not condition { panic("int inline codegen: " + label) }
+}
+
+task v4_int_inline_lower(source: word) -> int {
+    pilot stream = v4_lex_text(0, source)
+    pilot tree = v4_parse_stream(0, stream)
+    pilot hir = v4_hir_lower_tree(0, tree)
+    pilot resolve = v4_resolve_lower_hir(0, hir)
+    pilot ty = v4_ty_lower_resolve(0, resolve)
+    pilot mir = v4_mir_lower_ty(0, ty)
+    pilot diagnostics = v4_lex_diag_count(stream) + v4_parse_diag_count(tree) + v4_hir_diag_count(hir) + v4_resolve_diag_count(resolve) + v4_ty_diag_count(ty) + v4_mir_diag_count(mir)
+    v4_int_inline_assert(diagnostics == 0 and v4_mir_file_exists(mir), "clean frontend")
+    give back mir
+}
+
+task v4_int_inline_symbol_name(symbol_id: int) -> word {
+    if symbol_id == 0 { give back "freak_v4_int_add_inline" }
+    if symbol_id == 1 { give back "freak_v4_int_sub_inline" }
+    if symbol_id == 2 { give back "freak_v4_int_mul_inline" }
+    if symbol_id == 3 { give back "llvm.sadd.with.overflow.i64" }
+    if symbol_id == 4 { give back "llvm.ssub.with.overflow.i64" }
+    if symbol_id == 5 { give back "llvm.smul.with.overflow.i64" }
+    panic("int inline codegen: invalid symbol id")
+}
+
+task v4_int_inline_line_prefix_count(text: word, prefix: word) -> int {
+    pilot count = 0
+    pilot line_id = 0
+    repeat until line_id >= v4_mir_snapshot_line_count(text) {
+        if v4_mir_snapshot_line(text, line_id).starts_with(prefix) { count += 1 }
+        line_id += 1
+    }
+    give back count
+}
+
+task v4_int_inline_body(plan: int, name: word) -> word {
+    pilot body = v4_codegen_llvm_find_body(plan, name)
+    v4_int_inline_assert(body >= 0, "authored body exists")
+    give back v4_codegen_llvm_body_line(plan, body)
+}
+
+task v4_int_inline_shape_source() -> word {
+    pilot source = "task arith_add(left: int, right: int) -> int " + "{" + " give back left + right " + "}\n"
+    source = source + "task arith_sub(left: int, right: int) -> int " + "{" + " give back left - right " + "}\n"
+    source = source + "task arith_mul(left: int, right: int) -> int " + "{" + " give back left * right " + "}\n"
+    source = source + "task arith_uint(left: uint, right: uint) -> uint " + "{" + " give back (left + right) - (left * right) " + "}\n"
+    source = source + "task arith_tiny(left: tiny, right: tiny) -> tiny " + "{" + " give back (left + right) - (left * right) " + "}\n"
+    source = source + "task arith_num(left: num, right: num) -> num " + "{" + " give back (left + right) - (left * right) " + "}\n"
+    source = source + "task arith_neg(value: int) -> int " + "{" + " give back -value " + "}\n"
+    source = source + "task arith_div(left: int, right: int) -> int " + "{" + " give back left / right " + "}\n"
+    source = source + "task arith_mod(left: int, right: int) -> int " + "{" + " give back left % right " + "}\n"
+    source = source + "task arith_mixed(left: int, right: uint) -> int " + "{" + " give back left + right " + "}\n"
+    source = source + "task main() -> int " + "{" + " give back 0 " + "}\n"
+    give back source
+}
+
+task v4_int_inline_shape() -> void {
+    pilot mir = v4_int_inline_lower(v4_int_inline_shape_source())
+    pilot plan = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot module = v4_codegen_llvm_module_text(plan, target)
+    v4_int_inline_assert(v4_codegen_llvm_native_module_error(plan) == "" and module != "", "clean native module")
+    pilot pair_ty = "{" + " i64, i1 " + "}"
+    v4_int_inline_assert(v4_int_inline_line_prefix_count(module, "define internal i64 @freak_v4_int_") == 3, "exactly three private wrappers")
+    v4_int_inline_assert(v4_int_inline_line_prefix_count(module, "declare " + pair_ty + " @llvm.s") == 3, "exactly three overflow intrinsics")
+    pilot operation = 0
+    repeat until operation >= 3 {
+        pilot suffix = "add"
+        if operation == 1 { suffix = "sub" }
+        if operation == 2 { suffix = "mul" }
+        pilot body = v4_int_inline_body(plan, "arith_" + suffix)
+        v4_int_inline_assert(body.contains(" = call i64 @freak_v4_int_" + suffix + "_inline(i64 ") and not body.contains(" = call i64 @freak_v4_int_" + suffix + "(i64 "), "successful user expression uses only inline wrapper")
+        v4_int_inline_assert(module.contains("define internal i64 @freak_v4_int_" + suffix + "_inline(i64 %lhs, i64 %rhs) alwaysinline " + "{" + "\nentry:\n"), "internal alwaysinline header")
+        v4_int_inline_assert(module.contains("  %checked = call " + pair_ty + " @llvm.s" + suffix + ".with.overflow.i64(i64 %lhs, i64 %rhs)\n"), "signed checked intrinsic has exact operands")
+        v4_int_inline_assert(module.contains("  %overflow = extractvalue " + pair_ty + " %checked, 1\n  br i1 %overflow, label %failure, label %success\nfailure:\n  %unused = call i64 @freak_v4_int_" + suffix + "(i64 %lhs, i64 %rhs)\n  unreachable\nsuccess:\n  %result = extractvalue " + pair_ty + " %checked, 0\n  ret i64 %result\n" + "}"), "overflow flag alone guards original failure helper and success result")
+        v4_int_inline_assert(v4_codegen_llvm_numeric_reserved_symbol_error("@llvm.s" + suffix + ".with.overflow.i64") == "native numeric runtime symbol conflict: @llvm.s" + suffix + ".with.overflow.i64", "unquoted intrinsic identity also reserved")
+        v4_int_inline_assert(v4_codegen_llvm_numeric_reserved_symbol_error(v4_codegen_llvm_symbol("llvm.s" + suffix + ".with.overflow.i64.user")) == "", "intrinsic near miss remains unrelated")
+        operation += 1
+    }
+    v4_int_inline_assert(not module.contains(" nsw ") and not module.contains(" nuw "), "no poison-based overflow assumptions")
+    say "int-inline-shape wrappers=3 intrinsics=3 overflow-branches=true legacy-failure-operands=true"
+
+    pilot unsigned_body = v4_int_inline_body(plan, "arith_uint")
+    pilot tiny_body = v4_int_inline_body(plan, "arith_tiny")
+    pilot num_body = v4_int_inline_body(plan, "arith_num")
+    v4_int_inline_assert(unsigned_body.contains("@freak_v4_uint_add(") and unsigned_body.contains("@freak_v4_uint_sub(") and unsigned_body.contains("@freak_v4_uint_mul(") and not unsigned_body.contains("_inline("), "uint helpers preserved")
+    v4_int_inline_assert(tiny_body.contains("call zeroext i8 @freak_v4_tiny_add(i8 zeroext ") and tiny_body.contains("call zeroext i8 @freak_v4_tiny_sub(i8 zeroext ") and tiny_body.contains("call zeroext i8 @freak_v4_tiny_mul(i8 zeroext ") and not tiny_body.contains("_inline("), "tiny extension ABI preserved")
+    v4_int_inline_assert(num_body.contains(" = fadd double ") and num_body.contains(" = fsub double ") and num_body.contains(" = fmul double ") and not num_body.contains("_inline("), "floating arithmetic preserved")
+    v4_int_inline_assert(v4_int_inline_body(plan, "arith_neg").contains("call i64 @freak_v4_int_neg(") and v4_int_inline_body(plan, "arith_div").contains("call i64 @freak_v4_int_div(") and v4_int_inline_body(plan, "arith_mod").contains("call i64 @freak_v4_int_mod("), "other checked signed operations preserved")
+    pilot mixed_body = v4_int_inline_body(plan, "arith_mixed")
+    v4_int_inline_assert(mixed_body.contains(" = call i64 @freak_v4_int_from_uint(") and mixed_body.contains("call i64 @freak_v4_int_add_inline("), "mixed conversion still checked before signed arithmetic")
+    say "int-inline-contract uint=true tiny=true neg-div-mod=true conversions=true float=true"
+
+    pilot snapshot = v4_mir_snapshot()
+    v4_int_inline_assert(v4_mir_snapshot_validate(snapshot).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "numeric snapshot restores")
+    v4_int_inline_assert(v4_codegen_llvm_module_text(plan, target) == module, "old sealed module exact after restore")
+    pilot restored = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_int_inline_assert(v4_codegen_llvm_module_text(restored, target) == module, "fresh restored module exact")
+    pilot query = 0
+    repeat until query >= 32 {
+        v4_int_inline_assert(v4_codegen_llvm_module_text(plan, target) == module and v4_codegen_llvm_module_text(restored, target) == module, "sealed queries deterministic")
+        query += 1
+    }
+    say "int-inline-seal snapshot=true restored=true old-exact=true fresh-exact=true repeated=true"
+}
+
+task v4_int_inline_authored(symbol_id: int, mode: word) -> void {
+    pilot name = v4_int_inline_symbol_name(symbol_id)
+    pilot source = ""
+    if mode == "body" {
+        v4_int_inline_assert(symbol_id < 3, "wrapper source body name")
+        source = "task " + name + "(value: int) -> int " + "{" + " give back value " + "}\n"
+    } else {
+        v4_int_inline_assert(mode == "extern", "authored mode")
+        source = "extern [C] " + "{" + "\n @link_name(\"" + name + "\")\n task foreign(value: std::ffi::c_isize) -> std::ffi::c_isize\n" + "}\n"
+    }
+    source = source + "task main() -> int " + "{" + " give back 0 " + "}\n"
+    pilot mir = v4_int_inline_lower(source)
+    pilot plan = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot target = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot reason = "native numeric runtime symbol conflict: " + v4_codegen_llvm_symbol(name)
+    v4_int_inline_assert(v4_codegen_llvm_native_module_error(plan) == reason and v4_codegen_llvm_native_target_error(plan, target) == reason and v4_codegen_llvm_module_text(plan, target) == "", "authored reserved identity rejected by exact name")
+    say "int-inline-collision authored=" + mode + " symbol=" + word_from_int(symbol_id) + " named=true no-module=true"
+}
+
+task v4_int_inline_edit_symbol(snapshot: word, name: word) -> word {
+    pilot out = ""
+    pilot changed = 0
+    pilot line_id = 0
+    repeat until line_id >= v4_mir_snapshot_line_count(snapshot) {
+        pilot line = v4_mir_snapshot_line(snapshot, line_id)
+        if v4_mir_snapshot_field_raw(line, 0) == "mir-rvalue" and v4_mir_snapshot_field(line, 4) == v4_mir_rvalue_use_symbol {
+            v4_int_inline_assert(v4_mir_snapshot_field(line, 5) == "target", "only authored callback symbol changes")
+            pilot edited = ""
+            pilot field = 0
+            repeat until field >= 14 {
+                if field > 0 { edited = edited + "|" }
+                if field == 5 { edited = edited + v4_mir_snapshot_escape(name) } else { edited = edited + v4_mir_snapshot_field_raw(line, field) }
+                field += 1
+            }
+            line = edited
+            changed += 1
+        }
+        out = out + line + "\n"
+        line_id += 1
+    }
+    v4_int_inline_assert(changed == 1, "exactly one restored task-pointer row")
+    give back out
+}
+
+task v4_int_inline_restored(symbol_id: int) -> void {
+    pilot name = v4_int_inline_symbol_name(symbol_id)
+    pilot source = "task target(value: int) -> int " + "{" + " give back value " + "}\n"
+    source = source + "task main() -> int " + "{" + " pilot callback = target; give back 0 " + "}\n"
+    pilot mir = v4_int_inline_lower(source)
+    pilot original = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot target_spec = v4_target_spec_new("x86_64-unknown-linux-gnu")
+    pilot before = v4_codegen_llvm_module_text(original, target_spec)
+    v4_int_inline_assert(v4_codegen_llvm_native_module_error(original) == "" and before != "", "valid original callback module")
+    pilot snapshot = v4_mir_snapshot()
+    pilot edited = v4_int_inline_edit_symbol(snapshot, name)
+    v4_int_inline_assert(v4_mir_snapshot_validate(edited).starts_with("mir-snapshot-import ok=1") and v4_mir_snapshot_restore_component(edited).starts_with("mir-snapshot-restore ok=1"), "reserved pointer name imports as structurally valid MIR")
+    pilot rejected = v4_codegen_llvm_lower_owned_mir(0, mir)
+    pilot reason = "native numeric runtime symbol conflict: " + v4_codegen_llvm_symbol(name)
+    v4_int_inline_assert(v4_codegen_llvm_native_module_error(rejected) == reason and v4_codegen_llvm_module_text(rejected, target_spec) == "", "restored reserved pointer cannot seal")
+    v4_int_inline_assert(v4_codegen_llvm_module_text(original, target_spec) == before, "old module unaffected by imported collision")
+    v4_int_inline_assert(v4_mir_snapshot_restore_component(snapshot).starts_with("mir-snapshot-restore ok=1"), "original MIR restored")
+    pilot recovered = v4_codegen_llvm_lower_owned_mir(0, mir)
+    v4_int_inline_assert(v4_codegen_llvm_module_text(recovered, target_spec) == before and v4_codegen_llvm_module_text(original, target_spec) == before and v4_codegen_llvm_module_text(rejected, target_spec) == "", "safe recovery and both old seals exact")
+    say "int-inline-collision restored=" + word_from_int(symbol_id) + " wire-valid=true named=true old-exact=true recovery=true"
+}
+
+task v4_int_inline_run() -> void {
+    pilot selected = 0
+    if process::args_count() > 1 { selected = word_to_int(process::arg(1)) }
+    if selected == 0 { v4_int_inline_shape() } else if selected == 1 {
+        v4_int_inline_authored(word_to_int(process::arg(2)), process::arg(3))
+    } else if selected == 2 {
+        v4_int_inline_restored(word_to_int(process::arg(2)))
+    } else { panic("int inline codegen: invalid selected case") }
+}
+
+v4_int_inline_run()

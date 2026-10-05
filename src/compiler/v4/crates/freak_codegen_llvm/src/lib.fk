@@ -1522,7 +1522,9 @@ task v4_codegen_llvm_rvalue_instruction(mir_id: int, body_id: int, rvalue_id: in
         if suffix != "" and numeric_kind != "" and numeric_kind != "num" {
             v4_codegen_llvm_numeric_runtime_used = true
             pilot operand = v4_codegen_llvm_numeric_helper_type(numeric_kind, false)
-            give back target + " = call " + v4_codegen_llvm_numeric_helper_type(numeric_kind, true) + " @freak_v4_" + numeric_kind + "_" + suffix + "(" + operand + " " + v4_codegen_llvm_binary_arg_value(mir_id, body_id, rvalue_id, 0) + ", " + operand + " " + v4_codegen_llvm_binary_arg_value(mir_id, body_id, rvalue_id, 1) + ")"
+            pilot helper_suffix = suffix
+            if numeric_kind == "int" and (suffix == "add" or suffix == "sub" or suffix == "mul") { helper_suffix = suffix + "_inline" }
+            give back target + " = call " + v4_codegen_llvm_numeric_helper_type(numeric_kind, true) + " @freak_v4_" + numeric_kind + "_" + helper_suffix + "(" + operand + " " + v4_codegen_llvm_binary_arg_value(mir_id, body_id, rvalue_id, 0) + ", " + operand + " " + v4_codegen_llvm_binary_arg_value(mir_id, body_id, rvalue_id, 1) + ")"
         }
         pilot op = v4_codegen_llvm_typed_binary_opcode(v4_mir_rvalue_op(mir_id, body_id, rvalue_id), source_ty)
         give back target + " = " + op + " " + v4_codegen_llvm_type(source_ty) + " " + v4_codegen_llvm_binary_arg_value(mir_id, body_id, rvalue_id, 0) + ", " + v4_codegen_llvm_binary_arg_value(mir_id, body_id, rvalue_id, 1)
@@ -3249,6 +3251,32 @@ task v4_codegen_llvm_owned_word_error(mir_id: int) -> word {
     give back ""
 }
 
+-- LLVM owns the checked fast path; the existing runtime owns its diagnostic.
+-- Keeping the branch inside an alwaysinline wrapper avoids introducing new
+-- expression labels or changing MIR/Meiya control and cleanup facts. On the
+-- overflow edge, the identical operands must fail in the legacy helper, so
+-- unreachable preserves its exit(1) contract without a new runtime ABI.
+task v4_codegen_llvm_int_inline_runtime_lines() -> word {
+    pilot out = ""
+    pilot pair_ty = "{" + " i64, i1 " + "}"
+    pilot operation = 0
+    repeat until operation >= 3 {
+        pilot suffix = "add"
+        if operation == 1 { suffix = "sub" }
+        if operation == 2 { suffix = "mul" }
+        pilot intrinsic = "@llvm.s" + suffix + ".with.overflow.i64"
+        out = out + "declare " + pair_ty + " " + intrinsic + "(i64, i64)\n"
+        out = out + "define internal i64 @freak_v4_int_" + suffix + "_inline(i64 %lhs, i64 %rhs) alwaysinline {\nentry:\n"
+        out = out + "  %checked = call " + pair_ty + " " + intrinsic + "(i64 %lhs, i64 %rhs)\n"
+        out = out + "  %overflow = extractvalue " + pair_ty + " %checked, 1\n"
+        out = out + "  br i1 %overflow, label %failure, label %success\nfailure:\n"
+        out = out + "  %unused = call i64 @freak_v4_int_" + suffix + "(i64 %lhs, i64 %rhs)\n  unreachable\nsuccess:\n"
+        out = out + "  %result = extractvalue " + pair_ty + " %checked, 0\n  ret i64 %result\n}\n"
+        operation += 1
+    }
+    give back out
+}
+
 task v4_codegen_llvm_numeric_runtime_declarations() -> word {
     pilot out = ""
     pilot type_id = 0
@@ -3283,11 +3311,16 @@ task v4_codegen_llvm_numeric_runtime_declarations() -> word {
         out = out + "declare double @freak_v4_num_from_" + kind + "(" + argument + ")\n"
         type_id += 1
     }
-    give back out
+    give back out + v4_codegen_llvm_int_inline_runtime_lines()
 }
 
 task v4_codegen_llvm_numeric_reserved_symbol_error(symbol: word) -> word {
     if symbol.starts_with("@freak_v4_int_") or symbol.starts_with("@freak_v4_uint_") or symbol.starts_with("@freak_v4_tiny_") or symbol.starts_with("@freak_v4_num_") { give back "native numeric runtime symbol conflict: " + symbol }
+    -- Authored dotted ABI names use quoted canonical symbols; LLVM intrinsic
+    -- declarations use unquoted spellings of the same exact identities.
+    if symbol == "@llvm.sadd.with.overflow.i64" or symbol == "@\"llvm.sadd.with.overflow.i64\"" { give back "native numeric runtime symbol conflict: " + symbol }
+    if symbol == "@llvm.ssub.with.overflow.i64" or symbol == "@\"llvm.ssub.with.overflow.i64\"" { give back "native numeric runtime symbol conflict: " + symbol }
+    if symbol == "@llvm.smul.with.overflow.i64" or symbol == "@\"llvm.smul.with.overflow.i64\"" { give back "native numeric runtime symbol conflict: " + symbol }
     if symbol == "@freak_llvm_word_owned_size" or symbol.starts_with("@freak_v4_process_") or symbol.starts_with("@freak_v4_fs_") or symbol.starts_with("@freak_v4_panic_") { give back "native private runtime symbol conflict: " + symbol }
     give back ""
 }
