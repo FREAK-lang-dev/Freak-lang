@@ -97,5 +97,4 @@ pilot v4_training_action = ""
 if process::args_count() > 1 { v4_training_case = word_to_int(process::arg(1)) }
 if process::args_count() > 2 { v4_training_target = process::arg(2) }
 if process::args_count() > 3 { v4_training_action = process::arg(3) }
-if v4_training_action == "--source" { say v4_training_cap_source(v4_training_case) }
-else { v4_training_cap_run(v4_training_case, v4_training_target, v4_training_action == "--emit") }
+if v4_training_action == "--source" { say v4_training_cap_source(v4_training_case) } else { v4_training_cap_run(v4_training_case, v4_training_target, v4_training_action == "--emit") }
