@@ -1,10 +1,13 @@
-# FREAK V4 release checklist (revision 3.1)
+# FREAK V4 release checklist (revision 3.2)
 
 Working revision reconciled on 2026-10-05 against merged `main` at
-`116dae0ddea810252f1ad8af0ac71fddc0594c2f`. PR #143 is merged with a regular
-merge commit preserving all 249 original commits. The reviewed head was
-`4ddde2d47303358d69f34f616fedd7a0827e2ea5`; its tree is identical to the
-merge tree. Historical observations below retain their original pins.
+`2b62e1cb1674336f52c3310a7dbf2e177d566a81`. PR #145 and PR #146 are
+merged. PR #146 preserved its 17 commits through rebase merge; its reviewed
+head `c3e7d00b9ee26db98f09bf187c3877ff8392357f` has the same tree as this
+main checkpoint. PR #143 used a regular merge preserving all 249 original
+commits; its reviewed head `4ddde2d47303358d69f34f616fedd7a0827e2ea5`
+matched merge `116dae0ddea810252f1ad8af0ac71fddc0594c2f`. Historical
+observations below retain their actual source and execution pins.
 
 Sources: `main` itself, PR #143, `BACKEND_CHECKPOINT.md`,
 `docs/bootstrap-map.md` (phases A to F), every V4-tagged missing or partial
@@ -20,7 +23,8 @@ missing.
 ## Delivery target and reconciled evidence
 
 The maintainer selected **Preview first (Tier 1), then V3 replacement**.
-Revision 3.1 adds A0, A1 and A4 to the replacement prerequisites. Capability
+Revision 3.1 adds A0, A1 and A4 to the replacement prerequisites. Revision
+3.2 adds the separate V3.5 and deferred backend delivery lanes. Capability
 and architecture work proceed in bounded lanes; strict root scope remains
 the default and compiler initialization requires explicit per-file bootstrap
 compatibility. Integer overflow produces a runtime error at every optimization
@@ -42,7 +46,7 @@ Sum slices. General aggregates, arbitrary source-main parameters, default
 panic unwind/cleanup, self-hosting, full V3 parity and distribution remain open.
 The private C panic-context proof establishes only its helper ABI scope.
 
-Revision 3.1 first batch is implemented and locally verified:
+Revision 3.1 first batch landed in merged PR #145:
 
 1. A0: the registered guard enforces the documented `freak_mir`
    authority/construction boundary.
@@ -62,12 +66,64 @@ and 144 process cases: 62 unchanged prefix cases at `0909760`, then 82 passing
 cases at `bee80ac` after correcting three removed-join metadata expectations.
 The original run retains its failure receipt for those stale expectations; the exact
 source/registration transfer and disjoint coverage are independently verified.
-Fresh current-head Linux/macOS/Windows CI is registered and remains a delivery
-gate. These local results do not complete the preview or the release checklist.
+PR #145 completed its registered Linux/macOS/Windows checks before merge.
+PR #146 completed all [20 V4 jobs](https://github.com/FREAK-lang-dev/Freak-lang/actions/runs/37336872913)
+and [six shipping jobs](https://github.com/FREAK-lang-dev/Freak-lang/actions/runs/37336873287)
+at reviewed head `c3e7d00b`, with no unresolved review finding. Its local
+181-case affected gate ran at `d4bd6779`; independent review qualified the
+four-file documentation delta to `c3e7d00b`. The identical-tree rebase merge
+qualifies those inputs to `2b62e1cb`; it is not a new postmerge execution.
+These results do not complete the preview or the release checklist.
 
 The remaining correctness rows and A4 Runtime MIR transform stay separately
 tracked. The reviewed U0 unwind plan must integrate with A4 ownership facts;
 new cleanup policy must not be added to codegen.
+
+## What changed in revision 3.2
+
+The incoming revision used repository `8ffb3895` and observed PR #146 at
+`c3e7d00b` while it was open. It has since merged at `2b62e1cb`. The
+historical measurements remain below; completed rows are reconciled against
+the final pinned report and merge evidence above. Four planning changes:
+
+- **Backend delivery lane (B0 to B5) added**, from the in-memory LLVM
+  proposal and the maintainer's direction on it: one `freak` binary with
+  LLVM and LLD built in, Clang removed from user builds where the platform
+  allows, the text backend kept as the bootstrap and reference path. The lane
+  is deferred behind A4 and self-hosting, except B0, which is small and can
+  start any time. It is in none of the release lines below.
+- **Tier 1 speed rows re-measured at `8ffb3895`** while the workers are on
+  them: generated code is 3.4x slower than before the Word merge on a hot
+  integer loop, and MIR Build is super-linear on long bodies as well as Meiya
+  and codegen (new row).
+
+- **PR #146 checked** (compile-time scaling). On its head, long bodies at
+  8,243 lines take 3.1 s against 13.1 s on `main`, growth for 4x the lines
+  is 4.1x, emitted LLVM is byte-identical for three large fixtures, and 48
+  programs behave identically. The measured scan repairs are now ticked after
+  merge; the broader compile-time/V3 comparison remains open. The final
+  [three-run report](../../../benchmarks/v4/compiler_superlinear_speed.md)
+  records 13.011 -> 2.922 s and exact module/native equivalence across 33
+  measured pairs. PR #146 does not change generated-code speed.
+- **V3.5 lane added** as a pointer to its own plan
+  (`freak-v3.5-bootstrap-packages-http-plan.md`), with the three things it
+  obliges V4 to do.
+
+Why the lane is deferred, measured at `8ffb3895`: LLVM parses the text V4
+emits in 0.10 to 0.15 s (1.1 to 2.7 MB of `.ll`, 8,243 to 22,403 source
+lines), against 12 to 20 s inside V4 for the same programs. Removing the
+reparse would recover about 1% of a build. The case for the lane is
+structure, target knowledge, debug information and packaging. At that
+historical pin, `freak_mir_transform` does not exist and codegen calls Meiya
+nine times. The referenced V3.5 and in-memory LLVM proposal files were not
+present at the reconciled repository checkpoint; their new lane pointers are
+retained as planning inputs, not implementation evidence.
+
+The next bounded Tier 1 batch is generated signed-int64 `+`, `-`, `*` through
+LLVM overflow intrinsics, preserving the checked failure path and evaluation
+order, plus a reproducible native hot-loop gate. Its rows remain open until
+actual execution and current-head platform checks qualify them. B1 to B5 stay
+gated behind A4 and self-hosting; this batch does not start them.
 
 ## What changed in revision 3.1
 
@@ -119,6 +175,8 @@ scaling to done, and recorded the `|>` finding.
 | Self-hosted | 1, 2 | V4 compiles V4 |
 | Replaces V3 | 1 to 4, 8, A0, A1, A4 | "V4 release": everything V3 ships today, on the new compiler |
 | Bible-complete | 1 to 8, A0 to A4 | The 1.0 the audit describes |
+| V3.5 (on the V3 toolchain) | its own plan | V3 builds V4 natively, real packages, loops, an HTTP floor. Target 2026-10-12. Gates no V4 line; adds the V3.5 rows below |
+| Self-contained toolchain | B0 to B4 | One binary with LLVM and LLD; no Clang for users where the platform allows. After Replaces V3; gates no other line |
 
 The replacement line follows `docs/bootstrap-map.md`: self-hosting, shipped-V3
 language/runtime/tooling parity and preservation tests must hold. It does not
@@ -356,6 +414,88 @@ Not planned: `freak_ty_infer` and `freak_ty_solve` sub-crates, and a
 persistent TIR. Both documents make them conditional on evidence that does
 not exist yet.
 
+## V3.5 lane (separate plan)
+
+V3.5 is work on the V3 toolchain and is tracked in
+`freak-v3.5-bootstrap-packages-http-plan.md`, not here. What it changes for
+V4:
+
+- [ ] **M** Accept, with the same meaning, the syntax V3.5 adds: `for each i in a..b` (with `..=` and `step`), `repeat N times with i`, the C-style `for (init; cond; step)`, and `repeat while` (and bare `while` if that is approved). V4 already accepts semicolons
+- [ ] **S** `check result NAME { ok(v) -> ... err(e) -> ... }`: the V4 source uses it at 11 sites and V3.5 will implement it; confirm V4 itself compiles the form, since V4 must eventually compile V4
+- [ ] **M** Move the V4 bootstrap off the Python compiler: `build_v4.py` and `check_v4.py` call `freakc.__main__.transpile` today. Switch to the V3.5 route when it exists, keep the Python route as a comparison until both agree on the pinned corpus
+
+Measured starting point for that plan (released 0.14.2 on the flattened V4
+source, 66,878 lines): the parser rejects exactly two things, 267 semicolons
+and the 11 `check result` sites. What the checker and emitters reject is not
+yet known.
+
+## Backend delivery lane (deferred)
+
+Source: `freak-v4-rust-style-in-memory-llvm-proposal.md` and the maintainer's
+direction of 2026-10-05. Target shape:
+
+```
+Runtime MIR -> structured LLVM module (FREAK data, IDs not text)
+            -> LLVM in process: verify, optimise, emit object
+            -> LLD in process: link
+```
+
+One `freak` binary carries LLVM and LLD. The text backend stays as the
+bootstrap path and the reference the new path is compared against.
+`--emit-llvm` stays. No backend-neutral codegen layer is planned until a
+second backend is real.
+
+**Gates for B1 onward:** A4 complete (Runtime MIR exists and codegen makes no
+ownership decision) and Tier 2 complete (V4 compiles V4). B0 has no gate.
+
+**Go or no-go** is taken after B2's measurements, on the proposal's sections
+38 and 39. **Rollback:** delete B2 onward; B1 and every semantic layer are
+unaffected.
+
+### B0: no-regret work on the text backend (any time)
+
+- [ ] **S** State the minimum Clang / LLVM major the text backend supports, and have `freak doctor` check it (implicit today)
+- [ ] **M** Attributes on runtime helper declarations and on values (does not unwind, does not capture, memory effects, non-null, ranges) so stock LLVM optimises around the runtime; judge it with the tier 1 runtime benchmark
+- [ ] **S** Evidence for the proposal's question 1: count past backend defects that were malformed-text defects (duplicate SSA names, bad labels, quoting, signature mismatches)
+
+### B1: a structured LLVM module in FREAK
+
+- [ ] **L** Typed in-memory module in `freak_codegen_llvm`: functions, blocks, instructions, types and globals as IDs. Lowering fills it from Runtime MIR; a printer produces the `.ll`. The existing gate must pass with byte-identical output
+- [ ] **M** Structural checks before printing: one terminator per block, every operand defined, call sites match callee types, no duplicate symbols
+- [ ] **S** `--emit-llvm` unchanged for users; LLVM text becomes an export of the module, not the transport
+
+### B2: LLVM in process
+
+- [ ] **S** Pin one LLVM major. CI builds or fetches static LLVM and LLD for Linux x86-64 and arm64, macOS arm64 and Windows x64, cached
+- [ ] **L** FFI bridge: LLVM C API first, a narrow C++ shim only where the C API is missing something. Opaque handles, documented ownership, no C++ exception crosses the boundary, every failure an explicit result
+- [ ] **M** Two-stage bootstrap: stage 1 is built by the previous compiler and uses the text backend and Clang; stage 2 links LLVM. Clang becomes a build-from-source dependency
+- [ ] **M** Structured module to LLVM module, verified in process. Decision inside the item: builder calls, or a bitcode writer in FREAK
+- [ ] **M** Optimisation pipeline for O0 to O3 through the shim; `--emit-llvm-before-opt` and `--emit-llvm-after-opt`
+- [ ] **M** Object emission through a target machine; sizes, alignments and data layout asked of the target instead of hard-coded
+- [ ] **M** Differential gate: text plus Clang against in-process, every native gate program at O0, O2 and O3, plain and sanitized, comparing exit status, stdout and stderr
+- [ ] **M** Measurements from the proposal's section 23, plus compiler binary size per platform; go or no-go recorded here
+
+### B3: linking without Clang
+
+- [ ] **M** LLD in process through a shim: ELF, COFF and Mach-O
+- [ ] **M** Link against the packaged runtime objects (tier 8 row is the prerequisite), no C compile during a user build
+- [ ] **M** Windows: bundle the MinGW runtime libraries; a user needs no other toolchain
+- [ ] **M** Linux: decide between the system C library (needs its development files) and a bundled musl for static executables, then implement
+- [ ] **S** macOS: link against the system SDK from Apple's command-line tools; document that requirement
+
+### B4: packaging and release schedule
+
+- [ ] **M** One `freak` binary per platform with LLVM and LLD inside; installers, Homebrew, Scoop and Winget updated; size recorded per platform
+- [ ] **S** Release policy: every release names its LLVM version; the LLVM major changes at most twice a year and only after that major has had point releases; patch releases may take LLVM point releases
+- [ ] **S** `freak doctor` reports the bundled LLVM and LLD; Clang is no longer required on Windows
+- [ ] **S** Clang kept in CI as the comparison oracle; text backend kept as bootstrap and reference
+
+### B5: what the lane unlocks (optional, each decided separately)
+
+- [ ] **L** FREAK-specific passes compiled in: redundant overflow, bounds and divide checks; paired word retain and release. Only for what Runtime MIR optimisation cannot reach
+- [ ] **L** Full debug information through LLVM's builder (extends the tier 4 line-table row)
+- [ ] **L** JIT for `freak run`, a REPL and test runners
+
 ## Tier 1: programs that compute and print
 
 Historical "on #143" annotations refer to earlier branch observations.
@@ -367,10 +507,11 @@ PR #143 handoff-7 dispositions and remaining performance work:
 - [x] **M** Resolve the four handoff-7 Meiya smoke failures with exact ownership and diagnostic proofs. False LocalID/PlaceID collisions are removed; genuine repeated-loop-consumption and borrowed-return errors retain their messages, help, spans and drop facts
 - [x] **S** Raw-pointer write range behavior: checked failure; exact legacy native/variadic-promotion proofs migrated, including the named int-to-tiny out-of-range native control. Wider native C variadic admission remains fenced
 - [x] **S** Repair six stale smoke proofs for canonical LocalID/PlaceID facts, ordered short circuit, wire/native graph and literal/general say; preserve the semantic contracts and exact diagnostics
-- [ ] **M** Generated code is 4x to 6x slower: emit overflow intrinsics inline instead of calling the numeric runtime for `+ - *`
+- [ ] **M** Generated code is 4x to 6x slower: emit overflow intrinsics inline instead of calling the numeric runtime for `+ - *`. Re-measured at `8ffb3895`: a hot integer loop takes 3.0 s against 0.88 s before the Word merge (3.4x); the module still calls `freak_v4_int_add`, `_sub`, `_mul` and `_div`
 - [ ] **S** Runtime benchmark in the gate, so generated-code speed cannot regress unnoticed
-- [ ] **M** Remaining compile-time overhead relative to V3 and unmeasured scaling families. The historical handoff-7 comparison was 1.7x to 2.6x slower; the current long-body repair below supersedes its codegen growth observation.
+- [ ] **M** Remaining compile-time overhead relative to V3 and unmeasured scaling families. The historical handoff-7 comparison was 1.7x to 2.6x slower. PR #146 closes the measured long-body growth below; codegen remains the largest stage on some workloads and call-heavy constants need further work.
 - [x] **M** Remove the four measured repeated compiler scans: Parse closure children, MIR CFG predecessors, Meiya ordered loan candidates and MIR Never presence. The [pinned scaling report](../../../benchmarks/v4/compiler_superlinear_speed.md) records long1600 at 13.011 -> 2.922 seconds (three-run medians), exact module/native equivalence and actual-work regression guards. The broader compile-time/V3 comparison above remains open; smaller-workload costs and conservative spanning-loan work remain explicit.
+- [x] **M** Repair measured MIR Build long-body growth (merged PR #146). The final three-run long1600 median falls from 3.116 to 0.650 s through predecessor counts and the Never presence summary. Historical revision-3.2 observations at `8ffb3895` and `c3e7d00b` remain separate from this [pinned report](../../../benchmarks/v4/compiler_superlinear_speed.md); unmeasured shapes are not covered.
 - [x] **S** Integrate current main, resolve merge conflicts and complete all current-head gates; regular merge delivered with the original history preserved
 
 Correctness:
@@ -391,7 +532,7 @@ Correctness:
 Scaling (residual, on `main`):
 
 - [ ] **M** TY grows 3.2x to 3.6x per doubling at the largest benchmark sizes; 0.78 s at 22,403 lines
-- [ ] **M** Meiya grows 3.6x per doubling on long bodies; 2.82 s at 8,243 lines
+- [x] **M** Repair the measured same-block loan-candidate scan (merged PR #146). The final three-run long1600 median falls from 4.226 to 0.545 s with exact first-conflict diagnostics. General spanning loans retain conservative global work and remain an open scaling boundary in the [pinned report](../../../benchmarks/v4/compiler_superlinear_speed.md).
 
 Words (checkpoint W2 to W4):
 
@@ -685,6 +826,12 @@ FFI completion (phase C):
 12. Inner-block shadowing: allow it as V3 does, or keep rejecting it. The bible does not say.
 13. A task with no return type: accept as `-> void`, or require the type.
 14. Is a pilot mutable by default? Bible §1.1 says yes, with `fixed pilot` as the immutable form. The borrow-checker note in §4 describes V3's strict rule, where only `pilot mut` may be reassigned. The merged checkpoint accepts `pilot mut`. The book and the migration guide both depend on the answer.
+15. Closed for direction (2026-10-05): the long-term toolchain is one `freak` binary with LLVM and LLD built in, accepting the larger download. Timing stays deferred (backend delivery lane).
+16. Closed for direction: one LLVM major per release, changed at most twice a year, never the newest major before it has point releases.
+17. The minimum Clang / LLVM major the text backend supports today (B0).
+18. B2: build the LLVM module through builder calls, or write bitcode from FREAK.
+19. B3: Linux links the system C library, or ships musl for static executables.
+20. Whether any part of B5 (compiled-in passes, full debug information, JIT) is wanted, each on its own.
 
 ## Appendix: re-measuring the progress numbers
 
