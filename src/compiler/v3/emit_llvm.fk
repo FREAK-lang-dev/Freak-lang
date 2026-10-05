@@ -2933,6 +2933,23 @@ task llvm_emit_task(eid: word) -> void {
 -- ===================== RUNTIME DECLARATIONS ==========================
 
 task llvm_emit_runtime_decls() -> void {
+    llvm_emit_line("declare i64 @freak_llvm_fs_open_dir_ticket(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_read_bytes_limit_ticket(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_read_relative_ticket(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_read_source_relative_ticket(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_read_relative_bytes_ticket(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_read_relative_bytes_limit_ticket(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_write_relative_bytes_checked(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_remove_temp_dir_checked(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_publish_temp_dir_checked(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_result_completed(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_lock_dir_ticket(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_remove_relative_file_checked(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_mkdir_relative_checked(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_open_relative_dir_ticket(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_list_dir_ticket(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_result_missing(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_fs_directory_path_ticket(i64)")
     llvm_emit_line("declare i64 @freak_llvm_json_document_new()")
     llvm_emit_line("declare i64 @freak_llvm_json_document_parse(i64)")
     llvm_emit_line("declare i64 @freak_llvm_json_document_parse_bytes(i64)")
@@ -3206,6 +3223,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_fs_read_ticket|freak_llvm_fs_read_bytes_ticket|freak_llvm_fs_read_source_ticket|freak_llvm_fs_write_checked|freak_llvm_fs_write_bytes_checked|freak_llvm_fs_append_checked|freak_llvm_fs_rename_checked|freak_llvm_fs_rename_new_checked|freak_llvm_fs_mkdir_checked|freak_llvm_fs_remove_checked|freak_llvm_fs_rmdir_checked|freak_llvm_fs_exclusive_create|freak_llvm_fs_temp_dir|freak_llvm_fs_canonical_path|freak_llvm_fs_stat_checked|freak_llvm_fs_list_dir_checked|freak_llvm_fs_result_ok|freak_llvm_fs_result_word|freak_llvm_fs_result_error|freak_llvm_fs_result_bytes|freak_llvm_fs_result_kind|freak_llvm_fs_result_size|freak_llvm_fs_result_mode|freak_llvm_fs_result_count|freak_llvm_fs_result_entry|freak_llvm_fs_result_release|freak_llvm_fs_sha256_bytes|freak_llvm_process_command_poll|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_process_command_new|freak_llvm_process_command_arg|freak_llvm_process_command_cwd|freak_llvm_process_command_env|freak_llvm_process_command_unset_env|freak_llvm_process_command_spawn|freak_llvm_process_command_run|freak_llvm_process_command_spawn_inherit|freak_llvm_process_command_run_inherit|freak_llvm_process_command_wait|freak_llvm_process_command_status|freak_llvm_process_command_exit_code|freak_llvm_process_command_signal|freak_llvm_process_command_terminate|freak_llvm_process_command_release|freak_llvm_process_command_error|freak_llvm_process_command_stdout|freak_llvm_process_command_stderr|freak_llvm_process_command_stdout_bytes|freak_llvm_process_command_stderr_bytes|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_json_document_new|freak_llvm_json_document_parse|freak_llvm_json_document_parse_bytes|freak_llvm_json_document_ok|freak_llvm_json_document_error|freak_llvm_json_document_error_position|freak_llvm_json_document_root|freak_llvm_json_document_set_root|freak_llvm_json_document_release|freak_llvm_json_document_kind|freak_llvm_json_document_count|freak_llvm_json_document_array_get|freak_llvm_json_document_object_get|freak_llvm_json_document_object_get_bytes|freak_llvm_json_document_object_key_bytes|freak_llvm_json_document_bool_value|freak_llvm_json_document_number_text|freak_llvm_json_document_string_word|freak_llvm_json_document_string_bytes|freak_llvm_json_document_make_null|freak_llvm_json_document_make_bool|freak_llvm_json_document_make_number|freak_llvm_json_document_make_string|freak_llvm_json_document_make_string_bytes|freak_llvm_json_document_make_array|freak_llvm_json_document_make_object|freak_llvm_json_document_array_append|freak_llvm_json_document_object_insert|freak_llvm_json_document_object_insert_bytes|freak_llvm_json_document_serialize_word|freak_llvm_json_document_serialize_bytes|freak_llvm_time_sleep|"
+    llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_fs_open_dir_ticket|freak_llvm_fs_read_bytes_limit_ticket|freak_llvm_fs_read_relative_ticket|freak_llvm_fs_read_source_relative_ticket|freak_llvm_fs_read_relative_bytes_ticket|freak_llvm_fs_read_relative_bytes_limit_ticket|freak_llvm_fs_write_relative_bytes_checked|freak_llvm_fs_remove_temp_dir_checked|freak_llvm_fs_publish_temp_dir_checked|freak_llvm_fs_result_completed|freak_llvm_fs_lock_dir_ticket|freak_llvm_fs_remove_relative_file_checked|freak_llvm_fs_mkdir_relative_checked|freak_llvm_fs_open_relative_dir_ticket|freak_llvm_fs_list_dir_ticket|freak_llvm_fs_result_missing|freak_llvm_fs_directory_path_ticket|"
 }
 
 -- ===================== PROGRAM ASSEMBLY ==============================

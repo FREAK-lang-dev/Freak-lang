@@ -22,6 +22,23 @@ PROGRAM = '''task main() {
     pilot binary: int = fs::read_bytes_ticket("path")
     pilot source: int = fs::read_source_ticket("path")
     pilot bytes: ByteBuffer = ByteBuffer::new()
+    pilot held = fs::open_dir_ticket("parent")
+    pilot limited = fs::read_bytes_limit_ticket("path", 1024)
+    pilot relative = fs::read_relative_ticket(held, "path")
+    pilot relative_source = fs::read_source_relative_ticket(held, "path")
+    pilot relative_bytes = fs::read_relative_bytes_ticket(held, "path")
+    pilot relative_limited = fs::read_relative_bytes_limit_ticket(held, "path", 1024)
+    pilot relative_write = fs::write_relative_bytes_checked(held, "path", bytes)
+    pilot cleanup = fs::remove_temp_dir_checked(held)
+    pilot retained_publish = fs::publish_temp_dir_checked(held, held, "stage")
+    pilot completed: bool = fs::result_completed(held)
+    pilot locked = fs::lock_dir_ticket(held, "simple")
+    pilot relative_remove = fs::remove_relative_file_checked(held, "path")
+    pilot relative_mkdir = fs::mkdir_relative_checked(held, "child")
+    pilot child_dir = fs::open_relative_dir_ticket(held, "child")
+    pilot held_entries = fs::list_dir_ticket(held)
+    pilot missing: bool = fs::result_missing(held)
+    pilot held_path = fs::directory_path_ticket(held)
     pilot write: int = fs::write_checked("path", "text")
     pilot write_bytes: int = fs::write_bytes_checked("path", bytes)
     pilot append: int = fs::append_checked("path", "text")
@@ -52,6 +69,23 @@ PROGRAM = '''task main() {
 '''
 
 OPERATIONS = (
+    "open_dir_ticket",
+    "read_bytes_limit_ticket",
+    "read_relative_ticket",
+    "read_source_relative_ticket",
+    "read_relative_bytes_ticket",
+    "read_relative_bytes_limit_ticket",
+    "write_relative_bytes_checked",
+    "remove_temp_dir_checked",
+    "publish_temp_dir_checked",
+    "result_completed",
+    "lock_dir_ticket",
+    "remove_relative_file_checked",
+    "mkdir_relative_checked",
+    "open_relative_dir_ticket",
+    "list_dir_ticket",
+    "result_missing",
+    "directory_path_ticket",
     "read_ticket", "read_bytes_ticket", "read_source_ticket",
     "write_checked", "write_bytes_checked", "append_checked",
     "rename_checked", "rename_new_checked", "mkdir_checked", "remove_checked",
@@ -62,6 +96,40 @@ OPERATIONS = (
 )
 
 NEGATIVE = {
+    "anchored_path_type": (
+        'fs::read_relative_ticket(1, 2)', "argument 2 expects word, got int", False,
+    ),
+    "anchored_limit_type": (
+        'fs::read_relative_bytes_limit_ticket(1, "path", "limit")',
+        "argument 3 expects int, got word", False,
+    ),
+    "anchored_buffer_type": (
+        'fs::write_relative_bytes_checked(1, "path", "bytes")',
+        "argument 3 expects ByteBuffer, got word", False,
+    ),
+    "publication_parent_type": (
+        'fs::publish_temp_dir_checked(1, "parent", "stage")',
+        "argument 2 expects int, got word", False,
+    ),
+    "directory_arity": (
+        'fs::open_relative_dir_ticket(1)', "expects 2 argument(s), got 1", False,
+    ),
+    "held_listing_type": (
+        'fs::list_dir_ticket("dir")', "argument 1 expects int, got word", False,
+    ),
+    "missing_is_bool": (
+        'pilot status: int = fs::result_missing(1)',
+        "cannot initialize int binding 'status' with bool", False,
+    ),
+    "completed_is_bool": (
+        'pilot status: int = fs::result_completed(1)',
+        "cannot initialize int binding 'status' with bool", False,
+    ),
+    "released_held_directory": (
+        'pilot held = fs::open_dir_ticket("path")\n'
+        'fs::result_release(held)\nfs::directory_path_ticket(held)',
+        "You gave this away", True,
+    ),
     "inferred_payload_release": (
         'pilot bytes = fs::result_bytes(1)\nbytes.release()\nbytes.length()',
         "You gave this away", True,

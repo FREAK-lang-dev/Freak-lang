@@ -899,6 +899,23 @@ task tc_task_return_shape(task_name: word) -> word {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    if name == "fs::open_dir_ticket" { give back "int" }
+    if name == "fs::read_bytes_limit_ticket" { give back "int" }
+    if name == "fs::read_relative_ticket" { give back "int" }
+    if name == "fs::read_source_relative_ticket" { give back "int" }
+    if name == "fs::read_relative_bytes_ticket" { give back "int" }
+    if name == "fs::read_relative_bytes_limit_ticket" { give back "int" }
+    if name == "fs::write_relative_bytes_checked" { give back "int" }
+    if name == "fs::remove_temp_dir_checked" { give back "int" }
+    if name == "fs::publish_temp_dir_checked" { give back "int" }
+    if name == "fs::result_completed" { give back "bool" }
+    if name == "fs::lock_dir_ticket" { give back "int" }
+    if name == "fs::remove_relative_file_checked" { give back "int" }
+    if name == "fs::mkdir_relative_checked" { give back "int" }
+    if name == "fs::open_relative_dir_ticket" { give back "int" }
+    if name == "fs::list_dir_ticket" { give back "int" }
+    if name == "fs::result_missing" { give back "bool" }
+    if name == "fs::directory_path_ticket" { give back "int" }
     -- Measured V4 host helpers are admitted solely by the explicit profile.
     if v35_bootstrap_compat and name == "chr" { give back "word" }
     if v35_bootstrap_compat and name == "word_to_num" { give back "num" }
@@ -1021,6 +1038,23 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "fs::open_dir_ticket" { give back "word" }
+    if name == "fs::read_bytes_limit_ticket" { give back "word,int" }
+    if name == "fs::read_relative_ticket" { give back "int,word" }
+    if name == "fs::read_source_relative_ticket" { give back "int,word" }
+    if name == "fs::read_relative_bytes_ticket" { give back "int,word" }
+    if name == "fs::read_relative_bytes_limit_ticket" { give back "int,word,int" }
+    if name == "fs::write_relative_bytes_checked" { give back "int,word,ByteBuffer" }
+    if name == "fs::remove_temp_dir_checked" { give back "int" }
+    if name == "fs::publish_temp_dir_checked" { give back "int,int,word" }
+    if name == "fs::result_completed" { give back "int" }
+    if name == "fs::lock_dir_ticket" { give back "int,word" }
+    if name == "fs::remove_relative_file_checked" { give back "int,word" }
+    if name == "fs::mkdir_relative_checked" { give back "int,word" }
+    if name == "fs::open_relative_dir_ticket" { give back "int,word" }
+    if name == "fs::list_dir_ticket" { give back "int" }
+    if name == "fs::result_missing" { give back "int" }
+    if name == "fs::directory_path_ticket" { give back "int" }
     if v35_bootstrap_compat and name == "chr" { give back "int" }
     if v35_bootstrap_compat and name == "word_to_num" { give back "word" }
     if name == "json_document::new" { give back "" }
