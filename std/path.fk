@@ -1,0 +1,233 @@
+-- Pure lexical paths. Public tasks select the native platform; *_style tasks
+-- accept an explicit Windows flag so either grammar can be used on any host.
+-- No task reads the working directory, follows links, or folds case/Unicode.
+-- POSIX recognizes only '/': a backslash is an ordinary filename byte.
+-- Windows recognizes '/' and '\\', ASCII drive prefixes, and complete UNC
+-- server/share roots. Device namespaces, incomplete UNC roots, embedded NUL,
+-- and colons outside an initial ASCII drive prefix fail with a path diagnostic.
+-- join/parent/name/extension keep '.' and '..' components and their byte spelling.
+-- parent/name ignore trailing separators; parent of a leaf is '.', and roots
+-- are their own parents. extension includes its dot; a hidden basename with no
+-- later dot, a trailing dot, or a root has no extension.
+-- absolute requires a qualified base for relative input; it never uses CWD.
+-- It alone removes dot components and clamps '..' above the lexical root.
+-- Windows root-relative input inherits the base drive/share; drive-relative
+-- input requires the same drive. Output uses '/' on POSIX and '\\' on Windows.
+-- POSIX absolute resolution preserves exactly two leading '/' bytes and folds
+-- three or more to one. Windows absolute resolution keeps drive letter case.
+-- Joining an empty base returns the leaf spelling, including relative roots.
+-- A lexical absolute path is not evidence of filesystem identity or containment.
+-- Ordinary word parameters transfer ownership under --strict-borrow. Pass
+-- value.repeated(1) when retaining the caller's value; results are owned words.
+-- Helpers use explicit copies internally, without a std-module borrow privilege.
+
+task path_byte_count(value: word) -> int {
+    pilot mut index = 0
+    repeat until value.char_at(index) == "" { index += 1 }
+    give back index
+}
+
+task path_separator_style(ch: word, windows: bool) -> bool {
+    give back ch == "/" or (windows and ch == "\\")
+}
+
+task path_has_drive(value: word) -> bool {
+    if value.char_at(1) != ":" { give back false }
+    pilot letter = value.char_at(0)
+    give back letter != "" and "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".contains(letter)
+}
+
+task path_checked_size_style(value: word, windows: bool) -> int {
+    pilot size = path_byte_count(value.repeated(1))
+    if value.contains(char_to_word(0)) { panic("path: embedded NUL") }
+    if windows {
+        pilot mut index = 0
+        repeat until index >= size {
+            if value.char_at(index) == ":" {
+                if index != 1 or not path_has_drive(value.repeated(1)) { panic("path: invalid Windows colon") }
+            }
+            index += 1
+        }
+    }
+    give back size
+}
+
+-- Return the end of the lexical root prefix in bytes. A drive-relative prefix
+-- has length two, although it is not a qualified absolute root.
+task path_root_end_style(value: word, windows: bool) -> int {
+    pilot size = path_checked_size_style(value.repeated(1), windows)
+    pilot mut index = 0
+    if windows and path_has_drive(value.repeated(1)) {
+        index = 2
+        repeat until index >= size or not path_separator_style(value.char_at(index), windows) { index += 1 }
+        give back index
+    }
+    if windows and path_separator_style(value.char_at(0), true) and path_separator_style(value.char_at(1), true) {
+        index = 2
+        pilot server_start = index
+        repeat until index >= size or path_separator_style(value.char_at(index), true) { index += 1 }
+        pilot server = value.substring(server_start, index - server_start)
+        if server == "" or server == "." or server == ".." or server == "?" { panic("path: invalid Windows UNC server") }
+        if index >= size { panic("path: incomplete Windows UNC root") }
+        index += 1
+        pilot share_start = index
+        repeat until index >= size or path_separator_style(value.char_at(index), true) { index += 1 }
+        pilot share = value.substring(share_start, index - share_start)
+        if share == "" or share == "." or share == ".." { panic("path: invalid Windows UNC share") }
+        repeat until index >= size or not path_separator_style(value.char_at(index), true) { index += 1 }
+        give back index
+    }
+    repeat until index >= size or not path_separator_style(value.char_at(index), windows) { index += 1 }
+    give back index
+}
+
+task path_is_absolute_style(value: word, windows: bool) -> bool {
+    pilot root_end = path_root_end_style(value.repeated(1), windows)
+    if not windows { give back root_end > 0 }
+    if path_has_drive(value.repeated(1)) { give back root_end > 2 }
+    give back root_end > 1
+}
+
+task path_trimmed_end_style(value: word, windows: bool) -> int {
+    pilot floor = path_root_end_style(value.repeated(1), windows)
+    pilot mut end = path_byte_count(value.repeated(1))
+    repeat until end <= floor or not path_separator_style(value.char_at(end - 1), windows) { end -= 1 }
+    give back end
+}
+
+task path_name_style(value: word, windows: bool) -> word {
+    pilot floor = path_root_end_style(value.repeated(1), windows)
+    pilot mut end = path_trimmed_end_style(value.repeated(1), windows)
+    if end <= floor { give back "" }
+    pilot mut start = end
+    repeat until start <= floor or path_separator_style(value.char_at(start - 1), windows) { start -= 1 }
+    give back value.substring(start, end - start)
+}
+
+task path_parent_style(value: word, windows: bool) -> word {
+    pilot floor = path_root_end_style(value.repeated(1), windows)
+    pilot mut end = path_trimmed_end_style(value.repeated(1), windows)
+    if end <= floor {
+        if floor == 0 { give back "." }
+        give back value.substring(0, floor)
+    }
+    repeat until end <= floor or path_separator_style(value.char_at(end - 1), windows) { end -= 1 }
+    repeat until end <= floor or not path_separator_style(value.char_at(end - 1), windows) { end -= 1 }
+    if end == 0 { give back "." }
+    give back value.substring(0, end)
+}
+
+task path_extension_style(value: word, windows: bool) -> word {
+    pilot name = path_name_style(value.repeated(1), windows)
+    pilot size = path_byte_count(name.repeated(1))
+    pilot mut dot = 0 - 1
+    pilot mut index = 0
+    repeat until index >= size {
+        if name.char_at(index) == "." { dot = index }
+        index += 1
+    }
+    if dot <= 0 or dot >= size - 1 { give back "" }
+    pilot mut before = 0
+    repeat until before >= dot {
+        if name.char_at(before) != "." { give back name.substring(dot, size - dot) }
+        before += 1
+    }
+    give back ""
+}
+
+task path_join_style(base: word, leaf: word, windows: bool) -> word {
+    pilot base_root = path_root_end_style(base.repeated(1), windows)
+    pilot leaf_root = path_root_end_style(leaf.repeated(1), windows)
+    if path_is_absolute_style(leaf.repeated(1), windows) { give back leaf.repeated(1) }
+    if base == "" { give back leaf.repeated(1) }
+    pilot mut rest = leaf.repeated(1)
+    if windows and path_has_drive(leaf.repeated(1)) {
+        if not path_has_drive(base.repeated(1)) or base.char_at(0).to_lower() != leaf.char_at(0).to_lower() {
+            panic("path: drive-relative input needs the same base drive")
+        }
+        rest = leaf.substring(2, path_byte_count(leaf.repeated(1)) - 2)
+    } else if windows and leaf_root == 1 {
+        if path_has_drive(base.repeated(1)) { give back base.substring(0, 2) + leaf }
+        if base_root > 1 {
+            pilot root = base.substring(0, base_root)
+            pilot mut end = path_byte_count(root.repeated(1))
+            repeat until end <= 2 or not path_separator_style(root.char_at(end - 1), true) { end -= 1 }
+            give back root.substring(0, end) + leaf
+        }
+        give back leaf.repeated(1)
+    }
+    pilot base_size = path_byte_count(base.repeated(1))
+    if path_separator_style(base.char_at(base_size - 1), windows) { give back base + rest }
+    if windows and path_has_drive(base.repeated(1)) and base_size == 2 { give back base + rest }
+    if windows { give back base + "\\" + rest }
+    give back base + "/" + rest
+}
+
+-- Internal normalization is deliberately restricted to qualified absolute
+-- inputs. No relative '..' stack or ambient drive state is invented here.
+task path_normalize_absolute_style(value: word, windows: bool) -> word {
+    if not path_is_absolute_style(value.repeated(1), windows) { panic("path: normalization requires a qualified absolute path") }
+    pilot mut index = path_root_end_style(value.repeated(1), windows)
+    pilot size = path_byte_count(value.repeated(1))
+    pilot mut out = "/"
+    pilot mut separator = "/"
+    if windows {
+        separator = "\\"
+        if path_has_drive(value.repeated(1)) { out = value.substring(0, 2) + separator }
+        else {
+            out = value.substring(0, index).replace("/", "\\")
+            pilot mut end = path_byte_count(out.repeated(1))
+            repeat until end <= 2 or not path_separator_style(out.char_at(end - 1), true) { end -= 1 }
+            out = out.substring(0, end) + separator
+        }
+    } else if index == 2 { out = "//" }
+    pilot root = out.repeated(1)
+    repeat until index >= size {
+        repeat until index >= size or not path_separator_style(value.char_at(index), windows) { index += 1 }
+        pilot mut start = index
+        repeat until index >= size or path_separator_style(value.char_at(index), windows) { index += 1 }
+        pilot component = value.substring(start, index - start)
+        if component == ".." {
+            if out != root {
+                out = path_parent_style(out.repeated(1), windows)
+                if path_byte_count(out.repeated(1)) < path_byte_count(root.repeated(1)) { out = root.repeated(1) }
+            }
+        } else if component != "" and component != "." {
+            if not out.ends_with(separator.repeated(1)) { out = out + separator }
+            out = out + component
+        }
+    }
+    give back out
+}
+
+task path_absolute_style(value: word, base: word, windows: bool) -> word {
+    pilot value_root = path_root_end_style(value.repeated(1), windows)
+    pilot base_root = path_root_end_style(base.repeated(1), windows)
+    if path_is_absolute_style(value.repeated(1), windows) { give back path_normalize_absolute_style(value.repeated(1), windows) }
+    if not path_is_absolute_style(base.repeated(1), windows) { panic("path: relative input requires a qualified absolute base") }
+    give back path_normalize_absolute_style(path_join_style(base.repeated(1), value.repeated(1), windows), windows)
+}
+
+task path_join(base: word, leaf: word) -> word {
+    give back path_join_style(base.repeated(1), leaf.repeated(1), process::platform_is_windows())
+}
+
+task path_parent(value: word) -> word {
+    give back path_parent_style(value.repeated(1), process::platform_is_windows())
+}
+
+task path_name(value: word) -> word {
+    give back path_name_style(value.repeated(1), process::platform_is_windows())
+}
+
+task path_extension(value: word) -> word {
+    give back path_extension_style(value, process::platform_is_windows())
+}
+
+task path_is_absolute(value: word) -> bool {
+    give back path_is_absolute_style(value.repeated(1), process::platform_is_windows())
+}
+
+task path_absolute(value: word, base: word) -> word {
+    give back path_absolute_style(value, base, process::platform_is_windows())
+}
