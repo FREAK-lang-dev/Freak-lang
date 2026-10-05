@@ -656,6 +656,89 @@ task hangar_valid_package_name(name: word) -> bool {
     give back true
 }
 
+task hangar_checked_fs(fs_ticket: int, operation: word) -> bool {
+    pilot checked = fs::result_ok(fs_ticket)
+    if not checked { say "  " + operation + ": " + fs::result_error(fs_ticket) }
+    fs::result_release(fs_ticket)
+    give back checked
+}
+
+task hangar_remove_owned_stage(stage: word, depth: int) -> bool {
+    -- Only the unique path returned by temp_dir is passed here. No existing
+    -- package/cache directory is an error-recovery deletion target.
+    if depth > 64 { say "  Owned staging cleanup depth limit exceeded." give back false }
+    pilot inventory = fs::list_dir_checked(stage)
+    if not fs::result_ok(inventory) {
+        say "  Could not inventory owned staging: " + fs::result_error(inventory)
+        fs::result_release(inventory)
+        give back false
+    }
+    pilot checked = true
+    pilot index = 0
+    repeat until index >= fs::result_count(inventory) {
+        pilot name = fs::result_entry(inventory, index)
+        if name == "" or name == "." or name == ".." or name.contains("/") or name.contains("\\") {
+            say "  Invalid name in owned staging inventory."
+            checked = false
+        } else {
+            pilot path = stage + "/" + name
+            pilot info = fs::stat_checked(path)
+            if not fs::result_ok(info) {
+                say "  Could not inspect owned staging: " + fs::result_error(info)
+                checked = false
+            } else if fs::result_kind(info) == 2 {
+                if not hangar_remove_owned_stage(path, depth + 1) { checked = false }
+            } else {
+                -- file-only unlink removes a symlink itself, never its target.
+                if not hangar_checked_fs(fs::remove_checked(path), "Could not remove owned staging file") { checked = false }
+            }
+            fs::result_release(info)
+        }
+        index += 1
+    }
+    fs::result_release(inventory)
+    if checked { checked = hangar_checked_fs(fs::rmdir_checked(stage), "Could not remove owned staging directory") }
+    give back checked
+}
+
+task hangar_validate_fetched_manifest(stage: word) -> bool {
+    pilot path = stage + "/hangar.toml"
+    pilot info = fs::stat_checked(path)
+    pilot ordinary = fs::result_ok(info) and fs::result_kind(info) == 1 and fs::result_size(info) <= 1048576
+    fs::result_release(info)
+    if not ordinary {
+        say "  Fetched package manifest must be an ordinary file within its byte limit."
+        give back false
+    }
+    pilot fs_ticket = fs::read_ticket(path)
+    if not fs::result_ok(fs_ticket) {
+        say "  Invalid fetched package manifest: " + fs::result_error(fs_ticket)
+        fs::result_release(fs_ticket)
+        give back false
+    }
+    pilot content = fs::result_word(fs_ticket)
+    fs::result_release(fs_ticket)
+    if content == "" or content.length() > 1048576 {
+        say "  Fetched package manifest is empty or exceeds its byte limit."
+        give back false
+    }
+    pilot requester = toml_render()
+    pilot checked = toml_parse(content)
+    pilot detail = toml_error
+    if checked {
+        pilot name = toml_get("project.name")
+        pilot version = toml_get("project.version")
+        if not hangar_valid_package_name(name) or version == "" or version != ver_to_string(ver_parse(version)) {
+            checked = false
+            detail = "project.name and a canonical project.version are required"
+        }
+    }
+    -- A child parse must never replace the root/requester's manifest state.
+    toml_parse(requester)
+    if not checked { say "  Invalid fetched package manifest " + path + ": " + detail }
+    give back checked
+}
+
 task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word) -> int {
     if not hangar_valid_package_name(pkg_name) {
         say "  Invalid package name: " + pkg_name
@@ -675,17 +758,39 @@ task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word
     }
     pilot modules_dir = project_dir + "/hangar_modules"
     pilot pkg_dir = modules_dir + "/" + pkg_name
-    -- Checked staging/publication replaces this conservative guard in the
-    -- transactional store slice. Never remove a working package before fetch.
-    if fs::exists(pkg_dir) {
+    pilot existing_info = fs::stat_checked(pkg_dir)
+    pilot existing_path = fs::result_ok(existing_info)
+    fs::result_release(existing_info)
+    if existing_path {
         say "  Cannot safely replace " + pkg_name + ": transactional package publication is not available yet."
         give back 1
     }
-    if not fs::exists(modules_dir) { fs::make_dir(modules_dir) }
+    if fs::exists(modules_dir) {
+        pilot info = fs::stat_checked(modules_dir)
+        pilot directory = fs::result_ok(info) and fs::result_kind(info) == 2
+        fs::result_release(info)
+        if not directory { say "  Package store must be an ordinary directory." give back 1 }
+    } else if not hangar_checked_fs(fs::mkdir_checked(modules_dir), "Could not create package store") {
+        give back 1
+    }
+    pilot operation_lock = modules_dir + "/.hangar-install.lock"
+    if not hangar_checked_fs(fs::exclusive_create(operation_lock, word_from_int(process::pid())), "Package install/update is already active or its lock is unavailable") {
+        give back 1
+    }
+    pilot stage_result = fs::temp_dir(modules_dir, ".hangar-stage-")
+    if not fs::result_ok(stage_result) {
+        say "  Could not create owned staging: " + fs::result_error(stage_result)
+        fs::result_release(stage_result)
+        hangar_checked_fs(fs::remove_checked(operation_lock), "Could not release package operation lock")
+        give back 1
+    }
+    pilot stage = fs::result_word(stage_result)
+    fs::result_release(stage_result)
 
     pilot git_url = repo
     if not repo.starts_with("https://") {
-        git_url = "https://github.com/" + repo + ".git"
+        git_url = "https://github.com/" + repo
+        if not git_url.ends_with(".git") { git_url = git_url + ".git" }
     }
     say C_DIM + "  >> " + C_RESET + "Fetching " + C_BWHITE + pkg_name + C_RESET + C_DIM + " from " + repo + "..." + C_RESET
     pilot command = hangar_git_command()
@@ -701,19 +806,32 @@ task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word
     }
     process::command_arg(command, "--")
     process::command_arg(command, git_url)
-    process::command_arg(command, pkg_dir)
-    pilot clone_res = hangar_command_result(command, "Git package fetch")
-    if clone_res != 0 {
+    process::command_arg(command, stage)
+    pilot code = hangar_command_result(command, "Git package fetch")
+    pilot pkg_sha = ""
+    if code == 0 {
+        if not hangar_validate_fetched_manifest(stage) { code = 1 }
+    }
+    if code == 0 {
+        pkg_sha = hangar_compute_dir_sha256(stage)
+        if pkg_sha == "" { say "  Could not verify fetched package " + pkg_name + "."
+            code = 1 }
+    }
+    if code == 0 {
+        -- Cooperating operations share the exclusive project lock. Recheck the
+        -- destination and preserve any preexisting tree before initial publish.
+        if fs::exists(pkg_dir) { say "  Dependency path appeared during fetch; preserving it."
+            code = 1 } else if not hangar_checked_fs(fs::rename_new_checked(stage, pkg_dir), "Could not publish fetched package") { code = 1 }
+    }
+    if code != 0 {
+        hangar_remove_owned_stage(stage, 0)
+        hangar_checked_fs(fs::remove_checked(operation_lock), "Could not release package operation lock")
         say "  Could not fetch " + pkg_name + " from " + repo + " at " + ver + "."
         give back 1
     }
-
-    pilot pkg_sha = hangar_compute_dir_sha256(pkg_dir)
-    if pkg_sha == "" {
-        say "  Could not verify fetched package " + pkg_name + "."
-        give back 1
-    }
-    -- Accumulate pending entries. The command owns the final lock publication.
+    if not hangar_checked_fs(fs::remove_checked(operation_lock), "Could not release package operation lock") { give back 1 }
+    -- Initial publication only. Immutable whole-graph generations and replacing
+    -- an installed dependency remain in the transactional store slice.
     lock_add_entry(pkg_name, ver, repo, pkg_sha)
     say C_BGREEN + "  INSTALLED" + C_RESET + " " + C_BWHITE + pkg_name + C_RESET + C_DIM + " -> hangar_modules/" + pkg_name + "/" + C_RESET
     give back 0
@@ -1460,7 +1578,15 @@ task hangar_compute_sha256(path: word) -> word {
 task hangar_compute_dir_sha256(pkg_dir: word) -> word {
     -- Compatibility hash only. Lock v2 replaces archive metadata with the
     -- canonical path/kind/mode/length/bytes inventory before immutable publish.
-    pilot tmp_tar = pkg_dir + ".tmp.tar.gz"
+    pilot temporary = fs::temp_dir(pkg_dir + "/..", ".hangar-integrity-")
+    if not fs::result_ok(temporary) {
+        say "  Could not create owned integrity staging: " + fs::result_error(temporary)
+        fs::result_release(temporary)
+        give back ""
+    }
+    pilot owned = fs::result_word(temporary)
+    fs::result_release(temporary)
+    pilot tmp_tar = owned + "/package.tar.gz"
     pilot command = process::command_new("tar")
     process::command_arg(command, "-czf")
     process::command_arg(command, tmp_tar)
@@ -1468,9 +1594,13 @@ task hangar_compute_dir_sha256(pkg_dir: word) -> word {
     process::command_arg(command, "-C")
     process::command_arg(command, pkg_dir)
     process::command_arg(command, ".")
-    if hangar_command_result(command, "Package integrity archive") != 0 { give back "" }
-    pilot hash = hangar_compute_sha256(tmp_tar)
-    fs::delete(tmp_tar)
+    pilot code = hangar_command_result(command, "Package integrity archive")
+    pilot hash = ""
+    if code == 0 { hash = hangar_compute_sha256(tmp_tar) }
+    if fs::exists(tmp_tar) {
+        if not hangar_checked_fs(fs::remove_checked(tmp_tar), "Could not remove owned integrity file") { hash = "" }
+    }
+    if not hangar_checked_fs(fs::rmdir_checked(owned), "Could not remove owned integrity staging") { hash = "" }
     give back hash
 }
 

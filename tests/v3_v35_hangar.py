@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import zipfile
 from unittest import mock
 from urllib.error import URLError
 
@@ -26,7 +27,7 @@ LOCK = ('# Prior verified generation\n[[package]]\nname = "existing"\n'
 NATIVE_CASES = (
     "missing-add-argument", "missing-remove-argument", "unknown-command",
     "unavailable-registry-add", "unavailable-registry-install", "invalid-package-name",
-    "failed-git-add", "failed-git-install", "failed-git-update",
+    "failed-git-add", "failed-git-install", "failed-git-update", "failed-git-after-output",
     "preserved-existing-add", "preserved-existing-update", "unavailable-publication",
     "malformed-header", "unterminated-value", "duplicate-key", "duplicate-table",
     "invalid-inline-table", "unknown-manifest-escape", "unsupported-source-scheme",
@@ -63,11 +64,40 @@ def project(root: Path, dependency: str = "") -> None:
 def failed_git(tool_root: Path, clang: Path) -> None:
     tool_root.mkdir()
     source = tool_root / "git-failure.c"
-    source.write_text('#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n'
-                      'int main(int argc, char **argv) { const char *name = getenv("FREAK_HANGAR_ARGV_REPORT"); '
-                      'if (name) { FILE *f = fopen(name, "wb"); if (!f) return 24; '
-                      'for (int i = 1; i < argc; ++i) { size_t n = strlen(argv[i]); fprintf(f, "%zu:", n); fwrite(argv[i], 1, n, f); } '
-                      'if (fclose(f)) return 24; } fputs("injected Git fetch failure\\n", stderr); return 23; }\n', encoding="ascii")
+    source.write_text(r'''#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+static int put(const char *directory, const char *name, const char *data) {
+    char path[4096];
+    int length = snprintf(path, sizeof(path), "%s/%s", directory, name);
+    if (length < 0 || (size_t)length >= sizeof(path)) return 24;
+    FILE *file = fopen(path, "wb");
+    if (!file) return 24;
+    if (fputs(data, file) < 0 || fclose(file)) return 24;
+    return 0;
+}
+int main(int argc, char **argv) {
+    const char *report = getenv("FREAK_HANGAR_ARGV_REPORT");
+    if (report) {
+        FILE *file = fopen(report, "wb");
+        if (!file) return 24;
+        for (int i = 1; i < argc; ++i) {
+            size_t length = strlen(argv[i]);
+            fprintf(file, "%zu:", length); fwrite(argv[i], 1, length, file);
+        }
+        if (fclose(file)) return 24;
+    }
+    if (argc < 2) return 24;
+    if (getenv("FREAK_HANGAR_WRITE_PARTIAL") || getenv("FREAK_HANGAR_FETCH_SUCCESS")) {
+        if (put(argv[argc - 1], "partial.fk", "task value() -> int { give back 42 }\n")) return 24;
+        if (put(".", "git-partial-proof", "wrote stage before returning\n")) return 24;
+    }
+    if (getenv("FREAK_HANGAR_FETCH_SUCCESS")) {
+        return put(argv[argc - 1], "hangar.toml", "[project]\nname = \"missing\"\nversion = \"1.0.0\"\nkind = \"lib\"\n[modules]\ncore = \"partial.fk\"\n[exports]\napi = \"core::value\"\n");
+    }
+    fputs("injected Git fetch failure\n", stderr); return 23;
+}
+''', encoding="ascii")
     executable = tool_root / ("git.exe" if os.name == "nt" else "git")
     result = subprocess.run([str(clang), str(source), "-o", str(executable)],
                             capture_output=True, text=True, timeout=30, check=False)
@@ -91,6 +121,7 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
         "failed-git-add": (["add", "missing", "owner/repository"], "", "Could not fetch missing"),
         "failed-git-install": (["install"], 'missing = { git = "owner/repository", version = "latest" }\n', "Could not fetch missing"),
         "failed-git-update": (["update", "missing"], 'missing = { git = "owner/repository", version = "latest" }\n', "Could not fetch missing"),
+        "failed-git-after-output": (["install"], 'missing = { git = "owner/repository", version = "latest" }\n', "Could not fetch missing"),
         "preserved-existing-add": (["add", "existing", "owner/repository"], "", "Cannot safely replace existing"),
         "preserved-existing-update": (["update", "existing"], 'existing = { git = "owner/repository", version = "latest" }\n', "Cannot safely replace existing"),
         "unavailable-publication": (["publish"], "", "Publication is unavailable"),
@@ -113,6 +144,8 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
             case_env = env.copy()
             report = cwd / "git-argv-report"
             case_env["FREAK_HANGAR_ARGV_REPORT"] = str(report)
+            if name == "failed-git-after-output":
+                case_env["FREAK_HANGAR_WRITE_PARTIAL"] = "1"
             completed = subprocess.run([str(binary), *prefix, *args], cwd=cwd, env=case_env,
                                        capture_output=True, text=True, encoding="utf-8",
                                        errors="replace", timeout=30, check=False)
@@ -124,6 +157,20 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
             assert not (cwd / "hangar_modules" / "missing").exists(), (name, "failed dependency materialized")
             assert not (root / "escape").exists(), (name, "package escaped project")
             assert not (cwd / "owned").exists(), (name, "shell syntax executed")
+            assert not list((cwd / "hangar_modules").glob(".hangar-stage-*")), (name, "owned stage left behind")
+            assert not (cwd / "hangar_modules" / ".hangar-install.lock").exists(), (name, "operation lock left behind")
+            if name == "failed-git-after-output":
+                assert (cwd / "git-partial-proof").read_text() == "wrote stage before returning\n"
+                retry_env = env.copy()
+                retry_env["FREAK_HANGAR_FETCH_SUCCESS"] = "1"
+                retry = subprocess.run([str(binary), *prefix, *args], cwd=cwd, env=retry_env,
+                                       capture_output=True, text=True, timeout=30, check=False)
+                retry_output = ANSI.sub("", retry.stdout + retry.stderr)
+                assert retry.returncode == 0 and "INSTALLED" in retry_output, retry_output
+                assert (cwd / "hangar_modules" / "missing" / "partial.fk").is_file(), retry_output
+                assert not list((cwd / "hangar_modules").glob(".hangar-stage-*")), retry_output
+                assert not (cwd / "hangar_modules" / ".hangar-install.lock").exists(), retry_output
+                print(f"native:{invocation}:failed-git-retry:passed")
             if name == "literal-git-metacharacters":
                 data = report.read_bytes()
                 values = []
@@ -170,6 +217,61 @@ def python_compatibility(root: Path) -> None:
         assert snapshot(cwd) == before, (name, "prior generation changed")
         assert not (cwd / "hangar_modules" / "missing").exists(), (name, "stub created")
         print(f"python:{name}:passed")
+
+    # The first entry extracts successfully before a real ZIP CRC mismatch in
+    # the second entry. A network-only mock cannot expose a poisoned install.
+    valid = io.BytesIO()
+    with zipfile.ZipFile(valid, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr("repository-main/first.fk", "task value() -> int { give back 42 }\n")
+        archive.writestr("repository-main/bad.fk", "unique CRC corruption payload")
+        archive.writestr("repository-main/hangar.toml", '[project]\nname = "missing"\nversion = "1.0.0"\n')
+    damaged = valid.getvalue().replace(b"unique CRC corruption payload", b"UNIQUE CRC corruption payload", 1)
+    cwd = root / "python-partial-extraction"
+    project(cwd)
+    before = snapshot(cwd)
+    with mock.patch.object(module.request, "urlopen", return_value=io.BytesIO(damaged)), \
+            contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        result = module.hangar_add(cwd, "missing", "owner/repository")
+    assert result == 1 and snapshot(cwd) == before, "partial ZIP failure changed prior generation"
+    assert not (cwd / "hangar_modules" / "missing").exists(), "partial archive poisoned dependency path"
+    assert not list((cwd / "hangar_modules").glob(".hangar-stage-*")), "partial ZIP stage left behind"
+    with mock.patch.object(module.request, "urlopen", return_value=io.BytesIO(valid.getvalue())), \
+            contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        result = module.hangar_add(cwd, "missing", "owner/repository")
+    assert result == 0 and (cwd / "hangar_modules" / "missing" / "first.fk").is_file(), "valid retry failed"
+    assert not list((cwd / "hangar_modules").glob(".hangar-stage-*")), "successful ZIP stage left behind"
+    print("python:partial-extraction-and-retry:passed")
+
+    cwd = root / "python-publication-collision"
+    project(cwd)
+    before = snapshot(cwd)
+    publish = module._publish_initial_directory
+
+    def collide(staged: Path, destination: Path) -> None:
+        destination.mkdir()
+        (destination / "unknown-owner").write_bytes(b"preserve concurrent content")
+        publish(staged, destination)
+
+    with mock.patch.object(module.request, "urlopen", return_value=io.BytesIO(valid.getvalue())), \
+            mock.patch.object(module, "_publish_initial_directory", side_effect=collide), \
+            contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        result = module.hangar_add(cwd, "missing", "owner/repository")
+    assert result == 1 and snapshot(cwd) == before, "publication collision changed prior generation"
+    assert (cwd / "hangar_modules" / "missing" / "unknown-owner").read_bytes() == b"preserve concurrent content"
+    assert not list((cwd / "hangar_modules").glob(".hangar-stage-*")), "collision stage left behind"
+    print("python:publication-collision:passed")
+
+    if os.name != "nt":
+        # A broken symlink is an existing destination even though exists() is false.
+        cwd = root / "python-existing-broken-link"
+        project(cwd)
+        target = cwd / "hangar_modules" / "missing"
+        target.symlink_to(cwd / "absent")
+        with mock.patch.object(module.request, "urlopen", return_value=io.BytesIO(valid.getvalue())), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            result = module.hangar_add(cwd, "missing", "owner/repository")
+        assert result == 1 and target.is_symlink(), "preexisting broken link replaced"
+        print("python:existing-broken-link:passed")
 
 
 GRAPH_CASES = ("diamond", "snapshot-owner", "identity-conflict", "cycle", "unresolved",
@@ -294,6 +396,8 @@ def main() -> int:
     if args.list:
         for invocation in ("freak", "standalone"):
             for case in NATIVE_CASES:
+                if case == "failed-git-after-output":
+                    print(f"native:{invocation}:failed-git-retry")
                 print(f"native:{invocation}:{case}")
             print(f"native:{invocation}:manifest-round-trip")
         return 0
