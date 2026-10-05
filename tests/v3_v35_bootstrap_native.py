@@ -99,8 +99,9 @@ def rewrite_lock(source: Path, relative: str) -> None:
     lock.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
 
-def bootstrap(candidate: Path, source: Path, output: Path, env: dict[str, str], *, locked: bool = True) -> subprocess.CompletedProcess[bytes]:
-    command = [str(candidate), 'bootstrap', '--v4', '--source=' + str(source), '--output=' + str(output)]
+def bootstrap(candidate: Path, source: Path, output: Path, env: dict[str, str], *, locked: bool = True,
+              output_spelling: str | None = None) -> subprocess.CompletedProcess[bytes]:
+    command = [str(candidate), 'bootstrap', '--v4', '--source=' + str(source), '--output=' + (output_spelling or str(output))]
     if locked:
         command.append('--locked')
     return subprocess.run(command, cwd=source.parent, env=env, capture_output=True, timeout=360)
@@ -158,10 +159,11 @@ def main() -> int:
         env['PATH'] = str(tools) + os.pathsep + env.get('PATH', '')
         selected = root / "source é 日本 ' $ &"
         copy_source(source, selected, records)
-        output_parent = root / "preview é 日本 ' $ &"
+        output_parent = root / ("preview é 日本 ' $ &" + ('\\' if os.name != 'nt' else ''))
         output_parent.mkdir()
         output = output_parent / 'bundle'
-        result = bootstrap(installed, selected, output, env)
+        result = bootstrap(installed, selected, output, env,
+                           output_spelling=str(output_parent) + '//bundle' if os.name != 'nt' else None)
         if result.returncode != 0:
             if args.evidence:
                 args.evidence.parent.mkdir(parents=True, exist_ok=True)
@@ -193,7 +195,7 @@ def main() -> int:
             assert {relative: digest(checkout / relative) for _, _, relative in checkout_records} == before
             checks.append('exact local Git object/source-byte verification and unchanged checkout')
         # Relocation and a contradictory FREAK_HOME cannot redirect the private payload.
-        relocated = root / "relocated é 日本 ' $ &"
+        relocated = root / ("relocated é 日本 ' $ &" + ('\\' if os.name != 'nt' else ''))
         output.rename(relocated)
         preview = relocated / preview.name
         engine = relocated / engine.name
@@ -216,6 +218,26 @@ def main() -> int:
                 executed = subprocess.run([destination], cwd=root, env=contradictory, capture_output=True, timeout=30)
                 assert executed.returncode == 42 and executed.stdout == b'native-v4\n' and not executed.stderr, executed
         checks.append('relocated preview version/check/emit/build and actual native program execution')
+        if os.name != 'nt':
+            # Backslashes are literal POSIX bytes. Guard the different slash path
+            # against the exact data-loss bug reproduced by independent review.
+            unrelated_parent = root / 'ordinary'
+            unrelated_parent.mkdir()
+            for action, name in (('emit', 'result.ll'), ('build', 'program')):
+                requested = root / ('ordinary\\' + name)
+                unrelated = unrelated_parent / name
+                requested.write_bytes(b'prior literal output')
+                unrelated.write_bytes(b'unrelated slash-path bytes')
+                process = subprocess.run([preview, action, program, '--output=' + str(requested)],
+                                         cwd=root, env=contradictory, capture_output=True, timeout=180)
+                assert process.returncode == 0, (action, process.stdout, process.stderr)
+                assert unrelated.read_bytes() == b'unrelated slash-path bytes'
+                if action == 'emit':
+                    assert b'define i32 @main' in requested.read_bytes()
+                else:
+                    executed = subprocess.run([requested], cwd=root, env=contradictory, capture_output=True, timeout=30)
+                    assert executed.returncode == 42 and executed.stdout == b'native-v4\n' and not executed.stderr, executed
+            checks.append('POSIX trailing-backslash parents, repeated separators and literal output leaves preserve unrelated slash-path bytes')
         # Public preview error contracts include stale-output invalidation and aliases.
         program.write_text('task main() -> int { pilot broken = }\n', encoding='utf-8')
         stale = root / 'stale.ll'
@@ -225,6 +247,13 @@ def main() -> int:
         before = program.read_bytes()
         alias = subprocess.run([preview, 'emit', program, '--output=' + str(program)], cwd=root, env=contradictory, capture_output=True, timeout=30)
         assert alias.returncode != 0 and program.read_bytes() == before
+        if os.name != 'nt':
+            literal_stale = root / 'ordinary\\result.ll'
+            literal_stale.write_bytes(b'prior literal success')
+            rejected = subprocess.run([preview, 'emit', program, '--output=' + str(literal_stale)],
+                                      cwd=root, env=contradictory, capture_output=True, timeout=120)
+            assert rejected.returncode != 0 and not literal_stale.exists(), rejected
+            assert (unrelated_parent / 'result.ll').read_bytes() == b'unrelated slash-path bytes'
         checks.append('preview diagnostics, nonzero status, stale invalidation, source alias protection')
         # Corrupted private payload is refused before a source can execute.
         runtime_file = relocated / 'runtime/freak_v4_word_runtime.c'

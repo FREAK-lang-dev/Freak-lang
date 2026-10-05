@@ -805,10 +805,14 @@ task cli_bootstrap_parent(path: word) -> word {
 }
 
 task cli_bootstrap_leaf(path: word) -> word {
-    pilot parent = cli_bootstrap_parent(path)
-    pilot mut offset = parent.length() + 1
-    if parent.ends_with("/") or parent.ends_with("\\") { offset = parent.length() }
-    give back path.substring(offset, path.length() - offset)
+    pilot mut index = 0
+    pilot mut split = -1
+    repeat until index >= path.length() {
+        pilot ch = path.char_at(index)
+        if ch == "/" or (freak_process_platform_is_windows() and ch == "\\") { split = index }
+        index += 1
+    }
+    give back path.substring(split + 1, path.length() - split - 1)
 }
 
 task cli_bootstrap_destination(source_root: word, output: word) -> word {

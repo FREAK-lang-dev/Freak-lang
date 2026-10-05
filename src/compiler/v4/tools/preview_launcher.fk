@@ -38,7 +38,7 @@ task preview_parent(path: word) -> word {
     pilot mut split = -1
     repeat until index >= path.length() {
         pilot ch = path.char_at(index)
-        if ch == "/" or ch == "\\" { split = index }
+        if ch == "/" or (preview_windows() and ch == "\\") { split = index }
         index += 1
     }
     if split == 0 { give back "/" }
@@ -52,7 +52,7 @@ task preview_leaf(path: word) -> word {
     pilot mut split = -1
     repeat until index >= path.length() {
         pilot ch = path.char_at(index)
-        if ch == "/" or ch == "\\" { split = index }
+        if ch == "/" or (preview_windows() and ch == "\\") { split = index }
         index += 1
     }
     give back path.substring(split + 1, path.length() - split - 1)
