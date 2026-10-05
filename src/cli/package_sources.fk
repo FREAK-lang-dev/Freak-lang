@@ -351,6 +351,15 @@ task package_admit_local_ticket(directory: int, manifest_file: word, request_pat
     pilot content = bytes.to_word()
     pilot valid = bytes.status() == 0
     bytes.release()
+    if request_path == "root" and package_manifest_candidate_active {
+        if hash != package_manifest_candidate_before { hangar_graph_fail("original manifest changed before candidate graph admission") valid = false } else {
+            content = package_manifest_candidate_text
+            bytes = ByteBuffer::new()
+            bytes.write_word(content)
+            hash = fs::sha256_bytes(bytes)
+            bytes.release()
+        }
+    }
     if not valid { hangar_graph_fail("package manifest must be UTF-8 text without NUL: " + request_path)
         fs::result_release(directory)
         give back 0 - 1 }
@@ -672,7 +681,9 @@ task package_prepare_graph_impl(manifest_path: word, locked: bool, offline: bool
             if valid {
                 package_graph_snapshot_path = package_join_host(package_directory_path(snapshots), identity + ".lock")
                 if not locked and not frozen {
-                    valid = package_commit_transaction(project, private, manifest_file, array_get(hangar_graph_contents, 0), content, array_get(package_source_manifest_hashes, 0), previous_lock_hash)
+                    pilot expected_manifest = array_get(package_source_manifest_hashes, 0)
+                    if package_manifest_candidate_active { expected_manifest = package_manifest_candidate_before }
+                    valid = package_commit_transaction(project, private, manifest_file, array_get(hangar_graph_contents, 0), content, expected_manifest, previous_lock_hash)
                 }
             }
             bytes.release()
@@ -732,6 +743,24 @@ task package_prepare_graph(manifest_path: word, locked: bool, offline: bool, fro
     if (locked or frozen) and update_name != "" { hangar_graph_fail("explicit update cannot be combined with locked/frozen graph mode") give back false }
     pilot valid = package_prepare_graph_impl(manifest_path, locked, offline, frozen, update_name)
     package_preparation_release()
+    give back valid
+}
+
+task package_prepare_manifest_change(manifest_path: word, candidate: word, before_sha: word, locked: bool, offline: bool, frozen: bool, update_name: word) -> bool {
+    if locked or frozen { hangar_graph_fail("manifest changes cannot be combined with locked/frozen mode") give back false }
+    if not package_lock_hex(before_sha + "", 64) { hangar_graph_fail("candidate manifest requires the original generation fingerprint") give back false }
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(candidate)
+    pilot admitted = bytes.length() <= hangar_graph_manifest_limit
+    bytes.release()
+    if not admitted { hangar_graph_fail("candidate manifest exceeds the manifest byte limit") give back false }
+    package_manifest_candidate_active = true
+    package_manifest_candidate_text = candidate
+    package_manifest_candidate_before = before_sha
+    pilot valid = package_prepare_graph(manifest_path, false, offline, false, update_name)
+    package_manifest_candidate_active = false
+    package_manifest_candidate_text = ""
+    package_manifest_candidate_before = ""
     give back valid
 }
 
@@ -1209,7 +1238,10 @@ task package_admit_git_resolved(url: word, requested_commit: word, revision: wor
     repeat until index >= array_len(package_pending_paths) or not valid {
         pilot path = array_get(package_pending_paths, index)
         output = package_git_blob(repository_path, commit, package_git_object_path(package_prefix, path), package_input_file_limit)
-        if hangar_graph_error != "" { valid = false } else { valid = package_write_staged_input(raw, path, output, created) }
+        if hangar_graph_error != "" { valid = false } else {
+            valid = package_stage_input_parents(raw, path + "", created)
+            if valid { valid = package_input_write_result(fs::write_relative_bytes_checked(raw, path, output), "cannot write anchored raw Git input") }
+        }
         output.release()
         index += 1
     }
@@ -1275,4 +1307,7 @@ task package_release_graph() -> void {
     package_source_option_locked = false
     package_source_option_offline = false
     package_source_option_frozen = false
+    package_manifest_candidate_active = false
+    package_manifest_candidate_text = ""
+    package_manifest_candidate_before = ""
 }

@@ -17,6 +17,11 @@ pilot package_input_inventory_limit = 16384
 pilot package_input_node_limit = 1024
 pilot package_pending_paths = 0
 pilot package_pending_roles = 0
+-- A candidate root manifest exists only within the authoring transaction. The
+-- original is read and checked before these bytes can enter an immutable tree.
+pilot mut package_manifest_candidate_active = false
+pilot mut package_manifest_candidate_text = ""
+pilot mut package_manifest_candidate_before = ""
 
 task package_inputs_release() -> void {
     if package_input_nodes != 0 {
@@ -208,7 +213,7 @@ task package_collect_default_tests(node: int, root_ticket: int) -> bool {
     give back valid
 }
 
-task package_write_staged_input(stage_ticket: int, relative: word, bytes: ByteBuffer, created: int) -> bool {
+task package_stage_input_parents(stage_ticket: int, relative: word, created: int) -> bool {
     -- Parents are created once within the held, privately owned staging root.
     -- A path supplied by a tool is never a write or recursive cleanup authority.
     pilot prefix = ""
@@ -216,7 +221,7 @@ task package_write_staged_input(stage_ticket: int, relative: word, bytes: ByteBu
     repeat until index >= relative.length() {
         pilot ch = relative.char_at(index)
         if ch == "/" {
-            if not toml_arr_contains(created, array_len(created), prefix) {
+            if not toml_arr_contains(created, array_len(created), prefix + "") {
                 pilot directory = fs::mkdir_relative_checked(stage_ticket, prefix)
                 pilot complete = fs::result_ok(directory)
                 if not complete { hangar_graph_fail("cannot create anchored staged input parent: " + fs::result_error(directory)) }
@@ -228,11 +233,14 @@ task package_write_staged_input(stage_ticket: int, relative: word, bytes: ByteBu
         prefix = prefix + ch
         index += 1
     }
-    pilot written = fs::write_relative_bytes_checked(stage_ticket, relative, bytes)
-    pilot complete = fs::result_ok(written)
-    if not complete { hangar_graph_fail("cannot write anchored staged input: " + fs::result_error(written)) }
-    fs::result_release(written)
-    give back complete
+    give back true
+}
+
+task package_input_write_result(ticket: int, operation: word) -> bool {
+    pilot valid = fs::result_ok(ticket)
+    if not valid { hangar_graph_fail(operation + ": " + fs::result_error(ticket)) }
+    fs::result_release(ticket)
+    give back valid
 }
 
 task package_hash_declared_inputs_rooted(node: int, root_ticket: int, manifest_file: word, stage_ticket: int) -> word {
@@ -256,6 +264,14 @@ task package_hash_declared_inputs_rooted(node: int, root_ticket: int, manifest_f
             pilot bytes: ByteBuffer = fs::result_bytes(contents)
             pilot length = bytes.length()
             if array_get(package_pending_roles, index) == "manifest" {
+                if node == 0 and package_manifest_candidate_active {
+                    if fs::sha256_bytes(bytes) != package_manifest_candidate_before { hangar_graph_fail("original manifest changed during candidate graph admission") valid = false } else {
+                        bytes.release()
+                        bytes = ByteBuffer::new()
+                        bytes.write_word(package_manifest_candidate_text)
+                        length = bytes.length()
+                    }
+                }
                 pilot admitted: ByteBuffer = ByteBuffer::new()
                 admitted.write_word(array_get(hangar_graph_contents, node))
                 if length != admitted.length() or fs::sha256_bytes(bytes) != fs::sha256_bytes(admitted) {
@@ -268,7 +284,10 @@ task package_hash_declared_inputs_rooted(node: int, root_ticket: int, manifest_f
                 hangar_graph_fail("declared input graph exceeds its byte limit: " + relative)
                 valid = false
             } else if valid {
-                if stage_ticket != 0 { valid = package_write_staged_input(stage_ticket, relative, bytes, created) }
+                if stage_ticket != 0 {
+                    valid = package_stage_input_parents(stage_ticket, relative + "", created)
+                    if valid { valid = package_input_write_result(fs::write_relative_bytes_checked(stage_ticket, relative, bytes), "cannot write anchored staged input") }
+                }
                 if valid {
                     pilot logical: ByteBuffer = ByteBuffer::new()
                     logical.write_word(relative)

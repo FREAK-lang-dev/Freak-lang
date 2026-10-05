@@ -45,7 +45,13 @@ task main() {
     pilot update = ""
     if mode == "update" { update = "*" }
     pilot valid = false
-    if mode == "snapshot" or mode == "snapshot-lock" { valid = package_load_graph_snapshot(process::arg(3), process::arg(1), true) } else {
+    if mode.starts_with("candidate") {
+        pilot candidate = fs::read_ticket(process::arg(3))
+        if not fs::result_ok(candidate) { hangar_graph_fail("fixture candidate read failed") } else {
+            valid = package_prepare_manifest_change(process::arg(1), fs::result_word(candidate), process::arg(4), mode == "candidate-locked", mode == "candidate-offline", mode == "candidate-frozen", "")
+        }
+        fs::result_release(candidate)
+    } else if mode == "snapshot" or mode == "snapshot-lock" { valid = package_load_graph_snapshot(process::arg(3), process::arg(1), true) } else {
         valid = package_prepare_graph(process::arg(1), mode == "locked", mode == "offline", mode == "frozen", update)
     }
     if not valid { say "error:" + hangar_graph_error } else {
@@ -198,15 +204,28 @@ def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path, paths_only:
     source = package_probe_source(repo) + '\n' + PROGRAM
     git_shim = build_git_shim(clang, root)
     for backend in ('c','llvm'):
+        candidate_boundary=root/f'candidate-boundary-{backend}.fk'
+        boundary='''pilot mut package_manifest_candidate_active = false
+pilot mut package_manifest_candidate_text: word = ""
+pilot mut package_manifest_candidate_before: word = ""
+pilot hangar_graph_manifest_limit = 1048576
+task hangar_graph_fail(message: word) {}
+task package_lock_hex(text: word, length: int) -> bool { give back true }
+task package_prepare_graph(manifest_path: word, locked: bool, offline: bool, frozen: bool, update_name: word) -> bool { give back true }
+'''+task_source((repo/'src/cli/package_sources.fk').read_text(),'package_prepare_manifest_change')
+        candidate_boundary.write_text(boundary+'\ntask main() { package_prepare_manifest_change("","","",false,false,false,"") }\n')
+        checked=foundation.run([str(compiler),str(candidate_boundary),'--'+backend,'--strict-borrow'],repo,timeout=45)
+        assert checked.returncode==0,(checked.stdout,checked.stderr)
+        print(f'native:{backend}:sources:candidate-boundary-strict-ownership:passed',flush=True)
         program = root/f'sources-{backend}.fk'
         program.write_text(source, encoding='utf-8')
         generated = probe_transpile(foundation, None, compiler, repo, program, backend)
         binary = root/f'sources-{backend}'
         foundation.compile_generated(clang=str(clang), repo=repo, runtime_root=runtime, generated=generated, backend=backend, binary=binary)
-        def execute(manifest: Path, mode='ordinary', snapshot='', extra_env=None) -> str:
+        def execute(manifest: Path, mode='ordinary', snapshot='', extra_env=None, fingerprint='') -> str:
             environment = foundation.sanitizer_env()
             if extra_env: environment.update(extra_env)
-            result = foundation.run([str(binary), str(manifest), mode, str(snapshot)], root, environment, timeout=45)
+            result = foundation.run([str(binary), str(manifest), mode, str(snapshot),fingerprint], root, environment, timeout=45)
             assert result.returncode == 0, (backend, mode, result.returncode, result.stdout, result.stderr)
             require_resource_conservation(foundation, result.stderr)
             return result.stdout
@@ -237,7 +256,45 @@ def run_gate(compiler: Path, clang: Path, runtime: Path, root: Path, paths_only:
                     assert result.startswith('ready: 4:4\n'),result
                     validate_lock(manifest.with_name('hangar.lock'))
                 print(f'native:{backend}:sources:physical-posix-special-roots:passed',flush=True)
+                standalone=root/f'standalone-{backend}'
+                standalone.mkdir()
+                selected=standalone/'ordinary\\source.fk'
+                selected.write_bytes(b'task main() { say 42 }\n')
+                assert execute(selected,'discover',extra_env={'OS':'Windows_NT'})=='standalone\n'
+                assert not (standalone/'.freak').exists()
+                print(f'native:{backend}:sources:standalone-nearest-discovery-through-root:passed',flush=True)
         if paths_only: continue
+        manifest=project(root/f'candidate-{backend}')
+        assert execute(manifest).startswith('ready: 4:4\n')
+        previous_manifest=manifest.read_bytes()
+        previous_lock=manifest.with_name('hangar.lock').read_bytes()
+        before_sha=hashlib.sha256(previous_manifest).hexdigest()
+        previous_cache={str(path):path.read_bytes() for path in (manifest.parent/'.freak').rglob('*') if path.is_file()}
+        candidate=root/f'candidate-manifest-{backend}.toml'
+        candidate.write_bytes(previous_manifest.replace(b'b={path="../b"}',b'b={path="../missing"}'))
+        failed=execute(manifest,'candidate',candidate,fingerprint=before_sha)
+        assert failed.startswith('error:') and 'cannot open local package' in failed,failed
+        assert manifest.read_bytes()==previous_manifest and manifest.with_name('hangar.lock').read_bytes()==previous_lock
+        assert all(Path(path).read_bytes()==data for path,data in previous_cache.items())
+        print(f'native:{backend}:sources:candidate-closure-failure-preserves-generation:passed',flush=True)
+        candidate.write_bytes(previous_manifest.replace(b'b={path="../b"}\n',b''))
+        for mode in ('candidate-locked','candidate-frozen'):
+            failed=execute(manifest,mode,candidate,fingerprint=before_sha)
+            assert failed.startswith('error:') and 'locked/frozen' in failed,failed
+            assert manifest.read_bytes()==previous_manifest and manifest.with_name('hangar.lock').read_bytes()==previous_lock
+        print(f'native:{backend}:sources:candidate-strict-modes-refused-unchanged:passed',flush=True)
+        failed=execute(manifest,'candidate',candidate,fingerprint='0'*64)
+        assert failed.startswith('error:') and 'changed before candidate' in failed,failed
+        assert manifest.read_bytes()==previous_manifest and manifest.with_name('hangar.lock').read_bytes()==previous_lock
+        print(f'native:{backend}:sources:candidate-stale-origin-preserved:passed',flush=True)
+        assert execute(manifest,'candidate-offline',candidate,fingerprint=before_sha).startswith('ready: 3:2\n')
+        changed=tomllib.loads(manifest.with_name('hangar.lock').read_text())
+        assert manifest.read_bytes()==candidate.read_bytes() and manifest.with_name('hangar.lock').read_bytes()!=previous_lock
+        assert changed['lock']['manifest_sha256']==hashlib.sha256(candidate.read_bytes()).hexdigest()
+        root_node=changed['node']['0']
+        root_manifest=Path(manifest.parent/'.freak/store')/root_node['tree_sha256']/'hangar.toml'
+        assert root_manifest.read_bytes()==candidate.read_bytes()
+        print(f'native:{backend}:sources:candidate-offline-atomic-generation:passed',flush=True)
         for label, declaration, reason in (
             ('reserved-fact', '\n[__package]\ntests_declared="true"\n', 'reserved package admission fact'),
             ('nested-tests', '\n[tests.nested]\npath="main.fk"\n', 'flat name-to-relative-source map'),
