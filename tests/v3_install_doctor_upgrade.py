@@ -60,6 +60,7 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             "freakc/runtime/freak_runtime.h",
             "freakc/runtime/freak_llvm_runtime.c",
             "freakc/runtime/freak_v35_process.inc",
+            "freakc/runtime/freak_v35_fs.inc",
             "freakc/runtime/ui/win32_backend.c",
             "freakc/runtime/ui/freak_ui_platform.h",
             "freakc/runtime/freak_abi",

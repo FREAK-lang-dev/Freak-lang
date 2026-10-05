@@ -30,8 +30,11 @@ forms. The fresh compiler gate covers 70 syntax/semantic/error cases at O2;
 an O0 two-million-iteration regression checks constant stack use for the
 repeat index. It includes scoped indices, single-evaluated bounds, continued
 C-style steps, owned early exits and the inclusive maximum-int boundary.
-The reviewed semicolon-at-`when`-arm defect is fixed. V4 parity, final
-optimization/platform matrices and installed-archive proofs remain pending.
+The reviewed semicolon-at-`when`-arm defect is fixed. The V4 while parity
+gate passes fourteen isolated frontend, span, error and snapshot cases plus
+native LLVM execution covering pretests, owned early return, nesting and
+break/continue. V4 counted parity, final optimization/platform matrices and
+installed-archive proofs remain pending.
 
 **V4 closed scalar Sum checkpoint (2026-10-04):** native `maybe<int>` and
 `result<word,word>` have separate tagged carriers, owning construction and

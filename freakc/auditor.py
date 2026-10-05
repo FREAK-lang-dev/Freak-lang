@@ -2271,6 +2271,7 @@ def audit_conformance(paths: List[Path]) -> int:
                 "freakc/runtime/freak_runtime.h",
                 "freakc/runtime/freak_llvm_runtime.c",
                 "freakc/runtime/freak_v35_process.inc",
+                "freakc/runtime/freak_v35_fs.inc",
                 "freakc/runtime/ui/win32_backend.c",
                 "freakc/runtime/ui/freak_ui_platform.h",
                 "freakc/runtime/freak_abi",
@@ -2320,7 +2321,7 @@ def audit_conformance(paths: List[Path]) -> int:
             repo / "src" / "cli" / "doctor.fk",
             (
                 "modules_expected\\\": 11",
-                "files_expected\\\": 8",
+                "files_expected\\\": 9",
                 "FREAK_V3_ABI",
                 "FREAK_V3_RUNTIME_API",
                 "runtime_api",

@@ -104,6 +104,8 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "h6_mir_literal_grammar_smoke.fk",
         "h6_mir_void_return_smoke.fk",
         "h6_native_repeat_execute_smoke.fk",
+        "v35_while_contract_smoke.fk",
+        "v35_native_while_execute_smoke.fk",
         "h6_native_bool_execute_smoke.fk",
         "h6_native_indirect_execute_smoke.fk",
         "h6_native_computed_execute_smoke.fk",
@@ -7015,6 +7017,43 @@ EXECUTABLE_SMOKES = [
         "memory_limit_mb": 128,
         "expect": [
             "llvm-body-resource statements=12000 depth=2048 exact=true first-return=true",
+        ],
+    },
+    {
+        "name": "V3.5 while frontend contracts",
+        "fixture": "v35_while_contract_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "expect": ["v35-while-contract case=0 frontend=true positive=2 inverted=1 restore=true"],
+        "runtime_cases": [
+            {"argv": ["0"], "expect": ["v35-while-contract case=0 frontend=true positive=2 inverted=1 restore=true"]},
+            {"argv": ["1"], "expect": ["v35-while-contract case=1 rejected=true diagnostic=while condition must be bool module=false"]},
+            {"argv": ["2"], "expect": ["v35-while-contract case=2 rejected=true diagnostic=while condition must be bool module=false"]},
+            {"argv": ["3"], "expect": ["v35-while-contract case=3 rejected=true diagnostic=while loop requires a condition module=false"]},
+            {"argv": ["4"], "expect": ["v35-while-contract case=4 rejected=true diagnostic=while loop requires a condition module=false"]},
+            {"argv": ["5"], "expect": ["v35-while-contract case=5 rejected=true diagnostic=while loop requires a body module=false"]},
+            {"argv": ["6"], "expect": ["v35-while-contract case=6 reserved=true span=true"]},
+            {"argv": ["7"], "expect": ["v35-while-contract case=7 reserved=true span=true"]},
+            {"argv": ["8"], "expect": ["v35-while-contract case=8 reserved=true span=true"]},
+            {"argv": ["9"], "expect": ["v35-while-contract case=9 reserved=true span=true"]},
+            {"argv": ["10"], "expect": ["v35-while-contract case=10 reserved=true span=true"]},
+            {"argv": ["11"], "expect": ["v35-while-contract case=11 reserved=true span=true"]},
+            {"argv": ["12"], "expect": ["v35-while-contract case=12 reserved=true span=true"]},
+            {"argv": ["13"], "expect": ["v35-while-contract case=13 frontend=true positive=0 inverted=0 restore=true"]},
+        ],
+    },
+    {
+        "name": "V3.5 while native execution",
+        "fixture": "v35_native_while_execute_smoke.fk",
+        "expect_mode": "line",
+        "expect_unique": True,
+        "memory_limit_mb": 64,
+        "llvm_programs": [
+            ["v35_while_native.fk", 42, "tick\ntick\ntick\ntick\nv35-while-ok\n"]
+        ],
+        "expect": [
+            "v35-while-execute diagnostics=0 owned=true native=true restore=true module-exact=true"
         ],
     },
     {
@@ -14534,6 +14573,8 @@ def check_snapshot_inventories() -> None:
             "h6_mir_literal_grammar_smoke.fk",
             "h6_mir_void_return_smoke.fk",
             "h6_native_repeat_execute_smoke.fk",
+            "v35_while_contract_smoke.fk",
+            "v35_native_while_execute_smoke.fk",
             "h6_native_bool_execute_smoke.fk",
             "h6_native_indirect_execute_smoke.fk",
             "h6_native_computed_execute_smoke.fk",
