@@ -2,6 +2,17 @@
 -- separate from the host's canonical identity; Unicode and case are preserved.
 -- This path policy does not execute package code or discover undeclared files.
 
+task package_join_host(root: word, relative: word) -> word {
+    -- Extended Win32 paths deliberately bypass slash normalization. Preserve
+    -- their long/UNC identity and use the native separator when appending.
+    if root.starts_with("\\\\?\\") {
+        if root.ends_with("\\") { give back root + relative.replace("/", "\\") }
+        give back root + "\\" + relative.replace("/", "\\")
+    }
+    if root.ends_with("/") { give back root + relative }
+    give back root + "/" + relative
+}
+
 task package_relative_file(path: word) -> bool {
     if path == "" or path.length() > 4096 or path.starts_with("/") or path.ends_with("/") or path.contains("\\") or path.contains(":") { give back false }
     if path.starts_with("../") or path.contains("/../") or path.ends_with("/..") or path == ".." { give back false }
@@ -52,7 +63,7 @@ task package_checked_file(root: word, relative: word) -> word {
                 hangar_graph_fail("invalid source path component: " + relative)
                 give back ""
             }
-            current = current + "/" + component
+            current = package_join_host(current, component)
             pilot info = fs::stat_checked(current)
             pilot admitted = fs::result_ok(info)
             pilot kind = 0

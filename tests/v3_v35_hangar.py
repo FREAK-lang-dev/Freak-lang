@@ -117,6 +117,7 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
     failed_git(tool_root, clang)
     env = os.environ.copy()
     env["PATH"] = str(tool_root) + os.pathsep + env.get("PATH", "")
+    env["FREAK_GIT"] = str(tool_root / ("git.exe" if os.name == "nt" else "git"))
     env["NO_COLOR"] = "1"
     cases = {
         "missing-add-argument": (["add"], "", "Usage:"),
@@ -365,7 +366,32 @@ def task_source(source: str, name: str) -> str:
     return source[start:] if end < 0 else source[start:end]
 
 
-def graph_probe(freak: Path, clang: Path, runtime: Path, root: Path) -> None:
+def require_resource_conservation(foundation, stderr: str) -> None:
+    if not stderr:
+        return
+    stats = foundation.parse_runtime_stats(stderr)
+    assert len(stderr.splitlines()) == 1, stderr
+    counters = stats["counters"]
+    assert counters["byte_buffer_creations"] == counters["byte_buffer_releases"], stats
+    assert counters["word_builder_creations"] == counters["word_builder_finishes"] + counters["word_builder_discards"], stats
+
+
+def probe_transpile(foundation, freak: Path | None, compiler: Path | None, repo: Path,
+                    source: Path, backend: str) -> Path:
+    if compiler is None:
+        assert freak is not None
+        generated, _ = foundation.transpile(freak=freak, repo=repo, source=source, backend=backend)
+        return generated
+    flag = "--c" if backend == "c" else "--llvm"
+    result = foundation.run([str(compiler), str(source), flag], repo)
+    assert result.returncode == 0, result.stdout + result.stderr
+    generated = Path(str(source) + (".c" if backend == "c" else ".ll"))
+    assert generated.is_file(), result.stdout + result.stderr
+    return generated
+
+
+def graph_probe(freak: Path | None, clang: Path, runtime: Path, root: Path,
+                compiler: Path | None = None) -> None:
     import v3_word_foundation as foundation
     repo = Path(__file__).resolve().parents[1]
     toml = (repo / "src/cli/toml.fk").read_text(encoding="utf-8")
@@ -381,15 +407,13 @@ def graph_probe(freak: Path, clang: Path, runtime: Path, root: Path) -> None:
     for backend in ("c", "llvm"):
         program = root / f"graph-{backend}.fk"
         program.write_text(source, encoding="utf-8")
-        generated, _ = foundation.transpile(freak=freak, repo=repo, source=program, backend=backend)
+        generated = probe_transpile(foundation, freak, compiler, repo, program, backend)
         binary = root / (f"graph-{backend}.exe" if os.name == "nt" else f"graph-{backend}")
         foundation.compile_generated(clang=str(clang), repo=repo, runtime_root=runtime,
                                      generated=generated, backend=backend, binary=binary)
         result = foundation.run([str(binary)], root, foundation.sanitizer_env(), timeout=30)
         assert result.returncode == 0 and result.stdout == expected, (backend, result.returncode, result.stdout, result.stderr)
-        if result.stderr:
-            stats = foundation.parse_runtime_stats(result.stderr)
-            assert len(result.stderr.splitlines()) == 1 and all(value == 0 for value in stats["counters"].values()), result.stderr
+        require_resource_conservation(foundation, result.stderr)
         print(f"native:{backend}:graph-probe:passed:{len(GRAPH_CASES)}")
 
 
@@ -426,16 +450,25 @@ task main() {
             index += 1
         }
     }
+    package_inputs_release()
+    hangar_graph_release()
+    toml_release()
 }
 '''
 
 
-def inputs_probe(freak: Path, clang: Path, runtime: Path, root: Path) -> None:
+def inputs_probe(freak: Path | None, clang: Path, runtime: Path, root: Path,
+                 compiler: Path | None = None) -> None:
     import v3_word_foundation as foundation
     repo = Path(__file__).resolve().parents[1]
     package = (repo / "src/cli/hangar.fk").read_text(encoding="utf-8")
+    toml = (repo / "src/cli/toml.fk").read_text(encoding="utf-8")
+    # The direct compiler has no implicit std/runtime wrapper injection. This
+    # probe reads through checked tickets; unrelated legacy adapters are omitted.
+    for name in ("toml_load", "toml_write_file"):
+        toml = toml.replace(task_source(toml, name), "")
     source = ((repo / "std/version.fk").read_text(encoding="utf-8") + "\n" +
-              (repo / "src/cli/toml.fk").read_text(encoding="utf-8") + "\n" +
+              toml + "\n" +
               task_source(package, "hangar_valid_package_name") + "\n" +
               "\n".join((repo / ("src/cli/" + name + ".fk")).read_text(encoding="utf-8")
                         for name in ("package_graph", "package_paths", "package_inputs")) + "\n" + INPUT_PROGRAM)
@@ -467,7 +500,7 @@ def inputs_probe(freak: Path, clang: Path, runtime: Path, root: Path) -> None:
     for backend in ("c", "llvm"):
         program = root / f"inputs-{backend}.fk"
         program.write_text(source, encoding="utf-8")
-        generated, _ = foundation.transpile(freak=freak, repo=repo, source=program, backend=backend)
+        generated = probe_transpile(foundation, freak, compiler, repo, program, backend)
         binary = root / (f"inputs-{backend}.exe" if os.name == "nt" else f"inputs-{backend}")
         foundation.compile_generated(clang=str(clang), repo=repo, runtime_root=runtime,
                                      generated=generated, backend=backend, binary=binary)
@@ -478,9 +511,7 @@ def inputs_probe(freak: Path, clang: Path, runtime: Path, root: Path) -> None:
             result = foundation.run([str(binary), str(cwd), str(stage), mode], root,
                                     foundation.sanitizer_env(), timeout=30)
             assert result.returncode == 0, (backend, name, result.returncode, result.stdout, result.stderr)
-            if result.stderr:
-                stats = foundation.parse_runtime_stats(result.stderr)
-                assert len(result.stderr.splitlines()) == 1 and all(value == 0 for value in stats["counters"].values()), result.stderr
+            require_resource_conservation(foundation, result.stderr)
             return result.stdout, stage
 
         cwd = root / f"input-project-{backend}"
@@ -509,8 +540,8 @@ def inputs_probe(freak: Path, clang: Path, runtime: Path, root: Path) -> None:
         if os.name != "nt":
             linked = root / f"input-linked-{backend}"
             create(linked)
-            source = linked / "src/é helper.fk"
-            source.unlink()
+            linked_source = linked / "src/é helper.fk"
+            linked_source.unlink()
             (linked / "src").rmdir()
             (linked / "src").symlink_to(cwd / "src", target_is_directory=True)
             rejected, _ = execute(linked, "symlink")
@@ -548,12 +579,14 @@ def inputs_probe(freak: Path, clang: Path, runtime: Path, root: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--freak", type=Path)
+    parser.add_argument("--compiler", type=Path, help="Fresh direct native compiler for isolated probes")
     parser.add_argument("--hangar", type=Path)
     parser.add_argument("--clang", type=Path)
     parser.add_argument("--python-only", action="store_true")
     parser.add_argument("--graph-only", action="store_true")
     parser.add_argument("--inputs-only", action="store_true")
     parser.add_argument("--runtime-root", type=Path)
+    parser.add_argument("--probe-root", type=Path, help="Retain probe files in a new task-owned evidence directory")
     parser.add_argument("--list", action="store_true", help="Print the expected native case inventory")
     args = parser.parse_args()
     if args.list:
@@ -574,21 +607,26 @@ def main() -> int:
                 print(f"native:{invocation}:{case}")
             print(f"native:{invocation}:manifest-round-trip")
         return 0
-    if args.graph_only and not all((args.freak, args.clang)):
-        parser.error("--graph-only requires --freak and --clang")
-    if args.inputs_only and not all((args.freak, args.clang)):
-        parser.error("--inputs-only requires --freak and --clang")
+    if args.graph_only and not ((args.freak or args.compiler) and args.clang):
+        parser.error("--graph-only requires --freak or --compiler, and --clang")
+    if args.inputs_only and not ((args.freak or args.compiler) and args.clang):
+        parser.error("--inputs-only requires --freak or --compiler, and --clang")
     if not args.python_only and not args.graph_only and not args.inputs_only and not all((args.freak, args.hangar, args.clang)):
         parser.error("fresh --freak, --hangar, and native --clang paths are required")
-    with tempfile.TemporaryDirectory(prefix="freak-v35-hangar-") as temporary:
+    if args.probe_root:
+        args.probe_root.mkdir(parents=True, exist_ok=False)
+    context = contextlib.nullcontext(str(args.probe_root.resolve())) if args.probe_root else tempfile.TemporaryDirectory(prefix="freak-v35-hangar-")
+    with context as temporary:
         root = Path(temporary)
         if args.graph_only:
             runtime = args.runtime_root or Path(__file__).resolve().parents[1] / "freakc/runtime"
-            graph_probe(args.freak.resolve(strict=True), args.clang.resolve(strict=True), runtime.resolve(strict=True), root)
+            graph_probe(args.freak.resolve(strict=True) if args.freak else None, args.clang.resolve(strict=True),
+                        runtime.resolve(strict=True), root, args.compiler.resolve(strict=True) if args.compiler else None)
             return 0
         if args.inputs_only:
             runtime = args.runtime_root or Path(__file__).resolve().parents[1] / "freakc/runtime"
-            inputs_probe(args.freak.resolve(strict=True), args.clang.resolve(strict=True), runtime.resolve(strict=True), root)
+            inputs_probe(args.freak.resolve(strict=True) if args.freak else None, args.clang.resolve(strict=True),
+                         runtime.resolve(strict=True), root, args.compiler.resolve(strict=True) if args.compiler else None)
             return 0
         python_compatibility(root)
         if not args.python_only:

@@ -38,7 +38,7 @@ task hangar_graph_fail(message: word) -> void {
     if hangar_graph_error == "" { hangar_graph_error = message }
 }
 
-task hangar_graph_clear() -> void {
+task hangar_graph_release() -> void {
     if hangar_graph_names != 0 {
         array_release(hangar_graph_names)
         array_release(hangar_graph_identities)
@@ -59,6 +59,32 @@ task hangar_graph_clear() -> void {
         array_release(hangar_graph_colors)
         array_release(hangar_graph_order)
     }
+    hangar_graph_names = 0
+    hangar_graph_identities = 0
+    hangar_graph_origins = 0
+    hangar_graph_versions = 0
+    hangar_graph_request_paths = 0
+    hangar_graph_contents = 0
+    hangar_graph_fact_nodes = 0
+    hangar_graph_fact_keys = 0
+    hangar_graph_fact_values = 0
+    hangar_graph_edge_parents = 0
+    hangar_graph_edge_aliases = 0
+    hangar_graph_edge_sources = 0
+    hangar_graph_edge_kinds = 0
+    hangar_graph_edge_revisions = 0
+    hangar_graph_edge_versions = 0
+    hangar_graph_edge_targets = 0
+    hangar_graph_colors = 0
+    hangar_graph_order = 0
+    hangar_graph_count = 0
+    hangar_graph_edge_count = 0
+    hangar_graph_manifest_bytes = 0
+    hangar_graph_error = ""
+}
+
+task hangar_graph_clear() -> void {
+    hangar_graph_release()
     hangar_graph_names = array_new()
     hangar_graph_identities = array_new()
     hangar_graph_origins = array_new()

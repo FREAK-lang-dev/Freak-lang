@@ -18,7 +18,7 @@ pilot package_input_node_limit = 1024
 pilot package_pending_paths = 0
 pilot package_pending_roles = 0
 
-task package_inputs_clear() -> void {
+task package_inputs_release() -> void {
     if package_input_nodes != 0 {
         array_release(package_input_nodes)
         array_release(package_input_paths)
@@ -28,6 +28,18 @@ task package_inputs_clear() -> void {
         array_release(package_pending_paths)
         array_release(package_pending_roles)
     }
+    package_input_nodes = 0
+    package_input_paths = 0
+    package_input_hashes = 0
+    package_input_lengths = 0
+    package_input_roles = 0
+    package_pending_paths = 0
+    package_pending_roles = 0
+    package_input_total_bytes = 0
+}
+
+task package_inputs_clear() -> void {
+    package_inputs_release()
     package_input_nodes = array_new()
     package_input_paths = array_new()
     package_input_hashes = array_new()

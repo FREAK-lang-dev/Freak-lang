@@ -8,13 +8,24 @@ pilot toml_keys_arr = 0
 pilot toml_vals_arr = 0
 pilot toml_count = 0
 
-task toml_clear() -> void {
+task toml_release() -> void {
     if toml_keys_arr != 0 {
         array_release(toml_keys_arr)
         array_release(toml_vals_arr)
         array_release(toml_types_arr)
         array_release(toml_sections_arr)
     }
+    toml_keys_arr = 0
+    toml_vals_arr = 0
+    toml_types_arr = 0
+    toml_sections_arr = 0
+    toml_count = 0
+    toml_error = ""
+    toml_error_line = 0
+}
+
+task toml_clear() -> void {
+    toml_release()
     toml_keys_arr = array_new()
     toml_vals_arr = array_new()
     toml_count = 0
