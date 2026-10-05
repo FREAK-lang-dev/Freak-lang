@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
@@ -168,7 +169,7 @@ def consumer_corpus(server:Server,soak:int):
         else:assert_response(server.exchange(request('/health')),200,b'healthy')
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--compiler',type=Path,required=True);p.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'));p.add_argument('--runtime-root',type=Path);p.add_argument('--std-root',type=Path);p.add_argument('--optimization',type=int,choices=(0,2,3),action='append');p.add_argument('--backend',choices=('c','llvm'),action='append');p.add_argument('--soak',type=int,default=1000);p.add_argument('--report',type=Path);args=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--compiler',type=Path,required=True);p.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'));p.add_argument('--runtime-root',type=Path);p.add_argument('--std-root',type=Path);p.add_argument('--optimization',type=int,choices=(0,2,3),action='append');p.add_argument('--backend',choices=('c','llvm'),action='append');p.add_argument('--sanitize',action='store_true');p.add_argument('--soak',type=int,default=1000);p.add_argument('--report',type=Path);args=p.parse_args()
     repo=Path(__file__).resolve().parents[1];runtime=args.runtime_root or repo/'freakc/runtime';compiler=args.compiler.resolve(strict=True)
     std=args.std_root or repo/'std'
     facade=(std/'json_document.fk').read_text()+'\n'+(std/'http_server.fk').read_text()
@@ -177,27 +178,34 @@ def main():
     if not vendor.exists():vendor=runtime.parents[1]/'third_party/llhttp'
     pinned_paths+=sorted(p for p in vendor.rglob('*') if p.is_file())
     before={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths}
-    evidence={'compiler_sha256':before[str(compiler)],'facade_sha256':hashlib.sha256(facade.encode()).hexdigest(),'pinned_input_sha256':before,'strict_borrow':True,'matrices':[]}
+    clang=shutil.which(args.clang);assert clang,args.clang
+    env=os.environ.copy();env['ASAN_OPTIONS']='detect_leaks=1:halt_on_error=1';env['UBSAN_OPTIONS']='halt_on_error=1'
+    evidence={'compiler_sha256':before[str(compiler)],'clang_path':str(Path(clang).resolve()),'clang_sha256':hashlib.sha256(Path(clang).read_bytes()).hexdigest(),'facade_sha256':hashlib.sha256(facade.encode()).hexdigest(),'pinned_input_sha256':before,'strict_borrow':True,'sanitize':args.sanitize,'matrices':[]}
     with tempfile.TemporaryDirectory(prefix='freak-http-language-') as temporary:
         root=Path(temporary);suffix='.exe' if os.name=='nt' else ''
+        if args.sanitize:
+            control=root/'control.c';control.write_text('#include <stdlib.h>\nint main(int n,char **v){volatile char *p=malloc(1);p[n+4]=3;free((void*)p);return 0;}\n');binary=root/'control'
+            linked=run([clang,control,'-O0','-fsanitize=address,undefined','-o',binary],cwd=root);assert linked.returncode==0,(linked.stdout,linked.stderr)
+            failed=run([binary],cwd=root,env=env);assert failed.returncode!=0 and 'AddressSanitizer' in failed.stderr,failed.stderr;evidence['sanitizer_failing_control']=True
         for opt in args.optimization or (0,2,3):
             for backend in args.backend or ('c','llvm'):
                 for name,program in [('consumer',PROGRAM),*CONTROLLED.items()]:
                     source=root/f'{name}-{backend}.fk';source.write_text(facade+'\n'+program)
                     compiled=run([str(compiler),str(source),f'--{backend}','--strict-borrow'],cwd=root);assert compiled.returncode==0,(name,compiled.stdout,compiled.stderr)
                     generated=Path(str(source)+('.c' if backend=='c' else '.ll'));binary=root/f'{name}-{backend}-O{opt}{suffix}'
-                    cmd=[args.clang,f'-O{opt}',str(generated),str(runtime/'freak_runtime.c'),f'-I{runtime}','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1','-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1','-o',str(binary)]
+                    cmd=[clang,f'-O{opt}',str(generated),str(runtime/'freak_runtime.c'),f'-I{runtime}','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1','-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1','-o',str(binary)]
+                    if args.sanitize:cmd+=['-fsanitize=address,undefined,function','-fno-omit-frame-pointer','-g']
                     if backend=='llvm':cmd.append(str(runtime/'freak_llvm_runtime.c'))
                     cmd+=['-lws2_32','-lshell32'] if os.name=='nt' else ['-lm']
                     linked=run(cmd,cwd=root);assert linked.returncode==0,(name,linked.stdout,linked.stderr)
                     if name=='consumer':
-                        server=Server(binary,'normal',os.environ.copy())
+                        server=Server(binary,'normal',env)
                         try:
                             consumer_corpus(server,args.soak);counts=server.stop();assert counts[:3]==[0,0,0],counts
                             cases=server.cases
                         finally:server.abort()
                     else:
-                        executed=run([str(binary)],cwd=root);assert executed.returncode!=0 and not executed.stdout and 'HTTP floor:' in executed.stderr,(name,backend,executed.returncode,executed.stdout,executed.stderr)
+                        executed=run([str(binary)],cwd=root,env=env);assert executed.returncode!=0 and not executed.stdout and 'HTTP floor:' in executed.stderr,(name,backend,executed.returncode,executed.stdout,executed.stderr)
                 for name,(program,diagnostic) in NEGATIVE.items():
                     source=root/f'{name}-{backend}.fk';source.write_text(program)
                     generated=Path(str(source)+('.c' if backend=='c' else '.ll'));generated.write_text('stale output')
