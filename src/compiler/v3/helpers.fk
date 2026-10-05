@@ -3,6 +3,15 @@
 -- ===================================================================
 -- Array init, shape registry, AST builders, emit infrastructure.
 
+task v35_integer_arithmetic_symbol(operation: word) -> word {
+    if operation == "+" or operation == "+=" or operation == "add" { give back "freak_int_add_checked" }
+    if operation == "-" or operation == "-=" or operation == "sub" { give back "freak_int_sub_checked" }
+    if operation == "*" or operation == "*=" or operation == "mul" { give back "freak_int_mul_checked" }
+    if operation == "/" or operation == "/=" or operation == "sdiv" { give back "freak_int_div_checked" }
+    if operation == "%" or operation == "%=" or operation == "srem" { give back "freak_int_rem_checked" }
+    give back ""
+}
+
 task init_arrays() -> void {
     tok_types = array_new()
     tok_vals = array_new()

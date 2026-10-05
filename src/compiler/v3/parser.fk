@@ -212,6 +212,14 @@ task parser_alloc_string_expr(value: word, origin_file: word, origin_line: word)
     give back alloc_expr_at(EXPR_INTERP, "", segments, "", origin_file, origin_line)
 }
 
+task parser_decimal_integer(spelling: word) -> word {
+    pilot start = 0
+    repeat until start + 1 >= spelling.length() or spelling.char_at(start) != "0" {
+        start += 1
+    }
+    give back spelling.substring(start, spelling.length() - start)
+}
+
 task parse_primary() -> int {
     pilot ttype = cur_tok_type()
     pilot tval = cur_tok_val()
@@ -233,7 +241,7 @@ task parse_primary() -> int {
             nci += 1
         }
         if is_float { give back alloc_expr_at(EXPR_FLOAT, tval, "", "", expr_file, expr_line) }
-        give back alloc_expr_at(EXPR_INT, tval, "", "", expr_file, expr_line)
+        give back alloc_expr_at(EXPR_INT, parser_decimal_integer(tval), "", "", expr_file, expr_line)
     }
     if ttype == TOK_STR {
         advance_tok()

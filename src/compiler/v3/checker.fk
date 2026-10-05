@@ -1714,6 +1714,26 @@ task tc_validate_interp_path(expr_id: int, line: int, source_file: word) -> word
     give back ""
 }
 
+task tc_integer_literal_legal(spelling: word) -> bool {
+    pilot limit = "9223372036854775807"
+    if spelling.length() < limit.length() { give back true }
+    if spelling.length() > limit.length() { give back false }
+    pilot index = 0
+    repeat limit.length() times {
+        pilot digit = word_to_int(spelling.char_at(index))
+        pilot limit_digit = word_to_int(limit.char_at(index))
+        if digit < limit_digit { give back true }
+        if digit > limit_digit { give back false }
+        index += 1
+    }
+    give back true
+}
+
+task tc_literal_is_minimum(operand_id: int) -> bool {
+    if operand_id < 0 { give back false }
+    give back array_get(ast_expr_kinds, operand_id) == EXPR_INT and array_get(ast_expr_vals, operand_id) == "9223372036854775808"
+}
+
 task tc_validate_expr(expr_id: int, line: int) -> void {
     if expr_id < 0 { give back }
     -- Expression IDs are unique across tasks and lexical scopes. Record the
@@ -1733,6 +1753,12 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
     pilot val: word = array_get(ast_expr_vals, expr_id)
     pilot left: word = array_get(ast_expr_lefts, expr_id)
     pilot right: word = array_get(ast_expr_rights, expr_id)
+    if kind == EXPR_INT {
+        if not tc_integer_literal_legal(val) {
+            tc_diag("integer literal is outside the signed 64-bit range", line, source_file)
+        }
+        give back
+    }
     if kind == EXPR_INTERP {
         pilot segment_count = tc_arg_count(left)
         pilot segment_index = 0
@@ -1873,6 +1899,13 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
     }
     if kind == EXPR_UNARYOP {
         pilot operand_id = word_to_int(left)
+        -- The minus sign admits the signed minimum spelling; its positive
+        -- magnitude is never a standalone int value or a negation operand.
+        if val == "-" and tc_literal_is_minimum(operand_id) {
+            array_set(tc_checked_expr_types, operand_id, "int")
+            tc_validate_unary(val, operand_id, line, source_file)
+            give back
+        }
         tc_validate_expr(operand_id, line)
         tc_validate_unary(val, operand_id, line, source_file)
         give back

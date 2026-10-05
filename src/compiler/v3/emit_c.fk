@@ -194,6 +194,7 @@ task emit_c_projection_assign(lhs: word, rhs: word, op: word) -> void {
     emit_c_value_decl(rhs, "__freak_rhs")
     if op != "=" {
         if code == "w" { emit_line("freak_word __freak_new = freak_word_concat(__freak_old, __freak_rhs);") }
+        else if code == "i" { emit_line("int64_t __freak_new = " + v35_integer_arithmetic_symbol(op) + "(__freak_old, __freak_rhs);") }
         else { emit_line(c_value_type(code) + " __freak_new = __freak_old " + op.char_at(0) + " __freak_rhs;") }
     }
     pilot value = "__freak_rhs"
@@ -705,16 +706,14 @@ task emit_expr(id: word) -> void {
     if kind == EXPR_INDEX {
         if tc_is_list(tc_expr_type(word_to_int(left))) { emit_c_container_get(id, left, right, emt_expr_type_code(id), false) give back }
         if emt_expr_type_code(left) == "w" {
-            pilot index_args = left + "," + right
-            if emt_args_have_owned_word_temporary(index_args) {
-                emit_c_borrowing_call(id, "freak_word_char_at", index_args)
-            } else {
-                emit("freak_word_char_at(")
-                emit_expr(left)
-                emit(", ")
-                emit_expr(right)
-                emit(")")
-            }
+            emit("({ freak_word __freak_index_receiver = ")
+            if not emt_word_expr_is_owned_temporary(left) { emit("freak_word_clone(") }
+            emit_expr(left)
+            if not emt_word_expr_is_owned_temporary(left) { emit(")") }
+            emit_line(";")
+            emit("int64_t __freak_index_offset = ") emit_expr(right) emit_line(";")
+            emit_line("freak_word __freak_index_value = freak_word_index_checked(__freak_index_receiver, __freak_index_offset);")
+            emit("freak_word_release_owned(&__freak_index_receiver); __freak_index_value; })")
         } else {
             emit_expr(left)
             emit(".data[")
@@ -941,9 +940,9 @@ task emit_c_method(expr_id: word, val: word, left: word, right: word) -> void {
     }
     if val == "to_int" {
         if receiver_type == "d" {
-            emit("((int64_t)(")
+            emit("freak_num_to_int_checked(")
             emit_expr(left)
-            emit("))")
+            emit(")")
         } else {
             if emt_args_have_owned_word_temporary(method_args) {
                 emit_c_borrowing_call(expr_id, "freak_word_to_int", method_args)
@@ -1060,7 +1059,19 @@ task c_expr_has_projection(id: int) -> bool {
     give back false
 }
 
+task emit_c_checked_integer_binary(symbol: word, left: word, right: word) -> void {
+    -- Sequence and capture operands once, including calls with side effects.
+    emit("({ int64_t __freak_checked_left = ") emit_expr(left) emit_line(";")
+    emit("int64_t __freak_checked_right = ") emit_expr(right) emit_line(";")
+    emit(symbol + "(__freak_checked_left, __freak_checked_right); })")
+}
+
 task emit_c_binop(expr_id: word, val: word, left: word, right: word) -> void {
+    pilot integer_symbol = v35_integer_arithmetic_symbol(val)
+    if integer_symbol != "" and emt_expr_type_code(expr_id) == "i" {
+        emit_c_checked_integer_binary(integer_symbol, left, right)
+        give back
+    }
     if val == "+" {
         if emt_expr_type_code(left) == "w" or emt_expr_type_code(right) == "w" {
             if c_expr_has_projection(word_to_int(left)) or c_expr_has_projection(word_to_int(right)) {
@@ -1128,15 +1139,11 @@ task emit_c_binop(expr_id: word, val: word, left: word, right: word) -> void {
         give back
     }
     if val == "NAKAMA" {
-        emit("(")
-        emit_expr(left)
-        emit(" + ")
-        emit_expr(right)
-        emit(" + (")
-        emit_expr(left)
-        emit(" * ")
-        emit_expr(right)
-        emit(" / 10))")
+        emit("({ int64_t __freak_nakama_left = ") emit_expr(left) emit_line(";")
+        emit("int64_t __freak_nakama_right = ") emit_expr(right) emit_line(";")
+        emit_line("int64_t __freak_nakama_sum = freak_int_add_checked(__freak_nakama_left, __freak_nakama_right);")
+        emit_line("int64_t __freak_nakama_product = freak_int_mul_checked(__freak_nakama_left, __freak_nakama_right);")
+        emit("freak_int_add_checked(__freak_nakama_sum, freak_int_div_checked(__freak_nakama_product, 10)); })")
         give back
     }
     -- Default: generic binary operator
@@ -1148,6 +1155,14 @@ task emit_c_binop(expr_id: word, val: word, left: word, right: word) -> void {
 }
 
 task emit_c_unaryop(val: word, left: word) -> void {
+    if val == "-" and tc_literal_is_minimum(word_to_int(left)) { emit("INT64_MIN") give back }
+    if (val == "-" or val == "PLUS ULTRA" or val == "FINAL FORM" or val == "TSUNDERE") and emt_expr_type_code(left) == "i" {
+        emit("({ int64_t __freak_checked_value = ") emit_expr(left) emit_line(";")
+        if val == "PLUS ULTRA" { emit("freak_int_mul_checked(__freak_checked_value, 2); })") }
+        else if val == "FINAL FORM" { emit("freak_int_mul_checked(__freak_checked_value, __freak_checked_value); })") }
+        else { emit("freak_int_neg_checked(__freak_checked_value); })") }
+        give back
+    }
     if val == "not" { emit("(!") emit_expr(left) emit(")") give back }
     if val == "-" { emit("(-") emit_expr(left) emit(")") give back }
     if val == "PLUS ULTRA" { emit("(") emit_expr(left) emit(" * 2)") give back }
@@ -1533,6 +1548,13 @@ task emit_stmt(eid: word) -> void {
             }
         }
 
+        if op_w != "=" and emt_expr_type_code(expr_id_w) == "i" {
+            emit("{ int64_t __freak_compound_old = ") emit_expr(expr_id_w) emit_line(";")
+            emit("int64_t __freak_compound_rhs = ") emit_expr(rhs_w) emit_line(";")
+            emit_expr(expr_id_w)
+            emit_line(" = " + v35_integer_arithmetic_symbol(op_w) + "(__freak_compound_old, __freak_compound_rhs); }")
+            give back
+        }
         emit_expr(expr_id_w)
         emit(" " + op_w + " ")
         emit_expr(rhs_w)
