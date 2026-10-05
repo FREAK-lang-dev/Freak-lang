@@ -63,6 +63,14 @@ freak_word freak_arg(int64_t index) {
     return freak_word_lit(freak_argv[index]);
 }
 
+bool freak_process_platform_is_windows(void) {
+#ifdef _WIN32
+    return true;
+#else
+    return false;
+#endif
+}
+
 freak_word freak_process_executable_path(void) {
 #ifdef _WIN32
     DWORD capacity = 256;

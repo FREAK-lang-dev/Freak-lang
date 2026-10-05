@@ -525,6 +525,7 @@ int64_t freak_ferror(int64_t file);
 /* Native image location, independent of argv[0] and the current directory.
    Returns an empty word if the host cannot provide a location. */
 freak_word freak_process_executable_path(void);
+bool freak_process_platform_is_windows(void);
 int64_t freak_llvm_process_executable_path(void);
 
 /* Stable, allocation-free FNV-1a checksum for persisted compiler data. */
@@ -906,6 +907,7 @@ int64_t freak_fs_read_source_relative_ticket(int64_t,freak_word);
 int64_t freak_fs_read_relative_bytes_ticket(int64_t,freak_word);
 int64_t freak_fs_read_relative_bytes_limit_ticket(int64_t,freak_word,int64_t);
 int64_t freak_fs_write_relative_bytes_checked(int64_t,freak_word,int64_t);
+int64_t freak_fs_rename_relative_new_checked(int64_t,freak_word,int64_t,freak_word);
 int64_t freak_fs_remove_temp_dir_checked(int64_t);
 int64_t freak_fs_publish_temp_dir_checked(int64_t,int64_t,freak_word);
 bool freak_fs_result_completed(int64_t);

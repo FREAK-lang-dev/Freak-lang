@@ -82,6 +82,9 @@ int64_t freak_llvm_process_pid(void) {
     }
     return (int64_t)pid;
 }
+int64_t freak_llvm_process_platform_is_windows(void) {
+    return freak_process_platform_is_windows() ? 1 : 0;
+}
 
 int64_t freak_llvm_process_input(void) {
     return freak_llvm_word_take(freak_process_input());
