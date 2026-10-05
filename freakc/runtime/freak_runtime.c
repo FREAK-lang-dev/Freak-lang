@@ -1,3 +1,8 @@
+#ifdef __APPLE__
+/* Checked directory walks require Darwin's real no-follow and BSD locking
+   interfaces even when the shared runtime also requests POSIX declarations. */
+#define _DARWIN_C_SOURCE 1
+#endif
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
 #endif

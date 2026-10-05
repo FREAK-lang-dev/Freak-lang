@@ -2,6 +2,11 @@
    Compile this standalone file; it includes the runtime with local I/O wrappers.
    Run with args: empty regular file, readable regular file, missing path, directory.
    POSIX FIFO/unreadable paths may follow as extra expected failures. */
+#ifdef __APPLE__
+/* This fixture includes libc before the runtime, so select the same Darwin
+   interfaces before those headers freeze their feature visibility. */
+#define _DARWIN_C_SOURCE 1
+#endif
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
 #endif
@@ -20,10 +25,17 @@
 static int h6_fault = 0;
 static int h6_allocations = 0;
 static size_t h6_last_allocation = 0;
+#ifdef _WIN32
+/* UTF-8 source paths allocate their wide representation before contents. */
+#define H6_CONTENTS_ALLOCATION 3
+#else
+#define H6_CONTENTS_ALLOCATION 2
+#endif
 static void* h6_malloc(size_t size) {
     ++h6_allocations;
     h6_last_allocation = size;
-    if (h6_fault == 8 || ((h6_fault == 9 || h6_fault == 10) && h6_allocations == 2)) return NULL;
+    if (h6_fault == 8 || ((h6_fault == 9 || h6_fault == 10) &&
+                          h6_allocations == H6_CONTENTS_ALLOCATION)) return NULL;
     return malloc(size);
 }
 static int h6_seek(FILE* file, long offset, int whence) {
@@ -44,9 +56,9 @@ static int h6_getc(FILE* file) {
     return fgetc(file);
 }
 #ifdef _WIN32
-static int h6_open(const char* name, int flags, ...) {
+static int h6_open(const wchar_t* name, int flags, ...) {
     if (h6_fault == 6) { errno = EACCES; return -1; }
-    return _open(name, flags);
+    return _wopen(name, flags);
 }
 static int h6_stat(int descriptor, struct _stat64* metadata) {
     if (h6_fault == 3) { errno = EIO; return -1; }
@@ -55,7 +67,7 @@ static int h6_stat(int descriptor, struct _stat64* metadata) {
     if (status == 0 && h6_fault == 10) metadata->st_size = (int64_t)INT32_MAX + 19;
     return status;
 }
-#define _open h6_open
+#define _wopen h6_open
 #define _fstat64 h6_stat
 #else
 static int h6_open(const char* name, int flags, ...) {
@@ -84,7 +96,7 @@ static int h6_stat(int descriptor, struct stat* metadata) {
 #undef fclose
 #undef fgetc
 #ifdef _WIN32
-#undef _open
+#undef _wopen
 #undef _fstat64
 #else
 #undef open
@@ -121,12 +133,13 @@ int main(int argc, char** argv) {
         h6_fault = fault;
         h6_allocations = 0;
         if (!h6_err(freak_fs_read_checked(freak_word_lit(argv[2])))) faults = 0;
+        if (fault == 9 && h6_allocations != H6_CONTENTS_ALLOCATION) faults = 0;
     }
     /* Exercise a size beyond Windows long without allocating gigabytes. */
     h6_fault = 10;
     h6_allocations = 0;
     int large_size = h6_err(freak_fs_read_checked(freak_word_lit(argv[2]))) &&
-                     h6_allocations == 2 &&
+                     h6_allocations == H6_CONTENTS_ALLOCATION &&
                      h6_last_allocation == (size_t)INT32_MAX + 20;
     faults = faults && large_size;
     h6_fault = 0;
