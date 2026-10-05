@@ -1,8 +1,13 @@
 """Adversarial deterministic controls for the checked-int runtime gate."""
 from copy import deepcopy
+import hashlib
 import importlib.util
+import io
+import json
 from pathlib import Path, PureWindowsPath
 import sys
+import tarfile
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -94,7 +99,153 @@ def report(sanitized=False):
     return value
 
 
+def historical_report():
+    value = report()
+    value["target"] = "x86_64-unknown-linux-gnu"
+    value["clang"]["resolved"] = "/toolchain/clang"
+    value["variants"].append("historical-baseline")
+    for name in ("boundaries", "optimized", "timings", "medians"):
+        for row in list(value[name]):
+            if row["variant"] == "helper-mutation":
+                value[name].append({**row, "variant": "historical-baseline"})
+    pin, head, tree = "a" * 64, "b" * 40, "c" * 40
+    work = Path("/evidence/historical-producer")
+    bundle = work / "compiler"
+    entries = {name: {"mode": "100644", "blob": "d" * 40, "size": 1, "sha256": pin}
+               for name in ("src/compiler/v4/build_v4.py", "src/compiler/v4/check_v4.py")}
+    provenance = {"kind": gate.BASELINE_KIND, "compiler_head": head, "compiler_tree": tree,
+        "compiler_inputs": entries, "compiler_manifest_sha256": gate.baseline_manifest_sha(entries),
+        "bundle_path": str(bundle), "target": value["target"], "module_bytes_equal": True,
+        "source_sha256": pin, "module_sha256": pin, "regenerated_module_sha256": pin}
+    for path_key, hash_key, name in (("archive_path", "archive_sha256", "compiler.tar"),
+            ("source_path", "source_sha256", "hot-loop.fk"), ("path", "module_sha256", "supplied.ll"),
+            ("regenerated_module_path", "regenerated_module_sha256", "regenerated.ll"),
+            ("verified_object_path", "verified_object_sha256", "verified.o"),
+            ("producer_audit_path", "producer_audit_sha256", "producer.json"),
+            ("producer_wrapper_path", "producer_wrapper_sha256", "produce.py"),
+            ("manifest_path", "manifest_file_sha256", "compiler-inputs.json")):
+        provenance[path_key], provenance[hash_key] = str(work / name), pin
+        value["artifact_sha256"][provenance[path_key]] = pin
+    provenance["git"] = {"selected": "git", "resolved": "/tools/git", "sha256": pin}
+    provenance["python"] = {"selected": sys.executable, "resolved": "/tools/python", "sha256": pin}
+    value["artifact_sha256"].update({"/tools/git": pin, "/tools/python": pin})
+    compiler, generated = str(work / "bootstrap/build_llvm"), str(work / "bootstrap/build_llvm.fk.c")
+    value["artifact_sha256"].update({compiler: pin, generated: pin})
+    commands = [[value["clang"]["resolved"], "-DFREAK_ARRAY_LIVE_LIMIT=1024", "-O2"],
+        [compiler, provenance["source_path"], value["target"]],
+        [value["clang"]["resolved"], "--target=" + value["target"], "-x", "ir", "-c",
+         provenance["regenerated_module_path"], "-o", provenance["verified_object_path"]]]
+    labels = ["runtime compile: src/compiler/v4/tools/build_llvm.fk", "V4 compile: hot-loop.fk", "V4 LLVM verification"]
+    producer_jobs = [{"command": command, "label": label, "exit": 0, "elapsed_ns": 100,
+                      "timeout_seconds": 120, "memory_limit_mib": 512, "output_limit_mib_per_stream": 8,
+                      "stdout_sha256": pin, "stderr_sha256": pin} for command, label in zip(commands, labels)]
+    provenance["producer"] = {"exit": 0, "fresh_bootstrap": True,
+        "entrypoint": str(bundle / "src/compiler/v4/build_v4.py"), "compiler_binary": compiler,
+        "compiler_binary_sha256": pin, "generated_c": generated, "generated_c_sha256": pin, "jobs": producer_jobs}
+    git_prefix = ["git", "-C", str(gate.ROOT)]
+    commands = [[*git_prefix, "rev-parse", "--verify", head + "^{commit}"],
+        [*git_prefix, "rev-parse", "--verify", head + "^{tree}"],
+        [*git_prefix, "ls-tree", "-r", "-l", "-z", "--full-tree", head],
+        [*git_prefix, "archive", "--format=tar", "--output=" + provenance["archive_path"], head],
+        [sys.executable, "-I", "-B", provenance["producer_wrapper_path"], json.dumps({"bundle": str(bundle),
+          "work": str(work), "source": provenance["source_path"], "module": provenance["regenerated_module_path"],
+          "clang": value["clang"]["resolved"], "target": value["target"]}, sort_keys=True)]]
+    labels = ["baseline resolve commit", "baseline resolve tree", "baseline list Git blobs",
+              "baseline archive pinned compiler", "baseline regenerate and verify LLVM"]
+    value["jobs"] = [{"serial": i, "command": command, "label": label, "exit": 0,
+                      "timeout_seconds": 120, "memory_limit_mib": 512, "output_limit_mib_per_stream": 8,
+                      "stdout_sha256": gate.text_sha(head + "\n") if i == 1 else gate.text_sha(tree + "\n") if i == 2 else pin}
+                     for i, (command, label) in enumerate(zip(commands, labels), 1)]
+    provenance["producer_job_serials"] = list(range(1, 6))
+    value["historical_baseline"] = provenance
+    return value
+
+
 class IntRuntimeOracles(unittest.TestCase):
+    def test_historical_helper_mutation_cannot_be_relabelled_by_three_caller_hashes(self):
+        genuine = historical_report()
+        gate.validate_report(genuine)
+        supplied_only = deepcopy(genuine)
+        supplied_only["historical_baseline"] = {key: genuine["historical_baseline"][key]
+            for key in ("compiler_head", "source_sha256", "module_sha256", "path")}
+        with self.assertRaisesRegex(gate.GateError, "regeneration provenance"):
+            gate.validate_report(supplied_only)
+        helper_only = report()
+        helper_only["historical_baseline"] = genuine["historical_baseline"]
+        with self.assertRaisesRegex(gate.GateError, "helper-only"):
+            gate.validate_report(helper_only)
+
+    def test_historical_producer_matrix_requires_real_successful_bounded_jobs(self):
+        clean = historical_report()
+        mutations = []
+        for key, value in (("compiler_head", "wrong"), ("compiler_tree", "wrong"),
+                ("source_sha256", "b" * 64), ("target", "foreign-target"),
+                ("regenerated_module_sha256", "b" * 64), ("module_bytes_equal", False),
+                ("compiler_manifest_sha256", "b" * 64)):
+            bad = deepcopy(clean); bad["historical_baseline"][key] = value; mutations.append(bad)
+        for key, value in (("exit", 1), ("fresh_bootstrap", False), ("compiler_binary_sha256", "b" * 64)):
+            bad = deepcopy(clean); bad["historical_baseline"]["producer"][key] = value; mutations.append(bad)
+        for key, value in (("exit", 1), ("memory_limit_mib", 513), ("timeout_seconds", 121),
+                ("command", ["unverified-clang"]), ("label", "claimed verification")):
+            bad = deepcopy(clean); bad["historical_baseline"]["producer"]["jobs"][-1][key] = value; mutations.append(bad)
+        bad = deepcopy(clean); bad["historical_baseline"]["producer"]["jobs"].pop(); mutations.append(bad)
+        bad = deepcopy(clean); bad["historical_baseline"]["producer_job_serials"].pop(); mutations.append(bad)
+        bad = deepcopy(clean); bad["jobs"][0]["stdout_sha256"] = "a" * 64; mutations.append(bad)
+        bad = deepcopy(clean); bad["jobs"][-1]["exit"] = 1; mutations.append(bad)
+        for bad in mutations:
+            with self.subTest(provenance=bad["historical_baseline"]), self.assertRaises(gate.GateError):
+                gate.validate_report(bad)
+
+    def test_historical_module_comparison_does_not_normalize_caller_mutations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            generated, supplied = Path(temporary) / "generated.ll", Path(temporary) / "supplied.ll"
+            clean = module().encode("utf-8")
+            generated.write_bytes(clean); supplied.write_bytes(clean)
+            gate.require_baseline_match(generated, supplied)
+            for changed in (gate.helper_mutation(module())[0].encode("utf-8"),
+                            clean.replace(b"\n", b"\r\n"), clean + b"; caller mutation\n"):
+                supplied.write_bytes(changed)
+                with self.assertRaisesRegex(gate.GateError, "module bytes differ"):
+                    gate.require_baseline_match(generated, supplied)
+
+    def test_git_archive_is_bound_to_actual_blob_bytes_and_safe_member_paths(self):
+        head = "b" * 40
+        content = b"compiler source\n"
+        blob = hashlib.sha1(b"blob " + str(len(content)).encode() + b"\0" + content).hexdigest()
+        inventory = gate.baseline_tree(f"100644 blob {blob} {len(content)}\tcompiler.py\0")
+        def packed(path, *, name="compiler.py", data=content, commit=head, link=False):
+            with tarfile.open(path, "w", format=tarfile.PAX_FORMAT, pax_headers={"comment": commit}) as archive:
+                member = tarfile.TarInfo(name)
+                if link:
+                    member.type, member.linkname = tarfile.SYMTYPE, "../outside"
+                    archive.addfile(member)
+                else:
+                    member.size = len(data)
+                    archive.addfile(member, io.BytesIO(data))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "compiler.tar"
+            packed(archive)
+            entries = gate.extract_baseline(archive, root / "clean", head, inventory)
+            gate.check_baseline_bundle(root / "clean", entries)
+            (root / "clean/compiler.py").write_bytes(b"tampered source\n")
+            with self.assertRaisesRegex(gate.GateError, "inputs changed"):
+                gate.check_baseline_bundle(root / "clean", entries)
+            for index, kwargs in enumerate(({"data": b"caller mutation\n"}, {"commit": "c" * 40},
+                    {"name": "../outside"}, {"link": True})):
+                packed(archive, **kwargs)
+                with self.assertRaises(gate.GateError):
+                    gate.extract_baseline(archive, root / f"rejected-{index}", head, inventory)
+            self.assertFalse((root / "outside").exists())
+
+    def test_git_tree_rejects_links_aliases_traversal_and_excessive_bundles(self):
+        row = "100644 blob " + "a" * 40 + " 1\t"
+        for text in (row + "../outside\0", row + "compiler.py\0" + row + "Compiler.py\0",
+                row.replace("100644", "120000") + "linked\0", row + "D:/outside\0",
+                row.replace(" 1\t", f" {gate.BASELINE_BUNDLE_LIMIT + 1}\t") + "huge.py\0"):
+            with self.assertRaises(gate.GateError):
+                gate.baseline_tree(text)
+
     def test_windows_input_identity_uses_portable_keys_and_detects_source_changes(self):
         root = PureWindowsPath("D:/checkout with spaces/Freak-lang")
         source = root / "benchmarks/v4/int_checked_hot_loop.fk"
