@@ -111,13 +111,27 @@ ssize_t __real_send(int,const void *,size_t,int);
 ssize_t __wrap_send(int fd,const void *p,size_t n,int flags) { ssize_t r=__real_send(fd,p,n,flags);if(r>0&&(size_t)r<n)partial_sends++;return r; }
 #endif
 static bool eq(freak_word word,const char *s) { return word.length==strlen(s)&&!memcmp(word.data,s,word.length); }
+/* Live counters alone cannot detect an ever-growing table of dead tickets. */
+typedef struct { size_t byte_capacity,byte_slots,json_capacity,json_slots,word_buckets; } pool_snapshot;
+static pool_snapshot pools(void) {
+    return (pool_snapshot){(size_t)freak_byte_buffer_table_capacity,(size_t)freak_byte_buffer_count,
+        freak_json_document_capacity,freak_json_document_slot_count,freak_llvm_owned_bucket_count};
+}
+static void same_pools(pool_snapshot a,pool_snapshot b) {
+    REQUIRE(a.byte_capacity==b.byte_capacity&&a.byte_slots==b.byte_slots&&
+        a.json_capacity==b.json_capacity&&a.json_slots==b.json_slots&&a.word_buckets==b.word_buckets);
+}
+static size_t shared_pool_bytes(pool_snapshot p) {
+    return p.byte_capacity*sizeof(*freak_byte_buffers)+p.json_capacity*sizeof(*freak_json_documents)+
+        p.word_buckets*sizeof(*freak_llvm_owned_buckets);
+}
 static void service(const char *profile) {
     int initial_fds=fds();int64_t server=H(open)(0);REQUIRE(H(status)(server)==0);
     bool tight=!strcmp(profile,"tight");
     if(tight) { H(set_limits)(server,128,512,8,64);H(set_chunk_limits)(server,64,64);H(set_timeouts)(server,220,260,120); }
     else H(set_timeouts)(server,1200,5000,1000);
     printf("PORT %lld\n",(long long)H(local_port)(server));fflush(stdout);
-    size_t requests=0,baseline_retained=0;bool quit=false;int listener_fds=fds();
+    size_t requests=0,baseline_retained=0,pool_checks=0;pool_snapshot warmed={0};bool quit=false;int listener_fds=fds();
     while(!quit) {
         int64_t request=H(next_request)(server);
         if(!H(request_status)(request)) {
@@ -171,9 +185,15 @@ static void service(const char *profile) {
         REQUIRE(fds()==listener_fds);
         if(requests==20) baseline_retained=H(retained_bytes)();
         if(requests>20) REQUIRE((size_t)H(retained_bytes)()==baseline_retained);
+        /* By 512 requests JSON, binary, malformed and large-body paths have all
+           run; table sizes must then stay flat through the remaining soak. */
+        if(requests==512) warmed=pools();
+        if(requests>512) { same_pools(warmed,pools());pool_checks++; }
     }
     H(stop)(server);H(close)(server);base();REQUIRE(fds()==initial_fds);
-    printf("REPORT %zu %zu %zu %lld %d\n",requests,partial_sends,send_failures,(long long)H(retained_bytes)(),fds());fflush(stdout);
+    pool_snapshot final=pools();
+    printf("REPORT %zu %zu %zu %lld %d %zu %zu %zu %zu %zu %zu %zu\n",requests,partial_sends,send_failures,(long long)H(retained_bytes)(),fds(),
+        pool_checks,shared_pool_bytes(final),final.byte_capacity,final.byte_slots,final.json_capacity,final.json_slots,final.word_buckets);fflush(stdout);
 }
 int main(int argc,char **argv) {
     REQUIRE(argc==2);
@@ -374,18 +394,25 @@ def exercise(exe:Path,env,soak:int):
         try:
             if profile=='normal':normal_corpus(s,soak);invalid_corpus(s)
             else:tight_corpus(s)
-            counts=s.stop();report[profile]={'requests':counts[0],'partial_sends':counts[1],'send_failures':counts[2],'retained_bytes':counts[3],'kernel_fds':counts[4],'oracle_cases':s.cases}
+            counts=s.stop();report[profile]={'requests':counts[0],'partial_sends':counts[1],'send_failures':counts[2],'retained_bytes':counts[3],'kernel_fds':counts[4],'oracle_cases':s.cases,
+                'shared_pool_checks_after_warmup':counts[5],'shared_pool_retained_bytes':counts[6],
+                'byte_buffer_capacity':counts[7],'byte_buffer_slots':counts[8],'json_document_capacity':counts[9],
+                'json_document_slots':counts[10],'llvm_word_buckets':counts[11]}
+            if profile=='normal' and soak>=512:assert counts[5]>0,counts
             if profile=='normal' and os.sys.platform.startswith('linux'):assert counts[1]>0 and counts[2]>0,counts
         finally:s.abort()
     return report
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'));p.add_argument('--optimization',type=int,choices=(0,2,3),action='append');p.add_argument('--adapter',choices=('c','llvm'),action='append');p.add_argument('--sanitize',action='store_true');p.add_argument('--soak',type=int,default=1000);p.add_argument('--report',type=Path);args=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'));p.add_argument('--runtime-root',type=Path);p.add_argument('--optimization',type=int,choices=(0,2,3),action='append');p.add_argument('--adapter',choices=('c','llvm'),action='append');p.add_argument('--sanitize',action='store_true');p.add_argument('--soak',type=int,default=1000);p.add_argument('--report',type=Path);args=p.parse_args()
     assert args.soak>=0
     clang=shutil.which(args.clang);assert clang,args.clang
-    repo=Path(__file__).resolve().parents[1];runtime=repo/'freakc/runtime'
+    repo=(args.runtime_root or Path(__file__).resolve().parents[1]).resolve();runtime=repo/'freakc/runtime'
+    pinned_paths=sorted(p for p in runtime.iterdir() if p.suffix in ('.c','.h','.inc'))
+    pinned_paths+=sorted(p for p in (repo/'third_party/llhttp').rglob('*') if p.is_file())
+    pinned={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths}
     env=os.environ.copy();env['ASAN_OPTIONS']='detect_leaks=1:halt_on_error=1';env['UBSAN_OPTIONS']='halt_on_error=1'
-    report={'runtime_sha256':hashlib.sha256((runtime/'freak_runtime.c').read_bytes()).hexdigest(),'http_sha256':hashlib.sha256((runtime/'freak_v35_http.inc').read_bytes()).hexdigest(),'clang':str(Path(clang).resolve()),'clang_sha256':hashlib.sha256(Path(clang).read_bytes()).hexdigest(),'clang_version':run([clang,'--version']).stdout.decode().splitlines()[0],'sanitize':args.sanitize,'matrices':[]}
+    report={'runtime_sha256':hashlib.sha256((runtime/'freak_runtime.c').read_bytes()).hexdigest(),'http_sha256':hashlib.sha256((runtime/'freak_v35_http.inc').read_bytes()).hexdigest(),'pinned_input_sha256':pinned,'clang':str(Path(clang).resolve()),'clang_sha256':hashlib.sha256(Path(clang).read_bytes()).hexdigest(),'clang_version':run([clang,'--version']).stdout.decode().splitlines()[0],'sanitize':args.sanitize,'matrices':[]}
     with tempfile.TemporaryDirectory(prefix='freak-http-floor-') as temporary:
         root=Path(temporary);h=root/'http.c';h.write_text(HARNESS)
         flags=['-lws2_32','-lshell32'] if os.name=='nt' else ['-lm','-pthread']
@@ -403,5 +430,7 @@ def main():
                 c=run(command);assert c.returncode==0,c.stderr.decode()
                 corpus=exercise(exe,env,args.soak);report['matrices'].append({'adapter':adapter,'optimization':opt,'corpus':corpus,'bind_stop_ownership':True,'controlled_errors':8})
                 print(f'PASS HTTP {adapter} O{opt}: {corpus}',flush=True)
+    assert pinned=={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths},'runtime inputs changed during verification'
+    report['pinned_inputs_unchanged']=True
     if args.report:args.report.parent.mkdir(parents=True,exist_ok=True);args.report.write_text(json.dumps(report,indent=2)+'\n')
 if __name__=='__main__':main()
