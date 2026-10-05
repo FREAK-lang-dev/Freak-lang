@@ -13,6 +13,7 @@ task v35_integer_arithmetic_symbol(operation: word) -> word {
 }
 
 task init_arrays() -> void {
+    reset_diagnostics()
     tok_types = array_new()
     tok_vals = array_new()
     tok_lines = array_new()
@@ -445,10 +446,12 @@ task source_map_reset() -> void {
         array_release(source_map_paths)
         array_release(source_map_starts)
         array_release(source_map_ends)
+        array_release(source_map_contents)
     }
     source_map_paths = array_new()
     source_map_starts = array_new()
     source_map_ends = array_new()
+    source_map_contents = array_new()
     source_map_count = 0
     source_map_next_line = 1
     source_map_initialized = true
@@ -463,6 +466,7 @@ task source_map_register(path: word, source: word) -> void {
         i += 1
     }
     array_push(source_map_paths, path)
+    array_push(source_map_contents, source)
     array_push(source_map_starts, word_from_int(source_map_next_line))
     array_push(source_map_ends, word_from_int(source_map_next_line + line_count - 1))
     source_map_count += 1
@@ -575,9 +579,111 @@ task friendly_tok(ttype: word, tval: word) -> word {
     give back "'" + tval + "'"
 }
 
--- Emit a Rust-style diagnostic and increment error counters.
--- Reads the current token position from parse_idx + tok_lines/tok_cols.
-task diag_error_at(msg: word, hint: word, source_file: word, line_n: int, col_n: int) -> void {
+-- Diagnostic facts carry explicit stable codes, never codes inferred from text.
+-- Source snapshots remain owned after source-map reset and failure cleanup.
+task reset_diagnostics() -> void {
+    if diag_fact_codes != 0 {
+        array_release(diag_fact_codes)
+        array_release(diag_fact_messages)
+        array_release(diag_fact_hints)
+        array_release(diag_fact_files)
+        array_release(diag_fact_lines)
+        array_release(diag_fact_columns)
+        array_release(diag_fact_source_indexes)
+        array_release(diag_source_paths)
+        array_release(diag_source_contents)
+    }
+    diag_fact_codes = 0
+    diag_fact_messages = 0
+    diag_fact_hints = 0
+    diag_fact_files = 0
+    diag_fact_lines = 0
+    diag_fact_columns = 0
+    diag_fact_source_indexes = 0
+    diag_source_paths = 0
+    diag_source_contents = 0
+    error_count = 0
+    parse_error_count = 0
+}
+
+task diag_fact_source_index(source_file: word) -> int {
+    pilot source = ""
+    pilot known = false
+    pilot index = source_map_count - 1
+    repeat until index < 0 or known {
+        if array_get(source_map_paths, index) == source_file {
+            source = array_get(source_map_contents, index)
+            known = true
+        }
+        index -= 1
+    }
+    if not known and source_file == input_file and source_file != "" and diagnostic_source != "" {
+        source = diagnostic_source
+        known = true
+    }
+    if not known { give back 0 - 1 }
+    index = 0
+    repeat array_len(diag_source_paths) times {
+        pilot recorded_file: word = array_get(diag_source_paths, index)
+        pilot recorded_source: word = array_get(diag_source_contents, index)
+        if recorded_file == source_file and recorded_source == source { give back index }
+        index += 1
+    }
+    array_push(diag_source_paths, source_file)
+    array_push(diag_source_contents, source)
+    give back index
+}
+
+task diag_record_fact(code: word, message: word, hint: word, source_file: word, line: int, column: int) -> void {
+    if diag_fact_codes == 0 {
+        diag_fact_codes = array_new()
+        diag_fact_messages = array_new()
+        diag_fact_hints = array_new()
+        diag_fact_files = array_new()
+        diag_fact_lines = array_new()
+        diag_fact_columns = array_new()
+        diag_fact_source_indexes = array_new()
+        diag_source_paths = array_new()
+        diag_source_contents = array_new()
+    }
+    if source_file == "" { source_file = input_file }
+    if line < 1 { line = 1 }
+    if column < 1 { column = 1 }
+    pilot source_index = 0 - 1
+    if code != "" { source_index = diag_fact_source_index(source_file) }
+    array_push(diag_fact_codes, code)
+    array_push(diag_fact_messages, message)
+    array_push(diag_fact_hints, hint)
+    array_push(diag_fact_files, source_file)
+    array_push(diag_fact_lines, word_from_int(line))
+    array_push(diag_fact_columns, word_from_int(column))
+    array_push(diag_fact_source_indexes, word_from_int(source_index))
+}
+
+task diag_fact_count() -> int {
+    if diag_fact_codes == 0 { give back 0 }
+    give back array_len(diag_fact_codes)
+}
+
+task diag_fact_valid(index: int) -> bool { give back index >= 0 and index < diag_fact_count() }
+task diag_fact_code(index: int) -> word { if not diag_fact_valid(index) { give back "" } give back array_get(diag_fact_codes, index) }
+task diag_fact_message(index: int) -> word { if not diag_fact_valid(index) { give back "" } give back array_get(diag_fact_messages, index) }
+task diag_fact_hint(index: int) -> word { if not diag_fact_valid(index) { give back "" } give back array_get(diag_fact_hints, index) }
+task diag_fact_file(index: int) -> word { if not diag_fact_valid(index) { give back "" } give back array_get(diag_fact_files, index) }
+task diag_fact_line(index: int) -> int { if not diag_fact_valid(index) { give back 0 } give back word_to_int(array_get(diag_fact_lines, index)) }
+task diag_fact_column(index: int) -> int { if not diag_fact_valid(index) { give back 0 } give back word_to_int(array_get(diag_fact_columns, index)) }
+task diag_fact_source_known(index: int) -> bool {
+    if not diag_fact_valid(index) { give back false }
+    give back word_to_int(array_get(diag_fact_source_indexes, index)) >= 0
+}
+task diag_fact_source(index: int) -> word {
+    if not diag_fact_source_known(index) { give back "" }
+    give back array_get(diag_source_contents, word_to_int(array_get(diag_fact_source_indexes, index)))
+}
+
+-- Canonical output is preserved separately from the optional coded facts.
+task diag_error_at_code(code: word, msg: word, hint: word, source_file: word, line_n: int, col_n: int) -> void {
+    diag_record_fact(code, msg, hint, source_file, line_n, col_n)
     error_count += 1
     parse_error_count += 1
     pilot src_line = get_file_source_line(source_file, line_n)
@@ -593,10 +699,14 @@ task diag_error_at(msg: word, hint: word, source_file: word, line_n: int, col_n:
     say ""
 }
 
-task diag_error(msg: word, hint: word) -> void {
-    -- Clamp index to valid range
+task diag_error_at(msg: word, hint: word, source_file: word, line_n: int, col_n: int) -> void {
+    diag_error_at_code("", msg, hint, source_file, line_n, col_n)
+}
+
+task diag_error_code(code: word, msg: word, hint: word) -> void {
     pilot tidx = parse_idx
     if tokens_count == 0 {
+        diag_record_fact(code, msg, hint, input_file, 1, 1)
         error_count += 1
         parse_error_count += 1
         say "\x1b[1;31merror\x1b[0m: " + msg
@@ -608,6 +718,8 @@ task diag_error(msg: word, hint: word) -> void {
     if tidx < 0 { tidx = 0 }
     pilot source_file: word = array_get(tok_origin_files, tidx)
     pilot line_n = word_to_int(array_get(tok_origin_lines, tidx))
-    pilot col_n  = word_to_int(array_get(tok_cols,  tidx))
-    diag_error_at(msg, hint, source_file, line_n, col_n)
+    pilot col_n = word_to_int(array_get(tok_cols, tidx))
+    diag_error_at_code(code, msg, hint, source_file, line_n, col_n)
 }
+
+task diag_error(msg: word, hint: word) -> void { diag_error_code("", msg, hint) }

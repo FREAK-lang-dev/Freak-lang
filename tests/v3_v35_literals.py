@@ -12,6 +12,7 @@ from v3_checked_parsing import build_stage2, run, sanitizer_env
 from v3_v35_language import require_ok
 
 POSITIVE = {
+ 'repeated_when_semicolons': ('''task main() { when 1 { ;;; 1 -> say "one";;; 2 -> say "two";;; }; }''', 'one\n'),
  'escapes': (r'''task main() { say "a\nb\tc\rd\"e\\f"; say "\x419"; say "\\x41"; }''', 'a\nb\tc\rd"e\\f\nA9\n\\x41\n'),
  'escaped_expression_braces': (r'''task main() { say "\{guess * 2\}"; say "\{f(x)\}"; say "\{missing\}"; }''', '{guess * 2}\n{f(x)}\n{missing}\n'),
  'json_literal': (r'''task main() { say "{\"guess\":2}"; say "{key: value}"; say "{}"; }''', '{"guess":2}\n{key: value}\n{}\n'),

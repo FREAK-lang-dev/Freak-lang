@@ -18,6 +18,7 @@ from v3_v35_language import require_ok, run
 
 
 PROGRAM = '''task main() {
+    pilot native_platform: word = process::platform_name()
     pilot terminal: bool = process::stdout_is_terminal()
     pilot windows: bool = process::platform_is_windows()
     pilot executable: word = process::executable_path()
@@ -58,6 +59,13 @@ OPERATIONS = (
 )
 
 NEGATIVE = {
+    "platform_name_type": (
+        'pilot platform: int = process::platform_name()',
+        "cannot initialize int binding 'platform' with word", False,
+    ),
+    "platform_name_arity": (
+        'process::platform_name(1)', "expects 0 argument(s), got 1", False,
+    ),
     "terminal_is_bool": (
         'pilot terminal: int = process::stdout_is_terminal()',
         "cannot initialize int binding 'terminal' with bool", False,
@@ -135,6 +143,10 @@ def main() -> int:
             assert terminal_symbol + "(" in emitted, (backend, "stdout_is_terminal", emitted)
             if backend == "llvm":
                 assert any("call " in line and terminal_symbol + "(" in line for line in emitted.splitlines()), (backend, "stdout_is_terminal", emitted)
+            name_symbol = "freak_process_platform_name" if backend == "c" else "@freak_llvm_process_platform_name"
+            assert name_symbol + "(" in emitted, (backend, "platform_name", emitted)
+            if backend == "llvm":
+                assert any("call " in line and name_symbol + "(" in line for line in emitted.splitlines()), (backend, "platform_name", emitted)
             platform_symbol = "freak_process_platform_is_windows" if backend == "c" else "@freak_llvm_process_platform_is_windows"
             assert platform_symbol + "(" in emitted, (backend, "platform_is_windows", emitted)
             if backend == "llvm":

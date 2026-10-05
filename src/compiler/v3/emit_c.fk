@@ -539,6 +539,7 @@ task emit_c_borrowing_call(expr_id: word, func_name: word, args: word) -> void {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task c_map_call(val: word) -> word {
+    if val == "process::platform_name" { give back "freak_process_platform_name" }
     if val == "process::stdout_is_terminal" { give back "freak_process_stdout_is_terminal" }
     if val == "process::platform_is_windows" { give back "freak_process_platform_is_windows" }
     if val == "process::executable_path" { give back "freak_process_executable_path" }

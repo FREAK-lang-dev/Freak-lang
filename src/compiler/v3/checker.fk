@@ -207,7 +207,7 @@ task bc_walk_branches(then_body: word, else_body: word, then_name: word, else_na
 -- The borrow checker runs after parsing, so diagnostics use the current
 -- statement's stored source provenance rather than the exhausted token cursor.
 
-task bc_diag(msg: word, name: word, line: int) -> void {
+task bc_diag_code(code: word, msg: word, name: word, line: int) -> void {
     error_count += 1
     if line <= 0 { line = 1 }
     pilot source_file = bc_current_source_file
@@ -215,6 +215,7 @@ task bc_diag(msg: word, name: word, line: int) -> void {
     pilot at_name: word = ""
     if name != "" { at_name = " '" + name + "'" }
     pilot line_word = word_from_int(line)
+    diag_record_fact(code, msg + at_name, "", source_file, line, 1)
     say "\x1b[1;31mborrowck\x1b[0m: " + msg + at_name + " (line " + line_word + ")"
     say " --> " + source_file + ":" + line_word + ":1"
     say line_word + " | " + get_file_source_line(source_file, line)
@@ -223,11 +224,13 @@ task bc_diag(msg: word, name: word, line: int) -> void {
 
 -- Anime-voiced canonical messages from Bible §4.1, §4.2.
 task bc_err_use_after_move(name: word, line: int) -> void {
-    bc_diag("Shirogane. You gave this away. It no longer belongs to you.", name, line)
+    bc_diag_code("E0003", "Shirogane. You gave this away. It no longer belongs to you.", name, line)
 }
 
+task bc_diag(msg: word, name: word, line: int) -> void { bc_diag_code("", msg, name, line) }
+
 task bc_err_assign_immut(name: word, line: int) -> void {
-    bc_diag("This binding was sworn to silence. It cannot be reassigned.", name, line)
+    bc_diag_code("E0004", "This binding was sworn to silence. It cannot be reassigned.", name, line)
 }
 
 -- ---------- Expression walk -----------------------------------------
@@ -951,6 +954,7 @@ task tc_profile_helper_allowed(name: word) -> bool {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    if name == "process::platform_name" { give back "word" }
     if name == "process::stdout_is_terminal" { give back "bool" }
     if name == "process::platform_is_windows" { give back "bool" }
     if name == "process::executable_path" { give back "word" }
@@ -1129,6 +1133,7 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "process::platform_name" { give back "" }
     if name == "process::stdout_is_terminal" { give back "" }
     if name == "process::platform_is_windows" { give back "" }
     if name == "process::executable_path" { give back "" }
@@ -1537,13 +1542,16 @@ task tc_has_impl_method(shape_name: word, method_name: word) -> bool {
     give back entry >= 0 and array_get(tc_callable_extras, entry) == "impl:" + shape_name and tc_callable_is_instance(entry)
 }
 
-task tc_diag(message: word, line: int, source_file: word) -> void {
+task tc_diag_code(code: word, message: word, line: int, source_file: word) -> void {
+    diag_record_fact(code, message, "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: " + message + " (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
     say word_from_int(line) + " | " + get_file_source_line(source_file, line)
     say "  | ^"
 }
+
+task tc_diag(message: word, line: int, source_file: word) -> void { tc_diag_code("", message, line, source_file) }
 
 task tc_expr_diag_line(expr_id: int, fallback: int) -> int {
     if expr_id >= 0 and expr_id < array_len(ast_expr_lines) {
@@ -1562,6 +1570,7 @@ task tc_expr_diag_file(expr_id: int, fallback: word) -> word {
 }
 
 task tc_diag_member(shape_name: word, member_kind: word, member_name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0002", "shape '" + shape_name + "' has no " + member_kind + " '" + member_name + "' (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: shape '" + shape_name + "' has no " + member_kind + " '" + member_name + "' (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1570,6 +1579,7 @@ task tc_diag_member(shape_name: word, member_kind: word, member_name: word, line
 }
 
 task tc_diag_non_shape_field(line: int, source_file: word) -> void {
+    diag_record_fact("E0002", "non-shape value has no fields (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: non-shape value has no fields (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1578,6 +1588,7 @@ task tc_diag_non_shape_field(line: int, source_file: word) -> void {
 }
 
 task tc_diag_unknown_field_receiver(field_name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0002", "cannot resolve the receiver type for field '" + field_name + "' (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: cannot resolve the receiver type for field '" + field_name + "' (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1586,6 +1597,7 @@ task tc_diag_unknown_field_receiver(field_name: word, line: int, source_file: wo
 }
 
 task tc_diag_unknown_method_receiver(method_name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0002", "cannot resolve the receiver type for method '" + method_name + "' (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: cannot resolve the receiver type for method '" + method_name + "' (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1594,6 +1606,7 @@ task tc_diag_unknown_method_receiver(method_name: word, line: int, source_file: 
 }
 
 task tc_diag_non_shape_method(method_name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "non-shape value has no method '" + method_name + "' (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: non-shape value has no method '" + method_name + "' (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1602,6 +1615,7 @@ task tc_diag_non_shape_method(method_name: word, line: int, source_file: word) -
 }
 
 task tc_diag_method_arity(method_name: word, expected: int, actual: int, line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "method '" + method_name + "' expects " + word_from_int(expected) + " argument(s), got " + word_from_int(actual) + " (line " + word_from_int(line) + ")", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: method '" + method_name + "' expects " + word_from_int(expected) + " argument(s), got " + word_from_int(actual) + " (line " + word_from_int(line) + ")"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1610,6 +1624,7 @@ task tc_diag_method_arity(method_name: word, expected: int, actual: int, line: i
 }
 
 task tc_diag_reserved_extern(name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "extern symbol '" + name + "' uses the compiler-reserved '__freak_' prefix", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: extern symbol '" + name + "' uses the compiler-reserved '__freak_' prefix"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1618,6 +1633,7 @@ task tc_diag_reserved_extern(name: word, line: int, source_file: word) -> void {
 }
 
 task tc_diag_builtin_callable(name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "callable '" + name + "' conflicts with a compiler builtin", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: callable '" + name + "' conflicts with a compiler builtin"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1626,6 +1642,7 @@ task tc_diag_builtin_callable(name: word, line: int, source_file: word) -> void 
 }
 
 task tc_diag_process_args_v3(line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "process::args() has no List<word> ABI in V3; use process::args_count() and process::arg(index)", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: process::args() has no List<word> ABI in V3; use process::args_count() and process::arg(index)"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1634,6 +1651,7 @@ task tc_diag_process_args_v3(line: int, source_file: word) -> void {
 }
 
 task tc_diag_duplicate_callable(name: word, line: int, source_file: word) -> void {
+    diag_record_fact("E0005", "callable '" + name + "' conflicts with another task or extern declaration", "", source_file, line, 1)
     error_count += 1
     say "\x1b[1;31mtype error\x1b[0m: callable '" + name + "' conflicts with another task or extern declaration"
     say " --> " + source_file + ":" + word_from_int(line) + ":1"
@@ -1656,7 +1674,7 @@ task tc_validate_type_args(label: word, args: word, expected_types: word, line: 
     pilot actual_count = tc_arg_count(args)
     pilot expected_count = tc_arg_count(expected_types)
     if actual_count != expected_count {
-        tc_diag(label + " expects " + word_from_int(expected_count) + " argument(s), got " + word_from_int(actual_count), line, source_file)
+        tc_diag_code("E0005", label + " expects " + word_from_int(expected_count) + " argument(s), got " + word_from_int(actual_count), line, source_file)
     }
     pilot common = actual_count
     if expected_count < common { common = expected_count }
@@ -1666,9 +1684,9 @@ task tc_validate_type_args(label: word, args: word, expected_types: word, line: 
         pilot actual_type = tc_expr_type(actual_id)
         pilot expected_type = tc_list_item(expected_types, i)
         if actual_type == "" {
-            tc_diag(label + " argument " + word_from_int(i + 1) + " has an unresolved type", tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
+            tc_diag_code("E0002", label + " argument " + word_from_int(i + 1) + " has an unresolved type", tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
         } else if not tc_type_assignable(expected_type, actual_type) {
-            tc_diag(label + " argument " + word_from_int(i + 1) + " expects " + expected_type + ", got " + actual_type, tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
+            tc_diag_code("E0002", label + " argument " + word_from_int(i + 1) + " expects " + expected_type + ", got " + actual_type, tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
         }
         i += 1
     }
@@ -1679,7 +1697,7 @@ task tc_validate_param_args(label: word, args: word, params: word, offset: int, 
     pilot expected_count = tc_arg_count(params) - offset
     if expected_count < 0 { expected_count = 0 }
     if actual_count != expected_count {
-        tc_diag(label + " expects " + word_from_int(expected_count) + " argument(s), got " + word_from_int(actual_count), line, source_file)
+        tc_diag_code("E0005", label + " expects " + word_from_int(expected_count) + " argument(s), got " + word_from_int(actual_count), line, source_file)
     }
     pilot common = actual_count
     if expected_count < common { common = expected_count }
@@ -1695,9 +1713,9 @@ task tc_validate_param_args(label: word, args: word, params: word, offset: int, 
         pilot compatible = tc_type_assignable(expected_type, actual_type)
         if raw_i64_abi { compatible = tc_type_assignable("any", actual_type) }
         if actual_type == "" {
-            tc_diag(label + " argument " + word_from_int(i + 1) + " has an unresolved type", tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
+            tc_diag_code("E0002", label + " argument " + word_from_int(i + 1) + " has an unresolved type", tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
         } else if expected_type != "" and not compatible {
-            tc_diag(label + " argument " + word_from_int(i + 1) + " expects " + expected_type + ", got " + actual_type, tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
+            tc_diag_code("E0002", label + " argument " + word_from_int(i + 1) + " expects " + expected_type + ", got " + actual_type, tc_expr_diag_line(actual_id, line), tc_expr_diag_file(actual_id, source_file))
         }
         i += 1
     }
@@ -1742,7 +1760,7 @@ task tc_validate_interp_path(expr_id: int, line: int, source_file: word) -> word
     pilot val: word = array_get(ast_expr_vals, expr_id)
     if kind == EXPR_IDENT {
         if not tc_has_binding(val) {
-            tc_diag("unknown interpolation binding '" + val + "'", line, source_file)
+            tc_diag_code("E0001", "unknown interpolation binding '" + val + "'", line, source_file)
             give back ""
         }
         give back tc_lookup_type(val)
@@ -1806,7 +1824,7 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
     pilot right: word = array_get(ast_expr_rights, expr_id)
     if kind == EXPR_INT {
         if not tc_integer_literal_legal(val) {
-            tc_diag("integer literal is outside the signed 64-bit range", line, source_file)
+            tc_diag_code("E0008", "integer literal is outside the signed 64-bit range", line, source_file)
         }
         give back
     }
@@ -1826,7 +1844,7 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         give back
     }
     if kind == EXPR_IDENT {
-        if not tc_has_binding(val) { tc_diag("unknown binding '" + val + "'", line, source_file) }
+        if not tc_has_binding(val) { tc_diag_code("E0001", "unknown binding '" + val + "'", line, source_file) }
         give back
     }
     if kind == EXPR_FIELD {
@@ -1921,7 +1939,7 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         } else if tc_builtin_call_type(val) != "" {
             tc_validate_type_args("call to '" + val + "'", left, tc_builtin_call_params(val), line, source_file)
         } else {
-            tc_diag("unknown callable '" + val + "'", line, source_file)
+            tc_diag_code("E0005", "unknown callable '" + val + "'", line, source_file)
         }
         give back
     }
@@ -1969,7 +1987,7 @@ task tc_validate_expr(expr_id: int, line: int) -> void {
         pilot base_type = tc_expr_type(base_id)
         pilot index_type = tc_expr_type(index_id)
         if base_type != "" and base_type != "word" and not tc_is_list(base_type) { tc_diag("indexing requires a List or word value", tc_expr_diag_line(base_id, line), tc_expr_diag_file(base_id, source_file)) }
-        if index_type != "" and index_type != "int" { tc_diag("index must have type int, got " + index_type, tc_expr_diag_line(index_id, line), tc_expr_diag_file(index_id, source_file)) }
+        if index_type != "" and index_type != "int" { tc_diag_code("E0002", "index must have type int, got " + index_type, tc_expr_diag_line(index_id, line), tc_expr_diag_file(index_id, source_file)) }
     }
 }
 
@@ -2895,7 +2913,7 @@ task tc_validate_stmt(stmt_id: int) -> void {
         } else if is_empty_list_init and not tc_is_scalar(tc_list_element(binding_type)) and not is_shape_name(tc_list_element(binding_type)) {
             tc_diag("unsupported list element type '" + tc_list_element(binding_type) + "'", tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file))
         } else if value_type != "" and not tc_type_assignable(binding_type, value_type) {
-            tc_diag("cannot initialize " + binding_type + " binding '" + binding_name + "' with " + value_type, tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file))
+            tc_diag_code("E0002", "cannot initialize " + binding_type + " binding '" + binding_name + "' with " + value_type, tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file))
         }
         if binding_type == "" { tc_diag("cannot infer a value type for binding '" + binding_name + "'", tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file)) }
         if value_type == "void" { tc_diag("binding initializer cannot have type void", tc_expr_diag_line(expr_id, line), tc_expr_diag_file(expr_id, source_file)) }
@@ -2909,7 +2927,7 @@ task tc_validate_stmt(stmt_id: int) -> void {
         tc_validate_expr(left_id, line)
         tc_validate_expr(right_id, line)
         if tc_assignment_root_mode(left_id) == "fixed" {
-            tc_diag("fixed binding cannot be modified", line, source_file)
+            tc_diag_code("E0004", "fixed binding cannot be modified", line, source_file)
         }
         if array_get(ast_expr_kinds, left_id) == EXPR_IDENT {
             pilot name: word = array_get(ast_expr_vals, left_id)
@@ -2917,7 +2935,7 @@ task tc_validate_stmt(stmt_id: int) -> void {
             pilot found = false
             repeat until index < 0 or found {
                 if array_get(tc_local_names, index) == name {
-                    if array_get(tc_local_mut, index) == "loop" { tc_diag("iteration binding '" + name + "' is immutable", line, source_file) }
+                    if array_get(tc_local_mut, index) == "loop" { tc_diag_code("E0004", "iteration binding '" + name + "' is immutable", line, source_file) }
                     found = true
                 }
                 index -= 1
@@ -2943,13 +2961,13 @@ task tc_validate_stmt(stmt_id: int) -> void {
             -- it where the destination is a word list; anything else would
             -- silently install wrongly-kind storage.
             if rhs_untyped_empty and left_type != "" and not (tc_is_list(left_type) and tc_list_element(left_type) == "word") {
-                tc_diag("cannot assign " + rhs_val + "() to " + left_type + " without a known element type", tc_expr_diag_line(right_id, line), tc_expr_diag_file(right_id, source_file))
+                tc_diag_code("E0002", "cannot assign " + rhs_val + "() to " + left_type + " without a known element type", tc_expr_diag_line(right_id, line), tc_expr_diag_file(right_id, source_file))
             }
         }
         if left_type != "" and right_type != "" {
             if op == "=" {
                 if not tc_type_assignable(left_type, right_type) {
-                    tc_diag("cannot assign " + right_type + " to " + left_type, tc_expr_diag_line(right_id, line), tc_expr_diag_file(right_id, source_file))
+                    tc_diag_code("E0002", "cannot assign " + right_type + " to " + left_type, tc_expr_diag_line(right_id, line), tc_expr_diag_file(right_id, source_file))
                 }
             } else {
                 pilot result_type = tc_compound_result_type(op, left_type, right_type)
@@ -3021,7 +3039,7 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot condition_id = word_to_int(expr)
         tc_validate_expr(condition_id, line)
         pilot condition_type = tc_expr_type(condition_id)
-        if condition_type != "" and condition_type != "bool" { tc_diag("if condition must have type bool, got " + condition_type, tc_expr_diag_line(condition_id, line), tc_expr_diag_file(condition_id, source_file)) }
+        if condition_type != "" and condition_type != "bool" { tc_diag_code("E0002", "if condition must have type bool, got " + condition_type, tc_expr_diag_line(condition_id, line), tc_expr_diag_file(condition_id, source_file)) }
         tc_validate_block(array_get(ast_stmt_bodies, stmt_id))
         tc_validate_block(array_get(ast_stmt_else_bodies, stmt_id))
         give back
@@ -3204,7 +3222,7 @@ task tc_run_program() -> void {
         i += 1
     }
     if not v35_bootstrap_compat and tc_callable_entry("main") < 0 {
-        tc_diag("program requires a usable task main() entry", source_map_local_line(1), source_map_file(1))
+        tc_diag_code("E0005", "program requires a usable task main() entry", source_map_local_line(1), source_map_file(1))
     }
     i = 0
     -- Global initialization is emitted strictly in source order. Infer each

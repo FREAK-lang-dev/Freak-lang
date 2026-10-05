@@ -118,7 +118,8 @@ task lex_number() -> void {
     }
     push_token(TOK_NUM, res)
     if dot_count > 1 {
-        diag_error_at(
+        diag_error_at_code(
+            "E0007",
             "malformed numeric literal '" + res + "'",
             "a numeric literal may contain only one decimal point",
             source_map_file(cur_tok_line),
