@@ -169,7 +169,12 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
             assert not (root / "escape").exists(), (name, "package escaped project")
             assert not (cwd / "owned").exists(), (name, "shell syntax executed")
             assert not list((cwd / "hangar_modules").glob(".hangar-stage-*")), (name, "owned stage left behind")
-            assert not (cwd / "hangar_modules" / ".hangar-install.lock").exists(), (name, "operation lock left behind")
+            marker = cwd / "hangar_modules" / ".hangar-operations" / "install.lock"
+            if marker.exists():
+                assert marker.is_file() and not marker.is_symlink(), (name, "operation lock marker is unsafe")
+                if os.name != "nt":
+                    assert marker.stat().st_mode & 0o777 == 0o600, (name, "operation lock marker is not private")
+                    assert marker.parent.stat().st_mode & 0o777 == 0o700, (name, "operation lock parent is not private")
             if name == "failed-git-after-output":
                 assert (cwd / "git-partial-proof").read_text() == "wrote stage before returning\n"
                 retry_env = env.copy()
@@ -180,7 +185,9 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
                 assert retry.returncode == 0 and "INSTALLED" in retry_output, retry_output
                 assert (cwd / "hangar_modules" / "missing" / "partial.fk").is_file(), retry_output
                 assert not list((cwd / "hangar_modules").glob(".hangar-stage-*")), retry_output
-                assert not (cwd / "hangar_modules" / ".hangar-install.lock").exists(), retry_output
+                # A successful retry proves that the persistent marker is not
+                # mistaken for active ownership of the held operating-system lock.
+                assert (cwd / "hangar_modules" / ".hangar-operations" / "install.lock").is_file(), retry_output
                 print(f"native:{invocation}:failed-git-retry:passed")
             if name == "literal-git-metacharacters":
                 data = report.read_bytes()

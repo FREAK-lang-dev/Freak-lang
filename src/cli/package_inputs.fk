@@ -168,41 +168,36 @@ task package_collect_declared_inputs(node: int, manifest_file: word) -> bool {
     give back true
 }
 
-task package_write_staged_input(stage: word, relative: word, bytes: ByteBuffer) -> bool {
-    pilot current = stage
-    pilot component = ""
+task package_write_staged_input(stage_ticket: int, relative: word, bytes: ByteBuffer, created: int) -> bool {
+    -- Parents are created once within the held, privately owned staging root.
+    -- A path supplied by a tool is never a write or recursive cleanup authority.
+    pilot prefix = ""
     pilot index = 0
     repeat until index >= relative.length() {
         pilot ch = relative.char_at(index)
         if ch == "/" {
-            current = current + "/" + component
-            pilot info = fs::stat_checked(current)
-            pilot exists = fs::result_ok(info)
-            pilot directory = false
-            if exists { directory = fs::result_kind(info) == 2 }
-            fs::result_release(info)
-            if exists {
-                if not directory { hangar_graph_fail("owned staged input parent is not an ordinary directory: " + current) give back false }
-            } else {
-                pilot created = fs::mkdir_checked(current)
-                pilot made = fs::result_ok(created)
-                if not made { hangar_graph_fail("cannot create owned staged input parent: " + fs::result_error(created)) }
-                fs::result_release(created)
-                if not made { give back false }
+            if not toml_arr_contains(created, array_len(created), prefix) {
+                pilot directory = fs::mkdir_relative_checked(stage_ticket, prefix)
+                pilot complete = fs::result_ok(directory)
+                if not complete { hangar_graph_fail("cannot create anchored staged input parent: " + fs::result_error(directory)) }
+                fs::result_release(directory)
+                if not complete { give back false }
+                array_push(created, prefix)
             }
-            component = ""
-        } else { component = component + ch }
+        }
+        prefix = prefix + ch
         index += 1
     }
-    pilot written = fs::write_bytes_checked(stage + "/" + relative, bytes)
+    pilot written = fs::write_relative_bytes_checked(stage_ticket, relative, bytes)
     pilot complete = fs::result_ok(written)
-    if not complete { hangar_graph_fail("cannot write owned staged input: " + fs::result_error(written)) }
+    if not complete { hangar_graph_fail("cannot write anchored staged input: " + fs::result_error(written)) }
     fs::result_release(written)
     give back complete
 }
 
-task package_hash_declared_inputs(node: int, root: word, manifest_file: word, stage: word) -> word {
+task package_hash_declared_inputs_rooted(node: int, root_ticket: int, manifest_file: word, stage_ticket: int) -> word {
     if not package_collect_declared_inputs(node, manifest_file) { give back "" }
+    pilot created = array_new()
     pilot canonical: ByteBuffer = ByteBuffer::new()
     canonical.write_word("FREAK-source-input-tree-v2\n")
     canonical.write_int_be(array_len(package_pending_paths))
@@ -210,64 +205,79 @@ task package_hash_declared_inputs(node: int, root: word, manifest_file: word, st
     pilot valid = true
     repeat until index >= array_len(package_pending_paths) or not valid {
         pilot relative = array_get(package_pending_paths, index)
-        pilot path = package_checked_file(root, relative)
-        if path == "" { valid = false } else {
-            pilot info = fs::stat_checked(path)
-            pilot bounded = fs::result_ok(info) and fs::result_kind(info) == 1 and fs::result_size(info) <= package_input_file_limit
-            fs::result_release(info)
-            if not bounded {
-                hangar_graph_fail("declared input exceeds its per-file byte limit: " + relative)
-                valid = false
-            } else {
-                pilot contents = fs::read_bytes_ticket(path)
-                if not fs::result_ok(contents) {
-                    hangar_graph_fail("cannot read declared input " + relative + ": " + fs::result_error(contents))
+        pilot limit = package_input_file_limit
+        if package_input_total_limit - package_input_total_bytes < limit { limit = package_input_total_limit - package_input_total_bytes }
+        pilot contents = fs::read_relative_bytes_limit_ticket(root_ticket, relative, limit)
+        if not fs::result_ok(contents) {
+            hangar_graph_fail("declared input requires an ordinary file without symlinks within its byte limit: " + relative + ": " + fs::result_error(contents))
+            valid = false
+        } else {
+            pilot bytes: ByteBuffer = fs::result_bytes(contents)
+            pilot length = bytes.length()
+            if array_get(package_pending_roles, index) == "manifest" {
+                pilot admitted: ByteBuffer = ByteBuffer::new()
+                admitted.write_word(array_get(hangar_graph_contents, node))
+                if length != admitted.length() or fs::sha256_bytes(bytes) != fs::sha256_bytes(admitted) {
+                    hangar_graph_fail("manifest changed after graph admission: " + relative)
                     valid = false
-                } else {
-                    pilot bytes: ByteBuffer = fs::result_bytes(contents)
-                    pilot length = bytes.length()
-                    if array_get(package_pending_roles, index) == "manifest" {
-                        pilot admitted: ByteBuffer = ByteBuffer::new()
-                        admitted.write_word(array_get(hangar_graph_contents, node))
-                        if length != admitted.length() or fs::sha256_bytes(bytes) != fs::sha256_bytes(admitted) {
-                            hangar_graph_fail("manifest changed after graph admission: " + relative)
-                            valid = false
-                        }
-                        admitted.release()
-                    }
-                    if length > package_input_file_limit or package_input_total_bytes + length > package_input_total_limit {
-                        hangar_graph_fail("declared input graph exceeds its byte limit: " + relative)
-                        valid = false
-                    } else if valid {
-                        if stage != "" { valid = package_write_staged_input(stage, relative, bytes) }
-                        if valid {
-                            pilot logical: ByteBuffer = ByteBuffer::new()
-                            logical.write_word(relative)
-                            canonical.write_int_be(logical.length())
-                            logical.release()
-                            canonical.write_word(relative)
-                            canonical.write_int_be(1)
-                            canonical.write_int_be(0)
-                            canonical.write_int_be(length)
-                            bytes.seek(0)
-                            repeat until bytes.remaining() == 0 { canonical.write_byte(bytes.read_byte()) }
-                            array_push(package_input_nodes, word_from_int(node))
-                            array_push(package_input_paths, relative)
-                            array_push(package_input_hashes, fs::sha256_bytes(bytes))
-                            array_push(package_input_lengths, word_from_int(length))
-                            array_push(package_input_roles, array_get(package_pending_roles, index))
-                            package_input_total_bytes += length
-                        }
-                    }
-                    bytes.release()
                 }
-                fs::result_release(contents)
+                admitted.release()
             }
+            if length > package_input_file_limit or package_input_total_bytes + length > package_input_total_limit {
+                hangar_graph_fail("declared input graph exceeds its byte limit: " + relative)
+                valid = false
+            } else if valid {
+                if stage_ticket != 0 { valid = package_write_staged_input(stage_ticket, relative, bytes, created) }
+                if valid {
+                    pilot logical: ByteBuffer = ByteBuffer::new()
+                    logical.write_word(relative)
+                    canonical.write_int_be(logical.length())
+                    logical.release()
+                    canonical.write_word(relative)
+                    canonical.write_int_be(1)
+                    canonical.write_int_be(0)
+                    canonical.write_int_be(length)
+                    bytes.seek(0)
+                    repeat until bytes.remaining() == 0 { canonical.write_byte(bytes.read_byte()) }
+                    array_push(package_input_nodes, word_from_int(node))
+                    array_push(package_input_paths, relative)
+                    array_push(package_input_hashes, fs::sha256_bytes(bytes))
+                    array_push(package_input_lengths, word_from_int(length))
+                    array_push(package_input_roles, array_get(package_pending_roles, index))
+                    package_input_total_bytes += length
+                }
+            }
+            bytes.release()
         }
+        fs::result_release(contents)
         index += 1
     }
     pilot hash = ""
     if valid and canonical.status() == 0 { hash = fs::sha256_bytes(canonical) } else if hangar_graph_error == "" { hangar_graph_fail("canonical input assembly failed") }
     canonical.release()
+    array_release(created)
+    give back hash
+}
+
+task package_hash_declared_inputs(node: int, root: word, manifest_file: word, stage: word) -> word {
+    pilot anchored_root = fs::open_dir_ticket(root)
+    if not fs::result_ok(anchored_root) {
+        hangar_graph_fail("cannot open declared source root: " + fs::result_error(anchored_root))
+        fs::result_release(anchored_root)
+        give back ""
+    }
+    pilot anchored_stage = 0
+    if stage != "" {
+        anchored_stage = fs::open_dir_ticket(stage)
+        if not fs::result_ok(anchored_stage) {
+            hangar_graph_fail("cannot open declared staging root: " + fs::result_error(anchored_stage))
+            fs::result_release(anchored_stage)
+            fs::result_release(anchored_root)
+            give back ""
+        }
+    }
+    pilot hash = package_hash_declared_inputs_rooted(node, anchored_root, manifest_file, anchored_stage)
+    if anchored_stage != 0 { fs::result_release(anchored_stage) }
+    fs::result_release(anchored_root)
     give back hash
 }
