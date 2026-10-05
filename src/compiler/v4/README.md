@@ -299,6 +299,38 @@ sealed-module stability. The numeric gate restores its original 13-body snapshot
 at 64 MiB/1,024 handles and verifies the freshly emitted module byte-for-byte.
 Hosted integration and platform results remain pending.
 
+### Training caps and completed conditional chains
+
+Built-MIR construction gives each training arc a distinct typed session
+counter. It evaluates the until condition first and reevaluates the cap only
+on the false edge. Normal completion and `continue` share an increment
+epilogue; `break` and return keep their terminal exits. The heading suffix is
+matched from the right, and an admitted local named `sessions` remains a
+binary operand. Existing numeric-cap admission and growth diagnostics remain.
+
+Ordinary fully returning if/else-if/else chains use checked construction
+compaction before publication. Later source is checked through a private
+diagnostic continuation. Conditional statement ranges also preserve same-line
+tail statements, quoted tokens, nested branches and malformed-header recovery.
+The strict live, detached snapshot and native CFG validators remain active.
+Other source forms retain their existing statement-boundary behavior.
+
+The two compiler fixtures have 33 process-isolated contracts under the
+original 60-second/64-MiB/1024-handle limits. The native gate runs 26 programs
+at O0/O2/O3, seven adverse contracts and both ownership audits. Default mode
+requires real ASan/UBSan controls. It retains source, sealed/restored LLVM,
+compiler images, commands, raw outputs and a report in a fresh work directory.
+
+```powershell
+python -B -u src/compiler/v4/check_v4.py --smoke mir_training_cap_contract --smoke mir_if_terminal_contract
+python -B -u tests/v4_training_if_native.py --plain --work build/training-if-plain
+python -B -u tests/v4_training_if_native.py --work build/training-if-sanitized
+```
+
+Hosted CI runs plain mode on Linux/macOS/Windows and mandatory sanitizer mode
+on Linux, preserving each evidence directory even on failure. This checkpoint
+does not complete default unwind or the Runtime MIR ownership transform.
+
 ### Retained literal-only API (W1)
 
 The retained legacy `v4_codegen_llvm_lower_mir` entrypoint supports `say` of one static string literal:

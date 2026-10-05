@@ -294,13 +294,13 @@ parity. This does not claim native C UI support or general collection fields.
 
 | Contract | Status | Verdict | Notes |
 |---|---|---|---|
-| `if`/`else` | ✅ | ✅ | |
+| `if`/`else` | ✅ | ✅ | V4 terminal else-if chains compact completed joins before publication; same-line following statements retain checking and execution. Closed native and hostile-snapshot contracts preserve strict CFG admission. |
 | `when` pattern matching with literal patterns | ⚠️ | 📖 V4 | V4 also lowers tuple, fixed-array, and route/variant payload patterns; production V3 remains narrower |
 | `when` pattern destructuring `Variant::Case { field }` | ⚠️ | 📖 V4 | V4 carries payload destructuring, refutable-pattern checks, exhaustive route/variant `when`, and alias-backed duplicate/unreachable diagnostics; broader pattern ergonomics still expand |
 | `for each item in list` | ⚠️ | 📖 V4 | The phrase is lexed, but shipping V3 has no executable `for each` statement path. |
 | `repeat N times` | ✅ | ✅ | |
 | `repeat until condition` | ✅ | ✅ | |
-| `training arc until cond max N sessions` | ✅ | ✅ | parsed and emitted as bounded while |
+| `training arc until cond max N sessions` | ✅ | ✅ | V4 Built-MIR owns the counter, condition-first/re-evaluated cap and shared `continue` increment. Eighteen training programs pass O0/O2/O3 with native ownership and sanitizer controls; an admitted `sessions` local no longer obscures the heading suffix. V3 native evaluates its cap once, an explicit parity difference. |
 | `training arc with growth` variant | ⚠️ | 📖 V4 | V4 MIR enforces condition-subject mutation for local and projected places; full production backend parity still pending |
 | `prob_when expr { >= 0.9 -> ... }` | ❌ | 📖 V4 | not parsed |
 | `break`/`continue` | ✅ | ✅ | |
