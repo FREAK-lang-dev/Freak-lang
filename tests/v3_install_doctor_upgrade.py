@@ -257,7 +257,7 @@ def check_static_contracts(repo: Path) -> None:
     assert "unresolved WinGet placeholder" in release_text
     assert "dist/freak/runtime/freak_runtime.o" not in release_text
     assert "packaging/distribution-files.manifest text eol=lf" in attributes_text
-    assert 'doc["checks"]["stdlib"]["modules_expected"] == 14' in ci_text
+    assert 'doc["checks"]["stdlib"]["modules_expected"] == 15' in ci_text
     for needle in (
         "task hangar_install_freak() -> int",
         "FREAK_UPGRADE_SCRIPT",
@@ -266,7 +266,7 @@ def check_static_contracts(repo: Path) -> None:
     ):
         assert needle in hangar_text, f"upgrade path missing {needle}"
     for needle in (
-        "modules_expected\\\": 14",
+        "modules_expected\\\": 15",
         "ui/window.fk",
         "scoop install mingw-mstorsjo-llvm-ucrt",
         "FREAK_DOCTOR_INSTALL_COMMAND",
@@ -1599,8 +1599,8 @@ def check_doctor(
     assert report["checks"]["runtime"]["files_expected"] == len(
         [destination for _, destination in manifest_entries(repo) if destination.startswith("runtime/")]
     )
-    assert report["checks"]["stdlib"]["modules_found"] == 14
-    assert report["checks"]["stdlib"]["modules_expected"] == 14
+    assert report["checks"]["stdlib"]["modules_found"] == 15
+    assert report["checks"]["stdlib"]["modules_expected"] == 15
     assert report["checks"]["abi"] == {
         "ok": True,
         "expected": "freak-v3-abi-1",

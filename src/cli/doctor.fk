@@ -265,6 +265,7 @@ task cli_doctor_std_module_count(std_dir: word) -> int {
     if fs::exists(std_dir + "/http_server.fk") { mod_count += 1 }
     if fs::exists(std_dir + "/version.fk")   { mod_count += 1 }
     if fs::exists(std_dir + "/runtime.fk")   { mod_count += 1 }
+    if fs::exists(std_dir + "/path.fk")      { mod_count += 1 }
     if fs::exists(std_dir + "/ui/window.fk") { mod_count += 1 }
     give back mod_count
 }

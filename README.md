@@ -184,7 +184,7 @@ freak doctor --json   # passive machine-readable report for editors and scripts
 freak doctor --fix    # install/repair dependencies and the distribution payload
 ```
 
-`freak doctor` verifies that Clang can parse the platform's standard C headers, link a native executable, and run it; a working `clang --version` alone is rejected. It also checks optional LLD, all required runtime/UI files, all 11 shipped stdlib modules, and a complete FREAK compile-link-execute probe. It exits nonzero when required checks fail and removes its probe artifacts. `--json` keeps the additive `freak.doctor.v1` schema, uses a unique system-temporary toolchain probe, and reports exact missing files without installing or repairing anything.
+`freak doctor` verifies that Clang can parse the platform's standard C headers, link a native executable, and run it; a working `clang --version` alone is rejected. It also checks optional LLD, all required runtime/UI files, all 15 shipped stdlib modules, and a complete FREAK compile-link-execute probe. It exits nonzero when required checks fail and removes its probe artifacts. `--json` keeps the additive `freak.doctor.v1` schema, uses a unique system-temporary toolchain probe, and reports exact missing files without installing or repairing anything.
 
 The LLVM profile requires upstream Clang 15 or later, or Apple Clang 15 or
 later, plus a working native SDK and linker. Doctor reports the selected
