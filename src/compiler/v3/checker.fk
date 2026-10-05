@@ -2190,8 +2190,86 @@ task tc_when_case_is_literal(expr_id: int) -> bool {
     give back false
 }
 
+task tc_when_integer_key(expr_id: int) -> word {
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    if kind == EXPR_UNARYOP {
+        pilot magnitude: word = array_get(ast_expr_vals, word_to_int(array_get(ast_expr_lefts, expr_id)))
+        if magnitude == "0" { give back "0" }
+        give back "-" + magnitude
+    }
+    give back array_get(ast_expr_vals, expr_id)
+}
+
+task tc_when_numeric_value(expr_id: int) -> num {
+    if array_get(ast_expr_kinds, expr_id) == EXPR_UNARYOP {
+        pilot magnitude: word = array_get(ast_expr_vals, word_to_int(array_get(ast_expr_lefts, expr_id)))
+        give back 0.0 - magnitude.parse_num()
+    }
+    pilot spelling: word = array_get(ast_expr_vals, expr_id)
+    give back spelling.parse_num()
+}
+
+task tc_when_hex_value(digit: word) -> int {
+    if is_numeric(digit) { give back digit.parse_int() }
+    pilot lower = digit.to_lower()
+    if lower == "a" { give back 10 }
+    if lower == "b" { give back 11 }
+    if lower == "c" { give back 12 }
+    if lower == "d" { give back 13 }
+    if lower == "e" { give back 14 }
+    give back 15
+}
+
+-- Literal escape decoding compares emitted bytes, including non-UTF8 bytes.
+-- This static byte table uses only syntax understood by the original seed.
+pilot tc_when_byte_values: word = "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x2A\x2B\x2C\x2D\x2E\x2F\x30\x31\x32\x33\x34\x35\x36\x37\x38\x39\x3A\x3B\x3C\x3D\x3E\x3F\x40\x41\x42\x43\x44\x45\x46\x47\x48\x49\x4A\x4B\x4C\x4D\x4E\x4F\x50\x51\x52\x53\x54\x55\x56\x57\x58\x59\x5A\x5B\x5C\x5D\x5E\x5F\x60\x61\x62\x63\x64\x65\x66\x67\x68\x69\x6A\x6B\x6C\x6D\x6E\x6F\x70\x71\x72\x73\x74\x75\x76\x77\x78\x79\x7A\x7B\x7C\x7D\x7E\x7F\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8A\x8B\x8C\x8D\x8E\x8F\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9A\x9B\x9C\x9D\x9E\x9F\xA0\xA1\xA2\xA3\xA4\xA5\xA6\xA7\xA8\xA9\xAA\xAB\xAC\xAD\xAE\xAF\xB0\xB1\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA\xBB\xBC\xBD\xBE\xBF\xC0\xC1\xC2\xC3\xC4\xC5\xC6\xC7\xC8\xC9\xCA\xCB\xCC\xCD\xCE\xCF\xD0\xD1\xD2\xD3\xD4\xD5\xD6\xD7\xD8\xD9\xDA\xDB\xDC\xDD\xDE\xDF\xE0\xE1\xE2\xE3\xE4\xE5\xE6\xE7\xE8\xE9\xEA\xEB\xEC\xED\xEE\xEF\xF0\xF1\xF2\xF3\xF4\xF5\xF6\xF7\xF8\xF9\xFA\xFB\xFC\xFD\xFE\xFF"
+
+task tc_when_word_key(value: word) -> word {
+    pilot key = ""
+    pilot index = 0
+    repeat until index >= value.length() {
+        pilot character = value.char_at(index)
+        if character == "\\" and index + 3 < value.length() and value.char_at(index + 1) == "x" {
+            pilot byte_value = tc_when_hex_value(value.char_at(index + 2)) * 16 + tc_when_hex_value(value.char_at(index + 3))
+            key = key + tc_when_byte_values.char_at(byte_value - 1)
+            index += 4
+        } else {
+            key = key + character
+            index += 1
+        }
+    }
+    give back key
+}
+
+task tc_when_case_shadowed(previous: int, current: int, target_type: word) -> bool {
+    if not tc_when_case_is_literal(previous) or not tc_when_case_is_literal(current) { give back false }
+    pilot previous_type = tc_expr_type(previous)
+    pilot current_type = tc_expr_type(current)
+    if previous_type == "word" and current_type == "word" {
+        give back tc_when_word_key(array_get(ast_expr_vals, previous)) == tc_when_word_key(array_get(ast_expr_vals, current))
+    }
+    if previous_type == "bool" and current_type == "bool" {
+        pilot previous_truth: word = array_get(ast_expr_vals, previous)
+        pilot current_truth: word = array_get(ast_expr_vals, current)
+        give back previous_truth == current_truth
+    }
+    if not tc_is_numeric(previous_type) or not tc_is_numeric(current_type) { give back false }
+    if previous_type == "int" and current_type == "int" and target_type != "num" {
+        give back tc_when_integer_key(previous) == tc_when_integer_key(current)
+    }
+    pilot previous_number = tc_when_numeric_value(previous)
+    pilot current_number = tc_when_numeric_value(current)
+    if target_type == "int" and previous_type == "int" and current_type == "num" {
+        -- A large float equality bucket can match several integer values;
+        -- an earlier exact integer condition covers only one of them.
+        if previous_number >= 9007199254740992.0 or previous_number <= -9007199254740992.0 { give back false }
+    }
+    give back previous_number == current_number
+}
+
 task tc_validate_when_cases(cases: word, target_type: word, line: int, source_file: word) -> void {
     pilot count = tc_arg_count(cases)
+    pilot wildcard_seen = false
     pilot i = 0
     repeat count times {
         pilot item = tc_list_item(cases, i)
@@ -2204,6 +2282,8 @@ task tc_validate_when_cases(cases: word, target_type: word, line: int, source_fi
         tc_direct_top_stmt = false
         pilot case_line = line
         if stmt_text != "" { case_line = word_to_int(array_get(ast_stmt_lines, word_to_int(stmt_text))) }
+        if wildcard_seen { tc_diag("when arm is unreachable after '_'", case_line, source_file) }
+        if case_expr == "-1" { wildcard_seen = true }
         if case_expr != "" and case_expr != "-1" {
             pilot case_id = word_to_int(case_expr)
             tc_validate_expr(case_id, case_line)
@@ -2215,6 +2295,14 @@ task tc_validate_when_cases(cases: word, target_type: word, line: int, source_fi
             }
             if target_type != "" and case_type != "" and not tc_types_equality_compatible(target_type, case_type) {
                 tc_diag("when case type " + case_type + " does not match target type " + target_type, case_line, case_file)
+            }
+            pilot previous_index = 0
+            repeat i times {
+                pilot previous_expr = tc_case_expr_part(tc_list_item(cases, previous_index))
+                if previous_expr != "" and previous_expr != "-1" and tc_when_case_shadowed(word_to_int(previous_expr), case_id, target_type) {
+                    tc_diag("when arm duplicates or is shadowed by an earlier literal", case_line, case_file)
+                }
+                previous_index += 1
             }
         }
         if stmt_text != "" { tc_validate_stmt(word_to_int(stmt_text)) }
@@ -2274,6 +2362,25 @@ task tc_list_root_mutable(expr_id: int) -> bool {
         i -= 1
     }
     give back false
+}
+
+task tc_assignment_root_mode(expr_id: int) -> word {
+    if expr_id < 0 { give back "" }
+    pilot kind: word = array_get(ast_expr_kinds, expr_id)
+    if kind == EXPR_FIELD or kind == EXPR_INDEX { give back tc_assignment_root_mode(word_to_int(array_get(ast_expr_lefts, expr_id))) }
+    if kind != EXPR_IDENT { give back "" }
+    pilot name: word = array_get(ast_expr_vals, expr_id)
+    pilot index = tc_local_count - 1
+    repeat until index < 0 {
+        if array_get(tc_local_names, index) == name { give back array_get(tc_local_mut, index) }
+        index -= 1
+    }
+    index = tc_global_count - 1
+    repeat until index < 0 {
+        if array_get(tc_global_names, index) == name { give back array_get(tc_global_mut, index) }
+        index -= 1
+    }
+    give back ""
 }
 
 task tc_expr_is_lvalue(expr_id: int) -> bool {
@@ -2761,6 +2868,9 @@ task tc_validate_stmt(stmt_id: int) -> void {
         pilot right_id = word_to_int(array_get(ast_stmt_bodies, stmt_id))
         tc_validate_expr(left_id, line)
         tc_validate_expr(right_id, line)
+        if tc_assignment_root_mode(left_id) == "fixed" {
+            tc_diag("fixed binding cannot be modified", line, source_file)
+        }
         if array_get(ast_expr_kinds, left_id) == EXPR_IDENT {
             pilot name: word = array_get(ast_expr_vals, left_id)
             pilot index = tc_local_count - 1

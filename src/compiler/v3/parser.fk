@@ -169,7 +169,22 @@ task parser_alloc_interp_path(path: word, origin_file: word, origin_line: word) 
     give back expr_id
 }
 
-task parser_alloc_string_expr(value: word, origin_file: word, origin_line: word) -> int {
+task parser_interp_expression_like(body: word) -> bool {
+    -- Object/JSON-like brace text has an established literal contract.
+    if body.contains(":") { give back false }
+    pilot text = body.trim()
+    if text == "" { give back false }
+    pilot first = text.char_at(0)
+    give back is_alphabetic(first) or is_numeric(first) or first == "(" or first == "+" or first == "-" or first == "!"
+}
+
+task parser_interp_unclosed_expression_like(body: word) -> bool {
+    if not parser_interp_expression_like(body) { give back false }
+    if parser_interp_path_valid(body.trim()) { give back true }
+    give back body.contains("(") or body.contains("+") or body.contains("-") or body.contains("*") or body.contains("/") or body.contains("=")
+}
+
+task parser_alloc_string_expr(value: word, origin_file: word, origin_line: word, origin_column: int) -> int {
     pilot segments = ""
     pilot literal = ""
     pilot has_path = false
@@ -192,10 +207,16 @@ task parser_alloc_string_expr(value: word, origin_file: word, origin_line: word)
                     has_path = true
                     i = close + 1
                 } else {
+                    if parser_interp_expression_like(body) {
+                        diag_error_at("unsupported interpolation expression", "use a binding or field path, or escape literal braces", origin_file, word_to_int(origin_line), origin_column)
+                    }
                     literal = literal + value.substring(i, close - i + 1)
                     i = close + 1
                 }
             } else {
+                if parser_interp_unclosed_expression_like(value.substring(i + 1, value.length() - i - 1)) {
+                    diag_error_at("unterminated interpolation expression", "close the field path or escape the literal brace", origin_file, word_to_int(origin_line), origin_column)
+                }
                 literal = literal + c
                 i += 1
             }
@@ -225,6 +246,7 @@ task parse_primary() -> int {
     pilot tval = cur_tok_val()
     pilot expr_file = current_source_file()
     pilot expr_line = current_source_line()
+    pilot expr_column = current_source_col()
 
     if ttype == TOK_EOF or ttype == "" {
         diag_error("expected an expression, found end of file", "complete the expression")
@@ -245,7 +267,7 @@ task parse_primary() -> int {
     }
     if ttype == TOK_STR {
         advance_tok()
-        give back parser_alloc_string_expr(tval, expr_file, expr_line)
+        give back parser_alloc_string_expr(tval, expr_file, expr_line, expr_column)
     }
     if ttype == TOK_BOOL {
         advance_tok()
@@ -689,10 +711,7 @@ task parse_stmt() -> int {
         give back alloc_stmt(STMT_EVENTUALLY, "", "", ev_body, "", "", "", "", stmt_line)
     }
 
-    -- fixed pilot name = expr  (immutable binding; treated identically to
-    --                            `pilot` here since the v3 emitter doesn't
-    --                            track mutability — the type checker will
-    --                            eventually enforce the `fixed` half.)
+    -- The fixed marker is enforced by the always-on semantic checker.
     if match_tok(TOK_KW, "fixed") {
         if not match_tok(TOK_KW, "pilot") {
             diag_error("expected 'pilot' after 'fixed'", "")
@@ -705,7 +724,9 @@ task parse_stmt() -> int {
         }
         expect_tok(TOK_PUNCT, "=")
         pilot fexpr_id = parse_expr()
-        give back alloc_stmt(STMT_PILOT, fname, word_from_int(fexpr_id), "", "", ftype_ann, "", "", stmt_line)
+        pilot fixed_id = alloc_stmt(STMT_PILOT, fname, word_from_int(fexpr_id), "", "", ftype_ann, "", "", stmt_line)
+        array_set(ast_pilot_is_mut, fixed_id, "fixed")
+        give back fixed_id
     }
 
     -- pilot [mut] name = expr
