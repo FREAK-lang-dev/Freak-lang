@@ -216,8 +216,7 @@ task borrow_candidate_available_handles() -> int {
     pilot exhausted = false
     repeat until count >= 2048 or exhausted {
         pilot handle = array_new()
-        if handle < 0 { exhausted = true }
-        else { array_push(holders, word_from_int(handle)); count += 1 }
+        if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)); count += 1 }
     }
     pilot index = 0
     repeat until index >= count {
@@ -249,8 +248,7 @@ task borrow_candidate_resource_case(mir: int, borrow: int, body: int) -> void {
     pilot exhausted = false
     repeat until held >= 2048 or exhausted {
         pilot handle = array_new()
-        if handle < 0 { exhausted = true }
-        else { array_push(holders, word_from_int(handle)); held += 1 }
+        if handle < 0 { exhausted = true } else { array_push(holders, word_from_int(handle)); held += 1 }
     }
     borrow_candidate_assert(exhausted, "real capped-runtime exhaustion")
     pilot fallbacks = v4_borrowck_mutable_exclusivity_candidate_fallbacks
@@ -321,6 +319,4 @@ task borrow_candidate_resources() -> void {
 }
 
 pilot borrow_candidate_mode = process::arg(1)
-if borrow_candidate_mode == "1" { borrow_candidate_semantics() }
-else if borrow_candidate_mode == "2" { borrow_candidate_resources() }
-else { borrow_candidate_scaling() }
+if borrow_candidate_mode == "1" { borrow_candidate_semantics() } else if borrow_candidate_mode == "2" { borrow_candidate_resources() } else { borrow_candidate_scaling() }
