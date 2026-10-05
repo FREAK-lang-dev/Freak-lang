@@ -54,11 +54,10 @@ task http_request_release(request: int) -> void { http_server::request_release(r
 task http_send_json(request: int, document: int) -> int {
     if json_document::ok(document) == 0 { give back 0 }
     pilot body: ByteBuffer = json_document::serialize_bytes(document)
-    if http_server::response_header(request, "Content-Type", "application/json") == 0 {
-        body.release()
-        give back 0
+    pilot mut sent = 0
+    if http_server::response_header(request, "Content-Type", "application/json") == 1 {
+        sent = http_server::send_bytes(request, body)
     }
-    pilot sent = http_server::send_bytes(request, body)
     body.release()
     give back sent
 }

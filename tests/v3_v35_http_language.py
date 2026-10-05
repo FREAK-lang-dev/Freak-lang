@@ -59,7 +59,7 @@ task app_dispatch(request: int) -> bool {
             pilot sent = http_send_text(request, "invalid JSON")
         } else {
             pilot root = json_document_root(document)
-            pilot name = 0
+            pilot mut name = 0
             if json_document_kind(document, root) == 6 {
                 name = json_document_object_get(document, root, "name")
             }
@@ -74,8 +74,8 @@ task app_dispatch(request: int) -> bool {
         give back false
     }
     if path == "/inspect" {
-        pilot output = "query=" + http_request_query(request) + "\n"
-        pilot index = http_header_find(request, "X-Repeat", 0)
+        pilot mut output = "query=" + http_request_query(request) + "\n"
+        pilot mut index = http_header_find(request, "X-Repeat", 0)
         repeat until index < 0 {
             output = output + word_from_int(http_header_is_trailer(request, index)) + ":" + http_header_value(request, index) + "\n"
             index = http_header_find(request, "x-repeat", index + 1)
@@ -110,7 +110,7 @@ task main() {
     }
     http_set_timeouts(server, 1200, 5000, 1000)
     say "PORT " + word_from_int(http_local_port(server))
-    pilot finished = false
+    pilot mut finished = false
     repeat until finished {
         pilot request = http_next_request(server)
         if http_request_status(request) == 0 {
@@ -168,17 +168,23 @@ def consumer_corpus(server:Server,soak:int):
         else:assert_response(server.exchange(request('/health')),200,b'healthy')
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--compiler',type=Path,required=True);p.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'));p.add_argument('--runtime-root',type=Path);p.add_argument('--optimization',type=int,choices=(0,2,3),action='append');p.add_argument('--backend',choices=('c','llvm'),action='append');p.add_argument('--soak',type=int,default=1000);p.add_argument('--report',type=Path);args=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--compiler',type=Path,required=True);p.add_argument('--clang',default=os.environ.get('FREAK_CLANG','clang'));p.add_argument('--runtime-root',type=Path);p.add_argument('--std-root',type=Path);p.add_argument('--optimization',type=int,choices=(0,2,3),action='append');p.add_argument('--backend',choices=('c','llvm'),action='append');p.add_argument('--soak',type=int,default=1000);p.add_argument('--report',type=Path);args=p.parse_args()
     repo=Path(__file__).resolve().parents[1];runtime=args.runtime_root or repo/'freakc/runtime';compiler=args.compiler.resolve(strict=True)
-    facade=(repo/'std/json_document.fk').read_text()+'\n'+(repo/'std/http_server.fk').read_text()
-    evidence={'compiler_sha256':hashlib.sha256(compiler.read_bytes()).hexdigest(),'facade_sha256':hashlib.sha256(facade.encode()).hexdigest(),'matrices':[]}
+    std=args.std_root or repo/'std'
+    facade=(std/'json_document.fk').read_text()+'\n'+(std/'http_server.fk').read_text()
+    pinned_paths=[compiler,std/'json_document.fk',std/'http_server.fk',*sorted(runtime.glob('*.c')),*sorted(runtime.glob('*.h')),*sorted(runtime.glob('*.inc'))]
+    vendor=runtime/'third_party/llhttp'
+    if not vendor.exists():vendor=runtime.parents[1]/'third_party/llhttp'
+    pinned_paths+=sorted(p for p in vendor.rglob('*') if p.is_file())
+    before={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths}
+    evidence={'compiler_sha256':before[str(compiler)],'facade_sha256':hashlib.sha256(facade.encode()).hexdigest(),'pinned_input_sha256':before,'strict_borrow':True,'matrices':[]}
     with tempfile.TemporaryDirectory(prefix='freak-http-language-') as temporary:
         root=Path(temporary);suffix='.exe' if os.name=='nt' else ''
         for opt in args.optimization or (0,2,3):
             for backend in args.backend or ('c','llvm'):
                 for name,program in [('consumer',PROGRAM),*CONTROLLED.items()]:
                     source=root/f'{name}-{backend}.fk';source.write_text(facade+'\n'+program)
-                    compiled=run([str(compiler),str(source),f'--{backend}'],cwd=root);assert compiled.returncode==0,(name,compiled.stdout,compiled.stderr)
+                    compiled=run([str(compiler),str(source),f'--{backend}','--strict-borrow'],cwd=root);assert compiled.returncode==0,(name,compiled.stdout,compiled.stderr)
                     generated=Path(str(source)+('.c' if backend=='c' else '.ll'));binary=root/f'{name}-{backend}-O{opt}{suffix}'
                     cmd=[args.clang,f'-O{opt}',str(generated),str(runtime/'freak_runtime.c'),f'-I{runtime}','-DFREAK_RUNTIME_OWNERSHIP_AUDIT=1','-DFREAK_C_RUNTIME_OWNERSHIP_AUDIT=1','-o',str(binary)]
                     if backend=='llvm':cmd.append(str(runtime/'freak_llvm_runtime.c'))
@@ -195,10 +201,11 @@ def main():
                 for name,(program,diagnostic) in NEGATIVE.items():
                     source=root/f'{name}-{backend}.fk';source.write_text(program)
                     generated=Path(str(source)+('.c' if backend=='c' else '.ll'));generated.write_text('stale output')
-                    failed=run([str(compiler),str(source),f'--{backend}'],cwd=root)
+                    failed=run([str(compiler),str(source),f'--{backend}','--strict-borrow'],cwd=root)
                     assert failed.returncode!=0 and diagnostic.lower() in (failed.stdout+failed.stderr).lower(),(name,failed.returncode,failed.stdout,failed.stderr)
                     assert not generated.exists(),(name,'stale generated artifact survived')
                 evidence['matrices'].append({'backend':backend,'optimization':opt,'ordinary_consumer_cases':cases,'controlled_errors':len(CONTROLLED),'semantic_rejections':len(NEGATIVE)})
                 print(f'PASS HTTP facade {backend} O{opt}: {cases} ordinary-consumer requests,3 controlled errors,4 semantic rejections',flush=True)
+    after={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in pinned_paths};assert after==before,'pinned compiler/runtime/std/vendor inputs changed during gate';evidence['pinned_inputs_unchanged']=True
     if args.report:args.report.parent.mkdir(parents=True,exist_ok=True);args.report.write_text(json.dumps(evidence,indent=2)+'\n')
 if __name__=='__main__':main()
