@@ -93,10 +93,6 @@ C_ARRAY_HANDLE_RESOURCE_FIXTURES = frozenset(
         "h6_mir_literal_grammar_smoke.fk",
         "h6_mir_void_return_smoke.fk",
         "h6_native_repeat_execute_smoke.fk",
-        "v35_while_contract_smoke.fk",
-        "v35_native_while_execute_smoke.fk",
-        "v35_counted_contract_smoke.fk",
-        "v35_native_counted_execute_smoke.fk",
         "h6_native_bool_execute_smoke.fk",
         "h6_native_indirect_execute_smoke.fk",
         "h6_native_computed_execute_smoke.fk",
@@ -7085,154 +7081,6 @@ EXECUTABLE_SMOKES = [
             "llvm-body-resource statements=12000 depth=2048 exact=true first-return=true",
         ],
     },
-    {
-        "name": "V3.5 while frontend contracts",
-        "fixture": "v35_while_contract_smoke.fk",
-        "expect_mode": "line",
-        "expect_unique": True,
-        "memory_limit_mb": 64,
-        "expect": ["v35-while-contract case=0 frontend=true positive=2 inverted=1 restore=true"],
-        "runtime_cases": [
-            {"argv": ["0"], "expect": ["v35-while-contract case=0 frontend=true positive=2 inverted=1 restore=true"]},
-            {"argv": ["1"], "expect": ["v35-while-contract case=1 rejected=true diagnostic=while condition must be bool module=false"]},
-            {"argv": ["2"], "expect": ["v35-while-contract case=2 rejected=true diagnostic=while condition must be bool module=false"]},
-            {"argv": ["3"], "expect": ["v35-while-contract case=3 rejected=true diagnostic=while loop requires a condition module=false"]},
-            {"argv": ["4"], "expect": ["v35-while-contract case=4 rejected=true diagnostic=while loop requires a condition module=false"]},
-            {"argv": ["5"], "expect": ["v35-while-contract case=5 rejected=true diagnostic=while loop requires a body module=false"]},
-            {"argv": ["6"], "expect": ["v35-while-contract case=6 reserved=true span=true"]},
-            {"argv": ["7"], "expect": ["v35-while-contract case=7 reserved=true span=true"]},
-            {"argv": ["8"], "expect": ["v35-while-contract case=8 reserved=true span=true"]},
-            {"argv": ["9"], "expect": ["v35-while-contract case=9 reserved=true span=true"]},
-            {"argv": ["10"], "expect": ["v35-while-contract case=10 reserved=true span=true"]},
-            {"argv": ["11"], "expect": ["v35-while-contract case=11 reserved=true span=true"]},
-            {"argv": ["12"], "expect": ["v35-while-contract case=12 reserved=true span=true"]},
-            {"argv": ["13"], "expect": ["v35-while-contract case=13 frontend=true positive=0 inverted=0 restore=true"]},
-        ],
-    },
-    {
-        "name": "V3.5 while native execution",
-        "fixture": "v35_native_while_execute_smoke.fk",
-        "expect_mode": "line",
-        "expect_unique": True,
-        "memory_limit_mb": 64,
-        "llvm_programs": [
-            ["v35_while_native.fk", 42, "tick\ntick\ntick\ntick\nv35-while-ok\n"]
-        ],
-        "expect": [
-            "v35-while-execute diagnostics=0 owned=true native=true restore=true module-exact=true"
-        ],
-    },
-    {'name': 'V3.5 counted frontend contracts',
-     'fixture': 'v35_counted_contract_smoke.fk',
-     'expect_mode': 'line',
-     'expect_unique': True,
-     'memory_limit_mb': 64,
-     'timeout': 60,
-     'expect': ['v35-counted-contract case=0 frontend=true meiya=true identity=true annotation=true restore=true '
-                'forged=false'],
-     'runtime_cases': [{'argv': ['0'],
-                        'expect': ['v35-counted-contract case=0 frontend=true meiya=true identity=true '
-                                   'annotation=true restore=true forged=false']},
-                       {'argv': ['1'],
-                        'expect': ['v35-counted-contract case=1 rejected=true diagnostic=repeat N times count '
-                                   'must be int module=false']},
-                       {'argv': ['2'],
-                        'expect': ['v35-counted-contract case=2 rejected=true diagnostic=range bounds and step '
-                                   'must be int module=false']},
-                       {'argv': ['3'],
-                        'expect': ['v35-counted-contract case=3 rejected=true diagnostic=range bounds and step '
-                                   'must be int module=false']},
-                       {'argv': ['4'],
-                        'expect': ['v35-counted-contract case=4 rejected=true diagnostic=range step must be '
-                                   'positive module=false']},
-                       {'argv': ['5'],
-                        'expect': ['v35-counted-contract case=5 rejected=true diagnostic=range step must be '
-                                   'positive module=false']},
-                       {'argv': ['6'],
-                        'expect': ['v35-counted-contract case=6 rejected=true diagnostic=iteration binding is '
-                                   'immutable module=false']},
-                       {'argv': ['7'],
-                        'expect': ['v35-counted-contract case=7 rejected=true diagnostic=iteration binding is '
-                                   'immutable module=false']},
-                       {'argv': ['8'],
-                        'expect': ['v35-counted-contract case=8 rejected=true diagnostic=iteration binding is '
-                                   'immutable module=false']},
-                       {'argv': ['9'],
-                        'expect': ['v35-counted-contract case=9 rejected=true diagnostic=counted for initializer '
-                                   'must have type int module=false']},
-                       {'argv': ['10'],
-                        'expect': ['v35-counted-contract case=10 rejected=true diagnostic=counted for condition '
-                                   'must be bool module=false']},
-                       {'argv': ['11'],
-                        'expect': ['v35-counted-contract case=11 rejected=true diagnostic=counted for assignment '
-                                   'step must have type int module=false']},
-                       {'argv': ['12'],
-                        'expect': ['v35-counted-contract case=12 rejected=true diagnostic=counted for expression '
-                                   'step must have type int or void module=false']},
-                       {'argv': ['13'],
-                        'expect': ['v35-counted-contract case=13 rejected=true diagnostic=counted for '
-                                   'initializer must be a pilot int binding module=false']},
-                       {'argv': ['14'],
-                        'expect': ['v35-counted-contract case=14 rejected=true diagnostic=repeat index binding '
-                                   'requires with name module=false']},
-                       {'argv': ['15'],
-                        'expect': ['v35-counted-contract case=15 rejected=true diagnostic=range iteration '
-                                   'requires one index binding module=false']},
-                       {'argv': ['16'],
-                        'expect': ['v35-counted-contract case=16 rejected=true diagnostic=counted for '
-                                   'initializer must have type int module=false']},
-                       {'argv': ['17'],
-                        'expect': ['v35-counted-contract case=17 scope=true unresolved=true module=false']},
-                       {'argv': ['18'],
-                        'expect': ['v35-counted-contract case=18 scope=true unresolved=true module=false']},
-                       {'argv': ['19'],
-                        'expect': ['v35-counted-contract case=19 scope=true unresolved=true module=false']},
-                       {'argv': ['20'],
-                        'expect': ['v35-counted-contract case=20 rejected=true diagnostic=counted for assignment '
-                                   'step must have type int module=false']},
-                       {'argv': ['21'],
-                        'expect': ['v35-counted-contract case=21 rejected=true diagnostic=iteration binding is '
-                                   'immutable module=false']},
-                       {'argv': ['22'],
-                        'expect': ['v35-counted-contract case=22 rejected=true diagnostic=counted for requires a '
-                                   'step module=false']},
-                       {'argv': ['23'],
-                        'expect': ['v35-counted-contract case=23 frontend=true meiya=true contextual=true '
-                                   'restore=true']},
-                       {'argv': ['24'], 'expect': ['v35-counted-contract case=24 ranges=true contextual=true']},
-                       {'argv': ['25'],
-                        'expect': ['v35-counted-contract case=25 rejected=true diagnostic=iteration binding is '
-                                   'immutable module=false']},
-                       {'argv': ['26'], 'expect': ['v35-counted-contract case=26 frontend=true meiya=true projection=true restore=true']},
-                       {'argv': ['27'], 'expect': ['v35-counted-contract case=27 rejected=true diagnostic=range step must be positive module=false']},
-                       {'argv': ['28'], 'expect': ['v35-counted-contract case=28 rejected=true diagnostic=counted for expression step must have type int or void module=false']}]},
-    {'name': 'V3.5 counted native execution',
-     'fixture': 'v35_native_counted_execute_smoke.fk',
-     'expect_mode': 'line',
-     'expect_unique': True,
-     'memory_limit_mb': 64,
-     'timeout': 60,
-     'expect': ['v35-counted-execute diagnostics=0 owned=true native=true identity=true restore=true '
-                'module-exact=true',
-                '@@LLVM-MODULE-BEGIN',
-                '@@LLVM-MODULE-END'],
-     'runtime_cases': [{'llvm_programs': [['v35_counted_native.fk', 42, 'count\nv35-counted-ok\n']]},
-                       {'llvm_programs': [['v35_counted_bounds_native.fk',
-                                           42,
-                                           'lower\nupper\nstep\nv35-counted-bounds-ok\n']]},
-                       {'llvm_programs': [['v35_counted_edges_native.fk', 42, 'v35-counted-edges-ok\n']]},
-                       {'llvm_programs': [['v35_counted_forflow_native.fk',
-                                           42,
-                                           'condition\n'
-                                           'epilogue\n'
-                                           'condition\n'
-                                           'epilogue\n'
-                                           'condition\n'
-                                           'epilogue\n'
-                                           'v35-counted-forflow-ok\n']]},
-                       {'llvm_programs': [['v35_counted_invalid_step_native.fk', 0, '']],
-                        'llvm_abort_messages': {'v35_counted_invalid_step_native.fk': 'range step must be '
-                                                                                      'positive'}}]},
     {
         "name": "H6 counted loop local identity",
         "fixture": "h6_mir_repeat_identity_smoke.fk",
@@ -14805,10 +14653,6 @@ def check_snapshot_inventories() -> None:
             "h6_mir_literal_grammar_smoke.fk",
             "h6_mir_void_return_smoke.fk",
             "h6_native_repeat_execute_smoke.fk",
-            "v35_while_contract_smoke.fk",
-            "v35_native_while_execute_smoke.fk",
-            "v35_counted_contract_smoke.fk",
-            "v35_native_counted_execute_smoke.fk",
             "h6_native_bool_execute_smoke.fk",
             "h6_native_indirect_execute_smoke.fk",
             "h6_native_computed_execute_smoke.fk",

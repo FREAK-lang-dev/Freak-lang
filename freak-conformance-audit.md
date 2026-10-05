@@ -13,6 +13,9 @@ counted/while language checkpoints below describe the local experiment through
 `b8c5e99`; those additions are deferred and are not part of the current locked
 V4 source baseline. The native V3 syntax fixes remain present. This draft
 checkpoint does not claim wider P0 completion or platform/release readiness.
+The four experimental V4 loop fixtures and their full executable expectations
+are retained under `src/compiler/v4/tests/deferred/v35-loops`; they require the
+matching semantic implementation before joining the active positive gates.
 
 **V3.5 initial syntax checkpoint (2026-10-05):** native V3 statement lists
 accept semicolons, including a trailing separator and bare void return.
