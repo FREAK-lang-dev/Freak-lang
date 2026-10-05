@@ -164,17 +164,36 @@ task borrow_candidate_scaling() -> void {
 }
 
 task borrow_candidate_source() -> word {
-    pilot src = "shape Ship { hp: int }\n"
-    src = src + "task loan<'a>(lend 'a ship: Ship) -> lend 'a Ship { give back ship }\n"
-    src = src + "task same(ship: Ship) -> int { ship; ship.hp = 7; give back ship.hp }\n"
-    src = src + "task cross(ship: Ship, ready: bool) -> int { if ready { ship }; ship.hp = 7; give back ship.hp }\n"
-    src = src + "task explicit(ship: Ship, ready: bool) -> int { pilot view = lend ship; if ready { ship.hp = 7 }; give back view.hp }\n"
-    src = src + "task aggregate(ship: Ship, ready: bool) -> int { pilot holder = (lend ship, 0); if ready { ship.hp = 7 }; give back holder.0.hp }\n"
-    src = src + "task call(ship: Ship, ready: bool) -> int { pilot view = loan(lend ship); if ready { ship.hp = 7 }; give back view.hp }\n"
-    src = src + "task closure(ship: Ship, ready: bool) -> int { pilot reader = |_| => ship.hp; if ready { ship.hp = 7 }; give back reader() }\n"
-    src = src + "task rebind(first: Ship, second: Ship) -> int { pilot view = lend first; view = lend second; first.hp = 7; give back view.hp }\n"
-    src = src + "task looped(ship: Ship, ready: bool) -> int { pilot view = lend ship; repeat while ready { ship.hp = 7; ready = false }; give back view.hp }\n"
-    src = src + "task symbolic(items: [int; 2], slot: int) -> int { pilot view = lend items; items[slot] = 7; give back view[0] }\n"
+    -- Character-built delimiters keep bootstrap Word interpolation out of the
+    -- generated source. Statement boundaries remain ordinary physical lines.
+    pilot open: word = chr(123)
+    pilot close: word = chr(125)
+    pilot src = "shape Ship " + open + "\n    hp: int\n" + close + "\n"
+    src = src + "task loan<'a>(lend 'a ship: Ship) -> lend 'a Ship " + open + "\n    give back ship\n" + close + "\n"
+    src = src + "task same(ship: Ship) -> int " + open + "\n"
+    src = src + "    ship\n    ship.hp = 7\n    give back ship.hp\n" + close + "\n"
+    src = src + "task cross(ship: Ship, ready: bool) -> int " + open + "\n"
+    src = src + "    if ready " + open + "\n        ship\n    " + close + "\n"
+    src = src + "    ship.hp = 7\n    give back ship.hp\n" + close + "\n"
+    src = src + "task explicit(ship: Ship, ready: bool) -> int " + open + "\n"
+    src = src + "    pilot view = lend ship\n    if ready " + open + "\n        ship.hp = 7\n    " + close + "\n"
+    src = src + "    give back view.hp\n" + close + "\n"
+    src = src + "task aggregate(ship: Ship, ready: bool) -> int " + open + "\n"
+    src = src + "    pilot holder = (lend ship, 0)\n    if ready " + open + "\n        ship.hp = 7\n    " + close + "\n"
+    src = src + "    give back holder.0.hp\n" + close + "\n"
+    src = src + "task call(ship: Ship, ready: bool) -> int " + open + "\n"
+    src = src + "    pilot view = loan(lend ship)\n    if ready " + open + "\n        ship.hp = 7\n    " + close + "\n"
+    src = src + "    give back view.hp\n" + close + "\n"
+    src = src + "task closure(ship: Ship, ready: bool) -> int " + open + "\n"
+    src = src + "    pilot reader = |_| => ship.hp\n    if ready " + open + "\n        ship.hp = 7\n    " + close + "\n"
+    src = src + "    give back reader()\n" + close + "\n"
+    src = src + "task rebind(first: Ship, second: Ship) -> int " + open + "\n"
+    src = src + "    pilot view = lend first\n    view = lend second\n    first.hp = 7\n    give back view.hp\n" + close + "\n"
+    src = src + "task looped(ship: Ship, ready: bool) -> int " + open + "\n"
+    src = src + "    pilot view = lend ship\n    repeat while ready " + open + "\n        ship.hp = 7\n        ready = false\n    " + close + "\n"
+    src = src + "    give back view.hp\n" + close + "\n"
+    src = src + "task symbolic(items: [int; 2], slot: int) -> int " + open + "\n"
+    src = src + "    pilot view = lend items\n    items[slot] = 7\n    give back view[0]\n" + close + "\n"
     give back src
 }
 
