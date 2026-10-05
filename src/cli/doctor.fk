@@ -341,6 +341,7 @@ task cli_doctor_std_missing(std_dir: word) -> word {
     if not fs::exists(std_dir + "/http_server.fk") { missing = cli_doctor_append_missing(missing, "http_server.fk") }
     if not fs::exists(std_dir + "/version.fk") { missing = cli_doctor_append_missing(missing, "version.fk") }
     if not fs::exists(std_dir + "/runtime.fk") { missing = cli_doctor_append_missing(missing, "runtime.fk") }
+    if not fs::exists(std_dir + "/path.fk") { missing = cli_doctor_append_missing(missing, "path.fk") }
     if not fs::exists(std_dir + "/ui/window.fk") { missing = cli_doctor_append_missing(missing, "ui/window.fk") }
     if not fs::exists(std_dir + "/freak_abi") { missing = cli_doctor_append_missing(missing, "freak_abi") }
     if not fs::exists(std_dir + "/freak_std_api") { missing = cli_doctor_append_missing(missing, "freak_std_api") }
@@ -472,7 +473,7 @@ task cli_doctor_json() -> int {
     say "      \"ok\": " + cli_doctor_json_bool(std_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(std_dir) + "\","
     say "      \"modules_found\": " + word_from_int(std_modules) + ","
-    say "      \"modules_expected\": 14,"
+    say "      \"modules_expected\": 15,"
     say "      \"missing\": \"" + cli_doctor_json_escape(std_missing) + "\""
     say "    },"
     say "    \"templates\": {\"ok\":" + cli_doctor_json_bool(templates_ok) + ",\"files_expected\":20,\"missing\":\"" + cli_doctor_json_escape(templates_missing) + "\"},"
