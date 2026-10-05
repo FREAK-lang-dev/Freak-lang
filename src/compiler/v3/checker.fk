@@ -175,6 +175,46 @@ task bc_restore_states(states: word, count: int) -> void {
     }
 }
 
+-- Loop exits retain owner states before later body/step reinitialization.
+-- The initial state also contributes: an ordinary loop may execute zero times.
+task bc_union_states(left: word, right: word, count: int) -> word {
+    pilot states = ""
+    pilot index = 0
+    repeat count times {
+        if left.char_at(index) == "1" or right.char_at(index) == "1" { states = states + "1" }
+        else { states = states + "0" }
+        index += 1
+    }
+    give back states
+}
+
+task bc_record_loop_exit() -> void {
+    if not bc_loop_active { give back }
+    bc_loop_exit_states = bc_union_states(bc_loop_exit_states, bc_capture_states(bc_loop_outer_count), bc_loop_outer_count)
+}
+
+task bc_walk_loop(body: word, binder: word, binder_kind: word, line: int, step_id: int) -> void {
+    pilot saved_active = bc_loop_active
+    pilot saved_count = bc_loop_outer_count
+    pilot saved_states = bc_loop_exit_states
+    pilot outer_count = bc_sym_count
+    bc_loop_active = true
+    bc_loop_outer_count = outer_count
+    bc_loop_exit_states = bc_capture_states(outer_count)
+    bc_enter_scope()
+    if binder != "" { bc_push_sym(binder, binder_kind, "0", line) }
+    bc_walk_block(body)
+    bc_leave_scope()
+    -- A counted-for step may reinitialize owners, but cannot erase a break
+    -- snapshot captured before that step or the zero-iteration entry state.
+    if step_id >= 0 { bc_walk_stmt(step_id) }
+    pilot states = bc_union_states(bc_loop_exit_states, bc_capture_states(outer_count), outer_count)
+    bc_restore_states(states, outer_count)
+    bc_loop_active = saved_active
+    bc_loop_outer_count = saved_count
+    bc_loop_exit_states = saved_states
+}
+
 task bc_walk_branches(then_body: word, else_body: word, then_name: word, else_name: word, line: int) -> void {
     pilot outer_count = bc_sym_count
     pilot initial_states = bc_capture_states(outer_count)
@@ -201,6 +241,38 @@ task bc_walk_branches(then_body: word, else_body: word, then_name: word, else_na
         array_set(bc_sym_state, index, state)
         index += 1
     }
+}
+
+-- Each when arm begins with the same owners, like an if branch. A missing
+-- wildcard keeps the no-match route; function-terminal arms do not join.
+task bc_walk_when(cases: word, line: int) -> void {
+    pilot outer_count = bc_sym_count
+    pilot initial_states = bc_capture_states(outer_count)
+    pilot joined_states = initial_states
+    pilot joined = false
+    pilot wildcard = false
+    pilot index = 0
+    repeat tc_arg_count(cases) times {
+        pilot item = tc_list_item(cases, index)
+        if tc_case_expr_part(item) == "-1" { wildcard = true }
+        pilot statement = tc_case_stmt_part(item)
+        bc_restore_states(initial_states, outer_count)
+        bc_enter_scope()
+        if statement != "" { bc_walk_stmt(word_to_int(statement)) }
+        bc_leave_scope()
+        if statement != "" and not tc_stmt_definitely_returns(word_to_int(statement)) {
+            pilot states = bc_capture_states(outer_count)
+            if joined { joined_states = bc_union_states(joined_states, states, outer_count) }
+            else { joined_states = states joined = true }
+        }
+        index += 1
+    }
+    if not wildcard {
+        if joined { joined_states = bc_union_states(joined_states, initial_states, outer_count) }
+        else { joined_states = initial_states joined = true }
+    }
+    if joined { bc_restore_states(joined_states, outer_count) }
+    else { bc_restore_states(initial_states, outer_count) }
 }
 
 -- ---------- Diagnostic emission -------------------------------------
@@ -489,32 +561,23 @@ task bc_walk_stmt(stmt_id: int) -> void {
 
     if kind == STMT_FOREACH {
         bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
-        bc_enter_scope()
         pilot binder_kind = "owned"
         if bc_is_copy_type(array_get(ast_stmt_extras, stmt_id)) { binder_kind = "copy" }
-        bc_push_sym(array_get(ast_stmt_names, stmt_id), binder_kind, "0", line)
-        bc_walk_block(array_get(ast_stmt_bodies, stmt_id))
-        bc_leave_scope()
+        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), array_get(ast_stmt_names, stmt_id), binder_kind, line, 0 - 1)
         give back
     }
     if kind == STMT_RANGE {
         bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
         bc_walk_expr(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)), false, line)
         bc_walk_expr(word_to_int(array_get(ast_stmt_extras, stmt_id)), false, line)
-        bc_enter_scope()
-        bc_push_sym(array_get(ast_stmt_names, stmt_id), "copy", "0", line)
-        bc_walk_block(array_get(ast_stmt_bodies, stmt_id))
-        bc_leave_scope()
+        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), array_get(ast_stmt_names, stmt_id), "copy", line, 0 - 1)
         give back
     }
     if kind == STMT_FOR {
         bc_enter_scope()
         bc_walk_stmt(word_to_int(array_get(ast_stmt_else_bodies, stmt_id)))
         bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
-        bc_enter_scope()
-        bc_walk_block(array_get(ast_stmt_bodies, stmt_id))
-        bc_leave_scope()
-        bc_walk_stmt(word_to_int(array_get(ast_stmt_extras, stmt_id)))
+        bc_walk_loop(array_get(ast_stmt_bodies, stmt_id), "", "", line, word_to_int(array_get(ast_stmt_extras, stmt_id)))
         bc_leave_scope()
         give back
     }
@@ -522,11 +585,8 @@ task bc_walk_stmt(stmt_id: int) -> void {
         pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
         pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
         bc_walk_expr(word_to_int(cond_w), false, line)
-        bc_enter_scope()
         pilot binder: word = array_get(ast_stmt_extras, stmt_id)
-        if binder != "" { bc_push_sym(binder, "copy", "0", line) }
-        bc_walk_block(body_w)
-        bc_leave_scope()
+        bc_walk_loop(body_w, binder, "copy", line, 0 - 1)
         give back
     }
 
@@ -534,9 +594,9 @@ task bc_walk_stmt(stmt_id: int) -> void {
         pilot cond_w: word = array_get(ast_stmt_exprs, stmt_id)
         pilot body_w: word = array_get(ast_stmt_bodies, stmt_id)
         bc_walk_expr(word_to_int(cond_w), false, line)
-        bc_enter_scope()
-        bc_walk_block(body_w)
-        bc_leave_scope()
+        pilot maximum: word = array_get(ast_stmt_extras, stmt_id)
+        if maximum != "" { bc_walk_expr(word_to_int(maximum), false, line) }
+        bc_walk_loop(body_w, "", "", line, 0 - 1)
         give back
     }
 
@@ -568,10 +628,13 @@ task bc_walk_stmt(stmt_id: int) -> void {
     }
 
     if kind == STMT_SHAPE        { give back }
-    if kind == STMT_BREAK        { give back }
-    if kind == STMT_CONTINUE     { give back }
+    if kind == STMT_BREAK or kind == STMT_CONTINUE { bc_record_loop_exit() give back }
     if kind == STMT_EXTERN       { give back }
-    if kind == STMT_WHEN         { give back }
+    if kind == STMT_WHEN {
+        bc_walk_expr(word_to_int(array_get(ast_stmt_exprs, stmt_id)), false, line)
+        bc_walk_when(array_get(ast_stmt_bodies, stmt_id), line)
+        give back
+    }
 }
 
 -- Walk a comma-separated list of stmt ids, in order.
@@ -3287,6 +3350,9 @@ task tc_run_program() -> void {
 -- ---------- Top-level entry -----------------------------------------
 
 task bc_run_program() -> void {
+    bc_loop_active = false
+    bc_loop_outer_count = 0
+    bc_loop_exit_states = ""
     bc_sym_count = 0
     bc_scope_depth = 0
     pilot top_count = array_len(ast_top_stmts)

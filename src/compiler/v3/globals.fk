@@ -120,6 +120,9 @@ pilot bc_sym_scopes = 0
 pilot bc_sym_lines  = 0
 pilot bc_sym_count  = 0
 pilot bc_scope_depth = 0
+pilot bc_loop_active = false
+pilot bc_loop_outer_count = 0
+pilot bc_loop_exit_states = ""
 
 -- Always-on V3 semantic checking state.  These tables and context scalars are
 -- reset for every compilation before any emitter is allowed to run.
