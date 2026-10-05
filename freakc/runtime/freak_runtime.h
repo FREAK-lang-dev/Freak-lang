@@ -538,6 +538,69 @@ freak_word freak_process_exec_capture(freak_word cmd);
 int64_t freak_process_wait(freak_process_handle p);
 bool freak_process_kill(freak_process_handle p);
 
+/* V3.5 shell-free command tickets. Configure once, then spawn/wait or run.
+   timeout_ms == 0 disables the deadline. Capture limits count raw bytes per
+   stream. Captures are drained together by wait; inherited variants preserve
+   the caller's standard handles. Release cancels and reaps a running tree.
+   All getters borrow the ticket; word/ByteBuffer getters return fresh owners.
+   Tickets are generation checked and cannot be substituted for other handles.
+   APIs are sequential; concurrent mutation of one ticket is unsupported. */
+enum {
+    FREAK_COMMAND_READY = 0, FREAK_COMMAND_RUNNING = 1,
+    FREAK_COMMAND_EXITED = 2, FREAK_COMMAND_SPAWN_FAILED = 3,
+    FREAK_COMMAND_SIGNALED = 4, FREAK_COMMAND_TIMED_OUT = 5,
+    FREAK_COMMAND_OUTPUT_LIMIT = 6, FREAK_COMMAND_CANCELLED = 7,
+    FREAK_COMMAND_IO_ERROR = 8
+};
+int64_t freak_process_command_new(freak_word executable);
+void freak_process_command_arg(int64_t ticket, freak_word argument);
+void freak_process_command_cwd(int64_t ticket, freak_word directory);
+void freak_process_command_env(int64_t ticket, freak_word name, freak_word value);
+void freak_process_command_unset_env(int64_t ticket, freak_word name);
+int64_t freak_process_command_spawn(int64_t ticket, int64_t timeout_ms,
+                                    int64_t stdout_limit, int64_t stderr_limit);
+int64_t freak_process_command_run(int64_t ticket, int64_t timeout_ms,
+                                  int64_t stdout_limit, int64_t stderr_limit);
+int64_t freak_process_command_spawn_inherit(int64_t ticket, int64_t timeout_ms);
+int64_t freak_process_command_run_inherit(int64_t ticket, int64_t timeout_ms);
+int64_t freak_process_command_wait(int64_t ticket);
+void freak_process_command_terminate(int64_t ticket);
+int64_t freak_process_command_status(int64_t ticket);
+int64_t freak_process_command_exit_code(int64_t ticket);
+int64_t freak_process_command_signal(int64_t ticket);
+freak_word freak_process_command_error(int64_t ticket);
+freak_word freak_process_command_stdout(int64_t ticket);
+freak_word freak_process_command_stderr(int64_t ticket);
+int64_t freak_process_command_stdout_bytes(int64_t ticket);
+int64_t freak_process_command_stderr_bytes(int64_t ticket);
+void freak_process_command_release(int64_t ticket);
+int64_t freak_process_command_live(void);
+int64_t freak_process_command_children(void);
+int64_t freak_process_command_retained_bytes(void);
+
+int64_t freak_llvm_process_command_new(int64_t executable);
+void freak_llvm_process_command_arg(int64_t ticket, int64_t argument);
+void freak_llvm_process_command_cwd(int64_t ticket, int64_t directory);
+void freak_llvm_process_command_env(int64_t ticket, int64_t name, int64_t value);
+void freak_llvm_process_command_unset_env(int64_t ticket, int64_t name);
+int64_t freak_llvm_process_command_spawn(int64_t ticket, int64_t timeout_ms,
+                                         int64_t stdout_limit, int64_t stderr_limit);
+int64_t freak_llvm_process_command_run(int64_t ticket, int64_t timeout_ms,
+                                       int64_t stdout_limit, int64_t stderr_limit);
+int64_t freak_llvm_process_command_spawn_inherit(int64_t ticket, int64_t timeout_ms);
+int64_t freak_llvm_process_command_run_inherit(int64_t ticket, int64_t timeout_ms);
+int64_t freak_llvm_process_command_wait(int64_t ticket);
+void freak_llvm_process_command_terminate(int64_t ticket);
+int64_t freak_llvm_process_command_status(int64_t ticket);
+int64_t freak_llvm_process_command_exit_code(int64_t ticket);
+int64_t freak_llvm_process_command_signal(int64_t ticket);
+int64_t freak_llvm_process_command_error(int64_t ticket);
+int64_t freak_llvm_process_command_stdout(int64_t ticket);
+int64_t freak_llvm_process_command_stderr(int64_t ticket);
+int64_t freak_llvm_process_command_stdout_bytes(int64_t ticket);
+int64_t freak_llvm_process_command_stderr_bytes(int64_t ticket);
+void freak_llvm_process_command_release(int64_t ticket);
+
 /* ------------------------------------------------------------------ */
 /*  std::thread                                                       */
 /* ------------------------------------------------------------------ */

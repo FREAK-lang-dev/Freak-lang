@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <time.h>
+#include <wchar.h>
 #include <math.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -28,6 +29,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <poll.h>
+#include <signal.h>
 #define _strdup strdup
 #endif
 
@@ -5376,3 +5379,6 @@ double freak_v3_bits_num(int64_t value) { double number; memcpy(&number, &value,
 int64_t freak_v3_live_arrays(void) { return freak_v3_arrays_live; }
 int64_t freak_v3_live_shapes(void) { return freak_v3_shapes_live; }
 int64_t freak_v3_live_words(void) { return freak_v3_words_live; }
+
+/* Shares the word and ByteBuffer owners above; not a second runtime. */
+#include "freak_v35_process.inc"

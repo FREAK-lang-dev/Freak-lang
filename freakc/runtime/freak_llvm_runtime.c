@@ -871,3 +871,51 @@ int64_t freak_llvm_process_exec(int64_t cmd_p) {
 
 /* ── Entry point setup ──────────────────────────────── */
 /* freak_llvm_setup_args is now a pure LLVM IR intrinsic. */
+
+/* V3.5 command adapters share the C runtime's ticket owners and OS launch. */
+int64_t freak_llvm_process_command_new(int64_t executable) {
+    return freak_process_command_new(freak_llvm_word_view(executable));
+}
+void freak_llvm_process_command_arg(int64_t ticket, int64_t argument) {
+    freak_process_command_arg(ticket, freak_llvm_word_view(argument));
+}
+void freak_llvm_process_command_cwd(int64_t ticket, int64_t directory) {
+    freak_process_command_cwd(ticket, freak_llvm_word_view(directory));
+}
+void freak_llvm_process_command_env(int64_t ticket, int64_t name, int64_t value) {
+    freak_process_command_env(ticket, freak_llvm_word_view(name), freak_llvm_word_view(value));
+}
+void freak_llvm_process_command_unset_env(int64_t ticket, int64_t name) {
+    freak_process_command_unset_env(ticket, freak_llvm_word_view(name));
+}
+int64_t freak_llvm_process_command_spawn(int64_t ticket, int64_t timeout_ms,
+        int64_t stdout_limit, int64_t stderr_limit) {
+    return freak_process_command_spawn(ticket, timeout_ms, stdout_limit, stderr_limit);
+}
+int64_t freak_llvm_process_command_run(int64_t ticket, int64_t timeout_ms,
+        int64_t stdout_limit, int64_t stderr_limit) {
+    return freak_process_command_run(ticket, timeout_ms, stdout_limit, stderr_limit);
+}
+int64_t freak_llvm_process_command_spawn_inherit(int64_t ticket, int64_t timeout_ms) {
+    return freak_process_command_spawn_inherit(ticket, timeout_ms);
+}
+int64_t freak_llvm_process_command_run_inherit(int64_t ticket, int64_t timeout_ms) {
+    return freak_process_command_run_inherit(ticket, timeout_ms);
+}
+int64_t freak_llvm_process_command_wait(int64_t ticket) { return freak_process_command_wait(ticket); }
+void freak_llvm_process_command_terminate(int64_t ticket) { freak_process_command_terminate(ticket); }
+int64_t freak_llvm_process_command_status(int64_t ticket) { return freak_process_command_status(ticket); }
+int64_t freak_llvm_process_command_exit_code(int64_t ticket) { return freak_process_command_exit_code(ticket); }
+int64_t freak_llvm_process_command_signal(int64_t ticket) { return freak_process_command_signal(ticket); }
+int64_t freak_llvm_process_command_error(int64_t ticket) {
+    return freak_llvm_word_take(freak_process_command_error(ticket));
+}
+int64_t freak_llvm_process_command_stdout(int64_t ticket) {
+    return freak_llvm_word_take(freak_process_command_stdout(ticket));
+}
+int64_t freak_llvm_process_command_stderr(int64_t ticket) {
+    return freak_llvm_word_take(freak_process_command_stderr(ticket));
+}
+int64_t freak_llvm_process_command_stdout_bytes(int64_t ticket) { return freak_process_command_stdout_bytes(ticket); }
+int64_t freak_llvm_process_command_stderr_bytes(int64_t ticket) { return freak_process_command_stderr_bytes(ticket); }
+void freak_llvm_process_command_release(int64_t ticket) { freak_process_command_release(ticket); }
