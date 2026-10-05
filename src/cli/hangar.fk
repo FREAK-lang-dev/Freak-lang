@@ -559,6 +559,18 @@ task hangar_resolve_from_registry(name: word, constraint: word) -> word {
 -- Package subprocesses use one executable plus explicit arguments. A bounded
 -- failure status must remain failure; a stdout snapshot is never evidence that
 -- a fetch, hash, or archive command exited successfully.
+task hangar_command_text(command: int, stderr_stream: bool) -> word {
+    pilot bytes: ByteBuffer = process::command_stdout_bytes(command)
+    if stderr_stream {
+        bytes.release()
+        bytes = process::command_stderr_bytes(command)
+    }
+    pilot output = bytes.to_word()
+    if bytes.status() != 0 { output = "[binary or invalid UTF-8 tool output omitted]" }
+    bytes.release()
+    give back output
+}
+
 task hangar_command_result(command: int, operation: word) -> int {
     pilot status = process::command_run(command, 30000, 65536, 65536)
     pilot code = 1
@@ -567,7 +579,7 @@ task hangar_command_result(command: int, operation: word) -> int {
         say "  " + operation + " failed (process status " + word_from_int(status) + ")."
         pilot failure = process::command_error(command)
         if failure != "" { say "  " + failure }
-        pilot stderr = process::command_stderr(command)
+        pilot stderr = hangar_command_text(command, true)
         if stderr != "" { say stderr }
     }
     process::command_release(command)
@@ -1532,7 +1544,7 @@ task hangar_hash_output(command: int) -> word {
     pilot status = process::command_run(command, 30000, 65536, 65536)
     pilot output = ""
     if status == 2 and process::command_exit_code(command) == 0 {
-        output = process::command_stdout(command)
+        output = hangar_command_text(command, false)
     }
     process::command_release(command)
     give back output

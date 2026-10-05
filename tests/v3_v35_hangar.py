@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import io
 import os
 from pathlib import Path
 import re
 import subprocess
+import struct
 import sys
 import tempfile
 import zipfile
@@ -27,7 +29,7 @@ LOCK = ('# Prior verified generation\n[[package]]\nname = "existing"\n'
 NATIVE_CASES = (
     "missing-add-argument", "missing-remove-argument", "unknown-command",
     "unavailable-registry-add", "unavailable-registry-install", "invalid-package-name",
-    "failed-git-add", "failed-git-install", "failed-git-update", "failed-git-after-output",
+    "failed-git-add", "failed-git-install", "failed-git-update", "failed-git-after-output", "failed-git-binary-diagnostic",
     "preserved-existing-add", "preserved-existing-update", "unavailable-publication",
     "malformed-header", "unterminated-value", "duplicate-key", "duplicate-table",
     "invalid-inline-table", "unknown-manifest-escape", "unsupported-source-scheme",
@@ -95,7 +97,12 @@ int main(int argc, char **argv) {
     if (getenv("FREAK_HANGAR_FETCH_SUCCESS")) {
         return put(argv[argc - 1], "hangar.toml", "[project]\nname = \"missing\"\nversion = \"1.0.0\"\nkind = \"lib\"\n[modules]\ncore = \"partial.fk\"\n[exports]\napi = \"core::value\"\n");
     }
-    fputs("injected Git fetch failure\n", stderr); return 23;
+    fputs("injected Git fetch failure\n", stderr);
+    if (getenv("FREAK_HANGAR_BINARY_DIAGNOSTIC")) {
+        const unsigned char bytes[] = {'A', 0, 0xff, 'B'};
+        fwrite(bytes, 1, sizeof(bytes), stderr);
+    }
+    return 23;
 }
 ''', encoding="ascii")
     executable = tool_root / ("git.exe" if os.name == "nt" else "git")
@@ -122,6 +129,7 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
         "failed-git-install": (["install"], 'missing = { git = "owner/repository", version = "latest" }\n', "Could not fetch missing"),
         "failed-git-update": (["update", "missing"], 'missing = { git = "owner/repository", version = "latest" }\n', "Could not fetch missing"),
         "failed-git-after-output": (["install"], 'missing = { git = "owner/repository", version = "latest" }\n', "Could not fetch missing"),
+        "failed-git-binary-diagnostic": (["install"], 'missing = { git = "owner/repository", version = "latest" }\n', "Could not fetch missing"),
         "preserved-existing-add": (["add", "existing", "owner/repository"], "", "Cannot safely replace existing"),
         "preserved-existing-update": (["update", "existing"], 'existing = { git = "owner/repository", version = "latest" }\n', "Cannot safely replace existing"),
         "unavailable-publication": (["publish"], "", "Publication is unavailable"),
@@ -144,8 +152,10 @@ def native(freak: Path, hangar: Path, clang: Path, root: Path) -> None:
             case_env = env.copy()
             report = cwd / "git-argv-report"
             case_env["FREAK_HANGAR_ARGV_REPORT"] = str(report)
-            if name == "failed-git-after-output":
+            if name in ("failed-git-after-output", "failed-git-binary-diagnostic"):
                 case_env["FREAK_HANGAR_WRITE_PARTIAL"] = "1"
+            if name == "failed-git-binary-diagnostic":
+                case_env["FREAK_HANGAR_BINARY_DIAGNOSTIC"] = "1"
             completed = subprocess.run([str(binary), *prefix, *args], cwd=cwd, env=case_env,
                                        capture_output=True, text=True, encoding="utf-8",
                                        errors="replace", timeout=30, check=False)
@@ -383,6 +393,158 @@ def graph_probe(freak: Path, clang: Path, runtime: Path, root: Path) -> None:
         print(f"native:{backend}:graph-probe:passed:{len(GRAPH_CASES)}")
 
 
+INPUT_CASES = ("canonical-bytes", "sorted-inventory", "binary-stage", "unknown-ignored",
+               "metadata-ignored", "declared-edit", "symlink-component", "secret-declaration", "protected-aliases", "case-collision", "byte-limit", "manifest-race")
+INPUT_MANIFEST = ('[project]\nname = "inputs"\nversion = "1.0.0"\nkind = "lib"\n'
+                  'readme = "README.md"\nlicense_file = "LICENSE"\n'
+                  '[modules]\ncore = "src/é helper.fk"\n'
+                  '[tests]\nmain = "tests/sample.fk"\n[assets]\nbinary = "assets/raw.bin"\n')
+INPUT_PROGRAM = r'''
+task main() {
+    pilot root = process::arg(1)
+    pilot stage = process::arg(2)
+    hangar_graph_clear()
+    package_inputs_clear()
+    pilot manifest = fs::read_ticket(root + "/hangar.toml")
+    if not fs::result_ok(manifest) { process::exit(51) }
+    pilot content = fs::result_word(manifest)
+    fs::result_release(manifest)
+    pilot node = hangar_graph_add_manifest("input-tree", root + "/hangar.toml", content, "inputs")
+    if node < 0 { process::exit(52) }
+    if process::arg(3) == "limit" { package_input_file_limit = 1 }
+    if process::arg(3) == "manifest-race" {
+        pilot written = fs::write_checked(root + "/hangar.toml", content.replace("src/é helper.fk", "missing-late.fk"))
+        if not fs::result_ok(written) { process::exit(53) }
+        fs::result_release(written)
+    }
+    pilot hash = package_hash_declared_inputs(node, root, "hangar.toml", stage)
+    if hash == "" { say "error:" + hangar_graph_error } else {
+        say hash
+        pilot index = 0
+        repeat until index >= array_len(package_input_paths) {
+            say array_get(package_input_paths, index) + "|" + array_get(package_input_hashes, index) + "|" + array_get(package_input_lengths, index) + "|" + array_get(package_input_roles, index)
+            index += 1
+        }
+    }
+}
+'''
+
+
+def inputs_probe(freak: Path, clang: Path, runtime: Path, root: Path) -> None:
+    import v3_word_foundation as foundation
+    repo = Path(__file__).resolve().parents[1]
+    package = (repo / "src/cli/hangar.fk").read_text(encoding="utf-8")
+    source = ((repo / "std/version.fk").read_text(encoding="utf-8") + "\n" +
+              (repo / "src/cli/toml.fk").read_text(encoding="utf-8") + "\n" +
+              task_source(package, "hangar_valid_package_name") + "\n" +
+              "\n".join((repo / ("src/cli/" + name + ".fk")).read_text(encoding="utf-8")
+                        for name in ("package_graph", "package_paths", "package_inputs")) + "\n" + INPUT_PROGRAM)
+    files = {"hangar.toml": (INPUT_MANIFEST.encode("utf-8"), "manifest"),
+             "src/é helper.fk": (b"task value() -> int { give back 42 }\n", "source"),
+             "tests/sample.fk": (b"task main() { say 42 }\n", "test"),
+             "assets/raw.bin": (b"A\0\xffB\r\n", "asset"), "README.md": (b"# Example\n", "documentation"),
+             "LICENSE": (b"Example license\n", "documentation")}
+
+    def create(cwd: Path, manifest: str = INPUT_MANIFEST) -> None:
+        cwd.mkdir()
+        for relative, (contents, _) in files.items():
+            target = cwd / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(contents)
+        (cwd / "hangar.toml").write_text(manifest, encoding="utf-8")
+
+    def expected(cwd: Path) -> str:
+        ordered = sorted(files, key=lambda path: path.encode("utf-8"))
+        data = b"FREAK-source-input-tree-v2\n" + struct.pack(">q", len(ordered))
+        lines = []
+        for relative in ordered:
+            name = relative.encode("utf-8")
+            contents = (cwd / relative).read_bytes()
+            data += struct.pack(">q", len(name)) + name + struct.pack(">qqq", 1, 0, len(contents)) + contents
+            lines.append(f"{relative}|{hashlib.sha256(contents).hexdigest()}|{len(contents)}|{files[relative][1]}\n")
+        return hashlib.sha256(data).hexdigest() + "\n" + "".join(lines)
+
+    for backend in ("c", "llvm"):
+        program = root / f"inputs-{backend}.fk"
+        program.write_text(source, encoding="utf-8")
+        generated, _ = foundation.transpile(freak=freak, repo=repo, source=program, backend=backend)
+        binary = root / (f"inputs-{backend}.exe" if os.name == "nt" else f"inputs-{backend}")
+        foundation.compile_generated(clang=str(clang), repo=repo, runtime_root=runtime,
+                                     generated=generated, backend=backend, binary=binary)
+
+        def execute(cwd: Path, name: str, mode: str = "normal") -> tuple[str, Path]:
+            stage = root / f"stage-{backend}-{name}"
+            stage.mkdir()
+            result = foundation.run([str(binary), str(cwd), str(stage), mode], root,
+                                    foundation.sanitizer_env(), timeout=30)
+            assert result.returncode == 0, (backend, name, result.returncode, result.stdout, result.stderr)
+            if result.stderr:
+                stats = foundation.parse_runtime_stats(result.stderr)
+                assert len(result.stderr.splitlines()) == 1 and all(value == 0 for value in stats["counters"].values()), result.stderr
+            return result.stdout, stage
+
+        cwd = root / f"input-project-{backend}"
+        create(cwd)
+        output, stage = execute(cwd, "initial")
+        assert output == expected(cwd), (backend, output, expected(cwd))
+        print(f"native:{backend}:inputs:canonical-bytes:passed")
+        print(f"native:{backend}:inputs:sorted-inventory:passed")
+        assert {(path.relative_to(stage).as_posix(), path.read_bytes()) for path in stage.rglob("*") if path.is_file()} == {(path, data) for path, (data, _) in files.items()}
+        print(f"native:{backend}:inputs:binary-stage:passed")
+        (cwd / "unknown-secret").write_bytes(b"never admit unknown content")
+        again, _ = execute(cwd, "unknown")
+        assert again == output, again
+        print(f"native:{backend}:inputs:unknown-ignored:passed")
+        changed = cwd / "src/é helper.fk"
+        os.utime(changed, (1730000000, 1730000000))
+        if os.name != "nt":
+            changed.chmod(0o755)
+        again, _ = execute(cwd, "metadata")
+        assert again == output, again
+        print(f"native:{backend}:inputs:metadata-ignored:passed")
+        changed.write_bytes(b"task value() -> int { give back 43 }\n")
+        again, _ = execute(cwd, "edit")
+        assert again == expected(cwd) and again.splitlines()[0] != output.splitlines()[0], again
+        print(f"native:{backend}:inputs:declared-edit:passed")
+        if os.name != "nt":
+            linked = root / f"input-linked-{backend}"
+            create(linked)
+            source = linked / "src/é helper.fk"
+            source.unlink()
+            (linked / "src").rmdir()
+            (linked / "src").symlink_to(cwd / "src", target_is_directory=True)
+            rejected, _ = execute(linked, "symlink")
+            assert rejected.startswith("error:") and "symlink" in rejected, rejected
+            print(f"native:{backend}:inputs:symlink-component:passed")
+        else:
+            raise AssertionError("native Windows symlink fixture requires an admitted reparse-point fixture")
+        secret = root / f"input-secret-{backend}"
+        create(secret, INPUT_MANIFEST.replace('binary = "assets/raw.bin"', 'binary = ".env"'))
+        (secret / ".env").write_text("secret=forbidden", encoding="ascii")
+        rejected, _ = execute(secret, "secret")
+        assert rejected.startswith("error:") and "secret/cache/generated" in rejected, rejected
+        print(f"native:{backend}:inputs:secret-declaration:passed")
+        for index, alias in enumerate((".ENV", ".env.", ".GIT/config", "assets/raw.bin ")):
+            aliased = root / f"input-secret-alias-{backend}-{index}"
+            create(aliased, INPUT_MANIFEST.replace('binary = "assets/raw.bin"', f'binary = "{alias}"'))
+            rejected, _ = execute(aliased, f"alias-{index}")
+            assert rejected.startswith("error:") and "secret/cache/generated" in rejected, rejected
+        print(f"native:{backend}:inputs:protected-aliases:passed")
+        collision = root / f"input-case-collision-{backend}"
+        create(collision, INPUT_MANIFEST + 'duplicate = "assets/RAW.bin"\n')
+        rejected, _ = execute(collision, "case-collision")
+        assert rejected.startswith("error:") and "case-insensitive" in rejected, rejected
+        print(f"native:{backend}:inputs:case-collision:passed")
+        rejected, _ = execute(cwd, "limit", "limit")
+        assert rejected.startswith("error:") and "byte limit" in rejected, rejected
+        print(f"native:{backend}:inputs:byte-limit:passed")
+        changed_manifest = root / f"input-manifest-race-{backend}"
+        create(changed_manifest)
+        rejected, _ = execute(changed_manifest, "manifest-race", "manifest-race")
+        assert rejected.startswith("error:") and "manifest changed after graph admission" in rejected, rejected
+        print(f"native:{backend}:inputs:manifest-race:passed")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--freak", type=Path)
@@ -390,10 +552,21 @@ def main() -> int:
     parser.add_argument("--clang", type=Path)
     parser.add_argument("--python-only", action="store_true")
     parser.add_argument("--graph-only", action="store_true")
+    parser.add_argument("--inputs-only", action="store_true")
     parser.add_argument("--runtime-root", type=Path)
     parser.add_argument("--list", action="store_true", help="Print the expected native case inventory")
     args = parser.parse_args()
     if args.list:
+        if args.inputs_only:
+            for backend in ("c", "llvm"):
+                for case in INPUT_CASES:
+                    print(f"native:{backend}:inputs:{case}")
+            return 0
+        if args.graph_only:
+            for backend in ("c", "llvm"):
+                for case in GRAPH_CASES:
+                    print(f"native:{backend}:graph:{case}")
+            return 0
         for invocation in ("freak", "standalone"):
             for case in NATIVE_CASES:
                 if case == "failed-git-after-output":
@@ -403,13 +576,19 @@ def main() -> int:
         return 0
     if args.graph_only and not all((args.freak, args.clang)):
         parser.error("--graph-only requires --freak and --clang")
-    if not args.python_only and not args.graph_only and not all((args.freak, args.hangar, args.clang)):
+    if args.inputs_only and not all((args.freak, args.clang)):
+        parser.error("--inputs-only requires --freak and --clang")
+    if not args.python_only and not args.graph_only and not args.inputs_only and not all((args.freak, args.hangar, args.clang)):
         parser.error("fresh --freak, --hangar, and native --clang paths are required")
     with tempfile.TemporaryDirectory(prefix="freak-v35-hangar-") as temporary:
         root = Path(temporary)
         if args.graph_only:
             runtime = args.runtime_root or Path(__file__).resolve().parents[1] / "freakc/runtime"
             graph_probe(args.freak.resolve(strict=True), args.clang.resolve(strict=True), runtime.resolve(strict=True), root)
+            return 0
+        if args.inputs_only:
+            runtime = args.runtime_root or Path(__file__).resolve().parents[1] / "freakc/runtime"
+            inputs_probe(args.freak.resolve(strict=True), args.clang.resolve(strict=True), runtime.resolve(strict=True), root)
             return 0
         python_compatibility(root)
         if not args.python_only:

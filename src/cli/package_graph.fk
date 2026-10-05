@@ -11,6 +11,7 @@ pilot hangar_graph_identities = 0
 pilot hangar_graph_origins = 0
 pilot hangar_graph_versions = 0
 pilot hangar_graph_request_paths = 0
+pilot hangar_graph_contents = 0
 pilot hangar_graph_fact_nodes = 0
 pilot hangar_graph_fact_keys = 0
 pilot hangar_graph_fact_values = 0
@@ -44,6 +45,7 @@ task hangar_graph_clear() -> void {
         array_release(hangar_graph_origins)
         array_release(hangar_graph_versions)
         array_release(hangar_graph_request_paths)
+        array_release(hangar_graph_contents)
         array_release(hangar_graph_fact_nodes)
         array_release(hangar_graph_fact_keys)
         array_release(hangar_graph_fact_values)
@@ -62,6 +64,7 @@ task hangar_graph_clear() -> void {
     hangar_graph_origins = array_new()
     hangar_graph_versions = array_new()
     hangar_graph_request_paths = array_new()
+    hangar_graph_contents = array_new()
     hangar_graph_fact_nodes = array_new()
     hangar_graph_fact_keys = array_new()
     hangar_graph_fact_values = array_new()
@@ -98,6 +101,14 @@ task hangar_graph_find_identity(identity: word) -> int {
         i += 1
     }
     give back 0 - 1
+}
+
+task hangar_graph_utf8_size(content: word) -> int {
+    pilot bytes: ByteBuffer = ByteBuffer::new()
+    bytes.write_word(content)
+    pilot size = bytes.length()
+    bytes.release()
+    give back size
 }
 
 task hangar_graph_symbol(name: word) -> bool {
@@ -191,7 +202,8 @@ task hangar_graph_add_manifest(identity: word, origin: word, content: word, requ
         hangar_graph_fail("dependency node limit exceeded along " + request_path)
         give back 0 - 1
     }
-    if content.length() > hangar_graph_manifest_limit or hangar_graph_manifest_bytes + content.length() > hangar_graph_manifest_total_limit {
+    pilot content_bytes = hangar_graph_utf8_size(content)
+    if content_bytes > hangar_graph_manifest_limit or hangar_graph_manifest_bytes + content_bytes > hangar_graph_manifest_total_limit {
         hangar_graph_fail("dependency manifest byte limit exceeded along " + request_path)
         give back 0 - 1
     }
@@ -220,9 +232,10 @@ task hangar_graph_add_manifest(identity: word, origin: word, content: word, requ
     array_push(hangar_graph_origins, origin)
     array_push(hangar_graph_versions, version)
     array_push(hangar_graph_request_paths, request_path)
+    array_push(hangar_graph_contents, content)
     array_push(hangar_graph_colors, "0")
     hangar_graph_count += 1
-    hangar_graph_manifest_bytes += content.length()
+    hangar_graph_manifest_bytes += content_bytes
     i = 0
     repeat until i >= toml_count {
         array_push(hangar_graph_fact_nodes, word_from_int(node))
