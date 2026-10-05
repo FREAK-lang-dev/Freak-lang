@@ -170,7 +170,11 @@ int64_t freak_llvm_time_monotonic_ns(void) {
 }
 
 /* ── Panic ──────────────────────────────────────────── */
-/* freak_llvm_panic is now a pure LLVM IR intrinsic. */
+/* Native V3 declares this scalar bridge; keep panic on the shared runtime's
+   controlled stderr/exit path rather than leaving an unresolved intrinsic. */
+_Noreturn void freak_llvm_panic(int64_t message) {
+    freak_panic(freak_llvm_word_view(message));
+}
 
 /* ── LLVM-compatible dynamic arrays (store int64_t) ─── */
 /* The C backend arrays store freak_word structs (24 bytes each).
