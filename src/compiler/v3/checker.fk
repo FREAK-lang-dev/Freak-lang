@@ -894,6 +894,9 @@ task tc_task_return_shape(task_name: word) -> word {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    -- Measured V4 host helpers are admitted solely by the explicit profile.
+    if v35_bootstrap_compat and name == "chr" { give back "word" }
+    if v35_bootstrap_compat and name == "word_to_num" { give back "num" }
     if name == "json_document::new" { give back "int" }
     if name == "json_document::parse" { give back "int" }
     if name == "json_document::parse_bytes" { give back "int" }
@@ -1013,6 +1016,8 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if v35_bootstrap_compat and name == "chr" { give back "int" }
+    if v35_bootstrap_compat and name == "word_to_num" { give back "word" }
     if name == "json_document::new" { give back "" }
     if name == "json_document::parse" { give back "word" }
     if name == "json_document::parse_bytes" { give back "ByteBuffer" }

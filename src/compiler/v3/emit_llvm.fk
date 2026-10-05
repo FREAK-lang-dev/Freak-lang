@@ -619,6 +619,8 @@ task llvm_is_num_expr(expr_id: word) -> bool {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task llvm_map_call_name(val: word) -> word {
+    if v35_bootstrap_compat and val == "chr" { give back "@freak_llvm_char_to_word" }
+    if v35_bootstrap_compat and val == "word_to_num" { give back "@freak_llvm_parse_num" }
     if val.starts_with("json_document::") and tc_builtin_call_type(val) != "" { give back "@freak_llvm_" + val.replace("::", "_") }
     if val == "time::sleep" { give back "@freak_llvm_time_sleep" }
     if val == "fs::read_checked" { give back "@freak_llvm_fs_read_source_ticket" }
