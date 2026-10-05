@@ -295,7 +295,7 @@ task toml_parse_inline_table(value: word, prefix: word) -> void {
     }
     if quote != "" { toml_fail("unterminated inline table string") give back }
     if pair.trim() == "" {
-        if value.substring(1, value.length() - 1).trim() != "" { toml_fail("trailing inline table comma") }
+        if value.substring(1, value.length() - 2).trim() != "" { toml_fail("trailing inline table comma") }
     } else { toml_parse_inline_pair(pair, prefix) }
 }
 
@@ -319,7 +319,7 @@ task toml_extract_section(line: word) -> word {
         toml_fail("unsupported or unterminated table header")
         give back ""
     }
-    pilot name = line.substring(1, line.length() - 1).trim()
+    pilot name = line.substring(1, line.length() - 2).trim()
     if not toml_valid_key(name) { toml_fail("invalid table name") give back "" }
     if toml_arr_contains(toml_sections_arr, array_len(toml_sections_arr), name) {
         toml_fail("duplicate table: " + name)

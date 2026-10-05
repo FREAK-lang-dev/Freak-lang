@@ -172,12 +172,123 @@ def python_compatibility(root: Path) -> None:
         print(f"python:{name}:passed")
 
 
+GRAPH_CASES = ("diamond", "snapshot-owner", "identity-conflict", "cycle", "unresolved",
+               "node-limit", "depth-limit", "edge-limit", "malformed-child")
+
+GRAPH_PROBE = r'''
+task probe_manifest(name: word, deps: word) -> word {
+    pilot kind = "lib"
+    pilot entry = ""
+    if name == "app" { kind = "app"; entry = "entry = \"src/main.fk\"\n" }
+    give back "[project]\nname = \"" + name + "\"\nversion = \"1.0.0\"\nkind = \"" + kind + "\"\n" + entry + "[modules]\ncore = \"src/core.fk\"\n[exports]\napi = \"core::api\"\n[dependencies]\n" + deps
+}
+
+task probe_diamond() -> int {
+    hangar_graph_clear()
+    pilot root = hangar_graph_add_manifest("root-tree", "/app/hangar.toml", probe_manifest("app", "a = { path = \"../a\" }\nb = { path = \"../b\" }\n"), "app")
+    pilot a = hangar_graph_add_manifest("a-tree", "/a/hangar.toml", probe_manifest("a", "c = { path = \"../c\" }\n"), "app -> a")
+    pilot b = hangar_graph_add_manifest("b-tree", "/b/hangar.toml", probe_manifest("b", "c = { path = \"../c\" }\n"), "app -> b")
+    pilot c = hangar_graph_add_manifest("c-tree", "/c/hangar.toml", probe_manifest("c", ""), "app -> a -> c")
+    if root != 0 or a != 1 or b != 2 or c != 3 { process::exit(11) }
+    if not hangar_graph_link(0, a) or not hangar_graph_link(1, b) or not hangar_graph_link(2, c) or not hangar_graph_link(3, c) { process::exit(12) }
+    give back root
+}
+
+task main() {
+    pilot root = probe_diamond()
+    pilot duplicate = hangar_graph_add_manifest("c-tree", "/c/hangar.toml", probe_manifest("c", ""), "app -> b -> c")
+    if duplicate != 3 or hangar_graph_count != 4 or not hangar_graph_complete(root) { process::exit(13) }
+    if array_len(hangar_graph_order) != 4 or array_get(hangar_graph_order, 0) != "3" or array_get(hangar_graph_order, 1) != "1" or array_get(hangar_graph_order, 2) != "2" or array_get(hangar_graph_order, 3) != "0" { process::exit(14) }
+    say "graph:diamond:passed"
+    if hangar_graph_fact(root, "project.name") != "app" or hangar_graph_fact(1, "dependencies.c.path") != "../c" or hangar_graph_fact(2, "exports.api") != "core::api" { process::exit(15) }
+    say "graph:snapshot-owner:passed"
+    pilot conflict = hangar_graph_add_manifest("other-c-tree", "/other/c/hangar.toml", probe_manifest("c", ""), "app -> b -> c")
+    if conflict >= 0 or not hangar_graph_error.contains("app -> a -> c") or not hangar_graph_error.contains("app -> b -> c") { process::exit(16) }
+    say "graph:identity-conflict:passed"
+
+    hangar_graph_clear()
+    root = hangar_graph_add_manifest("root-tree", "/app/hangar.toml", probe_manifest("app", "a = { path = \"../a\" }\n"), "app")
+    pilot a = hangar_graph_add_manifest("a-tree", "/a/hangar.toml", probe_manifest("a", "back = { path = \"../app\" }\n"), "app -> a")
+    if not hangar_graph_link(0, a) or not hangar_graph_link(1, root) { process::exit(17) }
+    if hangar_graph_complete(root) or not hangar_graph_error.contains("app -> a -> back") { process::exit(18) }
+    say "graph:cycle:passed"
+
+    hangar_graph_clear()
+    root = hangar_graph_add_manifest("root-tree", "/app/hangar.toml", probe_manifest("app", "missing = { path = \"../missing\" }\n"), "app")
+    if hangar_graph_complete(root) or not hangar_graph_error.contains("app -> missing") { process::exit(19) }
+    say "graph:unresolved:passed"
+
+    hangar_graph_clear()
+    hangar_graph_node_limit = 1
+    root = hangar_graph_add_manifest("root-tree", "/app/hangar.toml", probe_manifest("app", ""), "app")
+    a = hangar_graph_add_manifest("a-tree", "/a/hangar.toml", probe_manifest("a", ""), "app -> a")
+    if root != 0 or a >= 0 or not hangar_graph_error.contains("node limit") { process::exit(20) }
+    hangar_graph_node_limit = 1024
+    say "graph:node-limit:passed"
+
+    root = probe_diamond()
+    hangar_graph_depth_limit = 1
+    if hangar_graph_complete(root) or not hangar_graph_error.contains("depth limit") { process::exit(21) }
+    hangar_graph_depth_limit = 64
+    say "graph:depth-limit:passed"
+
+    hangar_graph_clear()
+    hangar_graph_edge_limit = 0
+    root = hangar_graph_add_manifest("root-tree", "/app/hangar.toml", probe_manifest("app", "a = { path = \"../a\" }\n"), "app")
+    if root >= 0 or not hangar_graph_error.contains("edge limit") { process::exit(22) }
+    hangar_graph_edge_limit = 4096
+    say "graph:edge-limit:passed"
+
+    hangar_graph_clear()
+    root = hangar_graph_add_manifest("bad-tree", "/a/hangar.toml", "[project\n", "app -> a")
+    if root >= 0 or not hangar_graph_error.contains("/a/hangar.toml:1") { process::exit(23) }
+    say "graph:malformed-child:passed"
+}
+'''
+
+
+def task_source(source: str, name: str) -> str:
+    start = source.index("task " + name + "(")
+    end = source.find("\ntask ", start + 1)
+    return source[start:] if end < 0 else source[start:end]
+
+
+def graph_probe(freak: Path, clang: Path, runtime: Path, root: Path) -> None:
+    import v3_word_foundation as foundation
+    repo = Path(__file__).resolve().parents[1]
+    toml = (repo / "src/cli/toml.fk").read_text(encoding="utf-8")
+    # This probe exercises the parser/graph independently of filesystem adapters.
+    for name in ("toml_load", "toml_write_file"):
+        toml = toml.replace(task_source(toml, name), "")
+    package = (repo / "src/cli/hangar.fk").read_text(encoding="utf-8")
+    source = ((repo / "std/version.fk").read_text(encoding="utf-8") + "\n" + toml + "\n" +
+              task_source(package, "hangar_valid_package_name") + "\n" +
+              (repo / "src/cli/package_graph.fk").read_text(encoding="utf-8") + "\n" +
+              GRAPH_PROBE.replace('kind = "app"; entry =', 'kind = "app"\n        entry ='))
+    expected = "".join(f"graph:{case}:passed\n" for case in GRAPH_CASES)
+    for backend in ("c", "llvm"):
+        program = root / f"graph-{backend}.fk"
+        program.write_text(source, encoding="utf-8")
+        generated, _ = foundation.transpile(freak=freak, repo=repo, source=program, backend=backend)
+        binary = root / (f"graph-{backend}.exe" if os.name == "nt" else f"graph-{backend}")
+        foundation.compile_generated(clang=str(clang), repo=repo, runtime_root=runtime,
+                                     generated=generated, backend=backend, binary=binary)
+        result = foundation.run([str(binary)], root, foundation.sanitizer_env(), timeout=30)
+        assert result.returncode == 0 and result.stdout == expected, (backend, result.returncode, result.stdout, result.stderr)
+        if result.stderr:
+            stats = foundation.parse_runtime_stats(result.stderr)
+            assert len(result.stderr.splitlines()) == 1 and all(value == 0 for value in stats["counters"].values()), result.stderr
+        print(f"native:{backend}:graph-probe:passed:{len(GRAPH_CASES)}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--freak", type=Path)
     parser.add_argument("--hangar", type=Path)
     parser.add_argument("--clang", type=Path)
     parser.add_argument("--python-only", action="store_true")
+    parser.add_argument("--graph-only", action="store_true")
+    parser.add_argument("--runtime-root", type=Path)
     parser.add_argument("--list", action="store_true", help="Print the expected native case inventory")
     args = parser.parse_args()
     if args.list:
@@ -186,10 +297,16 @@ def main() -> int:
                 print(f"native:{invocation}:{case}")
             print(f"native:{invocation}:manifest-round-trip")
         return 0
-    if not args.python_only and not all((args.freak, args.hangar, args.clang)):
+    if args.graph_only and not all((args.freak, args.clang)):
+        parser.error("--graph-only requires --freak and --clang")
+    if not args.python_only and not args.graph_only and not all((args.freak, args.hangar, args.clang)):
         parser.error("fresh --freak, --hangar, and native --clang paths are required")
     with tempfile.TemporaryDirectory(prefix="freak-v35-hangar-") as temporary:
         root = Path(temporary)
+        if args.graph_only:
+            runtime = args.runtime_root or Path(__file__).resolve().parents[1] / "freakc/runtime"
+            graph_probe(args.freak.resolve(strict=True), args.clang.resolve(strict=True), runtime.resolve(strict=True), root)
+            return 0
         python_compatibility(root)
         if not args.python_only:
             native(args.freak.resolve(strict=True), args.hangar.resolve(strict=True),
