@@ -1,0 +1,28 @@
+-- ===================================================================
+-- FREAK Standard Library — std::test (standalone integration programs)
+-- ===================================================================
+-- Each test file has an ordinary main. Assertions name the failed check and
+-- terminate that test process with status 1. No test grammar is required.
+
+task test_fail(label: word, message: word) -> void {
+    pilot mut name = label
+    if name == "" { name = "assertion" }
+    say "TEST FAILED [" + name + "] " + message
+    process::exit(1)
+}
+
+task test_assert(label: word, condition: bool) -> void {
+    if not condition { test_fail(label, "expected true") }
+}
+
+task test_assert_int(label: word, expected: int, actual: int) -> void {
+    if expected != actual {
+        test_fail(label, "expected " + word_from_int(expected) + ", got " + word_from_int(actual))
+    }
+}
+
+task test_assert_word(label: word, expected: word, actual: word) -> void {
+    if expected != actual {
+        test_fail(label, "expected \"" + expected + "\", got \"" + actual + "\"")
+    }
+}
