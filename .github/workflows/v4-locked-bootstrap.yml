@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+env:
+  LLVM_MINGW_VERSION: "20260616"
+  LLVM_MINGW_SHA256: "b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35"
+  FREAK_V4_CI_CLANG: clang
+
 jobs:
   native-public-bootstrap:
     name: Locked V4 public bootstrap (${{ matrix.os }})
@@ -28,12 +33,36 @@ jobs:
       - name: Install Clang (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang lld
-      - name: Install LLVM (Windows)
+      - name: Install pinned GNU-targeting LLVM-MinGW (Windows)
         if: runner.os == 'Windows'
-        run: choco install llvm -y
+        shell: powershell
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64.zip"
+          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$env:LLVM_MINGW_VERSION/llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64.zip"
+          Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $env:LLVM_MINGW_SHA256) {
+            throw "LLVM-MinGW checksum mismatch: expected $env:LLVM_MINGW_SHA256, got $actual"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP -Force
+          $bin = Join-Path $env:RUNNER_TEMP "llvm-mingw-$env:LLVM_MINGW_VERSION-ucrt-x86_64\bin"
+          $clangPath = Join-Path $bin "clang.exe"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "FREAK_V4_CI_CLANG=$clangPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $clangPath --version
+          $triple = & $clangPath -dumpmachine
+          if ($LASTEXITCODE -ne 0 -or $triple -notmatch '^x86_64-.*windows-gnu$') {
+            throw "Locked V4 bootstrap requires the GNU Windows host profile: $triple"
+          }
+      - name: Checked source runtime platform and fault regressions
+        run: >
+          python -B -u tests/v4_bootstrap_runtime_ci.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
+          --report "${{ runner.temp }}/freak-v4-runtime-ci.json"
       - name: Reconstruct CLI and verify installed public locked bootstrap
         run: >
           python -B -u tests/v3_v4_bootstrap_ci.py
+          --clang "${{ env.FREAK_V4_CI_CLANG }}"
           --output "${{ runner.temp }}/freak-v4-locked-bootstrap"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -42,4 +71,5 @@ jobs:
           path: |
             ${{ runner.temp }}/freak-v4-locked-bootstrap/reconstruction.json
             ${{ runner.temp }}/freak-v4-locked-bootstrap/public-contracts.json
+            ${{ runner.temp }}/freak-v4-runtime-ci.json
           if-no-files-found: warn
