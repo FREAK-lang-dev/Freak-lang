@@ -209,6 +209,9 @@ def check_run(freak: Path, root: Path, env: dict[str, str]) -> None:
                            root, env)
             assert rejected.returncode != 0, rejected.stdout + rejected.stderr
             assert "unknown or malformed flag" in rejected.stdout, rejected.stdout
+        relative = run([str(freak), "run", source.name, f"--{backend}", "--opt=0",
+                        "--", "relative executable"], root, env)
+        check_argv(relative, ["relative executable"])
         print(f"argv/{backend}: exact forwarding, cache, exit status, stdin, delimiter OK",
               flush=True)
 
