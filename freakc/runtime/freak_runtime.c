@@ -1251,11 +1251,23 @@ void freak_fs_append(freak_word path, freak_word content) {
  * @return `true` if the path exists, `false` otherwise.
  */
 bool freak_fs_exists(freak_word path) {
-    const char* p = freak_word_to_cstr(path);
+    if (!path.data || !path.length || path.length == SIZE_MAX || memchr(path.data,0,path.length) ||
+        !freak_system_utf8_valid(path.data,path.length)) return false;
 #ifdef _WIN32
-    return _access(p, 0) == 0;
+    if (path.length > INT_MAX) return false;
+    int count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.data,(int)path.length,NULL,0);
+    if (!count) return false;
+    wchar_t *wide=malloc(((size_t)count+1)*sizeof(wchar_t));
+    if (!wide) return false;
+    bool exists=false;
+    if (MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.data,(int)path.length,wide,count) == count) {
+        wide[count]=0; exists=_waccess(wide,0) == 0;
+    }
+    free(wide); return exists;
 #else
-    return access(p, F_OK) == 0;
+    char *name=malloc(path.length+1); if (!name) return false;
+    memcpy(name,path.data,path.length); name[path.length]=0;
+    bool exists=access(name,F_OK) == 0; free(name); return exists;
 #endif
 }
 
@@ -1263,12 +1275,11 @@ bool freak_fs_exists(freak_word path) {
  * Checks whether a filesystem path exists.
  * Universal-ABI bridge for the pure-FREAK LLVM runtime. access/_access also
  * recognizes directories, preserving fail-closed stale-artifact checks.
- * @param path Null-terminated path string encoded as an integer.
+ * @param path Borrowed sized LLVM word (or a null-terminated literal).
  * @return 1 if the path exists, 0 otherwise.
  */
 int64_t freak_path_exists(int64_t path) {
-    const char* value = (const char*)(intptr_t)path;
-    return freak_fs_exists(freak_word_lit(value)) ? 1 : 0;
+    return freak_fs_exists(freak_llvm_word_view(path)) ? 1 : 0;
 }
 
 /**
@@ -1278,11 +1289,22 @@ int64_t freak_path_exists(int64_t path) {
  * @return true if removed or already absent; false on another removal error.
  */
 bool freak_fs_delete(freak_word path) {
-    const char* p = freak_word_to_cstr(path);
+    if (!path.data || !path.length || path.length == SIZE_MAX || memchr(path.data,0,path.length) ||
+        !freak_system_utf8_valid(path.data,path.length)) return false;
 #ifdef _WIN32
-    int result = _unlink(p); /* file-only: never consume an artifact directory */
+    if (path.length > INT_MAX) return false;
+    int count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.data,(int)path.length,NULL,0);
+    if (!count) return false;
+    wchar_t *wide=malloc(((size_t)count+1)*sizeof(wchar_t));if (!wide) return false;
+    if (MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.data,(int)path.length,wide,count) != count) { free(wide); return false; }
+    wide[count]=0;
+    int result=_wunlink(wide); /* file-only: never consume an artifact directory */
+    int error=errno; free(wide); errno=error;
 #else
-    int result = unlink(p);  /* file-only: never consume an artifact directory */
+    char *name=malloc(path.length+1);if (!name) return false;
+    memcpy(name,path.data,path.length);name[path.length]=0;
+    int result=unlink(name); /* file-only: never consume an artifact directory */
+    int error=errno;free(name);errno=error;
 #endif
     return result == 0 || errno == ENOENT;
 }

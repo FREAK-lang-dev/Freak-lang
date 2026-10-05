@@ -336,6 +336,11 @@ bool fs_exists(freak_word path);
 bool fs_delete(freak_word path);
 
 bool freak_fs_exists(freak_word path);
+int64_t freak_llvm_fs_read_native(int64_t path);
+void freak_llvm_fs_write_native(int64_t path,int64_t content);
+void freak_llvm_fs_append_native(int64_t path,int64_t content);
+int64_t freak_llvm_fs_exists_native(int64_t path);
+int64_t freak_llvm_fs_delete_native(int64_t path);
 int64_t freak_path_exists(int64_t path);
 bool freak_fs_delete(freak_word path);
 void freak_fs_make_dir(freak_word path);
@@ -563,6 +568,7 @@ freak_word freak_word_substring(freak_word w, int64_t start, int64_t len);
 /* Conversions from word to number. */
 int64_t freak_word_to_int(freak_word w);
 int64_t freak_word_compare(freak_word a, freak_word b);
+int64_t freak_llvm_word_compare(int64_t left,int64_t right);
 double  freak_word_to_num(freak_word w);
 double  freak_parse_num(freak_word w);
 freak_word freak_format_num(double n);

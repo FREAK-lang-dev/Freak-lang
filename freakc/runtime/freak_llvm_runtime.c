@@ -48,10 +48,34 @@ static int64_t freak_llvm_normalize_process_status(int status) {
 /* freak_llvm_ask is defined in freak_runtime.c */
 
 /* ── File I/O ───────────────────────────────────────── */
-/* fs_read, fs_write, fs_append, fs_exists, fs_delete are now pure FREAK
-   tasks in std/runtime.fk. They call the libc wrappers below. */
+/* Namespace calls use these native scalar adapters. The selected
+   std/runtime.fk tasks retain their separate, historical strong symbols. */
 
-/* libc wrappers — take/return i64 (FREAK's universal ABI) */
+/* Borrowed input words; read transfers its result into LLVM ownership. */
+int64_t freak_llvm_fs_read_native(int64_t path) {
+    return freak_llvm_word_take(freak_fs_read(freak_llvm_word_view(path)));
+}
+
+void freak_llvm_fs_write_native(int64_t path,int64_t content) {
+    freak_fs_write(freak_llvm_word_view(path),freak_llvm_word_view(content));
+}
+
+void freak_llvm_fs_append_native(int64_t path,int64_t content) {
+    freak_fs_append(freak_llvm_word_view(path),freak_llvm_word_view(content));
+}
+
+int64_t freak_llvm_fs_exists_native(int64_t path) {
+    return freak_fs_exists(freak_llvm_word_view(path)) ? 1 : 0;
+}
+
+int64_t freak_llvm_fs_delete_native(int64_t path) {
+    return freak_fs_delete(freak_llvm_word_view(path)) ? 1 : 0;
+}
+
+int64_t freak_llvm_word_compare(int64_t left,int64_t right) {
+    return freak_word_compare(freak_llvm_word_view(left),freak_llvm_word_view(right));
+}
+
 int64_t freak_llvm_fs_list_dir(int64_t path) {
     return freak_llvm_word_take(
         freak_fs_list_dir(freak_llvm_word_view(path))
