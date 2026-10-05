@@ -538,6 +538,7 @@ task emit_c_borrowing_call(expr_id: word, func_name: word, args: word) -> void {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task c_map_call(val: word) -> word {
+    if val.starts_with("http_server::") and tc_builtin_call_type(val) != "" { give back "freak_" + val.replace("::", "_") }
     if v35_bootstrap_compat and val == "chr" { give back "freak_char_to_word" }
     if v35_bootstrap_compat and val == "word_to_num" { give back "freak_word_to_num" }
     if val.starts_with("json_document::") and tc_builtin_call_type(val) != "" { give back "freak_" + val.replace("::", "_") }

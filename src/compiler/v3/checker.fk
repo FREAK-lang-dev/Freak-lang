@@ -289,6 +289,7 @@ task bc_walk_expr(expr_id: int, consume: bool, use_line: int) -> void {
 }
 
 task bc_builtin_consumes_handle(name: word) -> bool {
+    if name == "http_server::close" or name == "http_server::request_release" { give back true }
     if name == "json_document::release" { give back true }
     if name == "fs::result_release" { give back true }
     if name == "process::command_release" { give back true }
@@ -851,6 +852,7 @@ task tc_namespace_owner(name: word) -> word {
 -- user `shape math` (for example) from being accepted as nominal dispatch and
 -- then silently lowered to math::sqrt instead.
 task tc_reserved_builtin_namespace_owner(name: word) -> bool {
+    if name == "http_server" { give back true }
     if name == "json_document" { give back true }
     give back name == "ByteBuffer" or name == "List" or name == "fs" or name == "math" or name == "process" or name == "shape" or name == "tcp" or name == "time" or name == "ui" or name == "word_builder"
 }
@@ -899,6 +901,39 @@ task tc_task_return_shape(task_name: word) -> word {
 }
 
 task tc_builtin_call_type(name: word) -> word {
+    if name == "http_server::open" { give back "int" }
+    if name == "http_server::bind" { give back "int" }
+    if name == "http_server::status" { give back "int" }
+    if name == "http_server::error" { give back "word" }
+    if name == "http_server::local_port" { give back "int" }
+    if name == "http_server::set_limits" { give back "void" }
+    if name == "http_server::set_timeouts" { give back "void" }
+    if name == "http_server::set_chunk_limits" { give back "void" }
+    if name == "http_server::stop" { give back "void" }
+    if name == "http_server::close" { give back "void" }
+    if name == "http_server::next_request" { give back "int" }
+    if name == "http_server::request_status" { give back "int" }
+    if name == "http_server::request_error" { give back "word" }
+    if name == "http_server::request_method" { give back "word" }
+    if name == "http_server::request_target" { give back "word" }
+    if name == "http_server::request_path" { give back "word" }
+    if name == "http_server::request_query" { give back "word" }
+    if name == "http_server::request_header_count" { give back "int" }
+    if name == "http_server::request_header_name" { give back "word" }
+    if name == "http_server::request_header_value" { give back "word" }
+    if name == "http_server::request_header_value_bytes" { give back "ByteBuffer" }
+    if name == "http_server::request_header_is_trailer" { give back "int" }
+    if name == "http_server::request_header_find" { give back "int" }
+    if name == "http_server::request_body" { give back "ByteBuffer" }
+    if name == "http_server::response_status" { give back "int" }
+    if name == "http_server::response_header" { give back "int" }
+    if name == "http_server::send_bytes" { give back "int" }
+    if name == "http_server::send_text" { give back "int" }
+    if name == "http_server::request_release" { give back "void" }
+    if name == "http_server::live_servers" { give back "int" }
+    if name == "http_server::live_requests" { give back "int" }
+    if name == "http_server::live_sockets" { give back "int" }
+    if name == "http_server::retained_bytes" { give back "int" }
     if name == "fs::directory_identity_ticket" { give back "int" }
     if name == "fs::open_dir_ticket" { give back "int" }
     if name == "fs::read_bytes_limit_ticket" { give back "int" }
@@ -1039,6 +1074,39 @@ task tc_builtin_call_type(name: word) -> word {
 -- callers first use tc_builtin_call_type() to distinguish zero-arity builtins
 -- from unknown names.
 task tc_builtin_call_params(name: word) -> word {
+    if name == "http_server::open" { give back "int" }
+    if name == "http_server::bind" { give back "word,int,int" }
+    if name == "http_server::status" { give back "int" }
+    if name == "http_server::error" { give back "int" }
+    if name == "http_server::local_port" { give back "int" }
+    if name == "http_server::set_limits" { give back "int,int,int,int,int" }
+    if name == "http_server::set_timeouts" { give back "int,int,int,int" }
+    if name == "http_server::set_chunk_limits" { give back "int,int,int" }
+    if name == "http_server::stop" { give back "int" }
+    if name == "http_server::close" { give back "int" }
+    if name == "http_server::next_request" { give back "int" }
+    if name == "http_server::request_status" { give back "int" }
+    if name == "http_server::request_error" { give back "int" }
+    if name == "http_server::request_method" { give back "int" }
+    if name == "http_server::request_target" { give back "int" }
+    if name == "http_server::request_path" { give back "int" }
+    if name == "http_server::request_query" { give back "int" }
+    if name == "http_server::request_header_count" { give back "int" }
+    if name == "http_server::request_header_name" { give back "int,int" }
+    if name == "http_server::request_header_value" { give back "int,int" }
+    if name == "http_server::request_header_value_bytes" { give back "int,int" }
+    if name == "http_server::request_header_is_trailer" { give back "int,int" }
+    if name == "http_server::request_header_find" { give back "int,word,int" }
+    if name == "http_server::request_body" { give back "int" }
+    if name == "http_server::response_status" { give back "int,int" }
+    if name == "http_server::response_header" { give back "int,word,word" }
+    if name == "http_server::send_bytes" { give back "int,ByteBuffer" }
+    if name == "http_server::send_text" { give back "int,word" }
+    if name == "http_server::request_release" { give back "int" }
+    if name == "http_server::live_servers" { give back "" }
+    if name == "http_server::live_requests" { give back "" }
+    if name == "http_server::live_sockets" { give back "" }
+    if name == "http_server::retained_bytes" { give back "" }
     if name == "fs::directory_identity_ticket" { give back "int" }
     if name == "fs::open_dir_ticket" { give back "word" }
     if name == "fs::read_bytes_limit_ticket" { give back "word,int" }

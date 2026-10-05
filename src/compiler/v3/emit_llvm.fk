@@ -619,6 +619,7 @@ task llvm_is_num_expr(expr_id: word) -> bool {
 -- v3 KEY CHANGE: flat if + early return. Never truncated.
 
 task llvm_map_call_name(val: word) -> word {
+    if val.starts_with("http_server::") and tc_builtin_call_type(val) != "" { give back "@freak_llvm_" + val.replace("::", "_") }
     if v35_bootstrap_compat and val == "chr" { give back "@freak_llvm_char_to_word" }
     if v35_bootstrap_compat and val == "word_to_num" { give back "@freak_llvm_parse_num" }
     if val.starts_with("json_document::") and tc_builtin_call_type(val) != "" { give back "@freak_llvm_" + val.replace("::", "_") }
@@ -739,6 +740,7 @@ task llvm_user_task_symbol(name: word) -> word {
 }
 
 task llvm_is_void_call(val: word) -> bool {
+    if val.starts_with("http_server::") and tc_builtin_call_type(val) == "void" { give back true }
     if val == "time::sleep" { give back true }
     if val.starts_with("json_document::") and tc_builtin_call_type(val) == "void" { give back true }
     if val.starts_with("fs::") and tc_builtin_call_type(val) == "void" { give back true }
@@ -2933,6 +2935,39 @@ task llvm_emit_task(eid: word) -> void {
 -- ===================== RUNTIME DECLARATIONS ==========================
 
 task llvm_emit_runtime_decls() -> void {
+    llvm_emit_line("declare i64 @freak_llvm_http_server_open(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_bind(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_status(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_error(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_local_port(i64)")
+    llvm_emit_line("declare void @freak_llvm_http_server_set_limits(i64, i64, i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_http_server_set_timeouts(i64, i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_http_server_set_chunk_limits(i64, i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_http_server_stop(i64)")
+    llvm_emit_line("declare void @freak_llvm_http_server_close(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_next_request(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_status(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_error(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_method(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_target(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_path(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_query(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_count(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_name(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_value(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_value_bytes(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_is_trailer(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_header_find(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_request_body(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_response_status(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_response_header(i64, i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_send_bytes(i64, i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_send_text(i64, i64)")
+    llvm_emit_line("declare void @freak_llvm_http_server_request_release(i64)")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_live_servers()")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_live_requests()")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_live_sockets()")
+    llvm_emit_line("declare i64 @freak_llvm_http_server_retained_bytes()")
     llvm_emit_line("declare i64 @freak_llvm_fs_directory_identity_ticket(i64)")
     llvm_emit_line("declare i64 @freak_llvm_fs_open_dir_ticket(i64)")
     llvm_emit_line("declare i64 @freak_llvm_fs_read_bytes_limit_ticket(i64, i64)")
@@ -3226,6 +3261,7 @@ task llvm_emit_runtime_decls() -> void {
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_json_document_new|freak_llvm_json_document_parse|freak_llvm_json_document_parse_bytes|freak_llvm_json_document_ok|freak_llvm_json_document_error|freak_llvm_json_document_error_position|freak_llvm_json_document_root|freak_llvm_json_document_set_root|freak_llvm_json_document_release|freak_llvm_json_document_kind|freak_llvm_json_document_count|freak_llvm_json_document_array_get|freak_llvm_json_document_object_get|freak_llvm_json_document_object_get_bytes|freak_llvm_json_document_object_key_bytes|freak_llvm_json_document_bool_value|freak_llvm_json_document_number_text|freak_llvm_json_document_string_word|freak_llvm_json_document_string_bytes|freak_llvm_json_document_make_null|freak_llvm_json_document_make_bool|freak_llvm_json_document_make_number|freak_llvm_json_document_make_string|freak_llvm_json_document_make_string_bytes|freak_llvm_json_document_make_array|freak_llvm_json_document_make_object|freak_llvm_json_document_array_append|freak_llvm_json_document_object_insert|freak_llvm_json_document_object_insert_bytes|freak_llvm_json_document_serialize_word|freak_llvm_json_document_serialize_bytes|freak_llvm_time_sleep|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_fs_open_dir_ticket|freak_llvm_fs_read_bytes_limit_ticket|freak_llvm_fs_read_relative_ticket|freak_llvm_fs_read_source_relative_ticket|freak_llvm_fs_read_relative_bytes_ticket|freak_llvm_fs_read_relative_bytes_limit_ticket|freak_llvm_fs_write_relative_bytes_checked|freak_llvm_fs_remove_temp_dir_checked|freak_llvm_fs_publish_temp_dir_checked|freak_llvm_fs_result_completed|freak_llvm_fs_lock_dir_ticket|freak_llvm_fs_remove_relative_file_checked|freak_llvm_fs_mkdir_relative_checked|freak_llvm_fs_open_relative_dir_ticket|freak_llvm_fs_list_dir_ticket|freak_llvm_fs_result_missing|freak_llvm_fs_directory_path_ticket|"
     llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_fs_directory_identity_ticket|"
+    llvm_declared_funcs = llvm_declared_funcs + "freak_llvm_http_server_open|freak_llvm_http_server_bind|freak_llvm_http_server_status|freak_llvm_http_server_error|freak_llvm_http_server_local_port|freak_llvm_http_server_set_limits|freak_llvm_http_server_set_timeouts|freak_llvm_http_server_set_chunk_limits|freak_llvm_http_server_stop|freak_llvm_http_server_close|freak_llvm_http_server_next_request|freak_llvm_http_server_request_status|freak_llvm_http_server_request_error|freak_llvm_http_server_request_method|freak_llvm_http_server_request_target|freak_llvm_http_server_request_path|freak_llvm_http_server_request_query|freak_llvm_http_server_request_header_count|freak_llvm_http_server_request_header_name|freak_llvm_http_server_request_header_value|freak_llvm_http_server_request_header_value_bytes|freak_llvm_http_server_request_header_is_trailer|freak_llvm_http_server_request_header_find|freak_llvm_http_server_request_body|freak_llvm_http_server_response_status|freak_llvm_http_server_response_header|freak_llvm_http_server_send_bytes|freak_llvm_http_server_send_text|freak_llvm_http_server_request_release|freak_llvm_http_server_live_servers|freak_llvm_http_server_live_requests|freak_llvm_http_server_live_sockets|freak_llvm_http_server_retained_bytes|"
 }
 
 -- ===================== PROGRAM ASSEMBLY ==============================
