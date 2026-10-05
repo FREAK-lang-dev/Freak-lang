@@ -248,15 +248,61 @@ def assert_builtin_signature_parity(repo: Path) -> None:
             task_body(checker_source, "tc_builtin_call_params"),
         )
     )
+    # These guarded routes map exactly the classifier's admitted namespace
+    # members. Literal-equality matches alone omit their real builtin calls.
+    prefix_pattern = (
+        r'if val\.starts_with\("([^"]+)"\) and tc_builtin_call_type\(val\) != ""\s*'
+        r'\{\s*give back "([^"]+)" \+ val\.replace\("::", "_"\)\s*\}'
+    )
+    expected_prefixes = {"fs::", "process::command_", "json_document::", "http_server::"}
+    for source, task_name, mapped_names, symbol_prefix in (
+        (c_source, "c_map_call", c_mapped, "freak_"),
+        (llvm_source, "llvm_map_call_name", llvm_mapped, "@freak_llvm_"),
+    ):
+        prefix_routes = dict(re.findall(prefix_pattern, task_body(source, task_name)))
+        assert set(prefix_routes) == expected_prefixes, prefix_routes
+        assert set(prefix_routes.values()) == {symbol_prefix}, prefix_routes
+        mapped_names.update(
+            name for name in classified if any(name.startswith(prefix) for prefix in prefix_routes)
+        )
+    mapped = c_mapped | llvm_mapped
+    # These are declared externs whose C Word ABI needs a scalar LLVM bridge,
+    # not names that ordinary source may call without a declaration.
+    extern_aliases = dict(
+        re.findall(
+            r'if val == "([^"]+)" and emt_is_extern\(val\)\s*'
+            r'\{\s*give back "(@[^"]+)"\s*\}',
+            task_body(llvm_source, "llvm_map_call_name"),
+        )
+    )
+    assert extern_aliases == {"freak_word_compare": "@freak_llvm_word_compare"}
+    extern_names = set(extern_aliases)
+    assert extern_names <= llvm_mapped
+    assert extern_names.isdisjoint(c_mapped)
+    assert extern_names.isdisjoint(classified)
+    assert extern_names.isdisjoint(signature_classified)
+    assert "extern task freak_word_compare(a: word, b: word) -> int" in (
+        repo / "std/algorithm.fk"
+    ).read_text(encoding="utf-8")
+    assert "int64_t freak_word_compare(freak_word a, freak_word b);" in runtime_header
+    assert "int64_t freak_word_compare(freak_word a, freak_word b) {" in runtime_c
+    assert "int64_t freak_llvm_word_compare(int64_t left,int64_t right);" in runtime_header
+    assert (
+        "int64_t freak_llvm_word_compare(int64_t left,int64_t right) {\n"
+        "    return freak_word_compare(freak_llvm_word_view(left),freak_llvm_word_view(right));\n}"
+        in llvm_runtime_c
+    )
+    assert 'llvm_emit_line("declare i64 @freak_llvm_word_compare(i64, i64)")' in llvm_source
     internal_lowering_intrinsics = {
         "shape::alloc",
         "shape::get",
         "shape::set",
     }
-    missing = sorted(mapped - classified - internal_lowering_intrinsics)
+    implicit_mapped = mapped - extern_names
+    missing = sorted(implicit_mapped - classified - internal_lowering_intrinsics)
     assert not missing, f"builtin return-type inventory missing: {missing}"
     missing_signatures = sorted(
-        mapped - signature_classified - internal_lowering_intrinsics
+        implicit_mapped - signature_classified - internal_lowering_intrinsics
     )
     assert not missing_signatures, (
         f"builtin parameter-signature inventory missing: {missing_signatures}"
@@ -504,6 +550,76 @@ def run_direct_compiler(
     )
 
 
+def assert_word_compare_extern_contract(
+    freak: Path, repo: Path, tmp_path: Path, direct_compiler: Path | None
+) -> None:
+    """Prove declared comparison typing, its native ABI, and extern-only aliasing."""
+    public = tmp_path / "word_compare_public.fk"
+    public.write_text(
+        'task main() {\n'
+        '    pilot smaller: int = freak_word_compare("a", "b")\n'
+        '    pilot equal: int = freak_word_compare("same", "same")\n'
+        '    pilot greater: int = freak_word_compare("Ω", "a")\n'
+        '    say smaller say equal say greater\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    for backend, flag in (("LLVM", "--llvm"), ("C", "--c")):
+        built = run(freak, repo, public, "build", flag, "--strict-borrow")
+        assert built.returncode == 0, built.stdout + built.stderr
+        executed = subprocess.run(
+            [str(derived_binary(public))], cwd=tmp_path, capture_output=True,
+            text=True, encoding="utf-8", timeout=10, check=False,
+        )
+        assert executed.returncode == 0, executed.stdout + executed.stderr
+        assert executed.stdout == "-1\n0\n1\n", f"{backend}: {executed.stdout!r}"
+        assert not executed.stderr, executed.stderr
+
+    if direct_compiler is None:
+        return
+    declaration = 'extern task freak_word_compare(a: word, b: word) -> int\n'
+    positives = {
+        "declared": declaration + 'task main() { pilot outcome: int = freak_word_compare("a", "b") say outcome }\n',
+        "shadow": 'task freak_word_compare(a: int, b: int) -> int { give back a + b }\ntask main() { say freak_word_compare(20, 22) }\n',
+    }
+    negatives = {
+        "argument": (declaration + 'task main() { say freak_word_compare(1, "b") }\n', "argument 1 expects word, got int"),
+        "return": (declaration + 'task main() { pilot outcome: word = freak_word_compare("a", "b") say outcome }\n', "cannot initialize word binding 'outcome' with int"),
+        "undeclared": ('task main() { say freak_word_compare("a", "b") }\n', "unknown callable 'freak_word_compare'"),
+    }
+    for backend, flag, suffix in (("LLVM", "--llvm", ".ll"), ("C", "--c", ".c")):
+        for name, source_text in positives.items():
+            source = tmp_path / f"word_compare_{name}_{backend.lower()}.fk"
+            source.write_text(source_text, encoding="utf-8")
+            result = run_direct_compiler(direct_compiler, repo, str(source), flag, "--strict-borrow")
+            assert result.returncode == 0, result.stdout + result.stderr
+            emitted = Path(str(source) + suffix).read_text(encoding="utf-8")
+            if backend == "LLVM":
+                target = "freak_llvm_word_compare" if name == "declared" else "__freak_user_freak_word_compare"
+                assert f"call i64 @{target}(i64 " in emitted, emitted
+                if name == "shadow":
+                    assert "call i64 @freak_llvm_word_compare(" not in emitted
+            elif name == "shadow":
+                main_body = emitted.split("void __freak_user_main(void) {", 1)[1]
+                assert "__freak_call_arg_0 = 20;" in main_body
+                assert "__freak_call_arg_1 = 22;" in main_body
+                assert " = __freak_user_freak_word_compare(__freak_call_arg_0, __freak_call_arg_1);" in main_body
+                assert not re.search(r"(?<![A-Za-z_0-9])freak_word_compare\(", main_body)
+            else:
+                main_body = emitted.split("void __freak_user_main(void) {", 1)[1]
+                assert re.search(r" = freak_word_compare\(__freak_borrow_arg_\d+_0, __freak_borrow_arg_\d+_1\);", main_body)
+        for name, (source_text, diagnostic) in negatives.items():
+            source = tmp_path / f"word_compare_{name}_{backend.lower()}.fk"
+            source.write_text(source_text, encoding="utf-8")
+            artifact = Path(str(source) + suffix)
+            seed_stale_outputs(artifact)
+            result = run_direct_compiler(direct_compiler, repo, str(source), flag)
+            output = result.stdout + result.stderr
+            assert result.returncode != 0, output
+            assert diagnostic in output, output
+            assert_outputs_absent((artifact,), f"{backend} word compare {name}")
+
+
 def main() -> int:
     """
     Run the V3 compiler diagnostic and code-generation regression suite.
@@ -541,6 +657,26 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="freak-v3-codegen-gate-") as tmp:
         tmp_path = Path(tmp)
+        assert_word_compare_extern_contract(freak, repo, tmp_path, direct_compiler)
+        for name, source_text, diagnostic in (
+            ("root_execution", 'say "outside entry"\ntask main() {}\n', "executable statement at top level is unsupported"),
+            ("missing_entry", 'task helper() { say "no entry" }\n', "requires a usable task main() entry"),
+        ):
+            source = tmp_path / f"{name}.fk"
+            source.write_text(source_text, encoding="utf-8")
+            for backend, flag, suffix in (("LLVM", "--llvm", ".ll"), ("C", "--c", ".c")):
+                artifact = Path(str(source) + suffix)
+                seed_stale_outputs(artifact)
+                rejected = run(freak, repo, source, "transpile", flag)
+                assert_rejected(rejected, f"{backend} {name}")
+                assert diagnostic in rejected.stdout + rejected.stderr
+                assert_outputs_absent((artifact,), f"{backend} {name}")
+                if direct_compiler is not None:
+                    seed_stale_outputs(artifact)
+                    direct = run_direct_compiler(direct_compiler, repo, str(source), flag)
+                    assert direct.returncode != 0, direct.stdout + direct.stderr
+                    assert diagnostic in direct.stdout + direct.stderr
+                    assert_outputs_absent((artifact,), f"direct {backend} {name}")
         staged_cases: dict[str, Path] = {}
         for case in negative_cases:
             malformed = tmp_path / case.source.name
@@ -741,7 +877,7 @@ def main() -> int:
             )
 
         blocked_cleanup = tmp_path / "blocked_cleanup.fk"
-        blocked_cleanup.write_text('say "never emitted"\n', encoding="utf-8")
+        blocked_cleanup.write_text('task main() { say "never emitted" }\n', encoding="utf-8")
         for backend, flag, suffix in (
             ("LLVM", "--llvm", ".ll"),
             ("C", "--c", ".c"),
@@ -1020,8 +1156,8 @@ def main() -> int:
             "pilot dependency_shadowed: int = use_shadowed_later(3)\n"
             "pilot later_shadowed_global: int = 7\n"
             "pilot namespace_overlap: int = 7\n"
-            "say \"top-level execution remains valid\"\n"
             "task main() -> int {\n"
+            "    say \"entry execution remains valid\"\n"
             "    pilot mut widened: num = 1\n"
             "    widened = 2\n"
             "    pilot sum: num = 1 + 2.5\n"
@@ -1421,9 +1557,10 @@ def main() -> int:
             "shape Known { value: int }\n"
             "pilot shadowed: int = 7\n"
             "task previous(shadowed: Known) { say shadowed.value }\n"
-            "say shadowed.to_word()\n"
+            "task read_global() { say shadowed.to_word() }\n"
             "task by_param(shadowed: int) { say shadowed.to_word() }\n"
             "task main() {\n"
+            "    read_global()\n"
             "    pilot shadowed: int = 9\n"
             "    say shadowed.to_word()\n"
             "    by_param(shadowed)\n"
@@ -1810,8 +1947,10 @@ def main() -> int:
         # full stdlib case used to expose parser errors yet continue into LLVM
         # with duplicate doctrine symbols when the stale bootstrap built it.
         math3d_probe = tmp_path / "math3d_release_probe.fk"
+        math3d_source = (repo / "tests" / "math3d_test.fk").read_text(encoding="utf-8")
+        math3d_declarations, math3d_body = math3d_source.split("\npilot a =", 1)
         math3d_probe.write_text(
-            (repo / "tests" / "math3d_test.fk").read_text(encoding="utf-8"),
+            math3d_declarations + "\ntask main() {\npilot a =" + math3d_body + "\n}\n",
             encoding="utf-8",
         )
         math3d_build = run(freak, repo, math3d_probe, "build", "--llvm")
@@ -1836,11 +1975,13 @@ def main() -> int:
 
         literal_matrix = tmp_path / "string_literal_fixed_point.fk"
         literal_matrix.write_text(
+            'task main() {\n'
             'say "|"\n'
             'say "<<PIPE>>"\n'
             'say "\\x41\\x42"\n'
             'say "z\\x41q\\x42"\n'
-            'say "\\x41BC"\n',
+            'say "\\x41BC"\n'
+            '}\n',
             encoding="utf-8",
         )
         expected_literals = ["|", "<<PIPE>>", "AB", "zAqB", "ABC"]
@@ -1877,7 +2018,7 @@ def main() -> int:
         llvm_interp_hex = tmp_path / "llvm_interpolation_hex.fk"
         llvm_interp_hex.write_text(
             'pilot value: int = 7\n'
-            'say "\\x41{value}\\x42"\n',
+            'task main() { say "\\x41{value}\\x42" }\n',
             encoding="utf-8",
         )
         llvm_interp_build = run(freak, repo, llvm_interp_hex, "build", "--llvm")
