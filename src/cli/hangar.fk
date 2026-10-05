@@ -76,43 +76,32 @@ task hangar_add(project_dir: word, pkg_name: word, repo: word, ver: word) -> int
         say "  No hangar.toml found. Run 'hangar init' first."
         give back 1
     }
+    if not hangar_valid_package_name(pkg_name) {
+        say "  Invalid package name: " + pkg_name
+        give back 1
+    }
 
     toml_load(manifest)
-
+    -- Add must validate the dependency before recording it in the manifest.
+    -- Registry resolution is currently unsupported; it must not fabricate an
+    -- installed dependency or require a live public registry to diagnose this.
     if repo == "" {
-        -- Short syntax: version constraint only (e.g. hangar add muvluv ^1.0)
-        pilot ver_key = "dependencies." + pkg_name + ".version"
-        toml_set(ver_key, ver)
-        toml_write_file(manifest)
-
-        pilot msg = C_BGREEN + "  + " + C_RESET + C_BWHITE + pkg_name + C_RESET + C_DIM + " (" + ver + ")" + C_RESET
-        say msg
-        give back 0
+        say "  Registry package sources are unavailable; specify an explicit Git source."
+        give back 1
     }
+    pilot lockfile = project_dir + "/hangar.lock"
+    lock_load(lockfile)
+    pilot install_res = hangar_install_one(project_dir, pkg_name, repo, ver)
+    if install_res != 0 { give back install_res }
 
     pilot git_key = "dependencies." + pkg_name + ".git"
-    pilot ver_key2 = "dependencies." + pkg_name + ".version"
+    pilot ver_key = "dependencies." + pkg_name + ".version"
     toml_set(git_key, repo)
-    toml_set(ver_key2, ver)
+    toml_set(ver_key, ver)
     toml_write_file(manifest)
-
-    pilot msg2 = C_BGREEN + "  + " + C_RESET + C_BWHITE + pkg_name + C_RESET + C_DIM + " (" + repo + " @ " + ver + ")" + C_RESET
-    say msg2
-
-    -- Also install it
-    pilot install_res = hangar_install_one(project_dir, pkg_name, repo, ver)
-
-    -- Update lockfile
-    if install_res == 0 {
-        pilot lockfile = project_dir + "/hangar.lock"
-        lock_load(lockfile)
-        pilot lock_source = "git+" + repo
-        if repo == "" { lock_source = "local" }
-        lock_add_entry(pkg_name, ver, lock_source, "")
-        lock_write(lockfile)
-    }
-
-    give back install_res
+    lock_write(lockfile)
+    say C_BGREEN + "  + " + C_RESET + C_BWHITE + pkg_name + C_RESET + C_DIM + " (" + repo + " @ " + ver + ")" + C_RESET
+    give back 0
 }
 
 task hangar_remove(project_dir: word, pkg_name: word) -> int {
@@ -385,7 +374,7 @@ task hangar_install(project_dir: word) -> int {
         give back 1
     }
 
-    say C_DIM + "  >> " + C_RESET + "Resolved " + word_from_int(resolve_count) + " package(s)"
+    say C_DIM + "  >> " + C_RESET + "Requested " + word_from_int(resolve_count) + " package(s)"
 
     -- Phase 2: Install resolved packages
     -- Initialize lockfile state if no lockfile exists
@@ -409,7 +398,8 @@ task hangar_install(project_dir: word) -> int {
 
         pilot ires = hangar_install_one(project_dir, rname, rsrc, rver)
         if ires != 0 {
-            errors += 1
+            say "  Package installation failed; the previous lockfile is unchanged."
+            give back ires
         }
 
         -- Phase 3: Collect transitive deps from installed package
@@ -439,10 +429,6 @@ task hangar_install(project_dir: word) -> int {
         ri += 1
     }
 
-    -- Write lockfile
-    lock_write(lockfile)
-    say C_DIM + "  >> " + C_RESET + "Lockfile written: hangar.lock"
-
     if errors > 0 {
         pilot err_str: word = word_from_int(errors)
         pilot errmsg = "  " + err_str + " package(s) failed to install."
@@ -450,6 +436,9 @@ task hangar_install(project_dir: word) -> int {
         give back 1
     }
 
+    -- Publish metadata only after every requested dependency succeeded.
+    lock_write(lockfile)
+    say C_DIM + "  >> " + C_RESET + "Lockfile written: hangar.lock"
     pilot cnt_str: word = word_from_int(resolve_count)
     pilot ok_msg = "  All " + cnt_str + " package(s) installed."
     say ok_msg
@@ -494,17 +483,9 @@ task hangar_update(project_dir: word, pkg_name: word) -> int {
         -- Load existing lockfile to preserve other entries
         lock_load(lockfile)
 
-        -- Remove old entry for this package so it gets re-resolved
-        lock_remove_entry(pkg_name)
-
-        -- Re-install with the constraint from hangar.toml (not locked version)
+        -- Preserve the prior entry until a replacement has validated.
         pilot ires = hangar_install_one(project_dir, pkg_name, git_val, ver_val)
-        if ires == 0 {
-            pilot lock_source = "git+" + git_val
-            if git_val == "" { lock_source = "local" }
-            lock_add_entry(pkg_name, ver_val, lock_source, "")
-        }
-
+        if ires != 0 { give back ires }
         lock_write(lockfile)
         say C_DIM + "  >> " + C_RESET + "Lockfile updated: hangar.lock"
         give back ires
@@ -527,17 +508,11 @@ task hangar_update(project_dir: word, pkg_name: word) -> int {
 
         pilot ires2 = hangar_install_one(project_dir, dname, git_val2, ver_val2)
         if ires2 != 0 {
-            errors += 1
-        } else {
-            pilot lock_source2 = "git+" + git_val2
-            if git_val2 == "" { lock_source2 = "local" }
-            lock_add_entry(dname, ver_val2, lock_source2, "")
+            say "  Package update failed; the previous lockfile is unchanged."
+            give back ires2
         }
         di += 1
     }
-
-    lock_write(lockfile)
-    say C_DIM + "  >> " + C_RESET + "Lockfile updated: hangar.lock"
 
     if errors > 0 {
         pilot err_str: word = word_from_int(errors)
@@ -546,6 +521,8 @@ task hangar_update(project_dir: word, pkg_name: word) -> int {
         give back 1
     }
 
+    lock_write(lockfile)
+    say C_DIM + "  >> " + C_RESET + "Lockfile updated: hangar.lock"
     pilot cnt_str: word = word_from_int(dep_cnt)
     pilot ok_msg = "  All " + cnt_str + " package(s) updated."
     say ok_msg
@@ -607,105 +584,62 @@ task hangar_resolve_from_registry(name: word, constraint: word) -> word {
     give back ""
 }
 
+task hangar_valid_package_name(name: word) -> bool {
+    if name == "" or name.length() > 64 { give back false }
+    pilot initial = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    if not initial.contains(name.char_at(0)) { give back false }
+    pilot allowed = initial + "0123456789_-"
+    pilot i = 0
+    repeat until i >= name.length() {
+        if not allowed.contains(name.char_at(i)) { give back false }
+        i += 1
+    }
+    give back true
+}
+
 task hangar_install_one(project_dir: word, pkg_name: word, repo: word, ver: word) -> int {
+    if not hangar_valid_package_name(pkg_name) {
+        say "  Invalid package name: " + pkg_name
+        give back 1
+    }
+    if repo == "" {
+        say "  Registry package sources are unavailable; specify an explicit Git source for " + pkg_name
+        give back 1
+    }
     pilot modules_dir = project_dir + "/hangar_modules"
-    if fs::exists(modules_dir) == false {
-        fs::make_dir(modules_dir)
-    }
     pilot pkg_dir = modules_dir + "/" + pkg_name
-
-    pilot actual_repo = repo
-    pilot actual_ver = ver
-
-    if actual_repo == "" {
-        -- Resolve from registry
-        pilot resolved: word = hangar_resolve_from_registry(pkg_name, ver)
-        if resolved == "" {
-            pilot msg = "  Package '" + pkg_name + "' not found in registry and no git repo specified."
-            say msg
-            give back 1
-        }
-        -- Extract version:repo_url
-        actual_ver = hangar_extract_colon(resolved, 0)
-        actual_repo = hangar_extract_colon(resolved, 1)
-        pilot res_msg = C_DIM + "  >> " + C_RESET + "Resolved " + C_BWHITE + pkg_name + C_RESET + C_DIM + " to " + actual_ver + " (" + actual_repo + ")" + C_RESET
-        say res_msg
-    }
-
-    pilot fetch_msg = C_DIM + "  >> " + C_RESET + "Fetching " + C_BWHITE + pkg_name + C_RESET + C_DIM + " from " + actual_repo + "..." + C_RESET
-    say fetch_msg
-
-    -- Remove existing package dir if present
+    -- Checked staging/publication replaces this conservative guard in the
+    -- transactional store slice. Never remove a working package before fetch.
     if fs::exists(pkg_dir) {
-        pilot rm_cmd: word = hangar_rm_cmd(pkg_dir)
-        process::exec(rm_cmd)
+        say "  Cannot safely replace " + pkg_name + ": transactional package publication is not available yet."
+        give back 1
     }
+    if not fs::exists(modules_dir) { fs::make_dir(modules_dir) }
 
-    -- Construct git URL
-    pilot git_url = ""
-    if actual_repo.starts_with("https://") {
-        git_url = actual_repo
-    } else {
-        git_url = "https://github.com/" + actual_repo + ".git"
+    pilot git_url = repo
+    if not repo.starts_with("https://") {
+        git_url = "https://github.com/" + repo + ".git"
     }
-
-    -- Clone with git
+    say C_DIM + "  >> " + C_RESET + "Fetching " + C_BWHITE + pkg_name + C_RESET + C_DIM + " from " + repo + "..." + C_RESET
     pilot clone_cmd = "git clone --depth 1 --quiet " + git_url + " " + pkg_dir
-    if actual_ver != "latest" and actual_ver != "*" {
-        clone_cmd = "git clone --depth 1 --quiet --branch v" + actual_ver + " " + git_url + " " + pkg_dir
+    if ver != "latest" and ver != "*" {
+        clone_cmd = "git clone --depth 1 --quiet --branch v" + ver + " " + git_url + " " + pkg_dir
     }
     pilot clone_res = process::exec(clone_cmd)
     if clone_res != 0 {
-        -- Try without v prefix on tag
-        if actual_ver != "latest" and actual_ver != "*" {
-            pilot clone2 = "git clone --depth 1 --quiet --branch " + actual_ver + " " + git_url + " " + pkg_dir
-            pilot clone2_res = process::exec(clone2)
-            if clone2_res != 0 {
-                pilot fail_msg = "  Could not fetch " + pkg_name + ". Creating stub..."
-                say fail_msg
-                hangar_create_stub(pkg_dir, pkg_name)
-                give back 0
-            }
-        } else {
-            pilot fail_msg2 = "  Could not fetch " + pkg_name + ". Creating stub..."
-            say fail_msg2
-            hangar_create_stub(pkg_dir, pkg_name)
-            give back 0
-        }
+        say "  Could not fetch " + pkg_name + " from " + repo + " at " + ver + "."
+        give back 1
     }
 
-    -- Remove .git directory from cloned package (not needed)
-    pilot git_dir = pkg_dir + "/.git"
-    if fs::exists(git_dir) {
-        pilot rm_git: word = hangar_rm_cmd(git_dir)
-        process::exec(rm_git)
+    pilot pkg_sha = hangar_compute_dir_sha256(pkg_dir)
+    if pkg_sha == "" {
+        say "  Could not verify fetched package " + pkg_name + "."
+        give back 1
     }
-
-    -- Compute SHA-256 for integrity verification
-    pilot pkg_sha: word = hangar_compute_dir_sha256(pkg_dir)
-    if pkg_sha != "" {
-        say C_DIM + "  >> " + C_RESET + "SHA-256: " + pkg_sha.substring(0, 16) + "..."
-    }
-
-    -- Update lockfile with hash
-    pilot lockfile = project_dir + "/hangar.lock"
-    lock_load(lockfile)
-    pilot lock_source = actual_repo
-    lock_add_entry(pkg_name, actual_ver, lock_source, pkg_sha)
-    lock_write(lockfile)
-
-    pilot ok_msg = C_BGREEN + "  INSTALLED" + C_RESET + " " + C_BWHITE + pkg_name + C_RESET + C_DIM + " -> hangar_modules/" + pkg_name + "/" + C_RESET
-    say ok_msg
+    -- Accumulate pending entries. The command owns the final lock publication.
+    lock_add_entry(pkg_name, ver, repo, pkg_sha)
+    say C_BGREEN + "  INSTALLED" + C_RESET + " " + C_BWHITE + pkg_name + C_RESET + C_DIM + " -> hangar_modules/" + pkg_name + "/" + C_RESET
     give back 0
-}
-
-task hangar_create_stub(pkg_dir: word, pkg_name: word) -> void {
-    fs::make_dir(pkg_dir)
-    pilot stub_path = pkg_dir + "/" + pkg_name + ".fk"
-    pilot stub_content = "-- " + pkg_name + " (stub module -- install with 'hangar install')\n-- This stub was created because the package could not be downloaded.\n\n"
-    fs::write(stub_path, stub_content)
-    pilot msg = "  Created stub: hangar_modules/" + pkg_name + "/" + pkg_name + ".fk"
-    say msg
 }
 
 task hangar_version_cmd(project_dir: word, bump: word) -> int {
@@ -1644,63 +1578,10 @@ task hangar_publish(project_dir: word, dry_run: bool) -> int {
         give back 0
     }
 
-    -- Create tarball: name-version.tar.gz
-    pilot tarball = pname + "-" + pver + ".tar.gz"
-    say C_DIM + "  >> " + C_RESET + "Packaging " + tarball + "..."
-
-    -- For simplicity in MVP, we shell out to 'tar'
-    -- Only include: hangar.toml, src/, README.md, LICENSE
-    pilot include_list = "hangar.toml src"
-    if fs::exists(project_dir + "/README.md") { include_list = include_list + " README.md" }
-    if fs::exists(project_dir + "/LICENSE") { include_list = include_list + " LICENSE" }
-
-    pilot tar_cmd = "tar -czf " + tarball + " " + include_list
-    pilot tar_res = process::exec(tar_cmd)
-    if tar_res != 0 {
-        say "  Failed to create tarball. Make sure 'tar' is in your PATH."
-        give back 1
-    }
-
-    -- Get token
-    pilot home_dir: word = process::env("HOME")
-    if home_dir == "" { home_dir = process::env("APPDATA") + "/freak" }
-    pilot creds_path = home_dir + "/.hangar/credentials"
-    if fs::exists(creds_path) == false {
-        say C_BYELLOW + "  NOT LOGGED IN" + C_RESET
-        say "  Run 'hangar login' first."
-        give back 1
-    }
-    pilot token: word = fs::read(creds_path)
-
-    -- Upload to registry API
-    pilot registry: word = toml_get("registries.default")
-    if registry == "" { registry = HANGAR_DEFAULT_REGISTRY }
-    -- Convert index URL to API URL (mock)
-    -- index.hangar.dev -> api.hangar.dev
-    pilot api_url = "https://api.hangar.dev/api/v1/publish"
-
-    say C_DIM + "  >> " + C_RESET + "Uploading to " + api_url + "..."
-
-    pilot curl_cmd = "curl -s -X POST -H \"Authorization: Bearer " + token + "\" "
-    curl_cmd = curl_cmd + "-F \"package=@" + tarball + "\" " + api_url
-
-    pilot curl_res = process::exec(curl_cmd)
-
-    -- Clean up tarball
-    pilot rm_cmd = hangar_rm_cmd(tarball)
-    -- Use simple delete if it's just a file
-    fs::delete(tarball)
-
-    if curl_res == 0 {
-        say ""
-        say C_BGREEN + "  PUBLISHED" + C_RESET + " " + C_BWHITE + pname + C_RESET + " v" + pver
-        say ""
-        give back 0
-    } else {
-        say ""
-        say C_BRED + "  UPLOAD FAILED" + C_RESET
-        give back 1
-    }
+    -- A transport exit code cannot establish registry acknowledgement. There
+    -- is no supported configured publication target in this native generation.
+    say "  Publication is unavailable: no supported configured target can acknowledge this package."
+    give back 1
 }
 
 task hangar_extract_colon(s: word, idx: int) -> word {
@@ -1729,7 +1610,7 @@ task hangar_extract_colon(s: word, idx: int) -> word {
 
 -- ===================== MAIN DISPATCH ================================
 
-task hangar_dispatch(args_cnt: int) -> void {
+task hangar_dispatch(args_cnt: int) -> int {
     if args_cnt < 3 {
         say ""
         say C_BMAGENTA + "  HANGAR" + C_RESET + C_DIM + " -- FREAK package manager" + C_RESET
@@ -1751,7 +1632,7 @@ task hangar_dispatch(args_cnt: int) -> void {
         say C_BCYAN + "    login" + C_RESET + "                        " + C_DIM + "Authenticate with registry" + C_RESET
         say C_BCYAN + "    publish" + C_RESET + " [--dry-run]          " + C_DIM + "Publish to registry" + C_RESET
         say ""
-        give back
+        give back 0
     }
 
     pilot subcmd: word = hangar_arg(2)
@@ -1761,26 +1642,26 @@ task hangar_dispatch(args_cnt: int) -> void {
         if args_cnt >= 4 {
             project_dir = hangar_arg(3)
         }
-        hangar_init(project_dir)
+        give back hangar_init(project_dir)
     } else if subcmd == "add" {
         if args_cnt < 4 {
             say "Usage: hangar add <name> [constraint]"
             say "       hangar add <name> <repo> [version]"
-            give back
+            give back 1
         }
         pilot pkg: word = hangar_arg(3)
         if args_cnt == 4 {
             -- hangar add muvluv (no constraint, defaults to latest)
-            hangar_add(project_dir, pkg, "", "latest")
+            give back hangar_add(project_dir, pkg, "", "latest")
         } else if args_cnt == 5 {
             -- Could be: hangar add muvluv ^1.0  OR  hangar add muvluv repo_url
             pilot arg4: word = hangar_arg(4)
             if arg4.starts_with("^") or arg4.starts_with("~") or arg4.starts_with("=") or arg4.starts_with(">") or arg4.starts_with("<") {
                 -- SemVer constraint: hangar add muvluv ^1.0
-                hangar_add(project_dir, pkg, "", arg4)
+                give back hangar_add(project_dir, pkg, "", arg4)
             } else {
                 -- Git repo: hangar add muvluv https://github.com/...
-                hangar_add(project_dir, pkg, arg4, "latest")
+                give back hangar_add(project_dir, pkg, arg4, "latest")
             }
         } else {
             -- hangar add muvluv repo version
@@ -1789,58 +1670,58 @@ task hangar_dispatch(args_cnt: int) -> void {
             if args_cnt >= 6 {
                 ver = hangar_arg(5)
             }
-            hangar_add(project_dir, pkg, repo, ver)
+            give back hangar_add(project_dir, pkg, repo, ver)
         }
     } else if subcmd == "remove" {
         if args_cnt < 4 {
             say "Usage: hangar remove <name>"
-            give back
+            give back 1
         }
         pilot pkg2: word = hangar_arg(3)
-        hangar_remove(project_dir, pkg2)
+        give back hangar_remove(project_dir, pkg2)
     } else if subcmd == "install" {
         -- Check if "install freak" (toolchain bootstrap)
         if args_cnt >= 4 {
             pilot install_target: word = hangar_arg(3)
             if install_target == "freak" {
-                hangar_install_freak()
-                give back
+                give back hangar_install_freak()
             }
         }
-        hangar_install(project_dir)
+        give back hangar_install(project_dir)
     } else if subcmd == "update" {
         pilot update_pkg = ""
         if args_cnt >= 4 {
             update_pkg = hangar_arg(3)
         }
-        hangar_update(project_dir, update_pkg)
+        give back hangar_update(project_dir, update_pkg)
     } else if subcmd == "outdated" {
-        hangar_outdated(project_dir)
+        give back hangar_outdated(project_dir)
     } else if subcmd == "version" {
         pilot bump = ""
         if args_cnt >= 4 {
             bump = hangar_arg(3)
         }
-        hangar_version_cmd(project_dir, bump)
+        give back hangar_version_cmd(project_dir, bump)
     } else if subcmd == "audit" {
         pilot fix_mode = false
         if args_cnt >= 4 {
             pilot arg3: word = hangar_arg(3)
             if arg3 == "--fix" { fix_mode = true }
         }
-        hangar_audit(project_dir, fix_mode)
+        give back hangar_audit(project_dir, fix_mode)
     } else if subcmd == "login" {
-        hangar_login()
+        give back hangar_login()
     } else if subcmd == "publish" {
         pilot dry_run = false
         if args_cnt >= 4 {
             pilot arg3: word = hangar_arg(3)
             if arg3 == "--dry-run" { dry_run = true }
         }
-        hangar_publish(project_dir, dry_run)
+        give back hangar_publish(project_dir, dry_run)
     } else {
         pilot msg = "Unknown hangar command: " + subcmd
         say msg
         say "Run 'hangar' for usage."
     }
+    give back 1
 }

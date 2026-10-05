@@ -315,11 +315,12 @@ def hangar_add(project_dir: Path, pkg_name: str, repo: str,
     deps = data.setdefault("dependencies", {})
 
     deps[pkg_name] = {"git": repo, "version": version}
+    result = _install_one(project_dir, pkg_name, deps[pkg_name])
+    if result != 0:
+        return result
     _write_manifest(project_dir, data)
     print(f"  Added {pkg_name} ({repo} @ {version})")
-
-    # Also install it
-    return _install_one(project_dir, pkg_name, deps[pkg_name])
+    return 0
 
 
 def hangar_remove(project_dir: Path, pkg_name: str) -> int:
@@ -374,6 +375,9 @@ def _install_one(project_dir: Path, name: str, info: Dict[str, str]) -> int:
     modules_dir.mkdir(exist_ok=True)
     pkg_dir = modules_dir / name
 
+    if pkg_dir.exists():
+        print(f"  Cannot safely replace {name}: transactional package publication is not available yet.", file=sys.stderr)
+        return 1
     repo = info.get("git", "")
     version = info.get("version", "latest")
 
@@ -397,13 +401,10 @@ def _install_one(project_dir: Path, name: str, info: Dict[str, str]) -> int:
     except URLError as e:
         # Check if it's a network issue or the repo doesn't exist
         print(f"  Could not fetch {name}: {e}", file=sys.stderr)
-        print(f"  Creating stub module for offline development...", file=sys.stderr)
-        _create_stub_module(pkg_dir, name)
-        return 0
+        return 1
     except Exception as e:
         print(f"  Could not fetch {name}: {e}", file=sys.stderr)
-        _create_stub_module(pkg_dir, name)
-        return 0
+        return 1
 
     # Extract zip
     try:
@@ -414,8 +415,6 @@ def _install_one(project_dir: Path, name: str, info: Dict[str, str]) -> int:
                 # Extract everything (might have src/ subfolder)
                 fk_files = zf.namelist()
 
-            if pkg_dir.exists():
-                shutil.rmtree(pkg_dir)
             pkg_dir.mkdir(parents=True)
 
             for fk in fk_files:
@@ -437,22 +436,8 @@ def _install_one(project_dir: Path, name: str, info: Dict[str, str]) -> int:
         return 0
     except Exception as e:
         print(f"  Failed to extract {name}: {e}", file=sys.stderr)
-        _create_stub_module(pkg_dir, name)
-        return 0
+        return 1
 
-
-def _create_stub_module(pkg_dir: Path, name: str) -> None:
-    """Create a stub module for offline development."""
-    if pkg_dir.exists():
-        shutil.rmtree(pkg_dir)
-    pkg_dir.mkdir(parents=True)
-    stub = pkg_dir / f"{name}.fk"
-    stub.write_text(
-        f"-- {name} (stub module — install with 'freak hangar install')\n"
-        f"-- This stub was created because the package could not be downloaded.\n\n",
-        encoding="utf-8",
-    )
-    print(f"  Created stub: hangar_modules/{name}/{name}.fk")
 
 
 # ── Module resolution ───────────────────────────────────────────────
