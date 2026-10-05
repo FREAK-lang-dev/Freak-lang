@@ -385,6 +385,16 @@ repeat 5 times { do_thing() }
 -- repeat until
 repeat until condition { do_thing() }
 
+-- condition-first loops: both spellings run while the condition is true
+repeat while condition { do_thing() }
+while condition { do_thing() }
+
+-- experimental V3.5 counted forms
+for each i in 0..10 { say i }
+for each i in 0..=10 step 2 { say i }
+repeat 10 times with i { say i }
+for (pilot i = 0; i < 10; i += 1) { say i }
+
 -- training arc: loop guaranteed to eventually terminate
 training arc until power >= 9000 max 100 sessions {
     practice()
@@ -400,6 +410,25 @@ for each item in list {
     process(item)
 }
 ```
+
+The condition of `repeat while` and `while` must be `bool`; it is tested
+before every pass, including the first. They share the existing loop rules
+for `break`, `continue`, lexical cleanup and early return.
+
+The three V3.5 counted forms are experimental. Range bounds, an explicit
+positive `int` step and a repeat count are evaluated once in source order.
+`a..b` excludes `b`; `a..=b` includes it. Empty and backwards ranges run
+zero times. Range and repeat indices are fresh immutable `int` bindings,
+scoped to the body; a same-named outer binding is restored after the loop.
+Invalid constant steps fail compilation and nonpositive dynamic steps fail
+controllably at runtime. An inclusive range ending at the largest `int`
+finishes without overflowing its internal increment.
+
+The initial C-style form accepts an `int` `pilot` initializer, a `bool`
+condition, and an assignment or `int`/`void` expression step. Its initializer
+is mutable and local to the header and body; `fixed pilot` is rejected.
+`continue` executes the step, while `break` skips it. A `num` bound, count
+or step is a type error. `with` and `step` remain contextual identifiers.
 
 ### 1.8 Closures and Lambdas
 
@@ -2285,7 +2314,7 @@ class TokenType(Enum):
     GIVE_BACK / BREAK / CONTINUE
 
     # Control flow
-    IF / ELSE / WHEN / REPEAT / TIMES / UNTIL / DONE / FOR_KW / EACH
+    IF / ELSE / WHEN / REPEAT / TIMES / UNTIL / WHILE / DONE / FOR_KW / EACH
 
     # Error handling
     CHECK / RESULT_KW / GOT / NOBODY / SOME / OK / ERR / OR_ELSE
@@ -2308,7 +2337,7 @@ class TokenType(Enum):
 
     # Delimiters
     LBRACE / RBRACE / LPAREN / RPAREN / LBRACKET / RBRACKET
-    COMMA / COLON / SEMICOLON / DOT / DOT_DOT / ELLIPSIS
+    COMMA / COLON / SEMICOLON / DOT / DOT_DOT / DOT_DOT_EQ / ELLIPSIS
     COLON_COLON / PIPE_SINGLE / AT
 
     # Assignment
@@ -2319,6 +2348,11 @@ class TokenType(Enum):
 ```
 
 ### 8.2 Multi-Word Tokens (lex greedily)
+
+V3.5 reserves `while`, increasing its reserved-word inventory from 54 to 55.
+This is a breaking change for older programs using `while` as an identifier.
+`repeat while` uses the same reserved `while` token. Counted-loop `with` and
+`step` are contextual words and do not enlarge that inventory.
 
 ```
 give back / or else / trust me / for each / training arc

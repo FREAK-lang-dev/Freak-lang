@@ -283,6 +283,9 @@ task cli_doctor_runtime_missing(runtime_dir: word) -> word {
     if not fs::exists(runtime_dir + "/freak_llvm_runtime.c") {
         missing = cli_doctor_append_missing(missing, "freak_llvm_runtime.c")
     }
+    if not fs::exists(runtime_dir + "/freak_v35_process.inc") {
+        missing = cli_doctor_append_missing(missing, "freak_v35_process.inc")
+    }
     if not fs::exists(runtime_dir + "/ui/win32_backend.c") {
         missing = cli_doctor_append_missing(missing, "ui/win32_backend.c")
     }
@@ -404,7 +407,7 @@ task cli_doctor_json() -> int {
     say "    \"runtime\": {"
     say "      \"ok\": " + cli_doctor_json_bool(runtime_ok) + ","
     say "      \"path\": \"" + cli_doctor_json_escape(rt_dir) + "\","
-    say "      \"files_expected\": 7,"
+    say "      \"files_expected\": 8,"
     say "      \"missing\": \"" + cli_doctor_json_escape(runtime_missing) + "\","
     say "      \"precompiled_objects\": " + cli_doctor_json_bool(runtime_obj) + ","
     say "      \"llvm_runtime\": " + cli_doctor_json_bool(llvm_runtime)

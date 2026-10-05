@@ -39,7 +39,8 @@ Invalid indexing must fail controllably on both backends; valid LLVM indexing
 matches C's word-valued result. Continued silent legacy filesystem failure is
 not repaired merely by introducing another checked API. Reproductions against
 the current reconstructed native baseline determine which old reports still
-need a correction. The integer-overflow policy is pending an explicit choice.
+need a correction. The user selected controlled runtime errors for integer
+overflow, matching V4 at O0/O2/O3 on the C and LLVM backends.
 
 The declared native LLVM profile requires Clang major 15 or later; Apple Clang
 also has a conservative major-15 support floor. Version identification is

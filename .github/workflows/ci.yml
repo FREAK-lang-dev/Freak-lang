@@ -176,6 +176,13 @@ jobs:
           python -u tests/v3_v35_hangar.py --freak ./build/freak$EXT \
             --hangar ./build/hangar$EXT --clang "$(command -v clang)"
 
+      - name: V3.5 process and CLI contracts
+        shell: bash
+        run: |
+          python -u tests/v3_v35_process_builtins.py --compiler ./build/freakc_v3_stage2$EXT
+          python -u tests/v3_v35_process.py --clang "$(command -v clang)"
+          python -u tests/v3_v35_cli.py ./build/freak$EXT --clang "$(command -v clang)"
+
       - name: V3 frozen UI surface
         shell: bash
         run: python -u tests/v3_ui_surface.py ./build/freak$EXT
@@ -480,6 +487,13 @@ jobs:
         run: |
           python -u tests/v3_v35_hangar.py --freak ./build/freak$EXT \
             --hangar ./build/hangar$EXT --clang "$(command -v clang)"
+
+      - name: V3.5 process and CLI contracts
+        shell: bash
+        run: |
+          python -u tests/v3_v35_process_builtins.py --compiler ./build/freakc_v3_stage2$EXT
+          python -u tests/v3_v35_process.py --clang "$(command -v clang)"
+          python -u tests/v3_v35_cli.py ./build/freak$EXT --clang "$(command -v clang)"
 
       - name: V3 frozen UI surface
         shell: bash

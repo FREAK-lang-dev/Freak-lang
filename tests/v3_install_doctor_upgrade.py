@@ -59,6 +59,7 @@ def check_manifest(repo: Path, entries: list[tuple[str, str]]) -> None:
             "freakc/runtime/freak_runtime.c",
             "freakc/runtime/freak_runtime.h",
             "freakc/runtime/freak_llvm_runtime.c",
+            "freakc/runtime/freak_v35_process.inc",
             "freakc/runtime/ui/win32_backend.c",
             "freakc/runtime/ui/freak_ui_platform.h",
             "freakc/runtime/freak_abi",
@@ -1584,7 +1585,9 @@ def check_doctor(
     assert Path(report["checks"]["stdlib"]["path"]).resolve() == (
         payload / "std"
     ).resolve()
-    assert report["checks"]["runtime"]["files_expected"] == 7
+    assert report["checks"]["runtime"]["files_expected"] == len(
+        [destination for _, destination in manifest_entries(repo) if destination.startswith("runtime/")]
+    )
     assert report["checks"]["stdlib"]["modules_found"] == 11
     assert report["checks"]["stdlib"]["modules_expected"] == 11
     assert report["checks"]["abi"] == {

@@ -444,7 +444,7 @@ task cli_find_winget_home() -> word {
     give back ""
 }
 
-task cli_find_llvm_mingw_in(root: word) -> word {
+task cli_find_llvm_mingw_executable_in(root: word) -> word {
     if root == "" or not fs::exists(root) { give back "" }
     pilot packages: word = fs::list_dir(root)
     pilot package = ""
@@ -466,7 +466,7 @@ task cli_find_llvm_mingw_in(root: word) -> word {
                     if child_ch == "|" {
                         if child.starts_with("llvm-mingw-") {
                             pilot candidate = package_dir + "/" + child + "/bin/clang.exe"
-                            if fs::exists(candidate) { give back cli_quote_cmd_path(candidate) }
+                            if fs::exists(candidate) { give back candidate }
                         }
                         child = ""
                     } else {
@@ -484,28 +484,40 @@ task cli_find_llvm_mingw_in(root: word) -> word {
     give back ""
 }
 
-task cli_find_windows_llvm_mingw() -> word {
+task cli_find_llvm_mingw_in(root: word) -> word {
+    pilot executable = cli_find_llvm_mingw_executable_in(root)
+    if executable == "" { give back "" }
+    give back cli_quote_cmd_path(executable)
+}
+
+task cli_find_windows_llvm_mingw_executable() -> word {
     pilot user_profile: word = process::env("USERPROFILE")
     if user_profile != "" {
         pilot scoop_clang = user_profile + "/scoop/apps/mingw-mstorsjo-llvm-ucrt/current/bin/clang.exe"
-        if fs::exists(scoop_clang) { give back cli_quote_cmd_path(scoop_clang) }
+        if fs::exists(scoop_clang) { give back scoop_clang }
     }
     pilot program_data: word = process::env("ProgramData")
     if program_data != "" {
         pilot global_scoop = program_data + "/scoop/apps/mingw-mstorsjo-llvm-ucrt/current/bin/clang.exe"
-        if fs::exists(global_scoop) { give back cli_quote_cmd_path(global_scoop) }
+        if fs::exists(global_scoop) { give back global_scoop }
     }
     pilot local_appdata: word = process::env("LOCALAPPDATA")
     if local_appdata != "" {
-        pilot local_clang = cli_find_llvm_mingw_in(local_appdata + "/Microsoft/WinGet/Packages")
+        pilot local_clang = cli_find_llvm_mingw_executable_in(local_appdata + "/Microsoft/WinGet/Packages")
         if local_clang != "" { give back local_clang }
     }
     pilot program_files: word = process::env("ProgramFiles")
     if program_files != "" {
-        pilot machine_clang = cli_find_llvm_mingw_in(program_files + "/WinGet/Packages")
+        pilot machine_clang = cli_find_llvm_mingw_executable_in(program_files + "/WinGet/Packages")
         if machine_clang != "" { give back machine_clang }
     }
     give back ""
+}
+
+task cli_find_windows_llvm_mingw() -> word {
+    pilot executable = cli_find_windows_llvm_mingw_executable()
+    if executable == "" { give back "" }
+    give back cli_quote_cmd_path(executable)
 }
 
 task cli_executable_uses_winget_alias() -> bool {
@@ -851,6 +863,68 @@ task cli_normalize_cmd_override(cmd: word) -> word {
     give back cmd
 }
 
+task cli_clang_executable_works(executable: word) -> bool {
+    if executable == "" { give back false }
+    pilot command = process::command_new(executable)
+    process::command_arg(command, "--version")
+    pilot state = process::command_run(command, 10000, 65536, 65536)
+    pilot works = false
+    if state == 2 { works = process::command_exit_code(command) == 0 }
+    process::command_release(command)
+    give back works
+}
+
+task cli_find_clang_executable() -> word {
+    -- FREAK_CLANG denotes one executable, never a shell command. Preserve a
+    -- literal path, including spaces and metacharacters, for argument vectors.
+    pilot override: word = process::env("FREAK_CLANG")
+    if override != "" {
+        -- Accept the complete outer double quotes used by older installers.
+        if override.length() >= 2 and override.starts_with("\"") and override.ends_with("\"") {
+            give back override.substring(1, override.length() - 2)
+        }
+        give back override
+    }
+    if cli_is_windows() {
+        pilot mingw = cli_find_windows_llvm_mingw_executable()
+        if mingw != "" { give back mingw }
+        if cli_clang_executable_works("clang") { give back "clang" }
+        pilot llvm_home: word = process::env("LLVM_HOME")
+        if llvm_home != "" and fs::exists(llvm_home + "/bin/clang.exe") {
+            give back llvm_home + "/bin/clang.exe"
+        }
+        pilot program_files: word = process::env("ProgramFiles")
+        if program_files != "" and fs::exists(program_files + "/LLVM/bin/clang.exe") {
+            give back program_files + "/LLVM/bin/clang.exe"
+        }
+        pilot program_w6432: word = process::env("ProgramW6432")
+        if program_w6432 != "" and fs::exists(program_w6432 + "/LLVM/bin/clang.exe") {
+            give back program_w6432 + "/LLVM/bin/clang.exe"
+        }
+        pilot program_files_x86: word = process::env("ProgramFiles(x86)")
+        if program_files_x86 != "" and fs::exists(program_files_x86 + "/LLVM/bin/clang.exe") {
+            give back program_files_x86 + "/LLVM/bin/clang.exe"
+        }
+        pilot local_appdata: word = process::env("LOCALAPPDATA")
+        if local_appdata != "" and fs::exists(local_appdata + "/Programs/LLVM/bin/clang.exe") {
+            give back local_appdata + "/Programs/LLVM/bin/clang.exe"
+        }
+    } else {
+        if cli_clang_executable_works("clang") { give back "clang" }
+        pilot brew_arm = "/opt/homebrew/opt/llvm/bin/clang"
+        if fs::exists(brew_arm) { give back brew_arm }
+        pilot brew_x64 = "/usr/local/opt/llvm/bin/clang"
+        if fs::exists(brew_x64) { give back brew_x64 }
+        pilot version = 21
+        repeat until version < 15 {
+            pilot executable = "clang-" + word_from_int(version)
+            if cli_clang_executable_works(executable) { give back executable }
+            version -= 1
+        }
+    }
+    give back ""
+}
+
 task cli_find_clang_command() -> word {
     pilot override: word = process::env("FREAK_CLANG")
     if override != "" {
@@ -911,6 +985,7 @@ task cli_find_clang_command() -> word {
         if process::exec("clang-18 --version >/dev/null 2>/dev/null") == 0 { give back "clang-18" }
         if process::exec("clang-17 --version >/dev/null 2>/dev/null") == 0 { give back "clang-17" }
         if process::exec("clang-16 --version >/dev/null 2>/dev/null") == 0 { give back "clang-16" }
+        if process::exec("clang-15 --version >/dev/null 2>/dev/null") == 0 { give back "clang-15" }
     }
 
     give back ""

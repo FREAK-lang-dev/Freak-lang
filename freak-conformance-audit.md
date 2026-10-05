@@ -15,6 +15,24 @@ and stale-output rejection. Newline behavior remains covered. This checkpoint
 does not establish the new counted/while forms, checked-result bootstrap,
 scoped packages, installed-archive/platform acceptance or a new release.
 
+**V3.5 process/CLI checkpoint (2026-10-05):** both native backends expose
+bounded shell-free command tickets with distinct spawn/exit/signal/timeout and
+capture-limit states, tree cleanup and owned byte captures. The direct runtime
+gate covers O0/O2/O3 and sanitizer controls; the native CLI gate covers literal
+argv, cache reuse, child exit status, piped and controlling-terminal input,
+and Ctrl-C. Doctor recognizes the declared Clang-15 floor and requires a real
+compile/link/execute probe, preserving an explicit missing tool selection.
+Windows/macOS/ARM archive evidence and final current-head review remain pending.
+
+**V3.5 native loop checkpoint (2026-10-05):** the C and LLVM emitters
+implement both condition-first spellings and all three experimental counted
+forms. The fresh compiler gate covers 70 syntax/semantic/error cases at O2;
+an O0 two-million-iteration regression checks constant stack use for the
+repeat index. It includes scoped indices, single-evaluated bounds, continued
+C-style steps, owned early exits and the inclusive maximum-int boundary.
+The reviewed semicolon-at-`when`-arm defect is fixed. V4 parity, final
+optimization/platform matrices and installed-archive proofs remain pending.
+
 **V4 closed scalar Sum checkpoint (2026-10-04):** native `maybe<int>` and
 `result<word,word>` have separate tagged carriers, owning construction and
 extraction, and Meiya-driven cleanup across calls, replacements, branches and
