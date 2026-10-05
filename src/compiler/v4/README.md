@@ -1031,6 +1031,15 @@ storage retains authoritative scans and adds no snapshot fields.
 MIR CFG validation counts predecessor edges once per body using one released
 scratch child. Both If arms count, including equal targets; unavailable scratch
 retains the original scanner and diagnostic order.
+MIR body-control queries use an exact Never count in the existing statement-link
+child: four summary cells precede its physical statement links. The block index
+and Never summary have independent readiness. Append, type setters and slot
+overwrites maintain the count; body replacement and successful compaction
+invalidate it. Explicit lookup finalization rebuilds a cold summary, while
+unavailable storage retains the allocation-free authoritative scan. Same-size
+direct type-column edits must explicitly invalidate the summary; handle and
+length changes are detected automatically. This adds no handles or snapshot
+fields and preserves the existing control traversal limits.
 Meiya mutable-exclusivity checking uses one request-owned candidate child for
 large bodies. Loans proven to have no cross-block holder remain in their own
 block's physical-order chain; expression, explicit, complex and malformed loans
