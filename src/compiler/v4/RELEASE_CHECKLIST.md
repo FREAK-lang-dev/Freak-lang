@@ -105,8 +105,10 @@ scaling to done, and recorded the `|>` finding.
 | Replaces V3 | 1 to 4, 8, A0, A1, A4 | "V4 release": everything V3 ships today, on the new compiler |
 | Bible-complete | 1 to 8, A0 to A4 | The 1.0 the audit describes |
 
-Tier 4 is the definition in `docs/bootstrap-map.md`: V4 replaces V3 only
-when phases A to F hold and the V3 preservation tests stay green.
+The replacement line follows `docs/bootstrap-map.md`: self-hosting, shipped-V3
+language/runtime/tooling parity and preservation tests must hold. It does not
+require the concurrency and advanced bible features V3 never shipped. Phases
+A to F describe the broader bible-complete target.
 
 ## Two lanes
 
@@ -653,8 +655,8 @@ FFI completion (phase C):
 
 ## Open decisions only the maintainers can make
 
-1. Where the release line sits (table at the top).
-2. Word indexing: bytes or characters.
+1. Closed for delivery order: Preview first, then V3 replacement (table at the top).
+2. Closed: Word indexing and slicing use character semantics, as the bible specifies.
 3. Whether `for each` consumes its source.
 4. `eventually`: inline as V3, or true deferred.
 5. Revive or drop `feat/v4-runtime-core`.
