@@ -857,6 +857,7 @@ task tc_builtin_call_type(name: word) -> word {
     if name == "process::command_arg" { give back "void" }
     if name == "process::command_cwd" { give back "void" }
     if name == "process::command_env" { give back "void" }
+    if name == "process::command_unset_env" { give back "void" }
     if name == "process::command_spawn" { give back "int" }
     if name == "process::command_run" { give back "int" }
     if name == "process::command_spawn_inherit" { give back "int" }
@@ -914,6 +915,7 @@ task tc_builtin_call_params(name: word) -> word {
     if name == "process::command_arg" { give back "int,word" }
     if name == "process::command_cwd" { give back "int,word" }
     if name == "process::command_env" { give back "int,word,word" }
+    if name == "process::command_unset_env" { give back "int,word" }
     if name == "process::command_spawn" { give back "int,int,int,int" }
     if name == "process::command_run" { give back "int,int,int,int" }
     if name == "process::command_spawn_inherit" { give back "int,int" }

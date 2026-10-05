@@ -22,6 +22,7 @@ PROGRAM = '''task main() {
     process::command_arg(job, "literal $ & % argument")
     process::command_cwd(job, "directory with spaces")
     process::command_env(job, "TEST_NAME", "value")
+    process::command_unset_env(job, "INHERITED_NAME")
     pilot spawn: int = process::command_spawn(job, 1000, 4096, 4096)
     pilot state: int = process::command_run(job, 1000, 4096, 4096)
     pilot inherited: int = process::command_spawn_inherit(job, 1000)
@@ -47,7 +48,7 @@ PROGRAM = '''task main() {
 # Kept as an independent API inventory: emitted calls must match each public
 # operation, including argument-vector and byte-output paths.
 OPERATIONS = (
-    "new", "arg", "cwd", "env", "spawn", "run", "spawn_inherit", "run_inherit",
+    "new", "arg", "cwd", "env", "unset_env", "spawn", "run", "spawn_inherit", "run_inherit",
     "wait", "status", "exit_code", "signal", "error", "stdout", "stderr",
     "stdout_bytes", "stderr_bytes", "terminate", "release",
 )
