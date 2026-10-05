@@ -137,6 +137,12 @@ def main() -> int:
         flags += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-g"]
     with tempfile.TemporaryDirectory(prefix="freak-v35-fs λ $ ") as temporary:
         root = Path(temporary)
+        if os.name != "nt":
+            # Match the H6 checked-source gate: libc headers precede runtime.c.
+            fixture = root / "restricted-headers.c"
+            fixture.write_text('#define _POSIX_C_SOURCE 200809L\n#include <stdlib.h>\n#include <unistd.h>\n#include "freak_runtime.c"\n')
+            compiled = subprocess.run([compiler, str(fixture), f"-I{runtime}", "-Werror=implicit-function-declaration", "-fsyntax-only"], capture_output=True, timeout=30)
+            assert compiled.returncode == 0, compiled.stderr.decode(errors="replace")
         source = root / "harness.c"
         source.write_text(HARNESS.replace("int main(", "static int native_main(") + WINDOWS_ARGV_WRAPPER, encoding="utf-8")
         if args.sanitize:

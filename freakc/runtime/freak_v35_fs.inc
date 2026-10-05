@@ -1,6 +1,17 @@
 /* Shared V3.5 checked I/O substrate; included by the shipping C runtime. */
+/* Some bootstrap fixtures include this runtime after feature-restricted libc
+   headers. Their include guards cannot be reopened by a late feature macro.
+   Declare these stable platform entry points with their actual libc ABI. */
+#ifndef _WIN32
+extern char *realpath(const char *restrict path,char *restrict resolved);
+#endif
 #ifdef __linux__
 #include <sys/syscall.h>
+extern long syscall(long number,...);
+#endif
+#ifdef __APPLE__
+extern int renamex_np(const char *source,const char *destination,unsigned int flags);
+#define FREAK_DARWIN_RENAME_EXCL 0x00000004u
 #endif
 #define FREAK_FS_RESULT_DOMAIN UINT64_C(0xe000000000000000)
 #define FREAK_FS_READ_LIMIT ((size_t)64 * 1024 * 1024)
@@ -369,7 +380,7 @@ int64_t freak_fs_rename_new_checked(freak_word source,freak_word destination) {
         renamed = syscall(SYS_renameat2,AT_FDCWD,from,AT_FDCWD,to,1 /* RENAME_NOREPLACE */) == 0;
         unavailable = !renamed && (errno == ENOSYS || errno == EINVAL || errno == EOPNOTSUPP);
 #elif defined(__APPLE__)
-        renamed = renamex_np(from,to,RENAME_EXCL) == 0;
+        renamed = renamex_np(from,to,FREAK_DARWIN_RENAME_EXCL) == 0;
         unavailable = !renamed && (errno == ENOSYS || errno == ENOTSUP);
 #else
         unavailable = true;
