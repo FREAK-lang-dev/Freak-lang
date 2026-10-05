@@ -19,9 +19,9 @@ task std_clamp(x: int, lo: int, hi: int) -> int {
 
 task std_pow(base: int, exp: int) -> int {
     if exp < 0 { give back 0 }
-    pilot res = 1
-    pilot b = base
-    pilot e = exp
+    pilot mut res = 1
+    pilot mut b = base
+    pilot mut e = exp
     repeat until e <= 0 {
         pilot half = e / 2
         pilot even_part = half * 2
@@ -56,8 +56,8 @@ task std_sign(x: int) -> int {
 }
 
 task std_gcd(a: int, b: int) -> int {
-    pilot x = std_abs(a)
-    pilot y = std_abs(b)
+    pilot mut x = std_abs(a)
+    pilot mut y = std_abs(b)
     repeat until y == 0 {
         pilot tmp = y
         pilot rem = x - x / y * y
@@ -77,8 +77,8 @@ task std_lcm(a: int, b: int) -> int {
 
 task std_factorial(n: int) -> int {
     if n <= 1 { give back 1 }
-    pilot f = 1
-    pilot i = 2
+    pilot mut f = 1
+    pilot mut i = 2
     repeat until i > n {
         f = f * i
         i += 1
@@ -89,9 +89,9 @@ task std_factorial(n: int) -> int {
 task std_fibonacci(n: int) -> int {
     if n <= 0 { give back 0 }
     if n == 1 { give back 1 }
-    pilot a = 0
-    pilot b = 1
-    pilot i = 2
+    pilot mut a = 0
+    pilot mut b = 1
+    pilot mut i = 2
     repeat until i > n {
         pilot tmp = a + b
         a = b

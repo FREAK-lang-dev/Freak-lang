@@ -28,8 +28,8 @@ task string_pad_right(s: word, width: int, pad_char: word) -> word {
 task string_reverse(s: word) -> word {
     pilot slen = s.length()
     if slen <= 1 { give back s }
-    pilot out = ""
-    pilot i = slen - 1
+    pilot mut out = ""
+    pilot mut i = slen - 1
     repeat slen times {
         out = out + s.char_at(i)
         i -= 1
@@ -42,12 +42,12 @@ task string_count(haystack: word, needle: word) -> int {
     pilot nlen = needle.length()
     if nlen == 0 { give back 0 }
     if nlen > hlen { give back 0 }
-    pilot count = 0
-    pilot i = 0
+    pilot mut count = 0
+    pilot mut i = 0
     pilot limit = hlen - nlen + 1
     repeat limit times {
-        pilot match = true
-        pilot j = 0
+        pilot mut match = true
+        pilot mut j = 0
         repeat nlen times {
             if match {
                 if haystack.char_at(i + j) != needle.char_at(j) {
@@ -67,13 +67,13 @@ task string_split(s: word, delim: word) -> word {
     pilot slen = s.length()
     pilot dlen = delim.length()
     if dlen == 0 { give back s }
-    pilot sp_out = ""
-    pilot sp_cur = ""
-    pilot sp_i = 0
+    pilot mut sp_out = ""
+    pilot mut sp_cur = ""
+    pilot mut sp_i = 0
     repeat slen times {
-        pilot sp_match = true
+        pilot mut sp_match = true
         if sp_i + dlen <= slen {
-            pilot sp_j = 0
+            pilot mut sp_j = 0
             repeat dlen times {
                 if sp_match {
                     if s.char_at(sp_i + sp_j) != delim.char_at(sp_j) {
@@ -111,10 +111,10 @@ task string_join(parts: word, separator: word) -> word {
     -- Joins pipe-delimited segments: "a|b|c" with separator
     pilot plen = parts.length()
     if plen == 0 { give back "" }
-    pilot jn_out = ""
-    pilot jn_cur = ""
-    pilot jn_first = true
-    pilot jn_i = 0
+    pilot mut jn_out = ""
+    pilot mut jn_cur = ""
+    pilot mut jn_first = true
+    pilot mut jn_i = 0
     repeat plen times {
         pilot jn_c = parts.char_at(jn_i)
         if jn_c == "|" {
@@ -181,7 +181,7 @@ task string_starts_with(s: word, prefix: word) -> bool {
     pilot slen = s.length()
     pilot plen = prefix.length()
     if plen > slen { give back false }
-    pilot si = 0
+    pilot mut si = 0
     repeat plen times {
         if s.char_at(si) != prefix.char_at(si) { give back false }
         si += 1
@@ -194,7 +194,7 @@ task string_ends_with(s: word, suffix: word) -> bool {
     pilot xlen = suffix.length()
     if xlen > slen { give back false }
     pilot offset = slen - xlen
-    pilot ei = 0
+    pilot mut ei = 0
     repeat xlen times {
         if s.char_at(offset + ei) != suffix.char_at(ei) { give back false }
         ei += 1
@@ -209,7 +209,7 @@ task string_contains(haystack: word, needle: word) -> bool {
 task string_trim(s: word) -> word {
     pilot slen = s.length()
     if slen == 0 { give back s }
-    pilot tstart = 0
+    pilot mut tstart = 0
     repeat until tstart >= slen {
         if not is_whitespace(s.char_at(tstart)) { give back string_trim_end(s, tstart) }
         tstart += 1
@@ -218,11 +218,11 @@ task string_trim(s: word) -> word {
 }
 
 task string_trim_end(s: word, tstart: int) -> word {
-    pilot tend = s.length() - 1
+    pilot mut tend = s.length() - 1
     repeat until tend < tstart {
         if not is_whitespace(s.char_at(tend)) {
-            pilot tout = ""
-            pilot ti = tstart
+            pilot mut tout = ""
+            pilot mut ti = tstart
             repeat until ti > tend {
                 tout = tout + s.char_at(ti)
                 ti += 1
@@ -238,12 +238,12 @@ task string_replace(s: word, old_str: word, new_str: word) -> word {
     pilot slen = s.length()
     pilot olen = old_str.length()
     if olen == 0 { give back s }
-    pilot rout = ""
-    pilot ri = 0
+    pilot mut rout = ""
+    pilot mut ri = 0
     repeat until ri >= slen {
-        pilot rmatch = true
+        pilot mut rmatch = true
         if ri + olen <= slen {
-            pilot rj = 0
+            pilot mut rj = 0
             repeat olen times {
                 if rmatch {
                     if s.char_at(ri + rj) != old_str.char_at(rj) {
@@ -268,13 +268,13 @@ task string_replace(s: word, old_str: word, new_str: word) -> word {
 
 task string_substring(s: word, start_idx: int, end_idx: int) -> word {
     pilot slen = s.length()
-    pilot ss = start_idx
-    pilot se = end_idx
+    pilot mut ss = start_idx
+    pilot mut se = end_idx
     if ss < 0 { ss = 0 }
     if se > slen { se = slen }
     if ss >= se { give back "" }
-    pilot sub_out = ""
-    pilot si = ss
+    pilot mut sub_out = ""
+    pilot mut si = ss
     repeat until si >= se {
         sub_out = sub_out + s.char_at(si)
         si += 1
@@ -288,10 +288,10 @@ task string_index_of(s: word, needle: word) -> int {
     if nlen == 0 { give back 0 }
     if nlen > slen { give back 0 - 1 }
     pilot limit = slen - nlen + 1
-    pilot fi = 0
+    pilot mut fi = 0
     repeat limit times {
-        pilot fmatch = true
-        pilot fj = 0
+        pilot mut fmatch = true
+        pilot mut fj = 0
         repeat nlen times {
             if fmatch {
                 if s.char_at(fi + fj) != needle.char_at(fj) {
