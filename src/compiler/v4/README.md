@@ -19,6 +19,32 @@ The **Bootstrap V4** finish line is considered met when all of the following rem
 
 Anything beyond this marker belongs to the next phase: richer language coverage, deeper Meiya borrow analysis, and backend/codegen integration. Do not push those concerns back into `freak_driver` to move faster; that is how the rewrite loop returns.
 
+## MIR authority and construction boundary
+
+`freak_mir` owns persistent Built-MIR identities, records, local/place/rvalue
+accessors, CFG validation, stored diagnostics and the canonical snapshot format.
+Its constructors and setters maintain those records; they do not lower source
+syntax. Live and detached snapshot validation belong to this authority and
+retain the same structural admission rules.
+
+`freak_mir_build` owns HIR/Resolve/TY-to-Built-MIR construction: source expression
+and statement lowering, scope and control-flow wiring, construction diagnostics,
+and checked compaction before publication. Its transitional syntax dependency
+allowlists are exact and shrinking. Moving lowering into the authority would
+bypass that boundary, even though bootstrap compilation flattens the crates.
+
+The checker rejects every `v4_lex_`, `v4_parse_`, `v4_expand_`, `v4_hir_`,
+`v4_resolve_`, `v4_borrowck_` and `v4_codegen_` reference in `freak_mir`; the
+rule includes function-valued references, not only direct calls. It also rejects
+references from the authority to builder-owned tasks. TY representation dependencies
+remain separately tracked by the TypeId migration; this guard does not claim
+that migration is complete.
+
+Meiya owns analysis facts. The planned Runtime MIR transform will consume those
+facts and publish explicit drops, flags and cleanup edges before LLVM lowering.
+Built, Analysis and Runtime MIR are lifecycle states of one representation;
+this contract does not introduce a new persistent IR or Runtime MIR snapshot.
+
 ## Runnable LLVM Scalar Checkpoint
 
 `freak_codegen_llvm` now emits entry-block storage per MIR local identity,

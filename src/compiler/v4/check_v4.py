@@ -12431,6 +12431,17 @@ def check_smoke_inventory(fixtures: list[Path]) -> None:
     print(f"smoke inventory: {len(smoke_names)} fixtures")
 
 
+def mir_authority_violations(source: str) -> list[str]:
+    references = sorted(set(re.findall(
+        r"\bv4_(?:lex|parse|expand|hir|resolve|borrowck|codegen)_[A-Za-z0-9_]*\b",
+        source,
+    )))
+    return [
+        f"boundary violation: freak_mir authority references {reference}"
+        for reference in references
+    ]
+
+
 def check_crate_boundaries() -> None:
     boundary_crates = sorted(
         {
@@ -12440,6 +12451,10 @@ def check_crate_boundaries() -> None:
     )
     contents = {name: read_text(crate_path(name)) for name in boundary_crates}
     violations: list[str] = []
+
+    # Authority owns records and validation. Construction and later-stage
+    # analysis remain separate even when all crates compile into one source.
+    violations.extend(mir_authority_violations(read_text(crate_path("freak_mir"))))
 
     target_text = read_text(crate_path("freak_target"))
     if not re.search(r"(?m)^pilot v4_target_record_max_bytes = 512\s*$", target_text):
@@ -12488,6 +12503,12 @@ def check_crate_boundaries() -> None:
     builder_tasks = frozenset(
         re.findall(r"(?m)^task\s+([A-Za-z0-9_]+)\s*\(", mir_build_text)
     )
+    mir_authority_text = read_text(crate_path("freak_mir"))
+    for builder_task in sorted(builder_tasks):
+        if re.search(rf"\b{re.escape(builder_task)}\b", mir_authority_text):
+            violations.append(
+                f"boundary violation: freak_mir authority references builder task {builder_task}"
+            )
     mir_build_bodies: dict[str, str] = {}
     for builder_task in sorted(builder_tasks):
         body = freak_task_body(mir_build_text, builder_task)

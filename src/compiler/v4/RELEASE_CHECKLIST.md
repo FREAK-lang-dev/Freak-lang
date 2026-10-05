@@ -201,8 +201,8 @@ Already true in the code: `freak_mir` makes no lexer, parser, expansion,
 HIR or Resolve calls and defines no lowering tasks. What is missing is the
 guard that keeps it true.
 
-- [ ] **S** Exact guard in `check_v4.py`: `freak_mir` may not reference `v4_lex_`, `v4_parse_`, `v4_expand_`, `v4_hir_`, `v4_resolve_`, `v4_borrowck_` or `v4_codegen_`
-- [ ] **S** Document the `freak_mir` / `freak_mir_build` contract in the V4 README (who owns ids, records, snapshots; who owns lowering)
+- [x] **S** Exact guard in `check_v4.py`: `freak_mir` may not reference `v4_lex_`, `v4_parse_`, `v4_expand_`, `v4_hir_`, `v4_resolve_`, `v4_borrowck_` or `v4_codegen_`; builder-owned task references are rejected as well. Registered boundary checks and adverse direct/function-valued controls pass
+- [x] **S** Document the `freak_mir` / `freak_mir_build` contract in the V4 README (who owns ids, records, snapshots; who owns lowering)
 
 ### A1: no syntax past HIR (roadmap M1, split plan phase C)
 
