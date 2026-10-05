@@ -777,6 +777,64 @@ static bool freak_fs_anchor_rename(freak_fs_anchor source,const char *from,freak
 #endif
 #endif
 }
+/* Publish a compiler-created ordinary file through retained parent identities.
+   POSIX entry exchange by the same effective user cannot be made conditional
+   on an inode by renameat2: callers must control entries during the transaction.
+   Reject parents writable by another uid/group; ordinary 0755 output folders
+   remain usable. Windows callers retain the equivalent ACL/transaction control. */
+int64_t freak_fs_rename_relative_new_checked(int64_t source_handle,freak_word source_relative,
+        int64_t destination_handle,freak_word destination_relative) {
+    int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
+    freak_fs_ticket *source_root=freak_fs_directory_require(source_handle),*destination_root=freak_fs_directory_require(destination_handle);
+    char *from=freak_fs_checked_path(result,source_relative),*to=freak_fs_checked_path(result,destination_relative);
+    if (!from || !to) { free(from); free(to); return handle; }
+    if (!freak_fs_relative_valid(from,false) || !freak_fs_relative_valid(to,false)) {
+        free(from); free(to); freak_fs_ticket_error(result,"file publication relative path has unsafe components"); return handle;
+    }
+    char *source_leaf,*destination_leaf;
+    freak_fs_anchor source_parent=freak_fs_anchor_parent(source_root,from,&source_leaf);
+    freak_fs_anchor destination_parent=freak_fs_anchor_parent(destination_root,to,&destination_leaf);
+    freak_fs_anchor file=FREAK_FS_INVALID_ANCHOR;
+    bool private_parents=source_parent != FREAK_FS_INVALID_ANCHOR && destination_parent != FREAK_FS_INVALID_ANCHOR;
+#ifndef _WIN32
+    struct stat source_info,destination_info;
+    private_parents=private_parents && fstat(source_parent,&source_info) == 0 && fstat(destination_parent,&destination_info) == 0 &&
+        source_info.st_uid == geteuid() && destination_info.st_uid == geteuid() &&
+        !(source_info.st_mode & 0022) && !(destination_info.st_mode & 0022);
+#endif
+    if (private_parents) file=freak_fs_anchor_child(source_parent,source_leaf,false,false,
+#ifdef _WIN32
+        true /* retained HANDLE needs DELETE and write access for flush */
+#else
+        false
+#endif
+    );
+    bool complete=false;
+    if (file != FREAK_FS_INVALID_ANCHOR) {
+#ifdef _WIN32
+        complete=FlushFileBuffers(file) && freak_fs_anchor_rename_handle(file,destination_parent,destination_leaf,false);
+#else
+        struct stat admitted,current;
+        complete=fstat(file,&admitted) == 0 && fsync(file) == 0 &&
+            fstatat(source_parent,source_leaf,&current,AT_SYMLINK_NOFOLLOW) == 0 &&
+            S_ISREG(current.st_mode) && current.st_dev == admitted.st_dev && current.st_ino == admitted.st_ino &&
+            freak_fs_anchor_rename(source_parent,source_leaf,destination_parent,destination_leaf,false);
+#endif
+    }
+    result->completed=complete;
+    if (complete) {
+        freak_fs_anchor published=freak_fs_anchor_child(destination_parent,destination_leaf,false,false,false);
+        bool same=published != FREAK_FS_INVALID_ANCHOR && freak_fs_anchor_same(file,published);
+        freak_fs_anchor_close(published);
+        bool source_synced=freak_fs_anchor_sync(source_parent),destination_synced=freak_fs_anchor_sync(destination_parent);
+        if (same && source_synced && destination_synced) result->ok=true;
+        else freak_fs_ticket_error(result,same ? "file publication completed but directory synchronization failed" :
+            "file publication completed but destination identity changed during rename");
+    } else freak_fs_ticket_error(result,private_parents ? "could not synchronize and publish ordinary file without replacing destination" :
+        "file publication requires safe owned destination and source parents");
+    freak_fs_anchor_close(file); freak_fs_anchor_close(source_parent); freak_fs_anchor_close(destination_parent);
+    free(from); free(to); return handle;
+}
 int64_t freak_fs_write_relative_bytes_checked(int64_t root_handle,freak_word relative,int64_t bytes_handle) {
     freak_byte_buffer_record *buffer=freak_byte_buffer_require(bytes_handle,"anchored filesystem binary write");
     int64_t handle=freak_fs_ticket_new(); freak_fs_ticket *result=freak_fs_ticket_require(handle);
@@ -1389,3 +1447,6 @@ int64_t freak_llvm_fs_list_dir_ticket(int64_t root) { return freak_fs_list_dir_t
 int64_t freak_llvm_fs_result_missing(int64_t result) { return freak_fs_result_missing(result) ? 1 : 0; }
 int64_t freak_llvm_fs_directory_path_ticket(int64_t root) { return freak_fs_directory_path_ticket(root); }
 int64_t freak_llvm_fs_directory_identity_ticket(int64_t root) { return freak_fs_directory_identity_ticket(root); }
+int64_t freak_llvm_fs_rename_relative_new_checked(int64_t source,int64_t from,int64_t destination,int64_t to) {
+    return freak_fs_rename_relative_new_checked(source,freak_llvm_word_view(from),destination,freak_llvm_word_view(to));
+}
